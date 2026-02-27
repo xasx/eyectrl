@@ -6,11 +6,34 @@
 
 **Architecture:** Three-layer C# architecture: UI Layer (WPF overlays), Core Logic (framework-agnostic), Platform Layer (Tobii SDK + Win32 SendInput). Core logic is fully unit-testable. An `IGazeProvider` interface decouples gaze data from the tracker hardware.
 
-**Tech Stack:** .NET 8, WPF, xUnit, Tobii Stream Engine (native P/Invoke), Win32 `user32.dll` SendInput
+**Tech Stack:** .NET 8, WPF, xUnit, Tobii Interaction Library, Win32 `user32.dll` SendInput
 
 **Design doc:** `docs/plans/2026-02-27-eyectrl-design.md`
 
-**SDK Note:** The Tobii NuGet packages are legacy/deprecated. We use `IGazeProvider` with a `MouseGazeProvider` for development. Real Tobii integration (Task 30) uses P/Invoke to the native Stream Engine DLLs that ship with Tobii Dynavox software already installed on the machine.
+**SDK Note — Tobii Integration (verified from local system):**
+The following Tobii assemblies ship with TD Control (Computer Control) on this machine:
+
+| Assembly | Version | Target | Path |
+|----------|---------|--------|------|
+| `tobii_interaction_lib_cs.dll` | 1.1.0.8 | .NET Standard 2.0 | `C:\Program Files (x86)\Tobii Dynavox\Computer Control\` |
+| `tobii_interaction_lib.dll` | native | x86 | same directory |
+| `tobii_interaction_lib_c.dll` | native | x86 | same directory |
+
+**`tobii_interaction_lib_cs.dll` is the primary integration target.** It is .NET Standard 2.0 (compatible with .NET 8), provides `GazePointDataEvent` with `(x, y, timestamp_us, validity)` at ~33Hz, and is the same library TD Control uses.
+
+Usage:
+```csharp
+var intlib = InteractionLibFactory.CreateInteractionLib(FieldOfUse.Interactive);
+intlib.GazePointDataEvent += (data) => {
+    // data.x, data.y — normalized screen coordinates (0.0–1.0)
+    // data.timestamp_us — microseconds
+    // data.validity — Validity enum
+};
+// In a background thread loop:
+intlib.WaitAndUpdate(33); // blocks until data available or timeout
+```
+
+We reference the DLL directly from the TD Control install path and copy the native DLLs to the output directory. `MouseGazeProvider` remains available as a fallback for development without the tracker.
 
 ---
 
@@ -2650,44 +2673,145 @@ git add -A && git commit -m "feat: add system tray icon with context menu"
 
 ---
 
-## Task 24: Tobii Stream Engine Integration
+## Task 24: Tobii Interaction Library Integration
 
 **Files:**
-- Create: `src/EyeCtrl.Platform/Gaze/TobiiStreamEngineProvider.cs`
-- Create: `src/EyeCtrl.Platform/Gaze/TobiiNativeMethods.cs`
+- Create: `src/EyeCtrl.Platform/Gaze/TobiiInteractionLibProvider.cs`
+- Modify: `src/EyeCtrl.Platform/EyeCtrl.Platform.csproj` (add DLL reference)
+- Modify: `src/EyeCtrl.App/EyeCtrl.App.csproj` (copy native DLLs)
 
-**Step 1: Check if Tobii Stream Engine DLLs are available**
+**Step 1: Add assembly reference**
 
-The PCEye 5 with Tobii Dynavox software installs `tobii_stream_engine.dll`. Look for it in:
-- `C:\Program Files\Tobii\`
-- `C:\Program Files (x86)\Tobii\`
-- System PATH
+Reference `tobii_interaction_lib_cs.dll` from `C:\Program Files (x86)\Tobii Dynavox\Computer Control\`.
+Add to `EyeCtrl.Platform.csproj`:
+```xml
+<ItemGroup>
+  <Reference Include="tobii_interaction_lib_cs">
+    <HintPath>C:\Program Files (x86)\Tobii Dynavox\Computer Control\tobii_interaction_lib_cs.dll</HintPath>
+  </Reference>
+</ItemGroup>
+```
 
-**Step 2: Implement P/Invoke wrapper**
+Copy native DLLs to output. Add to `EyeCtrl.App.csproj`:
+```xml
+<ItemGroup>
+  <None Include="C:\Program Files (x86)\Tobii Dynavox\Computer Control\tobii_interaction_lib.dll">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </None>
+  <None Include="C:\Program Files (x86)\Tobii Dynavox\Computer Control\tobii_interaction_lib_c.dll">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </None>
+</ItemGroup>
+```
 
-`TobiiNativeMethods.cs` — P/Invoke declarations for:
-- `tobii_api_create`
-- `tobii_device_create`
-- `tobii_gaze_point_subscribe`
-- `tobii_wait_for_callbacks`
-- `tobii_device_process_callbacks`
+**Step 2: Implement TobiiInteractionLibProvider**
 
-**Step 3: Implement TobiiStreamEngineProvider**
+```csharp
+// src/EyeCtrl.Platform/Gaze/TobiiInteractionLibProvider.cs
+namespace EyeCtrl.Platform.Gaze;
 
-Implements `IGazeProvider`. Background thread calls `tobii_wait_for_callbacks` + `tobii_device_process_callbacks` in a loop. Gaze callback fires `GazePointReceived` with screen-space coordinates.
+using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Models;
+using Tobii.InteractionLib;
 
-Falls back to `MouseGazeProvider` if the Tobii DLLs are not found or the device is not connected.
+public class TobiiInteractionLibProvider : IGazeProvider, IDisposable
+{
+    private IInteractionLib? _interactionLib;
+    private Thread? _pollThread;
+    private volatile bool _running;
+    private readonly int _screenWidth;
+    private readonly int _screenHeight;
 
-**Step 4: Update App.xaml.cs to prefer TobiiStreamEngineProvider**
+    public event Action<GazePoint>? GazePointReceived;
+    public bool IsConnected { get; private set; }
 
-Try Tobii first, fall back to Mouse.
+    public TobiiInteractionLibProvider(int screenWidth, int screenHeight)
+    {
+        _screenWidth = screenWidth;
+        _screenHeight = screenHeight;
+    }
 
-**Step 5: Build and test with actual tracker**
+    public void Start()
+    {
+        _interactionLib = InteractionLibFactory.CreateInteractionLib(FieldOfUse.Interactive);
 
-**Step 6: Commit**
+        _interactionLib.CoordinateTransformAddOrUpdateDisplayArea(
+            _screenWidth, _screenHeight,
+            _screenWidth, _screenHeight,
+            0, 0, "main");
+
+        _interactionLib.GazePointDataEvent += OnGazePointData;
+
+        _running = true;
+        _pollThread = new Thread(PollLoop) { IsBackground = true, Name = "TobiiPoll" };
+        _pollThread.Start();
+        IsConnected = true;
+    }
+
+    public void Stop()
+    {
+        _running = false;
+        _pollThread?.Join(1000);
+        if (_interactionLib != null)
+        {
+            _interactionLib.GazePointDataEvent -= OnGazePointData;
+            (_interactionLib as IDisposable)?.Dispose();
+            _interactionLib = null;
+        }
+        IsConnected = false;
+    }
+
+    private void PollLoop()
+    {
+        while (_running)
+        {
+            _interactionLib?.WaitAndUpdate(33);
+        }
+    }
+
+    private void OnGazePointData(GazePointData data)
+    {
+        bool valid = data.validity == Validity.Valid;
+        // Coordinates from InteractionLib are in the coordinate space
+        // set by CoordinateTransformAddOrUpdateDisplayArea (screen pixels)
+        GazePointReceived?.Invoke(new GazePoint(data.x, data.y, data.timestamp_us, valid));
+    }
+
+    public void Dispose()
+    {
+        Stop();
+        GC.SuppressFinalize(this);
+    }
+}
+```
+
+**Step 3: Update App.xaml.cs to prefer TobiiInteractionLibProvider**
+
+Try Tobii first, fall back to MouseGazeProvider if DLL not found or device not connected.
+
+```csharp
+IGazeProvider gazeProvider;
+try
+{
+    var tobii = new TobiiInteractionLibProvider(screenWidth, screenHeight);
+    tobii.Start();
+    gazeProvider = tobii;
+}
+catch (Exception)
+{
+    gazeProvider = new MouseGazeProvider();
+}
+```
+
+**Step 4: Build and test with actual tracker**
+
+Run: `dotnet build src/EyeCtrl.App && dotnet run --project src/EyeCtrl.App`
+Expected: Cursor circle follows real gaze from PCEye 5.
+
+**Step 5: Commit**
 
 ```bash
-git add -A && git commit -m "feat: add Tobii Stream Engine gaze provider via P/Invoke"
+git add -A && git commit -m "feat: add Tobii Interaction Library gaze provider"
 ```
 
 ---

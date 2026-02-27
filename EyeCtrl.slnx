@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EyeCtrl.App/EyeCtrl.App.csproj" />
+    <Project Path="src/EyeCtrl.Core/EyeCtrl.Core.csproj" />
+    <Project Path="src/EyeCtrl.Platform/EyeCtrl.Platform.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj" />
+    <Project Path="tests/EyeCtrl.Platform.Tests/EyeCtrl.Platform.Tests.csproj" />
+  </Folder>
+</Solution>

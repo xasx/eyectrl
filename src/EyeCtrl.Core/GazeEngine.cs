@@ -14,7 +14,7 @@ public class GazeEngine : IDisposable
     private readonly FixationDetector _fixationDetector;
 
     public InteractionManager InteractionManager { get; }
-    public event Action<ScreenPoint>? CursorMoved;
+    public event Action<ScreenPoint, long>? CursorMoved;
 
     public GazeEngine(
         IGazeProvider gazeProvider,
@@ -63,7 +63,7 @@ public class GazeEngine : IDisposable
             _inputSimulator.MoveCursor(filtered);
         }
 
-        CursorMoved?.Invoke(filtered);
+        CursorMoved?.Invoke(filtered, gaze.TimestampMicroseconds);
         _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
     }
 

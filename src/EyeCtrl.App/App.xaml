@@ -1,9 +1,9 @@
-﻿<Application x:Class="EyeCtrl.App.App"
+<Application x:Class="EyeCtrl.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:EyeCtrl.App"
-             StartupUri="MainWindow.xaml">
+             ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
-         
+
     </Application.Resources>
 </Application>

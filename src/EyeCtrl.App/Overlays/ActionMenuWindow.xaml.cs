@@ -13,8 +13,8 @@ public partial class ActionMenuWindow : Window
 {
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
-    private const double ButtonRadius = 30;
-    private const double RingRadius = 130;
+    private const double ButtonRadius = 50;
+    private const double RingRadius = 160;
 
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hwnd, int index);
@@ -57,11 +57,11 @@ public partial class ActionMenuWindow : Window
         foreach (var action in actions)
         {
             var id = action.ToString();
-            allItems.Add((id, GetActionLabel(action)));
+            allItems.Add((id, GetActionSymbol(action)));
             _actionMap[id] = action;
         }
         if (showBackButton)
-            allItems.Add(("Back", "Back"));
+            allItems.Add(("Back", "\u21A9")); // ↩ Back arrow
 
         var canvasCenter = new Point(Width / 2, Height / 2);
         var angleStep = 360.0 / allItems.Count;
@@ -81,23 +81,26 @@ public partial class ActionMenuWindow : Window
             {
                 Width = ButtonRadius * 2,
                 Height = ButtonRadius * 2,
-                Fill = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30))
+                Fill = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
+                Stroke = new SolidColorBrush(Color.FromArgb(100, 100, 100, 100)),
+                StrokeThickness = 1
             };
             Canvas.SetLeft(bg, bx - ButtonRadius);
             Canvas.SetTop(bg, by - ButtonRadius);
             MenuCanvas.Children.Add(bg);
 
-            // Progress arc
+            // Progress arc (dwell indicator ring)
+            var arcRadius = ButtonRadius - 4;
             var arcSegment = new ArcSegment
             {
-                Point = new Point(bx, by - ButtonRadius + 4),
-                Size = new Size(ButtonRadius - 4, ButtonRadius - 4),
+                Point = new Point(bx, by - arcRadius),
+                Size = new Size(arcRadius, arcRadius),
                 IsLargeArc = false,
                 SweepDirection = SweepDirection.Clockwise
             };
             var figure = new PathFigure
             {
-                StartPoint = new Point(bx, by - ButtonRadius + 4),
+                StartPoint = new Point(bx, by - arcRadius),
                 IsClosed = false
             };
             figure.Segments.Add(arcSegment);
@@ -107,20 +110,22 @@ public partial class ActionMenuWindow : Window
             {
                 Data = geometry,
                 Stroke = Brushes.Lime,
-                StrokeThickness = 3
+                StrokeThickness = 4
             };
             MenuCanvas.Children.Add(progressPath);
 
             _buttonVisuals[id] = (bg, progressPath, arcSegment);
 
-            // Label
+            // Symbol label
             var textBlock = new TextBlock
             {
                 Text = label,
                 Foreground = Brushes.White,
-                FontSize = 10,
+                FontSize = 22,
                 TextAlignment = TextAlignment.Center,
-                Width = ButtonRadius * 2
+                Width = ButtonRadius * 2,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
             };
             textBlock.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             Canvas.SetLeft(textBlock, bx - ButtonRadius);
@@ -168,17 +173,20 @@ public partial class ActionMenuWindow : Window
         arcSegment.IsLargeArc = angle > 180;
     }
 
-    private static string GetActionLabel(InteractionAction action) => action switch
+    /// <summary>
+    /// Returns a clear Unicode symbol for each action.
+    /// </summary>
+    private static string GetActionSymbol(InteractionAction action) => action switch
     {
-        InteractionAction.LeftClick => "Click",
-        InteractionAction.RightClick => "Right",
-        InteractionAction.DoubleClick => "Double",
-        InteractionAction.DragStart => "Drag",
-        InteractionAction.DragEnd => "Drop",
-        InteractionAction.ScrollUp => "Scroll Up",
-        InteractionAction.ScrollDown => "Scroll Dn",
-        InteractionAction.ScrollLeft => "Scroll L",
-        InteractionAction.ScrollRight => "Scroll R",
+        InteractionAction.LeftClick => "\u261D",     // ☝ Index pointing up (tap/click)
+        InteractionAction.RightClick => "\u2630",    // ☰ Trigram (context menu)
+        InteractionAction.DoubleClick => "\u270C",   // ✌ Victory hand (two taps)
+        InteractionAction.DragStart => "\u270A",     // ✊ Raised fist (grab)
+        InteractionAction.DragEnd => "\u270B",       // ✋ Raised hand (release)
+        InteractionAction.ScrollUp => "\u25B2",      // ▲ Up triangle
+        InteractionAction.ScrollDown => "\u25BC",    // ▼ Down triangle
+        InteractionAction.ScrollLeft => "\u25C0",    // ◀ Left triangle
+        InteractionAction.ScrollRight => "\u25B6",   // ▶ Right triangle
         _ => action.ToString()
     };
 }

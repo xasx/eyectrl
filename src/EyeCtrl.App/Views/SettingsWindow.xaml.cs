@@ -559,8 +559,7 @@ public partial class SettingsWindow : Window
             try
             {
                 var pos = border.PointToScreen(new Point(border.ActualWidth / 2, border.ActualHeight / 2));
-                detector.RemoveTarget(id);
-                detector.AddTarget(new DwellTarget(id, new ScreenPoint(pos.X, pos.Y), radius, _dwellMs));
+                detector.UpdateTargetCenter(id, new ScreenPoint(pos.X, pos.Y));
             }
             catch
             {

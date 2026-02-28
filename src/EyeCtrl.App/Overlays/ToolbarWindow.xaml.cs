@@ -21,11 +21,12 @@ public partial class ToolbarWindow : Window
     private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
 
     private readonly DwellDetector _dwellDetector = new();
-    private readonly Dictionary<string, (Border Container, Ellipse ProgressDot)> _buttonVisuals = new();
+    private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
     private double _buttonSize;
 
     private bool _isPaused;
     private bool _isZoomOn;
+    private bool _targetsInitialized;
 
     public event Action? PauseToggled;
     public event Action? ZoomToggled;
@@ -54,16 +55,41 @@ public partial class ToolbarWindow : Window
         _dwellDetector.ClearTargets();
         _buttonVisuals.Clear();
         ButtonPanel.Children.Clear();
+        _targetsInitialized = false;
 
-        var buttons = new[] { "Pause", "Zoom", "Keyboard", "Settings" };
-        var labels = new[] { "Pause", "Zoom", "Keys", "Settings" };
+        // id + symbol (Unicode)
+        var buttons = new (string Id, string Symbol)[]
+        {
+            ("Pause",    "\u23F8"),    // ⏸ Pause
+            ("Zoom",     "\u2295"),    // ⊕ Magnify/zoom
+            ("Keyboard", "\u2328"),    // ⌨ Keyboard
+            ("Settings", "\u2699"),    // ⚙ Gear
+        };
 
-        for (int i = 0; i < buttons.Length; i++)
-            AddButton(buttons[i], labels[i], dwellTimeMs);
+        foreach (var (id, symbol) in buttons)
+            AddButton(id, symbol, dwellTimeMs);
     }
 
-    private void AddButton(string id, string label, int dwellTimeMs)
+    private void AddButton(string id, string symbol, int dwellTimeMs)
     {
+        var progressBar = new Rectangle
+        {
+            Height = 4,
+            Fill = Brushes.Lime,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Width = 0
+        };
+
+        var label = new TextBlock
+        {
+            Text = symbol,
+            Foreground = Brushes.White,
+            FontSize = _buttonSize * 0.4,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
         var container = new Border
         {
             Width = _buttonSize,
@@ -73,35 +99,14 @@ public partial class ToolbarWindow : Window
             CornerRadius = new CornerRadius(4),
             Child = new Grid
             {
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = label,
-                        Foreground = Brushes.White,
-                        FontSize = 11,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center
-                    },
-                    (new Ellipse
-                    {
-                        Width = 8,
-                        Height = 8,
-                        Fill = Brushes.Lime,
-                        Opacity = 0,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        VerticalAlignment = VerticalAlignment.Bottom,
-                        Margin = new Thickness(0, 0, 4, 4)
-                    })
-                }
+                Children = { label, progressBar }
             }
         };
 
-        var progressDot = (Ellipse)((Grid)container.Child).Children[1];
-        _buttonVisuals[id] = (container, progressDot);
+        _buttonVisuals[id] = (container, progressBar, label);
         ButtonPanel.Children.Add(container);
 
-        // DwellTarget will be positioned after layout, using a placeholder center
+        // DwellTarget gets its center updated on first gaze via UpdateTargetPositions
         _dwellDetector.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), _buttonSize / 2, dwellTimeMs));
     }
 
@@ -137,26 +142,36 @@ public partial class ToolbarWindow : Window
                     break;
             }
         }
+
+        _targetsInitialized = false;
     }
 
     public void UpdateGaze(ScreenPoint screenPoint, long timestampMicroseconds)
     {
-        // Update dwell target positions based on actual button positions on screen
-        UpdateTargetPositions();
+        // Update target positions only once after layout or mode change
+        if (!_targetsInitialized)
+            UpdateTargetPositions();
+
         _dwellDetector.Update(screenPoint, timestampMicroseconds);
     }
 
     private void UpdateTargetPositions()
     {
-        foreach (var (id, (container, _)) in _buttonVisuals)
+        foreach (var (id, (container, _, _)) in _buttonVisuals)
         {
-            var pos = container.PointToScreen(new Point(container.ActualWidth / 2, container.ActualHeight / 2));
-            var targets = _dwellDetector;
-            // Update existing target center by removing and re-adding
-            // DwellTarget.Center is settable
-            _dwellDetector.RemoveTarget(id);
-            _dwellDetector.AddTarget(new DwellTarget(id, new ScreenPoint(pos.X, pos.Y), _buttonSize / 2, 500));
+            try
+            {
+                var pos = container.PointToScreen(new Point(container.ActualWidth / 2, container.ActualHeight / 2));
+                _dwellDetector.UpdateTargetCenter(id, new ScreenPoint(pos.X, pos.Y));
+            }
+            catch
+            {
+                // Container may not be laid out yet
+                return;
+            }
         }
+
+        _targetsInitialized = true;
     }
 
     public void SetPausedState(bool isPaused)
@@ -164,8 +179,8 @@ public partial class ToolbarWindow : Window
         _isPaused = isPaused;
         if (_buttonVisuals.TryGetValue("Pause", out var visuals))
         {
-            var textBlock = (TextBlock)((Grid)visuals.Container.Child).Children[0];
-            textBlock.Text = isPaused ? "Resume" : "Pause";
+            // ▶ Play / ⏸ Pause
+            visuals.Label.Text = isPaused ? "\u25B6" : "\u23F8";
         }
     }
 
@@ -182,6 +197,10 @@ public partial class ToolbarWindow : Window
 
     private void OnTargetActivated(string targetId)
     {
+        // Reset progress bar on activation
+        if (_buttonVisuals.TryGetValue(targetId, out var visuals))
+            visuals.ProgressBar.Width = 0;
+
         switch (targetId)
         {
             case "Pause": PauseToggled?.Invoke(); break;
@@ -194,6 +213,6 @@ public partial class ToolbarWindow : Window
     private void OnTargetProgress(string targetId, double progress)
     {
         if (_buttonVisuals.TryGetValue(targetId, out var visuals))
-            visuals.ProgressDot.Opacity = progress;
+            visuals.ProgressBar.Width = progress * _buttonSize;
     }
 }

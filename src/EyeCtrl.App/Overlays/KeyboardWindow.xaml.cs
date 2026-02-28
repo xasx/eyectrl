@@ -22,10 +22,15 @@ public partial class KeyboardWindow : Window
     [DllImport("user32.dll")]
     private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
 
-    private readonly DwellDetector _keyDwellDetector = new();
+    // Prediction bar uses DwellDetector (small number of circular targets)
     private readonly DwellDetector _predictionDwellDetector = new();
     private readonly Dictionary<string, (Border Container, TextBlock Label)> _keyVisuals = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
+
+    // Nearest-key tracking (replaces circular dwell targets for keys)
+    private readonly Dictionary<string, ScreenPoint> _keyScreenPositions = new();
+    private string? _currentNearestKeyId;
+    private long _nearestKeyEnteredTimestamp;
 
     private KeyboardLayout? _layout;
     private string _activeSubLayoutId = "letters";
@@ -35,6 +40,8 @@ public partial class KeyboardWindow : Window
     private int _keyDwellMs;
     private int _predictionDwellMs;
     private string _currentInput = "";
+    private string _screenEdge = "bottom";
+    private bool _predictionTargetsInitialized;
 
     public event Action<string>? KeyActivated;
     public event Action<string>? PredictionSelected;
@@ -42,9 +49,7 @@ public partial class KeyboardWindow : Window
     public KeyboardWindow()
     {
         InitializeComponent();
-
-        _keyDwellDetector.TargetActivated += OnKeyDwelled;
-        _keyDwellDetector.TargetProgress += OnKeyProgress;
+        SizeChanged += (_, _) => RepositionOnScreen();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
     }
 
@@ -68,25 +73,29 @@ public partial class KeyboardWindow : Window
         RebuildKeys();
     }
 
-    public void SetPredictor(WordPredictor predictor)
-    {
-        _predictor = predictor;
-    }
+    public void SetPredictor(WordPredictor predictor) => _predictor = predictor;
 
     public void SetScreenEdge(string edge)
     {
-        var screen = SystemParameters.WorkArea;
+        _screenEdge = edge;
+        RepositionOnScreen();
+    }
 
-        switch (edge.ToLowerInvariant())
+    private void RepositionOnScreen()
+    {
+        if (ActualWidth <= 0 || ActualHeight <= 0) return;
+
+        var screen = SystemParameters.WorkArea;
+        switch (_screenEdge.ToLowerInvariant())
         {
             case "top":
-                Left = (screen.Width - Width) / 2;
+                Left = (screen.Width - ActualWidth) / 2;
                 Top = 0;
                 break;
             case "bottom":
             default:
-                Left = (screen.Width - Width) / 2;
-                Top = screen.Height - Height;
+                Left = (screen.Width - ActualWidth) / 2;
+                Top = screen.Height - ActualHeight;
                 break;
         }
     }
@@ -96,9 +105,10 @@ public partial class KeyboardWindow : Window
         if (_layout == null) return;
         if (!_layout.SubLayouts.TryGetValue(_activeSubLayoutId, out var subLayout)) return;
 
-        _keyDwellDetector.ClearTargets();
         _keyVisuals.Clear();
         _keyDefinitions.Clear();
+        _keyScreenPositions.Clear();
+        _currentNearestKeyId = null;
         KeyRows.Children.Clear();
 
         for (int rowIdx = 0; rowIdx < subLayout.Rows.Count; rowIdx++)
@@ -139,8 +149,6 @@ public partial class KeyboardWindow : Window
 
                 _keyVisuals[id] = (container, label);
                 rowPanel.Children.Add(container);
-
-                _keyDwellDetector.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), _keySize / 2, _keyDwellMs));
             }
 
             KeyRows.Children.Add(rowPanel);
@@ -149,26 +157,131 @@ public partial class KeyboardWindow : Window
 
     public void UpdateGaze(ScreenPoint screenPoint, long timestampMicroseconds)
     {
-        UpdateKeyTargetPositions();
-        _keyDwellDetector.Update(screenPoint, timestampMicroseconds);
+        UpdateKeyScreenPositions();
+        UpdatePredictionTargetPositions();
+        ProcessKeyGaze(screenPoint, timestampMicroseconds);
         _predictionDwellDetector.Update(screenPoint, timestampMicroseconds);
     }
 
-    private void UpdateKeyTargetPositions()
+    private void UpdateKeyScreenPositions()
     {
         foreach (var (id, (container, _)) in _keyVisuals)
         {
             try
             {
                 var pos = container.PointToScreen(new Point(container.ActualWidth / 2, container.ActualHeight / 2));
-                _keyDwellDetector.RemoveTarget(id);
-                _keyDwellDetector.AddTarget(new DwellTarget(id, new ScreenPoint(pos.X, pos.Y), container.ActualWidth / 2, _keyDwellMs));
+                _keyScreenPositions[id] = new ScreenPoint(pos.X, pos.Y);
             }
             catch
             {
                 // Window not yet rendered
             }
         }
+    }
+
+    /// <summary>
+    /// Nearest-key dwell tracking: finds the closest key to the gaze point and
+    /// tracks dwell time directly. Eliminates dead zones between keys and avoids
+    /// circular hit-area overlap issues with rectangular keyboard keys.
+    /// </summary>
+    private void ProcessKeyGaze(ScreenPoint gazePoint, long timestampMicroseconds)
+    {
+        if (_keyScreenPositions.Count == 0) return;
+
+        // Only track when gaze is inside the keyboard window
+        if (!IsGazeInsideKeyboard(gazePoint))
+        {
+            if (_currentNearestKeyId != null)
+            {
+                ResetKeyVisual(_currentNearestKeyId);
+                _currentNearestKeyId = null;
+            }
+            return;
+        }
+
+        // Find nearest key to gaze point
+        string? nearestId = null;
+        double nearestDist = double.MaxValue;
+
+        foreach (var (id, center) in _keyScreenPositions)
+        {
+            double dx = gazePoint.X - center.X;
+            double dy = gazePoint.Y - center.Y;
+            double dist = dx * dx + dy * dy;
+            if (dist < nearestDist)
+            {
+                nearestDist = dist;
+                nearestId = id;
+            }
+        }
+
+        if (nearestId != _currentNearestKeyId)
+        {
+            // Gaze moved to different key — reset previous
+            if (_currentNearestKeyId != null)
+                ResetKeyVisual(_currentNearestKeyId);
+
+            _currentNearestKeyId = nearestId;
+            _nearestKeyEnteredTimestamp = timestampMicroseconds;
+        }
+        else if (nearestId != null)
+        {
+            // Same key — accumulate dwell
+            long elapsed = timestampMicroseconds - _nearestKeyEnteredTimestamp;
+            double progress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * 1000L));
+            UpdateKeyVisual(nearestId, progress);
+
+            if (elapsed >= _keyDwellMs * 1000L)
+            {
+                ResetKeyVisual(nearestId);
+                _currentNearestKeyId = null;
+                OnKeyDwelled(nearestId);
+            }
+        }
+    }
+
+    private bool IsGazeInsideKeyboard(ScreenPoint gazePoint)
+    {
+        try
+        {
+            var topLeft = PointToScreen(new Point(0, 0));
+            return gazePoint.X >= topLeft.X && gazePoint.X <= topLeft.X + ActualWidth
+                && gazePoint.Y >= topLeft.Y && gazePoint.Y <= topLeft.Y + ActualHeight;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void UpdatePredictionTargetPositions()
+    {
+        if (PredictionBar.Children.Count == 0) return;
+
+        for (int i = 0; i < PredictionBar.Children.Count; i++)
+        {
+            var predId = $"pred_{i}";
+            if (PredictionBar.Children[i] is not Border btn) continue;
+
+            try
+            {
+                var pos = btn.PointToScreen(new Point(btn.ActualWidth / 2, btn.ActualHeight / 2));
+                if (!_predictionTargetsInitialized)
+                {
+                    _predictionDwellDetector.RemoveTarget(predId);
+                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new ScreenPoint(pos.X, pos.Y), 40, _predictionDwellMs));
+                }
+                else
+                {
+                    _predictionDwellDetector.UpdateTargetCenter(predId, new ScreenPoint(pos.X, pos.Y));
+                }
+            }
+            catch
+            {
+                // Not yet rendered
+            }
+        }
+        _predictionTargetsInitialized = true;
     }
 
     private void OnKeyDwelled(string targetId)
@@ -266,6 +379,7 @@ public partial class KeyboardWindow : Window
         if (_predictor == null) return;
 
         _predictionDwellDetector.ClearTargets();
+        _predictionTargetsInitialized = false;
         PredictionBar.Children.Clear();
 
         var suggestions = _predictor.GetSuggestions(_currentInput, maxCount: 5);
@@ -316,7 +430,7 @@ public partial class KeyboardWindow : Window
         }
     }
 
-    private void OnKeyProgress(string targetId, double progress)
+    private void UpdateKeyVisual(string targetId, double progress)
     {
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
 
@@ -337,5 +451,21 @@ public partial class KeyboardWindow : Window
             (byte)(baseColor.B * (1 - progress) + highlightColor.B * progress));
 
         visuals.Container.Background = new SolidColorBrush(blended);
+    }
+
+    private void ResetKeyVisual(string targetId)
+    {
+        if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
+
+        var specialAction = _keyDefinitions.GetValueOrDefault(targetId)?.SpecialAction;
+        var isSwitchSub = specialAction?.StartsWith("switchSub:") == true;
+        var isSpecial = !string.IsNullOrEmpty(specialAction);
+        var baseColor = isSwitchSub
+            ? Color.FromArgb(200, 50, 70, 110)
+            : isSpecial
+                ? Color.FromArgb(200, 60, 60, 80)
+                : Color.FromArgb(200, 50, 50, 50);
+
+        visuals.Container.Background = new SolidColorBrush(baseColor);
     }
 }

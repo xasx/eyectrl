@@ -53,5 +53,12 @@ public partial class CursorCircleWindow : Window
 
         Circle.StrokeThickness = settings.CircleThickness;
         Circle.Opacity = settings.CircleOpacity;
+
+        // Update circle size
+        var size = Math.Max(10, settings.CircleSize);
+        Width = size;
+        Height = size;
+        Circle.Width = size;
+        Circle.Height = size;
     }
 }

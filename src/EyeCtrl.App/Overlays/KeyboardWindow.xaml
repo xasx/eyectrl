@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
-        Width="1200" Height="400">
+        SizeToContent="WidthAndHeight">
     <Border Background="#F0181818" CornerRadius="8" Padding="8">
         <DockPanel>
             <!-- Prediction bar at top -->

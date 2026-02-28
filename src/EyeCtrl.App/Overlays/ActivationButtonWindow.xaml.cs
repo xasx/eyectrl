@@ -12,6 +12,9 @@ public partial class ActivationButtonWindow : Window
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
 
+    private const double ButtonCenter = 50.0;
+    private const double ArcRadius = 45.0;
+
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hwnd, int index);
 
@@ -33,10 +36,10 @@ public partial class ActivationButtonWindow : Window
         SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TOOLWINDOW);
     }
 
-    public void ShowAt(ScreenPoint position)
+    public void ShowAt(ScreenPoint position, double verticalOffset = 180)
     {
         Left = position.X - Width / 2;
-        Top = position.Y - Height / 2 - 50; // Offset above fixation point
+        Top = position.Y - Height / 2 - verticalOffset; // Offset above cursor circle
 
         UpdateDwellProgress(0);
 
@@ -63,12 +66,9 @@ public partial class ActivationButtonWindow : Window
 
         var angle = progress * 360;
         var radians = angle * Math.PI / 180;
-        var centerX = 30.0;
-        var centerY = 30.0;
-        var radius = 26.0;
 
-        var endX = centerX + radius * Math.Sin(radians);
-        var endY = centerY - radius * Math.Cos(radians);
+        var endX = ButtonCenter + ArcRadius * Math.Sin(radians);
+        var endY = ButtonCenter - ArcRadius * Math.Cos(radians);
 
         ArcSegment.Point = new Point(endX, endY);
         ArcSegment.IsLargeArc = angle > 180;
@@ -76,7 +76,7 @@ public partial class ActivationButtonWindow : Window
         // Reset start point if progress is ~0
         if (progress < 0.001)
         {
-            ArcSegment.Point = new Point(30, 4);
+            ArcSegment.Point = new Point(ButtonCenter, ButtonCenter - ArcRadius);
         }
     }
 }

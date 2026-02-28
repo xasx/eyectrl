@@ -52,6 +52,10 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // ── Splash screen ──
+        var splash = new SplashWindow();
+        splash.Show();
+
         // ── Settings ──
         var appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -101,12 +105,14 @@ public partial class App : Application
 
         im.ShowActivationButton += point => Dispatcher.BeginInvoke(() =>
         {
+            // Place activation button just outside the cursor circle (above it)
+            var circleRadius = _settings.Cursor.CircleSize / 2;
+            var buttonOffset = circleRadius + 55; // half button (50) + 5px gap
             _activationButton.Show();
-            _activationButton.ShowAt(point);
+            _activationButton.ShowAt(point, buttonOffset);
             _activationDwell.ClearTargets();
-            // Activation button is centered at (point.X, point.Y - 50), radius 30
             _activationDwell.AddTarget(new DwellTarget("activate",
-                new ScreenPoint(point.X, point.Y - 50), 30,
+                new ScreenPoint(point.X, point.Y - buttonOffset), 50,
                 _settings.Dwell.ActivationButtonDwellMs));
         });
 
@@ -221,7 +227,8 @@ public partial class App : Application
         // ── System tray icon ──
         SetupTrayIcon(im);
 
-        // ── Show persistent overlays and start ──
+        // ── Close splash and show persistent overlays ──
+        splash.Close();
         _cursorCircle.Show();
         _toolbar.Show();
         _toolbar.SetMode(_settings.Toolbar.IsDocked, _settings.Toolbar.DockedEdge);
@@ -268,9 +275,17 @@ public partial class App : Application
     {
         _keyboardVisible = !_keyboardVisible;
         if (_keyboardVisible)
+        {
             _keyboard.Show();
+            // Suppress fixation detection so the activation button doesn't appear over the keyboard
+            _gazeEngine.SuppressFixation = true;
+            _gazeEngine.InteractionManager.OnFixationEnded(); // dismiss any active fixation
+        }
         else
+        {
             _keyboard.Hide();
+            _gazeEngine.SuppressFixation = false;
+        }
     }
 
     private void OpenSettings()

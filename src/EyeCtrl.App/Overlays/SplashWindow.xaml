@@ -1,0 +1,18 @@
+<Window x:Class="EyeCtrl.App.Overlays.SplashWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterScreen" Topmost="True" ShowInTaskbar="False"
+        SizeToContent="WidthAndHeight">
+    <Border Background="#F0181818" CornerRadius="12" Padding="40,30">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="EyeCtrl"
+                       Foreground="White" FontSize="36" FontWeight="SemiBold"
+                       HorizontalAlignment="Center" Margin="0,0,0,16"/>
+            <ProgressBar IsIndeterminate="True"
+                         Width="200" Height="4"
+                         Foreground="#FF00AA00" Background="#FF333333"
+                         BorderThickness="0"/>
+        </StackPanel>
+    </Border>
+</Window>

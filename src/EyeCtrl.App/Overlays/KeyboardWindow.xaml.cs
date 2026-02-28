@@ -28,6 +28,7 @@ public partial class KeyboardWindow : Window
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
 
     private KeyboardLayout? _layout;
+    private string _activeSubLayoutId = "letters";
     private WordPredictor? _predictor;
     private bool _isShifted;
     private double _keySize;
@@ -59,6 +60,7 @@ public partial class KeyboardWindow : Window
     public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs)
     {
         _layout = layout;
+        _activeSubLayoutId = layout.DefaultSubLayout;
         _keySize = BaseKeySize * keySizeMultiplier;
         _keyDwellMs = keyDwellMs;
         _predictionDwellMs = predictionDwellMs;
@@ -92,19 +94,20 @@ public partial class KeyboardWindow : Window
     private void RebuildKeys()
     {
         if (_layout == null) return;
+        if (!_layout.SubLayouts.TryGetValue(_activeSubLayoutId, out var subLayout)) return;
 
         _keyDwellDetector.ClearTargets();
         _keyVisuals.Clear();
         _keyDefinitions.Clear();
         KeyRows.Children.Clear();
 
-        for (int rowIdx = 0; rowIdx < _layout.Rows.Count; rowIdx++)
+        for (int rowIdx = 0; rowIdx < subLayout.Rows.Count; rowIdx++)
         {
             var rowPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
 
-            for (int keyIdx = 0; keyIdx < _layout.Rows[rowIdx].Count; keyIdx++)
+            for (int keyIdx = 0; keyIdx < subLayout.Rows[rowIdx].Count; keyIdx++)
             {
-                var key = _layout.Rows[rowIdx][keyIdx];
+                var key = subLayout.Rows[rowIdx][keyIdx];
                 var id = $"key_{rowIdx}_{keyIdx}";
 
                 _keyDefinitions[id] = key;
@@ -118,15 +121,18 @@ public partial class KeyboardWindow : Window
                     VerticalAlignment = VerticalAlignment.Center
                 };
 
+                var isSwitchSub = key.SpecialAction?.StartsWith("switchSub:") == true;
                 var isSpecial = !string.IsNullOrEmpty(key.SpecialAction);
                 var container = new Border
                 {
                     Width = _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0),
                     Height = _keySize,
                     Margin = new Thickness(2),
-                    Background = new SolidColorBrush(isSpecial
-                        ? Color.FromArgb(200, 60, 60, 80)
-                        : Color.FromArgb(200, 50, 50, 50)),
+                    Background = new SolidColorBrush(isSwitchSub
+                        ? Color.FromArgb(200, 50, 70, 110)
+                        : isSpecial
+                            ? Color.FromArgb(200, 60, 60, 80)
+                            : Color.FromArgb(200, 50, 50, 50)),
                     CornerRadius = new CornerRadius(6),
                     Child = label
                 };
@@ -193,7 +199,16 @@ public partial class KeyboardWindow : Window
 
     private void HandleSpecialKey(string action)
     {
-        switch (action.ToLowerInvariant())
+        var lowerAction = action.ToLowerInvariant();
+
+        if (lowerAction.StartsWith("switchsub:"))
+        {
+            var targetSubId = action[10..]; // preserve original casing of sub-layout id
+            SwitchSubLayout(targetSubId);
+            return;
+        }
+
+        switch (lowerAction)
         {
             case "shift":
                 _isShifted = !_isShifted;
@@ -221,6 +236,16 @@ public partial class KeyboardWindow : Window
                 KeyActivated?.Invoke(" ");
                 break;
         }
+    }
+
+    private void SwitchSubLayout(string subLayoutId)
+    {
+        if (_layout == null || !_layout.SubLayouts.ContainsKey(subLayoutId)) return;
+        if (_activeSubLayoutId == subLayoutId) return;
+
+        _activeSubLayoutId = subLayoutId;
+        _isShifted = false;
+        RebuildKeys();
     }
 
     private void UpdateShiftDisplay()
@@ -295,9 +320,14 @@ public partial class KeyboardWindow : Window
     {
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
 
-        var baseColor = !string.IsNullOrEmpty(_keyDefinitions.GetValueOrDefault(targetId)?.SpecialAction)
-            ? Color.FromArgb(200, 60, 60, 80)
-            : Color.FromArgb(200, 50, 50, 50);
+        var specialAction = _keyDefinitions.GetValueOrDefault(targetId)?.SpecialAction;
+        var isSwitchSub = specialAction?.StartsWith("switchSub:") == true;
+        var isSpecial = !string.IsNullOrEmpty(specialAction);
+        var baseColor = isSwitchSub
+            ? Color.FromArgb(200, 50, 70, 110)
+            : isSpecial
+                ? Color.FromArgb(200, 60, 60, 80)
+                : Color.FromArgb(200, 50, 50, 50);
 
         var highlightColor = Color.FromArgb(200, 0, (byte)(100 + 155 * progress), 0);
         var blended = Color.FromArgb(

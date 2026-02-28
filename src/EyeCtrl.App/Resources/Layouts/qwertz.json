@@ -1,65 +1,147 @@
 {
   "name": "QWERTZ",
-  "rows": [
-    [
-      { "label": "1", "output": "1", "shiftOutput": "!", "width": 1.0 },
-      { "label": "2", "output": "2", "shiftOutput": "\"", "width": 1.0 },
-      { "label": "3", "output": "3", "shiftOutput": "\u00a7", "width": 1.0 },
-      { "label": "4", "output": "4", "shiftOutput": "$", "width": 1.0 },
-      { "label": "5", "output": "5", "shiftOutput": "%", "width": 1.0 },
-      { "label": "6", "output": "6", "shiftOutput": "&", "width": 1.0 },
-      { "label": "7", "output": "7", "shiftOutput": "/", "width": 1.0 },
-      { "label": "8", "output": "8", "shiftOutput": "(", "width": 1.0 },
-      { "label": "9", "output": "9", "shiftOutput": ")", "width": 1.0 },
-      { "label": "0", "output": "0", "shiftOutput": "=", "width": 1.0 },
-      { "label": "\u00df", "output": "\u00df", "shiftOutput": "?", "width": 1.0 },
-      { "label": "\u00b4", "output": "\u00b4", "shiftOutput": "`", "width": 1.0 }
-    ],
-    [
-      { "label": "Q", "output": "q", "shiftOutput": "Q", "width": 1.0 },
-      { "label": "W", "output": "w", "shiftOutput": "W", "width": 1.0 },
-      { "label": "E", "output": "e", "shiftOutput": "E", "width": 1.0 },
-      { "label": "R", "output": "r", "shiftOutput": "R", "width": 1.0 },
-      { "label": "T", "output": "t", "shiftOutput": "T", "width": 1.0 },
-      { "label": "Z", "output": "z", "shiftOutput": "Z", "width": 1.0 },
-      { "label": "U", "output": "u", "shiftOutput": "U", "width": 1.0 },
-      { "label": "I", "output": "i", "shiftOutput": "I", "width": 1.0 },
-      { "label": "O", "output": "o", "shiftOutput": "O", "width": 1.0 },
-      { "label": "P", "output": "p", "shiftOutput": "P", "width": 1.0 },
-      { "label": "\u00dc", "output": "\u00fc", "shiftOutput": "\u00dc", "width": 1.0 },
-      { "label": "+", "output": "+", "shiftOutput": "*", "width": 1.0 }
-    ],
-    [
-      { "label": "A", "output": "a", "shiftOutput": "A", "width": 1.0 },
-      { "label": "S", "output": "s", "shiftOutput": "S", "width": 1.0 },
-      { "label": "D", "output": "d", "shiftOutput": "D", "width": 1.0 },
-      { "label": "F", "output": "f", "shiftOutput": "F", "width": 1.0 },
-      { "label": "G", "output": "g", "shiftOutput": "G", "width": 1.0 },
-      { "label": "H", "output": "h", "shiftOutput": "H", "width": 1.0 },
-      { "label": "J", "output": "j", "shiftOutput": "J", "width": 1.0 },
-      { "label": "K", "output": "k", "shiftOutput": "K", "width": 1.0 },
-      { "label": "L", "output": "l", "shiftOutput": "L", "width": 1.0 },
-      { "label": "\u00d6", "output": "\u00f6", "shiftOutput": "\u00d6", "width": 1.0 },
-      { "label": "\u00c4", "output": "\u00e4", "shiftOutput": "\u00c4", "width": 1.0 }
-    ],
-    [
-      { "label": "Y", "output": "y", "shiftOutput": "Y", "width": 1.0 },
-      { "label": "X", "output": "x", "shiftOutput": "X", "width": 1.0 },
-      { "label": "C", "output": "c", "shiftOutput": "C", "width": 1.0 },
-      { "label": "V", "output": "v", "shiftOutput": "V", "width": 1.0 },
-      { "label": "B", "output": "b", "shiftOutput": "B", "width": 1.0 },
-      { "label": "N", "output": "n", "shiftOutput": "N", "width": 1.0 },
-      { "label": "M", "output": "m", "shiftOutput": "M", "width": 1.0 },
-      { "label": ",", "output": ",", "shiftOutput": ";", "width": 1.0 },
-      { "label": ".", "output": ".", "shiftOutput": ":", "width": 1.0 },
-      { "label": "-", "output": "-", "shiftOutput": "_", "width": 1.0 }
-    ],
-    [
-      { "label": "Shift", "output": "", "width": 1.5, "specialAction": "shift" },
-      { "label": "Space", "output": " ", "width": 5.0, "specialAction": "space" },
-      { "label": "Bksp", "output": "", "width": 1.5, "specialAction": "backspace" },
-      { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
-      { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
-    ]
-  ]
+  "defaultSubLayout": "letters",
+  "subLayouts": {
+    "letters": {
+      "label": "ABC",
+      "rows": [
+        [
+          { "label": "Q", "output": "q", "shiftOutput": "Q", "width": 1.0 },
+          { "label": "W", "output": "w", "shiftOutput": "W", "width": 1.0 },
+          { "label": "E", "output": "e", "shiftOutput": "E", "width": 1.0 },
+          { "label": "R", "output": "r", "shiftOutput": "R", "width": 1.0 },
+          { "label": "T", "output": "t", "shiftOutput": "T", "width": 1.0 },
+          { "label": "Z", "output": "z", "shiftOutput": "Z", "width": 1.0 },
+          { "label": "U", "output": "u", "shiftOutput": "U", "width": 1.0 },
+          { "label": "I", "output": "i", "shiftOutput": "I", "width": 1.0 },
+          { "label": "O", "output": "o", "shiftOutput": "O", "width": 1.0 },
+          { "label": "P", "output": "p", "shiftOutput": "P", "width": 1.0 }
+        ],
+        [
+          { "label": "A", "output": "a", "shiftOutput": "A", "width": 1.0 },
+          { "label": "S", "output": "s", "shiftOutput": "S", "width": 1.0 },
+          { "label": "D", "output": "d", "shiftOutput": "D", "width": 1.0 },
+          { "label": "F", "output": "f", "shiftOutput": "F", "width": 1.0 },
+          { "label": "G", "output": "g", "shiftOutput": "G", "width": 1.0 },
+          { "label": "H", "output": "h", "shiftOutput": "H", "width": 1.0 },
+          { "label": "J", "output": "j", "shiftOutput": "J", "width": 1.0 },
+          { "label": "K", "output": "k", "shiftOutput": "K", "width": 1.0 },
+          { "label": "L", "output": "l", "shiftOutput": "L", "width": 1.0 },
+          { "label": "\u00d6", "output": "\u00f6", "shiftOutput": "\u00d6", "width": 1.0 },
+          { "label": "\u00c4", "output": "\u00e4", "shiftOutput": "\u00c4", "width": 1.0 }
+        ],
+        [
+          { "label": "Shift", "output": "", "width": 1.5, "specialAction": "shift" },
+          { "label": "Y", "output": "y", "shiftOutput": "Y", "width": 1.0 },
+          { "label": "X", "output": "x", "shiftOutput": "X", "width": 1.0 },
+          { "label": "C", "output": "c", "shiftOutput": "C", "width": 1.0 },
+          { "label": "V", "output": "v", "shiftOutput": "V", "width": 1.0 },
+          { "label": "B", "output": "b", "shiftOutput": "B", "width": 1.0 },
+          { "label": "N", "output": "n", "shiftOutput": "N", "width": 1.0 },
+          { "label": "M", "output": "m", "shiftOutput": "M", "width": 1.0 },
+          { "label": "\u00dc", "output": "\u00fc", "shiftOutput": "\u00dc", "width": 1.0 },
+          { "label": "Bksp", "output": "", "width": 1.5, "specialAction": "backspace" }
+        ],
+        [
+          { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
+          { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
+          { "label": "\u00df", "output": "\u00df", "width": 1.0 },
+          { "label": "Space", "output": " ", "width": 3.0, "specialAction": "space" },
+          { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
+          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
+        ]
+      ]
+    },
+    "numbers": {
+      "label": "123",
+      "rows": [
+        [
+          { "label": "1", "output": "1", "width": 1.0 },
+          { "label": "2", "output": "2", "width": 1.0 },
+          { "label": "3", "output": "3", "width": 1.0 },
+          { "label": "4", "output": "4", "width": 1.0 },
+          { "label": "5", "output": "5", "width": 1.0 },
+          { "label": "6", "output": "6", "width": 1.0 },
+          { "label": "7", "output": "7", "width": 1.0 },
+          { "label": "8", "output": "8", "width": 1.0 },
+          { "label": "9", "output": "9", "width": 1.0 },
+          { "label": "0", "output": "0", "width": 1.0 }
+        ],
+        [
+          { "label": "+", "output": "+", "width": 1.0 },
+          { "label": "-", "output": "-", "width": 1.0 },
+          { "label": "*", "output": "*", "width": 1.0 },
+          { "label": "/", "output": "/", "width": 1.0 },
+          { "label": "=", "output": "=", "width": 1.0 },
+          { "label": "%", "output": "%", "width": 1.0 },
+          { "label": "(", "output": "(", "width": 1.0 },
+          { "label": ")", "output": ")", "width": 1.0 },
+          { "label": ".", "output": ".", "width": 1.0 }
+        ],
+        [
+          { "label": ",", "output": ",", "width": 1.0 },
+          { "label": ":", "output": ":", "width": 1.0 },
+          { "label": ";", "output": ";", "width": 1.0 },
+          { "label": "!", "output": "!", "width": 1.0 },
+          { "label": "?", "output": "?", "width": 1.0 },
+          { "label": "@", "output": "@", "width": 1.0 },
+          { "label": "#", "output": "#", "width": 1.0 },
+          { "label": "$", "output": "$", "width": 1.0 },
+          { "label": "Bksp", "output": "", "width": 1.5, "specialAction": "backspace" }
+        ],
+        [
+          { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
+          { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
+          { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
+          { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
+          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
+        ]
+      ]
+    },
+    "symbols": {
+      "label": "#+=",
+      "rows": [
+        [
+          { "label": "~", "output": "~", "width": 1.0 },
+          { "label": "`", "output": "`", "width": 1.0 },
+          { "label": "^", "output": "^", "width": 1.0 },
+          { "label": "&", "output": "&", "width": 1.0 },
+          { "label": "|", "output": "|", "width": 1.0 },
+          { "label": "\\", "output": "\\", "width": 1.0 },
+          { "label": "<", "output": "<", "width": 1.0 },
+          { "label": ">", "output": ">", "width": 1.0 },
+          { "label": "_", "output": "_", "width": 1.0 }
+        ],
+        [
+          { "label": "[", "output": "[", "width": 1.0 },
+          { "label": "]", "output": "]", "width": 1.0 },
+          { "label": "{", "output": "{", "width": 1.0 },
+          { "label": "}", "output": "}", "width": 1.0 },
+          { "label": "'", "output": "'", "width": 1.0 },
+          { "label": "\"", "output": "\"", "width": 1.0 },
+          { "label": "\u00a7", "output": "\u00a7", "width": 1.0 },
+          { "label": "\u00b4", "output": "\u00b4", "width": 1.0 },
+          { "label": "\u00a8", "output": "\u00a8", "width": 1.0 }
+        ],
+        [
+          { "label": "\u20ac", "output": "\u20ac", "width": 1.0 },
+          { "label": "\u00a3", "output": "\u00a3", "width": 1.0 },
+          { "label": "\u00a5", "output": "\u00a5", "width": 1.0 },
+          { "label": "\u00b0", "output": "\u00b0", "width": 1.0 },
+          { "label": "\u00b7", "output": "\u00b7", "width": 1.0 },
+          { "label": "\u2026", "output": "\u2026", "width": 1.0 },
+          { "label": "\u2014", "output": "\u2014", "width": 1.0 },
+          { "label": "\u2013", "output": "\u2013", "width": 1.0 },
+          { "label": "Bksp", "output": "", "width": 1.5, "specialAction": "backspace" }
+        ],
+        [
+          { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
+          { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
+          { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
+          { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
+          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
+        ]
+      ]
+    }
+  }
 }

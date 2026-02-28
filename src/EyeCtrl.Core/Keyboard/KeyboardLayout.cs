@@ -3,5 +3,6 @@ namespace EyeCtrl.Core.Keyboard;
 public class KeyboardLayout
 {
     public string Name { get; set; } = "";
-    public List<List<KeyDefinition>> Rows { get; set; } = new();
+    public Dictionary<string, SubLayout> SubLayouts { get; set; } = new();
+    public string DefaultSubLayout { get; set; } = "letters";
 }

@@ -5,6 +5,10 @@
     <ProjectReference Include="..\EyeCtrl.Platform\EyeCtrl.Platform.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="10.0.3" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>

@@ -1,0 +1,184 @@
+namespace EyeCtrl.App.Overlays;
+
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Shapes;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
+
+public partial class ActionMenuWindow : Window
+{
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TOOLWINDOW = 0x00000080;
+    private const double ButtonRadius = 30;
+    private const double RingRadius = 130;
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+
+    private readonly DwellDetector _dwellDetector = new();
+    private readonly Dictionary<string, (Ellipse Background, Path ProgressArc, ArcSegment Arc)> _buttonVisuals = new();
+    private readonly Dictionary<string, InteractionAction> _actionMap = new();
+
+    public event Action<InteractionAction>? ActionSelected;
+    public event Action? BackSelected;
+
+    public ActionMenuWindow()
+    {
+        InitializeComponent();
+
+        _dwellDetector.TargetActivated += OnTargetActivated;
+        _dwellDetector.TargetProgress += OnTargetProgress;
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var extStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TOOLWINDOW);
+    }
+
+    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs)
+    {
+        _dwellDetector.ClearTargets();
+        _buttonVisuals.Clear();
+        _actionMap.Clear();
+        MenuCanvas.Children.Clear();
+
+        var allItems = new List<(string Id, string Label)>();
+        foreach (var action in actions)
+        {
+            var id = action.ToString();
+            allItems.Add((id, GetActionLabel(action)));
+            _actionMap[id] = action;
+        }
+        if (showBackButton)
+            allItems.Add(("Back", "Back"));
+
+        var canvasCenter = new Point(Width / 2, Height / 2);
+        var angleStep = 360.0 / allItems.Count;
+
+        for (int i = 0; i < allItems.Count; i++)
+        {
+            var (id, label) = allItems[i];
+            var angleRad = (angleStep * i - 90) * Math.PI / 180;
+            var bx = canvasCenter.X + RingRadius * Math.Cos(angleRad);
+            var by = canvasCenter.Y + RingRadius * Math.Sin(angleRad);
+
+            var buttonCenter = new ScreenPoint(bx, by);
+            _dwellDetector.AddTarget(new DwellTarget(id, buttonCenter, ButtonRadius, dwellTimeMs));
+
+            // Background circle
+            var bg = new Ellipse
+            {
+                Width = ButtonRadius * 2,
+                Height = ButtonRadius * 2,
+                Fill = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30))
+            };
+            Canvas.SetLeft(bg, bx - ButtonRadius);
+            Canvas.SetTop(bg, by - ButtonRadius);
+            MenuCanvas.Children.Add(bg);
+
+            // Progress arc
+            var arcSegment = new ArcSegment
+            {
+                Point = new Point(bx, by - ButtonRadius + 4),
+                Size = new Size(ButtonRadius - 4, ButtonRadius - 4),
+                IsLargeArc = false,
+                SweepDirection = SweepDirection.Clockwise
+            };
+            var figure = new PathFigure
+            {
+                StartPoint = new Point(bx, by - ButtonRadius + 4),
+                IsClosed = false
+            };
+            figure.Segments.Add(arcSegment);
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+            var progressPath = new Path
+            {
+                Data = geometry,
+                Stroke = Brushes.Lime,
+                StrokeThickness = 3
+            };
+            MenuCanvas.Children.Add(progressPath);
+
+            _buttonVisuals[id] = (bg, progressPath, arcSegment);
+
+            // Label
+            var textBlock = new TextBlock
+            {
+                Text = label,
+                Foreground = Brushes.White,
+                FontSize = 10,
+                TextAlignment = TextAlignment.Center,
+                Width = ButtonRadius * 2
+            };
+            textBlock.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(textBlock, bx - ButtonRadius);
+            Canvas.SetTop(textBlock, by - textBlock.DesiredSize.Height / 2);
+            MenuCanvas.Children.Add(textBlock);
+        }
+
+        Left = center.X - Width / 2;
+        Top = center.Y - Height / 2;
+        Show();
+    }
+
+    public void UpdateGaze(ScreenPoint screenPoint, long timestampMicroseconds)
+    {
+        // Convert screen coordinates to local canvas coordinates
+        var localX = screenPoint.X - Left;
+        var localY = screenPoint.Y - Top;
+        _dwellDetector.Update(new ScreenPoint(localX, localY), timestampMicroseconds);
+    }
+
+    private void OnTargetActivated(string targetId)
+    {
+        if (targetId == "Back")
+            BackSelected?.Invoke();
+        else if (_actionMap.TryGetValue(targetId, out var action))
+            ActionSelected?.Invoke(action);
+    }
+
+    private void OnTargetProgress(string targetId, double progress)
+    {
+        if (!_buttonVisuals.TryGetValue(targetId, out var visuals)) return;
+
+        var (bg, _, arcSegment) = visuals;
+        var centerX = Canvas.GetLeft(bg) + ButtonRadius;
+        var centerY = Canvas.GetTop(bg) + ButtonRadius;
+        var radius = ButtonRadius - 4;
+
+        var angle = progress * 360;
+        var radians = angle * Math.PI / 180;
+
+        var endX = centerX + radius * Math.Sin(radians);
+        var endY = centerY - radius * Math.Cos(radians);
+
+        arcSegment.Point = new Point(endX, endY);
+        arcSegment.IsLargeArc = angle > 180;
+    }
+
+    private static string GetActionLabel(InteractionAction action) => action switch
+    {
+        InteractionAction.LeftClick => "Click",
+        InteractionAction.RightClick => "Right",
+        InteractionAction.DoubleClick => "Double",
+        InteractionAction.DragStart => "Drag",
+        InteractionAction.DragEnd => "Drop",
+        InteractionAction.ScrollUp => "Scroll Up",
+        InteractionAction.ScrollDown => "Scroll Dn",
+        InteractionAction.ScrollLeft => "Scroll L",
+        InteractionAction.ScrollRight => "Scroll R",
+        _ => action.ToString()
+    };
+}

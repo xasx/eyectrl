@@ -2844,6 +2844,56 @@ git add -A && git commit -m "chore: polish and fix issues from manual testing"
 
 ---
 
+## Task 26: VM Testing Fixes (2026-02-28)
+
+After publishing and testing in a VM, several UI issues were identified and fixed:
+
+**Issues found:**
+1. All buttons too small for reliable eye-tracking interaction
+2. On-screen action menu not controllable via dwell
+3. Cursor circle too large (300px was overwhelming)
+4. Action buttons displayed text labels instead of recognizable symbols
+5. Not all buttons had visible dwell progress indicators
+
+**Root causes:**
+- **Toolbar dwell completely broken:** `UpdateTargetPositions()` was called on every single gaze frame, removing and re-adding all DwellTargets. This reset accumulated dwell state on every frame, making dwell completion impossible.
+- **Action menu buttons too small:** 30px radius (60px diameter) was too small for reliable eye-tracker targeting given typical 0.5–1° gaze noise.
+- **No `UpdateTargetCenter` API:** DwellDetector had no way to update a target's position without destroying its state.
+
+**Changes made:**
+
+| File | Change |
+|------|--------|
+| `CursorSettings.cs` | Added `CircleSize` property (default 40) |
+| `CursorCircleWindow.xaml` | Reduced from 300×300 to 40×40 |
+| `CursorCircleWindow.xaml.cs` | `UpdateAppearance` now applies `CircleSize` from settings |
+| `DwellDetector.cs` | Added `UpdateTargetCenter(id, newCenter)` method |
+| `ToolbarSettings.cs` | Default button size: 48 → 80 |
+| `ToolbarWindow.xaml.cs` | Fixed dwell bug: targets updated via `UpdateTargetCenter` instead of remove+add; progress bar replaces opacity dot; buttons use Unicode symbols |
+| `ActionMenuWindow.xaml` | Window size: 400×400 → 500×500 |
+| `ActionMenuWindow.xaml.cs` | ButtonRadius: 30 → 50, RingRadius: 130 → 160; text labels → Unicode symbols; FontSize 10 → 22; thicker progress arc |
+| `ActivationButtonWindow.xaml` | Size: 60×60 → 100×100; arc radius 26 → 45 |
+| `ActivationButtonWindow.xaml.cs` | Updated center/radius constants for new size |
+| `App.xaml.cs` | Activation button offset: 50 → 60, dwell radius: 30 → 50 |
+
+**Symbol mapping for action menu:**
+| Action | Symbol | Unicode |
+|--------|--------|---------|
+| LeftClick | ☝ | U+261D |
+| RightClick | ☰ | U+2630 |
+| DoubleClick | ✌ | U+270C |
+| DragStart | ✊ | U+270A |
+| DragEnd | ✋ | U+270B |
+| ScrollUp | ▲ | U+25B2 |
+| ScrollDown | ▼ | U+25BC |
+| ScrollLeft | ◀ | U+25C0 |
+| ScrollRight | ▶ | U+25B6 |
+| Back | ↩ | U+21A9 |
+
+**Toolbar symbols:** ⏸ Pause, ⊕ Zoom, ⌨ Keyboard, ⚙ Settings
+
+---
+
 ## Summary
 
 | Task | Component | Type |
@@ -2873,3 +2923,4 @@ git add -A && git commit -m "chore: polish and fix issues from manual testing"
 | 23 | System tray | UI |
 | 24 | Tobii Stream Engine | Platform |
 | 25 | Full test & polish | QA |
+| 26 | VM testing fixes | Bug fix |

@@ -8,5 +8,6 @@ public class CursorSettings
     public string CircleColor { get; set; } = "#00FF00";
     public double CircleOpacity { get; set; } = 0.6;
     public double CircleThickness { get; set; } = 2.0;
+    public double CircleSize { get; set; } = 250;
     public bool CircleHighContrast { get; set; } = false;
 }

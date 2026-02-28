@@ -13,9 +13,23 @@ public class DwellDetector
     public void RemoveTarget(string id) => _targets.Remove(id);
     public void ClearTargets() => _targets.Clear();
 
+    /// <summary>
+    /// Update a target's center position without resetting dwell state.
+    /// Used by toolbar/overlays that need to track moving screen positions.
+    /// </summary>
+    public void UpdateTargetCenter(string id, ScreenPoint newCenter)
+    {
+        if (_targets.TryGetValue(id, out var target))
+            target.Center = newCenter;
+    }
+
     public void Update(ScreenPoint gazePoint, long timestampMicroseconds)
     {
         _lastTimestamp = timestampMicroseconds;
+
+        // Collect activation to fire AFTER iteration completes.
+        // Handlers may call ClearTargets/AddTarget which would crash if done during foreach.
+        string? activatedId = null;
 
         foreach (var target in _targets.Values)
         {
@@ -36,7 +50,7 @@ public class DwellDetector
 
                     if (elapsed >= target.DwellTimeMicroseconds)
                     {
-                        TargetActivated?.Invoke(target.Id);
+                        activatedId = target.Id;
                         target.EnteredTimestamp = null;
                         target.IsGazeInside = false;
                     }
@@ -44,9 +58,18 @@ public class DwellDetector
             }
             else
             {
+                if (target.IsGazeInside)
+                    TargetProgress?.Invoke(target.Id, 0);
                 target.IsGazeInside = false;
                 target.EnteredTimestamp = null;
             }
+        }
+
+        // Fire activation after loop — safe for handlers to modify target collection
+        if (activatedId != null)
+        {
+            TargetProgress?.Invoke(activatedId, 0);
+            TargetActivated?.Invoke(activatedId);
         }
     }
 

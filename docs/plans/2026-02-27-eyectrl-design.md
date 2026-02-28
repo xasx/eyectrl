@@ -57,7 +57,7 @@ The filtered coordinates drive the real Windows system cursor via `SendInput` wi
 
 ### Cursor Circle
 
-A configurable circle overlay always surrounds the cursor, showing the area that would be magnified in zoom mode. Configurable properties: color, opacity, thickness, contrast mode.
+A configurable circle overlay always surrounds the cursor, showing the area that would be magnified in zoom mode. Default size: 40px diameter. Configurable properties: color, opacity, thickness, size, contrast mode.
 
 ### Interaction Flow (Without Zoom)
 
@@ -112,7 +112,7 @@ Cursor + circle follow gaze freely
 - Drag (start/end)
 - Scroll (up/down/left/right)
 
-The radial action menu is configurable: which actions appear and their positions.
+The radial action menu is configurable: which actions appear and their positions. Buttons display Unicode symbols (☝ click, ☰ right-click, ✌ double, ✊ drag, ▲▼◀▶ scroll) with 100px diameter dwell targets and green arc progress indicators. Toolbar buttons (80px) also use Unicode symbols (⏸⊕⌨⚙) with bottom progress bars.
 
 ## On-Screen Keyboard
 

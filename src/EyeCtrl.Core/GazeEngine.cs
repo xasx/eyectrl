@@ -14,6 +14,7 @@ public class GazeEngine : IDisposable
     private readonly FixationDetector _fixationDetector;
 
     public InteractionManager InteractionManager { get; }
+    public bool SuppressFixation { get; set; }
     public event Action<ScreenPoint, long>? CursorMoved;
 
     public GazeEngine(
@@ -53,18 +54,22 @@ public class GazeEngine : IDisposable
 
     private void OnGazePoint(GazePoint gaze)
     {
+        var filtered = _filter.Filter(gaze);
+
+        // Always fire CursorMoved so the cursor circle + toolbar receive gaze
+        // (this allows unpause via toolbar dwell even when paused)
+        CursorMoved?.Invoke(filtered, gaze.TimestampMicroseconds);
+
         if (InteractionManager.CurrentState == InteractionState.Paused)
             return;
-
-        var filtered = _filter.Filter(gaze);
 
         if (InteractionManager.CurrentState == InteractionState.FreeLook)
         {
             _inputSimulator.MoveCursor(filtered);
         }
 
-        CursorMoved?.Invoke(filtered, gaze.TimestampMicroseconds);
-        _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
+        if (!SuppressFixation)
+            _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
     }
 
     private void OnActionRequested(InteractionAction action, ScreenPoint point)

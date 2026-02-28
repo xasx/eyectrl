@@ -1,0 +1,16 @@
+<Window x:Class="EyeCtrl.App.Overlays.KeyboardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False"
+        Width="1200" Height="400">
+    <Border Background="#F0181818" CornerRadius="8" Padding="8">
+        <DockPanel>
+            <!-- Prediction bar at top -->
+            <StackPanel x:Name="PredictionBar" Orientation="Horizontal"
+                        DockPanel.Dock="Top" Margin="0,0,0,6" Height="40"/>
+            <!-- Keyboard rows -->
+            <StackPanel x:Name="KeyRows" VerticalAlignment="Center"/>
+        </DockPanel>
+    </Border>
+</Window>

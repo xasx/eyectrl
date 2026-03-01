@@ -300,7 +300,7 @@ public partial class App : Application
         if (_settingsWindow != null) return;
 
         _settingsWindow = new SettingsWindow(_settings, _settingsService);
-        _settingsWindow.SettingsSaved += OnSettingsSaved;
+        _settingsWindow.SettingsChanged += OnSettingsSaved;
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.Show();
     }

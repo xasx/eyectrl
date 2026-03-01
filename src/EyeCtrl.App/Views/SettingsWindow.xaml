@@ -21,12 +21,12 @@
 
             <!-- Close button at top -->
             <Border x:Name="CloseButton" Grid.Row="0"
-                    Height="80" Width="80"
+                    Height="100" Width="100"
                     HorizontalAlignment="Right" Margin="8"
                     CornerRadius="8" Background="#C8641E1E"
                     Cursor="Hand">
                 <TextBlock Text="✕" Foreground="White"
-                           FontSize="28" FontWeight="Bold"
+                           FontSize="34" FontWeight="Bold"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"/>
             </Border>
@@ -67,7 +67,7 @@
                     MinWidth="400">
                 <StackPanel HorizontalAlignment="Center">
                     <TextBlock x:Name="ModalMessage"
-                               Foreground="White" FontSize="20"
+                               Foreground="White" FontSize="24"
                                FontWeight="SemiBold"
                                TextAlignment="Center"
                                TextWrapping="Wrap"

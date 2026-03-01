@@ -13,10 +13,10 @@ public partial class SettingsWindow : Window
 {
     // ────── Constants ──────
 
-    private const double ControlBtnRadius = 40;
-    private const double TabBtnRadius = 70;
-    private const double PagBtnRadius = 50;
-    private const double ModalBtnRadius = 60;
+    private const double ControlBtnRadius = 50;
+    private const double TabBtnRadius = 85;
+    private const double PagBtnRadius = 60;
+    private const double ModalBtnRadius = 70;
 
     private static readonly Color BtnBase = Color.FromArgb(200, 60, 60, 80);
     private static readonly Color TabActive = Color.FromArgb(200, 40, 90, 160);
@@ -134,7 +134,7 @@ public partial class SettingsWindow : Window
         {
             var border = new Border
             {
-                Height = 80,
+                Height = 100,
                 Margin = new Thickness(4),
                 CornerRadius = new CornerRadius(8),
                 Background = new SolidColorBrush(TabInactive),
@@ -150,7 +150,7 @@ public partial class SettingsWindow : Window
                         {
                             Text = icon,
                             Foreground = Brushes.White,
-                            FontSize = 24,
+                            FontSize = 30,
                             VerticalAlignment = VerticalAlignment.Center,
                             Margin = new Thickness(0, 0, 12, 0)
                         },
@@ -158,7 +158,7 @@ public partial class SettingsWindow : Window
                         {
                             Text = label,
                             Foreground = Brushes.White,
-                            FontSize = 18,
+                            FontSize = 22,
                             FontWeight = FontWeights.SemiBold,
                             VerticalAlignment = VerticalAlignment.Center
                         }
@@ -246,7 +246,7 @@ public partial class SettingsWindow : Window
         {
             Text = $"{_currentPage + 1} / {_totalPages}",
             Foreground = Brushes.White,
-            FontSize = 20,
+            FontSize = 24,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(20, 0, 20, 0),
@@ -267,8 +267,8 @@ public partial class SettingsWindow : Window
     {
         var btn = new Border
         {
-            Width = 80,
-            Height = 64,
+            Width = 100,
+            Height = 80,
             Margin = new Thickness(4),
             CornerRadius = new CornerRadius(8),
             Background = new SolidColorBrush(BtnBase),
@@ -277,7 +277,7 @@ public partial class SettingsWindow : Window
             {
                 Text = text,
                 Foreground = Brushes.White,
-                FontSize = 24,
+                FontSize = 30,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -602,7 +602,7 @@ public partial class SettingsWindow : Window
         {
             Text = FormatVal(get(), decimals),
             Foreground = Brushes.White,
-            FontSize = 20,
+            FontSize = 24,
             FontWeight = FontWeights.SemiBold,
             Width = 140,
             TextAlignment = TextAlignment.Center,
@@ -642,7 +642,7 @@ public partial class SettingsWindow : Window
         {
             Text = get(),
             Foreground = Brushes.White,
-            FontSize = 20,
+            FontSize = 24,
             FontWeight = FontWeights.SemiBold,
             Width = 200,
             TextAlignment = TextAlignment.Center,
@@ -677,7 +677,7 @@ public partial class SettingsWindow : Window
     {
         var border = new Border
         {
-            Height = 64,
+            Height = 80,
             Margin = new Thickness(0, 4, 0, 12),
             Padding = new Thickness(20, 0, 20, 0),
             CornerRadius = new CornerRadius(8),
@@ -687,7 +687,7 @@ public partial class SettingsWindow : Window
 
         var text = new TextBlock
         {
-            FontSize = 18,
+            FontSize = 22,
             FontWeight = FontWeights.SemiBold,
             Foreground = Brushes.White,
             VerticalAlignment = VerticalAlignment.Center
@@ -739,8 +739,8 @@ public partial class SettingsWindow : Window
 
             var swatch = new Border
             {
-                Width = 72,
-                Height = 60,
+                Width = 90,
+                Height = 75,
                 Margin = new Thickness(4),
                 CornerRadius = new CornerRadius(6),
                 Background = new SolidColorBrush(color),
@@ -775,8 +775,8 @@ public partial class SettingsWindow : Window
         var id = $"reset_{label.GetHashCode():X}";
         var border = new Border
         {
-            Width = 260,
-            Height = 64,
+            Width = 300,
+            Height = 80,
             Margin = new Thickness(0, 20, 0, 8),
             CornerRadius = new CornerRadius(8),
             Background = new SolidColorBrush(ResetBase),
@@ -786,7 +786,7 @@ public partial class SettingsWindow : Window
             {
                 Text = label,
                 Foreground = Brushes.White,
-                FontSize = 16,
+                FontSize = 20,
                 FontWeight = FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -808,7 +808,7 @@ public partial class SettingsWindow : Window
         {
             Text = text,
             Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
-            FontSize = 18,
+            FontSize = 22,
             Margin = new Thickness(0, 8, 0, 2)
         });
     }
@@ -817,8 +817,8 @@ public partial class SettingsWindow : Window
     {
         var btn = new Border
         {
-            Width = 80,
-            Height = 64,
+            Width = 100,
+            Height = 80,
             Margin = new Thickness(4, 0, 4, 0),
             CornerRadius = new CornerRadius(8),
             Background = new SolidColorBrush(BtnBase),
@@ -827,7 +827,7 @@ public partial class SettingsWindow : Window
             {
                 Text = text,
                 Foreground = Brushes.White,
-                FontSize = 24,
+                FontSize = 30,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -976,8 +976,8 @@ public partial class SettingsWindow : Window
     {
         var border = new Border
         {
-            Width = 140,
-            Height = 64,
+            Width = 170,
+            Height = 80,
             Margin = new Thickness(12, 0, 12, 0),
             CornerRadius = new CornerRadius(8),
             Background = new SolidColorBrush(bg),
@@ -986,7 +986,7 @@ public partial class SettingsWindow : Window
             {
                 Text = text,
                 Foreground = Brushes.White,
-                FontSize = 20,
+                FontSize = 24,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center

@@ -43,6 +43,28 @@ public partial class KeyboardWindow : Window
     private string _screenEdge = "bottom";
     private bool _predictionTargetsInitialized;
 
+    // Emoji mode state
+    private bool _isEmojiMode;
+    private EmojiData? _emojiData;
+    private RecentEmojiStore? _recentEmojiStore;
+    private string _activeEmojiCategory = "recent";
+    private int _emojiPage;
+    private int _skinTone; // 0=default, 1-5=light..dark
+    private string? _emojiJsonPath;
+    private string? _recentEmojiPath;
+    private const int EmojisPerPage = 40;
+    private const int EmojiColumns = 10;
+
+    private static readonly string[] SkinToneModifiers =
+    {
+        "",           // 0 = default yellow
+        "\U0001F3FB", // 1 = light
+        "\U0001F3FC", // 2 = medium-light
+        "\U0001F3FD", // 3 = medium
+        "\U0001F3FE", // 4 = medium-dark
+        "\U0001F3FF", // 5 = dark
+    };
+
     public event Action<string>? KeyActivated;
     public event Action<string>? PredictionSelected;
 
@@ -80,6 +102,16 @@ public partial class KeyboardWindow : Window
         _screenEdge = edge;
         RepositionOnScreen();
     }
+
+    public void SetEmojiData(string emojiJsonPath, string recentEmojiPath)
+    {
+        _emojiJsonPath = emojiJsonPath;
+        _recentEmojiPath = recentEmojiPath;
+    }
+
+    public void SetSkinTone(int skinTone) => _skinTone = Math.Clamp(skinTone, 0, 5);
+    public int GetSkinTone() => _skinTone;
+    public RecentEmojiStore? GetRecentStore() => _recentEmojiStore;
 
     private void RepositionOnScreen()
     {
@@ -158,9 +190,14 @@ public partial class KeyboardWindow : Window
     public void UpdateGaze(ScreenPoint screenPoint, long timestampMicroseconds)
     {
         UpdateKeyScreenPositions();
-        UpdatePredictionTargetPositions();
+
+        if (!_isEmojiMode)
+        {
+            UpdatePredictionTargetPositions();
+            _predictionDwellDetector.Update(screenPoint, timestampMicroseconds);
+        }
+
         ProcessKeyGaze(screenPoint, timestampMicroseconds);
-        _predictionDwellDetector.Update(screenPoint, timestampMicroseconds);
     }
 
     private void UpdateKeyScreenPositions()
@@ -308,11 +345,65 @@ public partial class KeyboardWindow : Window
         _predictor?.LearnWord(output);
         UpdatePredictions();
         KeyActivated?.Invoke(output);
+
+        // Track emoji in recents
+        if (_isEmojiMode && !string.IsNullOrEmpty(output))
+        {
+            var baseEmoji = _skinTone > 0 && output.EndsWith(SkinToneModifiers[_skinTone])
+                ? output[..^SkinToneModifiers[_skinTone].Length]
+                : output;
+            _recentEmojiStore?.Add(baseEmoji);
+        }
     }
 
     private void HandleSpecialKey(string action)
     {
         var lowerAction = action.ToLowerInvariant();
+
+        if (lowerAction == "switchemoji")
+        {
+            EnterEmojiMode();
+            return;
+        }
+
+        if (lowerAction == "switchtext")
+        {
+            ExitEmojiMode();
+            return;
+        }
+
+        if (lowerAction.StartsWith("emojicategory:"))
+        {
+            var catId = action[14..];
+            if (_activeEmojiCategory != catId)
+            {
+                _activeEmojiCategory = catId;
+                _emojiPage = 0;
+                HighlightActiveCategory();
+                BuildEmojiGrid();
+            }
+            return;
+        }
+
+        if (lowerAction == "emojipage:next")
+        {
+            _emojiPage++;
+            BuildEmojiGrid();
+            return;
+        }
+
+        if (lowerAction == "emojipage:prev")
+        {
+            _emojiPage = Math.Max(0, _emojiPage - 1);
+            BuildEmojiGrid();
+            return;
+        }
+
+        if (lowerAction == "skintone")
+        {
+            ShowSkinToneSelector();
+            return;
+        }
 
         if (lowerAction.StartsWith("switchsub:"))
         {
@@ -468,4 +559,161 @@ public partial class KeyboardWindow : Window
 
         visuals.Container.Background = new SolidColorBrush(baseColor);
     }
+
+    // ── Emoji mode ──────────────────────────────────────────────────────
+
+    private void EnterEmojiMode()
+    {
+        if (_emojiData == null && _emojiJsonPath != null)
+        {
+            _emojiData = EmojiDataLoader.Load(_emojiJsonPath);
+            _recentEmojiStore = new RecentEmojiStore(_recentEmojiPath ?? "recent_emojis.json");
+        }
+        if (_emojiData == null) return;
+
+        _isEmojiMode = true;
+        _activeEmojiCategory = _recentEmojiStore?.Recent.Count > 0 ? "recent" : _emojiData.Categories[0].Id;
+        _emojiPage = 0;
+
+        PredictionBar.Visibility = Visibility.Collapsed;
+        CategoryBar.Visibility = Visibility.Visible;
+
+        BuildCategoryTabs();
+        BuildEmojiGrid();
+    }
+
+    private void ExitEmojiMode()
+    {
+        _isEmojiMode = false;
+        _emojiPage = 0;
+
+        PredictionBar.Visibility = Visibility.Visible;
+        CategoryBar.Visibility = Visibility.Collapsed;
+
+        RebuildKeys();
+    }
+
+    private void BuildEmojiGrid()
+    {
+        _keyVisuals.Clear();
+        _keyDefinitions.Clear();
+        _keyScreenPositions.Clear();
+        _currentNearestKeyId = null;
+        KeyRows.Children.Clear();
+
+        var emojis = GetCurrentPageEmojis();
+
+        for (int i = 0; i < emojis.Count; i += EmojiColumns)
+        {
+            var rowPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+            var rowCount = Math.Min(EmojiColumns, emojis.Count - i);
+
+            for (int j = 0; j < rowCount; j++)
+            {
+                var baseEmoji = emojis[i + j];
+                var displayEmoji = ApplySkinTone(baseEmoji);
+                var id = $"emoji_{i + j}";
+
+                _keyDefinitions[id] = new KeyDefinition { Label = displayEmoji, Output = displayEmoji };
+
+                var label = new TextBlock
+                {
+                    Text = displayEmoji,
+                    Foreground = Brushes.White,
+                    FontSize = 24,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                var container = new Border
+                {
+                    Width = _keySize,
+                    Height = _keySize,
+                    Margin = new Thickness(2),
+                    Background = new SolidColorBrush(Color.FromArgb(200, 50, 50, 50)),
+                    CornerRadius = new CornerRadius(6),
+                    Child = label
+                };
+
+                _keyVisuals[id] = (container, label);
+                rowPanel.Children.Add(container);
+            }
+
+            KeyRows.Children.Add(rowPanel);
+        }
+
+        // Bottom row: pagination + ABC + skin tone
+        var bottomRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        var totalEmojis = GetCategoryEmojis(_activeEmojiCategory).Count;
+        var totalPages = (int)Math.Ceiling((double)totalEmojis / EmojisPerPage);
+
+        if (totalPages > 1 && _emojiPage > 0)
+            AddSpecialButton(bottomRow, "\u25C0", "emojiPage:prev", 1.0);
+
+        AddSpecialButton(bottomRow, "ABC", "switchText", 2.0);
+        AddSpecialButton(bottomRow, "\uD83C\uDFA8", "skinTone", 1.0);
+
+        if (totalPages > 1 && _emojiPage < totalPages - 1)
+            AddSpecialButton(bottomRow, "\u25B6", "emojiPage:next", 1.0);
+
+        KeyRows.Children.Add(bottomRow);
+    }
+
+    private void AddSpecialButton(StackPanel row, string text, string action, double widthMultiplier)
+    {
+        var id = $"special_{action}";
+        _keyDefinitions[id] = new KeyDefinition { Label = text, Output = "", SpecialAction = action };
+
+        var label = new TextBlock
+        {
+            Text = text,
+            Foreground = Brushes.White,
+            FontSize = 16,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var container = new Border
+        {
+            Width = _keySize * widthMultiplier + (widthMultiplier > 1 ? (widthMultiplier - 1) * 4 : 0),
+            Height = _keySize,
+            Margin = new Thickness(2),
+            Background = new SolidColorBrush(Color.FromArgb(200, 50, 70, 110)),
+            CornerRadius = new CornerRadius(6),
+            Child = label
+        };
+
+        _keyVisuals[id] = (container, label);
+        row.Children.Add(container);
+    }
+
+    private List<string> GetCategoryEmojis(string categoryId)
+    {
+        if (categoryId == "recent")
+            return _recentEmojiStore?.Recent.ToList() ?? new List<string>();
+
+        return _emojiData?.Categories.FirstOrDefault(c => c.Id == categoryId)?.Emojis
+               ?? new List<string>();
+    }
+
+    private List<string> GetCurrentPageEmojis()
+    {
+        var all = GetCategoryEmojis(_activeEmojiCategory);
+        return all.Skip(_emojiPage * EmojisPerPage).Take(EmojisPerPage).ToList();
+    }
+
+    private string ApplySkinTone(string emoji)
+    {
+        if (_skinTone == 0) return emoji;
+        if (_emojiData == null || !_emojiData.SkinToneBase.Contains(emoji)) return emoji;
+        return emoji + SkinToneModifiers[_skinTone];
+    }
+
+    // ── Stubs for Task 6 / Task 7 ──────────────────────────────────────
+
+    private void BuildCategoryTabs() { }
+
+    private void HighlightActiveCategory() { }
+
+    private void ShowSkinToneSelector() { }
 }

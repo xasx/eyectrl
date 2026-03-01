@@ -1,11 +1,13 @@
 <Window x:Class="EyeCtrl.App.Overlays.CursorCircleWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="CursorCircle_Window"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
         Width="250" Height="250">
     <Canvas>
         <Ellipse x:Name="Circle"
+                 AutomationProperties.AutomationId="CursorCircle_Ellipse_Main"
                  Stroke="Lime" StrokeThickness="2"
                  Width="250" Height="250"
                  Canvas.Left="0" Canvas.Top="0"/>

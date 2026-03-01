@@ -166,6 +166,8 @@ public partial class SettingsWindow : Window
                 }
             };
 
+            System.Windows.Automation.AutomationProperties.SetAutomationId(border, $"Settings_Tab_{id}");
+
             border.MouseLeftButtonDown += (_, _) => ShowTab(id);
             _tabButtons[id] = border;
             TabButtonPanel.Children.Add(border);

@@ -183,6 +183,8 @@ public partial class KeyboardWindow : Window
                     Child = label
                 };
 
+                System.Windows.Automation.AutomationProperties.SetAutomationId(container, $"Keyboard_Key_{id}");
+
                 _keyVisuals[id] = (container, label);
                 rowPanel.Children.Add(container);
             }
@@ -523,6 +525,8 @@ public partial class KeyboardWindow : Window
                     HorizontalAlignment = HorizontalAlignment.Center
                 }
             };
+
+            System.Windows.Automation.AutomationProperties.SetAutomationId(btn, $"Keyboard_Prediction_{i}");
 
             PredictionBar.Children.Add(btn);
             _predictionDwellDetector.AddTarget(new DwellTarget(predId, new ScreenPoint(0, 0), 40, _predictionDwellMs));

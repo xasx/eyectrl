@@ -104,6 +104,8 @@ public partial class ToolbarWindow : Window
             }
         };
 
+        System.Windows.Automation.AutomationProperties.SetAutomationId(container, $"Toolbar_Button_{id}");
+
         _buttonVisuals[id] = (container, progressBar, label);
         ButtonPanel.Children.Add(container);
 

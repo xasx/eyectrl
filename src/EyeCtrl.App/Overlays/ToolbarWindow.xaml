@@ -1,6 +1,7 @@
 <Window x:Class="EyeCtrl.App.Overlays.ToolbarWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        AutomationProperties.AutomationId="Toolbar_Window"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
         SizeToContent="WidthAndHeight">

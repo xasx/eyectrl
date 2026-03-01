@@ -5,6 +5,7 @@
     <Project Path="src/EyeCtrl.Platform/EyeCtrl.Platform.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj" />
     <Project Path="tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj" />
     <Project Path="tests/EyeCtrl.Platform.Tests/EyeCtrl.Platform.Tests.csproj" />
   </Folder>

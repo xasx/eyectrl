@@ -27,6 +27,6 @@ public class SettingsServiceTests
         var service = new SettingsService("/nonexistent/path.json");
         var settings = service.Load();
         Assert.NotNull(settings);
-        Assert.Equal(500, settings.Dwell.ActivationButtonDwellMs);
+        Assert.Equal(700, settings.Dwell.ActivationButtonDwellMs);
     }
 }

@@ -27,15 +27,33 @@ public class DwellDetector
     {
         _lastTimestamp = timestampMicroseconds;
 
-        // Collect activation to fire AFTER iteration completes.
-        // Handlers may call ClearTargets/AddTarget which would crash if done during foreach.
+        // ── Find the single nearest target within hit range ──
+        string? nearestId = null;
+        double nearestDistSq = double.MaxValue;
+
+        foreach (var target in _targets.Values)
+        {
+            if (target.HitTest(gazePoint))
+            {
+                double dx = gazePoint.X - target.Center.X;
+                double dy = gazePoint.Y - target.Center.Y;
+                double distSq = dx * dx + dy * dy;
+                if (distSq < nearestDistSq)
+                {
+                    nearestDistSq = distSq;
+                    nearestId = target.Id;
+                }
+            }
+        }
+
+        // ── Accumulate dwell on nearest only; reset all others ──
         string? activatedId = null;
 
         foreach (var target in _targets.Values)
         {
-            bool inside = target.HitTest(gazePoint);
+            bool isNearest = target.Id == nearestId;
 
-            if (inside)
+            if (isNearest)
             {
                 if (!target.IsGazeInside)
                 {
@@ -65,7 +83,6 @@ public class DwellDetector
             }
         }
 
-        // Fire activation after loop — safe for handlers to modify target collection
         if (activatedId != null)
         {
             TargetProgress?.Invoke(activatedId, 0);

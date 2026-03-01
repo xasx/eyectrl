@@ -60,4 +60,33 @@ public class DwellDetectorTests
         double progress = detector.GetProgress("test");
         Assert.InRange(progress, 0.4, 0.6);
     }
+
+    [Fact]
+    public void Update_OverlappingTargets_OnlyNearestAccumulatesDwell()
+    {
+        var detector = new DwellDetector();
+        // Two targets at (100,100) and (130,100) with radius 40 — they overlap
+        var targetA = new DwellTarget("A", new ScreenPoint(100, 100), radius: 40, dwellTimeMs: 200);
+        var targetB = new DwellTarget("B", new ScreenPoint(130, 100), radius: 40, dwellTimeMs: 200);
+        detector.AddTarget(targetA);
+        detector.AddTarget(targetB);
+
+        var progressIds = new List<string>();
+        detector.TargetProgress += (id, progress) =>
+        {
+            if (progress > 0) progressIds.Add(id);
+        };
+
+        // Gaze at (110, 100) — inside both circles, but closer to A (dist=10) than B (dist=20)
+        long time = 0;
+        for (int i = 0; i < 5; i++)
+        {
+            detector.Update(new ScreenPoint(110, 100), time);
+            time += 30_000;
+        }
+
+        // Only A should have received positive progress
+        Assert.Contains("A", progressIds);
+        Assert.DoesNotContain("B", progressIds);
+    }
 }

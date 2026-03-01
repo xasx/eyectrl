@@ -83,6 +83,7 @@ public class DwellDetector
             }
         }
 
+        // Fire activation after loop — handlers may modify the target collection
         if (activatedId != null)
         {
             TargetProgress?.Invoke(activatedId, 0);

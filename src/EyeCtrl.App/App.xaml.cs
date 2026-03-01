@@ -49,13 +49,25 @@ public partial class App : Application
     private string _appDataDir = null!;
     private bool _keyboardVisible;
 
+    /// <summary>
+    /// When true, the app uses MouseGazeProvider and skips the splash delay.
+    /// Activated by launching with --test-mode CLI argument.
+    /// </summary>
+    public static bool IsTestMode { get; private set; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
+        IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
+
         // ── Splash screen ──
-        var splash = new SplashWindow();
-        splash.Show();
+        SplashWindow? splash = null;
+        if (!IsTestMode)
+        {
+            splash = new SplashWindow();
+            splash.Show();
+        }
 
         // ── Settings ──
         _appDataDir = Path.Combine(
@@ -66,16 +78,23 @@ public partial class App : Application
 
         // ── Platform services ──
         IGazeProvider gazeProvider;
-        try
+        if (IsTestMode)
         {
-            gazeProvider = new TobiiInteractionLibProvider(
-                SystemParameters.PrimaryScreenWidth,
-                SystemParameters.PrimaryScreenHeight);
-        }
-        catch
-        {
-            // Tobii not available — fall back to mouse-based gaze simulation
             gazeProvider = new MouseGazeProvider();
+        }
+        else
+        {
+            try
+            {
+                gazeProvider = new TobiiInteractionLibProvider(
+                    SystemParameters.PrimaryScreenWidth,
+                    SystemParameters.PrimaryScreenHeight);
+            }
+            catch
+            {
+                // Tobii not available — fall back to mouse-based gaze simulation
+                gazeProvider = new MouseGazeProvider();
+            }
         }
         _inputSimulator = new Win32InputSimulator();
 
@@ -234,7 +253,7 @@ public partial class App : Application
         SetupTrayIcon(im);
 
         // ── Close splash and show persistent overlays ──
-        splash.Close();
+        splash?.Close();
         _cursorCircle.Show();
         _toolbar.Show();
         _toolbar.SetMode(_settings.Toolbar.IsDocked, _settings.Toolbar.DockedEdge);

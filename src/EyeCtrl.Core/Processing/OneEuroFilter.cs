@@ -20,7 +20,7 @@ public class OneEuroFilter : IGazeFilter
     private bool _initialized;
     private ScreenPoint _lastFiltered = new(0, 0);
 
-    public OneEuroFilter(double minCutoff = 1.0, double beta = 0.07, double dCutoff = 1.0)
+    public OneEuroFilter(double minCutoff = 5.0, double beta = 0.5, double dCutoff = 1.0)
     {
         _minCutoff = minCutoff;
         _beta = beta;

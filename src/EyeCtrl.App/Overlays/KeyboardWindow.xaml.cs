@@ -24,6 +24,8 @@ public partial class KeyboardWindow : Window
 
     // Prediction bar uses DwellDetector (small number of circular targets)
     private readonly DwellDetector _predictionDwellDetector = new();
+    private readonly DwellDetector _categoryDwellDetector = new();
+    private bool _categoryTargetsInitialized;
     private readonly Dictionary<string, (Border Container, TextBlock Label)> _keyVisuals = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
 
@@ -73,6 +75,7 @@ public partial class KeyboardWindow : Window
         InitializeComponent();
         SizeChanged += (_, _) => RepositionOnScreen();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
+        _categoryDwellDetector.TargetActivated += OnCategoryDwelled;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -191,7 +194,12 @@ public partial class KeyboardWindow : Window
     {
         UpdateKeyScreenPositions();
 
-        if (!_isEmojiMode)
+        if (_isEmojiMode)
+        {
+            UpdateCategoryTargetPositions();
+            _categoryDwellDetector.Update(screenPoint, timestampMicroseconds);
+        }
+        else
         {
             UpdatePredictionTargetPositions();
             _predictionDwellDetector.Update(screenPoint, timestampMicroseconds);
@@ -709,11 +717,124 @@ public partial class KeyboardWindow : Window
         return emoji + SkinToneModifiers[_skinTone];
     }
 
-    // ── Stubs for Task 6 / Task 7 ──────────────────────────────────────
+    // ── Category tabs ─────────────────────────────────────────────────
 
-    private void BuildCategoryTabs() { }
+    private void BuildCategoryTabs()
+    {
+        _categoryDwellDetector.ClearTargets();
+        _categoryTargetsInitialized = false;
+        CategoryBar.Children.Clear();
 
-    private void HighlightActiveCategory() { }
+        // Recent tab
+        AddCategoryTab("recent", "\uD83D\uDD50");
+
+        // Category tabs
+        foreach (var cat in _emojiData!.Categories)
+            AddCategoryTab(cat.Id, cat.Icon);
+
+        // Skin tone tab
+        AddCategoryTab("_skinTone", "\uD83C\uDFA8");
+
+        HighlightActiveCategory();
+    }
+
+    private void AddCategoryTab(string id, string icon)
+    {
+        var tabId = $"cat_{id}";
+        var btn = new Border
+        {
+            Width = 40,
+            Height = 40,
+            Margin = new Thickness(2),
+            Background = new SolidColorBrush(Color.FromArgb(200, 40, 40, 40)),
+            CornerRadius = new CornerRadius(6),
+            Child = new TextBlock
+            {
+                Text = icon,
+                FontSize = 20,
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+
+        CategoryBar.Children.Add(btn);
+        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new ScreenPoint(0, 0), 20, _keyDwellMs));
+    }
+
+    private void HighlightActiveCategory()
+    {
+        for (int i = 0; i < CategoryBar.Children.Count; i++)
+        {
+            if (CategoryBar.Children[i] is Border border)
+            {
+                var isActive = i == GetActiveCategoryIndex();
+                border.Background = new SolidColorBrush(isActive
+                    ? Color.FromArgb(200, 0, 100, 0)
+                    : Color.FromArgb(200, 40, 40, 40));
+            }
+        }
+    }
+
+    private int GetActiveCategoryIndex()
+    {
+        if (_activeEmojiCategory == "recent") return 0;
+        if (_emojiData == null) return 0;
+        var idx = _emojiData.Categories.FindIndex(c => c.Id == _activeEmojiCategory);
+        return idx >= 0 ? idx + 1 : 0; // +1 for Recent tab at index 0
+    }
+
+    private void OnCategoryDwelled(string targetId)
+    {
+        if (!targetId.StartsWith("cat_")) return;
+        var catId = targetId[4..];
+
+        if (catId == "_skinTone")
+        {
+            ShowSkinToneSelector();
+            return;
+        }
+
+        if (_activeEmojiCategory != catId)
+        {
+            _activeEmojiCategory = catId;
+            _emojiPage = 0;
+            HighlightActiveCategory();
+            BuildEmojiGrid();
+        }
+    }
+
+    private void UpdateCategoryTargetPositions()
+    {
+        if (CategoryBar.Children.Count == 0) return;
+
+        for (int i = 0; i < CategoryBar.Children.Count; i++)
+        {
+            if (CategoryBar.Children[i] is not Border btn) continue;
+            var catId = i == 0 ? "recent"
+                : i <= _emojiData!.Categories.Count ? _emojiData.Categories[i - 1].Id
+                : "_skinTone";
+            var tabId = $"cat_{catId}";
+
+            try
+            {
+                var pos = btn.PointToScreen(new Point(btn.ActualWidth / 2, btn.ActualHeight / 2));
+                if (!_categoryTargetsInitialized)
+                {
+                    _categoryDwellDetector.RemoveTarget(tabId);
+                    _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new ScreenPoint(pos.X, pos.Y), 20, _keyDwellMs));
+                }
+                else
+                {
+                    _categoryDwellDetector.UpdateTargetCenter(tabId, new ScreenPoint(pos.X, pos.Y));
+                }
+            }
+            catch { }
+        }
+        _categoryTargetsInitialized = true;
+    }
+
+    // ── Stub for Task 7 ─────────────────────────────────────────────────
 
     private void ShowSkinToneSelector() { }
 }

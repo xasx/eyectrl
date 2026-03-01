@@ -6,4 +6,5 @@ public class KeyboardSettings
     public bool PredictionEnabled { get; set; } = true;
     public string LanguagePack { get; set; } = "en";
     public string ScreenEdge { get; set; } = "Bottom";
+    public int EmojiSkinTone { get; set; } = 0; // 0=default, 1-5=light..dark
 }

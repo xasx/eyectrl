@@ -42,6 +42,7 @@
         [
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
+          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
           { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
@@ -88,6 +89,7 @@
         [
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
+          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
           { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
@@ -133,6 +135,7 @@
         [
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
+          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
           { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }

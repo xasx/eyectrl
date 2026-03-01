@@ -12,6 +12,7 @@ public partial class CursorCircleWindow : Window
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TRANSPARENT = 0x00000020;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
 
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hwnd, int index);
@@ -30,7 +31,7 @@ public partial class CursorCircleWindow : Window
 
         var hwnd = new WindowInteropHelper(this).Handle;
         var extStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW);
+        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
     }
 
     public void UpdatePosition(ScreenPoint point)

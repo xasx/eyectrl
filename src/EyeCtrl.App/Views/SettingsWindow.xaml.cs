@@ -1,7 +1,9 @@
 namespace EyeCtrl.App.Views;
 
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -23,6 +25,16 @@ public partial class SettingsWindow : Window
     private static readonly Color ModalYes = Color.FromArgb(200, 30, 100, 30);
     private static readonly Color ModalNo = Color.FromArgb(200, 100, 30, 30);
     private static readonly Color CloseBase = Color.FromArgb(200, 100, 30, 30);
+
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TOOLWINDOW = 0x00000080;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
 
     // ────── State ──────
 
@@ -104,6 +116,14 @@ public partial class SettingsWindow : Window
 
         BuildTabButtons();
         ShowTab("Cursor");
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var extStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
     }
 
     // ────── Sidebar tabs ──────

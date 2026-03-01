@@ -159,6 +159,10 @@ public partial class App : Application
         im.StateChanged += state => Dispatcher.BeginInvoke(() =>
         {
             _toolbar.SetPausedState(state == InteractionState.Paused);
+            if (state == InteractionState.Paused)
+                _cursorCircle.Hide();
+            else
+                _cursorCircle.Show();
         });
 
         // ── Wire ActionMenu → InteractionManager ──
@@ -197,8 +201,9 @@ public partial class App : Application
         {
             Dispatcher.BeginInvoke(() =>
             {
-                // Cursor circle always follows gaze
-                _cursorCircle.UpdatePosition(point);
+                // Cursor circle follows gaze only when not paused
+                if (im.CurrentState != InteractionState.Paused)
+                    _cursorCircle.UpdatePosition(point);
 
                 // Toolbar always receives gaze
                 _toolbar.UpdateGaze(point, timestamp);

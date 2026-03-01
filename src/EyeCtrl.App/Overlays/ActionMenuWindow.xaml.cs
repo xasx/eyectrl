@@ -13,6 +13,7 @@ public partial class ActionMenuWindow : Window
 {
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
     private const double ButtonRadius = 50;
     private const double RingRadius = 160;
 
@@ -43,7 +44,7 @@ public partial class ActionMenuWindow : Window
 
         var hwnd = new WindowInteropHelper(this).Handle;
         var extStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TOOLWINDOW);
+        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
     }
 
     public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs)

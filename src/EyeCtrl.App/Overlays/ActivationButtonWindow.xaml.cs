@@ -11,6 +11,7 @@ public partial class ActivationButtonWindow : Window
 {
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
 
     private const double ButtonCenter = 50.0;
     private const double ArcRadius = 45.0;
@@ -33,7 +34,7 @@ public partial class ActivationButtonWindow : Window
 
         var hwnd = new WindowInteropHelper(this).Handle;
         var extStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TOOLWINDOW);
+        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
     }
 
     public void ShowAt(ScreenPoint position, double verticalOffset = 180)

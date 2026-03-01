@@ -9,7 +9,28 @@ public class SettingsService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    private CancellationTokenSource? _debounceCts;
+    private const int DebounceMs = 500;
+
     public SettingsService(string filePath) => _filePath = filePath;
+
+    public void SaveDebounced(EyeCtrlSettings settings)
+    {
+        _debounceCts?.Cancel();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(DebounceMs, token);
+                if (!token.IsCancellationRequested)
+                    Save(settings);
+            }
+            catch (TaskCanceledException) { }
+        });
+    }
 
     public EyeCtrlSettings Load()
     {

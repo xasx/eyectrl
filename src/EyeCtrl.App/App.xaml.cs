@@ -46,6 +46,7 @@ public partial class App : Application
     private System.Windows.Forms.ToolStripMenuItem _pauseMenuItem = null!;
 
     // State
+    private string _appDataDir = null!;
     private bool _keyboardVisible;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -57,10 +58,10 @@ public partial class App : Application
         splash.Show();
 
         // ── Settings ──
-        var appDataDir = Path.Combine(
+        _appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "EyeCtrl");
-        _settingsService = new SettingsService(Path.Combine(appDataDir, "settings.json"));
+        _settingsService = new SettingsService(Path.Combine(_appDataDir, "settings.json"));
         _settings = _settingsService.Load();
 
         // ── Platform services ──
@@ -253,6 +254,12 @@ public partial class App : Application
                 _settings.Keyboard.KeySizeMultiplier,
                 _settings.Dwell.KeyboardKeyDwellMs,
                 _settings.Dwell.KeyboardPredictionDwellMs);
+
+            // Emoji data paths (lazy-loaded on first use)
+            var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
+            var recentPath = Path.Combine(_appDataDir, "recent_emojis.json");
+            _keyboard.SetEmojiData(emojiPath, recentPath);
+            _keyboard.SetSkinTone(_settings.Keyboard.EmojiSkinTone);
         }
 
         if (_settings.Keyboard.PredictionEnabled)
@@ -356,6 +363,9 @@ public partial class App : Application
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         _gazeEngine?.Stop();
+        _keyboard.GetRecentStore()?.Save();
+        _settings.Keyboard.EmojiSkinTone = _keyboard.GetSkinTone();
+        _settingsService.Save(_settings);
         _wordPredictor?.SaveUserDictionary();
         _gazeEngine?.Dispose();
         base.OnExit(e);

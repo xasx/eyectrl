@@ -413,6 +413,23 @@ public partial class KeyboardWindow : Window
             return;
         }
 
+        if (lowerAction.StartsWith("setskintone:"))
+        {
+            if (int.TryParse(action[12..], out var tone))
+            {
+                _skinTone = Math.Clamp(tone, 0, 5);
+                // Return to emoji grid with new skin tone applied
+                BuildEmojiGrid();
+            }
+            return;
+        }
+
+        if (lowerAction == "skintoneback")
+        {
+            BuildEmojiGrid();
+            return;
+        }
+
         if (lowerAction.StartsWith("switchsub:"))
         {
             var targetSubId = action[10..]; // preserve original casing of sub-layout id
@@ -834,7 +851,53 @@ public partial class KeyboardWindow : Window
         _categoryTargetsInitialized = true;
     }
 
-    // ── Stub for Task 7 ─────────────────────────────────────────────────
+    private void ShowSkinToneSelector()
+    {
+        _keyVisuals.Clear();
+        _keyDefinitions.Clear();
+        _keyScreenPositions.Clear();
+        _currentNearestKeyId = null;
+        KeyRows.Children.Clear();
 
-    private void ShowSkinToneSelector() { }
+        var rowPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+
+        string[] previews = { "\uD83D\uDC4B", "\uD83D\uDC4B\uD83C\uDFFB", "\uD83D\uDC4B\uD83C\uDFFC", "\uD83D\uDC4B\uD83C\uDFFD", "\uD83D\uDC4B\uD83C\uDFFE", "\uD83D\uDC4B\uD83C\uDFFF" };
+        for (int i = 0; i < 6; i++)
+        {
+            var id = $"skin_{i}";
+            _keyDefinitions[id] = new KeyDefinition { Label = previews[i], Output = "", SpecialAction = $"setSkinTone:{i}" };
+
+            var isActive = i == _skinTone;
+            var label = new TextBlock
+            {
+                Text = previews[i],
+                FontSize = 32,
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var container = new Border
+            {
+                Width = _keySize * 1.5,
+                Height = _keySize * 1.5,
+                Margin = new Thickness(4),
+                Background = new SolidColorBrush(isActive
+                    ? Color.FromArgb(200, 0, 100, 0)
+                    : Color.FromArgb(200, 50, 50, 50)),
+                CornerRadius = new CornerRadius(8),
+                Child = label
+            };
+
+            _keyVisuals[id] = (container, label);
+            rowPanel.Children.Add(container);
+        }
+
+        KeyRows.Children.Add(rowPanel);
+
+        // Back button
+        var backRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        AddSpecialButton(backRow, "Back", "skinToneBack", 2.0);
+        KeyRows.Children.Add(backRow);
+    }
 }

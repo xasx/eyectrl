@@ -5,33 +5,23 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Processing;
+using EyeCtrl.ViewModels;
 
 public partial class ActionMenuWindow : OverlayWindow
 {
     private const double ButtonRadius = 50;
     private const double RingRadius = 160;
 
-    private readonly DwellDetector _dwellDetector = new();
     private readonly Dictionary<string, (Ellipse Background, Path ProgressArc, ArcSegment Arc)> _buttonVisuals = new();
-    private readonly Dictionary<string, InteractionAction> _actionMap = new();
-
-    public event Action<InteractionAction>? ActionSelected;
-    public event Action? BackSelected;
 
     public ActionMenuWindow()
     {
         InitializeComponent();
-
-        _dwellDetector.TargetActivated += OnTargetActivated;
-        _dwellDetector.TargetProgress += OnTargetProgress;
     }
 
     public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs)
     {
-        _dwellDetector.ClearTargets();
         _buttonVisuals.Clear();
-        _actionMap.Clear();
         MenuCanvas.Children.Clear();
 
         var allItems = new List<(string Id, string Label)>();
@@ -39,7 +29,6 @@ public partial class ActionMenuWindow : OverlayWindow
         {
             var id = action.ToString();
             allItems.Add((id, GetActionSymbol(action)));
-            _actionMap[id] = action;
         }
         if (showBackButton)
             allItems.Add(("Back", "\u21A9")); // ↩ Back arrow
@@ -53,9 +42,6 @@ public partial class ActionMenuWindow : OverlayWindow
             var angleRad = (angleStep * i - 90) * Math.PI / 180;
             var bx = canvasCenter.X + RingRadius * Math.Cos(angleRad);
             var by = canvasCenter.Y + RingRadius * Math.Sin(angleRad);
-
-            var buttonCenter = new ScreenPoint(bx, by);
-            _dwellDetector.AddTarget(new DwellTarget(id, buttonCenter, ButtonRadius, dwellTimeMs));
 
             // Background circle
             var bg = new Ellipse
@@ -114,28 +100,26 @@ public partial class ActionMenuWindow : OverlayWindow
             MenuCanvas.Children.Add(textBlock);
         }
 
+        // Subscribe to VM item dwell progress changes for visual updates
+        if (DataContext is ActionMenuViewModel vm)
+        {
+            foreach (var itemVm in vm.Items)
+            {
+                var capturedId = itemVm.Id;
+                itemVm.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(ActionMenuItemViewModel.DwellProgress))
+                        UpdateItemProgress(capturedId, itemVm.DwellProgress);
+                };
+            }
+        }
+
         Left = center.X - Width / 2;
         Top = center.Y - Height / 2;
         Show();
     }
 
-    public void UpdateGaze(ScreenPoint screenPoint, long timestampMicroseconds)
-    {
-        // Convert screen coordinates to local canvas coordinates
-        var localX = screenPoint.X - Left;
-        var localY = screenPoint.Y - Top;
-        _dwellDetector.Update(new ScreenPoint(localX, localY), timestampMicroseconds);
-    }
-
-    private void OnTargetActivated(string targetId)
-    {
-        if (targetId == "Back")
-            BackSelected?.Invoke();
-        else if (_actionMap.TryGetValue(targetId, out var action))
-            ActionSelected?.Invoke(action);
-    }
-
-    private void OnTargetProgress(string targetId, double progress)
+    private void UpdateItemProgress(string targetId, double progress)
     {
         if (!_buttonVisuals.TryGetValue(targetId, out var visuals)) return;
 

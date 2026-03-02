@@ -5,34 +5,22 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Processing;
+using EyeCtrl.ViewModels;
 
 public partial class ToolbarWindow : OverlayWindow
 {
-    private readonly DwellDetector _dwellDetector = new();
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
     private double _buttonSize;
-
-    private bool _isPaused;
-    private bool _isZoomOn;
     private bool _targetsInitialized;
-
-    public event Action? PauseToggled;
-    public event Action? ZoomToggled;
-    public event Action? KeyboardToggled;
-    public event Action? SettingsRequested;
 
     public ToolbarWindow()
     {
         InitializeComponent();
-        _dwellDetector.TargetActivated += OnTargetActivated;
-        _dwellDetector.TargetProgress += OnTargetProgress;
     }
 
     public void Initialize(double buttonSize, int dwellTimeMs)
     {
         _buttonSize = buttonSize;
-        _dwellDetector.ClearTargets();
         _buttonVisuals.Clear();
         ButtonPanel.Children.Clear();
         _targetsInitialized = false;
@@ -47,10 +35,10 @@ public partial class ToolbarWindow : OverlayWindow
         };
 
         foreach (var (id, symbol) in buttons)
-            AddButton(id, symbol, dwellTimeMs);
+            AddButton(id, symbol);
     }
 
-    private void AddButton(string id, string symbol, int dwellTimeMs)
+    private void AddButton(string id, string symbol)
     {
         var progressBar = new Rectangle
         {
@@ -87,9 +75,6 @@ public partial class ToolbarWindow : OverlayWindow
 
         _buttonVisuals[id] = (container, progressBar, label);
         ButtonPanel.Children.Add(container);
-
-        // DwellTarget gets its center updated on first gaze via UpdateTargetPositions
-        _dwellDetector.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), _buttonSize / 2, dwellTimeMs));
     }
 
     public void SetMode(bool isDocked, string edge)
@@ -130,21 +115,20 @@ public partial class ToolbarWindow : OverlayWindow
 
     public void UpdateGaze(ScreenPoint screenPoint, long timestampMicroseconds)
     {
-        // Update target positions only once after layout or mode change
         if (!_targetsInitialized)
             UpdateTargetPositions();
-
-        _dwellDetector.Update(screenPoint, timestampMicroseconds);
     }
 
     private void UpdateTargetPositions()
     {
+        if (DataContext is not ToolbarViewModel vm) return;
+
         foreach (var (id, (container, _, _)) in _buttonVisuals)
         {
             try
             {
                 var pos = container.PointToScreen(new Point(container.ActualWidth / 2, container.ActualHeight / 2));
-                _dwellDetector.UpdateTargetCenter(id, new ScreenPoint(pos.X, pos.Y));
+                vm.UpdateButtonScreenPosition(id, new ScreenPoint(pos.X, pos.Y));
             }
             catch
             {
@@ -158,7 +142,6 @@ public partial class ToolbarWindow : OverlayWindow
 
     public void SetPausedState(bool isPaused)
     {
-        _isPaused = isPaused;
         if (_buttonVisuals.TryGetValue("Pause", out var visuals))
         {
             // ▶ Play / ⏸ Pause
@@ -168,7 +151,6 @@ public partial class ToolbarWindow : OverlayWindow
 
     public void SetZoomState(bool isZoomOn)
     {
-        _isZoomOn = isZoomOn;
         if (_buttonVisuals.TryGetValue("Zoom", out var visuals))
         {
             visuals.Container.Background = isZoomOn
@@ -177,24 +159,25 @@ public partial class ToolbarWindow : OverlayWindow
         }
     }
 
-    private void OnTargetActivated(string targetId)
+    /// <summary>
+    /// Subscribes to each ToolbarButtonViewModel.PropertyChanged to drive
+    /// progress bar visuals from the ViewModel's dwell state.
+    /// Call after DataContext is set.
+    /// </summary>
+    public void BindToViewModel()
     {
-        // Reset progress bar on activation
-        if (_buttonVisuals.TryGetValue(targetId, out var visuals))
-            visuals.ProgressBar.Width = 0;
-
-        switch (targetId)
+        if (DataContext is not ToolbarViewModel vm) return;
+        foreach (var btn in vm.Buttons)
         {
-            case "Pause": PauseToggled?.Invoke(); break;
-            case "Zoom": ZoomToggled?.Invoke(); break;
-            case "Keyboard": KeyboardToggled?.Invoke(); break;
-            case "Settings": SettingsRequested?.Invoke(); break;
+            var id = btn.Id;
+            btn.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(ToolbarButtonViewModel.DwellProgress))
+                {
+                    if (_buttonVisuals.TryGetValue(id, out var visuals))
+                        visuals.ProgressBar.Width = btn.DwellProgress * _buttonSize;
+                }
+            };
         }
-    }
-
-    private void OnTargetProgress(string targetId, double progress)
-    {
-        if (_buttonVisuals.TryGetValue(targetId, out var visuals))
-            visuals.ProgressBar.Width = progress * _buttonSize;
     }
 }

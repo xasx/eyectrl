@@ -4,9 +4,11 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Core.Keyboard;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.ViewModels.Messages;
 
 public partial class KeyboardWindow : OverlayWindow
 {
@@ -56,9 +58,6 @@ public partial class KeyboardWindow : OverlayWindow
         "\U0001F3FE", // 4 = medium-dark
         "\U0001F3FF", // 5 = dark
     };
-
-    public event Action<string>? KeyActivated;
-    public event Action<string>? PredictionSelected;
 
     public KeyboardWindow()
     {
@@ -335,7 +334,7 @@ public partial class KeyboardWindow : OverlayWindow
         _currentInput += output;
         _predictor?.LearnWord(output);
         UpdatePredictions();
-        KeyActivated?.Invoke(output);
+        WeakReferenceMessenger.Default.Send(new KeyActivatedMessage(output));
 
         // Track emoji in recents
         if (_isEmojiMode && !string.IsNullOrEmpty(output))
@@ -430,22 +429,22 @@ public partial class KeyboardWindow : OverlayWindow
                 if (_currentInput.Length > 0)
                     _currentInput = _currentInput[..^1];
                 UpdatePredictions();
-                KeyActivated?.Invoke("\b");
+                WeakReferenceMessenger.Default.Send(new KeyActivatedMessage("\b"));
                 break;
             case "enter":
                 _currentInput = "";
                 UpdatePredictions();
-                KeyActivated?.Invoke("\n");
+                WeakReferenceMessenger.Default.Send(new KeyActivatedMessage("\n"));
                 break;
             case "tab":
-                KeyActivated?.Invoke("\t");
+                WeakReferenceMessenger.Default.Send(new KeyActivatedMessage("\t"));
                 break;
             case "space":
                 if (_currentInput.Length > 0)
                     _predictor?.LearnWord(_currentInput);
                 _currentInput = "";
                 UpdatePredictions();
-                KeyActivated?.Invoke(" ");
+                WeakReferenceMessenger.Default.Send(new KeyActivatedMessage(" "));
                 break;
         }
     }
@@ -526,7 +525,7 @@ public partial class KeyboardWindow : OverlayWindow
                 _predictor?.LearnWord(word);
                 _currentInput = "";
                 UpdatePredictions();
-                PredictionSelected?.Invoke(word);
+                WeakReferenceMessenger.Default.Send(new PredictionSelectedMessage(word));
             }
         }
     }

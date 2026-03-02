@@ -323,18 +323,14 @@ public partial class App : Application
         // ── Gaze routing for overlays that still need direct UpdateGaze ──
         gazeEngine.CursorMoved += (point, timestamp) => Dispatcher.BeginInvoke(() =>
         {
-            // Toolbar gaze (for dwell detection in its own DwellDetector)
+            // Toolbar position reporting (VM handles dwell via GazeCursorMovedMessage)
             toolbar.UpdateGaze(point, timestamp);
 
-            // Action menu gaze (for its internal DwellDetector rendering)
-            if (actionMenu.IsVisible)
-                actionMenu.UpdateGaze(point, timestamp);
-
-            // Keyboard gaze
+            // Keyboard gaze (still uses window-level dwell)
             if (_keyboardVisible && keyboard.IsVisible)
                 keyboard.UpdateGaze(point, timestamp);
 
-            // Settings gaze
+            // Settings gaze (still uses window-level dwell)
             if (settingsWindow?.IsVisible == true)
                 settingsWindow.UpdateGaze(point, timestamp);
         });
@@ -348,6 +344,7 @@ public partial class App : Application
         toolbar.Show();
         toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
         toolbar.SetZoomState(settings.Zoom.Enabled);
+        toolbar.BindToViewModel();
 
         if (settings.General.StartPaused)
             im.TogglePause();

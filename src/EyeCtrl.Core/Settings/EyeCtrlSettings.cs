@@ -1,12 +1,15 @@
 namespace EyeCtrl.Core.Settings;
-public class EyeCtrlSettings
+
+using CommunityToolkit.Mvvm.ComponentModel;
+
+public partial class EyeCtrlSettings : ObservableObject
 {
-    public CursorSettings Cursor { get; set; } = new();
-    public DwellSettings Dwell { get; set; } = new();
-    public ZoomSettings Zoom { get; set; } = new();
-    public ActionMenuSettings ActionMenu { get; set; } = new();
-    public KeyboardSettings Keyboard { get; set; } = new();
-    public ToolbarSettings Toolbar { get; set; } = new();
-    public ThemeSettings Theme { get; set; } = new();
-    public GeneralSettings General { get; set; } = new();
+    [ObservableProperty] private CursorSettings _cursor = new();
+    [ObservableProperty] private DwellSettings _dwell = new();
+    [ObservableProperty] private ZoomSettings _zoom = new();
+    [ObservableProperty] private ActionMenuSettings _actionMenu = new();
+    [ObservableProperty] private KeyboardSettings _keyboard = new();
+    [ObservableProperty] private ToolbarSettings _toolbar = new();
+    [ObservableProperty] private ThemeSettings _theme = new();
+    [ObservableProperty] private GeneralSettings _general = new();
 }

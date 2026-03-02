@@ -1,7 +1,10 @@
 namespace EyeCtrl.Core.Settings;
-public class ThemeSettings
+
+using CommunityToolkit.Mvvm.ComponentModel;
+
+public partial class ThemeSettings : ObservableObject
 {
-    public string Mode { get; set; } = "System";
-    public double OverlayOpacity { get; set; } = 0.9;
-    public bool HighContrast { get; set; } = false;
+    [ObservableProperty] private string _mode = "System";
+    [ObservableProperty] private double _overlayOpacity = 0.9;
+    [ObservableProperty] private bool _highContrast = false;
 }

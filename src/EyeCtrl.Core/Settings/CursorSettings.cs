@@ -1,15 +1,18 @@
 namespace EyeCtrl.Core.Settings;
+
+using CommunityToolkit.Mvvm.ComponentModel;
 using EyeCtrl.Core.Models;
-public class CursorSettings
+
+public partial class CursorSettings : ObservableObject
 {
-    public GazeFilterMode FilterMode { get; set; } = GazeFilterMode.OneEuro;
-    public double SmoothingFactor { get; set; } = 0.5;
-    public double OneEuroMinCutoff { get; set; } = 5.0;
-    public double OneEuroBeta { get; set; } = 0.5;
-    public int SnapRadiusPixels { get; set; } = 30;
-    public string CircleColor { get; set; } = "#00FF00";
-    public double CircleOpacity { get; set; } = 0.6;
-    public double CircleThickness { get; set; } = 2.0;
-    public double CircleSize { get; set; } = 250;
-    public bool CircleHighContrast { get; set; } = false;
+    [ObservableProperty] private GazeFilterMode _filterMode = GazeFilterMode.OneEuro;
+    [ObservableProperty] private double _smoothingFactor = 0.5;
+    [ObservableProperty] private double _oneEuroMinCutoff = 5.0;
+    [ObservableProperty] private double _oneEuroBeta = 0.5;
+    [ObservableProperty] private int _snapRadiusPixels = 30;
+    [ObservableProperty] private string _circleColor = "#00FF00";
+    [ObservableProperty] private double _circleOpacity = 0.6;
+    [ObservableProperty] private double _circleThickness = 2.0;
+    [ObservableProperty] private double _circleSize = 250;
+    [ObservableProperty] private bool _circleHighContrast = false;
 }

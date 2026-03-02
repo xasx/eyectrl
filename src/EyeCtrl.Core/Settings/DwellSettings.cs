@@ -1,12 +1,15 @@
 namespace EyeCtrl.Core.Settings;
-public class DwellSettings
+
+using CommunityToolkit.Mvvm.ComponentModel;
+
+public partial class DwellSettings : ObservableObject
 {
-    public int FixationDetectionMs { get; set; } = 300;
-    public int ActivationButtonDwellMs { get; set; } = 700;
-    public int ActionMenuDwellMs { get; set; } = 600;
-    public int ZoomActionMenuDwellMs { get; set; } = 600;
-    public int ToolbarButtonDwellMs { get; set; } = 700;
-    public int KeyboardKeyDwellMs { get; set; } = 450;
-    public int KeyboardPredictionDwellMs { get; set; } = 500;
-    public double FixationRadiusPixels { get; set; } = 50;
+    [ObservableProperty] private int _fixationDetectionMs = 300;
+    [ObservableProperty] private int _activationButtonDwellMs = 700;
+    [ObservableProperty] private int _actionMenuDwellMs = 600;
+    [ObservableProperty] private int _zoomActionMenuDwellMs = 600;
+    [ObservableProperty] private int _toolbarButtonDwellMs = 700;
+    [ObservableProperty] private int _keyboardKeyDwellMs = 450;
+    [ObservableProperty] private int _keyboardPredictionDwellMs = 500;
+    [ObservableProperty] private double _fixationRadiusPixels = 50;
 }

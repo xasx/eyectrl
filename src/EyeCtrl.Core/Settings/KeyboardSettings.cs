@@ -1,10 +1,13 @@
 namespace EyeCtrl.Core.Settings;
-public class KeyboardSettings
+
+using CommunityToolkit.Mvvm.ComponentModel;
+
+public partial class KeyboardSettings : ObservableObject
 {
-    public string ActiveLayout { get; set; } = "QWERTY";
-    public double KeySizeMultiplier { get; set; } = 1.0;
-    public bool PredictionEnabled { get; set; } = true;
-    public string LanguagePack { get; set; } = "en";
-    public string ScreenEdge { get; set; } = "Bottom";
-    public int EmojiSkinTone { get; set; } = 0; // 0=default, 1-5=light..dark
+    [ObservableProperty] private string _activeLayout = "QWERTY";
+    [ObservableProperty] private double _keySizeMultiplier = 1.0;
+    [ObservableProperty] private bool _predictionEnabled = true;
+    [ObservableProperty] private string _languagePack = "en";
+    [ObservableProperty] private string _screenEdge = "Bottom";
+    [ObservableProperty] private int _emojiSkinTone = 0;
 }

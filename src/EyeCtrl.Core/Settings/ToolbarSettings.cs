@@ -1,7 +1,10 @@
 namespace EyeCtrl.Core.Settings;
-public class ToolbarSettings
+
+using CommunityToolkit.Mvvm.ComponentModel;
+
+public partial class ToolbarSettings : ObservableObject
 {
-    public bool IsDocked { get; set; } = true;
-    public string DockedEdge { get; set; } = "Top";
-    public double Size { get; set; } = 80;
+    [ObservableProperty] private bool _isDocked = true;
+    [ObservableProperty] private string _dockedEdge = "Top";
+    [ObservableProperty] private double _size = 80;
 }

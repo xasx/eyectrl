@@ -1,8 +1,11 @@
 namespace EyeCtrl.Core.Settings;
+
+using CommunityToolkit.Mvvm.ComponentModel;
 using EyeCtrl.Core.Models;
-public class ActionMenuSettings
+
+public partial class ActionMenuSettings : ObservableObject
 {
-    public List<InteractionAction> VisibleActions { get; set; } = new()
+    [ObservableProperty] private List<InteractionAction> _visibleActions = new()
     {
         InteractionAction.LeftClick, InteractionAction.RightClick,
         InteractionAction.DoubleClick, InteractionAction.DragStart,

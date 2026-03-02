@@ -1,6 +1,9 @@
 namespace EyeCtrl.Core.Settings;
-public class GeneralSettings
+
+using CommunityToolkit.Mvvm.ComponentModel;
+
+public partial class GeneralSettings : ObservableObject
 {
-    public bool StartOnBoot { get; set; } = false;
-    public bool StartPaused { get; set; } = false;
+    [ObservableProperty] private bool _startOnBoot = false;
+    [ObservableProperty] private bool _startPaused = false;
 }

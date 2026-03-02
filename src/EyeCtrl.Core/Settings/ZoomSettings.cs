@@ -1,7 +1,10 @@
 namespace EyeCtrl.Core.Settings;
-public class ZoomSettings
+
+using CommunityToolkit.Mvvm.ComponentModel;
+
+public partial class ZoomSettings : ObservableObject
 {
-    public bool Enabled { get; set; } = false;
-    public int CircleRadiusPixels { get; set; } = 150;
-    public double MagnificationLevel { get; set; } = 2.0;
+    [ObservableProperty] private bool _enabled = false;
+    [ObservableProperty] private int _circleRadiusPixels = 150;
+    [ObservableProperty] private double _magnificationLevel = 2.0;
 }

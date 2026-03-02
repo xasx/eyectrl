@@ -206,7 +206,7 @@ public class AppFixture : IAsyncLifetime
 
     private static string FindAppExe(string projectDir)
     {
-        var binDir = Path.Combine(projectDir, "bin", "Debug", "net8.0-windows");
+        var binDir = Path.Combine(projectDir, "bin", "Debug", "net10.0-windows");
         var exe = Path.Combine(binDir, "EyeCtrl.App.exe");
         if (File.Exists(exe))
             return exe;

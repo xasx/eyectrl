@@ -3,7 +3,9 @@ namespace EyeCtrl.App;
 using System.Drawing;
 using System.IO;
 using System.Windows;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Views;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
@@ -14,40 +16,18 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Gaze;
 using EyeCtrl.Platform.Input;
+using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.DependencyInjection;
 
 public partial class App : Application
 {
-    // Core services
-    private SettingsService _settingsService = null!;
-    private EyeCtrlSettings _settings = null!;
-    private GazeEngine _gazeEngine = null!;
-    private IInputSimulator _inputSimulator = null!;
-
-    // Overlays
-    private CursorCircleWindow _cursorCircle = null!;
-    private ActivationButtonWindow _activationButton = null!;
-    private ActionMenuWindow _actionMenu = null!;
-    private ToolbarWindow _toolbar = null!;
-    private ZoomOverlayWindow _zoomOverlay = null!;
-    private KeyboardWindow _keyboard = null!;
-    private SettingsWindow? _settingsWindow;
-
-    // Activation button dwell tracking
-    private readonly DwellDetector _activationDwell = new();
-
-    // Zoom fixation tracking
-    private FixationDetector? _zoomFixation;
-
-    // Prediction
-    private WordPredictor? _wordPredictor;
-
-    // System tray
+    private ServiceProvider _serviceProvider = null!;
     private System.Windows.Forms.NotifyIcon _trayIcon = null!;
     private System.Windows.Forms.ToolStripMenuItem _pauseMenuItem = null!;
-
-    // State
-    private string _appDataDir = null!;
     private bool _keyboardVisible;
+    private WordPredictor? _wordPredictor;
+    private string _appDataDir = null!;
 
     /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
@@ -58,7 +38,6 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
 
         // ── Splash screen ──
@@ -71,277 +50,342 @@ public partial class App : Application
 
         // ── Settings ──
         _appDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "EyeCtrl");
-        _settingsService = new SettingsService(Path.Combine(_appDataDir, "settings.json"));
-        _settings = _settingsService.Load();
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+        var settingsService = new SettingsService(Path.Combine(_appDataDir, "settings.json"));
+        var settings = settingsService.Load();
 
-        // ── Platform services ──
-        IGazeProvider gazeProvider;
-        if (IsTestMode)
+        // ── Build DI container ──
+        var services = new ServiceCollection();
+
+        // Messenger (singleton)
+        services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
+
+        // Settings (singleton instances)
+        services.AddSingleton(settings);
+        services.AddSingleton(settings.Cursor);
+        services.AddSingleton(settings.Dwell);
+        services.AddSingleton(settings.Zoom);
+        services.AddSingleton(settings.ActionMenu);
+        services.AddSingleton(settings.Keyboard);
+        services.AddSingleton(settings.Toolbar);
+        services.AddSingleton(settings.Theme);
+        services.AddSingleton(settings.General);
+        services.AddSingleton(settingsService);
+
+        // Platform services
+        services.AddSingleton<IInputSimulator, Win32InputSimulator>();
+        services.AddSingleton<IGazeProvider>(_ =>
         {
-            gazeProvider = new MouseGazeProvider();
-        }
-        else
-        {
+            if (IsTestMode)
+                return new MouseGazeProvider();
             try
             {
-                gazeProvider = new TobiiInteractionLibProvider(
+                return new TobiiInteractionLibProvider(
                     SystemParameters.PrimaryScreenWidth,
                     SystemParameters.PrimaryScreenHeight);
             }
             catch
             {
-                // Tobii not available — fall back to mouse-based gaze simulation
-                gazeProvider = new MouseGazeProvider();
+                return new MouseGazeProvider();
             }
-        }
-        _inputSimulator = new Win32InputSimulator();
+        });
 
-        // ── GazeEngine (creates filter, fixation detector, InteractionManager) ──
-        _gazeEngine = new GazeEngine(gazeProvider, _inputSimulator, _settings);
-        var im = _gazeEngine.InteractionManager;
+        // Core engine
+        services.AddSingleton<GazeEngine>();
+
+        // ViewModels (singleton -- each registers message handlers in constructor)
+        services.AddSingleton<CursorCircleViewModel>();
+        services.AddSingleton<ActivationButtonViewModel>();
+        services.AddSingleton<ZoomOverlayViewModel>();
+        services.AddSingleton<ActionMenuViewModel>();
+        services.AddSingleton<ToolbarViewModel>();
+        services.AddSingleton<KeyboardViewModel>();
+        services.AddSingleton(sp => new SettingsViewModel(
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            sp.GetRequiredService<SettingsService>(),
+            sp.GetRequiredService<IMessenger>()));
+
+        // GazeEngineAdapter (bridges Core events <-> MVVM messages)
+        services.AddSingleton(sp => new GazeEngineAdapter(
+            sp.GetRequiredService<GazeEngine>(),
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            sp.GetRequiredService<IMessenger>(),
+            Dispatcher));
+
+        _serviceProvider = services.BuildServiceProvider();
+
+        // ── Resolve services ──
+        var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
+        var messenger = _serviceProvider.GetRequiredService<IMessenger>();
+        var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
+        var im = gazeEngine.InteractionManager;
+
+        // Resolve ViewModels (triggers RegisterAll in constructors)
+        var cursorVM = _serviceProvider.GetRequiredService<CursorCircleViewModel>();
+        var activationVM = _serviceProvider.GetRequiredService<ActivationButtonViewModel>();
+        var zoomVM = _serviceProvider.GetRequiredService<ZoomOverlayViewModel>();
+        var actionMenuVM = _serviceProvider.GetRequiredService<ActionMenuViewModel>();
+        var toolbarVM = _serviceProvider.GetRequiredService<ToolbarViewModel>();
+        var keyboardVM = _serviceProvider.GetRequiredService<KeyboardViewModel>();
+
+        // Resolve adapter (triggers Core event subscriptions)
+        _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
 
         // ── Create overlay windows ──
-        _cursorCircle = new CursorCircleWindow();
-        _activationButton = new ActivationButtonWindow();
-        _actionMenu = new ActionMenuWindow();
-        _toolbar = new ToolbarWindow();
-        _zoomOverlay = new ZoomOverlayWindow();
-        _keyboard = new KeyboardWindow();
+        var cursorCircle = new CursorCircleWindow();
+        var activationButton = new ActivationButtonWindow();
+        var zoomOverlay = new ZoomOverlayWindow();
+        var actionMenu = new ActionMenuWindow();
+        var toolbar = new ToolbarWindow();
+        var keyboard = new KeyboardWindow();
 
-        // ── Initialize overlays ──
-        _cursorCircle.UpdateAppearance(_settings.Cursor);
-        _toolbar.Initialize(_settings.Toolbar.Size, _settings.Dwell.ToolbarButtonDwellMs);
-        LoadKeyboard();
+        // Set DataContext
+        cursorCircle.DataContext = cursorVM;
+        activationButton.DataContext = activationVM;
+        zoomOverlay.DataContext = zoomVM;
+        actionMenu.DataContext = actionMenuVM;
+        toolbar.DataContext = toolbarVM;
+        keyboard.DataContext = keyboardVM;
 
-        // ── Wire activation button dwell detector ──
-        _activationDwell.TargetActivated += _ =>
-            Dispatcher.BeginInvoke(() => im.OnActivationButtonDwelled());
-        _activationDwell.TargetProgress += (_, progress) =>
-            Dispatcher.BeginInvoke(() => _activationButton.UpdateDwellProgress(progress));
+        // ── Initialize overlays (existing APIs) ──
+        cursorCircle.UpdateAppearance(settings.Cursor);
+        toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
+        LoadKeyboard(keyboard, settings, inputSimulator);
 
-        // ── Wire InteractionManager → overlay windows ──
+        // ── Bridge ViewModel -> Overlay Windows via PropertyChanged ──
 
-        im.ShowActivationButton += point => Dispatcher.BeginInvoke(() =>
+        // CursorCircle: VM.Position -> window position, VM.IsVisible -> show/hide
+        cursorVM.PropertyChanged += (_, e) =>
         {
-            // Place activation button just outside the cursor circle (above it)
-            var circleRadius = _settings.Cursor.CircleSize / 2;
-            var buttonOffset = circleRadius + 55; // half button (50) + 5px gap
-            _activationButton.Show();
-            _activationButton.ShowAt(point, buttonOffset);
-            _activationDwell.ClearTargets();
-            _activationDwell.AddTarget(new DwellTarget("activate",
-                new ScreenPoint(point.X, point.Y - buttonOffset), 50,
-                _settings.Dwell.ActivationButtonDwellMs));
-        });
-
-        im.HideActivationButton += () => Dispatcher.BeginInvoke(() =>
-        {
-            _activationButton.HideImmediate();
-            _activationDwell.ClearTargets();
-        });
-
-        im.ShowActionMenu += point => Dispatcher.BeginInvoke(() =>
-        {
-            var showBack = im.CurrentState == InteractionState.ZoomActionMenuVisible;
-            var dwellMs = showBack
-                ? _settings.Dwell.ZoomActionMenuDwellMs
-                : _settings.Dwell.ActionMenuDwellMs;
-            _actionMenu.Show(point, _settings.ActionMenu.VisibleActions, showBack, dwellMs);
-        });
-
-        im.HideActionMenu += () => Dispatcher.BeginInvoke(() => _actionMenu.Hide());
-
-        im.StartZoom += point => Dispatcher.BeginInvoke(() =>
-        {
-            _zoomOverlay.Show(point,
-                _settings.Zoom.CircleRadiusPixels,
-                _settings.Zoom.MagnificationLevel);
-
-            _zoomFixation = new FixationDetector(
-                _settings.Dwell.FixationRadiusPixels / _settings.Zoom.MagnificationLevel,
-                _settings.Dwell.FixationDetectionMs);
-            _zoomFixation.FixationStarted += zoomPoint =>
+            switch (e.PropertyName)
             {
-                var realPoint = _zoomOverlay.GetRealScreenPoint(zoomPoint);
-                Dispatcher.BeginInvoke(() => im.OnZoomFixation(realPoint));
-            };
-        });
-
-        im.EndZoom += () => Dispatcher.BeginInvoke(() =>
-        {
-            _zoomOverlay.Hide();
-            _zoomFixation = null;
-        });
-
-        im.StateChanged += state => Dispatcher.BeginInvoke(() =>
-        {
-            _toolbar.SetPausedState(state == InteractionState.Paused);
-            if (state == InteractionState.Paused)
-                _cursorCircle.Hide();
-            else
-                _cursorCircle.Show();
-        });
-
-        // ── Wire ActionMenu → InteractionManager ──
-        _actionMenu.ActionSelected += action => im.OnActionSelected(action);
-        _actionMenu.BackSelected += () => im.OnZoomBack();
-
-        // ── Wire Toolbar events ──
-        _toolbar.PauseToggled += () => im.TogglePause();
-        _toolbar.ZoomToggled += () =>
-        {
-            im.ZoomEnabled = !im.ZoomEnabled;
-            _settings.Zoom.Enabled = im.ZoomEnabled;
-            _toolbar.SetZoomState(im.ZoomEnabled);
-        };
-        _toolbar.KeyboardToggled += () => Dispatcher.BeginInvoke(ToggleKeyboard);
-        _toolbar.SettingsRequested += () => Dispatcher.BeginInvoke(OpenSettings);
-
-        // ── Wire Keyboard events → InputSimulator ──
-        _keyboard.KeyActivated += text =>
-        {
-            switch (text)
-            {
-                case "\b": _inputSimulator.SendKeyPress(0x08); break; // VK_BACK
-                case "\n": _inputSimulator.SendKeyPress(0x0D); break; // VK_RETURN
-                case "\t": _inputSimulator.SendKeyPress(0x09); break; // VK_TAB
-                default: _inputSimulator.SendText(text); break;
+                case nameof(CursorCircleViewModel.Position):
+                    cursorCircle.UpdatePosition(cursorVM.Position);
+                    break;
+                case nameof(CursorCircleViewModel.IsVisible):
+                    if (cursorVM.IsVisible) cursorCircle.Show();
+                    else cursorCircle.Hide();
+                    break;
             }
         };
-        _keyboard.PredictionSelected += word =>
-        {
-            _inputSimulator.SendText(word + " ");
-        };
 
-        // ── Wire gaze to all overlays ──
-        _gazeEngine.CursorMoved += (point, timestamp) =>
+        // ActivationButton: VM -> show/hide/dwell
+        activationVM.PropertyChanged += (_, e) =>
         {
-            Dispatcher.BeginInvoke(() =>
+            switch (e.PropertyName)
             {
-                // Cursor circle follows gaze only when not paused
-                if (im.CurrentState != InteractionState.Paused)
-                    _cursorCircle.UpdatePosition(point);
-
-                // Toolbar always receives gaze
-                _toolbar.UpdateGaze(point, timestamp);
-
-                // Action menu receives gaze when visible
-                if (_actionMenu.IsVisible)
-                    _actionMenu.UpdateGaze(point, timestamp);
-
-                // Keyboard receives gaze when visible
-                if (_keyboardVisible && _keyboard.IsVisible)
-                    _keyboard.UpdateGaze(point, timestamp);
-
-                // Settings window receives gaze when open
-                if (_settingsWindow?.IsVisible == true)
-                    _settingsWindow.UpdateGaze(point, timestamp);
-
-                // Activation button dwell tracking during Fixation state
-                if (im.CurrentState == InteractionState.Fixation)
-                    _activationDwell.Update(point, timestamp);
-
-                // Zoom fixation tracking during ZoomActive state
-                if (im.CurrentState == InteractionState.ZoomActive && _zoomFixation != null)
-                    _zoomFixation.Update(point, timestamp);
-            });
+                case nameof(ActivationButtonViewModel.IsVisible):
+                    if (activationVM.IsVisible)
+                    {
+                        var circleRadius = settings.Cursor.CircleSize / 2;
+                        var buttonOffset = circleRadius + 55;
+                        activationButton.Show();
+                        activationButton.ShowAt(activationVM.Position, buttonOffset);
+                    }
+                    else
+                    {
+                        activationButton.HideImmediate();
+                    }
+                    break;
+                case nameof(ActivationButtonViewModel.DwellProgress):
+                    activationButton.UpdateDwellProgress(activationVM.DwellProgress);
+                    break;
+            }
         };
 
-        // ── System tray icon ──
+        // ZoomOverlay: VM -> show/hide with fixation tracking
+        zoomVM.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ZoomOverlayViewModel.IsVisible))
+            {
+                if (zoomVM.IsVisible)
+                {
+                    zoomOverlay.Show(zoomVM.Center, zoomVM.Radius, zoomVM.Magnification);
+
+                    // Set up zoom fixation detection
+                    var zoomFixation = new FixationDetector(
+                        settings.Dwell.FixationRadiusPixels / settings.Zoom.MagnificationLevel,
+                        settings.Dwell.FixationDetectionMs);
+                    zoomFixation.FixationStarted += zoomPoint =>
+                    {
+                        var realPoint = zoomOverlay.GetRealScreenPoint(zoomPoint);
+                        Dispatcher.BeginInvoke(() => im.OnZoomFixation(realPoint));
+                    };
+
+                    // Feed gaze data to zoom fixation detector when in zoom mode
+                    void onGaze(ScreenPoint pt, long ts)
+                    {
+                        if (im.CurrentState == InteractionState.ZoomActive)
+                            zoomFixation.Update(pt, ts);
+                    }
+                    gazeEngine.CursorMoved += onGaze;
+
+                    // Unsubscribe when zoom ends
+                    zoomVM.PropertyChanged += (_, e2) =>
+                    {
+                        if (e2.PropertyName == nameof(ZoomOverlayViewModel.IsVisible) && !zoomVM.IsVisible)
+                            gazeEngine.CursorMoved -= onGaze;
+                    };
+                }
+                else
+                {
+                    zoomOverlay.Hide();
+                }
+            }
+        };
+
+        // ActionMenu: VM -> show/hide (still needs UpdateGaze for its internal DwellDetector rendering)
+        actionMenuVM.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ActionMenuViewModel.IsVisible))
+            {
+                if (actionMenuVM.IsVisible)
+                {
+                    actionMenu.Show(actionMenuVM.Center,
+                        settings.ActionMenu.VisibleActions,
+                        actionMenuVM.ShowBack,
+                        actionMenuVM.ShowBack ? settings.Dwell.ZoomActionMenuDwellMs : settings.Dwell.ActionMenuDwellMs);
+                }
+                else
+                {
+                    actionMenu.Hide();
+                }
+            }
+        };
+
+        // Toolbar: VM state changes -> toolbar state
+        toolbarVM.PropertyChanged += (_, e) =>
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(ToolbarViewModel.IsPaused):
+                    toolbar.SetPausedState(toolbarVM.IsPaused);
+                    break;
+            }
+        };
+
+        // ── Message subscriptions for things NOT in ViewModels ──
+
+        // Keyboard toggle (needs GazeEngine.SuppressFixation)
+        messenger.Register<KeyboardToggledMessage>(this, (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            _keyboardVisible = !_keyboardVisible;
+            if (_keyboardVisible)
+            {
+                keyboard.Show();
+                gazeEngine.SuppressFixation = true;
+                im.OnFixationEnded();
+            }
+            else
+            {
+                keyboard.Hide();
+                gazeEngine.SuppressFixation = false;
+            }
+        }));
+
+        // Settings window (created on demand)
+        SettingsWindow? settingsWindow = null;
+        messenger.Register<SettingsRequestedMessage>(this, (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            if (settingsWindow != null) return;
+            settingsWindow = new SettingsWindow(settings, settingsService);
+            settingsWindow.SettingsChanged += s =>
+            {
+                cursorCircle.UpdateAppearance(s.Cursor);
+                toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
+                toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
+                im.ZoomEnabled = s.Zoom.Enabled;
+                toolbar.SetZoomState(s.Zoom.Enabled);
+                LoadKeyboard(keyboard, s, inputSimulator);
+            };
+            settingsWindow.Closed += (_, _) => settingsWindow = null;
+            settingsWindow.Show();
+        }));
+
+        // Key activation -> input simulator
+        messenger.Register<KeyActivatedMessage>(this, (_, msg) => Dispatcher.BeginInvoke(() =>
+        {
+            switch (msg.Key)
+            {
+                case "\b": inputSimulator.SendKeyPress(0x08); break;
+                case "\n": inputSimulator.SendKeyPress(0x0D); break;
+                case "\t": inputSimulator.SendKeyPress(0x09); break;
+                default: inputSimulator.SendText(msg.Key); break;
+            }
+        }));
+
+        // Prediction -> input simulator
+        messenger.Register<PredictionSelectedMessage>(this, (_, msg) => Dispatcher.BeginInvoke(() =>
+        {
+            inputSimulator.SendText(msg.Word + " ");
+        }));
+
+        // ── Gaze routing for overlays that still need direct UpdateGaze ──
+        gazeEngine.CursorMoved += (point, timestamp) => Dispatcher.BeginInvoke(() =>
+        {
+            // Toolbar gaze (for dwell detection in its own DwellDetector)
+            toolbar.UpdateGaze(point, timestamp);
+
+            // Action menu gaze (for its internal DwellDetector rendering)
+            if (actionMenu.IsVisible)
+                actionMenu.UpdateGaze(point, timestamp);
+
+            // Keyboard gaze
+            if (_keyboardVisible && keyboard.IsVisible)
+                keyboard.UpdateGaze(point, timestamp);
+
+            // Settings gaze
+            if (settingsWindow?.IsVisible == true)
+                settingsWindow.UpdateGaze(point, timestamp);
+        });
+
+        // ── System tray ──
         SetupTrayIcon(im);
 
         // ── Close splash and show persistent overlays ──
         splash?.Close();
-        _cursorCircle.Show();
-        _toolbar.Show();
-        _toolbar.SetMode(_settings.Toolbar.IsDocked, _settings.Toolbar.DockedEdge);
-        _toolbar.SetZoomState(_settings.Zoom.Enabled);
+        cursorCircle.Show();
+        toolbar.Show();
+        toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
+        toolbar.SetZoomState(settings.Zoom.Enabled);
 
-        if (_settings.General.StartPaused)
+        if (settings.General.StartPaused)
             im.TogglePause();
 
-        _gazeEngine.Start();
+        gazeEngine.Start();
     }
 
-    private void LoadKeyboard()
+    private void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings, IInputSimulator inputSimulator)
     {
-        var layoutName = _settings.Keyboard.ActiveLayout.ToLowerInvariant();
+        var layoutName = settings.Keyboard.ActiveLayout.ToLowerInvariant();
         var layoutPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
             "Resources", "Layouts", $"{layoutName}.json");
 
         if (File.Exists(layoutPath))
         {
             var layout = KeyboardLayoutLoader.Load(layoutPath);
-            _keyboard.LoadLayout(layout,
-                _settings.Keyboard.KeySizeMultiplier,
-                _settings.Dwell.KeyboardKeyDwellMs,
-                _settings.Dwell.KeyboardPredictionDwellMs);
+            keyboard.LoadLayout(layout,
+                settings.Keyboard.KeySizeMultiplier,
+                settings.Dwell.KeyboardKeyDwellMs,
+                settings.Dwell.KeyboardPredictionDwellMs);
 
-            // Emoji data paths (lazy-loaded on first use)
             var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
             var recentPath = Path.Combine(_appDataDir, "recent_emojis.json");
-            _keyboard.SetEmojiData(emojiPath, recentPath);
-            _keyboard.SetSkinTone(_settings.Keyboard.EmojiSkinTone);
+            keyboard.SetEmojiData(emojiPath, recentPath);
+            keyboard.SetSkinTone(settings.Keyboard.EmojiSkinTone);
         }
 
-        if (_settings.Keyboard.PredictionEnabled)
+        if (settings.Keyboard.PredictionEnabled)
         {
             var dictPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "Resources", "Dictionaries", $"{_settings.Keyboard.LanguagePack}.json");
-            var userDictPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "EyeCtrl", "user_dictionary.json");
-
+                "Resources", "Dictionaries", $"{settings.Keyboard.LanguagePack}.json");
+            var userDictPath = Path.Combine(_appDataDir, "user_dictionary.json");
             var provider = new FileDictionaryProvider(dictPath, userDictPath);
             _wordPredictor = new WordPredictor(provider);
-            _keyboard.SetPredictor(_wordPredictor);
+            keyboard.SetPredictor(_wordPredictor);
         }
 
-        _keyboard.SetScreenEdge(_settings.Keyboard.ScreenEdge);
-    }
-
-    private void ToggleKeyboard()
-    {
-        _keyboardVisible = !_keyboardVisible;
-        if (_keyboardVisible)
-        {
-            _keyboard.Show();
-            // Suppress fixation detection so the activation button doesn't appear over the keyboard
-            _gazeEngine.SuppressFixation = true;
-            _gazeEngine.InteractionManager.OnFixationEnded(); // dismiss any active fixation
-        }
-        else
-        {
-            _keyboard.Hide();
-            _gazeEngine.SuppressFixation = false;
-        }
-    }
-
-    private void OpenSettings()
-    {
-        if (_settingsWindow != null) return;
-
-        _settingsWindow = new SettingsWindow(_settings, _settingsService);
-        _settingsWindow.SettingsChanged += OnSettingsSaved;
-        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
-        _settingsWindow.Show();
-    }
-
-    private void OnSettingsSaved(EyeCtrlSettings settings)
-    {
-        // Update overlay appearances with new settings
-        _cursorCircle.UpdateAppearance(settings.Cursor);
-
-        _toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
-        _toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
-
-        _gazeEngine.InteractionManager.ZoomEnabled = settings.Zoom.Enabled;
-        _toolbar.SetZoomState(settings.Zoom.Enabled);
-
-        // Reload keyboard with new settings
-        LoadKeyboard();
+        keyboard.SetScreenEdge(settings.Keyboard.ScreenEdge);
     }
 
     private void SetupTrayIcon(InteractionManager im)
@@ -354,7 +398,8 @@ public partial class App : Application
         };
 
         var settingsItem = new System.Windows.Forms.ToolStripMenuItem("Settings");
-        settingsItem.Click += (_, _) => Dispatcher.BeginInvoke(OpenSettings);
+        settingsItem.Click += (_, _) => Dispatcher.BeginInvoke(() =>
+            WeakReferenceMessenger.Default.Send(new SettingsRequestedMessage()));
 
         var exitItem = new System.Windows.Forms.ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => Dispatcher.BeginInvoke(() => Shutdown());
@@ -373,9 +418,9 @@ public partial class App : Application
             ContextMenuStrip = menu
         };
 
-        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(OpenSettings);
+        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(() =>
+            WeakReferenceMessenger.Default.Send(new SettingsRequestedMessage()));
 
-        // Keep pause menu in sync with toolbar toggle
         im.StateChanged += state => Dispatcher.BeginInvoke(() =>
         {
             _pauseMenuItem.Text = state == InteractionState.Paused ? "Resume" : "Pause";
@@ -386,12 +431,21 @@ public partial class App : Application
     {
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
-        _gazeEngine?.Stop();
-        _keyboard.GetRecentStore()?.Save();
-        _settings.Keyboard.EmojiSkinTone = _keyboard.GetSkinTone();
-        _settingsService.Save(_settings);
+
+        var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
+        var settings = _serviceProvider.GetRequiredService<EyeCtrlSettings>();
+        var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
+
+        gazeEngine.Stop();
+        // Note: keyboard emoji/skin tone save will be handled in Task 15 cleanup
+        settingsService.Save(settings);
         _wordPredictor?.SaveUserDictionary();
-        _gazeEngine?.Dispose();
+
+        var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
+        adapter.Dispose();
+        gazeEngine.Dispose();
+        _serviceProvider.Dispose();
+
         base.OnExit(e);
     }
 }

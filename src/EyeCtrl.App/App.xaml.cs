@@ -434,7 +434,6 @@ public partial class App : Application
         var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
 
         gazeEngine.Stop();
-        // Note: keyboard emoji/skin tone save will be handled in Task 15 cleanup
         settingsService.Save(settings);
         _wordPredictor?.SaveUserDictionary();
 

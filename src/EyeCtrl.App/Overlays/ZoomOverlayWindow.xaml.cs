@@ -14,7 +14,6 @@ public partial class ZoomOverlayWindow : OverlayWindow
     private static extern bool DeleteObject(IntPtr hObject);
 
     private ScreenPoint _originalCenter = new(0, 0);
-    private int _captureRadius;
     private double _magnification;
 
     public ZoomOverlayWindow()
@@ -26,7 +25,6 @@ public partial class ZoomOverlayWindow : OverlayWindow
     public void Show(ScreenPoint center, int radius, double magnification)
     {
         _originalCenter = center;
-        _captureRadius = radius;
         _magnification = magnification;
 
         var displayDiameter = (int)(radius * 2 * magnification);

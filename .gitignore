@@ -16,3 +16,6 @@ TestResults/
 ## Build artifacts
 *.DotSettings.user
 publish/
+
+## Worktrees
+.worktrees/

@@ -1,6 +1,7 @@
-<Window x:Class="EyeCtrl.App.Views.SettingsWindow"
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         AutomationProperties.AutomationId="Settings_Window"
         Title="EyeCtrl Settings"
         WindowStyle="None" AllowsTransparency="True"
@@ -69,4 +70,4 @@
             </Border>
         </Grid>
     </Grid>
-</Window>
+</overlays:OverlayWindow>

@@ -8,19 +8,8 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using EyeCtrl.Core.Models;
 
-public partial class ZoomOverlayWindow : Window
+public partial class ZoomOverlayWindow : OverlayWindow
 {
-    private const int GWL_EXSTYLE = -20;
-    private const int WS_EX_TRANSPARENT = 0x00000020;
-    private const int WS_EX_TOOLWINDOW = 0x00000080;
-    private const int WS_EX_NOACTIVATE = 0x08000000;
-
-    [DllImport("user32.dll")]
-    private static extern int GetWindowLong(IntPtr hwnd, int index);
-
-    [DllImport("user32.dll")]
-    private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
-
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr hObject);
 
@@ -30,16 +19,8 @@ public partial class ZoomOverlayWindow : Window
 
     public ZoomOverlayWindow()
     {
+        IsClickThrough = true;
         InitializeComponent();
-    }
-
-    protected override void OnSourceInitialized(EventArgs e)
-    {
-        base.OnSourceInitialized(e);
-
-        var hwnd = new WindowInteropHelper(this).Handle;
-        var extStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
     }
 
     public void Show(ScreenPoint center, int radius, double magnification)

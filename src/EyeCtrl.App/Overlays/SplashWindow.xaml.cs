@@ -1,8 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
-using System.Windows;
-
-public partial class SplashWindow : Window
+public partial class SplashWindow : OverlayWindow
 {
     public SplashWindow()
     {

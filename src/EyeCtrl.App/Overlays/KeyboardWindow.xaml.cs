@@ -1,27 +1,16 @@
 namespace EyeCtrl.App.Overlays;
 
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Interop;
 using System.Windows.Media;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
 
-public partial class KeyboardWindow : Window
+public partial class KeyboardWindow : OverlayWindow
 {
-    private const int GWL_EXSTYLE = -20;
-    private const int WS_EX_TOOLWINDOW = 0x00000080;
-    private const int WS_EX_NOACTIVATE = 0x08000000;
     private const double BaseKeySize = 70;
-
-    [DllImport("user32.dll")]
-    private static extern int GetWindowLong(IntPtr hwnd, int index);
-
-    [DllImport("user32.dll")]
-    private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
 
     // Prediction bar uses DwellDetector (small number of circular targets)
     private readonly DwellDetector _predictionDwellDetector = new();
@@ -77,15 +66,6 @@ public partial class KeyboardWindow : Window
         SizeChanged += (_, _) => RepositionOnScreen();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
         _categoryDwellDetector.TargetActivated += OnCategoryDwelled;
-    }
-
-    protected override void OnSourceInitialized(EventArgs e)
-    {
-        base.OnSourceInitialized(e);
-
-        var hwnd = new WindowInteropHelper(this).Handle;
-        var extStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
     }
 
     public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs)

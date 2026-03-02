@@ -1,6 +1,7 @@
-<Window x:Class="EyeCtrl.App.Overlays.ToolbarWindow"
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.ToolbarWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         AutomationProperties.AutomationId="Toolbar_Window"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
@@ -8,4 +9,4 @@
     <Border Background="#E0202020" CornerRadius="4" Padding="4">
         <StackPanel x:Name="ButtonPanel" Orientation="Horizontal"/>
     </Border>
-</Window>
+</overlays:OverlayWindow>

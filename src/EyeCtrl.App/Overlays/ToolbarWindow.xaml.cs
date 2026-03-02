@@ -1,26 +1,14 @@
 namespace EyeCtrl.App.Overlays;
 
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 
-public partial class ToolbarWindow : Window
+public partial class ToolbarWindow : OverlayWindow
 {
-    private const int GWL_EXSTYLE = -20;
-    private const int WS_EX_TOOLWINDOW = 0x00000080;
-    private const int WS_EX_NOACTIVATE = 0x08000000;
-
-    [DllImport("user32.dll")]
-    private static extern int GetWindowLong(IntPtr hwnd, int index);
-
-    [DllImport("user32.dll")]
-    private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
-
     private readonly DwellDetector _dwellDetector = new();
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
     private double _buttonSize;
@@ -39,15 +27,6 @@ public partial class ToolbarWindow : Window
         InitializeComponent();
         _dwellDetector.TargetActivated += OnTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
-    }
-
-    protected override void OnSourceInitialized(EventArgs e)
-    {
-        base.OnSourceInitialized(e);
-
-        var hwnd = new WindowInteropHelper(this).Handle;
-        var extStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-        SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
     }
 
     public void Initialize(double buttonSize, int dwellTimeMs)

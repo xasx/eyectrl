@@ -3,9 +3,11 @@
   <ItemGroup>
     <ProjectReference Include="..\EyeCtrl.Core\EyeCtrl.Core.csproj" />
     <ProjectReference Include="..\EyeCtrl.Platform\EyeCtrl.Platform.csproj" />
+    <ProjectReference Include="..\EyeCtrl.ViewModels\EyeCtrl.ViewModels.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.3" />
   </ItemGroup>
 

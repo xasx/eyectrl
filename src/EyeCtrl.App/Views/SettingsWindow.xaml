@@ -7,18 +7,10 @@
         Background="#E01E1E1E"
         Topmost="True"
         WindowStartupLocation="CenterScreen">
-    <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="220"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+    <Grid ColumnDefinitions="220, *">
 
         <!-- Left: Sidebar with tab buttons -->
-        <Grid Grid.Column="0" Background="#C0141414">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+        <Grid Grid.Column="0" Background="#C0141414" RowDefinitions="Auto, *">
 
             <!-- Close button at top -->
             <Border x:Name="CloseButton" Grid.Row="0"
@@ -38,11 +30,7 @@
         </Grid>
 
         <!-- Right: Content area with pagination -->
-        <Grid Grid.Column="1" Margin="16">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+        <Grid Grid.Column="1" Margin="16" RowDefinitions="*, Auto">
 
             <!-- Content page (no ScrollViewer — paginated) -->
             <StackPanel x:Name="ContentPanel" Grid.Row="0"

@@ -10,7 +10,7 @@ public class GazeEngine : IDisposable
     private readonly IGazeProvider _gazeProvider;
     private readonly IInputSimulator _inputSimulator;
     private readonly EyeCtrlSettings _settings;
-    private readonly IGazeFilter _filter;
+    private IGazeFilter _filter;
     private readonly FixationDetector _fixationDetector;
 
     public InteractionManager InteractionManager { get; }
@@ -27,6 +27,13 @@ public class GazeEngine : IDisposable
         _settings = settings;
 
         _filter = GazeFilterFactory.Create(settings.Cursor);
+
+        _settings.Cursor.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(CursorSettings.FilterMode))
+                _filter = GazeFilterFactory.Create(_settings.Cursor);
+        };
+
         _fixationDetector = new FixationDetector(
             settings.Dwell.FixationRadiusPixels,
             settings.Dwell.FixationDetectionMs);

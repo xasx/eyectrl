@@ -8,9 +8,13 @@
         Width="250" Height="250">
     <Canvas>
         <Ellipse x:Name="Circle"
-                 AutomationProperties.AutomationId="CursorCircle_Ellipse_Main"
                  Stroke="Lime" StrokeThickness="2"
                  Width="250" Height="250"
                  Canvas.Left="0" Canvas.Top="0"/>
+        <!-- Hidden TextBlock as UIA anchor — WPF transparent overlay windows only expose
+             TextBlock (ControlType.Text) nodes in the UIA tree; Ellipse/Canvas are collapsed. -->
+        <TextBlock AutomationProperties.AutomationId="CursorCircle_Ellipse_Main"
+                   Opacity="0" IsHitTestVisible="False"
+                   Canvas.Left="0" Canvas.Top="0"/>
     </Canvas>
 </overlays:OverlayWindow>

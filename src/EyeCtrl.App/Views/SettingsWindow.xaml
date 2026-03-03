@@ -33,10 +33,13 @@
         <!-- Right: Content area with pagination -->
         <Grid Grid.Column="1" Margin="16" RowDefinitions="*, Auto">
 
+            <!-- Hidden UIA anchor for Settings_Panel_Content — StackPanel is not exposed
+                 in the UIA control view; only TextBlock nodes are visible to FlaUI. -->
+            <TextBlock AutomationProperties.AutomationId="Settings_Panel_Content"
+                       Grid.Row="0" Opacity="0" IsHitTestVisible="False"/>
+
             <!-- Content page (no ScrollViewer — paginated) -->
-            <StackPanel x:Name="ContentPanel" Grid.Row="0"
-                        AutomationProperties.AutomationId="Settings_Panel_Content"
-                        Margin="16"/>
+            <StackPanel x:Name="ContentPanel" Grid.Row="0" Margin="16"/>
 
             <!-- Pagination bar -->
             <StackPanel x:Name="PaginationPanel" Grid.Row="1"

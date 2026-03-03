@@ -208,8 +208,13 @@ public partial class App : Application
                         settings.Dwell.FixationDetectionMs);
                     zoomFixation.FixationStarted += zoomPoint =>
                     {
-                        var realPoint = zoomOverlay.GetRealScreenPoint(zoomPoint);
-                        Dispatcher.BeginInvoke(() => im.OnZoomFixation(realPoint));
+                        // GetRealScreenPoint accesses WPF DependencyProperties (Left, Width)
+                        // and must run on the UI thread — move the entire body into BeginInvoke
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            var realPoint = zoomOverlay.GetRealScreenPoint(zoomPoint);
+                            im.OnZoomFixation(realPoint);
+                        });
                     };
 
                     // Feed gaze data to zoom fixation detector when in zoom mode

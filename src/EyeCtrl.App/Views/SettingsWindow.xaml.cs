@@ -113,6 +113,18 @@ public partial class SettingsWindow : OverlayWindow
     {
         foreach (var (id, icon, label) in TabDefs)
         {
+            // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
+            // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
+            var iconText = new TextBlock
+            {
+                Text = icon,
+                Foreground = Brushes.White,
+                FontSize = 30,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 12, 0)
+            };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(iconText, $"Settings_Tab_{id}");
+
             var border = new Border
             {
                 Height = 100,
@@ -127,14 +139,7 @@ public partial class SettingsWindow : OverlayWindow
                     Margin = new Thickness(16, 0, 16, 0),
                     Children =
                     {
-                        new TextBlock
-                        {
-                            Text = icon,
-                            Foreground = Brushes.White,
-                            FontSize = 30,
-                            VerticalAlignment = VerticalAlignment.Center,
-                            Margin = new Thickness(0, 0, 12, 0)
-                        },
+                        iconText,
                         new TextBlock
                         {
                             Text = label,
@@ -146,8 +151,6 @@ public partial class SettingsWindow : OverlayWindow
                     }
                 }
             };
-
-            System.Windows.Automation.AutomationProperties.SetAutomationId(border, $"Settings_Tab_{id}");
 
             border.MouseLeftButtonDown += (_, _) => ShowTab(id);
             _tabButtons[id] = border;

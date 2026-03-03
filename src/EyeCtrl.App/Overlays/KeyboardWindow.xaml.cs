@@ -162,7 +162,10 @@ public partial class KeyboardWindow : OverlayWindow
                     Child = label
                 };
 
-                System.Windows.Automation.AutomationProperties.SetAutomationId(container, $"Keyboard_Key_{id}");
+                // Set AutomationId on the label (TextBlock) — WPF's UIA control view only
+                // exposes TextBlock nodes from transparent overlay windows; Border containers
+                // are collapsed out of the UIA tree.
+                System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Keyboard_Key_{id}");
 
                 _keyVisuals[id] = (container, label);
                 rowPanel.Children.Add(container);
@@ -487,6 +490,17 @@ public partial class KeyboardWindow : OverlayWindow
             var word = suggestions[i];
             var predId = $"pred_{i}";
 
+            var predLabel = new TextBlock
+            {
+                Text = word,
+                Foreground = Brushes.White,
+                FontSize = 14,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            // Set AutomationId on the TextBlock — Border containers are collapsed from the UIA tree.
+            System.Windows.Automation.AutomationProperties.SetAutomationId(predLabel, $"Keyboard_Prediction_{i}");
+
             var btn = new Border
             {
                 MinWidth = 80,
@@ -495,17 +509,8 @@ public partial class KeyboardWindow : OverlayWindow
                 Padding = new Thickness(12, 0, 12, 0),
                 Background = new SolidColorBrush(Color.FromArgb(200, 40, 80, 40)),
                 CornerRadius = new CornerRadius(4),
-                Child = new TextBlock
-                {
-                    Text = word,
-                    Foreground = Brushes.White,
-                    FontSize = 14,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center
-                }
+                Child = predLabel
             };
-
-            System.Windows.Automation.AutomationProperties.SetAutomationId(btn, $"Keyboard_Prediction_{i}");
 
             PredictionBar.Children.Add(btn);
             _predictionDwellDetector.AddTarget(new DwellTarget(predId, new ScreenPoint(0, 0), 40, _predictionDwellMs));

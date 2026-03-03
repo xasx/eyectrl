@@ -20,6 +20,7 @@ public class ToolbarTests
     public async Task PauseButton_Dwell_HidesCursorCircle()
     {
         // Arrange — make sure we start in non-paused state
+        await _fixture.EnsureAppUnpausedAsync();
         var cursorCircle = _fixture.FindWindow("CursorCircle_Window");
         Assert.NotNull(cursorCircle);
 
@@ -58,7 +59,8 @@ public class ToolbarTests
     [Fact]
     public async Task PauseButton_Dwell_TogglesBackToResume()
     {
-        // Arrange — pause first
+        // Arrange — ensure clean state then pause
+        await _fixture.EnsureAppUnpausedAsync();
         var toolbar = _fixture.FindWindow("Toolbar_Window");
         Assert.NotNull(toolbar);
         var pauseBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Pause");
@@ -73,12 +75,13 @@ public class ToolbarTests
         Assert.NotNull(pauseBtn);
 
         await _fixture.SimulateDwellOn(pauseBtn!);
-        await Task.Delay(200);
 
-        // Assert — cursor circle should reappear
-        var cursorCircle = _fixture.FindWindow("CursorCircle_Window");
-        Assert.NotNull(cursorCircle);
-        Assert.True(cursorCircle!.Properties.IsOffscreen.Value == false,
+        // After unpause, WPF calls Window.Show() which may take a render pass to
+        // update the UIA automation peer from IsOffscreen=true to IsOffscreen=false.
+        // Retry until the window is both found and actually visible.
+        var cursorCircle = await _fixture.WaitForWindowVisibleAsync(
+            "CursorCircle_Window", TimeSpan.FromSeconds(5));
+        Assert.True(cursorCircle.Properties.IsOffscreen.Value == false,
             "Cursor circle should be visible after unpause");
 
         _fixture.MoveCursorAway();

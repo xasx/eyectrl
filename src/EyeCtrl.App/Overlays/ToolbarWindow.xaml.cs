@@ -71,7 +71,10 @@ public partial class ToolbarWindow : OverlayWindow
             }
         };
 
-        System.Windows.Automation.AutomationProperties.SetAutomationId(container, $"Toolbar_Button_{id}");
+        // Set AutomationId on the label (TextBlock) rather than the Border container.
+        // WPF's UIA control view only exposes TextBlock elements from transparent overlay
+        // windows; Border containers are collapsed out of the tree even with IsControlElement=true.
+        System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Toolbar_Button_{id}");
 
         _buttonVisuals[id] = (container, progressBar, label);
         ButtonPanel.Children.Add(container);

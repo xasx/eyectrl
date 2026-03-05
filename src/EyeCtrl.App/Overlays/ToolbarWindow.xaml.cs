@@ -12,6 +12,7 @@ public partial class ToolbarWindow : OverlayWindow
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
     private double _buttonSize;
     private bool _targetsInitialized;
+    private bool? _providerIsTobii;
 
     public ToolbarWindow()
     {
@@ -36,6 +37,9 @@ public partial class ToolbarWindow : OverlayWindow
 
         foreach (var (id, symbol) in buttons)
             AddButton(id, symbol);
+
+        if (_providerIsTobii.HasValue)
+            AddIndicatorElement(_providerIsTobii.Value);
     }
 
     private void AddButton(string id, string symbol)
@@ -78,6 +82,38 @@ public partial class ToolbarWindow : OverlayWindow
 
         _buttonVisuals[id] = (container, progressBar, label);
         ButtonPanel.Children.Add(container);
+    }
+
+    private void AddIndicatorElement(bool isTobii)
+    {
+        var symbol = isTobii ? "\U0001F441" : "\U0001F5B1"; // eye or mouse
+
+        var label = new TextBlock
+        {
+            Text = symbol,
+            Foreground = Brushes.White,
+            FontSize = _buttonSize * 0.4,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var border = new Border
+        {
+            Width = _buttonSize,
+            Height = _buttonSize,
+            Margin = new Thickness(2),
+            Background = new SolidColorBrush(Color.FromArgb(120, 40, 40, 40)),
+            CornerRadius = new CornerRadius(4),
+            Child = label
+        };
+
+        ButtonPanel.Children.Insert(0, border);
+    }
+
+    public void SetProviderIndicator(bool isTobii)
+    {
+        _providerIsTobii = isTobii;
+        AddIndicatorElement(isTobii);
     }
 
     public void SetMode(bool isDocked, string edge)

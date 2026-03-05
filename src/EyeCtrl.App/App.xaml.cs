@@ -118,6 +118,8 @@ public partial class App : Application
         var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
         var messenger = _serviceProvider.GetRequiredService<IMessenger>();
         var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
+        var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
+        bool isTobii = gazeProvider is TobiiInteractionLibProvider;
         var im = gazeEngine.InteractionManager;
 
         // Resolve ViewModels (triggers RegisterAll in constructors)
@@ -150,6 +152,7 @@ public partial class App : Application
         // ── Initialize overlays (existing APIs) ──
         cursorCircle.UpdateAppearance(settings.Cursor);
         toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
+        toolbar.SetProviderIndicator(isTobii);
         LoadKeyboard(keyboard, settings, inputSimulator);
 
         // ── Bridge ViewModel -> Overlay Windows via PropertyChanged ──

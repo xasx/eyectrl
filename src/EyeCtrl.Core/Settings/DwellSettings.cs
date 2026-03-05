@@ -12,4 +12,5 @@ public partial class DwellSettings : ObservableObject
     [ObservableProperty] private int _keyboardKeyDwellMs = 450;
     [ObservableProperty] private int _keyboardPredictionDwellMs = 500;
     [ObservableProperty] private double _fixationRadiusPixels = 50;
+    [ObservableProperty] private double _velocityThresholdPxPerSec = 100.0;
 }

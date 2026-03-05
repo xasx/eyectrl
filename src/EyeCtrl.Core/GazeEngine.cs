@@ -10,7 +10,7 @@ public class GazeEngine : IDisposable
     private readonly IGazeProvider _gazeProvider;
     private readonly IInputSimulator _inputSimulator;
     private readonly EyeCtrlSettings _settings;
-    private IGazeFilter _filter;
+    private GapInterpolator _gapInterpolator;
     private readonly FixationDetector _fixationDetector;
 
     public InteractionManager InteractionManager { get; }
@@ -26,12 +26,17 @@ public class GazeEngine : IDisposable
         _inputSimulator = inputSimulator;
         _settings = settings;
 
-        _filter = GazeFilterFactory.Create(settings.Cursor);
+        _gapInterpolator = new GapInterpolator(
+            GazeFilterFactory.Create(settings.Cursor),
+            settings.Cursor.MaxGapInterpolationMs);
 
         _settings.Cursor.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(CursorSettings.FilterMode))
-                _filter = GazeFilterFactory.Create(_settings.Cursor);
+            if (e.PropertyName is nameof(CursorSettings.FilterMode)
+                               or nameof(CursorSettings.MaxGapInterpolationMs))
+                _gapInterpolator = new GapInterpolator(
+                    GazeFilterFactory.Create(_settings.Cursor),
+                    _settings.Cursor.MaxGapInterpolationMs);
         };
 
         _fixationDetector = new FixationDetector(
@@ -61,7 +66,7 @@ public class GazeEngine : IDisposable
 
     private void OnGazePoint(GazePoint gaze)
     {
-        var filtered = _filter.Filter(gaze);
+        var (filtered, isInGap) = _gapInterpolator.Process(gaze);
 
         // Always fire CursorMoved so the cursor circle + toolbar receive gaze
         // (this allows unpause via toolbar dwell even when paused)
@@ -75,7 +80,7 @@ public class GazeEngine : IDisposable
             _inputSimulator.MoveCursor(filtered);
         }
 
-        if (!SuppressFixation)
+        if (!SuppressFixation && !isInGap)
             _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
     }
 

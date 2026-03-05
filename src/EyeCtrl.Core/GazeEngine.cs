@@ -12,6 +12,7 @@ public class GazeEngine : IDisposable
     private readonly EyeCtrlSettings _settings;
     private GapInterpolator _gapInterpolator;
     private readonly FixationDetector _fixationDetector;
+    private readonly FixationCentroidTracker _centroidTracker;
 
     public InteractionManager InteractionManager { get; }
     public bool SuppressFixation { get; set; }
@@ -43,6 +44,8 @@ public class GazeEngine : IDisposable
             settings.Dwell.FixationRadiusPixels,
             settings.Dwell.FixationDetectionMs);
 
+        _centroidTracker = new FixationCentroidTracker(settings.Dwell.VelocityThresholdPxPerSec);
+
         InteractionManager = new InteractionManager
         {
             ZoomEnabled = settings.Zoom.Enabled
@@ -51,6 +54,8 @@ public class GazeEngine : IDisposable
         _gazeProvider.GazePointReceived += OnGazePoint;
         _fixationDetector.FixationStarted += InteractionManager.OnFixationStarted;
         _fixationDetector.FixationEnded += InteractionManager.OnFixationEnded;
+        _fixationDetector.FixationStarted += _ => _centroidTracker.StartTracking();
+        _fixationDetector.FixationEnded += _centroidTracker.StopTracking;
         InteractionManager.ActionRequested += OnActionRequested;
     }
 
@@ -72,6 +77,8 @@ public class GazeEngine : IDisposable
         // (this allows unpause via toolbar dwell even when paused)
         CursorMoved?.Invoke(filtered, gaze.TimestampMicroseconds);
 
+        _centroidTracker.Update(filtered, gaze.TimestampMicroseconds);
+
         if (InteractionManager.CurrentState == InteractionState.Paused)
             return;
 
@@ -86,34 +93,35 @@ public class GazeEngine : IDisposable
 
     private void OnActionRequested(InteractionAction action, ScreenPoint point)
     {
+        var target = _centroidTracker.StableCentroid ?? point;
         switch (action)
         {
             case InteractionAction.LeftClick:
-                _inputSimulator.LeftClick(point);
+                _inputSimulator.LeftClick(target);
                 break;
             case InteractionAction.RightClick:
-                _inputSimulator.RightClick(point);
+                _inputSimulator.RightClick(target);
                 break;
             case InteractionAction.DoubleClick:
-                _inputSimulator.DoubleClick(point);
+                _inputSimulator.DoubleClick(target);
                 break;
             case InteractionAction.DragStart:
-                _inputSimulator.MouseDown(point);
+                _inputSimulator.MouseDown(target);
                 break;
             case InteractionAction.DragEnd:
-                _inputSimulator.MouseUp(point);
+                _inputSimulator.MouseUp(target);
                 break;
             case InteractionAction.ScrollUp:
-                _inputSimulator.Scroll(point, 0, 3);
+                _inputSimulator.Scroll(target, 0, 3);
                 break;
             case InteractionAction.ScrollDown:
-                _inputSimulator.Scroll(point, 0, -3);
+                _inputSimulator.Scroll(target, 0, -3);
                 break;
             case InteractionAction.ScrollLeft:
-                _inputSimulator.Scroll(point, -3, 0);
+                _inputSimulator.Scroll(target, -3, 0);
                 break;
             case InteractionAction.ScrollRight:
-                _inputSimulator.Scroll(point, 3, 0);
+                _inputSimulator.Scroll(target, 3, 0);
                 break;
         }
     }

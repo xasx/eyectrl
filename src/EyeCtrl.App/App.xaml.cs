@@ -8,6 +8,7 @@ using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -78,16 +79,10 @@ public partial class App : Application
         {
             if (IsTestMode)
                 return new MouseGazeProvider();
-            try
-            {
-                return new TobiiInteractionLibProvider(
-                    SystemParameters.PrimaryScreenWidth,
-                    SystemParameters.PrimaryScreenHeight);
-            }
-            catch
-            {
-                return new MouseGazeProvider();
-            }
+            var factory = new GazeProviderFactory();
+            return factory.Create(settings.General.GazeProviderType,
+                SystemParameters.PrimaryScreenWidth,
+                SystemParameters.PrimaryScreenHeight);
         });
 
         // Core engine
@@ -119,7 +114,7 @@ public partial class App : Application
         var messenger = _serviceProvider.GetRequiredService<IMessenger>();
         var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
         var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
-        bool isTobii = gazeProvider is TobiiInteractionLibProvider;
+        var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
         var im = gazeEngine.InteractionManager;
 
         // Resolve ViewModels (triggers RegisterAll in constructors)
@@ -152,7 +147,7 @@ public partial class App : Application
         // ── Initialize overlays (existing APIs) ──
         cursorCircle.UpdateAppearance(settings.Cursor);
         toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
-        toolbar.SetProviderIndicator(isTobii);
+        toolbar.SetProviderIndicator(activeProviderType);
         LoadKeyboard(keyboard, settings, inputSimulator);
 
         // ── Bridge ViewModel -> Overlay Windows via PropertyChanged ──

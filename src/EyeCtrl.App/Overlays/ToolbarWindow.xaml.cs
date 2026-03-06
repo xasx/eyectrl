@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
@@ -12,7 +13,7 @@ public partial class ToolbarWindow : OverlayWindow
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
     private double _buttonSize;
     private bool _targetsInitialized;
-    private bool? _providerIsTobii;
+    private GazeProviderType? _providerType;
 
     public ToolbarWindow()
     {
@@ -38,8 +39,8 @@ public partial class ToolbarWindow : OverlayWindow
         foreach (var (id, symbol) in buttons)
             AddButton(id, symbol);
 
-        if (_providerIsTobii.HasValue)
-            AddIndicatorElement(_providerIsTobii.Value);
+        if (_providerType.HasValue)
+            AddIndicatorElement(_providerType.Value);
     }
 
     private void AddButton(string id, string symbol)
@@ -84,9 +85,15 @@ public partial class ToolbarWindow : OverlayWindow
         ButtonPanel.Children.Add(container);
     }
 
-    private void AddIndicatorElement(bool isTobii)
+    private void AddIndicatorElement(GazeProviderType providerType)
     {
-        var symbol = isTobii ? "\U0001F441" : "\U0001F5B1"; // eye or mouse
+        var symbol = providerType switch
+        {
+            GazeProviderType.InteractionLib => "\U0001F441",  // eye
+            GazeProviderType.StreamEngine => "\u2B55",         // circle (stream)
+            GazeProviderType.Mouse => "\U0001F5B1",           // mouse
+            _ => "?"
+        };
 
         var label = new TextBlock
         {
@@ -110,10 +117,10 @@ public partial class ToolbarWindow : OverlayWindow
         ButtonPanel.Children.Insert(0, border);
     }
 
-    public void SetProviderIndicator(bool isTobii)
+    public void SetProviderIndicator(GazeProviderType providerType)
     {
-        _providerIsTobii = isTobii;
-        AddIndicatorElement(isTobii);
+        _providerType = providerType;
+        AddIndicatorElement(providerType);
     }
 
     public void SetMode(bool isDocked, string edge)

@@ -7,6 +7,7 @@ using Tobii.InteractionLib;
 /// <summary>
 /// Gaze provider using the Tobii Interaction Library (tobii_interaction_lib_cs.dll).
 /// Polls the tracker on a background thread and fires GazePointReceived on each valid gaze sample.
+/// Reconnects indefinitely with exponential back-off if the tracker disconnects.
 /// </summary>
 public class TobiiInteractionLibProvider : IGazeProvider
 {
@@ -16,13 +17,14 @@ public class TobiiInteractionLibProvider : IGazeProvider
     private IInteractionLib? _interactionLib;
     private Thread? _pollThread;
     private volatile bool _running;
+    private string? _lastExceptionMessage;
 
     public event Action<GazePoint>? GazePointReceived;
     public bool IsConnected { get; private set; }
 
     /// <summary>
     /// Creates a Tobii gaze provider. Throws immediately if the Tobii native library
-    /// is not available, so callers can catch and fall back to MouseGazeProvider.
+    /// is not available, so callers can catch and fall back to the next provider.
     /// </summary>
     public TobiiInteractionLibProvider(double screenWidth, double screenHeight)
     {
@@ -35,15 +37,7 @@ public class TobiiInteractionLibProvider : IGazeProvider
 
     public void Start()
     {
-        // Configure display area to match the primary screen in pixels
-        _interactionLib!.CoordinateTransformAddOrUpdateDisplayArea(
-            _screenWidth, _screenHeight,  // width/height in user units (pixels)
-            _screenWidth, _screenHeight,  // width/height in virtual units (pixels)
-            0f, 0f,                       // origin offset
-            "main");
-
-        // Subscribe to gaze point data
-        _interactionLib.GazePointDataEvent += OnGazePointData;
+        ConfigureAndSubscribe();
 
         _running = true;
         _pollThread = new Thread(PollLoop)
@@ -69,19 +63,67 @@ public class TobiiInteractionLibProvider : IGazeProvider
         IsConnected = false;
     }
 
+    private void ConfigureAndSubscribe()
+    {
+        _interactionLib!.CoordinateTransformAddOrUpdateDisplayArea(
+            _screenWidth, _screenHeight,
+            _screenWidth, _screenHeight,
+            0f, 0f, "main");
+
+        _interactionLib.GazePointDataEvent += OnGazePointData;
+    }
+
     private void PollLoop()
     {
+        int backoffMs = 500;
+        const int maxBackoffMs = 5000;
+
         while (_running)
         {
             try
             {
                 _interactionLib?.WaitAndUpdate(33); // ~30 Hz
-                if (!IsConnected) IsConnected = true;
+                if (!IsConnected)
+                {
+                    IsConnected = true;
+                    _lastExceptionMessage = null;
+                    backoffMs = 500; // reset back-off on success
+                }
             }
-            catch
+            catch (Exception ex)
             {
                 IsConnected = false;
-                Thread.Sleep(100);
+
+                // Error dedup: only log when the message changes
+                if (ex.Message != _lastExceptionMessage)
+                {
+                    _lastExceptionMessage = ex.Message;
+                    System.Diagnostics.Trace.TraceError(
+                        $"[TobiiInteractionLib] {ex.Message}");
+                }
+
+                // Attempt reconnect
+                Thread.Sleep(backoffMs);
+                backoffMs = Math.Min(backoffMs * 2, maxBackoffMs);
+
+                try
+                {
+                    // Dispose old instance
+                    if (_interactionLib != null)
+                    {
+                        _interactionLib.GazePointDataEvent -= OnGazePointData;
+                        _interactionLib = null;
+                    }
+
+                    // Recreate
+                    _interactionLib = InteractionLibFactory.CreateInteractionLib(
+                        FieldOfUse.Interactive);
+                    ConfigureAndSubscribe();
+                }
+                catch
+                {
+                    // Recreate failed — will retry on next loop iteration
+                }
             }
         }
     }
@@ -90,10 +132,13 @@ public class TobiiInteractionLibProvider : IGazeProvider
     {
         if (data.validity != Validity.Valid) return;
 
+        // Use system time to avoid Tobii clock drift (~5ms/6min)
+        var timestampUs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000;
+
         GazePointReceived?.Invoke(new GazePoint(
             data.x,
             data.y,
-            data.timestamp_us,
+            timestampUs,
             true));
     }
 

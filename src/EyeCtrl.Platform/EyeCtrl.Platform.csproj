@@ -23,6 +23,21 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="Tobii.StreamEngine.Net">
+      <HintPath>C:\Program Files (x86)\Tobii Dynavox\Computer Control\Tobii.StreamEngine.Net.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Native Tobii Stream Engine DLL required at runtime (copied only if present) -->
+  <ItemGroup Condition="Exists('C:\Program Files (x86)\Tobii Dynavox\Computer Control\tobii_stream_engine.dll')">
+    <Content Include="C:\Program Files (x86)\Tobii Dynavox\Computer Control\tobii_stream_engine.dll">
+      <Link>tobii_stream_engine.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

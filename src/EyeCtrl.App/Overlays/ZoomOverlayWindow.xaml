@@ -7,7 +7,7 @@
     <Grid>
         <Ellipse x:Name="ClipEllipse">
             <Ellipse.Fill>
-                <ImageBrush x:Name="ZoomBrush" Stretch="None"/>
+                <ImageBrush x:Name="ZoomBrush" Stretch="Fill"/>
             </Ellipse.Fill>
         </Ellipse>
         <Ellipse Stroke="White" StrokeThickness="2" IsHitTestVisible="False"/>

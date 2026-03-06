@@ -18,8 +18,10 @@ public partial class ActivationButtonWindow : OverlayWindow
 
     public void ShowAt(ScreenPoint position, double verticalOffset = 180)
     {
-        Left = position.X - Width / 2;
-        Top = position.Y - Height / 2 - verticalOffset; // Offset above cursor circle
+        var screenW = System.Windows.SystemParameters.PrimaryScreenWidth;
+        var screenH = System.Windows.SystemParameters.PrimaryScreenHeight;
+        Left = Math.Clamp(position.X - Width / 2, 0, screenW - Width);
+        Top  = Math.Clamp(position.Y - Height / 2 - verticalOffset, 0, screenH - Height);
 
         UpdateDwellProgress(0);
 

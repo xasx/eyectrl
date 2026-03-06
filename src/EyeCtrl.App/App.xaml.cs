@@ -323,6 +323,24 @@ public partial class App : Application
             inputSimulator.SendText(msg.Word + " ");
         }));
 
+        // Action selected -> input simulator
+        messenger.Register<ActionRequestedMessage>(this, (_, msg) => Dispatcher.BeginInvoke(() =>
+        {
+            var pt = msg.Point;
+            switch (msg.Action)
+            {
+                case InteractionAction.LeftClick:    inputSimulator.LeftClick(pt);        break;
+                case InteractionAction.RightClick:   inputSimulator.RightClick(pt);       break;
+                case InteractionAction.DoubleClick:  inputSimulator.DoubleClick(pt);      break;
+                case InteractionAction.DragStart:    inputSimulator.MouseDown(pt);        break;
+                case InteractionAction.DragEnd:      inputSimulator.MouseUp(pt);          break;
+                case InteractionAction.ScrollUp:     inputSimulator.Scroll(pt, 0, 3);    break;
+                case InteractionAction.ScrollDown:   inputSimulator.Scroll(pt, 0, -3);   break;
+                case InteractionAction.ScrollLeft:   inputSimulator.Scroll(pt, -3, 0);   break;
+                case InteractionAction.ScrollRight:  inputSimulator.Scroll(pt, 3, 0);    break;
+            }
+        }));
+
         // ── Gaze routing for overlays that still need direct UpdateGaze ──
         gazeEngine.CursorMoved += (point, timestamp) => Dispatcher.BeginInvoke(() =>
         {

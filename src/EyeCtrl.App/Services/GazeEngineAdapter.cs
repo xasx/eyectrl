@@ -72,7 +72,17 @@ public class GazeEngineAdapter : IDisposable
             var dwellMs = showBack
                 ? _settings.Dwell.ZoomActionMenuDwellMs
                 : _settings.Dwell.ActionMenuDwellMs;
-            _messenger.Send(new ShowActionMenuMessage(point, _settings.ActionMenu.VisibleActions, showBack, dwellMs));
+
+            // Clamp center so the full button ring stays on-screen.
+            // RingRadius=160 + ButtonRadius=50 = 210px margin on each side.
+            const double margin = 210;
+            var screenW = System.Windows.SystemParameters.PrimaryScreenWidth;
+            var screenH = System.Windows.SystemParameters.PrimaryScreenHeight;
+            var clampedPoint = new ScreenPoint(
+                Math.Clamp(point.X, margin, screenW - margin),
+                Math.Clamp(point.Y, margin, screenH - margin));
+
+            _messenger.Send(new ShowActionMenuMessage(clampedPoint, _settings.ActionMenu.VisibleActions, showBack, dwellMs));
         });
 
     private void OnHideActionMenu() =>

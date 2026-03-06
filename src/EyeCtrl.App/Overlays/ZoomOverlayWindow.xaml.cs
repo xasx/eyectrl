@@ -34,11 +34,11 @@ public partial class ZoomOverlayWindow : OverlayWindow
         Left = center.X - displayDiameter / 2.0;
         Top = center.Y - displayDiameter / 2.0;
 
-        CaptureAndDisplay(center, radius, magnification);
+        CaptureAndDisplay(center, radius);
         Show();
     }
 
-    private void CaptureAndDisplay(ScreenPoint center, int radius, double magnification)
+    private void CaptureAndDisplay(ScreenPoint center, int radius)
     {
         var captureX = (int)center.X - radius;
         var captureY = (int)center.Y - radius;
@@ -59,19 +59,11 @@ public partial class ZoomOverlayWindow : OverlayWindow
         var hBitmap = bitmap.GetHbitmap();
         try
         {
-            var source = Imaging.CreateBitmapSourceFromHBitmap(
+            ZoomBrush.ImageSource = Imaging.CreateBitmapSourceFromHBitmap(
                 hBitmap,
                 IntPtr.Zero,
                 Int32Rect.Empty,
                 BitmapSizeOptions.FromEmptyOptions());
-
-            var displaySize = (int)(captureSize * magnification);
-
-            ZoomBrush.ImageSource = source;
-            ZoomBrush.Viewbox = new Rect(0, 0, captureSize, captureSize);
-            ZoomBrush.ViewboxUnits = BrushMappingMode.Absolute;
-            ZoomBrush.Viewport = new Rect(0, 0, displaySize, displaySize);
-            ZoomBrush.ViewportUnits = BrushMappingMode.Absolute;
         }
         finally
         {

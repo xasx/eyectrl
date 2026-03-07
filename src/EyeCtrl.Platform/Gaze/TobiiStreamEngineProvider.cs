@@ -1,8 +1,8 @@
 namespace EyeCtrl.Platform.Gaze;
 
-using System.Diagnostics;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using Microsoft.Extensions.Logging;
 using Tobii.StreamEngine;
 
 /// <summary>
@@ -15,6 +15,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
 {
     private readonly double _screenWidth;
     private readonly double _screenHeight;
+    private readonly ILogger<TobiiStreamEngineProvider> _logger;
 
     private IntPtr _apiContext;
     private IntPtr _deviceContext;
@@ -33,10 +34,12 @@ public class TobiiStreamEngineProvider : IGazeProvider
     /// Creates a Tobii Stream Engine provider. Throws if the Stream Engine API
     /// cannot be initialized or no device is found.
     /// </summary>
-    public TobiiStreamEngineProvider(double screenWidth, double screenHeight)
+    public TobiiStreamEngineProvider(double screenWidth, double screenHeight,
+        ILogger<TobiiStreamEngineProvider> logger)
     {
         _screenWidth = screenWidth;
         _screenHeight = screenHeight;
+        _logger = logger;
 
         ConnectApi();
         ConnectDevice();
@@ -112,7 +115,8 @@ public class TobiiStreamEngineProvider : IGazeProvider
 
         tobii_error_t result = Interop.tobii_gaze_point_subscribe(
             _deviceContext, _gazeCallback, IntPtr.Zero);
-        Debug.Assert(result == tobii_error_t.TOBII_ERROR_NO_ERROR);
+        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
+            _logger.LogWarning("Gaze subscription failed: {Error}", result);
     }
 
     private void PollLoop()
@@ -150,6 +154,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
                         IsConnected = true;
                         _lastErrorMessage = null;
                         backoffMs = 500;
+                        _logger.LogInformation("Connected");
                     }
                 }
             }
@@ -164,7 +169,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
         if (msg != _lastErrorMessage)
         {
             _lastErrorMessage = msg;
-            Trace.TraceError($"[TobiiStreamEngine] {msg}");
+            _logger.LogWarning("Error: {Error}", msg);
         }
         return true;
     }

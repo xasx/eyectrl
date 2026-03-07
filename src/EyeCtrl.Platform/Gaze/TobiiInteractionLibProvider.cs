@@ -2,6 +2,7 @@ namespace EyeCtrl.Platform.Gaze;
 
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using Microsoft.Extensions.Logging;
 using Tobii.InteractionLib;
 
 /// <summary>
@@ -13,6 +14,7 @@ public class TobiiInteractionLibProvider : IGazeProvider
 {
     private readonly float _screenWidth;
     private readonly float _screenHeight;
+    private readonly ILogger<TobiiInteractionLibProvider> _logger;
 
     private IInteractionLib? _interactionLib;
     private Thread? _pollThread;
@@ -26,10 +28,12 @@ public class TobiiInteractionLibProvider : IGazeProvider
     /// Creates a Tobii gaze provider. Throws immediately if the Tobii native library
     /// is not available, so callers can catch and fall back to the next provider.
     /// </summary>
-    public TobiiInteractionLibProvider(double screenWidth, double screenHeight)
+    public TobiiInteractionLibProvider(double screenWidth, double screenHeight,
+        ILogger<TobiiInteractionLibProvider> logger)
     {
         _screenWidth = (float)screenWidth;
         _screenHeight = (float)screenHeight;
+        _logger = logger;
 
         // Create the InteractionLib immediately to fail fast if Tobii is unavailable
         _interactionLib = InteractionLibFactory.CreateInteractionLib(FieldOfUse.Interactive);
@@ -88,6 +92,7 @@ public class TobiiInteractionLibProvider : IGazeProvider
                     IsConnected = true;
                     _lastExceptionMessage = null;
                     backoffMs = 500; // reset back-off on success
+                    _logger.LogInformation("Connected");
                 }
             }
             catch (Exception ex)
@@ -98,8 +103,7 @@ public class TobiiInteractionLibProvider : IGazeProvider
                 if (ex.Message != _lastExceptionMessage)
                 {
                     _lastExceptionMessage = ex.Message;
-                    System.Diagnostics.Trace.TraceError(
-                        $"[TobiiInteractionLib] {ex.Message}");
+                    _logger.LogWarning("Disconnected: {Message}", ex.Message);
                 }
 
                 // Attempt reconnect

@@ -1,23 +1,29 @@
 namespace EyeCtrl.Platform.Gaze;
 
-using System.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
+using Microsoft.Extensions.Logging;
 
 public class GazeProviderFactory
 {
-    /// <summary>
-    /// Creates a gaze provider for the requested type.
-    /// For Auto: tries InteractionLib -> StreamEngine -> Mouse, returning the first that succeeds.
-    /// For explicit types: creates that provider and throws if unavailable.
-    /// </summary>
+    private readonly ILogger<GazeProviderFactory> _logger;
+    private readonly ILoggerFactory _loggerFactory;
+
+    public GazeProviderFactory(ILogger<GazeProviderFactory> logger, ILoggerFactory loggerFactory)
+    {
+        _logger = logger;
+        _loggerFactory = loggerFactory;
+    }
+
     public IGazeProvider Create(GazeProviderType type, double screenWidth, double screenHeight)
     {
         return type switch
         {
             GazeProviderType.Mouse => new MouseGazeProvider(),
-            GazeProviderType.InteractionLib => new TobiiInteractionLibProvider(screenWidth, screenHeight),
-            GazeProviderType.StreamEngine => new TobiiStreamEngineProvider(screenWidth, screenHeight),
+            GazeProviderType.InteractionLib => new TobiiInteractionLibProvider(screenWidth, screenHeight,
+                _loggerFactory.CreateLogger<TobiiInteractionLibProvider>()),
+            GazeProviderType.StreamEngine => new TobiiStreamEngineProvider(screenWidth, screenHeight,
+                _loggerFactory.CreateLogger<TobiiStreamEngineProvider>()),
             GazeProviderType.Auto => CreateAuto(screenWidth, screenHeight),
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
@@ -36,34 +42,31 @@ public class GazeProviderFactory
 
     private IGazeProvider CreateAuto(double screenWidth, double screenHeight)
     {
-        // Try InteractionLib first
         try
         {
-            var provider = new TobiiInteractionLibProvider(screenWidth, screenHeight);
-            Trace.TraceInformation("[GazeProviderFactory] Using Tobii Interaction Library");
+            var provider = new TobiiInteractionLibProvider(screenWidth, screenHeight,
+                _loggerFactory.CreateLogger<TobiiInteractionLibProvider>());
+            _logger.LogInformation("Using Tobii Interaction Library");
             return provider;
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning(
-                $"[GazeProviderFactory] InteractionLib unavailable: {ex.Message}");
+            _logger.LogWarning("InteractionLib unavailable: {Message}", ex.Message);
         }
 
-        // Try StreamEngine
         try
         {
-            var provider = new TobiiStreamEngineProvider(screenWidth, screenHeight);
-            Trace.TraceInformation("[GazeProviderFactory] Using Tobii Stream Engine");
+            var provider = new TobiiStreamEngineProvider(screenWidth, screenHeight,
+                _loggerFactory.CreateLogger<TobiiStreamEngineProvider>());
+            _logger.LogInformation("Using Tobii Stream Engine");
             return provider;
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning(
-                $"[GazeProviderFactory] StreamEngine unavailable: {ex.Message}");
+            _logger.LogWarning("StreamEngine unavailable: {Message}", ex.Message);
         }
 
-        // Fall back to mouse
-        Trace.TraceInformation("[GazeProviderFactory] Falling back to Mouse simulation");
+        _logger.LogInformation("Falling back to Mouse simulation");
         return new MouseGazeProvider();
     }
 }

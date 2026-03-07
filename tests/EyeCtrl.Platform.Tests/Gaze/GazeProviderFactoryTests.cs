@@ -2,10 +2,13 @@ namespace EyeCtrl.Platform.Tests.Gaze;
 
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Platform.Gaze;
+using Microsoft.Extensions.Logging.Abstractions;
 
 public class GazeProviderFactoryTests
 {
-    private readonly GazeProviderFactory _factory = new();
+    private readonly GazeProviderFactory _factory = new(
+        NullLogger<GazeProviderFactory>.Instance,
+        NullLoggerFactory.Instance);
 
     [Fact]
     public void Create_Mouse_ReturnsMouseGazeProvider()

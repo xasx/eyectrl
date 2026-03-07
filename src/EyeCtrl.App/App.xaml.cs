@@ -20,6 +20,8 @@ using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 public partial class App : Application
 {
@@ -58,6 +60,9 @@ public partial class App : Application
         // ── Build DI container ──
         var services = new ServiceCollection();
 
+        // Logging (NullLoggerFactory until Serilog wiring is added)
+        services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
+
         // Messenger (singleton)
         services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
 
@@ -75,11 +80,14 @@ public partial class App : Application
 
         // Platform services
         services.AddSingleton<IInputSimulator, Win32InputSimulator>();
-        services.AddSingleton<IGazeProvider>(_ =>
+        services.AddSingleton<IGazeProvider>(sp =>
         {
             if (IsTestMode)
                 return new MouseGazeProvider();
-            var factory = new GazeProviderFactory();
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var factory = new GazeProviderFactory(
+                loggerFactory.CreateLogger<GazeProviderFactory>(),
+                loggerFactory);
             return factory.Create(settings.General.GazeProviderType,
                 SystemParameters.PrimaryScreenWidth,
                 SystemParameters.PrimaryScreenHeight);

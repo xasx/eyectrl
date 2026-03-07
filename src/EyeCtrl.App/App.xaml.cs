@@ -290,7 +290,8 @@ public partial class App : Application
                     actionMenu.Show(actionMenuVM.Center,
                         settings.ActionMenu.VisibleActions,
                         actionMenuVM.ShowBack,
-                        actionMenuVM.ShowBack ? settings.Dwell.ZoomActionMenuDwellMs : settings.Dwell.ActionMenuDwellMs);
+                        actionMenuVM.ShowBack ? settings.Dwell.ZoomActionMenuDwellMs : settings.Dwell.ActionMenuDwellMs,
+                        actionMenuVM.EffectiveRingRadius);
                 }
                 else
                 {

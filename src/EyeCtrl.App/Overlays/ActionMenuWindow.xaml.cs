@@ -10,7 +10,6 @@ using EyeCtrl.ViewModels;
 public partial class ActionMenuWindow : OverlayWindow
 {
     private const double ButtonRadius = 50;
-    private const double RingRadius = 160;
 
     private readonly Dictionary<string, (Ellipse Background, Path ProgressArc, ArcSegment Arc)> _buttonVisuals = new();
 
@@ -19,7 +18,7 @@ public partial class ActionMenuWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs)
+    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius)
     {
         _buttonVisuals.Clear();
         MenuCanvas.Children.Clear();
@@ -40,8 +39,8 @@ public partial class ActionMenuWindow : OverlayWindow
         {
             var (id, label) = allItems[i];
             var angleRad = (angleStep * i - 90) * Math.PI / 180;
-            var bx = canvasCenter.X + RingRadius * Math.Cos(angleRad);
-            var by = canvasCenter.Y + RingRadius * Math.Sin(angleRad);
+            var bx = canvasCenter.X + ringRadius * Math.Cos(angleRad);
+            var by = canvasCenter.Y + ringRadius * Math.Sin(angleRad);
 
             // Background circle
             var bg = new Ellipse

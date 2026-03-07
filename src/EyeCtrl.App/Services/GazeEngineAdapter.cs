@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using Microsoft.Extensions.Logging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -15,13 +16,16 @@ public class GazeEngineAdapter : IDisposable
     private readonly EyeCtrlSettings _settings;
     private readonly IMessenger _messenger;
     private readonly Dispatcher _dispatcher;
+    private readonly ILogger<GazeEngineAdapter> _logger;
 
     public GazeEngineAdapter(
         GazeEngine gazeEngine,
         EyeCtrlSettings settings,
         IMessenger messenger,
-        Dispatcher dispatcher)
+        Dispatcher dispatcher,
+        ILogger<GazeEngineAdapter> logger)
     {
+        _logger = logger;
         _gazeEngine = gazeEngine;
         _interactionManager = gazeEngine.InteractionManager;
         _settings = settings;
@@ -95,8 +99,11 @@ public class GazeEngineAdapter : IDisposable
     private void OnEndZoom() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new EndZoomMessage()));
 
-    private void OnStateChanged(InteractionState state) =>
+    private void OnStateChanged(InteractionState state)
+    {
+        _logger.LogInformation("State → {State}", state);
         _dispatcher.BeginInvoke(() => _messenger.Send(new StateChangedMessage(state)));
+    }
 
     private void OnActionRequested(InteractionAction action, ScreenPoint point)
     {

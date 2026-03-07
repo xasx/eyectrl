@@ -21,7 +21,7 @@ using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 public partial class App : Application
 {
@@ -57,11 +57,33 @@ public partial class App : Application
         var settingsService = new SettingsService(Path.Combine(_appDataDir, "settings.json"));
         var settings = settingsService.Load();
 
+        // ── Logging ──
+        var logsDir = Path.Combine(_appDataDir, "logs");
+        Directory.CreateDirectory(logsDir);
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Information()
+            .WriteTo.File(
+                Path.Combine(logsDir, "eyectrl-.log"),
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 7,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
+            .CreateLogger();
+
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            Log.Fatal(args.ExceptionObject as Exception, "Unhandled exception (terminating={IsTerminating})",
+                args.IsTerminating);
+
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Log.Error(args.Exception, "Unhandled dispatcher exception");
+            args.Handled = true;
+        };
+
         // ── Build DI container ──
         var services = new ServiceCollection();
 
-        // Logging (NullLoggerFactory until Serilog wiring is added)
-        services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
+        // Logging
+        services.AddLogging(builder => builder.AddSerilog(dispose: true));
 
         // Messenger (singleton)
         services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
@@ -113,7 +135,8 @@ public partial class App : Application
             sp.GetRequiredService<GazeEngine>(),
             sp.GetRequiredService<EyeCtrlSettings>(),
             sp.GetRequiredService<IMessenger>(),
-            Dispatcher));
+            Dispatcher,
+            sp.GetRequiredService<ILogger<GazeEngineAdapter>>()));
 
         _serviceProvider = services.BuildServiceProvider();
 
@@ -123,6 +146,11 @@ public partial class App : Application
         var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
         var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
         var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
+        var version = System.Reflection.Assembly.GetExecutingAssembly()
+            .GetName().Version?.ToString() ?? "unknown";
+        Log.Information("Startup: EyeCtrl v{Version}, provider={Provider}, settings={SettingsPath}",
+            version, activeProviderType,
+            Path.Combine(_appDataDir, "settings.json"));
         var im = gazeEngine.InteractionManager;
 
         // Resolve ViewModels (triggers RegisterAll in constructors)
@@ -286,6 +314,7 @@ public partial class App : Application
         messenger.Register<KeyboardToggledMessage>(this, (_, _) => Dispatcher.BeginInvoke(() =>
         {
             _keyboardVisible = !_keyboardVisible;
+            Log.Information("Keyboard {State}", _keyboardVisible ? "shown" : "hidden");
             if (_keyboardVisible)
             {
                 keyboard.Show();
@@ -313,6 +342,7 @@ public partial class App : Application
                 im.ZoomEnabled = s.Zoom.Enabled;
                 toolbar.SetZoomState(s.Zoom.Enabled);
                 LoadKeyboard(keyboard, s, inputSimulator);
+                Log.Information("Settings saved");
             };
             settingsWindow.Closed += (_, _) => settingsWindow = null;
             settingsWindow.Show();
@@ -342,6 +372,8 @@ public partial class App : Application
             // Zoom: use the precise real-screen coordinate from GetRealScreenPoint
             // Normal: use centroid tracker for refined accuracy, fall back to fixation point
             var pt = msg.IsFromZoom ? msg.Point : (gazeEngine.StableCentroid ?? msg.Point);
+            Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [zoom={IsFromZoom}]",
+                msg.Action, pt.X, pt.Y, msg.IsFromZoom);
             switch (msg.Action)
             {
                 case InteractionAction.LeftClick:    inputSimulator.LeftClick(pt);        break;
@@ -462,6 +494,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Log.Information("Shutdown");
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
 
@@ -478,6 +511,7 @@ public partial class App : Application
         gazeEngine.Dispose();
         _serviceProvider.Dispose();
 
+        Log.CloseAndFlush();
         base.OnExit(e);
     }
 }

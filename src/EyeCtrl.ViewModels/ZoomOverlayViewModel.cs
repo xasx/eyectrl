@@ -7,7 +7,8 @@ using EyeCtrl.ViewModels.Messages;
 
 public partial class ZoomOverlayViewModel : ObservableObject,
     IRecipient<StartZoomMessage>,
-    IRecipient<EndZoomMessage>
+    IRecipient<EndZoomMessage>,
+    IRecipient<ShowActionMenuMessage>
 {
     [ObservableProperty] private ScreenPoint _center = new(0, 0);
     [ObservableProperty] private int _radius;
@@ -30,5 +31,12 @@ public partial class ZoomOverlayViewModel : ObservableObject,
     public void Receive(EndZoomMessage message)
     {
         IsVisible = false;
+    }
+
+    public void Receive(ShowActionMenuMessage message)
+    {
+        // When the zoom action menu appears, align the zoom overlay to the same center.
+        if (message.ShowBack && IsVisible)
+            Center = message.Center;
     }
 }

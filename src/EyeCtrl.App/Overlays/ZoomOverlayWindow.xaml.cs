@@ -24,6 +24,12 @@ public partial class ZoomOverlayWindow : OverlayWindow
 
     public void Show(ScreenPoint center, int radius, double magnification)
     {
+        UpdateCenter(center, radius, magnification);
+        Show();
+    }
+
+    public void UpdateCenter(ScreenPoint center, int radius, double magnification)
+    {
         _originalCenter = center;
         _magnification = magnification;
 
@@ -35,7 +41,6 @@ public partial class ZoomOverlayWindow : OverlayWindow
         Top = center.Y - displayDiameter / 2.0;
 
         CaptureAndDisplay(center, radius);
-        Show();
     }
 
     private void CaptureAndDisplay(ScreenPoint center, int radius)

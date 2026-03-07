@@ -191,10 +191,15 @@ public partial class App : Application
             }
         };
 
-        // ZoomOverlay: VM -> show/hide with fixation tracking
+        // ZoomOverlay: VM -> show/hide/reposition with fixation tracking
         zoomVM.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(ZoomOverlayViewModel.IsVisible))
+            if (e.PropertyName == nameof(ZoomOverlayViewModel.Center) && zoomVM.IsVisible)
+            {
+                // Zoom action menu appeared at a clamped position — realign the overlay
+                zoomOverlay.UpdateCenter(zoomVM.Center, zoomVM.Radius, zoomVM.Magnification);
+            }
+            else if (e.PropertyName == nameof(ZoomOverlayViewModel.IsVisible))
             {
                 if (zoomVM.IsVisible)
                 {

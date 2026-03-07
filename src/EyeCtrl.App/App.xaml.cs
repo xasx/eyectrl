@@ -70,13 +70,15 @@ public partial class App : Application
             .CreateLogger();
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
             Log.Fatal(args.ExceptionObject as Exception, "Unhandled exception (terminating={IsTerminating})",
                 args.IsTerminating);
+            Log.CloseAndFlush();
+        };
 
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Unhandled dispatcher exception");
-            args.Handled = true;
         };
 
         // ── Build DI container ──

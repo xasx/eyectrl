@@ -98,8 +98,11 @@ public class GazeEngineAdapter : IDisposable
     private void OnStateChanged(InteractionState state) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new StateChangedMessage(state)));
 
-    private void OnActionRequested(InteractionAction action, ScreenPoint point) =>
-        _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point)));
+    private void OnActionRequested(InteractionAction action, ScreenPoint point)
+    {
+        var isFromZoom = _interactionManager.CurrentState == InteractionState.ZoomActionMenuVisible;
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isFromZoom)));
+    }
 
     public void Dispose()
     {

@@ -32,6 +32,11 @@ public partial class ActionMenuWindow : OverlayWindow
         if (showBackButton)
             allItems.Add(("Back", "\u21A9")); // ↩ Back arrow
 
+        // Size window to fit buttons at the given ring radius
+        var windowSize = (ringRadius + ButtonRadius) * 2 + 20;
+        Width = windowSize;
+        Height = windowSize;
+
         var canvasCenter = new Point(Width / 2, Height / 2);
         var angleStep = 360.0 / allItems.Count;
 

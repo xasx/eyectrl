@@ -57,7 +57,6 @@ public class GazeEngine : IDisposable
         _fixationDetector.FixationEnded += InteractionManager.OnFixationEnded;
         _fixationDetector.FixationStarted += _ => _centroidTracker.StartTracking();
         _fixationDetector.FixationEnded += _centroidTracker.StopTracking;
-        InteractionManager.ActionRequested += OnActionRequested;
     }
 
     public void Start()
@@ -90,41 +89,6 @@ public class GazeEngine : IDisposable
 
         if (!SuppressFixation && !isInGap)
             _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
-    }
-
-    private void OnActionRequested(InteractionAction action, ScreenPoint point)
-    {
-        var target = _centroidTracker.StableCentroid ?? point;
-        switch (action)
-        {
-            case InteractionAction.LeftClick:
-                _inputSimulator.LeftClick(target);
-                break;
-            case InteractionAction.RightClick:
-                _inputSimulator.RightClick(target);
-                break;
-            case InteractionAction.DoubleClick:
-                _inputSimulator.DoubleClick(target);
-                break;
-            case InteractionAction.DragStart:
-                _inputSimulator.MouseDown(target);
-                break;
-            case InteractionAction.DragEnd:
-                _inputSimulator.MouseUp(target);
-                break;
-            case InteractionAction.ScrollUp:
-                _inputSimulator.Scroll(target, 0, 3);
-                break;
-            case InteractionAction.ScrollDown:
-                _inputSimulator.Scroll(target, 0, -3);
-                break;
-            case InteractionAction.ScrollLeft:
-                _inputSimulator.Scroll(target, -3, 0);
-                break;
-            case InteractionAction.ScrollRight:
-                _inputSimulator.Scroll(target, 3, 0);
-                break;
-        }
     }
 
     public void Dispose()

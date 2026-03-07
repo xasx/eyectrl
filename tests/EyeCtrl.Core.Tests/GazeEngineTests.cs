@@ -51,7 +51,7 @@ public class GazeEngineTests
     }
 
     [Fact]
-    public void ActionRequested_LeftClick_SimulatesClick()
+    public void ActionRequested_LeftClick_FiresEvent()
     {
         var provider = new FakeGazeProvider();
         var simulator = new FakeInputSimulator();
@@ -61,11 +61,15 @@ public class GazeEngineTests
         var engine = new GazeEngine(provider, simulator, settings);
         engine.Start();
 
+        // Subscribe to ActionRequested (App.xaml.cs handles execution via message bus)
+        InteractionAction? firedAction = null;
+        engine.InteractionManager.ActionRequested += (action, _) => firedAction = action;
+
         // Directly trigger action through the interaction manager
         engine.InteractionManager.OnFixationStarted(new ScreenPoint(200, 200));
         engine.InteractionManager.OnActivationButtonDwelled();
         engine.InteractionManager.OnActionSelected(InteractionAction.LeftClick);
 
-        Assert.Contains(simulator.Actions, a => a.Action == "LeftClick");
+        Assert.Equal(InteractionAction.LeftClick, firedAction);
     }
 }

@@ -326,7 +326,9 @@ public partial class App : Application
         // Action selected -> input simulator
         messenger.Register<ActionRequestedMessage>(this, (_, msg) => Dispatcher.BeginInvoke(() =>
         {
-            var pt = msg.Point;
+            // Zoom: use the precise real-screen coordinate from GetRealScreenPoint
+            // Normal: use centroid tracker for refined accuracy, fall back to fixation point
+            var pt = msg.IsFromZoom ? msg.Point : (gazeEngine.StableCentroid ?? msg.Point);
             switch (msg.Action)
             {
                 case InteractionAction.LeftClick:    inputSimulator.LeftClick(pt);        break;

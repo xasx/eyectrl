@@ -16,6 +16,7 @@ public class GazeEngine : IDisposable
 
     public InteractionManager InteractionManager { get; }
     public bool SuppressFixation { get; set; }
+    public ScreenPoint? StableCentroid => _centroidTracker.StableCentroid;
     public event Action<ScreenPoint, long>? CursorMoved;
 
     public GazeEngine(

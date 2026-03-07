@@ -13,7 +13,8 @@ public partial class ActionMenuViewModel : ObservableObject,
     IRecipient<GazeCursorMovedMessage>
 {
     private const double ButtonRadius = 50;
-    private const double RingRadius = 160;
+    private const double DefaultRingRadius = 160;
+    private const double ButtonOuterGap = 20;
 
     private readonly IMessenger _messenger;
     private readonly DwellDetector _dwellDetector = new();
@@ -22,6 +23,7 @@ public partial class ActionMenuViewModel : ObservableObject,
     [ObservableProperty] private ScreenPoint _center = new(0, 0);
     [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private bool _showBack;
+    [ObservableProperty] private double _effectiveRingRadius = DefaultRingRadius;
 
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
@@ -47,13 +49,17 @@ public partial class ActionMenuViewModel : ObservableObject,
         if (message.ShowBack)
             allItems.Add(("Back", null, "\u21A9", true));
 
+        EffectiveRingRadius = message.ZoomDisplayRadius > 0
+            ? message.ZoomDisplayRadius + ButtonRadius + ButtonOuterGap
+            : DefaultRingRadius;
+
         var angleStep = 360.0 / allItems.Count;
         for (int i = 0; i < allItems.Count; i++)
         {
             var (id, action, symbol, isBack) = allItems[i];
             var angleRad = (angleStep * i - 90) * Math.PI / 180;
-            var bx = message.Center.X + RingRadius * Math.Cos(angleRad);
-            var by = message.Center.Y + RingRadius * Math.Sin(angleRad);
+            var bx = message.Center.X + EffectiveRingRadius * Math.Cos(angleRad);
+            var by = message.Center.Y + EffectiveRingRadius * Math.Sin(angleRad);
             var position = new ScreenPoint(bx, by);
 
             var itemVm = new ActionMenuItemViewModel(id, action, symbol, position, isBack);

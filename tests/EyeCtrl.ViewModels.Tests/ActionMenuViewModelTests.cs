@@ -87,4 +87,28 @@ public class ActionMenuViewModelTests
         _messenger.Send(new HideActionMenuMessage());
         Assert.False(vm.IsVisible);
     }
+
+    [Fact]
+    public void EffectiveRingRadius_IsDefault_WhenNotZoom()
+    {
+        var vm = new ActionMenuViewModel(_messenger);
+        var actions = new List<InteractionAction> { InteractionAction.LeftClick };
+
+        _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300), actions, false, 600));
+
+        Assert.Equal(160.0, vm.EffectiveRingRadius);
+    }
+
+    [Fact]
+    public void EffectiveRingRadius_IsOutsideZoomCircle_WhenZoom()
+    {
+        var vm = new ActionMenuViewModel(_messenger);
+        var actions = new List<InteractionAction> { InteractionAction.LeftClick };
+
+        // ZoomDisplayRadius = 300 (e.g., 150px * 2.0x magnification)
+        _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300), actions, true, 600, ZoomDisplayRadius: 300));
+
+        // Expected: 300 + 50 (ButtonRadius) + 20 (gap) = 370
+        Assert.Equal(370.0, vm.EffectiveRingRadius);
+    }
 }

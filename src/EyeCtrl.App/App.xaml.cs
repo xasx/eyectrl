@@ -170,6 +170,7 @@ public partial class App : Application
         var cursorCircle = new CursorCircleWindow();
         var activationButton = new ActivationButtonWindow();
         var zoomOverlay = new ZoomOverlayWindow();
+        var zoomSideButtons = new ZoomSideButtonWindow();
         var actionMenu = new ActionMenuWindow();
         var toolbar = new ToolbarWindow();
         var keyboard = new KeyboardWindow();
@@ -279,6 +280,45 @@ public partial class App : Application
                 }
             }
         };
+
+        // ZoomSideButtons: VM -> show/hide/progress
+        zoomVM.PropertyChanged += (_, e) =>
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(ZoomOverlayViewModel.IsVisible):
+                    if (zoomVM.IsVisible)
+                        zoomSideButtons.ShowAt(zoomVM.CloseButtonCenter, zoomVM.RecaptureButtonCenter);
+                    else
+                        zoomSideButtons.Hide();
+                    break;
+                case nameof(ZoomOverlayViewModel.CloseButtonProgress):
+                    zoomSideButtons.UpdateProgress("zoom_close", zoomVM.CloseButtonProgress);
+                    break;
+                case nameof(ZoomOverlayViewModel.RecaptureButtonProgress):
+                    zoomSideButtons.UpdateProgress("zoom_recapture", zoomVM.RecaptureButtonProgress);
+                    break;
+            }
+        };
+
+        // ZoomCloseMessage -> exit zoom mode
+        messenger.Register<ZoomCloseMessage>(this, (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            im.OnZoomBack();
+        }));
+
+        // ZoomRecaptureMessage -> re-capture at the same fixation point
+        messenger.Register<ZoomRecaptureMessage>(this, (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            if (im.CurrentState == InteractionState.ZoomSelectionActive && im.FixationPoint != null)
+            {
+                // Re-trigger StartZoom to re-capture
+                messenger.Send(new StartZoomMessage(
+                    im.FixationPoint,
+                    settings.Zoom.CircleRadiusPixels,
+                    settings.Zoom.MagnificationLevel));
+            }
+        }));
 
         // ActionMenu: VM -> show/hide (still needs UpdateGaze for its internal DwellDetector rendering)
         actionMenuVM.PropertyChanged += (_, e) =>

@@ -10,6 +10,8 @@ public record HideActionMenuMessage;
 public record StateChangedMessage(InteractionState NewState);
 public record StartZoomMessage(ScreenPoint Center, int Radius, double Magnification);
 public record EndZoomMessage;
+public record ZoomCloseMessage;
+public record ZoomRecaptureMessage;
 public record ActionRequestedMessage(InteractionAction Action, ScreenPoint Point, bool IsFromZoom = false);
 
 // ViewModel -> Core

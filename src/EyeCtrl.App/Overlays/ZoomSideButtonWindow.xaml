@@ -1,0 +1,9 @@
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.ZoomSideButtonWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False"
+        Width="120" Height="240">
+    <Canvas x:Name="ButtonCanvas"/>
+</overlays:OverlayWindow>

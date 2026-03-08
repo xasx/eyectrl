@@ -23,6 +23,7 @@ public partial class KeyboardWindow : OverlayWindow
 
     // Nearest-key tracking (replaces circular dwell targets for keys)
     private readonly Dictionary<string, ScreenPoint> _keyScreenPositions = new();
+    private KeyboardSoundService? _soundService;
     private string? _currentNearestKeyId;
     private long _nearestKeyEnteredTimestamp;
 
@@ -92,6 +93,7 @@ public partial class KeyboardWindow : OverlayWindow
         _recentEmojiPath = recentEmojiPath;
     }
 
+    public void SetSoundService(KeyboardSoundService svc) => _soundService = svc;
     public void SetSkinTone(int skinTone) => _skinTone = Math.Clamp(skinTone, 0, 5);
     public int GetSkinTone() => _skinTone;
     public RecentEmojiStore? GetRecentStore() => _recentEmojiStore;
@@ -316,6 +318,7 @@ public partial class KeyboardWindow : OverlayWindow
 
     private void OnKeyDwelled(string targetId)
     {
+        _soundService?.PlayKeyClick();
         if (!_keyDefinitions.TryGetValue(targetId, out var key)) return;
 
         if (!string.IsNullOrEmpty(key.SpecialAction))

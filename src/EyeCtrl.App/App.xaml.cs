@@ -454,6 +454,9 @@ public partial class App : Application
         }
 
         keyboard.SetScreenEdge(settings.Keyboard.ScreenEdge);
+
+        var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
+        keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
     }
 
     private void SetupTrayIcon(InteractionManager im)

@@ -10,4 +10,5 @@ public partial class KeyboardSettings : ObservableObject
     [ObservableProperty] private string _languagePack = "en";
     [ObservableProperty] private string _screenEdge = "Bottom";
     [ObservableProperty] private int _emojiSkinTone = 0;
+    [ObservableProperty] private bool _clickSoundEnabled = true;
 }

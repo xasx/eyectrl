@@ -231,6 +231,8 @@ public partial class App : Application
         };
 
         // ZoomOverlay: VM -> show/hide/reposition with fixation tracking
+        Action<ScreenPoint, long>? zoomGazeHandler = null;
+        System.ComponentModel.PropertyChangedEventHandler? zoomVisibilityHandler = null;
         zoomVM.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ZoomOverlayViewModel.Center) && zoomVM.IsVisible)
@@ -243,6 +245,12 @@ public partial class App : Application
                 if (zoomVM.IsVisible)
                 {
                     zoomOverlay.Show(zoomVM.Center, zoomVM.Radius, zoomVM.Magnification);
+
+                    // Unsubscribe previous handlers to prevent accumulation
+                    if (zoomGazeHandler != null)
+                        gazeEngine.CursorMoved -= zoomGazeHandler;
+                    if (zoomVisibilityHandler != null)
+                        zoomVM.PropertyChanged -= zoomVisibilityHandler;
 
                     // Set up zoom fixation detection
                     var zoomFixation = new FixationDetector(
@@ -260,19 +268,20 @@ public partial class App : Application
                     };
 
                     // Feed gaze data to zoom fixation detector when in zoom mode
-                    void onGaze(ScreenPoint pt, long ts)
+                    zoomGazeHandler = (pt, ts) =>
                     {
                         if (im.CurrentState == InteractionState.ZoomSelectionActive)
                             zoomFixation.Update(pt, ts);
-                    }
-                    gazeEngine.CursorMoved += onGaze;
+                    };
+                    gazeEngine.CursorMoved += zoomGazeHandler;
 
-                    // Unsubscribe when zoom ends
-                    zoomVM.PropertyChanged += (_, e2) =>
+                    // Unsubscribe CursorMoved when zoom ends
+                    zoomVisibilityHandler = (_, e2) =>
                     {
                         if (e2.PropertyName == nameof(ZoomOverlayViewModel.IsVisible) && !zoomVM.IsVisible)
-                            gazeEngine.CursorMoved -= onGaze;
+                            gazeEngine.CursorMoved -= zoomGazeHandler;
                     };
+                    zoomVM.PropertyChanged += zoomVisibilityHandler;
                 }
                 else
                 {

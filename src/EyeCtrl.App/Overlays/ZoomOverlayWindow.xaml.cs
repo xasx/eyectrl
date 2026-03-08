@@ -43,6 +43,12 @@ public partial class ZoomOverlayWindow : OverlayWindow
             ZoomBrush.ImageSource = source;
     }
 
+    public void Recapture()
+    {
+        var radius = (int)(Width / _magnification / 2);
+        CaptureAndDisplay(_originalCenter, radius);
+    }
+
     public ScreenPoint GetRealScreenPoint(ScreenPoint gazeOnScreen)
     {
         // Convert screen gaze coordinates to position within the zoom window

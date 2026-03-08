@@ -86,9 +86,17 @@ public class InteractionManager
 
     public void OnZoomBack()
     {
-        if (CurrentState is InteractionState.ZoomSelectionActive or InteractionState.ZoomSelectionActionMenuVisible)
+        if (CurrentState == InteractionState.ZoomSelectionActionMenuVisible)
         {
+            // Back from action view → return to zoom selection
             HideActionMenu?.Invoke();
+            ZoomFixationPoint = null;
+            SetState(InteractionState.ZoomSelectionActive);
+            StartZoom?.Invoke(FixationPoint!);
+        }
+        else if (CurrentState == InteractionState.ZoomSelectionActive)
+        {
+            // Close from zoom view → return to free look
             EndZoom?.Invoke();
             ResetToFreeLook();
         }

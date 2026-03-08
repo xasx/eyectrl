@@ -102,13 +102,67 @@ public class InteractionManagerTests
     }
 
     [Fact]
-    public void ZoomFlow_BackButton_ReturnsToFreeLook()
+    public void ZoomFlow_BackButton_TwoStepReturnsToFreeLook()
     {
         var manager = new InteractionManager { ZoomEnabled = true };
         manager.OnFixationStarted(new ScreenPoint(100, 100));
         manager.OnActivationButtonDwelled();
         manager.OnZoomFixation(new ScreenPoint(110, 110));
+
+        // First back: action menu → zoom selection
+        manager.OnZoomBack();
+        Assert.Equal(InteractionState.ZoomSelectionActive, manager.CurrentState);
+
+        // Second back: zoom selection → free look
         manager.OnZoomBack();
         Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
+    }
+
+    [Fact]
+    public void ZoomBack_FromActionMenu_ReturnsToZoomSelectionActive()
+    {
+        var im = new InteractionManager { ZoomEnabled = true };
+        var fixPoint = new ScreenPoint(500, 500);
+        var zoomPoint = new ScreenPoint(510, 510);
+        bool startZoomFired = false;
+        bool hideActionMenuFired = false;
+        bool endZoomFired = false;
+
+        im.StartZoom += _ => startZoomFired = true;
+        im.HideActionMenu += () => hideActionMenuFired = true;
+        im.EndZoom += () => endZoomFired = true;
+
+        im.OnFixationStarted(fixPoint);
+        im.OnActivationButtonDwelled();
+        Assert.Equal(InteractionState.ZoomSelectionActive, im.CurrentState);
+
+        im.OnZoomFixation(zoomPoint);
+        Assert.Equal(InteractionState.ZoomSelectionActionMenuVisible, im.CurrentState);
+
+        // Back from action menu → returns to zoom, NOT FreeLook
+        startZoomFired = false; // reset to detect re-fire
+        im.OnZoomBack();
+        Assert.Equal(InteractionState.ZoomSelectionActive, im.CurrentState);
+        Assert.True(hideActionMenuFired, "Should fire HideActionMenu");
+        Assert.True(startZoomFired, "Should re-fire StartZoom to re-show zoom overlay");
+        Assert.False(endZoomFired, "Should NOT fire EndZoom");
+    }
+
+    [Fact]
+    public void ZoomClose_FromZoomView_ReturnsToFreeLook()
+    {
+        var im = new InteractionManager { ZoomEnabled = true };
+        var fixPoint = new ScreenPoint(500, 500);
+        bool endZoomFired = false;
+
+        im.EndZoom += () => endZoomFired = true;
+
+        im.OnFixationStarted(fixPoint);
+        im.OnActivationButtonDwelled();
+        Assert.Equal(InteractionState.ZoomSelectionActive, im.CurrentState);
+
+        im.OnZoomBack(); // close from zoom view → FreeLook
+        Assert.Equal(InteractionState.FreeLook, im.CurrentState);
+        Assert.True(endZoomFired);
     }
 }

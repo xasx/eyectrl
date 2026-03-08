@@ -682,6 +682,7 @@ public partial class SettingsWindow : OverlayWindow
             VerticalAlignment = VerticalAlignment.Center
         };
 
+        System.Windows.Automation.AutomationProperties.SetAutomationId(text, $"Settings_Toggle_{id}");
         border.Child = text;
 
         void UpdateVisual()

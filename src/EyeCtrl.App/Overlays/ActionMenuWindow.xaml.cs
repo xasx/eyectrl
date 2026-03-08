@@ -20,7 +20,7 @@ public partial class ActionMenuWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor)
+    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle)
     {
         _targetCenter = center;
         _buttonVisuals.Clear();
@@ -58,6 +58,61 @@ public partial class ActionMenuWindow : OverlayWindow
             Canvas.SetLeft(previewEllipse, canvasCenter.X - previewCircleSize / 2);
             Canvas.SetTop(previewEllipse, canvasCenter.Y - previewCircleSize / 2);
             MenuCanvas.Children.Add(previewEllipse);
+        }
+
+        // Position indicator at center of preview
+        var indicatorSize = Math.Min(previewCircleSize * 0.15, 30); // scale with circle, cap at 30px
+
+        if (positionIndicatorStyle == PositionIndicatorStyle.Crosshair)
+        {
+            // Thin red crosshair lines
+            var hLine = new Line
+            {
+                X1 = canvasCenter.X - indicatorSize,
+                Y1 = canvasCenter.Y,
+                X2 = canvasCenter.X + indicatorSize,
+                Y2 = canvasCenter.Y,
+                Stroke = Brushes.Red,
+                StrokeThickness = 1.5
+            };
+            var vLine = new Line
+            {
+                X1 = canvasCenter.X,
+                Y1 = canvasCenter.Y - indicatorSize,
+                X2 = canvasCenter.X,
+                Y2 = canvasCenter.Y + indicatorSize,
+                Stroke = Brushes.Red,
+                StrokeThickness = 1.5
+            };
+            MenuCanvas.Children.Add(hLine);
+            MenuCanvas.Children.Add(vLine);
+        }
+        else // Pin
+        {
+            // Pin: small filled circle with a line pointing down to center
+            var pinHeadSize = indicatorSize * 0.8;
+            var pinHead = new Ellipse
+            {
+                Width = pinHeadSize,
+                Height = pinHeadSize,
+                Fill = Brushes.Red,
+                Stroke = Brushes.White,
+                StrokeThickness = 1
+            };
+            Canvas.SetLeft(pinHead, canvasCenter.X - pinHeadSize / 2);
+            Canvas.SetTop(pinHead, canvasCenter.Y - indicatorSize);
+
+            var pinLine = new Line
+            {
+                X1 = canvasCenter.X,
+                Y1 = canvasCenter.Y - indicatorSize / 2,
+                X2 = canvasCenter.X,
+                Y2 = canvasCenter.Y,
+                Stroke = Brushes.Red,
+                StrokeThickness = 2
+            };
+            MenuCanvas.Children.Add(pinHead);
+            MenuCanvas.Children.Add(pinLine);
         }
 
         var angleStep = 360.0 / allItems.Count;

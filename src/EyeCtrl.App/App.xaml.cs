@@ -291,7 +291,9 @@ public partial class App : Application
                         settings.ActionMenu.VisibleActions,
                         actionMenuVM.ShowBack,
                         actionMenuVM.ShowBack ? settings.Dwell.ZoomActionMenuDwellMs : settings.Dwell.ActionMenuDwellMs,
-                        actionMenuVM.EffectiveRingRadius);
+                        actionMenuVM.EffectiveRingRadius,
+                        settings.Cursor.CircleSize,
+                        settings.Cursor.CircleColor);
                 }
                 else
                 {

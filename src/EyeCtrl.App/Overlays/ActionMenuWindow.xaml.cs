@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
@@ -12,14 +13,16 @@ public partial class ActionMenuWindow : OverlayWindow
     private const double ButtonRadius = 50;
 
     private readonly Dictionary<string, (Ellipse Background, Path ProgressArc, ArcSegment Arc)> _buttonVisuals = new();
+    private ScreenPoint _targetCenter = new(0, 0);
 
     public ActionMenuWindow()
     {
         InitializeComponent();
     }
 
-    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius)
+    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor)
     {
+        _targetCenter = center;
         _buttonVisuals.Clear();
         MenuCanvas.Children.Clear();
 
@@ -38,6 +41,25 @@ public partial class ActionMenuWindow : OverlayWindow
         Height = windowSize;
 
         var canvasCenter = new Point(Width / 2, Height / 2);
+
+        // Screen capture preview in the center
+        var previewRadius = (int)(previewCircleSize / 2);
+        var capturedImage = ScreenCaptureService.CaptureRegion(center, previewRadius);
+        if (capturedImage != null)
+        {
+            var previewEllipse = new Ellipse
+            {
+                Width = previewCircleSize,
+                Height = previewCircleSize,
+                Fill = new ImageBrush(capturedImage) { Stretch = Stretch.Fill },
+                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(borderColor)),
+                StrokeThickness = 2
+            };
+            Canvas.SetLeft(previewEllipse, canvasCenter.X - previewCircleSize / 2);
+            Canvas.SetTop(previewEllipse, canvasCenter.Y - previewCircleSize / 2);
+            MenuCanvas.Children.Add(previewEllipse);
+        }
+
         var angleStep = 360.0 / allItems.Count;
 
         for (int i = 0; i < allItems.Count; i++)

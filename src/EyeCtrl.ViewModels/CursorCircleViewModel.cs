@@ -34,6 +34,6 @@ public partial class CursorCircleViewModel : ObservableObject,
 
     public void Receive(StateChangedMessage message)
     {
-        IsVisible = message.NewState != InteractionState.Paused;
+        IsVisible = message.NewState is InteractionState.FreeLook or InteractionState.Fixation;
     }
 }

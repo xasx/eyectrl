@@ -45,4 +45,33 @@ public class CursorCircleViewModelTests
         _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
         Assert.True(vm.IsVisible);
     }
+
+    [Theory]
+    [InlineData(InteractionState.ActionMenuVisible)]
+    [InlineData(InteractionState.ZoomSelectionActive)]
+    [InlineData(InteractionState.ZoomSelectionActionMenuVisible)]
+    public void HidesDuringOverlayStates(InteractionState state)
+    {
+        var settings = new CursorSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(settings, messenger);
+
+        messenger.Send(new StateChangedMessage(state));
+
+        Assert.False(vm.IsVisible);
+    }
+
+    [Fact]
+    public void ShowsAgain_WhenReturningToFreeLook_FromActionMenu()
+    {
+        var settings = new CursorSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(settings, messenger);
+
+        messenger.Send(new StateChangedMessage(InteractionState.ActionMenuVisible));
+        Assert.False(vm.IsVisible);
+
+        messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Assert.True(vm.IsVisible);
+    }
 }

@@ -13,7 +13,6 @@ public partial class ActionMenuViewModel : ObservableObject,
     IRecipient<GazeCursorMovedMessage>
 {
     private const double ButtonRadius = 50;
-    private const double DefaultRingRadius = 160;
     private const double ButtonOuterGap = 20;
 
     private readonly IMessenger _messenger;
@@ -23,7 +22,7 @@ public partial class ActionMenuViewModel : ObservableObject,
     [ObservableProperty] private ScreenPoint _center = new(0, 0);
     [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private bool _showBack;
-    [ObservableProperty] private double _effectiveRingRadius = DefaultRingRadius;
+    [ObservableProperty] private double _effectiveRingRadius;
 
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
@@ -49,9 +48,7 @@ public partial class ActionMenuViewModel : ObservableObject,
         if (message.ShowBack)
             allItems.Add(("Back", null, "\u21A9", true));
 
-        EffectiveRingRadius = message.ZoomDisplayRadius > 0
-            ? message.ZoomDisplayRadius + ButtonRadius + ButtonOuterGap
-            : DefaultRingRadius;
+        EffectiveRingRadius = message.CircleSize / 2 + ButtonRadius + ButtonOuterGap;
 
         var angleStep = 360.0 / allItems.Count;
         for (int i = 0; i < allItems.Count; i++)

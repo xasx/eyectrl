@@ -89,26 +89,28 @@ public class ActionMenuViewModelTests
     }
 
     [Fact]
-    public void EffectiveRingRadius_IsDefault_WhenNotZoom()
+    public void EffectiveRingRadius_IsComputed_FromCircleSize()
     {
         var vm = new ActionMenuViewModel(_messenger);
         var actions = new List<InteractionAction> { InteractionAction.LeftClick };
 
-        _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300), actions, false, 600));
+        // CircleSize=250 -> 250/2 + 50 + 20 = 195
+        _messenger.Send(new ShowActionMenuMessage(
+            new ScreenPoint(500, 500), actions, false, 600, 0, 250));
 
-        Assert.Equal(160.0, vm.EffectiveRingRadius);
+        Assert.Equal(195, vm.EffectiveRingRadius);
     }
 
     [Fact]
-    public void EffectiveRingRadius_IsOutsideZoomCircle_WhenZoom()
+    public void EffectiveRingRadius_ScalesWithCircleSize()
     {
         var vm = new ActionMenuViewModel(_messenger);
         var actions = new List<InteractionAction> { InteractionAction.LeftClick };
 
-        // ZoomDisplayRadius = 300 (e.g., 150px * 2.0x magnification)
-        _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300), actions, true, 600, ZoomDisplayRadius: 300));
+        // CircleSize=100 -> 100/2 + 50 + 20 = 120
+        _messenger.Send(new ShowActionMenuMessage(
+            new ScreenPoint(500, 500), actions, false, 600, 0, 100));
 
-        // Expected: 300 + 50 (ButtonRadius) + 20 (gap) = 370
-        Assert.Equal(370.0, vm.EffectiveRingRadius);
+        Assert.Equal(120, vm.EffectiveRingRadius);
     }
 }

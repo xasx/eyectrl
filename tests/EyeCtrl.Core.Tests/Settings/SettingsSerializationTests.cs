@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Tests.Settings;
 
 using System.Text.Json;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
 public class SettingsSerializationTests
@@ -89,5 +90,21 @@ public class SettingsSerializationTests
         var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
         Assert.Equal(40, settings.Cursor.CircleSize);
         Assert.Equal("#00FF00", settings.Cursor.CircleColor);
+    }
+
+    [Fact]
+    public void CursorSettings_PositionIndicatorStyle_DefaultIsCrosshair()
+    {
+        var settings = new CursorSettings();
+        Assert.Equal(PositionIndicatorStyle.Crosshair, settings.PositionIndicatorStyle);
+    }
+
+    [Fact]
+    public void CursorSettings_PositionIndicatorStyle_RoundTrips()
+    {
+        var settings = new CursorSettings { PositionIndicatorStyle = PositionIndicatorStyle.Pin };
+        var json = JsonSerializer.Serialize(settings);
+        var deserialized = JsonSerializer.Deserialize<CursorSettings>(json)!;
+        Assert.Equal(PositionIndicatorStyle.Pin, deserialized.PositionIndicatorStyle);
     }
 }

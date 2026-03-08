@@ -16,4 +16,5 @@ public partial class CursorSettings : ObservableObject
     [ObservableProperty] private double _circleThickness = 2.0;
     [ObservableProperty] private double _circleSize = 250;
     [ObservableProperty] private bool _circleHighContrast = false;
+    [ObservableProperty] private PositionIndicatorStyle _positionIndicatorStyle = PositionIndicatorStyle.Crosshair;
 }

@@ -72,7 +72,7 @@ public class GazeEngineAdapter : IDisposable
         _dispatcher.BeginInvoke(() =>
         {
             var im = _interactionManager;
-            var showBack = im.CurrentState == InteractionState.ZoomActionMenuVisible;
+            var showBack = im.CurrentState == InteractionState.ZoomSelectionActionMenuVisible;
             var dwellMs = showBack
                 ? _settings.Dwell.ZoomActionMenuDwellMs
                 : _settings.Dwell.ActionMenuDwellMs;
@@ -119,7 +119,7 @@ public class GazeEngineAdapter : IDisposable
 
     private void OnActionRequested(InteractionAction action, ScreenPoint point)
     {
-        var isFromZoom = _interactionManager.CurrentState == InteractionState.ZoomActionMenuVisible;
+        var isFromZoom = _interactionManager.CurrentState == InteractionState.ZoomSelectionActionMenuVisible;
         _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isFromZoom)));
     }
 

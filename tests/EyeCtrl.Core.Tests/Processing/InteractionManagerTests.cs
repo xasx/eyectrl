@@ -43,7 +43,7 @@ public class InteractionManagerTests
         var manager = new InteractionManager { ZoomEnabled = true };
         manager.OnFixationStarted(new ScreenPoint(100, 100));
         manager.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ZoomActive, manager.CurrentState);
+        Assert.Equal(InteractionState.ZoomSelectionActive, manager.CurrentState);
     }
 
     [Fact]
@@ -90,10 +90,10 @@ public class InteractionManagerTests
 
         manager.OnFixationStarted(new ScreenPoint(100, 100));
         manager.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ZoomActive, manager.CurrentState);
+        Assert.Equal(InteractionState.ZoomSelectionActive, manager.CurrentState);
 
         manager.OnZoomFixation(new ScreenPoint(110, 110));
-        Assert.Equal(InteractionState.ZoomActionMenuVisible, manager.CurrentState);
+        Assert.Equal(InteractionState.ZoomSelectionActionMenuVisible, manager.CurrentState);
 
         manager.OnActionSelected(InteractionAction.RightClick);
         Assert.Equal(InteractionAction.RightClick, firedAction);

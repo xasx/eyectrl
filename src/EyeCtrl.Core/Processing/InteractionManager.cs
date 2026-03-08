@@ -48,7 +48,7 @@ public class InteractionManager
         if (ZoomEnabled)
         {
             StartZoom?.Invoke(FixationPoint!);
-            SetState(InteractionState.ZoomActive);
+            SetState(InteractionState.ZoomSelectionActive);
         }
         else
         {
@@ -59,10 +59,10 @@ public class InteractionManager
 
     public void OnZoomFixation(ScreenPoint precisePoint)
     {
-        if (CurrentState != InteractionState.ZoomActive) return;
+        if (CurrentState != InteractionState.ZoomSelectionActive) return;
         ZoomFixationPoint = precisePoint;
         ShowActionMenu?.Invoke(precisePoint);
-        SetState(InteractionState.ZoomActionMenuVisible);
+        SetState(InteractionState.ZoomSelectionActionMenuVisible);
     }
 
     public void OnActionSelected(InteractionAction action)
@@ -70,14 +70,14 @@ public class InteractionManager
         ScreenPoint? targetPoint = CurrentState switch
         {
             InteractionState.ActionMenuVisible => FixationPoint,
-            InteractionState.ZoomActionMenuVisible => ZoomFixationPoint,
+            InteractionState.ZoomSelectionActionMenuVisible => ZoomFixationPoint,
             _ => null
         };
 
         if (targetPoint == null) return;
 
         HideActionMenu?.Invoke();
-        if (CurrentState == InteractionState.ZoomActionMenuVisible)
+        if (CurrentState == InteractionState.ZoomSelectionActionMenuVisible)
             EndZoom?.Invoke();
 
         ActionRequested?.Invoke(action, targetPoint);
@@ -86,7 +86,7 @@ public class InteractionManager
 
     public void OnZoomBack()
     {
-        if (CurrentState is InteractionState.ZoomActive or InteractionState.ZoomActionMenuVisible)
+        if (CurrentState is InteractionState.ZoomSelectionActive or InteractionState.ZoomSelectionActionMenuVisible)
         {
             HideActionMenu?.Invoke();
             EndZoom?.Invoke();
@@ -113,7 +113,7 @@ public class InteractionManager
         {
             HideActivationButton?.Invoke();
             HideActionMenu?.Invoke();
-            if (CurrentState is InteractionState.ZoomActive or InteractionState.ZoomActionMenuVisible)
+            if (CurrentState is InteractionState.ZoomSelectionActive or InteractionState.ZoomSelectionActionMenuVisible)
                 EndZoom?.Invoke();
             SetState(InteractionState.Paused);
         }

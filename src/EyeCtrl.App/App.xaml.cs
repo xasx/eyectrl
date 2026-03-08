@@ -261,7 +261,7 @@ public partial class App : Application
                     // Feed gaze data to zoom fixation detector when in zoom mode
                     void onGaze(ScreenPoint pt, long ts)
                     {
-                        if (im.CurrentState == InteractionState.ZoomActive)
+                        if (im.CurrentState == InteractionState.ZoomSelectionActive)
                             zoomFixation.Update(pt, ts);
                     }
                     gazeEngine.CursorMoved += onGaze;

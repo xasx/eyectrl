@@ -9,16 +9,17 @@ EyeCtrl replaces mouse and keyboard with gaze-driven overlays — a cursor circl
 - **Gaze cursor** — circle follows eye position with adaptive smoothing (1€ Filter)
 - **Dwell activation** — look at a button long enough to "click" it, with visual progress indicators
 - **Action menu** — radial menu for left click, right click, double click, drag, and scroll
-- **Zoom mode** — magnify a screen region for precise targeting
-- **On-screen keyboard** — QWERTY/QWERTZ/AZERTY layouts, word prediction, emoji support
+- **Zoom mode** — magnify a screen region for precise targeting; action menu buttons render outside the zoom circle in a ring layout
+- **On-screen keyboard** — QWERTY/QWERTZ/AZERTY layouts, word prediction, emoji support; audible click feedback (toggle in Settings → Keyboard)
 - **Toolbar** — pause, zoom toggle, keyboard toggle, settings
 - **Settings** — 7 tabs of configurable options, all dwell-activated
 - **System tray** — pause/resume, open settings, exit
+- **Logging** — structured event log via Serilog for diagnostics
 
 ## Requirements
 
 - Windows 10/11
-- .NET 8.0 Runtime
+- .NET 10.0 Runtime
 - Tobii Dynavox PCEye 5 (or compatible Tobii eye tracker)
 - Tobii Dynavox Computer Control installed (provides `tobii_interaction_lib_cs.dll`)
 

@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -42,23 +43,32 @@ public partial class ActionMenuWindow : OverlayWindow
 
         var canvasCenter = new Point(Width / 2, Height / 2);
 
-        // Screen capture preview in the center
+        // Delay capture to let WPF render overlay visibility changes
         var previewRadius = (int)(previewCircleSize / 2);
-        var capturedImage = ScreenCaptureService.CaptureRegion(center, previewRadius);
-        if (capturedImage != null)
+        var captureCenter = center;
+        var captureRadius = previewRadius;
+        var captureCanvasCenter = canvasCenter;
+        var captureCircleSize = previewCircleSize;
+        var captureBorderColor = borderColor;
+
+        _ = Dispatcher.InvokeAsync(async () =>
         {
+            await Task.Delay(100);
+            var capturedImage = ScreenCaptureService.CaptureRegion(captureCenter, captureRadius);
+            if (capturedImage == null) return;
+
             var previewEllipse = new Ellipse
             {
-                Width = previewCircleSize,
-                Height = previewCircleSize,
+                Width = captureCircleSize,
+                Height = captureCircleSize,
                 Fill = new ImageBrush(capturedImage) { Stretch = Stretch.Fill },
-                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(borderColor)),
+                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(captureBorderColor)),
                 StrokeThickness = 2
             };
-            Canvas.SetLeft(previewEllipse, canvasCenter.X - previewCircleSize / 2);
-            Canvas.SetTop(previewEllipse, canvasCenter.Y - previewCircleSize / 2);
-            MenuCanvas.Children.Add(previewEllipse);
-        }
+            Canvas.SetLeft(previewEllipse, captureCanvasCenter.X - captureCircleSize / 2);
+            Canvas.SetTop(previewEllipse, captureCanvasCenter.Y - captureCircleSize / 2);
+            MenuCanvas.Children.Insert(0, previewEllipse); // Insert at back so buttons stay on top
+        });
 
         // Position indicator at center of preview
         var indicatorSize = Math.Min(previewCircleSize * 0.15, 30); // scale with circle, cap at 30px

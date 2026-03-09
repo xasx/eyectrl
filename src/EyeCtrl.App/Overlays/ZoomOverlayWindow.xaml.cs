@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Threading.Tasks;
 using System.Windows;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
@@ -36,8 +37,9 @@ public partial class ZoomOverlayWindow : OverlayWindow
         CaptureAndDisplay(center, radius);
     }
 
-    private void CaptureAndDisplay(ScreenPoint center, int radius)
+    private async void CaptureAndDisplay(ScreenPoint center, int radius)
     {
+        await Task.Delay(100);
         var source = ScreenCaptureService.CaptureRegion(center, radius);
         if (source != null)
             ZoomBrush.ImageSource = source;

@@ -882,14 +882,29 @@ public partial class KeyboardWindow : OverlayWindow
             _keyDefinitions[id] = new KeyDefinition { Label = previews[i], Output = "", SpecialAction = $"setSkinTone:{i}" };
 
             var isActive = i == _skinTone;
-            var label = new TextBlock
+            UIElement skinChild;
+            if (_emojiRenderer?.IsAvailable == true)
             {
-                Text = previews[i],
-                FontSize = 32,
-                Foreground = Brushes.White,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+                skinChild = new Image
+                {
+                    Source = _emojiRenderer.Get(previews[i], 60),
+                    Width = 52,
+                    Height = 52,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
+            else
+            {
+                skinChild = new TextBlock
+                {
+                    Text = previews[i],
+                    FontSize = 32,
+                    Foreground = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
 
             var container = new Border
             {
@@ -900,10 +915,10 @@ public partial class KeyboardWindow : OverlayWindow
                     ? Color.FromArgb(200, 0, 100, 0)
                     : Color.FromArgb(200, 50, 50, 50)),
                 CornerRadius = new CornerRadius(8),
-                Child = label
+                Child = skinChild
             };
 
-            _keyVisuals[id] = (container, label);
+            _keyVisuals[id] = (container, null!);
             rowPanel.Children.Add(container);
         }
 

@@ -471,6 +471,7 @@ public partial class KeyboardWindow : OverlayWindow
     {
         foreach (var (id, (_, label)) in _keyVisuals)
         {
+            if (label == null) continue; // Image-based emoji cells have no TextBlock
             if (_keyDefinitions.TryGetValue(id, out var key) && string.IsNullOrEmpty(key.SpecialAction))
             {
                 label.Text = _isShifted && !string.IsNullOrEmpty(key.ShiftOutput)
@@ -636,14 +637,30 @@ public partial class KeyboardWindow : OverlayWindow
 
                 _keyDefinitions[id] = new KeyDefinition { Label = displayEmoji, Output = displayEmoji };
 
-                var label = new TextBlock
+                UIElement emojiChild;
+                if (_emojiRenderer?.IsAvailable == true)
                 {
-                    Text = displayEmoji,
-                    Foreground = Brushes.White,
-                    FontSize = 24,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
+                    emojiChild = new Image
+                    {
+                        Source = _emojiRenderer.Get(displayEmoji, 40),
+                        Width = 36,
+                        Height = 36,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                }
+                else
+                {
+                    // Fallback: monochrome TextBlock (Segoe UI Emoji not available)
+                    emojiChild = new TextBlock
+                    {
+                        Text = displayEmoji,
+                        Foreground = Brushes.White,
+                        FontSize = 24,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                }
 
                 var container = new Border
                 {
@@ -652,10 +669,12 @@ public partial class KeyboardWindow : OverlayWindow
                     Margin = new Thickness(2),
                     Background = new SolidColorBrush(Color.FromArgb(200, 50, 50, 50)),
                     CornerRadius = new CornerRadius(6),
-                    Child = label
+                    Child = emojiChild
                 };
 
-                _keyVisuals[id] = (container, label);
+                // Label is null for Image cells — safe: UpdateKeyVisual/ResetKeyVisual only use
+                // Container.Background; UpdateShiftDisplay only runs in text mode.
+                _keyVisuals[id] = (container, null!);
                 rowPanel.Children.Add(container);
             }
 

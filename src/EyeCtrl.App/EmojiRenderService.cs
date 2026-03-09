@@ -17,6 +17,8 @@ using TextFormatFlags = System.Windows.Forms.TextFormatFlags;
 /// </summary>
 internal sealed class EmojiRenderService : IDisposable
 {
+    private static readonly Color TileBackground = Color.FromArgb(50, 50, 50);
+
     private readonly Dictionary<(string emoji, int size), BitmapSource> _cache = new();
     private bool _disposed;
 
@@ -39,6 +41,7 @@ internal sealed class EmojiRenderService : IDisposable
     /// <summary>Returns a cached, frozen BitmapSource for the given emoji at the given pixel size.</summary>
     public BitmapSource Get(string emoji, int pixelSize)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var key = (emoji, pixelSize);
         if (!_cache.TryGetValue(key, out var src))
             _cache[key] = src = Render(emoji, pixelSize);
@@ -47,55 +50,68 @@ internal sealed class EmojiRenderService : IDisposable
 
     private BitmapSource Render(string emoji, int pixelSize)
     {
-        // Font size: ~75% of bitmap size leaves a small margin
-        using var font = new Font("Segoe UI Emoji", pixelSize * 0.75f, GraphicsUnit.Pixel);
-
-        // Render on a solid dark background — GDI writes alpha=0 for all pixels,
-        // so we make the whole bitmap fully opaque after rendering.
-        using var bitmap = new Bitmap(pixelSize, pixelSize, PixelFormat.Format32bppArgb);
-        using (var g = Graphics.FromImage(bitmap))
-        {
-            // Fill with the standard tile background color (matches Border background)
-            g.Clear(Color.FromArgb(50, 50, 50));
-
-            var rect = new Rectangle(0, 0, pixelSize, pixelSize);
-            TextRenderer.DrawText(g, emoji, font, rect,
-                foreColor: Color.White,
-                backColor: Color.FromArgb(50, 50, 50),
-                flags: TextFormatFlags.HorizontalCenter
-                     | TextFormatFlags.VerticalCenter
-                     | TextFormatFlags.NoPrefix
-                     | TextFormatFlags.PreserveGraphicsClipping);
-        }
-
-        // Fix GDI alpha channel: GDI renders correct RGB but sets alpha=0 for all pixels.
-        // Set alpha=255 for every pixel so the bitmap is fully opaque.
-        FixAlphaChannel(bitmap, pixelSize);
-
-        // Convert to WPF BitmapSource via LockBits (preserves all channels correctly)
-        var bitmapData = bitmap.LockBits(
-            new Rectangle(0, 0, pixelSize, pixelSize),
-            ImageLockMode.ReadOnly,
-            PixelFormat.Format32bppArgb);
-        BitmapSource result;
         try
         {
-            result = BitmapSource.Create(
-                pixelSize, pixelSize,
-                dpiX: 96, dpiY: 96,
-                pixelFormat: System.Windows.Media.PixelFormats.Bgra32,
-                palette: null,
-                buffer: bitmapData.Scan0,
-                bufferSize: Math.Abs(bitmapData.Stride) * pixelSize,
-                stride: bitmapData.Stride);
-        }
-        finally
-        {
-            bitmap.UnlockBits(bitmapData);
-        }
+            // Font size: ~75% of bitmap size leaves a small margin
+            using var font = new Font("Segoe UI Emoji", pixelSize * 0.75f, GraphicsUnit.Pixel);
 
-        result.Freeze(); // required for cross-thread use and performance
-        return result;
+            // Render on a solid dark background — GDI writes alpha=0 for all pixels,
+            // so we make the whole bitmap fully opaque after rendering.
+            using var bitmap = new Bitmap(pixelSize, pixelSize, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bitmap))
+            {
+                // Fill with the standard tile background color (matches Border background)
+                g.Clear(TileBackground);
+
+                var rect = new Rectangle(0, 0, pixelSize, pixelSize);
+                TextRenderer.DrawText(g, emoji, font, rect,
+                    foreColor: Color.White,
+                    backColor: TileBackground,
+                    flags: TextFormatFlags.HorizontalCenter
+                         | TextFormatFlags.VerticalCenter
+                         | TextFormatFlags.NoPrefix
+                         | TextFormatFlags.PreserveGraphicsClipping);
+            }
+
+            // Fix GDI alpha channel: GDI renders correct RGB but sets alpha=0 for all pixels.
+            // Set alpha=255 for every pixel so the bitmap is fully opaque.
+            FixAlphaChannel(bitmap, pixelSize);
+
+            // Convert to WPF BitmapSource via LockBits (preserves all channels correctly)
+            var bitmapData = bitmap.LockBits(
+                new Rectangle(0, 0, pixelSize, pixelSize),
+                ImageLockMode.ReadOnly,
+                PixelFormat.Format32bppArgb);
+            BitmapSource result;
+            try
+            {
+                result = BitmapSource.Create(
+                    pixelSize, pixelSize,
+                    dpiX: 96, dpiY: 96,
+                    pixelFormat: System.Windows.Media.PixelFormats.Bgra32,
+                    palette: null,
+                    buffer: bitmapData.Scan0,
+                    bufferSize: Math.Abs(bitmapData.Stride) * pixelSize,
+                    stride: bitmapData.Stride);
+            }
+            finally
+            {
+                bitmap.UnlockBits(bitmapData);
+            }
+
+            result.Freeze(); // required for cross-thread use and performance
+            return result;
+        }
+        catch
+        {
+            // A single unrenderable emoji (e.g. unsupported ZWJ sequence) must not
+            // crash BuildEmojiGrid — return a tiny transparent placeholder instead.
+            var placeholder = BitmapSource.Create(1, 1, 96, 96,
+                System.Windows.Media.PixelFormats.Bgra32, null,
+                new byte[4], 4);
+            placeholder.Freeze();
+            return placeholder;
+        }
     }
 
     private static void FixAlphaChannel(Bitmap bitmap, int pixelSize)

@@ -325,6 +325,12 @@ public partial class App : Application
             }
         };
 
+        im.HideZoom += () => Dispatcher.BeginInvoke(() =>
+        {
+            zoomOverlay.Hide();
+            zoomSideButtons.Hide();
+        });
+
         // ZoomCloseMessage -> exit zoom mode
         messenger.Register<ZoomCloseMessage>(this, (_, _) => Dispatcher.BeginInvoke(() =>
         {

@@ -16,6 +16,7 @@ public class InteractionManager
     public event Action? HideActionMenu;
     public event Action<ScreenPoint>? StartZoom;
     public event Action? EndZoom;
+    public event Action? HideZoom;
 
     private void SetState(InteractionState newState)
     {
@@ -61,6 +62,7 @@ public class InteractionManager
     {
         if (CurrentState != InteractionState.ZoomSelectionActive) return;
         ZoomFixationPoint = precisePoint;
+        HideZoom?.Invoke();
         ShowActionMenu?.Invoke(precisePoint);
         SetState(InteractionState.ZoomSelectionActionMenuVisible);
     }

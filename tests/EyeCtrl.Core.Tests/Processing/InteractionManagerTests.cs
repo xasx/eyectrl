@@ -149,6 +149,22 @@ public class InteractionManagerTests
     }
 
     [Fact]
+    public void OnZoomFixation_FiresHideZoomBeforeShowActionMenu()
+    {
+        var im = new InteractionManager { ZoomEnabled = true };
+        var events = new List<string>();
+
+        im.HideZoom += () => events.Add("HideZoom");
+        im.ShowActionMenu += _ => events.Add("ShowActionMenu");
+
+        im.OnFixationStarted(new ScreenPoint(100, 100));
+        im.OnActivationButtonDwelled();
+        im.OnZoomFixation(new ScreenPoint(110, 110));
+
+        Assert.Equal(new[] { "HideZoom", "ShowActionMenu" }, events.TakeLast(2));
+    }
+
+    [Fact]
     public void ZoomClose_FromZoomView_ReturnsToFreeLook()
     {
         var im = new InteractionManager { ZoomEnabled = true };

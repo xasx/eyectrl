@@ -9,6 +9,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels.Messages;
+using EmojiTextBlock = Emoji.Wpf.TextBlock;
 
 public partial class KeyboardWindow : OverlayWindow
 {
@@ -42,7 +43,6 @@ public partial class KeyboardWindow : OverlayWindow
     private bool _isEmojiMode;
     private EmojiData? _emojiData;
     private RecentEmojiStore? _recentEmojiStore;
-    private EmojiRenderService? _emojiRenderer;
     private string _activeEmojiCategory = "recent";
     private int _emojiPage;
     private int _skinTone; // 0=default, 1-5=light..dark
@@ -67,7 +67,6 @@ public partial class KeyboardWindow : OverlayWindow
         SizeChanged += (_, _) => RepositionOnScreen();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
         _categoryDwellDetector.TargetActivated += OnCategoryDwelled;
-        Closed += (_, _) => _emojiRenderer?.Dispose();
     }
 
     public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs)
@@ -591,7 +590,6 @@ public partial class KeyboardWindow : OverlayWindow
         }
         if (_emojiData == null) return;
 
-        _emojiRenderer ??= new EmojiRenderService();
         _isEmojiMode = true;
         _activeEmojiCategory = _recentEmojiStore?.Recent.Count > 0 ? "recent" : _emojiData.Categories[0].Id;
         _emojiPage = 0;
@@ -637,30 +635,13 @@ public partial class KeyboardWindow : OverlayWindow
 
                 _keyDefinitions[id] = new KeyDefinition { Label = displayEmoji, Output = displayEmoji };
 
-                UIElement emojiChild;
-                if (_emojiRenderer?.IsAvailable == true)
+                var emojiChild = new EmojiTextBlock
                 {
-                    emojiChild = new Image
-                    {
-                        Source = _emojiRenderer.Get(displayEmoji, 40),
-                        Width = 36,
-                        Height = 36,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center,
-                    };
-                }
-                else
-                {
-                    // Fallback: monochrome TextBlock (Segoe UI Emoji not available)
-                    emojiChild = new TextBlock
-                    {
-                        Text = displayEmoji,
-                        Foreground = Brushes.White,
-                        FontSize = 24,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center,
-                    };
-                }
+                    Text = displayEmoji,
+                    FontSize = 28,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment   = VerticalAlignment.Center,
+                };
 
                 var container = new Border
                 {
@@ -882,29 +863,13 @@ public partial class KeyboardWindow : OverlayWindow
             _keyDefinitions[id] = new KeyDefinition { Label = previews[i], Output = "", SpecialAction = $"setSkinTone:{i}" };
 
             var isActive = i == _skinTone;
-            UIElement skinChild;
-            if (_emojiRenderer?.IsAvailable == true)
+            var skinChild = new EmojiTextBlock
             {
-                skinChild = new Image
-                {
-                    Source = _emojiRenderer.Get(previews[i], 60),
-                    Width = 52,
-                    Height = 52,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-            }
-            else
-            {
-                skinChild = new TextBlock
-                {
-                    Text = previews[i],
-                    FontSize = 32,
-                    Foreground = Brushes.White,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-            }
+                Text = previews[i],
+                FontSize = 36,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment   = VerticalAlignment.Center,
+            };
 
             var container = new Border
             {

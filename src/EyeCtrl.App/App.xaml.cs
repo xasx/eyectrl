@@ -214,6 +214,9 @@ public partial class App : Application
                 case nameof(ActivationButtonViewModel.IsVisible):
                     if (activationVM.IsVisible)
                     {
+                        // Defensive: ensure action menu is hidden
+                        actionMenu.Hide();
+
                         var circleRadius = settings.Cursor.CircleSize / 2;
                         var buttonOffset = circleRadius + 55;
                         activationButton.Show();
@@ -244,6 +247,10 @@ public partial class App : Application
             {
                 if (zoomVM.IsVisible)
                 {
+                    // Defensive: ensure conflicting overlays are hidden
+                    cursorCircle.Hide();
+                    activationButton.HideImmediate();
+
                     zoomOverlay.Show(zoomVM.Center, zoomVM.Radius, zoomVM.Magnification);
 
                     // Unsubscribe previous handlers to prevent accumulation
@@ -357,6 +364,10 @@ public partial class App : Application
             {
                 if (actionMenuVM.IsVisible)
                 {
+                    // Defensive: ensure conflicting overlays are hidden
+                    cursorCircle.Hide();
+                    activationButton.HideImmediate();
+
                     actionMenu.Show(actionMenuVM.Center,
                         settings.ActionMenu.VisibleActions,
                         actionMenuVM.ShowBack,

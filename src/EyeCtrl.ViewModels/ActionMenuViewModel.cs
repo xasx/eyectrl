@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 public partial class ActionMenuViewModel : ObservableObject,
@@ -16,7 +17,7 @@ public partial class ActionMenuViewModel : ObservableObject,
     private const double ButtonOuterGap = 20;
 
     private readonly IMessenger _messenger;
-    private readonly DwellDetector _dwellDetector = new();
+    private readonly DwellDetector _dwellDetector;
     private readonly Dictionary<string, ActionMenuItemViewModel> _itemLookup = new();
 
     [ObservableProperty] private ScreenPoint _center = new(0, 0);
@@ -26,9 +27,10 @@ public partial class ActionMenuViewModel : ObservableObject,
 
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
-    public ActionMenuViewModel(IMessenger messenger)
+    public ActionMenuViewModel(DwellSettings dwellSettings, IMessenger messenger)
     {
         _messenger = messenger;
+        _dwellDetector = new DwellDetector(dwellSettings.DwellCooldownMs);
         _dwellDetector.TargetActivated += OnTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
         messenger.RegisterAll(this);

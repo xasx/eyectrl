@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 public class ZoomOverlayViewModelTests
@@ -11,7 +12,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void ShowsZoom_OnStartZoomMessage()
     {
-        var vm = new ZoomOverlayViewModel(_messenger);
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
         Assert.False(vm.IsVisible);
 
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
@@ -26,7 +27,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void HidesZoom_OnEndZoomMessage()
     {
-        var vm = new ZoomOverlayViewModel(_messenger);
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
         Assert.True(vm.IsVisible);
 
@@ -37,7 +38,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void ComputesSideButtonPositions_OnStartZoom()
     {
-        var vm = new ZoomOverlayViewModel(_messenger);
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
 
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0));
 
@@ -54,7 +55,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void CloseButton_Dwell_SendsZoomCloseMessage()
     {
-        var vm = new ZoomOverlayViewModel(_messenger);
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
         bool closeSent = false;
         object recipient = new();
         _messenger.Register<ZoomCloseMessage>(recipient, (_, _) => closeSent = true);
@@ -72,7 +73,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void RecaptureButton_Dwell_SendsZoomRecaptureMessage()
     {
-        var vm = new ZoomOverlayViewModel(_messenger);
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
         bool recaptureSent = false;
         object recipient = new();
         _messenger.Register<ZoomRecaptureMessage>(recipient, (_, _) => recaptureSent = true);
@@ -89,7 +90,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void ClearsDwellTargets_OnEndZoom()
     {
-        var vm = new ZoomOverlayViewModel(_messenger);
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
 
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0));
         var closePos = vm.CloseButtonCenter;

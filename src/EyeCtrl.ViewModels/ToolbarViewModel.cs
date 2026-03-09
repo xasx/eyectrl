@@ -13,7 +13,7 @@ public partial class ToolbarViewModel : ObservableObject,
     IRecipient<StateChangedMessage>
 {
     private readonly IMessenger _messenger;
-    private readonly DwellDetector _dwellDetector = new();
+    private readonly DwellDetector _dwellDetector;
     private readonly Dictionary<string, ToolbarButtonViewModel> _buttonLookup = new();
 
     [ObservableProperty] private bool _isPaused;
@@ -33,6 +33,7 @@ public partial class ToolbarViewModel : ObservableObject,
     public ToolbarViewModel(ToolbarSettings toolbarSettings, DwellSettings dwellSettings, IMessenger messenger)
     {
         _messenger = messenger;
+        _dwellDetector = new DwellDetector(dwellSettings.DwellCooldownMs);
 
         var buttons = new (string Id, string Symbol)[]
         {

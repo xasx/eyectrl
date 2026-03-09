@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 public class ActionMenuViewModelTests
@@ -11,7 +12,7 @@ public class ActionMenuViewModelTests
     [Fact]
     public void ShowsMenu_WithRadialLayout()
     {
-        var vm = new ActionMenuViewModel(_messenger);
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
         var actions = new List<InteractionAction>
         {
             InteractionAction.LeftClick,
@@ -29,7 +30,7 @@ public class ActionMenuViewModelTests
     [Fact]
     public void RadialPositions_AreEvenlySpaced()
     {
-        var vm = new ActionMenuViewModel(_messenger);
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
         var actions = new List<InteractionAction>
         {
             InteractionAction.LeftClick,
@@ -48,7 +49,7 @@ public class ActionMenuViewModelTests
     [Fact]
     public void ShowsBackButton_WhenRequested()
     {
-        var vm = new ActionMenuViewModel(_messenger);
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
         var actions = new List<InteractionAction> { InteractionAction.LeftClick };
 
         _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300), actions, true, 600));
@@ -60,7 +61,7 @@ public class ActionMenuViewModelTests
     [Fact]
     public void SendsActionSelected_OnDwellComplete()
     {
-        var vm = new ActionMenuViewModel(_messenger);
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
         var actions = new List<InteractionAction> { InteractionAction.LeftClick };
 
         InteractionAction? selectedAction = null;
@@ -79,7 +80,7 @@ public class ActionMenuViewModelTests
     [Fact]
     public void HidesMenu_OnHideMessage()
     {
-        var vm = new ActionMenuViewModel(_messenger);
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
         _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300),
             new List<InteractionAction> { InteractionAction.LeftClick }, false, 600));
         Assert.True(vm.IsVisible);
@@ -91,7 +92,7 @@ public class ActionMenuViewModelTests
     [Fact]
     public void EffectiveRingRadius_IsComputed_FromCircleSize()
     {
-        var vm = new ActionMenuViewModel(_messenger);
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
         var actions = new List<InteractionAction> { InteractionAction.LeftClick };
 
         // CircleSize=250 -> 250/2 + 50 + 20 = 195
@@ -104,7 +105,7 @@ public class ActionMenuViewModelTests
     [Fact]
     public void EffectiveRingRadius_ScalesWithCircleSize()
     {
-        var vm = new ActionMenuViewModel(_messenger);
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
         var actions = new List<InteractionAction> { InteractionAction.LeftClick };
 
         // CircleSize=100 -> 100/2 + 50 + 20 = 120

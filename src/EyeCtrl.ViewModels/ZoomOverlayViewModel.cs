@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 public partial class ZoomOverlayViewModel : ObservableObject,
@@ -18,7 +19,7 @@ public partial class ZoomOverlayViewModel : ObservableObject,
     private const string RecaptureTargetId = "zoom_recapture";
 
     private readonly IMessenger _messenger;
-    private readonly DwellDetector _dwellDetector = new();
+    private readonly DwellDetector _dwellDetector;
 
     [ObservableProperty] private ScreenPoint _center = new(0, 0);
     [ObservableProperty] private int _radius;
@@ -30,9 +31,10 @@ public partial class ZoomOverlayViewModel : ObservableObject,
     [ObservableProperty] private double _closeButtonProgress;
     [ObservableProperty] private double _recaptureButtonProgress;
 
-    public ZoomOverlayViewModel(IMessenger messenger)
+    public ZoomOverlayViewModel(DwellSettings dwellSettings, IMessenger messenger)
     {
         _messenger = messenger;
+        _dwellDetector = new DwellDetector(dwellSettings.DwellCooldownMs);
         _dwellDetector.TargetActivated += OnTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
         messenger.RegisterAll(this);

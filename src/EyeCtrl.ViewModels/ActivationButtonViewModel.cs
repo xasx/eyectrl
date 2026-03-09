@@ -17,7 +17,7 @@ public partial class ActivationButtonViewModel : ObservableObject,
 
     private readonly DwellSettings _dwellSettings;
     private readonly IMessenger _messenger;
-    private readonly DwellDetector _dwellDetector = new();
+    private readonly DwellDetector _dwellDetector;
 
     [ObservableProperty] private ScreenPoint _position = new(0, 0);
     [ObservableProperty] private double _dwellProgress;
@@ -27,6 +27,7 @@ public partial class ActivationButtonViewModel : ObservableObject,
     {
         _dwellSettings = dwellSettings;
         _messenger = messenger;
+        _dwellDetector = new DwellDetector(dwellSettings.DwellCooldownMs);
 
         _dwellDetector.TargetActivated += _ =>
         {

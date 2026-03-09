@@ -268,10 +268,25 @@ public partial class App : Application
                     };
 
                     // Feed gaze data to zoom fixation detector when in zoom mode
+                    var zoomStartTimestamp = 0L;
+                    var gracePeriodUs = settings.Zoom.ZoomGracePeriodMs * 1000L;
+                    var graceStarted = false;
+
                     zoomGazeHandler = (pt, ts) =>
                     {
-                        if (im.CurrentState == InteractionState.ZoomSelectionActive)
-                            zoomFixation.Update(pt, ts);
+                        if (im.CurrentState != InteractionState.ZoomSelectionActive) return;
+
+                        // Record the first timestamp as zoom start
+                        if (!graceStarted)
+                        {
+                            zoomStartTimestamp = ts;
+                            graceStarted = true;
+                        }
+
+                        // Skip gaze data during grace period
+                        if ((ts - zoomStartTimestamp) < gracePeriodUs) return;
+
+                        zoomFixation.Update(pt, ts);
                     };
                     gazeEngine.CursorMoved += zoomGazeHandler;
 

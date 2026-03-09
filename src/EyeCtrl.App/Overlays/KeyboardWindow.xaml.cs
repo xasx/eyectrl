@@ -42,6 +42,7 @@ public partial class KeyboardWindow : OverlayWindow
     private bool _isEmojiMode;
     private EmojiData? _emojiData;
     private RecentEmojiStore? _recentEmojiStore;
+    private EmojiRenderService? _emojiRenderer;
     private string _activeEmojiCategory = "recent";
     private int _emojiPage;
     private int _skinTone; // 0=default, 1-5=light..dark
@@ -66,6 +67,7 @@ public partial class KeyboardWindow : OverlayWindow
         SizeChanged += (_, _) => RepositionOnScreen();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
         _categoryDwellDetector.TargetActivated += OnCategoryDwelled;
+        Closed += (_, _) => _emojiRenderer?.Dispose();
     }
 
     public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs)
@@ -588,6 +590,7 @@ public partial class KeyboardWindow : OverlayWindow
         }
         if (_emojiData == null) return;
 
+        _emojiRenderer ??= new EmojiRenderService();
         _isEmojiMode = true;
         _activeEmojiCategory = _recentEmojiStore?.Recent.Count > 0 ? "recent" : _emojiData.Categories[0].Id;
         _emojiPage = 0;

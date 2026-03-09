@@ -4,7 +4,14 @@ using EyeCtrl.Core.Models;
 public class DwellDetector
 {
     private readonly Dictionary<string, DwellTarget> _targets = new();
+    private readonly long _cooldownMicroseconds;
     private long _lastTimestamp;
+    private long? _lastActivationTimestamp;
+
+    public DwellDetector(int cooldownMs = 0)
+    {
+        _cooldownMicroseconds = cooldownMs * 1000L;
+    }
 
     public event Action<string>? TargetActivated;
     public event Action<string, double>? TargetProgress;
@@ -26,6 +33,22 @@ public class DwellDetector
     public void Update(ScreenPoint gazePoint, long timestampMicroseconds)
     {
         _lastTimestamp = timestampMicroseconds;
+
+        // Cooldown: skip all dwell accumulation if within cooldown period
+        if (_lastActivationTimestamp.HasValue &&
+            (timestampMicroseconds - _lastActivationTimestamp.Value) < _cooldownMicroseconds)
+        {
+            // Reset all targets during cooldown (prevent partial accumulation)
+            foreach (var t in _targets.Values)
+            {
+                if (t.IsGazeInside)
+                    TargetProgress?.Invoke(t.Id, 0);
+                t.IsGazeInside = false;
+                t.EnteredTimestamp = null;
+            }
+            return;
+        }
+        _lastActivationTimestamp = null; // cooldown elapsed, clear it
 
         // ── Find the single nearest target within hit range ──
         string? nearestId = null;
@@ -71,6 +94,7 @@ public class DwellDetector
                         activatedId = target.Id;
                         target.EnteredTimestamp = null;
                         target.IsGazeInside = false;
+                        _lastActivationTimestamp = timestampMicroseconds;
                     }
                 }
             }

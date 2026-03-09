@@ -89,4 +89,99 @@ public class DwellDetectorTests
         Assert.Contains("A", progressIds);
         Assert.DoesNotContain("B", progressIds);
     }
+
+    [Fact]
+    public void Update_WithinCooldown_DoesNotRetrigger()
+    {
+        var detector = new DwellDetector(cooldownMs: 400);
+        var target = new DwellTarget("test", new ScreenPoint(100, 100), radius: 30, dwellTimeMs: 200);
+        detector.AddTarget(target);
+
+        var activations = new List<string>();
+        detector.TargetActivated += id => activations.Add(id);
+
+        long time = 0;
+
+        // First dwell: gaze enters, accumulate 200ms → activates
+        for (int i = 0; i < 9; i++)
+        {
+            detector.Update(new ScreenPoint(100, 100), time);
+            time += 30_000; // 30ms per frame
+        }
+        Assert.Single(activations);
+
+        // Continue gazing within cooldown (400ms = 400_000us from activation)
+        // Activation happened around time ~240_000. Cooldown ends at ~640_000.
+        // We're now at time ~240_000. Send updates for another 300ms — should NOT re-trigger.
+        for (int i = 0; i < 10; i++)
+        {
+            detector.Update(new ScreenPoint(100, 100), time);
+            time += 30_000;
+        }
+
+        Assert.Single(activations); // still only one
+    }
+
+    [Fact]
+    public void Update_AfterCooldown_CanRetrigger()
+    {
+        var detector = new DwellDetector(cooldownMs: 400);
+        var target = new DwellTarget("test", new ScreenPoint(100, 100), radius: 30, dwellTimeMs: 200);
+        detector.AddTarget(target);
+
+        var activations = new List<string>();
+        detector.TargetActivated += id => activations.Add(id);
+
+        long time = 0;
+
+        // First dwell: accumulate 200ms → activates
+        for (int i = 0; i < 9; i++)
+        {
+            detector.Update(new ScreenPoint(100, 100), time);
+            time += 30_000;
+        }
+        Assert.Single(activations);
+
+        // Jump past cooldown period (400ms beyond activation)
+        time += 500_000; // 500ms jump — well past cooldown
+
+        // Second dwell: accumulate another 200ms → should activate again
+        for (int i = 0; i < 9; i++)
+        {
+            detector.Update(new ScreenPoint(100, 100), time);
+            time += 30_000;
+        }
+
+        Assert.Equal(2, activations.Count);
+    }
+
+    [Fact]
+    public void Update_ZeroCooldown_AllowsImmediateRetrigger()
+    {
+        var detector = new DwellDetector(cooldownMs: 0);
+        var target = new DwellTarget("test", new ScreenPoint(100, 100), radius: 30, dwellTimeMs: 200);
+        detector.AddTarget(target);
+
+        var activations = new List<string>();
+        detector.TargetActivated += id => activations.Add(id);
+
+        long time = 0;
+
+        // First dwell
+        for (int i = 0; i < 9; i++)
+        {
+            detector.Update(new ScreenPoint(100, 100), time);
+            time += 30_000;
+        }
+        Assert.Single(activations);
+
+        // Immediately continue — with 0 cooldown, should re-trigger after another 200ms
+        for (int i = 0; i < 9; i++)
+        {
+            detector.Update(new ScreenPoint(100, 100), time);
+            time += 30_000;
+        }
+
+        Assert.Equal(2, activations.Count);
+    }
 }

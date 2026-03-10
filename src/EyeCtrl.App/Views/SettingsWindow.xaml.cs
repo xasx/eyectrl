@@ -376,6 +376,9 @@ public partial class SettingsWindow : OverlayWindow
                 () => AddSlider("d_rad", "Fixation Radius (px)", 20, 120, 5, 0,
                     () => _settings.Dwell.FixationRadiusPixels,
                     v => { _settings.Dwell.FixationRadiusPixels = v; ApplyAndSave(); }),
+                () => AddSlider("d_cooldown", "Dwell Cooldown (ms)", 0, 1000, 50, 0,
+                    () => _settings.Dwell.DwellCooldownMs,
+                    v => { _settings.Dwell.DwellCooldownMs = (int)v; ApplyAndSave(); }),
                 () => AddResetButton("Reset Dwell Settings", () =>
                     ShowModal("Reset Dwell settings to defaults?", () =>
                     {
@@ -388,6 +391,7 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Dwell.KeyboardKeyDwellMs = d.KeyboardKeyDwellMs;
                         _settings.Dwell.KeyboardPredictionDwellMs = d.KeyboardPredictionDwellMs;
                         _settings.Dwell.FixationRadiusPixels = d.FixationRadiusPixels;
+                        _settings.Dwell.DwellCooldownMs = d.DwellCooldownMs;
                         ApplyAndSave();
                         RebuildContent();
                     })),
@@ -409,6 +413,9 @@ public partial class SettingsWindow : OverlayWindow
                 () => AddSlider("z_mag", "Magnification Level", 1.5, 5, 0.5, 1,
                     () => _settings.Zoom.MagnificationLevel,
                     v => { _settings.Zoom.MagnificationLevel = v; ApplyAndSave(); }),
+                () => AddSlider("z_grace", "Grace Period (ms)", 0, 2000, 50, 0,
+                    () => _settings.Zoom.ZoomGracePeriodMs,
+                    v => { _settings.Zoom.ZoomGracePeriodMs = (int)v; ApplyAndSave(); }),
                 () => AddResetButton("Reset Zoom Settings", () =>
                     ShowModal("Reset Zoom settings to defaults?", () =>
                     {
@@ -416,6 +423,7 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Zoom.Enabled = z.Enabled;
                         _settings.Zoom.CircleRadiusPixels = z.CircleRadiusPixels;
                         _settings.Zoom.MagnificationLevel = z.MagnificationLevel;
+                        _settings.Zoom.ZoomGracePeriodMs = z.ZoomGracePeriodMs;
                         ApplyAndSave();
                         RebuildContent();
                     })),

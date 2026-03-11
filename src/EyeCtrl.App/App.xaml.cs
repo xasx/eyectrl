@@ -486,7 +486,7 @@ public partial class App : Application
                 keyboard.UpdateGaze(point, timestamp);
 
             // Settings gaze (still uses window-level dwell)
-            if (settingsWindow?.IsVisible == true)
+            if (settingsWindow?.IsVisible ?? false)
                 settingsWindow.UpdateGaze(point, timestamp);
         });
 

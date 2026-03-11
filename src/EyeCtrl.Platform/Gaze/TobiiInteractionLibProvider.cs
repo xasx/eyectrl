@@ -149,6 +149,5 @@ public class TobiiInteractionLibProvider : IGazeProvider
     public void Dispose()
     {
         Stop();
-        GC.SuppressFinalize(this);
     }
 }

@@ -572,7 +572,7 @@ public partial class KeyboardWindow : OverlayWindow
     private Color GetKeyBaseColor(string keyId)
     {
         var specialAction = _keyDefinitions.GetValueOrDefault(keyId)?.SpecialAction;
-        var isSwitchSub = specialAction?.StartsWith("switchSub:") == true;
+        var isSwitchSub = specialAction?.StartsWith("switchSub:") ?? false;
         var isSpecial = !string.IsNullOrEmpty(specialAction);
 
         return isSwitchSub ? KeyColorSwitch : isSpecial ? KeyColorSpecial : KeyColorNormal;

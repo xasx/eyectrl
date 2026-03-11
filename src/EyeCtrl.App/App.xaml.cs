@@ -127,6 +127,7 @@ public partial class App : Application
         services.AddSingleton<ActionMenuViewModel>();
         services.AddSingleton<ToolbarViewModel>();
         services.AddSingleton<KeyboardViewModel>();
+        services.AddSingleton<ZoomGazeIndicatorViewModel>();
         services.AddSingleton(sp => new SettingsViewModel(
             sp.GetRequiredService<EyeCtrlSettings>(),
             sp.GetRequiredService<SettingsService>(),
@@ -162,6 +163,7 @@ public partial class App : Application
         var actionMenuVM = _serviceProvider.GetRequiredService<ActionMenuViewModel>();
         var toolbarVM = _serviceProvider.GetRequiredService<ToolbarViewModel>();
         var keyboardVM = _serviceProvider.GetRequiredService<KeyboardViewModel>();
+        var zoomIndicatorVM = _serviceProvider.GetRequiredService<ZoomGazeIndicatorViewModel>();
 
         // Resolve adapter (triggers Core event subscriptions)
         _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
@@ -174,6 +176,12 @@ public partial class App : Application
         var actionMenu = new ActionMenuWindow();
         var toolbar = new ToolbarWindow();
         var keyboard = new KeyboardWindow();
+        var zoomIndicator = new ZoomGazeIndicatorWindow();
+        zoomIndicator.Configure(
+            settings.Zoom.GazeIndicatorOuterDiameter,
+            settings.Zoom.GazeIndicatorCenterDotDiameter,
+            settings.Zoom.GazeIndicatorStrokeThickness,
+            settings.Zoom.GazeIndicatorOpacity);
 
         // Set DataContext
         cursorCircle.DataContext = cursorVM;
@@ -252,6 +260,7 @@ public partial class App : Application
                     activationButton.HideImmediate();
 
                     zoomOverlay.Show(zoomVM.Center, zoomVM.Radius, zoomVM.Magnification);
+                    zoomIndicator.Show();
 
                     // Unsubscribe previous handlers to prevent accumulation
                     if (zoomGazeHandler != null)
@@ -269,8 +278,19 @@ public partial class App : Application
                         // and must run on the UI thread — move the entire body into BeginInvoke
                         Dispatcher.BeginInvoke(() =>
                         {
+                            zoomIndicator.Hide();
                             var realPoint = zoomOverlay.GetRealScreenPoint(zoomPoint);
                             im.OnZoomFixation(realPoint);
+                        });
+                    };
+                    zoomFixation.FixationEnded += () =>
+                    {
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            zoomIndicatorVM.ResetFixation();
+                            zoomIndicator.AnimateReset(
+                                settings.Zoom.GazeIndicatorOuterDiameter,
+                                settings.Zoom.GazeIndicatorResetAnimationMs);
                         });
                     };
 
@@ -283,6 +303,12 @@ public partial class App : Application
                     {
                         if (im.CurrentState != InteractionState.ZoomSelectionActive) return;
 
+                        // Update indicator position (even during grace period)
+                        Dispatcher.BeginInvoke(() => {
+                            zoomIndicatorVM.UpdateGazePosition(pt);
+                            zoomIndicator.UpdatePosition(zoomIndicatorVM.IndicatorX, zoomIndicatorVM.IndicatorY);
+                        });
+
                         // Record the first timestamp as zoom start
                         if (!graceStarted)
                         {
@@ -294,6 +320,12 @@ public partial class App : Application
                         if ((ts - zoomStartTimestamp) < gracePeriodUs) return;
 
                         zoomFixation.Update(pt, ts);
+                        // Update fixation progress on indicator
+                        var progress = zoomFixation.GetProgress();
+                        Dispatcher.BeginInvoke(() => {
+                            zoomIndicatorVM.UpdateFixationProgress(progress);
+                            zoomIndicator.UpdateOuterDiameter(zoomIndicatorVM.OuterCircleDiameter);
+                        });
                     };
                     gazeEngine.CursorMoved += zoomGazeHandler;
 
@@ -308,6 +340,7 @@ public partial class App : Application
                 else
                 {
                     zoomOverlay.Hide();
+                    zoomIndicator.Hide();
                 }
             }
         };
@@ -336,6 +369,7 @@ public partial class App : Application
         {
             zoomOverlay.Hide();
             zoomSideButtons.Hide();
+            zoomIndicator.Hide();
         });
 
         // ZoomCloseMessage -> exit zoom mode

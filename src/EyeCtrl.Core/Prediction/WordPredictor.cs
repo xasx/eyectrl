@@ -4,19 +4,43 @@ public class WordPredictor
 {
     private readonly IDictionaryProvider _provider;
     private readonly Dictionary<string, int> _words;
+    private readonly Dictionary<char, HashSet<char>> _adjacencyMap;
 
-    public WordPredictor(IDictionaryProvider provider)
+    private const double MaxFuzzyDistance = 1.5;
+
+    public WordPredictor(IDictionaryProvider provider, string layoutName = "QWERTY")
     {
         _provider = provider;
         _words = provider.Load();
+        _adjacencyMap = KeyboardAdjacencyMap.For(layoutName);
     }
 
     public List<string> GetSuggestions(string prefix, int maxCount = 5)
     {
         var lowerPrefix = prefix.ToLowerInvariant();
+        var scored = new Dictionary<string, double>();
 
-        return _words
-            .Where(kv => kv.Key.StartsWith(lowerPrefix, StringComparison.OrdinalIgnoreCase))
+        foreach (var (word, frequency) in _words)
+        {
+            if (word.StartsWith(lowerPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                scored[word] = frequency * 3.0;
+                continue;
+            }
+
+            // Compare prefix against the same-length prefix of the word, or full word if shorter
+            var compareTarget = word.Length >= lowerPrefix.Length
+                ? word[..lowerPrefix.Length]
+                : word;
+
+            var dist = FuzzyEditDistance.Compute(lowerPrefix, compareTarget, _adjacencyMap);
+            if (dist > MaxFuzzyDistance) continue;
+
+            double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;
+            scored[word] = frequency * multiplier;
+        }
+
+        return scored
             .OrderByDescending(kv => kv.Value)
             .Take(maxCount)
             .Select(kv => kv.Key)

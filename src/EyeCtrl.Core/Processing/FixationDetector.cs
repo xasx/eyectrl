@@ -7,6 +7,7 @@ public class FixationDetector
     private readonly long _fixationTimeMicroseconds;
     private ScreenPoint? _fixationCenter;
     private long _fixationStartTime;
+    private long _lastTimestamp;
     private bool _isFixating;
 
     public event Action<ScreenPoint>? FixationStarted;
@@ -22,6 +23,8 @@ public class FixationDetector
 
     public void Update(ScreenPoint currentPoint, long timestampMicroseconds)
     {
+        _lastTimestamp = timestampMicroseconds;
+
         if (_fixationCenter == null)
         {
             _fixationCenter = currentPoint;
@@ -51,6 +54,21 @@ public class FixationDetector
             _fixationCenter = currentPoint;
             _fixationStartTime = timestampMicroseconds;
         }
+    }
+
+    /// <summary>
+    /// Returns fixation progress as 0.0–1.0 ratio of elapsed time to required fixation time.
+    /// Returns 0.0 if no fixation is being tracked.
+    /// </summary>
+    public double GetProgress()
+    {
+        if (_fixationCenter == null || _fixationTimeMicroseconds <= 0)
+            return 0.0;
+
+        var elapsed = _lastTimestamp - _fixationStartTime;
+        if (elapsed <= 0) return 0.0;
+
+        return Math.Min(1.0, (double)elapsed / _fixationTimeMicroseconds);
     }
 
     public void Reset()

@@ -50,4 +50,48 @@ public class FixationDetectorTests
         detector.Update(new ScreenPoint(500, 500), 90_000);
         Assert.False(fixationStarted);
     }
+
+    [Fact]
+    public void GetProgress_BeforeAnyUpdate_ReturnsZero()
+    {
+        var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
+        Assert.Equal(0.0, detector.GetProgress());
+    }
+
+    [Fact]
+    public void GetProgress_DuringFixationTracking_ReturnsElapsedRatio()
+    {
+        var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
+
+        detector.Update(new ScreenPoint(100, 100), 0);
+        detector.Update(new ScreenPoint(100, 100), 100_000); // 100ms of 200ms = 0.5
+
+        // Not yet fixated (100ms < 200ms), but progress should be ~0.5
+        Assert.False(detector.IsFixating);
+        Assert.Equal(0.5, detector.GetProgress(), precision: 1);
+    }
+
+    [Fact]
+    public void GetProgress_AfterGazeMoves_ReturnsZero()
+    {
+        var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
+
+        detector.Update(new ScreenPoint(100, 100), 0);
+        detector.Update(new ScreenPoint(100, 100), 100_000); // 100ms in
+        detector.Update(new ScreenPoint(500, 500), 130_000); // gaze moves away
+
+        Assert.Equal(0.0, detector.GetProgress());
+    }
+
+    [Fact]
+    public void GetProgress_ClampsAtOne()
+    {
+        var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
+
+        detector.Update(new ScreenPoint(100, 100), 0);
+        detector.Update(new ScreenPoint(100, 100), 300_000); // 300ms > 200ms
+
+        Assert.True(detector.IsFixating);
+        Assert.Equal(1.0, detector.GetProgress());
+    }
 }

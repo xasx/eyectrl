@@ -287,6 +287,7 @@ public partial class App : Application
                     {
                         Dispatcher.BeginInvoke(() =>
                         {
+                            if (!zoomIndicator.IsVisible) return; // already hidden by fixation completion
                             zoomIndicatorVM.ResetFixation();
                             zoomIndicator.AnimateReset(
                                 settings.Zoom.GazeIndicatorOuterDiameter,

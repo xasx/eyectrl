@@ -49,8 +49,8 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
         // The zoom window is centered on message.Center on screen
         _zoomWindowCenter = message.Center;
 
-        _outerCircleDiameter = _zoomSettings.GazeIndicatorOuterDiameter;
-        _fixationProgress = 0.0;
+        OuterCircleDiameter = _zoomSettings.GazeIndicatorOuterDiameter;
+        FixationProgress = 0.0;
         IsVisible = true;
     }
 

@@ -855,7 +855,10 @@ public partial class SettingsWindow : OverlayWindow
                 new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
             _tabDwell.UpdateTargetCenter("close", new ScreenPoint(cPos.X, cPos.Y));
         }
-        catch { }
+        catch (InvalidOperationException)
+        {
+            // Window or button not yet rendered or not in visual tree
+        }
 
         UpdatePositions(_tabButtons, _tabDwell);
         UpdatePositions(_controlBorders, _controlDwell);
@@ -882,7 +885,10 @@ public partial class SettingsWindow : OverlayWindow
                     new Point(border.ActualWidth / 2, border.ActualHeight / 2));
                 detector.UpdateTargetCenter(id, new ScreenPoint(pos.X, pos.Y));
             }
-            catch { }
+            catch (InvalidOperationException)
+            {
+                // Border not yet rendered or not in visual tree
+            }
         }
     }
 

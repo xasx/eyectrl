@@ -15,6 +15,16 @@ public partial class KeyboardWindow : OverlayWindow
 {
     private const double BaseKeySize = 70;
 
+    // Color constants for keyboard UI
+    private static readonly Color KeyColorNormal = Color.FromArgb(200, 50, 50, 50);
+    private static readonly Color KeyColorSpecial = Color.FromArgb(200, 60, 60, 80);
+    private static readonly Color KeyColorSwitch = Color.FromArgb(200, 50, 70, 110);
+    private static readonly Color KeyColorHighlight = Color.FromArgb(200, 0, 100, 0);
+    private static readonly Color PredictionBarColor = Color.FromArgb(200, 40, 80, 40);
+    private static readonly Color CategoryBarColor = Color.FromArgb(200, 40, 40, 40);
+    private static readonly Color CategoryBarActiveColor = Color.FromArgb(200, 0, 100, 0);
+    private static readonly Color EmojiGridBackgroundColor = Color.FromArgb(200, 50, 50, 50);
+
     // Prediction bar uses DwellDetector (small number of circular targets)
     private readonly DwellDetector _predictionDwellDetector = new();
     private readonly DwellDetector _categoryDwellDetector = new();
@@ -149,18 +159,12 @@ public partial class KeyboardWindow : OverlayWindow
                     VerticalAlignment = VerticalAlignment.Center
                 };
 
-                var isSwitchSub = key.SpecialAction?.StartsWith("switchSub:") == true;
-                var isSpecial = !string.IsNullOrEmpty(key.SpecialAction);
                 var container = new Border
                 {
                     Width = _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0),
                     Height = _keySize,
                     Margin = new Thickness(2),
-                    Background = new SolidColorBrush(isSwitchSub
-                        ? Color.FromArgb(200, 50, 70, 110)
-                        : isSpecial
-                            ? Color.FromArgb(200, 60, 60, 80)
-                            : Color.FromArgb(200, 50, 50, 50)),
+                    Background = new SolidColorBrush(GetKeyBaseColor(id)),
                     CornerRadius = new CornerRadius(6),
                     Child = label
                 };
@@ -205,9 +209,9 @@ public partial class KeyboardWindow : OverlayWindow
                 var pos = container.PointToScreen(new Point(container.ActualWidth / 2, container.ActualHeight / 2));
                 _keyScreenPositions[id] = new ScreenPoint(pos.X, pos.Y);
             }
-            catch
+            catch (InvalidOperationException)
             {
-                // Window not yet rendered
+                // Window not yet rendered or element not in visual tree
             }
         }
     }
@@ -281,8 +285,9 @@ public partial class KeyboardWindow : OverlayWindow
             return gazePoint.X >= topLeft.X && gazePoint.X <= topLeft.X + ActualWidth
                 && gazePoint.Y >= topLeft.Y && gazePoint.Y <= topLeft.Y + ActualHeight;
         }
-        catch
+        catch (InvalidOperationException)
         {
+            // Window not yet loaded or not in visual tree
             return false;
         }
     }
@@ -512,7 +517,7 @@ public partial class KeyboardWindow : OverlayWindow
                 Height = 36,
                 Margin = new Thickness(3),
                 Padding = new Thickness(12, 0, 12, 0),
-                Background = new SolidColorBrush(Color.FromArgb(200, 40, 80, 40)),
+                Background = new SolidColorBrush(PredictionBarColor),
                 CornerRadius = new CornerRadius(4),
                 Child = predLabel
             };
@@ -544,15 +549,7 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
 
-        var specialAction = _keyDefinitions.GetValueOrDefault(targetId)?.SpecialAction;
-        var isSwitchSub = specialAction?.StartsWith("switchSub:") == true;
-        var isSpecial = !string.IsNullOrEmpty(specialAction);
-        var baseColor = isSwitchSub
-            ? Color.FromArgb(200, 50, 70, 110)
-            : isSpecial
-                ? Color.FromArgb(200, 60, 60, 80)
-                : Color.FromArgb(200, 50, 50, 50);
-
+        var baseColor = GetKeyBaseColor(targetId);
         var highlightColor = Color.FromArgb(200, 0, (byte)(100 + 155 * progress), 0);
         var blended = Color.FromArgb(
             200,
@@ -566,17 +563,19 @@ public partial class KeyboardWindow : OverlayWindow
     private void ResetKeyVisual(string targetId)
     {
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
+        visuals.Container.Background = new SolidColorBrush(GetKeyBaseColor(targetId));
+    }
 
-        var specialAction = _keyDefinitions.GetValueOrDefault(targetId)?.SpecialAction;
-        var isSwitchSub = specialAction?.StartsWith("switchSub:") == true;
+    /// <summary>
+    /// Returns the base color for a key based on its special action type.
+    /// </summary>
+    private Color GetKeyBaseColor(string keyId)
+    {
+        var specialAction = _keyDefinitions.GetValueOrDefault(keyId)?.SpecialAction;
+        var isSwitchSub = specialAction?.StartsWith("switchSub:") ?? false;
         var isSpecial = !string.IsNullOrEmpty(specialAction);
-        var baseColor = isSwitchSub
-            ? Color.FromArgb(200, 50, 70, 110)
-            : isSpecial
-                ? Color.FromArgb(200, 60, 60, 80)
-                : Color.FromArgb(200, 50, 50, 50);
 
-        visuals.Container.Background = new SolidColorBrush(baseColor);
+        return isSwitchSub ? KeyColorSwitch : isSpecial ? KeyColorSpecial : KeyColorNormal;
     }
 
     // ── Emoji mode ──────────────────────────────────────────────────────
@@ -648,7 +647,7 @@ public partial class KeyboardWindow : OverlayWindow
                     Width = _keySize,
                     Height = _keySize,
                     Margin = new Thickness(2),
-                    Background = new SolidColorBrush(Color.FromArgb(200, 50, 50, 50)),
+                    Background = new SolidColorBrush(EmojiGridBackgroundColor),
                     CornerRadius = new CornerRadius(6),
                     Child = emojiChild
                 };
@@ -698,7 +697,7 @@ public partial class KeyboardWindow : OverlayWindow
             Width = _keySize * widthMultiplier + (widthMultiplier > 1 ? (widthMultiplier - 1) * 4 : 0),
             Height = _keySize,
             Margin = new Thickness(2),
-            Background = new SolidColorBrush(Color.FromArgb(200, 50, 70, 110)),
+            Background = new SolidColorBrush(KeyColorSwitch),
             CornerRadius = new CornerRadius(6),
             Child = label
         };
@@ -758,7 +757,7 @@ public partial class KeyboardWindow : OverlayWindow
             Width = 40,
             Height = 40,
             Margin = new Thickness(2),
-            Background = new SolidColorBrush(Color.FromArgb(200, 40, 40, 40)),
+            Background = new SolidColorBrush(CategoryBarColor),
             CornerRadius = new CornerRadius(6),
             Child = new TextBlock
             {
@@ -781,9 +780,7 @@ public partial class KeyboardWindow : OverlayWindow
             if (CategoryBar.Children[i] is Border border)
             {
                 var isActive = i == GetActiveCategoryIndex();
-                border.Background = new SolidColorBrush(isActive
-                    ? Color.FromArgb(200, 0, 100, 0)
-                    : Color.FromArgb(200, 40, 40, 40));
+                border.Background = new SolidColorBrush(isActive ? CategoryBarActiveColor : CategoryBarColor);
             }
         }
     }
@@ -841,7 +838,10 @@ public partial class KeyboardWindow : OverlayWindow
                     _categoryDwellDetector.UpdateTargetCenter(tabId, new ScreenPoint(pos.X, pos.Y));
                 }
             }
-            catch { }
+            catch (InvalidOperationException)
+            {
+                // Element not yet rendered or not in visual tree
+            }
         }
         _categoryTargetsInitialized = true;
     }
@@ -876,9 +876,7 @@ public partial class KeyboardWindow : OverlayWindow
                 Width = _keySize * 1.5,
                 Height = _keySize * 1.5,
                 Margin = new Thickness(4),
-                Background = new SolidColorBrush(isActive
-                    ? Color.FromArgb(200, 0, 100, 0)
-                    : Color.FromArgb(200, 50, 50, 50)),
+                Background = new SolidColorBrush(isActive ? KeyColorHighlight : KeyColorNormal),
                 CornerRadius = new CornerRadius(8),
                 Child = skinChild
             };

@@ -49,6 +49,5 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
     public void Dispose()
     {
         Stop();
-        GC.SuppressFinalize(this);
     }
 }

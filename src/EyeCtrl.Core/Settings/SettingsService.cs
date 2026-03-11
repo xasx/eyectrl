@@ -28,7 +28,10 @@ public class SettingsService
                 if (!token.IsCancellationRequested)
                     Save(settings);
             }
-            catch (TaskCanceledException) { }
+            catch (TaskCanceledException)
+            {
+                // Expected when debounce is superseded by a new save request
+            }
         });
     }
 

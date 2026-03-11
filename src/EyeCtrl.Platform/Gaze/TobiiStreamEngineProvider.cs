@@ -196,6 +196,5 @@ public class TobiiStreamEngineProvider : IGazeProvider
     public void Dispose()
     {
         Stop();
-        GC.SuppressFinalize(this);
     }
 }

@@ -16,12 +16,19 @@ public partial class ActivationButtonWindow : OverlayWindow
         Opacity = 0;
     }
 
-    public void ShowAt(ScreenPoint position, double verticalOffset = 180)
+    public void ShowAt(ScreenPoint position, double offset)
     {
         var screenW = System.Windows.SystemParameters.PrimaryScreenWidth;
         var screenH = System.Windows.SystemParameters.PrimaryScreenHeight;
-        Left = Math.Clamp(position.X - Width / 2, 0, screenW - Width);
-        Top  = Math.Clamp(position.Y - Height / 2 - verticalOffset, 0, screenH - Height);
+
+        var dx = position.X < screenW / 2 ? 1.0 : -1.0;
+        var dy = position.Y < screenH / 2 ? 1.0 : -1.0;
+
+        var buttonCenterX = position.X + dx * offset / Math.Sqrt(2);
+        var buttonCenterY = position.Y + dy * offset / Math.Sqrt(2);
+
+        Left = Math.Clamp(buttonCenterX - Width / 2, 0, screenW - Width);
+        Top  = Math.Clamp(buttonCenterY - Height / 2, 0, screenH - Height);
 
         UpdateDwellProgress(0);
 

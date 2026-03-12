@@ -40,6 +40,7 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.HideActionMenu += OnHideActionMenu;
         _interactionManager.StartZoom += OnStartZoom;
         _interactionManager.EndZoom += OnEndZoom;
+        _interactionManager.HideZoom += OnHideZoom;
         _interactionManager.StateChanged += OnStateChanged;
         _interactionManager.ActionRequested += OnActionRequested;
 
@@ -108,6 +109,9 @@ public class GazeEngineAdapter : IDisposable
     private void OnEndZoom() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new EndZoomMessage()));
 
+    private void OnHideZoom() =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ZoomHiddenMessage()));
+
     private void OnStateChanged(InteractionState state)
     {
         _logger.LogInformation("State → {State}", state);
@@ -129,6 +133,7 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.HideActionMenu -= OnHideActionMenu;
         _interactionManager.StartZoom -= OnStartZoom;
         _interactionManager.EndZoom -= OnEndZoom;
+        _interactionManager.HideZoom -= OnHideZoom;
         _interactionManager.StateChanged -= OnStateChanged;
         _interactionManager.ActionRequested -= OnActionRequested;
         GC.SuppressFinalize(this);

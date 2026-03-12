@@ -195,7 +195,7 @@ public partial class App : Application
         cursorCircle.UpdateAppearance(settings.Cursor);
         toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
         toolbar.SetProviderIndicator(activeProviderType);
-        LoadKeyboard(keyboard, settings, inputSimulator);
+        LoadKeyboard(keyboard, settings, inputSimulator, settingsService);
 
         // ── Bridge ViewModel -> Overlay Windows via PropertyChanged ──
 
@@ -463,7 +463,7 @@ public partial class App : Application
                 toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
                 im.ZoomEnabled = s.Zoom.Enabled;
                 toolbar.SetZoomState(s.Zoom.Enabled);
-                LoadKeyboard(keyboard, s, inputSimulator);
+                LoadKeyboard(keyboard, s, inputSimulator, settingsService);
                 Log.Information("Settings saved");
             };
             settingsWindow.Closed += (_, _) => settingsWindow = null;
@@ -542,7 +542,8 @@ public partial class App : Application
         gazeEngine.Start();
     }
 
-    private void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings, IInputSimulator inputSimulator)
+    private void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
+        IInputSimulator inputSimulator, SettingsService settingsService)
     {
         var layoutName = settings.Keyboard.ActiveLayout.ToLowerInvariant();
         var layoutPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
@@ -564,11 +565,18 @@ public partial class App : Application
 
         if (settings.Keyboard.PredictionEnabled)
         {
+            if (string.IsNullOrEmpty(settings.Keyboard.LanguagePack))
+            {
+                settings.Keyboard.LanguagePack = LanguageDetector.Detect();
+                settingsService.SaveDebounced(settings);
+                Log.Information("Auto-detected language: {Lang}", settings.Keyboard.LanguagePack);
+            }
+
+            var langCode = settings.Keyboard.LanguagePack;
             var dictPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "Resources", "Dictionaries", $"{settings.Keyboard.LanguagePack}.json");
-            var userDictPath = Path.Combine(_appDataDir, "user_dictionary.json");
-            var provider = new FileDictionaryProvider(dictPath, userDictPath);
-            _wordPredictor = new WordPredictor(provider);
+                "Resources", "Dictionaries", $"{langCode}.json");
+            var provider = new FileDictionaryProvider(dictPath, _appDataDir, langCode);
+            _wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);
             keyboard.SetPredictor(_wordPredictor);
         }
 

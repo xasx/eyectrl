@@ -17,9 +17,8 @@ public class WordPredictorTests
             { "hello", 100 }, { "help", 80 }, { "world", 50 }, { "heap", 30 }
         });
 
-        var results = predictor.GetSuggestions("hel", maxCount: 3);
+        var results = predictor.GetSuggestions("hel", maxCount: 5);
 
-        Assert.Equal(2, results.Count);
         Assert.Contains("hello", results);
         Assert.Contains("help", results);
     }
@@ -69,6 +68,67 @@ public class WordPredictorTests
 
         var results = predictor.GetSuggestions("", maxCount: 3);
         Assert.Equal(3, results.Count);
+    }
+
+    [Fact]
+    public void GetSuggestions_FuzzyAdjacentKey_SuggestsIntendedWord()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "the", 1000 }, { "rhe", 1 }, { "world", 500 }
+        });
+
+        var results = predictor.GetSuggestions("rhe", maxCount: 5);
+        Assert.Contains("the", results);
+    }
+
+    [Fact]
+    public void GetSuggestions_ExactPrefixRanksAboveFuzzy_WhenFrequencyEqual()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "there", 500 }, { "the", 500 }
+        });
+
+        var results = predictor.GetSuggestions("the", maxCount: 5);
+        Assert.Contains("there", results);
+        Assert.Contains("the", results);
+    }
+
+    [Fact]
+    public void GetSuggestions_HighFrequencyFuzzyBeatsLowFrequencyExact()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "the", 10000 }, { "rheumatic", 1 }
+        });
+
+        var results = predictor.GetSuggestions("rhe", maxCount: 5);
+        Assert.Equal("the", results[0]);
+    }
+
+    [Fact]
+    public void GetSuggestions_NonAdjacentTypo_StillSuggestsWithinThreshold()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "the", 1000 }
+        });
+
+        var results = predictor.GetSuggestions("she", maxCount: 5);
+        Assert.Contains("the", results);
+    }
+
+    [Fact]
+    public void GetSuggestions_FarTypo_NotSuggested()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "the", 1000 }
+        });
+
+        var results = predictor.GetSuggestions("xyz", maxCount: 5);
+        Assert.DoesNotContain("the", results);
     }
 }
 

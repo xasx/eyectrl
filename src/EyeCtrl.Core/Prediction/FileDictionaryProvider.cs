@@ -7,10 +7,12 @@ public class FileDictionaryProvider : IDictionaryProvider
     private readonly string _baseDictionaryPath;
     private readonly string _userDictionaryPath;
 
-    public FileDictionaryProvider(string baseDictionaryPath, string userDictionaryPath)
+    public string UserDictionaryPath => _userDictionaryPath;
+
+    public FileDictionaryProvider(string baseDictionaryPath, string appDataDir, string languageCode)
     {
         _baseDictionaryPath = baseDictionaryPath;
-        _userDictionaryPath = userDictionaryPath;
+        _userDictionaryPath = Path.Combine(appDataDir, $"user_dictionary_{languageCode}.json");
     }
 
     public Dictionary<string, int> Load()

@@ -446,6 +446,12 @@ public partial class SettingsWindow : OverlayWindow
                 () => AddToggle("k_pred", "Word Prediction",
                     () => _settings.Keyboard.PredictionEnabled,
                     v => { _settings.Keyboard.PredictionEnabled = v; ApplyAndSave(); }),
+                () => AddRadio("k_lang", "Dictionary Language",
+                    displayOptions: ["English", "French", "Spanish", "German", "Polish"],
+                    codeOptions:    ["en",      "fr",     "es",      "de",     "pl"],
+                    getCode: () => string.IsNullOrEmpty(_settings.Keyboard.LanguagePack) ? "en"
+                                   : _settings.Keyboard.LanguagePack,
+                    setCode: v => { _settings.Keyboard.LanguagePack = v; ApplyAndSave(); }),
                 () => AddToggle("k_sound", "Click Sound",
                     () => _settings.Keyboard.ClickSoundEnabled,
                     v => { _settings.Keyboard.ClickSoundEnabled = v; ApplyAndSave(); }),
@@ -459,7 +465,7 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Keyboard.ActiveLayout = k.ActiveLayout;
                         _settings.Keyboard.KeySizeMultiplier = k.KeySizeMultiplier;
                         _settings.Keyboard.PredictionEnabled = k.PredictionEnabled;
-                        _settings.Keyboard.LanguagePack = k.LanguagePack;
+                        _settings.Keyboard.LanguagePack = "";
                         _settings.Keyboard.ScreenEdge = k.ScreenEdge;
                         ApplyAndSave();
                         RebuildContent();
@@ -569,7 +575,7 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Keyboard.ActiveLayout = d.Keyboard.ActiveLayout;
                         _settings.Keyboard.KeySizeMultiplier = d.Keyboard.KeySizeMultiplier;
                         _settings.Keyboard.PredictionEnabled = d.Keyboard.PredictionEnabled;
-                        _settings.Keyboard.LanguagePack = d.Keyboard.LanguagePack;
+                        _settings.Keyboard.LanguagePack = "";
                         _settings.Keyboard.ScreenEdge = d.Keyboard.ScreenEdge;
                         _settings.Toolbar.IsDocked = d.Toolbar.IsDocked;
                         _settings.Toolbar.DockedEdge = d.Toolbar.DockedEdge;
@@ -714,6 +720,80 @@ public partial class SettingsWindow : OverlayWindow
         _controlBorders[id] = border;
         _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), ControlBtnRadius, _dwellMs));
         ContentPanel.Children.Add(border);
+    }
+
+    private void AddRadio(
+        string idPrefix,
+        string label,
+        string[] displayOptions,
+        string[] codeOptions,
+        Func<string> getCode,
+        Action<string> setCode)
+    {
+        AddLabel(label);
+
+        var borders = new List<Border>();
+
+        for (int i = 0; i < displayOptions.Length; i++)
+        {
+            var capturedIndex = i;
+            var capturedCode = codeOptions[i];
+            var id = $"{idPrefix}_{i}";
+
+            var text = new TextBlock
+            {
+                Text = displayOptions[i],
+                Foreground = Brushes.White,
+                FontSize = 22,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(16, 0, 16, 0)
+            };
+
+            System.Windows.Automation.AutomationProperties.SetAutomationId(
+                text, $"Settings_Radio_{id}");
+
+            var border = new Border
+            {
+                Height = 70,
+                Margin = new Thickness(0, 2, 0, 4),
+                CornerRadius = new CornerRadius(8),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                MinWidth = 220,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Child = text
+            };
+
+            void Refresh()
+            {
+                var active = getCode();
+                foreach (var b in borders)
+                    b.Background = new SolidColorBrush(BtnBase);
+                var activeIdx = Array.IndexOf(codeOptions, active);
+                if (activeIdx >= 0 && activeIdx < borders.Count)
+                    borders[activeIdx].Background = new SolidColorBrush(
+                        Color.FromArgb(200, 30, 100, 30));
+            }
+
+            _controlActions[id] = () =>
+            {
+                setCode(capturedCode);
+                Refresh();
+            };
+
+            border.MouseLeftButtonDown += (_, _) => _controlActions[id]();
+            _controlBorders[id] = border;
+            _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), ControlBtnRadius, _dwellMs));
+            borders.Add(border);
+            ContentPanel.Children.Add(border);
+        }
+
+        // Set initial highlight
+        var currentCode = getCode();
+        var currentIdx = Array.IndexOf(codeOptions, currentCode);
+        if (currentIdx >= 0 && currentIdx < borders.Count)
+            borders[currentIdx].Background = new SolidColorBrush(
+                Color.FromArgb(200, 30, 100, 30));
     }
 
     private static readonly (string Hex, string Name)[] ColorPresets =

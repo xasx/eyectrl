@@ -107,4 +107,30 @@ public class ZoomOverlayViewModelTests
 
         Assert.False(closeSent);
     }
+
+    [Fact]
+    public void HidesZoom_OnZoomHiddenMessage()
+    {
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+        Assert.True(vm.IsVisible);
+
+        _messenger.Send(new ZoomHiddenMessage());
+
+        Assert.False(vm.IsVisible);
+    }
+
+    [Fact]
+    public void ReshowsZoom_AfterZoomHiddenThenStartZoom()
+    {
+        // Simulates: zoom shown → fixation detected (ZoomHidden) → Back pressed (StartZoom again)
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+        _messenger.Send(new ZoomHiddenMessage());
+        Assert.False(vm.IsVisible);
+
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+
+        Assert.True(vm.IsVisible);
+    }
 }

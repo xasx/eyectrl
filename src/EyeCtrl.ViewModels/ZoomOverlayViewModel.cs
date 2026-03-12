@@ -10,6 +10,7 @@ using EyeCtrl.ViewModels.Messages;
 public partial class ZoomOverlayViewModel : ObservableObject,
     IRecipient<StartZoomMessage>,
     IRecipient<EndZoomMessage>,
+    IRecipient<ZoomHiddenMessage>,
     IRecipient<GazeCursorMovedMessage>
 {
     private const double SideButtonRadius = 50;
@@ -70,6 +71,14 @@ public partial class ZoomOverlayViewModel : ObservableObject,
     }
 
     public void Receive(EndZoomMessage message)
+    {
+        IsVisible = false;
+        _dwellDetector.ClearTargets();
+        CloseButtonProgress = 0;
+        RecaptureButtonProgress = 0;
+    }
+
+    public void Receive(ZoomHiddenMessage message)
     {
         IsVisible = false;
         _dwellDetector.ClearTargets();

@@ -734,6 +734,8 @@ public partial class SettingsWindow : OverlayWindow
 
         var borders = new List<Border>();
 
+        var texts = new List<TextBlock>();
+
         for (int i = 0; i < displayOptions.Length; i++)
         {
             var capturedIndex = i;
@@ -742,7 +744,6 @@ public partial class SettingsWindow : OverlayWindow
 
             var text = new TextBlock
             {
-                Text = displayOptions[i],
                 Foreground = Brushes.White,
                 FontSize = 22,
                 FontWeight = FontWeights.SemiBold,
@@ -767,12 +768,15 @@ public partial class SettingsWindow : OverlayWindow
             void Refresh()
             {
                 var active = getCode();
-                foreach (var b in borders)
-                    b.Background = new SolidColorBrush(BtnBase);
-                var activeIdx = Array.IndexOf(codeOptions, active);
-                if (activeIdx >= 0 && activeIdx < borders.Count)
-                    borders[activeIdx].Background = new SolidColorBrush(
-                        Color.FromArgb(200, 30, 100, 30));
+                for (int j = 0; j < borders.Count; j++)
+                {
+                    bool selected = j < codeOptions.Length && codeOptions[j] == active;
+                    borders[j].Background = new SolidColorBrush(selected
+                        ? Color.FromArgb(200, 30, 100, 30)
+                        : BtnBase);
+                    if (j < texts.Count)
+                        texts[j].Text = (selected ? "\u25C9 " : "\u25CB ") + displayOptions[j];
+                }
             }
 
             _controlActions[id] = () =>
@@ -785,15 +789,21 @@ public partial class SettingsWindow : OverlayWindow
             _controlBorders[id] = border;
             _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), ControlBtnRadius, _dwellMs));
             borders.Add(border);
+            texts.Add(text);
             ContentPanel.Children.Add(border);
         }
 
-        // Set initial highlight
+        // Set initial highlight and text indicators
         var currentCode = getCode();
-        var currentIdx = Array.IndexOf(codeOptions, currentCode);
-        if (currentIdx >= 0 && currentIdx < borders.Count)
-            borders[currentIdx].Background = new SolidColorBrush(
-                Color.FromArgb(200, 30, 100, 30));
+        for (int i = 0; i < borders.Count; i++)
+        {
+            bool selected = i < codeOptions.Length && codeOptions[i] == currentCode;
+            borders[i].Background = new SolidColorBrush(selected
+                ? Color.FromArgb(200, 30, 100, 30)
+                : BtnBase);
+            if (i < texts.Count)
+                texts[i].Text = (selected ? "\u25C9 " : "\u25CB ") + displayOptions[i];
+        }
     }
 
     private static readonly (string Hex, string Name)[] ColorPresets =

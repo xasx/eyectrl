@@ -4,7 +4,7 @@ using EyeCtrl.Core.Models;
 public class DwellDetector
 {
     private readonly Dictionary<string, DwellTarget> _targets = new();
-    private readonly long _cooldownMicroseconds;
+    private long _cooldownMicroseconds;
     private long _lastTimestamp;
     private long? _lastActivationTimestamp;
 
@@ -15,6 +15,8 @@ public class DwellDetector
 
     public event Action<string>? TargetActivated;
     public event Action<string, double>? TargetProgress;
+
+    public void SetCooldown(int cooldownMs) => _cooldownMicroseconds = cooldownMs * 1000L;
 
     public void AddTarget(DwellTarget target) => _targets[target.Id] = target;
     public void RemoveTarget(string id) => _targets.Remove(id);

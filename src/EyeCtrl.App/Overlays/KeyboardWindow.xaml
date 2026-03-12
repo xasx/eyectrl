@@ -10,7 +10,7 @@
         <DockPanel>
             <!-- Prediction bar at top (hidden in emoji mode) -->
             <StackPanel x:Name="PredictionBar" Orientation="Horizontal"
-                        DockPanel.Dock="Top" Margin="0,0,0,6" Height="40"/>
+                        DockPanel.Dock="Top" Margin="0,0,0,6" Height="56"/>
             <!-- Emoji category tabs (hidden in text mode) -->
             <StackPanel x:Name="CategoryBar" Orientation="Horizontal"
                         DockPanel.Dock="Top" Margin="0,0,0,6" Height="44"

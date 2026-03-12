@@ -37,6 +37,7 @@ public partial class KeyboardWindow : OverlayWindow
     private KeyboardSoundService? _soundService;
     private string? _currentNearestKeyId;
     private long _nearestKeyEnteredTimestamp;
+    private long _keyCooldownEndTimestamp;
 
     private KeyboardLayout? _layout;
     private string _activeSubLayoutId = "letters";
@@ -86,6 +87,10 @@ public partial class KeyboardWindow : OverlayWindow
         _keySize = BaseKeySize * keySizeMultiplier;
         _keyDwellMs = keyDwellMs;
         _predictionDwellMs = predictionDwellMs;
+
+        var cooldownMs = keyDwellMs / 2;
+        _predictionDwellDetector.SetCooldown(cooldownMs);
+        _categoryDwellDetector.SetCooldown(cooldownMs);
 
         RebuildKeys();
     }
@@ -236,6 +241,17 @@ public partial class KeyboardWindow : OverlayWindow
             return;
         }
 
+        // Post-activation cooldown — prevent rapid re-firing after a key is typed
+        if (timestampMicroseconds < _keyCooldownEndTimestamp)
+        {
+            if (_currentNearestKeyId != null)
+            {
+                ResetKeyVisual(_currentNearestKeyId);
+                _currentNearestKeyId = null;
+            }
+            return;
+        }
+
         // Find nearest key to gaze point
         string? nearestId = null;
         double nearestDist = double.MaxValue;
@@ -272,6 +288,7 @@ public partial class KeyboardWindow : OverlayWindow
             {
                 ResetKeyVisual(nearestId);
                 _currentNearestKeyId = null;
+                _keyCooldownEndTimestamp = timestampMicroseconds + (_keyDwellMs / 2 * 1000L);
                 OnKeyDwelled(nearestId);
             }
         }
@@ -514,7 +531,7 @@ public partial class KeyboardWindow : OverlayWindow
             var btn = new Border
             {
                 MinWidth = 80,
-                Height = 36,
+                Height = 50,
                 Margin = new Thickness(3),
                 Padding = new Thickness(12, 0, 12, 0),
                 Background = new SolidColorBrush(PredictionBarColor),
@@ -538,9 +555,10 @@ public partial class KeyboardWindow : OverlayWindow
             {
                 var word = suggestions[index];
                 _predictor?.LearnWord(word);
+                var deleteCount = _currentInput.Length;
                 _currentInput = "";
                 UpdatePredictions();
-                WeakReferenceMessenger.Default.Send(new PredictionSelectedMessage(word));
+                WeakReferenceMessenger.Default.Send(new PredictionSelectedMessage(word, deleteCount));
             }
         }
     }

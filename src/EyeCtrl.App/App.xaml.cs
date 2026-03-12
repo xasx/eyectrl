@@ -485,6 +485,8 @@ public partial class App : Application
         // Prediction -> input simulator
         messenger.Register<PredictionSelectedMessage>(this, (_, msg) => Dispatcher.BeginInvoke(() =>
         {
+            for (int i = 0; i < msg.DeleteCount; i++)
+                inputSimulator.SendKeyPress(0x08); // Backspace to erase typed prefix
             inputSimulator.SendText(msg.Word + " ");
         }));
 

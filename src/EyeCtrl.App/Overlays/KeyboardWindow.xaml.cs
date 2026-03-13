@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels.Messages;
 using EmojiTextBlock = Emoji.Wpf.TextBlock;
 
@@ -324,7 +325,7 @@ public partial class KeyboardWindow : OverlayWindow
                 if (!_predictionTargetsInitialized)
                 {
                     _predictionDwellDetector.RemoveTarget(predId);
-                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new ScreenPoint(pos.X, pos.Y), 40, _predictionDwellMs));
+                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new ScreenPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(40), _predictionDwellMs));
                 }
                 else
                 {
@@ -540,7 +541,7 @@ public partial class KeyboardWindow : OverlayWindow
             };
 
             PredictionBar.Children.Add(btn);
-            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new ScreenPoint(0, 0), 40, _predictionDwellMs));
+            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(40), _predictionDwellMs));
         }
     }
 
@@ -788,7 +789,7 @@ public partial class KeyboardWindow : OverlayWindow
         };
 
         CategoryBar.Children.Add(btn);
-        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new ScreenPoint(0, 0), 20, _keyDwellMs));
+        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(20), _keyDwellMs));
     }
 
     private void HighlightActiveCategory()
@@ -849,7 +850,7 @@ public partial class KeyboardWindow : OverlayWindow
                 if (!_categoryTargetsInitialized)
                 {
                     _categoryDwellDetector.RemoveTarget(tabId);
-                    _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new ScreenPoint(pos.X, pos.Y), 20, _keyDwellMs));
+                    _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new ScreenPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(20), _keyDwellMs));
                 }
                 else
                 {

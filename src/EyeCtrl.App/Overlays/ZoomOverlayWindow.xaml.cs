@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 
 public partial class ZoomOverlayWindow : OverlayWindow
 {
@@ -31,8 +32,8 @@ public partial class ZoomOverlayWindow : OverlayWindow
         Width = displayDiameter;
         Height = displayDiameter;
 
-        Left = center.X - displayDiameter / 2.0;
-        Top = center.Y - displayDiameter / 2.0;
+        Left = DpiHelper.PhysicalToLogicalX(center.X) - displayDiameter / 2.0;
+        Top = DpiHelper.PhysicalToLogicalY(center.Y) - displayDiameter / 2.0;
 
         CaptureAndDisplay(center, radius);
     }
@@ -53,9 +54,9 @@ public partial class ZoomOverlayWindow : OverlayWindow
 
     public ScreenPoint GetRealScreenPoint(ScreenPoint gazeOnScreen)
     {
-        // Convert screen gaze coordinates to position within the zoom window
-        var windowCenterX = Left + Width / 2;
-        var windowCenterY = Top + Height / 2;
+        // Window Left/Width are DIPs; convert back to physical to match gazeOnScreen
+        var windowCenterX = DpiHelper.LogicalToPhysicalX(Left + Width / 2);
+        var windowCenterY = DpiHelper.LogicalToPhysicalY(Top + Height / 2);
 
         var offsetX = gazeOnScreen.X - windowCenterX;
         var offsetY = gazeOnScreen.Y - windowCenterY;

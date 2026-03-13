@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 
 public static class ScreenCaptureService
 {
@@ -25,8 +26,8 @@ public static class ScreenCaptureService
         if (captureSize <= 0) return null;
 
         // Clamp to screen bounds
-        var screenWidth = (int)SystemParameters.PrimaryScreenWidth;
-        var screenHeight = (int)SystemParameters.PrimaryScreenHeight;
+        var screenWidth = (int)DpiHelper.LogicalToPhysicalX(SystemParameters.PrimaryScreenWidth);
+        var screenHeight = (int)DpiHelper.LogicalToPhysicalY(SystemParameters.PrimaryScreenHeight);
         captureX = Math.Max(0, Math.Min(captureX, screenWidth - captureSize));
         captureY = Math.Max(0, Math.Min(captureY, screenHeight - captureSize));
 

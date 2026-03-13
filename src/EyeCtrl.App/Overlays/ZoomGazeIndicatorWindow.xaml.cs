@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using EyeCtrl.Core.Services;
 
 public partial class ZoomGazeIndicatorWindow : OverlayWindow
 {
@@ -42,8 +43,8 @@ public partial class ZoomGazeIndicatorWindow : OverlayWindow
     /// </summary>
     public void UpdatePosition(double screenX, double screenY)
     {
-        Left = screenX - _maxDiameter / 2;
-        Top = screenY - _maxDiameter / 2;
+        Left = DpiHelper.PhysicalToLogicalX(screenX) - _maxDiameter / 2;
+        Top = DpiHelper.PhysicalToLogicalY(screenY) - _maxDiameter / 2;
     }
 
     /// <summary>

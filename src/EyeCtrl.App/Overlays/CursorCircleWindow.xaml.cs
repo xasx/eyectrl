@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Media;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 
 public partial class CursorCircleWindow : OverlayWindow
@@ -15,8 +16,8 @@ public partial class CursorCircleWindow : OverlayWindow
 
     public void UpdatePosition(ScreenPoint point)
     {
-        Left = point.X - Width / 2;
-        Top = point.Y - Height / 2;
+        Left = DpiHelper.PhysicalToLogicalX(point.X) - Width / 2;
+        Top = DpiHelper.PhysicalToLogicalY(point.Y) - Height / 2;
     }
 
     public void UpdateAppearance(CursorSettings settings)

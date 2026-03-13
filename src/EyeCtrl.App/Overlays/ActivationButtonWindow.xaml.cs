@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 
 public partial class ActivationButtonWindow : OverlayWindow
 {
@@ -18,14 +19,18 @@ public partial class ActivationButtonWindow : OverlayWindow
 
     public void ShowAt(ScreenPoint position, double offset)
     {
-        var screenW = System.Windows.SystemParameters.PrimaryScreenWidth;
-        var screenH = System.Windows.SystemParameters.PrimaryScreenHeight;
+        var screenW = SystemParameters.PrimaryScreenWidth;
+        var screenH = SystemParameters.PrimaryScreenHeight;
 
-        var dx = position.X < screenW / 2 ? 1.0 : -1.0;
-        var dy = position.Y < screenH / 2 ? 1.0 : -1.0;
+        // Convert physical gaze point to DIPs
+        var dipX = DpiHelper.PhysicalToLogicalX(position.X);
+        var dipY = DpiHelper.PhysicalToLogicalY(position.Y);
 
-        var buttonCenterX = position.X + dx * offset / Math.Sqrt(2);
-        var buttonCenterY = position.Y + dy * offset / Math.Sqrt(2);
+        var dx = dipX < screenW / 2 ? 1.0 : -1.0;
+        var dy = dipY < screenH / 2 ? 1.0 : -1.0;
+
+        var buttonCenterX = dipX + dx * offset / Math.Sqrt(2);
+        var buttonCenterY = dipY + dy * offset / Math.Sqrt(2);
 
         Left = Math.Clamp(buttonCenterX - Width / 2, 0, screenW - Width);
         Top  = Math.Clamp(buttonCenterY - Height / 2, 0, screenH - Height);

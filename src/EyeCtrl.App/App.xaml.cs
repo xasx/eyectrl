@@ -28,6 +28,7 @@ public partial class App : Application
     private ServiceProvider _serviceProvider = null!;
     private System.Windows.Forms.NotifyIcon _trayIcon = null!;
     private System.Windows.Forms.ToolStripMenuItem _pauseMenuItem = null!;
+    private Icon? _customTrayIcon;
     private bool _keyboardVisible;
     private WordPredictor? _wordPredictor;
     private string _appDataDir = null!;
@@ -604,14 +605,25 @@ public partial class App : Application
         menu.Items.Add(exitItem);
 
         // Load custom icon from Assets directory
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "eyectrl.ico");
-        var icon = File.Exists(iconPath)
-            ? new Icon(iconPath)
-            : SystemIcons.Application;
+        var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "eyectrl.ico");
+        Icon trayIcon = SystemIcons.Application;
+
+        if (File.Exists(iconPath))
+        {
+            try
+            {
+                _customTrayIcon = new Icon(iconPath);
+                trayIcon = _customTrayIcon;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to load custom icon from {Path}, using system default", iconPath);
+            }
+        }
 
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
-            Icon = icon,
+            Icon = trayIcon,
             Text = "EyeCtrl",
             Visible = true,
             ContextMenuStrip = menu
@@ -631,6 +643,7 @@ public partial class App : Application
         Log.Information("Shutdown");
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
+        _customTrayIcon?.Dispose();
 
         var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
         var settings = _serviceProvider.GetRequiredService<EyeCtrlSettings>();

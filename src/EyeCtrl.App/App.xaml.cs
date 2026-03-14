@@ -603,9 +603,15 @@ public partial class App : Application
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(exitItem);
 
+        // Load custom icon from Assets directory
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "eyectrl.ico");
+        var icon = File.Exists(iconPath)
+            ? new Icon(iconPath)
+            : SystemIcons.Application;
+
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = icon,
             Text = "EyeCtrl",
             Visible = true,
             ContextMenuStrip = menu

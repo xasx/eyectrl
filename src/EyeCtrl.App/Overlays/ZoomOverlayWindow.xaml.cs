@@ -35,7 +35,11 @@ public partial class ZoomOverlayWindow : OverlayWindow
         Left = DpiHelper.PhysicalToLogicalX(center.X) - displayDiameter / 2.0;
         Top = DpiHelper.PhysicalToLogicalY(center.Y) - displayDiameter / 2.0;
 
-        CaptureAndDisplay(center, radius);
+        // radius is in DIPs; CopyFromScreen needs physical pixels.
+        // Scaling ensures the captured area matches the DIP display window,
+        // so visual magnification equals the configured magnification.
+        var physicalRadius = (int)(radius * DpiHelper.ScaleX);
+        CaptureAndDisplay(center, physicalRadius);
     }
 
     private async void CaptureAndDisplay(ScreenPoint center, int radius)
@@ -48,8 +52,10 @@ public partial class ZoomOverlayWindow : OverlayWindow
 
     public void Recapture()
     {
-        var radius = (int)(Width / _magnification / 2);
-        CaptureAndDisplay(_originalCenter, radius);
+        // Width is in DIPs; derive the DIP radius, then scale to physical for capture
+        var dipRadius = (int)(Width / _magnification / 2);
+        var physicalRadius = (int)(dipRadius * DpiHelper.ScaleX);
+        CaptureAndDisplay(_originalCenter, physicalRadius);
     }
 
     public ScreenPoint GetRealScreenPoint(ScreenPoint gazeOnScreen)

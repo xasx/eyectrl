@@ -22,25 +22,28 @@ In `App.xaml.cs`, `zoomGazeHandler` calls `zoomFixation.Update(pt, ts)` uncondit
 
 ### Design
 
-**File:** `src/EyeCtrl.App/App.xaml.cs`, inside `zoomGazeHandler` (after grace period check, before `zoomFixation.Update`).
+**File:** `src/EyeCtrl.App/App.xaml.cs`, inside `zoomGazeHandler`.
 
-Add a boundary test using physical pixel coordinates (both `pt` from `gazeEngine.CursorMoved` and `zoomVM.Center` / `zoomVM.Radius` are in physical pixels):
+`pt` from `gazeEngine.CursorMoved` is in physical pixels. `zoomVM.Center` is also in physical pixels. `zoomVM.Radius` stores `settings.Zoom.CircleRadiusPixels`, which is a logical/DIP value and must be converted to physical pixels for comparison.
+
+Insert the following boundary check immediately after the grace period `return` (i.e., after `if ((ts - zoomStartTimestamp) < gracePeriodUs) return;`). The early return skips both `zoomFixation.Update(pt, ts)` and the progress update block that follows it — they must be treated as a unit:
 
 ```
+physicalRadius = settings.Zoom.CircleRadiusPixels * DpiHelper.ScaleX
 dx = pt.X - zoomVM.Center.X
 dy = pt.Y - zoomVM.Center.Y
-insideCircle = (dx² + dy²) <= zoomVM.Radius²
+if (dx² + dy² > physicalRadius²):
+    zoomFixation.Reset()
+    Dispatcher.BeginInvoke(() =>
+        zoomIndicatorVM.ResetFixation()
+        zoomIndicator.AnimateReset(settings.Zoom.GazeIndicatorOuterDiameter,
+                                   settings.Zoom.GazeIndicatorResetAnimationMs))
+    return   // skips zoomFixation.Update AND the progress update block below
 ```
 
-**If outside circle:**
-- Call `zoomFixation.Reset()` — clears accumulated fixation state, `GetProgress()` returns 0.
-- Dispatch to UI thread: `zoomIndicatorVM.ResetFixation()` + `zoomIndicator.AnimateReset(...)` — resets visual progress indicator.
-- Return early; skip `zoomFixation.Update(pt, ts)` and the progress update block.
+**Why explicit UI reset is required:** `FixationDetector.Reset()` does not fire `FixationEnded`. Without the explicit `zoomIndicatorVM.ResetFixation()` + `zoomIndicator.AnimateReset(...)` call, the visual progress ring stays non-zero when gaze exits the circle.
 
-**If inside circle:**
-- Proceed as today: `zoomFixation.Update(pt, ts)`, update progress.
-
-**Indicator visibility:** The indicator position update (`UpdateGazePosition` / `UpdatePosition`) runs unconditionally before the boundary check, so the indicator always tracks gaze even outside the circle.
+**Indicator visibility:** The indicator position update (`UpdateGazePosition` / `UpdatePosition`) runs before the grace period check and before this boundary check, so the indicator always tracks gaze even outside the circle — no change needed there.
 
 **No changes to:** `FixationDetector`, `ZoomGazeIndicatorViewModel`, `ZoomOverlayWindow`, or any other class.
 
@@ -50,79 +53,114 @@ insideCircle = (dx² + dy²) <= zoomVM.Radius²
 
 ### Problem
 
-`ActionMenuWindow.Show()` captures a screen region centered on `precisePoint` (the exact fixation spot) with radius `previewCircleSize / 2`. The zoom view was centered on `_originalCenter` (the zoom entry point) with `CircleRadiusPixels`. These are different centers and different radii, so the action menu preview shows a different — and smaller — region of the screen.
+`ActionMenuWindow.Show()` captures a screen region centered on `center` (the precise in-zoom fixation point) with radius `previewCircleSize / 2`. The zoom view was centered on the zoom entry point with `CircleRadiusPixels`. These are different centers and different radii, so the action menu preview shows a different — and smaller — region of the screen.
 
 ### Design
 
+The data flows through four layers: `GazeEngineAdapter` → `ShowActionMenuMessage` → `ActionMenuViewModel` → `App.xaml.cs` → `ActionMenuWindow.Show()`.
+
 #### 1. Extend `ShowActionMenuMessage`
 
-Add two nullable fields:
+`ShowActionMenuMessage` is a positional record. Add `ZoomCenter` and `ZoomRadius` as **init-only properties** (not positional parameters) so existing call sites require no changes:
 
 ```csharp
-public ScreenPoint? ZoomCenter { get; init; }
-public int? ZoomRadius { get; init; }
+public record ShowActionMenuMessage(ScreenPoint Center, IReadOnlyList<InteractionAction> Actions,
+    bool ShowBack, int DwellTimeMs, int ZoomDisplayRadius = 0, double CircleSize = 250)
+{
+    public ScreenPoint? ZoomCenter { get; init; }
+    public int? ZoomRadius { get; init; }   // logical/DIP value (CircleRadiusPixels)
+}
 ```
 
-Non-zoom action menu paths leave these null (no behavior change).
+Non-zoom call sites (no `ZoomCenter`/`ZoomRadius`) get `null` by default — no behavior change.
 
-#### 2. Populate in `App.xaml.cs`
+#### 2. Populate in `GazeEngineAdapter.cs`
 
-In `OnZoomFixation` wiring (where `ShowActionMenu?.Invoke(precisePoint)` leads to sending `ShowActionMenuMessage`), populate the new fields:
+`ShowActionMenuMessage` is sent from `src/EyeCtrl.App/Services/GazeEngineAdapter.cs` (line 101). The zoom path is identified by `showBack == true`. In that path, populate the new init-only properties using object initializer syntax:
 
 ```csharp
-ZoomCenter = im.FixationPoint,       // physical pixels — zoom entry center
-ZoomRadius = settings.Zoom.CircleRadiusPixels
+_messenger.Send(new ShowActionMenuMessage(...) {
+    ZoomCenter = showBack ? _interactionManager.FixationPoint! : null,
+    ZoomRadius = showBack ? _settings.Zoom.CircleRadiusPixels : null
+});
 ```
 
-`im.FixationPoint` is the screen point stored by `InteractionManager` when zoom was entered — it is already available.
+`_interactionManager.FixationPoint` is in physical pixels (gaze coordinate) and is always non-null in the zoom path (`showBack == true`) since it is set before zoom activates. `_settings.Zoom.CircleRadiusPixels` is a logical/DIP value.
 
-#### 3. Pass to `ActionMenuWindow.Show()`
+#### 3. Store in `ActionMenuViewModel`
 
-Add optional parameters to `ActionMenuWindow.Show()`:
+`ActionMenuViewModel` receives `ShowActionMenuMessage` and stores the new fields as properties:
+
+```csharp
+public ScreenPoint? ZoomCenter { get; private set; }
+public int? ZoomRadius { get; private set; }
+```
+
+Populated from the message when it arrives.
+
+#### 4. Pass from `App.xaml.cs` to `ActionMenuWindow.Show()`
+
+`App.xaml.cs` calls `actionMenu.Show(...)` when `actionMenuVM.IsVisible` becomes true (line 423). Pass the new values:
+
+```csharp
+actionMenu.Show(actionMenuVM.Center, ..., zoomCenter: actionMenuVM.ZoomCenter, zoomRadius: actionMenuVM.ZoomRadius);
+```
+
+#### 5. Capture logic in `ActionMenuWindow.Show()`
+
+Add optional parameters:
 
 ```csharp
 ScreenPoint? zoomCenter = null, int? zoomRadius = null
 ```
 
-#### 4. Capture logic in `ActionMenuWindow`
-
 When `zoomCenter != null` and `zoomRadius != null`:
 
-- `captureCenter` = `zoomCenter` (instead of `precisePoint`)
-- `captureRadius` = `zoomRadius * DpiHelper.ScaleX` (physical pixels, matching zoom view capture)
+- `captureCenter` = `zoomCenter` (instead of `center`, the precise fixation point)
+- `captureRadius` = `(int)(zoomRadius.Value * DpiHelper.ScaleX)` — converts logical DIP radius to physical pixels, matching the zoom view's capture
 
-When null: existing behavior unchanged.
+When null: existing behavior unchanged (`captureCenter = center`, `captureRadius = previewRadius`).
 
-#### 5. Crosshair / pin offset
+#### 6. Crosshair / pin offset
 
-The position indicator must show where within the preview the precise fixation point is.
+The existing `center` parameter of `Show()` is the precise fixation point (in physical pixels). The position indicator must show where within the preview this point lies.
 
-Scale factor (actual screen pixels → display pixels within preview circle):
+`center` and `zoomCenter` are in physical pixels. `previewCircleSize` (and `canvasCenter`) is in logical display pixels. `zoomRadius` is a logical/DIP value. `captureRadius = zoomRadius.Value * DpiHelper.ScaleX` is in physical pixels.
+
+To keep units consistent, the scale factor must use `zoomRadius.Value` (logical) in the denominator, not the already-scaled `captureRadius` — otherwise the scale would be wrong at non-100% DPI:
 
 ```
-scale = previewCircleSize / (2.0 * captureRadius)
+scale = previewCircleSize / (2.0 * zoomRadius.Value)
 ```
+
+This gives: (logical display px) / (logical px) × (physical px offset) = (logical display px offset). Correct for Canvas positioning.
 
 Offset from preview center in display pixels:
 
 ```
-offsetX = (precisePoint.X - zoomCenter.X) * scale
-offsetY = (precisePoint.Y - zoomCenter.Y) * scale
+offsetX = (center.X - zoomCenter.X) * scale
+offsetY = (center.Y - zoomCenter.Y) * scale
 ```
 
-Draw the crosshair/pin at `(canvasCenter.X + offsetX, canvasCenter.Y + offsetY)` instead of `canvasCenter`.
+Clamp: if `sqrt(offsetX² + offsetY²) > previewCircleSize / 2 - margin`, scale down proportionally.
 
-Clamp offset magnitude to `previewCircleSize / 2 - margin` to keep the indicator inside the circle even at extreme positions.
+**Crosshair:** shift all four line endpoints by `(offsetX, offsetY)`.
+
+**Pin:** shift all pin sub-elements (pinHead ellipse and pinLine) by `(offsetX, offsetY)` uniformly, so the pin tip lands at `(canvasCenter.X + offsetX, canvasCenter.Y + offsetY)`.
+
+When `zoomCenter` is null, draw at `canvasCenter` as today.
 
 #### Files changed
 
 | File | Change |
 |------|--------|
-| `src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs` | Add `ZoomCenter`, `ZoomRadius` to `ShowActionMenuMessage` |
-| `src/EyeCtrl.App/App.xaml.cs` | Populate new fields when sending `ShowActionMenuMessage` from zoom fixation |
-| `src/EyeCtrl.App/Overlays/ActionMenuWindow.xaml.cs` | Add `zoomCenter`/`zoomRadius` params to `Show()`; use for capture center/radius; offset crosshair/pin |
+| `src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs` | Add `ZoomCenter`, `ZoomRadius` init-only properties to `ShowActionMenuMessage` |
+| `src/EyeCtrl.App/Services/GazeEngineAdapter.cs` | Populate new properties in zoom path (`showBack == true`) |
+| `src/EyeCtrl.ViewModels/ActionMenuViewModel.cs` | Store and expose `ZoomCenter`, `ZoomRadius` from message |
+| `src/EyeCtrl.App/App.xaml.cs` | Pass `actionMenuVM.ZoomCenter` and `actionMenuVM.ZoomRadius` to `actionMenu.Show()` |
+| `src/EyeCtrl.App/Overlays/ActionMenuWindow.xaml.cs` | Add optional params; use zoom context for capture center/radius; offset crosshair/pin |
 
-No changes to `InteractionManager`, `ActionMenuViewModel`, `ZoomOverlayWindow`, or non-zoom action menu paths.
+No changes to `InteractionManager`, `ZoomOverlayWindow`, or non-zoom action menu paths.
 
 ---
 

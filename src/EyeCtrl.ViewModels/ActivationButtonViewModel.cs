@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -45,7 +46,8 @@ public partial class ActivationButtonViewModel : ObservableObject,
         DwellProgress = 0;
         _dwellDetector.ClearTargets();
         _dwellDetector.AddTarget(new DwellTarget(TargetId,
-            message.Position, ButtonRadius,
+            message.Position,
+            DpiHelper.LogicalToPhysicalX(ButtonRadius),
             _dwellSettings.ActivationButtonDwellMs));
     }
 

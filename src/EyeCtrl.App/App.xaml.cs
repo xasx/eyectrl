@@ -2,8 +2,11 @@ namespace EyeCtrl.App;
 
 using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Services;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views;
@@ -39,6 +42,9 @@ public partial class App : Application
     /// </summary>
     public static bool IsTestMode { get; private set; }
 
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForSystem();
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -50,6 +56,23 @@ public partial class App : Application
         {
             splash = new SplashWindow();
             splash.Show();
+        }
+
+        // ── DPI initialization ──
+        if (splash != null)
+        {
+            var source = PresentationSource.FromVisual(splash);
+            if (source?.CompositionTarget != null)
+            {
+                var m = source.CompositionTarget.TransformToDevice;
+                DpiHelper.Initialize(m.M11, m.M22);
+            }
+        }
+        if (IsTestMode)
+        {
+            var dpi = GetDpiForSystem();
+            var scale = dpi / 96.0;
+            DpiHelper.Initialize(scale, scale);
         }
 
         // ── Settings ──
@@ -114,8 +137,8 @@ public partial class App : Application
                 loggerFactory.CreateLogger<GazeProviderFactory>(),
                 loggerFactory);
             return factory.Create(settings.General.GazeProviderType,
-                SystemParameters.PrimaryScreenWidth,
-                SystemParameters.PrimaryScreenHeight);
+                SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
+                SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
         });
 
         // Core engine

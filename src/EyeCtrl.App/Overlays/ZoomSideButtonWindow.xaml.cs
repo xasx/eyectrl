@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 
 public partial class ZoomSideButtonWindow : OverlayWindow
 {
@@ -23,22 +24,24 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         _buttonVisuals.Clear();
         ButtonCanvas.Children.Clear();
 
-        // Compute bounding box around both button centers with padding
-        var minX = Math.Min(closeCenter.X, recaptureCenter.X) - ButtonRadius - 10;
-        var minY = Math.Min(closeCenter.Y, recaptureCenter.Y) - ButtonRadius - 10;
-        var maxX = Math.Max(closeCenter.X, recaptureCenter.X) + ButtonRadius + 10;
-        var maxY = Math.Max(closeCenter.Y, recaptureCenter.Y) + ButtonRadius + 10;
+        // Convert physical → DIP at the boundary
+        var closeDipX = DpiHelper.PhysicalToLogicalX(closeCenter.X);
+        var closeDipY = DpiHelper.PhysicalToLogicalY(closeCenter.Y);
+        var recapDipX = DpiHelper.PhysicalToLogicalX(recaptureCenter.X);
+        var recapDipY = DpiHelper.PhysicalToLogicalY(recaptureCenter.Y);
+
+        var minX = Math.Min(closeDipX, recapDipX) - ButtonRadius - 10;
+        var minY = Math.Min(closeDipY, recapDipY) - ButtonRadius - 10;
+        var maxX = Math.Max(closeDipX, recapDipX) + ButtonRadius + 10;
+        var maxY = Math.Max(closeDipY, recapDipY) + ButtonRadius + 10;
 
         Width = maxX - minX;
         Height = maxY - minY;
         Left = minX;
         Top = minY;
 
-        // Draw close button (top)
-        DrawButton("zoom_close", "\u2715", closeCenter.X - minX, closeCenter.Y - minY);
-
-        // Draw recapture button (bottom)
-        DrawButton("zoom_recapture", "\u21BB", recaptureCenter.X - minX, recaptureCenter.Y - minY);
+        DrawButton("zoom_close", "\u2715", closeDipX - minX, closeDipY - minY);
+        DrawButton("zoom_recapture", "\u21BB", recapDipX - minX, recapDipY - minY);
 
         Show();
     }

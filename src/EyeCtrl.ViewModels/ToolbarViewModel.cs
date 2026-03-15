@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -49,7 +50,9 @@ public partial class ToolbarViewModel : ObservableObject,
             Buttons.Add(btn);
             _buttonLookup[id] = btn;
             _dwellDetector.AddTarget(new DwellTarget(id,
-                new ScreenPoint(0, 0), toolbarSettings.Size / 2, dwellSettings.ToolbarButtonDwellMs));
+                new ScreenPoint(0, 0),
+                DpiHelper.LogicalToPhysicalX(toolbarSettings.Size / 2),
+                dwellSettings.ToolbarButtonDwellMs));
         }
 
         _dwellDetector.TargetActivated += OnTargetActivated;

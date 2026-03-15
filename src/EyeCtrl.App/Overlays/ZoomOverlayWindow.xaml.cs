@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 
 public partial class ZoomOverlayWindow : OverlayWindow
 {
@@ -31,10 +32,14 @@ public partial class ZoomOverlayWindow : OverlayWindow
         Width = displayDiameter;
         Height = displayDiameter;
 
-        Left = center.X - displayDiameter / 2.0;
-        Top = center.Y - displayDiameter / 2.0;
+        Left = DpiHelper.PhysicalToLogicalX(center.X) - displayDiameter / 2.0;
+        Top = DpiHelper.PhysicalToLogicalY(center.Y) - displayDiameter / 2.0;
 
-        CaptureAndDisplay(center, radius);
+        // radius is in DIPs; CopyFromScreen needs physical pixels.
+        // Scaling ensures the captured area matches the DIP display window,
+        // so visual magnification equals the configured magnification.
+        var physicalRadius = (int)(radius * DpiHelper.ScaleX);
+        CaptureAndDisplay(center, physicalRadius);
     }
 
     private async void CaptureAndDisplay(ScreenPoint center, int radius)
@@ -47,15 +52,17 @@ public partial class ZoomOverlayWindow : OverlayWindow
 
     public void Recapture()
     {
-        var radius = (int)(Width / _magnification / 2);
-        CaptureAndDisplay(_originalCenter, radius);
+        // Width is in DIPs; derive the DIP radius, then scale to physical for capture
+        var dipRadius = (int)(Width / _magnification / 2);
+        var physicalRadius = (int)(dipRadius * DpiHelper.ScaleX);
+        CaptureAndDisplay(_originalCenter, physicalRadius);
     }
 
     public ScreenPoint GetRealScreenPoint(ScreenPoint gazeOnScreen)
     {
-        // Convert screen gaze coordinates to position within the zoom window
-        var windowCenterX = Left + Width / 2;
-        var windowCenterY = Top + Height / 2;
+        // Window Left/Width are DIPs; convert back to physical to match gazeOnScreen
+        var windowCenterX = DpiHelper.LogicalToPhysicalX(Left + Width / 2);
+        var windowCenterY = DpiHelper.LogicalToPhysicalY(Top + Height / 2);
 
         var offsetX = gazeOnScreen.X - windowCenterX;
         var offsetY = gazeOnScreen.Y - windowCenterY;

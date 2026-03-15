@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -48,10 +49,13 @@ public partial class ZoomOverlayViewModel : ObservableObject,
         Magnification = message.Magnification;
 
         // Compute side button positions: right side of zoom circle
-        var displayRadius = message.Radius * message.Magnification;
-        var buttonX = message.Center.X + displayRadius + SideButtonGap + SideButtonRadius;
-        var topButtonY = message.Center.Y - SideButtonRadius - SideButtonGap / 2;
-        var bottomButtonY = message.Center.Y + SideButtonRadius + SideButtonGap / 2;
+        var physicalDisplayRadius = DpiHelper.LogicalToPhysicalX(message.Radius * message.Magnification);
+        var physicalGap = DpiHelper.LogicalToPhysicalX(SideButtonGap);
+        var physicalBtnRadius = DpiHelper.LogicalToPhysicalX(SideButtonRadius);
+
+        var buttonX = message.Center.X + physicalDisplayRadius + physicalGap + physicalBtnRadius;
+        var topButtonY = message.Center.Y - physicalBtnRadius - physicalGap / 2;
+        var bottomButtonY = message.Center.Y + physicalBtnRadius + physicalGap / 2;
 
         CloseButtonCenter = new ScreenPoint(buttonX, topButtonY);
         RecaptureButtonCenter = new ScreenPoint(buttonX, bottomButtonY);
@@ -63,9 +67,9 @@ public partial class ZoomOverlayViewModel : ObservableObject,
         // Set up dwell targets
         _dwellDetector.ClearTargets();
         _dwellDetector.AddTarget(new DwellTarget(
-            CloseTargetId, CloseButtonCenter, SideButtonRadius, SideButtonDwellMs));
+            CloseTargetId, CloseButtonCenter, physicalBtnRadius, SideButtonDwellMs));
         _dwellDetector.AddTarget(new DwellTarget(
-            RecaptureTargetId, RecaptureButtonCenter, SideButtonRadius, SideButtonDwellMs));
+            RecaptureTargetId, RecaptureButtonCenter, physicalBtnRadius, SideButtonDwellMs));
 
         IsVisible = true;
     }

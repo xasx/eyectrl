@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.App.Overlays;
 
@@ -101,7 +102,7 @@ public partial class SettingsWindow : OverlayWindow
         _modalDwell.TargetProgress += OnModalProgress;
 
         CloseButton.MouseLeftButtonDown += (_, _) => Close();
-        _tabDwell.AddTarget(new DwellTarget("close", new ScreenPoint(0, 0), TabBtnRadius, _dwellMs));
+        _tabDwell.AddTarget(new DwellTarget("close", new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs));
 
         BuildTabButtons();
         ShowTab("Cursor");
@@ -155,7 +156,7 @@ public partial class SettingsWindow : OverlayWindow
             border.MouseLeftButtonDown += (_, _) => ShowTab(id);
             _tabButtons[id] = border;
             TabButtonPanel.Children.Add(border);
-            _tabDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), TabBtnRadius, _dwellMs));
+            _tabDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs));
         }
     }
 
@@ -277,7 +278,7 @@ public partial class SettingsWindow : OverlayWindow
         };
 
         _pagButtons[id] = btn;
-        _pagDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), PagBtnRadius, _dwellMs));
+        _pagDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs));
         return btn;
     }
 
@@ -718,7 +719,7 @@ public partial class SettingsWindow : OverlayWindow
 
         border.MouseLeftButtonDown += (_, _) => _controlActions[id]();
         _controlBorders[id] = border;
-        _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), ControlBtnRadius, _dwellMs));
+        _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
         ContentPanel.Children.Add(border);
     }
 
@@ -787,7 +788,7 @@ public partial class SettingsWindow : OverlayWindow
 
             border.MouseLeftButtonDown += (_, _) => _controlActions[id]();
             _controlBorders[id] = border;
-            _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), ControlBtnRadius, _dwellMs));
+            _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
             borders.Add(border);
             texts.Add(text);
             ContentPanel.Children.Add(border);
@@ -851,7 +852,7 @@ public partial class SettingsWindow : OverlayWindow
 
             swatch.MouseLeftButtonDown += (_, _) => _controlActions[swatchId]();
             _controlBorders[swatchId] = swatch;
-            _controlDwell.AddTarget(new DwellTarget(swatchId, new ScreenPoint(0, 0), 30, _dwellMs));
+            _controlDwell.AddTarget(new DwellTarget(swatchId, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(30), _dwellMs));
             row.Children.Add(swatch);
         }
 
@@ -884,7 +885,7 @@ public partial class SettingsWindow : OverlayWindow
         _controlActions[id] = onClick;
         border.MouseLeftButtonDown += (_, _) => onClick();
         _controlBorders[id] = border;
-        _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), ControlBtnRadius, _dwellMs));
+        _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
         ContentPanel.Children.Add(border);
     }
 
@@ -928,7 +929,7 @@ public partial class SettingsWindow : OverlayWindow
         };
 
         _controlBorders[id] = btn;
-        _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), ControlBtnRadius, _dwellMs));
+        _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
         return btn;
     }
 
@@ -1094,7 +1095,7 @@ public partial class SettingsWindow : OverlayWindow
         };
 
         _modalButtons[id] = border;
-        _modalDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), ModalBtnRadius, _dwellMs));
+        _modalDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs));
         return border;
     }
 }

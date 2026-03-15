@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
 public partial class ActionMenuWindow : OverlayWindow
@@ -205,8 +206,8 @@ public partial class ActionMenuWindow : OverlayWindow
             }
         }
 
-        Left = center.X - Width / 2;
-        Top = center.Y - Height / 2;
+        Left = DpiHelper.PhysicalToLogicalX(center.X) - Width / 2;
+        Top = DpiHelper.PhysicalToLogicalY(center.Y) - Height / 2;
         Show();
     }
 

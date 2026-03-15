@@ -7,6 +7,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels.Messages;
 
 public class GazeEngineAdapter : IDisposable
@@ -88,13 +89,14 @@ public class GazeEngineAdapter : IDisposable
             const double buttonRadius = 50;
             var circleSize = _settings.Cursor.CircleSize;
             var effectiveRingRadius = circleSize / 2 + buttonRadius + 20;
-            var margin = effectiveRingRadius + buttonRadius;
 
-            var screenW = System.Windows.SystemParameters.PrimaryScreenWidth;
-            var screenH = System.Windows.SystemParameters.PrimaryScreenHeight;
+            // Scale margin to physical pixels for clamping against physical gaze coords
+            var physicalMargin = DpiHelper.LogicalToPhysicalX(effectiveRingRadius + buttonRadius);
+            var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
+            var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
             var clampedPoint = new ScreenPoint(
-                Math.Clamp(point.X, margin, screenW - margin),
-                Math.Clamp(point.Y, margin, screenH - margin));
+                Math.Clamp(point.X, physicalMargin, physicalScreenW - physicalMargin),
+                Math.Clamp(point.Y, physicalMargin, physicalScreenH - physicalMargin));
 
             _messenger.Send(new ShowActionMenuMessage(clampedPoint, _settings.ActionMenu.VisibleActions, showBack, dwellMs, zoomDisplayRadius, circleSize));
         });

@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -51,21 +52,23 @@ public partial class ActionMenuViewModel : ObservableObject,
             allItems.Add(("Back", null, "\u21A9", true));
 
         EffectiveRingRadius = message.CircleSize / 2 + ButtonRadius + ButtonOuterGap;
+        var physicalRingRadius = DpiHelper.LogicalToPhysicalX(EffectiveRingRadius);
+        var physicalButtonRadius = DpiHelper.LogicalToPhysicalX(ButtonRadius);
 
         var angleStep = 360.0 / allItems.Count;
         for (int i = 0; i < allItems.Count; i++)
         {
             var (id, action, symbol, isBack) = allItems[i];
             var angleRad = (angleStep * i - 90) * Math.PI / 180;
-            var bx = message.Center.X + EffectiveRingRadius * Math.Cos(angleRad);
-            var by = message.Center.Y + EffectiveRingRadius * Math.Sin(angleRad);
+            var bx = message.Center.X + physicalRingRadius * Math.Cos(angleRad);
+            var by = message.Center.Y + physicalRingRadius * Math.Sin(angleRad);
             var position = new ScreenPoint(bx, by);
 
             var itemVm = new ActionMenuItemViewModel(id, action, symbol, position, isBack);
             Items.Add(itemVm);
             _itemLookup[id] = itemVm;
 
-            _dwellDetector.AddTarget(new DwellTarget(id, position, ButtonRadius, message.DwellTimeMs));
+            _dwellDetector.AddTarget(new DwellTarget(id, position, physicalButtonRadius, message.DwellTimeMs));
         }
 
         IsVisible = true;

@@ -344,7 +344,9 @@ public partial class App : Application
                         // Skip gaze data during grace period
                         if ((ts - zoomStartTimestamp) < gracePeriodUs) return;
 
-                        // Reject gaze outside the zoom circle (pt is physical px; radius is logical DIP, needs scaling)
+                        // Reject gaze outside the zoom circle.
+                        // pt and zoomVM.Center are both physical px (gaze coords / FixationPoint, never scaled).
+                        // CircleRadiusPixels is logical DIP, so multiply by ScaleX to match.
                         var physicalZoomRadius = settings.Zoom.CircleRadiusPixels * DpiHelper.ScaleX;
                         var dx = pt.X - zoomVM.Center.X;
                         var dy = pt.Y - zoomVM.Center.Y;

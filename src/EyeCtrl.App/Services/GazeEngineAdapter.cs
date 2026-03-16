@@ -98,7 +98,16 @@ public class GazeEngineAdapter : IDisposable
                 Math.Clamp(point.X, physicalMargin, physicalScreenW - physicalMargin),
                 Math.Clamp(point.Y, physicalMargin, physicalScreenH - physicalMargin));
 
-            _messenger.Send(new ShowActionMenuMessage(clampedPoint, _settings.ActionMenu.VisibleActions, showBack, dwellMs, zoomDisplayRadius, circleSize));
+            _messenger.Send(new ShowActionMenuMessage(clampedPoint, _settings.ActionMenu.VisibleActions, showBack, dwellMs, zoomDisplayRadius, circleSize)
+            {
+                // Zoom path only (showBack == true): pass zoom circle context for preview capture.
+                // ZoomCenter = the ORIGINAL pre-zoom fixation (center of zoom circle), NOT the precise in-zoom point.
+                // The precise in-zoom point is already in clampedPoint / message.Center.
+                // FixationPoint is always non-null in the zoom path (it is set before zoom activation).
+                // ZoomRadius is logical/DIP (CircleRadiusPixels); ActionMenuWindow converts it to physical with ScaleX.
+                ZoomCenter = showBack ? _interactionManager.FixationPoint! : null,
+                ZoomRadius = showBack ? _settings.Zoom.CircleRadiusPixels : null
+            });
         });
 
     private void OnHideActionMenu() =>

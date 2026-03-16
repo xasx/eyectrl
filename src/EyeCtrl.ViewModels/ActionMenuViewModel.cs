@@ -26,6 +26,9 @@ public partial class ActionMenuViewModel : ObservableObject,
     [ObservableProperty] private bool _showBack;
     [ObservableProperty] private double _effectiveRingRadius;
 
+    public ScreenPoint? ZoomCenter { get; private set; }
+    public int? ZoomRadius { get; private set; }
+
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
     public ActionMenuViewModel(DwellSettings dwellSettings, IMessenger messenger)
@@ -40,6 +43,8 @@ public partial class ActionMenuViewModel : ObservableObject,
     public void Receive(ShowActionMenuMessage message)
     {
         Center = message.Center;
+        ZoomCenter = message.ZoomCenter;
+        ZoomRadius = message.ZoomRadius;
         ShowBack = message.ShowBack;
         Items.Clear();
         _dwellDetector.ClearTargets();
@@ -77,6 +82,8 @@ public partial class ActionMenuViewModel : ObservableObject,
     public void Receive(HideActionMenuMessage message)
     {
         IsVisible = false;
+        ZoomCenter = null;
+        ZoomRadius = null;
         _dwellDetector.ClearTargets();
         Items.Clear();
         _itemLookup.Clear();

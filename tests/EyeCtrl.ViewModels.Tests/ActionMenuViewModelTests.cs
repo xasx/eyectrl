@@ -114,4 +114,42 @@ public class ActionMenuViewModelTests
 
         Assert.Equal(120, vm.EffectiveRingRadius);
     }
+
+    [Fact]
+    public void ZoomContextProperties_AreStoredFromMessage()
+    {
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
+        var zoomCenter = new ScreenPoint(400, 300);
+
+        _messenger.Send(new ShowActionMenuMessage(
+            new ScreenPoint(400, 300),
+            new List<InteractionAction> { InteractionAction.LeftClick },
+            ShowBack: true, DwellTimeMs: 600)
+        {
+            ZoomCenter = zoomCenter,
+            ZoomRadius = 150
+        });
+
+        Assert.Equal(zoomCenter, vm.ZoomCenter);
+        Assert.Equal(150, vm.ZoomRadius);
+    }
+
+    [Fact]
+    public void ZoomContextProperties_AreClearedOnHide()
+    {
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
+        _messenger.Send(new ShowActionMenuMessage(
+            new ScreenPoint(400, 300),
+            new List<InteractionAction> { InteractionAction.LeftClick },
+            ShowBack: true, DwellTimeMs: 600)
+        {
+            ZoomCenter = new ScreenPoint(400, 300),
+            ZoomRadius = 150
+        });
+
+        _messenger.Send(new HideActionMenuMessage());
+
+        Assert.Null(vm.ZoomCenter);
+        Assert.Null(vm.ZoomRadius);
+    }
 }

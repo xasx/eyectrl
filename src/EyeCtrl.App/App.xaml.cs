@@ -344,6 +344,24 @@ public partial class App : Application
                         // Skip gaze data during grace period
                         if ((ts - zoomStartTimestamp) < gracePeriodUs) return;
 
+                        // Reject gaze outside the zoom circle (pt is physical px; radius is logical DIP, needs scaling)
+                        var physicalZoomRadius = settings.Zoom.CircleRadiusPixels * DpiHelper.ScaleX;
+                        var dx = pt.X - zoomVM.Center.X;
+                        var dy = pt.Y - zoomVM.Center.Y;
+                        if (dx * dx + dy * dy > physicalZoomRadius * physicalZoomRadius)
+                        {
+                            zoomFixation.Reset();
+                            // FixationDetector.Reset() does NOT fire FixationEnded, so reset UI manually:
+                            Dispatcher.BeginInvoke(() =>
+                            {
+                                zoomIndicatorVM.ResetFixation();
+                                zoomIndicator.AnimateReset(
+                                    settings.Zoom.GazeIndicatorOuterDiameter,
+                                    settings.Zoom.GazeIndicatorResetAnimationMs);
+                            });
+                            return;
+                        }
+
                         zoomFixation.Update(pt, ts);
                         // Update fixation progress on indicator
                         var progress = zoomFixation.GetProgress();

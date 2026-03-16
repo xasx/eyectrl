@@ -5,7 +5,13 @@ using EyeCtrl.Core.Models;
 // Core -> ViewModel
 public record ShowActivationButtonMessage(ScreenPoint Position);
 public record HideActivationButtonMessage;
-public record ShowActionMenuMessage(ScreenPoint Center, IReadOnlyList<InteractionAction> Actions, bool ShowBack, int DwellTimeMs, int ZoomDisplayRadius = 0, double CircleSize = 250);
+public record ShowActionMenuMessage(ScreenPoint Center, IReadOnlyList<InteractionAction> Actions, bool ShowBack, int DwellTimeMs, int ZoomDisplayRadius = 0, double CircleSize = 250)
+{
+    /// <summary>Physical-px center of the zoom circle (zoom entry point). Null for non-zoom paths.</summary>
+    public ScreenPoint? ZoomCenter { get; init; }
+    /// <summary>Logical/DIP radius of the zoom circle (CircleRadiusPixels). Null for non-zoom paths.</summary>
+    public int? ZoomRadius { get; init; }
+}
 public record HideActionMenuMessage;
 public record StateChangedMessage(InteractionState NewState);
 public record StartZoomMessage(ScreenPoint Center, int Radius, double Magnification);

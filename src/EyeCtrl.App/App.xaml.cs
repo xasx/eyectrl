@@ -445,7 +445,9 @@ public partial class App : Application
                         actionMenuVM.EffectiveRingRadius,
                         settings.Cursor.CircleSize,
                         settings.Cursor.CircleColor,
-                        settings.Cursor.PositionIndicatorStyle);
+                        settings.Cursor.PositionIndicatorStyle,
+                        actionMenuVM.ZoomCenter,
+                        actionMenuVM.ZoomRadius);
                 }
                 else
                 {

@@ -22,7 +22,7 @@ public partial class ActionMenuWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle)
+    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, ScreenPoint? zoomCenter = null, int? zoomRadius = null)
     {
         _targetCenter = center;
         _buttonVisuals.Clear();
@@ -46,11 +46,34 @@ public partial class ActionMenuWindow : OverlayWindow
 
         // Delay capture to let WPF render overlay visibility changes
         var previewRadius = (int)(previewCircleSize / 2);
-        var captureCenter = center;
-        var captureRadius = previewRadius;
+        // In zoom path: capture the same region the zoom view showed (same center, same radius)
+        var captureCenter = zoomCenter ?? center;
+        var captureRadius = zoomRadius != null ? (int)(zoomRadius.Value * DpiHelper.ScaleX) : previewRadius;
         var captureCanvasCenter = canvasCenter;
         var captureCircleSize = previewCircleSize;
         var captureBorderColor = borderColor;
+
+        // Compute where within the preview circle the precise fixation point (center) lies.
+        // When not in zoom mode both offsets are 0 and the indicator stays at canvasCenter.
+        double indicatorOffsetX = 0;
+        double indicatorOffsetY = 0;
+        if (zoomCenter != null && zoomRadius != null)
+        {
+            // scale = logical-px / physical-px  →  offset = physical-px × (logical/physical) = logical-px
+            // Use captureRadius (already in physical px) so the result is in WPF logical canvas px.
+            double scale = previewCircleSize / (2.0 * captureRadius);
+            indicatorOffsetX = (center.X - zoomCenter.X) * scale;
+            indicatorOffsetY = (center.Y - zoomCenter.Y) * scale;
+
+            // Clamp so indicator stays inside the preview circle (10 px margin)
+            double offsetMag = Math.Sqrt(indicatorOffsetX * indicatorOffsetX + indicatorOffsetY * indicatorOffsetY);
+            double maxOffset = previewCircleSize / 2 - 10;
+            if (offsetMag > maxOffset && offsetMag > 0)
+            {
+                indicatorOffsetX = indicatorOffsetX / offsetMag * maxOffset;
+                indicatorOffsetY = indicatorOffsetY / offsetMag * maxOffset;
+            }
+        }
 
         _ = Dispatcher.InvokeAsync(async () =>
         {
@@ -79,19 +102,19 @@ public partial class ActionMenuWindow : OverlayWindow
             // Thin red crosshair lines
             var hLine = new Line
             {
-                X1 = canvasCenter.X - indicatorSize,
-                Y1 = canvasCenter.Y,
-                X2 = canvasCenter.X + indicatorSize,
-                Y2 = canvasCenter.Y,
+                X1 = canvasCenter.X - indicatorSize + indicatorOffsetX,
+                Y1 = canvasCenter.Y + indicatorOffsetY,
+                X2 = canvasCenter.X + indicatorSize + indicatorOffsetX,
+                Y2 = canvasCenter.Y + indicatorOffsetY,
                 Stroke = Brushes.Red,
                 StrokeThickness = 1.5
             };
             var vLine = new Line
             {
-                X1 = canvasCenter.X,
-                Y1 = canvasCenter.Y - indicatorSize,
-                X2 = canvasCenter.X,
-                Y2 = canvasCenter.Y + indicatorSize,
+                X1 = canvasCenter.X + indicatorOffsetX,
+                Y1 = canvasCenter.Y - indicatorSize + indicatorOffsetY,
+                X2 = canvasCenter.X + indicatorOffsetX,
+                Y2 = canvasCenter.Y + indicatorSize + indicatorOffsetY,
                 Stroke = Brushes.Red,
                 StrokeThickness = 1.5
             };
@@ -110,15 +133,15 @@ public partial class ActionMenuWindow : OverlayWindow
                 Stroke = Brushes.White,
                 StrokeThickness = 1
             };
-            Canvas.SetLeft(pinHead, canvasCenter.X - pinHeadSize / 2);
-            Canvas.SetTop(pinHead, canvasCenter.Y - indicatorSize);
+            Canvas.SetLeft(pinHead, canvasCenter.X - pinHeadSize / 2 + indicatorOffsetX);
+            Canvas.SetTop(pinHead, canvasCenter.Y - indicatorSize + indicatorOffsetY);
 
             var pinLine = new Line
             {
-                X1 = canvasCenter.X,
-                Y1 = canvasCenter.Y - indicatorSize / 2,
-                X2 = canvasCenter.X,
-                Y2 = canvasCenter.Y,
+                X1 = canvasCenter.X + indicatorOffsetX,
+                Y1 = canvasCenter.Y - indicatorSize / 2 + indicatorOffsetY,
+                X2 = canvasCenter.X + indicatorOffsetX,
+                Y2 = canvasCenter.Y + indicatorOffsetY,
                 Stroke = Brushes.Red,
                 StrokeThickness = 2
             };

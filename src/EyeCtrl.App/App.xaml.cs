@@ -223,6 +223,8 @@ public partial class App : Application
 
         // ── Bridge ViewModel -> Overlay Windows via PropertyChanged ──
 
+        bool settingsOpen = false;
+
         // CursorCircle: VM.Position -> window position, VM.IsVisible -> show/hide
         cursorVM.PropertyChanged += (_, e) =>
         {
@@ -232,7 +234,7 @@ public partial class App : Application
                     cursorCircle.UpdatePosition(cursorVM.Position);
                     break;
                 case nameof(CursorCircleViewModel.IsVisible):
-                    if (cursorVM.IsVisible) cursorCircle.Show();
+                    if (cursorVM.IsVisible && !settingsOpen) cursorCircle.Show();
                     else cursorCircle.Hide();
                     break;
             }
@@ -494,6 +496,8 @@ public partial class App : Application
         messenger.Register<SettingsRequestedMessage>(this, (_, _) => Dispatcher.BeginInvoke(() =>
         {
             if (settingsWindow != null) return;
+            settingsOpen = true;
+            cursorCircle.Hide();
             settingsWindow = new SettingsWindow(settings, settingsService);
             settingsWindow.SettingsChanged += s =>
             {
@@ -505,7 +509,12 @@ public partial class App : Application
                 LoadKeyboard(keyboard, s, inputSimulator, settingsService);
                 Log.Information("Settings saved");
             };
-            settingsWindow.Closed += (_, _) => settingsWindow = null;
+            settingsWindow.Closed += (_, _) =>
+            {
+                settingsWindow = null;
+                settingsOpen = false;
+                if (cursorVM.IsVisible) cursorCircle.Show();
+            };
             settingsWindow.Show();
         }));
 

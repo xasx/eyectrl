@@ -304,7 +304,7 @@ public partial class SettingsWindow : OverlayWindow
         return
         [
             [
-                () => AddCombo("c_filter", "Filter Mode",
+                () => AddHorizontalList("c_filter", "Filter Mode",
                     Enum.GetNames<GazeFilterMode>(),
                     () => _settings.Cursor.FilterMode.ToString(),
                     v => { _settings.Cursor.FilterMode = Enum.Parse<GazeFilterMode>(v); ApplyAndSave(); }),
@@ -437,7 +437,7 @@ public partial class SettingsWindow : OverlayWindow
         return
         [
             [
-                () => AddCombo("k_layout", "Active Layout",
+                () => AddHorizontalList("k_layout", "Active Layout",
                     ["QWERTY", "QWERTZ", "AZERTY"],
                     () => _settings.Keyboard.ActiveLayout,
                     v => { _settings.Keyboard.ActiveLayout = v; ApplyAndSave(); }),
@@ -447,7 +447,7 @@ public partial class SettingsWindow : OverlayWindow
                 () => AddToggle("k_pred", "Word Prediction",
                     () => _settings.Keyboard.PredictionEnabled,
                     v => { _settings.Keyboard.PredictionEnabled = v; ApplyAndSave(); }),
-                () => AddRadio("k_lang", "Dictionary Language",
+                () => AddHorizontalList("k_lang", "Dictionary Language",
                     displayOptions: ["English", "French", "Spanish", "German", "Polish"],
                     codeOptions:    ["en",      "fr",     "es",      "de",     "pl"],
                     getCode: () => string.IsNullOrEmpty(_settings.Keyboard.LanguagePack) ? "en"
@@ -456,7 +456,8 @@ public partial class SettingsWindow : OverlayWindow
                 () => AddToggle("k_sound", "Click Sound",
                     () => _settings.Keyboard.ClickSoundEnabled,
                     v => { _settings.Keyboard.ClickSoundEnabled = v; ApplyAndSave(); }),
-                () => AddCombo("k_edge", "Screen Edge", ["Bottom", "Top"],
+                () => AddHorizontalList("k_edge", "Screen Edge",
+                    ["Bottom", "Top"],
                     () => _settings.Keyboard.ScreenEdge,
                     v => { _settings.Keyboard.ScreenEdge = v; ApplyAndSave(); }),
                 () => AddResetButton("Reset Keyboard Settings", () =>
@@ -483,7 +484,8 @@ public partial class SettingsWindow : OverlayWindow
                 () => AddToggle("t_dock", "Dock to Screen Edge",
                     () => _settings.Toolbar.IsDocked,
                     v => { _settings.Toolbar.IsDocked = v; ApplyAndSave(); }),
-                () => AddCombo("t_edge", "Docked Edge", ["Top", "Bottom", "Left", "Right"],
+                () => AddHorizontalList("t_edge", "Docked Edge",
+                    ["Top", "Bottom", "Left", "Right"],
                     () => _settings.Toolbar.DockedEdge,
                     v => { _settings.Toolbar.DockedEdge = v; ApplyAndSave(); }),
                 () => AddSlider("t_size", "Button Size", 32, 120, 4, 0,
@@ -508,7 +510,8 @@ public partial class SettingsWindow : OverlayWindow
         return
         [
             [
-                () => AddCombo("th_mode", "Theme Mode", ["System", "Light", "Dark"],
+                () => AddHorizontalList("th_mode", "Theme Mode",
+                    ["System", "Light", "Dark"],
                     () => _settings.Theme.Mode,
                     v => { _settings.Theme.Mode = v; ApplyAndSave(); }),
                 () => AddSlider("th_op", "Overlay Opacity", 0.3, 1.0, 0.1, 1,

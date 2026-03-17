@@ -498,24 +498,33 @@ public partial class App : Application
             if (settingsWindow != null) return;
             settingsOpen = true;
             cursorCircle.Hide();
-            settingsWindow = new SettingsWindow(settings, settingsService);
-            settingsWindow.SettingsChanged += s =>
+            try
             {
-                cursorCircle.UpdateAppearance(s.Cursor);
-                toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
-                toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
-                im.ZoomEnabled = s.Zoom.Enabled;
-                toolbar.SetZoomState(s.Zoom.Enabled);
-                LoadKeyboard(keyboard, s, inputSimulator, settingsService);
-                Log.Information("Settings saved");
-            };
-            settingsWindow.Closed += (_, _) =>
+                settingsWindow = new SettingsWindow(settings, settingsService);
+                settingsWindow.SettingsChanged += s =>
+                {
+                    cursorCircle.UpdateAppearance(s.Cursor);
+                    toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
+                    toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
+                    im.ZoomEnabled = s.Zoom.Enabled;
+                    toolbar.SetZoomState(s.Zoom.Enabled);
+                    LoadKeyboard(keyboard, s, inputSimulator, settingsService);
+                    Log.Information("Settings saved");
+                };
+                settingsWindow.Closed += (_, _) =>
+                {
+                    settingsWindow = null;
+                    settingsOpen = false;
+                    if (cursorVM.IsVisible) cursorCircle.Show();
+                };
+                settingsWindow.Show();
+            }
+            catch
             {
-                settingsWindow = null;
                 settingsOpen = false;
                 if (cursorVM.IsVisible) cursorCircle.Show();
-            };
-            settingsWindow.Show();
+                throw;
+            }
         }));
 
         // Key activation -> input simulator

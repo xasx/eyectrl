@@ -677,6 +677,93 @@ public partial class SettingsWindow : OverlayWindow
         ContentPanel.Children.Add(row);
     }
 
+    private void AddHorizontalList(string idPrefix, string label, string[] options,
+        Func<string> get, Action<string> set)
+        => AddHorizontalList(idPrefix, label, options, options, get, set);
+
+    private void AddHorizontalList(
+        string idPrefix,
+        string label,
+        string[] displayOptions,
+        string[] codeOptions,
+        Func<string> getCode,
+        Action<string> setCode)
+    {
+        AddLabel(label);
+
+        var borders = new List<Border>();
+        var texts = new List<TextBlock>();
+
+        var wrapPanel = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 2, 0, 12)
+        };
+
+        void Refresh()
+        {
+            var active = getCode();
+            for (int j = 0; j < borders.Count; j++)
+            {
+                bool selected = j < codeOptions.Length && codeOptions[j] == active;
+                borders[j].Background = new SolidColorBrush(selected
+                    ? Color.FromArgb(200, 30, 100, 30)
+                    : BtnBase);
+                if (j < texts.Count)
+                    texts[j].Text = (selected ? "\u25C9 " : "\u25CB ") + displayOptions[j];
+            }
+        }
+
+        for (int i = 0; i < displayOptions.Length; i++)
+        {
+            var capturedCode = codeOptions[i];
+            var id = $"{idPrefix}_{i}";
+
+            var text = new TextBlock
+            {
+                Foreground = Brushes.White,
+                FontSize = 22,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            System.Windows.Automation.AutomationProperties.SetAutomationId(
+                text, $"Settings_HList_{id}");
+
+            var border = new Border
+            {
+                Height = 70,
+                Margin = new Thickness(0, 0, 8, 8),
+                Padding = new Thickness(20, 0, 20, 0),
+                CornerRadius = new CornerRadius(8),
+                MinWidth = 150,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Child = text
+            };
+
+            _controlActions[id] = () =>
+            {
+                setCode(capturedCode);
+                Refresh();
+            };
+
+            border.MouseLeftButtonDown += (_, _) => _controlActions[id]();
+            _controlBorders[id] = border;
+            _controlDwell.AddTarget(new DwellTarget(
+                id,
+                new ScreenPoint(0, 0),
+                DpiHelper.LogicalToPhysicalX(ControlBtnRadius),
+                _dwellMs));
+
+            borders.Add(border);
+            texts.Add(text);
+            wrapPanel.Children.Add(border);
+        }
+
+        ContentPanel.Children.Add(wrapPanel);
+        Refresh();
+    }
+
     private void AddToggle(string id, string label, Func<bool> get, Action<bool> set)
     {
         var border = new Border

@@ -47,6 +47,7 @@ public partial class KeyboardWindow : OverlayWindow
     private double _keySize;
     private int _keyDwellMs;
     private int _predictionDwellMs;
+    private int _cooldownMs;
     private string _currentInput = "";
     private string _screenEdge = "bottom";
     private bool _predictionTargetsInitialized;
@@ -81,15 +82,15 @@ public partial class KeyboardWindow : OverlayWindow
         _categoryDwellDetector.TargetActivated += OnCategoryDwelled;
     }
 
-    public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs)
+    public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs, int cooldownMs)
     {
         _layout = layout;
         _activeSubLayoutId = layout.DefaultSubLayout;
         _keySize = BaseKeySize * keySizeMultiplier;
         _keyDwellMs = keyDwellMs;
         _predictionDwellMs = predictionDwellMs;
+        _cooldownMs = cooldownMs;
 
-        var cooldownMs = keyDwellMs / 2;
         _predictionDwellDetector.SetCooldown(cooldownMs);
         _categoryDwellDetector.SetCooldown(cooldownMs);
 
@@ -289,8 +290,8 @@ public partial class KeyboardWindow : OverlayWindow
             {
                 ResetKeyVisual(nearestId);
                 _currentNearestKeyId = null;
-                // Cooldown is half the dwell time, converted from ms to μs: dwellMs * 500 = (dwellMs / 2) * 1000
-                _keyCooldownEndTimestamp = timestampMicroseconds + (_keyDwellMs * 500L);
+                // Use the configured cooldown time, converted from ms to μs
+                _keyCooldownEndTimestamp = timestampMicroseconds + (_cooldownMs * 1000L);
                 OnKeyDwelled(nearestId);
             }
         }

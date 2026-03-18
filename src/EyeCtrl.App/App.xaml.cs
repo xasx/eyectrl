@@ -304,20 +304,34 @@ public partial class App : Application
                         // and must run on the UI thread — move the entire body into BeginInvoke
                         Dispatcher.BeginInvoke(() =>
                         {
-                            zoomIndicator.Hide();
-                            var realPoint = zoomOverlay.GetRealScreenPoint(zoomPoint);
-                            im.OnZoomFixation(realPoint);
+                            try
+                            {
+                                zoomIndicator.Hide();
+                                var realPoint = zoomOverlay.GetRealScreenPoint(zoomPoint);
+                                im.OnZoomFixation(realPoint);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Error(ex, "Error in zoom fixation started handler");
+                            }
                         });
                     };
                     zoomFixation.FixationEnded += () =>
                     {
                         Dispatcher.BeginInvoke(() =>
                         {
-                            if (!zoomIndicator.IsVisible) return; // already hidden by fixation completion
-                            zoomIndicatorVM.ResetFixation();
-                            zoomIndicator.AnimateReset(
-                                settings.Zoom.GazeIndicatorOuterDiameter,
-                                settings.Zoom.GazeIndicatorResetAnimationMs);
+                            try
+                            {
+                                if (!zoomIndicator.IsVisible) return; // already hidden by fixation completion
+                                zoomIndicatorVM.ResetFixation();
+                                zoomIndicator.AnimateReset(
+                                    settings.Zoom.GazeIndicatorOuterDiameter,
+                                    settings.Zoom.GazeIndicatorResetAnimationMs);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Error(ex, "Error in zoom fixation ended handler");
+                            }
                         });
                     };
 
@@ -331,9 +345,17 @@ public partial class App : Application
                         if (im.CurrentState != InteractionState.ZoomSelectionActive) return;
 
                         // Update indicator position (even during grace period)
-                        Dispatcher.BeginInvoke(() => {
-                            zoomIndicatorVM.UpdateGazePosition(pt);
-                            zoomIndicator.UpdatePosition(zoomIndicatorVM.IndicatorX, zoomIndicatorVM.IndicatorY);
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            try
+                            {
+                                zoomIndicatorVM.UpdateGazePosition(pt);
+                                zoomIndicator.UpdatePosition(zoomIndicatorVM.IndicatorX, zoomIndicatorVM.IndicatorY);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Error(ex, "Error updating zoom indicator position");
+                            }
                         });
 
                         // Record the first timestamp as zoom start
@@ -358,10 +380,17 @@ public partial class App : Application
                             // FixationDetector.Reset() does NOT fire FixationEnded, so reset UI manually:
                             Dispatcher.BeginInvoke(() =>
                             {
-                                zoomIndicatorVM.ResetFixation();
-                                zoomIndicator.AnimateReset(
-                                    settings.Zoom.GazeIndicatorOuterDiameter,
-                                    settings.Zoom.GazeIndicatorResetAnimationMs);
+                                try
+                                {
+                                    zoomIndicatorVM.ResetFixation();
+                                    zoomIndicator.AnimateReset(
+                                        settings.Zoom.GazeIndicatorOuterDiameter,
+                                        settings.Zoom.GazeIndicatorResetAnimationMs);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log.Error(ex, "Error resetting zoom indicator after gaze moved outside");
+                                }
                             });
                             return;
                         }
@@ -369,9 +398,17 @@ public partial class App : Application
                         zoomFixation.Update(pt, ts);
                         // Update fixation progress on indicator
                         var progress = zoomFixation.GetProgress();
-                        Dispatcher.BeginInvoke(() => {
-                            zoomIndicatorVM.UpdateFixationProgress(progress);
-                            zoomIndicator.UpdateOuterDiameter(zoomIndicatorVM.OuterCircleDiameter);
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            try
+                            {
+                                zoomIndicatorVM.UpdateFixationProgress(progress);
+                                zoomIndicator.UpdateOuterDiameter(zoomIndicatorVM.OuterCircleDiameter);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Error(ex, "Error updating zoom fixation progress");
+                            }
                         });
                     };
                     gazeEngine.CursorMoved += zoomGazeHandler;

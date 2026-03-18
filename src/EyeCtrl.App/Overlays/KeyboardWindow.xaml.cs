@@ -289,7 +289,8 @@ public partial class KeyboardWindow : OverlayWindow
             {
                 ResetKeyVisual(nearestId);
                 _currentNearestKeyId = null;
-                _keyCooldownEndTimestamp = timestampMicroseconds + (_keyDwellMs / 2 * 1000L);
+                // Cooldown is half the dwell time, converted from ms to μs: dwellMs * 500 = (dwellMs / 2) * 1000
+                _keyCooldownEndTimestamp = timestampMicroseconds + (_keyDwellMs * 500L);
                 OnKeyDwelled(nearestId);
             }
         }

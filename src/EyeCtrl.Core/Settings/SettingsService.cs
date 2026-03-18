@@ -16,9 +16,14 @@ public class SettingsService
 
     public void SaveDebounced(EyeCtrlSettings settings)
     {
-        _debounceCts?.Cancel();
+        // Cancel and dispose old CancellationTokenSource to prevent resource leak
+        var oldCts = _debounceCts;
         _debounceCts = new CancellationTokenSource();
         var token = _debounceCts.Token;
+
+        // Dispose old CTS after extracting the new token to avoid race conditions
+        oldCts?.Cancel();
+        oldCts?.Dispose();
 
         Task.Run(async () =>
         {

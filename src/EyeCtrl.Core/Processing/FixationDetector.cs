@@ -17,6 +17,13 @@ public class FixationDetector
 
     public FixationDetector(double fixationRadiusPixels, int fixationTimeMs)
     {
+        if (!double.IsFinite(fixationRadiusPixels))
+            throw new ArgumentException("Fixation radius must be a finite number.", nameof(fixationRadiusPixels));
+        if (fixationRadiusPixels <= 0)
+            throw new ArgumentOutOfRangeException(nameof(fixationRadiusPixels), fixationRadiusPixels, "Fixation radius must be positive.");
+        if (fixationTimeMs <= 0)
+            throw new ArgumentOutOfRangeException(nameof(fixationTimeMs), fixationTimeMs, "Fixation time must be positive.");
+
         _radiusPixels = fixationRadiusPixels;
         _fixationTimeMicroseconds = fixationTimeMs * 1000L;
     }

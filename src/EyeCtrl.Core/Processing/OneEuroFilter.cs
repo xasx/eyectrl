@@ -22,6 +22,20 @@ public class OneEuroFilter : IGazeFilter
 
     public OneEuroFilter(double minCutoff = 5.0, double beta = 0.5, double dCutoff = 1.0)
     {
+        if (!double.IsFinite(minCutoff))
+            throw new ArgumentException("minCutoff must be a finite number.", nameof(minCutoff));
+        if (!double.IsFinite(beta))
+            throw new ArgumentException("beta must be a finite number.", nameof(beta));
+        if (!double.IsFinite(dCutoff))
+            throw new ArgumentException("dCutoff must be a finite number.", nameof(dCutoff));
+
+        if (minCutoff <= 0)
+            throw new ArgumentOutOfRangeException(nameof(minCutoff), minCutoff, "minCutoff must be positive.");
+        if (beta < 0)
+            throw new ArgumentOutOfRangeException(nameof(beta), beta, "beta must be non-negative.");
+        if (dCutoff <= 0)
+            throw new ArgumentOutOfRangeException(nameof(dCutoff), dCutoff, "dCutoff must be positive.");
+
         _minCutoff = minCutoff;
         _beta = beta;
         _dCutoff = dCutoff;

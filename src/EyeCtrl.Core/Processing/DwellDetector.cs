@@ -1,9 +1,10 @@
 namespace EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Models;
+using System.Collections.Concurrent;
 
 public class DwellDetector
 {
-    private readonly Dictionary<string, DwellTarget> _targets = new();
+    private readonly ConcurrentDictionary<string, DwellTarget> _targets = new();
     private long _cooldownMicroseconds;
     private long _lastTimestamp;
     private long? _lastActivationTimestamp;
@@ -19,7 +20,7 @@ public class DwellDetector
     public void SetCooldown(int cooldownMs) => _cooldownMicroseconds = cooldownMs * 1000L;
 
     public void AddTarget(DwellTarget target) => _targets[target.Id] = target;
-    public void RemoveTarget(string id) => _targets.Remove(id);
+    public void RemoveTarget(string id) => _targets.TryRemove(id, out _);
     public void ClearTargets() => _targets.Clear();
 
     /// <summary>

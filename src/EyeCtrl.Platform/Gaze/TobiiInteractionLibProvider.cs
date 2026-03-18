@@ -41,6 +41,9 @@ public class TobiiInteractionLibProvider : IGazeProvider
 
     public void Start()
     {
+        _logger.LogInformation("Starting Tobii gaze provider (screen: {Width}x{Height})",
+            _screenWidth, _screenHeight);
+
         ConfigureAndSubscribe();
 
         _running = true;
@@ -54,6 +57,8 @@ public class TobiiInteractionLibProvider : IGazeProvider
 
     public void Stop()
     {
+        _logger.LogInformation("Stopping Tobii gaze provider");
+
         _running = false;
         _pollThread?.Join(1000);
         _pollThread = null;
@@ -65,6 +70,7 @@ public class TobiiInteractionLibProvider : IGazeProvider
         }
 
         IsConnected = false;
+        _logger.LogInformation("Tobii gaze provider stopped");
     }
 
     private void ConfigureAndSubscribe()
@@ -123,10 +129,12 @@ public class TobiiInteractionLibProvider : IGazeProvider
                     _interactionLib = InteractionLibFactory.CreateInteractionLib(
                         FieldOfUse.Interactive);
                     ConfigureAndSubscribe();
+                    _logger.LogInformation("Reconnection attempt successful, waiting for data");
                 }
-                catch
+                catch (Exception reconnectEx)
                 {
-                    // Recreate failed — will retry on next loop iteration
+                    // Log specific reconnection failures to aid troubleshooting
+                    _logger.LogWarning(reconnectEx, "Reconnection attempt failed, will retry in {BackoffMs}ms", backoffMs);
                 }
             }
         }

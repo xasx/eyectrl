@@ -651,7 +651,8 @@ public partial class App : Application
             keyboard.LoadLayout(layout,
                 settings.Keyboard.KeySizeMultiplier,
                 settings.Dwell.KeyboardKeyDwellMs,
-                settings.Dwell.KeyboardPredictionDwellMs);
+                settings.Dwell.KeyboardPredictionDwellMs,
+                settings.Dwell.DwellCooldownMs);
 
             var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
             var recentPath = Path.Combine(_appDataDir, "recent_emojis.json");

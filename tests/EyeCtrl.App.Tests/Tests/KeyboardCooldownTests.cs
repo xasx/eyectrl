@@ -34,23 +34,4 @@ public class KeyboardCooldownTests
         Assert.Equal(expectedCooldownMicroseconds, cooldownMicroseconds);
         Assert.Equal(expectedCooldownEnd, actualCooldownEnd);
     }
-
-    /// <summary>
-    /// Document that cooldown is independent of dwell time and comes from configuration.
-    /// </summary>
-    [Fact]
-    public void CooldownIsConfigurable_NotDerivedFromDwellTime()
-    {
-        // Prior to this fix, cooldown was incorrectly calculated as dwellMs / 2 * 1000L
-        // which had operator precedence issues and was not configurable.
-        //
-        // Now cooldown is a separate configuration parameter (DwellSettings.DwellCooldownMs)
-        // that is passed to KeyboardWindow.LoadLayout and used directly.
-        //
-        // This allows users to configure cooldown independently from dwell time,
-        // which is more flexible (e.g., longer cooldown to prevent accidental double-triggers,
-        // or shorter cooldown for faster interaction).
-
-        Assert.True(true, "Cooldown is now configurable via DwellSettings.DwellCooldownMs");
-    }
 }

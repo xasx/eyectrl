@@ -127,6 +127,7 @@ public partial class App : Application
         services.AddSingleton(settingsService);
 
         // Platform services
+        services.AddSingleton<IMouseCoordinateMapper, MouseCoordinateMapper>();
         services.AddSingleton<IInputSimulator, Win32InputSimulator>();
         services.AddSingleton<IGazeProvider>(sp =>
         {

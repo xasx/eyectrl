@@ -9,6 +9,13 @@ public class Win32InputSimulator : IInputSimulator
     private static int ScreenWidth => NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
     private static int ScreenHeight => NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
 
+    private readonly IMouseCoordinateMapper _coordinateMapper;
+
+    public Win32InputSimulator(IMouseCoordinateMapper coordinateMapper)
+    {
+        _coordinateMapper = coordinateMapper;
+    }
+
     public void MoveCursor(ScreenPoint point)
     {
         var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE);
@@ -110,31 +117,14 @@ public class Win32InputSimulator : IInputSimulator
         }
     }
 
-    private static NativeMethods.INPUT CreateMouseInput(ScreenPoint point, uint flags)
+    private NativeMethods.INPUT CreateMouseInput(ScreenPoint point, uint flags)
     {
-        // Validate coordinates are finite (not NaN or Infinity)
-        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
-            throw new ArgumentException("Screen coordinates must be finite numbers.", nameof(point));
-
-        // Get screen dimensions and validate they're positive
+        // Get screen dimensions
         var screenWidth = ScreenWidth;
         var screenHeight = ScreenHeight;
-        if (screenWidth <= 0 || screenHeight <= 0)
-            throw new InvalidOperationException("Unable to get valid screen dimensions.");
 
-        // Clamp coordinates to valid screen bounds (0 to screen size)
-        // This prevents overflow and ensures cursor stays on screen
-        var clampedX = Math.Clamp(point.X, 0, screenWidth);
-        var clampedY = Math.Clamp(point.Y, 0, screenHeight);
-
-        // Normalize to 0-65535 range with rounding for better accuracy
-        // Using Math.Round instead of truncating cast
-        int normalizedX = (int)Math.Round((clampedX * 65535) / screenWidth);
-        int normalizedY = (int)Math.Round((clampedY * 65535) / screenHeight);
-
-        // Final clamp to ensure we're in the valid range after rounding
-        normalizedX = Math.Clamp(normalizedX, 0, 65535);
-        normalizedY = Math.Clamp(normalizedY, 0, 65535);
+        // Use coordinate mapper to normalize coordinates
+        var (normalizedX, normalizedY) = _coordinateMapper.NormalizeScreenCoordinate(point, screenWidth, screenHeight);
 
         return new NativeMethods.INPUT
         {

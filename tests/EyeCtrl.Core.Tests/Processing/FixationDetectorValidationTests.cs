@@ -16,7 +16,8 @@ public class FixationDetectorValidationTests
         var exception = Assert.Throws<ArgumentOutOfRangeException>(
             () => new FixationDetector(fixationRadiusPixels: radius, fixationTimeMs: 200));
 
-        Assert.Contains("fixationRadiusPixels", exception.Message);
+        Assert.Equal("fixationRadiusPixels", exception.ParamName);
+        Assert.Equal(radius, exception.ActualValue);
     }
 
     [Theory]
@@ -28,7 +29,8 @@ public class FixationDetectorValidationTests
         var exception = Assert.Throws<ArgumentOutOfRangeException>(
             () => new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: timeMs));
 
-        Assert.Contains("fixationTimeMs", exception.Message);
+        Assert.Equal("fixationTimeMs", exception.ParamName);
+        Assert.Equal(timeMs, exception.ActualValue);
     }
 
     [Fact]
@@ -37,7 +39,7 @@ public class FixationDetectorValidationTests
         var exception = Assert.Throws<ArgumentException>(
             () => new FixationDetector(fixationRadiusPixels: double.NaN, fixationTimeMs: 200));
 
-        Assert.Contains("fixationRadiusPixels", exception.Message);
+        Assert.Equal("fixationRadiusPixels", exception.ParamName);
     }
 
     [Fact]
@@ -46,7 +48,7 @@ public class FixationDetectorValidationTests
         var exception = Assert.Throws<ArgumentException>(
             () => new FixationDetector(fixationRadiusPixels: double.PositiveInfinity, fixationTimeMs: 200));
 
-        Assert.Contains("fixationRadiusPixels", exception.Message);
+        Assert.Equal("fixationRadiusPixels", exception.ParamName);
     }
 
     [Fact]

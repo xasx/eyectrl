@@ -17,7 +17,8 @@ public class OneEuroFilterValidationTests
         var exception = Assert.Throws<ArgumentOutOfRangeException>(
             () => new OneEuroFilter(minCutoff: minCutoff, beta: 0.5, dCutoff: 1.0));
 
-        Assert.Contains("minCutoff", exception.Message);
+        Assert.Equal("minCutoff", exception.ParamName);
+        Assert.Equal(minCutoff, exception.ActualValue);
     }
 
     [Theory]
@@ -28,7 +29,8 @@ public class OneEuroFilterValidationTests
         var exception = Assert.Throws<ArgumentOutOfRangeException>(
             () => new OneEuroFilter(minCutoff: 5.0, beta: beta, dCutoff: 1.0));
 
-        Assert.Contains("beta", exception.Message);
+        Assert.Equal("beta", exception.ParamName);
+        Assert.Equal(beta, exception.ActualValue);
     }
 
     [Theory]
@@ -39,7 +41,8 @@ public class OneEuroFilterValidationTests
         var exception = Assert.Throws<ArgumentOutOfRangeException>(
             () => new OneEuroFilter(minCutoff: 5.0, beta: 0.5, dCutoff: dCutoff));
 
-        Assert.Contains("dCutoff", exception.Message);
+        Assert.Equal("dCutoff", exception.ParamName);
+        Assert.Equal(dCutoff, exception.ActualValue);
     }
 
     [Fact]

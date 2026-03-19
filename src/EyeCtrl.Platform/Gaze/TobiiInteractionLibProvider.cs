@@ -92,7 +92,12 @@ public class TobiiInteractionLibProvider : IGazeProvider
         {
             try
             {
-                _interactionLib?.WaitAndUpdate(33); // ~30 Hz
+                // Ensure _interactionLib is initialized before calling WaitAndUpdate
+                // If null (e.g., after failed reconnection), throw to force reconnection path
+                if (_interactionLib == null)
+                    throw new InvalidOperationException("InteractionLib not initialized");
+
+                _interactionLib.WaitAndUpdate(33); // ~30 Hz
                 if (!IsConnected)
                 {
                     IsConnected = true;

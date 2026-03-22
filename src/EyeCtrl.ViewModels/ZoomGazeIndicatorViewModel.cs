@@ -26,8 +26,8 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     [ObservableProperty] private double _fixationProgress;
 
     // Zoom geometry needed for coordinate mapping
-    private ScreenPoint _zoomOriginalCenter = new(0, 0);
-    private ScreenPoint _zoomWindowCenter = new(0, 0);
+    private ScreenPoint _zoomOriginalCenter = new(0, 0);  // Capture center (gaze point)
+    private ScreenPoint _zoomWindowCenter = new(0, 0);    // Display center (may be screen center)
     private double _magnification = 1.0;
 
     public double CenterDotDiameter => _zoomSettings.GazeIndicatorCenterDotDiameter;
@@ -43,10 +43,11 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
 
     public void Receive(StartZoomMessage message)
     {
-        _zoomOriginalCenter = message.Center;
+        // The capture center is the gaze point (what we're zooming in on)
+        _zoomOriginalCenter = message.GazePoint ?? message.Center;
         _magnification = message.Magnification;
 
-        // The zoom window is centered on message.Center on screen
+        // The zoom window center is where it's displayed (may be screen center or at gaze)
         _zoomWindowCenter = message.Center;
 
         OuterCircleDiameter = _zoomSettings.GazeIndicatorOuterDiameter;

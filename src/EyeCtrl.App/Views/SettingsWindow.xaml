@@ -17,7 +17,7 @@
             <Border x:Name="CloseButton" Grid.Row="0"
                     Height="100" Width="100"
                     HorizontalAlignment="Right" Margin="8"
-                    CornerRadius="8" Background="#C8641E1E"
+                    CornerRadius="0" Background="#C8641E1E"
                     Cursor="Hand">
                 <TextBlock Text="✕" Foreground="White"
                            FontSize="34" FontWeight="Bold"
@@ -55,7 +55,7 @@
             <Border x:Name="ModalContent"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    CornerRadius="12"
+                    CornerRadius="0"
                     Background="#E0282828"
                     Padding="40,30"
                     MinWidth="400">

@@ -130,7 +130,7 @@ public partial class SettingsWindow : OverlayWindow
             {
                 Height = 100,
                 Margin = new Thickness(4),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(0),
                 Background = new SolidColorBrush(TabInactive),
                 Cursor = System.Windows.Input.Cursors.Hand,
                 Child = new StackPanel
@@ -257,7 +257,7 @@ public partial class SettingsWindow : OverlayWindow
             Width = 100,
             Height = 80,
             Margin = new Thickness(4),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(0),
             Background = new SolidColorBrush(BtnBase),
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
@@ -696,7 +696,7 @@ public partial class SettingsWindow : OverlayWindow
                 Height = 70,
                 Margin = new Thickness(0, 0, 8, 8),
                 Padding = new Thickness(20, 0, 20, 0),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(0),
                 MinWidth = 150,
                 Cursor = System.Windows.Input.Cursors.Hand,
                 Child = text
@@ -732,7 +732,7 @@ public partial class SettingsWindow : OverlayWindow
             Height = 80,
             Margin = new Thickness(0, 4, 0, 12),
             Padding = new Thickness(20, 0, 20, 0),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(0),
             HorizontalAlignment = HorizontalAlignment.Left,
             Cursor = System.Windows.Input.Cursors.Hand
         };
@@ -795,7 +795,7 @@ public partial class SettingsWindow : OverlayWindow
                 Width = 90,
                 Height = 75,
                 Margin = new Thickness(4),
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(0),
                 Background = new SolidColorBrush(color),
                 BorderThickness = new Thickness(3),
                 BorderBrush = hex.Equals(get(), StringComparison.OrdinalIgnoreCase)
@@ -831,7 +831,7 @@ public partial class SettingsWindow : OverlayWindow
             Width = 300,
             Height = 80,
             Margin = new Thickness(0, 20, 0, 8),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(0),
             Background = new SolidColorBrush(ResetBase),
             HorizontalAlignment = HorizontalAlignment.Left,
             Cursor = System.Windows.Input.Cursors.Hand,
@@ -873,7 +873,7 @@ public partial class SettingsWindow : OverlayWindow
             Width = 100,
             Height = 80,
             Margin = new Thickness(4, 0, 4, 0),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(0),
             Background = new SolidColorBrush(BtnBase),
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
@@ -1038,7 +1038,7 @@ public partial class SettingsWindow : OverlayWindow
             Width = 170,
             Height = 80,
             Margin = new Thickness(12, 0, 12, 0),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(0),
             Background = new SolidColorBrush(bg),
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock

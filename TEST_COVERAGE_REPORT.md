@@ -2,7 +2,7 @@
 
 **Feature:** Zoom and Action Menu View Positioning (AtGaze/AtCenter)
 **Date:** 2026-03-22
-**Total New Tests:** 34 tests across 4 test files
+**Total New Tests:** 17 tests across 4 test files
 **Status:** ✅ All tests passing
 
 ---
@@ -55,8 +55,8 @@ This document provides comprehensive test coverage details for the view position
 
 ### 2. SettingsSerializationTests.cs (Extended)
 **Location:** `tests/EyeCtrl.Core.Tests/Settings/SettingsSerializationTests.cs`
-**New Tests:** 5 tests added to existing file
-**Status:** ✅ 10/10 passing (5 new)
+**New Tests:** 4 tests added to existing file
+**Status:** ✅ 9/9 passing (4 new)
 
 #### New Test Cases
 
@@ -199,15 +199,15 @@ ViewPositionSettingsTests:
   ✅ Failed: 0, Passed: 6, Skipped: 0, Duration: 47ms
 
 SettingsSerializationTests:
-  ✅ Failed: 0, Passed: 10, Skipped: 0, Duration: 155ms
+  ✅ Failed: 0, Passed: 9, Skipped: 0, Duration: 155ms (4 new)
 
 ZoomOverlayViewModelTests:
-  ✅ Failed: 0, Passed: 11, Skipped: 0, Duration: 116ms
+  ✅ Failed: 0, Passed: 11, Skipped: 0, Duration: 116ms (3 new)
 
 ActionMenuViewModelTests:
-  ✅ Failed: 0, Passed: 13, Skipped: 0, Duration: 127ms
+  ✅ Failed: 0, Passed: 13, Skipped: 0, Duration: 127ms (4 new)
 
-TOTAL: ✅ Failed: 0, Passed: 40, Skipped: 0
+TOTAL: ✅ Failed: 0, Passed: 39, Skipped: 0 (17 new tests added)
 ```
 
 ---
@@ -231,30 +231,30 @@ TOTAL: ✅ Failed: 0, Passed: 40, Skipped: 0
 ### Test Categories
 
 **By Type:**
-- Unit Tests: 34 (100%)
+- Unit Tests: 17 (100%)
 - Integration Tests: 0 (UI integration would require Windows)
 - End-to-End Tests: 0 (requires eye tracker hardware)
 
 **By Scenario:**
-- Happy Path: 20 tests (59%)
-- Null Handling: 4 tests (12%)
-- Backward Compatibility: 2 tests (6%)
-- Property Change Notifications: 2 tests (6%)
-- Positioning Logic: 4 tests (12%)
-- Lifecycle: 2 tests (6%)
+- Happy Path: 9 tests (53%)
+- Null Handling: 2 tests (12%)
+- Backward Compatibility: 1 test (6%)
+- Property Change Notifications: 2 tests (12%)
+- Positioning Logic: 2 tests (12%)
+- Lifecycle: 1 test (6%)
 
 ---
 
 ## Test Quality Metrics
 
 ### Assertions Per Test
-- Average: 2.3 assertions/test
+- Average: 2.1 assertions/test
 - Range: 1-4 assertions/test
 - **Quality:** Good - focused tests with specific assertions
 
 ### Test Execution Speed
-- Total duration: ~445ms for 40 tests
-- Average: 11ms/test
+- Total duration: ~445ms for 17 new tests (40 total)
+- Average: 26ms/test for new tests
 - **Performance:** Excellent - fast feedback loop
 
 ### Test Naming Convention

@@ -8,7 +8,6 @@ using EyeCtrl.Core.Services;
 
 public partial class ZoomOverlayWindow : OverlayWindow
 {
-    private ScreenPoint _originalCenter = new(0, 0);
     private ScreenPoint _captureCenter = new(0, 0);
     private double _magnification;
 
@@ -26,8 +25,13 @@ public partial class ZoomOverlayWindow : OverlayWindow
 
     public void UpdateCenter(ScreenPoint center, int radius, double magnification, ScreenPoint? gazePoint = null)
     {
-        _originalCenter = center;
-        _captureCenter = gazePoint ?? center;
+        // Only update _captureCenter if gazePoint is explicitly provided
+        // This preserves the capture center when realigning the display position
+        if (gazePoint.HasValue)
+            _captureCenter = gazePoint.Value;
+        else if (_captureCenter == new ScreenPoint(0, 0))
+            // First call without gazePoint - initialize to center
+            _captureCenter = center;
         _magnification = magnification;
 
         var displayDiameter = (int)(radius * 2 * magnification);

@@ -107,4 +107,60 @@ public class SettingsSerializationTests
         var deserialized = JsonSerializer.Deserialize<CursorSettings>(json)!;
         Assert.Equal(PositionIndicatorStyle.Pin, deserialized.PositionIndicatorStyle);
     }
+
+    [Fact]
+    public void ZoomSettings_Position_RoundTrips()
+    {
+        var settings = new ZoomSettings { Position = ViewPosition.AtCenter };
+        var json = JsonSerializer.Serialize(settings, JsonOptions);
+        var deserialized = JsonSerializer.Deserialize<ZoomSettings>(json, JsonOptions)!;
+        Assert.Equal(ViewPosition.AtCenter, deserialized.Position);
+    }
+
+    [Fact]
+    public void ActionMenuSettings_Position_RoundTrips()
+    {
+        var settings = new ActionMenuSettings { Position = ViewPosition.AtCenter };
+        var json = JsonSerializer.Serialize(settings, JsonOptions);
+        var deserialized = JsonSerializer.Deserialize<ActionMenuSettings>(json, JsonOptions)!;
+        Assert.Equal(ViewPosition.AtCenter, deserialized.Position);
+    }
+
+    [Fact]
+    public void EyeCtrlSettings_ViewPositions_RoundTripTogether()
+    {
+        var original = new EyeCtrlSettings();
+        original.Zoom.Position = ViewPosition.AtCenter;
+        original.ActionMenu.Position = ViewPosition.AtCenter;
+
+        var json = JsonSerializer.Serialize(original, JsonOptions);
+        var deserialized = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
+
+        Assert.Equal(ViewPosition.AtCenter, deserialized.Zoom.Position);
+        Assert.Equal(ViewPosition.AtCenter, deserialized.ActionMenu.Position);
+    }
+
+    [Fact]
+    public void Settings_BackwardsCompatible_MissingViewPosition_UsesDefault()
+    {
+        // Old settings JSON without Position property
+        var json = """
+        {
+          "zoom": {
+            "enabled": true,
+            "circleRadiusPixels": 150,
+            "magnificationLevel": 2.0
+          },
+          "actionMenu": {
+            "visibleActions": [0, 1, 2]
+          }
+        }
+        """;
+
+        var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
+
+        // Should default to AtGaze when not specified
+        Assert.Equal(ViewPosition.AtGaze, settings.Zoom.Position);
+        Assert.Equal(ViewPosition.AtGaze, settings.ActionMenu.Position);
+    }
 }

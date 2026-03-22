@@ -133,4 +133,50 @@ public class ZoomOverlayViewModelTests
 
         Assert.True(vm.IsVisible);
     }
+
+    [Fact]
+    public void StoresGazePoint_WhenProvided()
+    {
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var gazePoint = new ScreenPoint(400, 200);
+
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(960, 540), 150, 2.0)
+        {
+            GazePoint = gazePoint
+        });
+
+        Assert.Equal(gazePoint, vm.GazePoint);
+        Assert.Equal(960, vm.Center.X); // Display center different from gaze
+        Assert.Equal(540, vm.Center.Y);
+    }
+
+    [Fact]
+    public void GazePoint_IsNull_WhenNotProvided()
+    {
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+
+        Assert.Null(vm.GazePoint);
+    }
+
+    [Fact]
+    public void SideButtons_PositionedRelativeToDisplayCenter_NotGazePoint()
+    {
+        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var displayCenter = new ScreenPoint(960, 540); // Screen center
+        var gazePoint = new ScreenPoint(200, 100);     // Gaze at different location
+
+        _messenger.Send(new StartZoomMessage(displayCenter, 150, 2.0)
+        {
+            GazePoint = gazePoint
+        });
+
+        // Buttons should be positioned relative to display center (960, 540), not gaze (200, 100)
+        Assert.True(vm.CloseButtonCenter.X > 960, "Close button X should be right of display center");
+        Assert.True(vm.RecaptureButtonCenter.X > 960, "Recapture button X should be right of display center");
+
+        // Not positioned relative to gaze point
+        Assert.False(vm.CloseButtonCenter.X < 300, "Buttons should not be near gaze point");
+    }
 }

@@ -152,4 +152,78 @@ public class ActionMenuViewModelTests
         Assert.Null(vm.ZoomCenter);
         Assert.Null(vm.ZoomRadius);
     }
+
+    [Fact]
+    public void StoresGazePoint_WhenProvided()
+    {
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
+        var gazePoint = new ScreenPoint(400, 200);
+        var displayCenter = new ScreenPoint(960, 540);
+
+        _messenger.Send(new ShowActionMenuMessage(
+            displayCenter,
+            new List<InteractionAction> { InteractionAction.LeftClick },
+            ShowBack: false, DwellTimeMs: 600)
+        {
+            GazePoint = gazePoint
+        });
+
+        Assert.Equal(gazePoint, vm.GazePoint);
+        Assert.Equal(displayCenter, vm.Center);
+    }
+
+    [Fact]
+    public void GazePoint_IsNull_WhenNotProvided()
+    {
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
+
+        _messenger.Send(new ShowActionMenuMessage(
+            new ScreenPoint(500, 300),
+            new List<InteractionAction> { InteractionAction.LeftClick },
+            ShowBack: false, DwellTimeMs: 600));
+
+        Assert.Null(vm.GazePoint);
+    }
+
+    [Fact]
+    public void GazePoint_IsClearedOnHide()
+    {
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
+        _messenger.Send(new ShowActionMenuMessage(
+            new ScreenPoint(500, 300),
+            new List<InteractionAction> { InteractionAction.LeftClick },
+            ShowBack: false, DwellTimeMs: 600)
+        {
+            GazePoint = new ScreenPoint(200, 100)
+        });
+
+        _messenger.Send(new HideActionMenuMessage());
+
+        Assert.Null(vm.GazePoint);
+    }
+
+    [Fact]
+    public void ItemPositions_RelativeToDisplayCenter_NotGazePoint()
+    {
+        var vm = new ActionMenuViewModel(new DwellSettings(), _messenger);
+        var displayCenter = new ScreenPoint(960, 540);
+        var gazePoint = new ScreenPoint(200, 100);
+
+        _messenger.Send(new ShowActionMenuMessage(
+            displayCenter,
+            new List<InteractionAction> { InteractionAction.LeftClick },
+            ShowBack: false, DwellTimeMs: 600)
+        {
+            GazePoint = gazePoint
+        });
+
+        // Items should be positioned around display center
+        var item = vm.Items[0];
+        var distance = Math.Sqrt(
+            Math.Pow(item.Position.X - displayCenter.X, 2) +
+            Math.Pow(item.Position.Y - displayCenter.Y, 2));
+
+        // Should be at ring radius distance from display center
+        Assert.InRange(distance, 190, 200); // EffectiveRingRadius ~195 with default CircleSize
+    }
 }

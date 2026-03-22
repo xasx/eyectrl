@@ -94,9 +94,15 @@ public class GazeEngineAdapter : IDisposable
             var physicalMargin = DpiHelper.LogicalToPhysicalX(effectiveRingRadius + buttonRadius);
             var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
             var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
+
+            // Apply position setting for action menu
+            var displayPoint = _settings.ActionMenu.Position == ViewPosition.AtCenter
+                ? GetScreenCenterPoint()
+                : point;
+
             var clampedPoint = new ScreenPoint(
-                Math.Clamp(point.X, physicalMargin, physicalScreenW - physicalMargin),
-                Math.Clamp(point.Y, physicalMargin, physicalScreenH - physicalMargin));
+                Math.Clamp(displayPoint.X, physicalMargin, physicalScreenW - physicalMargin),
+                Math.Clamp(displayPoint.Y, physicalMargin, physicalScreenH - physicalMargin));
 
             _messenger.Send(new ShowActionMenuMessage(clampedPoint, _settings.ActionMenu.VisibleActions, showBack, dwellMs, zoomDisplayRadius, circleSize)
             {
@@ -106,7 +112,8 @@ public class GazeEngineAdapter : IDisposable
                 // FixationPoint is always non-null in the zoom path (it is set before zoom activation).
                 // ZoomRadius is logical/DIP (CircleRadiusPixels); ActionMenuWindow converts it to physical with ScaleX.
                 ZoomCenter = showBack ? _interactionManager.FixationPoint! : null,
-                ZoomRadius = showBack ? _settings.Zoom.CircleRadiusPixels : null
+                ZoomRadius = showBack ? _settings.Zoom.CircleRadiusPixels : null,
+                GazePoint = point  // Always pass the original gaze point for indicator positioning
             });
         });
 
@@ -115,7 +122,17 @@ public class GazeEngineAdapter : IDisposable
 
     private void OnStartZoom(ScreenPoint point) =>
         _dispatcher.BeginInvoke(() =>
-            _messenger.Send(new StartZoomMessage(point, _settings.Zoom.CircleRadiusPixels, _settings.Zoom.MagnificationLevel)));
+        {
+            // Apply position setting for zoom view
+            var displayPoint = _settings.Zoom.Position == ViewPosition.AtCenter
+                ? GetScreenCenterPoint()
+                : point;
+
+            _messenger.Send(new StartZoomMessage(displayPoint, _settings.Zoom.CircleRadiusPixels, _settings.Zoom.MagnificationLevel)
+            {
+                GazePoint = point  // Always pass the original gaze point for capture
+            });
+        });
 
     private void OnEndZoom() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new EndZoomMessage()));
@@ -133,6 +150,13 @@ public class GazeEngineAdapter : IDisposable
     {
         var isFromZoom = _interactionManager.CurrentState == InteractionState.ZoomSelectionActionMenuVisible;
         _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isFromZoom)));
+    }
+
+    private ScreenPoint GetScreenCenterPoint()
+    {
+        var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
+        var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
+        return new ScreenPoint(physicalScreenW / 2, physicalScreenH / 2);
     }
 
     public void Dispose()

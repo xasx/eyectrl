@@ -27,6 +27,7 @@ public partial class ZoomOverlayViewModel : ObservableObject,
     [ObservableProperty] private int _radius;
     [ObservableProperty] private double _magnification;
     [ObservableProperty] private bool _isVisible;
+    [ObservableProperty] private ScreenPoint? _gazePoint;
 
     [ObservableProperty] private ScreenPoint _closeButtonCenter = new(0, 0);
     [ObservableProperty] private ScreenPoint _recaptureButtonCenter = new(0, 0);
@@ -47,6 +48,7 @@ public partial class ZoomOverlayViewModel : ObservableObject,
         Center = message.Center;
         Radius = message.Radius;
         Magnification = message.Magnification;
+        GazePoint = message.GazePoint;
 
         // Compute side button positions: right side of zoom circle
         var physicalDisplayRadius = DpiHelper.LogicalToPhysicalX(message.Radius * message.Magnification);

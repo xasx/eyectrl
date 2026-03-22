@@ -57,6 +57,7 @@ public partial class SettingsWindow : OverlayWindow
         ("Cursor",   "◎", "Cursor"),
         ("Dwell",    "⏱", "Dwell Times"),
         ("Zoom",     "⊕", "Zoom"),
+        ("ActionMenu", "⊙", "Action Menu"),
         ("Keyboard", "⌨", "Keyboard"),
         ("Toolbar",  "▣", "Toolbar"),
         ("Theme",    "◐", "Theme"),
@@ -291,6 +292,7 @@ public partial class SettingsWindow : OverlayWindow
             "Cursor" => BuildCursorPages(),
             "Dwell" => BuildDwellPages(),
             "Zoom" => BuildZoomPages(),
+            "ActionMenu" => BuildActionMenuPages(),
             "Keyboard" => BuildKeyboardPages(),
             "Toolbar" => BuildToolbarPages(),
             "Theme" => BuildThemePages(),
@@ -408,6 +410,10 @@ public partial class SettingsWindow : OverlayWindow
                 () => AddToggle("z_en", "Enable Zoom Mode",
                     () => _settings.Zoom.Enabled,
                     v => { _settings.Zoom.Enabled = v; ApplyAndSave(); }),
+                () => AddHorizontalList("z_pos", "Position",
+                    ["At Gaze", "At Center"],
+                    () => _settings.Zoom.Position == ViewPosition.AtGaze ? "At Gaze" : "At Center",
+                    v => { _settings.Zoom.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); }),
                 () => AddSlider("z_rad", "Circle Radius (px)", 50, 300, 10, 0,
                     () => _settings.Zoom.CircleRadiusPixels,
                     v => { _settings.Zoom.CircleRadiusPixels = (int)v; ApplyAndSave(); }),
@@ -422,9 +428,31 @@ public partial class SettingsWindow : OverlayWindow
                     {
                         var z = new ZoomSettings();
                         _settings.Zoom.Enabled = z.Enabled;
+                        _settings.Zoom.Position = z.Position;
                         _settings.Zoom.CircleRadiusPixels = z.CircleRadiusPixels;
                         _settings.Zoom.MagnificationLevel = z.MagnificationLevel;
                         _settings.Zoom.ZoomGracePeriodMs = z.ZoomGracePeriodMs;
+                        ApplyAndSave();
+                        RebuildContent();
+                    })),
+            ]
+        ];
+    }
+
+    private List<List<Action>> BuildActionMenuPages()
+    {
+        return
+        [
+            [
+                () => AddHorizontalList("am_pos", "Position",
+                    ["At Gaze", "At Center"],
+                    () => _settings.ActionMenu.Position == ViewPosition.AtGaze ? "At Gaze" : "At Center",
+                    v => { _settings.ActionMenu.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); }),
+                () => AddResetButton("Reset Action Menu Settings", () =>
+                    ShowModal("Reset Action Menu settings to defaults?", () =>
+                    {
+                        var a = new ActionMenuSettings();
+                        _settings.ActionMenu.Position = a.Position;
                         ApplyAndSave();
                         RebuildContent();
                     })),

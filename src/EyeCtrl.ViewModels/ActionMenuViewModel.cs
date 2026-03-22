@@ -28,6 +28,7 @@ public partial class ActionMenuViewModel : ObservableObject,
 
     public ScreenPoint? ZoomCenter { get; private set; }
     public int? ZoomRadius { get; private set; }
+    public ScreenPoint? GazePoint { get; private set; }
 
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
@@ -45,6 +46,7 @@ public partial class ActionMenuViewModel : ObservableObject,
         Center = message.Center;
         ZoomCenter = message.ZoomCenter;
         ZoomRadius = message.ZoomRadius;
+        GazePoint = message.GazePoint;
         ShowBack = message.ShowBack;
         Items.Clear();
         _dwellDetector.ClearTargets();
@@ -84,6 +86,7 @@ public partial class ActionMenuViewModel : ObservableObject,
         IsVisible = false;
         ZoomCenter = null;
         ZoomRadius = null;
+        GazePoint = null;
         _dwellDetector.ClearTargets();
         Items.Clear();
         _itemLookup.Clear();

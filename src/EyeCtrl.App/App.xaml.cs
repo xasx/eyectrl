@@ -286,7 +286,7 @@ public partial class App : Application
                     cursorCircle.Hide();
                     activationButton.HideImmediate();
 
-                    zoomOverlay.Show(zoomVM.Center, zoomVM.Radius, zoomVM.Magnification);
+                    zoomOverlay.Show(zoomVM.Center, zoomVM.Radius, zoomVM.Magnification, zoomVM.GazePoint);
                     zoomIndicator.Show();
 
                     // Unsubscribe previous handlers to prevent accumulation
@@ -489,7 +489,8 @@ public partial class App : Application
                         settings.Cursor.CircleColor,
                         settings.Cursor.PositionIndicatorStyle,
                         actionMenuVM.ZoomCenter,
-                        actionMenuVM.ZoomRadius);
+                        actionMenuVM.ZoomRadius,
+                        actionMenuVM.GazePoint);
                 }
                 else
                 {

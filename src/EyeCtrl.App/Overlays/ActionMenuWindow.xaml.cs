@@ -22,7 +22,7 @@ public partial class ActionMenuWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, ScreenPoint? zoomCenter = null, int? zoomRadius = null)
+    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, ScreenPoint? zoomCenter = null, int? zoomRadius = null, ScreenPoint? gazePoint = null)
     {
         _targetCenter = center;
         _buttonVisuals.Clear();
@@ -47,7 +47,7 @@ public partial class ActionMenuWindow : OverlayWindow
         // Delay capture to let WPF render overlay visibility changes
         var previewRadius = (int)(previewCircleSize / 2);
         // In zoom path: capture the same region the zoom view showed (same center, same radius)
-        var captureCenter = zoomCenter ?? center;
+        var captureCenter = zoomCenter ?? gazePoint ?? center;
         var captureRadius = zoomRadius != null ? (int)(zoomRadius.Value * DpiHelper.ScaleX) : previewRadius;
         var captureCanvasCenter = canvasCenter;
         var captureCircleSize = previewCircleSize;
@@ -57,6 +57,9 @@ public partial class ActionMenuWindow : OverlayWindow
         // When not in zoom mode both offsets are 0 and the indicator stays at canvasCenter.
         double indicatorOffsetX = 0;
         double indicatorOffsetY = 0;
+
+        // Calculate indicator offset based on the actual gaze/fixation point
+        var indicatorPoint = gazePoint ?? center;
         if (zoomCenter != null && zoomRadius != null)
         {
             // scale = logical-px / physical-px  →  offset = physical-px × (logical/physical) = logical-px
@@ -64,6 +67,22 @@ public partial class ActionMenuWindow : OverlayWindow
             double scale = previewCircleSize / (2.0 * captureRadius);
             indicatorOffsetX = (center.X - zoomCenter.X) * scale;
             indicatorOffsetY = (center.Y - zoomCenter.Y) * scale;
+
+            // Clamp so indicator stays inside the preview circle (10 px margin)
+            double offsetMag = Math.Sqrt(indicatorOffsetX * indicatorOffsetX + indicatorOffsetY * indicatorOffsetY);
+            double maxOffset = previewCircleSize / 2 - 10;
+            if (offsetMag > maxOffset && offsetMag > 0)
+            {
+                indicatorOffsetX = indicatorOffsetX / offsetMag * maxOffset;
+                indicatorOffsetY = indicatorOffsetY / offsetMag * maxOffset;
+            }
+        }
+        else if (gazePoint != null && gazePoint != center)
+        {
+            // View is at center, gaze is elsewhere - show indicator offset
+            double scale = previewCircleSize / (2.0 * captureRadius);
+            indicatorOffsetX = (indicatorPoint.X - captureCenter.X) * scale;
+            indicatorOffsetY = (indicatorPoint.Y - captureCenter.Y) * scale;
 
             // Clamp so indicator stays inside the preview circle (10 px margin)
             double offsetMag = Math.Sqrt(indicatorOffsetX * indicatorOffsetX + indicatorOffsetY * indicatorOffsetY);

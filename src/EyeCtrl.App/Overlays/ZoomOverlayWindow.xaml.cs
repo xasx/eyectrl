@@ -9,6 +9,7 @@ using EyeCtrl.Core.Services;
 public partial class ZoomOverlayWindow : OverlayWindow
 {
     private ScreenPoint _originalCenter = new(0, 0);
+    private ScreenPoint _captureCenter = new(0, 0);
     private double _magnification;
 
     public ZoomOverlayWindow()
@@ -17,15 +18,16 @@ public partial class ZoomOverlayWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void Show(ScreenPoint center, int radius, double magnification)
+    public void Show(ScreenPoint center, int radius, double magnification, ScreenPoint? gazePoint = null)
     {
-        UpdateCenter(center, radius, magnification);
+        UpdateCenter(center, radius, magnification, gazePoint);
         Show();
     }
 
-    public void UpdateCenter(ScreenPoint center, int radius, double magnification)
+    public void UpdateCenter(ScreenPoint center, int radius, double magnification, ScreenPoint? gazePoint = null)
     {
         _originalCenter = center;
+        _captureCenter = gazePoint ?? center;
         _magnification = magnification;
 
         var displayDiameter = (int)(radius * 2 * magnification);
@@ -39,7 +41,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
         // Scaling ensures the captured area matches the DIP display window,
         // so visual magnification equals the configured magnification.
         var physicalRadius = (int)(radius * DpiHelper.ScaleX);
-        CaptureAndDisplay(center, physicalRadius);
+        CaptureAndDisplay(_captureCenter, physicalRadius);
     }
 
     private async void CaptureAndDisplay(ScreenPoint center, int radius)
@@ -55,7 +57,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
         // Width is in DIPs; derive the DIP radius, then scale to physical for capture
         var dipRadius = (int)(Width / _magnification / 2);
         var physicalRadius = (int)(dipRadius * DpiHelper.ScaleX);
-        CaptureAndDisplay(_originalCenter, physicalRadius);
+        CaptureAndDisplay(_captureCenter, physicalRadius);
     }
 
     public ScreenPoint GetRealScreenPoint(ScreenPoint gazeOnScreen)
@@ -68,8 +70,8 @@ public partial class ZoomOverlayWindow : OverlayWindow
         var offsetY = gazeOnScreen.Y - windowCenterY;
 
         // Scale back from magnified to original coordinates
-        var realX = _originalCenter.X + offsetX / _magnification;
-        var realY = _originalCenter.Y + offsetY / _magnification;
+        var realX = _captureCenter.X + offsetX / _magnification;
+        var realY = _captureCenter.Y + offsetY / _magnification;
 
         return new ScreenPoint(realX, realY);
     }

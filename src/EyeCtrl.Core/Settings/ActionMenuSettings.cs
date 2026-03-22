@@ -11,4 +11,5 @@ public partial class ActionMenuSettings : ObservableObject
         InteractionAction.DoubleClick, InteractionAction.DragStart,
         InteractionAction.ScrollUp, InteractionAction.ScrollDown
     };
+    [ObservableProperty] private ViewPosition _position = ViewPosition.AtGaze;
 }

@@ -11,10 +11,16 @@ public record ShowActionMenuMessage(ScreenPoint Center, IReadOnlyList<Interactio
     public ScreenPoint? ZoomCenter { get; init; }
     /// <summary>Logical/DIP radius of the zoom circle (CircleRadiusPixels). Null for non-zoom paths.</summary>
     public int? ZoomRadius { get; init; }
+    /// <summary>Original gaze point (for indicator positioning when view is at center). Null means Center is the gaze point.</summary>
+    public ScreenPoint? GazePoint { get; init; }
 }
 public record HideActionMenuMessage;
 public record StateChangedMessage(InteractionState NewState);
-public record StartZoomMessage(ScreenPoint Center, int Radius, double Magnification);
+public record StartZoomMessage(ScreenPoint Center, int Radius, double Magnification)
+{
+    /// <summary>Original gaze point (for capture when view is at center). Null means Center is the gaze point.</summary>
+    public ScreenPoint? GazePoint { get; init; }
+}
 public record EndZoomMessage;
 public record ZoomHiddenMessage;
 public record ZoomCloseMessage;

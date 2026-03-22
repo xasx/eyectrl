@@ -47,7 +47,8 @@ public partial class ActionMenuWindow : OverlayWindow
         // Delay capture to let WPF render overlay visibility changes
         var previewRadius = (int)(previewCircleSize / 2);
         // In zoom path: capture the same region the zoom view showed (same center, same radius)
-        var captureCenter = zoomCenter ?? gazePoint ?? center;
+        // In AtCenter path: capture the menu display center so indicator can show gaze offset
+        var captureCenter = zoomCenter ?? center;
         var captureRadius = zoomRadius != null ? (int)(zoomRadius.Value * DpiHelper.ScaleX) : previewRadius;
         var captureCanvasCenter = canvasCenter;
         var captureCircleSize = previewCircleSize;

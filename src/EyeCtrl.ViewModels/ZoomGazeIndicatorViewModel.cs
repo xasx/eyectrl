@@ -44,10 +44,10 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     public void Receive(StartZoomMessage message)
     {
         // The capture center is the gaze point (what we're zooming in on)
-        _zoomOriginalCenter = message.GazePoint ?? message.Center;
+        _zoomOriginalCenter = message.GazePoint;
         _magnification = message.Magnification;
 
-        // The zoom window center is where it's displayed (may be screen center or at gaze)
+        // The zoom window center is where the overlay is displayed (gaze point in AtGaze mode, screen center in AtCenter mode)
         _zoomWindowCenter = message.Center;
 
         OuterCircleDiameter = _zoomSettings.GazeIndicatorOuterDiameter;

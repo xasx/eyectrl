@@ -133,7 +133,7 @@ This document provides comprehensive test coverage details for the view position
 **Coverage:** ✅ Complete
 - GazePoint lifecycle
 - Button positioning logic
-- Backward compatibility (null GazePoint)
+- GazePoint semantics (always provided; equals Center in AtGaze; cleared to (0,0))
 
 ---
 
@@ -261,7 +261,7 @@ TOTAL: ✅ Failed: 0, Passed: 39, Skipped: 0 (17 new tests added)
 - Pattern: `[Method]_[Scenario]_[ExpectedResult]`
 - Examples:
   - `StoresGazePoint_WhenProvided`
-  - `GazePoint_IsNull_WhenNotProvided`
+  - `UsesLastKnownGazePoint_WhenPositionIsAtGaze`
   - `SideButtons_PositionedRelativeToDisplayCenter_NotGazePoint`
 - **Clarity:** Excellent - self-documenting
 
@@ -297,15 +297,15 @@ TOTAL: ✅ Failed: 0, Passed: 39, Skipped: 0 (17 new tests added)
 
 ### Existing Features Protected
 1. **AtGaze Behavior (Default):** ✅ Verified unchanged
-2. **Message Handling:** ✅ Backward compatible (null GazePoint)
+2. **Message Handling:** ✅ Backward compatible (callers always pass `GazePoint`)
 3. **Settings Persistence:** ✅ Old JSON still loads
 4. **Button Positioning:** ✅ Works in both modes
 5. **Coordinate Transforms:** ✅ Correct in both modes
 
 ### Breaking Change Protection
-- Default values prevent breaking existing installations
-- Optional message properties maintain API compatibility
-- Settings deserialization handles missing properties
+- Default `ViewPosition = AtGaze` preserves behavior for existing installations
+- Settings JSON missing `Position` falls back to default view positioning
+- Message APIs remain stable because `GazePoint` is a required parameter and always supplied by callers
 
 ---
 

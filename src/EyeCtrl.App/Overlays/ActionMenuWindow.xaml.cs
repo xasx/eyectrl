@@ -50,7 +50,7 @@ public partial class ActionMenuWindow : OverlayWindow
         // In AtCenter path: capture the menu display center so indicator can show gaze offset
         var captureCenter = zoomCenter ?? center;
         var captureRadius = zoomRadius != null
-            ? (int)(zoomRadius.Value * DpiHelper.ScaleX)          // zoomRadius already in physical px → scale by DPI
+            ? (int)(zoomRadius.Value * DpiHelper.ScaleX)          // zoomRadius is logical (DIP) px → convert to physical px for capture
             : (int)(previewRadius * DpiHelper.ScaleX);            // previewRadius is logical px → convert to physical
         var captureCanvasCenter = canvasCenter;
         var captureCircleSize = previewCircleSize;

@@ -69,7 +69,7 @@
 3. **GetRealScreenPoint Consistency:**
    ```csharp
    // Uses _captureCenter for inverse transform (line 73)
-   var realX = _captureCenter.X + offsetX / _magnification;
+   var realX = _captureCenter.Value.X + offsetX / _magnification;
    ```
    - Correctly uses capture center, not display center
    - Critical for accurate click targeting

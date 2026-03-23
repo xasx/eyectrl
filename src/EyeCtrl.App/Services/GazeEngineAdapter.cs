@@ -104,7 +104,14 @@ public class GazeEngineAdapter : IDisposable
                 Math.Clamp(displayPoint.X, physicalMargin, physicalScreenW - physicalMargin),
                 Math.Clamp(displayPoint.Y, physicalMargin, physicalScreenH - physicalMargin));
 
-            _messenger.Send(new ShowActionMenuMessage(clampedPoint, _settings.ActionMenu.VisibleActions, showBack, dwellMs, zoomDisplayRadius, circleSize)
+            _messenger.Send(new ShowActionMenuMessage(
+                clampedPoint,
+                _settings.ActionMenu.VisibleActions,
+                showBack,
+                dwellMs,
+                point, // GazePoint - always pass the original gaze point for indicator positioning
+                zoomDisplayRadius,
+                circleSize)
             {
                 // Zoom path only (showBack == true): pass zoom circle context for preview capture.
                 // ZoomCenter = the ORIGINAL pre-zoom fixation (center of zoom circle), NOT the precise in-zoom point.
@@ -112,8 +119,7 @@ public class GazeEngineAdapter : IDisposable
                 // FixationPoint is always non-null in the zoom path (it is set before zoom activation).
                 // ZoomRadius is logical/DIP (CircleRadiusPixels); ActionMenuWindow converts it to physical with ScaleX.
                 ZoomCenter = showBack ? _interactionManager.FixationPoint! : null,
-                ZoomRadius = showBack ? _settings.Zoom.CircleRadiusPixels : null,
-                GazePoint = point  // Always pass the original gaze point for indicator positioning
+                ZoomRadius = showBack ? _settings.Zoom.CircleRadiusPixels : null
             });
         });
 
@@ -128,10 +134,12 @@ public class GazeEngineAdapter : IDisposable
                 ? GetScreenCenterPoint()
                 : point;
 
-            _messenger.Send(new StartZoomMessage(displayPoint, _settings.Zoom.CircleRadiusPixels, _settings.Zoom.MagnificationLevel)
-            {
-                GazePoint = point  // Always pass the original gaze point for capture
-            });
+            _messenger.Send(new StartZoomMessage(
+                displayPoint,
+                _settings.Zoom.CircleRadiusPixels,
+                _settings.Zoom.MagnificationLevel,
+                point  // GazePoint - always pass the original gaze point for capture
+            ));
         });
 
     private void OnEndZoom() =>

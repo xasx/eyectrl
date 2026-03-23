@@ -8,7 +8,7 @@ using EyeCtrl.Core.Services;
 
 public partial class ZoomOverlayWindow : OverlayWindow
 {
-    private ScreenPoint _captureCenter = new(0, 0);
+    private ScreenPoint? _captureCenter;
     private double _magnification;
 
     public ZoomOverlayWindow()
@@ -29,7 +29,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
         // This preserves the capture center when realigning the display position
         if (gazePoint.HasValue)
             _captureCenter = gazePoint.Value;
-        else if (_captureCenter == new ScreenPoint(0, 0))
+        else if (!_captureCenter.HasValue)
             // First call without gazePoint - initialize to center
             _captureCenter = center;
         _magnification = magnification;
@@ -45,7 +45,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
         // Scaling ensures the captured area matches the DIP display window,
         // so visual magnification equals the configured magnification.
         var physicalRadius = (int)(radius * DpiHelper.ScaleX);
-        CaptureAndDisplay(_captureCenter, physicalRadius);
+        CaptureAndDisplay(_captureCenter.Value, physicalRadius);
     }
 
     private async void CaptureAndDisplay(ScreenPoint center, int radius)
@@ -61,7 +61,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
         // Width is in DIPs; derive the DIP radius, then scale to physical for capture
         var dipRadius = (int)(Width / _magnification / 2);
         var physicalRadius = (int)(dipRadius * DpiHelper.ScaleX);
-        CaptureAndDisplay(_captureCenter, physicalRadius);
+        CaptureAndDisplay(_captureCenter.Value, physicalRadius);
     }
 
     public ScreenPoint GetRealScreenPoint(ScreenPoint gazeOnScreen)
@@ -74,8 +74,8 @@ public partial class ZoomOverlayWindow : OverlayWindow
         var offsetY = gazeOnScreen.Y - windowCenterY;
 
         // Scale back from magnified to original coordinates
-        var realX = _captureCenter.X + offsetX / _magnification;
-        var realY = _captureCenter.Y + offsetY / _magnification;
+        var realX = _captureCenter.Value.X + offsetX / _magnification;
+        var realY = _captureCenter.Value.Y + offsetY / _magnification;
 
         return new ScreenPoint(realX, realY);
     }

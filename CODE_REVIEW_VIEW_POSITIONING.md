@@ -22,18 +22,17 @@
 
 ### ✅ Key Design Decisions
 
-1. **GazePoint as Optional Property:**
-   - Messages include optional `GazePoint` property
-   - `null` value means Center is the gaze point (backward compatible)
-   - Clean approach that doesn't break existing code
+1. **GazePoint as Required Parameter:**
+   - Messages (e.g., `StartZoomMessage`, `ShowActionMenuMessage`) take a required, non-null `ScreenPoint GazePoint` as a constructor parameter
+   - Callers pass the desired gaze point explicitly; passing the screen center reproduces the previous "centered" behavior
+   - Preserves backward-compatible behavior while making the gaze point usage explicit
 
-2. **Dual Centers in ZoomOverlayWindow:**
+2. **Capture Center in ZoomOverlayWindow:**
    ```csharp
-   private ScreenPoint _originalCenter = new(0, 0);  // Display center
-   private ScreenPoint _captureCenter = new(0, 0);   // Capture center (gaze)
+   private ScreenPoint? _captureCenter;   // Capture center (gaze)
    ```
-   - Clear naming distinguishes purposes
-   - Comments explain the difference
+   - Clear naming reflects purpose
+   - Nullable to properly track initialization without sentinel values
 
 3. **Settings Organization:**
    - Each view (Zoom, ActionMenu) has its own Position setting

@@ -465,7 +465,8 @@ public partial class App : Application
                 messenger.Send(new StartZoomMessage(
                     im.FixationPoint,
                     settings.Zoom.CircleRadiusPixels,
-                    settings.Zoom.MagnificationLevel));
+                    settings.Zoom.MagnificationLevel,
+                    im.FixationPoint));
             }
         }));
 

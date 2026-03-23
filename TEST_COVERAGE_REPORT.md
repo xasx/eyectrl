@@ -113,10 +113,10 @@ This document provides comprehensive test coverage details for the view position
    - Verifies Center property stores display location
    - **Scenario:** AtCenter mode with gaze elsewhere
 
-2. **GazePoint_IsNull_WhenNotProvided**
-   - Sends StartZoomMessage without GazePoint
-   - Verifies GazePoint is null
-   - **Scenario:** AtGaze mode (backward compatible)
+2. **GazePoint_EqualsCenter_WhenInAtGazeMode**
+   - Sends StartZoomMessage with GazePoint equal to Center
+   - Verifies GazePoint equals Center
+   - **Scenario:** AtGaze mode (GazePoint and Center have same value)
 
 3. **SideButtons_PositionedRelativeToDisplayCenter_NotGazePoint**
    - Display center at (960, 540) - screen center
@@ -150,16 +150,16 @@ This document provides comprehensive test coverage details for the view position
    - Verifies Center property stores display location
    - **Scenario:** AtCenter mode
 
-2. **GazePoint_IsNull_WhenNotProvided**
-   - Sends ShowActionMenuMessage without GazePoint
-   - Verifies GazePoint is null
+2. **GazePoint_EqualsCenter_WhenInAtGazeMode**
+   - Sends ShowActionMenuMessage with GazePoint equal to Center
+   - Verifies GazePoint equals Center
    - **Scenario:** AtGaze mode
 
 3. **GazePoint_IsClearedOnHide**
    - Shows menu with GazePoint set
    - Hides menu
-   - Verifies GazePoint cleared to null
-   - **Critical:** Prevents stale data
+   - Verifies GazePoint is reset to the default screen point (0, 0)
+   - **Critical:** Prevents stale gaze data by resetting to default
 
 4. **ItemPositions_RelativeToDisplayCenter_NotGazePoint**
    - Display center at (960, 540)

@@ -49,7 +49,9 @@ public partial class ActionMenuWindow : OverlayWindow
         // In zoom path: capture the same region the zoom view showed (same center, same radius)
         // In AtCenter path: capture the menu display center so indicator can show gaze offset
         var captureCenter = zoomCenter ?? center;
-        var captureRadius = zoomRadius != null ? (int)(zoomRadius.Value * DpiHelper.ScaleX) : previewRadius;
+        var captureRadius = zoomRadius != null
+            ? (int)(zoomRadius.Value * DpiHelper.ScaleX)          // zoomRadius already in physical px → scale by DPI
+            : (int)(previewRadius * DpiHelper.ScaleX);            // previewRadius is logical px → convert to physical
         var captureCanvasCenter = canvasCenter;
         var captureCircleSize = previewCircleSize;
         var captureBorderColor = borderColor;

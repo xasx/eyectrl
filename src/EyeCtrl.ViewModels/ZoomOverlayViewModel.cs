@@ -27,7 +27,7 @@ public partial class ZoomOverlayViewModel : ObservableObject,
     [ObservableProperty] private int _radius;
     [ObservableProperty] private double _magnification;
     [ObservableProperty] private bool _isVisible;
-    [ObservableProperty] private ScreenPoint? _gazePoint;
+    [ObservableProperty] private ScreenPoint _gazePoint = new(0, 0);
 
     [ObservableProperty] private ScreenPoint _closeButtonCenter = new(0, 0);
     [ObservableProperty] private ScreenPoint _recaptureButtonCenter = new(0, 0);

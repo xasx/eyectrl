@@ -15,7 +15,7 @@ public class ZoomOverlayViewModelTests
         var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
         Assert.False(vm.IsVisible);
 
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0) { GazePoint = new ScreenPoint(500, 300) });
 
         Assert.True(vm.IsVisible);
         Assert.Equal(500, vm.Center.X);
@@ -28,7 +28,7 @@ public class ZoomOverlayViewModelTests
     public void HidesZoom_OnEndZoomMessage()
     {
         var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0) { GazePoint = new ScreenPoint(500, 300) });
         Assert.True(vm.IsVisible);
 
         _messenger.Send(new EndZoomMessage());
@@ -40,7 +40,7 @@ public class ZoomOverlayViewModelTests
     {
         var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
 
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0) { GazePoint = new ScreenPoint(500, 500) });
 
         // Display radius = 150 * 2.0 = 300
         // Button X = 500 + 300 + 20 (gap) + 50 (button radius) = 870
@@ -60,7 +60,7 @@ public class ZoomOverlayViewModelTests
         object recipient = new();
         _messenger.Register<ZoomCloseMessage>(recipient, (_, _) => closeSent = true);
 
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0) { GazePoint = new ScreenPoint(500, 500) });
 
         // Simulate sustained gaze on close button for enough time
         var closePos = vm.CloseButtonCenter;
@@ -78,7 +78,7 @@ public class ZoomOverlayViewModelTests
         object recipient = new();
         _messenger.Register<ZoomRecaptureMessage>(recipient, (_, _) => recaptureSent = true);
 
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0) { GazePoint = new ScreenPoint(500, 500) });
 
         var recapturePos = vm.RecaptureButtonCenter;
         for (int i = 0; i < 25; i++)
@@ -92,7 +92,7 @@ public class ZoomOverlayViewModelTests
     {
         var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
 
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0) { GazePoint = new ScreenPoint(500, 500) });
         var closePos = vm.CloseButtonCenter;
 
         _messenger.Send(new EndZoomMessage());
@@ -112,7 +112,7 @@ public class ZoomOverlayViewModelTests
     public void HidesZoom_OnZoomHiddenMessage()
     {
         var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0) { GazePoint = new ScreenPoint(500, 300) });
         Assert.True(vm.IsVisible);
 
         _messenger.Send(new ZoomHiddenMessage());
@@ -125,11 +125,11 @@ public class ZoomOverlayViewModelTests
     {
         // Simulates: zoom shown → fixation detected (ZoomHidden) → Back pressed (StartZoom again)
         var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0) { GazePoint = new ScreenPoint(500, 300) });
         _messenger.Send(new ZoomHiddenMessage());
         Assert.False(vm.IsVisible);
 
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0) { GazePoint = new ScreenPoint(500, 300) });
 
         Assert.True(vm.IsVisible);
     }
@@ -151,13 +151,15 @@ public class ZoomOverlayViewModelTests
     }
 
     [Fact]
-    public void GazePoint_IsNull_WhenNotProvided()
+    public void GazePoint_EqualsCenter_WhenInAtGazeMode()
     {
         var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var center = new ScreenPoint(500, 300);
 
-        _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0));
+        _messenger.Send(new StartZoomMessage(center, 150, 2.0) { GazePoint = center });
 
-        Assert.Null(vm.GazePoint);
+        Assert.Equal(center, vm.GazePoint);
+        Assert.Equal(center, vm.Center);
     }
 
     [Fact]

@@ -120,7 +120,7 @@ if (validationErrors.Count > 0)
 - **Type Safety**: Enums where possible (ViewPosition, GazeFilterMode, etc.)
 - **String Validation**: Restricted string values validated at runtime
 - **Range Checking**: Numeric values constrained to safe, reasonable bounds
-- **Format Validation**: Colors, paths, and other formats validated
+- **Format Validation**: Hex colors and other supported string formats validated
 
 ### 2. Clear Error Messages
 Validation errors provide specific, actionable information:

@@ -17,15 +17,46 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     {
         var errors = new List<string>();
 
-        // Validate all sub-settings
-        errors.AddRange(Cursor.Validate());
-        errors.AddRange(Dwell.Validate());
-        errors.AddRange(Zoom.Validate());
-        errors.AddRange(ActionMenu.Validate());
-        errors.AddRange(Keyboard.Validate());
-        errors.AddRange(Toolbar.Validate());
-        errors.AddRange(Theme.Validate());
-        errors.AddRange(General.Validate());
+        // Validate all sub-settings (handle unexpected nulls explicitly)
+        if (Cursor is null)
+            errors.Add("Cursor settings must not be null.");
+        else
+            errors.AddRange(Cursor.Validate());
+
+        if (Dwell is null)
+            errors.Add("Dwell settings must not be null.");
+        else
+            errors.AddRange(Dwell.Validate());
+
+        if (Zoom is null)
+            errors.Add("Zoom settings must not be null.");
+        else
+            errors.AddRange(Zoom.Validate());
+
+        if (ActionMenu is null)
+            errors.Add("Action menu settings must not be null.");
+        else
+            errors.AddRange(ActionMenu.Validate());
+
+        if (Keyboard is null)
+            errors.Add("Keyboard settings must not be null.");
+        else
+            errors.AddRange(Keyboard.Validate());
+
+        if (Toolbar is null)
+            errors.Add("Toolbar settings must not be null.");
+        else
+            errors.AddRange(Toolbar.Validate());
+
+        if (Theme is null)
+            errors.Add("Theme settings must not be null.");
+        else
+            errors.AddRange(Theme.Validate());
+
+        if (General is null)
+            errors.Add("General settings must not be null.");
+        else
+            errors.AddRange(General.Validate());
 
         return errors;
     }

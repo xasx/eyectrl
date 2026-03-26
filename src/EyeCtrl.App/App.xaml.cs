@@ -78,8 +78,9 @@ public partial class App : Application
         // ── Settings ──
         _appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
-        var settingsService = new SettingsService(Path.Combine(_appDataDir, "settings.json"));
-        var settings = settingsService.Load();
+        var settingsFilePath = Path.Combine(_appDataDir, "settings.json");
+        var tempSettingsService = new SettingsService(settingsFilePath);
+        var settings = tempSettingsService.Load();
 
         // ── Logging ──
         var logsDir = Path.Combine(_appDataDir, "logs");
@@ -124,7 +125,9 @@ public partial class App : Application
         services.AddSingleton(settings.Toolbar);
         services.AddSingleton(settings.Theme);
         services.AddSingleton(settings.General);
-        services.AddSingleton(settingsService);
+        services.AddSingleton(sp => new SettingsService(
+            settingsFilePath,
+            sp.GetRequiredService<ILogger<SettingsService>>()));
 
         // Platform services
         services.AddSingleton<IMouseCoordinateMapper, MouseCoordinateMapper>();

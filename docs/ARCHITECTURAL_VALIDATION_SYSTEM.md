@@ -92,9 +92,8 @@ var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions);
 var validationErrors = settings.Validate();
 if (validationErrors.Count > 0)
 {
-    Console.WriteLine("Settings validation errors found:");
-    foreach (var error in validationErrors)
-        Console.WriteLine($"  - {error}");
+    _logger?.LogWarning("Settings validation errors found in {FilePath}: {Errors}",
+        _filePath, string.Join("; ", validationErrors));
     return new EyeCtrlSettings(); // Return defaults
 }
 ```
@@ -108,6 +107,12 @@ if (validationErrors.Count > 0)
         $"Cannot save invalid settings. Errors:\n{string.Join("\n", validationErrors)}");
 }
 ```
+
+#### Logging Integration
+- Uses `ILogger<SettingsService>` from Microsoft.Extensions.Logging for structured logging
+- Logger is optional (nullable) to maintain backward compatibility
+- When provided, logs validation errors and load failures using Serilog
+- Follows the architectural principle: Core layer accepts logging abstraction but doesn't require it
 
 ## Benefits
 
@@ -173,14 +178,9 @@ Categories:
 }
 ```
 
-**Console Output:**
+**Log Output (via Serilog):**
 ```
-Settings validation errors found in C:\Users\...\settings.json:
-  - SmoothingFactor must be between 0 and 1, but was 5
-  - CircleColor must be a valid hex color (e.g., #00FF00), but was 'invalid'
-  - CircleSize must be between 10 and 500, but was 5000
-  - ActiveLayout must be one of [QWERTY, AZERTY, QWERTZ], but was 'DVORAK'
-Using default settings for invalid values.
+2026-03-26 22:00:00.123 [WRN] [EyeCtrl.Core.Settings.SettingsService] Settings validation errors found in C:\Users\...\AppData\Roaming\EyeCtrl\settings.json: SmoothingFactor must be between 0 and 1, but was 5; CircleColor must be a valid hex color (e.g., #00FF00), but was 'invalid'; CircleSize must be between 10 and 500, but was 5000; ActiveLayout must be one of [QWERTY, AZERTY, QWERTZ], but was 'DVORAK'
 ```
 
 ### Preventing Invalid Programmatic Changes
@@ -208,7 +208,7 @@ SmoothingFactor must be between 0 and 1, but was 2
 | String Enum Validation | None | All string enums validated against allowed values |
 | Constraint Location | UI only | Backend validation + UI constraints aligned |
 | Serialization Safety | No checks | Validation on load/save |
-| Error Visibility | Silent failures | Clear, specific error messages |
+| Error Visibility | Silent failures | Structured logging with Serilog |
 | Default Fallback | Corrupted values used | Safe defaults on validation failure |
 | Test Coverage | Basic | Comprehensive (60 validation tests) |
 

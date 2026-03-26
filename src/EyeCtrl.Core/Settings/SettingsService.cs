@@ -1,9 +1,11 @@
 namespace EyeCtrl.Core.Settings;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 public class SettingsService
 {
     private readonly string _filePath;
+    private readonly ILogger<SettingsService>? _logger;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -13,7 +15,11 @@ public class SettingsService
     private CancellationTokenSource? _debounceCts;
     private const int DebounceMs = 500;
 
-    public SettingsService(string filePath) => _filePath = filePath;
+    public SettingsService(string filePath, ILogger<SettingsService>? logger = null)
+    {
+        _filePath = filePath;
+        _logger = logger;
+    }
 
     public void SaveDebounced(EyeCtrlSettings settings)
     {
@@ -54,13 +60,8 @@ public class SettingsService
             var validationErrors = settings.Validate();
             if (validationErrors.Count > 0)
             {
-                // Log validation errors but use defaults for invalid values
-                Console.WriteLine($"Settings validation errors found in {_filePath}:");
-                foreach (var error in validationErrors)
-                {
-                    Console.WriteLine($"  - {error}");
-                }
-                Console.WriteLine("Using default settings for invalid values.");
+                _logger?.LogWarning("Settings validation errors found in {FilePath}: {Errors}",
+                    _filePath, string.Join("; ", validationErrors));
 
                 // Return defaults for safety
                 return new EyeCtrlSettings();
@@ -70,7 +71,7 @@ public class SettingsService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading settings from {_filePath}: {ex.Message}");
+            _logger?.LogError(ex, "Error loading settings from {FilePath}", _filePath);
             return new EyeCtrlSettings();
         }
     }

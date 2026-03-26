@@ -3,7 +3,7 @@ namespace EyeCtrl.Core.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using EyeCtrl.Core.Models;
 
-public partial class ZoomSettings : ObservableObject
+public partial class ZoomSettings : ObservableObject, IValidatable
 {
     [ObservableProperty] private bool _enabled = false;
     [ObservableProperty] private int _circleRadiusPixels = 150;
@@ -16,4 +16,12 @@ public partial class ZoomSettings : ObservableObject
     [ObservableProperty] private double _gazeIndicatorStrokeThickness = 2.0;
     [ObservableProperty] private double _gazeIndicatorOpacity = 0.7;
     [ObservableProperty] private int _gazeIndicatorResetAnimationMs = 100;
+
+    public IReadOnlyList<string> Validate()
+    {
+        return ValidationHelper.CollectErrors(
+            ValidationHelper.ValidateRange(CircleRadiusPixels, 50, 500, nameof(CircleRadiusPixels)),
+            ValidationHelper.ValidateRange(MagnificationLevel, 1.5, 5.0, nameof(MagnificationLevel))
+        );
+    }
 }

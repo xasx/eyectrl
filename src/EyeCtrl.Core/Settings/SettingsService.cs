@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Settings;
 using System.Text.Json;
+
 public class SettingsService
 {
     private readonly string _filePath;
@@ -43,12 +44,47 @@ public class SettingsService
     public EyeCtrlSettings Load()
     {
         if (!File.Exists(_filePath)) return new EyeCtrlSettings();
-        var json = File.ReadAllText(_filePath);
-        return JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions) ?? new EyeCtrlSettings();
+
+        try
+        {
+            var json = File.ReadAllText(_filePath);
+            var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions) ?? new EyeCtrlSettings();
+
+            // Validate loaded settings
+            var validationErrors = settings.Validate();
+            if (validationErrors.Count > 0)
+            {
+                // Log validation errors but use defaults for invalid values
+                Console.WriteLine($"Settings validation errors found in {_filePath}:");
+                foreach (var error in validationErrors)
+                {
+                    Console.WriteLine($"  - {error}");
+                }
+                Console.WriteLine("Using default settings for invalid values.");
+
+                // Return defaults for safety
+                return new EyeCtrlSettings();
+            }
+
+            return settings;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading settings from {_filePath}: {ex.Message}");
+            return new EyeCtrlSettings();
+        }
     }
 
     public void Save(EyeCtrlSettings settings)
     {
+        // Validate before saving
+        var validationErrors = settings.Validate();
+        if (validationErrors.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Cannot save invalid settings. Errors:\n{string.Join("\n", validationErrors)}");
+        }
+
         var directory = Path.GetDirectoryName(_filePath);
         if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
         var json = JsonSerializer.Serialize(settings, JsonOptions);

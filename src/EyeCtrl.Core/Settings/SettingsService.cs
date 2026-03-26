@@ -44,6 +44,16 @@ public class SettingsService
             {
                 // Expected when debounce is superseded by a new save request
             }
+            catch (InvalidOperationException ex)
+            {
+                // Settings validation failed - log but don't crash
+                _logger?.LogError(ex, "Failed to save settings due to validation errors");
+            }
+            catch (Exception ex)
+            {
+                // IO or serialization errors - log but don't crash
+                _logger?.LogError(ex, "Failed to save settings to {FilePath}", _filePath);
+            }
         });
     }
 

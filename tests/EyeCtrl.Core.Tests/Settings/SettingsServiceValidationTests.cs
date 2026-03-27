@@ -68,8 +68,9 @@ public class SettingsServiceValidationTests : IDisposable
         var settings = service.Load();
 
         // Assert - should return defaults instead of invalid settings
-        Assert.Equal(0.5, settings.Cursor.SmoothingFactor);  // Default value
-        Assert.Equal("#00FF00", settings.Cursor.CircleColor);  // Default value
+        var defaults = new EyeCtrlSettings();
+        Assert.Equal(defaults.Cursor.SmoothingFactor, settings.Cursor.SmoothingFactor);
+        Assert.Equal(defaults.Cursor.CircleColor, settings.Cursor.CircleColor);
     }
 
     [Fact]
@@ -91,8 +92,9 @@ public class SettingsServiceValidationTests : IDisposable
         var settings = service.Load();
 
         // Assert - should return defaults
-        Assert.Equal("QWERTY", settings.Keyboard.ActiveLayout);
-        Assert.Equal("Bottom", settings.Keyboard.ScreenEdge);
+        var defaults = new EyeCtrlSettings();
+        Assert.Equal(defaults.Keyboard.ActiveLayout, settings.Keyboard.ActiveLayout);
+        Assert.Equal(defaults.Keyboard.ScreenEdge, settings.Keyboard.ScreenEdge);
     }
 
     [Fact]
@@ -117,9 +119,10 @@ public class SettingsServiceValidationTests : IDisposable
         var settings = service.Load();
 
         // Assert - should return defaults
-        Assert.Equal(150, settings.Zoom.CircleRadiusPixels);  // Default
-        Assert.Equal(2.0, settings.Zoom.MagnificationLevel);  // Default
-        Assert.Equal(80, settings.Toolbar.Size);  // Default
+        var defaults = new EyeCtrlSettings();
+        Assert.Equal(defaults.Zoom.CircleRadiusPixels, settings.Zoom.CircleRadiusPixels);
+        Assert.Equal(defaults.Zoom.MagnificationLevel, settings.Zoom.MagnificationLevel);
+        Assert.Equal(defaults.Toolbar.Size, settings.Toolbar.Size);
     }
 
     [Fact]

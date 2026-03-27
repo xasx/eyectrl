@@ -120,6 +120,134 @@ public class SettingsValidationTests
         Assert.Contains(errors, e => e.Contains(nameof(settings.CircleSize)));
     }
 
+    [Theory]
+    [InlineData(0.05)]
+    [InlineData(20.1)]
+    public void CursorSettings_OneEuroMinCutoff_OutOfRange_ShouldFail(double value)
+    {
+        // Arrange
+        var settings = new CursorSettings { OneEuroMinCutoff = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains(nameof(settings.OneEuroMinCutoff)));
+    }
+
+    [Theory]
+    [InlineData(0.1)]
+    [InlineData(10.0)]
+    [InlineData(20.0)]
+    public void CursorSettings_OneEuroMinCutoff_InRange_ShouldPass(double value)
+    {
+        // Arrange
+        var settings = new CursorSettings { OneEuroMinCutoff = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+    }
+
+    [Theory]
+    [InlineData(-0.1)]
+    [InlineData(5.1)]
+    public void CursorSettings_OneEuroBeta_OutOfRange_ShouldFail(double value)
+    {
+        // Arrange
+        var settings = new CursorSettings { OneEuroBeta = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains(nameof(settings.OneEuroBeta)));
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(2.5)]
+    [InlineData(5.0)]
+    public void CursorSettings_OneEuroBeta_InRange_ShouldPass(double value)
+    {
+        // Arrange
+        var settings = new CursorSettings { OneEuroBeta = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+    }
+
+    [Theory]
+    [InlineData(-0.1)]
+    [InlineData(1.1)]
+    public void CursorSettings_CircleOpacity_OutOfRange_ShouldFail(double value)
+    {
+        // Arrange
+        var settings = new CursorSettings { CircleOpacity = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains(nameof(settings.CircleOpacity)));
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(0.5)]
+    [InlineData(1.0)]
+    public void CursorSettings_CircleOpacity_InRange_ShouldPass(double value)
+    {
+        // Arrange
+        var settings = new CursorSettings { CircleOpacity = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+    }
+
+    [Theory]
+    [InlineData(0.9)]
+    [InlineData(10.1)]
+    public void CursorSettings_CircleThickness_OutOfRange_ShouldFail(double value)
+    {
+        // Arrange
+        var settings = new CursorSettings { CircleThickness = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains(nameof(settings.CircleThickness)));
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(5.0)]
+    [InlineData(10.0)]
+    public void CursorSettings_CircleThickness_InRange_ShouldPass(double value)
+    {
+        // Arrange
+        var settings = new CursorSettings { CircleThickness = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+    }
+
     #endregion
 
     #region DwellSettings Validation
@@ -170,6 +298,166 @@ public class SettingsValidationTests
         // Assert
         Assert.NotEmpty(errors);
         Assert.Contains(errors, e => e.Contains(nameof(settings.FixationRadiusPixels)));
+    }
+
+    [Theory]
+    [InlineData(199)]
+    [InlineData(2001)]
+    public void DwellSettings_ActionMenuDwellMs_OutOfRange_ShouldFail(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { ActionMenuDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains(nameof(settings.ActionMenuDwellMs)));
+    }
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(1000)]
+    [InlineData(2000)]
+    public void DwellSettings_ActionMenuDwellMs_InRange_ShouldPass(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { ActionMenuDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+    }
+
+    [Theory]
+    [InlineData(199)]
+    [InlineData(2001)]
+    public void DwellSettings_ZoomActionMenuDwellMs_OutOfRange_ShouldFail(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { ZoomActionMenuDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains(nameof(settings.ZoomActionMenuDwellMs)));
+    }
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(1000)]
+    [InlineData(2000)]
+    public void DwellSettings_ZoomActionMenuDwellMs_InRange_ShouldPass(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { ZoomActionMenuDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+    }
+
+    [Theory]
+    [InlineData(199)]
+    [InlineData(2001)]
+    public void DwellSettings_ToolbarButtonDwellMs_OutOfRange_ShouldFail(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { ToolbarButtonDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains(nameof(settings.ToolbarButtonDwellMs)));
+    }
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(1000)]
+    [InlineData(2000)]
+    public void DwellSettings_ToolbarButtonDwellMs_InRange_ShouldPass(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { ToolbarButtonDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+    }
+
+    [Theory]
+    [InlineData(99)]
+    [InlineData(1501)]
+    public void DwellSettings_KeyboardKeyDwellMs_OutOfRange_ShouldFail(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { KeyboardKeyDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains(nameof(settings.KeyboardKeyDwellMs)));
+    }
+
+    [Theory]
+    [InlineData(100)]
+    [InlineData(800)]
+    [InlineData(1500)]
+    public void DwellSettings_KeyboardKeyDwellMs_InRange_ShouldPass(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { KeyboardKeyDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.Empty(errors);
+    }
+
+    [Theory]
+    [InlineData(99)]
+    [InlineData(1501)]
+    public void DwellSettings_KeyboardPredictionDwellMs_OutOfRange_ShouldFail(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { KeyboardPredictionDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains(nameof(settings.KeyboardPredictionDwellMs)));
+    }
+
+    [Theory]
+    [InlineData(100)]
+    [InlineData(800)]
+    [InlineData(1500)]
+    public void DwellSettings_KeyboardPredictionDwellMs_InRange_ShouldPass(int value)
+    {
+        // Arrange
+        var settings = new DwellSettings { KeyboardPredictionDwellMs = value };
+
+        // Act
+        var errors = settings.Validate();
+
+        // Assert
+        Assert.Empty(errors);
     }
 
     #endregion

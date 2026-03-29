@@ -12,6 +12,10 @@ using EyeCtrl.ViewModels.Messages;
 
 public class GazeEngineAdapter : IDisposable
 {
+    // UI Layout Constants
+    private const double ActionMenuButtonRadius = 50; // Radius of action menu buttons in pixels
+    private const int ActionMenuButtonOuterGap = 20; // Gap between cursor circle edge and button ring
+
     private readonly GazeEngine _gazeEngine;
     private readonly InteractionManager _interactionManager;
     private readonly EyeCtrlSettings _settings;
@@ -86,12 +90,11 @@ public class GazeEngineAdapter : IDisposable
             // Margin keeps the full button ring on-screen.
             // EffectiveRingRadius = CircleSize/2 + ButtonRadius + ButtonOuterGap
             // Clamp uses: effectiveRingRadius + ButtonRadius
-            const double buttonRadius = 50;
             var circleSize = _settings.Cursor.CircleSize;
-            var effectiveRingRadius = circleSize / 2 + buttonRadius + 20;
+            var effectiveRingRadius = circleSize / 2 + ActionMenuButtonRadius + ActionMenuButtonOuterGap;
 
             // Scale margin to physical pixels for clamping against physical gaze coords
-            var physicalMargin = DpiHelper.LogicalToPhysicalX(effectiveRingRadius + buttonRadius);
+            var physicalMargin = DpiHelper.LogicalToPhysicalX(effectiveRingRadius + ActionMenuButtonRadius);
             var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
             var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
 

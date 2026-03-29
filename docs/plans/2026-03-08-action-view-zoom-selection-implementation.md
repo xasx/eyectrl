@@ -28,21 +28,22 @@ Pure rename — no behavior changes. Updates the enum and all references.
 
 In `src/EyeCtrl.Core/Models/InteractionState.cs`, rename:
 - `ZoomActive` → `ZoomSelectionActive`
-- `ZoomFixation` → `ZoomSelectionFixation`
+- `ZoomFixation` → `ZoomSelectionFixation` (NOTE: This state was declared but never implemented, later removed)
 - `ZoomActionMenuVisible` → `ZoomSelectionActionMenuVisible`
 
 Also remove `ActivationButtonVisible` (dead value, never used in transitions).
 
 ```csharp
 namespace EyeCtrl.Core.Models;
-public enum InteractionState { FreeLook, Fixation, ActionMenuVisible, ZoomSelectionActive, ZoomSelectionFixation, ZoomSelectionActionMenuVisible, Paused }
+// NOTE: ZoomSelectionFixation was removed in later architecture cleanup as it was never used
+public enum InteractionState { FreeLook, Fixation, ActionMenuVisible, ZoomSelectionActive, ZoomSelectionActionMenuVisible, Paused }
 ```
 
 **Step 2: Fix all compilation errors**
 
 Find-and-replace across the solution:
 - `InteractionState.ZoomActive` → `InteractionState.ZoomSelectionActive`
-- `InteractionState.ZoomFixation` → `InteractionState.ZoomSelectionFixation`
+- `InteractionState.ZoomFixation` → `InteractionState.ZoomSelectionFixation` (N/A - never used)
 - `InteractionState.ZoomActionMenuVisible` → `InteractionState.ZoomSelectionActionMenuVisible`
 - `InteractionState.ActivationButtonVisible` → remove any references (should be none in logic, only in enum)
 

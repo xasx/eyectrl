@@ -8,6 +8,9 @@ using EyeCtrl.Core.Services;
 
 public partial class ZoomOverlayWindow : OverlayWindow
 {
+    // UI Constants
+    private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
+
     private ScreenPoint? _captureCenter;
     private double _magnification;
 
@@ -50,7 +53,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
 
     private async void CaptureAndDisplay(ScreenPoint center, int radius)
     {
-        await Task.Delay(100);
+        await Task.Delay(ScreenCaptureDelayMs);
         var source = ScreenCaptureService.CaptureRegion(center, radius);
         if (source != null)
             ZoomBrush.ImageSource = source;

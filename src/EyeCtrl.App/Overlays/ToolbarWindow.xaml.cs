@@ -10,6 +10,15 @@ using EyeCtrl.ViewModels;
 
 public partial class ToolbarWindow : OverlayWindow
 {
+    // UI Layout Constants
+    private const int ProgressBarHeight = 4; // Height of dwell progress bar
+    private const int ButtonMargin = 2; // Margin between toolbar buttons
+    private const int BorderCornerRadius = 4; // Corner radius for button containers
+    private const double ButtonSymbolSizeRatio = 0.4; // Button symbol font size as ratio of button size
+    private const byte NormalButtonAlpha = 180; // Alpha value for normal button background
+    private const byte IndicatorButtonAlpha = 120; // Alpha value for provider indicator background
+    private const byte ZoomActiveButtonAlpha = 180; // Alpha value for zoom enabled button background
+
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
     private double _buttonSize;
     private bool _targetsInitialized;
@@ -47,7 +56,7 @@ public partial class ToolbarWindow : OverlayWindow
     {
         var progressBar = new Rectangle
         {
-            Height = 4,
+            Height = ProgressBarHeight,
             Fill = Brushes.Lime,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Bottom,
@@ -58,7 +67,7 @@ public partial class ToolbarWindow : OverlayWindow
         {
             Text = symbol,
             Foreground = Brushes.White,
-            FontSize = _buttonSize * 0.4,
+            FontSize = _buttonSize * ButtonSymbolSizeRatio,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -67,9 +76,9 @@ public partial class ToolbarWindow : OverlayWindow
         {
             Width = _buttonSize,
             Height = _buttonSize,
-            Margin = new Thickness(2),
-            Background = new SolidColorBrush(Color.FromArgb(180, 60, 60, 60)),
-            CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(ButtonMargin),
+            Background = new SolidColorBrush(Color.FromArgb(NormalButtonAlpha, 60, 60, 60)),
+            CornerRadius = new CornerRadius(BorderCornerRadius),
             Child = new Grid
             {
                 Children = { label, progressBar }
@@ -99,7 +108,7 @@ public partial class ToolbarWindow : OverlayWindow
         {
             Text = symbol,
             Foreground = Brushes.White,
-            FontSize = _buttonSize * 0.4,
+            FontSize = _buttonSize * ButtonSymbolSizeRatio,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -108,9 +117,9 @@ public partial class ToolbarWindow : OverlayWindow
         {
             Width = _buttonSize,
             Height = _buttonSize,
-            Margin = new Thickness(2),
-            Background = new SolidColorBrush(Color.FromArgb(120, 40, 40, 40)),
-            CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(ButtonMargin),
+            Background = new SolidColorBrush(Color.FromArgb(IndicatorButtonAlpha, 40, 40, 40)),
+            CornerRadius = new CornerRadius(BorderCornerRadius),
             Child = label
         };
 
@@ -200,8 +209,8 @@ public partial class ToolbarWindow : OverlayWindow
         if (_buttonVisuals.TryGetValue("Zoom", out var visuals))
         {
             visuals.Container.Background = isZoomOn
-                ? new SolidColorBrush(Color.FromArgb(180, 0, 100, 0))
-                : new SolidColorBrush(Color.FromArgb(180, 60, 60, 60));
+                ? new SolidColorBrush(Color.FromArgb(ZoomActiveButtonAlpha, 0, 100, 0))
+                : new SolidColorBrush(Color.FromArgb(NormalButtonAlpha, 60, 60, 60));
         }
     }
 

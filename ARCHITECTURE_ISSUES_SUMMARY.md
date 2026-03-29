@@ -48,12 +48,12 @@ This document provides a quick reference to the 16 architectural issues identifi
 - **Solution:** Introduce LogicalPoint, PhysicalPoint, NormalizedPoint record types
 - **Effort:** 3-4 days
 
-### 6. Missing State Machine Transitions
+### 6. Missing State Machine Transitions [RESOLVED]
 - **File:** `src/EyeCtrl.Core/Processing/InteractionManager.cs`
 - **Problem:** `ZoomSelectionFixation` state declared but NEVER used
 - **Impact:** Dead code, incomplete state machine, misleading
-- **Solution:** Remove unused state or implement transitions
-- **Effort:** 1-2 days
+- **Solution:** Removed unused state from InteractionState enum
+- **Status:** COMPLETED - ZoomSelectionFixation removed from enum
 
 ---
 
@@ -191,7 +191,7 @@ This document provides a quick reference to the 16 architectural issues identifi
 
 ### 1-Hour Tasks
 - Extract magic numbers to constants (Issue #11)
-- Remove unused `ZoomSelectionFixation` state (Issue #6 - if removing)
+- ~~Remove unused `ZoomSelectionFixation` state (Issue #6)~~ COMPLETED
 
 ### Half-Day Tasks
 - Add DwellDetector thread safety (Issue #8)

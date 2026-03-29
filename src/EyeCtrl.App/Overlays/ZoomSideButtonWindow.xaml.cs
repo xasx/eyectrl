@@ -9,7 +9,14 @@ using EyeCtrl.Core.Services;
 
 public partial class ZoomSideButtonWindow : OverlayWindow
 {
-    private const double ButtonRadius = 50;
+    // UI Layout Constants
+    private const double ButtonRadius = 50; // Radius of zoom side buttons in pixels
+    private const int ButtonMargin = 10; // Margin around buttons for window sizing
+    private const int ProgressArcInset = 4; // Inset of progress arc from button edge
+    private const int ButtonSymbolFontSize = 22; // Font size for button symbols
+    private const int ProgressArcThickness = 4; // Thickness of dwell progress arc
+    private const byte ButtonBackgroundAlpha = 200; // Alpha value for button background
+    private const byte ButtonBorderAlpha = 100; // Alpha value for button border
 
     private readonly Dictionary<string, (Ellipse Background, Path ProgressArc, ArcSegment Arc, Point CanvasCenter)> _buttonVisuals = new();
 
@@ -30,10 +37,10 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         var recapDipX = DpiHelper.PhysicalToLogicalX(recaptureCenter.X);
         var recapDipY = DpiHelper.PhysicalToLogicalY(recaptureCenter.Y);
 
-        var minX = Math.Min(closeDipX, recapDipX) - ButtonRadius - 10;
-        var minY = Math.Min(closeDipY, recapDipY) - ButtonRadius - 10;
-        var maxX = Math.Max(closeDipX, recapDipX) + ButtonRadius + 10;
-        var maxY = Math.Max(closeDipY, recapDipY) + ButtonRadius + 10;
+        var minX = Math.Min(closeDipX, recapDipX) - ButtonRadius - ButtonMargin;
+        var minY = Math.Min(closeDipY, recapDipY) - ButtonRadius - ButtonMargin;
+        var maxX = Math.Max(closeDipX, recapDipX) + ButtonRadius + ButtonMargin;
+        var maxY = Math.Max(closeDipY, recapDipY) + ButtonRadius + ButtonMargin;
 
         Width = maxX - minX;
         Height = maxY - minY;
@@ -53,8 +60,8 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         {
             Width = ButtonRadius * 2,
             Height = ButtonRadius * 2,
-            Fill = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
-            Stroke = new SolidColorBrush(Color.FromArgb(100, 100, 100, 100)),
+            Fill = new SolidColorBrush(Color.FromArgb(ButtonBackgroundAlpha, 30, 30, 30)),
+            Stroke = new SolidColorBrush(Color.FromArgb(ButtonBorderAlpha, 100, 100, 100)),
             StrokeThickness = 1
         };
         Canvas.SetLeft(bg, cx - ButtonRadius);
@@ -62,7 +69,7 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         ButtonCanvas.Children.Add(bg);
 
         // Progress arc (dwell indicator ring)
-        var arcRadius = ButtonRadius - 4;
+        var arcRadius = ButtonRadius - ProgressArcInset;
         var arcSegment = new ArcSegment
         {
             Point = new Point(cx, cy - arcRadius),
@@ -82,7 +89,7 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         {
             Data = geometry,
             Stroke = Brushes.Lime,
-            StrokeThickness = 4
+            StrokeThickness = ProgressArcThickness
         };
         ButtonCanvas.Children.Add(progressPath);
 
@@ -93,7 +100,7 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         {
             Text = symbol,
             Foreground = Brushes.White,
-            FontSize = 22,
+            FontSize = ButtonSymbolFontSize,
             TextAlignment = TextAlignment.Center,
             Width = ButtonRadius * 2,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -110,7 +117,7 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         if (!_buttonVisuals.TryGetValue(buttonId, out var visuals)) return;
 
         var (_, _, arcSegment, center) = visuals;
-        var radius = ButtonRadius - 4;
+        var radius = ButtonRadius - ProgressArcInset;
 
         var angle = progress * 360;
         var radians = angle * Math.PI / 180;

@@ -12,7 +12,22 @@ using EyeCtrl.ViewModels;
 
 public partial class ActionMenuWindow : OverlayWindow
 {
-    private const double ButtonRadius = 50;
+    // UI Layout Constants
+    private const double ButtonRadius = 50; // Radius of action menu buttons in pixels
+    private const int WindowSizeMargin = 20; // Extra margin around buttons for window sizing
+    private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
+    private const int ProgressArcInset = 4; // Inset of progress arc from button edge
+    private const double IndicatorOffsetMargin = 10; // Margin to keep indicator inside preview circle
+    private const double IndicatorSizeRatio = 0.15; // Indicator size as ratio of preview circle size
+    private const double MaxIndicatorSize = 30; // Maximum indicator size in pixels
+    private const double CrosshairLineThickness = 1.5; // Thickness of crosshair lines
+    private const double PinHeadRatio = 0.8; // Pin head size as ratio of indicator size
+    private const double PinLineThickness = 2.0; // Thickness of pin line
+    private const int PreviewCircleBorderThickness = 2; // Border thickness of preview circle
+    private const int ButtonSymbolFontSize = 22; // Font size for action symbols
+    private const int ProgressArcThickness = 4; // Thickness of dwell progress arc
+    private const byte ButtonBackgroundAlpha = 200; // Alpha value for button background
+    private const byte ButtonBorderAlpha = 100; // Alpha value for button border
 
     private readonly Dictionary<string, (Ellipse Background, Path ProgressArc, ArcSegment Arc)> _buttonVisuals = new();
     private ScreenPoint _targetCenter = new(0, 0);
@@ -38,7 +53,7 @@ public partial class ActionMenuWindow : OverlayWindow
             allItems.Add(("Back", "\u21A9")); // ↩ Back arrow
 
         // Size window to fit buttons at the given ring radius
-        var windowSize = (ringRadius + ButtonRadius) * 2 + 20;
+        var windowSize = (ringRadius + ButtonRadius) * 2 + WindowSizeMargin;
         Width = windowSize;
         Height = windowSize;
 
@@ -73,7 +88,7 @@ public partial class ActionMenuWindow : OverlayWindow
 
             // Clamp so indicator stays inside the preview circle (10 px margin)
             double offsetMag = Math.Sqrt(indicatorOffsetX * indicatorOffsetX + indicatorOffsetY * indicatorOffsetY);
-            double maxOffset = previewCircleSize / 2 - 10;
+            double maxOffset = previewCircleSize / 2 - IndicatorOffsetMargin;
             if (offsetMag > maxOffset && offsetMag > 0)
             {
                 indicatorOffsetX = indicatorOffsetX / offsetMag * maxOffset;
@@ -89,7 +104,7 @@ public partial class ActionMenuWindow : OverlayWindow
 
             // Clamp so indicator stays inside the preview circle (10 px margin)
             double offsetMag = Math.Sqrt(indicatorOffsetX * indicatorOffsetX + indicatorOffsetY * indicatorOffsetY);
-            double maxOffset = previewCircleSize / 2 - 10;
+            double maxOffset = previewCircleSize / 2 - IndicatorOffsetMargin;
             if (offsetMag > maxOffset && offsetMag > 0)
             {
                 indicatorOffsetX = indicatorOffsetX / offsetMag * maxOffset;
@@ -99,7 +114,7 @@ public partial class ActionMenuWindow : OverlayWindow
 
         _ = Dispatcher.InvokeAsync(async () =>
         {
-            await Task.Delay(100);
+            await Task.Delay(ScreenCaptureDelayMs);
             var capturedImage = ScreenCaptureService.CaptureRegion(captureCenter, captureRadius);
             if (capturedImage == null) return;
 
@@ -109,7 +124,7 @@ public partial class ActionMenuWindow : OverlayWindow
                 Height = captureCircleSize,
                 Fill = new ImageBrush(capturedImage) { Stretch = Stretch.Fill },
                 Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(captureBorderColor)),
-                StrokeThickness = 2
+                StrokeThickness = PreviewCircleBorderThickness
             };
             Canvas.SetLeft(previewEllipse, captureCanvasCenter.X - captureCircleSize / 2);
             Canvas.SetTop(previewEllipse, captureCanvasCenter.Y - captureCircleSize / 2);
@@ -117,7 +132,7 @@ public partial class ActionMenuWindow : OverlayWindow
         });
 
         // Position indicator at center of preview
-        var indicatorSize = Math.Min(previewCircleSize * 0.15, 30); // scale with circle, cap at 30px
+        var indicatorSize = Math.Min(previewCircleSize * IndicatorSizeRatio, MaxIndicatorSize); // scale with circle, cap at 30px
 
         if (positionIndicatorStyle == PositionIndicatorStyle.Crosshair)
         {
@@ -129,7 +144,7 @@ public partial class ActionMenuWindow : OverlayWindow
                 X2 = canvasCenter.X + indicatorSize + indicatorOffsetX,
                 Y2 = canvasCenter.Y + indicatorOffsetY,
                 Stroke = Brushes.Red,
-                StrokeThickness = 1.5
+                StrokeThickness = CrosshairLineThickness
             };
             var vLine = new Line
             {
@@ -138,7 +153,7 @@ public partial class ActionMenuWindow : OverlayWindow
                 X2 = canvasCenter.X + indicatorOffsetX,
                 Y2 = canvasCenter.Y + indicatorSize + indicatorOffsetY,
                 Stroke = Brushes.Red,
-                StrokeThickness = 1.5
+                StrokeThickness = CrosshairLineThickness
             };
             MenuCanvas.Children.Add(hLine);
             MenuCanvas.Children.Add(vLine);
@@ -146,7 +161,7 @@ public partial class ActionMenuWindow : OverlayWindow
         else // Pin
         {
             // Pin: small filled circle with a line pointing down to center
-            var pinHeadSize = indicatorSize * 0.8;
+            var pinHeadSize = indicatorSize * PinHeadRatio;
             var pinHead = new Ellipse
             {
                 Width = pinHeadSize,
@@ -165,7 +180,7 @@ public partial class ActionMenuWindow : OverlayWindow
                 X2 = canvasCenter.X + indicatorOffsetX,
                 Y2 = canvasCenter.Y + indicatorOffsetY,
                 Stroke = Brushes.Red,
-                StrokeThickness = 2
+                StrokeThickness = PinLineThickness
             };
             MenuCanvas.Children.Add(pinHead);
             MenuCanvas.Children.Add(pinLine);
@@ -185,8 +200,8 @@ public partial class ActionMenuWindow : OverlayWindow
             {
                 Width = ButtonRadius * 2,
                 Height = ButtonRadius * 2,
-                Fill = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
-                Stroke = new SolidColorBrush(Color.FromArgb(100, 100, 100, 100)),
+                Fill = new SolidColorBrush(Color.FromArgb(ButtonBackgroundAlpha, 30, 30, 30)),
+                Stroke = new SolidColorBrush(Color.FromArgb(ButtonBorderAlpha, 100, 100, 100)),
                 StrokeThickness = 1
             };
             Canvas.SetLeft(bg, bx - ButtonRadius);
@@ -194,7 +209,7 @@ public partial class ActionMenuWindow : OverlayWindow
             MenuCanvas.Children.Add(bg);
 
             // Progress arc (dwell indicator ring)
-            var arcRadius = ButtonRadius - 4;
+            var arcRadius = ButtonRadius - ProgressArcInset;
             var arcSegment = new ArcSegment
             {
                 Point = new Point(bx, by - arcRadius),
@@ -214,7 +229,7 @@ public partial class ActionMenuWindow : OverlayWindow
             {
                 Data = geometry,
                 Stroke = Brushes.Lime,
-                StrokeThickness = 4
+                StrokeThickness = ProgressArcThickness
             };
             MenuCanvas.Children.Add(progressPath);
 
@@ -225,7 +240,7 @@ public partial class ActionMenuWindow : OverlayWindow
             {
                 Text = label,
                 Foreground = Brushes.White,
-                FontSize = 22,
+                FontSize = ButtonSymbolFontSize,
                 TextAlignment = TextAlignment.Center,
                 Width = ButtonRadius * 2,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -263,7 +278,7 @@ public partial class ActionMenuWindow : OverlayWindow
         var (bg, _, arcSegment) = visuals;
         var centerX = Canvas.GetLeft(bg) + ButtonRadius;
         var centerY = Canvas.GetTop(bg) + ButtonRadius;
-        var radius = ButtonRadius - 4;
+        var radius = ButtonRadius - ProgressArcInset;
 
         var angle = progress * 360;
         var radians = angle * Math.PI / 180;

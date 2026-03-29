@@ -28,6 +28,20 @@ using Serilog;
 
 public partial class App : Application
 {
+    // UI Layout Constants
+    private const int ActivationButtonOffsetPixels = 55; // Distance from cursor circle edge to activation button center
+    private const int RetainedLogFileCount = 7; // Number of daily log files to keep
+    private const long MicrosecondsPerMillisecond = 1000L; // Time conversion factor
+    private const int DpiStandardScale = 96; // Standard Windows DPI (100% scaling)
+    private const int DefaultScrollAmount = 3; // Default mouse wheel scroll delta
+    private const int BackspaceVirtualKeyCode = 0x08;
+    private const int EnterVirtualKeyCode = 0x0D;
+    private const int TabVirtualKeyCode = 0x09;
+    private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
+    private const int FadeInAnimationMs = 150; // Animation duration for activation button fade-in
+    private const int FadeOutAnimationMs = 100; // Animation duration for activation button fade-out
+    private const double ScreenSizeMultiplier = 0.9; // Settings window size as fraction of screen
+
     private ServiceProvider _serviceProvider = null!;
     private System.Windows.Forms.NotifyIcon _trayIcon = null!;
     private System.Windows.Forms.ToolStripMenuItem _pauseMenuItem = null!;
@@ -71,7 +85,7 @@ public partial class App : Application
         if (IsTestMode)
         {
             var dpi = GetDpiForSystem();
-            var scale = dpi / 96.0;
+            var scale = dpi / DpiStandardScale;
             DpiHelper.Initialize(scale, scale);
         }
 
@@ -90,7 +104,7 @@ public partial class App : Application
             .WriteTo.File(
                 Path.Combine(logsDir, "eyectrl-.log"),
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 7,
+                retainedFileCountLimit: RetainedLogFileCount,
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
 
@@ -256,7 +270,7 @@ public partial class App : Application
                         actionMenu.Hide();
 
                         var circleRadius = settings.Cursor.CircleSize / 2;
-                        var buttonOffset = circleRadius + 55;
+                        var buttonOffset = circleRadius + ActivationButtonOffsetPixels;
                         activationButton.Show();
                         activationButton.ShowAt(activationVM.Position, buttonOffset);
                     }
@@ -341,7 +355,7 @@ public partial class App : Application
 
                     // Feed gaze data to zoom fixation detector when in zoom mode
                     var zoomStartTimestamp = 0L;
-                    var gracePeriodUs = settings.Zoom.ZoomGracePeriodMs * 1000L;
+                    var gracePeriodUs = settings.Zoom.ZoomGracePeriodMs * MicrosecondsPerMillisecond;
                     var graceStarted = false;
 
                     zoomGazeHandler = (pt, ts) =>
@@ -575,9 +589,9 @@ public partial class App : Application
         {
             switch (msg.Key)
             {
-                case "\b": inputSimulator.SendKeyPress(0x08); break;
-                case "\n": inputSimulator.SendKeyPress(0x0D); break;
-                case "\t": inputSimulator.SendKeyPress(0x09); break;
+                case "\b": inputSimulator.SendKeyPress(BackspaceVirtualKeyCode); break;
+                case "\n": inputSimulator.SendKeyPress(EnterVirtualKeyCode); break;
+                case "\t": inputSimulator.SendKeyPress(TabVirtualKeyCode); break;
                 default: inputSimulator.SendText(msg.Key); break;
             }
         }));
@@ -586,7 +600,7 @@ public partial class App : Application
         messenger.Register<PredictionSelectedMessage>(this, (_, msg) => Dispatcher.BeginInvoke(() =>
         {
             for (int i = 0; i < msg.DeleteCount; i++)
-                inputSimulator.SendKeyPress(0x08); // Backspace to erase typed prefix
+                inputSimulator.SendKeyPress(BackspaceVirtualKeyCode); // Backspace to erase typed prefix
             inputSimulator.SendText(msg.Word + " ");
         }));
 
@@ -605,10 +619,10 @@ public partial class App : Application
                 case InteractionAction.DoubleClick:  inputSimulator.DoubleClick(pt);      break;
                 case InteractionAction.DragStart:    inputSimulator.MouseDown(pt);        break;
                 case InteractionAction.DragEnd:      inputSimulator.MouseUp(pt);          break;
-                case InteractionAction.ScrollUp:     inputSimulator.Scroll(pt, 0, 3);    break;
-                case InteractionAction.ScrollDown:   inputSimulator.Scroll(pt, 0, -3);   break;
-                case InteractionAction.ScrollLeft:   inputSimulator.Scroll(pt, -3, 0);   break;
-                case InteractionAction.ScrollRight:  inputSimulator.Scroll(pt, 3, 0);    break;
+                case InteractionAction.ScrollUp:     inputSimulator.Scroll(pt, 0, DefaultScrollAmount);    break;
+                case InteractionAction.ScrollDown:   inputSimulator.Scroll(pt, 0, -DefaultScrollAmount);   break;
+                case InteractionAction.ScrollLeft:   inputSimulator.Scroll(pt, -DefaultScrollAmount, 0);   break;
+                case InteractionAction.ScrollRight:  inputSimulator.Scroll(pt, DefaultScrollAmount, 0);    break;
             }
         }));
 

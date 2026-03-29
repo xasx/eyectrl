@@ -18,6 +18,20 @@ public partial class SettingsWindow : OverlayWindow
     private const double PagBtnRadius = 60;
     private const double ModalBtnRadius = 70;
 
+    // Window sizing
+    private const double WindowSizeRatio = 0.9; // Settings window size as fraction of screen
+
+    // UI dimensions
+    private const int TabIconFontSize = 30;
+    private const int TabContainerHeight = 100;
+    private const int TabSymbolFontSize = 22;
+    private const int PaginationCounterFontSize = 24;
+    private const int PaginationCounterMinWidth = 80;
+    private const int PaginationButtonWidth = 100;
+    private const int PaginationButtonHeight = 80;
+    private const int PaginationSymbolFontSize = 30;
+    private const double PaginationInactiveOpacity = 0.3;
+
     private static readonly Color BtnBase = Color.FromArgb(200, 60, 60, 80);
     private static readonly Color TabActive = Color.FromArgb(200, 40, 90, 160);
     private static readonly Color TabInactive = Color.FromArgb(200, 50, 50, 50);
@@ -72,8 +86,8 @@ public partial class SettingsWindow : OverlayWindow
         _settingsService = settingsService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
-        Width = SystemParameters.PrimaryScreenWidth * 0.9;
-        Height = SystemParameters.PrimaryScreenHeight * 0.9;
+        Width = SystemParameters.PrimaryScreenWidth * WindowSizeRatio;
+        Height = SystemParameters.PrimaryScreenHeight * WindowSizeRatio;
 
         _tabDwell.TargetActivated += id => Dispatcher.Invoke(() =>
         {

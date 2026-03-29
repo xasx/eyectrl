@@ -69,7 +69,7 @@ ActionMenuVisible
 
 State enum renames:
 - `ZoomActive` → `ZoomSelectionActive`
-- `ZoomFixation` → `ZoomSelectionFixation`
+- `ZoomFixation` → `ZoomSelectionFixation` (NOTE: This state was later removed as unused - see architecture review)
 - `ZoomActionMenuVisible` → `ZoomSelectionActionMenuVisible`
 
 ## Architectural Approach

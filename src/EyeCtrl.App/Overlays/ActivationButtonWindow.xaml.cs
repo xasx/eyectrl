@@ -8,8 +8,12 @@ using EyeCtrl.Core.Services;
 
 public partial class ActivationButtonWindow : OverlayWindow
 {
-    private const double ButtonCenter = 50.0;
-    private const double ArcRadius = 45.0;
+    // UI Layout Constants
+    private const double ButtonCenter = 50.0; // Center coordinate within the button canvas
+    private const double ArcRadius = 45.0; // Radius of the dwell progress arc
+    private const int FadeInDurationMs = 150; // Duration of fade-in animation
+    private const int FadeOutDurationMs = 100; // Duration of fade-out animation
+    private const double ProgressResetThreshold = 0.001; // Threshold below which progress is considered zero
 
     public ActivationButtonWindow()
     {
@@ -37,13 +41,13 @@ public partial class ActivationButtonWindow : OverlayWindow
 
         UpdateDwellProgress(0);
 
-        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
+        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(FadeInDurationMs));
         BeginAnimation(OpacityProperty, fadeIn);
     }
 
     public new void Hide()
     {
-        var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(100));
+        var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(FadeOutDurationMs));
         fadeOut.Completed += (_, _) => base.Hide();
         BeginAnimation(OpacityProperty, fadeOut);
     }
@@ -68,7 +72,7 @@ public partial class ActivationButtonWindow : OverlayWindow
         ArcSegment.IsLargeArc = angle > 180;
 
         // Reset start point if progress is ~0
-        if (progress < 0.001)
+        if (progress < ProgressResetThreshold)
         {
             ArcSegment.Point = new Point(ButtonCenter, ButtonCenter - ArcRadius);
         }

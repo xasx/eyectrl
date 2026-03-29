@@ -8,6 +8,9 @@ using EyeCtrl.Core.Settings;
 
 public partial class CursorCircleWindow : OverlayWindow
 {
+    // UI Constants
+    private const int MinimumCircleSize = 10; // Minimum allowed circle size in pixels
+
     public CursorCircleWindow()
     {
         IsClickThrough = true;
@@ -36,7 +39,7 @@ public partial class CursorCircleWindow : OverlayWindow
         Circle.Opacity = settings.CircleOpacity;
 
         // Update circle size
-        var size = Math.Max(10, settings.CircleSize);
+        var size = Math.Max(MinimumCircleSize, settings.CircleSize);
         Width = size;
         Height = size;
         Circle.Width = size;

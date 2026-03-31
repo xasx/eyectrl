@@ -17,7 +17,7 @@ public class DwellDetector
 
     public DwellDetector(int cooldownMs = 0)
     {
-        _cooldownMicroseconds = cooldownMs * 1000L;
+        _cooldownMicroseconds = cooldownMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
     public event Action<string>? TargetActivated;
@@ -25,7 +25,7 @@ public class DwellDetector
 
     public void SetCooldown(int cooldownMs)
     {
-        _cooldownMicroseconds = cooldownMs * 1000L;
+        _cooldownMicroseconds = cooldownMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
     public void AddTarget(DwellTarget target) => _targets[target.Id] = target;

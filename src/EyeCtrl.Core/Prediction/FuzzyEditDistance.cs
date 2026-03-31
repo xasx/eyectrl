@@ -36,7 +36,8 @@ namespace EyeCtrl.Core.Prediction;
 /// dynamic programming to compute the minimum edit distance between two strings.<br/>
 /// Original paper: Wagner, R. A., &amp; Fischer, M. J. (1974). "The String-to-String Correction Problem."
 /// Journal of the ACM, 21(1), 168-173.<br/>
-/// <see href="https://en.wikipedia.org/wiki/Levenshtein_distance">https://en.wikipedia.org/wiki/Levenshtein_distance</see>
+/// DOI: <see href="https://doi.org/10.1145/321796.321811">10.1145/321796.321811</see><br/>
+/// Wikipedia: <see href="https://en.wikipedia.org/wiki/Levenshtein_distance">https://en.wikipedia.org/wiki/Levenshtein_distance</see>
 /// </para>
 /// <para>
 /// The keyboard-aware modification is inspired by research in spell-checking and typing error analysis,

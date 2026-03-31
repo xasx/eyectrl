@@ -1,5 +1,6 @@
 namespace EyeCtrl.Platform.Gaze;
 
+using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using System.Runtime.InteropServices;
@@ -41,7 +42,7 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
     {
         if (GetCursorPos(out var point))
         {
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000;
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * MathConstants.MicrosecondsPerMillisecond;
             GazePointReceived?.Invoke(new GazePoint(point.X, point.Y, timestamp, true));
         }
     }

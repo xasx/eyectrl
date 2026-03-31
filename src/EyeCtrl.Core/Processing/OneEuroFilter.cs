@@ -25,9 +25,10 @@ using EyeCtrl.Core.Models;
 /// <para>
 /// <b>Reference:</b><br/>
 /// Casiez, G., Roussel, N., &amp; Vogel, D. (2012). 1€ Filter: A Simple Speed-based Low-pass Filter
-/// for Noisy Input in Interactive Systems. In Proceedings of the SIGCHI Conference on Human Factors
+/// for Noisy Input in Interactive Systems. In Proceedings of the 30th ACM Conference on Human Factors
 /// in Computing Systems (CHI '12), pp. 2527-2530.<br/>
-/// Paper: <see href="https://hal.inria.fr/hal-00670496/document">https://hal.inria.fr/hal-00670496/document</see><br/>
+/// DOI: <see href="https://doi.org/10.1145/2207676.2208639">10.1145/2207676.2208639</see><br/>
+/// Full Paper: <see href="https://inria.hal.science/hal-00670496/document">https://inria.hal.science/hal-00670496/document</see><br/>
 /// Interactive Demo: <see href="http://cristal.univ-lille.fr/~casiez/1euro/">http://cristal.univ-lille.fr/~casiez/1euro/</see>
 /// </para>
 /// </remarks>

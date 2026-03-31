@@ -8,12 +8,12 @@ using EyeCtrl.ViewModels.Messages;
 public class ActivationButtonViewModelTests
 {
     private readonly WeakReferenceMessenger _messenger = new();
-    private readonly DwellSettings _dwellSettings = new();
+    private readonly EyeCtrlSettings _settings = new();
 
     [Fact]
     public void ShowsButton_OnShowMessage()
     {
-        var vm = new ActivationButtonViewModel(_dwellSettings, _messenger);
+        var vm = new ActivationButtonViewModel(_settings, _messenger);
         Assert.False(vm.IsVisible);
 
         _messenger.Send(new ShowActivationButtonMessage(new ScreenPoint(500, 300)));
@@ -26,7 +26,7 @@ public class ActivationButtonViewModelTests
     [Fact]
     public void HidesButton_OnHideMessage()
     {
-        var vm = new ActivationButtonViewModel(_dwellSettings, _messenger);
+        var vm = new ActivationButtonViewModel(_settings, _messenger);
         _messenger.Send(new ShowActivationButtonMessage(new ScreenPoint(500, 300)));
         Assert.True(vm.IsVisible);
 
@@ -39,7 +39,8 @@ public class ActivationButtonViewModelTests
     [Fact]
     public void AccumulatesDwell_OnGazeWithinRadius()
     {
-        var settings = new DwellSettings { ActivationButtonDwellMs = 1000 };
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationButtonDwellMs = 1000;
         var vm = new ActivationButtonViewModel(settings, _messenger);
 
         // Show button at (500, 300)
@@ -56,7 +57,8 @@ public class ActivationButtonViewModelTests
     [Fact]
     public void SendsActivationCompleted_OnDwellComplete()
     {
-        var settings = new DwellSettings { ActivationButtonDwellMs = 100 };
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationButtonDwellMs = 100;
         var vm = new ActivationButtonViewModel(settings, _messenger);
 
         bool activated = false;

@@ -13,7 +13,7 @@ public sealed class GapInterpolator
     public GapInterpolator(IGazeFilter filter, int maxGapMs)
     {
         _filter = filter;
-        _maxGapMicroseconds = maxGapMs * 1000L;
+        _maxGapMicroseconds = maxGapMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
     public (ScreenPoint Position, bool IsInGap) Process(GazePoint rawPoint)

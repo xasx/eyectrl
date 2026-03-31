@@ -11,24 +11,25 @@ using EyeCtrl.ViewModels.Messages;
 public partial class ActivationButtonViewModel : ObservableObject,
     IRecipient<ShowActivationButtonMessage>,
     IRecipient<HideActivationButtonMessage>,
-    IRecipient<GazeCursorMovedMessage>
+    IRecipient<GazeCursorMovedMessage>,
+    IDisposable
 {
     private const string TargetId = "activate";
-    private const double ButtonRadius = 50;
 
-    private readonly DwellSettings _dwellSettings;
+    private readonly EyeCtrlSettings _settings;
     private readonly IMessenger _messenger;
     private readonly DwellDetector _dwellDetector;
+    private bool _disposed;
 
     [ObservableProperty] private ScreenPoint _position = new(0, 0);
     [ObservableProperty] private double _dwellProgress;
     [ObservableProperty] private bool _isVisible;
 
-    public ActivationButtonViewModel(DwellSettings dwellSettings, IMessenger messenger)
+    public ActivationButtonViewModel(EyeCtrlSettings settings, IMessenger messenger)
     {
-        _dwellSettings = dwellSettings;
+        _settings = settings;
         _messenger = messenger;
-        _dwellDetector = new DwellDetector(dwellSettings.DwellCooldownMs);
+        _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
 
         _dwellDetector.TargetActivated += _ =>
         {
@@ -47,8 +48,8 @@ public partial class ActivationButtonViewModel : ObservableObject,
         _dwellDetector.ClearTargets();
         _dwellDetector.AddTarget(new DwellTarget(TargetId,
             message.Position,
-            DpiHelper.LogicalToPhysicalX(ButtonRadius),
-            _dwellSettings.ActivationButtonDwellMs));
+            DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius),
+            _settings.Dwell.ActivationButtonDwellMs));
     }
 
     public void Receive(HideActivationButtonMessage message)
@@ -62,5 +63,14 @@ public partial class ActivationButtonViewModel : ObservableObject,
     {
         if (IsVisible)
             _dwellDetector.Update(message.Position, message.TimestampMicroseconds);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _messenger.UnregisterAll(this);
+        _disposed = true;
     }
 }

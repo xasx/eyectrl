@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
@@ -62,8 +63,8 @@ public partial class ActivationButtonWindow : OverlayWindow
     {
         progress = Math.Clamp(progress, 0, 1);
 
-        var angle = progress * 360;
-        var radians = angle * Math.PI / 180;
+        var angle = progress * MathConstants.FullCircleDegrees;
+        var radians = angle * MathConstants.DegreesToRadians;
 
         var endX = ButtonCenter + ArcRadius * Math.Sin(radians);
         var endY = ButtonCenter - ArcRadius * Math.Cos(radians);

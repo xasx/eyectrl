@@ -137,36 +137,42 @@ _gazeEngine.CursorMoved += (_, point) => { /* ... */ };
 - **Inconsistency:** Some flows use events, some messages, no clear pattern
 
 #### Recommended Solution
-**Option A: Full Migration to Messages (Preferred)**
-1. Modify Core layer classes (`GazeEngine`, `InteractionManager`) to send messages directly
-2. Remove `GazeEngineAdapter` translation layer
-3. Update Core layer to depend on `IMessenger` interface
-4. All communication flows through single message bus
 
-**Option B: Full Migration to Events**
-1. Remove message-based architecture
+**IMPORTANT:** After review, the current architecture is **correct** - Core layer should remain framework-agnostic with events, and App layer handles MVVM translation. The "dual pattern" is actually proper layering, not a problem.
+
+**Option A: Keep Current Architecture (Recommended)**
+1. **Core layer stays pure:** Use events (no MVVM dependencies)
+2. **App layer handles MVVM:** GazeEngineAdapter translates events to messages
+3. **ViewModels use messages:** Maintains weak references and decoupling
+4. **Improvement:** Reduce direct event subscriptions in App.xaml.cs (move to adapter)
+
+**Option B: Define Core Abstraction**
+1. Create `IEventBus` interface in Core (no MVVM dependency)
+2. App layer implements with `IMessenger` wrapper
+3. More abstraction but keeps Core pure
+
+**Option C: Full Event-Based**
+1. Remove message-based architecture entirely
 2. Use raw events throughout
-3. Simpler but loses benefits of weak references and decoupling
+3. Simpler but loses weak reference benefits
 
-**Recommendation:** Choose Option A
-- Aligns with existing MVVM Community Toolkit usage
-- Provides better decoupling and testability
-- WeakReferenceMessenger prevents memory leaks
-- Consistent with modern MVVM practices
+**Recommendation:** Choose Option A (current architecture with cleanup)
+- Maintains proper layer separation (Core = framework-agnostic)
+- App layer correctly bridges Core events to MVVM messages
+- Only issue: App.xaml.cs has some direct event subscriptions that should go through adapter
 
 #### Implementation Steps
-1. Add `IMessenger` dependency to `GazeEngine` and `InteractionManager`
-2. Replace `EventHandler<T>` declarations with `messenger.Send<T>()` calls
-3. Remove `GazeEngineAdapter` class
-4. Update unit tests to verify message sending
-5. Remove event subscriptions from App.xaml.cs
-6. Verify all ViewModels receive messages correctly
+1. Review App.xaml.cs for direct Core event subscriptions
+2. Move these subscriptions to GazeEngineAdapter
+3. Keep Core layer pure (no IMessenger dependency)
+4. Update tests as needed
+5. Document the layering pattern clearly
 
 #### Success Metrics
-- Zero event handlers remaining for gaze/interaction data
-- GazeEngineAdapter class deleted
-- All communication through `IMessenger`
-- Test coverage for message sending in Core layer
+- Minimal direct Core event subscriptions in App.xaml.cs
+- GazeEngineAdapter remains as proper translation layer
+- Core layer has zero MVVM dependencies
+- All ViewModel communication through messages
 
 #### Effort Estimate
 - **Time:** 2-3 days

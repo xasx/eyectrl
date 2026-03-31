@@ -12,7 +12,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void ShowsZoom_OnStartZoomMessage()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
         Assert.False(vm.IsVisible);
 
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0, new ScreenPoint(500, 300)));
@@ -27,7 +27,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void HidesZoom_OnEndZoomMessage()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0, new ScreenPoint(500, 300)));
         Assert.True(vm.IsVisible);
 
@@ -38,7 +38,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void ComputesSideButtonPositions_OnStartZoom()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
 
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0, new ScreenPoint(500, 500)));
 
@@ -55,7 +55,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void CloseButton_Dwell_SendsZoomCloseMessage()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
         bool closeSent = false;
         object recipient = new();
         _messenger.Register<ZoomCloseMessage>(recipient, (_, _) => closeSent = true);
@@ -73,7 +73,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void RecaptureButton_Dwell_SendsZoomRecaptureMessage()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
         bool recaptureSent = false;
         object recipient = new();
         _messenger.Register<ZoomRecaptureMessage>(recipient, (_, _) => recaptureSent = true);
@@ -90,7 +90,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void ClearsDwellTargets_OnEndZoom()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
 
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 500), 150, 2.0, new ScreenPoint(500, 500)));
         var closePos = vm.CloseButtonCenter;
@@ -111,7 +111,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void HidesZoom_OnZoomHiddenMessage()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0, new ScreenPoint(500, 300)));
         Assert.True(vm.IsVisible);
 
@@ -124,7 +124,7 @@ public class ZoomOverlayViewModelTests
     public void ReshowsZoom_AfterZoomHiddenThenStartZoom()
     {
         // Simulates: zoom shown → fixation detected (ZoomHidden) → Back pressed (StartZoom again)
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
         _messenger.Send(new StartZoomMessage(new ScreenPoint(500, 300), 150, 2.0, new ScreenPoint(500, 300)));
         _messenger.Send(new ZoomHiddenMessage());
         Assert.False(vm.IsVisible);
@@ -137,7 +137,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void StoresGazePoint_WhenProvided()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
         var gazePoint = new ScreenPoint(400, 200);
 
         _messenger.Send(new StartZoomMessage(new ScreenPoint(960, 540), 150, 2.0, gazePoint));
@@ -150,7 +150,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void GazePoint_EqualsCenter_WhenInAtGazeMode()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
         var center = new ScreenPoint(500, 300);
 
         _messenger.Send(new StartZoomMessage(center, 150, 2.0, center));
@@ -162,7 +162,7 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void SideButtons_PositionedRelativeToDisplayCenter_NotGazePoint()
     {
-        var vm = new ZoomOverlayViewModel(new DwellSettings(), _messenger);
+        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
         var displayCenter = new ScreenPoint(960, 540); // Screen center
         var gazePoint = new ScreenPoint(200, 100);     // Gaze at different location
 

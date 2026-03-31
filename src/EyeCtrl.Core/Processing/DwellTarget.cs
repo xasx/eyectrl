@@ -15,7 +15,7 @@ public class DwellTarget
         Id = id;
         Center = center;
         Radius = radius;
-        DwellTimeMicroseconds = dwellTimeMs * 1000L;
+        DwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
     public bool HitTest(ScreenPoint point)

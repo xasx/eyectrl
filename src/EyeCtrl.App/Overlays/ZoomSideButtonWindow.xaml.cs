@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
@@ -119,8 +120,8 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         var (_, _, arcSegment, center) = visuals;
         var radius = ButtonRadius - ProgressArcInset;
 
-        var angle = progress * 360;
-        var radians = angle * Math.PI / 180;
+        var angle = progress * MathConstants.FullCircleDegrees;
+        var radians = angle * MathConstants.DegreesToRadians;
 
         var endX = center.X + radius * Math.Sin(radians);
         var endY = center.Y - radius * Math.Cos(radians);

@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -12,14 +13,14 @@ using EyeCtrl.ViewModels.Messages;
 public partial class ActionMenuViewModel : ObservableObject,
     IRecipient<ShowActionMenuMessage>,
     IRecipient<HideActionMenuMessage>,
-    IRecipient<GazeCursorMovedMessage>
+    IRecipient<GazeCursorMovedMessage>,
+    IDisposable
 {
-    private const double ButtonRadius = 50;
-    private const double ButtonOuterGap = 20;
 
     private readonly IMessenger _messenger;
     private readonly DwellDetector _dwellDetector;
     private readonly Dictionary<string, ActionMenuItemViewModel> _itemLookup = new();
+    private bool _disposed;
 
     [ObservableProperty] private ScreenPoint _center = new(0, 0);
     [ObservableProperty] private bool _isVisible;
@@ -32,10 +33,10 @@ public partial class ActionMenuViewModel : ObservableObject,
 
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
-    public ActionMenuViewModel(DwellSettings dwellSettings, IMessenger messenger)
+    public ActionMenuViewModel(EyeCtrlSettings settings, IMessenger messenger)
     {
         _messenger = messenger;
-        _dwellDetector = new DwellDetector(dwellSettings.DwellCooldownMs);
+        _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
         _dwellDetector.TargetActivated += OnTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
         messenger.RegisterAll(this);
@@ -58,15 +59,15 @@ public partial class ActionMenuViewModel : ObservableObject,
         if (message.ShowBack)
             allItems.Add(("Back", null, "\u21A9", true));
 
-        EffectiveRingRadius = message.CircleSize / 2 + ButtonRadius + ButtonOuterGap;
+        EffectiveRingRadius = message.CircleSize / 2 + UIConstants.ButtonRadius + UIConstants.ActionMenuButtonOuterGap;
         var physicalRingRadius = DpiHelper.LogicalToPhysicalX(EffectiveRingRadius);
-        var physicalButtonRadius = DpiHelper.LogicalToPhysicalX(ButtonRadius);
+        var physicalButtonRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
 
-        var angleStep = 360.0 / allItems.Count;
+        var angleStep = MathConstants.FullCircleDegrees / allItems.Count;
         for (int i = 0; i < allItems.Count; i++)
         {
             var (id, action, symbol, isBack) = allItems[i];
-            var angleRad = (angleStep * i - 90) * Math.PI / 180;
+            var angleRad = (angleStep * i - MathConstants.RightAngleDegrees) * MathConstants.DegreesToRadians;
             var bx = message.Center.X + physicalRingRadius * Math.Cos(angleRad);
             var by = message.Center.Y + physicalRingRadius * Math.Sin(angleRad);
             var position = new ScreenPoint(bx, by);
@@ -127,4 +128,15 @@ public partial class ActionMenuViewModel : ObservableObject,
         InteractionAction.ScrollRight => "\u25B6",
         _ => action.ToString()
     };
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _dwellDetector.TargetActivated -= OnTargetActivated;
+        _dwellDetector.TargetProgress -= OnTargetProgress;
+        _messenger.UnregisterAll(this);
+        _disposed = true;
+    }
 }

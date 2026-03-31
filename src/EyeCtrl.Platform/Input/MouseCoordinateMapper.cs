@@ -26,12 +26,12 @@ public class MouseCoordinateMapper : IMouseCoordinateMapper
 
         // Normalize to 0-65535 range with rounding for better accuracy
         // Using Math.Round instead of truncating cast
-        int normalizedX = (int)Math.Round((clampedX * 65535) / screenWidth);
-        int normalizedY = (int)Math.Round((clampedY * 65535) / screenHeight);
+        int normalizedX = (int)Math.Round((clampedX * PlatformConstants.Win32AbsoluteCoordinateMax) / screenWidth);
+        int normalizedY = (int)Math.Round((clampedY * PlatformConstants.Win32AbsoluteCoordinateMax) / screenHeight);
 
         // Final clamp to ensure we're in the valid range after rounding
-        normalizedX = Math.Clamp(normalizedX, 0, 65535);
-        normalizedY = Math.Clamp(normalizedY, 0, 65535);
+        normalizedX = Math.Clamp(normalizedX, 0, PlatformConstants.Win32AbsoluteCoordinateMax);
+        normalizedY = Math.Clamp(normalizedY, 0, PlatformConstants.Win32AbsoluteCoordinateMax);
 
         return (normalizedX, normalizedY);
     }

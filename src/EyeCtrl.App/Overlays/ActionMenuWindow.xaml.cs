@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -186,12 +187,12 @@ public partial class ActionMenuWindow : OverlayWindow
             MenuCanvas.Children.Add(pinLine);
         }
 
-        var angleStep = 360.0 / allItems.Count;
+        var angleStep = MathConstants.FullCircleDegrees / allItems.Count;
 
         for (int i = 0; i < allItems.Count; i++)
         {
             var (id, label) = allItems[i];
-            var angleRad = (angleStep * i - 90) * Math.PI / 180;
+            var angleRad = (angleStep * i - MathConstants.RightAngleDegrees) * MathConstants.DegreesToRadians;
             var bx = canvasCenter.X + ringRadius * Math.Cos(angleRad);
             var by = canvasCenter.Y + ringRadius * Math.Sin(angleRad);
 
@@ -280,8 +281,8 @@ public partial class ActionMenuWindow : OverlayWindow
         var centerY = Canvas.GetTop(bg) + ButtonRadius;
         var radius = ButtonRadius - ProgressArcInset;
 
-        var angle = progress * 360;
-        var radians = angle * Math.PI / 180;
+        var angle = progress * MathConstants.FullCircleDegrees;
+        var radians = angle * MathConstants.DegreesToRadians;
 
         var endX = centerX + radius * Math.Sin(radians);
         var endY = centerY - radius * Math.Cos(radians);

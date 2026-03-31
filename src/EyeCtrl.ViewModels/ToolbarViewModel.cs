@@ -11,11 +11,13 @@ using EyeCtrl.ViewModels.Messages;
 
 public partial class ToolbarViewModel : ObservableObject,
     IRecipient<GazeCursorMovedMessage>,
-    IRecipient<StateChangedMessage>
+    IRecipient<StateChangedMessage>,
+    IDisposable
 {
     private readonly IMessenger _messenger;
     private readonly DwellDetector _dwellDetector;
     private readonly Dictionary<string, ToolbarButtonViewModel> _buttonLookup = new();
+    private bool _disposed;
 
     [ObservableProperty] private bool _isPaused;
     [ObservableProperty] private bool _isZoomOn;
@@ -31,10 +33,10 @@ public partial class ToolbarViewModel : ObservableObject,
         _dwellDetector.UpdateTargetCenter(buttonId, screenCenter);
     }
 
-    public ToolbarViewModel(ToolbarSettings toolbarSettings, DwellSettings dwellSettings, IMessenger messenger)
+    public ToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger)
     {
         _messenger = messenger;
-        _dwellDetector = new DwellDetector(dwellSettings.DwellCooldownMs);
+        _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
 
         var buttons = new (string Id, string Symbol)[]
         {
@@ -51,8 +53,8 @@ public partial class ToolbarViewModel : ObservableObject,
             _buttonLookup[id] = btn;
             _dwellDetector.AddTarget(new DwellTarget(id,
                 new ScreenPoint(0, 0),
-                DpiHelper.LogicalToPhysicalX(toolbarSettings.Size / 2),
-                dwellSettings.ToolbarButtonDwellMs));
+                DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2),
+                settings.Dwell.ToolbarButtonDwellMs));
         }
 
         _dwellDetector.TargetActivated += OnTargetActivated;
@@ -93,5 +95,16 @@ public partial class ToolbarViewModel : ObservableObject,
     {
         if (_buttonLookup.TryGetValue(targetId, out var btn))
             btn.DwellProgress = progress;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _dwellDetector.TargetActivated -= OnTargetActivated;
+        _dwellDetector.TargetProgress -= OnTargetProgress;
+        _messenger.UnregisterAll(this);
+        _disposed = true;
     }
 }

@@ -12,7 +12,7 @@ public class CursorCircleViewModelTests
     [Fact]
     public void UpdatesPosition_OnGazeCursorMovedMessage()
     {
-        var settings = new CursorSettings();
+        var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(100, 200), 0));
@@ -24,7 +24,10 @@ public class CursorCircleViewModelTests
     [Fact]
     public void ReadsAppearance_FromSettings()
     {
-        var settings = new CursorSettings { CircleSize = 50, CircleColor = "#FF0000", CircleOpacity = 0.8 };
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.CircleSize = 50;
+        settings.Cursor.CircleColor = "#FF0000";
+        settings.Cursor.CircleOpacity = 0.8;
         var vm = new CursorCircleViewModel(settings, _messenger);
 
         Assert.Equal(50, vm.Size);
@@ -35,7 +38,7 @@ public class CursorCircleViewModelTests
     [Fact]
     public void HidesWhenPaused_ShowsWhenResumed()
     {
-        var settings = new CursorSettings();
+        var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
         Assert.True(vm.IsVisible);
 
@@ -52,7 +55,7 @@ public class CursorCircleViewModelTests
     [InlineData(InteractionState.ZoomSelectionActionMenuVisible)]
     public void HidesDuringOverlayStates(InteractionState state)
     {
-        var settings = new CursorSettings();
+        var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
         var vm = new CursorCircleViewModel(settings, messenger);
 
@@ -64,7 +67,7 @@ public class CursorCircleViewModelTests
     [Fact]
     public void ShowsAgain_WhenReturningToFreeLook_FromActionMenu()
     {
-        var settings = new CursorSettings();
+        var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
         var vm = new CursorCircleViewModel(settings, messenger);
 

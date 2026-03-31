@@ -7,13 +7,13 @@ using EyeCtrl.ViewModels.Messages;
 
 public partial class KeyboardViewModel : ObservableObject,
     IRecipient<ShowKeyboardMessage>,
-    IRecipient<HideKeyboardMessage>
+    IRecipient<HideKeyboardMessage>,
+    IDisposable
 {
-    private const int EmojisPerPage = 40;
 
-    private readonly KeyboardSettings _kbSettings;
-    private readonly DwellSettings _dwellSettings;
+    private readonly EyeCtrlSettings _settings;
     private readonly IMessenger _messenger;
+    private bool _disposed;
 
     [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private bool _isShifted;
@@ -23,10 +23,9 @@ public partial class KeyboardViewModel : ObservableObject,
     [ObservableProperty] private string? _nearestKeyId;
     [ObservableProperty] private double _nearestKeyProgress;
 
-    public KeyboardViewModel(KeyboardSettings kbSettings, DwellSettings dwellSettings, IMessenger messenger)
+    public KeyboardViewModel(EyeCtrlSettings settings, IMessenger messenger)
     {
-        _kbSettings = kbSettings;
-        _dwellSettings = dwellSettings;
+        _settings = settings;
         _messenger = messenger;
         messenger.RegisterAll(this);
     }
@@ -67,7 +66,7 @@ public partial class KeyboardViewModel : ObservableObject,
 
     public int CalculateEmojiPageCount(int totalEmojis)
     {
-        return (int)Math.Ceiling((double)totalEmojis / EmojisPerPage);
+        return (int)Math.Ceiling((double)totalEmojis / UIConstants.EmojisPerPage);
     }
 
     public void NextEmojiPage(int totalEmojis)
@@ -79,5 +78,14 @@ public partial class KeyboardViewModel : ObservableObject,
     public void PreviousEmojiPage()
     {
         EmojiPage = Math.Max(0, EmojiPage - 1);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _messenger.UnregisterAll(this);
+        _disposed = true;
     }
 }

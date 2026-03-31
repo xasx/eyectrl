@@ -25,7 +25,7 @@ public class FixationDetector
             throw new ArgumentOutOfRangeException(nameof(fixationTimeMs), fixationTimeMs, "Fixation time must be positive.");
 
         _radiusPixels = fixationRadiusPixels;
-        _fixationTimeMicroseconds = fixationTimeMs * 1000L;
+        _fixationTimeMicroseconds = fixationTimeMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
     public void Update(ScreenPoint currentPoint, long timestampMicroseconds)

@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Keyboard;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
@@ -283,15 +284,15 @@ public partial class KeyboardWindow : OverlayWindow
         {
             // Same key — accumulate dwell
             long elapsed = timestampMicroseconds - _nearestKeyEnteredTimestamp;
-            double progress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * 1000L));
+            double progress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * MathConstants.MicrosecondsPerMillisecond));
             UpdateKeyVisual(nearestId, progress);
 
-            if (elapsed >= _keyDwellMs * 1000L)
+            if (elapsed >= _keyDwellMs * MathConstants.MicrosecondsPerMillisecond)
             {
                 ResetKeyVisual(nearestId);
                 _currentNearestKeyId = null;
                 // Use the configured cooldown time, converted from ms to μs
-                _keyCooldownEndTimestamp = timestampMicroseconds + (_cooldownMs * 1000L);
+                _keyCooldownEndTimestamp = timestampMicroseconds + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
                 OnKeyDwelled(nearestId);
             }
         }

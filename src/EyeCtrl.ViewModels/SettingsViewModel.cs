@@ -7,13 +7,14 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class SettingsViewModel : ObservableObject
+public partial class SettingsViewModel : ObservableObject, IDisposable
 {
     private const int ItemsPerPage = 6;
 
     private readonly EyeCtrlSettings _settings;
     private readonly SettingsService _settingsService;
     private readonly IMessenger _messenger;
+    private bool _disposed;
 
     [ObservableProperty] private int _currentPage;
     [ObservableProperty] private int _totalPages;
@@ -176,5 +177,15 @@ public partial class SettingsViewModel : ObservableObject
     {
         _settingsService.SaveDebounced(_settings);
         _messenger.Send(new SettingsChangedMessage());
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        // SettingsViewModel doesn't register message handlers, so no need to unregister
+        // However, we implement IDisposable for consistency and future-proofing
+        _disposed = true;
     }
 }

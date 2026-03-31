@@ -65,13 +65,13 @@ public class Win32InputSimulator : IInputSimulator
         if (deltaY != 0)
         {
             var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_WHEEL);
-            input.Union.Mouse.MouseData = deltaY * 120;
+            input.Union.Mouse.MouseData = deltaY * PlatformConstants.MouseWheelDelta;
             SendSingleInput(input);
         }
         if (deltaX != 0)
         {
             var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_HWHEEL);
-            input.Union.Mouse.MouseData = deltaX * 120;
+            input.Union.Mouse.MouseData = deltaX * PlatformConstants.MouseWheelDelta;
             SendSingleInput(input);
         }
     }

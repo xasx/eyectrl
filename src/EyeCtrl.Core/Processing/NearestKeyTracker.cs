@@ -11,7 +11,7 @@ public class NearestKeyTracker
 
     public NearestKeyTracker(int dwellTimeMs)
     {
-        _dwellTimeMicroseconds = dwellTimeMs * 1000L;
+        _dwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
     public void SetKeys(Dictionary<string, ScreenPoint> keys)

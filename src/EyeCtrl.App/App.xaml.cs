@@ -50,6 +50,14 @@ public partial class App : Application
     private WordPredictor? _wordPredictor;
     private string _appDataDir = null!;
 
+    // Event handlers for cleanup
+    private System.ComponentModel.PropertyChangedEventHandler? _cursorVmPropertyChangedHandler;
+    private System.ComponentModel.PropertyChangedEventHandler? _activationVmPropertyChangedHandler;
+    private System.ComponentModel.PropertyChangedEventHandler? _zoomVmPropertyChangedHandler;
+    private System.ComponentModel.PropertyChangedEventHandler? _zoomVmSideButtonsPropertyChangedHandler;
+    private System.ComponentModel.PropertyChangedEventHandler? _actionMenuVmPropertyChangedHandler;
+    private System.ComponentModel.PropertyChangedEventHandler? _toolbarVmPropertyChangedHandler;
+
     /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
     /// Activated by launching with --test-mode CLI argument.
@@ -130,15 +138,8 @@ public partial class App : Application
         services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
 
         // Settings (singleton instances)
+        // Only register root settings - sub-settings accessed via properties
         services.AddSingleton(settings);
-        services.AddSingleton(settings.Cursor);
-        services.AddSingleton(settings.Dwell);
-        services.AddSingleton(settings.Zoom);
-        services.AddSingleton(settings.ActionMenu);
-        services.AddSingleton(settings.Keyboard);
-        services.AddSingleton(settings.Toolbar);
-        services.AddSingleton(settings.Theme);
-        services.AddSingleton(settings.General);
         services.AddSingleton(sp => new SettingsService(
             settingsFilePath,
             sp.GetRequiredService<ILogger<SettingsService>>()));
@@ -244,7 +245,7 @@ public partial class App : Application
         bool settingsOpen = false;
 
         // CursorCircle: VM.Position -> window position, VM.IsVisible -> show/hide
-        cursorVM.PropertyChanged += (_, e) =>
+        _cursorVmPropertyChangedHandler = (_, e) =>
         {
             switch (e.PropertyName)
             {
@@ -257,9 +258,10 @@ public partial class App : Application
                     break;
             }
         };
+        cursorVM.PropertyChanged += _cursorVmPropertyChangedHandler;
 
         // ActivationButton: VM -> show/hide/dwell
-        activationVM.PropertyChanged += (_, e) =>
+        _activationVmPropertyChangedHandler = (_, e) =>
         {
             switch (e.PropertyName)
             {
@@ -284,11 +286,12 @@ public partial class App : Application
                     break;
             }
         };
+        activationVM.PropertyChanged += _activationVmPropertyChangedHandler;
 
         // ZoomOverlay: VM -> show/hide/reposition with fixation tracking
         Action<ScreenPoint, long>? zoomGazeHandler = null;
         System.ComponentModel.PropertyChangedEventHandler? zoomVisibilityHandler = null;
-        zoomVM.PropertyChanged += (_, e) =>
+        _zoomVmPropertyChangedHandler = (_, e) =>
         {
             if (e.PropertyName == nameof(ZoomOverlayViewModel.Center) && zoomVM.IsVisible)
             {
@@ -446,9 +449,10 @@ public partial class App : Application
                 }
             }
         };
+        zoomVM.PropertyChanged += _zoomVmPropertyChangedHandler;
 
         // ZoomSideButtons: VM -> show/hide/progress
-        zoomVM.PropertyChanged += (_, e) =>
+        _zoomVmSideButtonsPropertyChangedHandler = (_, e) =>
         {
             switch (e.PropertyName)
             {
@@ -466,6 +470,7 @@ public partial class App : Application
                     break;
             }
         };
+        zoomVM.PropertyChanged += _zoomVmSideButtonsPropertyChangedHandler;
 
         // ZoomCloseMessage -> exit zoom mode
         messenger.Register<ZoomCloseMessage>(this, (_, _) => Dispatcher.BeginInvoke(() =>
@@ -488,7 +493,7 @@ public partial class App : Application
         }));
 
         // ActionMenu: VM -> show/hide (still needs UpdateGaze for its internal DwellDetector rendering)
-        actionMenuVM.PropertyChanged += (_, e) =>
+        _actionMenuVmPropertyChangedHandler = (_, e) =>
         {
             if (e.PropertyName == nameof(ActionMenuViewModel.IsVisible))
             {
@@ -516,9 +521,10 @@ public partial class App : Application
                 }
             }
         };
+        actionMenuVM.PropertyChanged += _actionMenuVmPropertyChangedHandler;
 
         // Toolbar: VM state changes -> toolbar state
-        toolbarVM.PropertyChanged += (_, e) =>
+        _toolbarVmPropertyChangedHandler = (_, e) =>
         {
             switch (e.PropertyName)
             {
@@ -527,6 +533,7 @@ public partial class App : Application
                     break;
             }
         };
+        toolbarVM.PropertyChanged += _toolbarVmPropertyChangedHandler;
 
         // ── Message subscriptions for things NOT in ViewModels ──
 
@@ -773,6 +780,36 @@ public partial class App : Application
         gazeEngine.Stop();
         settingsService.Save(settings);
         _wordPredictor?.SaveUserDictionary();
+
+        // Unsubscribe from PropertyChanged events to prevent memory leaks
+        var cursorVM = _serviceProvider.GetRequiredService<CursorCircleViewModel>();
+        var activationVM = _serviceProvider.GetRequiredService<ActivationButtonViewModel>();
+        var zoomVM = _serviceProvider.GetRequiredService<ZoomOverlayViewModel>();
+        var actionMenuVM = _serviceProvider.GetRequiredService<ActionMenuViewModel>();
+        var toolbarVM = _serviceProvider.GetRequiredService<ToolbarViewModel>();
+
+        if (_cursorVmPropertyChangedHandler != null)
+            cursorVM.PropertyChanged -= _cursorVmPropertyChangedHandler;
+        if (_activationVmPropertyChangedHandler != null)
+            activationVM.PropertyChanged -= _activationVmPropertyChangedHandler;
+        if (_zoomVmPropertyChangedHandler != null)
+            zoomVM.PropertyChanged -= _zoomVmPropertyChangedHandler;
+        if (_zoomVmSideButtonsPropertyChangedHandler != null)
+            zoomVM.PropertyChanged -= _zoomVmSideButtonsPropertyChangedHandler;
+        if (_actionMenuVmPropertyChangedHandler != null)
+            actionMenuVM.PropertyChanged -= _actionMenuVmPropertyChangedHandler;
+        if (_toolbarVmPropertyChangedHandler != null)
+            toolbarVM.PropertyChanged -= _toolbarVmPropertyChangedHandler;
+
+        // Dispose all ViewModels to unregister message handlers
+        (cursorVM as IDisposable)?.Dispose();
+        (activationVM as IDisposable)?.Dispose();
+        (zoomVM as IDisposable)?.Dispose();
+        (actionMenuVM as IDisposable)?.Dispose();
+        (toolbarVM as IDisposable)?.Dispose();
+        (_serviceProvider.GetRequiredService<KeyboardViewModel>() as IDisposable)?.Dispose();
+        (_serviceProvider.GetRequiredService<ZoomGazeIndicatorViewModel>() as IDisposable)?.Dispose();
+        (_serviceProvider.GetRequiredService<SettingsViewModel>() as IDisposable)?.Dispose();
 
         var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
         adapter.Dispose();

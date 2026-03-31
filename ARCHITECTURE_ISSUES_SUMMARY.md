@@ -22,10 +22,11 @@ This document provides a quick reference to the 16 architectural issues identifi
 
 ### 2. Dual Event + Message Patterns
 - **Files:** Core layer (events) → GazeEngineAdapter (translation) → ViewModels (messages)
-- **Problem:** Inconsistent communication - both raw events AND MVVM messages for same data
-- **Impact:** Code duplication, cognitive load, difficult to trace flow
-- **Solution:** Migrate to message-only architecture, remove GazeEngineAdapter
-- **Effort:** 2-3 days
+- **Problem:** Some direct Core event subscriptions in App.xaml.cs bypass the adapter
+- **Impact:** Minor inconsistency, but current layering is actually correct
+- **Solution:** Move remaining direct subscriptions to GazeEngineAdapter, keep Core pure (no MVVM deps)
+- **Effort:** 1-2 days
+- **Note:** Original assessment was incorrect - Core using events + App using messages is proper layering
 
 ### 3. ViewModel Memory Leaks
 - **Files:** All ViewModels, App.xaml.cs event subscriptions
@@ -65,11 +66,12 @@ This document provides a quick reference to the 16 architectural issues identifi
 - **Solution:** Add validation in OnChanging methods or custom setters
 - **Effort:** 1-2 days
 
-### 8. DwellDetector Thread Safety
+### 8. DwellDetector Thread Safety [RESOLVED WITH CAVEAT]
 - **File:** `src/EyeCtrl.Core/Processing/DwellDetector.cs`
 - **Problem:** Uses ConcurrentDictionary but other fields not thread-safe
-- **Solution:** Add locking around Update() method
+- **Solution:** Added locking around Update() method ✅
 - **Effort:** 0.5 days
+- **Note:** Lock may be unnecessary since Update() is called from UI thread via Dispatcher. Consider removing for performance.
 
 ### 9. Large Procedural Window Classes
 - **Files:** SettingsWindow.xaml.cs (1,004 lines), KeyboardWindow.xaml.cs (897 lines)

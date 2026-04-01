@@ -40,7 +40,6 @@ public partial class App : Application
     private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
     private const int FadeInAnimationMs = 150; // Animation duration for activation button fade-in
     private const int FadeOutAnimationMs = 100; // Animation duration for activation button fade-out
-    private const double ScreenSizeMultiplier = 0.9; // Settings window size as fraction of screen
 
     private ServiceProvider _serviceProvider = null!;
     private System.Windows.Forms.NotifyIcon _trayIcon = null!;
@@ -93,7 +92,7 @@ public partial class App : Application
         if (IsTestMode)
         {
             var dpi = GetDpiForSystem();
-            var scale = dpi / DpiStandardScale;
+            var scale = dpi / (double)DpiStandardScale;
             DpiHelper.Initialize(scale, scale);
         }
 

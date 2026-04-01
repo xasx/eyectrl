@@ -35,7 +35,7 @@ public static class UIConstants
     public const int EmojisPerPage = 40;
 
     /// <summary>
-    /// Distance in physical pixels from the cursor circle edge to the center of the activation button.
+    /// Distance in logical pixels (DIPs) from the cursor circle edge to the center of the activation button.
     /// This determines how far the activation button appears from the cursor.
     /// </summary>
     public const int ActivationButtonOffset = 55;

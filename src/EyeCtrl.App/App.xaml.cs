@@ -29,7 +29,7 @@ using Serilog;
 public partial class App : Application
 {
     // UI Layout Constants
-    private const int ActivationButtonOffsetPixels = 55; // Distance from cursor circle edge to activation button center
+    private const int ActivationButtonOffsetPixels = 55; // Distance from cursor circle edge to activation button center (logical DIPs)
     private const int RetainedLogFileCount = 7; // Number of daily log files to keep
     private const long MicrosecondsPerMillisecond = 1000L; // Time conversion factor
     private const int DpiStandardScale = 96; // Standard Windows DPI (100% scaling)

@@ -29,9 +29,9 @@ using Serilog;
 public partial class App : Application
 {
     // UI Layout Constants
-    private const int ActivationButtonOffsetPixels = 55; // Distance from cursor circle edge to activation button center (logical DIPs)
+    private const int ActivationButtonOffsetPixels = 55; // Distance from cursor circle edge to activation button center (logical DIPs; name uses *Pixels* for historical reasons)
     private const int RetainedLogFileCount = 7; // Number of daily log files to keep
-    private const long MicrosecondsPerMillisecond = 1000L; // Time conversion factor
+    private const long MicrosecondsPerMillisecond = MathConstants.MicrosecondsPerMillisecond; // Time conversion factor (reused from EyeCtrl.Core.MathConstants)
     private const int DpiStandardScale = 96; // Standard Windows DPI (100% scaling)
     private const int DefaultScrollAmount = 3; // Default mouse wheel scroll delta
     private const int BackspaceVirtualKeyCode = 0x08;

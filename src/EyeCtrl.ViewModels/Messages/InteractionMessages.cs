@@ -21,6 +21,30 @@ public record ZoomCloseMessage;
 public record ZoomRecaptureMessage;
 public record ActionRequestedMessage(InteractionAction Action, ScreenPoint Point, bool IsFromZoom = false);
 
+// Zoom Fixation Service Messages
+/// <summary>
+/// Sent by ZoomFixationService when user completes fixation within zoom.
+/// Contains the precise screen point where fixation occurred (in zoom coordinates).
+/// </summary>
+public record ZoomFixationCompletedMessage(ScreenPoint PrecisePoint);
+
+/// <summary>
+/// Sent by ZoomFixationService to update the zoom gaze indicator position.
+/// Published at ~30Hz during zoom mode.
+/// </summary>
+public record UpdateZoomIndicatorPositionMessage(ScreenPoint GazePoint);
+
+/// <summary>
+/// Sent by ZoomFixationService to update fixation progress on the indicator.
+/// Progress ranges from 0.0 to 1.0.
+/// </summary>
+public record UpdateZoomIndicatorProgressMessage(double Progress);
+
+/// <summary>
+/// Sent by ZoomFixationService to reset the zoom indicator (abort fixation).
+/// </summary>
+public record ResetZoomIndicatorMessage;
+
 // ViewModel -> Core
 public record ActivationCompletedMessage;
 public record ActionSelectedMessage(InteractionAction Action);

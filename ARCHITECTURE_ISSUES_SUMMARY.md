@@ -13,20 +13,23 @@ This document provides a quick reference to the 16 architectural issues identifi
 
 ## Critical Issues (Priority 1) 🔴
 
-### 1. App.xaml.cs God Object
-- **File:** `src/EyeCtrl.App/App.xaml.cs` (771 lines)
+### 1. App.xaml.cs God Object [PARTIALLY RESOLVED]
+- **File:** `src/EyeCtrl.App/App.xaml.cs` (709 lines, down from 771)
 - **Problem:** Handles DI, logging, all ViewModels, all overlays, complex event chains with manual cleanup
 - **Impact:** Unmaintainable, hard to test, tight coupling
 - **Solution:** Extract to AppBootstrapper, OverlayManager, Event Aggregator
-- **Effort:** 3-4 days
+- **Progress:** ✅ Zoom fixation logic extracted to ZoomFixationService (160 lines removed)
+- **Remaining:** Extract other overlay management, DI setup
+- **Effort:** 2-3 days (down from 3-4 days)
 
-### 2. Dual Event + Message Patterns
+### 2. Dual Event + Message Patterns [RESOLVED ✅]
 - **Files:** Core layer (events) → GazeEngineAdapter (translation) → ViewModels (messages)
-- **Problem:** Some direct Core event subscriptions in App.xaml.cs bypass the adapter
+- **Problem:** Direct Core event subscriptions in App.xaml.cs bypass the adapter
 - **Impact:** Minor inconsistency, but current layering is actually correct
-- **Solution:** Move remaining direct subscriptions to GazeEngineAdapter, keep Core pure (no MVVM deps)
-- **Effort:** 1-2 days
-- **Note:** Original assessment was incorrect - Core using events + App using messages is proper layering
+- **Solution:** Move remaining direct subscriptions to service layer, keep Core pure (no MVVM deps)
+- **Status:** COMPLETED - ZoomFixationService now handles zoom fixation via messages
+- **Result:** All zoom-related communication is message-based; toolbar/keyboard/settings still use direct gaze routing (acceptable for legacy windows)
+- **Effort:** 3 days (completed)
 
 ### 3. ViewModel Memory Leaks
 - **Files:** All ViewModels, App.xaml.cs event subscriptions

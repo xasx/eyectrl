@@ -66,12 +66,13 @@ This document provides a quick reference to the 16 architectural issues identifi
 - **Solution:** Add validation in OnChanging methods or custom setters
 - **Effort:** 1-2 days
 
-### 8. DwellDetector Thread Safety [RESOLVED WITH CAVEAT]
+### 8. DwellDetector Thread Safety [RESOLVED - NO LOCKING NEEDED]
 - **File:** `src/EyeCtrl.Core/Processing/DwellDetector.cs`
 - **Problem:** Uses ConcurrentDictionary but other fields not thread-safe
-- **Solution:** Added locking around Update() method ✅
-- **Effort:** 0.5 days
-- **Note:** Lock may be unnecessary since Update() is called from UI thread via Dispatcher. Consider removing for performance.
+- **Solution:** Documented single-threaded requirement; no locking needed ✅
+- **Rationale:** All gaze events marshaled to UI thread via `GazeEngineAdapter` using `Dispatcher.BeginInvoke()`, ensuring single-threaded access
+- **Effort:** 0.5 days (investigation + documentation)
+- **Result:** Class documented as single-threaded; architectural guarantee provided by event marshaling
 
 ### 9. Large Procedural Window Classes
 - **Files:** SettingsWindow.xaml.cs (1,004 lines), KeyboardWindow.xaml.cs (897 lines)

@@ -1,5 +1,7 @@
 namespace EyeCtrl.ViewModels;
 
+using EyeCtrl.Core;
+
 /// <summary>
 /// UI-related constants for button sizes, gaps, and layout calculations.
 /// These constants define the visual appearance and spacing of UI elements.
@@ -9,13 +11,13 @@ public static class UIConstants
     /// <summary>
     /// Default radius for circular buttons (activation button, action menu buttons, zoom side buttons) in logical pixels.
     /// </summary>
-    public const double ButtonRadius = 50.0;
+    public const double ButtonRadius = LayoutConstants.ActionMenuButtonRadius;
 
     /// <summary>
     /// Gap between the cursor circle edge and the action menu button ring in logical pixels.
     /// This defines how far action menu buttons are positioned from the cursor circle.
     /// </summary>
-    public const double ActionMenuButtonOuterGap = 20.0;
+    public const double ActionMenuButtonOuterGap = LayoutConstants.ActionMenuButtonOuterGap;
 
     /// <summary>
     /// Gap between the zoom overlay edge and side buttons in logical pixels.

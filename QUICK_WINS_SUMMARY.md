@@ -109,64 +109,64 @@ public enum InteractionState
 
 ---
 
-### 3. Issue #8: Add DwellDetector Thread Safety
+### 3. Issue #8: DwellDetector Thread Safety Review
 **Agent:** general-purpose
 **Estimated Time:** 0.5 days
 **Actual Status:** ✅ Complete
 
 #### Changes Made
 - **Files Modified:** 1 file
-- **Locking Added:** 5 methods protected with lock
-- **Documentation Added:** Comprehensive XML comments
+- **Locking Removed:** Lock was added then removed after architecture review
+- **Documentation Added:** Comprehensive XML comments documenting single-threaded requirement
 
 #### Code Changes
 **File:** `src/EyeCtrl.Core/Processing/DwellDetector.cs`
 
-**Added Lock Object:**
-```csharp
-// Thread synchronization for shared mutable state
-private readonly object _lock = new();
-```
+**Architecture Decision:**
+After review, determined that locking is **not necessary** because:
+1. All gaze events are marshaled to the UI thread via `GazeEngineAdapter` using `Dispatcher.BeginInvoke()`
+2. `DwellDetector.Update()` is always called from the UI thread, ensuring no concurrent access
+3. Adding locks would introduce unnecessary overhead (~30-60 calls/sec)
 
-**Protected Methods:**
-1. **`SetCooldown(int cooldownMs)`** - Protects `_cooldownMicroseconds` write
-2. **`UpdateTargetCenter(string id, ScreenPoint newCenter)`** - Protects target center updates
-3. **`Update(ScreenPoint gazePoint, long timestampMicroseconds)`** - Protects all shared state access
-4. **`GetProgress(string targetId)`** - Protects progress calculation reads
-
-**Example Implementation:**
+**Final Implementation:**
 ```csharp
-public void Update(ScreenPoint gazePoint, long timestampMicroseconds)
+/// <summary>
+/// Dwell detector for gaze-based interactions.
+/// IMPORTANT: This class is designed for single-threaded use. All public methods must be called
+/// from the same thread (typically the UI thread via Dispatcher). The GazeEngineAdapter ensures
+/// this by marshaling all gaze events to the UI thread using Dispatcher.BeginInvoke().
+/// </summary>
+public class DwellDetector
 {
-    lock (_lock)
-    {
-        // All existing logic protected by lock
-        // Reads/writes to _lastTimestamp, _lastActivationTimestamp, etc.
-    }
+    private readonly ConcurrentDictionary<string, DwellTarget> _targets = new();
+    // ... no lock object needed
 }
 ```
 
 #### Thread Safety Analysis
-**Protected Fields:**
-- ✅ `_cooldownMicroseconds` - Now protected in SetCooldown() and Update()
-- ✅ `_lastTimestamp` - Now protected in Update() and GetProgress()
-- ✅ `_lastActivationTimestamp` - Now protected in Update()
-- ✅ `DwellTarget` properties - All mutable properties protected
+**Architectural Guarantee:**
+- ✅ `GazeEngineAdapter` marshals all events to UI thread via `Dispatcher.BeginInvoke()`
+- ✅ Single-threaded execution guaranteed by design
+- ✅ No concurrent access possible in current architecture
 
-**Already Thread-Safe:**
-- ✅ `_targets` (ConcurrentDictionary) - Already thread-safe for add/remove
-- ✅ Event invocation - Safe to invoke under lock
+**Thread-Safe Fields:**
+- ✅ `_targets` (ConcurrentDictionary) - Thread-safe for concurrent target management
+
+**Single-Threaded Fields (Safe due to UI thread marshaling):**
+- ✅ `_cooldownMicroseconds` - Only accessed from UI thread
+- ✅ `_lastTimestamp` - Only accessed from UI thread
+- ✅ `_lastActivationTimestamp` - Only accessed from UI thread
 
 #### Documentation Added
-- Class-level XML documentation explaining thread safety guarantees
-- Method-level comments indicating safe background thread usage
-- Inline comments explaining lock protection scope
+- Class-level XML documentation explaining single-threaded requirement
+- Method-level comments documenting UI thread assumption
+- Clear documentation that `GazeEngineAdapter` ensures thread safety via marshaling
 
 #### Benefits
-- **Prevents Race Conditions:** Eliminates potential data corruption from concurrent access
-- **Proper Synchronization:** All shared mutable state now protected
-- **Clear Documentation:** Thread safety guarantees explicitly documented
-- **Minimal Performance Impact:** Simple lock with low contention (30-60 Hz update rate)
+- **No Performance Overhead:** Removed unnecessary locking from hot path
+- **Architectural Clarity:** Documents the UI thread marshaling pattern
+- **Simpler Code:** No lock management needed
+- **Clear Constraints:** Single-threaded requirement explicitly documented
 
 ---
 

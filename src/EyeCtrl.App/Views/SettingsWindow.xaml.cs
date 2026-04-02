@@ -30,7 +30,6 @@ public partial class SettingsWindow : OverlayWindow
     private const int PaginationButtonWidth = 100;
     private const int PaginationButtonHeight = 80;
     private const int PaginationSymbolFontSize = 30;
-    private const double PaginationInactiveOpacity = 0.3;
 
     private static readonly Color BtnBase = Color.FromArgb(200, 60, 60, 80);
     private static readonly Color TabActive = Color.FromArgb(200, 40, 90, 160);

@@ -9,9 +9,11 @@ using EyeCtrl.ViewModels.Messages;
 public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     IRecipient<StartZoomMessage>,
     IRecipient<EndZoomMessage>,
+    IRecipient<UpdateZoomIndicatorPositionMessage>,
+    IRecipient<UpdateZoomIndicatorProgressMessage>,
+    IRecipient<ResetZoomIndicatorMessage>,
     IDisposable
 {
-    private readonly EyeCtrlSettings _settings;
     private readonly IMessenger _messenger;
     private bool _disposed;
 
@@ -33,16 +35,27 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     private ScreenPoint _zoomWindowCenter = new(0, 0);    // Display center (may be screen center)
     private double _magnification = 1.0;
 
-    public double CenterDotDiameter => _settings.Zoom.GazeIndicatorCenterDotDiameter;
-    public double StrokeThickness => _settings.Zoom.GazeIndicatorStrokeThickness;
-    public double Opacity => _settings.Zoom.GazeIndicatorOpacity;
+    public double CenterDotDiameter { get; private set; }
+    public double StrokeThickness { get; private set; }
+    public double Opacity { get; private set; }
+    public int ResetAnimationMs { get; private set; }
 
-    public ZoomGazeIndicatorViewModel(EyeCtrlSettings settings, IMessenger messenger)
+    public ZoomGazeIndicatorViewModel(IMessenger messenger)
     {
-        _settings = settings;
         _messenger = messenger;
-        _outerCircleDiameter = settings.Zoom.GazeIndicatorOuterDiameter;
         messenger.RegisterAll(this);
+    }
+
+    /// <summary>
+    /// Configure the indicator with settings. Called once at startup.
+    /// </summary>
+    public void Configure(EyeCtrlSettings settings)
+    {
+        _outerCircleDiameter = settings.Zoom.GazeIndicatorOuterDiameter;
+        CenterDotDiameter = settings.Zoom.GazeIndicatorCenterDotDiameter;
+        StrokeThickness = settings.Zoom.GazeIndicatorStrokeThickness;
+        Opacity = settings.Zoom.GazeIndicatorOpacity;
+        ResetAnimationMs = settings.Zoom.GazeIndicatorResetAnimationMs;
     }
 
     public void Receive(StartZoomMessage message)
@@ -54,7 +67,7 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
         // The zoom window center is where the overlay is displayed (gaze point in AtGaze mode, screen center in AtCenter mode)
         _zoomWindowCenter = message.Center;
 
-        OuterCircleDiameter = _settings.Zoom.GazeIndicatorOuterDiameter;
+        OuterCircleDiameter = _outerCircleDiameter;
         FixationProgress = 0.0;
         IsVisible = true;
     }
@@ -63,7 +76,22 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     {
         IsVisible = false;
         FixationProgress = 0.0;
-        OuterCircleDiameter = _settings.Zoom.GazeIndicatorOuterDiameter;
+        OuterCircleDiameter = _outerCircleDiameter;
+    }
+
+    public void Receive(UpdateZoomIndicatorPositionMessage message)
+    {
+        UpdateGazePosition(message.GazePoint);
+    }
+
+    public void Receive(UpdateZoomIndicatorProgressMessage message)
+    {
+        UpdateFixationProgress(message.Progress);
+    }
+
+    public void Receive(ResetZoomIndicatorMessage message)
+    {
+        ResetFixation();
     }
 
     /// <summary>
@@ -93,8 +121,8 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
         var eased = progress * progress;
 
         // Interpolate diameter: outerDiameter → centerDotDiameter
-        var maxDiam = _settings.Zoom.GazeIndicatorOuterDiameter;
-        var minDiam = _settings.Zoom.GazeIndicatorCenterDotDiameter;
+        var maxDiam = _outerCircleDiameter;
+        var minDiam = CenterDotDiameter;
         OuterCircleDiameter = maxDiam - (maxDiam - minDiam) * eased;
     }
 
@@ -107,10 +135,8 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
         FixationProgress = 0.0;
         // OuterCircleDiameter will be animated back to full by the window code-behind
         // using the ResetAnimationMs duration. We set the target here.
-        OuterCircleDiameter = _settings.Zoom.GazeIndicatorOuterDiameter;
+        OuterCircleDiameter = _outerCircleDiameter;
     }
-
-    public int ResetAnimationMs => _settings.Zoom.GazeIndicatorResetAnimationMs;
 
     public void Dispose()
     {

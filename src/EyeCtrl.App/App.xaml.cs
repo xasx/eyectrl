@@ -175,6 +175,15 @@ public partial class App : Application
             Dispatcher,
             sp.GetRequiredService<ILogger<GazeEngineAdapter>>()));
 
+        // ZoomFixationService (handles zoom fixation detection and indicator updates)
+        services.AddSingleton(sp => new ZoomFixationService(
+            sp.GetRequiredService<IMessenger>(),
+            sp.GetRequiredService<ILogger<ZoomFixationService>>(),
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            Dispatcher,
+            sp.GetRequiredService<ZoomGazeIndicatorViewModel>(),
+            sp.GetRequiredService<GazeEngine>().InteractionManager));
+
         _serviceProvider = services.BuildServiceProvider();
 
         // ── Resolve services ──
@@ -201,6 +210,12 @@ public partial class App : Application
 
         // Resolve adapter (triggers Core event subscriptions)
         _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
+
+        // Resolve ZoomFixationService (triggers message subscriptions)
+        _ = _serviceProvider.GetRequiredService<ZoomFixationService>();
+
+        // Configure zoom indicator with settings
+        zoomIndicatorVM.Configure(settings);
 
         // ── Create overlay windows ──
         var cursorCircle = new CursorCircleWindow();
@@ -277,9 +292,7 @@ public partial class App : Application
             }
         };
 
-        // ZoomOverlay: VM -> show/hide/reposition with fixation tracking
-        Action<ScreenPoint, long>? zoomGazeHandler = null;
-        System.ComponentModel.PropertyChangedEventHandler? zoomVisibilityHandler = null;
+        // ZoomOverlay: VM -> show/hide/reposition
         zoomVM.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ZoomOverlayViewModel.Center) && zoomVM.IsVisible)
@@ -297,139 +310,6 @@ public partial class App : Application
 
                     zoomOverlay.Show(zoomVM.Center, zoomVM.Radius, zoomVM.Magnification, zoomVM.GazePoint);
                     zoomIndicator.Show();
-
-                    // Unsubscribe previous handlers to prevent accumulation
-                    if (zoomGazeHandler != null)
-                        gazeEngine.CursorMoved -= zoomGazeHandler;
-                    if (zoomVisibilityHandler != null)
-                        zoomVM.PropertyChanged -= zoomVisibilityHandler;
-
-                    // Set up zoom fixation detection
-                    var zoomFixation = new FixationDetector(
-                        settings.Dwell.FixationRadiusPixels / settings.Zoom.MagnificationLevel,
-                        settings.Dwell.FixationDetectionMs);
-                    zoomFixation.FixationStarted += zoomPoint =>
-                    {
-                        // GetRealScreenPoint accesses WPF DependencyProperties (Left, Width)
-                        // and must run on the UI thread — move the entire body into BeginInvoke
-                        Dispatcher.BeginInvoke(() =>
-                        {
-                            try
-                            {
-                                zoomIndicator.Hide();
-                                var realPoint = zoomOverlay.GetRealScreenPoint(zoomPoint);
-                                im.OnZoomFixation(realPoint);
-                            }
-                            catch (Exception ex)
-                            {
-                                Log.Error(ex, "Error in zoom fixation started handler");
-                            }
-                        });
-                    };
-                    zoomFixation.FixationEnded += () =>
-                    {
-                        Dispatcher.BeginInvoke(() =>
-                        {
-                            try
-                            {
-                                if (!zoomIndicator.IsVisible) return; // already hidden by fixation completion
-                                zoomIndicatorVM.ResetFixation();
-                                zoomIndicator.AnimateReset(
-                                    settings.Zoom.GazeIndicatorOuterDiameter,
-                                    settings.Zoom.GazeIndicatorResetAnimationMs);
-                            }
-                            catch (Exception ex)
-                            {
-                                Log.Error(ex, "Error in zoom fixation ended handler");
-                            }
-                        });
-                    };
-
-                    // Feed gaze data to zoom fixation detector when in zoom mode
-                    var zoomStartTimestamp = 0L;
-                    var gracePeriodUs = settings.Zoom.ZoomGracePeriodMs * MicrosecondsPerMillisecond;
-                    var graceStarted = false;
-
-                    zoomGazeHandler = (pt, ts) =>
-                    {
-                        if (im.CurrentState != InteractionState.ZoomSelectionActive) return;
-
-                        // Update indicator position (even during grace period)
-                        Dispatcher.BeginInvoke(() =>
-                        {
-                            try
-                            {
-                                zoomIndicatorVM.UpdateGazePosition(pt);
-                                zoomIndicator.UpdatePosition(zoomIndicatorVM.IndicatorX, zoomIndicatorVM.IndicatorY);
-                            }
-                            catch (Exception ex)
-                            {
-                                Log.Error(ex, "Error updating zoom indicator position");
-                            }
-                        });
-
-                        // Record the first timestamp as zoom start
-                        if (!graceStarted)
-                        {
-                            zoomStartTimestamp = ts;
-                            graceStarted = true;
-                        }
-
-                        // Skip gaze data during grace period
-                        if ((ts - zoomStartTimestamp) < gracePeriodUs) return;
-
-                        // Reject gaze outside the zoom circle.
-                        // pt and zoomVM.Center are both physical px (gaze coords / FixationPoint, never scaled).
-                        // CircleRadiusPixels is logical DIP, so multiply by ScaleX to match.
-                        var physicalZoomRadius = settings.Zoom.CircleRadiusPixels * DpiHelper.ScaleX;
-                        var dx = pt.X - zoomVM.Center.X;
-                        var dy = pt.Y - zoomVM.Center.Y;
-                        if (dx * dx + dy * dy > physicalZoomRadius * physicalZoomRadius)
-                        {
-                            zoomFixation.Reset();
-                            // FixationDetector.Reset() does NOT fire FixationEnded, so reset UI manually:
-                            Dispatcher.BeginInvoke(() =>
-                            {
-                                try
-                                {
-                                    zoomIndicatorVM.ResetFixation();
-                                    zoomIndicator.AnimateReset(
-                                        settings.Zoom.GazeIndicatorOuterDiameter,
-                                        settings.Zoom.GazeIndicatorResetAnimationMs);
-                                }
-                                catch (Exception ex)
-                                {
-                                    Log.Error(ex, "Error resetting zoom indicator after gaze moved outside");
-                                }
-                            });
-                            return;
-                        }
-
-                        zoomFixation.Update(pt, ts);
-                        // Update fixation progress on indicator
-                        var progress = zoomFixation.GetProgress();
-                        Dispatcher.BeginInvoke(() =>
-                        {
-                            try
-                            {
-                                zoomIndicatorVM.UpdateFixationProgress(progress);
-                                zoomIndicator.UpdateOuterDiameter(zoomIndicatorVM.OuterCircleDiameter);
-                            }
-                            catch (Exception ex)
-                            {
-                                Log.Error(ex, "Error updating zoom fixation progress");
-                            }
-                        });
-                    };
-                    gazeEngine.CursorMoved += zoomGazeHandler;
-
-                    // Unsubscribe CursorMoved when zoom ends
-                    zoomVisibilityHandler = (_, e2) =>
-                    {
-                        if (e2.PropertyName == nameof(ZoomOverlayViewModel.IsVisible) && !zoomVM.IsVisible)
-                            gazeEngine.CursorMoved -= zoomGazeHandler;
-                    };
-                    zoomVM.PropertyChanged += zoomVisibilityHandler;
                 }
                 else
                 {
@@ -438,6 +318,56 @@ public partial class App : Application
                 }
             }
         };
+
+        // ZoomGazeIndicator: VM property changes -> window updates
+        zoomIndicatorVM.PropertyChanged += (_, e) =>
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(ZoomGazeIndicatorViewModel.IndicatorX):
+                case nameof(ZoomGazeIndicatorViewModel.IndicatorY):
+                    zoomIndicator.UpdatePosition(zoomIndicatorVM.IndicatorX, zoomIndicatorVM.IndicatorY);
+                    break;
+                case nameof(ZoomGazeIndicatorViewModel.OuterCircleDiameter):
+                    zoomIndicator.UpdateOuterDiameter(zoomIndicatorVM.OuterCircleDiameter);
+                    break;
+                case nameof(ZoomGazeIndicatorViewModel.IsVisible):
+                    if (zoomIndicatorVM.IsVisible) zoomIndicator.Show();
+                    else zoomIndicator.Hide();
+                    break;
+            }
+        };
+
+        // ZoomFixationCompleted: Handle coordinate conversion and call InteractionManager
+        messenger.Register<ZoomFixationCompletedMessage>(this, (_, msg) => Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                zoomIndicator.Hide();
+                var realPoint = zoomOverlay.GetRealScreenPoint(msg.PrecisePoint);
+                im.OnZoomFixation(realPoint);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error handling zoom fixation completion");
+            }
+        }));
+
+        // ResetZoomIndicator: Trigger animation on window
+        messenger.Register<ResetZoomIndicatorMessage>(this, (_, msg) => Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                if (!zoomIndicator.IsVisible) return; // already hidden
+                zoomIndicator.AnimateReset(
+                    zoomIndicatorVM.OuterCircleDiameter,
+                    zoomIndicatorVM.ResetAnimationMs);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error animating zoom indicator reset");
+            }
+        }));
 
         // ZoomSideButtons: VM -> show/hide/progress
         zoomVM.PropertyChanged += (_, e) =>
@@ -458,7 +388,6 @@ public partial class App : Application
                     break;
             }
         };
-        zoomVM.PropertyChanged += _zoomVmSideButtonsPropertyChangedHandler;
 
         // ZoomCloseMessage -> exit zoom mode
         messenger.Register<ZoomCloseMessage>(this, (_, _) => Dispatcher.BeginInvoke(() =>
@@ -768,7 +697,9 @@ public partial class App : Application
         _wordPredictor?.SaveUserDictionary();
 
         var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
+        var zoomFixationService = _serviceProvider.GetRequiredService<ZoomFixationService>();
         adapter.Dispose();
+        zoomFixationService.Dispose();
         gazeEngine.Dispose();
         _serviceProvider.Dispose();
 

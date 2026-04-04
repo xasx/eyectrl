@@ -1,20 +1,26 @@
 namespace EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Models;
 
+/// <summary>
+/// Manages the interaction state machine for gaze-based interactions.
+/// All point coordinates are in physical screen pixels.
+/// </summary>
 public class InteractionManager
 {
     public InteractionState CurrentState { get; private set; } = InteractionState.FreeLook;
     public bool ZoomEnabled { get; set; }
-    public ScreenPoint? FixationPoint { get; private set; }
-    public ScreenPoint? ZoomFixationPoint { get; private set; }
+    /// <summary>Initial fixation point in physical screen pixels.</summary>
+    public PhysicalPoint? FixationPoint { get; private set; }
+    /// <summary>Precise zoom fixation point in physical screen pixels.</summary>
+    public PhysicalPoint? ZoomFixationPoint { get; private set; }
 
     public event Action<InteractionState>? StateChanged;
-    public event Action<InteractionAction, ScreenPoint>? ActionRequested;
-    public event Action<ScreenPoint>? ShowActivationButton;
+    public event Action<InteractionAction, PhysicalPoint>? ActionRequested;
+    public event Action<PhysicalPoint>? ShowActivationButton;
     public event Action? HideActivationButton;
-    public event Action<ScreenPoint>? ShowActionMenu;
+    public event Action<PhysicalPoint>? ShowActionMenu;
     public event Action? HideActionMenu;
-    public event Action<ScreenPoint>? StartZoom;
+    public event Action<PhysicalPoint>? StartZoom;
     public event Action? EndZoom;
     public event Action? HideZoom;
 
@@ -24,7 +30,11 @@ public class InteractionManager
         StateChanged?.Invoke(newState);
     }
 
-    public void OnFixationStarted(ScreenPoint point)
+    /// <summary>
+    /// Called when fixation starts.
+    /// </summary>
+    /// <param name="point">Fixation point in physical screen pixels</param>
+    public void OnFixationStarted(PhysicalPoint point)
     {
         if (CurrentState != InteractionState.FreeLook) return;
         FixationPoint = point;
@@ -48,17 +58,21 @@ public class InteractionManager
 
         if (ZoomEnabled)
         {
-            StartZoom?.Invoke(FixationPoint!);
+            StartZoom?.Invoke(FixationPoint!.Value);
             SetState(InteractionState.ZoomSelectionActive);
         }
         else
         {
-            ShowActionMenu?.Invoke(FixationPoint!);
+            ShowActionMenu?.Invoke(FixationPoint!.Value);
             SetState(InteractionState.ActionMenuVisible);
         }
     }
 
-    public void OnZoomFixation(ScreenPoint precisePoint)
+    /// <summary>
+    /// Called when zoom fixation completes.
+    /// </summary>
+    /// <param name="precisePoint">Precise fixation point in physical screen pixels</param>
+    public void OnZoomFixation(PhysicalPoint precisePoint)
     {
         if (CurrentState != InteractionState.ZoomSelectionActive) return;
         ZoomFixationPoint = precisePoint;
@@ -69,7 +83,7 @@ public class InteractionManager
 
     public void OnActionSelected(InteractionAction action)
     {
-        ScreenPoint? targetPoint = CurrentState switch
+        PhysicalPoint? targetPoint = CurrentState switch
         {
             InteractionState.ActionMenuVisible => FixationPoint,
             InteractionState.ZoomSelectionActionMenuVisible => ZoomFixationPoint,
@@ -82,7 +96,7 @@ public class InteractionManager
         if (CurrentState == InteractionState.ZoomSelectionActionMenuVisible)
             EndZoom?.Invoke();
 
-        ActionRequested?.Invoke(action, targetPoint);
+        ActionRequested?.Invoke(action, targetPoint.Value);
         ResetToFreeLook();
     }
 
@@ -94,7 +108,7 @@ public class InteractionManager
             HideActionMenu?.Invoke();
             ZoomFixationPoint = null;
             SetState(InteractionState.ZoomSelectionActive);
-            StartZoom?.Invoke(FixationPoint!);
+            StartZoom?.Invoke(FixationPoint!.Value);
         }
         else if (CurrentState == InteractionState.ZoomSelectionActive)
         {

@@ -27,7 +27,7 @@ public class DwellDetectorThreadSafetyTests
                 {
                     for (int j = 0; j < 100; j++)
                     {
-                        var target = new DwellTarget($"target-{index}-{j}", new ScreenPoint(100, 100), 50, 200);
+                        var target = new DwellTarget($"target-{index}-{j}", new PhysicalPoint(100, 100), 50, 200);
                         detector.AddTarget(target);
                         Thread.Sleep(1); // Small delay to increase chance of race condition
                         detector.RemoveTarget($"target-{index}-{j}");
@@ -59,7 +59,7 @@ public class DwellDetectorThreadSafetyTests
         // Add initial targets
         for (int i = 0; i < 5; i++)
         {
-            detector.AddTarget(new DwellTarget($"target-{i}", new ScreenPoint(100 + i * 50, 100), 50, 200));
+            detector.AddTarget(new DwellTarget($"target-{i}", new PhysicalPoint(100 + i * 50, 100), 50, 200));
         }
 
         // Thread 1: Continuously update with gaze points
@@ -69,7 +69,7 @@ public class DwellDetectorThreadSafetyTests
             {
                 for (int i = 0; i < 500; i++)
                 {
-                    detector.Update(new ScreenPoint(100, 100), i * 1000L);
+                    detector.Update(new PhysicalPoint(100, 100), i * 1000L);
                     Thread.Sleep(1);
                 }
             }
@@ -89,7 +89,7 @@ public class DwellDetectorThreadSafetyTests
             {
                 for (int i = 0; i < 100; i++)
                 {
-                    detector.AddTarget(new DwellTarget($"dynamic-{i}", new ScreenPoint(200, 200), 50, 200));
+                    detector.AddTarget(new DwellTarget($"dynamic-{i}", new PhysicalPoint(200, 200), 50, 200));
                     Thread.Sleep(2);
                     detector.RemoveTarget($"dynamic-{i}");
                     Thread.Sleep(2);
@@ -119,7 +119,7 @@ public class DwellDetectorThreadSafetyTests
         // Add targets
         for (int i = 0; i < 5; i++)
         {
-            detector.AddTarget(new DwellTarget($"target-{i}", new ScreenPoint(100 + i * 20, 100), 30, 100));
+            detector.AddTarget(new DwellTarget($"target-{i}", new PhysicalPoint(100 + i * 20, 100), 30, 100));
         }
 
         // Event handler that modifies collection when target is activated
@@ -131,7 +131,7 @@ public class DwellDetectorThreadSafetyTests
                 detector.RemoveTarget(id);
 
                 // And potentially adds new ones
-                var newTarget = new DwellTarget($"new-{id}", new ScreenPoint(500, 500), 50, 200);
+                var newTarget = new DwellTarget($"new-{id}", new PhysicalPoint(500, 500), 50, 200);
                 detector.AddTarget(newTarget);
             }
             catch (Exception ex)
@@ -146,7 +146,7 @@ public class DwellDetectorThreadSafetyTests
         // Trigger activations by dwelling on each target
         for (int i = 0; i < 5; i++)
         {
-            var point = new ScreenPoint(100 + i * 20, 100);
+            var point = new PhysicalPoint(100 + i * 20, 100);
 
             // Dwell for enough time to trigger activation
             for (int t = 0; t < 15; t++)
@@ -183,7 +183,7 @@ public class DwellDetectorThreadSafetyTests
             {
                 for (int i = 0; i < 100; i++)
                 {
-                    detector.AddTarget(new DwellTarget($"target-{i}", new ScreenPoint(100, 100), 50, 200));
+                    detector.AddTarget(new DwellTarget($"target-{i}", new PhysicalPoint(100, 100), 50, 200));
                     Thread.Sleep(1);
                 }
             }
@@ -223,7 +223,7 @@ public class DwellDetectorThreadSafetyTests
             {
                 for (int i = 0; i < 200; i++)
                 {
-                    detector.Update(new ScreenPoint(100, 100), i * 1000L);
+                    detector.Update(new PhysicalPoint(100, 100), i * 1000L);
                     Thread.Sleep(1);
                 }
             }
@@ -251,7 +251,7 @@ public class DwellDetectorThreadSafetyTests
         // Add targets
         for (int i = 0; i < 10; i++)
         {
-            detector.AddTarget(new DwellTarget($"target-{i}", new ScreenPoint(100, 100), 50, 200));
+            detector.AddTarget(new DwellTarget($"target-{i}", new PhysicalPoint(100, 100), 50, 200));
         }
 
         var tasks = new List<Task>();
@@ -268,7 +268,7 @@ public class DwellDetectorThreadSafetyTests
                     {
                         for (int j = 0; j < 10; j++)
                         {
-                            detector.UpdateTargetCenter($"target-{j}", new ScreenPoint(100 + threadId, 100 + i));
+                            detector.UpdateTargetCenter($"target-{j}", new PhysicalPoint(100 + threadId, 100 + i));
                         }
                         Thread.Sleep(1);
                     }
@@ -290,7 +290,7 @@ public class DwellDetectorThreadSafetyTests
             {
                 for (int i = 0; i < 500; i++)
                 {
-                    detector.Update(new ScreenPoint(100, 100), i * 1000L);
+                    detector.Update(new PhysicalPoint(100, 100), i * 1000L);
                     Thread.Sleep(1);
                 }
             }
@@ -326,7 +326,7 @@ public class DwellDetectorThreadSafetyTests
                 long timestamp = 0;
                 while (stopwatch.ElapsedMilliseconds < 1000) // Run for 1 second
                 {
-                    detector.Update(new ScreenPoint(100 + (timestamp % 100), 100), timestamp);
+                    detector.Update(new PhysicalPoint(100 + (timestamp % 100), 100), timestamp);
                     timestamp += 33_333; // ~30 Hz
                     Thread.Sleep(33);
                 }
@@ -348,7 +348,7 @@ public class DwellDetectorThreadSafetyTests
                 int counter = 0;
                 while (stopwatch.ElapsedMilliseconds < 1000)
                 {
-                    detector.AddTarget(new DwellTarget($"ui-target-{counter}", new ScreenPoint(150, 150), 50, 200));
+                    detector.AddTarget(new DwellTarget($"ui-target-{counter}", new PhysicalPoint(150, 150), 50, 200));
                     Thread.Sleep(50);
                     detector.RemoveTarget($"ui-target-{counter}");
                     counter++;

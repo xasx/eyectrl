@@ -36,7 +36,9 @@ public class DwellDetector
     /// Update a target's center position without resetting dwell state.
     /// Used by toolbar/overlays that need to track moving screen positions.
     /// </summary>
-    public void UpdateTargetCenter(string id, ScreenPoint newCenter)
+    /// <param name="id">Target ID</param>
+    /// <param name="newCenter">New center position in physical screen pixels</param>
+    public void UpdateTargetCenter(string id, PhysicalPoint newCenter)
     {
         if (_targets.TryGetValue(id, out var target))
             target.Center = newCenter;
@@ -46,7 +48,9 @@ public class DwellDetector
     /// Updates the dwell detector with the current gaze position and timestamp.
     /// Must be called from the UI thread (enforced by GazeEngineAdapter's Dispatcher marshaling).
     /// </summary>
-    public void Update(ScreenPoint gazePoint, long timestampMicroseconds)
+    /// <param name="gazePoint">Current gaze position in physical screen pixels</param>
+    /// <param name="timestampMicroseconds">Timestamp in microseconds</param>
+    public void Update(PhysicalPoint gazePoint, long timestampMicroseconds)
     {
         _lastTimestamp = timestampMicroseconds;
 

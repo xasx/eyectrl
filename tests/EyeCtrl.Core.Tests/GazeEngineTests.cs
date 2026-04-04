@@ -20,14 +20,14 @@ public class GazeEngineTests
 
     private class FakeInputSimulator : IInputSimulator
     {
-        public List<(string Action, ScreenPoint Point)> Actions { get; } = new();
-        public void MoveCursor(ScreenPoint p) => Actions.Add(("Move", p));
-        public void LeftClick(ScreenPoint p) => Actions.Add(("LeftClick", p));
-        public void RightClick(ScreenPoint p) => Actions.Add(("RightClick", p));
-        public void DoubleClick(ScreenPoint p) => Actions.Add(("DoubleClick", p));
-        public void MouseDown(ScreenPoint p) => Actions.Add(("MouseDown", p));
-        public void MouseUp(ScreenPoint p) => Actions.Add(("MouseUp", p));
-        public void Scroll(ScreenPoint p, int dx, int dy) => Actions.Add(("Scroll", p));
+        public List<(string Action, PhysicalPoint Point)> Actions { get; } = new();
+        public void MoveCursor(PhysicalPoint p) => Actions.Add(("Move", p));
+        public void LeftClick(PhysicalPoint p) => Actions.Add(("LeftClick", p));
+        public void RightClick(PhysicalPoint p) => Actions.Add(("RightClick", p));
+        public void DoubleClick(PhysicalPoint p) => Actions.Add(("DoubleClick", p));
+        public void MouseDown(PhysicalPoint p) => Actions.Add(("MouseDown", p));
+        public void MouseUp(PhysicalPoint p) => Actions.Add(("MouseUp", p));
+        public void Scroll(PhysicalPoint p, int dx, int dy) => Actions.Add(("Scroll", p));
         public void SendKeyPress(ushort vk) { }
         public void SendKeyDown(ushort vk) { }
         public void SendKeyUp(ushort vk) { }
@@ -66,7 +66,7 @@ public class GazeEngineTests
         engine.InteractionManager.ActionRequested += (action, _) => firedAction = action;
 
         // Directly trigger action through the interaction manager
-        engine.InteractionManager.OnFixationStarted(new ScreenPoint(200, 200));
+        engine.InteractionManager.OnFixationStarted(new PhysicalPoint(200, 200));
         engine.InteractionManager.OnActivationButtonDwelled();
         engine.InteractionManager.OnActionSelected(InteractionAction.LeftClick);
 

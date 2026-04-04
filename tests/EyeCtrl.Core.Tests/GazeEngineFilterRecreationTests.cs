@@ -42,13 +42,13 @@ public class GazeEngineFilterRecreationTests
 
     private class TestInputSimulator : IInputSimulator
     {
-        public void MoveCursor(ScreenPoint point) { }
-        public void LeftClick(ScreenPoint point) { }
-        public void RightClick(ScreenPoint point) { }
-        public void DoubleClick(ScreenPoint point) { }
-        public void MouseDown(ScreenPoint point) { }
-        public void MouseUp(ScreenPoint point) { }
-        public void Scroll(ScreenPoint point, int deltaX, int deltaY) { }
+        public void MoveCursor(PhysicalPoint point) { }
+        public void LeftClick(PhysicalPoint point) { }
+        public void RightClick(PhysicalPoint point) { }
+        public void DoubleClick(PhysicalPoint point) { }
+        public void MouseDown(PhysicalPoint point) { }
+        public void MouseUp(PhysicalPoint point) { }
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { }
         public void SendKeyPress(ushort virtualKeyCode) { }
         public void SendKeyDown(ushort virtualKeyCode) { }
         public void SendKeyUp(ushort virtualKeyCode) { }

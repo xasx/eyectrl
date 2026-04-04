@@ -2,10 +2,14 @@ namespace EyeCtrl.Core.Processing;
 
 using EyeCtrl.Core.Models;
 
+/// <summary>
+/// Tracks the nearest keyboard key to the current gaze point.
+/// All coordinates are in physical screen pixels.
+/// </summary>
 public class NearestKeyTracker
 {
     private readonly long _dwellTimeMicroseconds;
-    private Dictionary<string, ScreenPoint> _keys = new();
+    private Dictionary<string, PhysicalPoint> _keys = new();
     private string? _currentNearestKeyId;
     private long _enteredTimestamp;
 
@@ -14,7 +18,10 @@ public class NearestKeyTracker
         _dwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
-    public void SetKeys(Dictionary<string, ScreenPoint> keys)
+    /// <summary>
+    /// Sets the keyboard key positions (in physical screen pixels).
+    /// </summary>
+    public void SetKeys(Dictionary<string, PhysicalPoint> keys)
     {
         _keys = keys;
         _currentNearestKeyId = null;
@@ -26,7 +33,10 @@ public class NearestKeyTracker
         _currentNearestKeyId = null;
     }
 
-    public NearestKeyResult Update(ScreenPoint gazePoint, long timestampMicroseconds)
+    /// <summary>
+    /// Update with current gaze point (in physical screen pixels).
+    /// </summary>
+    public NearestKeyResult Update(PhysicalPoint gazePoint, long timestampMicroseconds)
     {
         if (_keys.Count == 0)
             return new NearestKeyResult(null, 0, false);

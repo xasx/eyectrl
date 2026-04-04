@@ -5,6 +5,10 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 
+/// <summary>
+/// Core gaze processing engine.
+/// All gaze coordinates are in physical screen pixels.
+/// </summary>
 public class GazeEngine : IDisposable
 {
     private readonly IGazeProvider _gazeProvider;
@@ -16,8 +20,10 @@ public class GazeEngine : IDisposable
 
     public InteractionManager InteractionManager { get; }
     public bool SuppressFixation { get; set; }
-    public ScreenPoint? StableCentroid => _centroidTracker.StableCentroid;
-    public event Action<ScreenPoint, long>? CursorMoved;
+    /// <summary>Stable centroid position in physical screen pixels.</summary>
+    public PhysicalPoint? StableCentroid => _centroidTracker.StableCentroid;
+    /// <summary>Fired when cursor moves with filtered position in physical screen pixels.</summary>
+    public event Action<PhysicalPoint, long>? CursorMoved;
 
     public GazeEngine(
         IGazeProvider gazeProvider,

@@ -3,11 +3,15 @@ namespace EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 
+/// <summary>
+/// Handles gap detection and interpolation for gaze data.
+/// All positions are in physical screen pixels.
+/// </summary>
 public sealed class GapInterpolator
 {
     private readonly IGazeFilter _filter;
     private readonly long _maxGapMicroseconds;
-    private ScreenPoint _lastValidPosition = new(0, 0);
+    private PhysicalPoint _lastValidPosition = new(0, 0);
     private long _lastValidTimestamp = -1;
 
     public GapInterpolator(IGazeFilter filter, int maxGapMs)
@@ -16,7 +20,10 @@ public sealed class GapInterpolator
         _maxGapMicroseconds = maxGapMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
-    public (ScreenPoint Position, bool IsInGap) Process(GazePoint rawPoint)
+    /// <summary>
+    /// Process a gaze point, returning filtered position in physical screen pixels.
+    /// </summary>
+    public (PhysicalPoint Position, bool IsInGap) Process(GazePoint rawPoint)
     {
         if (rawPoint.IsValid)
         {

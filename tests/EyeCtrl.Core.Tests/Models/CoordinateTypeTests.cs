@@ -4,6 +4,15 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
 /// <summary>
+/// Defines a test collection that disables parallelization.
+/// This is required because DpiHelper uses static state that cannot be safely shared across parallel tests.
+/// </summary>
+[CollectionDefinition("DpiHelper Tests", DisableParallelization = true)]
+public class DpiHelperTestCollection
+{
+}
+
+/// <summary>
 /// Comprehensive unit tests for the coordinate type system (LogicalPoint, PhysicalPoint, NormalizedPoint).
 /// These tests follow Test-Driven Development (TDD) - RED phase.
 ///
@@ -14,7 +23,11 @@ using EyeCtrl.Core.Services;
 ///
 /// All tests should FAIL initially as the types don't exist yet (RED phase).
 /// Implementation will come in the GREEN phase.
+///
+/// Note: This test class is part of a non-parallelized collection because it mutates
+/// global DpiHelper state. Running these tests in parallel would cause flaky failures.
 /// </summary>
+[Collection("DpiHelper Tests")]
 public class CoordinateTypeTests
 {
     private const double Epsilon = 0.0001; // Precision for floating-point comparisons

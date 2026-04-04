@@ -16,7 +16,7 @@ public class ActivationButtonViewModelTests
         var vm = new ActivationButtonViewModel(_settings, _messenger);
         Assert.False(vm.IsVisible);
 
-        _messenger.Send(new ShowActivationButtonMessage(new ScreenPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
 
         Assert.True(vm.IsVisible);
         Assert.Equal(500, vm.Position.X);
@@ -27,7 +27,7 @@ public class ActivationButtonViewModelTests
     public void HidesButton_OnHideMessage()
     {
         var vm = new ActivationButtonViewModel(_settings, _messenger);
-        _messenger.Send(new ShowActivationButtonMessage(new ScreenPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
         Assert.True(vm.IsVisible);
 
         _messenger.Send(new HideActivationButtonMessage());
@@ -44,11 +44,11 @@ public class ActivationButtonViewModelTests
         var vm = new ActivationButtonViewModel(settings, _messenger);
 
         // Show button at (500, 300)
-        _messenger.Send(new ShowActivationButtonMessage(new ScreenPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
 
         // Send gaze within radius for half the dwell time
-        _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 300), 0));
-        _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 300), 500_000)); // 500ms
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 0));
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 500_000)); // 500ms
 
         Assert.True(vm.DwellProgress > 0.4);
         Assert.True(vm.DwellProgress < 0.6);
@@ -64,9 +64,9 @@ public class ActivationButtonViewModelTests
         bool activated = false;
         _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => activated = true);
 
-        _messenger.Send(new ShowActivationButtonMessage(new ScreenPoint(500, 300)));
-        _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 300), 0));
-        _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 300), 200_000)); // 200ms > 100ms dwell
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 0));
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 200_000)); // 200ms > 100ms dwell
 
         Assert.True(activated);
     }

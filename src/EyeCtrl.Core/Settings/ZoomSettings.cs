@@ -17,6 +17,24 @@ public partial class ZoomSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _gazeIndicatorOpacity = 0.7;
     [ObservableProperty] private int _gazeIndicatorResetAnimationMs = 100;
 
+    partial void OnCircleRadiusPixelsChanging(int value)
+    {
+        if (value < 50 || value > 500)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(CircleRadiusPixels)} must be between 50 and 500");
+    }
+
+    partial void OnMagnificationLevelChanging(double value)
+    {
+        if (value < 1.5 || value > 5.0)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(MagnificationLevel)} must be between 1.5 and 5");
+    }
+
     public IReadOnlyList<string> Validate()
     {
         return ValidationHelper.CollectErrors(

@@ -181,7 +181,6 @@ public partial class App : Application
             sp.GetRequiredService<ILogger<ZoomFixationService>>(),
             sp.GetRequiredService<EyeCtrlSettings>(),
             Dispatcher,
-            sp.GetRequiredService<ZoomGazeIndicatorViewModel>(),
             sp.GetRequiredService<GazeEngine>().InteractionManager));
 
         _serviceProvider = services.BuildServiceProvider();
@@ -359,8 +358,10 @@ public partial class App : Application
             try
             {
                 if (!zoomIndicator.IsVisible) return; // already hidden
+                // Use the max diameter from settings, not the current VM value which may have changed
+                var targetDiameter = settings.Zoom.GazeIndicatorOuterDiameter;
                 zoomIndicator.AnimateReset(
-                    zoomIndicatorVM.OuterCircleDiameter,
+                    targetDiameter,
                     zoomIndicatorVM.ResetAnimationMs);
             }
             catch (Exception ex)

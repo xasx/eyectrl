@@ -846,21 +846,31 @@ public class SettingsPropertyValidationTests
     [Fact]
     public void Validation_PerformsQuickly()
     {
-        // Arrange
-        var settings = new DwellSettings();
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        // Arrange - Run the test multiple times to reduce flakiness from GC/system load
+        const int iterations = 5;
+        var timings = new List<long>();
 
-        // Act - perform 1000 validations
-        for (int i = 0; i < 1000; i++)
+        for (int run = 0; run < iterations; run++)
         {
-            settings.FixationDetectionMs = 300 + (i % 100);
+            var settings = new DwellSettings();
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            // Act - perform 1000 validations
+            for (int i = 0; i < 1000; i++)
+            {
+                settings.FixationDetectionMs = 300 + (i % 100);
+            }
+
+            stopwatch.Stop();
+            timings.Add(stopwatch.ElapsedMilliseconds);
         }
 
-        stopwatch.Stop();
+        // Assert - use median time to reduce impact of outliers (more reliable than single run)
+        var sortedTimings = timings.OrderBy(t => t).ToList();
+        var medianTime = sortedTimings[iterations / 2];
 
-        // Assert - should complete in reasonable time (< 100ms for 1000 operations)
-        Assert.True(stopwatch.ElapsedMilliseconds < 100,
-            $"Validation took {stopwatch.ElapsedMilliseconds}ms for 1000 operations");
+        Assert.True(medianTime < 100,
+            $"Median validation time was {medianTime}ms (runs: {string.Join(", ", timings)}ms). Expected < 100ms for 1000 operations.");
     }
 
     #endregion

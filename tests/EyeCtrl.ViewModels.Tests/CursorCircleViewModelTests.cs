@@ -15,7 +15,7 @@ public class CursorCircleViewModelTests
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
-        _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(100, 200), 0));
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 200), 0));
 
         Assert.Equal(100, vm.Position.X);
         Assert.Equal(200, vm.Position.Y);

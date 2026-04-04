@@ -21,7 +21,7 @@ public class ActionMenuViewModelTests
             InteractionAction.DoubleClick
         };
 
-        _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300), actions, false, 600, new ScreenPoint(500, 300)));
+        _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 300), actions, false, 600, new PhysicalPoint(500, 300)));
 
         Assert.True(vm.IsVisible);
         Assert.Equal(3, vm.Items.Count);
@@ -40,7 +40,7 @@ public class ActionMenuViewModelTests
             InteractionAction.DragStart
         };
 
-        _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(0, 0), actions, false, 600, new ScreenPoint(0, 0)));
+        _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(0, 0), actions, false, 600, new PhysicalPoint(0, 0)));
 
         // 4 items at 90-degree intervals — verify positions are distinct and equidistant from center
         var positions = vm.Items.Select(i => i.Position).ToList();
@@ -98,7 +98,7 @@ public class ActionMenuViewModelTests
 
         // CircleSize=250 -> 250/2 + 50 + 20 = 195
         _messenger.Send(new ShowActionMenuMessage(
-            new ScreenPoint(500, 500), actions, false, 600, new ScreenPoint(500, 500), 0, 250));
+            new PhysicalPoint(500, 500), actions, false, 600, new PhysicalPoint(500, 500), 0, 250));
 
         Assert.Equal(195, vm.EffectiveRingRadius);
     }
@@ -111,7 +111,7 @@ public class ActionMenuViewModelTests
 
         // CircleSize=100 -> 100/2 + 50 + 20 = 120
         _messenger.Send(new ShowActionMenuMessage(
-            new ScreenPoint(500, 500), actions, false, 600, new ScreenPoint(500, 500), 0, 100));
+            new PhysicalPoint(500, 500), actions, false, 600, new PhysicalPoint(500, 500), 0, 100));
 
         Assert.Equal(120, vm.EffectiveRingRadius);
     }
@@ -120,14 +120,14 @@ public class ActionMenuViewModelTests
     public void ZoomContextProperties_AreStoredFromMessage()
     {
         var vm = new ActionMenuViewModel(_settings, _messenger);
-        var zoomCenter = new ScreenPoint(400, 300);
+        var zoomCenter = new PhysicalPoint(400, 300);
 
         _messenger.Send(new ShowActionMenuMessage(
-            new ScreenPoint(400, 300),
+            new PhysicalPoint(400, 300),
             new List<InteractionAction> { InteractionAction.LeftClick },
             ShowBack: true,
             DwellTimeMs: 600,
-            GazePoint: new ScreenPoint(400, 300))
+            GazePoint: new PhysicalPoint(400, 300))
         {
             ZoomCenter = zoomCenter,
             ZoomRadius = 150
@@ -142,13 +142,13 @@ public class ActionMenuViewModelTests
     {
         var vm = new ActionMenuViewModel(_settings, _messenger);
         _messenger.Send(new ShowActionMenuMessage(
-            new ScreenPoint(400, 300),
+            new PhysicalPoint(400, 300),
             new List<InteractionAction> { InteractionAction.LeftClick },
             ShowBack: true,
             DwellTimeMs: 600,
-            GazePoint: new ScreenPoint(400, 300))
+            GazePoint: new PhysicalPoint(400, 300))
         {
-            ZoomCenter = new ScreenPoint(400, 300),
+            ZoomCenter = new PhysicalPoint(400, 300),
             ZoomRadius = 150
         });
 
@@ -162,8 +162,8 @@ public class ActionMenuViewModelTests
     public void StoresGazePoint_WhenProvided()
     {
         var vm = new ActionMenuViewModel(_settings, _messenger);
-        var gazePoint = new ScreenPoint(400, 200);
-        var displayCenter = new ScreenPoint(960, 540);
+        var gazePoint = new PhysicalPoint(400, 200);
+        var displayCenter = new PhysicalPoint(960, 540);
 
         _messenger.Send(new ShowActionMenuMessage(
             displayCenter,
@@ -180,7 +180,7 @@ public class ActionMenuViewModelTests
     public void GazePoint_EqualsCenter_WhenInAtGazeMode()
     {
         var vm = new ActionMenuViewModel(_settings, _messenger);
-        var center = new ScreenPoint(500, 300);
+        var center = new PhysicalPoint(500, 300);
 
         _messenger.Send(new ShowActionMenuMessage(
             center,
@@ -198,23 +198,23 @@ public class ActionMenuViewModelTests
     {
         var vm = new ActionMenuViewModel(_settings, _messenger);
         _messenger.Send(new ShowActionMenuMessage(
-            new ScreenPoint(500, 300),
+            new PhysicalPoint(500, 300),
             new List<InteractionAction> { InteractionAction.LeftClick },
             ShowBack: false,
             DwellTimeMs: 600,
-            GazePoint: new ScreenPoint(200, 100)));
+            GazePoint: new PhysicalPoint(200, 100)));
 
         _messenger.Send(new HideActionMenuMessage());
 
-        Assert.Equal(new ScreenPoint(0, 0), vm.GazePoint);
+        Assert.Equal(new PhysicalPoint(0, 0), vm.GazePoint);
     }
 
     [Fact]
     public void ItemPositions_RelativeToDisplayCenter_NotGazePoint()
     {
         var vm = new ActionMenuViewModel(_settings, _messenger);
-        var displayCenter = new ScreenPoint(960, 540);
-        var gazePoint = new ScreenPoint(200, 100);
+        var displayCenter = new PhysicalPoint(960, 540);
+        var gazePoint = new PhysicalPoint(200, 100);
 
         _messenger.Send(new ShowActionMenuMessage(
             displayCenter,

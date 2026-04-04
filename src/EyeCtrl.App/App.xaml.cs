@@ -698,11 +698,9 @@ public partial class App : Application
         _wordPredictor?.SaveUserDictionary();
 
         var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
-        var zoomFixationService = _serviceProvider.GetRequiredService<ZoomFixationService>();
         adapter.Dispose();
-        zoomFixationService.Dispose();
         gazeEngine.Dispose();
-        _serviceProvider.Dispose();
+        _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ZoomFixationService
 
         Log.CloseAndFlush();
         base.OnExit(e);

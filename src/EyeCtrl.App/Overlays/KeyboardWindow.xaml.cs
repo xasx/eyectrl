@@ -35,7 +35,7 @@ public partial class KeyboardWindow : OverlayWindow
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
 
     // Nearest-key tracking (replaces circular dwell targets for keys)
-    private readonly Dictionary<string, ScreenPoint> _keyScreenPositions = new();
+    private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
     private KeyboardSoundService? _soundService;
     private string? _currentNearestKeyId;
     private long _nearestKeyEnteredTimestamp;
@@ -190,7 +190,7 @@ public partial class KeyboardWindow : OverlayWindow
         }
     }
 
-    public void UpdateGaze(ScreenPoint screenPoint, long timestampMicroseconds)
+    public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds)
     {
         UpdateKeyScreenPositions();
 
@@ -215,7 +215,7 @@ public partial class KeyboardWindow : OverlayWindow
             try
             {
                 var pos = container.PointToScreen(new Point(container.ActualWidth / 2, container.ActualHeight / 2));
-                _keyScreenPositions[id] = new ScreenPoint(pos.X, pos.Y);
+                _keyScreenPositions[id] = new PhysicalPoint(pos.X, pos.Y);
             }
             catch (InvalidOperationException)
             {
@@ -229,7 +229,7 @@ public partial class KeyboardWindow : OverlayWindow
     /// tracks dwell time directly. Eliminates dead zones between keys and avoids
     /// circular hit-area overlap issues with rectangular keyboard keys.
     /// </summary>
-    private void ProcessKeyGaze(ScreenPoint gazePoint, long timestampMicroseconds)
+    private void ProcessKeyGaze(PhysicalPoint gazePoint, long timestampMicroseconds)
     {
         if (_keyScreenPositions.Count == 0) return;
 
@@ -298,7 +298,7 @@ public partial class KeyboardWindow : OverlayWindow
         }
     }
 
-    private bool IsGazeInsideKeyboard(ScreenPoint gazePoint)
+    private bool IsGazeInsideKeyboard(PhysicalPoint gazePoint)
     {
         try
         {
@@ -328,11 +328,11 @@ public partial class KeyboardWindow : OverlayWindow
                 if (!_predictionTargetsInitialized)
                 {
                     _predictionDwellDetector.RemoveTarget(predId);
-                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new ScreenPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(40), _predictionDwellMs));
+                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(40), _predictionDwellMs));
                 }
                 else
                 {
-                    _predictionDwellDetector.UpdateTargetCenter(predId, new ScreenPoint(pos.X, pos.Y));
+                    _predictionDwellDetector.UpdateTargetCenter(predId, new PhysicalPoint(pos.X, pos.Y));
                 }
             }
             catch
@@ -544,7 +544,7 @@ public partial class KeyboardWindow : OverlayWindow
             };
 
             PredictionBar.Children.Add(btn);
-            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(40), _predictionDwellMs));
+            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(40), _predictionDwellMs));
         }
     }
 
@@ -792,7 +792,7 @@ public partial class KeyboardWindow : OverlayWindow
         };
 
         CategoryBar.Children.Add(btn);
-        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(20), _keyDwellMs));
+        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(20), _keyDwellMs));
     }
 
     private void HighlightActiveCategory()
@@ -853,11 +853,11 @@ public partial class KeyboardWindow : OverlayWindow
                 if (!_categoryTargetsInitialized)
                 {
                     _categoryDwellDetector.RemoveTarget(tabId);
-                    _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new ScreenPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(20), _keyDwellMs));
+                    _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(20), _keyDwellMs));
                 }
                 else
                 {
-                    _categoryDwellDetector.UpdateTargetCenter(tabId, new ScreenPoint(pos.X, pos.Y));
+                    _categoryDwellDetector.UpdateTargetCenter(tabId, new PhysicalPoint(pos.X, pos.Y));
                 }
             }
             catch (InvalidOperationException)

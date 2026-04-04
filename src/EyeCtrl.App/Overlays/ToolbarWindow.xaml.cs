@@ -168,7 +168,7 @@ public partial class ToolbarWindow : OverlayWindow
         _targetsInitialized = false;
     }
 
-    public void UpdateGaze(ScreenPoint screenPoint, long timestampMicroseconds)
+    public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds)
     {
         if (!_targetsInitialized)
             UpdateTargetPositions();
@@ -183,7 +183,7 @@ public partial class ToolbarWindow : OverlayWindow
             try
             {
                 var pos = container.PointToScreen(new Point(container.ActualWidth / 2, container.ActualHeight / 2));
-                vm.UpdateButtonScreenPosition(id, new ScreenPoint(pos.X, pos.Y));
+                vm.UpdateButtonScreenPosition(id, new PhysicalPoint(pos.X, pos.Y));
             }
             catch
             {

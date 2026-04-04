@@ -31,14 +31,14 @@ public partial class ActionMenuWindow : OverlayWindow
     private const byte ButtonBorderAlpha = 100; // Alpha value for button border
 
     private readonly Dictionary<string, (Ellipse Background, Path ProgressArc, ArcSegment Arc)> _buttonVisuals = new();
-    private ScreenPoint _targetCenter = new(0, 0);
+    private PhysicalPoint _targetCenter = new(0, 0);
 
     public ActionMenuWindow()
     {
         InitializeComponent();
     }
 
-    public void Show(ScreenPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, ScreenPoint? zoomCenter = null, int? zoomRadius = null, ScreenPoint? gazePoint = null)
+    public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null, int? zoomRadius = null, PhysicalPoint? gazePoint = null)
     {
         _targetCenter = center;
         _buttonVisuals.Clear();

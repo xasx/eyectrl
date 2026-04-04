@@ -17,7 +17,7 @@ public partial class CursorCircleWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void UpdatePosition(ScreenPoint point)
+    public void UpdatePosition(PhysicalPoint point)
     {
         Left = DpiHelper.PhysicalToLogicalX(point.X) - Width / 2;
         Top = DpiHelper.PhysicalToLogicalY(point.Y) - Height / 2;

@@ -11,7 +11,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
     // UI Constants
     private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
 
-    private ScreenPoint? _captureCenter;
+    private PhysicalPoint? _captureCenter;
     private double _magnification;
 
     public ZoomOverlayWindow()
@@ -20,13 +20,13 @@ public partial class ZoomOverlayWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void Show(ScreenPoint center, int radius, double magnification, ScreenPoint? gazePoint = null)
+    public void Show(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null)
     {
         UpdateCenter(center, radius, magnification, gazePoint);
         Show();
     }
 
-    public void UpdateCenter(ScreenPoint center, int radius, double magnification, ScreenPoint? gazePoint = null)
+    public void UpdateCenter(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null)
     {
         // Only update _captureCenter if gazePoint is explicitly provided
         // This preserves the capture center when realigning the display position
@@ -51,7 +51,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
         CaptureAndDisplay(_captureCenter.Value, physicalRadius);
     }
 
-    private async void CaptureAndDisplay(ScreenPoint center, int radius)
+    private async void CaptureAndDisplay(PhysicalPoint center, int radius)
     {
         await Task.Delay(ScreenCaptureDelayMs);
         var source = ScreenCaptureService.CaptureRegion(center, radius);
@@ -67,7 +67,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
         CaptureAndDisplay(_captureCenter.Value, physicalRadius);
     }
 
-    public ScreenPoint GetRealScreenPoint(ScreenPoint gazeOnScreen)
+    public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen)
     {
         // Window Left/Width are DIPs; convert back to physical to match gazeOnScreen
         var windowCenterX = DpiHelper.LogicalToPhysicalX(Left + Width / 2);
@@ -80,6 +80,6 @@ public partial class ZoomOverlayWindow : OverlayWindow
         var realX = _captureCenter.Value.X + offsetX / _magnification;
         var realY = _captureCenter.Value.Y + offsetY / _magnification;
 
-        return new ScreenPoint(realX, realY);
+        return new PhysicalPoint(realX, realY);
     }
 }

@@ -27,7 +27,7 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void ShowAt(ScreenPoint closeCenter, ScreenPoint recaptureCenter)
+    public void ShowAt(PhysicalPoint closeCenter, PhysicalPoint recaptureCenter)
     {
         _buttonVisuals.Clear();
         ButtonCanvas.Children.Clear();

@@ -28,7 +28,7 @@ public partial class ToolbarViewModel : ObservableObject,
     /// Screen positions of buttons, set by the View after layout.
     /// Keys are button IDs, values are screen-coordinate centers.
     /// </summary>
-    public void UpdateButtonScreenPosition(string buttonId, ScreenPoint screenCenter)
+    public void UpdateButtonScreenPosition(string buttonId, PhysicalPoint screenCenter)
     {
         _dwellDetector.UpdateTargetCenter(buttonId, screenCenter);
     }
@@ -52,7 +52,7 @@ public partial class ToolbarViewModel : ObservableObject,
             Buttons.Add(btn);
             _buttonLookup[id] = btn;
             _dwellDetector.AddTarget(new DwellTarget(id,
-                new ScreenPoint(0, 0),
+                new PhysicalPoint(0, 0),
                 DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2),
                 settings.Dwell.ToolbarButtonDwellMs));
         }

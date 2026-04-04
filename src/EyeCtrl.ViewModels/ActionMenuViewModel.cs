@@ -22,14 +22,14 @@ public partial class ActionMenuViewModel : ObservableObject,
     private readonly Dictionary<string, ActionMenuItemViewModel> _itemLookup = new();
     private bool _disposed;
 
-    [ObservableProperty] private ScreenPoint _center = new(0, 0);
+    [ObservableProperty] private PhysicalPoint _center = new(0, 0);
     [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private bool _showBack;
     [ObservableProperty] private double _effectiveRingRadius;
 
-    public ScreenPoint? ZoomCenter { get; private set; }
+    public PhysicalPoint? ZoomCenter { get; private set; }
     public int? ZoomRadius { get; private set; }
-    public ScreenPoint GazePoint { get; private set; } = new(0, 0);
+    public PhysicalPoint GazePoint { get; private set; } = new(0, 0);
 
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
@@ -70,7 +70,7 @@ public partial class ActionMenuViewModel : ObservableObject,
             var angleRad = (angleStep * i - MathConstants.RightAngleDegrees) * MathConstants.DegreesToRadians;
             var bx = message.Center.X + physicalRingRadius * Math.Cos(angleRad);
             var by = message.Center.Y + physicalRingRadius * Math.Sin(angleRad);
-            var position = new ScreenPoint(bx, by);
+            var position = new PhysicalPoint(bx, by);
 
             var itemVm = new ActionMenuItemViewModel(id, action, symbol, position, isBack);
             Items.Add(itemVm);

@@ -48,7 +48,7 @@ using EyeCtrl.Core.Models;
 /// // Filter gaze points in real-time
 /// foreach (var rawGaze in gazeStream)
 /// {
-///     ScreenPoint filtered = filter.Filter(rawGaze);
+///     PhysicalPoint filtered = filter.Filter(rawGaze);
 ///     // Use filtered point for cursor positioning, fixation detection, etc.
 /// }
 ///

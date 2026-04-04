@@ -21,7 +21,7 @@ public partial class ActivationButtonViewModel : ObservableObject,
     private readonly DwellDetector _dwellDetector;
     private bool _disposed;
 
-    [ObservableProperty] private ScreenPoint _position = new(0, 0);
+    [ObservableProperty] private PhysicalPoint _position = new(0, 0);
     [ObservableProperty] private double _dwellProgress;
     [ObservableProperty] private bool _isVisible;
 

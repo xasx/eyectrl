@@ -15,7 +15,7 @@ public partial class CursorCircleViewModel : ObservableObject,
     private readonly IMessenger _messenger;
     private bool _disposed;
 
-    [ObservableProperty] private ScreenPoint _position = new(0, 0);
+    [ObservableProperty] private PhysicalPoint _position = new(0, 0);
     [ObservableProperty] private bool _isVisible = true;
 
     public double Size => _settings.Cursor.CircleSize;

@@ -17,7 +17,7 @@ public static class ScreenCaptureService
     /// Captures a square region of the screen centered on the given point.
     /// Returns a BitmapSource suitable for WPF ImageBrush.
     /// </summary>
-    public static BitmapSource? CaptureRegion(ScreenPoint center, int radius)
+    public static BitmapSource? CaptureRegion(PhysicalPoint center, int radius)
     {
         var captureX = (int)center.X - radius;
         var captureY = (int)center.Y - radius;

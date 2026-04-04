@@ -5,6 +5,7 @@ using EyeCtrl.Core.Models;
 /// <summary>
 /// Implements the 1€ Filter (One Euro Filter), an adaptive low-pass filter designed for noisy signals
 /// with variable frequency, particularly effective for real-time filtering of human motion data.
+/// Returns positions in physical screen pixels.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -67,7 +68,7 @@ public class OneEuroFilter : IGazeFilter
     private LowPassFilter? _dyFilter;
     private long _prevTimestamp;
     private bool _initialized;
-    private ScreenPoint _lastFiltered = new(0, 0);
+    private PhysicalPoint _lastFiltered = new(0, 0);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OneEuroFilter"/> with specified parameters.
@@ -130,8 +131,9 @@ public class OneEuroFilter : IGazeFilter
     /// filtering behavior.
     /// </param>
     /// <returns>
-    /// A smoothed <see cref="ScreenPoint"/> with reduced jitter. If the input gaze point is invalid
-    /// and the filter has been initialized, returns the last successfully filtered point.
+    /// A smoothed <see cref="PhysicalPoint"/> with reduced jitter in physical screen pixels.
+    /// If the input gaze point is invalid and the filter has been initialized, returns the
+    /// last successfully filtered point.
     /// </returns>
     /// <remarks>
     /// <para>
@@ -143,7 +145,7 @@ public class OneEuroFilter : IGazeFilter
     /// which prevents cursor jumps during brief tracking losses.
     /// </para>
     /// </remarks>
-    public ScreenPoint Filter(GazePoint rawGaze)
+    public PhysicalPoint Filter(GazePoint rawGaze)
     {
         if (!rawGaze.IsValid && _initialized)
             return _lastFiltered;
@@ -160,7 +162,7 @@ public class OneEuroFilter : IGazeFilter
             _dyFilter = new LowPassFilter(Alpha(_dCutoff, 1.0 / 30), 0);
             _prevTimestamp = rawGaze.TimestampMicroseconds;
             _initialized = true;
-            _lastFiltered = new ScreenPoint(x, y);
+            _lastFiltered = new PhysicalPoint(x, y);
             return _lastFiltered;
         }
 
@@ -190,7 +192,7 @@ public class OneEuroFilter : IGazeFilter
         double fx = _xFilter.Filter(x, alpha);
         double fy = _yFilter.Filter(y, alpha);
 
-        _lastFiltered = new ScreenPoint(fx, fy);
+        _lastFiltered = new PhysicalPoint(fx, fy);
         return _lastFiltered;
     }
 
@@ -209,7 +211,7 @@ public class OneEuroFilter : IGazeFilter
         _yFilter = null;
         _dxFilter = null;
         _dyFilter = null;
-        _lastFiltered = new ScreenPoint(0, 0);
+        _lastFiltered = new PhysicalPoint(0, 0);
     }
 
     /// <summary>

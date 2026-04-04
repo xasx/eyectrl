@@ -1,16 +1,21 @@
 namespace EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Models;
 
+/// <summary>
+/// Represents a target area for dwell-based gaze interactions.
+/// All coordinates are in physical screen pixels.
+/// </summary>
 public class DwellTarget
 {
     public string Id { get; }
-    public ScreenPoint Center { get; set; }
+    /// <summary>Center position in physical screen pixels.</summary>
+    public PhysicalPoint Center { get; set; }
     public double Radius { get; }
     public long DwellTimeMicroseconds { get; }
     public long? EnteredTimestamp { get; set; }
     public bool IsGazeInside { get; set; }
 
-    public DwellTarget(string id, ScreenPoint center, double radius, int dwellTimeMs)
+    public DwellTarget(string id, PhysicalPoint center, double radius, int dwellTimeMs)
     {
         Id = id;
         Center = center;
@@ -18,7 +23,10 @@ public class DwellTarget
         DwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
-    public bool HitTest(ScreenPoint point)
+    /// <summary>
+    /// Tests if a point (in physical screen pixels) is within this target's radius.
+    /// </summary>
+    public bool HitTest(PhysicalPoint point)
     {
         double dx = point.X - Center.X;
         double dy = point.Y - Center.Y;

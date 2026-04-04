@@ -14,7 +14,7 @@ public class FixationDetectorTests
         long time = 0;
         for (int i = 0; i < 9; i++) // 9 * 30ms = 270ms > 200ms
         {
-            detector.Update(new ScreenPoint(100 + i % 3, 100 + i % 3), time);
+            detector.Update(new PhysicalPoint(100 + i % 3, 100 + i % 3), time);
             time += 30_000; // microseconds
         }
         Assert.True(fixationStarted);
@@ -30,10 +30,10 @@ public class FixationDetectorTests
         long time = 0;
         for (int i = 0; i < 9; i++)
         {
-            detector.Update(new ScreenPoint(100, 100), time);
+            detector.Update(new PhysicalPoint(100, 100), time);
             time += 30_000;
         }
-        detector.Update(new ScreenPoint(500, 500), time);
+        detector.Update(new PhysicalPoint(500, 500), time);
         Assert.True(fixationEnded);
     }
 
@@ -44,10 +44,10 @@ public class FixationDetectorTests
         bool fixationStarted = false;
         detector.FixationStarted += (point) => fixationStarted = true;
 
-        detector.Update(new ScreenPoint(100, 100), 0);
-        detector.Update(new ScreenPoint(102, 102), 30_000);
-        detector.Update(new ScreenPoint(101, 101), 60_000);
-        detector.Update(new ScreenPoint(500, 500), 90_000);
+        detector.Update(new PhysicalPoint(100, 100), 0);
+        detector.Update(new PhysicalPoint(102, 102), 30_000);
+        detector.Update(new PhysicalPoint(101, 101), 60_000);
+        detector.Update(new PhysicalPoint(500, 500), 90_000);
         Assert.False(fixationStarted);
     }
 
@@ -63,8 +63,8 @@ public class FixationDetectorTests
     {
         var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
 
-        detector.Update(new ScreenPoint(100, 100), 0);
-        detector.Update(new ScreenPoint(100, 100), 100_000); // 100ms of 200ms = 0.5
+        detector.Update(new PhysicalPoint(100, 100), 0);
+        detector.Update(new PhysicalPoint(100, 100), 100_000); // 100ms of 200ms = 0.5
 
         // Not yet fixated (100ms < 200ms), but progress should be ~0.5
         Assert.False(detector.IsFixating);
@@ -76,9 +76,9 @@ public class FixationDetectorTests
     {
         var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
 
-        detector.Update(new ScreenPoint(100, 100), 0);
-        detector.Update(new ScreenPoint(100, 100), 100_000); // 100ms in
-        detector.Update(new ScreenPoint(500, 500), 130_000); // gaze moves away
+        detector.Update(new PhysicalPoint(100, 100), 0);
+        detector.Update(new PhysicalPoint(100, 100), 100_000); // 100ms in
+        detector.Update(new PhysicalPoint(500, 500), 130_000); // gaze moves away
 
         Assert.Equal(0.0, detector.GetProgress());
     }
@@ -88,8 +88,8 @@ public class FixationDetectorTests
     {
         var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
 
-        detector.Update(new ScreenPoint(100, 100), 0);
-        detector.Update(new ScreenPoint(100, 100), 300_000); // 300ms > 200ms
+        detector.Update(new PhysicalPoint(100, 100), 0);
+        detector.Update(new PhysicalPoint(100, 100), 300_000); // 300ms > 200ms
 
         Assert.True(detector.IsFixating);
         Assert.Equal(1.0, detector.GetProgress());

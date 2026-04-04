@@ -2,11 +2,15 @@ namespace EyeCtrl.Core.Processing;
 
 using EyeCtrl.Core.Models;
 
+/// <summary>
+/// Tracks the centroid of stable gaze points during fixation.
+/// All coordinates are in physical screen pixels.
+/// </summary>
 public sealed class FixationCentroidTracker
 {
     private readonly double _velocityThresholdPxPerSec;
     private bool _isTracking;
-    private ScreenPoint? _lastPoint;
+    private PhysicalPoint? _lastPoint;
     private long _lastTimestamp;
 
     // Welford online mean
@@ -19,8 +23,11 @@ public sealed class FixationCentroidTracker
         _velocityThresholdPxPerSec = velocityThresholdPxPerSec;
     }
 
-    public ScreenPoint? StableCentroid =>
-        _count > 0 ? new ScreenPoint(_meanX, _meanY) : null;
+    /// <summary>
+    /// Current stable centroid in physical screen pixels, if available.
+    /// </summary>
+    public PhysicalPoint? StableCentroid =>
+        _count > 0 ? new PhysicalPoint(_meanX, _meanY) : null;
 
     public void StartTracking()
     {
@@ -40,7 +47,10 @@ public sealed class FixationCentroidTracker
         _meanY = 0;
     }
 
-    public void Update(ScreenPoint point, long timestampMicroseconds)
+    /// <summary>
+    /// Update with current gaze point in physical screen pixels.
+    /// </summary>
+    public void Update(PhysicalPoint point, long timestampMicroseconds)
     {
         if (!_isTracking) return;
 
@@ -56,8 +66,8 @@ public sealed class FixationCentroidTracker
         double dtSeconds = (timestampMicroseconds - _lastTimestamp) / 1_000_000.0;
         double speed = dtSeconds > 0
             ? Math.Sqrt(
-                Math.Pow(point.X - _lastPoint.X, 2) +
-                Math.Pow(point.Y - _lastPoint.Y, 2)) / dtSeconds
+                Math.Pow(point.X - _lastPoint.Value.X, 2) +
+                Math.Pow(point.Y - _lastPoint.Value.Y, 2)) / dtSeconds
             : 0;
 
         if (speed <= _velocityThresholdPxPerSec)
@@ -67,7 +77,7 @@ public sealed class FixationCentroidTracker
         _lastTimestamp = timestampMicroseconds;
     }
 
-    private void Include(ScreenPoint point)
+    private void Include(PhysicalPoint point)
     {
         _count++;
         _meanX += (point.X - _meanX) / _count;

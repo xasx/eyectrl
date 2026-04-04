@@ -3,23 +3,50 @@ namespace EyeCtrl.ViewModels.Messages;
 using EyeCtrl.Core.Models;
 
 // Core -> ViewModel
-public record ShowActivationButtonMessage(ScreenPoint Position);
+
+/// <summary>
+/// Sent to show activation button.
+/// Position is in physical screen pixels.
+/// </summary>
+public record ShowActivationButtonMessage(PhysicalPoint Position);
+
 public record HideActivationButtonMessage;
-public record ShowActionMenuMessage(ScreenPoint Center, IReadOnlyList<InteractionAction> Actions, bool ShowBack, int DwellTimeMs, ScreenPoint GazePoint, int ZoomDisplayRadius = 0, double CircleSize = 250)
+
+/// <summary>
+/// Sent to show action menu.
+/// All position coordinates are in physical screen pixels.
+/// </summary>
+public record ShowActionMenuMessage(PhysicalPoint Center, IReadOnlyList<InteractionAction> Actions, bool ShowBack, int DwellTimeMs, PhysicalPoint GazePoint, int ZoomDisplayRadius = 0, double CircleSize = 250)
 {
-    /// <summary>Physical-px center of the zoom circle (zoom entry point). Null for non-zoom paths.</summary>
-    public ScreenPoint? ZoomCenter { get; init; }
+    /// <summary>Physical screen pixel center of the zoom circle (zoom entry point). Null for non-zoom paths.</summary>
+    public PhysicalPoint? ZoomCenter { get; init; }
     /// <summary>Logical/DIP radius of the zoom circle (CircleRadiusPixels). Null for non-zoom paths.</summary>
     public int? ZoomRadius { get; init; }
 }
+
 public record HideActionMenuMessage;
+
 public record StateChangedMessage(InteractionState NewState);
-public record StartZoomMessage(ScreenPoint Center, int Radius, double Magnification, ScreenPoint GazePoint);
+
+/// <summary>
+/// Sent to start zoom mode.
+/// Center and GazePoint are in physical screen pixels.
+/// </summary>
+public record StartZoomMessage(PhysicalPoint Center, int Radius, double Magnification, PhysicalPoint GazePoint);
+
 public record EndZoomMessage;
+
 public record ZoomHiddenMessage;
+
 public record ZoomCloseMessage;
+
 public record ZoomRecaptureMessage;
-public record ActionRequestedMessage(InteractionAction Action, ScreenPoint Point, bool IsFromZoom = false);
+
+/// <summary>
+/// Sent when an action is requested.
+/// Point is in physical screen pixels.
+/// </summary>
+public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Point, bool IsFromZoom = false);
 
 // Zoom Fixation Service Messages
 /// <summary>
@@ -27,13 +54,14 @@ public record ActionRequestedMessage(InteractionAction Action, ScreenPoint Point
 /// Contains the precise on-screen physical screen point where fixation occurred while the zoom overlay is shown
 /// (that is, the point within the magnified overlay, not yet converted to the underlying real/unzoomed screen coordinate).
 /// </summary>
-public record ZoomFixationCompletedMessage(ScreenPoint PrecisePoint);
+public record ZoomFixationCompletedMessage(PhysicalPoint PrecisePoint);
 
 /// <summary>
 /// Sent by ZoomFixationService to update the zoom gaze indicator position.
 /// Published at ~30Hz during zoom mode.
+/// GazePoint is in physical screen pixels.
 /// </summary>
-public record UpdateZoomIndicatorPositionMessage(ScreenPoint GazePoint);
+public record UpdateZoomIndicatorPositionMessage(PhysicalPoint GazePoint);
 
 /// <summary>
 /// Sent by ZoomFixationService to update fixation progress on the indicator.

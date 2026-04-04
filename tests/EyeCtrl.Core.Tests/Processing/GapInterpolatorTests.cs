@@ -6,10 +6,10 @@ using EyeCtrl.Core.Processing;
 
 public class GapInterpolatorTests
 {
-    // Minimal stub — passes valid gaze through, returns (X,Y) as ScreenPoint
+    // Minimal stub — passes valid gaze through, returns (X,Y) as PhysicalPoint
     private sealed class PassThroughFilter : IGazeFilter
     {
-        public ScreenPoint Filter(GazePoint g) => new(g.X, g.Y);
+        public PhysicalPoint Filter(GazePoint g) => new(g.X, g.Y);
         public void Reset() { }
     }
 

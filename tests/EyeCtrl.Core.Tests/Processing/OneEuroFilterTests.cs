@@ -19,7 +19,7 @@ public class OneEuroFilterTests
         var filter = new OneEuroFilter(minCutoff: 1.0, beta: 0.07, dCutoff: 1.0);
         filter.Filter(new GazePoint(100.0, 100.0, 0, true));
 
-        ScreenPoint result = new(0, 0);
+        PhysicalPoint result = new(0, 0);
         long timestamp = 33_000;
         for (int i = 0; i < 10; i++)
         {

@@ -1,19 +1,25 @@
 namespace EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Models;
 
+/// <summary>
+/// Detects when gaze remains stable within a radius for a duration.
+/// All coordinates are in physical screen pixels.
+/// </summary>
 public class FixationDetector
 {
     private readonly double _radiusPixels;
     private readonly long _fixationTimeMicroseconds;
-    private ScreenPoint? _fixationCenter;
+    private PhysicalPoint? _fixationCenter;
     private long _fixationStartTime;
     private long _lastTimestamp;
     private bool _isFixating;
 
-    public event Action<ScreenPoint>? FixationStarted;
+    /// <summary>Fired when fixation starts. Point is in physical screen pixels.</summary>
+    public event Action<PhysicalPoint>? FixationStarted;
     public event Action? FixationEnded;
     public bool IsFixating => _isFixating;
-    public ScreenPoint? FixationPoint => _isFixating ? _fixationCenter : null;
+    /// <summary>Current fixation point in physical screen pixels, if fixating.</summary>
+    public PhysicalPoint? FixationPoint => _isFixating ? _fixationCenter : null;
 
     public FixationDetector(double fixationRadiusPixels, int fixationTimeMs)
     {
@@ -28,7 +34,10 @@ public class FixationDetector
         _fixationTimeMicroseconds = fixationTimeMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
-    public void Update(ScreenPoint currentPoint, long timestampMicroseconds)
+    /// <summary>
+    /// Update with current gaze point in physical screen pixels.
+    /// </summary>
+    public void Update(PhysicalPoint currentPoint, long timestampMicroseconds)
     {
         _lastTimestamp = timestampMicroseconds;
 
@@ -40,15 +49,15 @@ public class FixationDetector
         }
 
         double distance = Math.Sqrt(
-            Math.Pow(currentPoint.X - _fixationCenter.X, 2) +
-            Math.Pow(currentPoint.Y - _fixationCenter.Y, 2));
+            Math.Pow(currentPoint.X - _fixationCenter.Value.X, 2) +
+            Math.Pow(currentPoint.Y - _fixationCenter.Value.Y, 2));
 
         if (distance <= _radiusPixels)
         {
             if (!_isFixating && (timestampMicroseconds - _fixationStartTime) >= _fixationTimeMicroseconds)
             {
                 _isFixating = true;
-                FixationStarted?.Invoke(_fixationCenter);
+                FixationStarted?.Invoke(_fixationCenter.Value);
             }
         }
         else

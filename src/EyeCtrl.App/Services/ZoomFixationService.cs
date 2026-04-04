@@ -9,7 +9,6 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
-using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
@@ -23,7 +22,6 @@ public class ZoomFixationService : IDisposable
     private readonly ILogger<ZoomFixationService> _logger;
     private readonly EyeCtrlSettings _settings;
     private readonly Dispatcher _dispatcher;
-    private readonly ZoomGazeIndicatorViewModel _indicatorVM;
     private readonly InteractionManager _interactionManager;
 
     // State
@@ -38,14 +36,12 @@ public class ZoomFixationService : IDisposable
         ILogger<ZoomFixationService> logger,
         EyeCtrl.Core.Settings.EyeCtrlSettings settings,
         Dispatcher dispatcher,
-        ZoomGazeIndicatorViewModel indicatorVM,
         InteractionManager interactionManager)
     {
         _messenger = messenger;
         _logger = logger;
         _settings = settings;
         _dispatcher = dispatcher;
-        _indicatorVM = indicatorVM;
         _interactionManager = interactionManager;
 
         // Register message handlers
@@ -135,9 +131,20 @@ public class ZoomFixationService : IDisposable
         UpdateIndicatorProgress(progress);
     }
 
+    private void InvokeOnDispatcherIfNeeded(Action action)
+    {
+        if (_dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+
+        _dispatcher.BeginInvoke(action);
+    }
+
     private void OnFixationStarted(ScreenPoint fixationPoint)
     {
-        _dispatcher.BeginInvoke(() =>
+        InvokeOnDispatcherIfNeeded(() =>
         {
             try
             {
@@ -159,7 +166,7 @@ public class ZoomFixationService : IDisposable
 
     private void OnFixationEnded()
     {
-        _dispatcher.BeginInvoke(() =>
+        InvokeOnDispatcherIfNeeded(() =>
         {
             try
             {
@@ -189,7 +196,7 @@ public class ZoomFixationService : IDisposable
 
         // Note: FixationDetector.Reset() does NOT fire FixationEnded,
         // so we must manually reset the UI
-        _dispatcher.BeginInvoke(() =>
+        InvokeOnDispatcherIfNeeded(() =>
         {
             try
             {
@@ -204,7 +211,7 @@ public class ZoomFixationService : IDisposable
 
     private void UpdateIndicatorPosition(ScreenPoint gazePoint)
     {
-        _dispatcher.BeginInvoke(() =>
+        InvokeOnDispatcherIfNeeded(() =>
         {
             try
             {
@@ -219,7 +226,7 @@ public class ZoomFixationService : IDisposable
 
     private void UpdateIndicatorProgress(double progress)
     {
-        _dispatcher.BeginInvoke(() =>
+        InvokeOnDispatcherIfNeeded(() =>
         {
             try
             {

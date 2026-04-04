@@ -24,7 +24,8 @@ public record ActionRequestedMessage(InteractionAction Action, ScreenPoint Point
 // Zoom Fixation Service Messages
 /// <summary>
 /// Sent by ZoomFixationService when user completes fixation within zoom.
-/// Contains the precise screen point where fixation occurred (in zoom coordinates).
+/// Contains the precise on-screen physical screen point where fixation occurred while the zoom overlay is shown
+/// (that is, the point within the magnified overlay, not yet converted to the underlying real/unzoomed screen coordinate).
 /// </summary>
 public record ZoomFixationCompletedMessage(ScreenPoint PrecisePoint);
 

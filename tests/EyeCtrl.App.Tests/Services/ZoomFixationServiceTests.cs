@@ -55,7 +55,6 @@ public class ZoomFixationServiceTests
             NullLogger<ZoomFixationService>.Instance,
             _settings,
             _dispatcher,
-            _indicatorVM,
             _interactionManager);
     }
 
@@ -140,11 +139,9 @@ public class ZoomFixationServiceTests
             resetMessageReceived = true;
         });
 
-        // Wait for grace period to end
-        System.Threading.Thread.Sleep(400);
-
-        // Act - Send gaze outside the zoom circle (radius = 200px, so > 700 should be outside)
-        _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(800, 800), 500_000));
+        // Act - First gaze starts grace period, second gaze is outside bounds after grace period
+        _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 500), 100_000));
+        _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(800, 800), 500_000)); // 400ms after grace start, outside bounds
         System.Windows.Forms.Application.DoEvents();
 
         // Assert - Reset message should be sent
@@ -201,10 +198,11 @@ public class ZoomFixationServiceTests
         });
 
         // Act - Simulate fixation completion by sending steady gaze for required duration
+        // Need: 300ms grace + 800ms fixation = 1100ms total
         var fixationPoint = new ScreenPoint(510, 510);
-        var startTime = 400_000L; // After grace period
+        var startTime = 0L;
 
-        for (int i = 0; i < 30; i++) // Send gaze at ~30Hz for 1 second
+        for (int i = 0; i < 35; i++) // Send gaze at ~30Hz for 1.167 seconds
         {
             var timestamp = startTime + (i * 33_333); // 33ms intervals
             _messenger.Send(new GazeCursorMovedMessage(fixationPoint, timestamp));

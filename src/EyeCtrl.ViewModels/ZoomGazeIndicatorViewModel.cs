@@ -134,8 +134,8 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     {
         FixationProgress = 0.0;
         // OuterCircleDiameter will be animated back to full by the window code-behind
-        // using the ResetAnimationMs duration. We set the target here.
-        OuterCircleDiameter = _outerCircleDiameter;
+        // using the ResetAnimationMs duration. The animation will set the final value.
+        // We don't set OuterCircleDiameter here to avoid bypassing the animation.
     }
 
     public void Dispose()

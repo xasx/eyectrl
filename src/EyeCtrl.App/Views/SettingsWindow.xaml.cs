@@ -116,7 +116,7 @@ public partial class SettingsWindow : OverlayWindow
         _modalDwell.TargetProgress += OnModalProgress;
 
         CloseButton.MouseLeftButtonDown += (_, _) => Close();
-        _tabDwell.AddTarget(new DwellTarget("close", new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs));
+        _tabDwell.AddTarget(new DwellTarget("close", new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs));
 
         BuildTabButtons();
         ShowTab("Cursor");
@@ -170,7 +170,7 @@ public partial class SettingsWindow : OverlayWindow
             border.MouseLeftButtonDown += (_, _) => ShowTab(id);
             _tabButtons[id] = border;
             TabButtonPanel.Children.Add(border);
-            _tabDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs));
+            _tabDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs));
         }
     }
 
@@ -292,7 +292,7 @@ public partial class SettingsWindow : OverlayWindow
         };
 
         _pagButtons[id] = btn;
-        _pagDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs));
+        _pagDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs));
         return btn;
     }
 
@@ -753,7 +753,7 @@ public partial class SettingsWindow : OverlayWindow
             _controlBorders[id] = border;
             _controlDwell.AddTarget(new DwellTarget(
                 id,
-                new ScreenPoint(0, 0),
+                new PhysicalPoint(0, 0),
                 DpiHelper.LogicalToPhysicalX(ControlBtnRadius),
                 _dwellMs));
 
@@ -808,7 +808,7 @@ public partial class SettingsWindow : OverlayWindow
 
         border.MouseLeftButtonDown += (_, _) => _controlActions[id]();
         _controlBorders[id] = border;
-        _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
+        _controlDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
         ContentPanel.Children.Add(border);
     }
 
@@ -857,7 +857,7 @@ public partial class SettingsWindow : OverlayWindow
 
             swatch.MouseLeftButtonDown += (_, _) => _controlActions[swatchId]();
             _controlBorders[swatchId] = swatch;
-            _controlDwell.AddTarget(new DwellTarget(swatchId, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(30), _dwellMs));
+            _controlDwell.AddTarget(new DwellTarget(swatchId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(30), _dwellMs));
             row.Children.Add(swatch);
         }
 
@@ -890,7 +890,7 @@ public partial class SettingsWindow : OverlayWindow
         _controlActions[id] = onClick;
         border.MouseLeftButtonDown += (_, _) => onClick();
         _controlBorders[id] = border;
-        _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
+        _controlDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
         ContentPanel.Children.Add(border);
     }
 
@@ -934,7 +934,7 @@ public partial class SettingsWindow : OverlayWindow
         };
 
         _controlBorders[id] = btn;
-        _controlDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
+        _controlDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
         return btn;
     }
 
@@ -943,13 +943,13 @@ public partial class SettingsWindow : OverlayWindow
 
     // ────── Gaze update ──────
 
-    public void UpdateGaze(ScreenPoint screenPoint, long timestampMicroseconds)
+    public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds)
     {
         try
         {
             var cPos = CloseButton.PointToScreen(
                 new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
-            _tabDwell.UpdateTargetCenter("close", new ScreenPoint(cPos.X, cPos.Y));
+            _tabDwell.UpdateTargetCenter("close", new PhysicalPoint(cPos.X, cPos.Y));
         }
         catch (InvalidOperationException)
         {
@@ -979,7 +979,7 @@ public partial class SettingsWindow : OverlayWindow
             {
                 var pos = border.PointToScreen(
                     new Point(border.ActualWidth / 2, border.ActualHeight / 2));
-                detector.UpdateTargetCenter(id, new ScreenPoint(pos.X, pos.Y));
+                detector.UpdateTargetCenter(id, new PhysicalPoint(pos.X, pos.Y));
             }
             catch (InvalidOperationException)
             {
@@ -1100,7 +1100,7 @@ public partial class SettingsWindow : OverlayWindow
         };
 
         _modalButtons[id] = border;
-        _modalDwell.AddTarget(new DwellTarget(id, new ScreenPoint(0, 0), DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs));
+        _modalDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs));
         return border;
     }
 }

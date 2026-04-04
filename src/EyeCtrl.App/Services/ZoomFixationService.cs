@@ -26,7 +26,7 @@ public class ZoomFixationService : IDisposable
 
     // State
     private FixationDetector? _fixationDetector;
-    private ScreenPoint? _zoomCenter;
+    private PhysicalPoint? _zoomCenter;
     private double? _zoomRadius;
     private long _zoomStartTimestamp;
     private bool _gracePeriodActive;
@@ -145,7 +145,7 @@ public class ZoomFixationService : IDisposable
         _dispatcher.BeginInvoke(action);
     }
 
-    private void OnFixationStarted(ScreenPoint fixationPoint)
+    private void OnFixationStarted(PhysicalPoint fixationPoint)
     {
         InvokeOnDispatcherIfNeeded(() =>
         {
@@ -183,7 +183,7 @@ public class ZoomFixationService : IDisposable
         });
     }
 
-    private bool IsWithinZoomBounds(ScreenPoint gazePoint)
+    private bool IsWithinZoomBounds(PhysicalPoint gazePoint)
     {
         if (_zoomCenter == null || _zoomRadius == null) return false;
 
@@ -211,7 +211,7 @@ public class ZoomFixationService : IDisposable
         });
     }
 
-    private void UpdateIndicatorPosition(ScreenPoint gazePoint)
+    private void UpdateIndicatorPosition(PhysicalPoint gazePoint)
     {
         InvokeOnDispatcherIfNeeded(() =>
         {

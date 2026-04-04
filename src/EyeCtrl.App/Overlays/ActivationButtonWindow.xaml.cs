@@ -22,7 +22,7 @@ public partial class ActivationButtonWindow : OverlayWindow
         Opacity = 0;
     }
 
-    public void ShowAt(ScreenPoint position, double offset)
+    public void ShowAt(PhysicalPoint position, double offset)
     {
         var screenW = SystemParameters.PrimaryScreenWidth;
         var screenH = SystemParameters.PrimaryScreenHeight;

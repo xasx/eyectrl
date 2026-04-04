@@ -29,14 +29,14 @@ public class ViewModelDisposableTests
         var vm = new CursorCircleViewModel(settings, messenger);
 
         // Verify VM receives messages before disposal
-        messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(100, 200), 0));
+        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 200), 0));
         Assert.Equal(100, vm.Position.X);
 
         // Dispose the ViewModel
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
-        messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(300, 400), 0));
+        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(300, 400), 0));
         Assert.Equal(100, vm.Position.X); // Position should not change
     }
 
@@ -71,7 +71,7 @@ public class ViewModelDisposableTests
         var vm = new ActivationButtonViewModel(settings, messenger);
 
         // Verify VM receives messages before disposal
-        messenger.Send(new ShowActivationButtonMessage(new ScreenPoint(100, 200)));
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(100, 200)));
         Assert.True(vm.IsVisible);
 
         // Dispose the ViewModel
@@ -113,7 +113,7 @@ public class ViewModelDisposableTests
 
         // Verify VM receives messages before disposal
         messenger.Send(new StartZoomMessage(
-            new ScreenPoint(500, 500), 100, 2.0, new ScreenPoint(500, 500)));
+            new PhysicalPoint(500, 500), 100, 2.0, new PhysicalPoint(500, 500)));
         Assert.True(vm.IsVisible);
 
         // Dispose the ViewModel
@@ -156,7 +156,7 @@ public class ViewModelDisposableTests
         // Verify VM receives messages before disposal
         var actions = new[] { InteractionAction.LeftClick, InteractionAction.RightClick };
         messenger.Send(new ShowActionMenuMessage(
-            new ScreenPoint(500, 500), actions, false, 800, new ScreenPoint(500, 500), 0, 50));
+            new PhysicalPoint(500, 500), actions, false, 800, new PhysicalPoint(500, 500), 0, 50));
         Assert.True(vm.IsVisible);
 
         // Dispose the ViewModel
@@ -266,7 +266,7 @@ public class ViewModelDisposableTests
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var vm = new ZoomGazeIndicatorViewModel(settings, messenger);
+        var vm = new ZoomGazeIndicatorViewModel(messenger);
 
         Assert.IsAssignableFrom<IDisposable>(vm);
     }
@@ -276,11 +276,11 @@ public class ViewModelDisposableTests
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var vm = new ZoomGazeIndicatorViewModel(settings, messenger);
+        var vm = new ZoomGazeIndicatorViewModel(messenger);
 
         // Verify VM receives messages before disposal
         messenger.Send(new StartZoomMessage(
-            new ScreenPoint(500, 500), 100, 2.0, new ScreenPoint(500, 500)));
+            new PhysicalPoint(500, 500), 100, 2.0, new PhysicalPoint(500, 500)));
         Assert.True(vm.IsVisible);
 
         // Dispose the ViewModel
@@ -296,7 +296,7 @@ public class ViewModelDisposableTests
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var vm = new ZoomGazeIndicatorViewModel(settings, messenger);
+        var vm = new ZoomGazeIndicatorViewModel(messenger);
 
         ((IDisposable)vm).Dispose();
         ((IDisposable)vm).Dispose();

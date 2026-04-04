@@ -34,8 +34,8 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     [ObservableProperty] private double _fixationProgress;
 
     // Zoom geometry needed for coordinate mapping
-    private ScreenPoint _zoomOriginalCenter = new(0, 0);  // Capture center (gaze point)
-    private ScreenPoint _zoomWindowCenter = new(0, 0);    // Display center (may be screen center)
+    private PhysicalPoint _zoomOriginalCenter = new(0, 0);  // Capture center (gaze point)
+    private PhysicalPoint _zoomWindowCenter = new(0, 0);    // Display center (may be screen center)
     private double _magnification = 1.0;
 
     public double CenterDotDiameter { get; private set; }
@@ -102,7 +102,7 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     /// Called from App.xaml.cs with the current gaze screen point.
     /// Converts to magnified coordinates and updates position.
     /// </summary>
-    public void UpdateGazePosition(ScreenPoint gazeScreenPoint)
+    public void UpdateGazePosition(PhysicalPoint gazeScreenPoint)
     {
         // Convert screen gaze to magnified coordinates:
         // magnifiedPoint = zoomWindowCenter + (gazePoint - originalCenter) * magnification

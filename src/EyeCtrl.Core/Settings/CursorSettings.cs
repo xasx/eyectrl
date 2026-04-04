@@ -18,6 +18,80 @@ public partial class CursorSettings : ObservableObject, IValidatable
     [ObservableProperty] private bool _circleHighContrast = false;
     [ObservableProperty] private PositionIndicatorStyle _positionIndicatorStyle = PositionIndicatorStyle.Crosshair;
 
+    partial void OnSmoothingFactorChanging(double value)
+    {
+        if (value < 0.0 || value > 1.0)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(SmoothingFactor)} must be between 0 and 1");
+    }
+
+    partial void OnOneEuroMinCutoffChanging(double value)
+    {
+        if (value < 0.1 || value > 20.0)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(OneEuroMinCutoff)} must be between 0.1 and 20");
+    }
+
+    partial void OnOneEuroBetaChanging(double value)
+    {
+        if (value < 0.0 || value > 5.0)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(OneEuroBeta)} must be between 0 and 5");
+    }
+
+    partial void OnSnapRadiusPixelsChanging(int value)
+    {
+        if (value < 0 || value > 100)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(SnapRadiusPixels)} must be between 0 and 100");
+    }
+
+    partial void OnCircleColorChanging(string value)
+    {
+        if (string.IsNullOrEmpty(value) ||
+            !System.Text.RegularExpressions.Regex.IsMatch(value, @"^#[0-9A-Fa-f]{6}$"))
+        {
+            throw new ArgumentException(
+                $"{nameof(CircleColor)} must be a valid hex color (e.g., #00FF00)",
+                nameof(value));
+        }
+    }
+
+    partial void OnCircleOpacityChanging(double value)
+    {
+        if (value < 0.0 || value > 1.0)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(CircleOpacity)} must be between 0 and 1");
+    }
+
+    partial void OnCircleThicknessChanging(double value)
+    {
+        if (value < 1.0 || value > 10.0)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(CircleThickness)} must be between 1 and 10");
+    }
+
+    partial void OnCircleSizeChanging(double value)
+    {
+        if (value < 10.0 || value > 500.0)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(CircleSize)} must be between 10 and 500");
+    }
+
     public IReadOnlyList<string> Validate()
     {
         return ValidationHelper.CollectErrors(

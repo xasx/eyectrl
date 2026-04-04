@@ -13,6 +13,19 @@ using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
+/// <summary>
+/// Defines a test collection that disables parallelization for App layer tests using DpiHelper.
+/// </summary>
+[CollectionDefinition("DpiHelper Tests (App)", DisableParallelization = true)]
+public class AppDpiHelperTestCollection
+{
+}
+
+/// <summary>
+/// Tests for ZoomFixationService.
+/// Part of the non-parallelized collection because it uses DpiHelper which has global static state.
+/// </summary>
+[Collection("DpiHelper Tests (App)")]
 public class ZoomFixationServiceTests
 {
     private readonly IMessenger _messenger;

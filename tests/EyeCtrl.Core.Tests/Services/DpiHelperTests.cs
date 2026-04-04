@@ -3,6 +3,11 @@ namespace EyeCtrl.Core.Tests.Services;
 using EyeCtrl.Core.Services;
 using Xunit;
 
+/// <summary>
+/// Tests for DpiHelper coordinate conversions.
+/// Part of the non-parallelized DpiHelper Tests collection because it mutates global DpiHelper state.
+/// </summary>
+[Collection("DpiHelper Tests")]
 public class DpiHelperTests
 {
     [Theory]

@@ -39,8 +39,13 @@ public readonly record struct PhysicalPoint(double X, double Y)
     /// </summary>
     /// <param name="screenBounds">The dimensions of the target screen.</param>
     /// <returns>A <see cref="NormalizedPoint"/> in the Win32 mouse input coordinate space.</returns>
+    /// <exception cref="ArgumentException">Thrown when screenBounds.Width or screenBounds.Height is not positive.</exception>
     public NormalizedPoint ToNormalized(ScreenBounds screenBounds)
     {
+        // Validate screen dimensions are positive
+        if (screenBounds.Width <= 0 || screenBounds.Height <= 0)
+            throw new ArgumentException("Screen dimensions must be positive.", nameof(screenBounds));
+
         // Clamp coordinates to valid screen bounds (0 to screen size)
         double clampedX = Math.Clamp(X, 0, screenBounds.Width);
         double clampedY = Math.Clamp(Y, 0, screenBounds.Height);

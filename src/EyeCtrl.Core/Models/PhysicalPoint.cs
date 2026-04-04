@@ -35,13 +35,24 @@ public readonly record struct PhysicalPoint(double X, double Y)
     /// Converts this physical point to Win32 normalized mouse coordinates (0-65535 range).
     /// Win32 mouse input uses a fixed 16-bit range across the screen dimensions.
     /// Formula: normalized = (physical / screenSize) * 65535
+    /// Coordinates are clamped to screen bounds before normalization and rounded for precision.
     /// </summary>
     /// <param name="screenBounds">The dimensions of the target screen.</param>
     /// <returns>A <see cref="NormalizedPoint"/> in the Win32 mouse input coordinate space.</returns>
     public NormalizedPoint ToNormalized(ScreenBounds screenBounds)
     {
-        double normalizedX = (X / screenBounds.Width) * 65535;
-        double normalizedY = (Y / screenBounds.Height) * 65535;
+        // Clamp coordinates to valid screen bounds (0 to screen size)
+        double clampedX = Math.Clamp(X, 0, screenBounds.Width);
+        double clampedY = Math.Clamp(Y, 0, screenBounds.Height);
+
+        // Normalize to 0-65535 range with rounding for better accuracy
+        double normalizedX = Math.Round((clampedX / screenBounds.Width) * 65535);
+        double normalizedY = Math.Round((clampedY / screenBounds.Height) * 65535);
+
+        // Final clamp to ensure we're in the valid range after rounding
+        normalizedX = Math.Clamp(normalizedX, 0, 65535);
+        normalizedY = Math.Clamp(normalizedY, 0, 65535);
+
         return new NormalizedPoint(normalizedX, normalizedY);
     }
 

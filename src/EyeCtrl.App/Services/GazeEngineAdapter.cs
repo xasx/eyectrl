@@ -61,16 +61,16 @@ public class GazeEngineAdapter : IDisposable
         });
     }
 
-    private void OnCursorMoved(ScreenPoint point, long timestamp) =>
+    private void OnCursorMoved(PhysicalPoint point, long timestamp) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new GazeCursorMovedMessage(point, timestamp)));
 
-    private void OnShowActivationButton(ScreenPoint point) =>
+    private void OnShowActivationButton(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new ShowActivationButtonMessage(point)));
 
     private void OnHideActivationButton() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new HideActivationButtonMessage()));
 
-    private void OnShowActionMenu(ScreenPoint point) =>
+    private void OnShowActionMenu(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() =>
         {
             var im = _interactionManager;
@@ -99,7 +99,7 @@ public class GazeEngineAdapter : IDisposable
                 ? GetScreenCenterPoint()
                 : point;
 
-            var clampedPoint = new ScreenPoint(
+            var clampedPoint = new PhysicalPoint(
                 Math.Clamp(displayPoint.X, physicalMargin, physicalScreenW - physicalMargin),
                 Math.Clamp(displayPoint.Y, physicalMargin, physicalScreenH - physicalMargin));
 
@@ -125,7 +125,7 @@ public class GazeEngineAdapter : IDisposable
     private void OnHideActionMenu() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new HideActionMenuMessage()));
 
-    private void OnStartZoom(ScreenPoint point) =>
+    private void OnStartZoom(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() =>
         {
             // Apply position setting for zoom view
@@ -153,17 +153,17 @@ public class GazeEngineAdapter : IDisposable
         _dispatcher.BeginInvoke(() => _messenger.Send(new StateChangedMessage(state)));
     }
 
-    private void OnActionRequested(InteractionAction action, ScreenPoint point)
+    private void OnActionRequested(InteractionAction action, PhysicalPoint point)
     {
         var isFromZoom = _interactionManager.CurrentState == InteractionState.ZoomSelectionActionMenuVisible;
         _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isFromZoom)));
     }
 
-    private ScreenPoint GetScreenCenterPoint()
+    private PhysicalPoint GetScreenCenterPoint()
     {
         var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
         var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
-        return new ScreenPoint(physicalScreenW / 2, physicalScreenH / 2);
+        return new PhysicalPoint(physicalScreenW / 2, physicalScreenH / 2);
     }
 
     public void Dispose()

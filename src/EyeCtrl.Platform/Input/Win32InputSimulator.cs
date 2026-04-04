@@ -16,45 +16,45 @@ public class Win32InputSimulator : IInputSimulator
         _coordinateMapper = coordinateMapper;
     }
 
-    public void MoveCursor(ScreenPoint point)
+    public void MoveCursor(PhysicalPoint point)
     {
         var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE);
         SendSingleInput(input);
     }
 
-    public void LeftClick(ScreenPoint point)
+    public void LeftClick(PhysicalPoint point)
     {
         var down = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_LEFTDOWN);
         var up = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_LEFTUP);
         SendInputs(down, up);
     }
 
-    public void RightClick(ScreenPoint point)
+    public void RightClick(PhysicalPoint point)
     {
         var down = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_RIGHTDOWN);
         var up = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_RIGHTUP);
         SendInputs(down, up);
     }
 
-    public void DoubleClick(ScreenPoint point)
+    public void DoubleClick(PhysicalPoint point)
     {
         LeftClick(point);
         LeftClick(point);
     }
 
-    public void MouseDown(ScreenPoint point)
+    public void MouseDown(PhysicalPoint point)
     {
         var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_LEFTDOWN);
         SendSingleInput(input);
     }
 
-    public void MouseUp(ScreenPoint point)
+    public void MouseUp(PhysicalPoint point)
     {
         var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_LEFTUP);
         SendSingleInput(input);
     }
 
-    public void Scroll(ScreenPoint point, int deltaX, int deltaY)
+    public void Scroll(PhysicalPoint point, int deltaX, int deltaY)
     {
         // Clamp delta values to prevent overflow when multiplied by 120
         // Max safe value: int.MaxValue / 120 = 17,895,697
@@ -117,7 +117,7 @@ public class Win32InputSimulator : IInputSimulator
         }
     }
 
-    private NativeMethods.INPUT CreateMouseInput(ScreenPoint point, uint flags)
+    private NativeMethods.INPUT CreateMouseInput(PhysicalPoint point, uint flags)
     {
         // Get screen dimensions
         var screenWidth = ScreenWidth;

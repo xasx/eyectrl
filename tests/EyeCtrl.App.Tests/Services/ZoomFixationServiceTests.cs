@@ -71,9 +71,6 @@ public class ZoomFixationServiceTests
         // Act
         _messenger.Send(startMessage);
 
-        // Give dispatcher time to process
-        System.Windows.Forms.Application.DoEvents();
-
         // Assert - Service should be active and ready to process gaze
         // We verify this indirectly by sending a gaze message and checking for indicator updates
         var indicatorMessageReceived = false;
@@ -82,9 +79,9 @@ public class ZoomFixationServiceTests
             indicatorMessageReceived = true;
         });
 
-        _interactionManager.OnZoom(startMessage.GazePoint);
+        _interactionManager.OnFixationStarted(startMessage.GazePoint);
+        _interactionManager.OnActivationButtonDwelled();
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 500), 1000));
-        System.Windows.Forms.Application.DoEvents();
 
         Assert.True(indicatorMessageReceived);
         _messenger.Unregister<UpdateZoomIndicatorPositionMessage>(this);
@@ -100,7 +97,8 @@ public class ZoomFixationServiceTests
             2.0,
             new ScreenPoint(500, 500));
         _messenger.Send(startMessage);
-        _interactionManager.OnZoom(startMessage.GazePoint);
+        _interactionManager.OnFixationStarted(startMessage.GazePoint);
+        _interactionManager.OnActivationButtonDwelled();
 
         var positionUpdates = 0;
         var progressUpdates = 0;
@@ -111,7 +109,6 @@ public class ZoomFixationServiceTests
         // Act - Send gaze during grace period (within 300ms from start)
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(505, 505), 100_000)); // 100ms
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(510, 510), 200_000)); // 200ms
-        System.Windows.Forms.Application.DoEvents();
 
         // Assert - Position should update, but not progress (grace period active)
         Assert.True(positionUpdates > 0, "Indicator position should be updated during grace period");
@@ -131,7 +128,8 @@ public class ZoomFixationServiceTests
             2.0,
             new ScreenPoint(500, 500));
         _messenger.Send(startMessage);
-        _interactionManager.OnZoom(startMessage.GazePoint);
+        _interactionManager.OnFixationStarted(startMessage.GazePoint);
+        _interactionManager.OnActivationButtonDwelled();
 
         var resetMessageReceived = false;
         _messenger.Register<ResetZoomIndicatorMessage>(this, (r, m) =>
@@ -142,7 +140,6 @@ public class ZoomFixationServiceTests
         // Act - First gaze starts grace period, second gaze is outside bounds after grace period
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 500), 100_000));
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(800, 800), 500_000)); // 400ms after grace start, outside bounds
-        System.Windows.Forms.Application.DoEvents();
 
         // Assert - Reset message should be sent
         Assert.True(resetMessageReceived, "Fixation should be reset when gaze moves outside bounds");
@@ -160,7 +157,8 @@ public class ZoomFixationServiceTests
             2.0,
             new ScreenPoint(500, 500));
         _messenger.Send(startMessage);
-        _interactionManager.OnZoom(startMessage.GazePoint);
+        _interactionManager.OnFixationStarted(startMessage.GazePoint);
+        _interactionManager.OnActivationButtonDwelled();
 
         var progressUpdateReceived = false;
         _messenger.Register<UpdateZoomIndicatorProgressMessage>(this, (r, m) =>
@@ -171,7 +169,6 @@ public class ZoomFixationServiceTests
         // Act - Wait for grace period, then send gaze within bounds
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 500), 100_000)); // Start grace period
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(505, 505), 400_000)); // After grace period (400ms)
-        System.Windows.Forms.Application.DoEvents();
 
         // Assert
         Assert.True(progressUpdateReceived, "Progress should be updated after grace period with valid gaze");
@@ -189,7 +186,8 @@ public class ZoomFixationServiceTests
             2.0,
             new ScreenPoint(500, 500));
         _messenger.Send(startMessage);
-        _interactionManager.OnZoom(startMessage.GazePoint);
+        _interactionManager.OnFixationStarted(startMessage.GazePoint);
+        _interactionManager.OnActivationButtonDwelled();
 
         ZoomFixationCompletedMessage? completionMessage = null;
         _messenger.Register<ZoomFixationCompletedMessage>(this, (r, m) =>
@@ -206,7 +204,6 @@ public class ZoomFixationServiceTests
         {
             var timestamp = startTime + (i * 33_333); // 33ms intervals
             _messenger.Send(new GazeCursorMovedMessage(fixationPoint, timestamp));
-            System.Windows.Forms.Application.DoEvents();
         }
 
         // Assert
@@ -227,26 +224,24 @@ public class ZoomFixationServiceTests
             2.0,
             new ScreenPoint(500, 500));
         _messenger.Send(startMessage);
-        _interactionManager.OnZoom(startMessage.GazePoint);
+        _interactionManager.OnFixationStarted(startMessage.GazePoint);
+        _interactionManager.OnActivationButtonDwelled();
 
         var positionUpdateCount = 0;
         _messenger.Register<UpdateZoomIndicatorPositionMessage>(this, (r, m) => positionUpdateCount++);
 
         // Confirm service is active
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(505, 505), 100_000));
-        System.Windows.Forms.Application.DoEvents();
         Assert.True(positionUpdateCount > 0, "Service should be active before zoom ends");
 
         // Act - End zoom
         _messenger.Send(new EndZoomMessage());
-        System.Windows.Forms.Application.DoEvents();
 
         // Reset counter
         positionUpdateCount = 0;
 
         // Send more gaze messages
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(510, 510), 200_000));
-        System.Windows.Forms.Application.DoEvents();
 
         // Assert - No more messages should be processed
         Assert.Equal(0, positionUpdateCount);
@@ -273,7 +268,6 @@ public class ZoomFixationServiceTests
         _messenger.Register<UpdateZoomIndicatorPositionMessage>(this, (r, m) => messageReceived = true);
 
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 500), 100_000));
-        System.Windows.Forms.Application.DoEvents();
 
         Assert.False(messageReceived, "Service should not process messages after disposal");
 
@@ -297,7 +291,6 @@ public class ZoomFixationServiceTests
 
         // Act
         _messenger.Send(new GazeCursorMovedMessage(new ScreenPoint(500, 500), 100_000));
-        System.Windows.Forms.Application.DoEvents();
 
         // Assert - No messages should be sent when not in zoom state
         Assert.False(messageReceived, "Service should ignore gaze when not in ZoomSelectionActive state");

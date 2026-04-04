@@ -27,6 +27,7 @@ public class ZoomFixationService : IDisposable
     // State
     private FixationDetector? _fixationDetector;
     private ScreenPoint? _zoomCenter;
+    private double? _zoomRadius;
     private long _zoomStartTimestamp;
     private bool _gracePeriodActive;
     private bool _isActive;
@@ -55,6 +56,7 @@ public class ZoomFixationService : IDisposable
     {
         // Initialize state
         _zoomCenter = message.Center;
+        _zoomRadius = message.Radius * DpiHelper.ScaleX; // Store physical pixel radius
         _isActive = true;
         _gracePeriodActive = false;
         _zoomStartTimestamp = 0;
@@ -87,6 +89,7 @@ public class ZoomFixationService : IDisposable
         _isActive = false;
         _gracePeriodActive = false;
         _zoomCenter = null;
+        _zoomRadius = null;
 
         _logger.LogDebug("Zoom fixation tracking stopped");
     }
@@ -151,7 +154,7 @@ public class ZoomFixationService : IDisposable
                 _logger.LogInformation("Zoom fixation completed at ({X:F0}, {Y:F0})",
                     fixationPoint.X, fixationPoint.Y);
 
-                // Hide indicator
+                // Reset indicator
                 _messenger.Send(new ResetZoomIndicatorMessage());
 
                 // Emit completion message (App.xaml.cs will handle coordinate conversion)
@@ -182,12 +185,11 @@ public class ZoomFixationService : IDisposable
 
     private bool IsWithinZoomBounds(ScreenPoint gazePoint)
     {
-        if (_zoomCenter == null) return false;
+        if (_zoomCenter == null || _zoomRadius == null) return false;
 
-        var physicalZoomRadius = _settings.Zoom.CircleRadiusPixels * DpiHelper.ScaleX;
         var dx = gazePoint.X - _zoomCenter.Value.X;
         var dy = gazePoint.Y - _zoomCenter.Value.Y;
-        return (dx * dx + dy * dy) <= (physicalZoomRadius * physicalZoomRadius);
+        return (dx * dx + dy * dy) <= (_zoomRadius.Value * _zoomRadius.Value);
     }
 
     private void ResetFixation()

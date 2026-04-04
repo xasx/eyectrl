@@ -17,6 +17,9 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     private readonly IMessenger _messenger;
     private bool _disposed;
 
+    // Stable configuration value from settings (never changes after Configure)
+    private double _outerCircleDiameterSetting;
+
     // Position in screen coordinates (magnified space)
     [ObservableProperty] private double _indicatorX;
     [ObservableProperty] private double _indicatorY;
@@ -51,7 +54,8 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     /// </summary>
     public void Configure(EyeCtrlSettings settings)
     {
-        _outerCircleDiameter = settings.Zoom.GazeIndicatorOuterDiameter;
+        _outerCircleDiameterSetting = settings.Zoom.GazeIndicatorOuterDiameter;
+        _outerCircleDiameter = _outerCircleDiameterSetting;
         CenterDotDiameter = settings.Zoom.GazeIndicatorCenterDotDiameter;
         StrokeThickness = settings.Zoom.GazeIndicatorStrokeThickness;
         Opacity = settings.Zoom.GazeIndicatorOpacity;
@@ -67,7 +71,7 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
         // The zoom window center is where the overlay is displayed (gaze point in AtGaze mode, screen center in AtCenter mode)
         _zoomWindowCenter = message.Center;
 
-        OuterCircleDiameter = _outerCircleDiameter;
+        OuterCircleDiameter = _outerCircleDiameterSetting;
         FixationProgress = 0.0;
         IsVisible = true;
     }
@@ -76,7 +80,7 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     {
         IsVisible = false;
         FixationProgress = 0.0;
-        OuterCircleDiameter = _outerCircleDiameter;
+        OuterCircleDiameter = _outerCircleDiameterSetting;
     }
 
     public void Receive(UpdateZoomIndicatorPositionMessage message)
@@ -121,7 +125,7 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
         var eased = progress * progress;
 
         // Interpolate diameter: outerDiameter → centerDotDiameter
-        var maxDiam = _outerCircleDiameter;
+        var maxDiam = _outerCircleDiameterSetting;
         var minDiam = CenterDotDiameter;
         OuterCircleDiameter = maxDiam - (maxDiam - minDiam) * eased;
     }

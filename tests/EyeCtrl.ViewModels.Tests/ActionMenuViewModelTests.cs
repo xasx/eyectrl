@@ -53,7 +53,7 @@ public class ActionMenuViewModelTests
         var vm = new ActionMenuViewModel(_settings, _messenger);
         var actions = new List<InteractionAction> { InteractionAction.LeftClick };
 
-        _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300), actions, true, 600, new ScreenPoint(500, 300)));
+        _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 300), actions, true, 600, new PhysicalPoint(500, 300)));
 
         Assert.True(vm.ShowBack);
         Assert.Equal(2, vm.Items.Count); // 1 action + 1 back button
@@ -68,7 +68,7 @@ public class ActionMenuViewModelTests
         InteractionAction? selectedAction = null;
         _messenger.Register<ActionSelectedMessage>(_messenger, (_, msg) => selectedAction = msg.Action);
 
-        _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300), actions, false, 100, new ScreenPoint(500, 300)));
+        _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 300), actions, false, 100, new PhysicalPoint(500, 300)));
 
         // Simulate gaze on the first item
         var itemPos = vm.Items[0].Position;
@@ -82,8 +82,8 @@ public class ActionMenuViewModelTests
     public void HidesMenu_OnHideMessage()
     {
         var vm = new ActionMenuViewModel(_settings, _messenger);
-        _messenger.Send(new ShowActionMenuMessage(new ScreenPoint(500, 300),
-            new List<InteractionAction> { InteractionAction.LeftClick }, false, 600, new ScreenPoint(500, 300)));
+        _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 300),
+            new List<InteractionAction> { InteractionAction.LeftClick }, false, 600, new PhysicalPoint(500, 300)));
         Assert.True(vm.IsVisible);
 
         _messenger.Send(new HideActionMenuMessage());

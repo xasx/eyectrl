@@ -22,14 +22,14 @@ public partial class ZoomOverlayViewModel : ObservableObject,
     private readonly DwellDetector _dwellDetector;
     private bool _disposed;
 
-    [ObservableProperty] private ScreenPoint _center = new(0, 0);
+    [ObservableProperty] private PhysicalPoint _center = new(0, 0);
     [ObservableProperty] private int _radius;
     [ObservableProperty] private double _magnification;
     [ObservableProperty] private bool _isVisible;
-    [ObservableProperty] private ScreenPoint _gazePoint = new(0, 0);
+    [ObservableProperty] private PhysicalPoint _gazePoint = new(0, 0);
 
-    [ObservableProperty] private ScreenPoint _closeButtonCenter = new(0, 0);
-    [ObservableProperty] private ScreenPoint _recaptureButtonCenter = new(0, 0);
+    [ObservableProperty] private PhysicalPoint _closeButtonCenter = new(0, 0);
+    [ObservableProperty] private PhysicalPoint _recaptureButtonCenter = new(0, 0);
     [ObservableProperty] private double _closeButtonProgress;
     [ObservableProperty] private double _recaptureButtonProgress;
 
@@ -58,8 +58,8 @@ public partial class ZoomOverlayViewModel : ObservableObject,
         var topButtonY = message.Center.Y - physicalBtnRadius - physicalGap / 2;
         var bottomButtonY = message.Center.Y + physicalBtnRadius + physicalGap / 2;
 
-        CloseButtonCenter = new ScreenPoint(buttonX, topButtonY);
-        RecaptureButtonCenter = new ScreenPoint(buttonX, bottomButtonY);
+        CloseButtonCenter = new PhysicalPoint(buttonX, topButtonY);
+        RecaptureButtonCenter = new PhysicalPoint(buttonX, bottomButtonY);
 
         // Reset progress
         CloseButtonProgress = 0;

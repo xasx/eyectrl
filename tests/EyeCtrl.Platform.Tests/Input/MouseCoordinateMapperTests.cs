@@ -13,7 +13,7 @@ public class MouseCoordinateMapperTests
     public void NormalizeScreenCoordinate_WithNaNCoordinates_ThrowsArgumentException()
     {
         var mapper = new MouseCoordinateMapper();
-        var point = new ScreenPoint(double.NaN, double.NaN);
+        var point = new PhysicalPoint(double.NaN, double.NaN);
 
         var exception = Assert.Throws<ArgumentException>(
             () => mapper.NormalizeScreenCoordinate(point, 1920, 1080));
@@ -25,7 +25,7 @@ public class MouseCoordinateMapperTests
     public void NormalizeScreenCoordinate_WithInfinityCoordinates_ThrowsArgumentException()
     {
         var mapper = new MouseCoordinateMapper();
-        var point = new ScreenPoint(double.PositiveInfinity, double.NegativeInfinity);
+        var point = new PhysicalPoint(double.PositiveInfinity, double.NegativeInfinity);
 
         var exception = Assert.Throws<ArgumentException>(
             () => mapper.NormalizeScreenCoordinate(point, 1920, 1080));
@@ -37,7 +37,7 @@ public class MouseCoordinateMapperTests
     public void NormalizeScreenCoordinate_WithInvalidScreenDimensions_ThrowsInvalidOperationException()
     {
         var mapper = new MouseCoordinateMapper();
-        var point = new ScreenPoint(100, 100);
+        var point = new PhysicalPoint(100, 100);
 
         Assert.Throws<InvalidOperationException>(
             () => mapper.NormalizeScreenCoordinate(point, 0, 1080));
@@ -53,7 +53,7 @@ public class MouseCoordinateMapperTests
     public void NormalizeScreenCoordinate_WithExtremelyLargeCoordinates_ClampsToScreenBounds()
     {
         var mapper = new MouseCoordinateMapper();
-        var point = new ScreenPoint(1_000_000_000, 1_000_000_000);
+        var point = new PhysicalPoint(1_000_000_000, 1_000_000_000);
 
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, 1920, 1080);
 
@@ -66,7 +66,7 @@ public class MouseCoordinateMapperTests
     public void NormalizeScreenCoordinate_WithNegativeCoordinates_ClampsToZero()
     {
         var mapper = new MouseCoordinateMapper();
-        var point = new ScreenPoint(-100, -200);
+        var point = new PhysicalPoint(-100, -200);
 
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, 1920, 1080);
 
@@ -84,7 +84,7 @@ public class MouseCoordinateMapperTests
         double x, double y, int screenWidth, int screenHeight, int expectedX, int expectedY)
     {
         var mapper = new MouseCoordinateMapper();
-        var point = new ScreenPoint(x, y);
+        var point = new PhysicalPoint(x, y);
 
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, screenWidth, screenHeight);
 
@@ -99,7 +99,7 @@ public class MouseCoordinateMapperTests
         var mapper = new MouseCoordinateMapper();
 
         // Test right/bottom edge (last valid pixel)
-        var point = new ScreenPoint(1919, 1079);
+        var point = new PhysicalPoint(1919, 1079);
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, 1920, 1080);
 
         // Should be close to but not exceeding 65535
@@ -113,7 +113,7 @@ public class MouseCoordinateMapperTests
         var mapper = new MouseCoordinateMapper();
 
         // Test slightly out of bounds (common with eye tracking drift)
-        var point = new ScreenPoint(1920.5, 1080.5);
+        var point = new PhysicalPoint(1920.5, 1080.5);
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, 1920, 1080);
 
         // Should be clamped to screen edge
@@ -132,10 +132,10 @@ public class MouseCoordinateMapperTests
         var mapper = new MouseCoordinateMapper();
 
         // Test all four corners
-        var topLeft = mapper.NormalizeScreenCoordinate(new ScreenPoint(0, 0), screenWidth, screenHeight);
-        var topRight = mapper.NormalizeScreenCoordinate(new ScreenPoint(screenWidth, 0), screenWidth, screenHeight);
-        var bottomLeft = mapper.NormalizeScreenCoordinate(new ScreenPoint(0, screenHeight), screenWidth, screenHeight);
-        var bottomRight = mapper.NormalizeScreenCoordinate(new ScreenPoint(screenWidth, screenHeight), screenWidth, screenHeight);
+        var topLeft = mapper.NormalizeScreenCoordinate(new PhysicalPoint(0, 0), screenWidth, screenHeight);
+        var topRight = mapper.NormalizeScreenCoordinate(new PhysicalPoint(screenWidth, 0), screenWidth, screenHeight);
+        var bottomLeft = mapper.NormalizeScreenCoordinate(new PhysicalPoint(0, screenHeight), screenWidth, screenHeight);
+        var bottomRight = mapper.NormalizeScreenCoordinate(new PhysicalPoint(screenWidth, screenHeight), screenWidth, screenHeight);
 
         Assert.Equal((0, 0), topLeft);
         Assert.Equal((65535, 0), topRight);

@@ -9,7 +9,7 @@ using EyeCtrl.Core.Models;
 public class MouseCoordinateMapper : IMouseCoordinateMapper
 {
     /// <inheritdoc/>
-    public (int normalizedX, int normalizedY) NormalizeScreenCoordinate(ScreenPoint point, int screenWidth, int screenHeight)
+    public (int normalizedX, int normalizedY) NormalizeScreenCoordinate(PhysicalPoint point, int screenWidth, int screenHeight)
     {
         // Validate coordinates are finite (not NaN or Infinity)
         if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))

@@ -139,11 +139,11 @@ public class CoordinateTypeTests
         // Act
         var normalized = physical.ToNormalized(screenBounds);
 
-        // Assert - Center of screen should be ~32767 (65535 / 2)
-        // 960 / 1920 * 65535 = 32767.5
-        // 540 / 1080 * 65535 = 32767.5
-        Assert.Equal(32767, normalized.X, 1); // Allow ±1 for rounding
-        Assert.Equal(32767, normalized.Y, 1);
+        // Assert - Center of screen should be ~32768 (65535 / 2, rounded)
+        // 960 / 1920 * 65535 = 32767.5 → rounds to 32768 (banker's rounding)
+        // 540 / 1080 * 65535 = 32767.5 → rounds to 32768 (banker's rounding)
+        Assert.Equal(32768, normalized.X);
+        Assert.Equal(32768, normalized.Y);
     }
 
     /// <summary>

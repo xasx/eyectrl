@@ -802,15 +802,34 @@ Add retry logic with exponential backoff for transient failures.
 **Status:** ✅ **COMPLETED - Phase 3 delivered following TDD best practices**
 **Documentation:** See PHASE3_IMPLEMENTATION_PLAN.md and PHASE3_OBSTACLES.md
 
-### Phase 4: Major Refactoring (Week 4-5)
+### Phase 4: Major Refactoring (Week 4-5) 🔄 IN PROGRESS
 **Goal:** Break up large classes
 
-- [ ] Issue #1: Refactor App.xaml.cs (4 days)
-- [ ] Issue #10: Simplify GazeEngineAdapter (2 days)
-- [ ] Issue #9: Convert SettingsWindow to MVVM (4 days)
+- [x] Issue #10: Simplify GazeEngineAdapter (2 days) - **COMPLETED 2026-04-05**
+  - [x] Created ActionMenuLayoutHelper for layout calculations
+  - [x] Created ZoomLayoutHelper for zoom positioning
+  - [x] Moved coordinate calculations from adapter to ViewModels layer
+  - [x] Reduced GazeEngineAdapter from 183 to 176 lines
+  - [x] Improved separation of concerns and testability
+- [x] Issue #1: Refactor App.xaml.cs (4 days) - **PARTIALLY COMPLETED 2026-04-05**
+  - [x] Phase 1: Extracted AppBootstrapper for DI setup
+  - [x] Phase 1: Extracted LoggingInitializer for Serilog configuration
+  - [x] Phase 2: Created IOverlayManager and OverlayManager
+  - [x] Phase 2: Extracted overlay window creation and initialization
+  - [x] Reduced App.xaml.cs from 708 to 626 lines (82 lines saved, 11.6% reduction)
+  - [ ] Phase 2: Consider extracting PropertyChanged event handlers
+  - [ ] Reach <200 line target (requires additional refactoring)
+- [ ] Issue #9: Convert SettingsWindow to MVVM (4 days) - **NOT STARTED**
 
 **Total:** ~10 days
 **Risk:** Medium-High - requires careful testing
+**Status:** 🔄 **IN PROGRESS - Issues #10 complete, #1 partially complete**
+**Documentation:** See PHASE4_IMPLEMENTATION_SUMMARY.md
+
+**Progress:**
+- App.xaml.cs: 708 → 626 lines (11.6% reduction, target: <200)
+- Created 6 new service/helper classes (389 lines total)
+- Improved separation of concerns, testability, and maintainability
 
 ### Phase 5: Polish (Week 6)
 **Goal:** Minor improvements

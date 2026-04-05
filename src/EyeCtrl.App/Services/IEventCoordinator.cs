@@ -52,4 +52,4 @@ public record EventCoordinationContext(
     EyeCtrlSettings Settings,
 
     // Dependencies
-    Platform.Input.IInputSimulator InputSimulator);
+    EyeCtrl.Platform.Input.IInputSimulator InputSimulator);

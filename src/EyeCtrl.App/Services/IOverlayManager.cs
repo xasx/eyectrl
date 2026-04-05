@@ -1,0 +1,73 @@
+namespace EyeCtrl.App.Services;
+
+using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Views;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;
+
+/// <summary>
+/// Manages the lifecycle of overlay windows in the application.
+/// Extracted from App.xaml.cs to improve Single Responsibility Principle compliance.
+/// </summary>
+public interface IOverlayManager
+{
+    /// <summary>
+    /// Gets the cursor circle overlay window.
+    /// </summary>
+    CursorCircleWindow CursorCircle { get; }
+
+    /// <summary>
+    /// Gets the activation button overlay window.
+    /// </summary>
+    ActivationButtonWindow ActivationButton { get; }
+
+    /// <summary>
+    /// Gets the zoom overlay window.
+    /// </summary>
+    ZoomOverlayWindow ZoomOverlay { get; }
+
+    /// <summary>
+    /// Gets the zoom side buttons overlay window.
+    /// </summary>
+    ZoomSideButtonWindow ZoomSideButtons { get; }
+
+    /// <summary>
+    /// Gets the action menu overlay window.
+    /// </summary>
+    ActionMenuWindow ActionMenu { get; }
+
+    /// <summary>
+    /// Gets the toolbar overlay window.
+    /// </summary>
+    ToolbarWindow Toolbar { get; }
+
+    /// <summary>
+    /// Gets the keyboard overlay window.
+    /// </summary>
+    KeyboardWindow Keyboard { get; }
+
+    /// <summary>
+    /// Gets the zoom gaze indicator overlay window.
+    /// </summary>
+    ZoomGazeIndicatorWindow ZoomIndicator { get; }
+
+    /// <summary>
+    /// Initializes all overlay windows with their ViewModels and settings.
+    /// </summary>
+    /// <param name="viewModels">Container with all ViewModels</param>
+    /// <param name="settings">Application settings</param>
+    /// <param name="providerType">Active gaze provider type for toolbar indicator</param>
+    void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, string providerType);
+}
+
+/// <summary>
+/// Container for all overlay ViewModels to simplify parameter passing.
+/// </summary>
+public record OverlayViewModels(
+    CursorCircleViewModel CursorCircle,
+    ActivationButtonViewModel ActivationButton,
+    ZoomOverlayViewModel ZoomOverlay,
+    ActionMenuViewModel ActionMenu,
+    ToolbarViewModel Toolbar,
+    KeyboardViewModel Keyboard,
+    ZoomGazeIndicatorViewModel ZoomIndicator);

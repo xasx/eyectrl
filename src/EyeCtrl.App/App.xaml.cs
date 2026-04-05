@@ -144,34 +144,24 @@ public partial class App : Application
         // Configure zoom indicator with settings
         zoomIndicatorVM.Configure(settings);
 
-        // ── Create overlay windows ──
-        var cursorCircle = new CursorCircleWindow();
-        var activationButton = new ActivationButtonWindow();
-        var zoomOverlay = new ZoomOverlayWindow();
-        var zoomSideButtons = new ZoomSideButtonWindow();
-        var actionMenu = new ActionMenuWindow();
-        var toolbar = new ToolbarWindow();
-        var keyboard = new KeyboardWindow();
-        var zoomIndicator = new ZoomGazeIndicatorWindow();
-        zoomIndicator.Configure(
-            settings.Zoom.GazeIndicatorOuterDiameter,
-            settings.Zoom.GazeIndicatorCenterDotDiameter,
-            settings.Zoom.GazeIndicatorStrokeThickness,
-            settings.Zoom.GazeIndicatorOpacity);
+        // ── Initialize overlay windows via OverlayManager ──
+        var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
+        var viewModels = new OverlayViewModels(cursorVM, activationVM, zoomVM, actionMenuVM, toolbarVM, keyboardVM, zoomIndicatorVM);
+        overlayManager.Initialize(viewModels, settings, activeProviderType);
 
-        // Set DataContext
-        cursorCircle.DataContext = cursorVM;
-        activationButton.DataContext = activationVM;
-        zoomOverlay.DataContext = zoomVM;
-        actionMenu.DataContext = actionMenuVM;
-        toolbar.DataContext = toolbarVM;
-        keyboard.DataContext = keyboardVM;
+        // Load keyboard (still uses App.xaml.cs method for now)
+        var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
+        LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
 
-        // ── Initialize overlays (existing APIs) ──
-        cursorCircle.UpdateAppearance(settings.Cursor);
-        toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
-        toolbar.SetProviderIndicator(activeProviderType);
-        LoadKeyboard(keyboard, settings, inputSimulator, settingsService);
+        // Get references to overlay windows for event handlers
+        var cursorCircle = overlayManager.CursorCircle;
+        var activationButton = overlayManager.ActivationButton;
+        var zoomOverlay = overlayManager.ZoomOverlay;
+        var zoomSideButtons = overlayManager.ZoomSideButtons;
+        var actionMenu = overlayManager.ActionMenu;
+        var toolbar = overlayManager.Toolbar;
+        var keyboard = overlayManager.Keyboard;
+        var zoomIndicator = overlayManager.ZoomIndicator;
 
         // ── Bridge ViewModel -> Overlay Windows via PropertyChanged ──
 

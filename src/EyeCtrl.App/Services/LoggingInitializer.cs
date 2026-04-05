@@ -12,7 +12,7 @@ public static class LoggingInitializer
     private const int RetainedLogFileCount = 7; // Number of daily log files to keep
 
     /// <summary>
-    /// Initializes Serilog with file logging and console output.
+    /// Initializes Serilog with rolling file logging.
     /// </summary>
     /// <param name="logsDirectory">Directory where log files should be stored</param>
     public static void Initialize(string logsDirectory)

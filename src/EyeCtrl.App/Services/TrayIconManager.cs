@@ -21,11 +21,13 @@ public class TrayIconManager : IDisposable
     private readonly ToolStripMenuItem _pauseMenuItem;
     private readonly Icon? _customIcon;
     private readonly Dispatcher _dispatcher;
+    private readonly InteractionManager _interactionManager;
     private bool _disposed;
 
     public TrayIconManager(InteractionManager interactionManager, Dispatcher dispatcher, Action shutdownCallback)
     {
         _dispatcher = dispatcher;
+        _interactionManager = interactionManager;
 
         _pauseMenuItem = new ToolStripMenuItem("Pause");
         _pauseMenuItem.Click += (_, _) =>
@@ -75,20 +77,28 @@ public class TrayIconManager : IDisposable
         _trayIcon.DoubleClick += (_, _) => dispatcher.BeginInvoke(() =>
             WeakReferenceMessenger.Default.Send(new SettingsRequestedMessage()));
 
-        interactionManager.StateChanged += state => dispatcher.BeginInvoke(() =>
-        {
-            _pauseMenuItem.Text = state == InteractionState.Paused ? "Resume" : "Pause";
-        });
+        interactionManager.StateChanged += OnStateChanged;
     }
 
     public void Dispose()
     {
         if (_disposed) return;
 
+        // Unsubscribe from InteractionManager events
+        _interactionManager.StateChanged -= OnStateChanged;
+
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         _customIcon?.Dispose();
 
         _disposed = true;
+    }
+
+    private void OnStateChanged(InteractionState state)
+    {
+        _dispatcher.BeginInvoke(() =>
+        {
+            _pauseMenuItem.Text = state == InteractionState.Paused ? "Resume" : "Pause";
+        });
     }
 }

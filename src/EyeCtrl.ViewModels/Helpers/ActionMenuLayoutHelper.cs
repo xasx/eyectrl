@@ -32,7 +32,8 @@ public static class ActionMenuLayoutHelper
         var effectiveRingRadius = circleSize / 2 + LayoutConstants.ActionMenuButtonRadius + LayoutConstants.ActionMenuButtonOuterGap;
 
         // Scale margin to physical pixels for clamping against physical gaze coords
-        var physicalMargin = DpiHelper.LogicalToPhysicalX(effectiveRingRadius + LayoutConstants.ActionMenuButtonRadius);
+        var physicalMarginX = DpiHelper.LogicalToPhysicalX(effectiveRingRadius + LayoutConstants.ActionMenuButtonRadius);
+        var physicalMarginY = DpiHelper.LogicalToPhysicalY(effectiveRingRadius + LayoutConstants.ActionMenuButtonRadius);
 
         // Apply position setting for action menu
         var displayPoint = position == ViewPosition.AtCenter
@@ -40,9 +41,9 @@ public static class ActionMenuLayoutHelper
             : fallbackPoint;
 
         var clampedPoint = new PhysicalPoint(
-            Math.Clamp(displayPoint.X, physicalMargin, screenWidthPhysical - physicalMargin),
-            Math.Clamp(displayPoint.Y, physicalMargin, screenHeightPhysical - physicalMargin));
+            Math.Clamp(displayPoint.X, physicalMarginX, screenWidthPhysical - physicalMarginX),
+            Math.Clamp(displayPoint.Y, physicalMarginY, screenHeightPhysical - physicalMarginY));
 
-        return (clampedPoint, physicalMargin);
+        return (clampedPoint, physicalMarginX);
     }
 }

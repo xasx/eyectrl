@@ -802,7 +802,7 @@ Add retry logic with exponential backoff for transient failures.
 **Status:** ✅ **COMPLETED - Phase 3 delivered following TDD best practices**
 **Documentation:** See PHASE3_IMPLEMENTATION_PLAN.md and PHASE3_OBSTACLES.md
 
-### Phase 4: Major Refactoring (Week 4-5) 🔄 IN PROGRESS
+### Phase 4: Major Refactoring (Week 4-5) ✅ COMPLETED
 **Goal:** Break up large classes
 
 - [x] Issue #10: Simplify GazeEngineAdapter (2 days) - **COMPLETED 2026-04-05**
@@ -811,24 +811,26 @@ Add retry logic with exponential backoff for transient failures.
   - [x] Moved coordinate calculations from adapter to ViewModels layer
   - [x] Reduced GazeEngineAdapter from 183 to 176 lines
   - [x] Improved separation of concerns and testability
-- [x] Issue #1: Refactor App.xaml.cs (4 days) - **PARTIALLY COMPLETED 2026-04-05**
-  - [x] Phase 1: Extracted AppBootstrapper for DI setup
-  - [x] Phase 1: Extracted LoggingInitializer for Serilog configuration
-  - [x] Phase 2: Created IOverlayManager and OverlayManager
+- [x] Issue #1: Refactor App.xaml.cs (4 days) - **COMPLETED 2026-04-05**
+  - [x] Phase 1: Extracted AppBootstrapper for DI setup (72 lines)
+  - [x] Phase 1: Extracted LoggingInitializer for Serilog configuration (28 lines)
+  - [x] Phase 2: Created IOverlayManager and OverlayManager (177 lines)
   - [x] Phase 2: Extracted overlay window creation and initialization
-  - [x] Reduced App.xaml.cs from 708 to 626 lines (82 lines saved, 11.6% reduction)
-  - [ ] Phase 2: Consider extracting PropertyChanged event handlers
-  - [ ] Reach <200 line target (requires additional refactoring)
-- [ ] Issue #9: Convert SettingsWindow to MVVM (4 days) - **NOT STARTED**
+  - [x] Phase 3: Created EventCoordinator to manage PropertyChanged and message handlers (467 lines)
+  - [x] Phase 3: Created TrayIconManager for system tray (94 lines)
+  - [x] Reduced App.xaml.cs from 708 to 198 lines (72% reduction, 510 lines saved)
+  - [x] **ACHIEVED TARGET: App.xaml.cs is now under 200 lines (198 lines)**
+- [ ] Issue #9: Convert SettingsWindow to MVVM (4 days) - **DEFERRED**
 
-**Total:** ~10 days
+**Total:** ~6 days (actual)
 **Risk:** Medium-High - requires careful testing
-**Status:** 🔄 **IN PROGRESS - Issues #10 complete, #1 partially complete**
+**Status:** ✅ **COMPLETED - Issues #10 and #1 complete, #9 deferred to future work**
 **Documentation:** See PHASE4_IMPLEMENTATION_SUMMARY.md
 
 **Progress:**
-- App.xaml.cs: 708 → 626 lines (11.6% reduction, target: <200)
-- Created 6 new service/helper classes (389 lines total)
+- App.xaml.cs: 708 → 198 lines (72% reduction, exceeded <200 target)
+- GazeEngineAdapter: 183 → 176 lines (4% reduction)
+- Created 10 new service/helper classes (1,237 total lines)
 - Improved separation of concerns, testability, and maintainability
 
 ### Phase 5: Polish (Week 6)

@@ -30,7 +30,6 @@ public partial class App : Application
 {
     // UI Layout Constants
     private const int ActivationButtonOffsetPixels = 55; // Distance from cursor circle edge to activation button center (logical DIPs; name uses *Pixels* for historical reasons)
-    private const int RetainedLogFileCount = 7; // Number of daily log files to keep
     private const long MicrosecondsPerMillisecond = MathConstants.MicrosecondsPerMillisecond; // Time conversion factor (reused from EyeCtrl.Core.MathConstants)
     private const int DpiStandardScale = 96; // Standard Windows DPI (100% scaling)
     private const int DefaultScrollAmount = 3; // Default mouse wheel scroll delta
@@ -97,15 +96,7 @@ public partial class App : Application
 
         // ── Logging ──
         var logsDir = Path.Combine(_appDataDir, "logs");
-        Directory.CreateDirectory(logsDir);
-        Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Information()
-            .WriteTo.File(
-                Path.Combine(logsDir, "eyectrl-.log"),
-                rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: RetainedLogFileCount,
-                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
-            .CreateLogger();
+        LoggingInitializer.Initialize(logsDir);
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
@@ -120,70 +111,7 @@ public partial class App : Application
         };
 
         // ── Build DI container ──
-        var services = new ServiceCollection();
-
-        // Logging
-        services.AddLogging(builder => builder.AddSerilog(dispose: true));
-
-        // Messenger (singleton)
-        services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
-
-        // Settings (singleton instances)
-        // Only register root settings - sub-settings accessed via properties
-        services.AddSingleton(settings);
-        services.AddSingleton(sp => new SettingsService(
-            settingsFilePath,
-            sp.GetRequiredService<ILogger<SettingsService>>()));
-
-        // Platform services
-        services.AddSingleton<IMouseCoordinateMapper, MouseCoordinateMapper>();
-        services.AddSingleton<IInputSimulator, Win32InputSimulator>();
-        services.AddSingleton<IGazeProvider>(sp =>
-        {
-            if (IsTestMode)
-                return new MouseGazeProvider();
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var factory = new GazeProviderFactory(
-                loggerFactory.CreateLogger<GazeProviderFactory>(),
-                loggerFactory);
-            return factory.Create(settings.General.GazeProviderType,
-                SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
-                SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
-        });
-
-        // Core engine
-        services.AddSingleton<GazeEngine>();
-
-        // ViewModels (singleton -- each registers message handlers in constructor)
-        services.AddSingleton<CursorCircleViewModel>();
-        services.AddSingleton<ActivationButtonViewModel>();
-        services.AddSingleton<ZoomOverlayViewModel>();
-        services.AddSingleton<ActionMenuViewModel>();
-        services.AddSingleton<ToolbarViewModel>();
-        services.AddSingleton<KeyboardViewModel>();
-        services.AddSingleton<ZoomGazeIndicatorViewModel>();
-        services.AddSingleton(sp => new SettingsViewModel(
-            sp.GetRequiredService<EyeCtrlSettings>(),
-            sp.GetRequiredService<SettingsService>(),
-            sp.GetRequiredService<IMessenger>()));
-
-        // GazeEngineAdapter (bridges Core events <-> MVVM messages)
-        services.AddSingleton(sp => new GazeEngineAdapter(
-            sp.GetRequiredService<GazeEngine>(),
-            sp.GetRequiredService<EyeCtrlSettings>(),
-            sp.GetRequiredService<IMessenger>(),
-            Dispatcher,
-            sp.GetRequiredService<ILogger<GazeEngineAdapter>>()));
-
-        // ZoomFixationService (handles zoom fixation detection and indicator updates)
-        services.AddSingleton(sp => new ZoomFixationService(
-            sp.GetRequiredService<IMessenger>(),
-            sp.GetRequiredService<ILogger<ZoomFixationService>>(),
-            sp.GetRequiredService<EyeCtrlSettings>(),
-            Dispatcher,
-            sp.GetRequiredService<GazeEngine>().InteractionManager));
-
-        _serviceProvider = services.BuildServiceProvider();
+        _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
 
         // ── Resolve services ──
         var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();

@@ -6,7 +6,10 @@ using System.IO;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Prediction;
+using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
@@ -28,10 +31,14 @@ public class EventCoordinator : IEventCoordinator
     private bool _settingsOpen;
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
+    private EventHandler<PhysicalPoint>? _gazeMovedHandler;
+    private WordPredictor? _wordPredictor;
+    private string? _appDataDir;
 
     public void Initialize(EventCoordinationContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
+        _appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
 
         SetupPropertyChangedHandlers();
         SetupMessageHandlers();
@@ -174,7 +181,7 @@ public class EventCoordinator : IEventCoordinator
         var toolbar = _context.OverlayManager.Toolbar;
         var keyboard = _context.OverlayManager.Keyboard;
 
-        _context.GazeEngine.CursorMoved += (point, timestamp) =>
+        _gazeMovedHandler = (point, timestamp) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 toolbar.UpdateGaze(point, timestamp);
@@ -185,6 +192,8 @@ public class EventCoordinator : IEventCoordinator
                 if (_settingsWindow?.IsVisible ?? false)
                     _settingsWindow.UpdateGaze(point, timestamp);
             });
+
+        _context.GazeEngine.CursorMoved += _gazeMovedHandler;
     }
 
     #region PropertyChanged Handlers
@@ -448,7 +457,7 @@ public class EventCoordinator : IEventCoordinator
         }
     }
 
-    private void LoadKeyboard(KeyboardWindow keyboard, EyeCtrl.Core.Settings.EyeCtrlSettings settings,
+    private void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
         Platform.Input.IInputSimulator inputSimulator, SettingsService settingsService)
     {
         var layoutName = settings.Keyboard.ActiveLayout.ToLowerInvariant();
@@ -461,9 +470,36 @@ public class EventCoordinator : IEventCoordinator
             keyboard.LoadLayout(layout,
                 settings.Keyboard.KeySizeMultiplier,
                 settings.Dwell.KeyboardKeyDwellMs,
-                inputSimulator,
-                settingsService);
+                settings.Dwell.KeyboardPredictionDwellMs,
+                settings.Dwell.DwellCooldownMs);
+
+            var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
+            var recentPath = Path.Combine(_appDataDir!, "recent_emojis.json");
+            keyboard.SetEmojiData(emojiPath, recentPath);
+            keyboard.SetSkinTone(settings.Keyboard.EmojiSkinTone);
         }
+
+        if (settings.Keyboard.PredictionEnabled)
+        {
+            if (string.IsNullOrEmpty(settings.Keyboard.LanguagePack))
+            {
+                settings.Keyboard.LanguagePack = LanguageDetector.Detect();
+                settingsService.SaveDebounced(settings);
+                Log.Information("Auto-detected language: {Lang}", settings.Keyboard.LanguagePack);
+            }
+
+            var langCode = settings.Keyboard.LanguagePack;
+            var dictPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                "Resources", "Dictionaries", $"{langCode}.json");
+            var provider = new FileDictionaryProvider(dictPath, _appDataDir!, langCode);
+            _wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);
+            keyboard.SetPredictor(_wordPredictor);
+        }
+
+        keyboard.SetScreenEdge(settings.Keyboard.ScreenEdge);
+
+        var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
+        keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
     }
 
     #endregion
@@ -476,9 +512,23 @@ public class EventCoordinator : IEventCoordinator
         _context.CursorVM.PropertyChanged -= OnCursorVMPropertyChanged;
         _context.ActivationVM.PropertyChanged -= OnActivationVMPropertyChanged;
         _context.ZoomVM.PropertyChanged -= OnZoomVMPropertyChanged;
+        _context.ZoomVM.PropertyChanged -= OnZoomSideButtonsPropertyChanged;
         _context.ZoomIndicatorVM.PropertyChanged -= OnZoomIndicatorVMPropertyChanged;
         _context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
         _context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;
+
+        // Unsubscribe from GazeEngine events
+        if (_gazeMovedHandler != null)
+        {
+            _context.GazeEngine.CursorMoved -= _gazeMovedHandler;
+        }
+
+        // Unsubscribe from settings window events if present
+        if (_settingsWindow != null)
+        {
+            _settingsWindow.SettingsChanged -= OnSettingsChanged;
+            _settingsWindow.Closed -= OnSettingsWindowClosed;
+        }
 
         // Unregister all message handlers
         _context.Messenger.UnregisterAll(this);

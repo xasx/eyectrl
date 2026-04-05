@@ -93,6 +93,11 @@ public class AppBootstrapper
             dispatcher,
             sp.GetRequiredService<GazeEngine>().InteractionManager));
 
+        // OverlayManager (manages all overlay window lifecycle)
+        services.AddSingleton<IOverlayManager>(sp => new OverlayManager(
+            dispatcher,
+            sp.GetRequiredService<ILogger<OverlayManager>>()));
+
         return services.BuildServiceProvider();
     }
 }

@@ -264,7 +264,6 @@ public class ViewModelDisposableTests
     [Fact]
     public void ZoomGazeIndicatorViewModel_ImplementsIDisposable()
     {
-        var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
         var vm = new ZoomGazeIndicatorViewModel(messenger);
 
@@ -274,7 +273,6 @@ public class ViewModelDisposableTests
     [Fact]
     public void ZoomGazeIndicatorViewModel_UnregistersMessagesOnDispose()
     {
-        var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
         var vm = new ZoomGazeIndicatorViewModel(messenger);
 
@@ -294,7 +292,6 @@ public class ViewModelDisposableTests
     [Fact]
     public void ZoomGazeIndicatorViewModel_DisposeIsIdempotent()
     {
-        var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
         var vm = new ZoomGazeIndicatorViewModel(messenger);
 

@@ -35,6 +35,11 @@ public class EventCoordinator : IEventCoordinator
     private WordPredictor? _wordPredictor;
     private string? _appDataDir;
 
+    /// <summary>
+    /// Gets the word predictor instance used for keyboard predictions, if enabled.
+    /// </summary>
+    public WordPredictor? WordPredictor => _wordPredictor;
+
     public void Initialize(EventCoordinationContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
@@ -390,7 +395,7 @@ public class EventCoordinator : IEventCoordinator
         }
     }
 
-    private void OnSettingsChanged(EyeCtrl.Core.Settings.EyeCtrlSettings s)
+    private void OnSettingsChanged(EyeCtrlSettings s)
     {
         if (_context == null) return;
 
@@ -457,7 +462,7 @@ public class EventCoordinator : IEventCoordinator
         }
     }
 
-    private void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
+    public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
         Platform.Input.IInputSimulator inputSimulator, SettingsService settingsService)
     {
         var layoutName = settings.Keyboard.ActiveLayout.ToLowerInvariant();

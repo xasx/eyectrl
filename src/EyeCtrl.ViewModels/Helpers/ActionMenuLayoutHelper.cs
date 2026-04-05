@@ -18,8 +18,8 @@ public static class ActionMenuLayoutHelper
     /// <param name="circleSize">The cursor circle size in logical DIPs</param>
     /// <param name="screenWidthPhysical">Physical screen width in pixels</param>
     /// <param name="screenHeightPhysical">Physical screen height in pixels</param>
-    /// <returns>A tuple containing the clamped display point and the physical margin used for clamping</returns>
-    public static (PhysicalPoint ClampedPoint, double PhysicalMargin) CalculateDisplayPoint(
+    /// <returns>The clamped display point</returns>
+    public static PhysicalPoint CalculateDisplayPoint(
         PhysicalPoint fallbackPoint,
         ViewPosition position,
         double circleSize,
@@ -44,6 +44,6 @@ public static class ActionMenuLayoutHelper
             Math.Clamp(displayPoint.X, physicalMarginX, screenWidthPhysical - physicalMarginX),
             Math.Clamp(displayPoint.Y, physicalMarginY, screenHeightPhysical - physicalMarginY));
 
-        return (clampedPoint, physicalMarginX);
+        return clampedPoint;
     }
 }

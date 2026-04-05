@@ -34,8 +34,7 @@ public partial class App : Application
 
     private ServiceProvider _serviceProvider = null!;
     private TrayIconManager _trayIconManager = null!;
-    private bool _keyboardVisible;
-    private WordPredictor? _wordPredictor;
+    private EventCoordinator _eventCoordinator = null!;
     private string _appDataDir = null!;
 
     /// <summary>
@@ -139,10 +138,6 @@ public partial class App : Application
         var viewModels = new OverlayViewModels(cursorVM, activationVM, zoomVM, actionMenuVM, toolbarVM, keyboardVM, zoomIndicatorVM);
         overlayManager.Initialize(viewModels, settings, activeProviderType);
 
-        // Load keyboard (still uses App.xaml.cs method for now)
-        var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
-        LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
-
         // Get references to overlay windows for event handlers
         var cursorCircle = overlayManager.CursorCircle;
         var activationButton = overlayManager.ActivationButton;
@@ -151,11 +146,14 @@ public partial class App : Application
 
         // ── Event Coordination ──
         // All PropertyChanged and message handlers are now managed by EventCoordinator
-        var eventCoordinator = new EventCoordinator();
+        _eventCoordinator = new EventCoordinator();
         var coordinationContext = new EventCoordinationContext(
             cursorVM, activationVM, zoomVM, zoomIndicatorVM, actionMenuVM, toolbarVM, keyboardVM,
             overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator);
-        eventCoordinator.Initialize(coordinationContext);
+        _eventCoordinator.Initialize(coordinationContext);
+
+        // Load keyboard using EventCoordinator
+        _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
 
         // ── System tray ──
         _trayIconManager = new TrayIconManager(im, Dispatcher, () => Shutdown());
@@ -174,51 +172,6 @@ public partial class App : Application
         gazeEngine.Start();
     }
 
-    private void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
-        IInputSimulator inputSimulator, SettingsService settingsService)
-    {
-        var layoutName = settings.Keyboard.ActiveLayout.ToLowerInvariant();
-        var layoutPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-            "Resources", "Layouts", $"{layoutName}.json");
-
-        if (File.Exists(layoutPath))
-        {
-            var layout = KeyboardLayoutLoader.Load(layoutPath);
-            keyboard.LoadLayout(layout,
-                settings.Keyboard.KeySizeMultiplier,
-                settings.Dwell.KeyboardKeyDwellMs,
-                settings.Dwell.KeyboardPredictionDwellMs,
-                settings.Dwell.DwellCooldownMs);
-
-            var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
-            var recentPath = Path.Combine(_appDataDir, "recent_emojis.json");
-            keyboard.SetEmojiData(emojiPath, recentPath);
-            keyboard.SetSkinTone(settings.Keyboard.EmojiSkinTone);
-        }
-
-        if (settings.Keyboard.PredictionEnabled)
-        {
-            if (string.IsNullOrEmpty(settings.Keyboard.LanguagePack))
-            {
-                settings.Keyboard.LanguagePack = LanguageDetector.Detect();
-                settingsService.SaveDebounced(settings);
-                Log.Information("Auto-detected language: {Lang}", settings.Keyboard.LanguagePack);
-            }
-
-            var langCode = settings.Keyboard.LanguagePack;
-            var dictPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "Resources", "Dictionaries", $"{langCode}.json");
-            var provider = new FileDictionaryProvider(dictPath, _appDataDir, langCode);
-            _wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);
-            keyboard.SetPredictor(_wordPredictor);
-        }
-
-        keyboard.SetScreenEdge(settings.Keyboard.ScreenEdge);
-
-        var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
-        keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
-    }
-
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Information("Shutdown");
@@ -230,7 +183,7 @@ public partial class App : Application
 
         gazeEngine.Stop();
         settingsService.Save(settings);
-        _wordPredictor?.SaveUserDictionary();
+        _eventCoordinator.WordPredictor?.SaveUserDictionary();
 
         var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
         adapter.Dispose();

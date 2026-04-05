@@ -1,0 +1,488 @@
+namespace EyeCtrl.App.Services;
+
+using System;
+using System.ComponentModel;
+using System.IO;
+using EyeCtrl.App.Windows;
+using EyeCtrl.Core;
+using EyeCtrl.Core.Models;
+using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
+using Serilog;
+
+/// <summary>
+/// Coordinates event handlers between ViewModels, overlay windows, and the core engine.
+/// Extracted from App.xaml.cs to improve Single Responsibility Principle compliance.
+/// </summary>
+public class EventCoordinator : IEventCoordinator
+{
+    private const int ActivationButtonOffsetPixels = 20;
+    private const int BackspaceVirtualKeyCode = 0x08;
+    private const int EnterVirtualKeyCode = 0x0D;
+    private const int TabVirtualKeyCode = 0x09;
+    private const int DefaultScrollAmount = 120;
+
+    private EventCoordinationContext? _context;
+    private bool _keyboardVisible;
+    private bool _settingsOpen;
+    private SettingsWindow? _settingsWindow;
+    private bool _disposed;
+
+    public void Initialize(EventCoordinationContext context)
+    {
+        _context = context ?? throw new ArgumentNullException(nameof(context));
+
+        SetupPropertyChangedHandlers();
+        SetupMessageHandlers();
+        SetupGazeRouting();
+    }
+
+    private void SetupPropertyChangedHandlers()
+    {
+        if (_context == null) return;
+
+        var cursorCircle = _context.OverlayManager.CursorCircle;
+        var activationButton = _context.OverlayManager.ActivationButton;
+        var zoomOverlay = _context.OverlayManager.ZoomOverlay;
+        var zoomSideButtons = _context.OverlayManager.ZoomSideButtons;
+        var zoomIndicator = _context.OverlayManager.ZoomIndicator;
+        var actionMenu = _context.OverlayManager.ActionMenu;
+        var toolbar = _context.OverlayManager.Toolbar;
+
+        // CursorCircle: VM.Position -> window position, VM.IsVisible -> show/hide
+        _context.CursorVM.PropertyChanged += OnCursorVMPropertyChanged;
+
+        // ActivationButton: VM -> show/hide/dwell
+        _context.ActivationVM.PropertyChanged += OnActivationVMPropertyChanged;
+
+        // ZoomOverlay: VM -> show/hide/reposition
+        _context.ZoomVM.PropertyChanged += OnZoomVMPropertyChanged;
+
+        // ZoomGazeIndicator: VM property changes -> window updates
+        _context.ZoomIndicatorVM.PropertyChanged += OnZoomIndicatorVMPropertyChanged;
+
+        // ZoomSideButtons: VM -> show/hide/progress
+        _context.ZoomVM.PropertyChanged += OnZoomSideButtonsPropertyChanged;
+
+        // ActionMenu: VM -> show/hide
+        _context.ActionMenuVM.PropertyChanged += OnActionMenuVMPropertyChanged;
+
+        // Toolbar: VM state changes -> toolbar state
+        _context.ToolbarVM.PropertyChanged += OnToolbarVMPropertyChanged;
+    }
+
+    private void SetupMessageHandlers()
+    {
+        if (_context == null) return;
+
+        var im = _context.InteractionManager;
+        var zoomOverlay = _context.OverlayManager.ZoomOverlay;
+        var zoomIndicator = _context.OverlayManager.ZoomIndicator;
+        var keyboard = _context.OverlayManager.Keyboard;
+
+        // ZoomFixationCompleted: Handle coordinate conversion
+        _context.Messenger.Register<ZoomFixationCompletedMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                try
+                {
+                    zoomIndicator.Hide();
+                    var realPoint = zoomOverlay.GetRealScreenPoint(msg.PrecisePoint);
+                    im.OnZoomFixation(realPoint);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error handling zoom fixation completion");
+                }
+            }));
+
+        // ResetZoomIndicator: Trigger animation
+        _context.Messenger.Register<ResetZoomIndicatorMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                try
+                {
+                    if (!zoomIndicator.IsVisible) return;
+                    var targetDiameter = _context.Settings.Zoom.GazeIndicatorOuterDiameter;
+                    zoomIndicator.AnimateReset(targetDiameter, _context.ZoomIndicatorVM.ResetAnimationMs);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error animating zoom indicator reset");
+                }
+            }));
+
+        // ZoomCloseMessage -> exit zoom mode
+        _context.Messenger.Register<ZoomCloseMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(() => im.OnZoomBack()));
+
+        // ZoomRecaptureMessage -> re-capture at same fixation point
+        _context.Messenger.Register<ZoomRecaptureMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                if (im.CurrentState == InteractionState.ZoomSelectionActive && im.FixationPoint != null)
+                {
+                    _context.Messenger.Send(new StartZoomMessage(
+                        im.FixationPoint,
+                        _context.Settings.Zoom.CircleRadiusPixels,
+                        _context.Settings.Zoom.MagnificationLevel,
+                        im.FixationPoint));
+                }
+            }));
+
+        // Keyboard toggle
+        _context.Messenger.Register<KeyboardToggledMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                _keyboardVisible = !_keyboardVisible;
+                Log.Information("Keyboard {State}", _keyboardVisible ? "shown" : "hidden");
+                if (_keyboardVisible)
+                {
+                    keyboard.Show();
+                    _context.GazeEngine.SuppressFixation = true;
+                    im.OnFixationEnded();
+                }
+                else
+                {
+                    keyboard.Hide();
+                    _context.GazeEngine.SuppressFixation = false;
+                }
+            }));
+
+        // Settings window
+        _context.Messenger.Register<SettingsRequestedMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(() => ShowSettingsWindow()));
+
+        // Key activation -> input simulator
+        _context.Messenger.Register<KeyActivatedMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() => HandleKeyActivation(msg.Key)));
+
+        // Prediction -> input simulator
+        _context.Messenger.Register<PredictionSelectedMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() => HandlePredictionSelected(msg.DeleteCount, msg.Word)));
+
+        // Action requested -> input simulator
+        _context.Messenger.Register<ActionRequestedMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() => HandleActionRequested(msg)));
+    }
+
+    private void SetupGazeRouting()
+    {
+        if (_context == null) return;
+
+        var toolbar = _context.OverlayManager.Toolbar;
+        var keyboard = _context.OverlayManager.Keyboard;
+
+        _context.GazeEngine.CursorMoved += (point, timestamp) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                toolbar.UpdateGaze(point, timestamp);
+
+                if (_keyboardVisible && keyboard.IsVisible)
+                    keyboard.UpdateGaze(point, timestamp);
+
+                if (_settingsWindow?.IsVisible ?? false)
+                    _settingsWindow.UpdateGaze(point, timestamp);
+            });
+    }
+
+    #region PropertyChanged Handlers
+
+    private void OnCursorVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+
+        var cursorCircle = _context.OverlayManager.CursorCircle;
+        switch (e.PropertyName)
+        {
+            case nameof(CursorCircleViewModel.Position):
+                cursorCircle.UpdatePosition(_context.CursorVM.Position);
+                break;
+            case nameof(CursorCircleViewModel.IsVisible):
+                if (_context.CursorVM.IsVisible && !_settingsOpen) cursorCircle.Show();
+                else cursorCircle.Hide();
+                break;
+        }
+    }
+
+    private void OnActivationVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+
+        var activationButton = _context.OverlayManager.ActivationButton;
+        var actionMenu = _context.OverlayManager.ActionMenu;
+
+        switch (e.PropertyName)
+        {
+            case nameof(ActivationButtonViewModel.IsVisible):
+                if (_context.ActivationVM.IsVisible)
+                {
+                    actionMenu.Hide();
+                    var circleRadius = _context.Settings.Cursor.CircleSize / 2;
+                    var buttonOffset = circleRadius + ActivationButtonOffsetPixels;
+                    activationButton.Show();
+                    activationButton.ShowAt(_context.ActivationVM.Position, buttonOffset);
+                }
+                else
+                {
+                    activationButton.HideImmediate();
+                }
+                break;
+            case nameof(ActivationButtonViewModel.DwellProgress):
+                activationButton.UpdateDwellProgress(_context.ActivationVM.DwellProgress);
+                break;
+        }
+    }
+
+    private void OnZoomVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+
+        var zoomOverlay = _context.OverlayManager.ZoomOverlay;
+        var cursorCircle = _context.OverlayManager.CursorCircle;
+        var activationButton = _context.OverlayManager.ActivationButton;
+        var zoomIndicator = _context.OverlayManager.ZoomIndicator;
+
+        if (e.PropertyName == nameof(ZoomOverlayViewModel.Center) && _context.ZoomVM.IsVisible)
+        {
+            zoomOverlay.UpdateCenter(_context.ZoomVM.Center, _context.ZoomVM.Radius, _context.ZoomVM.Magnification);
+        }
+        else if (e.PropertyName == nameof(ZoomOverlayViewModel.IsVisible))
+        {
+            if (_context.ZoomVM.IsVisible)
+            {
+                cursorCircle.Hide();
+                activationButton.HideImmediate();
+                zoomOverlay.Show(_context.ZoomVM.Center, _context.ZoomVM.Radius, _context.ZoomVM.Magnification, _context.ZoomVM.GazePoint);
+                zoomIndicator.Show();
+            }
+            else
+            {
+                zoomOverlay.Hide();
+                zoomIndicator.Hide();
+            }
+        }
+    }
+
+    private void OnZoomIndicatorVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+
+        var zoomIndicator = _context.OverlayManager.ZoomIndicator;
+        switch (e.PropertyName)
+        {
+            case nameof(ZoomGazeIndicatorViewModel.IndicatorX):
+            case nameof(ZoomGazeIndicatorViewModel.IndicatorY):
+                zoomIndicator.UpdatePosition(_context.ZoomIndicatorVM.IndicatorX, _context.ZoomIndicatorVM.IndicatorY);
+                break;
+            case nameof(ZoomGazeIndicatorViewModel.OuterCircleDiameter):
+                zoomIndicator.UpdateOuterDiameter(_context.ZoomIndicatorVM.OuterCircleDiameter);
+                break;
+            case nameof(ZoomGazeIndicatorViewModel.IsVisible):
+                if (_context.ZoomIndicatorVM.IsVisible) zoomIndicator.Show();
+                else zoomIndicator.Hide();
+                break;
+        }
+    }
+
+    private void OnZoomSideButtonsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+
+        var zoomSideButtons = _context.OverlayManager.ZoomSideButtons;
+        switch (e.PropertyName)
+        {
+            case nameof(ZoomOverlayViewModel.IsVisible):
+                if (_context.ZoomVM.IsVisible)
+                    zoomSideButtons.ShowAt(_context.ZoomVM.CloseButtonCenter, _context.ZoomVM.RecaptureButtonCenter);
+                else
+                    zoomSideButtons.Hide();
+                break;
+            case nameof(ZoomOverlayViewModel.CloseButtonProgress):
+                zoomSideButtons.UpdateProgress("zoom_close", _context.ZoomVM.CloseButtonProgress);
+                break;
+            case nameof(ZoomOverlayViewModel.RecaptureButtonProgress):
+                zoomSideButtons.UpdateProgress("zoom_recapture", _context.ZoomVM.RecaptureButtonProgress);
+                break;
+        }
+    }
+
+    private void OnActionMenuVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+
+        var actionMenu = _context.OverlayManager.ActionMenu;
+        var cursorCircle = _context.OverlayManager.CursorCircle;
+        var activationButton = _context.OverlayManager.ActivationButton;
+
+        if (e.PropertyName == nameof(ActionMenuViewModel.IsVisible))
+        {
+            if (_context.ActionMenuVM.IsVisible)
+            {
+                cursorCircle.Hide();
+                activationButton.HideImmediate();
+
+                actionMenu.Show(
+                    _context.ActionMenuVM.Center,
+                    _context.Settings.ActionMenu.VisibleActions,
+                    _context.ActionMenuVM.ShowBack,
+                    _context.ActionMenuVM.ShowBack ? _context.Settings.Dwell.ZoomActionMenuDwellMs : _context.Settings.Dwell.ActionMenuDwellMs,
+                    _context.ActionMenuVM.EffectiveRingRadius,
+                    _context.Settings.Cursor.CircleSize,
+                    _context.Settings.Cursor.CircleColor,
+                    _context.Settings.Cursor.PositionIndicatorStyle,
+                    _context.ActionMenuVM.ZoomCenter,
+                    _context.ActionMenuVM.ZoomRadius,
+                    _context.ActionMenuVM.GazePoint);
+            }
+            else
+            {
+                actionMenu.Hide();
+            }
+        }
+    }
+
+    private void OnToolbarVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+
+        var toolbar = _context.OverlayManager.Toolbar;
+        if (e.PropertyName == nameof(ToolbarViewModel.IsPaused))
+        {
+            toolbar.SetPausedState(_context.ToolbarVM.IsPaused);
+        }
+    }
+
+    #endregion
+
+    #region Message Handlers
+
+    private void ShowSettingsWindow()
+    {
+        if (_context == null || _settingsWindow != null) return;
+
+        _settingsOpen = true;
+        _context.OverlayManager.CursorCircle.Hide();
+
+        try
+        {
+            _settingsWindow = new SettingsWindow(_context.Settings, _context.SettingsService);
+            _settingsWindow.SettingsChanged += OnSettingsChanged;
+            _settingsWindow.Closed += OnSettingsWindowClosed;
+            _settingsWindow.Show();
+        }
+        catch
+        {
+            _settingsOpen = false;
+            if (_context.CursorVM.IsVisible)
+                _context.OverlayManager.CursorCircle.Show();
+            throw;
+        }
+    }
+
+    private void OnSettingsChanged(EyeCtrl.Core.Settings.EyeCtrlSettings s)
+    {
+        if (_context == null) return;
+
+        _context.OverlayManager.CursorCircle.UpdateAppearance(s.Cursor);
+        _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
+        _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
+        _context.InteractionManager.ZoomEnabled = s.Zoom.Enabled;
+        _context.OverlayManager.Toolbar.SetZoomState(s.Zoom.Enabled);
+        LoadKeyboard(_context.OverlayManager.Keyboard, s, _context.InputSimulator, _context.SettingsService);
+        Log.Information("Settings saved");
+    }
+
+    private void OnSettingsWindowClosed(object? sender, EventArgs e)
+    {
+        if (_context == null) return;
+
+        _settingsWindow = null;
+        _settingsOpen = false;
+        if (_context.CursorVM.IsVisible)
+            _context.OverlayManager.CursorCircle.Show();
+    }
+
+    private void HandleKeyActivation(string key)
+    {
+        if (_context == null) return;
+
+        switch (key)
+        {
+            case "\b": _context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode); break;
+            case "\n": _context.InputSimulator.SendKeyPress(EnterVirtualKeyCode); break;
+            case "\t": _context.InputSimulator.SendKeyPress(TabVirtualKeyCode); break;
+            default: _context.InputSimulator.SendText(key); break;
+        }
+    }
+
+    private void HandlePredictionSelected(int deleteCount, string word)
+    {
+        if (_context == null) return;
+
+        for (int i = 0; i < deleteCount; i++)
+            _context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode);
+        _context.InputSimulator.SendText(word + " ");
+    }
+
+    private void HandleActionRequested(ActionRequestedMessage msg)
+    {
+        if (_context == null) return;
+
+        var pt = msg.IsFromZoom ? msg.Point : (_context.GazeEngine.StableCentroid ?? msg.Point);
+        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [zoom={IsFromZoom}]",
+            msg.Action, pt.X, pt.Y, msg.IsFromZoom);
+
+        switch (msg.Action)
+        {
+            case InteractionAction.LeftClick:    _context.InputSimulator.LeftClick(pt);        break;
+            case InteractionAction.RightClick:   _context.InputSimulator.RightClick(pt);       break;
+            case InteractionAction.DoubleClick:  _context.InputSimulator.DoubleClick(pt);      break;
+            case InteractionAction.DragStart:    _context.InputSimulator.MouseDown(pt);        break;
+            case InteractionAction.DragEnd:      _context.InputSimulator.MouseUp(pt);          break;
+            case InteractionAction.ScrollUp:     _context.InputSimulator.Scroll(pt, 0, DefaultScrollAmount);    break;
+            case InteractionAction.ScrollDown:   _context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);   break;
+            case InteractionAction.ScrollLeft:   _context.InputSimulator.Scroll(pt, -DefaultScrollAmount, 0);   break;
+            case InteractionAction.ScrollRight:  _context.InputSimulator.Scroll(pt, DefaultScrollAmount, 0);    break;
+        }
+    }
+
+    private void LoadKeyboard(KeyboardWindow keyboard, EyeCtrl.Core.Settings.EyeCtrlSettings settings,
+        Platform.Input.IInputSimulator inputSimulator, SettingsService settingsService)
+    {
+        var layoutName = settings.Keyboard.ActiveLayout.ToLowerInvariant();
+        var layoutPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+            "Resources", "Layouts", $"{layoutName}.json");
+
+        if (File.Exists(layoutPath))
+        {
+            var layout = KeyboardLayoutLoader.Load(layoutPath);
+            keyboard.LoadLayout(layout,
+                settings.Keyboard.KeySizeMultiplier,
+                settings.Dwell.KeyboardKeyDwellMs,
+                inputSimulator,
+                settingsService);
+        }
+    }
+
+    #endregion
+
+    public void Dispose()
+    {
+        if (_disposed || _context == null) return;
+
+        // Unsubscribe from PropertyChanged events
+        _context.CursorVM.PropertyChanged -= OnCursorVMPropertyChanged;
+        _context.ActivationVM.PropertyChanged -= OnActivationVMPropertyChanged;
+        _context.ZoomVM.PropertyChanged -= OnZoomVMPropertyChanged;
+        _context.ZoomIndicatorVM.PropertyChanged -= OnZoomIndicatorVMPropertyChanged;
+        _context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
+        _context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;
+
+        // Unregister all message handlers
+        _context.Messenger.UnregisterAll(this);
+
+        _settingsWindow = null;
+        _disposed = true;
+    }
+}

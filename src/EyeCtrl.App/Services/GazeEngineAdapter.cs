@@ -9,6 +9,7 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels.Messages;
+using EyeCtrl.ViewModels.Helpers;
 
 public class GazeEngineAdapter : IDisposable
 {
@@ -83,25 +84,18 @@ public class GazeEngineAdapter : IDisposable
                 ? (int)(_settings.Zoom.CircleRadiusPixels * _settings.Zoom.MagnificationLevel)
                 : 0;
 
-            // Margin keeps the full button ring on-screen.
-            // EffectiveRingRadius = CircleSize/2 + ButtonRadius + ButtonOuterGap
-            // Clamp uses: effectiveRingRadius + ButtonRadius
-            var circleSize = _settings.Cursor.CircleSize;
-            var effectiveRingRadius = circleSize / 2 + LayoutConstants.ActionMenuButtonRadius + LayoutConstants.ActionMenuButtonOuterGap;
-
-            // Scale margin to physical pixels for clamping against physical gaze coords
-            var physicalMargin = DpiHelper.LogicalToPhysicalX(effectiveRingRadius + LayoutConstants.ActionMenuButtonRadius);
+            // Get screen dimensions in physical pixels
             var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
             var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
 
-            // Apply position setting for action menu
-            var displayPoint = _settings.ActionMenu.Position == ViewPosition.AtCenter
-                ? GetScreenCenterPoint()
-                : point;
-
-            var clampedPoint = new PhysicalPoint(
-                Math.Clamp(displayPoint.X, physicalMargin, physicalScreenW - physicalMargin),
-                Math.Clamp(displayPoint.Y, physicalMargin, physicalScreenH - physicalMargin));
+            // Calculate display point using helper (moves coordinate logic to ViewModels layer)
+            var circleSize = _settings.Cursor.CircleSize;
+            var (clampedPoint, _) = ActionMenuLayoutHelper.CalculateDisplayPoint(
+                point,
+                _settings.ActionMenu.Position,
+                circleSize,
+                physicalScreenW,
+                physicalScreenH);
 
             _messenger.Send(new ShowActionMenuMessage(
                 clampedPoint,
@@ -128,10 +122,16 @@ public class GazeEngineAdapter : IDisposable
     private void OnStartZoom(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() =>
         {
-            // Apply position setting for zoom view
-            var displayPoint = _settings.Zoom.Position == ViewPosition.AtCenter
-                ? GetScreenCenterPoint()
-                : point;
+            // Get screen dimensions in physical pixels
+            var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
+            var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
+
+            // Calculate display point using helper (moves coordinate logic to ViewModels layer)
+            var displayPoint = ZoomLayoutHelper.CalculateDisplayPoint(
+                point,
+                _settings.Zoom.Position,
+                physicalScreenW,
+                physicalScreenH);
 
             _messenger.Send(new StartZoomMessage(
                 displayPoint,
@@ -157,13 +157,6 @@ public class GazeEngineAdapter : IDisposable
     {
         var isFromZoom = _interactionManager.CurrentState == InteractionState.ZoomSelectionActionMenuVisible;
         _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isFromZoom)));
-    }
-
-    private PhysicalPoint GetScreenCenterPoint()
-    {
-        var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
-        var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
-        return new PhysicalPoint(physicalScreenW / 2, physicalScreenH / 2);
     }
 
     public void Dispose()

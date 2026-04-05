@@ -2,8 +2,11 @@ namespace EyeCtrl.App.Services;
 
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
-using EyeCtrl.App.Windows;
+using EyeCtrl.App.Overlays;
+using EyeCtrl.Core;
+using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 
@@ -14,10 +17,25 @@ using EyeCtrl.ViewModels;
 public interface IEventCoordinator
 {
     /// <summary>
+    /// Gets the word predictor instance used for keyboard predictions, if enabled.
+    /// </summary>
+    WordPredictor? WordPredictor { get; }
+
+    /// <summary>
     /// Initializes event handlers and message subscriptions.
     /// </summary>
     /// <param name="context">The event coordination context containing all dependencies</param>
     void Initialize(EventCoordinationContext context);
+
+    /// <summary>
+    /// Loads keyboard layout and configuration.
+    /// </summary>
+    /// <param name="keyboard">The keyboard window to configure</param>
+    /// <param name="settings">The application settings</param>
+    /// <param name="inputSimulator">The input simulator</param>
+    /// <param name="settingsService">The settings service</param>
+    void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
+        EyeCtrl.Platform.Input.IInputSimulator inputSimulator, SettingsService settingsService);
 
     /// <summary>
     /// Cleans up all event subscriptions and handlers.

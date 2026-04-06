@@ -71,32 +71,4 @@ public class OverlayManager : IOverlayManager
 
         _logger.LogInformation("Overlay windows initialized successfully");
     }
-
-    /// <summary>
-    /// Initializes the keyboard overlay with input simulator and settings service.
-    /// This is a separate method because it requires additional dependencies.
-    /// </summary>
-    public void InitializeKeyboard(
-        EyeCtrlSettings settings,
-        IInputSimulator inputSimulator,
-        SettingsService settingsService)
-    {
-        if (Keyboard == null)
-            throw new InvalidOperationException("Initialize must be called before InitializeKeyboard");
-
-        // Load keyboard configuration (this method exists in App.xaml.cs)
-        LoadKeyboardInternal(Keyboard, settings, inputSimulator, settingsService);
-    }
-
-    private void LoadKeyboardInternal(
-        KeyboardWindow keyboard,
-        EyeCtrlSettings settings,
-        IInputSimulator inputSimulator,
-        SettingsService settingsService)
-    {
-        // This is a placeholder - the actual implementation should be moved from App.xaml.cs
-        // For now, we'll keep it in App.xaml.cs to avoid breaking changes
-        // TODO: Move LoadKeyboard logic here in a future refactoring
-        _logger.LogDebug("Keyboard initialization deferred to App.xaml.cs");
-    }
 }

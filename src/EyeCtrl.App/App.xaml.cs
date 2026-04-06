@@ -140,8 +140,6 @@ public partial class App : Application
 
         // Get references to overlay windows for event handlers
         var cursorCircle = overlayManager.CursorCircle;
-        var activationButton = overlayManager.ActivationButton;
-        var zoomOverlay = overlayManager.ZoomOverlay;
         var toolbar = overlayManager.Toolbar;
 
         // ── Event Coordination ──
@@ -175,20 +173,24 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Information("Shutdown");
-        _trayIconManager.Dispose();
 
-        var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
-        var settings = _serviceProvider.GetRequiredService<EyeCtrlSettings>();
-        var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
+        _trayIconManager?.Dispose();
 
-        gazeEngine.Stop();
-        settingsService.Save(settings);
-        _eventCoordinator.WordPredictor?.SaveUserDictionary();
+        if (_serviceProvider != null)
+        {
+            var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
+            var settings = _serviceProvider.GetRequiredService<EyeCtrlSettings>();
+            var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
 
-        var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
-        adapter.Dispose();
-        gazeEngine.Dispose();
-        _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ZoomFixationService
+            gazeEngine.Stop();
+            settingsService.Save(settings);
+            _eventCoordinator?.WordPredictor?.SaveUserDictionary();
+
+            var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
+            adapter.Dispose();
+            gazeEngine.Dispose();
+            _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ZoomFixationService
+        }
 
         Log.CloseAndFlush();
         base.OnExit(e);

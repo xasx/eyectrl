@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -35,7 +36,7 @@ public interface IEventCoordinator
     /// <param name="inputSimulator">The input simulator</param>
     /// <param name="settingsService">The settings service</param>
     void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
-        EyeCtrl.Platform.Input.IInputSimulator inputSimulator, SettingsService settingsService);
+        IInputSimulator inputSimulator, SettingsService settingsService);
 
     /// <summary>
     /// Cleans up all event subscriptions and handlers.
@@ -70,4 +71,4 @@ public record EventCoordinationContext(
     EyeCtrlSettings Settings,
 
     // Dependencies
-    EyeCtrl.Platform.Input.IInputSimulator InputSimulator);
+    IInputSimulator InputSimulator);

@@ -3,9 +3,11 @@ namespace EyeCtrl.App.Services;
 using System;
 using System.ComponentModel;
 using System.IO;
+using EyeCtrl.App;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
@@ -20,18 +22,18 @@ using Serilog;
 /// </summary>
 public class EventCoordinator : IEventCoordinator
 {
-    private const int ActivationButtonOffsetPixels = 20;
+    private const int ActivationButtonOffsetPixels = 55;
     private const int BackspaceVirtualKeyCode = 0x08;
     private const int EnterVirtualKeyCode = 0x0D;
     private const int TabVirtualKeyCode = 0x09;
-    private const int DefaultScrollAmount = 120;
+    private const int DefaultScrollAmount = 3;
 
     private EventCoordinationContext? _context;
     private bool _keyboardVisible;
     private bool _settingsOpen;
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
-    private EventHandler<PhysicalPoint>? _gazeMovedHandler;
+    private Action<PhysicalPoint, long>? _gazeMovedHandler;
     private WordPredictor? _wordPredictor;
     private string? _appDataDir;
 
@@ -463,7 +465,7 @@ public class EventCoordinator : IEventCoordinator
     }
 
     public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
-        Platform.Input.IInputSimulator inputSimulator, SettingsService settingsService)
+        IInputSimulator inputSimulator, SettingsService settingsService)
     {
         var layoutName = settings.Keyboard.ActiveLayout.ToLowerInvariant();
         var layoutPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,

@@ -175,6 +175,7 @@ public partial class App : Application
         Log.Information("Shutdown");
 
         _trayIconManager?.Dispose();
+        _eventCoordinator?.Dispose();
 
         if (_serviceProvider != null)
         {

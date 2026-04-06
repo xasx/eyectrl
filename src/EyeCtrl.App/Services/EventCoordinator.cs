@@ -467,6 +467,14 @@ public class EventCoordinator : IEventCoordinator
     public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
         IInputSimulator inputSimulator, SettingsService settingsService)
     {
+        ArgumentNullException.ThrowIfNull(keyboard);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(inputSimulator);
+        ArgumentNullException.ThrowIfNull(settingsService);
+
+        if (string.IsNullOrWhiteSpace(_appDataDir))
+            throw new InvalidOperationException("EventCoordinator must be initialized before calling LoadKeyboard.");
+
         var layoutName = settings.Keyboard.ActiveLayout.ToLowerInvariant();
         var layoutPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
             "Resources", "Layouts", $"{layoutName}.json");

@@ -56,7 +56,7 @@ src/EyeCtrl.App/Services/IEventCoordinator.cs
 - `Dispose()` - Cleans up subscriptions
 - `EventCoordinationContext` record - Dependency container for coordination
 
-### 2. EventCoordinator.cs (467 lines)
+### 2. EventCoordinator.cs (546 lines)
 ```
 src/EyeCtrl.App/Services/EventCoordinator.cs
 ```
@@ -68,7 +68,7 @@ src/EyeCtrl.App/Services/EventCoordinator.cs
 - Message handlers for 9 message types (ZoomFixationCompleted, ResetZoomIndicator, ZoomClose, ZoomRecapture, KeyboardToggled, SettingsRequested, KeyActivated, PredictionSelected, ActionRequested)
 - Gaze routing for toolbar, keyboard, and settings window
 - Settings window lifecycle management
-- Keyboard layout loading
+- Keyboard layout loading with argument validation
 
 ### 3. TrayIconManager.cs (94 lines)
 ```

@@ -27,4 +27,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\EyeCtrl.App\EyeCtrl.App.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Core\EyeCtrl.Core.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.ViewModels\EyeCtrl.ViewModels.csproj" />
+  </ItemGroup>
+
 </Project>

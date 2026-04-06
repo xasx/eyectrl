@@ -94,8 +94,10 @@ Phase 4 of the architectural review focuses on breaking up large classes to impr
 | `ZoomLayoutHelper` | Zoom overlay layout calculations | ~32 |
 | `IOverlayManager` | Overlay lifecycle interface | ~72 |
 | `OverlayManager` | Overlay lifecycle implementation | ~105 |
+| `EventCoordinator` | Event coordination service | ~544 |
+| `EventCoordinatorTests` | Unit tests for EventCoordinator | ~70 |
 
-**Total new code**: ~389 lines (well-organized, single-responsibility classes)
+**Total new code**: ~1003 lines (well-organized, single-responsibility classes)
 
 ## Remaining Work
 

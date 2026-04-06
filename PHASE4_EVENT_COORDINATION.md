@@ -84,7 +84,7 @@ src/EyeCtrl.App/Services/TrayIconManager.cs
 - State synchronization with InteractionManager
 - Proper disposal of resources
 
-### 4. EventCoordinatorTests.cs (217 lines)
+### 4. EventCoordinatorTests.cs (70 lines)
 ```
 tests/EyeCtrl.App.Tests/Services/EventCoordinatorTests.cs
 ```
@@ -92,11 +92,13 @@ tests/EyeCtrl.App.Tests/Services/EventCoordinatorTests.cs
 **Purpose:** Unit tests for EventCoordinator
 
 **Test Coverage:**
-- PropertyChanged subscription verification
-- CursorVM position and visibility updates
-- ActivationVM visibility and dwell progress updates
-- ZoomVM visibility and overlay management
-- Disposal and cleanup verification
+- Initialize throws ArgumentNullException with null context
+- WordPredictor returns null before initialization
+- Dispose can be called multiple times without throwing
+- Dispose can be called before Initialize without throwing
+- LoadKeyboard throws ArgumentNullException with null keyboard
+
+**Note:** EventCoordinator is tightly coupled to WPF windows and ViewModels, making comprehensive unit testing challenging without extensive mocking infrastructure. These tests focus on basic contract verification. Full behavioral testing is performed through integration tests.
 
 ## Files Modified
 

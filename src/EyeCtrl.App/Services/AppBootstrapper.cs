@@ -12,6 +12,7 @@ using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Serilog;
 
 /// <summary>
 /// Handles dependency injection container configuration for the application.

@@ -166,6 +166,17 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
     #region Control Management
 
+    // Dictionary to store control actions (similar to ToolbarViewModel pattern)
+    private readonly Dictionary<string, Action> _controlActions = new();
+
+    /// <summary>
+    /// Registers an action to be invoked when a control is activated via dwell.
+    /// </summary>
+    public void RegisterControlAction(string controlId, Action action)
+    {
+        _controlActions[controlId] = action;
+    }
+
     /// <summary>
     /// Adds a control button as a dwell target.
     /// </summary>
@@ -183,11 +194,13 @@ public partial class SettingsWindowViewModel : ObservableObject,
         _controlDwell.UpdateTargetCenter(controlId, center);
     }
 
+    /// <summary>For testing: simulate a control activation without gaze dwell.</summary>
+    public void SimulateControlActivated(string controlId) => OnControlActivated(controlId);
+
     private void OnControlActivated(string controlId)
     {
-        // Control activation logic will be handled by SettingsWindow
-        // for now, as it requires specific UI interaction patterns
-        // This will be expanded in future iterations
+        if (_controlActions.TryGetValue(controlId, out var action))
+            action.Invoke();
     }
 
     private void OnControlProgress(string controlId, double progress)

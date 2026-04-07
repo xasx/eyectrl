@@ -255,4 +255,108 @@ public class SettingsWindowViewModelTests
     }
 
     #endregion
+
+    #region Control Action Tests
+
+    [Fact]
+    public void RegisterControlAction_StoresAction()
+    {
+        var vm = CreateViewModel();
+        bool actionCalled = false;
+
+        vm.RegisterControlAction("test_control", () => actionCalled = true);
+        vm.SimulateControlActivated("test_control");
+
+        Assert.True(actionCalled);
+    }
+
+    [Fact]
+    public void ControlActivation_InvokesRegisteredAction()
+    {
+        var vm = CreateViewModel();
+        int counter = 0;
+
+        vm.RegisterControlAction("increment", () => counter++);
+        vm.AddControlTarget("increment", 50, 600);
+        vm.UpdateControlPosition("increment", new PhysicalPoint(100, 100));
+
+        // Simulate complete dwell
+        for (int i = 0; i < 20; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(100, 100), i * 33000));
+        }
+
+        Assert.Equal(1, counter);
+    }
+
+    [Fact]
+    public void ControlProgress_Updates()
+    {
+        var vm = CreateViewModel();
+        vm.RegisterControlAction("test", () => { });
+        vm.AddControlTarget("test", 50, 600);
+        vm.UpdateControlPosition("test", new PhysicalPoint(150, 150));
+
+        // Simulate partial dwell
+        for (int i = 0; i < 10; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(150, 150), i * 33000));
+        }
+
+        Assert.True(vm.ControlProgress.ContainsKey("test"));
+        Assert.True(vm.ControlProgress["test"] > 0);
+    }
+
+    [Fact]
+    public void MultipleControls_WorkIndependently()
+    {
+        var vm = CreateViewModel();
+        int counterA = 0;
+        int counterB = 0;
+
+        vm.RegisterControlAction("controlA", () => counterA++);
+        vm.RegisterControlAction("controlB", () => counterB++);
+
+        vm.AddControlTarget("controlA", 50, 600);
+        vm.AddControlTarget("controlB", 50, 600);
+        vm.UpdateControlPosition("controlA", new PhysicalPoint(100, 100));
+        vm.UpdateControlPosition("controlB", new PhysicalPoint(200, 200));
+
+        // Dwell on controlA
+        for (int i = 0; i < 20; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(100, 100), i * 33000));
+        }
+
+        Assert.Equal(1, counterA);
+        Assert.Equal(0, counterB);
+
+        // Wait for cooldown to pass, then dwell on controlB
+        // Cooldown is typically 300ms, so start at timestamp that's well past it
+        for (int i = 0; i < 20; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(200, 200), (i + 50) * 33000));
+        }
+
+        Assert.Equal(1, counterA);
+        Assert.Equal(1, counterB);
+    }
+
+    [Fact]
+    public void UnregisteredControl_DoesNotThrow()
+    {
+        var vm = CreateViewModel();
+
+        // Should not throw when simulating unknown control
+        var exception = Record.Exception(() =>
+            vm.SimulateControlActivated("unknown_control"));
+
+        Assert.Null(exception);
+    }
+
+    #endregion
 }

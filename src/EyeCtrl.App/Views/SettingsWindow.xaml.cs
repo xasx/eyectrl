@@ -41,18 +41,13 @@ public partial class SettingsWindow : OverlayWindow
 
     // ────── State ──────
 
+    private readonly SettingsWindowViewModel _viewModel;
     private readonly EyeCtrlSettings _settings;
     private readonly SettingsService _settingsService;
     private readonly int _dwellMs;
 
-    private readonly DwellDetector _tabDwell = new();
-    private readonly DwellDetector _controlDwell = new();
-    private readonly DwellDetector _pagDwell = new();
-    private readonly DwellDetector _modalDwell = new();
-
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _controlBorders = new();
-    private readonly Dictionary<string, Action> _controlActions = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
     private readonly Dictionary<string, Border> _modalButtons = new();
 
@@ -60,8 +55,6 @@ public partial class SettingsWindow : OverlayWindow
     private int _currentPage;
     private int _totalPages;
     private List<List<Action>> _pages = new();
-
-    private Action? _modalYesAction;
 
     public event Action<EyeCtrlSettings>? SettingsChanged;
 
@@ -77,49 +70,81 @@ public partial class SettingsWindow : OverlayWindow
         ("General",  "⚙", "General")
     ];
 
-    public SettingsWindow(EyeCtrlSettings settings, SettingsService settingsService)
+    public SettingsWindow(
+        SettingsWindowViewModel viewModel,
+        EyeCtrlSettings settings,
+        SettingsService settingsService)
     {
         InitializeComponent();
 
+        _viewModel = viewModel;
         _settings = settings;
         _settingsService = settingsService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
+        // Set DataContext for data binding
+        DataContext = _viewModel;
+
+        // Window sizing
         Width = SystemParameters.PrimaryScreenWidth * WindowSizeRatio;
         Height = SystemParameters.PrimaryScreenHeight * WindowSizeRatio;
 
-        _tabDwell.TargetActivated += id => Dispatcher.Invoke(() =>
-        {
-            if (id == "close") Close();
-            else ShowTab(id);
-        });
-        _tabDwell.TargetProgress += OnTabProgress;
+        // Wire up property change handlers
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        _viewModel.Settings.PropertyChanged += OnSettingsViewModelPropertyChanged;
 
-        _controlDwell.TargetActivated += id => Dispatcher.Invoke(() =>
-        {
-            if (_controlActions.TryGetValue(id, out var action)) action();
-        });
-        _controlDwell.TargetProgress += OnControlProgress;
-
-        _pagDwell.TargetActivated += id => Dispatcher.Invoke(() =>
-        {
-            if (id == "pag_prev") GoPage(_currentPage - 1);
-            else if (id == "pag_next") GoPage(_currentPage + 1);
-        });
-        _pagDwell.TargetProgress += OnPagProgress;
-
-        _modalDwell.TargetActivated += id => Dispatcher.Invoke(() =>
-        {
-            if (id == "modal_yes") { _modalYesAction?.Invoke(); HideModal(); }
-            else if (id == "modal_no") HideModal();
-        });
-        _modalDwell.TargetProgress += OnModalProgress;
-
+        // Mouse fallback for close button
         CloseButton.MouseLeftButtonDown += (_, _) => Close();
-        _tabDwell.AddTarget(new DwellTarget("close", new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs));
 
+        // Build UI
         BuildTabButtons();
         ShowTab("Cursor");
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(SettingsWindowViewModel.TabProgress):
+                    UpdateTabVisuals();
+                    break;
+                case nameof(SettingsWindowViewModel.ControlProgress):
+                    UpdateControlVisuals();
+                    break;
+                case nameof(SettingsWindowViewModel.PagProgress):
+                    UpdatePaginationVisuals();
+                    break;
+                case nameof(SettingsWindowViewModel.ModalProgress):
+                    UpdateModalVisuals();
+                    break;
+                case nameof(SettingsWindowViewModel.ActiveTabId):
+                    UpdateActiveTabHighlight();
+                    break;
+                case nameof(SettingsWindowViewModel.IsModalVisible):
+                    UpdateModalVisibility();
+                    break;
+            }
+        });
+    }
+
+    private void OnSettingsViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(SettingsViewModel.CurrentTabName):
+                    if (_viewModel.Settings.CurrentTabName != _activeTab)
+                        ShowTab(_viewModel.Settings.CurrentTabName);
+                    break;
+                case nameof(SettingsViewModel.CurrentPage):
+                case nameof(SettingsViewModel.TotalPages):
+                    RenderPagination();
+                    break;
+            }
+        });
     }
 
     // ────── Sidebar tabs ──────
@@ -167,11 +192,19 @@ public partial class SettingsWindow : OverlayWindow
                 }
             };
 
+            // Mouse fallback
             border.MouseLeftButtonDown += (_, _) => ShowTab(id);
+
+            // Store border for visual updates
             _tabButtons[id] = border;
             TabButtonPanel.Children.Add(border);
-            _tabDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs));
+
+            // Register with ViewModel for dwell detection
+            _viewModel.AddTabTarget(id, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs);
         }
+
+        // Register close button with ViewModel
+        _viewModel.AddTabTarget("close", DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs);
     }
 
     // ────── Tab switching ──────
@@ -989,6 +1022,90 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     // ────── Dwell visual feedback ──────
+
+    private void UpdateTabVisuals()
+    {
+        foreach (var (id, progress) in _viewModel.TabProgress)
+        {
+            if (id == "close")
+            {
+                CloseButton.Background = new SolidColorBrush(
+                    Blend(CloseBase, Colors.White, progress * 0.5));
+                continue;
+            }
+
+            if (_tabButtons.TryGetValue(id, out var border) && id != _viewModel.ActiveTabId)
+            {
+                border.Background = new SolidColorBrush(Blend(TabInactive, TabActive, progress));
+            }
+        }
+    }
+
+    private void UpdateControlVisuals()
+    {
+        foreach (var (id, progress) in _viewModel.ControlProgress)
+        {
+            if (_controlBorders.TryGetValue(id, out var border))
+            {
+                var highlight = Color.FromArgb(200, 0, 180, 0);
+                border.Background = new SolidColorBrush(Blend(BtnBase, highlight, progress));
+            }
+        }
+    }
+
+    private void UpdatePaginationVisuals()
+    {
+        foreach (var (id, progress) in _viewModel.PagProgress)
+        {
+            if (_pagButtons.TryGetValue(id, out var border))
+            {
+                border.Background = new SolidColorBrush(Blend(BtnBase, Colors.White, progress * 0.4));
+            }
+        }
+    }
+
+    private void UpdateModalVisuals()
+    {
+        foreach (var (id, progress) in _viewModel.ModalProgress)
+        {
+            if (_modalButtons.TryGetValue(id, out var border))
+            {
+                var baseC = id == "modal_yes" ? ModalYes : ModalNo;
+                border.Background = new SolidColorBrush(Blend(baseC, Colors.White, progress * 0.5));
+            }
+        }
+    }
+
+    private void UpdateActiveTabHighlight()
+    {
+        foreach (var (id, border) in _tabButtons)
+        {
+            border.Background = new SolidColorBrush(id == _viewModel.ActiveTabId ? TabActive : TabInactive);
+        }
+    }
+
+    private void UpdateModalVisibility()
+    {
+        if (_viewModel.IsModalVisible)
+        {
+            ModalMessage.Text = _viewModel.ModalMessage;
+            ModalButtonPanel.Children.Clear();
+            _modalButtons.Clear();
+
+            var yesBtn = MakeModalButton("modal_yes", "\u2713 Yes", ModalYes);
+            var noBtn = MakeModalButton("modal_no", "\u2715 No", ModalNo);
+
+            ModalButtonPanel.Children.Add(yesBtn);
+            ModalButtonPanel.Children.Add(noBtn);
+
+            ModalOverlay.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ModalOverlay.Visibility = Visibility.Collapsed;
+            _modalButtons.Clear();
+        }
+    }
 
     private void OnTabProgress(string targetId, double progress)
     {

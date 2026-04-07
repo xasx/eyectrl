@@ -383,7 +383,22 @@ public class EventCoordinator : IEventCoordinator
 
         try
         {
-            _settingsWindow = new SettingsWindow(_context.Settings, _context.SettingsService);
+            // Create SettingsViewModels
+            var settingsVM = new SettingsViewModel(
+                _context.Settings,
+                _context.SettingsService,
+                _context.Messenger);
+
+            var settingsWindowVM = new SettingsWindowViewModel(
+                settingsVM,
+                _context.Messenger,
+                _context.Settings.Dwell);
+
+            _settingsWindow = new SettingsWindow(
+                settingsWindowVM,
+                _context.Settings,
+                _context.SettingsService);
+
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;
             _settingsWindow.Show();

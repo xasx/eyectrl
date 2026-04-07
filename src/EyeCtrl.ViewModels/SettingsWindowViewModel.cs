@@ -208,6 +208,16 @@ public partial class SettingsWindowViewModel : ObservableObject,
         ControlProgress[controlId] = progress;
     }
 
+    /// <summary>
+    /// Clears all control targets when rebuilding the settings page.
+    /// </summary>
+    public void ClearControlTargets()
+    {
+        _controlDwell.ClearTargets();
+        _controlActions.Clear();
+        ControlProgress.Clear();
+    }
+
     #endregion
 
     #region Modal Management

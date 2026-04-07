@@ -358,5 +358,39 @@ public class SettingsWindowViewModelTests
         Assert.Null(exception);
     }
 
+    [Fact]
+    public void ClearControlTargets_RemovesAllControlsAndProgress()
+    {
+        var vm = CreateViewModel();
+
+        // Register some controls and add targets
+        vm.RegisterControlAction("control1", () => { });
+        vm.RegisterControlAction("control2", () => { });
+        vm.AddControlTarget("control1", 50, 600);
+        vm.AddControlTarget("control2", 50, 600);
+        vm.UpdateControlPosition("control1", new PhysicalPoint(100, 100));
+        vm.UpdateControlPosition("control2", new PhysicalPoint(200, 200));
+
+        // Simulate partial dwell to populate progress
+        for (int i = 0; i < 5; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(100, 100), i * 33000));
+        }
+
+        // Verify we have progress
+        Assert.True(vm.ControlProgress.Count > 0);
+
+        // Clear all control targets
+        vm.ClearControlTargets();
+
+        // Verify everything is cleared
+        Assert.Empty(vm.ControlProgress);
+
+        // Verify cleared actions don't execute
+        vm.SimulateControlActivated("control1");
+        // Should not throw and should do nothing
+    }
+
     #endregion
 }

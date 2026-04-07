@@ -179,6 +179,16 @@ public class EventCoordinator : IEventCoordinator
         // Action requested -> input simulator
         _context.Messenger.Register<ActionRequestedMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() => HandleActionRequested(msg)));
+
+        // CloseSettings -> close settings window
+        _context.Messenger.Register<CloseSettingsMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                if (_settingsWindow != null)
+                {
+                    _settingsWindow.Close();
+                }
+            }));
     }
 
     private void SetupGazeRouting()

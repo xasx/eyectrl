@@ -979,33 +979,44 @@ public partial class SettingsWindow : OverlayWindow
 
     public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds)
     {
+        // Update button positions for ViewModel's dwell detection
+        // ViewModel handles actual dwell updates via GazeCursorMovedMessage
+        UpdateAllTargetPositions();
+    }
+
+    private void UpdateAllTargetPositions()
+    {
+        // Update close button position
         try
         {
             var cPos = CloseButton.PointToScreen(
                 new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
-            _tabDwell.UpdateTargetCenter("close", new PhysicalPoint(cPos.X, cPos.Y));
+            _viewModel.UpdateTabButtonPosition("close", new PhysicalPoint(cPos.X, cPos.Y));
         }
         catch (InvalidOperationException)
         {
             // Window or button not yet rendered or not in visual tree
         }
 
-        UpdatePositions(_tabButtons, _tabDwell);
-        UpdatePositions(_controlBorders, _controlDwell);
-        UpdatePositions(_pagButtons, _pagDwell);
+        // Update tab button positions
+        UpdateButtonPositions(_tabButtons, (id, pos) => _viewModel.UpdateTabButtonPosition(id, pos));
 
-        _tabDwell.Update(screenPoint, timestampMicroseconds);
-        _controlDwell.Update(screenPoint, timestampMicroseconds);
-        _pagDwell.Update(screenPoint, timestampMicroseconds);
+        // Update control button positions
+        UpdateButtonPositions(_controlBorders, (id, pos) => _viewModel.UpdateControlPosition(id, pos));
 
-        if (ModalOverlay.Visibility == Visibility.Visible)
+        // Update pagination button positions
+        UpdateButtonPositions(_pagButtons, (id, pos) => _viewModel.UpdatePaginationButtonPosition(id, pos));
+
+        // Update modal button positions if modal is visible
+        if (_viewModel.IsModalVisible)
         {
-            UpdatePositions(_modalButtons, _modalDwell);
-            _modalDwell.Update(screenPoint, timestampMicroseconds);
+            UpdateButtonPositions(_modalButtons, (id, pos) => _viewModel.UpdateModalButtonPosition(id, pos));
         }
     }
 
-    private static void UpdatePositions(Dictionary<string, Border> borders, DwellDetector detector)
+    private static void UpdateButtonPositions(
+        Dictionary<string, Border> borders,
+        Action<string, PhysicalPoint> updateAction)
     {
         foreach (var (id, border) in borders)
         {
@@ -1013,7 +1024,7 @@ public partial class SettingsWindow : OverlayWindow
             {
                 var pos = border.PointToScreen(
                     new Point(border.ActualWidth / 2, border.ActualHeight / 2));
-                detector.UpdateTargetCenter(id, new PhysicalPoint(pos.X, pos.Y));
+                updateAction(id, new PhysicalPoint(pos.X, pos.Y));
             }
             catch (InvalidOperationException)
             {
@@ -1107,50 +1118,6 @@ public partial class SettingsWindow : OverlayWindow
         }
     }
 
-    private void OnTabProgress(string targetId, double progress)
-    {
-        Dispatcher.Invoke(() =>
-        {
-            if (targetId == "close")
-            {
-                CloseButton.Background = new SolidColorBrush(
-                    Blend(CloseBase, Colors.White, progress * 0.5));
-                return;
-            }
-            if (!_tabButtons.TryGetValue(targetId, out var border)) return;
-            if (targetId == _activeTab) return;
-            border.Background = new SolidColorBrush(Blend(TabInactive, TabActive, progress));
-        });
-    }
-
-    private void OnControlProgress(string targetId, double progress)
-    {
-        Dispatcher.Invoke(() =>
-        {
-            if (!_controlBorders.TryGetValue(targetId, out var border)) return;
-            border.Background = new SolidColorBrush(Blend(BtnBase, ControlHighlight, progress));
-        });
-    }
-
-    private void OnPagProgress(string targetId, double progress)
-    {
-        Dispatcher.Invoke(() =>
-        {
-            if (!_pagButtons.TryGetValue(targetId, out var border)) return;
-            border.Background = new SolidColorBrush(Blend(BtnBase, Colors.White, progress * 0.4));
-        });
-    }
-
-    private void OnModalProgress(string targetId, double progress)
-    {
-        Dispatcher.Invoke(() =>
-        {
-            if (!_modalButtons.TryGetValue(targetId, out var border)) return;
-            var baseC = targetId == "modal_yes" ? ModalYes : ModalNo;
-            border.Background = new SolidColorBrush(Blend(baseC, Colors.White, progress * 0.5));
-        });
-    }
-
     private static Color Blend(Color from, Color to, double t)
     {
         t = Math.Clamp(t, 0, 1);
@@ -1165,27 +1132,8 @@ public partial class SettingsWindow : OverlayWindow
 
     private void ShowModal(string message, Action onYes)
     {
-        _modalYesAction = onYes;
-        ModalMessage.Text = message;
-        ModalButtonPanel.Children.Clear();
-        _modalButtons.Clear();
-        _modalDwell.ClearTargets();
-
-        var yesBtn = MakeModalButton("modal_yes", "\u2713 Yes", ModalYes);
-        var noBtn = MakeModalButton("modal_no", "\u2715 No", ModalNo);
-
-        ModalButtonPanel.Children.Add(yesBtn);
-        ModalButtonPanel.Children.Add(noBtn);
-
-        ModalOverlay.Visibility = Visibility.Visible;
-    }
-
-    private void HideModal()
-    {
-        ModalOverlay.Visibility = Visibility.Collapsed;
-        _modalDwell.ClearTargets();
-        _modalButtons.Clear();
-        _modalYesAction = null;
+        // Delegate to ViewModel
+        _viewModel.ShowModal(message, onYes);
     }
 
     private Border MakeModalButton(string id, string text, Color bg)
@@ -1209,14 +1157,20 @@ public partial class SettingsWindow : OverlayWindow
             }
         };
 
+        // Mouse fallback - ViewModel handles the actual activation
         border.MouseLeftButtonDown += (_, _) =>
         {
-            if (id == "modal_yes") { _modalYesAction?.Invoke(); HideModal(); }
-            else HideModal();
+            if (id == "modal_yes")
+                _viewModel.SimulateModalButtonActivated(id);
+            else
+                _viewModel.HideModal();
         };
 
         _modalButtons[id] = border;
-        _modalDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs));
+
+        // Register with ViewModel for dwell detection
+        _viewModel.AddModalTarget(id, DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs);
+
         return border;
     }
 }

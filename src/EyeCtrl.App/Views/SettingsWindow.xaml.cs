@@ -32,6 +32,7 @@ public partial class SettingsWindow : OverlayWindow
     private const int PaginationSymbolFontSize = 30;
 
     private static readonly Color BtnBase = Color.FromArgb(200, 60, 60, 80);
+    private static readonly Color ControlHighlight = Color.FromArgb(200, 0, 180, 0);
     private static readonly Color TabActive = Color.FromArgb(200, 40, 90, 160);
     private static readonly Color TabInactive = Color.FromArgb(200, 50, 50, 50);
     private static readonly Color ResetBase = Color.FromArgb(200, 128, 80, 32);
@@ -1047,8 +1048,7 @@ public partial class SettingsWindow : OverlayWindow
         {
             if (_controlBorders.TryGetValue(id, out var border))
             {
-                var highlight = Color.FromArgb(200, 0, 180, 0);
-                border.Background = new SolidColorBrush(Blend(BtnBase, highlight, progress));
+                border.Background = new SolidColorBrush(Blend(BtnBase, ControlHighlight, progress));
             }
         }
     }
@@ -1128,8 +1128,7 @@ public partial class SettingsWindow : OverlayWindow
         Dispatcher.Invoke(() =>
         {
             if (!_controlBorders.TryGetValue(targetId, out var border)) return;
-            var highlight = Color.FromArgb(200, 0, 180, 0);
-            border.Background = new SolidColorBrush(Blend(BtnBase, highlight, progress));
+            border.Background = new SolidColorBrush(Blend(BtnBase, ControlHighlight, progress));
         });
     }
 

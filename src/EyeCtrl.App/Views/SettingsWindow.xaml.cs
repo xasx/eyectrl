@@ -260,26 +260,18 @@ public partial class SettingsWindow : OverlayWindow
         }
     }
 
-    private void GoPage(int page)
-    {
-        if (page < 0 || page >= _totalPages) return;
-        _currentPage = page;
-        RenderCurrentPage();
-        RenderPagination();
-    }
-
     private void RenderPagination()
     {
         PaginationPanel.Children.Clear();
         _pagButtons.Clear();
-        _pagDwell.ClearTargets();
 
-        if (_totalPages <= 1) return;
+        // Use ViewModel's pagination state
+        if (_viewModel.Settings.TotalPages <= 1) return;
 
         var prev = MakePagButton("pag_prev", "◀");
         var indicator = new TextBlock
         {
-            Text = $"{_currentPage + 1} / {_totalPages}",
+            Text = $"{_viewModel.Settings.CurrentPage + 1} / {_viewModel.Settings.TotalPages}",
             Foreground = Brushes.White,
             FontSize = 24,
             FontWeight = FontWeights.SemiBold,
@@ -290,8 +282,9 @@ public partial class SettingsWindow : OverlayWindow
         };
         var next = MakePagButton("pag_next", "▶");
 
-        if (_currentPage <= 0) prev.Opacity = 0.3;
-        if (_currentPage >= _totalPages - 1) next.Opacity = 0.3;
+        // Disable buttons at boundaries
+        if (_viewModel.Settings.CurrentPage <= 0) prev.Opacity = 0.3;
+        if (_viewModel.Settings.CurrentPage >= _viewModel.Settings.TotalPages - 1) next.Opacity = 0.3;
 
         PaginationPanel.Children.Add(prev);
         PaginationPanel.Children.Add(indicator);
@@ -319,14 +312,20 @@ public partial class SettingsWindow : OverlayWindow
             }
         };
 
+        // Mouse fallback - ViewModel handles pagination
         btn.MouseLeftButtonDown += (_, _) =>
         {
-            if (id == "pag_prev") GoPage(_currentPage - 1);
-            else GoPage(_currentPage + 1);
+            if (id == "pag_prev")
+                _viewModel.Settings.PreviousPage();
+            else
+                _viewModel.Settings.NextPage();
         };
 
         _pagButtons[id] = btn;
-        _pagDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs));
+
+        // Register with ViewModel for dwell detection
+        _viewModel.AddPaginationTarget(id, DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs);
+
         return btn;
     }
 

@@ -106,9 +106,9 @@ public partial class SettingsWindowViewModel : ObservableObject,
     /// <summary>
     /// Updates the screen position of a tab button for dwell detection.
     /// </summary>
-    public void UpdateTabButtonPosition(string tabId, PhysicalPoint screenCenter)
+    public void UpdateTabButtonPosition(string tabId, PhysicalPoint center)
     {
-        _tabDwell.UpdateTargetCenter(tabId, screenCenter);
+        _tabDwell.UpdateTargetCenter(tabId, center);
     }
 
     private void OnTabActivated(string tabId)
@@ -125,9 +125,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
     private void OnTabProgress(string tabId, double progress)
     {
-        var dict = new Dictionary<string, double>(TabProgress);
-        dict[tabId] = progress;
-        TabProgress = dict;
+        TabProgress[tabId] = progress;
     }
 
     #endregion
@@ -146,9 +144,9 @@ public partial class SettingsWindowViewModel : ObservableObject,
     /// <summary>
     /// Updates the screen position of a pagination button for dwell detection.
     /// </summary>
-    public void UpdatePaginationButtonPosition(string targetId, PhysicalPoint screenCenter)
+    public void UpdatePaginationButtonPosition(string targetId, PhysicalPoint center)
     {
-        _pagDwell.UpdateTargetCenter(targetId, screenCenter);
+        _pagDwell.UpdateTargetCenter(targetId, center);
     }
 
     private void OnPaginationActivated(string targetId)
@@ -161,9 +159,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
     private void OnPagProgress(string targetId, double progress)
     {
-        var dict = new Dictionary<string, double>(PagProgress);
-        dict[targetId] = progress;
-        PagProgress = dict;
+        PagProgress[targetId] = progress;
     }
 
     #endregion
@@ -182,9 +178,9 @@ public partial class SettingsWindowViewModel : ObservableObject,
     /// <summary>
     /// Updates the screen position of a control for dwell detection.
     /// </summary>
-    public void UpdateControlPosition(string controlId, PhysicalPoint screenCenter)
+    public void UpdateControlPosition(string controlId, PhysicalPoint center)
     {
-        _controlDwell.UpdateTargetCenter(controlId, screenCenter);
+        _controlDwell.UpdateTargetCenter(controlId, center);
     }
 
     private void OnControlActivated(string controlId)
@@ -196,9 +192,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
     private void OnControlProgress(string controlId, double progress)
     {
-        var dict = new Dictionary<string, double>(ControlProgress);
-        dict[controlId] = progress;
-        ControlProgress = dict;
+        ControlProgress[controlId] = progress;
     }
 
     #endregion
@@ -235,9 +229,9 @@ public partial class SettingsWindowViewModel : ObservableObject,
     /// <summary>
     /// Updates the screen position of a modal button for dwell detection.
     /// </summary>
-    public void UpdateModalButtonPosition(string buttonId, PhysicalPoint screenCenter)
+    public void UpdateModalButtonPosition(string buttonId, PhysicalPoint center)
     {
-        _modalDwell.UpdateTargetCenter(buttonId, screenCenter);
+        _modalDwell.UpdateTargetCenter(buttonId, center);
     }
 
     /// <summary>For testing: simulate a modal button activation without gaze dwell.</summary>
@@ -258,9 +252,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
     private void OnModalProgress(string targetId, double progress)
     {
-        var dict = new Dictionary<string, double>(ModalProgress);
-        dict[targetId] = progress;
-        ModalProgress = dict;
+        ModalProgress[targetId] = progress;
     }
 
     #endregion

@@ -233,9 +233,8 @@ public partial class SettingsWindow : OverlayWindow
 
     private void RebuildContent()
     {
-        _controlDwell.ClearTargets();
+        _viewModel.ClearControlTargets();
         _controlBorders.Clear();
-        _controlActions.Clear();
         ContentPanel.Children.Clear();
 
         _pages = BuildPages();
@@ -248,9 +247,8 @@ public partial class SettingsWindow : OverlayWindow
 
     private void RenderCurrentPage()
     {
-        _controlDwell.ClearTargets();
+        _viewModel.ClearControlTargets();
         _controlBorders.Clear();
-        _controlActions.Clear();
         ContentPanel.Children.Clear();
 
         if (_currentPage < _pages.Count)
@@ -690,21 +688,18 @@ public partial class SettingsWindow : OverlayWindow
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        var minus = MakeControlButton(id + "_dn", "\u2212");
-        var plus = MakeControlButton(id + "_up", "+");
-
-        _controlActions[id + "_dn"] = () =>
+        var minus = MakeControlButton(id + "_dn", "\u2212", () =>
         {
             var v = Math.Round(Math.Max(min, get() - step), decimals);
             set(v);
             valueText.Text = FormatVal(v, decimals);
-        };
-        _controlActions[id + "_up"] = () =>
+        });
+        var plus = MakeControlButton(id + "_up", "+", () =>
         {
             var v = Math.Round(Math.Min(max, get() + step), decimals);
             set(v);
             valueText.Text = FormatVal(v, decimals);
-        };
+        });
 
         row.Children.Add(minus);
         row.Children.Add(valueText);
@@ -776,19 +771,18 @@ public partial class SettingsWindow : OverlayWindow
                 Child = text
             };
 
-            _controlActions[id] = () =>
+            border.MouseLeftButtonDown += (_, _) =>
             {
                 setCode(capturedCode);
                 Refresh();
             };
 
-            border.MouseLeftButtonDown += (_, _) => _controlActions[id]();
             _controlBorders[id] = border;
-            _controlDwell.AddTarget(new DwellTarget(
-                id,
-                new PhysicalPoint(0, 0),
-                DpiHelper.LogicalToPhysicalX(ControlBtnRadius),
-                _dwellMs));
+            _viewModel.RegisterControlAction(id, () =>
+            {
+                setCode(capturedCode);
+                Refresh();
+            }, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
 
             borders.Add(border);
             texts.Add(text);
@@ -833,15 +827,18 @@ public partial class SettingsWindow : OverlayWindow
 
         UpdateVisual();
 
-        _controlActions[id] = () =>
+        border.MouseLeftButtonDown += (_, _) =>
         {
             set(!get());
             UpdateVisual();
         };
 
-        border.MouseLeftButtonDown += (_, _) => _controlActions[id]();
         _controlBorders[id] = border;
-        _controlDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
+        _viewModel.RegisterControlAction(id, () =>
+        {
+            set(!get());
+            UpdateVisual();
+        }, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
         ContentPanel.Children.Add(border);
     }
 
@@ -880,7 +877,8 @@ public partial class SettingsWindow : OverlayWindow
 
             var capturedHex = hex;
             var capturedSwatch = swatch;
-            _controlActions[swatchId] = () =>
+
+            swatch.MouseLeftButtonDown += (_, _) =>
             {
                 set(capturedHex);
                 foreach (UIElement child in row.Children)
@@ -888,9 +886,14 @@ public partial class SettingsWindow : OverlayWindow
                 capturedSwatch.BorderBrush = Brushes.White;
             };
 
-            swatch.MouseLeftButtonDown += (_, _) => _controlActions[swatchId]();
             _controlBorders[swatchId] = swatch;
-            _controlDwell.AddTarget(new DwellTarget(swatchId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(30), _dwellMs));
+            _viewModel.RegisterControlAction(swatchId, () =>
+            {
+                set(capturedHex);
+                foreach (UIElement child in row.Children)
+                    if (child is Border b) b.BorderBrush = Brushes.Transparent;
+                capturedSwatch.BorderBrush = Brushes.White;
+            }, DpiHelper.LogicalToPhysicalX(30), _dwellMs);
             row.Children.Add(swatch);
         }
 
@@ -920,10 +923,9 @@ public partial class SettingsWindow : OverlayWindow
             }
         };
 
-        _controlActions[id] = onClick;
         border.MouseLeftButtonDown += (_, _) => onClick();
         _controlBorders[id] = border;
-        _controlDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
+        _viewModel.RegisterControlAction(id, onClick, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
         ContentPanel.Children.Add(border);
     }
 
@@ -940,7 +942,7 @@ public partial class SettingsWindow : OverlayWindow
         });
     }
 
-    private Border MakeControlButton(string id, string text)
+    private Border MakeControlButton(string id, string text, Action action)
     {
         var btn = new Border
         {
@@ -961,13 +963,9 @@ public partial class SettingsWindow : OverlayWindow
             }
         };
 
-        btn.MouseLeftButtonDown += (_, _) =>
-        {
-            if (_controlActions.TryGetValue(id, out var action)) action();
-        };
-
+        btn.MouseLeftButtonDown += (_, _) => action();
         _controlBorders[id] = btn;
-        _controlDwell.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs));
+        _viewModel.RegisterControlAction(id, action, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
         return btn;
     }
 

@@ -820,7 +820,16 @@ Add retry logic with exponential backoff for transient failures.
   - [x] Phase 3: Created TrayIconManager for system tray (94 lines)
   - [x] Reduced App.xaml.cs from 708 to 198 lines (72% reduction, 510 lines saved)
   - [x] **ACHIEVED TARGET: App.xaml.cs is now under 200 lines (198 lines)**
-- [ ] Issue #9: Convert SettingsWindow to MVVM (4 days) - **DEFERRED**
+- [ ] Issue #9: Convert SettingsWindow to MVVM (4 days) - **IN PROGRESS 2026-04-07**
+  - [x] Created SettingsWindowViewModel (267 lines) with 4 DwellDetectors
+  - [x] Implemented IRecipient<GazeCursorMovedMessage> for gaze input
+  - [x] Added tab navigation, pagination, and modal confirmation support
+  - [x] Created 14 comprehensive unit tests (100% passing)
+  - [ ] Refactor SettingsWindow.xaml.cs to use ViewModel (reduce from 1106 lines)
+  - [ ] Update EventCoordinator integration
+  - [ ] Integration testing and validation
+  - **STATUS:** Foundation complete (ViewModel + tests), refactoring pending
+  - **DOCUMENTATION:** See PHASE4_ISSUE9_PROGRESS.md for details
 
 **Total:** ~6 days (actual)
 **Risk:** Medium-High - requires careful testing

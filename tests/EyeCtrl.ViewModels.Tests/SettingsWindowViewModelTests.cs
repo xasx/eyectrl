@@ -36,9 +36,19 @@ public class SettingsWindowViewModelTests
     public void Constructor_RegistersWithMessenger()
     {
         var vm = CreateViewModel();
+        vm.AddTabTarget("Cursor", 85, 600);
+        vm.UpdateTabButtonPosition("Cursor", new PhysicalPoint(100, 100));
 
-        // ViewModel should be registered to receive GazeCursorMovedMessage
-        Assert.NotNull(vm);
+        // Send gaze messages to trigger dwell progress
+        for (int i = 0; i < 5; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(100, 100), i * 33000));
+        }
+
+        // ViewModel should update progress when it receives gaze messages
+        Assert.True(vm.TabProgress.ContainsKey("Cursor"));
+        Assert.True(vm.TabProgress["Cursor"] > 0);
     }
 
     [Fact]

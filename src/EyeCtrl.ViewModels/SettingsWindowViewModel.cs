@@ -126,6 +126,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
     private void OnTabProgress(string tabId, double progress)
     {
         TabProgress[tabId] = progress;
+        OnPropertyChanged(nameof(TabProgress));
     }
 
     #endregion
@@ -160,6 +161,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
     private void OnPagProgress(string targetId, double progress)
     {
         PagProgress[targetId] = progress;
+        OnPropertyChanged(nameof(PagProgress));
     }
 
     #endregion
@@ -206,6 +208,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
     private void OnControlProgress(string controlId, double progress)
     {
         ControlProgress[controlId] = progress;
+        OnPropertyChanged(nameof(ControlProgress));
     }
 
     /// <summary>
@@ -227,6 +230,10 @@ public partial class SettingsWindowViewModel : ObservableObject,
     /// </summary>
     public void ShowModal(string message, Action onYes)
     {
+        // Clear any existing modal state
+        _modalDwell.ClearTargets();
+        ModalProgress.Clear();
+
         ModalMessage = message;
         _modalYesAction = onYes;
         IsModalVisible = true;
@@ -276,6 +283,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
     private void OnModalProgress(string targetId, double progress)
     {
         ModalProgress[targetId] = progress;
+        OnPropertyChanged(nameof(ModalProgress));
     }
 
     #endregion

@@ -8,6 +8,7 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.ViewModels;
 
 public partial class SettingsWindow : OverlayWindow
 {
@@ -64,10 +65,9 @@ public partial class SettingsWindow : OverlayWindow
         ("Cursor",   "◎", "Cursor"),
         ("Dwell",    "⏱", "Dwell Times"),
         ("Zoom",     "⊕", "Zoom"),
-        ("ActionMenu", "⊙", "Action Menu"),
+        ("Actions", "⊙", "Action Menu"),
         ("Keyboard", "⌨", "Keyboard"),
         ("Toolbar",  "▣", "Toolbar"),
-        ("Theme",    "◐", "Theme"),
         ("General",  "⚙", "General")
     ];
 
@@ -96,6 +96,14 @@ public partial class SettingsWindow : OverlayWindow
 
         // Mouse fallback for close button
         CloseButton.MouseLeftButtonDown += (_, _) => Close();
+
+        // Dispose ViewModel on window close
+        Closed += (_, _) =>
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
+            _viewModel.Dispose();
+        };
 
         // Build UI
         BuildTabButtons();
@@ -214,6 +222,9 @@ public partial class SettingsWindow : OverlayWindow
     {
         _activeTab = tabId;
         _currentPage = 0;
+
+        // Update ViewModel's tab state to synchronize pagination
+        _viewModel.Settings.ShowTab(tabId);
 
         foreach (var (id, border) in _tabButtons)
             border.Background = new SolidColorBrush(id == tabId ? TabActive : TabInactive);
@@ -782,7 +793,8 @@ public partial class SettingsWindow : OverlayWindow
             {
                 setCode(capturedCode);
                 Refresh();
-            }, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
+            });
+            _viewModel.AddControlTarget(id, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
 
             borders.Add(border);
             texts.Add(text);
@@ -838,7 +850,8 @@ public partial class SettingsWindow : OverlayWindow
         {
             set(!get());
             UpdateVisual();
-        }, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
+        });
+        _viewModel.AddControlTarget(id, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
         ContentPanel.Children.Add(border);
     }
 
@@ -893,7 +906,8 @@ public partial class SettingsWindow : OverlayWindow
                 foreach (UIElement child in row.Children)
                     if (child is Border b) b.BorderBrush = Brushes.Transparent;
                 capturedSwatch.BorderBrush = Brushes.White;
-            }, DpiHelper.LogicalToPhysicalX(30), _dwellMs);
+            });
+            _viewModel.AddControlTarget(swatchId, DpiHelper.LogicalToPhysicalX(30), _dwellMs);
             row.Children.Add(swatch);
         }
 
@@ -925,7 +939,8 @@ public partial class SettingsWindow : OverlayWindow
 
         border.MouseLeftButtonDown += (_, _) => onClick();
         _controlBorders[id] = border;
-        _viewModel.RegisterControlAction(id, onClick, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
+        _viewModel.RegisterControlAction(id, onClick);
+        _viewModel.AddControlTarget(id, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
         ContentPanel.Children.Add(border);
     }
 
@@ -965,7 +980,8 @@ public partial class SettingsWindow : OverlayWindow
 
         btn.MouseLeftButtonDown += (_, _) => action();
         _controlBorders[id] = btn;
-        _viewModel.RegisterControlAction(id, action, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
+        _viewModel.RegisterControlAction(id, action);
+        _viewModel.AddControlTarget(id, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
         return btn;
     }
 
@@ -1164,10 +1180,6 @@ public partial class SettingsWindow : OverlayWindow
         };
 
         _modalButtons[id] = border;
-
-        // Register with ViewModel for dwell detection
-        _viewModel.AddModalTarget(id, DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs);
-
         return border;
     }
 }

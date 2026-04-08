@@ -156,7 +156,12 @@ public partial class SettingsWindow : OverlayWindow
             {
                 case nameof(SettingsViewModel.CurrentTabName):
                     if (_viewModel.Settings.CurrentTabName != _activeTab)
-                        ShowTab(_viewModel.Settings.CurrentTabName);
+                    {
+                        _activeTab = _viewModel.Settings.CurrentTabName;
+                        foreach (var (id, border) in _tabButtons)
+                            border.Background = new SolidColorBrush(id == _activeTab ? TabActive : TabInactive);
+                        RebuildContent();
+                    }
                     break;
                 case nameof(SettingsViewModel.CurrentPage):
                     // Sync local page index with ViewModel and re-render content
@@ -235,16 +240,8 @@ public partial class SettingsWindow : OverlayWindow
 
     private void ShowTab(string tabId)
     {
-        _activeTab = tabId;
-        _currentPage = 0;
-
-        // Update ViewModel's tab state to synchronize pagination
+        // Update ViewModel's tab state - property changed handler will rebuild content
         _viewModel.Settings.ShowTab(tabId);
-
-        foreach (var (id, border) in _tabButtons)
-            border.Background = new SolidColorBrush(id == tabId ? TabActive : TabInactive);
-
-        RebuildContent();
     }
 
     // ────── Live apply + debounced save ──────

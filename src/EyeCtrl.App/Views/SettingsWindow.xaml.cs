@@ -1,6 +1,5 @@
 namespace EyeCtrl.App.Views;
 
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -62,6 +61,7 @@ public partial class SettingsWindow : OverlayWindow
     public event Action<EyeCtrlSettings>? SettingsChanged;
 
     private readonly (string Id, string Icon, string Label, Func<List<List<Action>>> PageBuilder)[] _tabDefs;
+    private readonly Dictionary<string, Func<List<List<Action>>>> _pageBuilders = new();
 
     public SettingsWindow(
         SettingsWindowViewModel viewModel,
@@ -86,6 +86,12 @@ public partial class SettingsWindow : OverlayWindow
             ("Toolbar",  "▣", "Toolbar",     BuildToolbarPages),
             ("General",  "⚙", "General",     BuildGeneralPages)
         ];
+
+        // Build dictionary for O(1) page builder lookup
+        foreach (var (id, _, _, pageBuilder) in _tabDefs)
+        {
+            _pageBuilders[id] = pageBuilder;
+        }
 
         // Set DataContext for data binding
         DataContext = _viewModel;
@@ -351,8 +357,9 @@ public partial class SettingsWindow : OverlayWindow
 
     private List<List<Action>> BuildPages()
     {
-        var tabDef = _tabDefs.FirstOrDefault(t => t.Id == _activeTab);
-        return tabDef.PageBuilder?.Invoke() ?? new();
+        return _pageBuilders.TryGetValue(_activeTab, out var pageBuilder)
+            ? pageBuilder.Invoke()
+            : new();
     }
 
     private List<List<Action>> BuildCursorPages()

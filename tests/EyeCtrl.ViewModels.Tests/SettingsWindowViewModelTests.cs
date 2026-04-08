@@ -251,6 +251,11 @@ public class SettingsWindowViewModelTests
     {
         var vm = CreateViewModel();
         vm.ShowModal("Confirm?", () => { });
+
+        // Add modal targets (View's responsibility)
+        vm.AddModalTarget("modal_yes", 70, 500);
+        vm.AddModalTarget("modal_no", 70, 500);
+
         vm.UpdateModalButtonPosition("modal_yes", new PhysicalPoint(100, 100));
 
         // Simulate partial dwell

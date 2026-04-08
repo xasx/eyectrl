@@ -18,7 +18,6 @@ public partial class SettingsWindowViewModel : ObservableObject,
 {
     private readonly SettingsViewModel _settingsViewModel;
     private readonly IMessenger _messenger;
-    private readonly int _dwellMs;
     private bool _disposed;
 
     // 4 DwellDetectors for different UI sections
@@ -53,7 +52,6 @@ public partial class SettingsWindowViewModel : ObservableObject,
     {
         _settingsViewModel = settingsViewModel;
         _messenger = messenger;
-        _dwellMs = dwellSettings.ToolbarButtonDwellMs;
 
         // Initialize dwell detectors
         _tabDwell = new DwellDetector(dwellSettings.DwellCooldownMs);

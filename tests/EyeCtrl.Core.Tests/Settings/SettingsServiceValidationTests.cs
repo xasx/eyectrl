@@ -36,12 +36,13 @@ public class SettingsServiceValidationTests : IDisposable
     [Fact]
     public void Save_InvalidSettings_ShouldThrowException()
     {
-        // Settings validation is enforced at the property setter level.
-        // Values outside the valid range are rejected when assigned.
-        var cursor = new CursorSettings();
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(
-            () => cursor.SmoothingFactor = 2.0);
-        Assert.Contains("SmoothingFactor", exception.Message);
+        // Arrange: ActiveLayout setter accepts any string, but Validate() rejects unknown layouts
+        var service = new SettingsService(_testFilePath);
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.ActiveLayout = "DVORAK";
+
+        // Act & Assert
+        Assert.Throws<InvalidOperationException>(() => service.Save(settings));
     }
 
     [Fact]

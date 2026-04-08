@@ -103,6 +103,7 @@ public partial class App : Application
         _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
 
         // ── Resolve services ──
+        var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
         var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
         var messenger = _serviceProvider.GetRequiredService<IMessenger>();
         var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
@@ -147,11 +148,11 @@ public partial class App : Application
         _eventCoordinator = new EventCoordinator();
         var coordinationContext = new EventCoordinationContext(
             cursorVM, activationVM, zoomVM, zoomIndicatorVM, actionMenuVM, toolbarVM, keyboardVM,
-            overlayManager, gazeEngine, im, messenger, Dispatcher, tempSettingsService, settings, inputSimulator);
+            overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator);
         _eventCoordinator.Initialize(coordinationContext);
 
         // Load keyboard using EventCoordinator
-        _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, tempSettingsService);
+        _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
 
         // ── System tray ──
         _trayIconManager = new TrayIconManager(im, Dispatcher, () => Shutdown());

@@ -219,6 +219,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
         _controlDwell.ClearTargets();
         _controlActions.Clear();
         ControlProgress.Clear();
+        OnPropertyChanged(nameof(ControlProgress));
     }
 
     #endregion
@@ -233,16 +234,20 @@ public partial class SettingsWindowViewModel : ObservableObject,
         // Clear any existing modal state
         _modalDwell.ClearTargets();
         ModalProgress.Clear();
+        OnPropertyChanged(nameof(ModalProgress));
 
         ModalMessage = message;
         _modalYesAction = onYes;
         IsModalVisible = true;
+    }
 
-        // Add modal button targets
-        _modalDwell.AddTarget(new DwellTarget("modal_yes",
-            new PhysicalPoint(0, 0), 70, _dwellMs));
-        _modalDwell.AddTarget(new DwellTarget("modal_no",
-            new PhysicalPoint(0, 0), 70, _dwellMs));
+    /// <summary>
+    /// Adds a modal button as a dwell target.
+    /// </summary>
+    public void AddModalTarget(string buttonId, double radius, int dwellMs)
+    {
+        _modalDwell.AddTarget(new DwellTarget(buttonId,
+            new PhysicalPoint(0, 0), radius, dwellMs));
     }
 
     /// <summary>

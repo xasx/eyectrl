@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Views;
 
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -60,16 +61,7 @@ public partial class SettingsWindow : OverlayWindow
 
     public event Action<EyeCtrlSettings>? SettingsChanged;
 
-    private static readonly (string Id, string Icon, string Label)[] TabDefs =
-    [
-        ("Cursor",   "◎", "Cursor"),
-        ("Dwell",    "⏱", "Dwell Times"),
-        ("Zoom",     "⊕", "Zoom"),
-        ("Actions", "⊙", "Action Menu"),
-        ("Keyboard", "⌨", "Keyboard"),
-        ("Toolbar",  "▣", "Toolbar"),
-        ("General",  "⚙", "General")
-    ];
+    private readonly (string Id, string Icon, string Label, Func<List<List<Action>>> PageBuilder)[] _tabDefs;
 
     public SettingsWindow(
         SettingsWindowViewModel viewModel,
@@ -82,6 +74,18 @@ public partial class SettingsWindow : OverlayWindow
         _settings = settings;
         _settingsService = settingsService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
+
+        // Initialize tab definitions with page builders
+        _tabDefs =
+        [
+            ("Cursor",   "◎", "Cursor",      BuildCursorPages),
+            ("Dwell",    "⏱", "Dwell Times", BuildDwellPages),
+            ("Zoom",     "⊕", "Zoom",        BuildZoomPages),
+            ("Actions",  "⊙", "Action Menu", BuildActionMenuPages),
+            ("Keyboard", "⌨", "Keyboard",    BuildKeyboardPages),
+            ("Toolbar",  "▣", "Toolbar",     BuildToolbarPages),
+            ("General",  "⚙", "General",     BuildGeneralPages)
+        ];
 
         // Set DataContext for data binding
         DataContext = _viewModel;
@@ -165,7 +169,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private void BuildTabButtons()
     {
-        foreach (var (id, icon, label) in TabDefs)
+        foreach (var (id, icon, label, _) in _tabDefs)
         {
             // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
             // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
@@ -347,18 +351,8 @@ public partial class SettingsWindow : OverlayWindow
 
     private List<List<Action>> BuildPages()
     {
-        return _activeTab switch
-        {
-            "Cursor" => BuildCursorPages(),
-            "Dwell" => BuildDwellPages(),
-            "Zoom" => BuildZoomPages(),
-            "ActionMenu" => BuildActionMenuPages(),
-            "Keyboard" => BuildKeyboardPages(),
-            "Toolbar" => BuildToolbarPages(),
-            "Theme" => BuildThemePages(),
-            "General" => BuildGeneralPages(),
-            _ => new()
-        };
+        var tabDef = _tabDefs.FirstOrDefault(t => t.Id == _activeTab);
+        return tabDef.PageBuilder?.Invoke() ?? new();
     }
 
     private List<List<Action>> BuildCursorPages()
@@ -1126,6 +1120,10 @@ public partial class SettingsWindow : OverlayWindow
 
             ModalButtonPanel.Children.Add(yesBtn);
             ModalButtonPanel.Children.Add(noBtn);
+
+            // Register modal buttons as dwell targets with DPI-scaled radius
+            _viewModel.AddModalTarget("modal_yes", DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs);
+            _viewModel.AddModalTarget("modal_no", DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs);
 
             ModalOverlay.Visibility = Visibility.Visible;
         }

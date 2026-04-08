@@ -149,6 +149,11 @@ public partial class SettingsWindow : OverlayWindow
                         ShowTab(_viewModel.Settings.CurrentTabName);
                     break;
                 case nameof(SettingsViewModel.CurrentPage):
+                    // Sync local page index with ViewModel and re-render content
+                    _currentPage = _viewModel.Settings.CurrentPage;
+                    RenderCurrentPage();
+                    RenderPagination();
+                    break;
                 case nameof(SettingsViewModel.TotalPages):
                     RenderPagination();
                     break;

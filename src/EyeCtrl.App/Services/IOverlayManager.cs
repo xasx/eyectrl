@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 
@@ -57,7 +58,7 @@ public interface IOverlayManager
     /// <param name="viewModels">Container with all ViewModels</param>
     /// <param name="settings">Application settings</param>
     /// <param name="providerType">Active gaze provider type for toolbar indicator</param>
-    void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, string providerType);
+    void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType);
 }
 
 /// <summary>

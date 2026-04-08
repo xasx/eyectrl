@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Services;
 
+using System.IO;
 using Serilog;
 using Serilog.Events;
 

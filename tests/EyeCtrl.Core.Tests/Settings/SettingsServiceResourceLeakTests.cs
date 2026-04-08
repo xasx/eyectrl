@@ -31,7 +31,7 @@ public class SettingsServiceResourceLeakTests : IDisposable
         // Make many rapid calls to SaveDebounced
         for (int i = 0; i < 100; i++)
         {
-            settings.Dwell.FixationDetectionMs = i;
+            settings.Dwell.FixationDetectionMs = 100 + (i % 901); // Valid range: 100-1000
             _service.SaveDebounced(settings);
             await Task.Delay(10); // Small delay to create race condition
         }

@@ -35,7 +35,7 @@ public class SettingsViewModelTests
     {
         var settings = new EyeCtrlSettings();
         var service = new SettingsService("test.json");
-        settings.Cursor.CircleSize = 999;
+        settings.Cursor.CircleSize = 400; // Valid non-default value (max is 500)
         settings.Dwell.FixationDetectionMs = 999;
 
         var vm = new SettingsViewModel(settings, service, _messenger);

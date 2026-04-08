@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Input;
@@ -35,7 +36,7 @@ public class OverlayManager : IOverlayManager
     /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
     /// </summary>
-    public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, string providerType)
+    public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType)
     {
         _logger.LogDebug("Initializing overlay windows");
 

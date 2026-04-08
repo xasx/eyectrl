@@ -84,8 +84,8 @@ public partial class ActionMenuWindow : OverlayWindow
             // scale = logical-px / physical-px  →  offset = physical-px × (logical/physical) = logical-px
             // Use captureRadius (already in physical px) so the result is in WPF logical canvas px.
             double scale = previewCircleSize / (2.0 * captureRadius);
-            indicatorOffsetX = (center.X - zoomCenter.X) * scale;
-            indicatorOffsetY = (center.Y - zoomCenter.Y) * scale;
+            indicatorOffsetX = (center.X - zoomCenter.Value.X) * scale;
+            indicatorOffsetY = (center.Y - zoomCenter.Value.Y) * scale;
 
             // Clamp so indicator stays inside the preview circle (10 px margin)
             double offsetMag = Math.Sqrt(indicatorOffsetX * indicatorOffsetX + indicatorOffsetY * indicatorOffsetY);

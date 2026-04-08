@@ -36,16 +36,11 @@ public class SettingsServiceValidationTests : IDisposable
     [Fact]
     public void Save_InvalidSettings_ShouldThrowException()
     {
-        // Arrange
-        var service = new SettingsService(_testFilePath);
-        var settings = new EyeCtrlSettings
-        {
-            Cursor = new CursorSettings { SmoothingFactor = 2.0 }  // Invalid
-        };
-
-        // Act & Assert
-        var exception = Assert.Throws<InvalidOperationException>(() => service.Save(settings));
-        Assert.Contains("Cannot save invalid settings", exception.Message);
+        // Settings validation is enforced at the property setter level.
+        // Values outside the valid range are rejected when assigned.
+        var cursor = new CursorSettings();
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => cursor.SmoothingFactor = 2.0);
         Assert.Contains("SmoothingFactor", exception.Message);
     }
 

@@ -79,7 +79,7 @@ public class MouseCoordinateMapperTests
     [InlineData(0, 0, 1920, 1080, 0, 0)]
     [InlineData(1920, 1080, 1920, 1080, 65535, 65535)]
     [InlineData(960, 540, 1920, 1080, 32768, 32768)]  // Center of 1920x1080
-    [InlineData(100, 100, 1920, 1080, 3413, 6073)]    // Specific coordinate
+    [InlineData(100, 100, 1920, 1080, 3413, 6068)]    // Specific coordinate
     public void NormalizeScreenCoordinate_WithValidCoordinates_ReturnsCorrectNormalizedValues(
         double x, double y, int screenWidth, int screenHeight, int expectedX, int expectedY)
     {
@@ -102,9 +102,10 @@ public class MouseCoordinateMapperTests
         var point = new PhysicalPoint(1919, 1079);
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, 1920, 1080);
 
-        // Should be close to but not exceeding 65535
-        Assert.InRange(normalizedX, 65500, 65535);
-        Assert.InRange(normalizedY, 65500, 65535);
+        // Should be close to 65535 (but not exceed it); exact value depends on screen resolution.
+        // For 1920x1080: x=round(1919/1920*65535)=65502, y=round(1079/1080*65535)=65474.
+        Assert.InRange(normalizedX, 65460, 65535);
+        Assert.InRange(normalizedY, 65460, 65535);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Models;
 
+using System.Globalization;
 using EyeCtrl.Core.Services;
 
 /// <summary>
@@ -89,6 +90,6 @@ public readonly record struct PhysicalPoint(double X, double Y)
     /// <returns>A string in the format "PhysicalPoint(X, Y)".</returns>
     public override string ToString()
     {
-        return $"PhysicalPoint({X:0.00}, {Y:0.00})";
+        return $"PhysicalPoint({X.ToString("0.00", CultureInfo.InvariantCulture)}, {Y.ToString("0.00", CultureInfo.InvariantCulture)})";
     }
 }

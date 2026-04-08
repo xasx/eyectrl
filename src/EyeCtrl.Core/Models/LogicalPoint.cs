@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Models;
 
+using System.Globalization;
 using EyeCtrl.Core.Services;
 
 /// <summary>
@@ -57,6 +58,6 @@ public readonly record struct LogicalPoint(double X, double Y)
     /// <returns>A string in the format "LogicalPoint(X, Y)".</returns>
     public override string ToString()
     {
-        return $"LogicalPoint({X:0.00}, {Y:0.00})";
+        return $"LogicalPoint({X.ToString("0.00", CultureInfo.InvariantCulture)}, {Y.ToString("0.00", CultureInfo.InvariantCulture)})";
     }
 }

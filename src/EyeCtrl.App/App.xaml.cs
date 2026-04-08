@@ -147,11 +147,11 @@ public partial class App : Application
         _eventCoordinator = new EventCoordinator();
         var coordinationContext = new EventCoordinationContext(
             cursorVM, activationVM, zoomVM, zoomIndicatorVM, actionMenuVM, toolbarVM, keyboardVM,
-            overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator);
+            overlayManager, gazeEngine, im, messenger, Dispatcher, tempSettingsService, settings, inputSimulator);
         _eventCoordinator.Initialize(coordinationContext);
 
         // Load keyboard using EventCoordinator
-        _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
+        _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, tempSettingsService);
 
         // ── System tray ──
         _trayIconManager = new TrayIconManager(im, Dispatcher, () => Shutdown());

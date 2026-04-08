@@ -72,7 +72,7 @@ public class ZoomFixationService : IDisposable
         _fixationDetector.FixationEnded += OnFixationEnded;
 
         _logger.LogDebug("Zoom fixation tracking started: center=({X}, {Y}), radius={Radius}",
-            _zoomCenter.X, _zoomCenter.Y, message.Radius);
+            _zoomCenter.Value.X, _zoomCenter.Value.Y, message.Radius);
     }
 
     private void OnZoomEnded()

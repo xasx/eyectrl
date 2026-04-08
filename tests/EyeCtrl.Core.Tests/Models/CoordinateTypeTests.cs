@@ -220,9 +220,11 @@ public class CoordinateTypeTests
         var normalized = original.ToNormalized(screenBounds);
         var roundTrip = normalized.ToPhysical(screenBounds);
 
-        // Assert - Should match original within epsilon
-        Assert.Equal(original.X, roundTrip.X, Epsilon);
-        Assert.Equal(original.Y, roundTrip.Y, Epsilon);
+        // Assert - Integer rounding in ToNormalized limits precision to ~screenDim/65535.
+        // For 1920x1080, the quantization step is about 0.015 physical pixels.
+        const double roundTripTolerance = 0.02;
+        Assert.Equal(original.X, roundTrip.X, roundTripTolerance);
+        Assert.Equal(original.Y, roundTrip.Y, roundTripTolerance);
     }
 
     #endregion

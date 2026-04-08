@@ -12,8 +12,10 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
+using CommunityToolkit.Mvvm.Messaging;
 using Serilog;
 
 /// <summary>
@@ -96,13 +98,13 @@ public class EventCoordinator : IEventCoordinator
         var keyboard = _context.OverlayManager.Keyboard;
 
         // ZoomFixationCompleted: Handle coordinate conversion
-        _context.Messenger.Register<ZoomFixationCompletedMessage>(this, (_, msg) =>
+        _context.Messenger.Register<EventCoordinator, ZoomFixationCompletedMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 try
                 {
                     zoomIndicator.Hide();
-                    var realPoint = zoomOverlay.GetRealScreenPoint(msg.PrecisePoint);
+                    var realPoint = zoomOverlay.GetRealPhysicalPoint(msg.PrecisePoint);
                     im.OnZoomFixation(realPoint);
                 }
                 catch (Exception ex)
@@ -112,7 +114,7 @@ public class EventCoordinator : IEventCoordinator
             }));
 
         // ResetZoomIndicator: Trigger animation
-        _context.Messenger.Register<ResetZoomIndicatorMessage>(this, (_, msg) =>
+        _context.Messenger.Register<EventCoordinator, ResetZoomIndicatorMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 try
@@ -128,25 +130,25 @@ public class EventCoordinator : IEventCoordinator
             }));
 
         // ZoomCloseMessage -> exit zoom mode
-        _context.Messenger.Register<ZoomCloseMessage>(this, (_, _) =>
+        _context.Messenger.Register<EventCoordinator, ZoomCloseMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(() => im.OnZoomBack()));
 
         // ZoomRecaptureMessage -> re-capture at same fixation point
-        _context.Messenger.Register<ZoomRecaptureMessage>(this, (_, _) =>
+        _context.Messenger.Register<EventCoordinator, ZoomRecaptureMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 if (im.CurrentState == InteractionState.ZoomSelectionActive && im.FixationPoint != null)
                 {
                     _context.Messenger.Send(new StartZoomMessage(
-                        im.FixationPoint,
+                        im.FixationPoint.Value,
                         _context.Settings.Zoom.CircleRadiusPixels,
                         _context.Settings.Zoom.MagnificationLevel,
-                        im.FixationPoint));
+                        im.FixationPoint.Value));
                 }
             }));
 
         // Keyboard toggle
-        _context.Messenger.Register<KeyboardToggledMessage>(this, (_, _) =>
+        _context.Messenger.Register<EventCoordinator, KeyboardToggledMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 _keyboardVisible = !_keyboardVisible;
@@ -165,23 +167,23 @@ public class EventCoordinator : IEventCoordinator
             }));
 
         // Settings window
-        _context.Messenger.Register<SettingsRequestedMessage>(this, (_, _) =>
+        _context.Messenger.Register<EventCoordinator, SettingsRequestedMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(() => ShowSettingsWindow()));
 
         // Key activation -> input simulator
-        _context.Messenger.Register<KeyActivatedMessage>(this, (_, msg) =>
+        _context.Messenger.Register<EventCoordinator, KeyActivatedMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() => HandleKeyActivation(msg.Key)));
 
         // Prediction -> input simulator
-        _context.Messenger.Register<PredictionSelectedMessage>(this, (_, msg) =>
+        _context.Messenger.Register<EventCoordinator, PredictionSelectedMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() => HandlePredictionSelected(msg.DeleteCount, msg.Word)));
 
         // Action requested -> input simulator
-        _context.Messenger.Register<ActionRequestedMessage>(this, (_, msg) =>
+        _context.Messenger.Register<EventCoordinator, ActionRequestedMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() => HandleActionRequested(msg)));
 
         // CloseSettings -> close settings window
-        _context.Messenger.Register<CloseSettingsMessage>(this, (_, _) =>
+        _context.Messenger.Register<EventCoordinator, CloseSettingsMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 if (_settingsWindow != null)

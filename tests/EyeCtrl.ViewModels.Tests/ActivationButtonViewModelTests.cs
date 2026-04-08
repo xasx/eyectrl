@@ -58,7 +58,7 @@ public class ActivationButtonViewModelTests
     public void SendsActivationCompleted_OnDwellComplete()
     {
         var settings = new EyeCtrlSettings();
-        settings.Dwell.ActivationButtonDwellMs = 100;
+        settings.Dwell.ActivationButtonDwellMs = 200; // Minimum valid value
         var vm = new ActivationButtonViewModel(settings, _messenger);
 
         bool activated = false;

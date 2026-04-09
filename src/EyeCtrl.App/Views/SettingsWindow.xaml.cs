@@ -226,11 +226,11 @@ public partial class SettingsWindow : OverlayWindow
             TabButtonPanel.Children.Add(border);
 
             // Register with ViewModel for dwell detection
-            _viewModel.AddTabTarget(id, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs);
+            _viewModel.Register(id, DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
         }
 
         // Register close button with ViewModel
-        _viewModel.AddTabTarget("close", DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs);
+        _viewModel.Register("close", DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
     }
 
     // ────── Tab switching ──────
@@ -253,7 +253,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private void RebuildContent()
     {
-        _viewModel.ClearControlTargets();
+        _viewModel.ClearCategory(DwellCategory.Control);
         ContentPanel.Children.Clear();
 
         _pages = BuildPages();
@@ -266,7 +266,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private void RenderCurrentPage()
     {
-        _viewModel.ClearControlTargets();
+        _viewModel.ClearCategory(DwellCategory.Control);
         ContentPanel.Children.Clear();
         _activeItems.Clear();
 
@@ -341,7 +341,7 @@ public partial class SettingsWindow : OverlayWindow
         _pagButtons[id] = btn;
 
         // Register with ViewModel for dwell detection
-        _viewModel.AddPaginationTarget(id, DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs);
+        _viewModel.Register(id, DwellCategory.Pagination, DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs, () => { });
 
         return btn;
     }
@@ -801,7 +801,7 @@ public partial class SettingsWindow : OverlayWindow
         {
             var cPos = CloseButton.PointToScreen(
                 new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
-            _viewModel.UpdateTabButtonPosition("close", new PhysicalPoint(cPos.X, cPos.Y));
+            _viewModel.UpdatePosition("close", DwellCategory.Tab, new PhysicalPoint(cPos.X, cPos.Y));
         }
         catch (InvalidOperationException)
         {
@@ -809,15 +809,15 @@ public partial class SettingsWindow : OverlayWindow
         }
 
         // Update tab button positions
-        UpdateButtonPositions(_tabButtons, (id, pos) => _viewModel.UpdateTabButtonPosition(id, pos));
+        UpdateButtonPositions(_tabButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Tab, pos));
 
         // Update pagination button positions
-        UpdateButtonPositions(_pagButtons, (id, pos) => _viewModel.UpdatePaginationButtonPosition(id, pos));
+        UpdateButtonPositions(_pagButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Pagination, pos));
 
         // Update modal button positions if modal is visible
         if (_viewModel.IsModalVisible)
         {
-            UpdateButtonPositions(_modalButtons, (id, pos) => _viewModel.UpdateModalButtonPosition(id, pos));
+            UpdateButtonPositions(_modalButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Modal, pos));
         }
 
         // Update new-style dwell controls
@@ -924,8 +924,8 @@ public partial class SettingsWindow : OverlayWindow
             ModalButtonPanel.Children.Add(noBtn);
 
             // Register modal buttons as dwell targets with DPI-scaled radius
-            _viewModel.AddModalTarget("modal_yes", DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs);
-            _viewModel.AddModalTarget("modal_no", DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs);
+            _viewModel.Register("modal_yes", DwellCategory.Modal, DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs, () => { });
+            _viewModel.Register("modal_no", DwellCategory.Modal, DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs, () => { });
 
             ModalOverlay.Visibility = Visibility.Visible;
         }
@@ -979,7 +979,7 @@ public partial class SettingsWindow : OverlayWindow
         border.MouseLeftButtonDown += (_, _) =>
         {
             if (id == "modal_yes")
-                _viewModel.SimulateModalButtonActivated(id);
+                _viewModel.SimulateActivated(id, DwellCategory.Modal);
             else
                 _viewModel.HideModal();
         };

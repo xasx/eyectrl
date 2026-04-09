@@ -37,8 +37,8 @@ public class SettingsWindowViewModelTests
     public void Constructor_RegistersWithMessenger()
     {
         var vm = CreateViewModel();
-        vm.AddTabTarget("Cursor", 85, 600);
-        vm.UpdateTabButtonPosition("Cursor", new PhysicalPoint(100, 100));
+        vm.Register("Cursor", DwellCategory.Tab, 85, 600, () => { });
+        vm.UpdatePosition("Cursor", DwellCategory.Tab, new PhysicalPoint(100, 100));
 
         // Send gaze messages to trigger dwell progress
         for (int i = 0; i < 5; i++)
@@ -56,8 +56,8 @@ public class SettingsWindowViewModelTests
     public void TabDwellProgress_UpdatesOnGazeInput()
     {
         var vm = CreateViewModel();
-        vm.AddTabTarget("Cursor", 85, 600);
-        vm.UpdateTabButtonPosition("Cursor", new PhysicalPoint(100, 100));
+        vm.Register("Cursor", DwellCategory.Tab, 85, 600, () => { });
+        vm.UpdatePosition("Cursor", DwellCategory.Tab, new PhysicalPoint(100, 100));
 
         // Simulate sustained gaze at 30 FPS for 300ms
         for (int i = 0; i < 10; i++)
@@ -75,8 +75,8 @@ public class SettingsWindowViewModelTests
     public void TabActivation_ChangesActiveTab()
     {
         var vm = CreateViewModel();
-        vm.AddTabTarget("Dwell", 85, 600);
-        vm.UpdateTabButtonPosition("Dwell", new PhysicalPoint(100, 100));
+        vm.Register("Dwell", DwellCategory.Tab, 85, 600, () => { });
+        vm.UpdatePosition("Dwell", DwellCategory.Tab, new PhysicalPoint(100, 100));
 
         // Simulate complete dwell (600ms at 30 FPS = 18 frames)
         for (int i = 0; i < 20; i++)
@@ -96,8 +96,8 @@ public class SettingsWindowViewModelTests
         bool closeSent = false;
         _messenger.Register<CloseSettingsMessage>(this, (_, _) => closeSent = true);
 
-        vm.AddTabTarget("close", 85, 600);
-        vm.UpdateTabButtonPosition("close", new PhysicalPoint(50, 50));
+        vm.Register("close", DwellCategory.Tab, 85, 600, () => { });
+        vm.UpdatePosition("close", DwellCategory.Tab, new PhysicalPoint(50, 50));
 
         // Simulate complete dwell on close button
         for (int i = 0; i < 20; i++)
@@ -116,7 +116,7 @@ public class SettingsWindowViewModelTests
         vm.Dispose();
 
         // After disposal, sending messages should not affect the ViewModel
-        vm.UpdateTabButtonPosition("Cursor", new PhysicalPoint(100, 100));
+        vm.UpdatePosition("Cursor", DwellCategory.Tab, new PhysicalPoint(100, 100));
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 0));
 
         // Should not crash or update (verified by no exception)
@@ -131,8 +131,8 @@ public class SettingsWindowViewModelTests
         vm.Settings.ShowTab("Cursor"); // Tab with multiple items
         var initialPage = vm.Settings.CurrentPage;
 
-        vm.AddPaginationTarget("pag_next", 60, 600);
-        vm.UpdatePaginationButtonPosition("pag_next", new PhysicalPoint(200, 200));
+        vm.Register("pag_next", DwellCategory.Pagination, 60, 600, () => { });
+        vm.UpdatePosition("pag_next", DwellCategory.Pagination, new PhysicalPoint(200, 200));
 
         // Simulate complete dwell on next button
         for (int i = 0; i < 20; i++)
@@ -158,8 +158,8 @@ public class SettingsWindowViewModelTests
             vm.Settings.NextPage();
             Assert.Equal(1, vm.Settings.CurrentPage);
 
-            vm.AddPaginationTarget("pag_prev", 60, 600);
-            vm.UpdatePaginationButtonPosition("pag_prev", new PhysicalPoint(150, 150));
+            vm.Register("pag_prev", DwellCategory.Pagination, 60, 600, () => { });
+            vm.UpdatePosition("pag_prev", DwellCategory.Pagination, new PhysicalPoint(150, 150));
 
             // Simulate dwell on previous button
             for (int i = 0; i < 20; i++)
@@ -176,8 +176,8 @@ public class SettingsWindowViewModelTests
     public void PaginationProgress_Updates()
     {
         var vm = CreateViewModel();
-        vm.AddPaginationTarget("pag_next", 60, 600);
-        vm.UpdatePaginationButtonPosition("pag_next", new PhysicalPoint(200, 200));
+        vm.Register("pag_next", DwellCategory.Pagination, 60, 600, () => { });
+        vm.UpdatePosition("pag_next", DwellCategory.Pagination, new PhysicalPoint(200, 200));
 
         // Simulate partial dwell
         for (int i = 0; i < 10; i++)
@@ -215,7 +215,7 @@ public class SettingsWindowViewModelTests
         bool confirmed = false;
         vm.ShowModal("Reset all settings?", () => confirmed = true);
 
-        vm.SimulateModalButtonActivated("modal_yes");
+        vm.SimulateActivated("modal_yes", DwellCategory.Modal);
 
         Assert.True(confirmed);
         Assert.False(vm.IsModalVisible); // Modal auto-closes
@@ -228,7 +228,7 @@ public class SettingsWindowViewModelTests
         bool confirmed = false;
         vm.ShowModal("Are you sure?", () => confirmed = true);
 
-        vm.SimulateModalButtonActivated("modal_no");
+        vm.SimulateActivated("modal_no", DwellCategory.Modal);
 
         Assert.False(confirmed); // Callback NOT invoked
         Assert.False(vm.IsModalVisible); // Modal closed
@@ -254,10 +254,10 @@ public class SettingsWindowViewModelTests
         vm.ShowModal("Confirm?", () => { });
 
         // Add modal targets (View's responsibility)
-        vm.AddModalTarget("modal_yes", 70, 500);
-        vm.AddModalTarget("modal_no", 70, 500);
+        vm.Register("modal_yes", DwellCategory.Modal, 70, 500, () => { });
+        vm.Register("modal_no", DwellCategory.Modal, 70, 500, () => { });
 
-        vm.UpdateModalButtonPosition("modal_yes", new PhysicalPoint(100, 100));
+        vm.UpdatePosition("modal_yes", DwellCategory.Modal, new PhysicalPoint(100, 100));
 
         // Simulate partial dwell
         for (int i = 0; i < 10; i++)
@@ -280,8 +280,8 @@ public class SettingsWindowViewModelTests
         var vm = CreateViewModel();
         bool actionCalled = false;
 
-        vm.RegisterControlAction("test_control", () => actionCalled = true);
-        vm.SimulateControlActivated("test_control");
+        vm.Register("test_control", DwellCategory.Control, 50, 600, () => actionCalled = true);
+        vm.SimulateActivated("test_control", DwellCategory.Control);
 
         Assert.True(actionCalled);
     }
@@ -292,9 +292,8 @@ public class SettingsWindowViewModelTests
         var vm = CreateViewModel();
         int counter = 0;
 
-        vm.RegisterControlAction("increment", () => counter++);
-        vm.AddControlTarget("increment", 50, 600);
-        vm.UpdateControlPosition("increment", new PhysicalPoint(100, 100));
+        vm.Register("increment", DwellCategory.Control, 50, 600, () => counter++);
+        vm.UpdatePosition("increment", DwellCategory.Control, new PhysicalPoint(100, 100));
 
         // Simulate complete dwell
         for (int i = 0; i < 20; i++)
@@ -310,9 +309,8 @@ public class SettingsWindowViewModelTests
     public void ControlProgress_Updates()
     {
         var vm = CreateViewModel();
-        vm.RegisterControlAction("test", () => { });
-        vm.AddControlTarget("test", 50, 600);
-        vm.UpdateControlPosition("test", new PhysicalPoint(150, 150));
+        vm.Register("test", DwellCategory.Control, 50, 600, () => { });
+        vm.UpdatePosition("test", DwellCategory.Control, new PhysicalPoint(150, 150));
 
         // Simulate partial dwell
         for (int i = 0; i < 10; i++)
@@ -332,13 +330,11 @@ public class SettingsWindowViewModelTests
         int counterA = 0;
         int counterB = 0;
 
-        vm.RegisterControlAction("controlA", () => counterA++);
-        vm.RegisterControlAction("controlB", () => counterB++);
+        vm.Register("controlA", DwellCategory.Control, 50, 600, () => counterA++);
+        vm.Register("controlB", DwellCategory.Control, 50, 600, () => counterB++);
 
-        vm.AddControlTarget("controlA", 50, 600);
-        vm.AddControlTarget("controlB", 50, 600);
-        vm.UpdateControlPosition("controlA", new PhysicalPoint(100, 100));
-        vm.UpdateControlPosition("controlB", new PhysicalPoint(200, 200));
+        vm.UpdatePosition("controlA", DwellCategory.Control, new PhysicalPoint(100, 100));
+        vm.UpdatePosition("controlB", DwellCategory.Control, new PhysicalPoint(200, 200));
 
         // Dwell on controlA
         for (int i = 0; i < 20; i++)
@@ -369,7 +365,7 @@ public class SettingsWindowViewModelTests
 
         // Should not throw when simulating unknown control
         var exception = Record.Exception(() =>
-            vm.SimulateControlActivated("unknown_control"));
+            vm.SimulateActivated("unknown_control", DwellCategory.Control));
 
         Assert.Null(exception);
     }
@@ -380,12 +376,10 @@ public class SettingsWindowViewModelTests
         var vm = CreateViewModel();
 
         // Register some controls and add targets
-        vm.RegisterControlAction("control1", () => { });
-        vm.RegisterControlAction("control2", () => { });
-        vm.AddControlTarget("control1", 50, 600);
-        vm.AddControlTarget("control2", 50, 600);
-        vm.UpdateControlPosition("control1", new PhysicalPoint(100, 100));
-        vm.UpdateControlPosition("control2", new PhysicalPoint(200, 200));
+        vm.Register("control1", DwellCategory.Control, 50, 600, () => { });
+        vm.Register("control2", DwellCategory.Control, 50, 600, () => { });
+        vm.UpdatePosition("control1", DwellCategory.Control, new PhysicalPoint(100, 100));
+        vm.UpdatePosition("control2", DwellCategory.Control, new PhysicalPoint(200, 200));
 
         // Simulate partial dwell to populate progress
         for (int i = 0; i < 5; i++)
@@ -398,13 +392,13 @@ public class SettingsWindowViewModelTests
         Assert.True(vm.ControlProgress.Count > 0);
 
         // Clear all control targets
-        vm.ClearControlTargets();
+        vm.ClearCategory(DwellCategory.Control);
 
         // Verify everything is cleared
         Assert.Empty(vm.ControlProgress);
 
         // Verify cleared actions don't execute
-        vm.SimulateControlActivated("control1");
+        vm.SimulateActivated("control1", DwellCategory.Control);
         // Should not throw and should do nothing
     }
 

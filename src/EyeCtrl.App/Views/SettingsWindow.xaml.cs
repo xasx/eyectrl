@@ -34,7 +34,6 @@ public partial class SettingsWindow : OverlayWindow
     private const int PaginationSymbolFontSize = 30;
 
     private static readonly Color BtnBase = Color.FromArgb(200, 60, 60, 80);
-    private static readonly Color ControlHighlight = Color.FromArgb(200, 0, 180, 0);
     private static readonly Color TabActive = Color.FromArgb(200, 40, 90, 160);
     private static readonly Color TabInactive = Color.FromArgb(200, 50, 50, 50);
     private static readonly Color ResetBase = Color.FromArgb(200, 128, 80, 32);
@@ -50,7 +49,6 @@ public partial class SettingsWindow : OverlayWindow
     private readonly int _dwellMs;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
-    private readonly Dictionary<string, Border> _controlBorders = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
     private readonly Dictionary<string, Border> _modalButtons = new();
 
@@ -130,9 +128,6 @@ public partial class SettingsWindow : OverlayWindow
             {
                 case nameof(SettingsWindowViewModel.TabProgress):
                     UpdateTabVisuals();
-                    break;
-                case nameof(SettingsWindowViewModel.ControlProgress):
-                    UpdateControlVisuals();
                     break;
                 case nameof(SettingsWindowViewModel.PagProgress):
                     UpdatePaginationVisuals();
@@ -259,7 +254,6 @@ public partial class SettingsWindow : OverlayWindow
     private void RebuildContent()
     {
         _viewModel.ClearControlTargets();
-        _controlBorders.Clear();
         ContentPanel.Children.Clear();
 
         _pages = BuildPages();
@@ -273,7 +267,6 @@ public partial class SettingsWindow : OverlayWindow
     private void RenderCurrentPage()
     {
         _viewModel.ClearControlTargets();
-        _controlBorders.Clear();
         ContentPanel.Children.Clear();
         _activeItems.Clear();
 
@@ -364,35 +357,49 @@ public partial class SettingsWindow : OverlayWindow
 
     private List<List<Action>> BuildCursorPages()
     {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
         return
         [
             [
-                () => AddHorizontalList("c_filter", "Filter Mode",
+                () => Add(new DwellComboBox(_viewModel, "c_filter", "Filter Mode",
                     Enum.GetNames<GazeFilterMode>(),
                     () => _settings.Cursor.FilterMode.ToString(),
-                    v => { _settings.Cursor.FilterMode = Enum.Parse<GazeFilterMode>(v); ApplyAndSave(); }),
-                () => AddSlider("c_smooth", "Smoothing Factor", 0, 1, 0.1, 1,
+                    v => { _settings.Cursor.FilterMode = Enum.Parse<GazeFilterMode>(v); ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "c_smooth", "Smoothing Factor",
+                    0, 1, 0.1, 1,
                     () => _settings.Cursor.SmoothingFactor,
-                    v => { _settings.Cursor.SmoothingFactor = v; ApplyAndSave(); }),
-                () => AddSlider("c_snap", "Snap Radius (px)", 10, 100, 5, 0,
+                    v => { _settings.Cursor.SmoothingFactor = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "c_snap", "Snap Radius (px)",
+                    10, 100, 5, 0,
                     () => _settings.Cursor.SnapRadiusPixels,
-                    v => { _settings.Cursor.SnapRadiusPixels = (int)v; ApplyAndSave(); }),
-                () => AddColorPicker("c_color", "Circle Color",
+                    v => { _settings.Cursor.SnapRadiusPixels = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellColorPicker(_viewModel, "c_color", "Circle Color",
                     () => _settings.Cursor.CircleColor,
-                    v => { _settings.Cursor.CircleColor = v; ApplyAndSave(); }),
+                    v => { _settings.Cursor.CircleColor = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
             ],
             [
-                () => AddSlider("c_opacity", "Circle Opacity", 0.1, 1, 0.1, 1,
+                () => Add(new DwellSlider(_viewModel, "c_opacity", "Circle Opacity",
+                    0.1, 1, 0.1, 1,
                     () => _settings.Cursor.CircleOpacity,
-                    v => { _settings.Cursor.CircleOpacity = v; ApplyAndSave(); }),
-                () => AddSlider("c_thick", "Circle Thickness", 1, 6, 0.5, 1,
+                    v => { _settings.Cursor.CircleOpacity = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "c_thick", "Circle Thickness",
+                    1, 6, 0.5, 1,
                     () => _settings.Cursor.CircleThickness,
-                    v => { _settings.Cursor.CircleThickness = v; ApplyAndSave(); }),
-                () => AddToggle("c_hc", "High Contrast Mode",
+                    v => { _settings.Cursor.CircleThickness = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellToggle(_viewModel, "c_hc", "High Contrast Mode",
                     () => _settings.Cursor.CircleHighContrast,
-                    v => { _settings.Cursor.CircleHighContrast = v; ApplyAndSave(); }),
-                () => AddResetButton("Reset Cursor Settings", () =>
-                    ShowModal("Reset Cursor settings to defaults?", () =>
+                    v => { _settings.Cursor.CircleHighContrast = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "c_reset", "Reset Cursor Settings",
+                    () => ShowModal("Reset Cursor settings to defaults?", () =>
                     {
                         var defaults = new CursorSettings();
                         _settings.Cursor.FilterMode = defaults.FilterMode;
@@ -404,47 +411,69 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Cursor.CircleHighContrast = defaults.CircleHighContrast;
                         ApplyAndSave();
                         RebuildContent();
-                    })),
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
             ]
         ];
     }
 
     private List<List<Action>> BuildDwellPages()
     {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
         return
         [
             [
-                () => AddSlider("d_fix", "Fixation Detection (ms)", 50, 500, 25, 0,
+                () => Add(new DwellSlider(_viewModel, "d_fix", "Fixation Detection (ms)",
+                    50, 500, 25, 0,
                     () => _settings.Dwell.FixationDetectionMs,
-                    v => { _settings.Dwell.FixationDetectionMs = (int)v; ApplyAndSave(); }),
-                () => AddSlider("d_act", "Activation Button (ms)", 200, 1500, 50, 0,
+                    v => { _settings.Dwell.FixationDetectionMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "d_act", "Activation Button (ms)",
+                    200, 1500, 50, 0,
                     () => _settings.Dwell.ActivationButtonDwellMs,
-                    v => { _settings.Dwell.ActivationButtonDwellMs = (int)v; ApplyAndSave(); }),
-                () => AddSlider("d_menu", "Action Menu (ms)", 200, 1500, 50, 0,
+                    v => { _settings.Dwell.ActivationButtonDwellMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "d_menu", "Action Menu (ms)",
+                    200, 1500, 50, 0,
                     () => _settings.Dwell.ActionMenuDwellMs,
-                    v => { _settings.Dwell.ActionMenuDwellMs = (int)v; ApplyAndSave(); }),
-                () => AddSlider("d_zoom", "Zoom Action Menu (ms)", 200, 1500, 50, 0,
+                    v => { _settings.Dwell.ActionMenuDwellMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "d_zoom", "Zoom Action Menu (ms)",
+                    200, 1500, 50, 0,
                     () => _settings.Dwell.ZoomActionMenuDwellMs,
-                    v => { _settings.Dwell.ZoomActionMenuDwellMs = (int)v; ApplyAndSave(); }),
+                    v => { _settings.Dwell.ZoomActionMenuDwellMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
             ],
             [
-                () => AddSlider("d_tool", "Toolbar / Settings (ms)", 200, 1500, 50, 0,
+                () => Add(new DwellSlider(_viewModel, "d_tool", "Toolbar / Settings (ms)",
+                    200, 1500, 50, 0,
                     () => _settings.Dwell.ToolbarButtonDwellMs,
-                    v => { _settings.Dwell.ToolbarButtonDwellMs = (int)v; ApplyAndSave(); }),
-                () => AddSlider("d_key", "Keyboard Key (ms)", 100, 1000, 25, 0,
+                    v => { _settings.Dwell.ToolbarButtonDwellMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "d_key", "Keyboard Key (ms)",
+                    100, 1000, 25, 0,
                     () => _settings.Dwell.KeyboardKeyDwellMs,
-                    v => { _settings.Dwell.KeyboardKeyDwellMs = (int)v; ApplyAndSave(); }),
-                () => AddSlider("d_pred", "Prediction (ms)", 100, 1000, 25, 0,
+                    v => { _settings.Dwell.KeyboardKeyDwellMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "d_pred", "Prediction (ms)",
+                    100, 1000, 25, 0,
                     () => _settings.Dwell.KeyboardPredictionDwellMs,
-                    v => { _settings.Dwell.KeyboardPredictionDwellMs = (int)v; ApplyAndSave(); }),
-                () => AddSlider("d_rad", "Fixation Radius (px)", 20, 120, 5, 0,
+                    v => { _settings.Dwell.KeyboardPredictionDwellMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "d_rad", "Fixation Radius (px)",
+                    20, 120, 5, 0,
                     () => _settings.Dwell.FixationRadiusPixels,
-                    v => { _settings.Dwell.FixationRadiusPixels = v; ApplyAndSave(); }),
-                () => AddSlider("d_cooldown", "Dwell Cooldown (ms)", 0, 1000, 50, 0,
+                    v => { _settings.Dwell.FixationRadiusPixels = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "d_cooldown", "Dwell Cooldown (ms)",
+                    0, 1000, 50, 0,
                     () => _settings.Dwell.DwellCooldownMs,
-                    v => { _settings.Dwell.DwellCooldownMs = (int)v; ApplyAndSave(); }),
-                () => AddResetButton("Reset Dwell Settings", () =>
-                    ShowModal("Reset Dwell settings to defaults?", () =>
+                    v => { _settings.Dwell.DwellCooldownMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "d_reset", "Reset Dwell Settings",
+                    () => ShowModal("Reset Dwell settings to defaults?", () =>
                     {
                         var d = new DwellSettings();
                         _settings.Dwell.FixationDetectionMs = d.FixationDetectionMs;
@@ -458,7 +487,8 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Dwell.DwellCooldownMs = d.DwellCooldownMs;
                         ApplyAndSave();
                         RebuildContent();
-                    })),
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
             ]
         ];
     }
@@ -514,55 +544,70 @@ public partial class SettingsWindow : OverlayWindow
 
     private List<List<Action>> BuildActionMenuPages()
     {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
         return
         [
             [
-                () => AddHorizontalList("am_pos", "Position",
+                () => Add(new DwellComboBox(_viewModel, "am_pos", "Position",
                     ["At Gaze", "At Center"],
                     () => _settings.ActionMenu.Position == ViewPosition.AtGaze ? "At Gaze" : "At Center",
-                    v => { _settings.ActionMenu.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); }),
-                () => AddResetButton("Reset Action Menu Settings", () =>
-                    ShowModal("Reset Action Menu settings to defaults?", () =>
+                    v => { _settings.ActionMenu.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "am_reset", "Reset Action Menu Settings",
+                    () => ShowModal("Reset Action Menu settings to defaults?", () =>
                     {
                         var a = new ActionMenuSettings();
                         _settings.ActionMenu.Position = a.Position;
                         ApplyAndSave();
                         RebuildContent();
-                    })),
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
             ]
         ];
     }
 
     private List<List<Action>> BuildKeyboardPages()
     {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
         return
         [
             [
-                () => AddHorizontalList("k_layout", "Active Layout",
+                () => Add(new DwellComboBox(_viewModel, "k_layout", "Active Layout",
                     ["QWERTY", "QWERTZ", "AZERTY"],
                     () => _settings.Keyboard.ActiveLayout,
-                    v => { _settings.Keyboard.ActiveLayout = v; ApplyAndSave(); }),
-                () => AddSlider("k_size", "Key Size Multiplier", 0.5, 2.0, 0.1, 1,
+                    v => { _settings.Keyboard.ActiveLayout = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "k_size", "Key Size Multiplier",
+                    0.5, 2.0, 0.1, 1,
                     () => _settings.Keyboard.KeySizeMultiplier,
-                    v => { _settings.Keyboard.KeySizeMultiplier = v; ApplyAndSave(); }),
-                () => AddToggle("k_pred", "Word Prediction",
+                    v => { _settings.Keyboard.KeySizeMultiplier = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellToggle(_viewModel, "k_pred", "Word Prediction",
                     () => _settings.Keyboard.PredictionEnabled,
-                    v => { _settings.Keyboard.PredictionEnabled = v; ApplyAndSave(); }),
-                () => AddHorizontalList("k_lang", "Dictionary Language",
-                    displayOptions: ["English", "French", "Spanish", "German", "Polish"],
-                    codeOptions:    ["en",      "fr",     "es",      "de",     "pl"],
-                    getCode: () => string.IsNullOrEmpty(_settings.Keyboard.LanguagePack) ? "en"
+                    v => { _settings.Keyboard.PredictionEnabled = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellComboBox(_viewModel, "k_lang", "Dictionary Language",
+                    ["English", "French", "Spanish", "German", "Polish"],
+                    ["en",      "fr",     "es",      "de",     "pl"],
+                    () => string.IsNullOrEmpty(_settings.Keyboard.LanguagePack) ? "en"
                                    : _settings.Keyboard.LanguagePack,
-                    setCode: v => { _settings.Keyboard.LanguagePack = v; ApplyAndSave(); }),
-                () => AddToggle("k_sound", "Click Sound",
+                    v => { _settings.Keyboard.LanguagePack = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellToggle(_viewModel, "k_sound", "Click Sound",
                     () => _settings.Keyboard.ClickSoundEnabled,
-                    v => { _settings.Keyboard.ClickSoundEnabled = v; ApplyAndSave(); }),
-                () => AddHorizontalList("k_edge", "Screen Edge",
+                    v => { _settings.Keyboard.ClickSoundEnabled = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellComboBox(_viewModel, "k_edge", "Screen Edge",
                     ["Bottom", "Top"],
                     () => _settings.Keyboard.ScreenEdge,
-                    v => { _settings.Keyboard.ScreenEdge = v; ApplyAndSave(); }),
-                () => AddResetButton("Reset Keyboard Settings", () =>
-                    ShowModal("Reset Keyboard settings to defaults?", () =>
+                    v => { _settings.Keyboard.ScreenEdge = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "k_reset", "Reset Keyboard Settings",
+                    () => ShowModal("Reset Keyboard settings to defaults?", () =>
                     {
                         var k = new KeyboardSettings();
                         _settings.Keyboard.ActiveLayout = k.ActiveLayout;
@@ -572,28 +617,36 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Keyboard.ScreenEdge = k.ScreenEdge;
                         ApplyAndSave();
                         RebuildContent();
-                    })),
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
             ]
         ];
     }
 
     private List<List<Action>> BuildToolbarPages()
     {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
         return
         [
             [
-                () => AddToggle("t_dock", "Dock to Screen Edge",
+                () => Add(new DwellToggle(_viewModel, "t_dock", "Dock to Screen Edge",
                     () => _settings.Toolbar.IsDocked,
-                    v => { _settings.Toolbar.IsDocked = v; ApplyAndSave(); }),
-                () => AddHorizontalList("t_edge", "Docked Edge",
+                    v => { _settings.Toolbar.IsDocked = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellComboBox(_viewModel, "t_edge", "Docked Edge",
                     ["Top", "Bottom", "Left", "Right"],
                     () => _settings.Toolbar.DockedEdge,
-                    v => { _settings.Toolbar.DockedEdge = v; ApplyAndSave(); }),
-                () => AddSlider("t_size", "Button Size", 32, 120, 4, 0,
+                    v => { _settings.Toolbar.DockedEdge = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "t_size", "Button Size",
+                    32, 120, 4, 0,
                     () => _settings.Toolbar.Size,
-                    v => { _settings.Toolbar.Size = v; ApplyAndSave(); }),
-                () => AddResetButton("Reset Toolbar Settings", () =>
-                    ShowModal("Reset Toolbar settings to defaults?", () =>
+                    v => { _settings.Toolbar.Size = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "t_reset", "Reset Toolbar Settings",
+                    () => ShowModal("Reset Toolbar settings to defaults?", () =>
                     {
                         var t = new ToolbarSettings();
                         _settings.Toolbar.IsDocked = t.IsDocked;
@@ -601,28 +654,36 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Toolbar.Size = t.Size;
                         ApplyAndSave();
                         RebuildContent();
-                    })),
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
             ]
         ];
     }
 
     private List<List<Action>> BuildThemePages()
     {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
         return
         [
             [
-                () => AddHorizontalList("th_mode", "Theme Mode",
+                () => Add(new DwellComboBox(_viewModel, "th_mode", "Theme Mode",
                     ["System", "Light", "Dark"],
                     () => _settings.Theme.Mode,
-                    v => { _settings.Theme.Mode = v; ApplyAndSave(); }),
-                () => AddSlider("th_op", "Overlay Opacity", 0.3, 1.0, 0.1, 1,
+                    v => { _settings.Theme.Mode = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "th_op", "Overlay Opacity",
+                    0.3, 1.0, 0.1, 1,
                     () => _settings.Theme.OverlayOpacity,
-                    v => { _settings.Theme.OverlayOpacity = v; ApplyAndSave(); }),
-                () => AddToggle("th_hc", "High Contrast",
+                    v => { _settings.Theme.OverlayOpacity = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellToggle(_viewModel, "th_hc", "High Contrast",
                     () => _settings.Theme.HighContrast,
-                    v => { _settings.Theme.HighContrast = v; ApplyAndSave(); }),
-                () => AddResetButton("Reset Theme Settings", () =>
-                    ShowModal("Reset Theme settings to defaults?", () =>
+                    v => { _settings.Theme.HighContrast = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "th_reset", "Reset Theme Settings",
+                    () => ShowModal("Reset Theme settings to defaults?", () =>
                     {
                         var th = new ThemeSettings();
                         _settings.Theme.Mode = th.Mode;
@@ -630,33 +691,40 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Theme.HighContrast = th.HighContrast;
                         ApplyAndSave();
                         RebuildContent();
-                    })),
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
             ]
         ];
     }
 
     private List<List<Action>> BuildGeneralPages()
     {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
         return
         [
             [
-                () => AddToggle("g_boot", "Start on Windows Boot",
+                () => Add(new DwellToggle(_viewModel, "g_boot", "Start on Windows Boot",
                     () => _settings.General.StartOnBoot,
-                    v => { _settings.General.StartOnBoot = v; ApplyAndSave(); }),
-                () => AddToggle("g_pause", "Start Paused",
+                    v => { _settings.General.StartOnBoot = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellToggle(_viewModel, "g_pause", "Start Paused",
                     () => _settings.General.StartPaused,
-                    v => { _settings.General.StartPaused = v; ApplyAndSave(); }),
-                () => AddResetButton("Reset General Settings", () =>
-                    ShowModal("Reset General settings to defaults?", () =>
+                    v => { _settings.General.StartPaused = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "g_reset", "Reset General Settings",
+                    () => ShowModal("Reset General settings to defaults?", () =>
                     {
                         var g = new GeneralSettings();
                         _settings.General.StartOnBoot = g.StartOnBoot;
                         _settings.General.StartPaused = g.StartPaused;
                         ApplyAndSave();
                         RebuildContent();
-                    })),
-                () => AddResetButton("\u26A0 Reset ALL Settings", () =>
-                    ShowModal("Reset ALL settings to defaults?\nThis cannot be undone.", () =>
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                () => Add(new DwellButton(_viewModel, "g_resetall", "\u26A0 Reset ALL Settings",
+                    () => ShowModal("Reset ALL settings to defaults?\nThis cannot be undone.", () =>
                     {
                         var d = new EyeCtrlSettings();
                         _settings.Cursor.FilterMode = d.Cursor.FilterMode;
@@ -692,319 +760,13 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.General.StartPaused = d.General.StartPaused;
                         ApplyAndSave();
                         RebuildContent();
-                    })),
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
             ]
         ];
     }
 
-    // ────── Generic dwellable control builders (scaled up) ──────
-
-    private void AddSlider(string id, string label, double min, double max, double step,
-        int decimals, Func<double> get, Action<double> set)
-    {
-        AddLabel(label);
-
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 12) };
-
-        var valueText = new TextBlock
-        {
-            Text = FormatVal(get(), decimals),
-            Foreground = Brushes.White,
-            FontSize = 24,
-            FontWeight = FontWeights.SemiBold,
-            Width = 140,
-            TextAlignment = TextAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
-        var minus = MakeControlButton(id + "_dn", "\u2212", () =>
-        {
-            var v = Math.Round(Math.Max(min, get() - step), decimals);
-            set(v);
-            valueText.Text = FormatVal(v, decimals);
-        });
-        var plus = MakeControlButton(id + "_up", "+", () =>
-        {
-            var v = Math.Round(Math.Min(max, get() + step), decimals);
-            set(v);
-            valueText.Text = FormatVal(v, decimals);
-        });
-
-        row.Children.Add(minus);
-        row.Children.Add(valueText);
-        row.Children.Add(plus);
-        ContentPanel.Children.Add(row);
-    }
-
-    private void AddHorizontalList(string idPrefix, string label, string[] options,
-        Func<string> get, Action<string> set)
-        => AddHorizontalList(idPrefix, label, options, options, get, set);
-
-    private void AddHorizontalList(
-        string idPrefix,
-        string label,
-        string[] displayOptions,
-        string[] codeOptions,
-        Func<string> getCode,
-        Action<string> setCode)
-    {
-        AddLabel(label);
-
-        var borders = new List<Border>();
-        var texts = new List<TextBlock>();
-
-        var wrapPanel = new WrapPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 2, 0, 12)
-        };
-
-        void Refresh()
-        {
-            var active = getCode();
-            for (int j = 0; j < borders.Count; j++)
-            {
-                bool selected = j < codeOptions.Length && codeOptions[j] == active;
-                borders[j].Background = new SolidColorBrush(selected
-                    ? Color.FromArgb(200, 30, 100, 30)
-                    : BtnBase);
-                if (j < texts.Count)
-                    texts[j].Text = (selected ? "\u25C9 " : "\u25CB ") + displayOptions[j];
-            }
-        }
-
-        for (int i = 0; i < displayOptions.Length; i++)
-        {
-            var capturedCode = codeOptions[i];
-            var id = $"{idPrefix}_{i}";
-
-            var text = new TextBlock
-            {
-                Foreground = Brushes.White,
-                FontSize = 22,
-                FontWeight = FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            System.Windows.Automation.AutomationProperties.SetAutomationId(
-                text, $"Settings_HList_{id}");
-
-            var border = new Border
-            {
-                Height = 70,
-                Margin = new Thickness(0, 0, 8, 8),
-                Padding = new Thickness(20, 0, 20, 0),
-                CornerRadius = new CornerRadius(8),
-                MinWidth = 150,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Child = text
-            };
-
-            border.MouseLeftButtonDown += (_, _) =>
-            {
-                setCode(capturedCode);
-                Refresh();
-            };
-
-            _controlBorders[id] = border;
-            _viewModel.RegisterControlAction(id, () =>
-            {
-                setCode(capturedCode);
-                Refresh();
-            });
-            _viewModel.AddControlTarget(id, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
-
-            borders.Add(border);
-            texts.Add(text);
-            wrapPanel.Children.Add(border);
-        }
-
-        ContentPanel.Children.Add(wrapPanel);
-        Refresh();
-    }
-
-    private void AddToggle(string id, string label, Func<bool> get, Action<bool> set)
-    {
-        var border = new Border
-        {
-            Height = 80,
-            Margin = new Thickness(0, 4, 0, 12),
-            Padding = new Thickness(20, 0, 20, 0),
-            CornerRadius = new CornerRadius(8),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Cursor = System.Windows.Input.Cursors.Hand
-        };
-
-        var text = new TextBlock
-        {
-            FontSize = 22,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = Brushes.White,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
-        System.Windows.Automation.AutomationProperties.SetAutomationId(text, $"Settings_Toggle_{id}");
-        border.Child = text;
-
-        void UpdateVisual()
-        {
-            var on = get();
-            text.Text = (on ? "\u2611 " : "\u2610 ") + label;
-            border.Background = new SolidColorBrush(on
-                ? Color.FromArgb(200, 30, 100, 30)
-                : Color.FromArgb(200, 80, 40, 40));
-        }
-
-        UpdateVisual();
-
-        border.MouseLeftButtonDown += (_, _) =>
-        {
-            set(!get());
-            UpdateVisual();
-        };
-
-        _controlBorders[id] = border;
-        _viewModel.RegisterControlAction(id, () =>
-        {
-            set(!get());
-            UpdateVisual();
-        });
-        _viewModel.AddControlTarget(id, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
-        ContentPanel.Children.Add(border);
-    }
-
-    private static readonly (string Hex, string Name)[] ColorPresets =
-    [
-        ("#00FF00", "Green"), ("#0088FF", "Blue"), ("#FF0000", "Red"),
-        ("#FFFF00", "Yellow"), ("#00FFFF", "Cyan"), ("#FF00FF", "Magenta"),
-        ("#FFFFFF", "White"), ("#FF8800", "Orange")
-    ];
-
-    private void AddColorPicker(string id, string label, Func<string> get, Action<string> set)
-    {
-        AddLabel(label);
-
-        var row = new WrapPanel { Margin = new Thickness(0, 2, 0, 12) };
-
-        for (int i = 0; i < ColorPresets.Length; i++)
-        {
-            var (hex, name) = ColorPresets[i];
-            var swatchId = $"{id}_{i}";
-            var color = (Color)ColorConverter.ConvertFromString(hex);
-
-            var swatch = new Border
-            {
-                Width = 90,
-                Height = 75,
-                Margin = new Thickness(4),
-                CornerRadius = new CornerRadius(6),
-                Background = new SolidColorBrush(color),
-                BorderThickness = new Thickness(3),
-                BorderBrush = hex.Equals(get(), StringComparison.OrdinalIgnoreCase)
-                    ? Brushes.White : Brushes.Transparent,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                ToolTip = name
-            };
-
-            var capturedHex = hex;
-            var capturedSwatch = swatch;
-
-            swatch.MouseLeftButtonDown += (_, _) =>
-            {
-                set(capturedHex);
-                foreach (UIElement child in row.Children)
-                    if (child is Border b) b.BorderBrush = Brushes.Transparent;
-                capturedSwatch.BorderBrush = Brushes.White;
-            };
-
-            _controlBorders[swatchId] = swatch;
-            _viewModel.RegisterControlAction(swatchId, () =>
-            {
-                set(capturedHex);
-                foreach (UIElement child in row.Children)
-                    if (child is Border b) b.BorderBrush = Brushes.Transparent;
-                capturedSwatch.BorderBrush = Brushes.White;
-            });
-            _viewModel.AddControlTarget(swatchId, DpiHelper.LogicalToPhysicalX(30), _dwellMs);
-            row.Children.Add(swatch);
-        }
-
-        ContentPanel.Children.Add(row);
-    }
-
-    private void AddResetButton(string label, Action onClick)
-    {
-        var id = $"reset_{label.GetHashCode():X}";
-        var border = new Border
-        {
-            Width = 300,
-            Height = 80,
-            Margin = new Thickness(0, 20, 0, 8),
-            CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(ResetBase),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Child = new TextBlock
-            {
-                Text = label,
-                Foreground = Brushes.White,
-                FontSize = 20,
-                FontWeight = FontWeights.SemiBold,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
-        };
-
-        border.MouseLeftButtonDown += (_, _) => onClick();
-        _controlBorders[id] = border;
-        _viewModel.RegisterControlAction(id, onClick);
-        _viewModel.AddControlTarget(id, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
-        ContentPanel.Children.Add(border);
-    }
-
     // ────── Shared helpers ──────
-
-    private void AddLabel(string text)
-    {
-        ContentPanel.Children.Add(new TextBlock
-        {
-            Text = text,
-            Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
-            FontSize = 22,
-            Margin = new Thickness(0, 8, 0, 2)
-        });
-    }
-
-    private Border MakeControlButton(string id, string text, Action action)
-    {
-        var btn = new Border
-        {
-            Width = 100,
-            Height = 80,
-            Margin = new Thickness(4, 0, 4, 0),
-            CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(BtnBase),
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Child = new TextBlock
-            {
-                Text = text,
-                Foreground = Brushes.White,
-                FontSize = 30,
-                FontWeight = FontWeights.Bold,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
-        };
-
-        btn.MouseLeftButtonDown += (_, _) => action();
-        _controlBorders[id] = btn;
-        _viewModel.RegisterControlAction(id, action);
-        _viewModel.AddControlTarget(id, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs);
-        return btn;
-    }
-
-    private static string FormatVal(double v, int decimals) =>
-        decimals == 0 ? ((int)v).ToString() : v.ToString($"F{decimals}");
 
     private void Add(DwellControl control)
     {
@@ -1048,9 +810,6 @@ public partial class SettingsWindow : OverlayWindow
 
         // Update tab button positions
         UpdateButtonPositions(_tabButtons, (id, pos) => _viewModel.UpdateTabButtonPosition(id, pos));
-
-        // Update control button positions
-        UpdateButtonPositions(_controlBorders, (id, pos) => _viewModel.UpdateControlPosition(id, pos));
 
         // Update pagination button positions
         UpdateButtonPositions(_pagButtons, (id, pos) => _viewModel.UpdatePaginationButtonPosition(id, pos));
@@ -1115,17 +874,6 @@ public partial class SettingsWindow : OverlayWindow
             if (_tabButtons.TryGetValue(id, out var border) && id != _viewModel.ActiveTabId)
             {
                 border.Background = new SolidColorBrush(Blend(TabInactive, TabActive, progress));
-            }
-        }
-    }
-
-    private void UpdateControlVisuals()
-    {
-        foreach (var (id, progress) in _viewModel.ControlProgress)
-        {
-            if (_controlBorders.TryGetValue(id, out var border))
-            {
-                border.Background = new SolidColorBrush(Blend(BtnBase, ControlHighlight, progress));
             }
         }
     }

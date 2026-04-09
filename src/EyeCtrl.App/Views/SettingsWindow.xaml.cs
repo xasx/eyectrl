@@ -7,6 +7,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.App.Controls;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.ViewModels;
 
@@ -57,6 +58,7 @@ public partial class SettingsWindow : OverlayWindow
     private int _currentPage;
     private int _totalPages;
     private List<List<Action>> _pages = new();
+    private readonly List<object> _activeItems = new(); // DwellControl | IDwellComposite
 
     public event Action<EyeCtrlSettings>? SettingsChanged;
 
@@ -273,6 +275,7 @@ public partial class SettingsWindow : OverlayWindow
         _viewModel.ClearControlTargets();
         _controlBorders.Clear();
         ContentPanel.Children.Clear();
+        _activeItems.Clear();
 
         if (_currentPage < _pages.Count)
         {
@@ -462,27 +465,38 @@ public partial class SettingsWindow : OverlayWindow
 
     private List<List<Action>> BuildZoomPages()
     {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
         return
         [
             [
-                () => AddToggle("z_en", "Enable Zoom Mode",
+                () => Add(new DwellToggle(_viewModel, "z_en", "Enable Zoom Mode",
                     () => _settings.Zoom.Enabled,
-                    v => { _settings.Zoom.Enabled = v; ApplyAndSave(); }),
-                () => AddHorizontalList("z_pos", "Position",
+                    v => { _settings.Zoom.Enabled = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellComboBox(_viewModel, "z_pos", "Position",
                     ["At Gaze", "At Center"],
                     () => _settings.Zoom.Position == ViewPosition.AtGaze ? "At Gaze" : "At Center",
-                    v => { _settings.Zoom.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); }),
-                () => AddSlider("z_rad", "Circle Radius (px)", 50, 300, 10, 0,
+                    v => { _settings.Zoom.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "z_rad", "Circle Radius (px)",
+                    50, 300, 10, 0,
                     () => _settings.Zoom.CircleRadiusPixels,
-                    v => { _settings.Zoom.CircleRadiusPixels = (int)v; ApplyAndSave(); }),
-                () => AddSlider("z_mag", "Magnification Level", 1.5, 5, 0.5, 1,
+                    v => { _settings.Zoom.CircleRadiusPixels = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "z_mag", "Magnification Level",
+                    1.5, 5, 0.5, 1,
                     () => _settings.Zoom.MagnificationLevel,
-                    v => { _settings.Zoom.MagnificationLevel = v; ApplyAndSave(); }),
-                () => AddSlider("z_grace", "Grace Period (ms)", 0, 2000, 50, 0,
+                    v => { _settings.Zoom.MagnificationLevel = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "z_grace", "Grace Period (ms)",
+                    0, 2000, 50, 0,
                     () => _settings.Zoom.ZoomGracePeriodMs,
-                    v => { _settings.Zoom.ZoomGracePeriodMs = (int)v; ApplyAndSave(); }),
-                () => AddResetButton("Reset Zoom Settings", () =>
-                    ShowModal("Reset Zoom settings to defaults?", () =>
+                    v => { _settings.Zoom.ZoomGracePeriodMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "z_reset", "Reset Zoom Settings",
+                    () => ShowModal("Reset Zoom settings to defaults?", () =>
                     {
                         var z = new ZoomSettings();
                         _settings.Zoom.Enabled = z.Enabled;
@@ -492,7 +506,8 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Zoom.ZoomGracePeriodMs = z.ZoomGracePeriodMs;
                         ApplyAndSave();
                         RebuildContent();
-                    })),
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
             ]
         ];
     }
@@ -991,6 +1006,23 @@ public partial class SettingsWindow : OverlayWindow
     private static string FormatVal(double v, int decimals) =>
         decimals == 0 ? ((int)v).ToString() : v.ToString($"F{decimals}");
 
+    private void Add(DwellControl control)
+    {
+        control.Attach(ContentPanel);
+        _activeItems.Add(control);
+    }
+
+    private void Add(IDwellComposite composite)
+    {
+        composite.Attach(ContentPanel);
+        _activeItems.Add(composite);
+    }
+
+    private void Add(DwellLabel label)
+    {
+        label.Attach(ContentPanel);
+    }
+
     // ────── Gaze update ──────
 
     public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds)
@@ -1027,6 +1059,24 @@ public partial class SettingsWindow : OverlayWindow
         if (_viewModel.IsModalVisible)
         {
             UpdateButtonPositions(_modalButtons, (id, pos) => _viewModel.UpdateModalButtonPosition(id, pos));
+        }
+
+        // Update new-style dwell controls
+        foreach (var item in _activeItems)
+        {
+            if (item is DwellControl single)
+            {
+                single.UpdatePosition();
+                single.UpdateVisual();
+            }
+            if (item is IDwellComposite comp)
+            {
+                foreach (var child in comp.Children)
+                {
+                    child.UpdatePosition();
+                    child.UpdateVisual();
+                }
+            }
         }
     }
 

@@ -11,9 +11,11 @@ using EyeCtrl.ViewModels.Messages;
 /// <summary>
 /// ViewModel for SettingsWindow that manages gaze/dwell interactions.
 /// Wraps the existing SettingsViewModel to add UI interaction capabilities.
+/// Implements IDwellRegistrar to provide a unified target registration API.
 /// </summary>
 public partial class SettingsWindowViewModel : ObservableObject,
     IRecipient<GazeCursorMovedMessage>,
+    IDwellRegistrar,
     IDisposable
 {
     private readonly SettingsViewModel _settingsViewModel;
@@ -25,6 +27,12 @@ public partial class SettingsWindowViewModel : ObservableObject,
     private readonly DwellDetector _controlDwell;
     private readonly DwellDetector _pagDwell;
     private readonly DwellDetector _modalDwell;
+
+    // Action dictionaries per category
+    private readonly Dictionary<string, Action> _tabActions = new();
+    private readonly Dictionary<string, Action> _controlActions = new();
+    private readonly Dictionary<string, Action> _pagActions = new();
+    private readonly Dictionary<string, Action> _modalActions = new();
 
     // Observable properties for dwell progress (for visual feedback)
     [ObservableProperty] private Dictionary<string, double> _tabProgress = new();
@@ -59,18 +67,18 @@ public partial class SettingsWindowViewModel : ObservableObject,
         _pagDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
         _modalDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
 
-        // Wire up event handlers
-        _tabDwell.TargetActivated += OnTabActivated;
-        _tabDwell.TargetProgress += OnTabProgress;
+        // Wire up unified event handlers
+        _tabDwell.TargetActivated += id => OnTargetActivated(id, DwellCategory.Tab);
+        _tabDwell.TargetProgress += (id, p) => OnTargetProgress(id, p, DwellCategory.Tab);
 
-        _controlDwell.TargetActivated += OnControlActivated;
-        _controlDwell.TargetProgress += OnControlProgress;
+        _controlDwell.TargetActivated += id => OnTargetActivated(id, DwellCategory.Control);
+        _controlDwell.TargetProgress += (id, p) => OnTargetProgress(id, p, DwellCategory.Control);
 
-        _pagDwell.TargetActivated += OnPaginationActivated;
-        _pagDwell.TargetProgress += OnPagProgress;
+        _pagDwell.TargetActivated += id => OnTargetActivated(id, DwellCategory.Pagination);
+        _pagDwell.TargetProgress += (id, p) => OnTargetProgress(id, p, DwellCategory.Pagination);
 
-        _modalDwell.TargetActivated += OnModalActivated;
-        _modalDwell.TargetProgress += OnModalProgress;
+        _modalDwell.TargetActivated += id => OnTargetActivated(id, DwellCategory.Modal);
+        _modalDwell.TargetProgress += (id, p) => OnTargetProgress(id, p, DwellCategory.Modal);
 
         // Register for gaze messages
         messenger.RegisterAll(this);
@@ -90,135 +98,159 @@ public partial class SettingsWindowViewModel : ObservableObject,
             _modalDwell.Update(message.Position, message.TimestampMicroseconds);
     }
 
-    #region Tab Management
+    #region IDwellRegistrar Implementation
 
     /// <summary>
-    /// Adds a tab button as a dwell target.
+    /// Registers a dwell target with the appropriate detector for the given category.
     /// </summary>
-    public void AddTabTarget(string tabId, double radius, int dwellMs)
+    public void Register(string id, DwellCategory category, double radiusPhysical, int dwellMs, Action onActivated)
     {
-        _tabDwell.AddTarget(new DwellTarget(tabId,
-            new PhysicalPoint(0, 0), radius, dwellMs));
+        GetActions(category)[id] = onActivated;
+        GetDetector(category).AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), radiusPhysical, dwellMs));
     }
 
     /// <summary>
-    /// Updates the screen position of a tab button for dwell detection.
+    /// Removes a dwell target and its associated action from the given category.
     /// </summary>
-    public void UpdateTabButtonPosition(string tabId, PhysicalPoint center)
+    public void Unregister(string id, DwellCategory category)
     {
-        _tabDwell.UpdateTargetCenter(tabId, center);
+        GetActions(category).Remove(id);
+        GetDetector(category).RemoveTarget(id);
+        GetProgressDict(category).Remove(id);
+        OnPropertyChanged(GetProgressPropertyName(category));
     }
 
-    private void OnTabActivated(string tabId)
+    /// <summary>
+    /// Updates the screen-space center position of a registered target.
+    /// </summary>
+    public void UpdatePosition(string id, DwellCategory category, PhysicalPoint center)
     {
-        if (tabId == "close")
+        GetDetector(category).UpdateTargetCenter(id, center);
+    }
+
+    /// <summary>
+    /// Returns the current dwell progress (0.0–1.0) for a registered target.
+    /// </summary>
+    public double GetProgress(string id, DwellCategory category)
+    {
+        return GetDetector(category).GetProgress(id);
+    }
+
+    /// <summary>
+    /// Clears all targets and actions for the given category.
+    /// </summary>
+    public void ClearCategory(DwellCategory category)
+    {
+        GetDetector(category).ClearTargets();
+        GetActions(category).Clear();
+        GetProgressDict(category).Clear();
+        OnPropertyChanged(GetProgressPropertyName(category));
+    }
+
+    /// <summary>
+    /// Triggers the activation logic for a registered target without requiring a gaze dwell.
+    /// Useful for testing and programmatic activation.
+    /// </summary>
+    public void SimulateActivated(string id, DwellCategory category)
+    {
+        OnTargetActivated(id, category);
+    }
+
+    #endregion
+
+    #region Unified Event Handlers
+
+    private void OnTargetActivated(string id, DwellCategory category)
+    {
+        switch (category)
         {
-            _messenger.Send(new CloseSettingsMessage());
-            return;
+            case DwellCategory.Tab:
+                if (id == "close")
+                {
+                    _messenger.Send(new CloseSettingsMessage());
+                    return;
+                }
+                _settingsViewModel.ShowTab(id);
+                ActiveTabId = id;
+                if (_tabActions.TryGetValue(id, out var tabAction))
+                    tabAction.Invoke();
+                break;
+
+            case DwellCategory.Pagination:
+                if (id == "pag_prev")
+                    _settingsViewModel.PreviousPage();
+                else if (id == "pag_next")
+                    _settingsViewModel.NextPage();
+                if (_pagActions.TryGetValue(id, out var pagAction))
+                    pagAction.Invoke();
+                break;
+
+            case DwellCategory.Modal:
+                if (id == "modal_yes")
+                {
+                    _modalYesAction?.Invoke();
+                    HideModal();
+                }
+                else if (id == "modal_no")
+                {
+                    HideModal();
+                }
+                // Modal uses _modalYesAction directly, not _modalActions dict — return immediately
+                return;
+
+            case DwellCategory.Control:
+                if (_controlActions.TryGetValue(id, out var controlAction))
+                    controlAction.Invoke();
+                break;
         }
-
-        _settingsViewModel.ShowTab(tabId);
-        ActiveTabId = tabId;
     }
 
-    private void OnTabProgress(string tabId, double progress)
+    private void OnTargetProgress(string id, double progress, DwellCategory category)
     {
-        TabProgress[tabId] = progress;
-        OnPropertyChanged(nameof(TabProgress));
+        var dict = GetProgressDict(category);
+        dict[id] = progress;
+        OnPropertyChanged(GetProgressPropertyName(category));
     }
 
     #endregion
 
-    #region Pagination Management
+    #region Helper Methods
 
-    /// <summary>
-    /// Adds a pagination button as a dwell target.
-    /// </summary>
-    public void AddPaginationTarget(string targetId, double radius, int dwellMs)
+    private DwellDetector GetDetector(DwellCategory category) => category switch
     {
-        _pagDwell.AddTarget(new DwellTarget(targetId,
-            new PhysicalPoint(0, 0), radius, dwellMs));
-    }
+        DwellCategory.Tab => _tabDwell,
+        DwellCategory.Control => _controlDwell,
+        DwellCategory.Pagination => _pagDwell,
+        DwellCategory.Modal => _modalDwell,
+        _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+    };
 
-    /// <summary>
-    /// Updates the screen position of a pagination button for dwell detection.
-    /// </summary>
-    public void UpdatePaginationButtonPosition(string targetId, PhysicalPoint center)
+    private Dictionary<string, Action> GetActions(DwellCategory category) => category switch
     {
-        _pagDwell.UpdateTargetCenter(targetId, center);
-    }
+        DwellCategory.Tab => _tabActions,
+        DwellCategory.Control => _controlActions,
+        DwellCategory.Pagination => _pagActions,
+        DwellCategory.Modal => _modalActions,
+        _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+    };
 
-    private void OnPaginationActivated(string targetId)
+    private Dictionary<string, double> GetProgressDict(DwellCategory category) => category switch
     {
-        if (targetId == "pag_prev")
-            _settingsViewModel.PreviousPage();
-        else if (targetId == "pag_next")
-            _settingsViewModel.NextPage();
-    }
+        DwellCategory.Tab => TabProgress,
+        DwellCategory.Control => ControlProgress,
+        DwellCategory.Pagination => PagProgress,
+        DwellCategory.Modal => ModalProgress,
+        _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+    };
 
-    private void OnPagProgress(string targetId, double progress)
+    private static string GetProgressPropertyName(DwellCategory category) => category switch
     {
-        PagProgress[targetId] = progress;
-        OnPropertyChanged(nameof(PagProgress));
-    }
-
-    #endregion
-
-    #region Control Management
-
-    // Dictionary to store control actions (similar to ToolbarViewModel pattern)
-    private readonly Dictionary<string, Action> _controlActions = new();
-
-    /// <summary>
-    /// Registers an action to be invoked when a control is activated via dwell.
-    /// </summary>
-    public void RegisterControlAction(string controlId, Action action)
-    {
-        _controlActions[controlId] = action;
-    }
-
-    /// <summary>
-    /// Adds a control button as a dwell target.
-    /// </summary>
-    public void AddControlTarget(string controlId, double radius, int dwellMs)
-    {
-        _controlDwell.AddTarget(new DwellTarget(controlId,
-            new PhysicalPoint(0, 0), radius, dwellMs));
-    }
-
-    /// <summary>
-    /// Updates the screen position of a control for dwell detection.
-    /// </summary>
-    public void UpdateControlPosition(string controlId, PhysicalPoint center)
-    {
-        _controlDwell.UpdateTargetCenter(controlId, center);
-    }
-
-    /// <summary>For testing: simulate a control activation without gaze dwell.</summary>
-    public void SimulateControlActivated(string controlId) => OnControlActivated(controlId);
-
-    private void OnControlActivated(string controlId)
-    {
-        if (_controlActions.TryGetValue(controlId, out var action))
-            action.Invoke();
-    }
-
-    private void OnControlProgress(string controlId, double progress)
-    {
-        ControlProgress[controlId] = progress;
-        OnPropertyChanged(nameof(ControlProgress));
-    }
-
-    /// <summary>
-    /// Clears all control targets when rebuilding the settings page.
-    /// </summary>
-    public void ClearControlTargets()
-    {
-        _controlDwell.ClearTargets();
-        _controlActions.Clear();
-        ControlProgress.Clear();
-        OnPropertyChanged(nameof(ControlProgress));
-    }
+        DwellCategory.Tab => nameof(TabProgress),
+        DwellCategory.Control => nameof(ControlProgress),
+        DwellCategory.Pagination => nameof(PagProgress),
+        DwellCategory.Modal => nameof(ModalProgress),
+        _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+    };
 
     #endregion
 
@@ -231,21 +263,13 @@ public partial class SettingsWindowViewModel : ObservableObject,
     {
         // Clear any existing modal state
         _modalDwell.ClearTargets();
+        _modalActions.Clear();
         ModalProgress.Clear();
         OnPropertyChanged(nameof(ModalProgress));
 
         ModalMessage = message;
         _modalYesAction = onYes;
         IsModalVisible = true;
-    }
-
-    /// <summary>
-    /// Adds a modal button as a dwell target.
-    /// </summary>
-    public void AddModalTarget(string buttonId, double radius, int dwellMs)
-    {
-        _modalDwell.AddTarget(new DwellTarget(buttonId,
-            new PhysicalPoint(0, 0), radius, dwellMs));
     }
 
     /// <summary>
@@ -256,7 +280,94 @@ public partial class SettingsWindowViewModel : ObservableObject,
         IsModalVisible = false;
         ModalMessage = "";
         _modalDwell.ClearTargets();
+        _modalActions.Clear();
         _modalYesAction = null;
+    }
+
+    #endregion
+
+    #region Legacy Wrapper Methods (kept for backward compatibility during migration)
+
+    /// <summary>
+    /// Adds a tab button as a dwell target.
+    /// </summary>
+    public void AddTabTarget(string tabId, double radius, int dwellMs)
+    {
+        // Empty action: tab activation logic is handled in OnTargetActivated's Tab case
+        Register(tabId, DwellCategory.Tab, radius, dwellMs, () => { });
+    }
+
+    /// <summary>
+    /// Updates the screen position of a tab button for dwell detection.
+    /// </summary>
+    public void UpdateTabButtonPosition(string tabId, PhysicalPoint center)
+    {
+        UpdatePosition(tabId, DwellCategory.Tab, center);
+    }
+
+    /// <summary>
+    /// Adds a pagination button as a dwell target.
+    /// </summary>
+    public void AddPaginationTarget(string targetId, double radius, int dwellMs)
+    {
+        Register(targetId, DwellCategory.Pagination, radius, dwellMs, () => { });
+    }
+
+    /// <summary>
+    /// Updates the screen position of a pagination button for dwell detection.
+    /// </summary>
+    public void UpdatePaginationButtonPosition(string targetId, PhysicalPoint center)
+    {
+        UpdatePosition(targetId, DwellCategory.Pagination, center);
+    }
+
+    /// <summary>
+    /// Registers an action to be invoked when a control is activated via dwell.
+    /// The action is stored separately from the target so that AddControlTarget
+    /// can be called independently (legacy API pattern).
+    /// </summary>
+    public void RegisterControlAction(string controlId, Action action)
+    {
+        _controlActions[controlId] = action;
+    }
+
+    /// <summary>
+    /// Adds a control button as a dwell target (action must be registered separately
+    /// via RegisterControlAction for legacy callers).
+    /// </summary>
+    public void AddControlTarget(string controlId, double radius, int dwellMs)
+    {
+        _controlDwell.AddTarget(new DwellTarget(controlId, new PhysicalPoint(0, 0), radius, dwellMs));
+    }
+
+    /// <summary>
+    /// Updates the screen position of a control for dwell detection.
+    /// </summary>
+    public void UpdateControlPosition(string controlId, PhysicalPoint center)
+    {
+        UpdatePosition(controlId, DwellCategory.Control, center);
+    }
+
+    /// <summary>For testing: simulate a control activation without gaze dwell.</summary>
+    public void SimulateControlActivated(string controlId)
+    {
+        SimulateActivated(controlId, DwellCategory.Control);
+    }
+
+    /// <summary>
+    /// Clears all control targets when rebuilding the settings page.
+    /// </summary>
+    public void ClearControlTargets()
+    {
+        ClearCategory(DwellCategory.Control);
+    }
+
+    /// <summary>
+    /// Adds a modal button as a dwell target.
+    /// </summary>
+    public void AddModalTarget(string buttonId, double radius, int dwellMs)
+    {
+        _modalDwell.AddTarget(new DwellTarget(buttonId, new PhysicalPoint(0, 0), radius, dwellMs));
     }
 
     /// <summary>
@@ -264,29 +375,13 @@ public partial class SettingsWindowViewModel : ObservableObject,
     /// </summary>
     public void UpdateModalButtonPosition(string buttonId, PhysicalPoint center)
     {
-        _modalDwell.UpdateTargetCenter(buttonId, center);
+        UpdatePosition(buttonId, DwellCategory.Modal, center);
     }
 
     /// <summary>For testing: simulate a modal button activation without gaze dwell.</summary>
-    public void SimulateModalButtonActivated(string buttonId) => OnModalActivated(buttonId);
-
-    private void OnModalActivated(string targetId)
+    public void SimulateModalButtonActivated(string buttonId)
     {
-        if (targetId == "modal_yes")
-        {
-            _modalYesAction?.Invoke();
-            HideModal();
-        }
-        else if (targetId == "modal_no")
-        {
-            HideModal();
-        }
-    }
-
-    private void OnModalProgress(string targetId, double progress)
-    {
-        ModalProgress[targetId] = progress;
-        OnPropertyChanged(nameof(ModalProgress));
+        SimulateActivated(buttonId, DwellCategory.Modal);
     }
 
     #endregion

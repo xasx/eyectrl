@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -405,6 +406,123 @@ public class SettingsWindowViewModelTests
         // Verify cleared actions don't execute
         vm.SimulateControlActivated("control1");
         // Should not throw and should do nothing
+    }
+
+    #endregion
+
+    #region IDwellRegistrar Tests
+
+    [Fact]
+    public void Register_Tab_CreatesDwellTarget()
+    {
+        var vm = CreateViewModel();
+        bool actionFired = false;
+
+        vm.Register("my_tab", DwellCategory.Tab, 85, 600, () => actionFired = true);
+        vm.UpdatePosition("my_tab", DwellCategory.Tab, new PhysicalPoint(100, 100));
+
+        // Complete dwell (600ms at 30 FPS = 18+ frames at 33000us each)
+        for (int i = 0; i < 20; i++)
+            _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), i * 33000));
+
+        // Tab activation fires the registered action AND the tab-switch logic
+        Assert.True(actionFired);
+    }
+
+    [Fact]
+    public void Register_Control_CreatesDwellTarget()
+    {
+        var vm = CreateViewModel();
+        bool actionFired = false;
+
+        vm.Register("my_ctrl", DwellCategory.Control, 50, 600, () => actionFired = true);
+        vm.UpdatePosition("my_ctrl", DwellCategory.Control, new PhysicalPoint(150, 150));
+
+        for (int i = 0; i < 20; i++)
+            _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(150, 150), i * 33000));
+
+        Assert.True(actionFired);
+    }
+
+    [Fact]
+    public void GetProgress_ReturnsCurrentDwellProgress()
+    {
+        var vm = CreateViewModel();
+
+        vm.Register("prog_ctrl", DwellCategory.Control, 50, 600, () => { });
+        vm.UpdatePosition("prog_ctrl", DwellCategory.Control, new PhysicalPoint(100, 100));
+
+        // Partial dwell — about half the required frames
+        for (int i = 0; i < 10; i++)
+            _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), i * 33000));
+
+        double progress = vm.GetProgress("prog_ctrl", DwellCategory.Control);
+        Assert.True(progress > 0 && progress <= 1);
+    }
+
+    [Fact]
+    public void Unregister_RemovesDwellTarget()
+    {
+        var vm = CreateViewModel();
+        bool actionFired = false;
+
+        vm.Register("temp_ctrl", DwellCategory.Control, 50, 600, () => actionFired = true);
+        vm.UpdatePosition("temp_ctrl", DwellCategory.Control, new PhysicalPoint(100, 100));
+        vm.Unregister("temp_ctrl", DwellCategory.Control);
+
+        for (int i = 0; i < 20; i++)
+            _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), i * 33000));
+
+        Assert.False(actionFired);
+    }
+
+    [Fact]
+    public void ClearCategory_RemovesAllInCategory()
+    {
+        var vm = CreateViewModel();
+        bool aFired = false;
+        bool bFired = false;
+
+        vm.Register("ctrl_a", DwellCategory.Control, 50, 600, () => aFired = true);
+        vm.Register("ctrl_b", DwellCategory.Control, 50, 600, () => bFired = true);
+        vm.UpdatePosition("ctrl_a", DwellCategory.Control, new PhysicalPoint(100, 100));
+        vm.UpdatePosition("ctrl_b", DwellCategory.Control, new PhysicalPoint(200, 200));
+
+        vm.ClearCategory(DwellCategory.Control);
+
+        for (int i = 0; i < 20; i++)
+            _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), i * 33000));
+
+        Assert.False(aFired);
+        Assert.False(bFired);
+    }
+
+    [Fact]
+    public void SimulateActivated_InvokesRegisteredAction()
+    {
+        var vm = CreateViewModel();
+        bool actionFired = false;
+
+        vm.Register("sim_ctrl", DwellCategory.Control, 50, 600, () => actionFired = true);
+        vm.SimulateActivated("sim_ctrl", DwellCategory.Control);
+
+        Assert.True(actionFired);
+    }
+
+    [Fact]
+    public void Register_Pagination_WorksWithExistingLogic()
+    {
+        var vm = CreateViewModel();
+
+        vm.Register("pag_next", DwellCategory.Pagination, 60, 600, () => { });
+        vm.UpdatePosition("pag_next", DwellCategory.Pagination, new PhysicalPoint(200, 200));
+
+        // Partial dwell — check progress is accumulating
+        for (int i = 0; i < 10; i++)
+            _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(200, 200), i * 33000));
+
+        double progress = vm.GetProgress("pag_next", DwellCategory.Pagination);
+        Assert.True(progress > 0);
     }
 
     #endregion

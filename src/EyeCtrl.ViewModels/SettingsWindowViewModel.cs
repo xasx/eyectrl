@@ -120,16 +120,14 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
     /// <inheritdoc/>
     /// <remarks>
-    /// For <see cref="DwellCategory.Modal"/> the <paramref name="onActivated"/> callback
-    /// is not stored or invoked; Yes/No behaviour is handled internally via
-    /// <see cref="ShowModal"/> and <see cref="HideModal"/>.
+    /// For <see cref="DwellCategory.Modal"/> the built-in Yes/No logic always runs first
+    /// (invoking <see cref="ShowModal"/>'s <c>onYes</c> callback and calling
+    /// <see cref="HideModal"/>); the registered <paramref name="onActivated"/> callback is
+    /// invoked afterwards as an optional extension point.
     /// </remarks>
     public void Register(string id, DwellCategory category, double radiusPhysical, int dwellMs, Action onActivated)
     {
-        // Modal targets use _modalYesAction for Yes and built-in HideModal for No;
-        // the onActivated callback is intentionally not stored for Modal targets.
-        if (category != DwellCategory.Modal)
-            GetActions(category)[id] = onActivated;
+        GetActions(category)[id] = onActivated;
         GetDetector(category).AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), radiusPhysical, dwellMs));
     }
 
@@ -205,6 +203,9 @@ public partial class SettingsWindowViewModel : ObservableObject,
                 break;
 
             case DwellCategory.Modal:
+                // Cache the callback before HideModal() clears _modalActions.
+                _modalActions.TryGetValue(id, out var modalAction);
+
                 if (id == "modal_yes")
                 {
                     _modalYesAction?.Invoke();
@@ -215,8 +216,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
                     HideModal();
                 }
 
-                if (_modalActions.TryGetValue(id, out var modalAction))
-                    modalAction.Invoke();
+                modalAction?.Invoke();
                 break;
 
             case DwellCategory.Control:

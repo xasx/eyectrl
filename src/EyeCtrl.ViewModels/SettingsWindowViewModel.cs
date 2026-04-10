@@ -9,10 +9,15 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
-/// ViewModel for SettingsWindow that manages gaze/dwell interactions.
-/// Wraps the existing SettingsViewModel to add UI interaction capabilities.
-/// Implements IDwellRegistrar to provide a unified target registration API.
+/// ViewModel for the settings overlay window. Manages all gaze/dwell interactions
+/// by routing <see cref="GazeCursorMovedMessage"/> events through four independent
+/// <see cref="DwellDetector"/> instances — one per <see cref="DwellCategory"/>.
 /// </summary>
+/// <remarks>
+/// Implements <see cref="IDwellRegistrar"/> so that <see cref="Controls.DwellControl"/>
+/// sub-classes and the view's legacy button helpers can register targets through a
+/// unified API without taking a dependency on this concrete type.
+/// </remarks>
 public partial class SettingsWindowViewModel : ObservableObject,
     IRecipient<GazeCursorMovedMessage>,
     IDwellRegistrar,
@@ -53,6 +58,12 @@ public partial class SettingsWindowViewModel : ObservableObject,
     /// </summary>
     public SettingsViewModel Settings => _settingsViewModel;
 
+    /// <summary>
+    /// Initialises the ViewModel and wires up the four dwell detectors.
+    /// </summary>
+    /// <param name="settingsViewModel">The underlying settings data ViewModel.</param>
+    /// <param name="messenger">Messenger used to send and receive application-wide messages.</param>
+    /// <param name="dwellSettings">Dwell configuration (cooldown, dwell times, etc.).</param>
     public SettingsWindowViewModel(
         SettingsViewModel settingsViewModel,
         IMessenger messenger,
@@ -107,18 +118,22 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
     #region IDwellRegistrar Implementation
 
-    /// <summary>
-    /// Registers a dwell target with the appropriate detector for the given category.
-    /// </summary>
+    /// <inheritdoc/>
+    /// <remarks>
+    /// For <see cref="DwellCategory.Modal"/> the <paramref name="onActivated"/> callback
+    /// is not stored or invoked; Yes/No behaviour is handled internally via
+    /// <see cref="ShowModal"/> and <see cref="HideModal"/>.
+    /// </remarks>
     public void Register(string id, DwellCategory category, double radiusPhysical, int dwellMs, Action onActivated)
     {
-        GetActions(category)[id] = onActivated;
+        // Modal targets use _modalYesAction for Yes and built-in HideModal for No;
+        // the onActivated callback is intentionally not stored for Modal targets.
+        if (category != DwellCategory.Modal)
+            GetActions(category)[id] = onActivated;
         GetDetector(category).AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), radiusPhysical, dwellMs));
     }
 
-    /// <summary>
-    /// Removes a dwell target and its associated action from the given category.
-    /// </summary>
+    /// <inheritdoc/>
     public void Unregister(string id, DwellCategory category)
     {
         GetActions(category).Remove(id);
@@ -127,24 +142,21 @@ public partial class SettingsWindowViewModel : ObservableObject,
         OnPropertyChanged(GetProgressPropertyName(category));
     }
 
-    /// <summary>
-    /// Updates the screen-space center position of a registered target.
-    /// </summary>
+    /// <inheritdoc/>
     public void UpdatePosition(string id, DwellCategory category, PhysicalPoint center)
     {
         GetDetector(category).UpdateTargetCenter(id, center);
     }
 
-    /// <summary>
-    /// Returns the current dwell progress (0.0–1.0) for a registered target.
-    /// </summary>
+    /// <inheritdoc/>
     public double GetProgress(string id, DwellCategory category)
     {
         return GetDetector(category).GetProgress(id);
     }
 
     /// <summary>
-    /// Clears all targets and actions for the given category.
+    /// Clears all dwell targets, registered actions, and progress state for the given category.
+    /// Called by the view when rebuilding a page to discard stale control registrations.
     /// </summary>
     public void ClearCategory(DwellCategory category)
     {
@@ -155,8 +167,8 @@ public partial class SettingsWindowViewModel : ObservableObject,
     }
 
     /// <summary>
-    /// Triggers the activation logic for a registered target without requiring a gaze dwell.
-    /// Useful for testing and programmatic activation.
+    /// Triggers the activation logic for a registered target without a real gaze dwell.
+    /// Used by mouse-click fallbacks in the view and by unit tests.
     /// </summary>
     public void SimulateActivated(string id, DwellCategory category)
     {
@@ -264,8 +276,12 @@ public partial class SettingsWindowViewModel : ObservableObject,
     #region Modal Management
 
     /// <summary>
-    /// Shows a modal confirmation dialog.
+    /// Shows a modal confirmation dialog with the specified message and Yes callback.
+    /// Clears any previous modal state and always notifies the view to re-register modal
+    /// dwell targets, even if the modal was already visible.
     /// </summary>
+    /// <param name="message">Text displayed in the modal dialog body.</param>
+    /// <param name="onYes">Invoked when the user confirms (dwells or clicks Yes).</param>
     public void ShowModal(string message, Action onYes)
     {
         // Clear any existing modal state
@@ -286,7 +302,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
     }
 
     /// <summary>
-    /// Hides the modal dialog.
+    /// Hides the modal dialog and clears all modal state.
     /// </summary>
     public void HideModal()
     {

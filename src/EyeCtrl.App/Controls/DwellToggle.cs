@@ -6,6 +6,15 @@ using System.Windows.Input;
 using System.Windows.Media;
 using EyeCtrl.Core.Processing;
 
+/// <summary>
+/// A dwell-enabled boolean toggle control.
+/// </summary>
+/// <remarks>
+/// Displays the current state using a checkbox symbol (☑/☐) prepended to the label
+/// text and colours the background green (on) or dark-red (off).
+/// Dwell feedback blends the current state colour toward white as dwell accumulates.
+/// A mouse click fallback toggles the value without requiring eye-tracking.
+/// </remarks>
 public class DwellToggle : DwellControl
 {
     private static readonly Color OnColor = Color.FromArgb(200, 30, 100, 30);
@@ -16,6 +25,17 @@ public class DwellToggle : DwellControl
     private readonly Action<bool> _set;
     private readonly TextBlock _text;
 
+    /// <summary>
+    /// Creates a <see cref="DwellToggle"/>.
+    /// </summary>
+    /// <param name="registrar">The dwell registrar for this overlay.</param>
+    /// <param name="id">Unique target identifier within <paramref name="category"/>.</param>
+    /// <param name="label">Descriptive text shown next to the checkbox symbol.</param>
+    /// <param name="get">Returns the current boolean value of the setting.</param>
+    /// <param name="set">Applies a new boolean value when the toggle activates.</param>
+    /// <param name="category">Dwell category this toggle is registered under.</param>
+    /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
+    /// <param name="dwellMs">Dwell duration in milliseconds.</param>
     public DwellToggle(
         IDwellRegistrar registrar,
         string id,
@@ -53,10 +73,13 @@ public class DwellToggle : DwellControl
         RefreshVisual();
     }
 
+    /// <inheritdoc/>
     protected override Border CreateRoot() => new();
 
+    /// <inheritdoc/>
     protected override void OnActivated() => Toggle();
 
+    /// <inheritdoc/>
     protected override void ApplyProgress(double progress)
     {
         var baseColor = _get() ? OnColor : OffColor;

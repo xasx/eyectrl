@@ -214,8 +214,10 @@ public partial class SettingsWindowViewModel : ObservableObject,
                 {
                     HideModal();
                 }
-                // Modal uses _modalYesAction directly, not _modalActions dict — return immediately
-                return;
+
+                if (_modalActions.TryGetValue(id, out var modalAction))
+                    modalAction.Invoke();
+                break;
 
             case DwellCategory.Control:
                 if (_controlActions.TryGetValue(id, out var controlAction))

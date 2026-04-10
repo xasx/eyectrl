@@ -20,9 +20,9 @@ public enum DwellCategory
 
     /// <summary>
     /// Yes / No buttons inside a modal confirmation dialog.
-    /// Activation for this category is handled internally by the registrar via
-    /// <c>ShowModal</c> / <c>HideModal</c>; the <c>onActivated</c> callback
-    /// passed to <see cref="IDwellRegistrar.Register"/> is not invoked.
+    /// The built-in Yes/No logic (invoking the <c>onYes</c> callback and hiding the dialog)
+    /// always runs first; the <c>onActivated</c> callback passed to
+    /// <see cref="IDwellRegistrar.Register"/> is invoked afterwards as an extension point.
     /// </summary>
     Modal,
 }
@@ -51,8 +51,9 @@ public interface IDwellRegistrar
     /// <param name="dwellMs">Time the gaze must remain inside the radius to activate, in milliseconds.</param>
     /// <param name="onActivated">
     /// Callback invoked when dwell completes.
-    /// Not invoked for <see cref="DwellCategory.Modal"/> targets; their activation
-    /// is handled internally by the registrar.
+    /// For <see cref="DwellCategory.Modal"/> targets the built-in Yes/No logic runs first
+    /// (invoking the <c>onYes</c> action supplied to <c>ShowModal</c> and hiding the dialog);
+    /// <paramref name="onActivated"/> is then invoked as an optional extension point.
     /// </param>
     void Register(string id, DwellCategory category, double radiusPhysical, int dwellMs, Action onActivated);
 

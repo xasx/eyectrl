@@ -16,6 +16,8 @@ public partial class SettingsWindow : OverlayWindow
     // ────── Constants ──────
 
     private const double ControlBtnRadius = 50;
+    // Colour swatches are 90×75 px; 35 px keeps adjacent hit areas from overlapping.
+    private const double ColorSwatchRadius = 35;
     private const double TabBtnRadius = 85;
     private const double PagBtnRadius = 60;
     private const double ModalBtnRadius = 70;
@@ -381,7 +383,7 @@ public partial class SettingsWindow : OverlayWindow
                 () => Add(new DwellColorPicker(_viewModel, "c_color", "Circle Color",
                     () => _settings.Cursor.CircleColor,
                     v => { _settings.Cursor.CircleColor = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
+                    cat, DpiHelper.LogicalToPhysicalX(ColorSwatchRadius), _dwellMs)),
             ],
             [
                 () => Add(new DwellSlider(_viewModel, "c_opacity", "Circle Opacity",

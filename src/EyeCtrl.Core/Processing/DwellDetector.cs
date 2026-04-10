@@ -33,6 +33,23 @@ public class DwellDetector
     public void ClearTargets() => _targets.Clear();
 
     /// <summary>
+    /// Resets accumulated dwell state on all targets without removing them.
+    /// Call this when switching input contexts (e.g. a modal dialog opening or closing)
+    /// to prevent a stale <c>EnteredTimestamp</c> from causing a spurious immediate
+    /// activation when <see cref="Update"/> resumes after a pause.
+    /// </summary>
+    public void ResetAllState()
+    {
+        foreach (var t in _targets.Values)
+        {
+            if (t.IsGazeInside)
+                TargetProgress?.Invoke(t.Id, 0);
+            t.IsGazeInside = false;
+            t.EnteredTimestamp = null;
+        }
+    }
+
+    /// <summary>
     /// Update a target's center position without resetting dwell state.
     /// Used by toolbar/overlays that need to track moving screen positions.
     /// </summary>

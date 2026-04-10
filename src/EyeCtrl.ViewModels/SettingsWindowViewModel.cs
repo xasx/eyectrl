@@ -292,6 +292,12 @@ public partial class SettingsWindowViewModel : ObservableObject,
         ModalProgress.Clear();
         OnPropertyChanged(nameof(ModalProgress));
 
+        // Reset non-modal detectors so stale EnteredTimestamp values accumulated before
+        // the modal opened cannot fire a spurious activation when updates resume on close.
+        _tabDwell.ResetAllState();
+        _controlDwell.ResetAllState();
+        _pagDwell.ResetAllState();
+
         ModalMessage = message;
         _modalYesAction = onYes;
         // Always fire PropertyChanged so the view always re-registers the modal targets.

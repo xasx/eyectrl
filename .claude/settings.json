@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(dotnet publish:*)",
+      "Bash(dotnet --version)",
+      "Bash(dotnet --list-sdks)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh issue:*)",
+      "Bash(gh api:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh project:*)",
+      "Bash(wc:*)",
+      "Bash(python3 -c ':*)",
+      "WebFetch(domain:developer.tobii.com)",
+      "WebFetch(domain:www.tobii.com)",
+      "WebFetch(domain:tobiitech.github.io)",
+      "WebFetch(domain:www.nuget.org)",
+      "WebFetch(domain:nugetmusthaves.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:forum.cogsci.nl)"
+    ]
+  }
+}

@@ -52,7 +52,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly Dictionary<string, Border> _pagButtons = new();
     private readonly Dictionary<string, Border> _modalButtons = new();
 
-    private string _activeTab = "Cursor";
+    private string _activeTab = "";
     private int _currentPage;
     private int _totalPages;
     private List<List<Action>> _pages = new();

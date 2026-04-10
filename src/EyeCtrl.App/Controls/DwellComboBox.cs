@@ -15,6 +15,7 @@ public class DwellComboBox : IDwellComposite
     private readonly DwellLabel _label;
     private readonly List<DwellButton> _options = new();
     private readonly List<TextBlock> _optionTexts = new();
+    private readonly List<Border> _optionBorders = new();
     private readonly WrapPanel _panel;
 
     private readonly string[] _displayOptions;
@@ -23,6 +24,18 @@ public class DwellComboBox : IDwellComposite
     private readonly Action<string> _setCode;
 
     public IEnumerable<DwellControl> Children => _options;
+
+    private void UpdateOptionSelectionStyles()
+    {
+        var selectedCode = _getCode();
+
+        for (int i = 0; i < _optionBorders.Count && i < _codeOptions.Length; i++)
+        {
+            var isSelected = _codeOptions[i] == selectedCode;
+            _optionBorders[i].BorderBrush = new SolidColorBrush(isSelected ? SelectedColor : BtnBase);
+            _optionBorders[i].BorderThickness = isSelected ? new Thickness(3) : new Thickness(1);
+        }
+    }
 
     public DwellComboBox(
         IDwellRegistrar registrar,
@@ -36,6 +49,12 @@ public class DwellComboBox : IDwellComposite
         double radiusPhysical,
         int dwellMs)
     {
+        if (displayOptions.Length != codeOptions.Length)
+        {
+            throw new ArgumentException(
+                "displayOptions and codeOptions must contain the same number of elements.");
+        }
+
         _displayOptions = displayOptions;
         _codeOptions = codeOptions;
         _getCode = getCode;
@@ -66,23 +85,39 @@ public class DwellComboBox : IDwellComposite
                 text, $"Settings_HList_{id}");
 
             var btn = new DwellButton(registrar, id, "",
-                () => { _setCode(capturedCode); Refresh(); },
+                () =>
+                {
+                    _setCode(capturedCode);
+                    Refresh();
+                    UpdateOptionSelectionStyles();
+                },
                 BtnBase, category, radiusPhysical, dwellMs,
                 width: 0, height: 70);
 
             // Override the button's Root to use custom styling
             btn.Root.MinWidth = 150;
             btn.Root.Width = double.NaN; // Auto width
-            btn.Root.Margin = new Thickness(0, 0, 8, 8);
+            btn.Root.Margin = new Thickness(0);
             btn.Root.Padding = new Thickness(20, 0, 20, 0);
             btn.Root.Child = text;
 
+            var optionBorder = new Border
+            {
+                Margin = new Thickness(0, 0, 8, 8),
+                CornerRadius = new CornerRadius(6),
+                BorderBrush = new SolidColorBrush(BtnBase),
+                BorderThickness = new Thickness(1),
+                Child = btn.Root
+            };
+
             _options.Add(btn);
             _optionTexts.Add(text);
-            _panel.Children.Add(btn.Root);
+            _optionBorders.Add(optionBorder);
+            _panel.Children.Add(optionBorder);
         }
 
         Refresh();
+        UpdateOptionSelectionStyles();
     }
 
     /// <summary>Convenience overload: same display and code values.</summary>

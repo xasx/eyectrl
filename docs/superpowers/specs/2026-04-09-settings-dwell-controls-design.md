@@ -25,13 +25,15 @@ The SettingsWindow (1192 lines) contains repetitive control builder methods (`Ad
 
 ### Project Structure
 
-All new code lives in `EyeCtrl.App.Controls` namespace within the existing `EyeCtrl.App` project:
+Shared dwell registration abstractions live in `EyeCtrl.Core` so overlays and view models can depend on them without introducing an `App` ↔ `ViewModels` cycle. Reusable dwell-enabled controls live in the existing `EyeCtrl.App.Controls` namespace:
 
 ```
+src/EyeCtrl.Core/
+  Processing/
+    IDwellRegistrar.cs        (~25 lines; includes DwellCategory)
+
 src/EyeCtrl.App/
   Controls/
-    IDwellRegistrar.cs        (~20 lines)
-    DwellCategory.cs          (~5 lines)
     DwellControl.cs           (~60 lines, abstract base)
     IDwellComposite.cs        (~10 lines)
     DwellButton.cs            (~35 lines)

@@ -6,11 +6,43 @@ using System.Windows.Input;
 using System.Windows.Media;
 using EyeCtrl.Core.Processing;
 
+/// <summary>
+/// An atomic dwell-enabled button that invokes an <see cref="Action"/> when the
+/// user's gaze dwells on it for the configured duration.
+/// </summary>
+/// <remarks>
+/// <see cref="DwellButton"/> is the building block used both standalone (attached
+/// directly to a panel) and inside composite controls such as
+/// <see cref="DwellSlider"/>, <see cref="DwellComboBox"/>, and
+/// <see cref="DwellColorPicker"/>. Composites may override <see cref="DwellControl.Root"/>
+/// properties (width, child content, etc.) after construction.
+/// <para>
+/// A mouse click fallback is wired to <see cref="DwellControl.Root"/> so the button
+/// remains usable without eye-tracking.
+/// </para>
+/// <para>
+/// Dwell visual feedback: <see cref="ApplyProgress"/> blends <see cref="Root"/>
+/// background from <paramref name="baseColor"/> toward white as dwell accumulates.
+/// </para>
+/// </remarks>
 public class DwellButton : DwellControl
 {
     private readonly Action _action;
     private readonly Color _baseColor;
 
+    /// <summary>
+    /// Creates a <see cref="DwellButton"/>.
+    /// </summary>
+    /// <param name="registrar">The dwell registrar for this overlay.</param>
+    /// <param name="id">Unique target identifier within <paramref name="category"/>.</param>
+    /// <param name="label">Text displayed inside the button. May be empty for icon-only buttons.</param>
+    /// <param name="action">Invoked when dwell completes or the button is clicked.</param>
+    /// <param name="baseColor">Resting background colour; used as the start colour for dwell feedback.</param>
+    /// <param name="category">Dwell category this button is registered under.</param>
+    /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
+    /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="width">Logical width of the button in WPF units. Pass 0 for auto-width.</param>
+    /// <param name="height">Logical height of the button in WPF units.</param>
     public DwellButton(
         IDwellRegistrar registrar,
         string id,
@@ -46,10 +78,13 @@ public class DwellButton : DwellControl
         Root.MouseLeftButtonDown += (_, _) => _action();
     }
 
+    /// <inheritdoc/>
     protected override Border CreateRoot() => new();
 
+    /// <inheritdoc/>
     protected override void OnActivated() => _action();
 
+    /// <inheritdoc/>
     protected override void ApplyProgress(double progress)
     {
         Root.Background = new SolidColorBrush(

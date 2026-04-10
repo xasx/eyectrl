@@ -6,8 +6,26 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Core.Processing;
 
+/// <summary>
+/// A composite dwell control that presents a set of colour swatches, allowing the
+/// user to select a colour by dwelling on it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Each swatch is a square <see cref="DwellButton"/> filled with the preset colour.
+/// The currently selected swatch is identified by a white border; all others have a
+/// transparent border. Border state is stored on the inner button's
+/// <see cref="DwellControl.Root"/> and does not conflict with
+/// <see cref="DwellButton.ApplyProgress"/> because <c>ApplyProgress</c> only
+/// modifies the background, not the border brush.
+/// </para>
+/// </remarks>
 public class DwellColorPicker : IDwellComposite
 {
+    /// <summary>
+    /// The default eight-colour preset palette used when no custom presets are provided.
+    /// Each entry is a (hex string, display name) pair.
+    /// </summary>
     public static readonly (string Hex, string Name)[] DefaultPresets =
     [
         ("#00FF00", "Green"), ("#0088FF", "Blue"), ("#FF0000", "Red"),
@@ -24,8 +42,26 @@ public class DwellColorPicker : IDwellComposite
     private readonly Func<string> _get;
     private readonly Action<string> _set;
 
+    /// <inheritdoc/>
     public IEnumerable<DwellControl> Children => _swatches;
 
+    /// <summary>
+    /// Creates a <see cref="DwellColorPicker"/>.
+    /// </summary>
+    /// <param name="registrar">The dwell registrar for this overlay.</param>
+    /// <param name="idPrefix">
+    /// Prefix for swatch button identifiers; each swatch gets id <c>{idPrefix}_{i}</c>.
+    /// </param>
+    /// <param name="label">Descriptive heading displayed above the swatch panel.</param>
+    /// <param name="get">Returns the currently selected colour as a hex string (e.g. <c>"#FF0000"</c>).</param>
+    /// <param name="set">Applies the hex string of the selected colour.</param>
+    /// <param name="category">Dwell category the swatch buttons are registered under.</param>
+    /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
+    /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="presets">
+    /// Custom colour presets. Each entry is a (hex, name) pair.
+    /// Defaults to <see cref="DefaultPresets"/> when <see langword="null"/>.
+    /// </param>
     public DwellColorPicker(
         IDwellRegistrar registrar,
         string idPrefix,
@@ -64,7 +100,7 @@ public class DwellColorPicker : IDwellComposite
             btn.Root.BorderBrush = hex.Equals(get(), StringComparison.OrdinalIgnoreCase)
                 ? Brushes.White : Brushes.Transparent;
             btn.Root.ToolTip = name;
-            btn.Root.Child = null; // No text label for color swatches
+            btn.Root.Child = null; // No text label for colour swatches
 
             _swatches.Add(btn);
             _swatchBorders.Add(btn.Root);
@@ -73,6 +109,7 @@ public class DwellColorPicker : IDwellComposite
         }
     }
 
+    /// <inheritdoc/>
     public void Attach(Panel parent)
     {
         _label.Attach(parent);
@@ -81,6 +118,7 @@ public class DwellColorPicker : IDwellComposite
             btn.RegisterDwell();
     }
 
+    /// <inheritdoc/>
     public void Detach(Panel parent)
     {
         _label.Detach(parent);
@@ -89,6 +127,10 @@ public class DwellColorPicker : IDwellComposite
             btn.UnregisterDwell();
     }
 
+    /// <summary>
+    /// Updates the white selection border on the swatch that matches the current colour,
+    /// clearing the border on all others.
+    /// </summary>
     private void RefreshSelection()
     {
         var selected = _get();

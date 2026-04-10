@@ -6,6 +6,15 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Core.Processing;
 
+/// <summary>
+/// A composite dwell control that presents a numeric value with decrement (−) and
+/// increment (+) buttons on either side of a value display.
+/// </summary>
+/// <remarks>
+/// The value is clamped to [<c>min</c>, <c>max</c>] and rounded to <c>decimals</c>
+/// decimal places on each adjustment. Both buttons support dwell activation and
+/// mouse-click fallback.
+/// </remarks>
 public class DwellSlider : IDwellComposite
 {
     private static readonly Color BtnBase = Color.FromArgb(200, 60, 60, 80);
@@ -23,8 +32,30 @@ public class DwellSlider : IDwellComposite
     private readonly double _step;
     private readonly int _decimals;
 
+    /// <inheritdoc/>
     public IEnumerable<DwellControl> Children => [_minus, _plus];
 
+    /// <summary>
+    /// Creates a <see cref="DwellSlider"/>.
+    /// </summary>
+    /// <param name="registrar">The dwell registrar for this overlay.</param>
+    /// <param name="idPrefix">
+    /// Prefix used to generate unique target identifiers for the minus and plus buttons
+    /// (<c>{idPrefix}_dn</c> and <c>{idPrefix}_up</c>).
+    /// </param>
+    /// <param name="label">Descriptive heading displayed above the slider row.</param>
+    /// <param name="min">Minimum allowed value (inclusive).</param>
+    /// <param name="max">Maximum allowed value (inclusive).</param>
+    /// <param name="step">Amount added or subtracted per button activation.</param>
+    /// <param name="decimals">
+    /// Number of decimal places the value is rounded to.
+    /// Pass 0 for integer values.
+    /// </param>
+    /// <param name="get">Returns the current value of the setting.</param>
+    /// <param name="set">Applies the new value when a button activates.</param>
+    /// <param name="category">Dwell category the buttons are registered under.</param>
+    /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
+    /// <param name="dwellMs">Dwell duration in milliseconds.</param>
     public DwellSlider(
         IDwellRegistrar registrar,
         string idPrefix,
@@ -76,6 +107,7 @@ public class DwellSlider : IDwellComposite
         _row.Children.Add(_plus.Root);
     }
 
+    /// <inheritdoc/>
     public void Attach(Panel parent)
     {
         _label.Attach(parent);
@@ -84,6 +116,7 @@ public class DwellSlider : IDwellComposite
         _plus.RegisterDwell();
     }
 
+    /// <inheritdoc/>
     public void Detach(Panel parent)
     {
         _label.Detach(parent);

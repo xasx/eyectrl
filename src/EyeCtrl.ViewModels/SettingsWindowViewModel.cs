@@ -92,10 +92,17 @@ public partial class SettingsWindowViewModel : ObservableObject,
         if (_disposed) return;
 
         _tabDwell.Update(message.Position, message.TimestampMicroseconds);
-        _controlDwell.Update(message.Position, message.TimestampMicroseconds);
-        _pagDwell.Update(message.Position, message.TimestampMicroseconds);
         if (IsModalVisible)
+        {
+            // Block control/pagination dwell while modal is open — prevents control buttons
+            // from firing through the confirmation dialog and calling ShowModal again.
             _modalDwell.Update(message.Position, message.TimestampMicroseconds);
+        }
+        else
+        {
+            _controlDwell.Update(message.Position, message.TimestampMicroseconds);
+            _pagDwell.Update(message.Position, message.TimestampMicroseconds);
+        }
     }
 
     #region IDwellRegistrar Implementation
@@ -269,7 +276,11 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
         ModalMessage = message;
         _modalYesAction = onYes;
-        IsModalVisible = true;
+        // Always fire PropertyChanged so the view always re-registers the modal targets.
+        // SetProperty skips notification if IsModalVisible is already true, which would
+        // leave _modalDwell without targets after ClearTargets() above.
+        _isModalVisible = true;
+        OnPropertyChanged(nameof(IsModalVisible));
     }
 
     /// <summary>

@@ -279,8 +279,10 @@ public partial class SettingsWindowViewModel : ObservableObject,
         // Always fire PropertyChanged so the view always re-registers the modal targets.
         // SetProperty skips notification if IsModalVisible is already true, which would
         // leave _modalDwell without targets after ClearTargets() above.
-        _isModalVisible = true;
-        OnPropertyChanged(nameof(IsModalVisible));
+        if (!IsModalVisible)
+            IsModalVisible = true;
+        else
+            OnPropertyChanged(nameof(IsModalVisible));
     }
 
     /// <summary>

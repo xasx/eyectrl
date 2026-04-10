@@ -91,15 +91,15 @@ public partial class SettingsWindowViewModel : ObservableObject,
     {
         if (_disposed) return;
 
-        _tabDwell.Update(message.Position, message.TimestampMicroseconds);
         if (IsModalVisible)
         {
-            // Block control/pagination dwell while modal is open — prevents control buttons
-            // from firing through the confirmation dialog and calling ShowModal again.
+            // While the modal is open, only modal targets should receive dwell updates.
+            // This prevents tabs or other underlying UI from activating through the overlay.
             _modalDwell.Update(message.Position, message.TimestampMicroseconds);
         }
         else
         {
+            _tabDwell.Update(message.Position, message.TimestampMicroseconds);
             _controlDwell.Update(message.Position, message.TimestampMicroseconds);
             _pagDwell.Update(message.Position, message.TimestampMicroseconds);
         }

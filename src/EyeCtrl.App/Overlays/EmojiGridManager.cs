@@ -256,8 +256,10 @@ public class EmojiGridManager
                 var pos = btn.PointToScreen(new Point(btn.ActualWidth / 2, btn.ActualHeight / 2));
                 if (!_categoryTargetsInitialized)
                 {
+                    var keySize = _getKeySize();
+                    var hitRadius = DpiHelper.LogicalToPhysicalX(keySize / 2 * Math.Sqrt(2));
                     _categoryDwellDetector.RemoveTarget(tabId);
-                    _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(20), _keyDwellMs));
+                    _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(pos.X, pos.Y), hitRadius, _keyDwellMs));
                 }
                 else
                 {

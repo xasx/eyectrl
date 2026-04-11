@@ -140,7 +140,7 @@ public class EmojiGridManager
                     Child = emojiChild
                 };
 
-                _registerKeyVisual(id, keyDef, container, null!);
+                _registerKeyVisual(id, keyDef, container, null);
                 rowPanel.Children.Add(container);
             }
 
@@ -384,7 +384,7 @@ public class EmojiGridManager
                 Child = skinChild
             };
 
-            _registerKeyVisual(id, keyDef, container, null!);
+            _registerKeyVisual(id, keyDef, container, null);
             rowPanel.Children.Add(container);
         }
 

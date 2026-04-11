@@ -11,7 +11,7 @@ Refactor into three focused pieces following the same pattern as `SettingsWindow
 - New `EmojiGridManager` for emoji rendering and state
 - Slimmed `KeyboardWindow` that only does rendering and gaze routing
 
-No visual or behavioral changes. External API unchanged (App.xaml.cs unaffected).
+External API unchanged (`App.xaml.cs` unaffected). This is primarily a refactor, but it also includes limited user-visible behavior/UI updates, including prediction/category tab sizing adjustments and dwell progress animations.
 
 ## Design Decisions
 

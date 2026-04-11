@@ -289,6 +289,7 @@ public partial class KeyboardWindow : OverlayWindow
 
     private void EnterEmojiMode()
     {
+        _predictionDwellDetector.ResetAllState();
         PredictionBar.Visibility = Visibility.Collapsed;
         _emojiManager?.Enter();
     }
@@ -296,6 +297,7 @@ public partial class KeyboardWindow : OverlayWindow
     private void ExitEmojiMode()
     {
         _emojiManager?.Exit();
+        _predictionDwellDetector.ResetAllState();
         PredictionBar.Visibility = Visibility.Visible;
         RebuildKeys();
     }
@@ -350,8 +352,10 @@ public partial class KeyboardWindow : OverlayWindow
                 var pos = btn.PointToScreen(new Point(btn.ActualWidth / 2, btn.ActualHeight / 2));
                 if (!_predictionTargetsInitialized)
                 {
+                    // Use half-diagonal so the circular hit area covers the full rectangle
+                    var halfDiag = Math.Sqrt(btn.ActualWidth * btn.ActualWidth + btn.ActualHeight * btn.ActualHeight) / 2;
                     _predictionDwellDetector.RemoveTarget(predId);
-                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(_keySize / 2), _predictionDwellMs));
+                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(halfDiag), _predictionDwellMs));
                 }
                 else
                 {

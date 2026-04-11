@@ -30,63 +30,126 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
-    public void TogglesShift_OnShiftActivation()
+    public void IsShifted_CanBeToggled()
     {
-        var vm = new KeyboardViewModel(_settings, _messenger);
+        var vm = CreateViewModel();
         Assert.False(vm.IsShifted);
 
-        vm.ToggleShift();
+        vm.IsShifted = true;
         Assert.True(vm.IsShifted);
 
-        vm.ToggleShift();
+        vm.IsShifted = false;
         Assert.False(vm.IsShifted);
     }
 
     [Fact]
-    public void SendsKeyActivated_OnKeyDwell()
+    public void ProcessKeyGaze_FindsNearestKey()
     {
-        var vm = new KeyboardViewModel(_settings, _messenger);
-        string? activatedKey = null;
-        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => activatedKey = msg.Key);
+        var vm = CreateViewModel();
+        vm.Configure(keyDwellMs: 500, cooldownMs: 200);
 
-        vm.OnKeyActivated("a");
+        var positions = new Dictionary<string, PhysicalPoint>
+        {
+            ["key_0_0"] = new(100, 100),
+            ["key_0_1"] = new(200, 100),
+        };
 
-        Assert.Equal("a", activatedKey);
+        // Gaze at (110, 105) — closest to key_0_0
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(110, 105), isGazeInsideWindow: true, timestampUs: 0);
+
+        Assert.Equal("key_0_0", vm.NearestKeyId);
     }
 
     [Fact]
-    public void SendsShiftedKey_WhenShifted()
+    public void ProcessKeyGaze_AccumulatesDwellProgress()
     {
-        var vm = new KeyboardViewModel(_settings, _messenger);
-        vm.ToggleShift();
+        var vm = CreateViewModel();
+        vm.Configure(keyDwellMs: 500, cooldownMs: 200);
 
-        string? activatedKey = null;
-        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => activatedKey = msg.Key);
+        var positions = new Dictionary<string, PhysicalPoint>
+        {
+            ["key_0_0"] = new(100, 100),
+        };
 
-        vm.OnKeyActivated("a");
+        // First frame: enter key
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
+        Assert.Equal(0.0, vm.NearestKeyProgress); // just entered, no progress yet
 
-        Assert.Equal("A", activatedKey);
+        // Second frame: 250ms later = 50% progress
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 250_000);
+        Assert.Equal(0.5, vm.NearestKeyProgress, precision: 2);
     }
 
     [Fact]
-    public void EmojiMode_TogglesOnAndOff()
+    public void ProcessKeyGaze_FiresCallbackOnDwellComplete()
     {
-        var vm = new KeyboardViewModel(_settings, _messenger);
-        Assert.False(vm.IsEmojiMode);
+        var vm = CreateViewModel();
+        vm.Configure(keyDwellMs: 500, cooldownMs: 200);
 
-        vm.ToggleEmojiMode();
-        Assert.True(vm.IsEmojiMode);
+        string? activatedKeyId = null;
+        vm.KeyDwellCompleted += id => activatedKeyId = id;
 
-        vm.ToggleEmojiMode();
-        Assert.False(vm.IsEmojiMode);
+        var positions = new Dictionary<string, PhysicalPoint>
+        {
+            ["key_0_0"] = new(100, 100),
+        };
+
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 500_000);
+
+        Assert.Equal("key_0_0", activatedKeyId);
     }
 
     [Fact]
-    public void EmojiPagination_CalculatesCorrectPageCount()
+    public void ProcessKeyGaze_CooldownPreventsReactivation()
     {
-        var vm = new KeyboardViewModel(_settings, _messenger);
-        // Simulate 85 emojis in a category with 40 per page
-        var pageCount = vm.CalculateEmojiPageCount(85);
-        Assert.Equal(3, pageCount); // ceil(85/40) = 3
+        var vm = CreateViewModel();
+        vm.Configure(keyDwellMs: 500, cooldownMs: 200);
+
+        string? activatedKeyId = null;
+        int activationCount = 0;
+        vm.KeyDwellCompleted += id => { activatedKeyId = id; activationCount++; };
+
+        var positions = new Dictionary<string, PhysicalPoint>
+        {
+            ["key_0_0"] = new(100, 100),
+        };
+
+        // Activate
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 500_000);
+        Assert.Equal(1, activationCount);
+
+        // During cooldown (100ms after activation, cooldown is 200ms)
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 600_000);
+        Assert.Null(vm.NearestKeyId); // reset during cooldown
+
+        // After cooldown (250ms after activation)
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 750_000);
+        Assert.Equal("key_0_0", vm.NearestKeyId); // tracking again
+    }
+
+    [Fact]
+    public void ProcessKeyGaze_ResetsWhenGazeOutsideWindow()
+    {
+        var vm = CreateViewModel();
+        vm.Configure(keyDwellMs: 500, cooldownMs: 200);
+
+        var positions = new Dictionary<string, PhysicalPoint>
+        {
+            ["key_0_0"] = new(100, 100),
+        };
+
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
+        Assert.Equal("key_0_0", vm.NearestKeyId);
+
+        // Gaze moves outside window
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), isGazeInsideWindow: false, 100_000);
+        Assert.Null(vm.NearestKeyId);
+    }
+
+    private KeyboardViewModel CreateViewModel()
+    {
+        return new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
     }
 }

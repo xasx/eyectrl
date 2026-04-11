@@ -3,7 +3,9 @@ namespace EyeCtrl.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -27,6 +29,11 @@ public partial class KeyboardViewModel : ObservableObject,
     [ObservableProperty] private bool _isEmojiMode;
     [ObservableProperty] private string? _nearestKeyId;
     [ObservableProperty] private double _nearestKeyProgress;
+    [ObservableProperty] private string _currentInput = "";
+    [ObservableProperty] private string _activeSubLayoutId = "letters";
+
+    private WordPredictor? _predictor;
+    private KeyboardLayout? _layout;
 
     public event Action<string>? KeyDwellCompleted;
 
@@ -112,6 +119,76 @@ public partial class KeyboardViewModel : ObservableObject,
                 KeyDwellCompleted?.Invoke(nearestId);
             }
         }
+    }
+
+    public void SetLayout(KeyboardLayout layout)
+    {
+        _layout = layout;
+        ActiveSubLayoutId = layout.DefaultSubLayout;
+    }
+
+    public void SetPredictor(WordPredictor? predictor) => _predictor = predictor;
+
+    public void ActivateKey(string output, string? shiftOutput)
+    {
+        var actualOutput = IsShifted && !string.IsNullOrEmpty(shiftOutput)
+            ? shiftOutput
+            : output;
+
+        if (IsShifted && !string.IsNullOrEmpty(shiftOutput))
+            IsShifted = false;
+
+        CurrentInput += actualOutput;
+        _predictor?.LearnWord(actualOutput);
+        _messenger.Send(new KeyActivatedMessage(actualOutput));
+    }
+
+    public void HandleBackspace()
+    {
+        if (CurrentInput.Length > 0)
+            CurrentInput = CurrentInput[..^1];
+        _messenger.Send(new KeyActivatedMessage("\b"));
+    }
+
+    public void HandleEnter()
+    {
+        CurrentInput = "";
+        _messenger.Send(new KeyActivatedMessage("\n"));
+    }
+
+    public void HandleSpace()
+    {
+        if (CurrentInput.Length > 0)
+            _predictor?.LearnWord(CurrentInput);
+        CurrentInput = "";
+        _messenger.Send(new KeyActivatedMessage(" "));
+    }
+
+    public void HandleTab()
+    {
+        _messenger.Send(new KeyActivatedMessage("\t"));
+    }
+
+    public void SwitchSubLayout(string subLayoutId)
+    {
+        if (_layout == null || !_layout.SubLayouts.ContainsKey(subLayoutId)) return;
+        if (ActiveSubLayoutId == subLayoutId) return;
+        ActiveSubLayoutId = subLayoutId;
+        IsShifted = false;
+    }
+
+    public List<string> GetSuggestions()
+    {
+        if (_predictor == null) return new List<string>();
+        return _predictor.GetSuggestions(CurrentInput, maxCount: 5);
+    }
+
+    public void HandlePredictionSelected(string word)
+    {
+        _predictor?.LearnWord(word);
+        var deleteCount = CurrentInput.Length;
+        CurrentInput = "";
+        _messenger.Send(new PredictionSelectedMessage(word, deleteCount));
     }
 
     public void Dispose()

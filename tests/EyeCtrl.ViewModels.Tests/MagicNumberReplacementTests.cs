@@ -30,16 +30,6 @@ public class MagicNumberReplacementTests
     }
 
     [Fact]
-    public void EmojiPagination_UsesNamedConstant()
-    {
-        // With 100 emojis and 40 per page, should have 3 pages
-        var totalEmojis = 100;
-        var expectedPages = (int)Math.Ceiling((double)totalEmojis / UIConstants.EmojisPerPage);
-
-        Assert.Equal(3, expectedPages);
-    }
-
-    [Fact]
     public void TimeConversion_UsesMathConstants()
     {
         // Verify milliseconds to microseconds conversion

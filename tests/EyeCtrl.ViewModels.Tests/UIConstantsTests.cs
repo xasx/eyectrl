@@ -37,13 +37,6 @@ public class UIConstantsTests
     }
 
     [Fact]
-    public void EmojisPerPage_IsDefinedAndPositive()
-    {
-        Assert.True(UIConstants.EmojisPerPage > 0);
-        Assert.Equal(40, UIConstants.EmojisPerPage);
-    }
-
-    [Fact]
     public void ActivationButtonOffset_IsDefinedAndPositive()
     {
         Assert.True(UIConstants.ActivationButtonOffset > 0);
@@ -58,7 +51,6 @@ public class UIConstantsTests
         Assert.True(UIConstants.ActionMenuButtonOuterGap > 0);
         Assert.True(UIConstants.ZoomSideButtonGap > 0);
         Assert.True(UIConstants.ZoomSideButtonDwellMs > 0);
-        Assert.True(UIConstants.EmojisPerPage > 0);
         Assert.True(UIConstants.ActivationButtonOffset > 0);
     }
 }

@@ -61,7 +61,7 @@ public partial class KeyboardViewModel : ObservableObject,
     public void ProcessKeyGaze(Dictionary<string, PhysicalPoint> keyScreenPositions,
         PhysicalPoint gazePoint, bool isGazeInsideWindow, long timestampUs)
     {
-        if (keyScreenPositions.Count == 0) return;
+        if (keyScreenPositions.Count == 0 || _keyDwellMs <= 0) return;
 
         if (!isGazeInsideWindow)
         {

@@ -148,8 +148,149 @@ public class KeyboardViewModelTests
         Assert.Null(vm.NearestKeyId);
     }
 
+    // --- Text special key tests ---
+
+    [Fact]
+    public void HandleBackspace_RemovesLastCharAndSendsMessage()
+    {
+        var vm = CreateViewModel();
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.CurrentInput = "hel";
+        vm.HandleBackspace();
+
+        Assert.Equal("he", vm.CurrentInput);
+        Assert.Equal("\b", sentKey);
+    }
+
+    [Fact]
+    public void HandleBackspace_DoesNothingWhenEmpty()
+    {
+        var vm = CreateViewModel();
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.CurrentInput = "";
+        vm.HandleBackspace();
+
+        Assert.Equal("", vm.CurrentInput);
+        Assert.Equal("\b", sentKey);
+    }
+
+    [Fact]
+    public void HandleEnter_ClearsInputAndSendsMessage()
+    {
+        var vm = CreateViewModel();
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.CurrentInput = "hello";
+        vm.HandleEnter();
+
+        Assert.Equal("", vm.CurrentInput);
+        Assert.Equal("\n", sentKey);
+    }
+
+    [Fact]
+    public void HandleSpace_ClearsInputAndSendsMessage()
+    {
+        var vm = CreateViewModel();
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.CurrentInput = "hello";
+        vm.HandleSpace();
+
+        Assert.Equal("", vm.CurrentInput);
+        Assert.Equal(" ", sentKey);
+    }
+
+    [Fact]
+    public void HandleTab_SendsMessage()
+    {
+        var vm = CreateViewModel();
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.HandleTab();
+
+        Assert.Equal("\t", sentKey);
+    }
+
+    // --- Key activation tests ---
+
+    [Fact]
+    public void ActivateKey_SendsOutputAndAppendsToInput()
+    {
+        var vm = CreateViewModel();
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.ActivateKey("a", shiftOutput: null);
+
+        Assert.Equal("a", sentKey);
+        Assert.Equal("a", vm.CurrentInput);
+    }
+
+    [Fact]
+    public void ActivateKey_UsesShiftOutputWhenShifted()
+    {
+        var vm = CreateViewModel();
+        vm.IsShifted = true;
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.ActivateKey("a", shiftOutput: "A");
+
+        Assert.Equal("A", sentKey);
+        Assert.Equal("A", vm.CurrentInput);
+        Assert.False(vm.IsShifted); // auto-unshift
+    }
+
+    [Fact]
+    public void ActivateKey_NoAutoUnshiftWhenNoShiftOutput()
+    {
+        var vm = CreateViewModel();
+        vm.IsShifted = true;
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.ActivateKey("1", shiftOutput: null);
+
+        Assert.Equal("1", sentKey);
+        Assert.True(vm.IsShifted); // no unshift for non-letter keys
+    }
+
+    // --- Prediction tests ---
+
+    [Fact]
+    public void GetSuggestions_DelegatesToPredictor()
+    {
+        var vm = CreateViewModel();
+        var suggestions = vm.GetSuggestions();
+        Assert.Empty(suggestions);
+    }
+
+    [Fact]
+    public void HandlePredictionSelected_ClearsInputAndSendsMessage()
+    {
+        var vm = CreateViewModel();
+        vm.CurrentInput = "hel";
+
+        PredictionSelectedMessage? sentMsg = null;
+        _messenger.Register<PredictionSelectedMessage>(_messenger, (_, msg) => sentMsg = msg);
+
+        vm.HandlePredictionSelected("hello");
+
+        Assert.Equal("", vm.CurrentInput);
+        Assert.NotNull(sentMsg);
+        Assert.Equal("hello", sentMsg!.Word);
+        Assert.Equal(3, sentMsg.DeleteCount);
+    }
+
     private KeyboardViewModel CreateViewModel()
     {
-        return new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        return new KeyboardViewModel(_settings, _messenger);
     }
 }

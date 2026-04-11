@@ -38,6 +38,7 @@ public class EmojiGridManager
     private readonly Action _clearKeyState;
 
     private readonly DwellDetector _categoryDwellDetector = new();
+    private readonly List<SolidColorBrush> _categoryBrushes = new();
     private bool _categoryTargetsInitialized;
 
     private EmojiData? _emojiData;
@@ -278,6 +279,7 @@ public class EmojiGridManager
     {
         _categoryDwellDetector.ClearTargets();
         _categoryTargetsInitialized = false;
+        _categoryBrushes.Clear();
         _categoryBar.Children.Clear();
 
         AddCategoryTab("recent", "\uD83D\uDD50");
@@ -294,12 +296,14 @@ public class EmojiGridManager
     {
         var tabId = $"cat_{id}";
         var keySize = _getKeySize();
+        var brush = new SolidColorBrush(CategoryBarColor);
+        _categoryBrushes.Add(brush);
         var btn = new Border
         {
             Width = keySize,
             Height = keySize,
             Margin = new Thickness(2),
-            Background = new SolidColorBrush(CategoryBarColor),
+            Background = brush,
             CornerRadius = new CornerRadius(6),
             Child = new TextBlock
             {
@@ -319,14 +323,9 @@ public class EmojiGridManager
 
     private void HighlightActiveCategory()
     {
-        for (int i = 0; i < _categoryBar.Children.Count; i++)
-        {
-            if (_categoryBar.Children[i] is Border border)
-            {
-                var isActive = i == GetActiveCategoryIndex();
-                border.Background = new SolidColorBrush(isActive ? CategoryBarActiveColor : CategoryBarColor);
-            }
-        }
+        var activeIdx = GetActiveCategoryIndex();
+        for (int i = 0; i < _categoryBrushes.Count; i++)
+            _categoryBrushes[i].Color = i == activeIdx ? CategoryBarActiveColor : CategoryBarColor;
     }
 
     private int GetActiveCategoryIndex()
@@ -342,10 +341,8 @@ public class EmojiGridManager
         if (!targetId.StartsWith("cat_")) return;
         var catId = targetId[4..];
 
-        // Find the matching category tab and update its background
-        for (int i = 0; i < _categoryBar.Children.Count; i++)
+        for (int i = 0; i < _categoryBrushes.Count; i++)
         {
-            if (_categoryBar.Children[i] is not Border border) continue;
             var tabCatId = i == 0 ? "recent"
                 : (_emojiData != null && i <= _emojiData.Categories.Count) ? _emojiData.Categories[i - 1].Id
                 : "_skinTone";
@@ -355,17 +352,16 @@ public class EmojiGridManager
             var baseColor = isActive ? CategoryBarActiveColor : CategoryBarColor;
             if (progress <= 0)
             {
-                border.Background = new SolidColorBrush(baseColor);
+                _categoryBrushes[i].Color = baseColor;
             }
             else
             {
                 var highlightColor = Color.FromArgb(200, 0, (byte)(100 + 155 * progress), 0);
-                var blended = Color.FromArgb(
+                _categoryBrushes[i].Color = Color.FromArgb(
                     200,
                     (byte)(baseColor.R * (1 - progress) + highlightColor.R * progress),
                     (byte)(baseColor.G * (1 - progress) + highlightColor.G * progress),
                     (byte)(baseColor.B * (1 - progress) + highlightColor.B * progress));
-                border.Background = new SolidColorBrush(blended);
             }
             break;
         }

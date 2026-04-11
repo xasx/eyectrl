@@ -24,6 +24,7 @@ public partial class KeyboardWindow : OverlayWindow
     private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
+    private readonly List<SolidColorBrush> _predictionBrushes = new();
 
     private KeyboardViewModel? _viewModel;
     private EmojiGridManager? _emojiManager;
@@ -350,7 +351,7 @@ public partial class KeyboardWindow : OverlayWindow
                 if (!_predictionTargetsInitialized)
                 {
                     _predictionDwellDetector.RemoveTarget(predId);
-                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(40), _predictionDwellMs));
+                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(_keySize / 2), _predictionDwellMs));
                 }
                 else
                 {
@@ -371,6 +372,7 @@ public partial class KeyboardWindow : OverlayWindow
 
         _predictionDwellDetector.ClearTargets();
         _predictionTargetsInitialized = false;
+        _predictionBrushes.Clear();
         PredictionBar.Children.Clear();
 
         var suggestions = _viewModel.GetSuggestions();
@@ -390,13 +392,16 @@ public partial class KeyboardWindow : OverlayWindow
             };
             System.Windows.Automation.AutomationProperties.SetAutomationId(predLabel, $"Keyboard_Prediction_{i}");
 
+            var brush = new SolidColorBrush(PredictionBarColor);
+            _predictionBrushes.Add(brush);
+
             var btn = new Border
             {
                 MinWidth = 120,
                 Height = _keySize,
                 Margin = new Thickness(3),
                 Padding = new Thickness(16, 0, 16, 0),
-                Background = new SolidColorBrush(PredictionBarColor),
+                Background = brush,
                 CornerRadius = new CornerRadius(6),
                 Child = predLabel
             };
@@ -410,16 +415,14 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (!targetId.StartsWith("pred_")) return;
         if (!int.TryParse(targetId.AsSpan(5), out var index)) return;
-        if (index < 0 || index >= PredictionBar.Children.Count) return;
-        if (PredictionBar.Children[index] is not Border btn) return;
+        if (index < 0 || index >= _predictionBrushes.Count) return;
 
         var highlightColor = Color.FromArgb(200, 0, (byte)(100 + 155 * progress), 0);
-        var blended = Color.FromArgb(
+        _predictionBrushes[index].Color = Color.FromArgb(
             200,
             (byte)(PredictionBarColor.R * (1 - progress) + highlightColor.R * progress),
             (byte)(PredictionBarColor.G * (1 - progress) + highlightColor.G * progress),
             (byte)(PredictionBarColor.B * (1 - progress) + highlightColor.B * progress));
-        btn.Background = new SolidColorBrush(blended);
     }
 
     private void OnPredictionDwelled(string targetId)

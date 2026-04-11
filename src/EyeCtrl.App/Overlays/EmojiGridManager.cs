@@ -310,7 +310,9 @@ public class EmojiGridManager
         };
 
         _categoryBar.Children.Add(btn);
-        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(keySize / 2), _keyDwellMs));
+        // Use diagonal half-length so the circular hit area covers the full square button
+        var hitRadius = DpiHelper.LogicalToPhysicalX(keySize / 2 * Math.Sqrt(2));
+        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(0, 0), hitRadius, _keyDwellMs));
     }
 
     private void HighlightActiveCategory()

@@ -62,6 +62,7 @@ public class EmojiGridManager
         _getKeySize = getKeySize;
         _clearKeyState = clearKeyState;
         _categoryDwellDetector.TargetActivated += OnCategoryDwelled;
+        _categoryDwellDetector.TargetProgress += OnCategoryProgress;
     }
 
     public event Action? ExitRequested;
@@ -292,15 +293,15 @@ public class EmojiGridManager
         var tabId = $"cat_{id}";
         var btn = new Border
         {
-            Width = 40,
-            Height = 40,
+            Width = 50,
+            Height = 50,
             Margin = new Thickness(2),
             Background = new SolidColorBrush(CategoryBarColor),
             CornerRadius = new CornerRadius(6),
             Child = new TextBlock
             {
                 Text = icon,
-                FontSize = 20,
+                FontSize = 22,
                 Foreground = Brushes.White,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -308,7 +309,7 @@ public class EmojiGridManager
         };
 
         _categoryBar.Children.Add(btn);
-        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(20), _keyDwellMs));
+        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(25), _keyDwellMs));
     }
 
     private void HighlightActiveCategory()
@@ -329,6 +330,40 @@ public class EmojiGridManager
         if (_emojiData == null) return 0;
         var idx = _emojiData.Categories.FindIndex(c => c.Id == _activeEmojiCategory);
         return idx >= 0 ? idx + 1 : 0;
+    }
+
+    private void OnCategoryProgress(string targetId, double progress)
+    {
+        if (!targetId.StartsWith("cat_")) return;
+        var catId = targetId[4..];
+
+        // Find the matching category tab and update its background
+        for (int i = 0; i < _categoryBar.Children.Count; i++)
+        {
+            if (_categoryBar.Children[i] is not Border border) continue;
+            var tabCatId = i == 0 ? "recent"
+                : (_emojiData != null && i <= _emojiData.Categories.Count) ? _emojiData.Categories[i - 1].Id
+                : "_skinTone";
+            if (tabCatId != catId) continue;
+
+            var isActive = i == GetActiveCategoryIndex();
+            var baseColor = isActive ? CategoryBarActiveColor : CategoryBarColor;
+            if (progress <= 0)
+            {
+                border.Background = new SolidColorBrush(baseColor);
+            }
+            else
+            {
+                var highlightColor = Color.FromArgb(200, 0, (byte)(100 + 155 * progress), 0);
+                var blended = Color.FromArgb(
+                    200,
+                    (byte)(baseColor.R * (1 - progress) + highlightColor.R * progress),
+                    (byte)(baseColor.G * (1 - progress) + highlightColor.G * progress),
+                    (byte)(baseColor.B * (1 - progress) + highlightColor.B * progress));
+                border.Background = new SolidColorBrush(blended);
+            }
+            break;
+        }
     }
 
     private void OnCategoryDwelled(string targetId)

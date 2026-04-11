@@ -393,7 +393,7 @@ public partial class KeyboardWindow : OverlayWindow
             var btn = new Border
             {
                 MinWidth = 120,
-                Height = 60,
+                Height = _keySize,
                 Margin = new Thickness(3),
                 Padding = new Thickness(16, 0, 16, 0),
                 Background = new SolidColorBrush(PredictionBarColor),
@@ -402,7 +402,7 @@ public partial class KeyboardWindow : OverlayWindow
             };
 
             PredictionBar.Children.Add(btn);
-            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(50), _predictionDwellMs));
+            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(_keySize / 2), _predictionDwellMs));
         }
     }
 

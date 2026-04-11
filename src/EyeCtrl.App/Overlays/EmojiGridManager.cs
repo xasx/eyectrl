@@ -291,10 +291,11 @@ public class EmojiGridManager
     private void AddCategoryTab(string id, string icon)
     {
         var tabId = $"cat_{id}";
+        var keySize = _getKeySize();
         var btn = new Border
         {
-            Width = 50,
-            Height = 50,
+            Width = keySize,
+            Height = keySize,
             Margin = new Thickness(2),
             Background = new SolidColorBrush(CategoryBarColor),
             CornerRadius = new CornerRadius(6),
@@ -309,7 +310,7 @@ public class EmojiGridManager
         };
 
         _categoryBar.Children.Add(btn);
-        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(25), _keyDwellMs));
+        _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(keySize / 2), _keyDwellMs));
     }
 
     private void HighlightActiveCategory()

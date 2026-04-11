@@ -32,11 +32,6 @@ public static class UIConstants
     public const int ZoomSideButtonDwellMs = 600;
 
     /// <summary>
-    /// Number of emoji items displayed per page in the keyboard emoji picker.
-    /// </summary>
-    public const int EmojisPerPage = 40;
-
-    /// <summary>
     /// Distance in logical pixels (DIPs) from the cursor circle edge to the center of the activation button.
     /// This determines how far the activation button appears from the cursor.
     /// </summary>

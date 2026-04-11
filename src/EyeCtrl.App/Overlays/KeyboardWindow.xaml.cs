@@ -41,6 +41,7 @@ public partial class KeyboardWindow : OverlayWindow
         InitializeComponent();
         SizeChanged += (_, _) => RepositionOnScreen();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
+        _predictionDwellDetector.TargetProgress += OnPredictionProgress;
     }
 
     public void SetViewModel(KeyboardViewModel viewModel)
@@ -184,7 +185,7 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionDwellDetector.Update(screenPoint, timestampMicroseconds);
         }
 
-        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, IsGazeInsideKeyboard(screenPoint), timestampMicroseconds);
+        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, IsGazeInsideKeyArea(screenPoint), timestampMicroseconds);
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -293,6 +294,7 @@ public partial class KeyboardWindow : OverlayWindow
 
     private void ExitEmojiMode()
     {
+        _emojiManager?.Exit();
         PredictionBar.Visibility = Visibility.Visible;
         RebuildKeys();
     }
@@ -313,13 +315,19 @@ public partial class KeyboardWindow : OverlayWindow
         }
     }
 
-    private bool IsGazeInsideKeyboard(PhysicalPoint gazePoint)
+    /// <summary>
+    /// Check if gaze is inside the key grid area (KeyRows panel), NOT the full window.
+    /// This prevents the nearest-key algorithm from conflicting with prediction bar
+    /// and category bar dwell targets at the top of the window.
+    /// </summary>
+    private bool IsGazeInsideKeyArea(PhysicalPoint gazePoint)
     {
         try
         {
-            var topLeft = PointToScreen(new Point(0, 0));
-            return gazePoint.X >= topLeft.X && gazePoint.X <= topLeft.X + ActualWidth
-                && gazePoint.Y >= topLeft.Y && gazePoint.Y <= topLeft.Y + ActualHeight;
+            if (KeyRows.ActualHeight <= 0) return false;
+            var topLeft = KeyRows.PointToScreen(new Point(0, 0));
+            return gazePoint.X >= topLeft.X && gazePoint.X <= topLeft.X + KeyRows.ActualWidth
+                && gazePoint.Y >= topLeft.Y && gazePoint.Y <= topLeft.Y + KeyRows.ActualHeight;
         }
         catch (InvalidOperationException)
         {
@@ -376,7 +384,7 @@ public partial class KeyboardWindow : OverlayWindow
             {
                 Text = word,
                 Foreground = Brushes.White,
-                FontSize = 14,
+                FontSize = 16,
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center
             };
@@ -384,18 +392,34 @@ public partial class KeyboardWindow : OverlayWindow
 
             var btn = new Border
             {
-                MinWidth = 80,
-                Height = 50,
+                MinWidth = 120,
+                Height = 60,
                 Margin = new Thickness(3),
-                Padding = new Thickness(12, 0, 12, 0),
+                Padding = new Thickness(16, 0, 16, 0),
                 Background = new SolidColorBrush(PredictionBarColor),
-                CornerRadius = new CornerRadius(4),
+                CornerRadius = new CornerRadius(6),
                 Child = predLabel
             };
 
             PredictionBar.Children.Add(btn);
-            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(40), _predictionDwellMs));
+            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(50), _predictionDwellMs));
         }
+    }
+
+    private void OnPredictionProgress(string targetId, double progress)
+    {
+        if (!targetId.StartsWith("pred_")) return;
+        if (!int.TryParse(targetId.AsSpan(5), out var index)) return;
+        if (index < 0 || index >= PredictionBar.Children.Count) return;
+        if (PredictionBar.Children[index] is not Border btn) return;
+
+        var highlightColor = Color.FromArgb(200, 0, (byte)(100 + 155 * progress), 0);
+        var blended = Color.FromArgb(
+            200,
+            (byte)(PredictionBarColor.R * (1 - progress) + highlightColor.R * progress),
+            (byte)(PredictionBarColor.G * (1 - progress) + highlightColor.G * progress),
+            (byte)(PredictionBarColor.B * (1 - progress) + highlightColor.B * progress));
+        btn.Background = new SolidColorBrush(blended);
     }
 
     private void OnPredictionDwelled(string targetId)

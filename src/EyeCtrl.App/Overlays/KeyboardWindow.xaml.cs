@@ -21,7 +21,7 @@ public partial class KeyboardWindow : OverlayWindow
     private static readonly Color PredictionBarColor = Color.FromArgb(200, 40, 80, 40);
 
     private readonly DwellDetector _predictionDwellDetector = new();
-    private readonly Dictionary<string, (Border Container, TextBlock Label)> _keyVisuals = new();
+    private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
 
@@ -45,6 +45,12 @@ public partial class KeyboardWindow : OverlayWindow
 
     public void SetViewModel(KeyboardViewModel viewModel)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.KeyDwellCompleted -= OnKeyDwellCompleted;
+        }
+
         _viewModel = viewModel;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.KeyDwellCompleted += OnKeyDwellCompleted;
@@ -343,7 +349,7 @@ public partial class KeyboardWindow : OverlayWindow
                     _predictionDwellDetector.UpdateTargetCenter(predId, new PhysicalPoint(pos.X, pos.Y));
                 }
             }
-            catch
+            catch (InvalidOperationException)
             {
                 // Not yet rendered
             }
@@ -460,7 +466,7 @@ public partial class KeyboardWindow : OverlayWindow
     private void RegisterKeyVisual(string id, KeyDefinition keyDef, Border container, TextBlock? label)
     {
         _keyDefinitions[id] = keyDef;
-        _keyVisuals[id] = (container, label!);
+        _keyVisuals[id] = (container, label);
     }
 
     private void ClearKeyState()

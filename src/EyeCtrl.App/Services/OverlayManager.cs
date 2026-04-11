@@ -64,6 +64,7 @@ public class OverlayManager : IOverlayManager
         ActionMenu.DataContext = viewModels.ActionMenu;
         Toolbar.DataContext = viewModels.Toolbar;
         Keyboard.DataContext = viewModels.Keyboard;
+        Keyboard.SetViewModel(viewModels.Keyboard);
 
         // Initialize overlays with their specific APIs
         CursorCircle.UpdateAppearance(settings.Cursor);

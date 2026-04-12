@@ -12,7 +12,13 @@ public class FileDictionaryProvider : IDictionaryProvider
     public FileDictionaryProvider(string baseDictionaryPath, string appDataDir, string languageCode)
     {
         _baseDictionaryPath = baseDictionaryPath;
-        _userDictionaryPath = Path.Combine(appDataDir, $"user_dictionary_{languageCode}.json");
+        var preferredSeparator = DetectSeparator(appDataDir);
+        var normalizedBasePath = NormalizeSeparators(appDataDir, Path.DirectorySeparatorChar);
+        var combinedPath = Path.Combine(normalizedBasePath, $"user_dictionary_{languageCode}.json");
+
+        _userDictionaryPath = preferredSeparator == Path.DirectorySeparatorChar
+            ? combinedPath
+            : combinedPath.Replace(Path.DirectorySeparatorChar, preferredSeparator);
     }
 
     public Dictionary<string, int> Load()
@@ -48,5 +54,20 @@ public class FileDictionaryProvider : IDictionaryProvider
 
         var json = JsonSerializer.Serialize(words, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(_userDictionaryPath, json);
+    }
+
+    private static string NormalizeSeparators(string path, char separator)
+    {
+        return path.Replace('\\', separator).Replace('/', separator);
+    }
+
+    private static char DetectSeparator(string path)
+    {
+        if (path.Contains('\\'))
+            return '\\';
+        if (path.Contains('/'))
+            return '/';
+
+        return Path.DirectorySeparatorChar;
     }
 }

@@ -6,6 +6,7 @@ using System.IO;
 using EyeCtrl.App;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
+using EyeCtrl.Platform.Input;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
@@ -28,6 +29,7 @@ public class EventCoordinator : IEventCoordinator
     private const int BackspaceVirtualKeyCode = 0x08;
     private const int EnterVirtualKeyCode = 0x0D;
     private const int TabVirtualKeyCode = 0x09;
+    private const ushort SpaceVirtualKeyCode = 0x20;
     private const int DefaultScrollAmount = 3;
 
     private EventCoordinationContext? _context;
@@ -172,7 +174,7 @@ public class EventCoordinator : IEventCoordinator
 
         // Key activation -> input simulator
         _context.Messenger.Register<EventCoordinator, KeyActivatedMessage>(this, (_, msg) =>
-            _context.Dispatcher.BeginInvoke(() => HandleKeyActivation(msg.Key)));
+            _context.Dispatcher.BeginInvoke(() => HandleKeyActivation(msg.Key, msg.Modifiers)));
 
         // Prediction -> input simulator
         _context.Messenger.Register<EventCoordinator, PredictionSelectedMessage>(this, (_, msg) =>
@@ -447,16 +449,38 @@ public class EventCoordinator : IEventCoordinator
             _context.OverlayManager.CursorCircle.Show();
     }
 
-    private void HandleKeyActivation(string key)
+    private void HandleKeyActivation(string key, IReadOnlySet<ModifierKey>? modifiers)
     {
         if (_context == null) return;
 
-        switch (key)
+        var hasSystemModifiers = modifiers != null &&
+            (modifiers.Contains(ModifierKey.Ctrl) || modifiers.Contains(ModifierKey.Alt) || modifiers.Contains(ModifierKey.Win));
+
+        if (hasSystemModifiers)
         {
-            case "\b": _context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode); break;
-            case "\n": _context.InputSimulator.SendKeyPress(EnterVirtualKeyCode); break;
-            case "\t": _context.InputSimulator.SendKeyPress(TabVirtualKeyCode); break;
-            default: _context.InputSimulator.SendText(key); break;
+            // VK code path: wrap keystroke in modifier down/up
+            ushort vk = key switch
+            {
+                "\b" => (ushort)BackspaceVirtualKeyCode,
+                "\n" => (ushort)EnterVirtualKeyCode,
+                "\t" => (ushort)TabVirtualKeyCode,
+                " " => SpaceVirtualKeyCode,
+                _ => key.Length == 1 ? Win32InputSimulator.CharToVirtualKey(key[0]) : (ushort)0
+            };
+
+            if (vk != 0)
+                _context.InputSimulator.SendModifiedKeyPress(modifiers!, vk);
+        }
+        else
+        {
+            // Simple path: no system modifiers, just send text or VK
+            switch (key)
+            {
+                case "\b": _context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode); break;
+                case "\n": _context.InputSimulator.SendKeyPress(EnterVirtualKeyCode); break;
+                case "\t": _context.InputSimulator.SendKeyPress(TabVirtualKeyCode); break;
+                default: _context.InputSimulator.SendText(key); break;
+            }
         }
     }
 

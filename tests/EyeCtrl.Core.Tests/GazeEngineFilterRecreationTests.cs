@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Tests;
 
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
@@ -53,5 +54,6 @@ public class GazeEngineFilterRecreationTests
         public void SendKeyDown(ushort virtualKeyCode) { }
         public void SendKeyUp(ushort virtualKeyCode) { }
         public void SendText(string text) { }
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode) { }
     }
 }

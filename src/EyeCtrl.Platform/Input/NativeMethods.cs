@@ -28,6 +28,7 @@ internal static partial class NativeMethods
     internal const uint MOUSEEVENTF_WHEEL = 0x0800;
     internal const uint MOUSEEVENTF_HWHEEL = 0x1000;
 
+    internal const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     internal const uint KEYEVENTF_KEYUP = 0x0002;
     internal const uint KEYEVENTF_UNICODE = 0x0004;
 

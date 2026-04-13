@@ -455,12 +455,15 @@ public class EventCoordinator : IEventCoordinator
 
         var hasSystemModifiers = modifiers != null &&
             (modifiers.Contains(ModifierKey.Ctrl) || modifiers.Contains(ModifierKey.Alt) || modifiers.Contains(ModifierKey.Win));
+        var hasShift = modifiers != null && modifiers.Contains(ModifierKey.Shift);
+        var isControlKey = key is "\b" or "\n" or "\t" or " ";
 
-        if (hasSystemModifiers)
+        // Use VK code path when system modifiers are active, or Shift + control keys (e.g., Shift+Tab)
+        if (hasSystemModifiers || (hasShift && isControlKey))
         {
             // VK code path: wrap keystroke in modifier down/up
             ushort vk;
-            bool requiresShift = false;
+            IReadOnlyList<ModifierKey> requiredModifiers = Array.Empty<ModifierKey>();
 
             switch (key)
             {
@@ -470,7 +473,7 @@ public class EventCoordinator : IEventCoordinator
                 case " ": vk = SpaceVirtualKeyCode; break;
                 default:
                     if (key.Length == 1)
-                        (vk, requiresShift) = Win32InputSimulator.CharToVirtualKey(key[0]);
+                        (vk, requiredModifiers) = Win32InputSimulator.CharToVirtualKey(key[0]);
                     else
                         vk = 0;
                     break;
@@ -478,13 +481,14 @@ public class EventCoordinator : IEventCoordinator
 
             if (vk != 0)
             {
-                // If the character intrinsically requires Shift (e.g., '!' = Shift+1),
-                // add Shift to the modifier set so the correct keystroke is sent
-                if (requiresShift && !modifiers!.Contains(ModifierKey.Shift))
+                // Merge any modifiers the character intrinsically requires
+                // (e.g., '!' needs Shift, AltGr chars need Ctrl+Alt)
+                if (requiredModifiers.Count > 0)
                 {
-                    var withShift = new HashSet<ModifierKey>(modifiers);
-                    withShift.Add(ModifierKey.Shift);
-                    _context.InputSimulator.SendModifiedKeyPress(withShift, vk);
+                    var merged = new HashSet<ModifierKey>(modifiers!);
+                    foreach (var req in requiredModifiers)
+                        merged.Add(req);
+                    _context.InputSimulator.SendModifiedKeyPress(merged, vk);
                 }
                 else
                 {

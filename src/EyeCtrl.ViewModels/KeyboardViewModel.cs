@@ -30,7 +30,7 @@ public partial class KeyboardViewModel : ObservableObject,
 
     private readonly HashSet<ModifierKey> _activeModifiers = new();
 
-    public IReadOnlySet<ModifierKey> ActiveModifiers => _activeModifiers;
+    public IReadOnlySet<ModifierKey> ActiveModifiers => new HashSet<ModifierKey>(_activeModifiers);
 
     public bool IsShifted => _activeModifiers.Contains(ModifierKey.Shift)
                           || _activeModifiers.Contains(ModifierKey.CapsLock);
@@ -159,6 +159,9 @@ public partial class KeyboardViewModel : ObservableObject,
         || _activeModifiers.Contains(ModifierKey.Alt)
         || _activeModifiers.Contains(ModifierKey.Win);
 
+    private IReadOnlySet<ModifierKey>? ModifiersSnapshot =>
+        _activeModifiers.Count > 0 ? new HashSet<ModifierKey>(_activeModifiers) : null;
+
     public void ActivateKey(string output, string? shiftOutput)
     {
         var actualOutput = IsShifted && !string.IsNullOrEmpty(shiftOutput)
@@ -171,7 +174,7 @@ public partial class KeyboardViewModel : ObservableObject,
             CurrentInput += actualOutput;
             _predictor?.LearnWord(actualOutput);
         }
-        _messenger.Send(new KeyActivatedMessage(actualOutput, new HashSet<ModifierKey>(_activeModifiers)));
+        _messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
@@ -179,7 +182,7 @@ public partial class KeyboardViewModel : ObservableObject,
     {
         if (!HasSystemModifiers && CurrentInput.Length > 0)
             CurrentInput = CurrentInput[..^1];
-        _messenger.Send(new KeyActivatedMessage("\b", new HashSet<ModifierKey>(_activeModifiers)));
+        _messenger.Send(new KeyActivatedMessage("\b", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
@@ -187,7 +190,7 @@ public partial class KeyboardViewModel : ObservableObject,
     {
         if (!HasSystemModifiers)
             CurrentInput = "";
-        _messenger.Send(new KeyActivatedMessage("\n", new HashSet<ModifierKey>(_activeModifiers)));
+        _messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
@@ -199,13 +202,13 @@ public partial class KeyboardViewModel : ObservableObject,
                 _predictor?.LearnWord(CurrentInput);
             CurrentInput = "";
         }
-        _messenger.Send(new KeyActivatedMessage(" ", new HashSet<ModifierKey>(_activeModifiers)));
+        _messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
     public void HandleTab()
     {
-        _messenger.Send(new KeyActivatedMessage("\t", new HashSet<ModifierKey>(_activeModifiers)));
+        _messenger.Send(new KeyActivatedMessage("\t", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 

@@ -135,33 +135,53 @@ public class Win32InputSimulator : IInputSimulator
         var inputs = new NativeMethods.INPUT[modifierVks.Count * 2 + 2];
         int idx = 0;
 
-        // Modifier key-downs
+        // Modifier key-downs (extended key flag for Win key)
         foreach (var vk in modifierVks)
-            inputs[idx++] = CreateKeyboardInput(vk, 0);
+        {
+            uint flags = vk == NativeMethods.VK_LWIN ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
+            inputs[idx++] = CreateKeyboardInput(vk, flags);
+        }
 
         // Main key
         inputs[idx++] = CreateKeyboardInput(virtualKeyCode, 0);
         inputs[idx++] = CreateKeyboardInput(virtualKeyCode, NativeMethods.KEYEVENTF_KEYUP);
 
-        // Modifier key-ups (reverse order)
+        // Modifier key-ups (reverse order, with extended key flag)
         for (int i = modifierVks.Count - 1; i >= 0; i--)
-            inputs[idx++] = CreateKeyboardInput(modifierVks[i], NativeMethods.KEYEVENTF_KEYUP);
+        {
+            uint flags = modifierVks[i] == NativeMethods.VK_LWIN
+                ? NativeMethods.KEYEVENTF_KEYUP | NativeMethods.KEYEVENTF_EXTENDEDKEY
+                : NativeMethods.KEYEVENTF_KEYUP;
+            inputs[idx++] = CreateKeyboardInput(modifierVks[i], flags);
+        }
 
         NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
     }
 
     /// <summary>
-    /// Convert a character to its virtual key code and required modifier state
-    /// using the current keyboard layout.
-    /// Returns (0, false) if the character cannot be mapped.
+    /// Convert a character to its virtual key code and required modifiers
+    /// using the current keyboard layout. The required modifiers indicate
+    /// which keys must be held to produce this character (e.g., '!' requires Shift,
+    /// AltGr characters require Ctrl+Alt on some layouts).
+    /// Returns (0, empty) if the character cannot be mapped.
     /// </summary>
-    public static (ushort VirtualKeyCode, bool RequiresShift) CharToVirtualKey(char c)
+    public static (ushort VirtualKeyCode, IReadOnlyList<ModifierKey> RequiredModifiers) CharToVirtualKey(char c)
     {
         short result = NativeMethods.VkKeyScanW((ushort)c);
-        if (result == -1) return (0, false);
+        if (result == -1) return (0, Array.Empty<ModifierKey>());
+
         ushort vk = (ushort)(result & 0xFF);
-        bool requiresShift = ((result >> 8) & 0x01) != 0;
-        return (vk, requiresShift);
+        byte modifierBits = (byte)((result >> 8) & 0xFF);
+        var required = new List<ModifierKey>(3);
+
+        if ((modifierBits & 0x01) != 0)
+            required.Add(ModifierKey.Shift);
+        if ((modifierBits & 0x02) != 0)
+            required.Add(ModifierKey.Ctrl);
+        if ((modifierBits & 0x04) != 0)
+            required.Add(ModifierKey.Alt);
+
+        return (vk, required);
     }
 
     private NativeMethods.INPUT CreateMouseInput(PhysicalPoint point, uint flags)

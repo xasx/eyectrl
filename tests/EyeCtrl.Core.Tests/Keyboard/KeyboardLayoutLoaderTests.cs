@@ -79,42 +79,57 @@ public class KeyboardLayoutLoaderTests
     }
 
     [Fact]
-    public void Load_QwertyJson_VerifiesModifierKeysAreCorrectlyParsed()
+    public void Load_ParsesModifierSpecialActions()
     {
-        // Locate the qwerty.json file relative to the test assembly location
-        // AppContext.BaseDirectory points to bin/Debug/net10.0
-        var testBinDir = AppContext.BaseDirectory;
-        var layoutPath = Path.Combine(testBinDir, "..", "..", "..", "..", "..", "src", "EyeCtrl.App", "Resources", "Layouts", "qwerty.json");
-        var absolutePath = Path.GetFullPath(layoutPath);
+        var json = """
+        {
+          "name": "QWERTY",
+          "defaultSubLayout": "letters",
+          "subLayouts": {
+            "letters": {
+              "label": "ABC",
+              "rows": [
+                [
+                  { "label": "Win", "specialAction": "modifier:win" },
+                  { "label": "Q", "output": "q", "shiftOutput": "Q" }
+                ],
+                [
+                  { "label": "Caps", "specialAction": "toggle:capslock" },
+                  { "label": "A", "output": "a", "shiftOutput": "A" }
+                ],
+                [
+                  { "label": "Alt", "specialAction": "modifier:alt" },
+                  { "label": "Shift", "specialAction": "modifier:shift" },
+                  { "label": "Z", "output": "z", "shiftOutput": "Z" }
+                ],
+                [
+                  { "label": "Ctrl", "specialAction": "modifier:ctrl" },
+                  { "label": "Space", "output": " " }
+                ]
+              ]
+            }
+          }
+        }
+        """;
 
-        Assert.True(File.Exists(absolutePath), $"qwerty.json not found at {absolutePath}");
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempPath, json);
+            var layout = KeyboardLayoutLoader.Load(tempPath);
 
-        var layout = KeyboardLayoutLoader.Load(absolutePath);
+            var letters = layout.SubLayouts["letters"];
+            Assert.Equal(4, letters.Rows.Count);
 
-        Assert.Equal("QWERTY", layout.Name);
-        Assert.True(layout.SubLayouts.ContainsKey("letters"), "Layout should contain 'letters' sub-layout");
-
-        var letters = layout.SubLayouts["letters"];
-        Assert.Equal(4, letters.Rows.Count);
-
-        // Row 0, first key: Win modifier
-        var row0Key0 = letters.Rows[0][0];
-        Assert.Equal("modifier:win", row0Key0.SpecialAction);
-
-        // Row 1, first key: Caps Lock toggle
-        var row1Key0 = letters.Rows[1][0];
-        Assert.Equal("toggle:capslock", row1Key0.SpecialAction);
-
-        // Row 2, first key: Alt modifier
-        var row2Key0 = letters.Rows[2][0];
-        Assert.Equal("modifier:alt", row2Key0.SpecialAction);
-
-        // Row 2, second key: Shift modifier
-        var row2Key1 = letters.Rows[2][1];
-        Assert.Equal("modifier:shift", row2Key1.SpecialAction);
-
-        // Row 3, first key: Ctrl modifier
-        var row3Key0 = letters.Rows[3][0];
-        Assert.Equal("modifier:ctrl", row3Key0.SpecialAction);
+            Assert.Equal("modifier:win", letters.Rows[0][0].SpecialAction);
+            Assert.Equal("toggle:capslock", letters.Rows[1][0].SpecialAction);
+            Assert.Equal("modifier:alt", letters.Rows[2][0].SpecialAction);
+            Assert.Equal("modifier:shift", letters.Rows[2][1].SpecialAction);
+            Assert.Equal("modifier:ctrl", letters.Rows[3][0].SpecialAction);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
     }
 }

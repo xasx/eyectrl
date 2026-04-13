@@ -154,21 +154,30 @@ public partial class KeyboardViewModel : ObservableObject,
         OnPropertyChanged(nameof(IsShifted));
     }
 
+    private bool HasSystemModifiers =>
+        _activeModifiers.Contains(ModifierKey.Ctrl)
+        || _activeModifiers.Contains(ModifierKey.Alt)
+        || _activeModifiers.Contains(ModifierKey.Win);
+
     public void ActivateKey(string output, string? shiftOutput)
     {
         var actualOutput = IsShifted && !string.IsNullOrEmpty(shiftOutput)
             ? shiftOutput
             : output;
 
-        CurrentInput += actualOutput;
-        _predictor?.LearnWord(actualOutput);
+        // System modifier combos (Ctrl+C, Alt+F4, etc.) are shortcuts, not text input
+        if (!HasSystemModifiers)
+        {
+            CurrentInput += actualOutput;
+            _predictor?.LearnWord(actualOutput);
+        }
         _messenger.Send(new KeyActivatedMessage(actualOutput, new HashSet<ModifierKey>(_activeModifiers)));
         ClearOneShotModifiers();
     }
 
     public void HandleBackspace()
     {
-        if (CurrentInput.Length > 0)
+        if (!HasSystemModifiers && CurrentInput.Length > 0)
             CurrentInput = CurrentInput[..^1];
         _messenger.Send(new KeyActivatedMessage("\b", new HashSet<ModifierKey>(_activeModifiers)));
         ClearOneShotModifiers();
@@ -176,16 +185,20 @@ public partial class KeyboardViewModel : ObservableObject,
 
     public void HandleEnter()
     {
-        CurrentInput = "";
+        if (!HasSystemModifiers)
+            CurrentInput = "";
         _messenger.Send(new KeyActivatedMessage("\n", new HashSet<ModifierKey>(_activeModifiers)));
         ClearOneShotModifiers();
     }
 
     public void HandleSpace()
     {
-        if (CurrentInput.Length > 0)
-            _predictor?.LearnWord(CurrentInput);
-        CurrentInput = "";
+        if (!HasSystemModifiers)
+        {
+            if (CurrentInput.Length > 0)
+                _predictor?.LearnWord(CurrentInput);
+            CurrentInput = "";
+        }
         _messenger.Send(new KeyActivatedMessage(" ", new HashSet<ModifierKey>(_activeModifiers)));
         ClearOneShotModifiers();
     }

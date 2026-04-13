@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels.Messages;
 
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 
 // Core -> ViewModel
@@ -82,6 +83,6 @@ public record PauseToggledMessage;
 public record ZoomToggledMessage;
 public record KeyboardToggledMessage;
 public record SettingsRequestedMessage;
-public record KeyActivatedMessage(string Key);
+public record KeyActivatedMessage(string Key, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record PredictionSelectedMessage(string Word, int DeleteCount = 0);
 public record SettingsChangedMessage;

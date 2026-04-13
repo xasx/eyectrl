@@ -246,7 +246,7 @@ public partial class KeyboardWindow : OverlayWindow
         // Text-domain actions
         if (lowerAction == "shift")
         {
-            _viewModel.IsShifted = !_viewModel.IsShifted;
+            _viewModel.ToggleModifier(ModifierKey.Shift);
             return;
         }
 

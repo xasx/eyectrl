@@ -6,6 +6,7 @@
       "label": "ABC",
       "rows": [
         [
+          { "label": "Win", "output": "", "width": 1.2, "specialAction": "modifier:win" },
           { "label": "A", "output": "a", "shiftOutput": "A", "width": 1.0 },
           { "label": "Z", "output": "z", "shiftOutput": "Z", "width": 1.0 },
           { "label": "E", "output": "e", "shiftOutput": "E", "width": 1.0 },
@@ -18,6 +19,7 @@
           { "label": "P", "output": "p", "shiftOutput": "P", "width": 1.0 }
         ],
         [
+          { "label": "Caps", "output": "", "width": 1.2, "specialAction": "toggle:capslock" },
           { "label": "Q", "output": "q", "shiftOutput": "Q", "width": 1.0 },
           { "label": "S", "output": "s", "shiftOutput": "S", "width": 1.0 },
           { "label": "D", "output": "d", "shiftOutput": "D", "width": 1.0 },
@@ -30,23 +32,25 @@
           { "label": "M", "output": "m", "shiftOutput": "M", "width": 1.0 }
         ],
         [
-          { "label": "Shift", "output": "", "width": 1.5, "specialAction": "shift" },
+          { "label": "Alt", "output": "", "width": 1.2, "specialAction": "modifier:alt" },
+          { "label": "Shift", "output": "", "width": 1.5, "specialAction": "modifier:shift" },
           { "label": "W", "output": "w", "shiftOutput": "W", "width": 1.0 },
           { "label": "X", "output": "x", "shiftOutput": "X", "width": 1.0 },
           { "label": "C", "output": "c", "shiftOutput": "C", "width": 1.0 },
           { "label": "V", "output": "v", "shiftOutput": "V", "width": 1.0 },
           { "label": "B", "output": "b", "shiftOutput": "B", "width": 1.0 },
           { "label": "N", "output": "n", "shiftOutput": "N", "width": 1.0 },
-          { "label": "\u00e9", "output": "\u00e9", "width": 1.0 },
-          { "label": "\u00e8", "output": "\u00e8", "width": 1.0 },
+          { "label": "é", "output": "é", "width": 1.0 },
+          { "label": "è", "output": "è", "width": 1.0 },
           { "label": "Bksp", "output": "", "width": 1.5, "specialAction": "backspace" }
         ],
         [
+          { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
-          { "label": "\u00e7", "output": "\u00e7", "width": 1.0 },
-          { "label": "\u00e0", "output": "\u00e0", "width": 1.0 },
-          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
+          { "label": "ç", "output": "ç", "width": 1.0 },
+          { "label": "à", "output": "à", "width": 1.0 },
+          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Space", "output": " ", "width": 3.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
           { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
@@ -57,6 +61,7 @@
       "label": "123",
       "rows": [
         [
+          { "label": "Win", "output": "", "width": 1.2, "specialAction": "modifier:win" },
           { "label": "1", "output": "1", "width": 1.0 },
           { "label": "2", "output": "2", "width": 1.0 },
           { "label": "3", "output": "3", "width": 1.0 },
@@ -69,6 +74,7 @@
           { "label": "0", "output": "0", "width": 1.0 }
         ],
         [
+          { "label": "Caps", "output": "", "width": 1.2, "specialAction": "toggle:capslock" },
           { "label": "+", "output": "+", "width": 1.0 },
           { "label": "-", "output": "-", "width": 1.0 },
           { "label": "*", "output": "*", "width": 1.0 },
@@ -80,6 +86,8 @@
           { "label": ".", "output": ".", "width": 1.0 }
         ],
         [
+          { "label": "Alt", "output": "", "width": 1.2, "specialAction": "modifier:alt" },
+          { "label": "Shift", "output": "", "width": 1.2, "specialAction": "modifier:shift" },
           { "label": ",", "output": ",", "width": 1.0 },
           { "label": ":", "output": ":", "width": 1.0 },
           { "label": ";", "output": ";", "width": 1.0 },
@@ -91,9 +99,10 @@
           { "label": "Bksp", "output": "", "width": 1.5, "specialAction": "backspace" }
         ],
         [
+          { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
-          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
+          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
           { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
@@ -104,6 +113,7 @@
       "label": "#+=",
       "rows": [
         [
+          { "label": "Win", "output": "", "width": 1.2, "specialAction": "modifier:win" },
           { "label": "~", "output": "~", "width": 1.0 },
           { "label": "`", "output": "`", "width": 1.0 },
           { "label": "^", "output": "^", "width": 1.0 },
@@ -115,31 +125,35 @@
           { "label": "_", "output": "_", "width": 1.0 }
         ],
         [
+          { "label": "Caps", "output": "", "width": 1.2, "specialAction": "toggle:capslock" },
           { "label": "[", "output": "[", "width": 1.0 },
           { "label": "]", "output": "]", "width": 1.0 },
           { "label": "{", "output": "{", "width": 1.0 },
           { "label": "}", "output": "}", "width": 1.0 },
           { "label": "'", "output": "'", "width": 1.0 },
           { "label": "\"", "output": "\"", "width": 1.0 },
-          { "label": "\u00a7", "output": "\u00a7", "width": 1.0 },
-          { "label": "\u00b0", "output": "\u00b0", "width": 1.0 },
-          { "label": "\u00b5", "output": "\u00b5", "width": 1.0 }
+          { "label": "§", "output": "§", "width": 1.0 },
+          { "label": "°", "output": "°", "width": 1.0 },
+          { "label": "µ", "output": "µ", "width": 1.0 }
         ],
         [
-          { "label": "\u20ac", "output": "\u20ac", "width": 1.0 },
-          { "label": "\u00a3", "output": "\u00a3", "width": 1.0 },
-          { "label": "\u00a5", "output": "\u00a5", "width": 1.0 },
-          { "label": "\u00f9", "output": "\u00f9", "width": 1.0 },
-          { "label": "\u00b7", "output": "\u00b7", "width": 1.0 },
-          { "label": "\u2026", "output": "\u2026", "width": 1.0 },
-          { "label": "\u2014", "output": "\u2014", "width": 1.0 },
-          { "label": "\u2013", "output": "\u2013", "width": 1.0 },
+          { "label": "Alt", "output": "", "width": 1.2, "specialAction": "modifier:alt" },
+          { "label": "Shift", "output": "", "width": 1.2, "specialAction": "modifier:shift" },
+          { "label": "€", "output": "€", "width": 1.0 },
+          { "label": "£", "output": "£", "width": 1.0 },
+          { "label": "¥", "output": "¥", "width": 1.0 },
+          { "label": "ù", "output": "ù", "width": 1.0 },
+          { "label": "·", "output": "·", "width": 1.0 },
+          { "label": "…", "output": "…", "width": 1.0 },
+          { "label": "—", "output": "—", "width": 1.0 },
+          { "label": "–", "output": "–", "width": 1.0 },
           { "label": "Bksp", "output": "", "width": 1.5, "specialAction": "backspace" }
         ],
         [
+          { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
-          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
+          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
           { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }

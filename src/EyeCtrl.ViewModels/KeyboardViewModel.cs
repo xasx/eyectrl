@@ -8,6 +8,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
+using System.Collections.Generic;
 
 public partial class KeyboardViewModel : ObservableObject,
     IRecipient<ShowKeyboardMessage>,
@@ -25,8 +26,14 @@ public partial class KeyboardViewModel : ObservableObject,
     private int _cooldownMs;
 
     [ObservableProperty] private bool _isVisible;
-    [ObservableProperty] private bool _isShifted;
     [ObservableProperty] private bool _isEmojiMode;
+
+    private readonly HashSet<ModifierKey> _activeModifiers = new();
+
+    public IReadOnlySet<ModifierKey> ActiveModifiers => _activeModifiers;
+
+    public bool IsShifted => _activeModifiers.Contains(ModifierKey.Shift)
+                          || _activeModifiers.Contains(ModifierKey.CapsLock);
     [ObservableProperty] private string? _nearestKeyId;
     [ObservableProperty] private double _nearestKeyProgress;
     [ObservableProperty] private string _currentInput = "";
@@ -129,31 +136,49 @@ public partial class KeyboardViewModel : ObservableObject,
 
     public void SetPredictor(WordPredictor? predictor) => _predictor = predictor;
 
+    public void ToggleModifier(ModifierKey modifier)
+    {
+        if (!_activeModifiers.Remove(modifier))
+            _activeModifiers.Add(modifier);
+        OnPropertyChanged(nameof(ActiveModifiers));
+        OnPropertyChanged(nameof(IsShifted));
+    }
+
+    private void ClearOneShotModifiers()
+    {
+        _activeModifiers.Remove(ModifierKey.Shift);
+        _activeModifiers.Remove(ModifierKey.Ctrl);
+        _activeModifiers.Remove(ModifierKey.Alt);
+        _activeModifiers.Remove(ModifierKey.Win);
+        OnPropertyChanged(nameof(ActiveModifiers));
+        OnPropertyChanged(nameof(IsShifted));
+    }
+
     public void ActivateKey(string output, string? shiftOutput)
     {
         var actualOutput = IsShifted && !string.IsNullOrEmpty(shiftOutput)
             ? shiftOutput
             : output;
 
-        if (IsShifted && !string.IsNullOrEmpty(shiftOutput))
-            IsShifted = false;
-
         CurrentInput += actualOutput;
         _predictor?.LearnWord(actualOutput);
-        _messenger.Send(new KeyActivatedMessage(actualOutput));
+        _messenger.Send(new KeyActivatedMessage(actualOutput, new HashSet<ModifierKey>(_activeModifiers)));
+        ClearOneShotModifiers();
     }
 
     public void HandleBackspace()
     {
         if (CurrentInput.Length > 0)
             CurrentInput = CurrentInput[..^1];
-        _messenger.Send(new KeyActivatedMessage("\b"));
+        _messenger.Send(new KeyActivatedMessage("\b", new HashSet<ModifierKey>(_activeModifiers)));
+        ClearOneShotModifiers();
     }
 
     public void HandleEnter()
     {
         CurrentInput = "";
-        _messenger.Send(new KeyActivatedMessage("\n"));
+        _messenger.Send(new KeyActivatedMessage("\n", new HashSet<ModifierKey>(_activeModifiers)));
+        ClearOneShotModifiers();
     }
 
     public void HandleSpace()
@@ -161,12 +186,14 @@ public partial class KeyboardViewModel : ObservableObject,
         if (CurrentInput.Length > 0)
             _predictor?.LearnWord(CurrentInput);
         CurrentInput = "";
-        _messenger.Send(new KeyActivatedMessage(" "));
+        _messenger.Send(new KeyActivatedMessage(" ", new HashSet<ModifierKey>(_activeModifiers)));
+        ClearOneShotModifiers();
     }
 
     public void HandleTab()
     {
-        _messenger.Send(new KeyActivatedMessage("\t"));
+        _messenger.Send(new KeyActivatedMessage("\t", new HashSet<ModifierKey>(_activeModifiers)));
+        ClearOneShotModifiers();
     }
 
     public void SwitchSubLayout(string subLayoutId)
@@ -174,7 +201,6 @@ public partial class KeyboardViewModel : ObservableObject,
         if (_layout == null || !_layout.SubLayouts.ContainsKey(subLayoutId)) return;
         if (ActiveSubLayoutId == subLayoutId) return;
         ActiveSubLayoutId = subLayoutId;
-        IsShifted = false;
     }
 
     public List<string> GetSuggestions()

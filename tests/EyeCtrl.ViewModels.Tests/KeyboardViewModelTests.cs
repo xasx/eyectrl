@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
@@ -30,16 +31,157 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
-    public void IsShifted_CanBeToggled()
+    public void ToggleModifier_AddsAndRemovesFromActiveModifiers()
+    {
+        var vm = CreateViewModel();
+        Assert.Empty(vm.ActiveModifiers);
+
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        Assert.Contains(ModifierKey.Ctrl, vm.ActiveModifiers);
+
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        Assert.DoesNotContain(ModifierKey.Ctrl, vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void ToggleModifier_MultipleCombine()
+    {
+        var vm = CreateViewModel();
+
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        vm.ToggleModifier(ModifierKey.Shift);
+        Assert.Contains(ModifierKey.Ctrl, vm.ActiveModifiers);
+        Assert.Contains(ModifierKey.Shift, vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void IsShifted_TrueWhenShiftActive()
     {
         var vm = CreateViewModel();
         Assert.False(vm.IsShifted);
 
-        vm.IsShifted = true;
+        vm.ToggleModifier(ModifierKey.Shift);
         Assert.True(vm.IsShifted);
+    }
 
-        vm.IsShifted = false;
-        Assert.False(vm.IsShifted);
+    [Fact]
+    public void IsShifted_TrueWhenCapsLockActive()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.CapsLock);
+        Assert.True(vm.IsShifted);
+    }
+
+    [Fact]
+    public void ActivateKey_ClearsOneShotModifiers()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        vm.ToggleModifier(ModifierKey.Shift);
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.ActivateKey("c", shiftOutput: "C");
+
+        Assert.Empty(vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void ActivateKey_CapsLockSurvivesClearing()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.CapsLock);
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.ActivateKey("a", shiftOutput: "A");
+
+        Assert.Equal("A", sentKey);
+        Assert.Contains(ModifierKey.CapsLock, vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void ActivateKey_OneShotShiftCleared()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Shift);
+        string? sentKey = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
+
+        vm.ActivateKey("a", shiftOutput: "A");
+
+        Assert.Equal("A", sentKey);
+        Assert.DoesNotContain(ModifierKey.Shift, vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void HandleBackspace_ClearsOneShotModifiers()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+
+        vm.HandleBackspace();
+
+        Assert.Empty(vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void HandleEnter_ClearsOneShotModifiers()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+
+        vm.HandleEnter();
+
+        Assert.Empty(vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void HandleSpace_ClearsOneShotModifiers()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+
+        vm.HandleSpace();
+
+        Assert.Empty(vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void HandleTab_ClearsOneShotModifiers()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+
+        vm.HandleTab();
+
+        Assert.Empty(vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void SwitchSubLayout_DoesNotClearModifiers()
+    {
+        var vm = CreateViewModel();
+        var layout = new KeyboardLayout
+        {
+            Name = "Test",
+            DefaultSubLayout = "letters",
+            SubLayouts = new()
+            {
+                ["letters"] = new SubLayout { Label = "ABC", Rows = new() },
+                ["numbers"] = new SubLayout { Label = "123", Rows = new() }
+            }
+        };
+        vm.SetLayout(layout);
+
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        vm.SwitchSubLayout("numbers");
+
+        Assert.Contains(ModifierKey.Ctrl, vm.ActiveModifiers);
     }
 
     [Fact]
@@ -237,7 +379,7 @@ public class KeyboardViewModelTests
     public void ActivateKey_UsesShiftOutputWhenShifted()
     {
         var vm = CreateViewModel();
-        vm.IsShifted = true;
+        vm.ToggleModifier(ModifierKey.Shift);
         string? sentKey = null;
         _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
 
@@ -245,21 +387,21 @@ public class KeyboardViewModelTests
 
         Assert.Equal("A", sentKey);
         Assert.Equal("A", vm.CurrentInput);
-        Assert.False(vm.IsShifted); // auto-unshift
+        Assert.False(vm.IsShifted); // one-shot cleared
     }
 
     [Fact]
-    public void ActivateKey_NoAutoUnshiftWhenNoShiftOutput()
+    public void ActivateKey_ShiftAlwaysClearedOneShot()
     {
         var vm = CreateViewModel();
-        vm.IsShifted = true;
+        vm.ToggleModifier(ModifierKey.Shift);
         string? sentKey = null;
         _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentKey = msg.Key);
 
         vm.ActivateKey("1", shiftOutput: null);
 
         Assert.Equal("1", sentKey);
-        Assert.True(vm.IsShifted); // no unshift for non-letter keys
+        Assert.False(vm.IsShifted); // one-shot: always cleared
     }
 
     // --- Prediction tests ---

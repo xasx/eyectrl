@@ -459,17 +459,44 @@ public class EventCoordinator : IEventCoordinator
         if (hasSystemModifiers)
         {
             // VK code path: wrap keystroke in modifier down/up
-            ushort vk = key switch
+            ushort vk;
+            bool requiresShift = false;
+
+            switch (key)
             {
-                "\b" => (ushort)BackspaceVirtualKeyCode,
-                "\n" => (ushort)EnterVirtualKeyCode,
-                "\t" => (ushort)TabVirtualKeyCode,
-                " " => SpaceVirtualKeyCode,
-                _ => key.Length == 1 ? Win32InputSimulator.CharToVirtualKey(key[0]) : (ushort)0
-            };
+                case "\b": vk = (ushort)BackspaceVirtualKeyCode; break;
+                case "\n": vk = (ushort)EnterVirtualKeyCode; break;
+                case "\t": vk = (ushort)TabVirtualKeyCode; break;
+                case " ": vk = SpaceVirtualKeyCode; break;
+                default:
+                    if (key.Length == 1)
+                        (vk, requiresShift) = Win32InputSimulator.CharToVirtualKey(key[0]);
+                    else
+                        vk = 0;
+                    break;
+            }
 
             if (vk != 0)
-                _context.InputSimulator.SendModifiedKeyPress(modifiers!, vk);
+            {
+                // If the character intrinsically requires Shift (e.g., '!' = Shift+1),
+                // add Shift to the modifier set so the correct keystroke is sent
+                if (requiresShift && !modifiers!.Contains(ModifierKey.Shift))
+                {
+                    var withShift = new HashSet<ModifierKey>(modifiers);
+                    withShift.Add(ModifierKey.Shift);
+                    _context.InputSimulator.SendModifiedKeyPress(withShift, vk);
+                }
+                else
+                {
+                    _context.InputSimulator.SendModifiedKeyPress(modifiers!, vk);
+                }
+            }
+            else
+            {
+                // Character has no VK mapping (e.g., €, ©) — fall back to plain text
+                Log.Warning("No VK mapping for key '{Key}' with system modifiers, falling back to plain text", key);
+                _context.InputSimulator.SendText(key);
+            }
         }
         else
         {

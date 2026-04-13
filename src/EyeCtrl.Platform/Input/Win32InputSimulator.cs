@@ -151,14 +151,17 @@ public class Win32InputSimulator : IInputSimulator
     }
 
     /// <summary>
-    /// Convert a character to its virtual key code using the current keyboard layout.
-    /// Returns 0 if the character cannot be mapped.
+    /// Convert a character to its virtual key code and required modifier state
+    /// using the current keyboard layout.
+    /// Returns (0, false) if the character cannot be mapped.
     /// </summary>
-    public static ushort CharToVirtualKey(char c)
+    public static (ushort VirtualKeyCode, bool RequiresShift) CharToVirtualKey(char c)
     {
         short result = NativeMethods.VkKeyScanW((ushort)c);
-        if (result == -1) return 0;
-        return (ushort)(result & 0xFF); // low byte is the VK code
+        if (result == -1) return (0, false);
+        ushort vk = (ushort)(result & 0xFF);
+        bool requiresShift = ((result >> 8) & 0x01) != 0;
+        return (vk, requiresShift);
     }
 
     private NativeMethods.INPUT CreateMouseInput(PhysicalPoint point, uint flags)

@@ -404,6 +404,46 @@ public class KeyboardViewModelTests
         Assert.False(vm.IsShifted); // one-shot: always cleared
     }
 
+    // --- System modifier tests (no text input pollution) ---
+
+    [Fact]
+    public void ActivateKey_WithCtrl_DoesNotUpdateCurrentInput()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+
+        vm.ActivateKey("c", shiftOutput: "C");
+
+        Assert.Equal("", vm.CurrentInput);
+    }
+
+    [Fact]
+    public void HandleBackspace_WithCtrl_DoesNotUpdateCurrentInput()
+    {
+        var vm = CreateViewModel();
+        vm.CurrentInput = "hel";
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+
+        vm.HandleBackspace();
+
+        Assert.Equal("hel", vm.CurrentInput);
+    }
+
+    [Fact]
+    public void HandleEnter_WithAlt_DoesNotClearCurrentInput()
+    {
+        var vm = CreateViewModel();
+        vm.CurrentInput = "hello";
+        vm.ToggleModifier(ModifierKey.Alt);
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+
+        vm.HandleEnter();
+
+        Assert.Equal("hello", vm.CurrentInput);
+    }
+
     // --- Prediction tests ---
 
     [Fact]

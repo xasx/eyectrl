@@ -18,6 +18,7 @@ public partial class KeyboardWindow : OverlayWindow
     private static readonly Color KeyColorNormal = Color.FromArgb(200, 50, 50, 50);
     private static readonly Color KeyColorSpecial = Color.FromArgb(200, 60, 60, 80);
     private static readonly Color KeyColorSwitch = Color.FromArgb(200, 50, 70, 110);
+    private static readonly Color KeyColorModifierActive = Color.FromArgb(230, 80, 180, 255);
     private static readonly Color PredictionBarColor = Color.FromArgb(200, 40, 80, 40);
 
     private readonly DwellDetector _predictionDwellDetector = new();
@@ -202,8 +203,8 @@ public partial class KeyboardWindow : OverlayWindow
                 if (_viewModel?.NearestKeyId != null)
                     UpdateKeyVisual(_viewModel.NearestKeyId, _viewModel.NearestKeyProgress);
                 break;
-            case nameof(KeyboardViewModel.IsShifted):
-                UpdateShiftDisplay();
+            case nameof(KeyboardViewModel.ActiveModifiers):
+                UpdateModifierVisuals();
                 break;
             case nameof(KeyboardViewModel.ActiveSubLayoutId):
                 RebuildKeys();
@@ -224,6 +225,7 @@ public partial class KeyboardWindow : OverlayWindow
                 : key.Output;
 
             _viewModel.ActivateKey(key.Output, key.ShiftOutput);
+            UpdateModifierVisuals();
 
             if (_viewModel.IsEmojiMode)
                 _emojiManager?.TrackEmojiInRecents(output);
@@ -243,16 +245,46 @@ public partial class KeyboardWindow : OverlayWindow
             return;
         }
 
-        // Text-domain actions
-        if (lowerAction == "shift")
+        // Modifier keys
+        if (lowerAction == "shift" || lowerAction == "modifier:shift")
         {
             _viewModel.ToggleModifier(ModifierKey.Shift);
+            UpdateModifierVisuals();
+            return;
+        }
+
+        if (lowerAction == "modifier:ctrl")
+        {
+            _viewModel.ToggleModifier(ModifierKey.Ctrl);
+            UpdateModifierVisuals();
+            return;
+        }
+
+        if (lowerAction == "modifier:alt")
+        {
+            _viewModel.ToggleModifier(ModifierKey.Alt);
+            UpdateModifierVisuals();
+            return;
+        }
+
+        if (lowerAction == "modifier:win")
+        {
+            _viewModel.ToggleModifier(ModifierKey.Win);
+            UpdateModifierVisuals();
+            return;
+        }
+
+        if (lowerAction == "toggle:capslock")
+        {
+            _viewModel.ToggleModifier(ModifierKey.CapsLock);
+            UpdateModifierVisuals();
             return;
         }
 
         if (lowerAction == "backspace")
         {
             _viewModel.HandleBackspace();
+            UpdateModifierVisuals();
             UpdatePredictions();
             return;
         }
@@ -260,6 +292,7 @@ public partial class KeyboardWindow : OverlayWindow
         if (lowerAction == "enter")
         {
             _viewModel.HandleEnter();
+            UpdateModifierVisuals();
             UpdatePredictions();
             return;
         }
@@ -267,12 +300,14 @@ public partial class KeyboardWindow : OverlayWindow
         if (lowerAction == "tab")
         {
             _viewModel.HandleTab();
+            UpdateModifierVisuals();
             return;
         }
 
         if (lowerAction == "space")
         {
             _viewModel.HandleSpace();
+            UpdateModifierVisuals();
             UpdatePredictions();
             return;
         }
@@ -462,6 +497,27 @@ public partial class KeyboardWindow : OverlayWindow
     private void ResetKeyVisual(string targetId)
     {
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
+
+        if (_viewModel != null && _keyDefinitions.TryGetValue(targetId, out var key))
+        {
+            var action = key.SpecialAction?.ToLowerInvariant();
+            ModifierKey? modifier = action switch
+            {
+                "shift" or "modifier:shift" => ModifierKey.Shift,
+                "modifier:ctrl" => ModifierKey.Ctrl,
+                "modifier:alt" => ModifierKey.Alt,
+                "modifier:win" => ModifierKey.Win,
+                "toggle:capslock" => ModifierKey.CapsLock,
+                _ => null
+            };
+
+            if (modifier != null && _viewModel.ActiveModifiers.Contains(modifier.Value))
+            {
+                visuals.Container.Background = new SolidColorBrush(KeyColorModifierActive);
+                return;
+            }
+        }
+
         visuals.Container.Background = new SolidColorBrush(GetKeyBaseColor(targetId));
     }
 
@@ -492,6 +548,35 @@ public partial class KeyboardWindow : OverlayWindow
                     : key.Label;
             }
         }
+    }
+
+    private void UpdateModifierVisuals()
+    {
+        if (_viewModel == null) return;
+
+        foreach (var (id, (container, _)) in _keyVisuals)
+        {
+            if (!_keyDefinitions.TryGetValue(id, out var key)) continue;
+            var action = key.SpecialAction?.ToLowerInvariant();
+            if (action == null) continue;
+
+            ModifierKey? modifier = action switch
+            {
+                "shift" or "modifier:shift" => ModifierKey.Shift,
+                "modifier:ctrl" => ModifierKey.Ctrl,
+                "modifier:alt" => ModifierKey.Alt,
+                "modifier:win" => ModifierKey.Win,
+                "toggle:capslock" => ModifierKey.CapsLock,
+                _ => null
+            };
+
+            if (modifier == null) continue;
+
+            var isActive = _viewModel.ActiveModifiers.Contains(modifier.Value);
+            container.Background = new SolidColorBrush(isActive ? KeyColorModifierActive : GetKeyBaseColor(key));
+        }
+
+        UpdateShiftDisplay();
     }
 
     private void RegisterKeyVisual(string id, KeyDefinition keyDef, Border container, TextBlock? label)

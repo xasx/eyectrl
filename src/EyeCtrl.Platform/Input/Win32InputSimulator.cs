@@ -1,6 +1,7 @@
 namespace EyeCtrl.Platform.Input;
 
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using System.Runtime.InteropServices;
 
@@ -115,6 +116,49 @@ public class Win32InputSimulator : IInputSimulator
             up.Union.Keyboard.Flags = NativeMethods.KEYEVENTF_UNICODE | NativeMethods.KEYEVENTF_KEYUP;
             SendInputs(down, up);
         }
+    }
+
+    public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode)
+    {
+        // Build list of modifier VK codes to press
+        var modifierVks = new List<ushort>();
+        if (modifiers.Contains(ModifierKey.Ctrl))
+            modifierVks.Add(NativeMethods.VK_CONTROL);
+        if (modifiers.Contains(ModifierKey.Alt))
+            modifierVks.Add(NativeMethods.VK_MENU);
+        if (modifiers.Contains(ModifierKey.Win))
+            modifierVks.Add(NativeMethods.VK_LWIN);
+        if (modifiers.Contains(ModifierKey.Shift) || modifiers.Contains(ModifierKey.CapsLock))
+            modifierVks.Add(NativeMethods.VK_SHIFT);
+
+        // Build input array: modifier downs + key down + key up + modifier ups (reverse)
+        var inputs = new NativeMethods.INPUT[modifierVks.Count * 2 + 2];
+        int idx = 0;
+
+        // Modifier key-downs
+        foreach (var vk in modifierVks)
+            inputs[idx++] = CreateKeyboardInput(vk, 0);
+
+        // Main key
+        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, 0);
+        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, NativeMethods.KEYEVENTF_KEYUP);
+
+        // Modifier key-ups (reverse order)
+        for (int i = modifierVks.Count - 1; i >= 0; i--)
+            inputs[idx++] = CreateKeyboardInput(modifierVks[i], NativeMethods.KEYEVENTF_KEYUP);
+
+        NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+    }
+
+    /// <summary>
+    /// Convert a character to its virtual key code using the current keyboard layout.
+    /// Returns 0 if the character cannot be mapped.
+    /// </summary>
+    public static ushort CharToVirtualKey(char c)
+    {
+        short result = NativeMethods.VkKeyScanW((ushort)c);
+        if (result == -1) return 0;
+        return (ushort)(result & 0xFF); // low byte is the VK code
     }
 
     private NativeMethods.INPUT CreateMouseInput(PhysicalPoint point, uint flags)

@@ -1,4 +1,5 @@
 namespace EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 
 /// <summary>
@@ -18,4 +19,5 @@ public interface IInputSimulator
     void SendKeyDown(ushort virtualKeyCode);
     void SendKeyUp(ushort virtualKeyCode);
     void SendText(string text);
+    void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode);
 }

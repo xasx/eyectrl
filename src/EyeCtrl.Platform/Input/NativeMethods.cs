@@ -10,6 +10,9 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial int GetSystemMetrics(int nIndex);
 
+    [LibraryImport("user32.dll")]
+    internal static partial short VkKeyScanW(ushort ch);
+
     internal const int SM_CXSCREEN = 0;
     internal const int SM_CYSCREEN = 1;
 
@@ -27,6 +30,15 @@ internal static partial class NativeMethods
 
     internal const uint KEYEVENTF_KEYUP = 0x0002;
     internal const uint KEYEVENTF_UNICODE = 0x0004;
+
+    internal const ushort VK_SHIFT = 0x10;
+    internal const ushort VK_CONTROL = 0x11;
+    internal const ushort VK_MENU = 0x12;    // Alt
+    internal const ushort VK_LWIN = 0x5B;
+    internal const ushort VK_BACK = 0x08;
+    internal const ushort VK_TAB = 0x09;
+    internal const ushort VK_RETURN = 0x0D;
+    internal const ushort VK_SPACE = 0x20;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct INPUT

@@ -2,6 +2,7 @@ namespace EyeCtrl.Core.Tests;
 
 using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -32,6 +33,7 @@ public class GazeEngineTests
         public void SendKeyDown(ushort vk) { }
         public void SendKeyUp(ushort vk) { }
         public void SendText(string text) { }
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode) { }
     }
 
     [Fact]

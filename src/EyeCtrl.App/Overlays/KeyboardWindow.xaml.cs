@@ -225,7 +225,6 @@ public partial class KeyboardWindow : OverlayWindow
                 : key.Output;
 
             _viewModel.ActivateKey(key.Output, key.ShiftOutput);
-            UpdateModifierVisuals();
 
             if (_viewModel.IsEmojiMode)
                 _emojiManager?.TrackEmojiInRecents(output);
@@ -284,7 +283,6 @@ public partial class KeyboardWindow : OverlayWindow
         if (lowerAction == "backspace")
         {
             _viewModel.HandleBackspace();
-            UpdateModifierVisuals();
             UpdatePredictions();
             return;
         }
@@ -292,7 +290,6 @@ public partial class KeyboardWindow : OverlayWindow
         if (lowerAction == "enter")
         {
             _viewModel.HandleEnter();
-            UpdateModifierVisuals();
             UpdatePredictions();
             return;
         }
@@ -300,14 +297,12 @@ public partial class KeyboardWindow : OverlayWindow
         if (lowerAction == "tab")
         {
             _viewModel.HandleTab();
-            UpdateModifierVisuals();
             return;
         }
 
         if (lowerAction == "space")
         {
             _viewModel.HandleSpace();
-            UpdateModifierVisuals();
             UpdatePredictions();
             return;
         }

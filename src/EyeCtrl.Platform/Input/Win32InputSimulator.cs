@@ -128,7 +128,7 @@ public class Win32InputSimulator : IInputSimulator
             modifierVks.Add(NativeMethods.VK_MENU);
         if (modifiers.Contains(ModifierKey.Win))
             modifierVks.Add(NativeMethods.VK_LWIN);
-        if (modifiers.Contains(ModifierKey.Shift) || modifiers.Contains(ModifierKey.CapsLock))
+        if (modifiers.Contains(ModifierKey.Shift))
             modifierVks.Add(NativeMethods.VK_SHIFT);
 
         // Build input array: modifier downs + key down + key up + modifier ups (reverse)

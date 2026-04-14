@@ -495,17 +495,7 @@ public partial class KeyboardWindow : OverlayWindow
 
         if (_viewModel != null && _keyDefinitions.TryGetValue(targetId, out var key))
         {
-            var action = key.SpecialAction?.ToLowerInvariant();
-            ModifierKey? modifier = action switch
-            {
-                "shift" or "modifier:shift" => ModifierKey.Shift,
-                "modifier:ctrl" => ModifierKey.Ctrl,
-                "modifier:alt" => ModifierKey.Alt,
-                "modifier:win" => ModifierKey.Win,
-                "toggle:capslock" => ModifierKey.CapsLock,
-                _ => null
-            };
-
+            var modifier = GetModifierFromAction(key.SpecialAction);
             if (modifier != null && _viewModel.ActiveModifiers.Contains(modifier.Value))
             {
                 visuals.Container.Background = new SolidColorBrush(KeyColorModifierActive);
@@ -520,6 +510,19 @@ public partial class KeyboardWindow : OverlayWindow
     {
         var key = _keyDefinitions.GetValueOrDefault(keyId);
         return key != null ? GetKeyBaseColor(key) : KeyColorNormal;
+    }
+
+    private static ModifierKey? GetModifierFromAction(string? specialAction)
+    {
+        return specialAction?.ToLowerInvariant() switch
+        {
+            "shift" or "modifier:shift" => ModifierKey.Shift,
+            "modifier:ctrl" => ModifierKey.Ctrl,
+            "modifier:alt" => ModifierKey.Alt,
+            "modifier:win" => ModifierKey.Win,
+            "toggle:capslock" => ModifierKey.CapsLock,
+            _ => null
+        };
     }
 
     private static Color GetKeyBaseColor(KeyDefinition key)
@@ -552,19 +555,7 @@ public partial class KeyboardWindow : OverlayWindow
         foreach (var (id, (container, _)) in _keyVisuals)
         {
             if (!_keyDefinitions.TryGetValue(id, out var key)) continue;
-            var action = key.SpecialAction?.ToLowerInvariant();
-            if (action == null) continue;
-
-            ModifierKey? modifier = action switch
-            {
-                "shift" or "modifier:shift" => ModifierKey.Shift,
-                "modifier:ctrl" => ModifierKey.Ctrl,
-                "modifier:alt" => ModifierKey.Alt,
-                "modifier:win" => ModifierKey.Win,
-                "toggle:capslock" => ModifierKey.CapsLock,
-                _ => null
-            };
-
+            var modifier = GetModifierFromAction(key.SpecialAction);
             if (modifier == null) continue;
 
             var isActive = _viewModel.ActiveModifiers.Contains(modifier.Value);

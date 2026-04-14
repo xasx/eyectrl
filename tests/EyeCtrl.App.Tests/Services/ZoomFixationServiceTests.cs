@@ -310,4 +310,40 @@ public class ZoomFixationServiceTests
 
         _messenger.Unregister<UpdateZoomIndicatorPositionMessage>(this);
     }
+
+    [Fact]
+    public void IndicatorPosition_ShouldBeInPhysicalScreenCoordinates()
+    {
+        // Arrange - Start zoom at screen point (500, 500) with 2x magnification
+        var zoomCenter = new PhysicalPoint(500, 500);
+        var gazePoint = new PhysicalPoint(500, 500);
+        var startMessage = new StartZoomMessage(zoomCenter, 200, 2.0, gazePoint);
+
+        _messenger.Send(startMessage);
+        _interactionManager.OnFixationStarted(gazePoint);
+        _interactionManager.OnActivationButtonDwelled();
+
+        // The ViewModel should convert gaze coordinates to magnified space
+        _indicatorVM.Configure(_settings);
+
+        UpdateZoomIndicatorPositionMessage? positionMessage = null;
+        _messenger.Register<UpdateZoomIndicatorPositionMessage>(this, (r, m) => positionMessage = m);
+
+        // Act - Gaze moves slightly right and down in physical screen space
+        var newGazePoint = new PhysicalPoint(510, 510); // 10px right, 10px down from center
+        _messenger.Send(new GazeCursorMovedMessage(newGazePoint, 100_000));
+
+        // Assert - The position message should contain the physical screen coordinates, not magnified
+        Assert.NotNull(positionMessage);
+        Assert.Equal(510, positionMessage.GazePoint.X, 2);
+        Assert.Equal(510, positionMessage.GazePoint.Y, 2);
+
+        // The ViewModel should convert this to magnified coordinates
+        // magnifiedX = zoomCenter.X + (gazePoint.X - originalCenter.X) * magnification
+        // magnifiedX = 500 + (510 - 500) * 2.0 = 500 + 20 = 520
+        Assert.Equal(520, _indicatorVM.IndicatorX, 2);
+        Assert.Equal(520, _indicatorVM.IndicatorY, 2);
+
+        _messenger.Unregister<UpdateZoomIndicatorPositionMessage>(this);
+    }
 }

@@ -473,7 +473,12 @@ public class EventCoordinator : IEventCoordinator
                 case " ": vk = SpaceVirtualKeyCode; break;
                 default:
                     if (key.Length == 1)
-                        (vk, requiredModifiers) = Win32InputSimulator.CharToVirtualKey(key[0]);
+                    {
+                        // Use lowercase for letters so CapsLock-induced uppercase
+                        // doesn't trick VkKeyScanW into reporting Shift as required
+                        var ch = char.IsLetter(key[0]) ? char.ToLowerInvariant(key[0]) : key[0];
+                        (vk, requiredModifiers) = Win32InputSimulator.CharToVirtualKey(ch);
+                    }
                     else
                         vk = 0;
                     break;

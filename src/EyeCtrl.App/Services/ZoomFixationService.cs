@@ -12,12 +12,14 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
-/// Manages zoom fixation detection and gaze indicator updates during zoom mode.
+/// Manages zoom dwell detection and gaze indicator updates during zoom mode.
 /// Subscribes to GazeCursorMovedMessage and emits ZoomFixationCompletedMessage.
-/// Extracts the 130+ lines of zoom fixation logic from App.xaml.cs into a testable service.
+/// Extracts the 130+ lines of zoom dwell logic from App.xaml.cs into a testable service.
 /// </summary>
 public class ZoomFixationService : IDisposable
 {
+    private const string ZoomDwellTargetId = "zoom_dwell_target";
+
     private readonly IMessenger _messenger;
     private readonly ILogger<ZoomFixationService> _logger;
     private readonly EyeCtrlSettings _settings;
@@ -25,7 +27,7 @@ public class ZoomFixationService : IDisposable
     private readonly InteractionManager _interactionManager;
 
     // State
-    private FixationDetector? _fixationDetector;
+    private DwellDetector? _dwellDetector;
     private PhysicalPoint? _zoomCenter;
     private double? _zoomRadius;
     private long _zoomStartTimestamp;
@@ -61,28 +63,39 @@ public class ZoomFixationService : IDisposable
         _gracePeriodActive = false;
         _zoomStartTimestamp = 0;
 
-        // Create FixationDetector with scaled radius
+        // Create DwellDetector with cooldown disabled (we handle grace period separately)
+        _dwellDetector = new DwellDetector(cooldownMs: 0);
+
+        // Subscribe to dwell events
+        _dwellDetector.TargetActivated += OnDwellActivated;
+        _dwellDetector.TargetProgress += OnDwellProgress;
+
+        // Create a virtual dwell target at the initial gaze position
+        // The radius is scaled by magnification since we're in zoom space
         var scaledRadius = _settings.Dwell.FixationRadiusPixels / message.Magnification;
-        _fixationDetector = new FixationDetector(
+        var dwellTime = _settings.Dwell.ZoomActionMenuDwellMs;
+
+        var target = new DwellTarget(
+            ZoomDwellTargetId,
+            message.GazePoint, // Initial position (will be updated as gaze moves)
             scaledRadius,
-            _settings.Dwell.FixationDetectionMs);
+            dwellTime);
 
-        // Subscribe to fixation events
-        _fixationDetector.FixationStarted += OnFixationStarted;
-        _fixationDetector.FixationEnded += OnFixationEnded;
+        _dwellDetector.AddTarget(target);
 
-        _logger.LogDebug("Zoom fixation tracking started: center=({X}, {Y}), radius={Radius}",
+        _logger.LogDebug("Zoom dwell tracking started: center=({X}, {Y}), radius={Radius}",
             _zoomCenter.Value.X, _zoomCenter.Value.Y, message.Radius);
     }
 
     private void OnZoomEnded()
     {
         // Cleanup detector
-        if (_fixationDetector != null)
+        if (_dwellDetector != null)
         {
-            _fixationDetector.FixationStarted -= OnFixationStarted;
-            _fixationDetector.FixationEnded -= OnFixationEnded;
-            _fixationDetector = null;
+            _dwellDetector.TargetActivated -= OnDwellActivated;
+            _dwellDetector.TargetProgress -= OnDwellProgress;
+            _dwellDetector.ClearTargets();
+            _dwellDetector = null;
         }
 
         // Reset state
@@ -91,7 +104,7 @@ public class ZoomFixationService : IDisposable
         _zoomCenter = null;
         _zoomRadius = null;
 
-        _logger.LogDebug("Zoom fixation tracking stopped");
+        _logger.LogDebug("Zoom dwell tracking stopped");
     }
 
     private void OnGazeMoved(GazeCursorMovedMessage message)
@@ -99,11 +112,14 @@ public class ZoomFixationService : IDisposable
         // Early exit if not active or wrong state
         if (!_isActive ||
             _interactionManager.CurrentState != InteractionState.ZoomSelectionActive ||
-            _fixationDetector == null)
+            _dwellDetector == null)
             return;
 
         var pt = message.Position;
         var ts = message.TimestampMicroseconds;
+
+        // Track last gaze point for dwell completion
+        _lastGazePoint = pt;
 
         // 1. Update indicator position (even during grace period)
         UpdateIndicatorPosition(pt);
@@ -122,16 +138,15 @@ public class ZoomFixationService : IDisposable
         // 3. Bounds check
         if (!IsWithinZoomBounds(pt))
         {
-            ResetFixation();
+            ResetDwell();
             return;
         }
 
-        // 4. Update fixation detector
-        _fixationDetector.Update(pt, ts);
+        // 4. Update dwell target position to follow gaze
+        _dwellDetector.UpdateTargetCenter(ZoomDwellTargetId, pt);
 
-        // 5. Update progress
-        var progress = _fixationDetector.GetProgress();
-        UpdateIndicatorProgress(progress);
+        // 5. Update dwell detector
+        _dwellDetector.Update(pt, ts);
     }
 
     private void InvokeOnDispatcherIfNeeded(Action action)
@@ -145,43 +160,57 @@ public class ZoomFixationService : IDisposable
         _dispatcher.BeginInvoke(action);
     }
 
-    private void OnFixationStarted(PhysicalPoint fixationPoint)
+    private void OnDwellActivated(string targetId)
     {
+        if (targetId != ZoomDwellTargetId) return;
+
         InvokeOnDispatcherIfNeeded(() =>
         {
             try
             {
-                _logger.LogInformation("Zoom fixation completed at ({X:F0}, {Y:F0})",
-                    fixationPoint.X, fixationPoint.Y);
+                // Get the current dwell target position as the precise fixation point
+                var target = _dwellDetector?.GetProgress(ZoomDwellTargetId);
+                if (_dwellDetector == null) return;
+
+                // We need to get the actual target to retrieve its center
+                // Since DwellDetector doesn't expose targets, we'll use the last gaze position
+                // This is acceptable because dwell activation happens when gaze is on target
+                _logger.LogInformation("Zoom dwell completed");
 
                 // Reset indicator
                 _messenger.Send(new ResetZoomIndicatorMessage());
 
-                // Emit completion message (App.xaml.cs will handle coordinate conversion)
-                _messenger.Send(new ZoomFixationCompletedMessage(fixationPoint));
+                // We don't have access to the exact point, but we can send a completion message
+                // The EventCoordinator will need to track the last known gaze position
+                // For now, use the zoom center as fallback (this will be improved)
+                _messenger.Send(new ZoomFixationCompletedMessage(_lastGazePoint ?? _zoomCenter!.Value));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in zoom fixation started handler");
+                _logger.LogError(ex, "Error in zoom dwell activated handler");
             }
         });
     }
 
-    private void OnFixationEnded()
+    private void OnDwellProgress(string targetId, double progress)
     {
+        if (targetId != ZoomDwellTargetId) return;
+
         InvokeOnDispatcherIfNeeded(() =>
         {
             try
             {
-                // Only reset if indicator still visible (not already hidden by completion)
-                _messenger.Send(new ResetZoomIndicatorMessage());
+                // Update indicator progress
+                UpdateIndicatorProgress(progress);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in zoom fixation ended handler");
+                _logger.LogError(ex, "Error in zoom dwell progress handler");
             }
         });
     }
+
+    private PhysicalPoint? _lastGazePoint;
 
     private bool IsWithinZoomBounds(PhysicalPoint gazePoint)
     {
@@ -192,12 +221,10 @@ public class ZoomFixationService : IDisposable
         return (dx * dx + dy * dy) <= (_zoomRadius.Value * _zoomRadius.Value);
     }
 
-    private void ResetFixation()
+    private void ResetDwell()
     {
-        _fixationDetector?.Reset();
+        _dwellDetector?.ResetAllState();
 
-        // Note: FixationDetector.Reset() does NOT fire FixationEnded,
-        // so we must manually reset the UI
         InvokeOnDispatcherIfNeeded(() =>
         {
             try

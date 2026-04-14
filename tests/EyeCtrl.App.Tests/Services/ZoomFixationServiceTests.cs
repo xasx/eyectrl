@@ -49,7 +49,8 @@ public class ZoomFixationServiceTests
             Dwell = new DwellSettings
             {
                 FixationRadiusPixels = 60,
-                FixationDetectionMs = 800
+                FixationDetectionMs = 300,  // Not used anymore
+                ZoomActionMenuDwellMs = 800  // This is what the service will use
             }
         };
 
@@ -208,21 +209,21 @@ public class ZoomFixationServiceTests
             completionMessage = m;
         });
 
-        // Act - Simulate fixation completion by sending steady gaze for required duration
-        // Need: 300ms grace + 800ms fixation = 1100ms total
-        var fixationPoint = new PhysicalPoint(510, 510);
+        // Act - Simulate dwell completion by sending steady gaze for required duration
+        // Need: 300ms grace + 800ms dwell = 1100ms total
+        var dwellPoint = new PhysicalPoint(510, 510);
         var startTime = 0L;
 
-        for (int i = 0; i < 35; i++) // Send gaze at ~30Hz for 1.167 seconds
+        for (int i = 0; i < 40; i++) // Send gaze at ~30Hz for 1.33 seconds (sufficient for 1100ms)
         {
             var timestamp = startTime + (i * 33_333); // 33ms intervals
-            _messenger.Send(new GazeCursorMovedMessage(fixationPoint, timestamp));
+            _messenger.Send(new GazeCursorMovedMessage(dwellPoint, timestamp));
         }
 
         // Assert
         Assert.NotNull(completionMessage);
-        Assert.Equal(fixationPoint.X, completionMessage.PrecisePoint.X, 2); // Allow small tolerance
-        Assert.Equal(fixationPoint.Y, completionMessage.PrecisePoint.Y, 2);
+        Assert.Equal(dwellPoint.X, completionMessage.PrecisePoint.X, 2); // Allow small tolerance
+        Assert.Equal(dwellPoint.Y, completionMessage.PrecisePoint.Y, 2);
 
         _messenger.Unregister<ZoomFixationCompletedMessage>(this);
     }

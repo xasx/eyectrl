@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
@@ -56,8 +57,15 @@ public class TrayIconManager : IDisposable
             var resourceInfo = System.Windows.Application.GetResourceStream(iconUri);
             if (resourceInfo != null)
             {
-                _customIcon = new Icon(resourceInfo.Stream);
-                trayIcon = _customIcon;
+                using (resourceInfo.Stream)
+                using (var memoryStream = new MemoryStream())
+                {
+                    resourceInfo.Stream.CopyTo(memoryStream);
+                    memoryStream.Position = 0;
+                    // Icon constructor copies the data, so we can dispose the stream after
+                    _customIcon = new Icon(memoryStream);
+                    trayIcon = _customIcon;
+                }
             }
         }
         catch (Exception ex)

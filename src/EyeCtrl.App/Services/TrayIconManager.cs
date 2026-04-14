@@ -2,7 +2,6 @@ namespace EyeCtrl.App.Services;
 
 using System;
 using System.Drawing;
-using System.IO;
 using System.Windows.Forms;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
@@ -49,21 +48,21 @@ public class TrayIconManager : IDisposable
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(exitItem);
 
-        // Load custom icon from Assets directory
-        var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "eyectrl.ico");
+        // Load custom icon from embedded resource
         Icon trayIcon = SystemIcons.Application;
-
-        if (File.Exists(iconPath))
+        try
         {
-            try
+            var iconUri = new Uri("pack://application:,,,/Assets/eyectrl.ico");
+            var resourceInfo = System.Windows.Application.GetResourceStream(iconUri);
+            if (resourceInfo != null)
             {
-                _customIcon = new Icon(iconPath);
+                _customIcon = new Icon(resourceInfo.Stream);
                 trayIcon = _customIcon;
             }
-            catch (Exception ex)
-            {
-                Log.Warning(ex, "Failed to load custom icon from {Path}, using system default", iconPath);
-            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to load custom icon from embedded resource, using system default");
         }
 
         _trayIcon = new NotifyIcon

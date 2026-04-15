@@ -471,6 +471,65 @@ public class KeyboardViewModelTests
         Assert.Equal(3, sentMsg.DeleteCount);
     }
 
+    // --- Special key tests (function and navigation keys) ---
+
+    [Fact]
+    public void HandleSpecialKey_SendsSpecialKeyMessageWithoutModifiers()
+    {
+        var vm = CreateViewModel();
+        SpecialKeyMessage? sentMsg = null;
+        _messenger.Register<SpecialKeyMessage>(_messenger, (_, msg) => sentMsg = msg);
+
+        vm.HandleSpecialKey("F1");
+
+        Assert.NotNull(sentMsg);
+        Assert.Equal("F1", sentMsg!.KeyName);
+        Assert.Null(sentMsg.Modifiers);
+    }
+
+    [Fact]
+    public void HandleSpecialKey_SendsSpecialKeyMessageWithModifiers()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        SpecialKeyMessage? sentMsg = null;
+        _messenger.Register<SpecialKeyMessage>(_messenger, (_, msg) => sentMsg = msg);
+
+        vm.HandleSpecialKey("F5");
+
+        Assert.NotNull(sentMsg);
+        Assert.Equal("F5", sentMsg!.KeyName);
+        Assert.NotNull(sentMsg.Modifiers);
+        Assert.Contains(ModifierKey.Ctrl, sentMsg.Modifiers!);
+    }
+
+    [Fact]
+    public void HandleSpecialKey_ClearsOneShotModifiers()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        vm.ToggleModifier(ModifierKey.Alt);
+        _messenger.Register<SpecialKeyMessage>(_messenger, (_, _) => { });
+
+        vm.HandleSpecialKey("Escape");
+
+        Assert.Empty(vm.ActiveModifiers);
+    }
+
+    [Fact]
+    public void HandleSpecialKey_CapsLockSurvivesClearing()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.CapsLock);
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        _messenger.Register<SpecialKeyMessage>(_messenger, (_, _) => { });
+
+        vm.HandleSpecialKey("Home");
+
+        Assert.Contains(ModifierKey.CapsLock, vm.ActiveModifiers);
+        Assert.DoesNotContain(ModifierKey.Ctrl, vm.ActiveModifiers);
+    }
+
     private KeyboardViewModel CreateViewModel()
     {
         return new KeyboardViewModel(_settings, _messenger);

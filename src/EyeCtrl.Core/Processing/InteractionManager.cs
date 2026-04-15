@@ -11,8 +11,8 @@ public class InteractionManager
     public bool ZoomEnabled { get; set; }
     /// <summary>Initial fixation point in physical screen pixels.</summary>
     public PhysicalPoint? FixationPoint { get; private set; }
-    /// <summary>Precise zoom fixation point in physical screen pixels.</summary>
-    public PhysicalPoint? ZoomFixationPoint { get; private set; }
+    /// <summary>Precise zoom dwell point in physical screen pixels.</summary>
+    public PhysicalPoint? ZoomDwellPoint { get; private set; }
 
     public event Action<InteractionState>? StateChanged;
     public event Action<InteractionAction, PhysicalPoint>? ActionRequested;
@@ -69,13 +69,13 @@ public class InteractionManager
     }
 
     /// <summary>
-    /// Called when zoom fixation completes.
+    /// Called when zoom dwell completes.
     /// </summary>
-    /// <param name="precisePoint">Precise fixation point in physical screen pixels</param>
-    public void OnZoomFixation(PhysicalPoint precisePoint)
+    /// <param name="precisePoint">Precise dwell point in physical screen pixels</param>
+    public void OnZoomDwell(PhysicalPoint precisePoint)
     {
         if (CurrentState != InteractionState.ZoomSelectionActive) return;
-        ZoomFixationPoint = precisePoint;
+        ZoomDwellPoint = precisePoint;
         HideZoom?.Invoke();
         ShowActionMenu?.Invoke(precisePoint);
         SetState(InteractionState.ZoomSelectionActionMenuVisible);
@@ -86,7 +86,7 @@ public class InteractionManager
         PhysicalPoint? targetPoint = CurrentState switch
         {
             InteractionState.ActionMenuVisible => FixationPoint,
-            InteractionState.ZoomSelectionActionMenuVisible => ZoomFixationPoint,
+            InteractionState.ZoomSelectionActionMenuVisible => ZoomDwellPoint,
             _ => null
         };
 
@@ -106,7 +106,7 @@ public class InteractionManager
         {
             // Back from action view → return to zoom selection
             HideActionMenu?.Invoke();
-            ZoomFixationPoint = null;
+            ZoomDwellPoint = null;
             SetState(InteractionState.ZoomSelectionActive);
             StartZoom?.Invoke(FixationPoint!.Value);
         }
@@ -146,7 +146,7 @@ public class InteractionManager
     private void ResetToFreeLook()
     {
         FixationPoint = null;
-        ZoomFixationPoint = null;
+        ZoomDwellPoint = null;
         SetState(InteractionState.FreeLook);
     }
 }

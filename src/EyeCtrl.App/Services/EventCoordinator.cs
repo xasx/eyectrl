@@ -180,6 +180,10 @@ public class EventCoordinator : IEventCoordinator
         _context.Messenger.Register<EventCoordinator, PredictionSelectedMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() => HandlePredictionSelected(msg.DeleteCount, msg.Word)));
 
+        // Special key -> input simulator (function keys, navigation keys)
+        _context.Messenger.Register<EventCoordinator, SpecialKeyMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() => HandleSpecialKey(msg.KeyName, msg.Modifiers)));
+
         // Action requested -> input simulator
         _context.Messenger.Register<EventCoordinator, ActionRequestedMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() => HandleActionRequested(msg)));
@@ -527,6 +531,52 @@ public class EventCoordinator : IEventCoordinator
         for (int i = 0; i < deleteCount; i++)
             _context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode);
         _context.InputSimulator.SendText(word + " ");
+    }
+
+    private void HandleSpecialKey(string keyName, IReadOnlySet<ModifierKey>? modifiers)
+    {
+        if (_context == null) return;
+
+        ushort vk = keyName switch
+        {
+            "Escape" => NativeMethods.VK_ESCAPE,
+            "F1" => NativeMethods.VK_F1,
+            "F2" => NativeMethods.VK_F2,
+            "F3" => NativeMethods.VK_F3,
+            "F4" => NativeMethods.VK_F4,
+            "F5" => NativeMethods.VK_F5,
+            "F6" => NativeMethods.VK_F6,
+            "F7" => NativeMethods.VK_F7,
+            "F8" => NativeMethods.VK_F8,
+            "F9" => NativeMethods.VK_F9,
+            "F10" => NativeMethods.VK_F10,
+            "F11" => NativeMethods.VK_F11,
+            "F12" => NativeMethods.VK_F12,
+            "Home" => NativeMethods.VK_HOME,
+            "End" => NativeMethods.VK_END,
+            "PageUp" => NativeMethods.VK_PRIOR,
+            "PageDown" => NativeMethods.VK_NEXT,
+            "ArrowUp" => NativeMethods.VK_UP,
+            "ArrowDown" => NativeMethods.VK_DOWN,
+            "ArrowLeft" => NativeMethods.VK_LEFT,
+            "ArrowRight" => NativeMethods.VK_RIGHT,
+            "Insert" => NativeMethods.VK_INSERT,
+            "Delete" => NativeMethods.VK_DELETE,
+            "PrintScreen" => NativeMethods.VK_SNAPSHOT,
+            _ => 0
+        };
+
+        if (vk != 0)
+        {
+            if (modifiers != null && modifiers.Count > 0)
+                _context.InputSimulator.SendModifiedKeyPress(modifiers, vk);
+            else
+                _context.InputSimulator.SendKeyPress(vk);
+        }
+        else
+        {
+            Log.Warning("Unknown special key name: {KeyName}", keyName);
+        }
     }
 
     private void HandleActionRequested(ActionRequestedMessage msg)

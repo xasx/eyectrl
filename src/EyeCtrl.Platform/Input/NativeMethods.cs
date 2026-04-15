@@ -40,6 +40,34 @@ internal static partial class NativeMethods
     internal const ushort VK_TAB = 0x09;
     internal const ushort VK_RETURN = 0x0D;
     internal const ushort VK_SPACE = 0x20;
+    internal const ushort VK_ESCAPE = 0x1B;
+
+    // Function keys
+    internal const ushort VK_F1 = 0x70;
+    internal const ushort VK_F2 = 0x71;
+    internal const ushort VK_F3 = 0x72;
+    internal const ushort VK_F4 = 0x73;
+    internal const ushort VK_F5 = 0x74;
+    internal const ushort VK_F6 = 0x75;
+    internal const ushort VK_F7 = 0x76;
+    internal const ushort VK_F8 = 0x77;
+    internal const ushort VK_F9 = 0x78;
+    internal const ushort VK_F10 = 0x79;
+    internal const ushort VK_F11 = 0x7A;
+    internal const ushort VK_F12 = 0x7B;
+
+    // Navigation keys
+    internal const ushort VK_PRIOR = 0x21;     // Page Up
+    internal const ushort VK_NEXT = 0x22;      // Page Down
+    internal const ushort VK_END = 0x23;
+    internal const ushort VK_HOME = 0x24;
+    internal const ushort VK_LEFT = 0x25;      // Arrow Left
+    internal const ushort VK_UP = 0x26;        // Arrow Up
+    internal const ushort VK_RIGHT = 0x27;     // Arrow Right
+    internal const ushort VK_DOWN = 0x28;      // Arrow Down
+    internal const ushort VK_SNAPSHOT = 0x2C;  // Print Screen
+    internal const ushort VK_INSERT = 0x2D;
+    internal const ushort VK_DELETE = 0x2E;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct INPUT

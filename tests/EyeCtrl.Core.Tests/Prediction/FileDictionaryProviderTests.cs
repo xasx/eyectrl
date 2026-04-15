@@ -27,6 +27,28 @@ public class FileDictionaryProviderTests
     }
 
     [Fact]
+    public void UserDictionaryPath_RespectsForwardSlashes()
+    {
+        var provider = new FileDictionaryProvider(
+            baseDictionaryPath: "base.json",
+            appDataDir: "C:/AppData",
+            languageCode: "fr");
+
+        Assert.Equal("C:/AppData/user_dictionary_fr.json", provider.UserDictionaryPath);
+    }
+
+    [Fact]
+    public void UserDictionaryPath_UsesLastSeparatorInMixedPath()
+    {
+        var provider = new FileDictionaryProvider(
+            baseDictionaryPath: "base.json",
+            appDataDir: @"C:/AppData\User",
+            languageCode: "en");
+
+        Assert.Equal(@"C:\AppData\User\user_dictionary_en.json", provider.UserDictionaryPath);
+    }
+
+    [Fact]
     public void Load_MissingFiles_ReturnsEmptyDictionary()
     {
         var provider = new FileDictionaryProvider(

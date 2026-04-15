@@ -63,9 +63,12 @@ public class FileDictionaryProvider : IDictionaryProvider
 
     private static char DetectSeparator(string path)
     {
-        if (path.Contains('\\'))
+        var lastBackslashIndex = path.LastIndexOf('\\');
+        var lastSlashIndex = path.LastIndexOf('/');
+
+        if (lastBackslashIndex > lastSlashIndex)
             return '\\';
-        if (path.Contains('/'))
+        if (lastSlashIndex > lastBackslashIndex)
             return '/';
 
         return Path.DirectorySeparatorChar;

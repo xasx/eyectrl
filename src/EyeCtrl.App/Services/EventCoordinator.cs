@@ -107,7 +107,7 @@ public class EventCoordinator : IEventCoordinator
                 {
                     zoomIndicator.Hide();
                     var realPoint = zoomOverlay.GetRealPhysicalPoint(msg.PrecisePoint);
-                    im.OnZoomFixation(realPoint);
+                    im.OnZoomDwell(realPoint);
                 }
                 catch (Exception ex)
                 {

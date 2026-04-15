@@ -92,7 +92,7 @@ public class InteractionManagerTests
         manager.OnActivationButtonDwelled();
         Assert.Equal(InteractionState.ZoomSelectionActive, manager.CurrentState);
 
-        manager.OnZoomFixation(new PhysicalPoint(110, 110));
+        manager.OnZoomDwell(new PhysicalPoint(110, 110));
         Assert.Equal(InteractionState.ZoomSelectionActionMenuVisible, manager.CurrentState);
 
         manager.OnActionSelected(InteractionAction.RightClick);
@@ -107,7 +107,7 @@ public class InteractionManagerTests
         var manager = new InteractionManager { ZoomEnabled = true };
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
-        manager.OnZoomFixation(new PhysicalPoint(110, 110));
+        manager.OnZoomDwell(new PhysicalPoint(110, 110));
 
         // First back: action menu → zoom selection
         manager.OnZoomBack();
@@ -136,7 +136,7 @@ public class InteractionManagerTests
         im.OnActivationButtonDwelled();
         Assert.Equal(InteractionState.ZoomSelectionActive, im.CurrentState);
 
-        im.OnZoomFixation(zoomPoint);
+        im.OnZoomDwell(zoomPoint);
         Assert.Equal(InteractionState.ZoomSelectionActionMenuVisible, im.CurrentState);
 
         // Back from action menu → returns to zoom, NOT FreeLook
@@ -149,7 +149,7 @@ public class InteractionManagerTests
     }
 
     [Fact]
-    public void OnZoomFixation_FiresHideZoomBeforeShowActionMenu()
+    public void OnZoomDwell_FiresHideZoomBeforeShowActionMenu()
     {
         var im = new InteractionManager { ZoomEnabled = true };
         var events = new List<string>();
@@ -159,7 +159,7 @@ public class InteractionManagerTests
 
         im.OnFixationStarted(new PhysicalPoint(100, 100));
         im.OnActivationButtonDwelled();
-        im.OnZoomFixation(new PhysicalPoint(110, 110));
+        im.OnZoomDwell(new PhysicalPoint(110, 110));
 
         Assert.Equal(new[] { "HideZoom", "ShowActionMenu" }, events.TakeLast(2));
     }

@@ -52,7 +52,7 @@ public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Poi
 // Zoom Dwell Service Messages
 /// <summary>
 /// Sent by ZoomDwellService when user completes dwell within zoom.
-/// Contains the precise on-screen physical screen point where the dwell occurred while the zoom overlay is shown
+/// Contains the precise on-screen physical point where the dwell occurred while the zoom overlay is shown
 /// (that is, the point within the magnified overlay, not yet converted to the underlying real/unzoomed screen coordinate).
 /// </summary>
 public record ZoomDwellCompletedMessage(PhysicalPoint PrecisePoint);

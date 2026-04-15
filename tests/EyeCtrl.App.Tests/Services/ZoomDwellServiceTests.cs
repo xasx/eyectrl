@@ -203,8 +203,8 @@ public class ZoomDwellServiceTests
         _interactionManager.OnFixationStarted(startMessage.GazePoint);
         _interactionManager.OnActivationButtonDwelled();
 
-        ZoomFixationCompletedMessage? completionMessage = null;
-        _messenger.Register<ZoomFixationCompletedMessage>(this, (r, m) =>
+        ZoomDwellCompletedMessage? completionMessage = null;
+        _messenger.Register<ZoomDwellCompletedMessage>(this, (r, m) =>
         {
             completionMessage = m;
         });
@@ -225,7 +225,7 @@ public class ZoomDwellServiceTests
         Assert.Equal(dwellPoint.X, completionMessage.PrecisePoint.X, 2); // Allow small tolerance
         Assert.Equal(dwellPoint.Y, completionMessage.PrecisePoint.Y, 2);
 
-        _messenger.Unregister<ZoomFixationCompletedMessage>(this);
+        _messenger.Unregister<ZoomDwellCompletedMessage>(this);
     }
 
     [Fact]

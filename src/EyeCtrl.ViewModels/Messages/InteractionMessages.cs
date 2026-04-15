@@ -55,7 +55,7 @@ public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Poi
 /// Contains the precise on-screen physical screen point where the dwell occurred while the zoom overlay is shown
 /// (that is, the point within the magnified overlay, not yet converted to the underlying real/unzoomed screen coordinate).
 /// </summary>
-public record ZoomFixationCompletedMessage(PhysicalPoint PrecisePoint);
+public record ZoomDwellCompletedMessage(PhysicalPoint PrecisePoint);
 
 /// <summary>
 /// Sent by ZoomDwellService to update the zoom gaze indicator position.

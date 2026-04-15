@@ -13,7 +13,7 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// Manages zoom dwell detection and gaze indicator updates during zoom mode.
-/// Subscribes to GazeCursorMovedMessage and emits ZoomFixationCompletedMessage.
+/// Subscribes to GazeCursorMovedMessage and emits ZoomDwellCompletedMessage.
 /// Extracts the 130+ lines of zoom dwell logic from App.xaml.cs into a testable service.
 /// </summary>
 public class ZoomDwellService : IDisposable
@@ -183,7 +183,7 @@ public class ZoomDwellService : IDisposable
                 // We don't have access to the exact point, but we can send a completion message
                 // The EventCoordinator will need to track the last known gaze position
                 // For now, use the zoom center as fallback (this will be improved)
-                _messenger.Send(new ZoomFixationCompletedMessage(_lastGazePoint ?? _zoomCenter!.Value));
+                _messenger.Send(new ZoomDwellCompletedMessage(_lastGazePoint ?? _zoomCenter!.Value));
             }
             catch (Exception ex)
             {

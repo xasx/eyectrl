@@ -99,8 +99,8 @@ public class EventCoordinator : IEventCoordinator
         var zoomIndicator = _context.OverlayManager.ZoomIndicator;
         var keyboard = _context.OverlayManager.Keyboard;
 
-        // ZoomFixationCompleted: Handle coordinate conversion
-        _context.Messenger.Register<EventCoordinator, ZoomFixationCompletedMessage>(this, (_, msg) =>
+        // ZoomDwellCompleted: Handle coordinate conversion
+        _context.Messenger.Register<EventCoordinator, ZoomDwellCompletedMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 try
@@ -111,7 +111,7 @@ public class EventCoordinator : IEventCoordinator
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, "Error handling zoom fixation completion");
+                    Log.Error(ex, "Error handling zoom dwell completion");
                 }
             }));
 

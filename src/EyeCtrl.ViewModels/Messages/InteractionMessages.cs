@@ -85,4 +85,5 @@ public record KeyboardToggledMessage;
 public record SettingsRequestedMessage;
 public record KeyActivatedMessage(string Key, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record PredictionSelectedMessage(string Word, int DeleteCount = 0);
+public record SpecialKeyMessage(string KeyName, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record SettingsChangedMessage;

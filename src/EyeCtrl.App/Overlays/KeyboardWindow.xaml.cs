@@ -313,6 +313,14 @@ public partial class KeyboardWindow : OverlayWindow
             return;
         }
 
+        // Handle "key:" special actions for function and navigation keys
+        if (lowerAction.StartsWith("key:"))
+        {
+            var keyName = action[4..];  // Extract the key name after "key:"
+            _viewModel.HandleSpecialKey(keyName);
+            return;
+        }
+
         // Emoji-domain actions — delegate to manager
         _emojiManager?.HandleAction(action);
     }

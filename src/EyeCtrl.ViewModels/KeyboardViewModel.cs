@@ -233,6 +233,12 @@ public partial class KeyboardViewModel : ObservableObject,
         _messenger.Send(new PredictionSelectedMessage(word, deleteCount));
     }
 
+    public void HandleSpecialKey(string keyName)
+    {
+        _messenger.Send(new SpecialKeyMessage(keyName, ModifiersSnapshot));
+        ClearOneShotModifiers();
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

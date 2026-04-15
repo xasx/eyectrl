@@ -16,12 +16,12 @@ using EyeCtrl.ViewModels.Messages;
 /// Subscribes to GazeCursorMovedMessage and emits ZoomFixationCompletedMessage.
 /// Extracts the 130+ lines of zoom dwell logic from App.xaml.cs into a testable service.
 /// </summary>
-public class ZoomFixationService : IDisposable
+public class ZoomDwellService : IDisposable
 {
     private const string ZoomDwellTargetId = "zoom_dwell_target";
 
     private readonly IMessenger _messenger;
-    private readonly ILogger<ZoomFixationService> _logger;
+    private readonly ILogger<ZoomDwellService> _logger;
     private readonly EyeCtrlSettings _settings;
     private readonly Dispatcher _dispatcher;
     private readonly InteractionManager _interactionManager;
@@ -34,9 +34,9 @@ public class ZoomFixationService : IDisposable
     private bool _gracePeriodActive;
     private bool _isActive;
 
-    public ZoomFixationService(
+    public ZoomDwellService(
         IMessenger messenger,
-        ILogger<ZoomFixationService> logger,
+        ILogger<ZoomDwellService> logger,
         EyeCtrl.Core.Settings.EyeCtrlSettings settings,
         Dispatcher dispatcher,
         InteractionManager interactionManager)

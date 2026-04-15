@@ -49,29 +49,29 @@ public record ZoomRecaptureMessage;
 /// </summary>
 public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Point, bool IsFromZoom = false);
 
-// Zoom Fixation Service Messages
+// Zoom Dwell Service Messages
 /// <summary>
-/// Sent by ZoomFixationService when user completes fixation within zoom.
-/// Contains the precise on-screen physical screen point where fixation occurred while the zoom overlay is shown
+/// Sent by ZoomDwellService when user completes dwell within zoom.
+/// Contains the precise on-screen physical screen point where the dwell occurred while the zoom overlay is shown
 /// (that is, the point within the magnified overlay, not yet converted to the underlying real/unzoomed screen coordinate).
 /// </summary>
 public record ZoomFixationCompletedMessage(PhysicalPoint PrecisePoint);
 
 /// <summary>
-/// Sent by ZoomFixationService to update the zoom gaze indicator position.
+/// Sent by ZoomDwellService to update the zoom gaze indicator position.
 /// Published at ~30Hz during zoom mode.
 /// GazePoint is in physical screen pixels.
 /// </summary>
 public record UpdateZoomIndicatorPositionMessage(PhysicalPoint GazePoint);
 
 /// <summary>
-/// Sent by ZoomFixationService to update fixation progress on the indicator.
+/// Sent by ZoomDwellService to update dwell progress on the indicator.
 /// Progress ranges from 0.0 to 1.0.
 /// </summary>
 public record UpdateZoomIndicatorProgressMessage(double Progress);
 
 /// <summary>
-/// Sent by ZoomFixationService to reset the zoom indicator (abort fixation).
+/// Sent by ZoomDwellService to reset the zoom indicator (abort dwell).
 /// </summary>
 public record ResetZoomIndicatorMessage;
 

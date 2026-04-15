@@ -86,10 +86,10 @@ public class AppBootstrapper
             dispatcher,
             sp.GetRequiredService<ILogger<GazeEngineAdapter>>()));
 
-        // ZoomFixationService (handles zoom fixation detection and indicator updates)
-        services.AddSingleton(sp => new ZoomFixationService(
+        // ZoomDwellService (handles zoom dwell detection and indicator updates)
+        services.AddSingleton(sp => new ZoomDwellService(
             sp.GetRequiredService<IMessenger>(),
-            sp.GetRequiredService<ILogger<ZoomFixationService>>(),
+            sp.GetRequiredService<ILogger<ZoomDwellService>>(),
             sp.GetRequiredService<EyeCtrlSettings>(),
             dispatcher,
             sp.GetRequiredService<GazeEngine>().InteractionManager));

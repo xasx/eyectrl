@@ -128,8 +128,8 @@ public partial class App : Application
         // Resolve adapter (triggers Core event subscriptions)
         _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
 
-        // Resolve ZoomFixationService (triggers message subscriptions)
-        _ = _serviceProvider.GetRequiredService<ZoomFixationService>();
+        // Resolve ZoomDwellService (triggers message subscriptions)
+        _ = _serviceProvider.GetRequiredService<ZoomDwellService>();
 
         // Configure zoom indicator with settings
         zoomIndicatorVM.Configure(settings);
@@ -191,7 +191,7 @@ public partial class App : Application
             var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
             adapter.Dispose();
             gazeEngine.Dispose();
-            _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ZoomFixationService
+            _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ZoomDwellService
         }
 
         Log.CloseAndFlush();

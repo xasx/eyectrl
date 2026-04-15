@@ -22,20 +22,20 @@ public class AppDpiHelperTestCollection
 }
 
 /// <summary>
-/// Tests for ZoomFixationService.
+/// Tests for ZoomDwellService.
 /// Part of the non-parallelized collection because it uses DpiHelper which has global static state.
 /// </summary>
 [Collection("DpiHelper Tests (App)")]
-public class ZoomFixationServiceTests
+public class ZoomDwellServiceTests
 {
     private readonly IMessenger _messenger;
     private readonly EyeCtrlSettings _settings;
     private readonly Dispatcher _dispatcher;
     private readonly ZoomGazeIndicatorViewModel _indicatorVM;
     private readonly InteractionManager _interactionManager;
-    private readonly ZoomFixationService _service;
+    private readonly ZoomDwellService _service;
 
-    public ZoomFixationServiceTests()
+    public ZoomDwellServiceTests()
     {
         _messenger = new WeakReferenceMessenger();
         _settings = new EyeCtrlSettings
@@ -64,16 +64,16 @@ public class ZoomFixationServiceTests
         _interactionManager = new InteractionManager();
         _interactionManager.ZoomEnabled = true;
 
-        _service = new ZoomFixationService(
+        _service = new ZoomDwellService(
             _messenger,
-            NullLogger<ZoomFixationService>.Instance,
+            NullLogger<ZoomDwellService>.Instance,
             _settings,
             _dispatcher,
             _interactionManager);
     }
 
     [Fact]
-    public void OnZoomStarted_InitializesFixationDetector()
+    public void OnZoomStarted_InitializesDwellDetector()
     {
         // Arrange
         var startMessage = new StartZoomMessage(
@@ -156,7 +156,7 @@ public class ZoomFixationServiceTests
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(800, 800), 500_000)); // 400ms after grace start, outside bounds
 
         // Assert - Reset message should be sent
-        Assert.True(resetMessageReceived, "Fixation should be reset when gaze moves outside bounds");
+        Assert.True(resetMessageReceived, "Dwell should be reset when gaze moves outside bounds");
 
         _messenger.Unregister<ResetZoomIndicatorMessage>(this);
     }
@@ -191,7 +191,7 @@ public class ZoomFixationServiceTests
     }
 
     [Fact]
-    public void OnFixationCompleted_EmitsCompletionMessage()
+    public void OnDwellCompleted_EmitsCompletionMessage()
     {
         // Arrange
         var startMessage = new StartZoomMessage(

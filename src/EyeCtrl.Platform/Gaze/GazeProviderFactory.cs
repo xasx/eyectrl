@@ -23,19 +23,17 @@ public class GazeProviderFactory
 #if TOBII_AVAILABLE
             GazeProviderType.StreamEngine => new TobiiStreamEngineProvider(screenWidth, screenHeight,
                 _loggerFactory.CreateLogger<TobiiStreamEngineProvider>()),
-            // Legacy InteractionLib enum value - redirect to StreamEngine
-#pragma warning disable CS0618 // Type or member is obsolete
+#pragma warning disable CS0618 // InteractionLib is obsolete
             GazeProviderType.InteractionLib => new TobiiStreamEngineProvider(screenWidth, screenHeight,
                 _loggerFactory.CreateLogger<TobiiStreamEngineProvider>()),
-#pragma warning restore CS0618 // Type or member is obsolete
+#pragma warning restore CS0618
 #else
             GazeProviderType.StreamEngine => throw new PlatformNotSupportedException(
                 "Tobii Stream Engine is not available on this platform. The Tobii SDK was not found during build."),
-            // Legacy InteractionLib enum value - also not available
-#pragma warning disable CS0618 // Type or member is obsolete
+#pragma warning disable CS0618
             GazeProviderType.InteractionLib => throw new PlatformNotSupportedException(
-                "The 32-bit Tobii Interaction Library is no longer supported. Please update your settings to use StreamEngine or Auto."),
-#pragma warning restore CS0618 // Type or member is obsolete
+                "The 32-bit Tobii Interaction Library is no longer supported. Use StreamEngine or Auto."),
+#pragma warning restore CS0618
 #endif
             GazeProviderType.Auto => CreateAuto(screenWidth, screenHeight),
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)

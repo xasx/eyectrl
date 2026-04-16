@@ -98,8 +98,7 @@ public partial class ToolbarWindow : OverlayWindow
     {
         var symbol = providerType switch
         {
-            GazeProviderType.InteractionLib => "\U0001F441",  // eye
-            GazeProviderType.StreamEngine => "\u2B55",         // circle (stream)
+            GazeProviderType.StreamEngine => "\U0001F441",     // eye
             GazeProviderType.Mouse => "\U0001F5B1",           // mouse
             _ => "?"
         };

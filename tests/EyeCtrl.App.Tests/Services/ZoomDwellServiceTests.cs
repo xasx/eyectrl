@@ -49,8 +49,7 @@ public class ZoomDwellServiceTests
             Dwell = new DwellSettings
             {
                 FixationRadiusPixels = 60,
-                FixationDetectionMs = 300,  // Not used anymore
-                ZoomActionMenuDwellMs = 800  // This is what the service will use
+                ZoomActionMenuDwellMs = 800  // Dwell time for zoom selection
             }
         };
 

@@ -31,8 +31,7 @@ public class GazeProviderFactory
             GazeProviderType.StreamEngine => throw new PlatformNotSupportedException(
                 "Tobii Stream Engine is not available on this platform. The Tobii SDK was not found during build."),
 #pragma warning disable CS0618
-            GazeProviderType.InteractionLib => throw new PlatformNotSupportedException(
-                "The 32-bit Tobii Interaction Library is no longer supported. Use StreamEngine or Auto."),
+            GazeProviderType.InteractionLib => CreateAuto(screenWidth, screenHeight),
 #pragma warning restore CS0618
 #endif
             GazeProviderType.Auto => CreateAuto(screenWidth, screenHeight),

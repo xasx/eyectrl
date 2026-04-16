@@ -5,19 +5,25 @@
   </ItemGroup>
 
   <!-- Tobii Stream Engine: only on Windows where the SDK is installed -->
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('C:\Program Files\Tobii\Tobii EyeX\Tobii.StreamEngine.Net.dll')">
+  <PropertyGroup>
+    <!-- Default Tobii SDK path, can be overridden via command line with -p:TobiiSdkPath="..." -->
+    <TobiiSdkPath Condition="'$(TobiiSdkPath)' == ''">C:\Program Files\Tobii\Tobii EyeX\</TobiiSdkPath>
+    <TobiiManagedDll>$(TobiiSdkPath)Tobii.StreamEngine.Net.dll</TobiiManagedDll>
+    <TobiiNativeDll>$(TobiiSdkPath)tobii_stream_engine.dll</TobiiNativeDll>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)')">
     <Reference Include="Tobii.StreamEngine.Net">
-      <HintPath>C:\Program Files\Tobii\Tobii EyeX\Tobii.StreamEngine.Net.dll</HintPath>
+      <HintPath>$(TobiiManagedDll)</HintPath>
       <Private>true</Private>
     </Reference>
-    <Content Include="C:\Program Files\Tobii\Tobii EyeX\tobii_stream_engine.dll"
-             Condition="Exists('C:\Program Files\Tobii\Tobii EyeX\tobii_stream_engine.dll')">
+    <Content Include="$(TobiiNativeDll)" Condition="Exists('$(TobiiNativeDll)')">
       <Link>tobii_stream_engine.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('C:\Program Files\Tobii\Tobii EyeX\Tobii.StreamEngine.Net.dll')">
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)')">
     <DefineConstants>$(DefineConstants);TOBII_AVAILABLE</DefineConstants>
   </PropertyGroup>
 

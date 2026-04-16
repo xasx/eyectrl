@@ -99,6 +99,9 @@ public partial class ToolbarWindow : OverlayWindow
         var symbol = providerType switch
         {
             GazeProviderType.StreamEngine => "\U0001F441",     // eye
+#pragma warning disable CS0618 // Type or member is obsolete
+            GazeProviderType.InteractionLib => "\U0001F441",   // eye (legacy, treated as StreamEngine)
+#pragma warning restore CS0618 // Type or member is obsolete
             GazeProviderType.Mouse => "\U0001F5B1",           // mouse
             _ => "?"
         };

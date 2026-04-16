@@ -1,3 +1,4 @@
+#if TOBII_AVAILABLE
 namespace EyeCtrl.Platform.Gaze;
 
 using EyeCtrl.Core.Interfaces;
@@ -6,9 +7,8 @@ using Microsoft.Extensions.Logging;
 using Tobii.StreamEngine;
 
 /// <summary>
-/// Gaze provider using the Tobii Stream Engine (Tobii.StreamEngine.Net.dll).
-/// Alternative to TobiiInteractionLibProvider. Uses lower-level SDK with
-/// callback-based gaze subscription and blocking wait.
+/// Gaze provider using the Tobii Stream Engine (Tobii.StreamEngine.Net.dll, 64-bit).
+/// Uses callback-based gaze subscription and blocking wait.
 /// Reconnects indefinitely on disconnect.
 /// </summary>
 public class TobiiStreamEngineProvider : IGazeProvider
@@ -90,7 +90,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
 
         result = Interop.tobii_device_create(
             _apiContext, urls[0],
-            Interop.tobii_field_of_use_t.TOBII_FIELD_OF_USE_INTERACTIVE,
+            Interop.tobii_field_of_use_t.TOBII_FIELD_OF_USE_STORE_OR_TRANSFER_FALSE,
             out _deviceContext);
         if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
             throw new InvalidOperationException(
@@ -198,3 +198,4 @@ public class TobiiStreamEngineProvider : IGazeProvider
         Stop();
     }
 }
+#endif

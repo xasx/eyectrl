@@ -20,10 +20,10 @@ public class GazeProviderFactory
         return type switch
         {
             GazeProviderType.Mouse => new MouseGazeProvider(),
-            GazeProviderType.InteractionLib => new TobiiInteractionLibProvider(screenWidth, screenHeight,
-                _loggerFactory.CreateLogger<TobiiInteractionLibProvider>()),
+#if TOBII_AVAILABLE
             GazeProviderType.StreamEngine => new TobiiStreamEngineProvider(screenWidth, screenHeight,
                 _loggerFactory.CreateLogger<TobiiStreamEngineProvider>()),
+#endif
             GazeProviderType.Auto => CreateAuto(screenWidth, screenHeight),
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
@@ -35,25 +35,15 @@ public class GazeProviderFactory
     /// </summary>
     public static GazeProviderType GetProviderType(IGazeProvider provider) => provider switch
     {
-        TobiiInteractionLibProvider => GazeProviderType.InteractionLib,
+#if TOBII_AVAILABLE
         TobiiStreamEngineProvider => GazeProviderType.StreamEngine,
+#endif
         _ => GazeProviderType.Mouse
     };
 
     private IGazeProvider CreateAuto(double screenWidth, double screenHeight)
     {
-        try
-        {
-            var provider = new TobiiInteractionLibProvider(screenWidth, screenHeight,
-                _loggerFactory.CreateLogger<TobiiInteractionLibProvider>());
-            _logger.LogInformation("Using Tobii Interaction Library");
-            return provider;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("InteractionLib unavailable: {Message}", ex.Message);
-        }
-
+#if TOBII_AVAILABLE
         try
         {
             var provider = new TobiiStreamEngineProvider(screenWidth, screenHeight,
@@ -65,6 +55,7 @@ public class GazeProviderFactory
         {
             _logger.LogWarning("StreamEngine unavailable: {Message}", ex.Message);
         }
+#endif
 
         _logger.LogInformation("Falling back to Mouse simulation");
         return new MouseGazeProvider();

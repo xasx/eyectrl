@@ -20,4 +20,6 @@ public interface IInputSimulator
     void SendKeyUp(ushort virtualKeyCode);
     void SendText(string text);
     void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode);
+    void SendKeyPress(ushort virtualKeyCode, bool isExtendedKey);
+    void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey);
 }

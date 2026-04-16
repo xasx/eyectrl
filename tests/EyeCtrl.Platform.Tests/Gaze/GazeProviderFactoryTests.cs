@@ -29,11 +29,22 @@ public class GazeProviderFactoryTests
 
 #if TOBII_AVAILABLE
     [Fact]
-    public void Create_StreamEngine_ReturnsStreamEngineProvider()
+    public void Create_StreamEngine_SucceedsOrThrowsNoDevice()
     {
-        var provider = _factory.Create(GazeProviderType.StreamEngine, 1920, 1080);
-        Assert.Equal(GazeProviderType.StreamEngine, GazeProviderFactory.GetProviderType(provider));
-        provider.Dispose();
+        // SDK DLLs are present, but hardware may not be connected
+        var exception = Record.Exception(() =>
+        {
+            var provider = _factory.Create(GazeProviderType.StreamEngine, 1920, 1080);
+            Assert.Equal(GazeProviderType.StreamEngine, GazeProviderFactory.GetProviderType(provider));
+            provider.Dispose();
+        });
+
+        if (exception is not null)
+        {
+            // Only "no device found" is acceptable here
+            Assert.IsType<InvalidOperationException>(exception);
+            Assert.Contains("No Tobii device found", exception.Message);
+        }
     }
 #else
     [Fact]

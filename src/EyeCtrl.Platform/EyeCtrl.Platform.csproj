@@ -20,18 +20,18 @@
     <TobiiNativeDll>$(TobiiSdkPath)tobii_stream_engine.dll</TobiiNativeDll>
   </PropertyGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)')">
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)') And Exists('$(TobiiNativeDll)')">
     <Reference Include="Tobii.StreamEngine.Net">
       <HintPath>$(TobiiManagedDll)</HintPath>
       <Private>true</Private>
     </Reference>
-    <Content Include="$(TobiiNativeDll)" Condition="Exists('$(TobiiNativeDll)')">
+    <Content Include="$(TobiiNativeDll)">
       <Link>tobii_stream_engine.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)')">
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)') And Exists('$(TobiiNativeDll)')">
     <DefineConstants>$(DefineConstants);TOBII_AVAILABLE</DefineConstants>
   </PropertyGroup>
 

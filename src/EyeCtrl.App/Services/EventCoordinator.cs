@@ -537,41 +537,46 @@ public class EventCoordinator : IEventCoordinator
     {
         if (_context == null) return;
 
-        ushort vk = keyName switch
+        ushort vk = keyName.ToLowerInvariant() switch
         {
-            "Escape" => NativeMethods.VK_ESCAPE,
-            "F1" => NativeMethods.VK_F1,
-            "F2" => NativeMethods.VK_F2,
-            "F3" => NativeMethods.VK_F3,
-            "F4" => NativeMethods.VK_F4,
-            "F5" => NativeMethods.VK_F5,
-            "F6" => NativeMethods.VK_F6,
-            "F7" => NativeMethods.VK_F7,
-            "F8" => NativeMethods.VK_F8,
-            "F9" => NativeMethods.VK_F9,
-            "F10" => NativeMethods.VK_F10,
-            "F11" => NativeMethods.VK_F11,
-            "F12" => NativeMethods.VK_F12,
-            "Home" => NativeMethods.VK_HOME,
-            "End" => NativeMethods.VK_END,
-            "PageUp" => NativeMethods.VK_PRIOR,
-            "PageDown" => NativeMethods.VK_NEXT,
-            "ArrowUp" => NativeMethods.VK_UP,
-            "ArrowDown" => NativeMethods.VK_DOWN,
-            "ArrowLeft" => NativeMethods.VK_LEFT,
-            "ArrowRight" => NativeMethods.VK_RIGHT,
-            "Insert" => NativeMethods.VK_INSERT,
-            "Delete" => NativeMethods.VK_DELETE,
-            "PrintScreen" => NativeMethods.VK_SNAPSHOT,
+            "escape" => NativeMethods.VK_ESCAPE,
+            "f1" => NativeMethods.VK_F1,
+            "f2" => NativeMethods.VK_F2,
+            "f3" => NativeMethods.VK_F3,
+            "f4" => NativeMethods.VK_F4,
+            "f5" => NativeMethods.VK_F5,
+            "f6" => NativeMethods.VK_F6,
+            "f7" => NativeMethods.VK_F7,
+            "f8" => NativeMethods.VK_F8,
+            "f9" => NativeMethods.VK_F9,
+            "f10" => NativeMethods.VK_F10,
+            "f11" => NativeMethods.VK_F11,
+            "f12" => NativeMethods.VK_F12,
+            "home" => NativeMethods.VK_HOME,
+            "end" => NativeMethods.VK_END,
+            "pageup" => NativeMethods.VK_PRIOR,
+            "pagedown" => NativeMethods.VK_NEXT,
+            "arrowup" => NativeMethods.VK_UP,
+            "arrowdown" => NativeMethods.VK_DOWN,
+            "arrowleft" => NativeMethods.VK_LEFT,
+            "arrowright" => NativeMethods.VK_RIGHT,
+            "insert" => NativeMethods.VK_INSERT,
+            "delete" => NativeMethods.VK_DELETE,
+            "printscreen" => NativeMethods.VK_SNAPSHOT,
             _ => 0
         };
 
         if (vk != 0)
         {
+            // Arrow keys, Insert/Delete, Home/End, PageUp/PageDown, and PrintScreen require KEYEVENTF_EXTENDEDKEY
+            bool isExtendedKey = vk is NativeMethods.VK_UP or NativeMethods.VK_DOWN or NativeMethods.VK_LEFT or NativeMethods.VK_RIGHT
+                or NativeMethods.VK_HOME or NativeMethods.VK_END or NativeMethods.VK_PRIOR or NativeMethods.VK_NEXT
+                or NativeMethods.VK_INSERT or NativeMethods.VK_DELETE or NativeMethods.VK_SNAPSHOT;
+
             if (modifiers != null && modifiers.Count > 0)
-                _context.InputSimulator.SendModifiedKeyPress(modifiers, vk);
+                _context.InputSimulator.SendModifiedKeyPress(modifiers, vk, isExtendedKey);
             else
-                _context.InputSimulator.SendKeyPress(vk);
+                _context.InputSimulator.SendKeyPress(vk, isExtendedKey);
         }
         else
         {

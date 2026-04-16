@@ -83,6 +83,14 @@ public class Win32InputSimulator : IInputSimulator
         SendKeyUp(virtualKeyCode);
     }
 
+    public void SendKeyPress(ushort virtualKeyCode, bool isExtendedKey)
+    {
+        uint flags = isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
+        var down = CreateKeyboardInput(virtualKeyCode, flags);
+        var up = CreateKeyboardInput(virtualKeyCode, flags | NativeMethods.KEYEVENTF_KEYUP);
+        SendInputs(down, up);
+    }
+
     public void SendKeyDown(ushort virtualKeyCode)
     {
         var input = CreateKeyboardInput(virtualKeyCode, 0);
@@ -120,6 +128,11 @@ public class Win32InputSimulator : IInputSimulator
 
     public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode)
     {
+        SendModifiedKeyPress(modifiers, virtualKeyCode, isExtendedKey: false);
+    }
+
+    public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey)
+    {
         // Build list of modifier VK codes to press
         var modifierVks = new List<ushort>();
         if (modifiers.Contains(ModifierKey.Ctrl))
@@ -142,9 +155,10 @@ public class Win32InputSimulator : IInputSimulator
             inputs[idx++] = CreateKeyboardInput(vk, flags);
         }
 
-        // Main key
-        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, 0);
-        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, NativeMethods.KEYEVENTF_KEYUP);
+        // Main key (with extended key flag if specified)
+        uint mainKeyFlags = isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
+        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, mainKeyFlags);
+        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, mainKeyFlags | NativeMethods.KEYEVENTF_KEYUP);
 
         // Modifier key-ups (reverse order, with extended key flag)
         for (int i = modifierVks.Count - 1; i >= 0; i--)

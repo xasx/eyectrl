@@ -68,38 +68,49 @@ public class PhraseModelTests
         for (int i = 0; i < 3; i++)
             model.LearnPhrase(new[] { "I", "am", "looking", "forward" });
 
-        // Assert - Should create multiple sub-phrases
+        // Assert - Should create multiple sub-phrases (case-sensitive)
         var fromI = model.GetPhrases("I", 10);
         var fromIAm = model.GetPhrases("I am", 10);
         var fromIAmLooking = model.GetPhrases("I am looking", 10);
 
-        Assert.Contains(fromI, p => p.phrase == "i am");
-        Assert.Contains(fromIAm, p => p.phrase == "i am looking");
-        Assert.Contains(fromIAmLooking, p => p.phrase == "i am looking forward");
+        Assert.Contains(fromI, p => p.phrase == "I am");
+        Assert.Contains(fromIAm, p => p.phrase == "I am looking");
+        Assert.Contains(fromIAmLooking, p => p.phrase == "I am looking forward");
     }
 
     [Fact]
-    public void LearnPhrase_IsCaseInsensitive()
+    public void LearnPhrase_IsCaseSensitive()
     {
         // Arrange
         var model = new PhraseModel();
 
-        // Act
+        // Act - Learn each case variant multiple times to exceed MinFrequency threshold
+        model.LearnPhrase(new[] { "Thank", "You" });
         model.LearnPhrase(new[] { "Thank", "You" });
         model.LearnPhrase(new[] { "THANK", "YOU" });
+        model.LearnPhrase(new[] { "THANK", "YOU" });
+        model.LearnPhrase(new[] { "thank", "you" });
         model.LearnPhrase(new[] { "thank", "you" });
 
-        // Assert
+        // Assert - Case-sensitive: each variant is distinct
         var phrases1 = model.GetPhrases("thank", 10);
         var phrases2 = model.GetPhrases("THANK", 10);
         var phrases3 = model.GetPhrases("Thank", 10);
 
+        // Only "thank" prefix has 2 occurrences
         Assert.Single(phrases1);
         Assert.Equal("thank you", phrases1[0].phrase);
-        Assert.Equal(3, phrases1[0].frequency);
+        Assert.Equal(2, phrases1[0].frequency);
 
-        Assert.Equal(phrases1, phrases2);
-        Assert.Equal(phrases1, phrases3);
+        // Only "THANK" prefix has 2 occurrences
+        Assert.Single(phrases2);
+        Assert.Equal("THANK YOU", phrases2[0].phrase);
+        Assert.Equal(2, phrases2[0].frequency);
+
+        // Only "Thank" prefix has 2 occurrences
+        Assert.Single(phrases3);
+        Assert.Equal("Thank You", phrases3[0].phrase);
+        Assert.Equal(2, phrases3[0].frequency);
     }
 
     [Fact]

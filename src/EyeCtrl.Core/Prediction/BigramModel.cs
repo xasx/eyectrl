@@ -19,14 +19,11 @@ public class BigramModel
         if (string.IsNullOrWhiteSpace(word1) || string.IsNullOrWhiteSpace(word2))
             return;
 
-        var key = word1.ToLowerInvariant();
-        var value = word2.ToLowerInvariant();
+        if (!_bigrams.ContainsKey(word1))
+            _bigrams[word1] = new Dictionary<string, int>();
 
-        if (!_bigrams.ContainsKey(key))
-            _bigrams[key] = new Dictionary<string, int>();
-
-        var followers = _bigrams[key];
-        followers[value] = followers.GetValueOrDefault(value) + 1;
+        var followers = _bigrams[word1];
+        followers[word2] = followers.GetValueOrDefault(word2) + 1;
     }
 
     /// <summary>
@@ -40,7 +37,7 @@ public class BigramModel
         if (string.IsNullOrEmpty(previousWord))
             return new List<(string, int)>();
 
-        if (!_bigrams.TryGetValue(previousWord.ToLowerInvariant(), out var followers))
+        if (!_bigrams.TryGetValue(previousWord, out var followers))
             return new List<(string, int)>();
 
         return followers

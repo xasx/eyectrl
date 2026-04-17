@@ -28,12 +28,10 @@ public class PhraseModel
                 var phraseWords = words.Skip(i).Take(len).ToArray();
 
                 // Prefix is all words except the last
-                var prefix = string.Join(" ", phraseWords.Take(len - 1))
-                    .ToLowerInvariant();
+                var prefix = string.Join(" ", phraseWords.Take(len - 1));
 
                 // Full phrase includes all words
-                var fullPhrase = string.Join(" ", phraseWords)
-                    .ToLowerInvariant();
+                var fullPhrase = string.Join(" ", phraseWords);
 
                 if (!_phrases.ContainsKey(prefix))
                     _phrases[prefix] = new Dictionary<string, int>();
@@ -54,7 +52,7 @@ public class PhraseModel
         if (string.IsNullOrEmpty(prefix))
             return new List<(string, int)>();
 
-        if (!_phrases.TryGetValue(prefix.ToLowerInvariant(), out var matches))
+        if (!_phrases.TryGetValue(prefix, out var matches))
             return new List<(string, int)>();
 
         return matches

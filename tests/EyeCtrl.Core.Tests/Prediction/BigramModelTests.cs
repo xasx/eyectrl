@@ -68,25 +68,32 @@ public class BigramModelTests
     }
 
     [Fact]
-    public void GetNextWords_IsCaseInsensitive()
+    public void GetNextWords_IsCaseSensitive()
     {
         // Arrange
         var model = new BigramModel();
+        // Learn each case variant multiple times to exceed MinFrequency threshold
         model.Learn("Hello", "World");
+        model.Learn("Hello", "World");
+        model.Learn("HELLO", "WORLD");
         model.Learn("HELLO", "WORLD");
 
         // Act
-        var nextWords1 = model.GetNextWords("hello", 10);
+        var nextWords1 = model.GetNextWords("Hello", 10);
         var nextWords2 = model.GetNextWords("HELLO", 10);
-        var nextWords3 = model.GetNextWords("HeLLo", 10);
+        var nextWords3 = model.GetNextWords("hello", 10);
 
-        // Assert
+        // Assert - Case-sensitive: "Hello" and "HELLO" are distinct keys
         Assert.Single(nextWords1);
-        Assert.Equal("world", nextWords1[0].word);
+        Assert.Equal("World", nextWords1[0].word);
         Assert.Equal(2, nextWords1[0].frequency);
 
-        Assert.Equal(nextWords1, nextWords2);
-        Assert.Equal(nextWords1, nextWords3);
+        Assert.Single(nextWords2);
+        Assert.Equal("WORLD", nextWords2[0].word);
+        Assert.Equal(2, nextWords2[0].frequency);
+
+        // "hello" doesn't exist, should return empty
+        Assert.Empty(nextWords3);
     }
 
     [Fact]

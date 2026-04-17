@@ -67,8 +67,9 @@ public class FileDictionaryProvider : IDictionaryProvider
                     _abbreviations = new HashSet<string>(data.Abbreviations, StringComparer.OrdinalIgnoreCase);
                 }
             }
-            catch (JsonException)
+            catch (JsonException ex)
             {
+                _logger?.LogWarning(ex, "Failed to deserialize dictionary as new format from {Path}, falling back to old format", _baseDictionaryPath);
                 // Fall back to old format (just a dictionary)
                 var baseWords = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
                 if (baseWords != null)

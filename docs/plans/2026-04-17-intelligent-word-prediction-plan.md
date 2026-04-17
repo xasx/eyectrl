@@ -783,13 +783,255 @@ private static Border? CreateTypeBadge(PredictionType type)
 
 ## Future Enhancements (Post-MVP)
 
-### Phase 7: Advanced Features (Future)
+### Phase 7: Case-Sensitivity Enhancements (High Priority)
+
+**Context:** Current implementation uses case-sensitive storage for German language support (nouns must be capitalized), but this creates usability challenges when predictions don't match user's casing expectations.
+
+**Goals:**
+1. Preserve proper casing for German nouns and other language-specific requirements
+2. Improve flexibility by offering case-insensitive fallback suggestions
+3. Learn from user corrections to improve stored casing over time
+4. Handle ALL-CAPS input gracefully
+
+#### 7.1 Case-Insensitive Fallback Matching
+
+**Problem:** If user types "haus" but system only has "Haus" (German noun), no suggestion appears.
+
+**Solution:** Implement tiered matching with priority scoring:
+
+```csharp
+public List<PredictionResult> GetSuggestions(string prefix, string? previousWord, int maxCount = 5)
+{
+    var scored = new Dictionary<string, (double score, PredictionType type)>();
+
+    // Tier 1: Exact case match (highest priority)
+    foreach (var (word, frequency) in nextWords)
+    {
+        if (word.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            scored[word] = (frequency * BigramBoost * 1.2, PredictionType.NextWord);
+        }
+    }
+
+    // Tier 2: Case-insensitive match (lower priority)
+    foreach (var (word, frequency) in nextWords)
+    {
+        if (!scored.ContainsKey(word) &&
+            word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            scored[word] = (frequency * BigramBoost * 0.8, PredictionType.NextWord);
+        }
+    }
+
+    // Continue with other prediction types...
+}
+```
+
+**Benefits:**
+- User typing "haus" still sees "Haus" suggestion (just with lower priority)
+- Exact case matches get preference when available
+- Works for all languages, not just German
+
+#### 7.2 ALL-CAPS Normalization
+
+**Problem:** User types "HELLO" but system should suggest normal casing "Hello" or "hello".
+
+**Solution:** Detect ALL-CAPS input and apply smart normalization:
+
+```csharp
+public static class CasingHelper
+{
+    public static bool IsAllCaps(string text)
+    {
+        return text.Length > 1 && text.All(char.IsUpper);
+    }
+
+    public static string NormalizeAllCaps(string word)
+    {
+        if (!IsAllCaps(word)) return word;
+
+        // Convert to title case (first letter upper, rest lower)
+        // Unless it's a known acronym
+        if (IsKnownAcronym(word)) return word;
+
+        return char.ToUpper(word[0]) + word[1..].ToLower();
+    }
+
+    private static bool IsKnownAcronym(string word)
+    {
+        // Common acronyms that should stay all-caps
+        var acronyms = new HashSet<string> { "USA", "UK", "NATO", "FBI", "CIA", "NASA" };
+        return acronyms.Contains(word);
+    }
+}
+```
+
+**Implementation:**
+- Apply during prefix matching: `var normalizedPrefix = CasingHelper.NormalizeAllCaps(prefix);`
+- Store normalized version in BigramModel/PhraseModel
+- Handle in `LearnSequence()` before learning patterns
+
+#### 7.3 Learning from User Corrections
+
+**Problem:** System learned "haus" but user always types "Haus". System should adapt.
+
+**Solution:** Track casing frequency and update preferences:
+
+```csharp
+public class CasingPreferenceTracker
+{
+    // Tracks how often each casing variant is used
+    private readonly Dictionary<string, Dictionary<string, int>> _casingVariants = new();
+
+    public void RecordCasing(string word)
+    {
+        var lowerKey = word.ToLowerInvariant();
+
+        if (!_casingVariants.ContainsKey(lowerKey))
+            _casingVariants[lowerKey] = new Dictionary<string, int>();
+
+        var variants = _casingVariants[lowerKey];
+        variants[word] = variants.GetValueOrDefault(word) + 1;
+    }
+
+    public string GetPreferredCasing(string word)
+    {
+        var lowerKey = word.ToLowerInvariant();
+
+        if (!_casingVariants.TryGetValue(lowerKey, out var variants))
+            return word;
+
+        // Return most frequently used casing
+        return variants.OrderByDescending(kv => kv.Value).First().Key;
+    }
+}
+```
+
+**Integration Points:**
+- Call `RecordCasing()` in `KeyboardViewModel.HandleSpace()` when word is completed
+- Use `GetPreferredCasing()` in BigramModel/PhraseModel when returning predictions
+- Persist casing preferences to `user_dictionary_{lang}_casing.json`
+
+#### 7.4 Language-Specific Abbreviations
+
+**Problem:** Current `CommonAbbreviations` in `CapitalizationHelper` is English-only.
+
+**Solution:** Create language-specific abbreviation sets:
+
+```csharp
+public static class LanguageAbbreviations
+{
+    private static readonly Dictionary<string, HashSet<string>> AbbreviationsByLanguage = new()
+    {
+        ["en"] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "mr", "mrs", "ms", "dr", "prof", "sr", "jr",
+            "etc", "vs", "i.e", "e.g", "a.m", "p.m",
+            "st", "ave", "blvd", "dept", "inc", "ltd", "co"
+        },
+        ["de"] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "z.b", "bzw", "usw", "u.a", "d.h", "v.a",
+            "dr", "prof", "hrsg", "bd", "jh", "s", "str"
+        },
+        ["fr"] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "m", "mme", "mlle", "dr", "prof",
+            "etc", "av", "bd", "r", "c.-à-d", "p.ex"
+        },
+        ["es"] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "sr", "sra", "srta", "dr", "dra",
+            "etc", "p.ej", "av", "c", "n", "s.a"
+        }
+    };
+
+    public static HashSet<string> GetAbbreviations(string languageCode)
+    {
+        return AbbreviationsByLanguage.TryGetValue(languageCode, out var abbrevs)
+            ? abbrevs
+            : AbbreviationsByLanguage["en"]; // Fallback to English
+    }
+}
+```
+
+**Changes to CapitalizationHelper:**
+```csharp
+public static bool ShouldCapitalize(string currentText, string languageCode = "en")
+{
+    // ... existing logic ...
+
+    var abbreviations = LanguageAbbreviations.GetAbbreviations(languageCode);
+    if (abbreviations.Contains(lastWordTrimmed))
+        return false; // Don't capitalize after abbreviation
+
+    // ... rest of logic ...
+}
+```
+
+#### Implementation Timeline
+
+**Phase 7.1: Case-Insensitive Fallback (1-2 days)**
+- Update WordPredictor with tiered matching
+- Add tests for case-insensitive fallback
+- Ensure German nouns still get priority with exact case
+
+**Phase 7.2: ALL-CAPS Normalization (1 day)**
+- Implement CasingHelper utility
+- Integrate with LearnSequence
+- Add tests for acronym detection
+
+**Phase 7.3: Casing Preference Learning (2 days)**
+- Implement CasingPreferenceTracker
+- Add persistence layer
+- Integrate with BigramModel/PhraseModel
+- Add tests for preference tracking and updates
+
+**Phase 7.4: Language-Specific Abbreviations (1 day)**
+- Create LanguageAbbreviations utility
+- Update CapitalizationHelper
+- Add abbreviations for de, fr, es
+- Add tests for each language
+
+**Total Estimate: 5-6 days**
+
+#### Testing Strategy
+
+1. **Case Matching Tests**
+   - Exact case match gets higher score than case-insensitive
+   - Case-insensitive fallback works when exact match unavailable
+   - German nouns (Haus) suggested even when user types lowercase (haus)
+
+2. **ALL-CAPS Tests**
+   - "HELLO" normalized to "Hello"
+   - Acronyms preserved: "USA" stays "USA"
+   - ALL-CAPS detection with single letter excluded
+
+3. **Casing Preference Tests**
+   - User typing "Haus" 10 times updates preference
+   - Next suggestion uses preferred casing
+   - Preferences persist across sessions
+
+4. **Language Abbreviation Tests**
+   - English abbreviations don't trigger capitalization
+   - German "z.B." handled correctly
+   - French "M." doesn't capitalize next word
+   - Spanish abbreviations work correctly
+
+#### Migration Strategy
+
+- All changes are backward compatible
+- Existing casing data continues to work
+- New casing preferences file created on first use
+- No settings changes required (all enhancements automatic)
+
+### Phase 8: Advanced Features (Future)
 - Time-based pattern tracking
 - Decay mechanism for old patterns
 - Trie-based prefix search for very large dictionaries
 - Cloud sync for personal dictionaries
 
-### Phase 8: Machine Learning (Future)
+### Phase 9: Machine Learning (Future)
 - Transformer-based next-word prediction
 - Personalized model fine-tuning
 - Multi-word context (trigrams+)

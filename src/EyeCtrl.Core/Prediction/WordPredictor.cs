@@ -7,10 +7,16 @@ public class WordPredictor
     private readonly Dictionary<char, HashSet<char>> _adjacencyMap;
     private readonly BigramModel _bigrams;
     private readonly PhraseModel _phrases;
+    private readonly HashSet<string>? _abbreviations;
 
     private const double MaxFuzzyDistance = 1.5;
     private const double BigramBoost = 2.0;
     private const double PhraseBoost = 1.5;
+
+    /// <summary>
+    /// Gets the language-specific abbreviations loaded from the dictionary.
+    /// </summary>
+    public HashSet<string>? Abbreviations => _abbreviations;
 
     public WordPredictor(IDictionaryProvider provider, string layoutName = "QWERTY")
     {
@@ -30,6 +36,9 @@ public class WordPredictor
             var phraseData = fileProvider.LoadPhrases();
             if (phraseData.Count > 0)
                 _phrases.LoadFromDictionary(phraseData);
+
+            // Load abbreviations
+            _abbreviations = fileProvider.Abbreviations.Count > 0 ? fileProvider.Abbreviations : null;
         }
     }
 

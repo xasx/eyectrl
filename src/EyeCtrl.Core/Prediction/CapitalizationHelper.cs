@@ -14,16 +14,16 @@ public static class CapitalizationHelper
     /// <returns>True if the next word should be capitalized.</returns>
     public static bool ShouldCapitalize(string currentText)
     {
-        return ShouldCapitalize(currentText, "en");
+        return ShouldCapitalize(currentText, null);
     }
 
     /// <summary>
     /// Determines if the next word should be capitalized based on context.
     /// </summary>
     /// <param name="currentText">The text typed so far.</param>
-    /// <param name="languageCode">Two-letter ISO language code for language-specific abbreviations.</param>
+    /// <param name="abbreviations">Optional set of language-specific abbreviations.</param>
     /// <returns>True if the next word should be capitalized.</returns>
-    public static bool ShouldCapitalize(string currentText, string languageCode)
+    public static bool ShouldCapitalize(string currentText, HashSet<string>? abbreviations)
     {
         if (string.IsNullOrEmpty(currentText))
             return true;
@@ -41,9 +41,6 @@ public static class CapitalizationHelper
             // Check if this is likely an abbreviation
             if (lastChar == '.' && trimmed.Length > 1)
             {
-                // Get language-specific abbreviations
-                var abbreviations = AbbreviationProvider.GetAbbreviations(languageCode);
-
                 // Look for pattern: period preceded by a known abbreviation
                 var beforePeriod = trimmed[..^1].TrimEnd();
                 if (beforePeriod.Length > 0)
@@ -53,8 +50,8 @@ public static class CapitalizationHelper
                     {
                         var lastWord = words[^1];
 
-                        // Check if it's a known abbreviation
-                        if (abbreviations.Contains(lastWord))
+                        // Check if it's a known abbreviation (if abbreviations provided)
+                        if (abbreviations != null && abbreviations.Contains(lastWord))
                             return false;
 
                         // Also check for single-letter abbreviations (e.g., "A.", "B.")
@@ -109,7 +106,7 @@ public static class CapitalizationHelper
     /// <returns>The word with appropriate capitalization.</returns>
     public static string ApplySmartCapitalization(string word, string currentText)
     {
-        return ApplySmartCapitalization(word, currentText, "en");
+        return ApplySmartCapitalization(word, currentText, null);
     }
 
     /// <summary>
@@ -118,9 +115,9 @@ public static class CapitalizationHelper
     /// </summary>
     /// <param name="word">The word to potentially capitalize.</param>
     /// <param name="currentText">The text typed so far.</param>
-    /// <param name="languageCode">Two-letter ISO language code for language-specific abbreviations.</param>
+    /// <param name="abbreviations">Optional set of language-specific abbreviations.</param>
     /// <returns>The word with appropriate capitalization.</returns>
-    public static string ApplySmartCapitalization(string word, string currentText, string languageCode)
+    public static string ApplySmartCapitalization(string word, string currentText, HashSet<string>? abbreviations)
     {
         if (string.IsNullOrEmpty(word))
             return string.Empty;
@@ -130,7 +127,7 @@ public static class CapitalizationHelper
             return word;
 
         // If we should capitalize, do so
-        if (ShouldCapitalize(currentText, languageCode))
+        if (ShouldCapitalize(currentText, abbreviations))
             return Capitalize(word);
 
         return word;

@@ -1,15 +1,34 @@
 namespace EyeCtrl.Core.Prediction;
 
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+
+/// <summary>
+/// DTO for dictionary JSON file format.
+/// </summary>
+internal class DictionaryData
+{
+    [JsonPropertyName("words")]
+    public Dictionary<string, int>? Words { get; set; }
+
+    [JsonPropertyName("abbreviations")]
+    public List<string>? Abbreviations { get; set; }
+}
 
 public class FileDictionaryProvider : IDictionaryProvider
 {
     private readonly string _baseDictionaryPath;
     private readonly string _userDictionaryPath;
     private readonly ILogger<FileDictionaryProvider>? _logger;
+    private HashSet<string>? _abbreviations;
 
     public string UserDictionaryPath => _userDictionaryPath;
+
+    /// <summary>
+    /// Gets the abbreviations loaded from the base dictionary file.
+    /// </summary>
+    public HashSet<string> Abbreviations => _abbreviations ?? [];
 
     public FileDictionaryProvider(string baseDictionaryPath, string appDataDir, string languageCode, ILogger<FileDictionaryProvider>? logger = null)
     {
@@ -31,10 +50,31 @@ public class FileDictionaryProvider : IDictionaryProvider
         if (File.Exists(_baseDictionaryPath))
         {
             var json = File.ReadAllText(_baseDictionaryPath);
-            var baseWords = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
-            if (baseWords != null)
-                foreach (var kv in baseWords)
-                    words[kv.Key] = kv.Value;
+
+            // Try to deserialize as new format (with words and abbreviations)
+            try
+            {
+                var data = JsonSerializer.Deserialize<DictionaryData>(json);
+                if (data?.Words != null)
+                {
+                    foreach (var kv in data.Words)
+                        words[kv.Key] = kv.Value;
+                }
+
+                // Load abbreviations if present
+                if (data?.Abbreviations != null && data.Abbreviations.Count > 0)
+                {
+                    _abbreviations = new HashSet<string>(data.Abbreviations, StringComparer.OrdinalIgnoreCase);
+                }
+            }
+            catch (JsonException)
+            {
+                // Fall back to old format (just a dictionary)
+                var baseWords = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
+                if (baseWords != null)
+                    foreach (var kv in baseWords)
+                        words[kv.Key] = kv.Value;
+            }
         }
 
         if (File.Exists(_userDictionaryPath))

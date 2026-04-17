@@ -249,8 +249,11 @@ public class CapitalizationHelperTests
     [Fact]
     public void ShouldCapitalize_ReturnsFalseWithGermanAbbreviation()
     {
-        // Arrange & Act
-        var result = CapitalizationHelper.ShouldCapitalize("z.B. das", "de");
+        // Arrange
+        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b", "bzw", "usw", "evtl" };
+
+        // Act
+        var result = CapitalizationHelper.ShouldCapitalize("z.B. das", germanAbbreviations);
 
         // Assert
         Assert.False(result);
@@ -259,8 +262,11 @@ public class CapitalizationHelperTests
     [Fact]
     public void ShouldCapitalize_ReturnsFalseWithFrenchAbbreviation()
     {
-        // Arrange & Act
-        var result = CapitalizationHelper.ShouldCapitalize("M. Smith", "fr");
+        // Arrange
+        var frenchAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "m", "mme", "mlle", "dr" };
+
+        // Act
+        var result = CapitalizationHelper.ShouldCapitalize("M. Smith", frenchAbbreviations);
 
         // Assert
         Assert.False(result);
@@ -269,8 +275,11 @@ public class CapitalizationHelperTests
     [Fact]
     public void ShouldCapitalize_ReturnsFalseWithSpanishAbbreviation()
     {
-        // Arrange & Act
-        var result = CapitalizationHelper.ShouldCapitalize("Sr. García", "es");
+        // Arrange
+        var spanishAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "sr", "sra", "srta", "dr" };
+
+        // Act
+        var result = CapitalizationHelper.ShouldCapitalize("Sr. García", spanishAbbreviations);
 
         // Assert
         Assert.False(result);
@@ -279,8 +288,11 @@ public class CapitalizationHelperTests
     [Fact]
     public void ShouldCapitalize_ReturnsFalseWithPolishAbbreviation()
     {
-        // Arrange & Act
-        var result = CapitalizationHelper.ShouldCapitalize("np. przykład", "pl");
+        // Arrange
+        var polishAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "np", "itd", "dr", "prof" };
+
+        // Act
+        var result = CapitalizationHelper.ShouldCapitalize("np. przykład", polishAbbreviations);
 
         // Assert
         Assert.False(result);
@@ -289,9 +301,11 @@ public class CapitalizationHelperTests
     [Fact]
     public void ShouldCapitalize_ReturnsTrueAfterNonAbbreviationPeriodInGerman()
     {
-        // Arrange & Act
-        // "Wort" is 4 chars, so not caught by heuristic, and not an abbreviation
-        var result = CapitalizationHelper.ShouldCapitalize("Das ist ein Wort. ", "de");
+        // Arrange
+        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b", "bzw", "usw", "evtl" };
+
+        // Act - "Wort" is 4 chars, so not caught by heuristic, and not an abbreviation
+        var result = CapitalizationHelper.ShouldCapitalize("Das ist ein Wort. ", germanAbbreviations);
 
         // Assert
         Assert.True(result);
@@ -300,41 +314,44 @@ public class CapitalizationHelperTests
     [Fact]
     public void ApplySmartCapitalization_UsesLanguageSpecificAbbreviations()
     {
-        // Arrange & Act - German abbreviation "usw" should not trigger capitalization
-        var result = CapitalizationHelper.ApplySmartCapitalization("beispiel", "zum Beispiel usw. ", "de");
+        // Arrange
+        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b", "bzw", "usw", "evtl" };
+
+        // Act - German abbreviation "usw" should not trigger capitalization
+        var result = CapitalizationHelper.ApplySmartCapitalization("beispiel", "zum Beispiel usw. ", germanAbbreviations);
 
         // Assert - Should not capitalize after German abbreviation
         Assert.Equal("beispiel", result);
     }
 
     [Fact]
-    public void ApplySmartCapitalization_CapitalizesWithWrongLanguageAbbreviation()
+    public void ApplySmartCapitalization_CapitalizesWithoutAbbreviations()
     {
-        // Arrange & Act - Using German abbreviation "evtl" (eventuell) but English language code
-        // "evtl" is a German abbreviation but not English
-        var result = CapitalizationHelper.ApplySmartCapitalization("word", "for example evtl. ", "en");
+        // Arrange - No abbreviations provided, so "evtl" will not be recognized
+        // Act
+        var result = CapitalizationHelper.ApplySmartCapitalization("word", "for example evtl. ", null);
 
-        // Assert - Should capitalize because "evtl" is not an English abbreviation
+        // Assert - Should capitalize because "evtl" is not recognized without abbreviations
         Assert.Equal("Word", result);
     }
 
     [Fact]
-    public void ShouldCapitalize_DefaultsToEnglishWithoutLanguageCode()
+    public void ShouldCapitalize_DefaultsToNoAbbreviationsWhenNotProvided()
     {
         // Arrange & Act
         var resultWithout = CapitalizationHelper.ShouldCapitalize("Mr. Smith");
-        var resultWith = CapitalizationHelper.ShouldCapitalize("Mr. Smith", "en");
+        var resultWith = CapitalizationHelper.ShouldCapitalize("Mr. Smith", null);
 
         // Assert - Both should behave the same way
         Assert.Equal(resultWith, resultWithout);
     }
 
     [Fact]
-    public void ApplySmartCapitalization_DefaultsToEnglishWithoutLanguageCode()
+    public void ApplySmartCapitalization_DefaultsToNoAbbreviationsWhenNotProvided()
     {
         // Arrange & Act
         var resultWithout = CapitalizationHelper.ApplySmartCapitalization("hello", "");
-        var resultWith = CapitalizationHelper.ApplySmartCapitalization("hello", "", "en");
+        var resultWith = CapitalizationHelper.ApplySmartCapitalization("hello", "", null);
 
         // Assert - Both should behave the same way
         Assert.Equal(resultWith, resultWithout);

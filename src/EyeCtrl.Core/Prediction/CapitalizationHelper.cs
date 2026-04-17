@@ -50,11 +50,6 @@ public static class CapitalizationHelper
                         // Check if it's a known abbreviation
                         if (CommonAbbreviations.Contains(lastWord))
                             return false;
-
-                        // Also check for single-letter abbreviations (e.g., "A.", "B.")
-                        // or short lowercase words (likely abbreviations like "i.e.", "e.g.")
-                        if (lastWord.Length <= 3 && char.IsLower(lastWord[0]))
-                            return false;
                     }
                 }
             }

@@ -137,9 +137,21 @@ public class FileDictionaryProvider : IDictionaryProvider
         File.WriteAllText(path, json);
     }
 
-    private string GetBigramPath() => _userDictionaryPath.Replace(".json", "_bigrams.json");
+    private string GetBigramPath()
+    {
+        var directory = Path.GetDirectoryName(_userDictionaryPath);
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_userDictionaryPath);
+        var bigramFileName = fileNameWithoutExtension + "_bigrams.json";
+        return string.IsNullOrEmpty(directory) ? bigramFileName : Path.Combine(directory, bigramFileName);
+    }
 
-    private string GetPhrasePath() => _userDictionaryPath.Replace(".json", "_phrases.json");
+    private string GetPhrasePath()
+    {
+        var directory = Path.GetDirectoryName(_userDictionaryPath);
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_userDictionaryPath);
+        var phraseFileName = fileNameWithoutExtension + "_phrases.json";
+        return string.IsNullOrEmpty(directory) ? phraseFileName : Path.Combine(directory, phraseFileName);
+    }
 
     private static string NormalizeSeparators(string path, char separator)
     {

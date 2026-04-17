@@ -25,13 +25,9 @@ public class PhraseModel
         {
             for (int i = 0; i <= words.Length - len; i++)
             {
-                var phraseWords = words.Skip(i).Take(len).ToArray();
-
-                // Prefix is all words except the last
-                var prefix = string.Join(" ", phraseWords.Take(len - 1));
-
-                // Full phrase includes all words
-                var fullPhrase = string.Join(" ", phraseWords);
+                // Build prefix and full phrase using index-based iteration to avoid allocations
+                var prefix = BuildJoinedString(words, i, len - 1);
+                var fullPhrase = BuildJoinedString(words, i, len);
 
                 if (!_phrases.ContainsKey(prefix))
                     _phrases[prefix] = new Dictionary<string, int>();
@@ -39,6 +35,42 @@ public class PhraseModel
                 _phrases[prefix][fullPhrase] = _phrases[prefix].GetValueOrDefault(fullPhrase) + 1;
             }
         }
+    }
+
+    /// <summary>
+    /// Builds a space-joined string from a segment of the words array without intermediate allocations.
+    /// </summary>
+    /// <param name="words">The source word array.</param>
+    /// <param name="startIndex">The starting index in the array.</param>
+    /// <param name="count">The number of words to join.</param>
+    /// <returns>The joined string.</returns>
+    private static string BuildJoinedString(string[] words, int startIndex, int count)
+    {
+        if (count == 0)
+            return string.Empty;
+        if (count == 1)
+            return words[startIndex];
+
+        // Calculate total length to pre-allocate the right size
+        int totalLength = words[startIndex].Length;
+        for (int i = 1; i < count; i++)
+            totalLength += 1 + words[startIndex + i].Length; // +1 for space
+
+        return string.Create(totalLength, (words, startIndex, count), (span, state) =>
+        {
+            var (w, start, cnt) = state;
+            int pos = 0;
+
+            for (int i = 0; i < cnt; i++)
+            {
+                if (i > 0)
+                    span[pos++] = ' ';
+
+                var word = w[start + i];
+                word.AsSpan().CopyTo(span[pos..]);
+                pos += word.Length;
+            }
+        });
     }
 
     /// <summary>

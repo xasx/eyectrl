@@ -243,4 +243,100 @@ public class CapitalizationHelperTests
         // Assert
         Assert.Equal("", result);
     }
+
+    // Language-specific abbreviation tests
+
+    [Fact]
+    public void ShouldCapitalize_ReturnsFalseWithGermanAbbreviation()
+    {
+        // Arrange & Act
+        var result = CapitalizationHelper.ShouldCapitalize("z.B. das", "de");
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void ShouldCapitalize_ReturnsFalseWithFrenchAbbreviation()
+    {
+        // Arrange & Act
+        var result = CapitalizationHelper.ShouldCapitalize("M. Smith", "fr");
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void ShouldCapitalize_ReturnsFalseWithSpanishAbbreviation()
+    {
+        // Arrange & Act
+        var result = CapitalizationHelper.ShouldCapitalize("Sr. García", "es");
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void ShouldCapitalize_ReturnsFalseWithPolishAbbreviation()
+    {
+        // Arrange & Act
+        var result = CapitalizationHelper.ShouldCapitalize("np. przykład", "pl");
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void ShouldCapitalize_ReturnsTrueAfterNonAbbreviationPeriodInGerman()
+    {
+        // Arrange & Act
+        // "Wort" is 4 chars, so not caught by heuristic, and not an abbreviation
+        var result = CapitalizationHelper.ShouldCapitalize("Das ist ein Wort. ", "de");
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void ApplySmartCapitalization_UsesLanguageSpecificAbbreviations()
+    {
+        // Arrange & Act - German abbreviation "usw" should not trigger capitalization
+        var result = CapitalizationHelper.ApplySmartCapitalization("beispiel", "zum Beispiel usw. ", "de");
+
+        // Assert - Should not capitalize after German abbreviation
+        Assert.Equal("beispiel", result);
+    }
+
+    [Fact]
+    public void ApplySmartCapitalization_CapitalizesWithWrongLanguageAbbreviation()
+    {
+        // Arrange & Act - Using German abbreviation "evtl" (eventuell) but English language code
+        // "evtl" is a German abbreviation but not English
+        var result = CapitalizationHelper.ApplySmartCapitalization("word", "for example evtl. ", "en");
+
+        // Assert - Should capitalize because "evtl" is not an English abbreviation
+        Assert.Equal("Word", result);
+    }
+
+    [Fact]
+    public void ShouldCapitalize_DefaultsToEnglishWithoutLanguageCode()
+    {
+        // Arrange & Act
+        var resultWithout = CapitalizationHelper.ShouldCapitalize("Mr. Smith");
+        var resultWith = CapitalizationHelper.ShouldCapitalize("Mr. Smith", "en");
+
+        // Assert - Both should behave the same way
+        Assert.Equal(resultWith, resultWithout);
+    }
+
+    [Fact]
+    public void ApplySmartCapitalization_DefaultsToEnglishWithoutLanguageCode()
+    {
+        // Arrange & Act
+        var resultWithout = CapitalizationHelper.ApplySmartCapitalization("hello", "");
+        var resultWith = CapitalizationHelper.ApplySmartCapitalization("hello", "", "en");
+
+        // Assert - Both should behave the same way
+        Assert.Equal(resultWith, resultWithout);
+    }
 }

@@ -35,28 +35,25 @@ public class WordPredictor
 
     public List<PredictionResult> GetSuggestions(string prefix, string? previousWord, int maxCount = 5)
     {
-        var lowerPrefix = prefix.ToLowerInvariant();
         var scored = new Dictionary<string, (double score, PredictionType type)>();
         var hasContext = !string.IsNullOrWhiteSpace(previousWord);
 
         // If we have context (previous word), check for bigram and phrase matches
         if (hasContext)
         {
-            var prevLower = previousWord!.ToLowerInvariant();
-
-            // Check bigram predictions
-            var nextWords = _bigrams.GetNextWords(prevLower, maxCount * 2);
+            // Check bigram predictions (case-sensitive)
+            var nextWords = _bigrams.GetNextWords(previousWord!, maxCount * 2);
             foreach (var (word, frequency) in nextWords)
             {
-                if (string.IsNullOrEmpty(lowerPrefix) || word.StartsWith(lowerPrefix))
+                if (string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
                     var baseScore = frequency * BigramBoost;
                     scored[word] = (baseScore, PredictionType.NextWord);
                 }
             }
 
-            // Check phrase predictions
-            var phrases = _phrases.GetPhrases(prevLower, maxCount * 2);
+            // Check phrase predictions (case-sensitive)
+            var phrases = _phrases.GetPhrases(previousWord!, maxCount * 2);
             foreach (var (phrase, frequency) in phrases)
             {
                 // Extract the next word from the phrase
@@ -64,7 +61,7 @@ public class WordPredictor
                 if (phraseWords.Length > 1)
                 {
                     var nextWord = phraseWords[^1];
-                    if (string.IsNullOrEmpty(lowerPrefix) || nextWord.StartsWith(lowerPrefix))
+                    if (string.IsNullOrEmpty(prefix) || nextWord.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                     {
                         var baseScore = frequency * PhraseBoost;
                         if (!scored.ContainsKey(nextWord) || scored[nextWord].score < baseScore)
@@ -77,7 +74,7 @@ public class WordPredictor
         // Standard word matching (prefix + fuzzy)
         foreach (var (word, frequency) in _words)
         {
-            if (word.StartsWith(lowerPrefix, StringComparison.OrdinalIgnoreCase))
+            if (word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
                 var baseScore = frequency * 3.0;
                 // Only add if not already scored higher by bigram/phrase (preserve context predictions)
@@ -91,11 +88,12 @@ public class WordPredictor
                 continue;
 
             // Compare prefix against the same-length prefix of the word, or full word if shorter
-            var compareTarget = word.Length >= lowerPrefix.Length
-                ? word[..lowerPrefix.Length]
+            // Use case-insensitive comparison for fuzzy matching
+            var wordPrefix = word.Length >= prefix.Length
+                ? word[..prefix.Length]
                 : word;
 
-            var dist = FuzzyEditDistance.Compute(lowerPrefix, compareTarget, _adjacencyMap);
+            var dist = FuzzyEditDistance.Compute(prefix.ToLowerInvariant(), wordPrefix.ToLowerInvariant(), _adjacencyMap);
             if (dist > MaxFuzzyDistance) continue;
 
             double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;

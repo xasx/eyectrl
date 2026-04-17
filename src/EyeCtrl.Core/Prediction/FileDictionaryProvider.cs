@@ -1,17 +1,20 @@
 namespace EyeCtrl.Core.Prediction;
 
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 public class FileDictionaryProvider : IDictionaryProvider
 {
     private readonly string _baseDictionaryPath;
     private readonly string _userDictionaryPath;
+    private readonly ILogger<FileDictionaryProvider>? _logger;
 
     public string UserDictionaryPath => _userDictionaryPath;
 
-    public FileDictionaryProvider(string baseDictionaryPath, string appDataDir, string languageCode)
+    public FileDictionaryProvider(string baseDictionaryPath, string appDataDir, string languageCode, ILogger<FileDictionaryProvider>? logger = null)
     {
         _baseDictionaryPath = baseDictionaryPath;
+        _logger = logger;
         var preferredSeparator = DetectSeparator(appDataDir);
         var normalizedBasePath = NormalizeSeparators(appDataDir, Path.DirectorySeparatorChar);
         var combinedPath = Path.Combine(normalizedBasePath, $"user_dictionary_{languageCode}.json");
@@ -72,8 +75,9 @@ public class FileDictionaryProvider : IDictionaryProvider
             var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
             return data ?? [];
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            _logger?.LogError(ex, "Failed to deserialize bigrams from {Path}", path);
             // Return empty if JSON is corrupted
             return [];
         }
@@ -110,8 +114,9 @@ public class FileDictionaryProvider : IDictionaryProvider
             var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
             return data ?? [];
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            _logger?.LogError(ex, "Failed to deserialize phrases from {Path}", path);
             // Return empty if JSON is corrupted
             return [];
         }

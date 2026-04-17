@@ -56,6 +56,70 @@ public class FileDictionaryProvider : IDictionaryProvider
         File.WriteAllText(_userDictionaryPath, json);
     }
 
+    /// <summary>
+    /// Loads bigram data from the user dictionary file.
+    /// </summary>
+    /// <returns>Dictionary mapping first words to their followers with frequencies.</returns>
+    public Dictionary<string, Dictionary<string, int>> LoadBigrams()
+    {
+        var path = GetBigramPath();
+        if (!File.Exists(path))
+            return [];
+
+        var json = File.ReadAllText(path);
+        var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
+        return data ?? [];
+    }
+
+    /// <summary>
+    /// Saves bigram data to the user dictionary file.
+    /// </summary>
+    /// <param name="bigrams">The bigram data to save.</param>
+    public void SaveBigrams(Dictionary<string, Dictionary<string, int>> bigrams)
+    {
+        var path = GetBigramPath();
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var json = JsonSerializer.Serialize(bigrams, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(path, json);
+    }
+
+    /// <summary>
+    /// Loads phrase data from the user dictionary file.
+    /// </summary>
+    /// <returns>Dictionary mapping phrase prefixes to complete phrases with frequencies.</returns>
+    public Dictionary<string, Dictionary<string, int>> LoadPhrases()
+    {
+        var path = GetPhrasePath();
+        if (!File.Exists(path))
+            return [];
+
+        var json = File.ReadAllText(path);
+        var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
+        return data ?? [];
+    }
+
+    /// <summary>
+    /// Saves phrase data to the user dictionary file.
+    /// </summary>
+    /// <param name="phrases">The phrase data to save.</param>
+    public void SavePhrases(Dictionary<string, Dictionary<string, int>> phrases)
+    {
+        var path = GetPhrasePath();
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var json = JsonSerializer.Serialize(phrases, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(path, json);
+    }
+
+    private string GetBigramPath() => _userDictionaryPath.Replace(".json", "_bigrams.json");
+
+    private string GetPhrasePath() => _userDictionaryPath.Replace(".json", "_phrases.json");
+
     private static string NormalizeSeparators(string path, char separator)
     {
         return path.Replace('\\', separator).Replace('/', separator);

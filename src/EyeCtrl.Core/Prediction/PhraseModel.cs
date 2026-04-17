@@ -1,18 +1,18 @@
 namespace EyeCtrl.Core.Prediction;
 
 /// <summary>
-/// Tracks multi-word phrase patterns (2-4 words).
+/// Tracks multi-word phrase patterns (2-7 words).
 /// Used for suggesting common phrases like "looking forward to".
 /// </summary>
 public class PhraseModel
 {
     private readonly Dictionary<string, Dictionary<string, int>> _phrases = new();
     private const int MinPhraseLength = 2;
-    private const int MaxPhraseLength = 4;
+    private const int MaxPhraseLength = 7;
     private const int MinFrequency = 2;
 
     /// <summary>
-    /// Learns a phrase by extracting all sub-sequences of length 2-4.
+    /// Learns a phrase by extracting all sub-sequences of length 2-7.
     /// </summary>
     /// <param name="words">Array of words forming the phrase.</param>
     public void LearnPhrase(string[] words)

@@ -131,22 +131,22 @@ public class PhraseModelTests
     }
 
     [Fact]
-    public void LearnPhrase_IgnoresPhrasesLongerThanFourWords()
+    public void LearnPhrase_IgnoresPhrasesLongerThanSevenWords()
     {
         // Arrange
         var model = new PhraseModel();
 
-        // Act
-        model.LearnPhrase(new[] { "one", "two", "three", "four", "five" });
-        model.LearnPhrase(new[] { "one", "two", "three", "four", "five" });
+        // Act - Learn an 8-word phrase twice
+        model.LearnPhrase(new[] { "one", "two", "three", "four", "five", "six", "seven", "eight" });
+        model.LearnPhrase(new[] { "one", "two", "three", "four", "five", "six", "seven", "eight" });
 
-        // Assert - Should only store sub-phrases up to 4 words
-        var phrases5 = model.GetPhrases("one two three four", 10);
-        Assert.Empty(phrases5); // No 5-word phrase stored
+        // Assert - Should only store sub-phrases up to 7 words
+        var phrases8 = model.GetPhrases("one two three four five six seven", 10);
+        Assert.Empty(phrases8); // No 8-word phrase stored
 
-        var phrases4 = model.GetPhrases("one two three", 10);
-        Assert.Single(phrases4);
-        Assert.Equal("one two three four", phrases4[0].phrase);
+        var phrases7 = model.GetPhrases("one two three four five six", 10);
+        Assert.Single(phrases7);
+        Assert.Equal("one two three four five six seven", phrases7[0].phrase);
     }
 
     [Fact]

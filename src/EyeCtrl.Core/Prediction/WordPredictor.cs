@@ -137,7 +137,7 @@ public class WordPredictor
         for (int i = 0; i < words.Length - 1; i++)
             _bigrams.Learn(words[i], words[i + 1]);
 
-        // Learn phrases (2-4 word sequences)
+        // Learn phrases (2-7 word sequences)
         if (words.Length >= 2)
             _phrases.LearnPhrase(words);
     }

@@ -3,7 +3,6 @@ namespace EyeCtrl.Core.Prediction;
 /// <summary>
 /// N-gram language model for next-word prediction.
 /// Stores bigram frequencies: P(word2 | word1).
-/// Thread-safe for read operations after initial training.
 /// </summary>
 public class BigramModel
 {

@@ -7,6 +7,14 @@ public static class CapitalizationHelper
 {
     private static readonly HashSet<char> SentenceEndMarkers = new() { '.', '!', '?' };
 
+    // Common abbreviations that should not trigger capitalization
+    private static readonly HashSet<string> CommonAbbreviations = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mr", "mrs", "ms", "dr", "prof", "sr", "jr",
+        "etc", "vs", "i.e", "e.g", "a.m", "p.m",
+        "st", "ave", "blvd", "dept", "inc", "ltd", "co"
+    };
+
     /// <summary>
     /// Determines if the next word should be capitalized based on context.
     /// </summary>
@@ -27,11 +35,10 @@ public static class CapitalizationHelper
         // Check if last character is a sentence-ending marker
         if (SentenceEndMarkers.Contains(lastChar))
         {
-            // Check if this is likely an abbreviation (period followed by a lowercase letter)
-            // e.g., "Mr. Smith" or "i.e. this"
+            // Check if this is likely an abbreviation
             if (lastChar == '.' && trimmed.Length > 1)
             {
-                // Look for pattern: period preceded by single letter or short word
+                // Look for pattern: period preceded by a known abbreviation
                 var beforePeriod = trimmed[..^1].TrimEnd();
                 if (beforePeriod.Length > 0)
                 {
@@ -39,7 +46,13 @@ public static class CapitalizationHelper
                     if (words.Length > 0)
                     {
                         var lastWord = words[^1];
-                        // Common abbreviations are typically 1-3 characters
+
+                        // Check if it's a known abbreviation
+                        if (CommonAbbreviations.Contains(lastWord))
+                            return false;
+
+                        // Also check for single-letter abbreviations (e.g., "A.", "B.")
+                        // or short lowercase words (likely abbreviations like "i.e.", "e.g.")
                         if (lastWord.Length <= 3 && char.IsLower(lastWord[0]))
                             return false;
                     }

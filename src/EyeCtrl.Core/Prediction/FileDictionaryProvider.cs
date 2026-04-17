@@ -66,9 +66,17 @@ public class FileDictionaryProvider : IDictionaryProvider
         if (!File.Exists(path))
             return [];
 
-        var json = File.ReadAllText(path);
-        var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
-        return data ?? [];
+        try
+        {
+            var json = File.ReadAllText(path);
+            var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
+            return data ?? [];
+        }
+        catch (JsonException)
+        {
+            // Return empty if JSON is corrupted
+            return [];
+        }
     }
 
     /// <summary>
@@ -96,9 +104,17 @@ public class FileDictionaryProvider : IDictionaryProvider
         if (!File.Exists(path))
             return [];
 
-        var json = File.ReadAllText(path);
-        var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
-        return data ?? [];
+        try
+        {
+            var json = File.ReadAllText(path);
+            var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
+            return data ?? [];
+        }
+        catch (JsonException)
+        {
+            // Return empty if JSON is corrupted
+            return [];
+        }
     }
 
     /// <summary>

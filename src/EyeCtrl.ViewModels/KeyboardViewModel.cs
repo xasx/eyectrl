@@ -222,7 +222,9 @@ public partial class KeyboardViewModel : ObservableObject,
     public List<string> GetSuggestions()
     {
         if (_predictor == null) return new List<string>();
-        return _predictor.GetSuggestions(CurrentInput, maxCount: 5);
+        return _predictor.GetSuggestions(CurrentInput, null, maxCount: 5)
+            .Select(r => r.Word)
+            .ToList();
     }
 
     public void HandlePredictionSelected(string word)

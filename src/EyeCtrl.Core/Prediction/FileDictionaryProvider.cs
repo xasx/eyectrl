@@ -49,32 +49,35 @@ public class FileDictionaryProvider : IDictionaryProvider
 
         if (File.Exists(_baseDictionaryPath))
         {
-            var json = File.ReadAllText(_baseDictionaryPath);
-
-            // Try to deserialize as new format (with words and abbreviations)
-            var data = JsonSerializer.Deserialize<DictionaryData>(json);
-
-            // If Words is null, it's the old format (just a dictionary)
-            if (data?.Words == null)
+            try
             {
-                _logger?.LogInformation("Detected legacy dictionary format from {Path}, falling back to old format", _baseDictionaryPath);
-                // Fall back to old format (just a dictionary)
-                var baseWords = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
-                if (baseWords != null)
-                    foreach (var kv in baseWords)
-                        words[kv.Key] = kv.Value;
-            }
-            else
-            {
-                // New format - load words
-                foreach (var kv in data.Words)
-                    words[kv.Key] = kv.Value;
+                var json = File.ReadAllText(_baseDictionaryPath);
+                var data = JsonSerializer.Deserialize<DictionaryData>(json);
 
-                // Load abbreviations if present
-                if (data.Abbreviations != null && data.Abbreviations.Count > 0)
+                if (data?.Words != null)
                 {
-                    _abbreviations = new HashSet<string>(data.Abbreviations, StringComparer.OrdinalIgnoreCase);
+                    // Load words
+                    foreach (var kv in data.Words)
+                        words[kv.Key] = kv.Value;
+
+                    // Load abbreviations if present
+                    if (data.Abbreviations != null && data.Abbreviations.Count > 0)
+                    {
+                        _abbreviations = new HashSet<string>(data.Abbreviations, StringComparer.OrdinalIgnoreCase);
+                    }
                 }
+                else
+                {
+                    _logger?.LogWarning("Base dictionary at {Path} has null Words property, returning empty dictionary", _baseDictionaryPath);
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger?.LogError(ex, "Failed to deserialize base dictionary from {Path}, returning empty dictionary", _baseDictionaryPath);
+            }
+            catch (IOException ex)
+            {
+                _logger?.LogError(ex, "Failed to read base dictionary from {Path}, returning empty dictionary", _baseDictionaryPath);
             }
         }
 

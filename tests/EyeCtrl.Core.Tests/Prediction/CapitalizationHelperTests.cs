@@ -342,7 +342,9 @@ public class CapitalizationHelperTests
         var resultWithout = CapitalizationHelper.ShouldCapitalize("Mr. Smith");
         var resultWith = CapitalizationHelper.ShouldCapitalize("Mr. Smith", null);
 
-        // Assert - Both should behave the same way
+        // Assert - Both should return false (heuristic catches short lowercase abbreviations)
+        Assert.False(resultWithout);
+        Assert.False(resultWith);
         Assert.Equal(resultWith, resultWithout);
     }
 

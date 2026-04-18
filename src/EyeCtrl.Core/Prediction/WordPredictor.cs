@@ -7,7 +7,7 @@ public class WordPredictor
     private readonly Dictionary<char, HashSet<char>> _adjacencyMap;
     private readonly BigramModel _bigrams;
     private readonly PhraseModel _phrases;
-    private readonly HashSet<string>? _abbreviations;
+    private readonly IReadOnlySet<string>? _abbreviations;
 
     private const double MaxFuzzyDistance = 1.5;
     private const double BigramBoost = 2.0;
@@ -16,7 +16,7 @@ public class WordPredictor
     /// <summary>
     /// Gets the language-specific abbreviations loaded from the dictionary.
     /// </summary>
-    public HashSet<string>? Abbreviations => _abbreviations;
+    public IReadOnlySet<string>? Abbreviations => _abbreviations;
 
     public WordPredictor(IDictionaryProvider provider, string layoutName = "QWERTY")
     {

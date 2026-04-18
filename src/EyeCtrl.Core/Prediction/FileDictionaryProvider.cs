@@ -28,7 +28,7 @@ public class FileDictionaryProvider : IDictionaryProvider
     /// <summary>
     /// Gets the abbreviations loaded from the base dictionary file.
     /// </summary>
-    public HashSet<string> Abbreviations => _abbreviations ?? [];
+    public IReadOnlySet<string> Abbreviations => _abbreviations ?? [];
 
     public FileDictionaryProvider(string baseDictionaryPath, string appDataDir, string languageCode, ILogger<FileDictionaryProvider>? logger = null)
     {
@@ -52,29 +52,29 @@ public class FileDictionaryProvider : IDictionaryProvider
             var json = File.ReadAllText(_baseDictionaryPath);
 
             // Try to deserialize as new format (with words and abbreviations)
-            try
-            {
-                var data = JsonSerializer.Deserialize<DictionaryData>(json);
-                if (data?.Words != null)
-                {
-                    foreach (var kv in data.Words)
-                        words[kv.Key] = kv.Value;
-                }
+            var data = JsonSerializer.Deserialize<DictionaryData>(json);
 
-                // Load abbreviations if present
-                if (data?.Abbreviations != null && data.Abbreviations.Count > 0)
-                {
-                    _abbreviations = new HashSet<string>(data.Abbreviations, StringComparer.OrdinalIgnoreCase);
-                }
-            }
-            catch (JsonException ex)
+            // If Words is null, it's the old format (just a dictionary)
+            if (data?.Words == null)
             {
-                _logger?.LogWarning(ex, "Failed to deserialize dictionary as new format from {Path}, falling back to old format", _baseDictionaryPath);
+                _logger?.LogWarning("Failed to deserialize dictionary as new format from {Path}, falling back to old format", _baseDictionaryPath);
                 // Fall back to old format (just a dictionary)
                 var baseWords = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
                 if (baseWords != null)
                     foreach (var kv in baseWords)
                         words[kv.Key] = kv.Value;
+            }
+            else
+            {
+                // New format - load words
+                foreach (var kv in data.Words)
+                    words[kv.Key] = kv.Value;
+
+                // Load abbreviations if present
+                if (data.Abbreviations != null && data.Abbreviations.Count > 0)
+                {
+                    _abbreviations = new HashSet<string>(data.Abbreviations, StringComparer.OrdinalIgnoreCase);
+                }
             }
         }
 

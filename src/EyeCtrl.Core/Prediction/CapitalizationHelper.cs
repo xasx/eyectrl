@@ -23,7 +23,7 @@ public static class CapitalizationHelper
     /// <param name="currentText">The text typed so far.</param>
     /// <param name="abbreviations">Optional set of language-specific abbreviations.</param>
     /// <returns>True if the next word should be capitalized.</returns>
-    public static bool ShouldCapitalize(string currentText, HashSet<string>? abbreviations)
+    public static bool ShouldCapitalize(string currentText, IReadOnlySet<string>? abbreviations)
     {
         if (string.IsNullOrEmpty(currentText))
             return true;
@@ -117,7 +117,7 @@ public static class CapitalizationHelper
     /// <param name="currentText">The text typed so far.</param>
     /// <param name="abbreviations">Optional set of language-specific abbreviations.</param>
     /// <returns>The word with appropriate capitalization.</returns>
-    public static string ApplySmartCapitalization(string word, string currentText, HashSet<string>? abbreviations)
+    public static string ApplySmartCapitalization(string word, string currentText, IReadOnlySet<string>? abbreviations)
     {
         if (string.IsNullOrEmpty(word))
             return string.Empty;

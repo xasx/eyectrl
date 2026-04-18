@@ -57,7 +57,7 @@ public class FileDictionaryProvider : IDictionaryProvider
             // If Words is null, it's the old format (just a dictionary)
             if (data?.Words == null)
             {
-                _logger?.LogWarning("Failed to deserialize dictionary as new format from {Path}, falling back to old format", _baseDictionaryPath);
+                _logger?.LogInformation("Detected legacy dictionary format from {Path}, falling back to old format", _baseDictionaryPath);
                 // Fall back to old format (just a dictionary)
                 var baseWords = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
                 if (baseWords != null)

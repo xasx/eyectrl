@@ -353,7 +353,8 @@ public class CapitalizationHelperTests
         var resultWithout = CapitalizationHelper.ApplySmartCapitalization("hello", "");
         var resultWith = CapitalizationHelper.ApplySmartCapitalization("hello", "", null);
 
-        // Assert - Both should behave the same way
-        Assert.Equal(resultWith, resultWithout);
+        // Assert - Empty context should capitalize, with or without explicit abbreviations
+        Assert.Equal("Hello", resultWithout);
+        Assert.Equal("Hello", resultWith);
     }
 }

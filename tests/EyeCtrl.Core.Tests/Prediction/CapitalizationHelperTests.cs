@@ -250,7 +250,7 @@ public class CapitalizationHelperTests
     public void ShouldCapitalize_ReturnsFalseWithGermanAbbreviation()
     {
         // Arrange
-        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b", "bzw", "usw", "evtl" };
+        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b.", "bzw.", "usw.", "evtl." };
 
         // Act
         var result = CapitalizationHelper.ShouldCapitalize("z.B. ", germanAbbreviations);
@@ -263,7 +263,7 @@ public class CapitalizationHelperTests
     public void ShouldCapitalize_ReturnsFalseWithFrenchAbbreviation()
     {
         // Arrange
-        var frenchAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "m", "mme", "mlle", "dr" };
+        var frenchAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "m.", "mme.", "mlle.", "dr." };
 
         // Act
         var result = CapitalizationHelper.ShouldCapitalize("M. ", frenchAbbreviations);
@@ -276,7 +276,7 @@ public class CapitalizationHelperTests
     public void ShouldCapitalize_ReturnsFalseWithSpanishAbbreviation()
     {
         // Arrange
-        var spanishAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "sr", "sra", "srta", "dr" };
+        var spanishAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "sr.", "sra.", "srta.", "dr." };
 
         // Act
         var result = CapitalizationHelper.ShouldCapitalize("Sr. ", spanishAbbreviations);
@@ -289,7 +289,7 @@ public class CapitalizationHelperTests
     public void ShouldCapitalize_ReturnsFalseWithPolishAbbreviation()
     {
         // Arrange
-        var polishAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "np", "itd", "dr", "prof" };
+        var polishAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "np.", "itd.", "dr.", "prof." };
 
         // Act
         var result = CapitalizationHelper.ShouldCapitalize("np. ", polishAbbreviations);
@@ -302,9 +302,9 @@ public class CapitalizationHelperTests
     public void ShouldCapitalize_ReturnsTrueAfterNonAbbreviationPeriodInGerman()
     {
         // Arrange
-        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b", "bzw", "usw", "evtl" };
+        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b.", "bzw.", "usw.", "evtl." };
 
-        // Act - "Wort" is 4 chars, so not caught by heuristic, and not an abbreviation
+        // Act - "Wort." is not in abbreviations list, so should capitalize
         var result = CapitalizationHelper.ShouldCapitalize("Das ist ein Wort. ", germanAbbreviations);
 
         // Assert
@@ -315,9 +315,9 @@ public class CapitalizationHelperTests
     public void ApplySmartCapitalization_UsesLanguageSpecificAbbreviations()
     {
         // Arrange
-        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b", "bzw", "evtl", "prof" };
+        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b.", "bzw.", "evtl.", "prof." };
 
-        // Act - German abbreviation "prof" should not trigger capitalization (>3 chars, not caught by heuristic)
+        // Act - German abbreviation "prof." should not trigger capitalization (>3 chars, not caught by heuristic)
         var result = CapitalizationHelper.ApplySmartCapitalization("beispiel", "zum Beispiel prof. ", germanAbbreviations);
 
         // Assert - Should not capitalize after German abbreviation

@@ -41,24 +41,21 @@ public static class CapitalizationHelper
             // Check if this is likely an abbreviation
             if (lastChar == '.' && trimmed.Length > 1)
             {
-                // Look for pattern: period preceded by a known abbreviation
-                var beforePeriod = trimmed[..^1].TrimEnd();
-                if (beforePeriod.Length > 0)
+                // Look for pattern: check last word including the period
+                var words = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (words.Length > 0)
                 {
-                    var words = beforePeriod.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    if (words.Length > 0)
-                    {
-                        var lastWord = words[^1];
+                    var lastWordWithPeriod = words[^1];
 
-                        // Check if it's a known abbreviation (if abbreviations provided)
-                        if (abbreviations != null && abbreviations.Contains(lastWord))
-                            return false;
+                    // Check if it's a known abbreviation (abbreviations now include the period)
+                    if (abbreviations != null && abbreviations.Contains(lastWordWithPeriod))
+                        return false;
 
-                        // Also check for single-letter abbreviations (e.g., "A.", "B.")
-                        // or short lowercase words (likely abbreviations like "i.e.", "e.g.")
-                        if (lastWord.Length <= 3 && char.IsLower(lastWord[0]))
-                            return false;
-                    }
+                    // Also check for single-letter abbreviations (e.g., "A.", "B.")
+                    // or short lowercase words (likely abbreviations like "i.e.", "e.g.")
+                    if (lastWordWithPeriod.Length <= 4 && lastWordWithPeriod.EndsWith('.') &&
+                        lastWordWithPeriod.Length > 1 && char.IsLower(lastWordWithPeriod[0]))
+                        return false;
                 }
             }
 

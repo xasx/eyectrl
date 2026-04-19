@@ -105,37 +105,41 @@ public enum PredictionType
 #### 1.2 Create BigramModel
 **New file:** `src/EyeCtrl.Core/Prediction/BigramModel.cs`
 
+**✅ IMPLEMENTED** - Case-sensitive storage for German language support
+
 ```csharp
 namespace EyeCtrl.Core.Prediction;
 
 /// <summary>
 /// N-gram language model for next-word prediction.
 /// Stores bigram frequencies: P(word2 | word1).
+/// Case-sensitive storage to preserve proper casing (e.g., German nouns).
 /// </summary>
 public class BigramModel
 {
     private readonly Dictionary<string, Dictionary<string, int>> _bigrams = new();
-    private readonly int _minFrequency = 2; // Filter out single occurrences
+    private const int MinFrequency = 2; // Filter out single occurrences
 
     public void Learn(string word1, string word2)
     {
-        var key = word1.ToLowerInvariant();
-        if (!_bigrams.ContainsKey(key))
-            _bigrams[key] = new Dictionary<string, int>();
+        // Case-sensitive storage - preserves original casing
+        if (!_bigrams.ContainsKey(word1))
+            _bigrams[word1] = new Dictionary<string, int>();
 
-        var followers = _bigrams[key];
-        followers[word2.ToLowerInvariant()] = followers.GetValueOrDefault(word2.ToLowerInvariant()) + 1;
+        var followers = _bigrams[word1];
+        followers[word2] = followers.GetValueOrDefault(word2) + 1;
     }
 
     public List<(string word, int frequency)> GetNextWords(string previousWord, int maxCount)
     {
         if (string.IsNullOrEmpty(previousWord)) return new List<(string, int)>();
 
-        if (!_bigrams.TryGetValue(previousWord.ToLowerInvariant(), out var followers))
+        // Case-sensitive lookup
+        if (!_bigrams.TryGetValue(previousWord, out var followers))
             return new List<(string, int)>();
 
         return followers
-            .Where(kv => kv.Value >= _minFrequency)
+            .Where(kv => kv.Value >= MinFrequency)
             .OrderByDescending(kv => kv.Value)
             .Take(maxCount)
             .Select(kv => (kv.Key, kv.Value))
@@ -158,29 +162,38 @@ public class BigramModel
 #### 1.3 Create PhraseModel
 **New file:** `src/EyeCtrl.Core/Prediction/PhraseModel.cs`
 
+**✅ IMPLEMENTED** - Case-sensitive with performance optimization (MaxPhraseLength=7)
+
 ```csharp
 namespace EyeCtrl.Core.Prediction;
 
 /// <summary>
-/// Tracks multi-word phrase patterns (2-4 words).
+/// Tracks multi-word phrase patterns (2-7 words).
 /// Used for suggesting common phrases like "looking forward to".
 /// </summary>
 public class PhraseModel
 {
     private readonly Dictionary<string, Dictionary<string, int>> _phrases = new();
     private const int MinPhraseLength = 2;
-    private const int MaxPhraseLength = 4;
+    private const int MaxPhraseLength = 7;
+    private const int MinFrequency = 2;
 
+    /// <summary>
+    /// Learns a phrase by extracting all sub-sequences of length 2-7.
+    /// Optimized with index-based iteration to minimize allocations.
+    /// </summary>
     public void LearnPhrase(string[] words)
     {
         if (words.Length < MinPhraseLength) return;
 
+        // Extract all sub-phrases of length 2 to MaxPhraseLength
         for (int len = MinPhraseLength; len <= Math.Min(MaxPhraseLength, words.Length); len++)
         {
             for (int i = 0; i <= words.Length - len; i++)
             {
-                var prefix = string.Join(" ", words.Skip(i).Take(len - 1)).ToLowerInvariant();
-                var fullPhrase = string.Join(" ", words.Skip(i).Take(len)).ToLowerInvariant();
+                // Build prefix and full phrase using index-based iteration to avoid allocations
+                var prefix = BuildJoinedString(words, i, len - 1);
+                var fullPhrase = BuildJoinedString(words, i, len);
 
                 if (!_phrases.ContainsKey(prefix))
                     _phrases[prefix] = new Dictionary<string, int>();
@@ -190,13 +203,47 @@ public class PhraseModel
         }
     }
 
+    /// <summary>
+    /// Builds a space-joined string from a segment of the words array without intermediate allocations.
+    /// Uses string.Create for optimal performance.
+    /// </summary>
+    private static string BuildJoinedString(string[] words, int startIndex, int count)
+    {
+        if (count == 0) return string.Empty;
+        if (count == 1) return words[startIndex];
+
+        // Calculate total length to pre-allocate the right size
+        int totalLength = words[startIndex].Length;
+        for (int i = 1; i < count; i++)
+            totalLength += 1 + words[startIndex + i].Length; // +1 for space
+
+        return string.Create(totalLength, (words, startIndex, count), (span, state) =>
+        {
+            var (w, start, cnt) = state;
+            int pos = 0;
+
+            for (int i = 0; i < cnt; i++)
+            {
+                if (i > 0)
+                    span[pos++] = ' ';
+
+                var word = w[start + i];
+                word.AsSpan().CopyTo(span[pos..]);
+                pos += word.Length;
+            }
+        });
+    }
+
     public List<(string phrase, int frequency)> GetPhrases(string prefix, int maxCount)
     {
-        if (!_phrases.TryGetValue(prefix.ToLowerInvariant(), out var matches))
+        if (string.IsNullOrEmpty(prefix)) return new List<(string, int)>();
+
+        // Case-sensitive lookup
+        if (!_phrases.TryGetValue(prefix, out var matches))
             return new List<(string, int)>();
 
         return matches
-            .Where(kv => kv.Value >= 2) // Min 2 occurrences
+            .Where(kv => kv.Value >= MinFrequency)
             .OrderByDescending(kv => kv.Value)
             .Take(maxCount)
             .Select(kv => (kv.Key, kv.Value))
@@ -216,69 +263,95 @@ public class PhraseModel
 
 **Tests:** `tests/EyeCtrl.Core.Tests/Prediction/PhraseModelTests.cs`
 
-#### 1.4 Update IDictionaryProvider Interface
-**Modified file:** `src/EyeCtrl.Core/Prediction/IDictionaryProvider.cs`
-
-Add methods for bigrams and phrases:
-```csharp
-public interface IDictionaryProvider
-{
-    Dictionary<string, int> Load();
-    void Save(Dictionary<string, int> words);
-
-    // New methods for bigrams and phrases
-    Dictionary<string, Dictionary<string, int>>? LoadBigrams();
-    void SaveBigrams(Dictionary<string, Dictionary<string, int>> bigrams);
-
-    Dictionary<string, Dictionary<string, int>>? LoadPhrases();
-    void SavePhrases(Dictionary<string, Dictionary<string, int>> phrases);
-}
-```
-
+#### 1.4 Update FileDictionaryProvider with Persistence Methods
 **Modified file:** `src/EyeCtrl.Core/Prediction/FileDictionaryProvider.cs`
 
-Implement new methods:
+**✅ IMPLEMENTED** - Instance methods (not extensions) for bigram/phrase persistence with error logging
+
 ```csharp
-public Dictionary<string, Dictionary<string, int>>? LoadBigrams()
+public class FileDictionaryProvider : IDictionaryProvider
 {
-    var bigramPath = _userDictionaryPath.Replace(".json", "_bigrams.json");
-    if (!File.Exists(bigramPath)) return null;
+    private readonly string _userDictionaryPath;
+    private readonly ILogger<FileDictionaryProvider>? _logger;
 
-    var json = File.ReadAllText(bigramPath);
-    return JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
-}
+    public FileDictionaryProvider(string basePath, string userPath, string language,
+        ILogger<FileDictionaryProvider>? logger = null)
+    {
+        // ... existing constructor code ...
+        _logger = logger;
+    }
 
-public void SaveBigrams(Dictionary<string, Dictionary<string, int>> bigrams)
-{
-    var bigramPath = _userDictionaryPath.Replace(".json", "_bigrams.json");
-    var directory = Path.GetDirectoryName(bigramPath);
-    if (!string.IsNullOrEmpty(directory))
-        Directory.CreateDirectory(directory);
+    // Generates path like "user_dictionary_en_bigrams.json"
+    private string GetBigramPath()
+    {
+        var directory = Path.GetDirectoryName(_userDictionaryPath);
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_userDictionaryPath);
+        var bigramFileName = fileNameWithoutExtension + "_bigrams.json";
+        return string.IsNullOrEmpty(directory) ? bigramFileName : Path.Combine(directory, bigramFileName);
+    }
 
-    var json = JsonSerializer.Serialize(bigrams, new JsonSerializerOptions { WriteIndented = true });
-    File.WriteAllText(bigramPath, json);
-}
+    // Generates path like "user_dictionary_en_phrases.json"
+    private string GetPhrasePath()
+    {
+        var directory = Path.GetDirectoryName(_userDictionaryPath);
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_userDictionaryPath);
+        var phraseFileName = fileNameWithoutExtension + "_phrases.json";
+        return string.IsNullOrEmpty(directory) ? phraseFileName : Path.Combine(directory, phraseFileName);
+    }
 
-public Dictionary<string, Dictionary<string, int>>? LoadPhrases()
-{
-    var phrasePath = _userDictionaryPath.Replace(".json", "_phrases.json");
-    if (!File.Exists(phrasePath)) return null;
+    public Dictionary<string, Dictionary<string, int>> LoadBigrams()
+    {
+        var path = GetBigramPath();
+        if (!File.Exists(path)) return [];
 
-    var json = File.ReadAllText(phrasePath);
-    return JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
-}
+        try
+        {
+            var json = File.ReadAllText(path);
+            var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
+            return data ?? [];
+        }
+        catch (JsonException ex)
+        {
+            _logger?.LogError(ex, "Failed to deserialize bigrams from {Path}", path);
+            return [];
+        }
+    }
 
-public void SavePhrases(Dictionary<string, Dictionary<string, int>> phrases)
-{
-    var phrasePath = _userDictionaryPath.Replace(".json", "_phrases.json");
-    var directory = Path.GetDirectoryName(phrasePath);
-    if (!string.IsNullOrEmpty(directory))
-        Directory.CreateDirectory(directory);
+    public void SaveBigrams(Dictionary<string, Dictionary<string, int>> bigrams)
+    {
+        var path = GetBigramPath();
+        var json = JsonSerializer.Serialize(bigrams, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(path, json);
+    }
 
-    var json = JsonSerializer.Serialize(phrases, new JsonSerializerOptions { WriteIndented = true });
-    File.WriteAllText(phrasePath, json);
+    public Dictionary<string, Dictionary<string, int>> LoadPhrases()
+    {
+        var path = GetPhrasePath();
+        if (!File.Exists(path)) return [];
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
+            return data ?? [];
+        }
+        catch (JsonException ex)
+        {
+            _logger?.LogError(ex, "Failed to deserialize phrases from {Path}", path);
+            return [];
+        }
+    }
+
+    public void SavePhrases(Dictionary<string, Dictionary<string, int>> phrases)
+    {
+        var path = GetPhrasePath();
+        var json = JsonSerializer.Serialize(phrases, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(path, json);
+    }
 }
 ```
+
+**Tests:** `tests/EyeCtrl.Core.Tests/Prediction/FileDictionaryProviderTests.cs`
 
 ### Phase 2: Enhanced WordPredictor (Core Intelligence)
 
@@ -521,25 +594,11 @@ public static class CapitalizationHelper
 #### 5.1 Update KeyboardViewModel
 **Modified file:** `src/EyeCtrl.ViewModels/KeyboardViewModel.cs`
 
+**✅ IMPLEMENTED** - Context tracking with `_previousWord` field
+
 ```csharp
 // Add tracking for previous word
-private string _lastCompletedWord = "";
-private readonly List<string> _recentWords = new(10);
-
-public void ActivateKey(string output, string? shiftOutput)
-{
-    var actualOutput = IsShifted && !string.IsNullOrEmpty(shiftOutput)
-        ? shiftOutput
-        : output;
-
-    if (!HasSystemModifiers)
-    {
-        CurrentInput += actualOutput;
-        _predictor?.LearnWord(actualOutput);
-    }
-    _messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
-    ClearOneShotModifiers();
-}
+private string? _previousWord;
 
 public void HandleSpace()
 {
@@ -548,33 +607,41 @@ public void HandleSpace()
         if (CurrentInput.Length > 0)
         {
             _predictor?.LearnWord(CurrentInput);
-
-            // Learn bigram
-            if (!string.IsNullOrEmpty(_lastCompletedWord))
-                _predictor?.LearnBigram(_lastCompletedWord, CurrentInput);
-
-            _lastCompletedWord = CurrentInput;
-            _recentWords.Add(CurrentInput);
-            if (_recentWords.Count > 10)
-                _recentWords.RemoveAt(0);
-
-            // Learn phrase if we have enough words
-            if (_recentWords.Count >= 2)
-                _predictor?.LearnPhrase(_recentWords.TakeLast(4).ToArray());
-
-            CurrentInput = "";
+            _previousWord = CurrentInput;  // Track for context
         }
+        CurrentInput = "";
     }
     _messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
     ClearOneShotModifiers();
 }
 
-public List<PredictionResult> GetSuggestionsWithContext()
+public void HandleEnter()
 {
-    if (_predictor == null) return new List<PredictionResult>();
+    if (!HasSystemModifiers)
+    {
+        CurrentInput = "";
+        _previousWord = null;  // Clear context on new sentence
+    }
+    _messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
+    ClearOneShotModifiers();
+}
 
-    var previousWord = string.IsNullOrEmpty(CurrentInput) ? _lastCompletedWord : null;
-    return _predictor.GetSuggestions(CurrentInput, previousWord, maxCount: 5);
+public void HandlePredictionSelected(string word)
+{
+    _predictor?.LearnWord(word);
+    var deleteCount = CurrentInput.Length;
+    CurrentInput = "";
+    _previousWord = word;  // Track selected prediction as context
+    _messenger.Send(new PredictionSelectedMessage(word, deleteCount));
+}
+
+public List<string> GetSuggestions()
+{
+    if (_predictor == null) return new List<string>();
+    // Pass context for bigram/phrase predictions
+    return _predictor.GetSuggestions(CurrentInput, _previousWord, maxCount: 5)
+        .Select(r => r.Word)
+        .ToList();
 }
 ```
 

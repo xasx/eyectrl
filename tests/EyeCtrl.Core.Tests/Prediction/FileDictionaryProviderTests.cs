@@ -243,4 +243,119 @@ public class FileDictionaryProviderTests : IDisposable
                 Directory.Delete(newTestDir, true);
         }
     }
+
+    [Fact]
+    public void Load_LoadsWordsAndAbbreviations()
+    {
+        // Arrange
+        var testData = new
+        {
+            words = new Dictionary<string, int>
+            {
+                ["hello"] = 100,
+                ["world"] = 50
+            },
+            abbreviations = new List<string> { "dr.", "mr.", "ms." }
+        };
+        var basePath = Path.Combine(_testDir, "base.json");
+        File.WriteAllText(basePath, JsonSerializer.Serialize(testData));
+
+        // Act
+        var words = _provider.Load();
+        var abbreviations = _provider.Abbreviations;
+
+        // Assert
+        Assert.Equal(2, words.Count);
+        Assert.Equal(100, words["hello"]);
+        Assert.Equal(50, words["world"]);
+        Assert.Equal(3, abbreviations.Count);
+        Assert.Contains("dr.", abbreviations);
+        Assert.Contains("mr.", abbreviations);
+        Assert.Contains("ms.", abbreviations);
+    }
+
+    [Fact]
+    public void Load_HandlesCorruptedJsonGracefully()
+    {
+        // Arrange
+        var basePath = Path.Combine(_testDir, "base.json");
+        File.WriteAllText(basePath, "{ this is not valid json }");
+
+        // Act
+        var words = _provider.Load();
+        var abbreviations = _provider.Abbreviations;
+
+        // Assert - Should return empty dictionaries without throwing
+        Assert.NotNull(words);
+        Assert.Empty(words);
+        Assert.NotNull(abbreviations);
+        Assert.Empty(abbreviations);
+    }
+
+    [Fact]
+    public void Load_HandlesEmptyAbbreviationsList()
+    {
+        // Arrange
+        var testData = new
+        {
+            words = new Dictionary<string, int> { ["test"] = 5 },
+            abbreviations = new List<string>()
+        };
+        var basePath = Path.Combine(_testDir, "base.json");
+        File.WriteAllText(basePath, JsonSerializer.Serialize(testData));
+
+        // Act
+        var words = _provider.Load();
+        var abbreviations = _provider.Abbreviations;
+
+        // Assert
+        Assert.Single(words);
+        Assert.Equal(5, words["test"]);
+        Assert.NotNull(abbreviations);
+        Assert.Empty(abbreviations);
+    }
+
+    [Fact]
+    public void Load_HandlesNullAbbreviations()
+    {
+        // Arrange
+        var testData = new
+        {
+            words = new Dictionary<string, int> { ["test"] = 5 },
+            abbreviations = (List<string>?)null
+        };
+        var basePath = Path.Combine(_testDir, "base.json");
+        File.WriteAllText(basePath, JsonSerializer.Serialize(testData));
+
+        // Act
+        var words = _provider.Load();
+        var abbreviations = _provider.Abbreviations;
+
+        // Assert
+        Assert.Single(words);
+        Assert.NotNull(abbreviations);
+        Assert.Empty(abbreviations);
+    }
+
+    [Fact]
+    public void Abbreviations_IsCaseInsensitive()
+    {
+        // Arrange
+        var testData = new
+        {
+            words = new Dictionary<string, int> { ["test"] = 5 },
+            abbreviations = new List<string> { "Dr.", "Mr." }
+        };
+        var basePath = Path.Combine(_testDir, "base.json");
+        File.WriteAllText(basePath, JsonSerializer.Serialize(testData));
+
+        // Act
+        _provider.Load();
+        var abbreviations = _provider.Abbreviations;
+
+        // Assert
+        Assert.Contains("dr.", abbreviations);
+        Assert.Contains("DR.", abbreviations);
+        Assert.Contains("Dr.", abbreviations);
+    }
 }

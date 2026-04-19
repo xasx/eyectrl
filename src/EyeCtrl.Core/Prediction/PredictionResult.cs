@@ -23,9 +23,10 @@ public record PredictionResult
     public PredictionType Type { get; init; }
 
     /// <summary>
-    /// Confidence level from 0.0 to 1.0.
-    /// Used for UI feedback (e.g., background shading).
-    /// Values may exceed 1.0 in some scoring algorithms.
+    /// A confidence-like score used for UI feedback (e.g., background shading).
+    /// Higher values indicate greater confidence or relevance.
+    /// This value is not guaranteed to be normalized to the range 0.0 to 1.0;
+    /// some scoring algorithms may produce values greater than 1.0.
     /// </summary>
     public double Confidence { get; init; }
 

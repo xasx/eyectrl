@@ -47,16 +47,16 @@ public class WordPredictor
         }
     }
 
-    public List<PredictionResult> GetSuggestions(string prefix, string? previousWord, int maxCount = 5)
+    public List<PredictionResult> GetSuggestions(string prefix, string? context = null, int maxCount = 5)
     {
         var scored = new Dictionary<string, (double score, PredictionType type)>();
-        var hasContext = !string.IsNullOrWhiteSpace(previousWord);
+        var hasContext = !string.IsNullOrWhiteSpace(context);
 
         // If we have context (previous word), check for bigram and phrase matches
         if (hasContext)
         {
             // Check bigram predictions (case-sensitive)
-            var nextWords = _bigrams.GetNextWords(previousWord!, maxCount * 2);
+            var nextWords = _bigrams.GetNextWords(context!, maxCount * 2);
             foreach (var (word, frequency) in nextWords)
             {
                 if (string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -67,53 +67,67 @@ public class WordPredictor
             }
 
             // Check phrase predictions (case-sensitive)
-            var phrases = _phrases.GetPhrases(previousWord!, maxCount * 2);
+            var phrases = _phrases.GetPhrases(context!, maxCount * 2);
             foreach (var (phrase, frequency) in phrases)
             {
-                // Extract the next word from the phrase
-                var phraseWords = phrase.Split(' ');
-                if (phraseWords.Length > 1)
+                // Return the remaining phrase after the current context
+                // so Phrase results are distinguishable from single-word NextWord predictions
+                var phrasePrefix = context! + " ";
+                var phraseSuggestion = phrase;
+
+                if (phrase.StartsWith(phrasePrefix, StringComparison.Ordinal))
+                    phraseSuggestion = phrase[phrasePrefix.Length..].TrimStart();
+
+                if (!string.IsNullOrWhiteSpace(phraseSuggestion) &&
+                    (string.IsNullOrEmpty(prefix) || phraseSuggestion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                 {
-                    var nextWord = phraseWords[^1];
-                    if (string.IsNullOrEmpty(prefix) || nextWord.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        var baseScore = frequency * PhraseBoost;
-                        if (!scored.ContainsKey(nextWord) || scored[nextWord].score < baseScore)
-                            scored[nextWord] = (baseScore, PredictionType.Phrase);
-                    }
+                    var baseScore = frequency * PhraseBoost;
+                    if (!scored.ContainsKey(phraseSuggestion) || scored[phraseSuggestion].score < baseScore)
+                        scored[phraseSuggestion] = (baseScore, PredictionType.Phrase);
                 }
             }
         }
 
         // Standard word matching (prefix + fuzzy)
-        foreach (var (word, frequency) in _words)
+        // Skip if prefix is empty AND we have context (context predictions take priority)
+        // If prefix is empty with no context, we still want to show top frequency words
+        var shouldIncludeStandardMatching = !string.IsNullOrEmpty(prefix) || !hasContext;
+
+        if (shouldIncludeStandardMatching)
         {
-            if (word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            foreach (var (word, frequency) in _words)
             {
-                var baseScore = frequency * 3.0;
-                // Only add if not already scored higher by bigram/phrase (preserve context predictions)
+                if (word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var baseScore = frequency * 3.0;
+                    // Only preserve an existing entry when it already has an equal or higher score
+                    if (!scored.ContainsKey(word) || scored[word].score < baseScore)
+                        scored[word] = (baseScore, PredictionType.ExactPrefix);
+                    continue;
+                }
+
+                // Skip fuzzy matching for words already in scored (from bigram/phrase)
+                if (scored.ContainsKey(word))
+                    continue;
+
+                // Only do fuzzy matching if we have a non-empty prefix
+                if (string.IsNullOrEmpty(prefix))
+                    continue;
+
+                // Compare prefix against the same-length prefix of the word, or full word if shorter
+                // Use case-insensitive comparison for fuzzy matching
+                var wordPrefix = word.Length >= prefix.Length
+                    ? word[..prefix.Length]
+                    : word;
+
+                var dist = FuzzyEditDistance.Compute(prefix.ToLowerInvariant(), wordPrefix.ToLowerInvariant(), _adjacencyMap);
+                if (dist > MaxFuzzyDistance) continue;
+
+                double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;
+                var fuzzyScore = frequency * multiplier;
                 if (!scored.ContainsKey(word))
-                    scored[word] = (baseScore, PredictionType.ExactPrefix);
-                continue;
+                    scored[word] = (fuzzyScore, PredictionType.FuzzyMatch);
             }
-
-            // Skip fuzzy matching for words already in scored (from bigram/phrase)
-            if (scored.ContainsKey(word))
-                continue;
-
-            // Compare prefix against the same-length prefix of the word, or full word if shorter
-            // Use case-insensitive comparison for fuzzy matching
-            var wordPrefix = word.Length >= prefix.Length
-                ? word[..prefix.Length]
-                : word;
-
-            var dist = FuzzyEditDistance.Compute(prefix.ToLowerInvariant(), wordPrefix.ToLowerInvariant(), _adjacencyMap);
-            if (dist > MaxFuzzyDistance) continue;
-
-            double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;
-            var fuzzyScore = frequency * multiplier;
-            if (!scored.ContainsKey(word))
-                scored[word] = (fuzzyScore, PredictionType.FuzzyMatch);
         }
 
         // Convert to PredictionResult and sort

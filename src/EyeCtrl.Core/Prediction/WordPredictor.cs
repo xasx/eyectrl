@@ -10,8 +10,12 @@ public class WordPredictor
     private readonly IReadOnlySet<string> _abbreviations;
 
     private const double MaxFuzzyDistance = 1.5;
-    private const double BigramBoost = 2.0;
-    private const double PhraseBoost = 1.5;
+
+    // Scoring weights (Phase 2)
+    private const double ExactPrefixMultiplier = 3.0;
+    private const double NextWordMultiplier = 5.0;
+    private const double PhraseMultiplier = 4.0;
+    private const double BigramContextBoost = 1.3;
 
     /// <summary>
     /// Gets the language-specific abbreviations loaded from the dictionary.
@@ -52,7 +56,7 @@ public class WordPredictor
         var scored = new Dictionary<string, (double score, PredictionType type)>();
         var hasContext = !string.IsNullOrWhiteSpace(context);
 
-        // If we have context (previous word), check for bigram and phrase matches
+        // Category 1: Next-word predictions (when we have context)
         if (hasContext)
         {
             // Check bigram predictions (case-sensitive)
@@ -61,12 +65,13 @@ public class WordPredictor
             {
                 if (string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    var baseScore = frequency * BigramBoost;
-                    scored[word] = (baseScore, PredictionType.NextWord);
+                    var baseFreq = _words.GetValueOrDefault(word.ToLowerInvariant(), 1);
+                    var score = baseFreq * frequency * NextWordMultiplier;
+                    scored[word] = (score, PredictionType.NextWord);
                 }
             }
 
-            // Check phrase predictions (case-sensitive)
+            // Category 2: Phrase predictions (case-sensitive)
             var phrases = _phrases.GetPhrases(context!, maxCount * 2);
             foreach (var (phrase, frequency) in phrases)
             {
@@ -81,16 +86,16 @@ public class WordPredictor
                 if (!string.IsNullOrWhiteSpace(phraseSuggestion) &&
                     (string.IsNullOrEmpty(prefix) || phraseSuggestion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                 {
-                    var baseScore = frequency * PhraseBoost;
-                    if (!scored.ContainsKey(phraseSuggestion) || scored[phraseSuggestion].score < baseScore)
-                        scored[phraseSuggestion] = (baseScore, PredictionType.Phrase);
+                    var score = frequency * PhraseMultiplier;
+                    // Only update if not already present or if we have a higher score
+                    if (!scored.ContainsKey(phraseSuggestion) || scored[phraseSuggestion].score < score)
+                        scored[phraseSuggestion] = (score, PredictionType.Phrase);
                 }
             }
         }
 
-        // Standard word matching (prefix + fuzzy)
+        // Category 3: Exact prefix matches
         // Skip if prefix is empty AND we have context (context predictions take priority)
-        // If prefix is empty with no context, we still want to show top frequency words
         var shouldIncludeStandardMatching = !string.IsNullOrEmpty(prefix) || !hasContext;
 
         if (shouldIncludeStandardMatching)
@@ -99,10 +104,19 @@ public class WordPredictor
             {
                 if (word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    var baseScore = frequency * 3.0;
+                    var score = frequency * ExactPrefixMultiplier;
+
+                    // Context boost for bigram relevance
+                    if (hasContext)
+                    {
+                        var nextWords = _bigrams.GetNextWords(context!, 100);
+                        if (nextWords.Any(nw => string.Equals(nw.word, word, StringComparison.OrdinalIgnoreCase)))
+                            score *= BigramContextBoost;
+                    }
+
                     // Only preserve an existing entry when it already has an equal or higher score
-                    if (!scored.ContainsKey(word) || scored[word].score < baseScore)
-                        scored[word] = (baseScore, PredictionType.ExactPrefix);
+                    if (!scored.ContainsKey(word) || scored[word].score < score)
+                        scored[word] = (score, PredictionType.ExactPrefix);
                     continue;
                 }
 
@@ -110,7 +124,7 @@ public class WordPredictor
                 if (scored.ContainsKey(word))
                     continue;
 
-                // Only do fuzzy matching if we have a non-empty prefix
+                // Category 4: Fuzzy matches (only if we have a non-empty prefix)
                 if (string.IsNullOrEmpty(prefix))
                     continue;
 
@@ -125,6 +139,15 @@ public class WordPredictor
 
                 double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;
                 var fuzzyScore = frequency * multiplier;
+
+                // Context boost for bigram relevance
+                if (hasContext)
+                {
+                    var nextWords = _bigrams.GetNextWords(context!, 100);
+                    if (nextWords.Any(nw => string.Equals(nw.word, word, StringComparison.OrdinalIgnoreCase)))
+                        fuzzyScore *= BigramContextBoost;
+                }
+
                 if (!scored.ContainsKey(word))
                     scored[word] = (fuzzyScore, PredictionType.FuzzyMatch);
             }
@@ -134,7 +157,15 @@ public class WordPredictor
         var results = scored
             .Select(kv =>
             {
-                var confidence = Math.Min(1.0, kv.Value.score / 1000.0);
+                // Improved confidence calculation based on prediction type
+                double confidence = kv.Value.type switch
+                {
+                    PredictionType.NextWord => Math.Min(1.0, kv.Value.score / 500.0),
+                    PredictionType.Phrase => Math.Min(1.0, kv.Value.score / 400.0),
+                    PredictionType.ExactPrefix => 1.0, // Exact matches have high confidence
+                    PredictionType.FuzzyMatch => Math.Max(0.0, 1.0 - (MaxFuzzyDistance / 2.0)),
+                    _ => Math.Min(1.0, kv.Value.score / 1000.0)
+                };
                 return new PredictionResult(kv.Key, kv.Value.score, kv.Value.type, confidence);
             })
             .OrderByDescending(r => r.Score)

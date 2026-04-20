@@ -53,8 +53,19 @@ public class WordPredictor
 
     public List<PredictionResult> GetSuggestions(string prefix, string? context = null, int maxCount = 5)
     {
-        var scored = new Dictionary<string, (double score, PredictionType type)>();
+        // Use case-insensitive dictionary to prevent duplicate suggestions with different casing
+        var scored = new Dictionary<string, (double score, PredictionType type, string displayWord, double? fuzzyDistance)>(StringComparer.OrdinalIgnoreCase);
         var hasContext = !string.IsNullOrWhiteSpace(context);
+
+        // Precompute context boost set once (performance optimization)
+        HashSet<string>? contextBoostWords = null;
+        if (hasContext)
+        {
+            var nextWordsList = _bigrams.GetNextWords(context!, 100);
+            contextBoostWords = new HashSet<string>(
+                nextWordsList.Select(nw => nw.word.ToLowerInvariant()),
+                StringComparer.OrdinalIgnoreCase);
+        }
 
         // Category 1: Next-word predictions (when we have context)
         if (hasContext)
@@ -67,7 +78,11 @@ public class WordPredictor
                 {
                     var baseFreq = _words.GetValueOrDefault(word.ToLowerInvariant(), 1);
                     var score = baseFreq * frequency * NextWordMultiplier;
-                    scored[word] = (score, PredictionType.NextWord);
+                    var key = word.ToLowerInvariant();
+
+                    // Keep higher-cased version for display (preserve original casing from bigrams)
+                    if (!scored.ContainsKey(key) || scored[key].score < score)
+                        scored[key] = (score, PredictionType.NextWord, word, null);
                 }
             }
 
@@ -87,9 +102,11 @@ public class WordPredictor
                     (string.IsNullOrEmpty(prefix) || phraseSuggestion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                 {
                     var score = frequency * PhraseMultiplier;
+                    var key = phraseSuggestion.ToLowerInvariant();
+
                     // Only update if not already present or if we have a higher score
-                    if (!scored.ContainsKey(phraseSuggestion) || scored[phraseSuggestion].score < score)
-                        scored[phraseSuggestion] = (score, PredictionType.Phrase);
+                    if (!scored.ContainsKey(key) || scored[key].score < score)
+                        scored[key] = (score, PredictionType.Phrase, phraseSuggestion, null);
                 }
             }
         }
@@ -106,17 +123,13 @@ public class WordPredictor
                 {
                     var score = frequency * ExactPrefixMultiplier;
 
-                    // Context boost for bigram relevance
-                    if (hasContext)
-                    {
-                        var nextWords = _bigrams.GetNextWords(context!, 100);
-                        if (nextWords.Any(nw => string.Equals(nw.word, word, StringComparison.OrdinalIgnoreCase)))
-                            score *= BigramContextBoost;
-                    }
+                    // Context boost for bigram relevance (using precomputed set)
+                    if (hasContext && contextBoostWords != null && contextBoostWords.Contains(word))
+                        score *= BigramContextBoost;
 
                     // Only preserve an existing entry when it already has an equal or higher score
                     if (!scored.ContainsKey(word) || scored[word].score < score)
-                        scored[word] = (score, PredictionType.ExactPrefix);
+                        scored[word] = (score, PredictionType.ExactPrefix, word, null);
                     continue;
                 }
 
@@ -140,16 +153,12 @@ public class WordPredictor
                 double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;
                 var fuzzyScore = frequency * multiplier;
 
-                // Context boost for bigram relevance
-                if (hasContext)
-                {
-                    var nextWords = _bigrams.GetNextWords(context!, 100);
-                    if (nextWords.Any(nw => string.Equals(nw.word, word, StringComparison.OrdinalIgnoreCase)))
-                        fuzzyScore *= BigramContextBoost;
-                }
+                // Context boost for bigram relevance (using precomputed set)
+                if (hasContext && contextBoostWords != null && contextBoostWords.Contains(word))
+                    fuzzyScore *= BigramContextBoost;
 
                 if (!scored.ContainsKey(word))
-                    scored[word] = (fuzzyScore, PredictionType.FuzzyMatch);
+                    scored[word] = (fuzzyScore, PredictionType.FuzzyMatch, word, dist);
             }
         }
 
@@ -163,10 +172,12 @@ public class WordPredictor
                     PredictionType.NextWord => Math.Min(1.0, kv.Value.score / 500.0),
                     PredictionType.Phrase => Math.Min(1.0, kv.Value.score / 400.0),
                     PredictionType.ExactPrefix => 1.0, // Exact matches have high confidence
-                    PredictionType.FuzzyMatch => Math.Max(0.0, 1.0 - (MaxFuzzyDistance / 2.0)),
+                    PredictionType.FuzzyMatch => kv.Value.fuzzyDistance.HasValue
+                        ? Math.Max(0.0, 1.0 - (kv.Value.fuzzyDistance.Value / MaxFuzzyDistance))
+                        : 0.5,
                     _ => Math.Min(1.0, kv.Value.score / 1000.0)
                 };
-                return new PredictionResult(kv.Key, kv.Value.score, kv.Value.type, confidence);
+                return new PredictionResult(kv.Value.displayWord, kv.Value.score, kv.Value.type, confidence);
             })
             .OrderByDescending(r => r.Score)
             .Take(maxCount)

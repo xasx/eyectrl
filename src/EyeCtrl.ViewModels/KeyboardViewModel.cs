@@ -41,6 +41,7 @@ public partial class KeyboardViewModel : ObservableObject,
 
     private WordPredictor? _predictor;
     private KeyboardLayout? _layout;
+    private string? _previousWord;
 
     public event Action<string>? KeyDwellCompleted;
 
@@ -189,7 +190,10 @@ public partial class KeyboardViewModel : ObservableObject,
     public void HandleEnter()
     {
         if (!HasSystemModifiers)
+        {
             CurrentInput = "";
+            _previousWord = null;
+        }
         _messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
@@ -199,7 +203,10 @@ public partial class KeyboardViewModel : ObservableObject,
         if (!HasSystemModifiers)
         {
             if (CurrentInput.Length > 0)
+            {
                 _predictor?.LearnWord(CurrentInput);
+                _previousWord = CurrentInput;
+            }
             CurrentInput = "";
         }
         _messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
@@ -222,7 +229,9 @@ public partial class KeyboardViewModel : ObservableObject,
     public List<string> GetSuggestions()
     {
         if (_predictor == null) return new List<string>();
-        return _predictor.GetSuggestions(CurrentInput, maxCount: 5);
+        return _predictor.GetSuggestions(CurrentInput, _previousWord, maxCount: 5)
+            .Select(r => r.Word)
+            .ToList();
     }
 
     public void HandlePredictionSelected(string word)
@@ -230,6 +239,7 @@ public partial class KeyboardViewModel : ObservableObject,
         _predictor?.LearnWord(word);
         var deleteCount = CurrentInput.Length;
         CurrentInput = "";
+        _previousWord = word;
         _messenger.Send(new PredictionSelectedMessage(word, deleteCount));
     }
 

@@ -1,0 +1,132 @@
+namespace EyeCtrl.Core.Prediction;
+
+/// <summary>
+/// Provides smart capitalization based on sentence boundaries.
+/// </summary>
+public static class CapitalizationHelper
+{
+    private static readonly HashSet<char> SentenceEndMarkers = new() { '.', '!', '?' };
+
+    /// <summary>
+    /// Determines if the next word should be capitalized based on context.
+    /// </summary>
+    /// <param name="currentText">The text typed so far.</param>
+    /// <returns>True if the next word should be capitalized.</returns>
+    public static bool ShouldCapitalize(string currentText)
+    {
+        return ShouldCapitalize(currentText, null);
+    }
+
+    /// <summary>
+    /// Determines if the next word should be capitalized based on context.
+    /// </summary>
+    /// <param name="currentText">The text typed so far.</param>
+    /// <param name="abbreviations">Optional set of language-specific abbreviations.</param>
+    /// <returns>True if the next word should be capitalized.</returns>
+    public static bool ShouldCapitalize(string currentText, IReadOnlySet<string>? abbreviations)
+    {
+        if (string.IsNullOrEmpty(currentText))
+            return true;
+
+        // Trim trailing whitespace to find the last meaningful character
+        var trimmed = currentText.TrimEnd();
+        if (trimmed.Length == 0)
+            return true;
+
+        var lastChar = trimmed[^1];
+
+        // Check if last character is a sentence-ending marker
+        if (SentenceEndMarkers.Contains(lastChar))
+        {
+            // Check if this is likely an abbreviation
+            if (lastChar == '.' && trimmed.Length > 1)
+            {
+                // Look for pattern: check last word including the period
+                var words = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (words.Length > 0)
+                {
+                    var lastWordWithPeriod = words[^1];
+
+                    // Check if it's a known abbreviation (abbreviations now include the period)
+                    if (abbreviations != null && abbreviations.Contains(lastWordWithPeriod))
+                        return false;
+
+                    // Also check for single-letter abbreviations (e.g., "A.", "B.")
+                    // or short lowercase words (likely abbreviations like "i.e.", "e.g.")
+                    if (lastWordWithPeriod.Length <= 4 && lastWordWithPeriod.EndsWith('.') &&
+                        lastWordWithPeriod.Length > 1 && char.IsLower(lastWordWithPeriod[0]))
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Capitalizes the first letter of a string.
+    /// </summary>
+    /// <param name="word">The word to capitalize.</param>
+    /// <returns>The word with the first letter capitalized.</returns>
+    public static string Capitalize(string word)
+    {
+        if (string.IsNullOrEmpty(word))
+            return string.Empty;
+
+        if (word.Length == 1)
+            return char.ToUpperInvariant(word[0]).ToString();
+
+        // Find the first letter character
+        for (int i = 0; i < word.Length; i++)
+        {
+            if (char.IsLetter(word[i]))
+            {
+                if (i == 0)
+                    return char.ToUpperInvariant(word[0]) + word[1..];
+                else
+                    return word[..i] + char.ToUpperInvariant(word[i]) + word[(i + 1)..];
+            }
+        }
+
+        // No letters found, return as-is
+        return word;
+    }
+
+    /// <summary>
+    /// Applies smart capitalization to a word based on context.
+    /// Preserves existing capitalization if word is already capitalized.
+    /// </summary>
+    /// <param name="word">The word to potentially capitalize.</param>
+    /// <param name="currentText">The text typed so far.</param>
+    /// <returns>The word with appropriate capitalization.</returns>
+    public static string ApplySmartCapitalization(string word, string currentText)
+    {
+        return ApplySmartCapitalization(word, currentText, null);
+    }
+
+    /// <summary>
+    /// Applies smart capitalization to a word based on context.
+    /// Preserves existing capitalization if word is already capitalized.
+    /// </summary>
+    /// <param name="word">The word to potentially capitalize.</param>
+    /// <param name="currentText">The text typed so far.</param>
+    /// <param name="abbreviations">Optional set of language-specific abbreviations.</param>
+    /// <returns>The word with appropriate capitalization.</returns>
+    public static string ApplySmartCapitalization(string word, string currentText, IReadOnlySet<string>? abbreviations)
+    {
+        if (string.IsNullOrEmpty(word))
+            return string.Empty;
+
+        // If word is already capitalized, preserve it
+        if (word.Length > 0 && char.IsUpper(word[0]))
+            return word;
+
+        // If we should capitalize, do so
+        if (ShouldCapitalize(currentText, abbreviations))
+            return Capitalize(word);
+
+        return word;
+    }
+}

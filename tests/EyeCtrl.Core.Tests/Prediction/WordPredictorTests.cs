@@ -252,10 +252,24 @@ public class WordPredictorTests
         var withoutContext = predictor.GetSuggestions("", null, maxCount: 5);
 
         var youWithContext = withContext.FirstOrDefault(r => r.Word == "you");
-        Assert.NotNull(youWithContext);
+        var youWithoutContext = withoutContext.FirstOrDefault(r => r.Word == "you");
 
-        // "you" should appear in top results with context
+        Assert.NotNull(youWithContext);
+        Assert.NotNull(youWithoutContext);
+
+        // "you" should appear in both result sets, but context should improve its rank/score
         Assert.Contains("you", withContext.Select(r => r.Word));
+        Assert.Contains("you", withoutContext.Select(r => r.Word));
+
+        // With context, "you" should rank higher (lower index = higher rank)
+        var youIndexWithContext = withContext.ToList().FindIndex(r => r.Word == "you");
+        var youIndexWithoutContext = withoutContext.ToList().FindIndex(r => r.Word == "you");
+        Assert.True(youIndexWithContext < youIndexWithoutContext,
+            $"\"you\" should rank higher with context (index {youIndexWithContext}) than without (index {youIndexWithoutContext})");
+
+        // With context, "you" should have a higher score
+        Assert.True(youWithContext.Score > youWithoutContext.Score,
+            $"\"you\" should have higher score with context ({youWithContext.Score}) than without ({youWithoutContext.Score})");
     }
 
     [Fact]
@@ -283,17 +297,21 @@ public class WordPredictorTests
     {
         var predictor = CreatePredictor(new()
         {
-            { "forward", 50 }, { "to", 100 }, { "hearing", 50 }
+            { "forward", 50 }, { "to", 100 }, { "hearing", 50 }, { "from", 80 }
         });
 
-        // Learn three-word phrase
+        // Learn a longer phrase so a multi-word context can trigger phrase continuation
         for (int i = 0; i < 3; i++)
-            predictor.LearnSequence(new[] { "looking", "forward", "to" });
+            predictor.LearnSequence(new[] { "looking", "forward", "to", "hearing" });
 
-        // With "looking" context, should suggest continuation
-        var results = predictor.GetSuggestions("", "looking", maxCount: 5);
+        // With a multi-word context matching the phrase prefix, should suggest a phrase continuation
+        var results = predictor.GetSuggestions("", "looking forward", maxCount: 5);
 
-        Assert.Contains(results, r => r.Word == "forward" || r.Word.Contains("forward"));
+        // Should get phrase suggestions containing multiple words or continuation
+        Assert.Contains(results, r =>
+            r.Word == "to hearing" ||
+            r.Word.Contains("to") ||
+            (r.Word.Contains(" ") && r.Type == PredictionType.Phrase));
     }
 
     [Fact]

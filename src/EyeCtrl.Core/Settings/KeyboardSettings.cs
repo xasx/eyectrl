@@ -11,6 +11,7 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     [ObservableProperty] private string _screenEdge = "Bottom";
     [ObservableProperty] private int _emojiSkinTone = 0;
     [ObservableProperty] private bool _clickSoundEnabled = true;
+    [ObservableProperty] private bool _smartCapitalizationEnabled = true;
 
     private static readonly string[] ValidLayouts = { "QWERTY", "AZERTY", "QWERTZ" };
     private static readonly string[] ValidScreenEdges = { "Top", "Bottom" };

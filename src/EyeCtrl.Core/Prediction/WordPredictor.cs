@@ -51,11 +51,14 @@ public class WordPredictor
         }
     }
 
-    public List<PredictionResult> GetSuggestions(string prefix, string? context = null, int maxCount = 5)
+    public List<PredictionResult> GetSuggestions(string prefix, string? context = null, int maxCount = 5, string? fullText = null)
     {
         // Use case-insensitive dictionary to prevent duplicate suggestions with different casing
         var scored = new Dictionary<string, (double score, PredictionType type, string displayWord, double? fuzzyDistance)>(StringComparer.OrdinalIgnoreCase);
         var hasContext = !string.IsNullOrWhiteSpace(context);
+
+        // Determine if we should apply smart capitalization
+        var shouldCapitalize = fullText != null && CapitalizationHelper.ShouldCapitalize(fullText, _abbreviations);
 
         // Precompute context boost set once (performance optimization)
         HashSet<string>? contextBoostWords = null;
@@ -170,6 +173,11 @@ public class WordPredictor
         var results = scored
             .Select(kv =>
             {
+                // Apply smart capitalization if enabled
+                var displayWord = shouldCapitalize
+                    ? CapitalizationHelper.ApplySmartCapitalization(kv.Value.displayWord, fullText!, _abbreviations)
+                    : kv.Value.displayWord;
+
                 // Improved confidence calculation based on prediction type
                 double confidence = kv.Value.type switch
                 {
@@ -181,7 +189,7 @@ public class WordPredictor
                         : 0.5,
                     _ => Math.Min(1.0, kv.Value.score / 1000.0)
                 };
-                return new PredictionResult(kv.Value.displayWord, kv.Value.score, kv.Value.type, confidence);
+                return new PredictionResult(displayWord, kv.Value.score, kv.Value.type, confidence);
             })
             .OrderByDescending(r => r.Score)
             .Take(maxCount)

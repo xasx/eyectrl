@@ -411,6 +411,83 @@ public class WordPredictorTests
                 $"Score at index {i} ({results[i].Score}) should be >= score at index {i + 1} ({results[i + 1].Score})");
         }
     }
+
+    [Fact]
+    public void GetSuggestions_SmartCapitalization_CapitalizesAtStartOfText()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "hello", 100 }, { "help", 80 }
+        });
+
+        var results = predictor.GetSuggestions("hel", null, maxCount: 5, fullText: "");
+
+        // Should capitalize at start of text
+        Assert.Contains(results, r => r.Word == "Hello");
+        Assert.DoesNotContain(results, r => r.Word == "hello");
+    }
+
+    [Fact]
+    public void GetSuggestions_SmartCapitalization_CapitalizesAfterPeriod()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "world", 100 }, { "work", 80 }
+        });
+
+        var results = predictor.GetSuggestions("wo", null, maxCount: 5, fullText: "Hello. ");
+
+        // Should capitalize after sentence ending
+        Assert.Contains(results, r => r.Word == "World");
+        Assert.DoesNotContain(results, r => r.Word == "world");
+    }
+
+    [Fact]
+    public void GetSuggestions_SmartCapitalization_DoesNotCapitalizeInMiddle()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "world", 100 }, { "work", 80 }
+        });
+
+        var results = predictor.GetSuggestions("wo", null, maxCount: 5, fullText: "Hello ");
+
+        // Should NOT capitalize in middle of sentence
+        Assert.Contains(results, r => r.Word == "world");
+        Assert.DoesNotContain(results, r => r.Word == "World");
+    }
+
+    [Fact]
+    public void GetSuggestions_SmartCapitalization_PreservesExistingCapitalization()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "john", 100 }, { "jane", 80 }
+        });
+
+        // Learn "John" as a proper noun
+        predictor.LearnWord("John");
+
+        var results = predictor.GetSuggestions("jo", null, maxCount: 5, fullText: "Hello ");
+
+        // Should preserve proper noun capitalization even mid-sentence
+        Assert.Contains(results, r => r.Word == "John" || r.Word == "john");
+    }
+
+    [Fact]
+    public void GetSuggestions_SmartCapitalization_DisabledWhenFullTextNull()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "hello", 100 }, { "help", 80 }
+        });
+
+        // fullText is null - no capitalization should be applied
+        var results = predictor.GetSuggestions("hel", null, maxCount: 5, fullText: null);
+
+        Assert.Contains(results, r => r.Word == "hello");
+        Assert.DoesNotContain(results, r => r.Word == "Hello");
+    }
 }
 
 // Test helper

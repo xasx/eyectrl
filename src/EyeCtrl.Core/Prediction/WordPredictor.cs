@@ -59,19 +59,20 @@ public class WordPredictor
 
         // Precompute context boost set once (performance optimization)
         HashSet<string>? contextBoostWords = null;
+        List<(string word, int frequency)>? nextWords = null;
         if (hasContext)
         {
-            var nextWordsList = _bigrams.GetNextWords(context!, 100);
+            // Call GetNextWords once with the max needed count and reuse for both predictions and boost set
+            nextWords = _bigrams.GetNextWords(context!, Math.Max(100, maxCount * 2));
             contextBoostWords = new HashSet<string>(
-                nextWordsList.Select(nw => nw.word.ToLowerInvariant()),
+                nextWords.Select(nw => nw.word.ToLowerInvariant()),
                 StringComparer.OrdinalIgnoreCase);
         }
 
         // Category 1: Next-word predictions (when we have context)
-        if (hasContext)
+        if (hasContext && nextWords != null)
         {
             // Check bigram predictions (case-sensitive)
-            var nextWords = _bigrams.GetNextWords(context!, maxCount * 2);
             foreach (var (word, frequency) in nextWords)
             {
                 if (string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -117,6 +118,9 @@ public class WordPredictor
 
         if (shouldIncludeStandardMatching)
         {
+            // Precompute lowercase prefix once for fuzzy matching (performance optimization)
+            var lowerPrefix = prefix.ToLowerInvariant();
+
             foreach (var (word, frequency) in _words)
             {
                 if (word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -147,7 +151,7 @@ public class WordPredictor
                     ? word[..prefix.Length]
                     : word;
 
-                var dist = FuzzyEditDistance.Compute(prefix.ToLowerInvariant(), wordPrefix.ToLowerInvariant(), _adjacencyMap);
+                var dist = FuzzyEditDistance.Compute(lowerPrefix, wordPrefix.ToLowerInvariant(), _adjacencyMap);
                 if (dist > MaxFuzzyDistance) continue;
 
                 double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;

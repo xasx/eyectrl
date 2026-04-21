@@ -368,8 +368,8 @@ public class WordPredictor
     private readonly IDictionaryProvider _provider;
     private readonly Dictionary<string, int> _words;
     private readonly Dictionary<char, HashSet<char>> _adjacencyMap;
-    private readonly BigramModel _bigramModel;
-    private readonly PhraseModel _phraseModel;
+    private readonly BigramModel _bigrams;
+    private readonly PhraseModel _phrases;
 
     private const double MaxFuzzyDistance = 1.5;
 
@@ -384,114 +384,150 @@ public class WordPredictor
         _provider = provider;
         _words = provider.Load();
         _adjacencyMap = KeyboardAdjacencyMap.For(layoutName);
-        _bigramModel = new BigramModel();
-        _phraseModel = new PhraseModel();
+        _bigrams = new BigramModel();
+        _phrases = new PhraseModel();
 
-        // Load persisted bigrams and phrases
-        var bigrams = provider.LoadBigrams();
-        if (bigrams != null)
-            _bigramModel.LoadFromDictionary(bigrams);
+        // Load bigrams and phrases if provider supports extensions
+        if (provider is FileDictionaryProvider fileProvider)
+        {
+            var bigramData = fileProvider.LoadBigrams();
+            if (bigramData.Count > 0)
+                _bigrams.LoadFromDictionary(bigramData);
 
-        var phrases = provider.LoadPhrases();
-        if (phrases != null)
-            _phraseModel.LoadFromDictionary(phrases);
+            var phraseData = fileProvider.LoadPhrases();
+            if (phraseData.Count > 0)
+                _phrases.LoadFromDictionary(phraseData);
+        }
     }
 
-    public List<PredictionResult> GetSuggestions(
-        string prefix,
-        string? previousWord = null,
-        int maxCount = 5)
+    public List<PredictionResult> GetSuggestions(string prefix, string? context = null, int maxCount = 5)
     {
-        var scored = new List<PredictionResult>();
-        var lowerPrefix = prefix.ToLowerInvariant();
+        // Use case-insensitive dictionary to prevent duplicate suggestions with different casing
+        var scored = new Dictionary<string, (double score, PredictionType type, string displayWord, double? fuzzyDistance)>(StringComparer.OrdinalIgnoreCase);
+        var hasContext = !string.IsNullOrWhiteSpace(context);
 
-        // Category 1: Next-word predictions (when prefix is empty and we have context)
-        if (string.IsNullOrEmpty(lowerPrefix) && !string.IsNullOrEmpty(previousWord))
+        // Precompute context boost set once (performance optimization)
+        HashSet<string>? contextBoostWords = null;
+        if (hasContext)
         {
-            var nextWords = _bigramModel.GetNextWords(previousWord, maxCount * 2);
-            foreach (var (word, freq) in nextWords)
-            {
-                var baseFreq = _words.GetValueOrDefault(word, 1);
-                var score = baseFreq * freq * NextWordMultiplier;
-                var confidence = Math.Min(1.0, freq / 100.0); // Normalize to 0-1
-
-                scored.Add(new PredictionResult(word, score, PredictionType.NextWord, confidence));
-            }
+            var nextWordsList = _bigrams.GetNextWords(context!, 100);
+            contextBoostWords = new HashSet<string>(
+                nextWordsList.Select(nw => nw.word.ToLowerInvariant()),
+                StringComparer.OrdinalIgnoreCase);
         }
 
-        // Category 2: Phrase predictions
-        if (!string.IsNullOrEmpty(previousWord))
+        // Category 1: Next-word predictions (when we have context)
+        if (hasContext)
         {
-            var contextPhrase = previousWord;
-            var phrases = _phraseModel.GetPhrases(contextPhrase, maxCount);
-            foreach (var (phrase, freq) in phrases)
+            // Check bigram predictions (case-sensitive)
+            var nextWords = _bigrams.GetNextWords(context!, maxCount * 2);
+            foreach (var (word, frequency) in nextWords)
             {
-                if (phrase.StartsWith(lowerPrefix, StringComparison.OrdinalIgnoreCase))
+                if (string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    var score = freq * PhraseMultiplier;
-                    var confidence = Math.Min(1.0, freq / 50.0);
-                    scored.Add(new PredictionResult(phrase, score, PredictionType.Phrase, confidence));
+                    var baseFreq = _words.GetValueOrDefault(word.ToLowerInvariant(), 1);
+                    var score = baseFreq * frequency * NextWordMultiplier;
+                    var key = word.ToLowerInvariant();
+
+                    // Keep higher-cased version for display (preserve original casing from bigrams)
+                    if (!scored.ContainsKey(key) || scored[key].score < score)
+                        scored[key] = (score, PredictionType.NextWord, word, null);
+                }
+            }
+
+            // Category 2: Phrase predictions (case-sensitive)
+            var phrases = _phrases.GetPhrases(context!, maxCount * 2);
+            foreach (var (phrase, frequency) in phrases)
+            {
+                // Return the remaining phrase after the current context
+                var phrasePrefix = context! + " ";
+                var phraseSuggestion = phrase;
+
+                if (phrase.StartsWith(phrasePrefix, StringComparison.Ordinal))
+                    phraseSuggestion = phrase[phrasePrefix.Length..].TrimStart();
+
+                if (!string.IsNullOrWhiteSpace(phraseSuggestion) &&
+                    (string.IsNullOrEmpty(prefix) || phraseSuggestion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var score = frequency * PhraseMultiplier;
+                    var key = phraseSuggestion.ToLowerInvariant();
+
+                    if (!scored.ContainsKey(key) || scored[key].score < score)
+                        scored[key] = (score, PredictionType.Phrase, phraseSuggestion, null);
                 }
             }
         }
 
         // Category 3: Exact prefix matches
-        foreach (var (word, frequency) in _words)
-        {
-            if (word.StartsWith(lowerPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                var score = frequency * ExactPrefixMultiplier;
-                var confidence = 1.0; // Exact match = high confidence
+        // Skip if prefix is empty AND we have context (context predictions take priority)
+        var shouldIncludeStandardMatching = !string.IsNullOrEmpty(prefix) || !hasContext;
 
-                // Context boost for bigram relevance
-                if (!string.IsNullOrEmpty(previousWord))
-                {
-                    var nextWords = _bigramModel.GetNextWords(previousWord, 100);
-                    if (nextWords.Any(nw => nw.word == word))
-                        score *= BigramContextBoost;
-                }
-
-                scored.Add(new PredictionResult(word, score, PredictionType.ExactPrefix, confidence));
-            }
-        }
-
-        // Category 4: Fuzzy matches (only if we have a prefix)
-        if (!string.IsNullOrEmpty(lowerPrefix))
+        if (shouldIncludeStandardMatching)
         {
             foreach (var (word, frequency) in _words)
             {
-                // Skip if already added as exact match
-                if (word.StartsWith(lowerPrefix, StringComparison.OrdinalIgnoreCase))
+                if (word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var score = frequency * ExactPrefixMultiplier;
+
+                    // Context boost for bigram relevance (using precomputed set)
+                    if (hasContext && contextBoostWords != null && contextBoostWords.Contains(word))
+                        score *= BigramContextBoost;
+
+                    if (!scored.ContainsKey(word) || scored[word].score < score)
+                        scored[word] = (score, PredictionType.ExactPrefix, word, null);
+                    continue;
+                }
+
+                // Skip fuzzy matching for words already in scored (from bigram/phrase)
+                if (scored.ContainsKey(word))
                     continue;
 
-                var compareTarget = word.Length >= lowerPrefix.Length
-                    ? word[..lowerPrefix.Length]
+                // Category 4: Fuzzy matches (only if we have a non-empty prefix)
+                if (string.IsNullOrEmpty(prefix))
+                    continue;
+
+                var wordPrefix = word.Length >= prefix.Length
+                    ? word[..prefix.Length]
                     : word;
 
-                var dist = FuzzyEditDistance.Compute(lowerPrefix, compareTarget, _adjacencyMap);
+                var dist = FuzzyEditDistance.Compute(prefix.ToLowerInvariant(), wordPrefix.ToLowerInvariant(), _adjacencyMap);
                 if (dist > MaxFuzzyDistance) continue;
 
                 double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;
-                var score = frequency * multiplier;
-                var confidence = Math.Max(0.0, 1.0 - (dist / MaxFuzzyDistance));
+                var fuzzyScore = frequency * multiplier;
 
-                // Context boost
-                if (!string.IsNullOrEmpty(previousWord))
-                {
-                    var nextWords = _bigramModel.GetNextWords(previousWord, 100);
-                    if (nextWords.Any(nw => nw.word == word))
-                        score *= BigramContextBoost;
-                }
+                // Context boost for bigram relevance (using precomputed set)
+                if (hasContext && contextBoostWords != null && contextBoostWords.Contains(word))
+                    fuzzyScore *= BigramContextBoost;
 
-                scored.Add(new PredictionResult(word, score, PredictionType.FuzzyMatch, confidence));
+                if (!scored.ContainsKey(word))
+                    scored[word] = (fuzzyScore, PredictionType.FuzzyMatch, word, dist);
             }
         }
 
-        // Return top results
-        return scored
+        // Convert to PredictionResult and sort
+        var results = scored
+            .Select(kv =>
+            {
+                // Type-specific confidence calculation
+                double confidence = kv.Value.type switch
+                {
+                    PredictionType.NextWord => Math.Min(1.0, kv.Value.score / 500.0),
+                    PredictionType.Phrase => Math.Min(1.0, kv.Value.score / 400.0),
+                    PredictionType.ExactPrefix => 1.0,
+                    PredictionType.FuzzyMatch => kv.Value.fuzzyDistance.HasValue
+                        ? Math.Max(0.0, 1.0 - (kv.Value.fuzzyDistance.Value / MaxFuzzyDistance))
+                        : 0.5,
+                    _ => Math.Min(1.0, kv.Value.score / 1000.0)
+                };
+                return new PredictionResult(kv.Value.displayWord, kv.Value.score, kv.Value.type, confidence);
+            })
             .OrderByDescending(r => r.Score)
             .Take(maxCount)
             .ToList();
+
+        return results;
     }
 
     public void LearnWord(string word)
@@ -503,25 +539,31 @@ public class WordPredictor
             _words[lower] = 1;
     }
 
-    public void LearnBigram(string word1, string word2)
+    public void LearnSequence(string[] words)
     {
-        if (string.IsNullOrWhiteSpace(word1) || string.IsNullOrWhiteSpace(word2))
-            return;
+        // Learn individual words
+        foreach (var word in words)
+            LearnWord(word);
 
-        _bigramModel.Learn(word1, word2);
-    }
+        // Learn bigrams
+        for (int i = 0; i < words.Length - 1; i++)
+            _bigrams.Learn(words[i], words[i + 1]);
 
-    public void LearnPhrase(string[] words)
-    {
-        if (words.Length < 2) return;
-        _phraseModel.LearnPhrase(words);
+        // Learn phrases (2-7 word sequences)
+        if (words.Length >= 2)
+            _phrases.LearnPhrase(words);
     }
 
     public void SaveUserDictionary()
     {
         _provider.Save(_words);
-        _provider.SaveBigrams(_bigramModel.GetAllBigrams());
-        _provider.SavePhrases(_phraseModel.GetAllPhrases());
+
+        // Save bigrams and phrases if provider supports extensions
+        if (_provider is FileDictionaryProvider fileProvider)
+        {
+            fileProvider.SaveBigrams(_bigrams.GetAllBigrams());
+            fileProvider.SavePhrases(_phrases.GetAllPhrases());
+        }
     }
 }
 ```

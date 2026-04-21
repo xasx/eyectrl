@@ -22,6 +22,7 @@ public class SettingsSerializationTests
         original.Zoom.Enabled = true;
         original.Zoom.MagnificationLevel = 3.0;
         original.Keyboard.ActiveLayout = "AZERTY";
+        original.Keyboard.SmartCapitalizationEnabled = false;
         original.Toolbar.Size = 120;
         original.Theme.Mode = "Dark";
         original.General.StartPaused = true;
@@ -35,6 +36,7 @@ public class SettingsSerializationTests
         Assert.True(deserialized.Zoom.Enabled);
         Assert.Equal(3.0, deserialized.Zoom.MagnificationLevel);
         Assert.Equal("AZERTY", deserialized.Keyboard.ActiveLayout);
+        Assert.False(deserialized.Keyboard.SmartCapitalizationEnabled);
         Assert.Equal(120, deserialized.Toolbar.Size);
         Assert.Equal("Dark", deserialized.Theme.Mode);
         Assert.True(deserialized.General.StartPaused);

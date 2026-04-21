@@ -240,16 +240,17 @@ public class WordPredictorTests
     {
         var predictor = CreatePredictor(new()
         {
-            { "world", 500 }, { "you", 100 }
+            { "world", 500 }, { "you", 100 }, { "your", 90 }, { "youth", 85 }
         });
 
         // Learn bigram "thank you" multiple times
         for (int i = 0; i < 10; i++)
             predictor.LearnSequence(new[] { "thank", "you" });
 
-        // With context, "you" should rank higher despite lower base frequency
-        var withContext = predictor.GetSuggestions("", "thank", maxCount: 5);
-        var withoutContext = predictor.GetSuggestions("", null, maxCount: 5);
+        // Test with a prefix "yo" to trigger ExactPrefix/Fuzzy matching instead of NextWord
+        // This allows us to verify that BigramContextBoost is applied
+        var withContext = predictor.GetSuggestions("yo", "thank", maxCount: 5);
+        var withoutContext = predictor.GetSuggestions("yo", null, maxCount: 5);
 
         var youWithContext = withContext.FirstOrDefault(r => r.Word == "you");
         var youWithoutContext = withoutContext.FirstOrDefault(r => r.Word == "you");
@@ -257,23 +258,23 @@ public class WordPredictorTests
         Assert.NotNull(youWithContext);
         Assert.NotNull(youWithoutContext);
 
-        // "you" should appear in both result sets, but context should improve its rank/score
+        // "you" should appear in both result sets, but context should improve its rank/score via BigramContextBoost
         Assert.Contains("you", withContext.Select(r => r.Word));
         Assert.Contains("you", withoutContext.Select(r => r.Word));
 
-        // With context, "you" should rank higher (lower index = higher rank)
+        // With context, "you" should rank higher (lower index = higher rank) due to BigramContextBoost
         var youIndexWithContext = withContext.ToList().FindIndex(r => r.Word == "you");
         var youIndexWithoutContext = withoutContext.ToList().FindIndex(r => r.Word == "you");
         Assert.True(youIndexWithContext < youIndexWithoutContext,
-            $"\"you\" should rank higher with context (index {youIndexWithContext}) than without (index {youIndexWithoutContext})");
+            $"\"you\" should rank higher with context (index {youIndexWithContext}) than without (index {youIndexWithoutContext}) due to BigramContextBoost");
 
-        // With context, "you" should have a higher score
+        // With context, "you" should have a higher score due to BigramContextBoost multiplier
         Assert.True(youWithContext.Score > youWithoutContext.Score,
-            $"\"you\" should have higher score with context ({youWithContext.Score}) than without ({youWithoutContext.Score})");
+            $"\"you\" should have higher score with context ({youWithContext.Score}) than without ({youWithoutContext.Score}) due to BigramContextBoost");
     }
 
     [Fact]
-    public void GetSuggestions_EmptyPrefixWithContext_ReturnsOnlyNextWordPredictions()
+    public void GetSuggestions_EmptyPrefixWithContext_PrioritizesContextualPredictions()
     {
         var predictor = CreatePredictor(new()
         {
@@ -284,7 +285,7 @@ public class WordPredictorTests
         for (int i = 0; i < 10; i++)
             predictor.LearnSequence(new[] { "thank", "you" });
 
-        // Empty prefix with context should prioritize next-word predictions
+        // Empty prefix with context should prioritize next-word and phrase predictions
         var results = predictor.GetSuggestions("", "thank", maxCount: 5);
 
         Assert.NotEmpty(results);
@@ -304,14 +305,16 @@ public class WordPredictorTests
         for (int i = 0; i < 3; i++)
             predictor.LearnSequence(new[] { "looking", "forward", "to", "hearing" });
 
-        // With a multi-word context matching the phrase prefix, should suggest a phrase continuation
+        // With a multi-word context matching the phrase prefix, should suggest the exact phrase continuation
         var results = predictor.GetSuggestions("", "looking forward", maxCount: 5);
 
-        // Should get phrase suggestions containing multiple words or continuation
-        Assert.Contains(results, r =>
-            r.Word == "to hearing" ||
-            r.Word.Contains("to") ||
-            (r.Word.Contains(" ") && r.Type == PredictionType.Phrase));
+        // Should get phrase suggestions - the phrase model returns full phrases that match the context
+        // When context is "looking forward", we should get phrases like "looking forward to" or "looking forward to hearing"
+        var phraseResults = results.Where(r => r.Type == PredictionType.Phrase).ToList();
+        Assert.NotEmpty(phraseResults);
+
+        // Verify at least one phrase result contains "to" (part of the learned phrase)
+        Assert.Contains(phraseResults, r => r.Word.Contains("to"));
     }
 
     [Fact]

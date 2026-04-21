@@ -530,8 +530,128 @@ public class KeyboardViewModelTests
         Assert.DoesNotContain(ModifierKey.Ctrl, vm.ActiveModifiers);
     }
 
+    [Fact]
+    public void GetSuggestions_SmartCapitalization_CapitalizesAtStart()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.SmartCapitalizationEnabled = true;
+        var vm = new KeyboardViewModel(settings, _messenger);
+
+        var provider = new InMemoryDictionaryProvider(new() { { "hello", 100 }, { "help", 80 } });
+        var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
+        vm.SetPredictor(predictor);
+
+        vm.CurrentInput = "hel";
+        var suggestions = vm.GetSuggestions();
+
+        // Should capitalize at start (empty recent text)
+        Assert.Contains("Hello", suggestions);
+        Assert.DoesNotContain("hello", suggestions);
+    }
+
+    [Fact]
+    public void GetSuggestions_SmartCapitalization_CapitalizesAfterPeriod()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.SmartCapitalizationEnabled = true;
+        var vm = new KeyboardViewModel(settings, _messenger);
+
+        var provider = new InMemoryDictionaryProvider(new() { { "world", 100 }, { "work", 80 } });
+        var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
+        vm.SetPredictor(predictor);
+
+        // Simulate typing "Hello. "
+        vm.CurrentInput = "Hello";
+        vm.HandleSpace();
+        vm.ActivateKey(".", null);
+        vm.HandleSpace();
+
+        vm.CurrentInput = "wo";
+        var suggestions = vm.GetSuggestions();
+
+        // Should capitalize after period
+        Assert.Contains("World", suggestions);
+        Assert.DoesNotContain("world", suggestions);
+    }
+
+    [Fact]
+    public void GetSuggestions_SmartCapitalization_DoesNotCapitalizeInMiddle()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.SmartCapitalizationEnabled = true;
+        var vm = new KeyboardViewModel(settings, _messenger);
+
+        var provider = new InMemoryDictionaryProvider(new() { { "world", 100 }, { "work", 80 } });
+        var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
+        vm.SetPredictor(predictor);
+
+        // Simulate typing "Hello "
+        vm.CurrentInput = "Hello";
+        vm.HandleSpace();
+
+        vm.CurrentInput = "wo";
+        var suggestions = vm.GetSuggestions();
+
+        // Should NOT capitalize in middle of sentence
+        Assert.Contains("world", suggestions);
+        Assert.DoesNotContain("World", suggestions);
+    }
+
+    [Fact]
+    public void GetSuggestions_SmartCapitalization_DisabledByDefault()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.SmartCapitalizationEnabled = false;
+        var vm = new KeyboardViewModel(settings, _messenger);
+
+        var provider = new InMemoryDictionaryProvider(new() { { "hello", 100 }, { "help", 80 } });
+        var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
+        vm.SetPredictor(predictor);
+
+        vm.CurrentInput = "hel";
+        var suggestions = vm.GetSuggestions();
+
+        // Should NOT capitalize when disabled
+        Assert.Contains("hello", suggestions);
+        Assert.DoesNotContain("Hello", suggestions);
+    }
+
+    [Fact]
+    public void HandleEnter_ClearsRecentTextForCapitalization()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.SmartCapitalizationEnabled = true;
+        var vm = new KeyboardViewModel(settings, _messenger);
+
+        var provider = new InMemoryDictionaryProvider(new() { { "world", 100 } });
+        var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
+        vm.SetPredictor(predictor);
+
+        // Type "Hello "
+        vm.CurrentInput = "Hello";
+        vm.HandleSpace();
+
+        // Press Enter to start new line
+        vm.HandleEnter();
+
+        // Type "wo" - should capitalize after Enter
+        vm.CurrentInput = "wo";
+        var suggestions = vm.GetSuggestions();
+
+        Assert.Contains("World", suggestions);
+    }
+
     private KeyboardViewModel CreateViewModel()
     {
         return new KeyboardViewModel(_settings, _messenger);
     }
+}
+
+// Test helper for predictions
+public class InMemoryDictionaryProvider : EyeCtrl.Core.Prediction.IDictionaryProvider
+{
+    private readonly Dictionary<string, int> _words;
+    public InMemoryDictionaryProvider(Dictionary<string, int> words) => _words = words;
+    public Dictionary<string, int> Load() => new(_words);
+    public void Save(Dictionary<string, int> words) { }
 }

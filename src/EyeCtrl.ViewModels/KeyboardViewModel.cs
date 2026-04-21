@@ -42,6 +42,7 @@ public partial class KeyboardViewModel : ObservableObject,
     private WordPredictor? _predictor;
     private KeyboardLayout? _layout;
     private string? _previousWord;
+    private string _recentText = ""; // Track recent text for smart capitalization
 
     public event Action<string>? KeyDwellCompleted;
 
@@ -193,6 +194,7 @@ public partial class KeyboardViewModel : ObservableObject,
         {
             CurrentInput = "";
             _previousWord = null;
+            _recentText = ""; // Clear on new paragraph/line
         }
         _messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -206,6 +208,11 @@ public partial class KeyboardViewModel : ObservableObject,
             {
                 _predictor?.LearnWord(CurrentInput);
                 _previousWord = CurrentInput;
+
+                // Update recent text for capitalization context (keep last ~100 chars)
+                _recentText += CurrentInput + " ";
+                if (_recentText.Length > 100)
+                    _recentText = _recentText[^100..];
             }
             CurrentInput = "";
         }
@@ -229,7 +236,11 @@ public partial class KeyboardViewModel : ObservableObject,
     public List<string> GetSuggestions()
     {
         if (_predictor == null) return new List<string>();
-        return _predictor.GetSuggestions(CurrentInput, _previousWord, maxCount: 5)
+
+        // Pass full text context for smart capitalization if enabled
+        var fullText = _settings.Keyboard.SmartCapitalizationEnabled ? _recentText : null;
+
+        return _predictor.GetSuggestions(CurrentInput, _previousWord, maxCount: 5, fullText: fullText)
             .Select(r => r.Word)
             .ToList();
     }
@@ -240,6 +251,12 @@ public partial class KeyboardViewModel : ObservableObject,
         var deleteCount = CurrentInput.Length;
         CurrentInput = "";
         _previousWord = word;
+
+        // Update recent text for capitalization context (keep last ~100 chars)
+        _recentText += word + " ";
+        if (_recentText.Length > 100)
+            _recentText = _recentText[^100..];
+
         _messenger.Send(new PredictionSelectedMessage(word, deleteCount));
     }
 

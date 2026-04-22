@@ -246,6 +246,20 @@ public partial class KeyboardViewModel : ObservableObject,
             .ToList();
     }
 
+    /// <summary>
+    /// Gets prediction suggestions with full context metadata for UI display.
+    /// Returns PredictionResult objects containing type, confidence, and scoring information.
+    /// </summary>
+    public List<PredictionResult> GetSuggestionsWithContext()
+    {
+        if (_predictor == null) return new List<PredictionResult>();
+
+        // Pass full text context for smart capitalization if enabled
+        var fullText = _settings.Keyboard.SmartCapitalizationEnabled ? _recentText : null;
+
+        return _predictor.GetSuggestions(CurrentInput, _previousWord, maxCount: 5, fullText: fullText);
+    }
+
     public void HandlePredictionSelected(string word)
     {
         _predictor?.LearnWord(word);

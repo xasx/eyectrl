@@ -184,6 +184,13 @@ public partial class KeyboardViewModel : ObservableObject,
     {
         if (!HasSystemModifiers && CurrentInput.Length > 0)
             CurrentInput = CurrentInput[..^1];
+        else if (!HasSystemModifiers && CurrentInput.Length == 0 && _recentText.Length > 0)
+        {
+            // User is deleting previously committed text, update _recentText
+            _recentText = _recentText.TrimEnd();
+            if (_recentText.Length > 0)
+                _recentText = _recentText[..^1];
+        }
         _messenger.Send(new KeyActivatedMessage("\b", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
@@ -208,11 +215,7 @@ public partial class KeyboardViewModel : ObservableObject,
             {
                 _predictor?.LearnWord(CurrentInput);
                 _previousWord = CurrentInput;
-
-                // Update recent text for capitalization context (keep last ~100 chars)
-                _recentText += CurrentInput + " ";
-                if (_recentText.Length > 100)
-                    _recentText = _recentText[^100..];
+                AppendRecentText(CurrentInput);
             }
             CurrentInput = "";
         }
@@ -251,12 +254,7 @@ public partial class KeyboardViewModel : ObservableObject,
         var deleteCount = CurrentInput.Length;
         CurrentInput = "";
         _previousWord = word;
-
-        // Update recent text for capitalization context (keep last ~100 chars)
-        _recentText += word + " ";
-        if (_recentText.Length > 100)
-            _recentText = _recentText[^100..];
-
+        AppendRecentText(word);
         _messenger.Send(new PredictionSelectedMessage(word, deleteCount));
     }
 
@@ -264,6 +262,16 @@ public partial class KeyboardViewModel : ObservableObject,
     {
         _messenger.Send(new SpecialKeyMessage(keyName, ModifiersSnapshot));
         ClearOneShotModifiers();
+    }
+
+    /// <summary>
+    /// Appends text to recent text buffer for capitalization context, maintaining ~100 char limit.
+    /// </summary>
+    private void AppendRecentText(string text)
+    {
+        _recentText += text + " ";
+        if (_recentText.Length > 100)
+            _recentText = _recentText[^100..];
     }
 
     public void Dispose()

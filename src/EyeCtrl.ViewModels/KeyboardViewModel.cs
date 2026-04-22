@@ -187,9 +187,7 @@ public partial class KeyboardViewModel : ObservableObject,
         else if (!HasSystemModifiers && CurrentInput.Length == 0 && _recentText.Length > 0)
         {
             // User is deleting previously committed text, update _recentText
-            _recentText = _recentText.TrimEnd();
-            if (_recentText.Length > 0)
-                _recentText = _recentText[..^1];
+            _recentText = _recentText[..^1];
         }
         _messenger.Send(new KeyActivatedMessage("\b", ModifiersSnapshot));
         ClearOneShotModifiers();

@@ -570,52 +570,137 @@ public class WordPredictor
 
 **Tests:** Update `tests/EyeCtrl.Core.Tests/Prediction/WordPredictorTests.cs` with new scenarios
 
-### Phase 3: Smart Capitalization
+### Phase 3: Smart Capitalization ✅ COMPLETED
 
-#### 3.1 Create CapitalizationHelper
-**New file:** `src/EyeCtrl.Core/Prediction/CapitalizationHelper.cs`
+#### 3.1 Create CapitalizationHelper ✅ IMPLEMENTED
+**File:** `src/EyeCtrl.Core/Prediction/CapitalizationHelper.cs`
+
+**✅ IMPLEMENTED** - Language-specific abbreviation support with heuristic fallback
 
 ```csharp
 namespace EyeCtrl.Core.Prediction;
 
 /// <summary>
-/// Handles automatic capitalization for sentence boundaries and proper nouns.
+/// Handles automatic capitalization for sentence boundaries with language-specific abbreviation support.
+/// Provides both rule-based detection (heuristic) and language-specific abbreviation filtering.
 /// </summary>
 public static class CapitalizationHelper
 {
     private static readonly HashSet<char> SentenceEnders = new() { '.', '!', '?' };
 
-    public static bool ShouldCapitalize(string recentText)
+    /// <summary>
+    /// Determines if the next word should be capitalized based on text context.
+    /// Supports language-specific abbreviations to avoid false positives (e.g., "Mr.", "z.B.").
+    /// </summary>
+    public static bool ShouldCapitalize(string recentText, IReadOnlySet<string>? abbreviations = null)
     {
         if (string.IsNullOrWhiteSpace(recentText))
-            return true; // Start of text
+            return true;
 
         var trimmed = recentText.TrimEnd();
         if (trimmed.Length == 0)
             return true;
 
-        // Check for sentence ending
         var lastChar = trimmed[^1];
-        if (SentenceEnders.Contains(lastChar))
+        if (!SentenceEnders.Contains(lastChar))
+            return false;
+
+        // Check for abbreviations (language-specific or heuristic)
+        var words = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0)
             return true;
 
-        return false;
+        var lastWord = words[^1];
+
+        // Language-specific abbreviation check (if provided)
+        if (abbreviations != null && abbreviations.Contains(lastWord))
+            return false;
+
+        // Heuristic fallback: Common abbreviation pattern (e.g., "Mr.", "Dr.")
+        if (lastWord.Length > 1 && lastWord.Length <= 5 &&
+            lastWord.EndsWith('.') &&
+            char.IsLower(lastWord[0]))
+            return false;
+
+        return true;
     }
 
-    public static string ApplyCapitalization(string word, bool shouldCapitalize)
+    /// <summary>
+    /// Capitalizes the first character of a word if it's a letter.
+    /// </summary>
+    public static string Capitalize(string word)
     {
-        if (!shouldCapitalize || string.IsNullOrEmpty(word))
+        if (string.IsNullOrEmpty(word))
             return word;
 
-        return char.ToUpperInvariant(word[0]) + word[1..];
+        for (int i = 0; i < word.Length; i++)
+        {
+            if (char.IsLetter(word[i]))
+            {
+                if (char.IsUpper(word[i]))
+                    return word;
+                return word[..i] + char.ToUpper(word[i]) + word[(i + 1)..];
+            }
+        }
+        return word;
     }
 
-    public static bool IsProperNoun(string word, Dictionary<string, int> properNouns)
+    /// <summary>
+    /// Applies smart capitalization to a word if needed.
+    /// Preserves existing capitalization (e.g., "iPhone" stays "iPhone").
+    /// </summary>
+    public static string ApplySmartCapitalization(string word, string? fullText, IReadOnlySet<string>? abbreviations = null)
     {
-        return properNouns.ContainsKey(word.ToLowerInvariant());
+        if (string.IsNullOrEmpty(word) || char.IsUpper(word[0]))
+            return word;
+
+        if (ShouldCapitalize(fullText ?? "", abbreviations))
+            return Capitalize(word);
+
+        return word;
+    }
+
+    /// <summary>
+    /// Performance-optimized method that accepts a precomputed shouldCapitalize decision.
+    /// Used by WordPredictor to avoid redundant ShouldCapitalize calls for multiple words.
+    /// </summary>
+    public static string ApplyCapitalization(string word, bool shouldCapitalize)
+    {
+        if (!shouldCapitalize || string.IsNullOrEmpty(word) || char.IsUpper(word[0]))
+            return word;
+
+        return Capitalize(word);
     }
 }
 ```
+
+#### 3.2 Integrate with WordPredictor ✅ IMPLEMENTED
+**File:** `src/EyeCtrl.Core/Prediction/WordPredictor.cs`
+
+- Added `fullText` parameter to `GetSuggestions()` for context
+- Loads language-specific abbreviations from dictionary provider
+- Applies smart capitalization to all predictions when enabled
+- Performance optimization: precomputes capitalization decision once per call
+
+#### 3.3 Update KeyboardViewModel ✅ IMPLEMENTED
+**File:** `src/EyeCtrl.ViewModels/KeyboardViewModel.cs`
+
+- Added `_recentText` field to track last ~100 characters for capitalization context
+- `AppendRecentText()` helper maintains text buffer with size limit
+- `GetSuggestions()` passes `fullText` to predictor when smart capitalization enabled
+- `HandleBackspace()` updates `_recentText` when deleting committed text
+- `HandleEnter()` clears `_recentText` on new line
+
+#### 3.4 Add Settings ✅ IMPLEMENTED
+**File:** `src/EyeCtrl.Core/Settings/KeyboardSettings.cs`
+
+- Added `SmartCapitalizationEnabled` property (default: true)
+
+**Tests:** `tests/EyeCtrl.Core.Tests/Prediction/CapitalizationHelperTests.cs`
+- Comprehensive tests for sentence boundary detection
+- Language-specific abbreviation handling (German, French, Spanish, Polish)
+- Heuristic fallback tests
+- Capitalization logic tests
 
 ### Phase 4: Settings & Configuration
 

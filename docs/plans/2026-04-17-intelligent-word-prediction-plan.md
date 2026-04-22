@@ -647,7 +647,8 @@ public static class CapitalizationHelper
 
     /// <summary>
     /// Applies smart capitalization to a word if needed.
-    /// Preserves existing capitalization (e.g., "iPhone" stays "iPhone").
+    /// Preserves words that already start with an uppercase letter (e.g., proper nouns like "John").
+    /// Note: Does not preserve mixed-case brand names (e.g., "iPhone" would become "IPhone" at sentence start).
     /// </summary>
     public static string ApplySmartCapitalization(string word, string? fullText, IReadOnlySet<string>? abbreviations = null)
     {
@@ -663,6 +664,7 @@ public static class CapitalizationHelper
     /// <summary>
     /// Performance-optimized method that accepts a precomputed shouldCapitalize decision.
     /// Used by WordPredictor to avoid redundant ShouldCapitalize calls for multiple words.
+    /// Preserves words that already start with an uppercase letter.
     /// </summary>
     public static string ApplyCapitalization(string word, bool shouldCapitalize)
     {

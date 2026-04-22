@@ -23,6 +23,10 @@ public class SettingsSerializationTests
         original.Zoom.MagnificationLevel = 3.0;
         original.Keyboard.ActiveLayout = "AZERTY";
         original.Keyboard.SmartCapitalizationEnabled = false;
+        original.Keyboard.NextWordPredictionEnabled = false;
+        original.Keyboard.ShowPredictionConfidence = true;
+        original.Keyboard.ShowPredictionTypes = true;
+        original.Keyboard.EmojiSuggestionsEnabled = true;
         original.Toolbar.Size = 120;
         original.Theme.Mode = "Dark";
         original.General.StartPaused = true;
@@ -37,6 +41,10 @@ public class SettingsSerializationTests
         Assert.Equal(3.0, deserialized.Zoom.MagnificationLevel);
         Assert.Equal("AZERTY", deserialized.Keyboard.ActiveLayout);
         Assert.False(deserialized.Keyboard.SmartCapitalizationEnabled);
+        Assert.False(deserialized.Keyboard.NextWordPredictionEnabled);
+        Assert.True(deserialized.Keyboard.ShowPredictionConfidence);
+        Assert.True(deserialized.Keyboard.ShowPredictionTypes);
+        Assert.True(deserialized.Keyboard.EmojiSuggestionsEnabled);
         Assert.Equal(120, deserialized.Toolbar.Size);
         Assert.Equal("Dark", deserialized.Theme.Mode);
         Assert.True(deserialized.General.StartPaused);
@@ -164,5 +172,60 @@ public class SettingsSerializationTests
         // Should default to AtGaze when not specified
         Assert.Equal(ViewPosition.AtGaze, settings.Zoom.Position);
         Assert.Equal(ViewPosition.AtGaze, settings.ActionMenu.Position);
+    }
+
+    [Fact]
+    public void KeyboardSettings_Phase4Properties_HaveCorrectDefaults()
+    {
+        var settings = new KeyboardSettings();
+
+        // Phase 4 settings should have correct defaults
+        Assert.True(settings.NextWordPredictionEnabled);
+        Assert.False(settings.ShowPredictionConfidence);
+        Assert.False(settings.ShowPredictionTypes);
+        Assert.False(settings.EmojiSuggestionsEnabled);
+    }
+
+    [Fact]
+    public void KeyboardSettings_Phase4Properties_RoundTrip()
+    {
+        var original = new KeyboardSettings
+        {
+            NextWordPredictionEnabled = false,
+            ShowPredictionConfidence = true,
+            ShowPredictionTypes = true,
+            EmojiSuggestionsEnabled = true
+        };
+
+        var json = JsonSerializer.Serialize(original, JsonOptions);
+        var deserialized = JsonSerializer.Deserialize<KeyboardSettings>(json, JsonOptions)!;
+
+        Assert.False(deserialized.NextWordPredictionEnabled);
+        Assert.True(deserialized.ShowPredictionConfidence);
+        Assert.True(deserialized.ShowPredictionTypes);
+        Assert.True(deserialized.EmojiSuggestionsEnabled);
+    }
+
+    [Fact]
+    public void Settings_BackwardsCompatible_MissingPhase4Properties_UsesDefaults()
+    {
+        // Old settings JSON without Phase 4 properties
+        var json = """
+        {
+          "keyboard": {
+            "activeLayout": "QWERTY",
+            "predictionEnabled": true,
+            "smartCapitalizationEnabled": true
+          }
+        }
+        """;
+
+        var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
+
+        // Should use defaults for missing Phase 4 properties
+        Assert.True(settings.Keyboard.NextWordPredictionEnabled);
+        Assert.False(settings.Keyboard.ShowPredictionConfidence);
+        Assert.False(settings.Keyboard.ShowPredictionTypes);
+        Assert.False(settings.Keyboard.EmojiSuggestionsEnabled);
     }
 }

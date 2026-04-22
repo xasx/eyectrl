@@ -13,6 +13,12 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     [ObservableProperty] private bool _clickSoundEnabled = true;
     [ObservableProperty] private bool _smartCapitalizationEnabled = true;
 
+    // Phase 4: Prediction UI & Configuration Settings
+    [ObservableProperty] private bool _nextWordPredictionEnabled = true;
+    [ObservableProperty] private bool _showPredictionConfidence = false;
+    [ObservableProperty] private bool _showPredictionTypes = false;
+    [ObservableProperty] private bool _emojiSuggestionsEnabled = false;
+
     private static readonly string[] ValidLayouts = { "QWERTY", "AZERTY", "QWERTZ" };
     private static readonly string[] ValidScreenEdges = { "Top", "Bottom" };
 

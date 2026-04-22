@@ -30,6 +30,7 @@ public partial class KeyboardWindow : OverlayWindow
     private KeyboardViewModel? _viewModel;
     private EmojiGridManager? _emojiManager;
     private KeyboardSoundService? _soundService;
+    private EyeCtrlSettings? _settings;
 
     private KeyboardLayout? _layout;
     private double _keySize;
@@ -102,6 +103,7 @@ public partial class KeyboardWindow : OverlayWindow
     }
 
     public void SetSoundService(KeyboardSoundService svc) => _soundService = svc;
+    public void SetSettings(EyeCtrlSettings settings) => _settings = settings;
     public void SetSkinTone(int skinTone) => _emojiManager?.SetSkinTone(skinTone);
     public int GetSkinTone() => _emojiManager?.SkinTone ?? 0;
     public RecentEmojiStore? GetRecentStore() => _emojiManager?.RecentStore;
@@ -417,25 +419,53 @@ public partial class KeyboardWindow : OverlayWindow
         _predictionBrushes.Clear();
         PredictionBar.Children.Clear();
 
-        var suggestions = _viewModel.GetSuggestions();
+        var suggestions = _viewModel.GetSuggestionsWithContext();
 
         for (int i = 0; i < suggestions.Count; i++)
         {
-            var word = suggestions[i];
+            var result = suggestions[i];
             var predId = $"pred_{i}";
 
             var predLabel = new TextBlock
             {
-                Text = word,
-                Foreground = Brushes.White,
+                Text = result.Word,
+                Foreground = GetPredictionForeground(result.Type),
                 FontSize = 16,
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center
             };
             System.Windows.Automation.AutomationProperties.SetAutomationId(predLabel, $"Keyboard_Prediction_{i}");
 
-            var brush = new SolidColorBrush(PredictionBarColor);
+            // Calculate background color with optional confidence shading
+            var baseColor = PredictionBarColor;
+            if (_settings?.Keyboard.ShowPredictionConfidence == true)
+            {
+                // Adjust alpha based on confidence (150-230 range for visibility)
+                var alpha = (byte)(150 + (result.Confidence * 80));
+                baseColor = Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B);
+            }
+
+            var brush = new SolidColorBrush(baseColor);
             _predictionBrushes.Add(brush);
+
+            // Optionally add type badge
+            UIElement labelOrStack = predLabel;
+            if (_settings?.Keyboard.ShowPredictionTypes == true)
+            {
+                var badge = CreateTypeBadge(result.Type);
+                if (badge != null)
+                {
+                    var stack = new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    stack.Children.Add(predLabel);
+                    stack.Children.Add(badge);
+                    labelOrStack = stack;
+                }
+            }
 
             var btn = new Border
             {
@@ -445,12 +475,54 @@ public partial class KeyboardWindow : OverlayWindow
                 Padding = new Thickness(16, 0, 16, 0),
                 Background = brush,
                 CornerRadius = new CornerRadius(6),
-                Child = predLabel
+                Child = labelOrStack
             };
 
             PredictionBar.Children.Add(btn);
             _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(_keySize / 2), _predictionDwellMs));
         }
+    }
+
+    /// <summary>
+    /// Gets the foreground color for a prediction based on its type.
+    /// </summary>
+    private static Brush GetPredictionForeground(PredictionType type)
+    {
+        return type switch
+        {
+            PredictionType.ExactPrefix => Brushes.White,
+            PredictionType.FuzzyMatch => new SolidColorBrush(Color.FromRgb(200, 200, 255)),
+            PredictionType.NextWord => new SolidColorBrush(Color.FromRgb(200, 255, 200)),
+            PredictionType.Phrase => new SolidColorBrush(Color.FromRgb(255, 255, 200)),
+            _ => Brushes.White
+        };
+    }
+
+    /// <summary>
+    /// Creates an optional type badge for a prediction.
+    /// </summary>
+    private static Border? CreateTypeBadge(PredictionType type)
+    {
+        string? symbol = type switch
+        {
+            PredictionType.NextWord => "→",
+            PredictionType.Phrase => "⋯",
+            PredictionType.FuzzyMatch => "~",
+            _ => null
+        };
+
+        if (symbol == null) return null;
+
+        return new Border
+        {
+            Child = new TextBlock
+            {
+                Text = symbol,
+                FontSize = 12,
+                Foreground = Brushes.Gray,
+                Margin = new Thickness(4, 0, 0, 0)
+            }
+        };
     }
 
     private void OnPredictionProgress(string targetId, double progress)
@@ -473,10 +545,10 @@ public partial class KeyboardWindow : OverlayWindow
 
         if (int.TryParse(targetId.AsSpan(5), out var index))
         {
-            var suggestions = _viewModel.GetSuggestions();
+            var suggestions = _viewModel.GetSuggestionsWithContext();
             if (index < suggestions.Count)
             {
-                _viewModel.HandlePredictionSelected(suggestions[index]);
+                _viewModel.HandlePredictionSelected(suggestions[index].Word);
                 UpdatePredictions();
             }
         }

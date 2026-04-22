@@ -654,6 +654,7 @@ public class EventCoordinator : IEventCoordinator
         }
 
         keyboard.SetScreenEdge(settings.Keyboard.ScreenEdge);
+        keyboard.SetSettings(settings);
 
         var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
         keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));

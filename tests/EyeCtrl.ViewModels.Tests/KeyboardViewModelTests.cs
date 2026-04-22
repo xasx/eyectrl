@@ -641,6 +641,107 @@ public class KeyboardViewModelTests
         Assert.Contains("World", suggestions);
     }
 
+    [Fact]
+    public void GetSuggestionsWithContext_ReturnsEmptyWhenNoPredictorSet()
+    {
+        var vm = CreateViewModel();
+        var results = vm.GetSuggestionsWithContext();
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public void GetSuggestionsWithContext_ReturnsPredictionResultsWithMetadata()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.SmartCapitalizationEnabled = true;
+        var vm = new KeyboardViewModel(settings, _messenger);
+
+        var provider = new InMemoryDictionaryProvider(new() { { "hello", 100 }, { "help", 80 } });
+        var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
+        vm.SetPredictor(predictor);
+
+        vm.CurrentInput = "hel";
+        var results = vm.GetSuggestionsWithContext();
+
+        Assert.NotEmpty(results);
+        Assert.All(results, r =>
+        {
+            Assert.NotNull(r.Word);
+            Assert.NotEqual(default, r.Type);
+            Assert.True(r.Score > 0);
+            Assert.True(r.Confidence >= 0);
+        });
+    }
+
+    [Fact]
+    public void GetSuggestionsWithContext_IncludesTypeInformation()
+    {
+        var settings = new EyeCtrlSettings();
+        var vm = new KeyboardViewModel(settings, _messenger);
+
+        var provider = new InMemoryDictionaryProvider(new() { { "hello", 100 }, { "help", 80 } });
+        var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
+        vm.SetPredictor(predictor);
+
+        vm.CurrentInput = "hel";
+        var results = vm.GetSuggestionsWithContext();
+
+        // Should have ExactPrefix type for exact matches
+        Assert.Contains(results, r => r.Type == EyeCtrl.Core.Prediction.PredictionType.ExactPrefix);
+    }
+
+    [Fact]
+    public void GetSuggestionsWithContext_PassesContextToPredictorForBigrams()
+    {
+        var settings = new EyeCtrlSettings();
+        var vm = new KeyboardViewModel(settings, _messenger);
+
+        var provider = new InMemoryDictionaryProvider(new() { { "you", 100 }, { "are", 50 } });
+        var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
+        vm.SetPredictor(predictor);
+
+        // Learn "thank you" bigram
+        predictor.LearnSequence(new[] { "thank", "you" });
+
+        // Type "thank " (space sets previous word)
+        vm.CurrentInput = "thank";
+        vm.HandleSpace();
+
+        // Now type empty prefix - should get bigram suggestions
+        vm.CurrentInput = "";
+        var results = vm.GetSuggestionsWithContext();
+
+        // Should include "you" as a NextWord prediction
+        var youPrediction = results.FirstOrDefault(r => r.Word == "you");
+        Assert.NotNull(youPrediction);
+        Assert.Equal(EyeCtrl.Core.Prediction.PredictionType.NextWord, youPrediction!.Type);
+    }
+
+    [Fact]
+    public void GetSuggestionsWithContext_PassesFullTextForSmartCapitalization()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.SmartCapitalizationEnabled = true;
+        var vm = new KeyboardViewModel(settings, _messenger);
+
+        var provider = new InMemoryDictionaryProvider(new() { { "world", 100 } });
+        var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
+        vm.SetPredictor(predictor);
+
+        // Simulate typing "Hello. "
+        vm.CurrentInput = "Hello";
+        vm.HandleSpace();
+        vm.ActivateKey(".", null);
+        vm.HandleSpace();
+
+        vm.CurrentInput = "wo";
+        var results = vm.GetSuggestionsWithContext();
+
+        // Should capitalize after period
+        Assert.Contains(results, r => r.Word == "World");
+        Assert.DoesNotContain(results, r => r.Word == "world");
+    }
+
     private KeyboardViewModel CreateViewModel()
     {
         return new KeyboardViewModel(_settings, _messenger);

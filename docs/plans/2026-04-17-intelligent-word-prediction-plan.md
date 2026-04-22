@@ -725,171 +725,52 @@ public static class CapitalizationHelper
 - Serialization round-trip test: `KeyboardSettings_Phase4Properties_RoundTrip`
 - Backwards compatibility test: `Settings_BackwardsCompatible_MissingPhase4Properties_UsesDefaults`
 
-### Phase 5: ViewModel & UI Integration
+### Phase 5: ViewModel & UI Integration ✅ COMPLETED
 
-#### 5.1 Update KeyboardViewModel
+#### 5.1 Update KeyboardViewModel ✅ IMPLEMENTED
 **Modified file:** `src/EyeCtrl.ViewModels/KeyboardViewModel.cs`
 
-**✅ IMPLEMENTED** - Context tracking with `_previousWord` field
+**✅ IMPLEMENTED** - Added `GetSuggestionsWithContext()` method returning `List<PredictionResult>`
 
 ```csharp
-// Add tracking for previous word
-private string? _previousWord;
-
-public void HandleSpace()
+/// <summary>
+/// Gets prediction suggestions with full context metadata for UI display.
+/// Returns PredictionResult objects containing type, confidence, and scoring information.
+/// </summary>
+public List<PredictionResult> GetSuggestionsWithContext()
 {
-    if (!HasSystemModifiers)
-    {
-        if (CurrentInput.Length > 0)
-        {
-            _predictor?.LearnWord(CurrentInput);
-            _previousWord = CurrentInput;  // Track for context
-        }
-        CurrentInput = "";
-    }
-    _messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
-    ClearOneShotModifiers();
-}
+    if (_predictor == null) return new List<PredictionResult>();
 
-public void HandleEnter()
-{
-    if (!HasSystemModifiers)
-    {
-        CurrentInput = "";
-        _previousWord = null;  // Clear context on new sentence
-    }
-    _messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
-    ClearOneShotModifiers();
-}
+    // Pass full text context for smart capitalization if enabled
+    var fullText = _settings.Keyboard.SmartCapitalizationEnabled ? _recentText : null;
 
-public void HandlePredictionSelected(string word)
-{
-    _predictor?.LearnWord(word);
-    var deleteCount = CurrentInput.Length;
-    CurrentInput = "";
-    _previousWord = word;  // Track selected prediction as context
-    _messenger.Send(new PredictionSelectedMessage(word, deleteCount));
-}
-
-public List<string> GetSuggestions()
-{
-    if (_predictor == null) return new List<string>();
-    // Pass context for bigram/phrase predictions
-    return _predictor.GetSuggestions(CurrentInput, _previousWord, maxCount: 5)
-        .Select(r => r.Word)
-        .ToList();
+    return _predictor.GetSuggestions(CurrentInput, _previousWord, maxCount: 5, fullText: fullText);
 }
 ```
 
-#### 5.2 Update KeyboardWindow for Styled Predictions
+#### 5.2 Update KeyboardWindow for Styled Predictions ✅ IMPLEMENTED
 **Modified file:** `src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs`
 
-Add visual styling based on prediction type:
+**✅ IMPLEMENTED** - Visual styling based on prediction type, confidence, and settings
 
-```csharp
-public void UpdatePredictions()
-{
-    if (_viewModel == null) return;
+Features implemented:
+- Foreground color based on `PredictionType`:
+  - `ExactPrefix`: White
+  - `FuzzyMatch`: Light blue (200, 200, 255)
+  - `NextWord`: Light green (200, 255, 200)
+  - `Phrase`: Light yellow (255, 255, 200)
+- Optional confidence-based background alpha shading (when `ShowPredictionConfidence` enabled)
+- Optional type badges (when `ShowPredictionTypes` enabled):
+  - `NextWord`: "→"
+  - `Phrase`: "⋯"
+  - `FuzzyMatch`: "~"
 
-    _predictionDwellDetector.ClearTargets();
-    _predictionTargetsInitialized = false;
-    _predictionBrushes.Clear();
-    PredictionBar.Children.Clear();
-
-    var suggestions = _viewModel.GetSuggestionsWithContext();
-
-    for (int i = 0; i < suggestions.Count; i++)
-    {
-        var result = suggestions[i];
-        var predId = $"pred_{i}";
-
-        var predLabel = new TextBlock
-        {
-            Text = result.Word,
-            Foreground = GetPredictionForeground(result.Type),
-            FontSize = 16,
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-
-        var baseColor = PredictionBarColor;
-        if (_settings?.Keyboard.ShowPredictionConfidence == true)
-        {
-            // Adjust opacity based on confidence
-            var alpha = (byte)(150 + (result.Confidence * 80));
-            baseColor = Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B);
-        }
-
-        var brush = new SolidColorBrush(baseColor);
-        _predictionBrushes.Add(brush);
-
-        var btn = new Border
-        {
-            MinWidth = 120,
-            Height = _keySize,
-            Margin = new Thickness(3),
-            Padding = new Thickness(16, 0, 16, 0),
-            Background = brush,
-            CornerRadius = new CornerRadius(6),
-            Child = predLabel
-        };
-
-        // Add type badge if enabled
-        if (_settings?.Keyboard.ShowPredictionTypes == true)
-        {
-            var badge = CreateTypeBadge(result.Type);
-            if (badge != null)
-            {
-                var stack = new StackPanel { Orientation = Orientation.Horizontal };
-                stack.Children.Add(predLabel);
-                stack.Children.Add(badge);
-                btn.Child = stack;
-            }
-        }
-
-        PredictionBar.Children.Add(btn);
-        _predictionDwellDetector.AddTarget(
-            new DwellTarget(predId, new PhysicalPoint(0, 0),
-                DpiHelper.LogicalToPhysicalX(_keySize / 2), _predictionDwellMs));
-    }
-}
-
-private static Brush GetPredictionForeground(PredictionType type)
-{
-    return type switch
-    {
-        PredictionType.ExactPrefix => Brushes.White,
-        PredictionType.FuzzyMatch => new SolidColorBrush(Color.FromRgb(200, 200, 255)),
-        PredictionType.NextWord => new SolidColorBrush(Color.FromRgb(200, 255, 200)),
-        PredictionType.Phrase => new SolidColorBrush(Color.FromRgb(255, 255, 200)),
-        _ => Brushes.White
-    };
-}
-
-private static Border? CreateTypeBadge(PredictionType type)
-{
-    string symbol = type switch
-    {
-        PredictionType.NextWord => "→",
-        PredictionType.Phrase => "⋯",
-        PredictionType.FuzzyMatch => "~",
-        _ => null
-    };
-
-    if (symbol == null) return null;
-
-    return new Border
-    {
-        Child = new TextBlock
-        {
-            Text = symbol,
-            FontSize = 12,
-            Foreground = Brushes.Gray,
-            Margin = new Thickness(4, 0, 0, 0)
-        }
-    };
-}
-```
+**Tests:** `tests/EyeCtrl.ViewModels.Tests/KeyboardViewModelTests.cs`
+- `GetSuggestionsWithContext_ReturnsEmptyWhenNoPredictorSet`
+- `GetSuggestionsWithContext_ReturnsPredictionResultsWithMetadata`
+- `GetSuggestionsWithContext_IncludesTypeInformation`
+- `GetSuggestionsWithContext_PassesContextToPredictorForBigrams`
+- `GetSuggestionsWithContext_PassesFullTextForSmartCapitalization`
 
 ### Phase 6: Expand Base Dictionaries
 

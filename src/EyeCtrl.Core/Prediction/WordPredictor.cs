@@ -173,9 +173,9 @@ public class WordPredictor
         var results = scored
             .Select(kv =>
             {
-                // Apply smart capitalization if enabled
+                // Apply smart capitalization if enabled (using precomputed decision for performance)
                 var displayWord = shouldCapitalize
-                    ? CapitalizationHelper.ApplySmartCapitalization(kv.Value.displayWord, fullText!, _abbreviations)
+                    ? CapitalizationHelper.ApplyCapitalization(kv.Value.displayWord, shouldCapitalize)
                     : kv.Value.displayWord;
 
                 // Improved confidence calculation based on prediction type

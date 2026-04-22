@@ -129,4 +129,27 @@ public static class CapitalizationHelper
 
         return word;
     }
+
+    /// <summary>
+    /// Applies capitalization to a word based on a precomputed decision.
+    /// Preserves existing capitalization if word is already capitalized.
+    /// </summary>
+    /// <param name="word">The word to potentially capitalize.</param>
+    /// <param name="shouldCapitalize">Precomputed decision on whether to capitalize.</param>
+    /// <returns>The word with appropriate capitalization.</returns>
+    public static string ApplyCapitalization(string word, bool shouldCapitalize)
+    {
+        if (string.IsNullOrEmpty(word))
+            return string.Empty;
+
+        // If word is already capitalized, preserve it
+        if (word.Length > 0 && char.IsUpper(word[0]))
+            return word;
+
+        // If we should capitalize, do so
+        if (shouldCapitalize)
+            return Capitalize(word);
+
+        return word;
+    }
 }

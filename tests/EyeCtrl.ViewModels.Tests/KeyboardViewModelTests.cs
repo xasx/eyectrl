@@ -598,7 +598,7 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
-    public void GetSuggestions_SmartCapitalization_DisabledByDefault()
+    public void GetSuggestions_SmartCapitalization_DisabledWhenSettingIsFalse()
     {
         var settings = new EyeCtrlSettings();
         settings.Keyboard.SmartCapitalizationEnabled = false;

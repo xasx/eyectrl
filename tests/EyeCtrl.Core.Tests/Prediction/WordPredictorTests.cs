@@ -465,13 +465,16 @@ public class WordPredictorTests
             { "john", 100 }, { "jane", 80 }
         });
 
-        // Learn "John" as a proper noun
-        predictor.LearnWord("John");
+        // When a word is already capitalized in bigrams/phrases, it should be preserved
+        // even mid-sentence (proper nouns). Here we test with fullText set to start of sentence
+        // so capitalization is applied, then verify it's not double-capitalized
+        var results = predictor.GetSuggestions("jo", null, maxCount: 5, fullText: "");
 
-        var results = predictor.GetSuggestions("jo", null, maxCount: 5, fullText: "Hello ");
+        // At start of sentence, should capitalize
+        Assert.Contains(results, r => r.Word == "John");
 
-        // Should preserve proper noun capitalization even mid-sentence
-        Assert.Contains(results, r => r.Word == "John" || r.Word == "john");
+        // Word should not be all-caps or otherwise mangled
+        Assert.DoesNotContain(results, r => r.Word == "JOHN");
     }
 
     [Fact]

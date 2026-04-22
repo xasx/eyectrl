@@ -458,22 +458,21 @@ public class WordPredictorTests
     }
 
     [Fact]
-    public void GetSuggestions_SmartCapitalization_PreservesExistingCapitalization()
+    public void GetSuggestions_SmartCapitalization_CapitalizesLowercaseWordAtSentenceStart()
     {
         var predictor = CreatePredictor(new()
         {
             { "john", 100 }, { "jane", 80 }
         });
 
-        // When a word is already capitalized in bigrams/phrases, it should be preserved
-        // even mid-sentence (proper nouns). Here we test with fullText set to start of sentence
-        // so capitalization is applied, then verify it's not double-capitalized
+        // Dictionary entries are lowercase. At the start of a sentence, smart capitalization
+        // should title-case the suggestion rather than leaving it lowercase or making it all-caps.
         var results = predictor.GetSuggestions("jo", null, maxCount: 5, fullText: "");
 
-        // At start of sentence, should capitalize
+        // At start of sentence, should capitalize the suggestion.
         Assert.Contains(results, r => r.Word == "John");
 
-        // Word should not be all-caps or otherwise mangled
+        // Word should not be all-caps or otherwise mangled.
         Assert.DoesNotContain(results, r => r.Word == "JOHN");
     }
 

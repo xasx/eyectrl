@@ -9,6 +9,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 
 public partial class KeyboardWindow : OverlayWindow
@@ -21,11 +22,34 @@ public partial class KeyboardWindow : OverlayWindow
     private static readonly Color KeyColorModifierActive = Color.FromArgb(230, 80, 180, 255);
     private static readonly Color PredictionBarColor = Color.FromArgb(200, 40, 80, 40);
 
+    // Cached frozen brushes for prediction foreground colors (performance optimization)
+    private static readonly Brush ForegroundExactPrefix = Brushes.White;
+    private static readonly Brush ForegroundFuzzyMatch;
+    private static readonly Brush ForegroundNextWord;
+    private static readonly Brush ForegroundPhrase;
+
+    static KeyboardWindow()
+    {
+        // Initialize and freeze brushes for better WPF rendering performance
+        var fuzzyBrush = new SolidColorBrush(Color.FromRgb(200, 200, 255));
+        fuzzyBrush.Freeze();
+        ForegroundFuzzyMatch = fuzzyBrush;
+
+        var nextWordBrush = new SolidColorBrush(Color.FromRgb(200, 255, 200));
+        nextWordBrush.Freeze();
+        ForegroundNextWord = nextWordBrush;
+
+        var phraseBrush = new SolidColorBrush(Color.FromRgb(255, 255, 200));
+        phraseBrush.Freeze();
+        ForegroundPhrase = phraseBrush;
+    }
+
     private readonly DwellDetector _predictionDwellDetector = new();
     private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
     private readonly List<SolidColorBrush> _predictionBrushes = new();
+    private readonly List<Color> _predictionBaseColors = new();
 
     private KeyboardViewModel? _viewModel;
     private EmojiGridManager? _emojiManager;
@@ -417,6 +441,7 @@ public partial class KeyboardWindow : OverlayWindow
         _predictionDwellDetector.ClearTargets();
         _predictionTargetsInitialized = false;
         _predictionBrushes.Clear();
+        _predictionBaseColors.Clear();
         PredictionBar.Children.Clear();
 
         var suggestions = _viewModel.GetSuggestionsWithContext();
@@ -440,10 +465,21 @@ public partial class KeyboardWindow : OverlayWindow
             var baseColor = PredictionBarColor;
             if (_settings?.Keyboard.ShowPredictionConfidence == true)
             {
+                // Clamp and validate confidence to 0-1 range before converting to alpha
+                var confidence = result.Confidence;
+                if (double.IsNaN(confidence) || double.IsInfinity(confidence))
+                {
+                    confidence = 0;
+                }
+                confidence = Math.Clamp(confidence, 0.0, 1.0);
+
                 // Adjust alpha based on confidence (150-230 range for visibility)
-                var alpha = (byte)(150 + (result.Confidence * 80));
+                var alpha = (byte)(150 + (confidence * 80));
                 baseColor = Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B);
             }
+
+            // Store base color for dwell highlight blending
+            _predictionBaseColors.Add(baseColor);
 
             var brush = new SolidColorBrush(baseColor);
             _predictionBrushes.Add(brush);
@@ -485,16 +521,17 @@ public partial class KeyboardWindow : OverlayWindow
 
     /// <summary>
     /// Gets the foreground color for a prediction based on its type.
+    /// Uses cached frozen brushes for better WPF rendering performance.
     /// </summary>
     private static Brush GetPredictionForeground(PredictionType type)
     {
         return type switch
         {
-            PredictionType.ExactPrefix => Brushes.White,
-            PredictionType.FuzzyMatch => new SolidColorBrush(Color.FromRgb(200, 200, 255)),
-            PredictionType.NextWord => new SolidColorBrush(Color.FromRgb(200, 255, 200)),
-            PredictionType.Phrase => new SolidColorBrush(Color.FromRgb(255, 255, 200)),
-            _ => Brushes.White
+            PredictionType.ExactPrefix => ForegroundExactPrefix,
+            PredictionType.FuzzyMatch => ForegroundFuzzyMatch,
+            PredictionType.NextWord => ForegroundNextWord,
+            PredictionType.Phrase => ForegroundPhrase,
+            _ => ForegroundExactPrefix
         };
     }
 
@@ -531,12 +568,15 @@ public partial class KeyboardWindow : OverlayWindow
         if (!int.TryParse(targetId.AsSpan(5), out var index)) return;
         if (index < 0 || index >= _predictionBrushes.Count) return;
 
-        var highlightColor = Color.FromArgb(200, 0, (byte)(100 + 155 * progress), 0);
+        // Blend highlight on top of the stored base color to preserve confidence shading
+        var baseColor = _predictionBaseColors[index];
+        var highlightColor = Color.FromArgb(baseColor.A, 0, (byte)(100 + 155 * progress), 0);
+
         _predictionBrushes[index].Color = Color.FromArgb(
-            200,
-            (byte)(PredictionBarColor.R * (1 - progress) + highlightColor.R * progress),
-            (byte)(PredictionBarColor.G * (1 - progress) + highlightColor.G * progress),
-            (byte)(PredictionBarColor.B * (1 - progress) + highlightColor.B * progress));
+            baseColor.A,
+            (byte)(baseColor.R * (1 - progress) + highlightColor.R * progress),
+            (byte)(baseColor.G * (1 - progress) + highlightColor.G * progress),
+            (byte)(baseColor.B * (1 - progress) + highlightColor.B * progress));
     }
 
     private void OnPredictionDwelled(string targetId)

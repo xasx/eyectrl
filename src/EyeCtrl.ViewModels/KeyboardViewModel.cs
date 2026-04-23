@@ -236,12 +236,8 @@ public partial class KeyboardViewModel : ObservableObject,
 
     public List<string> GetSuggestions()
     {
-        if (_predictor == null) return new List<string>();
-
-        // Pass full text context for smart capitalization if enabled
-        var fullText = _settings.Keyboard.SmartCapitalizationEnabled ? _recentText : null;
-
-        return _predictor.GetSuggestions(CurrentInput, _previousWord, maxCount: 5, fullText: fullText)
+        // Implement in terms of GetSuggestionsWithContext to avoid duplication
+        return GetSuggestionsWithContext()
             .Select(r => r.Word)
             .ToList();
     }

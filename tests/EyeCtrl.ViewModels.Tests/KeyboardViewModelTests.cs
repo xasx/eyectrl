@@ -699,7 +699,6 @@ public class KeyboardViewModelTests
     public void GetSuggestionsWithContext_PassesContextToPredictorForBigrams()
     {
         var settings = new EyeCtrlSettings();
-        settings.Keyboard.NextWordPredictionEnabled = true; // Enable next word predictions
         var vm = new KeyboardViewModel(settings, _messenger);
 
         var provider = new InMemoryDictionaryProvider(new() { { "thank", 100 }, { "you", 100 }, { "are", 50 } });
@@ -720,7 +719,7 @@ public class KeyboardViewModelTests
         var results = vm.GetSuggestionsWithContext();
 
         // Should include "you" with NextWord type (may be capitalized due to context)
-        Assert.Contains(results, r => r.Word.ToLower() == "you" && r.Type == EyeCtrl.Core.Prediction.PredictionType.NextWord);
+        Assert.Contains(results, r => string.Equals(r.Word, "you", StringComparison.OrdinalIgnoreCase) && r.Type == EyeCtrl.Core.Prediction.PredictionType.NextWord);
     }
 
     [Fact]

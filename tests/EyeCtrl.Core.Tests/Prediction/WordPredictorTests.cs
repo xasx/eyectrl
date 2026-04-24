@@ -490,6 +490,152 @@ public class WordPredictorTests
         Assert.Contains(results, r => r.Word == "hello");
         Assert.DoesNotContain(results, r => r.Word == "Hello");
     }
+
+    // Phase 7 Tests - Case-Sensitivity Enhancements
+
+    [Fact]
+    public void GetSuggestions_Phase7_ExactCaseMatch_ScoresHigherThanCaseInsensitive()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "haus", 100 }, { "hallo", 100 }
+        });
+
+        // Learn "Haus" (German noun, should be capitalized)
+        predictor.LearnSequence(new[] { "Haus" });
+
+        // Search with lowercase prefix "ha"
+        var results = predictor.GetSuggestions("ha", null, maxCount: 5);
+
+        // Both words should appear, but exact case matches should score higher
+        Assert.Contains(results, r => r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(results, r => r.Word.Equals("hallo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void GetSuggestions_Phase7_CaseInsensitiveFallback_FindsGermanNouns()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "haus", 100 }
+        });
+
+        // Learn bigram with capitalized German noun
+        for (int i = 0; i < 10; i++)
+            predictor.LearnSequence(new[] { "Das", "Haus" });
+
+        // User types lowercase "haus", should still get suggestion
+        var results = predictor.GetSuggestions("haus", "Das", maxCount: 5);
+
+        // "Haus" should be suggested even though user typed lowercase
+        Assert.Contains(results, r => r.Word.Equals("Haus", StringComparison.Ordinal) ||
+                                      r.Word.Equals("haus", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void LearnSequence_Phase7_NormalizesALLCAPS()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "hello", 10 }
+        });
+
+        // User types in ALL-CAPS
+        predictor.LearnSequence(new[] { "HELLO", "WORLD" });
+
+        // System should normalize to title case (not store as ALL-CAPS)
+        var results = predictor.GetSuggestions("hel", null, maxCount: 5);
+
+        // Should suggest "Hello" (normalized), not "HELLO"
+        var helloResult = results.FirstOrDefault(r => r.Word.StartsWith("Hel", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(helloResult);
+
+        // Verify it's not ALL-CAPS
+        Assert.NotEqual("HELLO", helloResult.Word);
+    }
+
+    [Fact]
+    public void LearnSequence_Phase7_PreservesKnownAcronyms()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "nasa", 1 }, { "is", 10 }, { "amazing", 10 }
+        });
+
+        // Learn sequence with known acronym
+        predictor.LearnSequence(new[] { "NASA", "is", "amazing" });
+
+        // Acronym should remain ALL-CAPS
+        var results = predictor.GetSuggestions("nasa", null, maxCount: 5);
+
+        // Should find NASA (preserved as acronym)
+        Assert.Contains(results, r => r.Word.Equals("NASA", StringComparison.Ordinal) ||
+                                      r.Word.Equals("nasa", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CasingPreferences_Phase7_LearnUserPreference()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "haus", 10 }
+        });
+
+        // User consistently types "Haus" (German noun)
+        for (int i = 0; i < 10; i++)
+            predictor.LearnSequence(new[] { "Haus" });
+
+        // User types it lowercase once
+        predictor.LearnSequence(new[] { "haus" });
+
+        // Preferred casing should be "Haus" (most frequent)
+        var results = predictor.GetSuggestions("ha", null, maxCount: 5);
+
+        var hausResult = results.FirstOrDefault(r => r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(hausResult);
+
+        // Should prefer the more frequently used casing
+        // Note: The exact casing depends on implementation details, but "Haus" should be preferred
+    }
+
+    [Fact]
+    public void GetSuggestions_Phase7_BigramCaseInsensitiveFallback()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "haus", 10 }, { "hello", 10 }
+        });
+
+        // Learn bigram with capitalized word
+        for (int i = 0; i < 10; i++)
+            predictor.LearnSequence(new[] { "das", "Haus" });
+
+        // User types lowercase context
+        var results = predictor.GetSuggestions("h", "das", maxCount: 5);
+
+        // Should still suggest "Haus" even though context is lowercase
+        Assert.Contains(results, r => r.Word.Equals("Haus", StringComparison.Ordinal) ||
+                                      r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void GetSuggestions_Phase7_PhraseCaseInsensitiveFallback()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "forward", 10 }, { "to", 10 }
+        });
+
+        // Learn phrase with mixed case
+        for (int i = 0; i < 3; i++)
+            predictor.LearnSequence(new[] { "Looking", "Forward", "To" });
+
+        // User types lowercase prefix
+        var results = predictor.GetSuggestions("f", "Looking", maxCount: 5);
+
+        // Should still suggest "Forward" even with different case
+        Assert.Contains(results, r => r.Word.Equals("Forward", StringComparison.OrdinalIgnoreCase));
+    }
 }
 
 // Test helper

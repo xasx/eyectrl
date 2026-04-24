@@ -8,6 +8,7 @@ public class WordPredictor
     private readonly BigramModel _bigrams;
     private readonly PhraseModel _phrases;
     private readonly IReadOnlySet<string> _abbreviations;
+    private readonly CasingPreferenceTracker _casingPreferences;
 
     private const double MaxFuzzyDistance = 1.5;
 
@@ -16,6 +17,10 @@ public class WordPredictor
     private const double NextWordMultiplier = 5.0;
     private const double PhraseMultiplier = 4.0;
     private const double BigramContextBoost = 1.3;
+
+    // Phase 7: Case-sensitivity scoring weights
+    private const double ExactCaseMatchBonus = 1.2;      // Tier 1: Exact case match (highest priority)
+    private const double CaseInsensitiveMultiplier = 0.8; // Tier 2: Case-insensitive match (lower priority)
 
     /// <summary>
     /// Gets the language-specific abbreviations loaded from the dictionary.
@@ -29,6 +34,7 @@ public class WordPredictor
         _adjacencyMap = KeyboardAdjacencyMap.For(layoutName);
         _bigrams = new BigramModel();
         _phrases = new PhraseModel();
+        _casingPreferences = new CasingPreferenceTracker();
 
         // Load bigrams and phrases if provider supports extensions
         if (provider is FileDictionaryProvider fileProvider)
@@ -40,6 +46,11 @@ public class WordPredictor
             var phraseData = fileProvider.LoadPhrases();
             if (phraseData.Count > 0)
                 _phrases.LoadFromDictionary(phraseData);
+
+            // Load casing preferences (Phase 7.3)
+            var casingData = fileProvider.LoadCasingPreferences();
+            if (casingData.Count > 0)
+                _casingPreferences.LoadFromDictionary(casingData);
 
             // Load abbreviations (always non-null, empty set if none provided)
             _abbreviations = fileProvider.Abbreviations;
@@ -75,22 +86,38 @@ public class WordPredictor
         // Category 1: Next-word predictions (when we have context)
         if (hasContext && nextWords != null)
         {
-            // Check bigram predictions (case-sensitive)
+            // Phase 7.1: Tiered matching for bigram predictions
+            // Tier 1: Exact case match (higher priority)
+            // Tier 2: Case-insensitive match (lower priority)
             foreach (var (word, frequency) in nextWords)
             {
-                if (string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    var baseFreq = _words.GetValueOrDefault(word.ToLowerInvariant(), 1);
-                    var score = baseFreq * frequency * NextWordMultiplier;
-                    var key = word.ToLowerInvariant();
+                bool matchesPrefix = string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+                if (!matchesPrefix)
+                    continue;
 
-                    // Keep higher-cased version for display (preserve original casing from bigrams)
-                    if (!scored.ContainsKey(key) || scored[key].score < score)
-                        scored[key] = (score, PredictionType.NextWord, word, null);
-                }
+                var baseFreq = _words.GetValueOrDefault(word.ToLowerInvariant(), 1);
+                var score = baseFreq * frequency * NextWordMultiplier;
+
+                // Apply tiered case matching bonus
+                bool exactCaseMatch = string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.Ordinal);
+                if (exactCaseMatch)
+                    score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
+                else
+                    score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
+
+                var key = word.ToLowerInvariant();
+
+                // Apply user casing preference if available (Phase 7.3)
+                var displayWord = _casingPreferences.HasPreference(word)
+                    ? _casingPreferences.GetPreferredCasing(word)
+                    : word;
+
+                // Keep higher-scored version for display
+                if (!scored.ContainsKey(key) || scored[key].score < score)
+                    scored[key] = (score, PredictionType.NextWord, displayWord, null);
             }
 
-            // Category 2: Phrase predictions (case-sensitive)
+            // Category 2: Phrase predictions with tiered case matching
             var phrases = _phrases.GetPhrases(context!, maxCount * 2);
             foreach (var (phrase, frequency) in phrases)
             {
@@ -102,10 +129,20 @@ public class WordPredictor
                 if (phrase.StartsWith(phrasePrefix, StringComparison.Ordinal))
                     phraseSuggestion = phrase[phrasePrefix.Length..].TrimStart();
 
-                if (!string.IsNullOrWhiteSpace(phraseSuggestion) &&
-                    (string.IsNullOrEmpty(prefix) || phraseSuggestion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                bool matchesPrefix = string.IsNullOrWhiteSpace(phraseSuggestion) == false &&
+                    (string.IsNullOrEmpty(prefix) || phraseSuggestion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+                if (matchesPrefix)
                 {
                     var score = frequency * PhraseMultiplier;
+
+                    // Apply tiered case matching bonus
+                    bool exactCaseMatch = string.IsNullOrEmpty(prefix) || phraseSuggestion.StartsWith(prefix, StringComparison.Ordinal);
+                    if (exactCaseMatch)
+                        score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
+                    else
+                        score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
+
                     var key = phraseSuggestion.ToLowerInvariant();
 
                     // Only update if not already present or if we have a higher score
@@ -130,13 +167,25 @@ public class WordPredictor
                 {
                     var score = frequency * ExactPrefixMultiplier;
 
+                    // Phase 7.1: Apply tiered case matching bonus
+                    bool exactCaseMatch = string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.Ordinal);
+                    if (exactCaseMatch)
+                        score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
+                    else
+                        score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
+
                     // Context boost for bigram relevance (using precomputed set)
                     if (hasContext && contextBoostWords != null && contextBoostWords.Contains(word))
                         score *= BigramContextBoost;
 
+                    // Phase 7.3: Apply user casing preference if available
+                    var displayWord = _casingPreferences.HasPreference(word)
+                        ? _casingPreferences.GetPreferredCasing(word)
+                        : word;
+
                     // Only preserve an existing entry when it already has an equal or higher score
                     if (!scored.ContainsKey(word) || scored[word].score < score)
-                        scored[word] = (score, PredictionType.ExactPrefix, word, null);
+                        scored[word] = (score, PredictionType.ExactPrefix, displayWord, null);
                     continue;
                 }
 
@@ -209,28 +258,43 @@ public class WordPredictor
 
     public void LearnSequence(string[] words)
     {
+        // Phase 7.2: Normalize ALL-CAPS words before learning
+        var normalizedWords = new string[words.Length];
+        for (int i = 0; i < words.Length; i++)
+        {
+            normalizedWords[i] = CasingHelper.NormalizeAllCaps(words[i]);
+        }
+
+        // Phase 7.3: Record casing preferences for each word
+        foreach (var word in normalizedWords)
+        {
+            if (!string.IsNullOrWhiteSpace(word))
+                _casingPreferences.RecordCasing(word);
+        }
+
         // Learn individual words
-        foreach (var word in words)
+        foreach (var word in normalizedWords)
             LearnWord(word);
 
-        // Learn bigrams
-        for (int i = 0; i < words.Length - 1; i++)
-            _bigrams.Learn(words[i], words[i + 1]);
+        // Learn bigrams (use normalized words)
+        for (int i = 0; i < normalizedWords.Length - 1; i++)
+            _bigrams.Learn(normalizedWords[i], normalizedWords[i + 1]);
 
         // Learn phrases (2-7 word sequences)
-        if (words.Length >= 2)
-            _phrases.LearnPhrase(words);
+        if (normalizedWords.Length >= 2)
+            _phrases.LearnPhrase(normalizedWords);
     }
 
     public void SaveUserDictionary()
     {
         _provider.Save(_words);
 
-        // Save bigrams and phrases if provider supports extensions
+        // Save bigrams, phrases, and casing preferences if provider supports extensions
         if (_provider is FileDictionaryProvider fileProvider)
         {
             fileProvider.SaveBigrams(_bigrams.GetAllBigrams());
             fileProvider.SavePhrases(_phrases.GetAllPhrases());
+            fileProvider.SaveCasingPreferences(_casingPreferences.GetAllPreferences()); // Phase 7.3
         }
     }
 }

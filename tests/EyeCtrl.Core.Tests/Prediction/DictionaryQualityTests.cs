@@ -9,12 +9,33 @@ using Xunit;
 /// </summary>
 public class DictionaryQualityTests
 {
-    private readonly string _dictionaryPath = Path.Combine(
-        AppDomain.CurrentDomain.BaseDirectory,
-        "..", "..", "..", "..", "..",
-        "src", "EyeCtrl.App", "Resources", "Dictionaries"
-    );
+    private readonly string _dictionaryPath = FindDictionaryPath();
 
+    private static string FindDictionaryPath()
+    {
+        var currentDirectory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+
+        while (currentDirectory is not null)
+        {
+            var candidatePath = Path.Combine(
+                currentDirectory.FullName,
+                "src",
+                "EyeCtrl.App",
+                "Resources",
+                "Dictionaries");
+
+            if (Directory.Exists(candidatePath))
+            {
+                return candidatePath;
+            }
+
+            currentDirectory = currentDirectory.Parent;
+        }
+
+        throw new DirectoryNotFoundException(
+            $"Could not locate the dictionaries folder by searching upward from '{AppDomain.CurrentDomain.BaseDirectory}'. " +
+            $"Expected to find '{Path.Combine("src", "EyeCtrl.App", "Resources", "Dictionaries")}'.");
+    }
     [Theory]
     [InlineData("en.json", 10000)]
     [InlineData("fr.json", 10000)]

@@ -197,6 +197,53 @@ public class FileDictionaryProvider : IDictionaryProvider
         return string.IsNullOrEmpty(directory) ? phraseFileName : Path.Combine(directory, phraseFileName);
     }
 
+    private string GetCasingPath()
+    {
+        var directory = Path.GetDirectoryName(_userDictionaryPath);
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_userDictionaryPath);
+        var casingFileName = fileNameWithoutExtension + "_casing.json";
+        return string.IsNullOrEmpty(directory) ? casingFileName : Path.Combine(directory, casingFileName);
+    }
+
+    /// <summary>
+    /// Loads casing preferences from the user dictionary file.
+    /// </summary>
+    /// <returns>Dictionary mapping lowercase words to casing variants with frequencies.</returns>
+    public Dictionary<string, Dictionary<string, int>> LoadCasingPreferences()
+    {
+        var path = GetCasingPath();
+        if (!File.Exists(path))
+            return [];
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
+            return data ?? [];
+        }
+        catch (JsonException ex)
+        {
+            _logger?.LogError(ex, "Failed to deserialize casing preferences from {Path}", path);
+            // Return empty if JSON is corrupted
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Saves casing preferences to the user dictionary file.
+    /// </summary>
+    /// <param name="casingPreferences">The casing preference data to save.</param>
+    public void SaveCasingPreferences(Dictionary<string, Dictionary<string, int>> casingPreferences)
+    {
+        var path = GetCasingPath();
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var json = JsonSerializer.Serialize(casingPreferences, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(path, json);
+    }
+
     private static string NormalizeSeparators(string path, char separator)
     {
         return path.Replace('\\', separator).Replace('/', separator);

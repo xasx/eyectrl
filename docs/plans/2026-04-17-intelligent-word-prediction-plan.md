@@ -772,6 +772,25 @@ Features implemented:
 - `GetSuggestionsWithContext_PassesContextToPredictorForBigrams`
 - `GetSuggestionsWithContext_PassesFullTextForSmartCapitalization`
 
+#### 5.3 Post-Implementation Refinements ✅ COMPLETED
+**Commits:** 40519d2, 923f223
+
+Following PR review feedback, several quality improvements were made:
+
+**Code Quality & Maintainability:**
+- **DRY Refactoring** (commit 923f223): Eliminated code duplication by implementing `GetSuggestions()` in terms of `GetSuggestionsWithContext()`. The method now simply calls the context-aware version and extracts the `Word` property, ensuring single source of truth.
+
+**Performance Optimizations:**
+- **Brush Caching** (commit 40519d2): Added static cached brushes for prediction foreground colors in `KeyboardWindow.xaml.cs:25-45`. Brushes are frozen for thread-safety and performance, eliminating per-prediction allocations.
+
+**Visual Correctness:**
+- **Confidence Shading Preservation** (commit 40519d2): Added per-prediction base background color storage (`_predictionBaseColors` dictionary) to preserve confidence shading when dwell-highlight blending is applied. Prevents visual artifacts when hovering over predictions with confidence indicators enabled.
+- **Confidence Value Validation** (commit 40519d2): Added clamping logic to ensure confidence values stay within [0.0, 1.0] range before calculating alpha channel, preventing invalid color values.
+
+**Test Quality:**
+- **Culture-Invariant Comparisons** (commit 923f223): Changed test assertions from `ToLower()` to `StringComparison.OrdinalIgnoreCase` for deterministic cross-locale testing in `KeyboardViewModelTests.cs:723`.
+- **Test Cleanup** (commit 923f223): Removed unused `NextWordPredictionEnabled` setting from test setup, eliminating misleading code.
+
 ### Phase 6: Expand Base Dictionaries
 
 #### 6.1 Dictionary Expansion Strategy

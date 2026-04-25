@@ -3,27 +3,52 @@ namespace EyeCtrl.Core.Prediction;
 /// <summary>
 /// N-gram language model for next-word prediction.
 /// Stores bigram frequencies: P(word2 | word1).
+/// Phase 8: Supports timestamp tracking for decay mechanism.
 /// </summary>
 public class BigramModel
 {
+    // Core bigram data: word1 -> word2 -> frequency
     private readonly Dictionary<string, Dictionary<string, int>> _bigrams = new();
+
+    // Phase 8: Timestamp tracking for decay: word1 -> word2 -> last use timestamp
+    private readonly Dictionary<string, Dictionary<string, DateTimeOffset>> _timestamps = new();
+
     private const int MinFrequency = 2; // Filter out single occurrences to reduce noise
 
     /// <summary>
     /// Learns a bigram (word pair) and increments its frequency.
+    /// Phase 8: Updates timestamp to current time.
     /// </summary>
     /// <param name="word1">The first word (context).</param>
     /// <param name="word2">The second word (prediction target).</param>
     public void Learn(string word1, string word2)
     {
+        LearnWithTimestamp(word1, word2, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// Phase 8: Learns a bigram with a specific timestamp (for testing and migration).
+    /// </summary>
+    /// <param name="word1">The first word (context).</param>
+    /// <param name="word2">The second word (prediction target).</param>
+    /// <param name="timestamp">The timestamp to record for this entry.</param>
+    public void LearnWithTimestamp(string word1, string word2, DateTimeOffset timestamp)
+    {
         if (string.IsNullOrWhiteSpace(word1) || string.IsNullOrWhiteSpace(word2))
             return;
 
+        // Update frequency
         if (!_bigrams.ContainsKey(word1))
             _bigrams[word1] = new Dictionary<string, int>();
 
         var followers = _bigrams[word1];
         followers[word2] = followers.GetValueOrDefault(word2) + 1;
+
+        // Update timestamp
+        if (!_timestamps.ContainsKey(word1))
+            _timestamps[word1] = new Dictionary<string, DateTimeOffset>();
+
+        _timestamps[word1][word2] = timestamp;
     }
 
     /// <summary>
@@ -68,6 +93,76 @@ public class BigramModel
         foreach (var (word1, followers) in data)
         {
             _bigrams[word1] = new Dictionary<string, int>(followers);
+        }
+
+        // Phase 8: Initialize timestamps for loaded data (default to now to prevent immediate decay)
+        _timestamps.Clear();
+        foreach (var (word1, followers) in _bigrams)
+        {
+            _timestamps[word1] = new Dictionary<string, DateTimeOffset>();
+            foreach (var word2 in followers.Keys)
+            {
+                _timestamps[word1][word2] = DateTimeOffset.UtcNow;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Phase 8: Applies exponential decay to all bigram frequencies based on age.
+    /// Removes entries that fall below MinFrequency threshold after decay.
+    /// </summary>
+    /// <param name="decayEnabled">Whether decay is enabled.</param>
+    /// <param name="halfLifeDays">The half-life period in days for exponential decay.</param>
+    public void ApplyDecay(bool decayEnabled, int halfLifeDays)
+    {
+        if (!decayEnabled || halfLifeDays <= 0)
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+        var entriesToRemove = new List<(string word1, string word2)>();
+
+        foreach (var (word1, followers) in _bigrams)
+        {
+            foreach (var (word2, frequency) in followers.ToList())
+            {
+                // Get timestamp for this entry (default to now if missing)
+                var timestamp = _timestamps.TryGetValue(word1, out var word2Timestamps) &&
+                                word2Timestamps.TryGetValue(word2, out var ts)
+                    ? ts
+                    : now;
+
+                // Calculate age in days
+                var ageInDays = (now - timestamp).TotalDays;
+
+                // Apply exponential decay: newFrequency = frequency * 0.5^(age / halfLife)
+                var decayFactor = Math.Pow(0.5, ageInDays / halfLifeDays);
+                var newFrequency = (int)Math.Round(frequency * decayFactor);
+
+                // Update frequency or mark for removal
+                if (newFrequency < MinFrequency)
+                {
+                    entriesToRemove.Add((word1, word2));
+                }
+                else
+                {
+                    followers[word2] = newFrequency;
+                }
+            }
+        }
+
+        // Remove decayed entries
+        foreach (var (word1, word2) in entriesToRemove)
+        {
+            _bigrams[word1].Remove(word2);
+            if (_timestamps.ContainsKey(word1))
+                _timestamps[word1].Remove(word2);
+
+            // Clean up empty dictionaries
+            if (_bigrams[word1].Count == 0)
+            {
+                _bigrams.Remove(word1);
+                _timestamps.Remove(word1);
+            }
         }
     }
 }

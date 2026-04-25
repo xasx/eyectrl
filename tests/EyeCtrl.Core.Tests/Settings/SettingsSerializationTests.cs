@@ -228,4 +228,52 @@ public class SettingsSerializationTests
         Assert.False(settings.Keyboard.ShowPredictionTypes);
         Assert.False(settings.Keyboard.EmojiSuggestionsEnabled);
     }
+
+    [Fact]
+    public void KeyboardSettings_Phase8Properties_HaveCorrectDefaults()
+    {
+        var settings = new KeyboardSettings();
+
+        // Phase 8 settings should have correct defaults
+        Assert.True(settings.DecayEnabled);
+        Assert.Equal(30, settings.DecayHalfLifeDays);
+    }
+
+    [Fact]
+    public void KeyboardSettings_Phase8Properties_RoundTrip()
+    {
+        var original = new KeyboardSettings
+        {
+            DecayEnabled = false,
+            DecayHalfLifeDays = 60
+        };
+
+        var json = JsonSerializer.Serialize(original, JsonOptions);
+        var deserialized = JsonSerializer.Deserialize<KeyboardSettings>(json, JsonOptions)!;
+
+        Assert.False(deserialized.DecayEnabled);
+        Assert.Equal(60, deserialized.DecayHalfLifeDays);
+    }
+
+    [Fact]
+    public void Settings_BackwardsCompatible_MissingPhase8Properties_UsesDefaults()
+    {
+        // Old settings JSON without Phase 8 properties
+        var json = """
+        {
+          "keyboard": {
+            "activeLayout": "QWERTY",
+            "predictionEnabled": true,
+            "smartCapitalizationEnabled": true,
+            "nextWordPredictionEnabled": true
+          }
+        }
+        """;
+
+        var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
+
+        // Should use defaults for missing Phase 8 properties
+        Assert.True(settings.Keyboard.DecayEnabled);
+        Assert.Equal(30, settings.Keyboard.DecayHalfLifeDays);
+    }
 }

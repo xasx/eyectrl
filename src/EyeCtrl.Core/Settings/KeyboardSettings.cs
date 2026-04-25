@@ -19,6 +19,10 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     [ObservableProperty] private bool _showPredictionTypes = false;
     [ObservableProperty] private bool _emojiSuggestionsEnabled = false;
 
+    // Phase 8: Decay Mechanism Settings
+    [ObservableProperty] private bool _decayEnabled = true;
+    [ObservableProperty] private int _decayHalfLifeDays = 30;
+
     private static readonly string[] ValidLayouts = { "QWERTY", "AZERTY", "QWERTZ" };
     private static readonly string[] ValidScreenEdges = { "Top", "Bottom" };
 

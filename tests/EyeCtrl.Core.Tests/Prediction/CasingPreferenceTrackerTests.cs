@@ -190,4 +190,26 @@ public class CasingPreferenceTrackerTests
 
         Assert.Equal(input, tracker.GetPreferredCasing(input));
     }
+
+    [Fact]
+    public void LoadFromDictionary_HandlesNullVariants_Gracefully()
+    {
+        var tracker = new CasingPreferenceTracker();
+
+        // Simulate deserialized JSON with null variant entry
+        var dataWithNull = new Dictionary<string, Dictionary<string, int>>
+        {
+            ["word1"] = new Dictionary<string, int> { ["Word1"] = 5 },
+            ["word2"] = null!, // Null variant entry
+            ["word3"] = new Dictionary<string, int>() // Empty variant entry
+        };
+
+        // Should not throw
+        tracker.LoadFromDictionary(dataWithNull);
+
+        // Should only load the valid entry
+        Assert.True(tracker.HasPreference("word1"));
+        Assert.False(tracker.HasPreference("word2"));
+        Assert.False(tracker.HasPreference("word3"));
+    }
 }

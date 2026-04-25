@@ -117,14 +117,15 @@ public class CasingPreferenceTracker
 
         foreach (var (lowerKey, variants) in data)
         {
+            // Skip null or empty variant entries to prevent NullReferenceException
+            if (variants == null || variants.Count == 0)
+                continue;
+
             _casingVariants[lowerKey] = new Dictionary<string, int>(variants);
 
             // Rebuild cache: find the variant with the highest frequency
-            if (variants.Count > 0)
-            {
-                var maxVariant = variants.OrderByDescending(kv => kv.Value).First();
-                _preferredCasingCache[lowerKey] = maxVariant.Key;
-            }
+            var maxVariant = variants.OrderByDescending(kv => kv.Value).First();
+            _preferredCasingCache[lowerKey] = maxVariant.Key;
         }
     }
 }

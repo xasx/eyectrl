@@ -227,6 +227,12 @@ public class FileDictionaryProvider : IDictionaryProvider
             // Return empty if JSON is corrupted
             return [];
         }
+        catch (IOException ex)
+        {
+            _logger?.LogError(ex, "Failed to read casing preferences from {Path}", path);
+            // Return empty if file cannot be read
+            return [];
+        }
     }
 
     /// <summary>

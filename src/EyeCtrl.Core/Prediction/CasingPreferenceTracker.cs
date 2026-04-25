@@ -9,6 +9,9 @@ public class CasingPreferenceTracker
     // Maps lowercase word -> casing variant -> frequency count
     private readonly Dictionary<string, Dictionary<string, int>> _casingVariants = new(StringComparer.OrdinalIgnoreCase);
 
+    // Cache for preferred casing to avoid O(n log n) sort on every call
+    private readonly Dictionary<string, string> _preferredCasingCache = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Records a word with its specific casing, incrementing the frequency for that variant.
     /// </summary>
@@ -24,7 +27,15 @@ public class CasingPreferenceTracker
             _casingVariants[lowerKey] = new Dictionary<string, int>();
 
         var variants = _casingVariants[lowerKey];
-        variants[word] = variants.GetValueOrDefault(word) + 1;
+        var oldCount = variants.GetValueOrDefault(word);
+        variants[word] = oldCount + 1;
+
+        // Update cache: if this variant now has higher frequency, or is the first variant
+        if (!_preferredCasingCache.TryGetValue(lowerKey, out var currentPreferred) ||
+            variants[word] > variants.GetValueOrDefault(currentPreferred))
+        {
+            _preferredCasingCache[lowerKey] = word;
+        }
     }
 
     /// <summary>
@@ -40,11 +51,11 @@ public class CasingPreferenceTracker
 
         var lowerKey = word.ToLowerInvariant();
 
-        if (!_casingVariants.TryGetValue(lowerKey, out var variants) || variants.Count == 0)
-            return word;
+        // Use cached preferred casing for O(1) lookup
+        if (_preferredCasingCache.TryGetValue(lowerKey, out var preferred))
+            return preferred;
 
-        // Return the variant with the highest frequency
-        return variants.OrderByDescending(kv => kv.Value).First().Key;
+        return word;
     }
 
     /// <summary>
@@ -81,11 +92,17 @@ public class CasingPreferenceTracker
 
     /// <summary>
     /// Gets all casing preferences for serialization.
+    /// Returns a defensive copy to prevent external modification.
     /// </summary>
     /// <returns>Dictionary mapping lowercase words to their casing variants with frequencies.</returns>
     public Dictionary<string, Dictionary<string, int>> GetAllPreferences()
     {
-        return _casingVariants;
+        var copy = new Dictionary<string, Dictionary<string, int>>(_casingVariants.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (lowerKey, variants) in _casingVariants)
+        {
+            copy[lowerKey] = new Dictionary<string, int>(variants);
+        }
+        return copy;
     }
 
     /// <summary>
@@ -96,9 +113,18 @@ public class CasingPreferenceTracker
     public void LoadFromDictionary(Dictionary<string, Dictionary<string, int>> data)
     {
         _casingVariants.Clear();
+        _preferredCasingCache.Clear();
+
         foreach (var (lowerKey, variants) in data)
         {
             _casingVariants[lowerKey] = new Dictionary<string, int>(variants);
+
+            // Rebuild cache: find the variant with the highest frequency
+            if (variants.Count > 0)
+            {
+                var maxVariant = variants.OrderByDescending(kv => kv.Value).First();
+                _preferredCasingCache[lowerKey] = maxVariant.Key;
+            }
         }
     }
 }

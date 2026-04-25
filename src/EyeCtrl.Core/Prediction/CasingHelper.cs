@@ -5,6 +5,9 @@ namespace EyeCtrl.Core.Prediction;
 /// </summary>
 public static class CasingHelper
 {
+    // Thread-safe lock for mutations to the acronym set
+    private static readonly object _acronymLock = new object();
+
     // Common acronyms that should remain ALL-CAPS
     private static readonly HashSet<string> KnownAcronyms = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -68,17 +71,26 @@ public static class CasingHelper
     /// <returns>True if the word is a known acronym.</returns>
     public static bool IsKnownAcronym(string word)
     {
-        return KnownAcronyms.Contains(word);
+        lock (_acronymLock)
+        {
+            return KnownAcronyms.Contains(word);
+        }
     }
 
     /// <summary>
     /// Adds a custom acronym to the known acronyms set.
     /// Useful for domain-specific acronyms that should remain ALL-CAPS.
+    /// Thread-safe for concurrent access.
     /// </summary>
     /// <param name="acronym">The acronym to add.</param>
     public static void AddAcronym(string acronym)
     {
         if (!string.IsNullOrWhiteSpace(acronym))
-            KnownAcronyms.Add(acronym);
+        {
+            lock (_acronymLock)
+            {
+                KnownAcronyms.Add(acronym);
+            }
+        }
     }
 }

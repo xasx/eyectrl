@@ -83,7 +83,8 @@ public class CasingHelperTests
     [Fact]
     public void AddAcronym_CustomAcronym_BecomesKnown()
     {
-        var customAcronym = "XYZTEST";
+        // Use a globally unique acronym to avoid test pollution
+        var customAcronym = $"TESTACR{Guid.NewGuid():N}";
 
         // Verify it's not known initially
         Assert.False(CasingHelper.IsKnownAcronym(customAcronym));

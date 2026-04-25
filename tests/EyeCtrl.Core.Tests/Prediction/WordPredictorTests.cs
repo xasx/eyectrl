@@ -498,18 +498,34 @@ public class WordPredictorTests
     {
         var predictor = CreatePredictor(new()
         {
-            { "haus", 100 }, { "hallo", 100 }
+            { "haus", 100 }, { "hello", 100 }  // Same base frequency
         });
 
-        // Learn "Haus" (German noun, should be capitalized)
+        // Learn "Haus" (German noun, capitalized)
         predictor.LearnSequence(new[] { "Haus" });
 
-        // Search with lowercase prefix "ha"
-        var results = predictor.GetSuggestions("ha", null, maxCount: 5);
+        // Search with capitalized prefix "Ha" - should match "Haus" exactly after preference
+        var results = predictor.GetSuggestions("Ha", null, maxCount: 5);
 
-        // Both words should appear, but exact case matches should score higher
-        Assert.Contains(results, r => r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(results, r => r.Word.Equals("hallo", StringComparison.OrdinalIgnoreCase));
+        // Both words should appear
+        var hausResult = results.FirstOrDefault(r => r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
+        var helloResult = results.FirstOrDefault(r => r.Word.Equals("hello", StringComparison.OrdinalIgnoreCase));
+
+        Assert.NotNull(hausResult);
+        Assert.NotNull(helloResult);
+
+        // "Haus" should appear before "hello" because:
+        // 1. Both have same base frequency (100)
+        // 2. "Haus" (after casing preference) matches "Ha" exactly → gets ExactCaseMatchBonus
+        // 3. "hello" doesn't match "Ha" exactly → gets CaseInsensitiveMultiplier
+        // 4. ExactCaseMatchBonus (1.2) > CaseInsensitiveMultiplier (0.8)
+        var hausIndex = results.IndexOf(hausResult);
+        var helloIndex = results.IndexOf(helloResult);
+        Assert.True(hausIndex < helloIndex,
+            $"Expected 'Haus' (exact case match, bonus=1.2) at index {hausIndex} to appear before 'hello' (case-insensitive, multiplier=0.8) at index {helloIndex}");
+
+        // Verify that casing preference was applied
+        Assert.Equal("Haus", hausResult.Word);
     }
 
     [Fact]
@@ -594,8 +610,8 @@ public class WordPredictorTests
         var hausResult = results.FirstOrDefault(r => r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
         Assert.NotNull(hausResult);
 
-        // Should prefer the more frequently used casing
-        // Note: The exact casing depends on implementation details, but "Haus" should be preferred
+        // Should prefer the more frequently used casing "Haus" (10 times vs 1 time)
+        Assert.Equal("Haus", hausResult.Word);
     }
 
     [Fact]

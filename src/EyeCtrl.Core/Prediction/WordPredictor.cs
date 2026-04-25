@@ -98,12 +98,15 @@ public class WordPredictor
                 var baseFreq = _words.GetValueOrDefault(word.ToLowerInvariant(), 1);
                 var score = baseFreq * frequency * NextWordMultiplier;
 
-                // Apply tiered case matching bonus
-                bool exactCaseMatch = string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.Ordinal);
-                if (exactCaseMatch)
-                    score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
-                else
-                    score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
+                // Apply tiered case matching bonus (only when prefix is non-empty)
+                if (!string.IsNullOrEmpty(prefix))
+                {
+                    bool exactCaseMatch = word.StartsWith(prefix, StringComparison.Ordinal);
+                    if (exactCaseMatch)
+                        score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
+                    else
+                        score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
+                }
 
                 var key = word.ToLowerInvariant();
 
@@ -136,12 +139,15 @@ public class WordPredictor
                 {
                     var score = frequency * PhraseMultiplier;
 
-                    // Apply tiered case matching bonus
-                    bool exactCaseMatch = string.IsNullOrEmpty(prefix) || phraseSuggestion.StartsWith(prefix, StringComparison.Ordinal);
-                    if (exactCaseMatch)
-                        score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
-                    else
-                        score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
+                    // Apply tiered case matching bonus (only when prefix is non-empty)
+                    if (!string.IsNullOrEmpty(prefix))
+                    {
+                        bool exactCaseMatch = phraseSuggestion.StartsWith(prefix, StringComparison.Ordinal);
+                        if (exactCaseMatch)
+                            score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
+                        else
+                            score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
+                    }
 
                     var key = phraseSuggestion.ToLowerInvariant();
 
@@ -167,13 +173,6 @@ public class WordPredictor
                 {
                     var score = frequency * ExactPrefixMultiplier;
 
-                    // Phase 7.1: Apply tiered case matching bonus
-                    bool exactCaseMatch = string.IsNullOrEmpty(prefix) || word.StartsWith(prefix, StringComparison.Ordinal);
-                    if (exactCaseMatch)
-                        score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
-                    else
-                        score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
-
                     // Context boost for bigram relevance (using precomputed set)
                     if (hasContext && contextBoostWords != null && contextBoostWords.Contains(word))
                         score *= BigramContextBoost;
@@ -182,6 +181,17 @@ public class WordPredictor
                     var displayWord = _casingPreferences.HasPreference(word)
                         ? _casingPreferences.GetPreferredCasing(word)
                         : word;
+
+                    // Phase 7.1: Apply tiered case matching bonus (only when prefix is non-empty)
+                    // Use displayWord for case comparison after applying casing preference
+                    if (!string.IsNullOrEmpty(prefix))
+                    {
+                        bool exactCaseMatch = displayWord.StartsWith(prefix, StringComparison.Ordinal);
+                        if (exactCaseMatch)
+                            score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
+                        else
+                            score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
+                    }
 
                     // Only preserve an existing entry when it already has an equal or higher score
                     if (!scored.ContainsKey(word) || scored[word].score < score)
@@ -194,6 +204,9 @@ public class WordPredictor
                     continue;
 
                 // Category 4: Fuzzy matches (only if we have a non-empty prefix)
+                // Note: Fuzzy matching intentionally does NOT apply case tiering because it's
+                // designed to find approximate matches based on edit distance, not exact character matching.
+                // Case-insensitive comparison is used to maximize match flexibility.
                 if (string.IsNullOrEmpty(prefix))
                     continue;
 
@@ -213,8 +226,13 @@ public class WordPredictor
                 if (hasContext && contextBoostWords != null && contextBoostWords.Contains(word))
                     fuzzyScore *= BigramContextBoost;
 
+                // Phase 7.3: Apply user casing preference if available
+                var fuzzyDisplayWord = _casingPreferences.HasPreference(word)
+                    ? _casingPreferences.GetPreferredCasing(word)
+                    : word;
+
                 if (!scored.ContainsKey(word))
-                    scored[word] = (fuzzyScore, PredictionType.FuzzyMatch, word, dist);
+                    scored[word] = (fuzzyScore, PredictionType.FuzzyMatch, fuzzyDisplayWord, dist);
             }
         }
 

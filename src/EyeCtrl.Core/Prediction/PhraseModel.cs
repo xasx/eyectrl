@@ -3,19 +3,36 @@ namespace EyeCtrl.Core.Prediction;
 /// <summary>
 /// Tracks multi-word phrase patterns (2-7 words).
 /// Used for suggesting common phrases like "looking forward to".
+/// Phase 8: Supports timestamp tracking for decay mechanism.
 /// </summary>
 public class PhraseModel
 {
+    // Core phrase data: prefix -> complete phrase -> frequency
     private readonly Dictionary<string, Dictionary<string, int>> _phrases = new();
+
+    // Phase 8: Timestamp tracking for decay: prefix -> complete phrase -> last use timestamp
+    private readonly Dictionary<string, Dictionary<string, DateTimeOffset>> _timestamps = new();
+
     private const int MinPhraseLength = 2;
     private const int MaxPhraseLength = 7;
     private const int MinFrequency = 2;
 
     /// <summary>
     /// Learns a phrase by extracting all sub-sequences of length 2-7.
+    /// Phase 8: Updates timestamps to current time.
     /// </summary>
     /// <param name="words">Array of words forming the phrase.</param>
     public void LearnPhrase(string[] words)
+    {
+        LearnPhraseWithTimestamp(words, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// Phase 8: Learns a phrase with a specific timestamp (for testing and migration).
+    /// </summary>
+    /// <param name="words">Array of words forming the phrase.</param>
+    /// <param name="timestamp">The timestamp to record for this entry.</param>
+    public void LearnPhraseWithTimestamp(string[] words, DateTimeOffset timestamp)
     {
         if (words.Length < MinPhraseLength)
             return;
@@ -29,10 +46,17 @@ public class PhraseModel
                 var prefix = BuildJoinedString(words, i, len - 1);
                 var fullPhrase = BuildJoinedString(words, i, len);
 
+                // Update frequency
                 if (!_phrases.ContainsKey(prefix))
                     _phrases[prefix] = new Dictionary<string, int>();
 
                 _phrases[prefix][fullPhrase] = _phrases[prefix].GetValueOrDefault(fullPhrase) + 1;
+
+                // Update timestamp
+                if (!_timestamps.ContainsKey(prefix))
+                    _timestamps[prefix] = new Dictionary<string, DateTimeOffset>();
+
+                _timestamps[prefix][fullPhrase] = timestamp;
             }
         }
     }
@@ -115,6 +139,76 @@ public class PhraseModel
         foreach (var (prefix, continuations) in data)
         {
             _phrases[prefix] = new Dictionary<string, int>(continuations);
+        }
+
+        // Phase 8: Initialize timestamps for loaded data (default to now to prevent immediate decay)
+        _timestamps.Clear();
+        foreach (var (prefix, continuations) in _phrases)
+        {
+            _timestamps[prefix] = new Dictionary<string, DateTimeOffset>();
+            foreach (var fullPhrase in continuations.Keys)
+            {
+                _timestamps[prefix][fullPhrase] = DateTimeOffset.UtcNow;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Phase 8: Applies exponential decay to all phrase frequencies based on age.
+    /// Removes entries that fall below MinFrequency threshold after decay.
+    /// </summary>
+    /// <param name="decayEnabled">Whether decay is enabled.</param>
+    /// <param name="halfLifeDays">The half-life period in days for exponential decay.</param>
+    public void ApplyDecay(bool decayEnabled, int halfLifeDays)
+    {
+        if (!decayEnabled || halfLifeDays <= 0)
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+        var entriesToRemove = new List<(string prefix, string fullPhrase)>();
+
+        foreach (var (prefix, continuations) in _phrases)
+        {
+            foreach (var (fullPhrase, frequency) in continuations.ToList())
+            {
+                // Get timestamp for this entry (default to now if missing)
+                var timestamp = _timestamps.TryGetValue(prefix, out var phraseTimestamps) &&
+                                phraseTimestamps.TryGetValue(fullPhrase, out var ts)
+                    ? ts
+                    : now;
+
+                // Calculate age in days
+                var ageInDays = (now - timestamp).TotalDays;
+
+                // Apply exponential decay: newFrequency = frequency * 0.5^(age / halfLife)
+                var decayFactor = Math.Pow(0.5, ageInDays / halfLifeDays);
+                var newFrequency = (int)Math.Round(frequency * decayFactor);
+
+                // Update frequency or mark for removal
+                if (newFrequency < MinFrequency)
+                {
+                    entriesToRemove.Add((prefix, fullPhrase));
+                }
+                else
+                {
+                    continuations[fullPhrase] = newFrequency;
+                }
+            }
+        }
+
+        // Remove decayed entries
+        foreach (var (prefix, fullPhrase) in entriesToRemove)
+        {
+            _phrases[prefix].Remove(fullPhrase);
+            if (_timestamps.ContainsKey(prefix))
+                _timestamps[prefix].Remove(fullPhrase);
+
+            // Clean up empty dictionaries
+            if (_phrases[prefix].Count == 0)
+            {
+                _phrases.Remove(prefix);
+                _timestamps.Remove(prefix);
+            }
         }
     }
 }

@@ -268,7 +268,22 @@ public class WordPredictor
 
     public void LearnWord(string word)
     {
-        var lower = word.ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(word))
+            return;
+
+        // Phase 7.2: Normalize ALL-CAPS words before learning
+        var normalizedWord = CasingHelper.NormalizeAllCaps(word);
+
+        // Phase 7.3: Record casing preference for the normalized word
+        _casingPreferences.RecordCasing(normalizedWord);
+
+        // Learn the normalized word
+        LearnWordInternal(normalizedWord);
+    }
+
+    private void LearnWordInternal(string normalizedWord)
+    {
+        var lower = normalizedWord.ToLowerInvariant();
         if (_words.ContainsKey(lower))
             _words[lower]++;
         else
@@ -277,23 +292,22 @@ public class WordPredictor
 
     public void LearnSequence(string[] words)
     {
-        // Phase 7.2: Normalize ALL-CAPS words before learning
+        // Normalize ALL-CAPS words before learning (Phase 7.2)
         var normalizedWords = new string[words.Length];
         for (int i = 0; i < words.Length; i++)
         {
             normalizedWords[i] = CasingHelper.NormalizeAllCaps(words[i]);
         }
 
-        // Phase 7.3: Record casing preferences for each word
+        // Record casing preferences and learn individual words (Phase 7.3)
         foreach (var word in normalizedWords)
         {
             if (!string.IsNullOrWhiteSpace(word))
+            {
                 _casingPreferences.RecordCasing(word);
+                LearnWordInternal(word);
+            }
         }
-
-        // Learn individual words
-        foreach (var word in normalizedWords)
-            LearnWord(word);
 
         // Learn bigrams (use normalized words)
         for (int i = 0; i < normalizedWords.Length - 1; i++)

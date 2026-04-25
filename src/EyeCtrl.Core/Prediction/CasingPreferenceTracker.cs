@@ -16,7 +16,7 @@ public class CasingPreferenceTracker
     /// Records a word with its specific casing, incrementing the frequency for that variant.
     /// </summary>
     /// <param name="word">The word with its user-preferred casing.</param>
-    public void RecordCasing(string word)
+    public void RecordCasing(string? word)
     {
         if (string.IsNullOrWhiteSpace(word))
             return;
@@ -44,7 +44,7 @@ public class CasingPreferenceTracker
     /// </summary>
     /// <param name="word">The word in any casing.</param>
     /// <returns>The most frequently used casing variant, or the original word if no preference exists.</returns>
-    public string GetPreferredCasing(string word)
+    public string? GetPreferredCasing(string? word)
     {
         if (string.IsNullOrWhiteSpace(word))
             return word;
@@ -63,7 +63,7 @@ public class CasingPreferenceTracker
     /// </summary>
     /// <param name="word">The word to check.</param>
     /// <returns>True if a casing preference has been recorded for this word.</returns>
-    public bool HasPreference(string word)
+    public bool HasPreference(string? word)
     {
         if (string.IsNullOrWhiteSpace(word))
             return false;
@@ -77,7 +77,7 @@ public class CasingPreferenceTracker
     /// </summary>
     /// <param name="word">The word to get variants for.</param>
     /// <returns>Dictionary mapping casing variants to their frequencies.</returns>
-    public Dictionary<string, int> GetVariants(string word)
+    public Dictionary<string, int> GetVariants(string? word)
     {
         if (string.IsNullOrWhiteSpace(word))
             return new Dictionary<string, int>();

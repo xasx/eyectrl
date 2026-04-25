@@ -18,11 +18,11 @@ public static class CasingHelper
     };
 
     /// <summary>
-    /// Determines if a word is written in ALL-CAPS (all letters are uppercase).
+    /// Checks if a string is all uppercase letters (2+ letters).
     /// </summary>
     /// <param name="text">The text to check.</param>
-    /// <returns>True if the text has more than one letter and all letters are uppercase.</returns>
-    public static bool IsAllCaps(string text)
+    /// <returns>True if the text is all uppercase with 2 or more letters.</returns>
+    public static bool IsAllCaps(string? text)
     {
         if (string.IsNullOrEmpty(text) || text.Length <= 1)
             return false;
@@ -42,12 +42,11 @@ public static class CasingHelper
     }
 
     /// <summary>
-    /// Normalizes ALL-CAPS input to proper casing.
-    /// Converts to title case (first letter upper, rest lower) unless it's a known acronym.
+    /// Normalizes ALL-CAPS words to title case, preserving known acronyms.
     /// </summary>
     /// <param name="word">The word to normalize.</param>
-    /// <returns>The normalized word with proper casing.</returns>
-    public static string NormalizeAllCaps(string word)
+    /// <returns>Title-cased word if it was ALL-CAPS, or the original word.</returns>
+    public static string? NormalizeAllCaps(string? word)
     {
         if (string.IsNullOrEmpty(word))
             return word;

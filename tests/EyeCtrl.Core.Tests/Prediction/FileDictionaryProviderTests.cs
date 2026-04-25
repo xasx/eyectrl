@@ -358,4 +358,152 @@ public class FileDictionaryProviderTests : IDisposable
         Assert.Contains("DR.", abbreviations);
         Assert.Contains("Dr.", abbreviations);
     }
+
+    [Fact]
+    public void LoadCasingPreferences_ReturnsEmptyWhenFileDoesNotExist()
+    {
+        // Act
+        var casingPreferences = _provider.LoadCasingPreferences();
+
+        // Assert
+        Assert.NotNull(casingPreferences);
+        Assert.Empty(casingPreferences);
+    }
+
+    [Fact]
+    public void LoadCasingPreferences_LoadsExistingData()
+    {
+        // Arrange
+        var testData = new Dictionary<string, Dictionary<string, int>>
+        {
+            ["haus"] = new Dictionary<string, int> { ["Haus"] = 10, ["haus"] = 1 },
+            ["hello"] = new Dictionary<string, int> { ["Hello"] = 5 }
+        };
+        var path = Path.Combine(_testDir, "user_dictionary_en_casing.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(testData));
+
+        // Act
+        var casingPreferences = _provider.LoadCasingPreferences();
+
+        // Assert
+        Assert.Equal(2, casingPreferences.Count);
+        Assert.Equal(2, casingPreferences["haus"].Count);
+        Assert.Equal(10, casingPreferences["haus"]["Haus"]);
+        Assert.Equal(1, casingPreferences["haus"]["haus"]);
+        Assert.Single(casingPreferences["hello"]);
+        Assert.Equal(5, casingPreferences["hello"]["Hello"]);
+    }
+
+    [Fact]
+    public void SaveCasingPreferences_CreatesFileWithData()
+    {
+        // Arrange
+        var testData = new Dictionary<string, Dictionary<string, int>>
+        {
+            ["word"] = new Dictionary<string, int> { ["Word"] = 7 }
+        };
+
+        // Act
+        _provider.SaveCasingPreferences(testData);
+
+        // Assert
+        var path = Path.Combine(_testDir, "user_dictionary_en_casing.json");
+        Assert.True(File.Exists(path));
+        var json = File.ReadAllText(path);
+        var loaded = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
+        Assert.NotNull(loaded);
+        Assert.Single(loaded);
+        Assert.Equal(7, loaded["word"]["Word"]);
+    }
+
+    [Fact]
+    public void SaveCasingPreferences_OverwritesExistingFile()
+    {
+        // Arrange
+        var initialData = new Dictionary<string, Dictionary<string, int>>
+        {
+            ["old"] = new Dictionary<string, int> { ["Old"] = 1 }
+        };
+        _provider.SaveCasingPreferences(initialData);
+
+        var newData = new Dictionary<string, Dictionary<string, int>>
+        {
+            ["new"] = new Dictionary<string, int> { ["New"] = 2 }
+        };
+
+        // Act
+        _provider.SaveCasingPreferences(newData);
+
+        // Assert
+        var loaded = _provider.LoadCasingPreferences();
+        Assert.Single(loaded);
+        Assert.True(loaded.ContainsKey("new"));
+        Assert.False(loaded.ContainsKey("old"));
+    }
+
+    [Fact]
+    public void SaveCasingPreferences_CreatesDirectoryIfNotExists()
+    {
+        // Arrange
+        var newTestDir = Path.Combine(Path.GetTempPath(), $"dict_test_new_{Guid.NewGuid()}");
+        var basePath = Path.Combine(newTestDir, "base.json");
+        var provider = new FileDictionaryProvider(basePath, newTestDir, "en");
+
+        try
+        {
+            var testData = new Dictionary<string, Dictionary<string, int>>
+            {
+                ["test"] = new Dictionary<string, int> { ["Test"] = 1 }
+            };
+
+            // Act
+            provider.SaveCasingPreferences(testData);
+
+            // Assert
+            var path = Path.Combine(newTestDir, "user_dictionary_en_casing.json");
+            Assert.True(File.Exists(path));
+        }
+        finally
+        {
+            if (Directory.Exists(newTestDir))
+                Directory.Delete(newTestDir, true);
+        }
+    }
+
+    [Fact]
+    public void LoadCasingPreferences_HandlesCorruptedJsonGracefully()
+    {
+        // Arrange
+        var path = Path.Combine(_testDir, "user_dictionary_en_casing.json");
+        File.WriteAllText(path, "{ this is not valid json }");
+
+        // Act
+        var casingPreferences = _provider.LoadCasingPreferences();
+
+        // Assert - Should return empty dictionary without throwing
+        Assert.NotNull(casingPreferences);
+        Assert.Empty(casingPreferences);
+    }
+
+    [Fact]
+    public void LoadCasingPreferences_HandlesIOExceptionGracefully()
+    {
+        // Arrange - Create a directory with the same name as the expected file to cause IOException
+        var path = Path.Combine(_testDir, "user_dictionary_en_casing.json");
+        Directory.CreateDirectory(path);
+
+        try
+        {
+            // Act
+            var casingPreferences = _provider.LoadCasingPreferences();
+
+            // Assert - Should return empty dictionary without throwing
+            Assert.NotNull(casingPreferences);
+            Assert.Empty(casingPreferences);
+        }
+        finally
+        {
+            Directory.Delete(path);
+        }
+    }
 }

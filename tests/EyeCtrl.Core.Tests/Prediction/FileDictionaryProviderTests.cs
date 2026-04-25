@@ -488,22 +488,17 @@ public class FileDictionaryProviderTests : IDisposable
     [Fact]
     public void LoadCasingPreferences_HandlesIOExceptionGracefully()
     {
-        // Arrange - Create a directory with the same name as the expected file to cause IOException
+        // Arrange - Create the expected file, then lock it exclusively so reading throws IOException
         var path = Path.Combine(_testDir, "user_dictionary_en_casing.json");
-        Directory.CreateDirectory(path);
+        File.WriteAllText(path, JsonSerializer.Serialize(new Dictionary<string, Dictionary<string, int>>()));
 
-        try
-        {
-            // Act
-            var casingPreferences = _provider.LoadCasingPreferences();
+        using var lockedFile = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
 
-            // Assert - Should return empty dictionary without throwing
-            Assert.NotNull(casingPreferences);
-            Assert.Empty(casingPreferences);
-        }
-        finally
-        {
-            Directory.Delete(path);
-        }
+        // Act
+        var casingPreferences = _provider.LoadCasingPreferences();
+
+        // Assert - Should return empty dictionary without throwing
+        Assert.NotNull(casingPreferences);
+        Assert.Empty(casingPreferences);
     }
 }

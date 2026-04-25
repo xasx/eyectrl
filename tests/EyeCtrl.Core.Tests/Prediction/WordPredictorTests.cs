@@ -560,12 +560,10 @@ public class WordPredictorTests
         // System should normalize to title case (not store as ALL-CAPS)
         var results = predictor.GetSuggestions("hel", null, maxCount: 5);
 
-        // Should suggest "Hello" (normalized), not "HELLO"
+        // Should suggest "Hello" with normalized title casing
         var helloResult = results.FirstOrDefault(r => r.Word.StartsWith("Hel", StringComparison.OrdinalIgnoreCase));
         Assert.NotNull(helloResult);
-
-        // Verify it's not ALL-CAPS
-        Assert.NotEqual("HELLO", helloResult.Word);
+        Assert.Equal("Hello", helloResult.Word);
     }
 
     [Fact]
@@ -582,9 +580,8 @@ public class WordPredictorTests
         // Acronym should remain ALL-CAPS
         var results = predictor.GetSuggestions("nasa", null, maxCount: 5);
 
-        // Should find NASA (preserved as acronym)
-        Assert.Contains(results, r => r.Word.Equals("NASA", StringComparison.Ordinal) ||
-                                      r.Word.Equals("nasa", StringComparison.OrdinalIgnoreCase));
+        // Should find NASA with exact acronym casing preserved
+        Assert.Contains(results, r => r.Word.Equals("NASA", StringComparison.Ordinal));
     }
 
     [Fact]

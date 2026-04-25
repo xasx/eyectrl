@@ -272,7 +272,7 @@ public class WordPredictor
             return;
 
         // Phase 7.2: Normalize ALL-CAPS words before learning
-        var normalizedWord = CasingHelper.NormalizeAllCaps(word);
+        var normalizedWord = CasingHelper.NormalizeAllCaps(word)!;
 
         // Phase 7.3: Record casing preference for the normalized word
         _casingPreferences.RecordCasing(normalizedWord);
@@ -296,7 +296,7 @@ public class WordPredictor
         var normalizedWords = new string[words.Length];
         for (int i = 0; i < words.Length; i++)
         {
-            normalizedWords[i] = CasingHelper.NormalizeAllCaps(words[i]);
+            normalizedWords[i] = CasingHelper.NormalizeAllCaps(words[i]) ?? words[i];
         }
 
         // Record casing preferences and learn individual words (Phase 7.3)

@@ -102,7 +102,7 @@ public class CasingHelperTests
     [Theory]
     [InlineData("")]
     [InlineData(null)]
-    public void NormalizeAllCaps_NullOrEmpty_ReturnsInput(string input)
+    public void NormalizeAllCaps_NullOrEmpty_ReturnsInput(string? input)
     {
         Assert.Equal(input, CasingHelper.NormalizeAllCaps(input));
     }

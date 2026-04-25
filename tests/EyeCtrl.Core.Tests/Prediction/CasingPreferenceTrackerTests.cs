@@ -173,7 +173,7 @@ public class CasingPreferenceTrackerTests
     [Theory]
     [InlineData("")]
     [InlineData(null)]
-    public void RecordCasing_NullOrEmpty_DoesNotThrow(string input)
+    public void RecordCasing_NullOrEmpty_DoesNotThrow(string? input)
     {
         var tracker = new CasingPreferenceTracker();
 
@@ -184,7 +184,7 @@ public class CasingPreferenceTrackerTests
     [Theory]
     [InlineData("")]
     [InlineData(null)]
-    public void GetPreferredCasing_NullOrEmpty_ReturnsInput(string input)
+    public void GetPreferredCasing_NullOrEmpty_ReturnsInput(string? input)
     {
         var tracker = new CasingPreferenceTracker();
 

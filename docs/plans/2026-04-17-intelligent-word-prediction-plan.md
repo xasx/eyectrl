@@ -925,7 +925,8 @@ Following PR review feedback, several quality improvements were made:
 **Implementation:** Tiered matching with priority scoring in `WordPredictor.GetSuggestions`
 - Tier 1: Exact case match gets `ExactCaseMatchBonus = 1.2x` multiplier
 - Tier 2: Case-insensitive match gets `CaseInsensitiveMultiplier = 0.8x` multiplier
-- Applied to all prediction types: NextWord, Phrase, ExactPrefix, and FuzzyMatch
+- Applied to prediction types: NextWord, Phrase, and ExactPrefix
+- FuzzyMatch uses case-insensitive comparison but does not apply case tiering (incompatible with fuzzy matching's edit-distance nature)
 - User typing "haus" now sees "Haus" suggestion (just with lower priority)
 - Exact case matches get preference when available
 - Works for all languages, not just German

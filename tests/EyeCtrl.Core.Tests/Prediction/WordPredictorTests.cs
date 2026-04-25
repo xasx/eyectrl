@@ -498,34 +498,32 @@ public class WordPredictorTests
     {
         var predictor = CreatePredictor(new()
         {
-            { "haus", 100 }, { "hello", 100 }  // Same base frequency
+            { "haus", 50 }, { "hand", 50 }  // Same base frequency for both words
         });
 
-        // Learn "Haus" (German noun, capitalized)
-        predictor.LearnSequence(new[] { "Haus" });
+        // Learn "Das Haus" bigram - this establishes "Haus" as preferred casing for "haus"
+        for (int i = 0; i < 10; i++)
+            predictor.LearnSequence(new[] { "Das", "Haus" });
 
-        // Search with capitalized prefix "Ha" - should match "Haus" exactly after preference
-        var results = predictor.GetSuggestions("Ha", null, maxCount: 5);
+        // Learn "Das hand" bigram - lowercase "hand"
+        for (int i = 0; i < 10; i++)
+            predictor.LearnSequence(new[] { "Das", "hand" });
 
-        // Both words should appear
-        var hausResult = results.FirstOrDefault(r => r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
-        var helloResult = results.FirstOrDefault(r => r.Word.Equals("hello", StringComparison.OrdinalIgnoreCase));
+        // Search with capitalized prefix "Ha". Both candidates match via NextWord prediction path.
+        // "Haus" should match exactly (after casing preference), "hand" is case-insensitive match.
+        var results = predictor.GetSuggestions("Ha", "Das", maxCount: 5);
+
+        var hausResult = results.FirstOrDefault(r => r.Word.Equals("Haus", StringComparison.Ordinal));
+        var handResult = results.FirstOrDefault(r => r.Word.Equals("hand", StringComparison.Ordinal));
 
         Assert.NotNull(hausResult);
-        Assert.NotNull(helloResult);
+        Assert.NotNull(handResult);
 
-        // "Haus" should appear before "hello" because:
-        // 1. Both have same base frequency (100)
-        // 2. "Haus" (after casing preference) matches "Ha" exactly → gets ExactCaseMatchBonus
-        // 3. "hello" doesn't match "Ha" exactly → gets CaseInsensitiveMultiplier
-        // 4. ExactCaseMatchBonus (1.2) > CaseInsensitiveMultiplier (0.8)
         var hausIndex = results.IndexOf(hausResult);
-        var helloIndex = results.IndexOf(helloResult);
-        Assert.True(hausIndex < helloIndex,
-            $"Expected 'Haus' (exact case match, bonus=1.2) at index {hausIndex} to appear before 'hello' (case-insensitive, multiplier=0.8) at index {helloIndex}");
+        var handIndex = results.IndexOf(handResult);
 
-        // Verify that casing preference was applied
-        Assert.Equal("Haus", hausResult.Word);
+        Assert.True(hausIndex < handIndex,
+            $"Expected 'Haus' (exact-case match after preference, bonus=1.2) at index {hausIndex} to appear before 'hand' (case-insensitive match, multiplier=0.8) at index {handIndex}");
     }
 
     [Fact]

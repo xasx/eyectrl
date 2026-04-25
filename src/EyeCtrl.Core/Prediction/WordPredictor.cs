@@ -98,22 +98,23 @@ public class WordPredictor
                 var baseFreq = _words.GetValueOrDefault(word.ToLowerInvariant(), 1);
                 var score = baseFreq * frequency * NextWordMultiplier;
 
+                var key = word.ToLowerInvariant();
+
+                // Phase 7.3: Apply user casing preference if available
+                var displayWord = _casingPreferences.HasPreference(word)
+                    ? _casingPreferences.GetPreferredCasing(word)
+                    : word;
+
                 // Apply tiered case matching bonus (only when prefix is non-empty)
+                // Use displayWord after applying casing preference for accurate case comparison
                 if (!string.IsNullOrEmpty(prefix))
                 {
-                    bool exactCaseMatch = word.StartsWith(prefix, StringComparison.Ordinal);
+                    bool exactCaseMatch = displayWord.StartsWith(prefix, StringComparison.Ordinal);
                     if (exactCaseMatch)
                         score *= ExactCaseMatchBonus;  // Tier 1: Exact case match
                     else
                         score *= CaseInsensitiveMultiplier; // Tier 2: Case-insensitive match
                 }
-
-                var key = word.ToLowerInvariant();
-
-                // Apply user casing preference if available (Phase 7.3)
-                var displayWord = _casingPreferences.HasPreference(word)
-                    ? _casingPreferences.GetPreferredCasing(word)
-                    : word;
 
                 // Keep higher-scored version for display
                 if (!scored.ContainsKey(key) || scored[key].score < score)

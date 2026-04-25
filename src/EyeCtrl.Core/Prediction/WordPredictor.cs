@@ -330,4 +330,16 @@ public class WordPredictor
             fileProvider.SaveCasingPreferences(_casingPreferences.GetAllPreferences()); // Phase 7.3
         }
     }
+
+    /// <summary>
+    /// Phase 8: Applies decay to bigrams and phrases based on settings.
+    /// Should be called periodically (e.g., on load or before save) to clean up old patterns.
+    /// </summary>
+    /// <param name="decayEnabled">Whether decay is enabled.</param>
+    /// <param name="halfLifeDays">The half-life period in days for exponential decay.</param>
+    public void ApplyDecay(bool decayEnabled, int halfLifeDays)
+    {
+        _bigrams.ApplyDecay(decayEnabled, halfLifeDays);
+        _phrases.ApplyDecay(decayEnabled, halfLifeDays);
+    }
 }

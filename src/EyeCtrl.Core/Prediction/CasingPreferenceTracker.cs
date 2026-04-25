@@ -44,6 +44,7 @@ public class CasingPreferenceTracker
     /// </summary>
     /// <param name="word">The word in any casing.</param>
     /// <returns>The most frequently used casing variant, or the original word if no preference exists.</returns>
+    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(word))]
     public string? GetPreferredCasing(string? word)
     {
         if (string.IsNullOrWhiteSpace(word))

@@ -102,7 +102,7 @@ public class WordPredictor
 
                 // Phase 7.3: Apply user casing preference if available
                 var displayWord = _casingPreferences.HasPreference(word)
-                    ? _casingPreferences.GetPreferredCasing(word)
+                    ? _casingPreferences.GetPreferredCasing(word) ?? word
                     : word;
 
                 // Apply tiered case matching bonus (only when prefix is non-empty)
@@ -180,7 +180,7 @@ public class WordPredictor
 
                     // Phase 7.3: Apply user casing preference if available
                     var displayWord = _casingPreferences.HasPreference(word)
-                        ? _casingPreferences.GetPreferredCasing(word)
+                        ? _casingPreferences.GetPreferredCasing(word) ?? word
                         : word;
 
                     // Phase 7.1: Apply tiered case matching bonus (only when prefix is non-empty)
@@ -229,7 +229,7 @@ public class WordPredictor
 
                 // Phase 7.3: Apply user casing preference if available
                 var fuzzyDisplayWord = _casingPreferences.HasPreference(word)
-                    ? _casingPreferences.GetPreferredCasing(word)
+                    ? _casingPreferences.GetPreferredCasing(word) ?? word
                     : word;
 
                 if (!scored.ContainsKey(word))

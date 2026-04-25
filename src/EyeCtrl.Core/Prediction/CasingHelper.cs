@@ -84,12 +84,16 @@ public static class CasingHelper
     /// <param name="acronym">The acronym to add.</param>
     public static void AddAcronym(string acronym)
     {
-        if (!string.IsNullOrWhiteSpace(acronym))
+        if (string.IsNullOrWhiteSpace(acronym))
+            return;
+
+        var normalizedAcronym = acronym.Trim();
+        if (normalizedAcronym.Length == 0)
+            return;
+
+        lock (_acronymLock)
         {
-            lock (_acronymLock)
-            {
-                KnownAcronyms.Add(acronym);
-            }
+            KnownAcronyms.Add(normalizedAcronym);
         }
     }
 }

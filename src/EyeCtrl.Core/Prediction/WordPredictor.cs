@@ -336,9 +336,9 @@ public class WordPredictor
     }
 
     /// <summary>
-    /// Phase 8: Applies decay to bigrams and phrases based on settings.
-    /// Called automatically on load with default settings (30-day half-life).
-    /// Can be called manually with custom settings for periodic cleanup.
+    /// Phase 8: Applies exponential decay to bigrams and phrases based on age.
+    /// Should be called by the app layer after loading with user-configured settings.
+    /// Typically invoked during initialization to clean up old patterns.
     /// </summary>
     /// <param name="decayEnabled">Whether decay is enabled.</param>
     /// <param name="halfLifeDays">The half-life period in days for exponential decay.</param>

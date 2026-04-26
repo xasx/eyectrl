@@ -650,6 +650,10 @@ public class EventCoordinator : IEventCoordinator
                 "Resources", "Dictionaries", $"{langCode}.json");
             var provider = new FileDictionaryProvider(dictPath, _appDataDir!, langCode);
             _wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);
+
+            // Phase 8: Apply decay after loading to clean up old patterns using user settings
+            _wordPredictor.ApplyDecay(settings.Keyboard.DecayEnabled, settings.Keyboard.DecayHalfLifeDays);
+
             keyboard.SetPredictor(_wordPredictor);
         }
 

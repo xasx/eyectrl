@@ -40,12 +40,18 @@ public class WordPredictor
         if (provider is FileDictionaryProvider fileProvider)
         {
             var bigramData = fileProvider.LoadBigrams();
+            var bigramTimestamps = fileProvider.LoadBigramTimestamps();
             if (bigramData.Count > 0)
-                _bigrams.LoadFromDictionary(bigramData);
+                _bigrams.LoadFromDictionary(bigramData, bigramTimestamps);
 
             var phraseData = fileProvider.LoadPhrases();
+            var phraseTimestamps = fileProvider.LoadPhraseTimestamps();
             if (phraseData.Count > 0)
-                _phrases.LoadFromDictionary(phraseData);
+                _phrases.LoadFromDictionary(phraseData, phraseTimestamps);
+
+            // Phase 8: Apply decay after loading to clean up old patterns
+            // Use default settings: decay enabled with 30-day half-life
+            ApplyDecay(decayEnabled: true, halfLifeDays: 30);
 
             // Load casing preferences (Phase 7.3)
             var casingData = fileProvider.LoadCasingPreferences();
@@ -326,14 +332,17 @@ public class WordPredictor
         if (_provider is FileDictionaryProvider fileProvider)
         {
             fileProvider.SaveBigrams(_bigrams.GetAllBigrams());
+            fileProvider.SaveBigramTimestamps(_bigrams.GetAllTimestamps());
             fileProvider.SavePhrases(_phrases.GetAllPhrases());
+            fileProvider.SavePhraseTimestamps(_phrases.GetAllTimestamps());
             fileProvider.SaveCasingPreferences(_casingPreferences.GetAllPreferences()); // Phase 7.3
         }
     }
 
     /// <summary>
     /// Phase 8: Applies decay to bigrams and phrases based on settings.
-    /// Should be called periodically (e.g., on load or before save) to clean up old patterns.
+    /// Called automatically on load with default settings (30-day half-life).
+    /// Can be called manually with custom settings for periodic cleanup.
     /// </summary>
     /// <param name="decayEnabled">Whether decay is enabled.</param>
     /// <param name="halfLifeDays">The half-life period in days for exponential decay.</param>

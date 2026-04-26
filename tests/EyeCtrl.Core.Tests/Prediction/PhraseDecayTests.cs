@@ -88,6 +88,7 @@ public class PhraseDecayTests
 
         // "looking forward to it" should still be present with frequency 4
         var recentPhrase = phrases.FirstOrDefault(p => p.phrase == "looking forward to it");
+        Assert.NotEqual(default, recentPhrase); // Ensure we found the entry
         Assert.Equal("looking forward to it", recentPhrase.phrase);
         Assert.Equal(4, recentPhrase.frequency);
 

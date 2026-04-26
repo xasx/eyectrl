@@ -143,6 +143,45 @@ public class FileDictionaryProvider : IDictionaryProvider
     }
 
     /// <summary>
+    /// Phase 8: Loads bigram timestamps from the user dictionary file.
+    /// </summary>
+    /// <returns>Dictionary mapping first words to their followers' timestamps.</returns>
+    public Dictionary<string, Dictionary<string, DateTimeOffset>> LoadBigramTimestamps()
+    {
+        var path = GetBigramTimestampsPath();
+        if (!File.Exists(path))
+            return [];
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, DateTimeOffset>>>(json);
+            return data ?? [];
+        }
+        catch (JsonException ex)
+        {
+            _logger?.LogError(ex, "Failed to deserialize bigram timestamps from {Path}", path);
+            // Return empty if JSON is corrupted
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Phase 8: Saves bigram timestamps to the user dictionary file.
+    /// </summary>
+    /// <param name="timestamps">The timestamp data to save.</param>
+    public void SaveBigramTimestamps(Dictionary<string, Dictionary<string, DateTimeOffset>> timestamps)
+    {
+        var path = GetBigramTimestampsPath();
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var json = JsonSerializer.Serialize(timestamps, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(path, json);
+    }
+
+    /// <summary>
     /// Loads phrase data from the user dictionary file.
     /// </summary>
     /// <returns>Dictionary mapping phrase prefixes to complete phrases with frequencies.</returns>
@@ -181,6 +220,45 @@ public class FileDictionaryProvider : IDictionaryProvider
         File.WriteAllText(path, json);
     }
 
+    /// <summary>
+    /// Phase 8: Loads phrase timestamps from the user dictionary file.
+    /// </summary>
+    /// <returns>Dictionary mapping phrase prefixes to their continuations' timestamps.</returns>
+    public Dictionary<string, Dictionary<string, DateTimeOffset>> LoadPhraseTimestamps()
+    {
+        var path = GetPhraseTimestampsPath();
+        if (!File.Exists(path))
+            return [];
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, DateTimeOffset>>>(json);
+            return data ?? [];
+        }
+        catch (JsonException ex)
+        {
+            _logger?.LogError(ex, "Failed to deserialize phrase timestamps from {Path}", path);
+            // Return empty if JSON is corrupted
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Phase 8: Saves phrase timestamps to the user dictionary file.
+    /// </summary>
+    /// <param name="timestamps">The timestamp data to save.</param>
+    public void SavePhraseTimestamps(Dictionary<string, Dictionary<string, DateTimeOffset>> timestamps)
+    {
+        var path = GetPhraseTimestampsPath();
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var json = JsonSerializer.Serialize(timestamps, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(path, json);
+    }
+
     private string GetBigramPath()
     {
         var directory = Path.GetDirectoryName(_userDictionaryPath);
@@ -189,12 +267,28 @@ public class FileDictionaryProvider : IDictionaryProvider
         return string.IsNullOrEmpty(directory) ? bigramFileName : Path.Combine(directory, bigramFileName);
     }
 
+    private string GetBigramTimestampsPath()
+    {
+        var directory = Path.GetDirectoryName(_userDictionaryPath);
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_userDictionaryPath);
+        var timestampsFileName = fileNameWithoutExtension + "_bigrams_timestamps.json";
+        return string.IsNullOrEmpty(directory) ? timestampsFileName : Path.Combine(directory, timestampsFileName);
+    }
+
     private string GetPhrasePath()
     {
         var directory = Path.GetDirectoryName(_userDictionaryPath);
         var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_userDictionaryPath);
         var phraseFileName = fileNameWithoutExtension + "_phrases.json";
         return string.IsNullOrEmpty(directory) ? phraseFileName : Path.Combine(directory, phraseFileName);
+    }
+
+    private string GetPhraseTimestampsPath()
+    {
+        var directory = Path.GetDirectoryName(_userDictionaryPath);
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_userDictionaryPath);
+        var timestampsFileName = fileNameWithoutExtension + "_phrases_timestamps.json";
+        return string.IsNullOrEmpty(directory) ? timestampsFileName : Path.Combine(directory, timestampsFileName);
     }
 
     private string GetCasingPath()

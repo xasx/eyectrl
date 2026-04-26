@@ -83,11 +83,21 @@ public class BigramModel
     }
 
     /// <summary>
+    /// Phase 8: Gets all stored timestamps for serialization.
+    /// </summary>
+    /// <returns>Dictionary mapping context words to their followers' timestamps.</returns>
+    public Dictionary<string, Dictionary<string, DateTimeOffset>> GetAllTimestamps()
+    {
+        return _timestamps;
+    }
+
+    /// <summary>
     /// Loads bigrams from a previously serialized state.
     /// Clears existing data before loading.
     /// </summary>
     /// <param name="data">The bigram data to load.</param>
-    public void LoadFromDictionary(Dictionary<string, Dictionary<string, int>> data)
+    /// <param name="timestamps">Optional timestamp data. If not provided, defaults to current time.</param>
+    public void LoadFromDictionary(Dictionary<string, Dictionary<string, int>> data, Dictionary<string, Dictionary<string, DateTimeOffset>>? timestamps = null)
     {
         _bigrams.Clear();
         foreach (var (word1, followers) in data)
@@ -95,14 +105,30 @@ public class BigramModel
             _bigrams[word1] = new Dictionary<string, int>(followers);
         }
 
-        // Phase 8: Initialize timestamps for loaded data (default to now to prevent immediate decay)
+        // Phase 8: Load timestamps if provided, otherwise default to now
         _timestamps.Clear();
+        if (timestamps != null && timestamps.Count > 0)
+        {
+            // Load provided timestamps
+            foreach (var (word1, word2Timestamps) in timestamps)
+            {
+                if (_bigrams.ContainsKey(word1))
+                {
+                    _timestamps[word1] = new Dictionary<string, DateTimeOffset>(word2Timestamps);
+                }
+            }
+        }
+
+        // Fill in missing timestamps with current time
         foreach (var (word1, followers) in _bigrams)
         {
-            _timestamps[word1] = new Dictionary<string, DateTimeOffset>();
+            if (!_timestamps.ContainsKey(word1))
+                _timestamps[word1] = new Dictionary<string, DateTimeOffset>();
+
             foreach (var word2 in followers.Keys)
             {
-                _timestamps[word1][word2] = DateTimeOffset.UtcNow;
+                if (!_timestamps[word1].ContainsKey(word2))
+                    _timestamps[word1][word2] = DateTimeOffset.UtcNow;
             }
         }
     }

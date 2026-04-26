@@ -49,10 +49,6 @@ public class WordPredictor
             if (phraseData.Count > 0)
                 _phrases.LoadFromDictionary(phraseData, phraseTimestamps);
 
-            // Phase 8: Apply decay after loading to clean up old patterns
-            // Use default settings: decay enabled with 30-day half-life
-            ApplyDecay(decayEnabled: true, halfLifeDays: 30);
-
             // Load casing preferences (Phase 7.3)
             var casingData = fileProvider.LoadCasingPreferences();
             if (casingData.Count > 0)

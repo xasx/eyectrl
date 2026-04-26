@@ -161,7 +161,16 @@ public class FileDictionaryProvider : IDictionaryProvider
         catch (JsonException ex)
         {
             _logger?.LogError(ex, "Failed to deserialize bigram timestamps from {Path}", path);
-            // Return empty if JSON is corrupted
+            return [];
+        }
+        catch (IOException ex)
+        {
+            _logger?.LogError(ex, "Failed to read bigram timestamps from {Path}", path);
+            return [];
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger?.LogError(ex, "Access denied reading bigram timestamps from {Path}", path);
             return [];
         }
     }
@@ -239,7 +248,16 @@ public class FileDictionaryProvider : IDictionaryProvider
         catch (JsonException ex)
         {
             _logger?.LogError(ex, "Failed to deserialize phrase timestamps from {Path}", path);
-            // Return empty if JSON is corrupted
+            return [];
+        }
+        catch (IOException ex)
+        {
+            _logger?.LogError(ex, "Failed to read phrase timestamps from {Path}", path);
+            return [];
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger?.LogError(ex, "Access denied reading phrase timestamps from {Path}", path);
             return [];
         }
     }

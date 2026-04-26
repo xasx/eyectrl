@@ -218,18 +218,18 @@ public class PhraseModel
                 // Calculate age in days (clamp to >= 0 to prevent future timestamps from amplifying frequencies)
                 var ageInDays = Math.Max(0, (now - timestamp).TotalDays);
 
-                // Apply exponential decay: newFrequency = frequency * 0.5^(age / halfLife)
+                // Apply exponential decay: decayedFrequency = frequency * 0.5^(age / halfLife)
                 var decayFactor = Math.Pow(0.5, ageInDays / halfLifeDays);
-                var newFrequency = (int)Math.Round(frequency * decayFactor);
+                var decayedFrequency = frequency * decayFactor;
 
                 // Update frequency or mark for removal
-                if (newFrequency < MinFrequency)
+                if (decayedFrequency < MinFrequency)
                 {
                     entriesToRemove.Add((prefix, fullPhrase));
                 }
                 else
                 {
-                    continuations[fullPhrase] = newFrequency;
+                    continuations[fullPhrase] = (int)Math.Floor(decayedFrequency);
                     // Update timestamp to now to prevent compounding decay on subsequent runs
                     if (phraseTimestamps != null)
                         phraseTimestamps[fullPhrase] = now;

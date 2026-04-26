@@ -172,18 +172,18 @@ public class BigramModel
                 // Calculate age in days (clamp to >= 0 to prevent future timestamps from amplifying frequencies)
                 var ageInDays = Math.Max(0, (now - timestamp).TotalDays);
 
-                // Apply exponential decay: newFrequency = frequency * 0.5^(age / halfLife)
+                // Apply exponential decay: decayedFrequency = frequency * 0.5^(age / halfLife)
                 var decayFactor = Math.Pow(0.5, ageInDays / halfLifeDays);
-                var newFrequency = (int)Math.Round(frequency * decayFactor);
+                var decayedFrequency = frequency * decayFactor;
 
-                // Update frequency or mark for removal
-                if (newFrequency < MinFrequency)
+                // Update frequency or mark for removal using the precise decayed value for pruning
+                if (decayedFrequency < MinFrequency)
                 {
                     entriesToRemove.Add((word1, word2));
                 }
                 else
                 {
-                    followers[word2] = newFrequency;
+                    followers[word2] = (int)Math.Floor(decayedFrequency);
                     // Update timestamp to now to prevent compounding decay on subsequent runs
                     if (word2Timestamps != null)
                         word2Timestamps[word2] = now;

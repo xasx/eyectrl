@@ -109,12 +109,24 @@ public class BigramModel
         _timestamps.Clear();
         if (timestamps != null && timestamps.Count > 0)
         {
-            // Load provided timestamps
+            // Load provided timestamps, pruning entries without corresponding bigrams
             foreach (var (word1, word2Timestamps) in timestamps)
             {
-                if (_bigrams.ContainsKey(word1))
+                if (_bigrams.TryGetValue(word1, out var followers))
                 {
-                    _timestamps[word1] = new Dictionary<string, DateTimeOffset>(word2Timestamps);
+                    var prunedTimestamps = new Dictionary<string, DateTimeOffset>();
+                    foreach (var (word2, timestamp) in word2Timestamps)
+                    {
+                        // Only keep timestamps for bigrams that actually exist
+                        if (followers.ContainsKey(word2))
+                        {
+                            prunedTimestamps[word2] = timestamp;
+                        }
+                    }
+                    if (prunedTimestamps.Count > 0)
+                    {
+                        _timestamps[word1] = prunedTimestamps;
+                    }
                 }
             }
         }

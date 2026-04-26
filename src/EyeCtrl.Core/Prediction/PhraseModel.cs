@@ -155,12 +155,24 @@ public class PhraseModel
         _timestamps.Clear();
         if (timestamps != null && timestamps.Count > 0)
         {
-            // Load provided timestamps
+            // Load provided timestamps, pruning entries without corresponding phrases
             foreach (var (prefix, phraseTimestamps) in timestamps)
             {
-                if (_phrases.ContainsKey(prefix))
+                if (_phrases.TryGetValue(prefix, out var continuations))
                 {
-                    _timestamps[prefix] = new Dictionary<string, DateTimeOffset>(phraseTimestamps);
+                    var prunedTimestamps = new Dictionary<string, DateTimeOffset>();
+                    foreach (var (fullPhrase, timestamp) in phraseTimestamps)
+                    {
+                        // Only keep timestamps for phrases that actually exist
+                        if (continuations.ContainsKey(fullPhrase))
+                        {
+                            prunedTimestamps[fullPhrase] = timestamp;
+                        }
+                    }
+                    if (prunedTimestamps.Count > 0)
+                    {
+                        _timestamps[prefix] = prunedTimestamps;
+                    }
                 }
             }
         }

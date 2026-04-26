@@ -129,11 +129,21 @@ public class PhraseModel
     }
 
     /// <summary>
+    /// Phase 8: Gets all stored timestamps for serialization.
+    /// </summary>
+    /// <returns>Dictionary mapping prefixes to their continuations' timestamps.</returns>
+    public Dictionary<string, Dictionary<string, DateTimeOffset>> GetAllTimestamps()
+    {
+        return _timestamps;
+    }
+
+    /// <summary>
     /// Loads phrases from a previously serialized state.
     /// Clears existing data before loading.
     /// </summary>
     /// <param name="data">The phrase data to load.</param>
-    public void LoadFromDictionary(Dictionary<string, Dictionary<string, int>> data)
+    /// <param name="timestamps">Optional timestamp data. If not provided, defaults to current time.</param>
+    public void LoadFromDictionary(Dictionary<string, Dictionary<string, int>> data, Dictionary<string, Dictionary<string, DateTimeOffset>>? timestamps = null)
     {
         _phrases.Clear();
         foreach (var (prefix, continuations) in data)
@@ -141,14 +151,30 @@ public class PhraseModel
             _phrases[prefix] = new Dictionary<string, int>(continuations);
         }
 
-        // Phase 8: Initialize timestamps for loaded data (default to now to prevent immediate decay)
+        // Phase 8: Load timestamps if provided, otherwise default to now
         _timestamps.Clear();
+        if (timestamps != null && timestamps.Count > 0)
+        {
+            // Load provided timestamps
+            foreach (var (prefix, phraseTimestamps) in timestamps)
+            {
+                if (_phrases.ContainsKey(prefix))
+                {
+                    _timestamps[prefix] = new Dictionary<string, DateTimeOffset>(phraseTimestamps);
+                }
+            }
+        }
+
+        // Fill in missing timestamps with current time
         foreach (var (prefix, continuations) in _phrases)
         {
-            _timestamps[prefix] = new Dictionary<string, DateTimeOffset>();
+            if (!_timestamps.ContainsKey(prefix))
+                _timestamps[prefix] = new Dictionary<string, DateTimeOffset>();
+
             foreach (var fullPhrase in continuations.Keys)
             {
-                _timestamps[prefix][fullPhrase] = DateTimeOffset.UtcNow;
+                if (!_timestamps[prefix].ContainsKey(fullPhrase))
+                    _timestamps[prefix][fullPhrase] = DateTimeOffset.UtcNow;
             }
         }
     }

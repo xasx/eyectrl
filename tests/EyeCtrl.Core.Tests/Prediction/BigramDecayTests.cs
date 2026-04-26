@@ -82,6 +82,7 @@ public class BigramDecayTests
 
         // "world" should still be present with frequency 4
         var worldEntry = nextWords.FirstOrDefault(w => w.word == "world");
+        Assert.NotEqual(default, worldEntry); // Ensure we found the entry
         Assert.Equal("world", worldEntry.word);
         Assert.Equal(4, worldEntry.frequency);
 

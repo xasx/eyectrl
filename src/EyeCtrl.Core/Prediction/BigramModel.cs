@@ -32,7 +32,7 @@ public class BigramModel
     /// <param name="word1">The first word (context).</param>
     /// <param name="word2">The second word (prediction target).</param>
     /// <param name="timestamp">The timestamp to record for this entry.</param>
-    public void LearnWithTimestamp(string word1, string word2, DateTimeOffset timestamp)
+    internal void LearnWithTimestamp(string word1, string word2, DateTimeOffset timestamp)
     {
         if (string.IsNullOrWhiteSpace(word1) || string.IsNullOrWhiteSpace(word2))
             return;
@@ -131,8 +131,8 @@ public class BigramModel
                     ? ts
                     : now;
 
-                // Calculate age in days
-                var ageInDays = (now - timestamp).TotalDays;
+                // Calculate age in days (clamp to >= 0 to prevent future timestamps from amplifying frequencies)
+                var ageInDays = Math.Max(0, (now - timestamp).TotalDays);
 
                 // Apply exponential decay: newFrequency = frequency * 0.5^(age / halfLife)
                 var decayFactor = Math.Pow(0.5, ageInDays / halfLifeDays);
@@ -146,6 +146,9 @@ public class BigramModel
                 else
                 {
                     followers[word2] = newFrequency;
+                    // Update timestamp to now to prevent compounding decay on subsequent runs
+                    if (word2Timestamps != null)
+                        word2Timestamps[word2] = now;
                 }
             }
         }
@@ -153,15 +156,23 @@ public class BigramModel
         // Remove decayed entries
         foreach (var (word1, word2) in entriesToRemove)
         {
-            _bigrams[word1].Remove(word2);
-            if (_timestamps.ContainsKey(word1))
-                _timestamps[word1].Remove(word2);
-
-            // Clean up empty dictionaries
-            if (_bigrams[word1].Count == 0)
+            // Use TryGetValue to guard against removal after word1 key was already removed
+            if (_bigrams.TryGetValue(word1, out var followers))
             {
-                _bigrams.Remove(word1);
-                _timestamps.Remove(word1);
+                followers.Remove(word2);
+
+                // Clean up empty dictionaries
+                if (followers.Count == 0)
+                {
+                    _bigrams.Remove(word1);
+                    _timestamps.Remove(word1);
+                }
+            }
+
+            // Remove timestamp entry if it still exists
+            if (_timestamps.TryGetValue(word1, out var timestamps))
+            {
+                timestamps.Remove(word2);
             }
         }
     }

@@ -32,7 +32,7 @@ public class PhraseModel
     /// </summary>
     /// <param name="words">Array of words forming the phrase.</param>
     /// <param name="timestamp">The timestamp to record for this entry.</param>
-    public void LearnPhraseWithTimestamp(string[] words, DateTimeOffset timestamp)
+    internal void LearnPhraseWithTimestamp(string[] words, DateTimeOffset timestamp)
     {
         if (words.Length < MinPhraseLength)
             return;
@@ -177,8 +177,8 @@ public class PhraseModel
                     ? ts
                     : now;
 
-                // Calculate age in days
-                var ageInDays = (now - timestamp).TotalDays;
+                // Calculate age in days (clamp to >= 0 to prevent future timestamps from amplifying frequencies)
+                var ageInDays = Math.Max(0, (now - timestamp).TotalDays);
 
                 // Apply exponential decay: newFrequency = frequency * 0.5^(age / halfLife)
                 var decayFactor = Math.Pow(0.5, ageInDays / halfLifeDays);
@@ -192,6 +192,9 @@ public class PhraseModel
                 else
                 {
                     continuations[fullPhrase] = newFrequency;
+                    // Update timestamp to now to prevent compounding decay on subsequent runs
+                    if (phraseTimestamps != null)
+                        phraseTimestamps[fullPhrase] = now;
                 }
             }
         }
@@ -199,15 +202,23 @@ public class PhraseModel
         // Remove decayed entries
         foreach (var (prefix, fullPhrase) in entriesToRemove)
         {
-            _phrases[prefix].Remove(fullPhrase);
-            if (_timestamps.ContainsKey(prefix))
-                _timestamps[prefix].Remove(fullPhrase);
-
-            // Clean up empty dictionaries
-            if (_phrases[prefix].Count == 0)
+            // Use TryGetValue to guard against removal after prefix key was already removed
+            if (_phrases.TryGetValue(prefix, out var continuations))
             {
-                _phrases.Remove(prefix);
-                _timestamps.Remove(prefix);
+                continuations.Remove(fullPhrase);
+
+                // Clean up empty dictionaries
+                if (continuations.Count == 0)
+                {
+                    _phrases.Remove(prefix);
+                    _timestamps.Remove(prefix);
+                }
+            }
+
+            // Remove timestamp entry if it still exists
+            if (_timestamps.TryGetValue(prefix, out var timestamps))
+            {
+                timestamps.Remove(fullPhrase);
             }
         }
     }

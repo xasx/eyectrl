@@ -16,6 +16,7 @@ public class PredictionBenchmarks
     private WordPredictor _predictor = null!;
     private WordPredictor _predictorWithBigrams = null!;
     private WordPredictor _predictorWithManyBigrams = null!;
+    private Dictionary<string, int> _largeWordList = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -30,8 +31,15 @@ public class PredictionBenchmarks
         _predictorWithBigrams.LearnSequence(new[] { "hello", "there" });
         _predictorWithBigrams.LearnSequence(new[] { "hello", "friend" });
 
-        // Setup predictor with many bigrams for decay testing
-        _predictorWithManyBigrams = new WordPredictor(new InMemoryDictionaryProvider(words));
+        // Store large word list for iteration setup
+        _largeWordList = words;
+    }
+
+    [IterationSetup(Target = nameof(ApplyDecay_WithLargeDataset))]
+    public void IterationSetup()
+    {
+        // Rebuild predictor with many bigrams for each iteration to ensure consistent baseline
+        _predictorWithManyBigrams = new WordPredictor(new InMemoryDictionaryProvider(_largeWordList));
         for (int i = 0; i < 1000; i++)
         {
             _predictorWithManyBigrams.LearnSequence(new[] { $"word{i % 100}", $"next{i % 50}", $"after{i % 25}" });

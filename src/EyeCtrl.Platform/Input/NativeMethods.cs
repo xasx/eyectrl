@@ -32,42 +32,42 @@ internal static partial class NativeMethods
     internal const uint KEYEVENTF_KEYUP = 0x0002;
     internal const uint KEYEVENTF_UNICODE = 0x0004;
 
-    internal const ushort VK_SHIFT = 0x10;
-    internal const ushort VK_CONTROL = 0x11;
-    internal const ushort VK_MENU = 0x12;    // Alt
-    internal const ushort VK_LWIN = 0x5B;
-    internal const ushort VK_BACK = 0x08;
-    internal const ushort VK_TAB = 0x09;
-    internal const ushort VK_RETURN = 0x0D;
-    internal const ushort VK_SPACE = 0x20;
-    internal const ushort VK_ESCAPE = 0x1B;
+    internal const ushort VK_SHIFT = VirtualKeys.Shift;
+    internal const ushort VK_CONTROL = VirtualKeys.Control;
+    internal const ushort VK_MENU = VirtualKeys.Alt;
+    internal const ushort VK_LWIN = VirtualKeys.LWin;
+    internal const ushort VK_BACK = VirtualKeys.Back;
+    internal const ushort VK_TAB = VirtualKeys.Tab;
+    internal const ushort VK_RETURN = VirtualKeys.Return;
+    internal const ushort VK_SPACE = VirtualKeys.Space;
+    internal const ushort VK_ESCAPE = VirtualKeys.Escape;
 
     // Function keys
-    internal const ushort VK_F1 = 0x70;
-    internal const ushort VK_F2 = 0x71;
-    internal const ushort VK_F3 = 0x72;
-    internal const ushort VK_F4 = 0x73;
-    internal const ushort VK_F5 = 0x74;
-    internal const ushort VK_F6 = 0x75;
-    internal const ushort VK_F7 = 0x76;
-    internal const ushort VK_F8 = 0x77;
-    internal const ushort VK_F9 = 0x78;
-    internal const ushort VK_F10 = 0x79;
-    internal const ushort VK_F11 = 0x7A;
-    internal const ushort VK_F12 = 0x7B;
+    internal const ushort VK_F1 = VirtualKeys.F1;
+    internal const ushort VK_F2 = VirtualKeys.F2;
+    internal const ushort VK_F3 = VirtualKeys.F3;
+    internal const ushort VK_F4 = VirtualKeys.F4;
+    internal const ushort VK_F5 = VirtualKeys.F5;
+    internal const ushort VK_F6 = VirtualKeys.F6;
+    internal const ushort VK_F7 = VirtualKeys.F7;
+    internal const ushort VK_F8 = VirtualKeys.F8;
+    internal const ushort VK_F9 = VirtualKeys.F9;
+    internal const ushort VK_F10 = VirtualKeys.F10;
+    internal const ushort VK_F11 = VirtualKeys.F11;
+    internal const ushort VK_F12 = VirtualKeys.F12;
 
     // Navigation keys
-    internal const ushort VK_PRIOR = 0x21;     // Page Up
-    internal const ushort VK_NEXT = 0x22;      // Page Down
-    internal const ushort VK_END = 0x23;
-    internal const ushort VK_HOME = 0x24;
-    internal const ushort VK_LEFT = 0x25;      // Arrow Left
-    internal const ushort VK_UP = 0x26;        // Arrow Up
-    internal const ushort VK_RIGHT = 0x27;     // Arrow Right
-    internal const ushort VK_DOWN = 0x28;      // Arrow Down
-    internal const ushort VK_SNAPSHOT = 0x2C;  // Print Screen
-    internal const ushort VK_INSERT = 0x2D;
-    internal const ushort VK_DELETE = 0x2E;
+    internal const ushort VK_PRIOR = VirtualKeys.Prior;
+    internal const ushort VK_NEXT = VirtualKeys.Next;
+    internal const ushort VK_END = VirtualKeys.End;
+    internal const ushort VK_HOME = VirtualKeys.Home;
+    internal const ushort VK_LEFT = VirtualKeys.Left;
+    internal const ushort VK_UP = VirtualKeys.Up;
+    internal const ushort VK_RIGHT = VirtualKeys.Right;
+    internal const ushort VK_DOWN = VirtualKeys.Down;
+    internal const ushort VK_SNAPSHOT = VirtualKeys.Snapshot;
+    internal const ushort VK_INSERT = VirtualKeys.Insert;
+    internal const ushort VK_DELETE = VirtualKeys.Delete;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct INPUT

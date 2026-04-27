@@ -539,39 +539,39 @@ public class EventCoordinator : IEventCoordinator
 
         ushort vk = keyName.ToLowerInvariant() switch
         {
-            "escape" => NativeMethods.VK_ESCAPE,
-            "f1" => NativeMethods.VK_F1,
-            "f2" => NativeMethods.VK_F2,
-            "f3" => NativeMethods.VK_F3,
-            "f4" => NativeMethods.VK_F4,
-            "f5" => NativeMethods.VK_F5,
-            "f6" => NativeMethods.VK_F6,
-            "f7" => NativeMethods.VK_F7,
-            "f8" => NativeMethods.VK_F8,
-            "f9" => NativeMethods.VK_F9,
-            "f10" => NativeMethods.VK_F10,
-            "f11" => NativeMethods.VK_F11,
-            "f12" => NativeMethods.VK_F12,
-            "home" => NativeMethods.VK_HOME,
-            "end" => NativeMethods.VK_END,
-            "pageup" => NativeMethods.VK_PRIOR,
-            "pagedown" => NativeMethods.VK_NEXT,
-            "arrowup" => NativeMethods.VK_UP,
-            "arrowdown" => NativeMethods.VK_DOWN,
-            "arrowleft" => NativeMethods.VK_LEFT,
-            "arrowright" => NativeMethods.VK_RIGHT,
-            "insert" => NativeMethods.VK_INSERT,
-            "delete" => NativeMethods.VK_DELETE,
-            "printscreen" => NativeMethods.VK_SNAPSHOT,
+            "escape" => VirtualKeys.Escape,
+            "f1" => VirtualKeys.F1,
+            "f2" => VirtualKeys.F2,
+            "f3" => VirtualKeys.F3,
+            "f4" => VirtualKeys.F4,
+            "f5" => VirtualKeys.F5,
+            "f6" => VirtualKeys.F6,
+            "f7" => VirtualKeys.F7,
+            "f8" => VirtualKeys.F8,
+            "f9" => VirtualKeys.F9,
+            "f10" => VirtualKeys.F10,
+            "f11" => VirtualKeys.F11,
+            "f12" => VirtualKeys.F12,
+            "home" => VirtualKeys.Home,
+            "end" => VirtualKeys.End,
+            "pageup" => VirtualKeys.Prior,
+            "pagedown" => VirtualKeys.Next,
+            "arrowup" => VirtualKeys.Up,
+            "arrowdown" => VirtualKeys.Down,
+            "arrowleft" => VirtualKeys.Left,
+            "arrowright" => VirtualKeys.Right,
+            "insert" => VirtualKeys.Insert,
+            "delete" => VirtualKeys.Delete,
+            "printscreen" => VirtualKeys.Snapshot,
             _ => 0
         };
 
         if (vk != 0)
         {
             // Arrow keys, Insert/Delete, Home/End, PageUp/PageDown, and PrintScreen require KEYEVENTF_EXTENDEDKEY
-            bool isExtendedKey = vk is NativeMethods.VK_UP or NativeMethods.VK_DOWN or NativeMethods.VK_LEFT or NativeMethods.VK_RIGHT
-                or NativeMethods.VK_HOME or NativeMethods.VK_END or NativeMethods.VK_PRIOR or NativeMethods.VK_NEXT
-                or NativeMethods.VK_INSERT or NativeMethods.VK_DELETE or NativeMethods.VK_SNAPSHOT;
+            bool isExtendedKey = vk is VirtualKeys.Up or VirtualKeys.Down or VirtualKeys.Left or VirtualKeys.Right
+                or VirtualKeys.Home or VirtualKeys.End or VirtualKeys.Prior or VirtualKeys.Next
+                or VirtualKeys.Insert or VirtualKeys.Delete or VirtualKeys.Snapshot;
 
             if (modifiers != null && modifiers.Count > 0)
                 _context.InputSimulator.SendModifiedKeyPress(modifiers, vk, isExtendedKey);

@@ -1,4 +1,4 @@
-<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.ZoomSideButtonWindow"
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.ManualSelectionSideButtonWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"

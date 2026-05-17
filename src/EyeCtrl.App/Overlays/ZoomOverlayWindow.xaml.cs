@@ -6,7 +6,7 @@ using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
-public partial class ZoomOverlayWindow : OverlayWindow
+public partial class ManualSelectionOverlayWindow : OverlayWindow
 {
     // UI Constants
     private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
@@ -14,7 +14,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
     private PhysicalPoint? _captureCenter;
     private double _magnification;
 
-    public ZoomOverlayWindow()
+    public ManualSelectionOverlayWindow()
     {
         IsClickThrough = true;
         InitializeComponent();
@@ -56,7 +56,7 @@ public partial class ZoomOverlayWindow : OverlayWindow
         await Task.Delay(ScreenCaptureDelayMs);
         var source = ScreenCaptureService.CaptureRegion(center, radius);
         if (source != null)
-            ZoomBrush.ImageSource = source;
+            ManualSelectionBrush.ImageSource = source;
     }
 
     public void Recapture()

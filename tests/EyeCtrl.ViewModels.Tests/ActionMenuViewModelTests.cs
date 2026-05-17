@@ -117,10 +117,10 @@ public class ActionMenuViewModelTests
     }
 
     [Fact]
-    public void ZoomContextProperties_AreStoredFromMessage()
+    public void ManualSelectionContextProperties_AreStoredFromMessage()
     {
         var vm = new ActionMenuViewModel(_settings, _messenger);
-        var zoomCenter = new PhysicalPoint(400, 300);
+        var ManualSelectionCenter = new PhysicalPoint(400, 300);
 
         _messenger.Send(new ShowActionMenuMessage(
             new PhysicalPoint(400, 300),
@@ -129,16 +129,16 @@ public class ActionMenuViewModelTests
             DwellTimeMs: 600,
             GazePoint: new PhysicalPoint(400, 300))
         {
-            ZoomCenter = zoomCenter,
-            ZoomRadius = 150
+            ManualSelectionCenter = ManualSelectionCenter,
+            ManualSelectionRadius = 150
         });
 
-        Assert.Equal(zoomCenter, vm.ZoomCenter);
-        Assert.Equal(150, vm.ZoomRadius);
+        Assert.Equal(ManualSelectionCenter, vm.ManualSelectionCenter);
+        Assert.Equal(150, vm.ManualSelectionRadius);
     }
 
     [Fact]
-    public void ZoomContextProperties_AreClearedOnHide()
+    public void ManualSelectionContextProperties_AreClearedOnHide()
     {
         var vm = new ActionMenuViewModel(_settings, _messenger);
         _messenger.Send(new ShowActionMenuMessage(
@@ -148,14 +148,14 @@ public class ActionMenuViewModelTests
             DwellTimeMs: 600,
             GazePoint: new PhysicalPoint(400, 300))
         {
-            ZoomCenter = new PhysicalPoint(400, 300),
-            ZoomRadius = 150
+            ManualSelectionCenter = new PhysicalPoint(400, 300),
+            ManualSelectionRadius = 150
         });
 
         _messenger.Send(new HideActionMenuMessage());
 
-        Assert.Null(vm.ZoomCenter);
-        Assert.Null(vm.ZoomRadius);
+        Assert.Null(vm.ManualSelectionCenter);
+        Assert.Null(vm.ManualSelectionRadius);
     }
 
     [Fact]

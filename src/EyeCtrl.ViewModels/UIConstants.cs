@@ -9,7 +9,7 @@ using EyeCtrl.Core;
 public static class UIConstants
 {
     /// <summary>
-    /// Default radius for circular buttons (activation button, action menu buttons, zoom side buttons) in logical pixels.
+    /// Default radius for circular buttons (activation button, action menu buttons, ManualSelection side buttons) in logical pixels.
     /// </summary>
     public const double ButtonRadius = LayoutConstants.ActionMenuButtonRadius;
 
@@ -20,16 +20,16 @@ public static class UIConstants
     public const double ActionMenuButtonOuterGap = LayoutConstants.ActionMenuButtonOuterGap;
 
     /// <summary>
-    /// Gap between the zoom overlay edge and side buttons in logical pixels.
-    /// Used for positioning close and recapture buttons next to the zoom window.
+    /// Gap between the ManualSelection overlay edge and side buttons in logical pixels.
+    /// Used for positioning close and recapture buttons next to the ManualSelection window.
     /// </summary>
-    public const double ZoomSideButtonGap = 20.0;
+    public const double ManualSelectionSideButtonGap = 20.0;
 
     /// <summary>
-    /// Dwell time in milliseconds for zoom side buttons (close and recapture).
+    /// Dwell time in milliseconds for ManualSelection side buttons (close and recapture).
     /// User must gaze at these buttons for this duration to activate them.
     /// </summary>
-    public const int ZoomSideButtonDwellMs = 600;
+    public const int ManualSelectionSideButtonDwellMs = 600;
 
     /// <summary>
     /// Distance in logical pixels (DIPs) from the cursor circle edge to the center of the activation button.

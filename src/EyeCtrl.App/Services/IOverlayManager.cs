@@ -23,14 +23,14 @@ public interface IOverlayManager
     ActivationButtonWindow ActivationButton { get; }
 
     /// <summary>
-    /// Gets the zoom overlay window.
+    /// Gets the ManualSelection overlay window.
     /// </summary>
-    ZoomOverlayWindow ZoomOverlay { get; }
+    ManualSelectionOverlayWindow ManualSelectionOverlay { get; }
 
     /// <summary>
-    /// Gets the zoom side buttons overlay window.
+    /// Gets the ManualSelection side buttons overlay window.
     /// </summary>
-    ZoomSideButtonWindow ZoomSideButtons { get; }
+    ManualSelectionSideButtonWindow ManualSelectionSideButtons { get; }
 
     /// <summary>
     /// Gets the action menu overlay window.
@@ -48,9 +48,9 @@ public interface IOverlayManager
     KeyboardWindow Keyboard { get; }
 
     /// <summary>
-    /// Gets the zoom gaze indicator overlay window.
+    /// Gets the ManualSelection gaze indicator overlay window.
     /// </summary>
-    ZoomGazeIndicatorWindow ZoomIndicator { get; }
+    ManualSelectionGazeIndicatorWindow ManualSelectionIndicator { get; }
 
     /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
@@ -67,8 +67,8 @@ public interface IOverlayManager
 public record OverlayViewModels(
     CursorCircleViewModel CursorCircle,
     ActivationButtonViewModel ActivationButton,
-    ZoomOverlayViewModel ZoomOverlay,
+    ManualSelectionOverlayViewModel ManualSelectionOverlay,
     ActionMenuViewModel ActionMenu,
     ToolbarViewModel Toolbar,
     KeyboardViewModel Keyboard,
-    ZoomGazeIndicatorViewModel ZoomIndicator);
+    ManualSelectionGazeIndicatorViewModel ManualSelectionIndicator);

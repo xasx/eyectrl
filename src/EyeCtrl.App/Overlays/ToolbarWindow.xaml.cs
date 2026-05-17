@@ -17,7 +17,7 @@ public partial class ToolbarWindow : OverlayWindow
     private const double ButtonSymbolSizeRatio = 0.4; // Button symbol font size as ratio of button size
     private const byte NormalButtonAlpha = 180; // Alpha value for normal button background
     private const byte IndicatorButtonAlpha = 120; // Alpha value for provider indicator background
-    private const byte ZoomActiveButtonAlpha = 180; // Alpha value for zoom enabled button background
+    private const byte ManualSelectionActiveButtonAlpha = 180; // Alpha value for ManualSelection enabled button background
 
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
     private double _buttonSize;
@@ -40,7 +40,7 @@ public partial class ToolbarWindow : OverlayWindow
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause",    "\u23F8"),    // ⏸ Pause
-            ("Zoom",     "\u2295"),    // ⊕ Magnify/zoom
+            ("ManualSelection",     "\u2295"),    // ⊕ Magnify/ManualSelection
             ("Keyboard", "\u2328"),    // ⌨ Keyboard
             ("Settings", "\u2699"),    // ⚙ Gear
         };
@@ -206,12 +206,12 @@ public partial class ToolbarWindow : OverlayWindow
         }
     }
 
-    public void SetZoomState(bool isZoomOn)
+    public void SetManualSelectionState(bool isManualSelectionOn)
     {
-        if (_buttonVisuals.TryGetValue("Zoom", out var visuals))
+        if (_buttonVisuals.TryGetValue("ManualSelection", out var visuals))
         {
-            visuals.Container.Background = isZoomOn
-                ? new SolidColorBrush(Color.FromArgb(ZoomActiveButtonAlpha, 0, 100, 0))
+            visuals.Container.Background = isManualSelectionOn
+                ? new SolidColorBrush(Color.FromArgb(ManualSelectionActiveButtonAlpha, 0, 100, 0))
                 : new SolidColorBrush(Color.FromArgb(NormalButtonAlpha, 60, 60, 60));
         }
     }

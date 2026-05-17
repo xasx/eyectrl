@@ -56,7 +56,7 @@ public class AppLaunchTests
         var expectedIds = new[]
         {
             "Toolbar_Button_Pause",
-            "Toolbar_Button_Zoom",
+            "Toolbar_Button_ManualSelection",
             "Toolbar_Button_Keyboard",
             "Toolbar_Button_Settings"
         };

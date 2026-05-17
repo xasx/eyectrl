@@ -82,7 +82,7 @@ public partial class SettingsWindow : OverlayWindow
         [
             ("Cursor",   "◎", "Cursor",      BuildCursorPages),
             ("Dwell",    "⏱", "Dwell Times", BuildDwellPages),
-            ("Zoom",     "⊕", "Zoom",        BuildZoomPages),
+            ("ManualSelection",     "⊕", "ManualSelection",        BuildManualSelectionPages),
             ("Actions",  "⊙", "Action Menu", BuildActionMenuPages),
             ("Keyboard", "⌨", "Keyboard",    BuildKeyboardPages),
             ("Toolbar",  "▣", "Toolbar",     BuildToolbarPages),
@@ -442,10 +442,10 @@ public partial class SettingsWindow : OverlayWindow
                     () => _settings.Dwell.ActionMenuDwellMs,
                     v => { _settings.Dwell.ActionMenuDwellMs = (int)v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "d_zoom", "Zoom Action Menu (ms)",
+                () => Add(new DwellSlider(_viewModel, "d_ManualSelection", "ManualSelection Action Menu (ms)",
                     200, 1500, 50, 0,
-                    () => _settings.Dwell.ZoomActionMenuDwellMs,
-                    v => { _settings.Dwell.ZoomActionMenuDwellMs = (int)v; ApplyAndSave(); },
+                    () => _settings.Dwell.ManualSelectionActionMenuDwellMs,
+                    v => { _settings.Dwell.ManualSelectionActionMenuDwellMs = (int)v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
             ],
             [
@@ -481,7 +481,7 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Dwell.FixationDetectionMs = d.FixationDetectionMs;
                         _settings.Dwell.ActivationButtonDwellMs = d.ActivationButtonDwellMs;
                         _settings.Dwell.ActionMenuDwellMs = d.ActionMenuDwellMs;
-                        _settings.Dwell.ZoomActionMenuDwellMs = d.ZoomActionMenuDwellMs;
+                        _settings.Dwell.ManualSelectionActionMenuDwellMs = d.ManualSelectionActionMenuDwellMs;
                         _settings.Dwell.ToolbarButtonDwellMs = d.ToolbarButtonDwellMs;
                         _settings.Dwell.KeyboardKeyDwellMs = d.KeyboardKeyDwellMs;
                         _settings.Dwell.KeyboardPredictionDwellMs = d.KeyboardPredictionDwellMs;
@@ -495,7 +495,7 @@ public partial class SettingsWindow : OverlayWindow
         ];
     }
 
-    private List<List<Action>> BuildZoomPages()
+    private List<List<Action>> BuildManualSelectionPages()
     {
         var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
         var cat = DwellCategory.Control;
@@ -503,39 +503,39 @@ public partial class SettingsWindow : OverlayWindow
         return
         [
             [
-                () => Add(new DwellToggle(_viewModel, "z_en", "Enable Zoom Mode",
-                    () => _settings.Zoom.Enabled,
-                    v => { _settings.Zoom.Enabled = v; ApplyAndSave(); },
+                () => Add(new DwellToggle(_viewModel, "z_en", "Enable ManualSelection Mode",
+                    () => _settings.ManualSelection.Enabled,
+                    v => { _settings.ManualSelection.Enabled = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
                 () => Add(new DwellComboBox(_viewModel, "z_pos", "Position",
                     ["At Gaze", "At Center"],
-                    () => _settings.Zoom.Position == ViewPosition.AtGaze ? "At Gaze" : "At Center",
-                    v => { _settings.Zoom.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); },
+                    () => _settings.ManualSelection.Position == ViewPosition.AtGaze ? "At Gaze" : "At Center",
+                    v => { _settings.ManualSelection.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); },
                     cat, r, _dwellMs)),
                 () => Add(new DwellSlider(_viewModel, "z_rad", "Circle Radius (px)",
                     50, 300, 10, 0,
-                    () => _settings.Zoom.CircleRadiusPixels,
-                    v => { _settings.Zoom.CircleRadiusPixels = (int)v; ApplyAndSave(); },
+                    () => _settings.ManualSelection.CircleRadiusPixels,
+                    v => { _settings.ManualSelection.CircleRadiusPixels = (int)v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
                 () => Add(new DwellSlider(_viewModel, "z_mag", "Magnification Level",
                     1.5, 5, 0.5, 1,
-                    () => _settings.Zoom.MagnificationLevel,
-                    v => { _settings.Zoom.MagnificationLevel = v; ApplyAndSave(); },
+                    () => _settings.ManualSelection.MagnificationLevel,
+                    v => { _settings.ManualSelection.MagnificationLevel = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
                 () => Add(new DwellSlider(_viewModel, "z_grace", "Grace Period (ms)",
                     0, 2000, 50, 0,
-                    () => _settings.Zoom.ZoomGracePeriodMs,
-                    v => { _settings.Zoom.ZoomGracePeriodMs = (int)v; ApplyAndSave(); },
+                    () => _settings.ManualSelection.ManualSelectionGracePeriodMs,
+                    v => { _settings.ManualSelection.ManualSelectionGracePeriodMs = (int)v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
-                () => Add(new DwellButton(_viewModel, "z_reset", "Reset Zoom Settings",
-                    () => ShowModal("Reset Zoom settings to defaults?", () =>
+                () => Add(new DwellButton(_viewModel, "z_reset", "Reset ManualSelection Settings",
+                    () => ShowModal("Reset ManualSelection settings to defaults?", () =>
                     {
-                        var z = new ZoomSettings();
-                        _settings.Zoom.Enabled = z.Enabled;
-                        _settings.Zoom.Position = z.Position;
-                        _settings.Zoom.CircleRadiusPixels = z.CircleRadiusPixels;
-                        _settings.Zoom.MagnificationLevel = z.MagnificationLevel;
-                        _settings.Zoom.ZoomGracePeriodMs = z.ZoomGracePeriodMs;
+                        var z = new ManualSelectionSettings();
+                        _settings.ManualSelection.Enabled = z.Enabled;
+                        _settings.ManualSelection.Position = z.Position;
+                        _settings.ManualSelection.CircleRadiusPixels = z.CircleRadiusPixels;
+                        _settings.ManualSelection.MagnificationLevel = z.MagnificationLevel;
+                        _settings.ManualSelection.ManualSelectionGracePeriodMs = z.ManualSelectionGracePeriodMs;
                         ApplyAndSave();
                         RebuildContent();
                     }),
@@ -739,14 +739,14 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Dwell.FixationDetectionMs = d.Dwell.FixationDetectionMs;
                         _settings.Dwell.ActivationButtonDwellMs = d.Dwell.ActivationButtonDwellMs;
                         _settings.Dwell.ActionMenuDwellMs = d.Dwell.ActionMenuDwellMs;
-                        _settings.Dwell.ZoomActionMenuDwellMs = d.Dwell.ZoomActionMenuDwellMs;
+                        _settings.Dwell.ManualSelectionActionMenuDwellMs = d.Dwell.ManualSelectionActionMenuDwellMs;
                         _settings.Dwell.ToolbarButtonDwellMs = d.Dwell.ToolbarButtonDwellMs;
                         _settings.Dwell.KeyboardKeyDwellMs = d.Dwell.KeyboardKeyDwellMs;
                         _settings.Dwell.KeyboardPredictionDwellMs = d.Dwell.KeyboardPredictionDwellMs;
                         _settings.Dwell.FixationRadiusPixels = d.Dwell.FixationRadiusPixels;
-                        _settings.Zoom.Enabled = d.Zoom.Enabled;
-                        _settings.Zoom.CircleRadiusPixels = d.Zoom.CircleRadiusPixels;
-                        _settings.Zoom.MagnificationLevel = d.Zoom.MagnificationLevel;
+                        _settings.ManualSelection.Enabled = d.ManualSelection.Enabled;
+                        _settings.ManualSelection.CircleRadiusPixels = d.ManualSelection.CircleRadiusPixels;
+                        _settings.ManualSelection.MagnificationLevel = d.ManualSelection.MagnificationLevel;
                         _settings.Keyboard.ActiveLayout = d.Keyboard.ActiveLayout;
                         _settings.Keyboard.KeySizeMultiplier = d.Keyboard.KeySizeMultiplier;
                         _settings.Keyboard.PredictionEnabled = d.Keyboard.PredictionEnabled;

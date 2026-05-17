@@ -38,12 +38,12 @@ public class InteractionManagerTests
     }
 
     [Fact]
-    public void OnActivationButtonDwelled_WithZoom_TransitionsToZoom()
+    public void OnActivationButtonDwelled_WithManualSelection_TransitionsToManualSelection()
     {
-        var manager = new InteractionManager { ZoomEnabled = true };
+        var manager = new InteractionManager { ManualSelectionEnabled = true };
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ZoomSelectionActive, manager.CurrentState);
+        Assert.Equal(InteractionState.ManualSelectionActive, manager.CurrentState);
     }
 
     [Fact]
@@ -81,19 +81,19 @@ public class InteractionManagerTests
     }
 
     [Fact]
-    public void ZoomFlow_FixateActivateFixateSelectAction()
+    public void ManualSelectionFlow_FixateActivateFixateSelectAction()
     {
-        var manager = new InteractionManager { ZoomEnabled = true };
+        var manager = new InteractionManager { ManualSelectionEnabled = true };
         InteractionAction? firedAction = null;
         PhysicalPoint? firedPoint = null;
         manager.ActionRequested += (action, point) => { firedAction = action; firedPoint = point; };
 
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ZoomSelectionActive, manager.CurrentState);
+        Assert.Equal(InteractionState.ManualSelectionActive, manager.CurrentState);
 
-        manager.OnZoomDwell(new PhysicalPoint(110, 110));
-        Assert.Equal(InteractionState.ZoomSelectionActionMenuVisible, manager.CurrentState);
+        manager.OnManualSelectionDwell(new PhysicalPoint(110, 110));
+        Assert.Equal(InteractionState.ManualSelectionActionMenuVisible, manager.CurrentState);
 
         manager.OnActionSelected(InteractionAction.RightClick);
         Assert.Equal(InteractionAction.RightClick, firedAction);
@@ -102,83 +102,83 @@ public class InteractionManagerTests
     }
 
     [Fact]
-    public void ZoomFlow_BackButton_TwoStepReturnsToFreeLook()
+    public void ManualSelectionFlow_BackButton_TwoStepReturnsToFreeLook()
     {
-        var manager = new InteractionManager { ZoomEnabled = true };
+        var manager = new InteractionManager { ManualSelectionEnabled = true };
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
-        manager.OnZoomDwell(new PhysicalPoint(110, 110));
+        manager.OnManualSelectionDwell(new PhysicalPoint(110, 110));
 
-        // First back: action menu → zoom selection
-        manager.OnZoomBack();
-        Assert.Equal(InteractionState.ZoomSelectionActive, manager.CurrentState);
+        // First back: action menu → ManualSelection selection
+        manager.OnManualSelectionBack();
+        Assert.Equal(InteractionState.ManualSelectionActive, manager.CurrentState);
 
-        // Second back: zoom selection → free look
-        manager.OnZoomBack();
+        // Second back: ManualSelection selection → free look
+        manager.OnManualSelectionBack();
         Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
     }
 
     [Fact]
-    public void ZoomBack_FromActionMenu_ReturnsToZoomSelectionActive()
+    public void ManualSelectionBack_FromActionMenu_ReturnsToManualSelectionActive()
     {
-        var im = new InteractionManager { ZoomEnabled = true };
+        var im = new InteractionManager { ManualSelectionEnabled = true };
         var fixPoint = new PhysicalPoint(500, 500);
-        var zoomPoint = new PhysicalPoint(510, 510);
-        bool startZoomFired = false;
+        var ManualSelectionPoint = new PhysicalPoint(510, 510);
+        bool startManualSelectionFired = false;
         bool hideActionMenuFired = false;
-        bool endZoomFired = false;
+        bool endManualSelectionFired = false;
 
-        im.StartZoom += _ => startZoomFired = true;
+        im.StartManualSelection += _ => startManualSelectionFired = true;
         im.HideActionMenu += () => hideActionMenuFired = true;
-        im.EndZoom += () => endZoomFired = true;
+        im.EndManualSelection += () => endManualSelectionFired = true;
 
         im.OnFixationStarted(fixPoint);
         im.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ZoomSelectionActive, im.CurrentState);
+        Assert.Equal(InteractionState.ManualSelectionActive, im.CurrentState);
 
-        im.OnZoomDwell(zoomPoint);
-        Assert.Equal(InteractionState.ZoomSelectionActionMenuVisible, im.CurrentState);
+        im.OnManualSelectionDwell(ManualSelectionPoint);
+        Assert.Equal(InteractionState.ManualSelectionActionMenuVisible, im.CurrentState);
 
-        // Back from action menu → returns to zoom, NOT FreeLook
-        startZoomFired = false; // reset to detect re-fire
-        im.OnZoomBack();
-        Assert.Equal(InteractionState.ZoomSelectionActive, im.CurrentState);
+        // Back from action menu → returns to ManualSelection, NOT FreeLook
+        startManualSelectionFired = false; // reset to detect re-fire
+        im.OnManualSelectionBack();
+        Assert.Equal(InteractionState.ManualSelectionActive, im.CurrentState);
         Assert.True(hideActionMenuFired, "Should fire HideActionMenu");
-        Assert.True(startZoomFired, "Should re-fire StartZoom to re-show zoom overlay");
-        Assert.False(endZoomFired, "Should NOT fire EndZoom");
+        Assert.True(startManualSelectionFired, "Should re-fire StartManualSelection to re-show ManualSelection overlay");
+        Assert.False(endManualSelectionFired, "Should NOT fire EndManualSelection");
     }
 
     [Fact]
-    public void OnZoomDwell_FiresHideZoomBeforeShowActionMenu()
+    public void OnManualSelectionDwell_FiresHideManualSelectionBeforeShowActionMenu()
     {
-        var im = new InteractionManager { ZoomEnabled = true };
+        var im = new InteractionManager { ManualSelectionEnabled = true };
         var events = new List<string>();
 
-        im.HideZoom += () => events.Add("HideZoom");
+        im.HideManualSelection += () => events.Add("HideManualSelection");
         im.ShowActionMenu += _ => events.Add("ShowActionMenu");
 
         im.OnFixationStarted(new PhysicalPoint(100, 100));
         im.OnActivationButtonDwelled();
-        im.OnZoomDwell(new PhysicalPoint(110, 110));
+        im.OnManualSelectionDwell(new PhysicalPoint(110, 110));
 
-        Assert.Equal(new[] { "HideZoom", "ShowActionMenu" }, events.TakeLast(2));
+        Assert.Equal(new[] { "HideManualSelection", "ShowActionMenu" }, events.TakeLast(2));
     }
 
     [Fact]
-    public void ZoomClose_FromZoomView_ReturnsToFreeLook()
+    public void ManualSelectionClose_FromManualSelectionView_ReturnsToFreeLook()
     {
-        var im = new InteractionManager { ZoomEnabled = true };
+        var im = new InteractionManager { ManualSelectionEnabled = true };
         var fixPoint = new PhysicalPoint(500, 500);
-        bool endZoomFired = false;
+        bool endManualSelectionFired = false;
 
-        im.EndZoom += () => endZoomFired = true;
+        im.EndManualSelection += () => endManualSelectionFired = true;
 
         im.OnFixationStarted(fixPoint);
         im.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ZoomSelectionActive, im.CurrentState);
+        Assert.Equal(InteractionState.ManualSelectionActive, im.CurrentState);
 
-        im.OnZoomBack(); // close from zoom view → FreeLook
+        im.OnManualSelectionBack(); // close from ManualSelection view → FreeLook
         Assert.Equal(InteractionState.FreeLook, im.CurrentState);
-        Assert.True(endZoomFired);
+        Assert.True(endManualSelectionFired);
     }
 }

@@ -6,12 +6,12 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class ZoomGazeIndicatorViewModel : ObservableObject,
-    IRecipient<StartZoomMessage>,
-    IRecipient<EndZoomMessage>,
-    IRecipient<UpdateZoomIndicatorPositionMessage>,
-    IRecipient<UpdateZoomIndicatorProgressMessage>,
-    IRecipient<ResetZoomIndicatorMessage>,
+public partial class ManualSelectionGazeIndicatorViewModel : ObservableObject,
+    IRecipient<StartManualSelectionMessage>,
+    IRecipient<EndManualSelectionMessage>,
+    IRecipient<UpdateManualSelectionIndicatorPositionMessage>,
+    IRecipient<UpdateManualSelectionIndicatorProgressMessage>,
+    IRecipient<ResetManualSelectionIndicatorMessage>,
     IDisposable
 {
     private readonly IMessenger _messenger;
@@ -33,9 +33,9 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     // Fixation progress 0.0 → 1.0 (raw, before easing)
     [ObservableProperty] private double _fixationProgress;
 
-    // Zoom geometry needed for coordinate mapping
-    private PhysicalPoint _zoomOriginalCenter = new(0, 0);  // Capture center (gaze point)
-    private PhysicalPoint _zoomWindowCenter = new(0, 0);    // Display center (may be screen center)
+    // ManualSelection geometry needed for coordinate mapping
+    private PhysicalPoint _ManualSelectionOriginalCenter = new(0, 0);  // Capture center (gaze point)
+    private PhysicalPoint _ManualSelectionWindowCenter = new(0, 0);    // Display center (may be screen center)
     private double _magnification = 1.0;
 
     public double CenterDotDiameter { get; private set; }
@@ -43,7 +43,7 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     public double Opacity { get; private set; }
     public int ResetAnimationMs { get; private set; }
 
-    public ZoomGazeIndicatorViewModel(IMessenger messenger)
+    public ManualSelectionGazeIndicatorViewModel(IMessenger messenger)
     {
         _messenger = messenger;
         messenger.RegisterAll(this);
@@ -54,46 +54,46 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     /// </summary>
     public void Configure(EyeCtrlSettings settings)
     {
-        _outerCircleDiameterSetting = settings.Zoom.GazeIndicatorOuterDiameter;
+        _outerCircleDiameterSetting = settings.ManualSelection.GazeIndicatorOuterDiameter;
         _outerCircleDiameter = _outerCircleDiameterSetting;
-        CenterDotDiameter = settings.Zoom.GazeIndicatorCenterDotDiameter;
-        StrokeThickness = settings.Zoom.GazeIndicatorStrokeThickness;
-        Opacity = settings.Zoom.GazeIndicatorOpacity;
-        ResetAnimationMs = settings.Zoom.GazeIndicatorResetAnimationMs;
+        CenterDotDiameter = settings.ManualSelection.GazeIndicatorCenterDotDiameter;
+        StrokeThickness = settings.ManualSelection.GazeIndicatorStrokeThickness;
+        Opacity = settings.ManualSelection.GazeIndicatorOpacity;
+        ResetAnimationMs = settings.ManualSelection.GazeIndicatorResetAnimationMs;
     }
 
-    public void Receive(StartZoomMessage message)
+    public void Receive(StartManualSelectionMessage message)
     {
-        // The capture center is the gaze point (what we're zooming in on)
-        _zoomOriginalCenter = message.GazePoint;
+        // The capture center is the gaze point (what we're ManualSelectioning in on)
+        _ManualSelectionOriginalCenter = message.GazePoint;
         _magnification = message.Magnification;
 
-        // The zoom window center is where the overlay is displayed (gaze point in AtGaze mode, screen center in AtCenter mode)
-        _zoomWindowCenter = message.Center;
+        // The ManualSelection window center is where the overlay is displayed (gaze point in AtGaze mode, screen center in AtCenter mode)
+        _ManualSelectionWindowCenter = message.Center;
 
         OuterCircleDiameter = _outerCircleDiameterSetting;
         FixationProgress = 0.0;
         IsVisible = true;
     }
 
-    public void Receive(EndZoomMessage message)
+    public void Receive(EndManualSelectionMessage message)
     {
         IsVisible = false;
         FixationProgress = 0.0;
         OuterCircleDiameter = _outerCircleDiameterSetting;
     }
 
-    public void Receive(UpdateZoomIndicatorPositionMessage message)
+    public void Receive(UpdateManualSelectionIndicatorPositionMessage message)
     {
         UpdateGazePosition(message.GazePoint);
     }
 
-    public void Receive(UpdateZoomIndicatorProgressMessage message)
+    public void Receive(UpdateManualSelectionIndicatorProgressMessage message)
     {
         UpdateFixationProgress(message.Progress);
     }
 
-    public void Receive(ResetZoomIndicatorMessage message)
+    public void Receive(ResetManualSelectionIndicatorMessage message)
     {
         ResetFixation();
     }
@@ -105,9 +105,9 @@ public partial class ZoomGazeIndicatorViewModel : ObservableObject,
     public void UpdateGazePosition(PhysicalPoint gazeScreenPoint)
     {
         // Convert screen gaze to magnified coordinates:
-        // magnifiedPoint = zoomWindowCenter + (gazePoint - originalCenter) * magnification
-        var magX = _zoomWindowCenter.X + (gazeScreenPoint.X - _zoomOriginalCenter.X) * _magnification;
-        var magY = _zoomWindowCenter.Y + (gazeScreenPoint.Y - _zoomOriginalCenter.Y) * _magnification;
+        // magnifiedPoint = ManualSelectionWindowCenter + (gazePoint - originalCenter) * magnification
+        var magX = _ManualSelectionWindowCenter.X + (gazeScreenPoint.X - _ManualSelectionOriginalCenter.X) * _magnification;
+        var magY = _ManualSelectionWindowCenter.Y + (gazeScreenPoint.Y - _ManualSelectionOriginalCenter.Y) * _magnification;
 
         IndicatorX = magX;
         IndicatorY = magY;

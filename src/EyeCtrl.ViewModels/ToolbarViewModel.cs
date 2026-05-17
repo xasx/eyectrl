@@ -20,7 +20,7 @@ public partial class ToolbarViewModel : ObservableObject,
     private bool _disposed;
 
     [ObservableProperty] private bool _isPaused;
-    [ObservableProperty] private bool _isZoomOn;
+    [ObservableProperty] private bool _isManualSelectionOn;
 
     public ObservableCollection<ToolbarButtonViewModel> Buttons { get; } = new();
 
@@ -41,7 +41,7 @@ public partial class ToolbarViewModel : ObservableObject,
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause", "\u23F8"),
-            ("Zoom", "\u2295"),
+            ("ManualSelection", "\u2295"),
             ("Keyboard", "\u2328"),
             ("Settings", "\u2699"),
         };
@@ -85,7 +85,7 @@ public partial class ToolbarViewModel : ObservableObject,
         switch (targetId)
         {
             case "Pause": _messenger.Send(new PauseToggledMessage()); break;
-            case "Zoom": _messenger.Send(new ZoomToggledMessage()); break;
+            case "ManualSelection": _messenger.Send(new ManualSelectionToggledMessage()); break;
             case "Keyboard": _messenger.Send(new KeyboardToggledMessage()); break;
             case "Settings": _messenger.Send(new SettingsRequestedMessage()); break;
         }

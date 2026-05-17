@@ -51,8 +51,8 @@ public class CursorCircleViewModelTests
 
     [Theory]
     [InlineData(InteractionState.ActionMenuVisible)]
-    [InlineData(InteractionState.ZoomSelectionActive)]
-    [InlineData(InteractionState.ZoomSelectionActionMenuVisible)]
+    [InlineData(InteractionState.ManualSelectionActive)]
+    [InlineData(InteractionState.ManualSelectionActionMenuVisible)]
     public void HidesDuringOverlayStates(InteractionState state)
     {
         var settings = new EyeCtrlSettings();

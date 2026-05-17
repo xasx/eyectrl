@@ -21,12 +21,12 @@ public class MagicNumberReplacementTests
     }
 
     [Fact]
-    public void ZoomSideButtonConfiguration_UsesNamedConstants()
+    public void ManualSelectionSideButtonConfiguration_UsesNamedConstants()
     {
-        // Verify zoom side button constants are defined
+        // Verify ManualSelection side button constants are defined
         Assert.Equal(50.0, UIConstants.ButtonRadius);
-        Assert.Equal(20.0, UIConstants.ZoomSideButtonGap);
-        Assert.Equal(600, UIConstants.ZoomSideButtonDwellMs);
+        Assert.Equal(20.0, UIConstants.ManualSelectionSideButtonGap);
+        Assert.Equal(600, UIConstants.ManualSelectionSideButtonDwellMs);
     }
 
     [Fact]

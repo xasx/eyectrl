@@ -4,31 +4,31 @@ using Xunit;
 using System.Collections.Generic;
 
 /// <summary>
-/// Tests for event handler accumulation and memory leak in App.xaml.cs zoom functionality.
-/// Bug: Lines 271-393 create new handlers and FixationDetector instances each time zoom activates.
+/// Tests for event handler accumulation and memory leak in App.xaml.cs ManualSelection functionality.
+/// Bug: Lines 271-393 create new handlers and FixationDetector instances each time ManualSelection activates.
 /// While the code does unsubscribe old handlers (292-295), the pattern could be improved
 /// to explicitly track and dispose resources.
 /// </summary>
-public class ZoomHandlerMemoryLeakTests
+public class ManualSelectionHandlerMemoryLeakTests
 {
     /// <summary>
-    /// This test documents the expected behavior: zoom handlers should be properly
-    /// unsubscribed when zoom mode is deactivated, preventing handler accumulation.
+    /// This test documents the expected behavior: ManualSelection handlers should be properly
+    /// unsubscribed when ManualSelection mode is deactivated, preventing handler accumulation.
     /// </summary>
     [Fact]
-    public void ZoomMode_MultipleActivations_ShouldNotAccumulateHandlers()
+    public void ManualSelectionMode_MultipleActivations_ShouldNotAccumulateHandlers()
     {
-        // This is a documentation test for the zoom handler pattern.
+        // This is a documentation test for the ManualSelection handler pattern.
         // In the actual App.xaml.cs code at lines 271-393, the pattern is:
         //
-        // 1. zoomGazeHandler and zoomVisibilityHandler are declared as nullable Action/EventHandler
-        // 2. When zoom activates (line 282):
+        // 1. ManualSelectionGazeHandler and ManualSelectionVisibilityHandler are declared as nullable Action/EventHandler
+        // 2. When ManualSelection activates (line 282):
         //    - Previous handlers are unsubscribed if they exist (lines 292-295)
         //    - New FixationDetector instance is created (line 298)
-        //    - New zoomGazeHandler is created and subscribed (lines 329-377)
-        //    - New zoomVisibilityHandler is created and subscribed (lines 380-385)
-        // 3. When zoom deactivates:
-        //    - zoomGazeHandler is unsubscribed via zoomVisibilityHandler (line 383)
+        //    - New ManualSelectionGazeHandler is created and subscribed (lines 329-377)
+        //    - New ManualSelectionVisibilityHandler is created and subscribed (lines 380-385)
+        // 3. When ManualSelection deactivates:
+        //    - ManualSelectionGazeHandler is unsubscribed via ManualSelectionVisibilityHandler (line 383)
         //    - FixationDetector events are not explicitly unsubscribed
         //
         // The current implementation does unsubscribe handlers before creating new ones,
@@ -44,30 +44,30 @@ public class ZoomHandlerMemoryLeakTests
     }
 
     /// <summary>
-    /// Simulates multiple zoom activations to verify handlers don't accumulate.
+    /// Simulates multiple ManualSelection activations to verify handlers don't accumulate.
     /// This is a behavioral documentation test since we can't easily verify the actual
     /// subscription count without reflection or memory profiling.
     /// </summary>
     [Fact]
-    public void ZoomMode_RapidActivationDeactivation_ShouldMaintainStableMemory()
+    public void ManualSelectionMode_RapidActivationDeactivation_ShouldMaintainStableMemory()
     {
         // In a real scenario, this would:
-        // 1. Activate zoom mode (which creates zoomFixation and handlers)
-        // 2. Deactivate zoom mode (which should unsubscribe handlers)
+        // 1. Activate ManualSelection mode (which creates ManualSelectionFixation and handlers)
+        // 2. Deactivate ManualSelection mode (which should unsubscribe handlers)
         // 3. Repeat steps 1-2 many times (e.g., 100 iterations)
         // 4. Verify that:
         //    - GazeEngine.CursorMoved event has only one handler (or zero when inactive)
-        //    - ZoomViewModel.PropertyChanged event has proper handler count
+        //    - ManualSelectionViewModel.PropertyChanged event has proper handler count
         //    - Memory usage remains stable (no leaked FixationDetector instances)
         //
         // The current code at lines 292-295 does handle the unsubscribe correctly:
-        //   if (zoomGazeHandler != null)
-        //       gazeEngine.CursorMoved -= zoomGazeHandler;
-        //   if (zoomVisibilityHandler != null)
-        //       zoomVM.PropertyChanged -= zoomVisibilityHandler;
+        //   if (ManualSelectionGazeHandler != null)
+        //       gazeEngine.CursorMoved -= ManualSelectionGazeHandler;
+        //   if (ManualSelectionVisibilityHandler != null)
+        //       ManualSelectionVM.PropertyChanged -= ManualSelectionVisibilityHandler;
         //
-        // And line 383 unsubscribes when zoom ends:
-        //   gazeEngine.CursorMoved -= zoomGazeHandler;
+        // And line 383 unsubscribes when ManualSelection ends:
+        //   gazeEngine.CursorMoved -= ManualSelectionGazeHandler;
         //
         // So the implementation is actually correct for preventing handler accumulation.
         // The main improvement would be explicitly unsubscribing from FixationDetector events.
@@ -82,56 +82,56 @@ public class ZoomHandlerMemoryLeakTests
     public void FixationDetector_EventSubscriptions_ShouldBeCleanedUp()
     {
         // In App.xaml.cs at line 298, a new FixationDetector is created:
-        //   var zoomFixation = new FixationDetector(...);
+        //   var ManualSelectionFixation = new FixationDetector(...);
         //
         // Then events are subscribed at lines 301-322:
-        //   zoomFixation.FixationStarted += ...
-        //   zoomFixation.FixationEnded += ...
+        //   ManualSelectionFixation.FixationStarted += ...
+        //   ManualSelectionFixation.FixationEnded += ...
         //
-        // When zoom mode is deactivated or reactivated, these event subscriptions
-        // are not explicitly unsubscribed. However, since zoomFixation is a local variable
+        // When ManualSelection mode is deactivated or reactivated, these event subscriptions
+        // are not explicitly unsubscribed. However, since ManualSelectionFixation is a local variable
         // and goes out of scope, it becomes eligible for garbage collection once there are
         // no more references to it.
         //
-        // The event handlers (lines 301-322) capture the Dispatcher, zoomIndicator, etc.
+        // The event handlers (lines 301-322) capture the Dispatcher, ManualSelectionIndicator, etc.
         // in their closures. These won't prevent GC because:
         // 1. The FixationDetector itself has no strong references keeping it alive
-        // 2. When zoomFixation is eligible for GC, its event invocation lists are collected too
+        // 2. When ManualSelectionFixation is eligible for GC, its event invocation lists are collected too
         // 3. The lambda closures will be collected along with the FixationDetector
         //
         // However, explicitly unsubscribing would be clearer and more defensive:
-        //   if (currentZoomFixation != null) {
-        //       currentZoomFixation.FixationStarted -= ...
-        //       currentZoomFixation.FixationEnded -= ...
+        //   if (currentManualSelectionFixation != null) {
+        //       currentManualSelectionFixation.FixationStarted -= ...
+        //       currentManualSelectionFixation.FixationEnded -= ...
         //   }
 
         Assert.True(true, "FixationDetector events are cleaned up via garbage collection");
     }
 
     /// <summary>
-    /// Recommended improvements for the zoom handler pattern.
+    /// Recommended improvements for the ManualSelection handler pattern.
     /// </summary>
     [Fact]
-    public void ZoomHandlerPattern_RecommendedImprovements()
+    public void ManualSelectionHandlerPattern_RecommendedImprovements()
     {
         // While the current implementation (lines 271-393) does work correctly,
         // the following improvements would make it more maintainable:
         //
         // 1. Store FixationDetector as an instance field instead of local variable:
-        //    private FixationDetector? _currentZoomFixation;
+        //    private FixationDetector? _currentManualSelectionFixation;
         //
-        // 2. Create a CleanupZoomHandlers() method that explicitly unsubscribes everything:
-        //    private void CleanupZoomHandlers() {
-        //        if (_zoomGazeHandler != null)
-        //            gazeEngine.CursorMoved -= _zoomGazeHandler;
-        //        if (_zoomVisibilityHandler != null)
-        //            zoomVM.PropertyChanged -= _zoomVisibilityHandler;
-        //        if (_currentZoomFixation != null) {
+        // 2. Create a CleanupManualSelectionHandlers() method that explicitly unsubscribes everything:
+        //    private void CleanupManualSelectionHandlers() {
+        //        if (_ManualSelectionGazeHandler != null)
+        //            gazeEngine.CursorMoved -= _ManualSelectionGazeHandler;
+        //        if (_ManualSelectionVisibilityHandler != null)
+        //            ManualSelectionVM.PropertyChanged -= _ManualSelectionVisibilityHandler;
+        //        if (_currentManualSelectionFixation != null) {
         //            // Unsubscribe from FixationDetector events if needed
         //        }
         //    }
         //
-        // 3. Call CleanupZoomHandlers() before creating new handlers (line 282)
+        // 3. Call CleanupManualSelectionHandlers() before creating new handlers (line 282)
         //
         // 4. Consider implementing IDisposable pattern if FixationDetector needs cleanup
         //

@@ -119,24 +119,24 @@ public partial class App : Application
         // Resolve ViewModels (triggers RegisterAll in constructors)
         var cursorVM = _serviceProvider.GetRequiredService<CursorCircleViewModel>();
         var activationVM = _serviceProvider.GetRequiredService<ActivationButtonViewModel>();
-        var zoomVM = _serviceProvider.GetRequiredService<ZoomOverlayViewModel>();
+        var ManualSelectionVM = _serviceProvider.GetRequiredService<ManualSelectionOverlayViewModel>();
         var actionMenuVM = _serviceProvider.GetRequiredService<ActionMenuViewModel>();
         var toolbarVM = _serviceProvider.GetRequiredService<ToolbarViewModel>();
         var keyboardVM = _serviceProvider.GetRequiredService<KeyboardViewModel>();
-        var zoomIndicatorVM = _serviceProvider.GetRequiredService<ZoomGazeIndicatorViewModel>();
+        var ManualSelectionIndicatorVM = _serviceProvider.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
 
         // Resolve adapter (triggers Core event subscriptions)
         _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
 
-        // Resolve ZoomDwellService (triggers message subscriptions)
-        _ = _serviceProvider.GetRequiredService<ZoomDwellService>();
+        // Resolve ManualSelectionDwellService (triggers message subscriptions)
+        _ = _serviceProvider.GetRequiredService<ManualSelectionDwellService>();
 
-        // Configure zoom indicator with settings
-        zoomIndicatorVM.Configure(settings);
+        // Configure ManualSelection indicator with settings
+        ManualSelectionIndicatorVM.Configure(settings);
 
         // ── Initialize overlay windows via OverlayManager ──
         var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-        var viewModels = new OverlayViewModels(cursorVM, activationVM, zoomVM, actionMenuVM, toolbarVM, keyboardVM, zoomIndicatorVM);
+        var viewModels = new OverlayViewModels(cursorVM, activationVM, ManualSelectionVM, actionMenuVM, toolbarVM, keyboardVM, ManualSelectionIndicatorVM);
         overlayManager.Initialize(viewModels, settings, activeProviderType);
 
         // Get references to overlay windows for event handlers
@@ -147,7 +147,7 @@ public partial class App : Application
         // All PropertyChanged and message handlers are now managed by EventCoordinator
         _eventCoordinator = new EventCoordinator();
         var coordinationContext = new EventCoordinationContext(
-            cursorVM, activationVM, zoomVM, zoomIndicatorVM, actionMenuVM, toolbarVM, keyboardVM,
+            cursorVM, activationVM, ManualSelectionVM, ManualSelectionIndicatorVM, actionMenuVM, toolbarVM, keyboardVM,
             overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator);
         _eventCoordinator.Initialize(coordinationContext);
 
@@ -162,7 +162,7 @@ public partial class App : Application
         cursorCircle.Show();
         toolbar.Show();
         toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
-        toolbar.SetZoomState(settings.Zoom.Enabled);
+        toolbar.SetManualSelectionState(settings.ManualSelection.Enabled);
         toolbar.BindToViewModel();
 
         if (settings.General.StartPaused)
@@ -191,7 +191,7 @@ public partial class App : Application
             var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
             adapter.Dispose();
             gazeEngine.Dispose();
-            _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ZoomDwellService
+            _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ManualSelectionDwellService
         }
 
         Log.CloseAndFlush();

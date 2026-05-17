@@ -19,8 +19,8 @@ public class SettingsSerializationTests
         original.Cursor.CircleSize = 99;
         original.Cursor.CircleColor = "#FF0000";
         original.Dwell.FixationDetectionMs = 500;
-        original.Zoom.Enabled = true;
-        original.Zoom.MagnificationLevel = 3.0;
+        original.ManualSelection.Enabled = true;
+        original.ManualSelection.MagnificationLevel = 3.0;
         original.Keyboard.ActiveLayout = "AZERTY";
         original.Keyboard.SmartCapitalizationEnabled = false;
         original.Keyboard.NextWordPredictionEnabled = false;
@@ -37,8 +37,8 @@ public class SettingsSerializationTests
         Assert.Equal(99, deserialized.Cursor.CircleSize);
         Assert.Equal("#FF0000", deserialized.Cursor.CircleColor);
         Assert.Equal(500, deserialized.Dwell.FixationDetectionMs);
-        Assert.True(deserialized.Zoom.Enabled);
-        Assert.Equal(3.0, deserialized.Zoom.MagnificationLevel);
+        Assert.True(deserialized.ManualSelection.Enabled);
+        Assert.Equal(3.0, deserialized.ManualSelection.MagnificationLevel);
         Assert.Equal("AZERTY", deserialized.Keyboard.ActiveLayout);
         Assert.False(deserialized.Keyboard.SmartCapitalizationEnabled);
         Assert.False(deserialized.Keyboard.NextWordPredictionEnabled);
@@ -119,11 +119,11 @@ public class SettingsSerializationTests
     }
 
     [Fact]
-    public void ZoomSettings_Position_RoundTrips()
+    public void ManualSelectionSettings_Position_RoundTrips()
     {
-        var settings = new ZoomSettings { Position = ViewPosition.AtCenter };
+        var settings = new ManualSelectionSettings { Position = ViewPosition.AtCenter };
         var json = JsonSerializer.Serialize(settings, JsonOptions);
-        var deserialized = JsonSerializer.Deserialize<ZoomSettings>(json, JsonOptions)!;
+        var deserialized = JsonSerializer.Deserialize<ManualSelectionSettings>(json, JsonOptions)!;
         Assert.Equal(ViewPosition.AtCenter, deserialized.Position);
     }
 
@@ -140,13 +140,13 @@ public class SettingsSerializationTests
     public void EyeCtrlSettings_ViewPositions_RoundTripTogether()
     {
         var original = new EyeCtrlSettings();
-        original.Zoom.Position = ViewPosition.AtCenter;
+        original.ManualSelection.Position = ViewPosition.AtCenter;
         original.ActionMenu.Position = ViewPosition.AtCenter;
 
         var json = JsonSerializer.Serialize(original, JsonOptions);
         var deserialized = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
 
-        Assert.Equal(ViewPosition.AtCenter, deserialized.Zoom.Position);
+        Assert.Equal(ViewPosition.AtCenter, deserialized.ManualSelection.Position);
         Assert.Equal(ViewPosition.AtCenter, deserialized.ActionMenu.Position);
     }
 
@@ -156,7 +156,7 @@ public class SettingsSerializationTests
         // Old settings JSON without Position property
         var json = """
         {
-          "zoom": {
+          "ManualSelection": {
             "enabled": true,
             "circleRadiusPixels": 150,
             "magnificationLevel": 2.0
@@ -170,7 +170,7 @@ public class SettingsSerializationTests
         var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
 
         // Should default to AtGaze when not specified
-        Assert.Equal(ViewPosition.AtGaze, settings.Zoom.Position);
+        Assert.Equal(ViewPosition.AtGaze, settings.ManualSelection.Position);
         Assert.Equal(ViewPosition.AtGaze, settings.ActionMenu.Position);
     }
 

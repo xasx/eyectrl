@@ -40,9 +40,9 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.HideActivationButton += OnHideActivationButton;
         _interactionManager.ShowActionMenu += OnShowActionMenu;
         _interactionManager.HideActionMenu += OnHideActionMenu;
-        _interactionManager.StartZoom += OnStartZoom;
-        _interactionManager.EndZoom += OnEndZoom;
-        _interactionManager.HideZoom += OnHideZoom;
+        _interactionManager.StartManualSelection += OnStartManualSelection;
+        _interactionManager.EndManualSelection += OnEndManualSelection;
+        _interactionManager.HideManualSelection += OnHideManualSelection;
         _interactionManager.StateChanged += OnStateChanged;
         _interactionManager.ActionRequested += OnActionRequested;
 
@@ -52,13 +52,13 @@ public class GazeEngineAdapter : IDisposable
         messenger.Register<ActionSelectedMessage>(this, (_, msg) =>
             _interactionManager.OnActionSelected(msg.Action));
         messenger.Register<BackSelectedMessage>(this, (_, _) =>
-            _interactionManager.OnZoomBack());
+            _interactionManager.OnManualSelectionBack());
         messenger.Register<PauseToggledMessage>(this, (_, _) =>
             _interactionManager.TogglePause());
-        messenger.Register<ZoomToggledMessage>(this, (_, _) =>
+        messenger.Register<ManualSelectionToggledMessage>(this, (_, _) =>
         {
-            _interactionManager.ZoomEnabled = !_interactionManager.ZoomEnabled;
-            _settings.Zoom.Enabled = _interactionManager.ZoomEnabled;
+            _interactionManager.ManualSelectionEnabled = !_interactionManager.ManualSelectionEnabled;
+            _settings.ManualSelection.Enabled = _interactionManager.ManualSelectionEnabled;
         });
     }
 
@@ -75,13 +75,13 @@ public class GazeEngineAdapter : IDisposable
         _dispatcher.BeginInvoke(() =>
         {
             var im = _interactionManager;
-            var showBack = im.CurrentState == InteractionState.ZoomSelectionActionMenuVisible;
+            var showBack = im.CurrentState == InteractionState.ManualSelectionActionMenuVisible;
             var dwellMs = showBack
-                ? _settings.Dwell.ZoomActionMenuDwellMs
+                ? _settings.Dwell.ManualSelectionActionMenuDwellMs
                 : _settings.Dwell.ActionMenuDwellMs;
 
-            var zoomDisplayRadius = showBack
-                ? (int)(_settings.Zoom.CircleRadiusPixels * _settings.Zoom.MagnificationLevel)
+            var ManualSelectionDisplayRadius = showBack
+                ? (int)(_settings.ManualSelection.CircleRadiusPixels * _settings.ManualSelection.MagnificationLevel)
                 : 0;
 
             // Get screen dimensions in physical pixels
@@ -103,23 +103,23 @@ public class GazeEngineAdapter : IDisposable
                 showBack,
                 dwellMs,
                 point, // GazePoint - always pass the original gaze point for indicator positioning
-                zoomDisplayRadius,
+                ManualSelectionDisplayRadius,
                 circleSize)
             {
-                // Zoom path only (showBack == true): pass zoom circle context for preview capture.
-                // ZoomCenter = the ORIGINAL pre-zoom fixation (center of zoom circle), NOT the precise in-zoom point.
-                // The precise in-zoom point is already in clampedPoint / message.Center.
-                // FixationPoint is always non-null in the zoom path (it is set before zoom activation).
-                // ZoomRadius is logical/DIP (CircleRadiusPixels); ActionMenuWindow converts it to physical with ScaleX.
-                ZoomCenter = showBack ? _interactionManager.FixationPoint! : null,
-                ZoomRadius = showBack ? _settings.Zoom.CircleRadiusPixels : null
+                // ManualSelection path only (showBack == true): pass ManualSelection circle context for preview capture.
+                // ManualSelectionCenter = the ORIGINAL pre-ManualSelection fixation (center of ManualSelection circle), NOT the precise in-ManualSelection point.
+                // The precise in-ManualSelection point is already in clampedPoint / message.Center.
+                // FixationPoint is always non-null in the ManualSelection path (it is set before ManualSelection activation).
+                // ManualSelectionRadius is logical/DIP (CircleRadiusPixels); ActionMenuWindow converts it to physical with ScaleX.
+                ManualSelectionCenter = showBack ? _interactionManager.FixationPoint! : null,
+                ManualSelectionRadius = showBack ? _settings.ManualSelection.CircleRadiusPixels : null
             });
         });
 
     private void OnHideActionMenu() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new HideActionMenuMessage()));
 
-    private void OnStartZoom(PhysicalPoint point) =>
+    private void OnStartManualSelection(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() =>
         {
             // Get screen dimensions in physical pixels
@@ -127,25 +127,25 @@ public class GazeEngineAdapter : IDisposable
             var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
 
             // Calculate display point using helper (moves coordinate logic to ViewModels layer)
-            var displayPoint = ZoomLayoutHelper.CalculateDisplayPoint(
+            var displayPoint = ManualSelectionLayoutHelper.CalculateDisplayPoint(
                 point,
-                _settings.Zoom.Position,
+                _settings.ManualSelection.Position,
                 physicalScreenW,
                 physicalScreenH);
 
-            _messenger.Send(new StartZoomMessage(
+            _messenger.Send(new StartManualSelectionMessage(
                 displayPoint,
-                _settings.Zoom.CircleRadiusPixels,
-                _settings.Zoom.MagnificationLevel,
+                _settings.ManualSelection.CircleRadiusPixels,
+                _settings.ManualSelection.MagnificationLevel,
                 point  // GazePoint - always pass the original gaze point for capture
             ));
         });
 
-    private void OnEndZoom() =>
-        _dispatcher.BeginInvoke(() => _messenger.Send(new EndZoomMessage()));
+    private void OnEndManualSelection() =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new EndManualSelectionMessage()));
 
-    private void OnHideZoom() =>
-        _dispatcher.BeginInvoke(() => _messenger.Send(new ZoomHiddenMessage()));
+    private void OnHideManualSelection() =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ManualSelectionHiddenMessage()));
 
     private void OnStateChanged(InteractionState state)
     {
@@ -155,8 +155,8 @@ public class GazeEngineAdapter : IDisposable
 
     private void OnActionRequested(InteractionAction action, PhysicalPoint point)
     {
-        var isFromZoom = _interactionManager.CurrentState == InteractionState.ZoomSelectionActionMenuVisible;
-        _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isFromZoom)));
+        var isFromManualSelection = _interactionManager.CurrentState == InteractionState.ManualSelectionActionMenuVisible;
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isFromManualSelection)));
     }
 
     public void Dispose()
@@ -166,9 +166,9 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.HideActivationButton -= OnHideActivationButton;
         _interactionManager.ShowActionMenu -= OnShowActionMenu;
         _interactionManager.HideActionMenu -= OnHideActionMenu;
-        _interactionManager.StartZoom -= OnStartZoom;
-        _interactionManager.EndZoom -= OnEndZoom;
-        _interactionManager.HideZoom -= OnHideZoom;
+        _interactionManager.StartManualSelection -= OnStartManualSelection;
+        _interactionManager.EndManualSelection -= OnEndManualSelection;
+        _interactionManager.HideManualSelection -= OnHideManualSelection;
         _interactionManager.StateChanged -= OnStateChanged;
         _interactionManager.ActionRequested -= OnActionRequested;
         GC.SuppressFinalize(this);

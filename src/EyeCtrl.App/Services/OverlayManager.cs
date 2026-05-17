@@ -20,12 +20,12 @@ public class OverlayManager : IOverlayManager
 
     public CursorCircleWindow CursorCircle { get; private set; } = null!;
     public ActivationButtonWindow ActivationButton { get; private set; } = null!;
-    public ZoomOverlayWindow ZoomOverlay { get; private set; } = null!;
-    public ZoomSideButtonWindow ZoomSideButtons { get; private set; } = null!;
+    public ManualSelectionOverlayWindow ManualSelectionOverlay { get; private set; } = null!;
+    public ManualSelectionSideButtonWindow ManualSelectionSideButtons { get; private set; } = null!;
     public ActionMenuWindow ActionMenu { get; private set; } = null!;
     public ToolbarWindow Toolbar { get; private set; } = null!;
     public KeyboardWindow Keyboard { get; private set; } = null!;
-    public ZoomGazeIndicatorWindow ZoomIndicator { get; private set; } = null!;
+    public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator { get; private set; } = null!;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger)
     {
@@ -43,24 +43,24 @@ public class OverlayManager : IOverlayManager
         // Create overlay windows
         CursorCircle = new CursorCircleWindow();
         ActivationButton = new ActivationButtonWindow();
-        ZoomOverlay = new ZoomOverlayWindow();
-        ZoomSideButtons = new ZoomSideButtonWindow();
+        ManualSelectionOverlay = new ManualSelectionOverlayWindow();
+        ManualSelectionSideButtons = new ManualSelectionSideButtonWindow();
         ActionMenu = new ActionMenuWindow();
         Toolbar = new ToolbarWindow();
         Keyboard = new KeyboardWindow();
-        ZoomIndicator = new ZoomGazeIndicatorWindow();
+        ManualSelectionIndicator = new ManualSelectionGazeIndicatorWindow();
 
-        // Configure zoom indicator
-        ZoomIndicator.Configure(
-            settings.Zoom.GazeIndicatorOuterDiameter,
-            settings.Zoom.GazeIndicatorCenterDotDiameter,
-            settings.Zoom.GazeIndicatorStrokeThickness,
-            settings.Zoom.GazeIndicatorOpacity);
+        // Configure ManualSelection indicator
+        ManualSelectionIndicator.Configure(
+            settings.ManualSelection.GazeIndicatorOuterDiameter,
+            settings.ManualSelection.GazeIndicatorCenterDotDiameter,
+            settings.ManualSelection.GazeIndicatorStrokeThickness,
+            settings.ManualSelection.GazeIndicatorOpacity);
 
         // Set DataContext for windows that use MVVM binding
         CursorCircle.DataContext = viewModels.CursorCircle;
         ActivationButton.DataContext = viewModels.ActivationButton;
-        ZoomOverlay.DataContext = viewModels.ZoomOverlay;
+        ManualSelectionOverlay.DataContext = viewModels.ManualSelectionOverlay;
         ActionMenu.DataContext = viewModels.ActionMenu;
         Toolbar.DataContext = viewModels.Toolbar;
         Keyboard.DataContext = viewModels.Keyboard;

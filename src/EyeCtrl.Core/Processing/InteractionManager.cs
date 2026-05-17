@@ -8,11 +8,11 @@ using EyeCtrl.Core.Models;
 public class InteractionManager
 {
     public InteractionState CurrentState { get; private set; } = InteractionState.FreeLook;
-    public bool ZoomEnabled { get; set; }
+    public bool ManualSelectionEnabled { get; set; }
     /// <summary>Initial fixation point in physical screen pixels.</summary>
     public PhysicalPoint? FixationPoint { get; private set; }
-    /// <summary>Precise zoom dwell point in physical screen pixels.</summary>
-    public PhysicalPoint? ZoomDwellPoint { get; private set; }
+    /// <summary>Precise ManualSelection dwell point in physical screen pixels.</summary>
+    public PhysicalPoint? ManualSelectionDwellPoint { get; private set; }
 
     public event Action<InteractionState>? StateChanged;
     public event Action<InteractionAction, PhysicalPoint>? ActionRequested;
@@ -20,9 +20,9 @@ public class InteractionManager
     public event Action? HideActivationButton;
     public event Action<PhysicalPoint>? ShowActionMenu;
     public event Action? HideActionMenu;
-    public event Action<PhysicalPoint>? StartZoom;
-    public event Action? EndZoom;
-    public event Action? HideZoom;
+    public event Action<PhysicalPoint>? StartManualSelection;
+    public event Action? EndManualSelection;
+    public event Action? HideManualSelection;
 
     private void SetState(InteractionState newState)
     {
@@ -56,10 +56,10 @@ public class InteractionManager
         if (CurrentState != InteractionState.Fixation) return;
         HideActivationButton?.Invoke();
 
-        if (ZoomEnabled)
+        if (ManualSelectionEnabled)
         {
-            StartZoom?.Invoke(FixationPoint!.Value);
-            SetState(InteractionState.ZoomSelectionActive);
+            StartManualSelection?.Invoke(FixationPoint!.Value);
+            SetState(InteractionState.ManualSelectionActive);
         }
         else
         {
@@ -69,16 +69,16 @@ public class InteractionManager
     }
 
     /// <summary>
-    /// Called when zoom dwell completes.
+    /// Called when ManualSelection dwell completes.
     /// </summary>
     /// <param name="precisePoint">Precise dwell point in physical screen pixels</param>
-    public void OnZoomDwell(PhysicalPoint precisePoint)
+    public void OnManualSelectionDwell(PhysicalPoint precisePoint)
     {
-        if (CurrentState != InteractionState.ZoomSelectionActive) return;
-        ZoomDwellPoint = precisePoint;
-        HideZoom?.Invoke();
+        if (CurrentState != InteractionState.ManualSelectionActive) return;
+        ManualSelectionDwellPoint = precisePoint;
+        HideManualSelection?.Invoke();
         ShowActionMenu?.Invoke(precisePoint);
-        SetState(InteractionState.ZoomSelectionActionMenuVisible);
+        SetState(InteractionState.ManualSelectionActionMenuVisible);
     }
 
     public void OnActionSelected(InteractionAction action)
@@ -86,34 +86,34 @@ public class InteractionManager
         PhysicalPoint? targetPoint = CurrentState switch
         {
             InteractionState.ActionMenuVisible => FixationPoint,
-            InteractionState.ZoomSelectionActionMenuVisible => ZoomDwellPoint,
+            InteractionState.ManualSelectionActionMenuVisible => ManualSelectionDwellPoint,
             _ => null
         };
 
         if (targetPoint == null) return;
 
         HideActionMenu?.Invoke();
-        if (CurrentState == InteractionState.ZoomSelectionActionMenuVisible)
-            EndZoom?.Invoke();
+        if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
+            EndManualSelection?.Invoke();
 
         ActionRequested?.Invoke(action, targetPoint.Value);
         ResetToFreeLook();
     }
 
-    public void OnZoomBack()
+    public void OnManualSelectionBack()
     {
-        if (CurrentState == InteractionState.ZoomSelectionActionMenuVisible)
+        if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
         {
-            // Back from action view → return to zoom selection
+            // Back from action view → return to ManualSelection selection
             HideActionMenu?.Invoke();
-            ZoomDwellPoint = null;
-            SetState(InteractionState.ZoomSelectionActive);
-            StartZoom?.Invoke(FixationPoint!.Value);
+            ManualSelectionDwellPoint = null;
+            SetState(InteractionState.ManualSelectionActive);
+            StartManualSelection?.Invoke(FixationPoint!.Value);
         }
-        else if (CurrentState == InteractionState.ZoomSelectionActive)
+        else if (CurrentState == InteractionState.ManualSelectionActive)
         {
-            // Close from zoom view → return to free look
-            EndZoom?.Invoke();
+            // Close from ManualSelection view → return to free look
+            EndManualSelection?.Invoke();
             ResetToFreeLook();
         }
     }
@@ -137,8 +137,8 @@ public class InteractionManager
         {
             HideActivationButton?.Invoke();
             HideActionMenu?.Invoke();
-            if (CurrentState is InteractionState.ZoomSelectionActive or InteractionState.ZoomSelectionActionMenuVisible)
-                EndZoom?.Invoke();
+            if (CurrentState is InteractionState.ManualSelectionActive or InteractionState.ManualSelectionActionMenuVisible)
+                EndManualSelection?.Invoke();
             SetState(InteractionState.Paused);
         }
     }
@@ -146,7 +146,7 @@ public class InteractionManager
     private void ResetToFreeLook()
     {
         FixationPoint = null;
-        ZoomDwellPoint = null;
+        ManualSelectionDwellPoint = null;
         SetState(InteractionState.FreeLook);
     }
 }

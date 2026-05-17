@@ -51,8 +51,8 @@ public record EventCoordinationContext(
     // ViewModels
     CursorCircleViewModel CursorVM,
     ActivationButtonViewModel ActivationVM,
-    ZoomOverlayViewModel ZoomVM,
-    ZoomGazeIndicatorViewModel ZoomIndicatorVM,
+    ManualSelectionOverlayViewModel ManualSelectionVM,
+    ManualSelectionGazeIndicatorViewModel ManualSelectionIndicatorVM,
     ActionMenuViewModel ActionMenuVM,
     ToolbarViewModel ToolbarVM,
     KeyboardViewModel KeyboardVM,

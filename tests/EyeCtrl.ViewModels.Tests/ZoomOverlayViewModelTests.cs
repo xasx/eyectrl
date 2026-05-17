@@ -5,17 +5,17 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public class ZoomOverlayViewModelTests
+public class ManualSelectionOverlayViewModelTests
 {
     private readonly WeakReferenceMessenger _messenger = new();
 
     [Fact]
-    public void ShowsZoom_OnStartZoomMessage()
+    public void ShowsManualSelection_OnStartManualSelectionMessage()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
         Assert.False(vm.IsVisible);
 
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
 
         Assert.True(vm.IsVisible);
         Assert.Equal(500, vm.Center.X);
@@ -25,42 +25,42 @@ public class ZoomOverlayViewModelTests
     }
 
     [Fact]
-    public void HidesZoom_OnEndZoomMessage()
+    public void HidesManualSelection_OnEndManualSelectionMessage()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
         Assert.True(vm.IsVisible);
 
-        _messenger.Send(new EndZoomMessage());
+        _messenger.Send(new EndManualSelectionMessage());
         Assert.False(vm.IsVisible);
     }
 
     [Fact]
-    public void ComputesSideButtonPositions_OnStartZoom()
+    public void ComputesSideButtonPositions_OnStartManualSelection()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
 
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(500, 500), 150, 2.0, new PhysicalPoint(500, 500)));
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 500), 150, 2.0, new PhysicalPoint(500, 500)));
 
         // Display radius = 150 * 2.0 = 300
         // Button X = 500 + 300 + 20 (gap) + 50 (button radius) = 870
         // Close Y = 500 - 50 - 10 = 440  (above center)
         // Recapture Y = 500 + 50 + 10 = 560  (below center)
-        Assert.True(vm.CloseButtonCenter.X > 500, "Close button should be to the right of zoom center");
+        Assert.True(vm.CloseButtonCenter.X > 500, "Close button should be to the right of ManualSelection center");
         Assert.True(vm.RecaptureButtonCenter.X > 500, "Recapture button should be to the right");
         Assert.True(vm.CloseButtonCenter.Y < 500, "Close button should be above center");
         Assert.True(vm.RecaptureButtonCenter.Y > 500, "Recapture button should be below center");
     }
 
     [Fact]
-    public void CloseButton_Dwell_SendsZoomCloseMessage()
+    public void CloseButton_Dwell_SendsManualSelectionCloseMessage()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
         bool closeSent = false;
         object recipient = new();
-        _messenger.Register<ZoomCloseMessage>(recipient, (_, _) => closeSent = true);
+        _messenger.Register<ManualSelectionCloseMessage>(recipient, (_, _) => closeSent = true);
 
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(500, 500), 150, 2.0, new PhysicalPoint(500, 500)));
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 500), 150, 2.0, new PhysicalPoint(500, 500)));
 
         // Simulate sustained gaze on close button for enough time
         var closePos = vm.CloseButtonCenter;
@@ -71,14 +71,14 @@ public class ZoomOverlayViewModelTests
     }
 
     [Fact]
-    public void RecaptureButton_Dwell_SendsZoomRecaptureMessage()
+    public void RecaptureButton_Dwell_SendsManualSelectionRecaptureMessage()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
         bool recaptureSent = false;
         object recipient = new();
-        _messenger.Register<ZoomRecaptureMessage>(recipient, (_, _) => recaptureSent = true);
+        _messenger.Register<ManualSelectionRecaptureMessage>(recipient, (_, _) => recaptureSent = true);
 
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(500, 500), 150, 2.0, new PhysicalPoint(500, 500)));
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 500), 150, 2.0, new PhysicalPoint(500, 500)));
 
         var recapturePos = vm.RecaptureButtonCenter;
         for (int i = 0; i < 25; i++)
@@ -88,19 +88,19 @@ public class ZoomOverlayViewModelTests
     }
 
     [Fact]
-    public void ClearsDwellTargets_OnEndZoom()
+    public void ClearsDwellTargets_OnEndManualSelection()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
 
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(500, 500), 150, 2.0, new PhysicalPoint(500, 500)));
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 500), 150, 2.0, new PhysicalPoint(500, 500)));
         var closePos = vm.CloseButtonCenter;
 
-        _messenger.Send(new EndZoomMessage());
+        _messenger.Send(new EndManualSelectionMessage());
 
-        // After EndZoom, gaze on old button position should NOT trigger
+        // After EndManualSelection, gaze on old button position should NOT trigger
         bool closeSent = false;
         object recipient = new();
-        _messenger.Register<ZoomCloseMessage>(recipient, (_, _) => closeSent = true);
+        _messenger.Register<ManualSelectionCloseMessage>(recipient, (_, _) => closeSent = true);
 
         for (int i = 0; i < 25; i++)
             _messenger.Send(new GazeCursorMovedMessage(closePos, i * 33000));
@@ -109,27 +109,27 @@ public class ZoomOverlayViewModelTests
     }
 
     [Fact]
-    public void HidesZoom_OnZoomHiddenMessage()
+    public void HidesManualSelection_OnManualSelectionHiddenMessage()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
         Assert.True(vm.IsVisible);
 
-        _messenger.Send(new ZoomHiddenMessage());
+        _messenger.Send(new ManualSelectionHiddenMessage());
 
         Assert.False(vm.IsVisible);
     }
 
     [Fact]
-    public void ReshowsZoom_AfterZoomHiddenThenStartZoom()
+    public void ReshowsManualSelection_AfterManualSelectionHiddenThenStartManualSelection()
     {
-        // Simulates: zoom shown → fixation detected (ZoomHidden) → Back pressed (StartZoom again)
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
-        _messenger.Send(new ZoomHiddenMessage());
+        // Simulates: ManualSelection shown → fixation detected (ManualSelectionHidden) → Back pressed (StartManualSelection again)
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
+        _messenger.Send(new ManualSelectionHiddenMessage());
         Assert.False(vm.IsVisible);
 
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
 
         Assert.True(vm.IsVisible);
     }
@@ -137,10 +137,10 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void StoresGazePoint_WhenProvided()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
         var gazePoint = new PhysicalPoint(400, 200);
 
-        _messenger.Send(new StartZoomMessage(new PhysicalPoint(960, 540), 150, 2.0, gazePoint));
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(960, 540), 150, 2.0, gazePoint));
 
         Assert.Equal(gazePoint, vm.GazePoint);
         Assert.Equal(960, vm.Center.X); // Display center different from gaze
@@ -150,10 +150,10 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void GazePoint_EqualsCenter_WhenInAtGazeMode()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
         var center = new PhysicalPoint(500, 300);
 
-        _messenger.Send(new StartZoomMessage(center, 150, 2.0, center));
+        _messenger.Send(new StartManualSelectionMessage(center, 150, 2.0, center));
 
         Assert.Equal(center, vm.GazePoint);
         Assert.Equal(center, vm.Center);
@@ -162,11 +162,11 @@ public class ZoomOverlayViewModelTests
     [Fact]
     public void SideButtons_PositionedRelativeToDisplayCenter_NotGazePoint()
     {
-        var vm = new ZoomOverlayViewModel(new EyeCtrlSettings(), _messenger);
+        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
         var displayCenter = new PhysicalPoint(960, 540); // Screen center
         var gazePoint = new PhysicalPoint(200, 100);     // Gaze at different location
 
-        _messenger.Send(new StartZoomMessage(displayCenter, 150, 2.0, gazePoint));
+        _messenger.Send(new StartManualSelectionMessage(displayCenter, 150, 2.0, gazePoint));
 
         // Buttons should be positioned relative to display center (960, 540), not gaze (200, 100)
         Assert.True(vm.CloseButtonCenter.X > 960, "Close button X should be right of display center");

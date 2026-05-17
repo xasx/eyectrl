@@ -1,11 +1,11 @@
-# Rename Zoom Mode → Adjust Target Mode
+# Rename Zoom Mode → Manual Selection Mode
 
 **Date:** 2026-05-17
 **Status:** Approved
 
 ## Purpose
 
-Rename the "Zoom Mode" interaction concept to "Adjust Target Mode" throughout the codebase. The new name describes user intent (precisely adjusting cursor position before acting) rather than the visual implementation detail (magnification).
+Rename the "Zoom Mode" interaction concept to "Manual Selection Mode" throughout the codebase. The new name describes user intent (manual cursor positioning and action selection) rather than the visual implementation detail (magnification).
 
 ## Scope
 
@@ -13,28 +13,28 @@ Rename the "Zoom Mode" interaction concept to "Adjust Target Mode" throughout th
 
 ### Files to rename (filename contains "Zoom")
 
-- `ZoomSettings.cs` → `AdjustTargetSettings.cs`
-- `ZoomOverlayWindow.xaml/.cs` → `AdjustTargetOverlayWindow.xaml/.cs`
-- `ZoomGazeIndicatorWindow.xaml/.cs` → `AdjustTargetGazeIndicatorWindow.xaml/.cs`
-- `ZoomSideButtonWindow.xaml/.cs` → `AdjustTargetSideButtonWindow.xaml/.cs`
-- `ZoomDwellService.cs` → `AdjustTargetDwellService.cs`
-- `ZoomOverlayViewModel.cs` → `AdjustTargetOverlayViewModel.cs`
-- `ZoomGazeIndicatorViewModel.cs` → `AdjustTargetGazeIndicatorViewModel.cs`
-- `ZoomLayoutHelper.cs` → `AdjustTargetLayoutHelper.cs`
-- `ZoomDwellServiceTests.cs` → `AdjustTargetDwellServiceTests.cs`
-- `ZoomOverlayViewModelTests.cs` → `AdjustTargetOverlayViewModelTests.cs`
-- `ZoomHandlerMemoryLeakTests.cs` → `AdjustTargetHandlerMemoryLeakTests.cs`
+- `ZoomSettings.cs` → `ManualSelectionSettings.cs`
+- `ZoomOverlayWindow.xaml/.cs` → `ManualSelectionOverlayWindow.xaml/.cs`
+- `ZoomGazeIndicatorWindow.xaml/.cs` → `ManualSelectionGazeIndicatorWindow.xaml/.cs`
+- `ZoomSideButtonWindow.xaml/.cs` → `ManualSelectionSideButtonWindow.xaml/.cs`
+- `ZoomDwellService.cs` → `ManualSelectionDwellService.cs`
+- `ZoomOverlayViewModel.cs` → `ManualSelectionOverlayViewModel.cs`
+- `ZoomGazeIndicatorViewModel.cs` → `ManualSelectionGazeIndicatorViewModel.cs`
+- `ZoomLayoutHelper.cs` → `ManualSelectionLayoutHelper.cs`
+- `ZoomDwellServiceTests.cs` → `ManualSelectionDwellServiceTests.cs`
+- `ZoomOverlayViewModelTests.cs` → `ManualSelectionOverlayViewModelTests.cs`
+- `ZoomHandlerMemoryLeakTests.cs` → `ManualSelectionHandlerMemoryLeakTests.cs`
 
 ### Symbols to rename
 
 | Category | Pattern |
 |----------|---------|
-| Classes | `Zoom*` → `AdjustTarget*` |
-| Enum values | `Zoom`, `ZoomSelectionActive` → `AdjustTarget`, `AdjustTargetSelectionActive` |
-| Messages | `StartZoomMessage`, `EndZoomMessage`, `ZoomHiddenMessage`, `UpdateZoomIndicator*`, `ResetZoomIndicator*` → `StartAdjustTargetMessage`, etc. |
-| Properties | `ZoomEnabled`, `ZoomDwellPoint`, `ZoomActionMenuDwellMs`, `ZoomDwellService` → `AdjustTarget*` |
-| Methods | `OnZoomStarted`, `OnZoomEnded`, `OnZoomDwell`, `IsWithinZoomBounds`, `BuildZoomPages` → `AdjustTarget*` |
-| DI registration | `ZoomDwellService`, `ZoomLayoutHelper` → `AdjustTarget*` |
+| Classes | `Zoom*` → `ManualSelection*` |
+| Enum values | `Zoom`, `ZoomSelectionActive` → `ManualSelection`, `ManualSelectionActive` |
+| Messages | `StartZoomMessage`, `EndZoomMessage`, `ZoomHiddenMessage`, `UpdateZoomIndicator*`, `ResetZoomIndicator*` → `StartManualSelectionMessage`, etc. |
+| Properties | `ZoomEnabled`, `ZoomDwellPoint`, `ZoomActionMenuDwellMs`, `ZoomDwellService` → `ManualSelection*` |
+| Methods | `OnZoomStarted`, `OnZoomEnded`, `OnZoomDwell`, `IsWithinZoomBounds`, `BuildZoomPages` → `ManualSelection*` |
+| DI registration | `ZoomDwellService`, `ZoomLayoutHelper` → `ManualSelection*` |
 
 ### What stays
 

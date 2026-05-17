@@ -6,7 +6,7 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
 {
     [ObservableProperty] private CursorSettings _cursor = new();
     [ObservableProperty] private DwellSettings _dwell = new();
-    [ObservableProperty] private ZoomSettings _zoom = new();
+    [ObservableProperty] private ManualSelectionSettings _ManualSelection = new();
     [ObservableProperty] private ActionMenuSettings _actionMenu = new();
     [ObservableProperty] private KeyboardSettings _keyboard = new();
     [ObservableProperty] private ToolbarSettings _toolbar = new();
@@ -28,10 +28,10 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
         else
             errors.AddRange(Dwell.Validate());
 
-        if (Zoom is null)
-            errors.Add("Zoom settings must not be null.");
+        if (ManualSelection is null)
+            errors.Add("ManualSelection settings must not be null.");
         else
-            errors.AddRange(Zoom.Validate());
+            errors.AddRange(ManualSelection.Validate());
 
         if (ActionMenu is null)
             errors.Add("Action menu settings must not be null.");

@@ -27,8 +27,8 @@ public partial class ActionMenuViewModel : ObservableObject,
     [ObservableProperty] private bool _showBack;
     [ObservableProperty] private double _effectiveRingRadius;
 
-    public PhysicalPoint? ZoomCenter { get; private set; }
-    public int? ZoomRadius { get; private set; }
+    public PhysicalPoint? ManualSelectionCenter { get; private set; }
+    public int? ManualSelectionRadius { get; private set; }
     public PhysicalPoint GazePoint { get; private set; } = new(0, 0);
 
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
@@ -45,8 +45,8 @@ public partial class ActionMenuViewModel : ObservableObject,
     public void Receive(ShowActionMenuMessage message)
     {
         Center = message.Center;
-        ZoomCenter = message.ZoomCenter;
-        ZoomRadius = message.ZoomRadius;
+        ManualSelectionCenter = message.ManualSelectionCenter;
+        ManualSelectionRadius = message.ManualSelectionRadius;
         GazePoint = message.GazePoint;
         ShowBack = message.ShowBack;
         Items.Clear();
@@ -85,8 +85,8 @@ public partial class ActionMenuViewModel : ObservableObject,
     public void Receive(HideActionMenuMessage message)
     {
         IsVisible = false;
-        ZoomCenter = null;
-        ZoomRadius = null;
+        ManualSelectionCenter = null;
+        ManualSelectionRadius = null;
         GazePoint = new(0, 0);
         _dwellDetector.ClearTargets();
         Items.Clear();

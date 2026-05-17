@@ -95,24 +95,24 @@ public class ViewModelDisposableTests
     }
 
     [Fact]
-    public void ZoomOverlayViewModel_ImplementsIDisposable()
+    public void ManualSelectionOverlayViewModel_ImplementsIDisposable()
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var vm = new ZoomOverlayViewModel(settings, messenger);
+        var vm = new ManualSelectionOverlayViewModel(settings, messenger);
 
         Assert.IsAssignableFrom<IDisposable>(vm);
     }
 
     [Fact]
-    public void ZoomOverlayViewModel_UnregistersMessagesOnDispose()
+    public void ManualSelectionOverlayViewModel_UnregistersMessagesOnDispose()
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var vm = new ZoomOverlayViewModel(settings, messenger);
+        var vm = new ManualSelectionOverlayViewModel(settings, messenger);
 
         // Verify VM receives messages before disposal
-        messenger.Send(new StartZoomMessage(
+        messenger.Send(new StartManualSelectionMessage(
             new PhysicalPoint(500, 500), 100, 2.0, new PhysicalPoint(500, 500)));
         Assert.True(vm.IsVisible);
 
@@ -120,16 +120,16 @@ public class ViewModelDisposableTests
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
-        messenger.Send(new EndZoomMessage());
+        messenger.Send(new EndManualSelectionMessage());
         Assert.True(vm.IsVisible); // Should remain visible since message wasn't processed
     }
 
     [Fact]
-    public void ZoomOverlayViewModel_DisposeIsIdempotent()
+    public void ManualSelectionOverlayViewModel_DisposeIsIdempotent()
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var vm = new ZoomOverlayViewModel(settings, messenger);
+        var vm = new ManualSelectionOverlayViewModel(settings, messenger);
 
         ((IDisposable)vm).Dispose();
         ((IDisposable)vm).Dispose();
@@ -262,22 +262,22 @@ public class ViewModelDisposableTests
     }
 
     [Fact]
-    public void ZoomGazeIndicatorViewModel_ImplementsIDisposable()
+    public void ManualSelectionGazeIndicatorViewModel_ImplementsIDisposable()
     {
         var messenger = new WeakReferenceMessenger();
-        var vm = new ZoomGazeIndicatorViewModel(messenger);
+        var vm = new ManualSelectionGazeIndicatorViewModel(messenger);
 
         Assert.IsAssignableFrom<IDisposable>(vm);
     }
 
     [Fact]
-    public void ZoomGazeIndicatorViewModel_UnregistersMessagesOnDispose()
+    public void ManualSelectionGazeIndicatorViewModel_UnregistersMessagesOnDispose()
     {
         var messenger = new WeakReferenceMessenger();
-        var vm = new ZoomGazeIndicatorViewModel(messenger);
+        var vm = new ManualSelectionGazeIndicatorViewModel(messenger);
 
         // Verify VM receives messages before disposal
-        messenger.Send(new StartZoomMessage(
+        messenger.Send(new StartManualSelectionMessage(
             new PhysicalPoint(500, 500), 100, 2.0, new PhysicalPoint(500, 500)));
         Assert.True(vm.IsVisible);
 
@@ -285,15 +285,15 @@ public class ViewModelDisposableTests
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
-        messenger.Send(new EndZoomMessage());
+        messenger.Send(new EndManualSelectionMessage());
         Assert.True(vm.IsVisible); // Should remain visible since message wasn't processed
     }
 
     [Fact]
-    public void ZoomGazeIndicatorViewModel_DisposeIsIdempotent()
+    public void ManualSelectionGazeIndicatorViewModel_DisposeIsIdempotent()
     {
         var messenger = new WeakReferenceMessenger();
-        var vm = new ZoomGazeIndicatorViewModel(messenger);
+        var vm = new ManualSelectionGazeIndicatorViewModel(messenger);
 
         ((IDisposable)vm).Dispose();
         ((IDisposable)vm).Dispose();

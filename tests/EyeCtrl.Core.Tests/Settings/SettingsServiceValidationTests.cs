@@ -101,7 +101,7 @@ public class SettingsServiceValidationTests : IDisposable
 
         // Write settings with out-of-range values
         var invalidJson = @"{
-            ""zoom"": {
+            ""ManualSelection"": {
                 ""circleRadiusPixels"": 5000,
                 ""magnificationLevel"": 10.0
             },
@@ -116,8 +116,8 @@ public class SettingsServiceValidationTests : IDisposable
 
         // Assert - should return defaults
         var defaults = new EyeCtrlSettings();
-        Assert.Equal(defaults.Zoom.CircleRadiusPixels, settings.Zoom.CircleRadiusPixels);
-        Assert.Equal(defaults.Zoom.MagnificationLevel, settings.Zoom.MagnificationLevel);
+        Assert.Equal(defaults.ManualSelection.CircleRadiusPixels, settings.ManualSelection.CircleRadiusPixels);
+        Assert.Equal(defaults.ManualSelection.MagnificationLevel, settings.ManualSelection.MagnificationLevel);
         Assert.Equal(defaults.Toolbar.Size, settings.Toolbar.Size);
     }
 

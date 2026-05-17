@@ -190,12 +190,12 @@ public class SettingsPropertyValidationTests
 
     #endregion
 
-    #region DwellSettings - ZoomActionMenuDwellMs Validation
+    #region DwellSettings - ManualSelectionActionMenuDwellMs Validation
 
     [Theory]
     [InlineData(199)]
     [InlineData(2001)]
-    public void ZoomActionMenuDwellMs_OutOfRange_ThrowsArgumentOutOfRange(int value)
+    public void ManualSelectionActionMenuDwellMs_OutOfRange_ThrowsArgumentOutOfRange(int value)
     {
         // Arrange
         var settings = new DwellSettings();
@@ -203,7 +203,7 @@ public class SettingsPropertyValidationTests
         // Act & Assert
         var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
         {
-            settings.ZoomActionMenuDwellMs = value;
+            settings.ManualSelectionActionMenuDwellMs = value;
         });
 
         Assert.Equal("value", exception.ParamName);
@@ -604,15 +604,15 @@ public class SettingsPropertyValidationTests
 
     #endregion
 
-    #region ZoomSettings - CircleRadiusPixels Validation
+    #region ManualSelectionSettings - CircleRadiusPixels Validation
 
     [Theory]
     [InlineData(49)]
     [InlineData(501)]
-    public void ZoomSettings_CircleRadiusPixels_OutOfRange_ThrowsArgumentOutOfRange(int value)
+    public void ManualSelectionSettings_CircleRadiusPixels_OutOfRange_ThrowsArgumentOutOfRange(int value)
     {
         // Arrange
-        var settings = new ZoomSettings();
+        var settings = new ManualSelectionSettings();
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
@@ -628,10 +628,10 @@ public class SettingsPropertyValidationTests
     [InlineData(50)]
     [InlineData(150)]
     [InlineData(500)]
-    public void ZoomSettings_CircleRadiusPixels_ValidValue_AllowsChange(int value)
+    public void ManualSelectionSettings_CircleRadiusPixels_ValidValue_AllowsChange(int value)
     {
         // Arrange
-        var settings = new ZoomSettings();
+        var settings = new ManualSelectionSettings();
 
         // Act
         settings.CircleRadiusPixels = value;
@@ -642,15 +642,15 @@ public class SettingsPropertyValidationTests
 
     #endregion
 
-    #region ZoomSettings - MagnificationLevel Validation
+    #region ManualSelectionSettings - MagnificationLevel Validation
 
     [Theory]
     [InlineData(1.4)]
     [InlineData(5.1)]
-    public void ZoomSettings_MagnificationLevel_OutOfRange_ThrowsArgumentOutOfRange(double value)
+    public void ManualSelectionSettings_MagnificationLevel_OutOfRange_ThrowsArgumentOutOfRange(double value)
     {
         // Arrange
-        var settings = new ZoomSettings();
+        var settings = new ManualSelectionSettings();
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
@@ -666,10 +666,10 @@ public class SettingsPropertyValidationTests
     [InlineData(1.5)]
     [InlineData(2.0)]
     [InlineData(5.0)]
-    public void ZoomSettings_MagnificationLevel_ValidValue_AllowsChange(double value)
+    public void ManualSelectionSettings_MagnificationLevel_ValidValue_AllowsChange(double value)
     {
         // Arrange
-        var settings = new ZoomSettings();
+        var settings = new ManualSelectionSettings();
 
         // Act
         settings.MagnificationLevel = value;

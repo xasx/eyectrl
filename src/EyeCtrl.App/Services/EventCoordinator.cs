@@ -62,9 +62,9 @@ public class EventCoordinator : IEventCoordinator
 
         var cursorCircle = _context.OverlayManager.CursorCircle;
         var activationButton = _context.OverlayManager.ActivationButton;
-        var zoomOverlay = _context.OverlayManager.ZoomOverlay;
-        var zoomSideButtons = _context.OverlayManager.ZoomSideButtons;
-        var zoomIndicator = _context.OverlayManager.ZoomIndicator;
+        var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
+        var ManualSelectionSideButtons = _context.OverlayManager.ManualSelectionSideButtons;
+        var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
         var actionMenu = _context.OverlayManager.ActionMenu;
         var toolbar = _context.OverlayManager.Toolbar;
 
@@ -74,14 +74,14 @@ public class EventCoordinator : IEventCoordinator
         // ActivationButton: VM -> show/hide/dwell
         _context.ActivationVM.PropertyChanged += OnActivationVMPropertyChanged;
 
-        // ZoomOverlay: VM -> show/hide/reposition
-        _context.ZoomVM.PropertyChanged += OnZoomVMPropertyChanged;
+        // ManualSelectionOverlay: VM -> show/hide/reposition
+        _context.ManualSelectionVM.PropertyChanged += OnManualSelectionVMPropertyChanged;
 
-        // ZoomGazeIndicator: VM property changes -> window updates
-        _context.ZoomIndicatorVM.PropertyChanged += OnZoomIndicatorVMPropertyChanged;
+        // ManualSelectionGazeIndicator: VM property changes -> window updates
+        _context.ManualSelectionIndicatorVM.PropertyChanged += OnManualSelectionIndicatorVMPropertyChanged;
 
-        // ZoomSideButtons: VM -> show/hide/progress
-        _context.ZoomVM.PropertyChanged += OnZoomSideButtonsPropertyChanged;
+        // ManualSelectionSideButtons: VM -> show/hide/progress
+        _context.ManualSelectionVM.PropertyChanged += OnManualSelectionSideButtonsPropertyChanged;
 
         // ActionMenu: VM -> show/hide
         _context.ActionMenuVM.PropertyChanged += OnActionMenuVMPropertyChanged;
@@ -95,56 +95,56 @@ public class EventCoordinator : IEventCoordinator
         if (_context == null) return;
 
         var im = _context.InteractionManager;
-        var zoomOverlay = _context.OverlayManager.ZoomOverlay;
-        var zoomIndicator = _context.OverlayManager.ZoomIndicator;
+        var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
+        var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
         var keyboard = _context.OverlayManager.Keyboard;
 
-        // ZoomDwellCompleted: Handle coordinate conversion
-        _context.Messenger.Register<EventCoordinator, ZoomDwellCompletedMessage>(this, (_, msg) =>
+        // ManualSelectionDwellCompleted: Handle coordinate conversion
+        _context.Messenger.Register<EventCoordinator, ManualSelectionDwellCompletedMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 try
                 {
-                    zoomIndicator.Hide();
-                    var realPoint = zoomOverlay.GetRealPhysicalPoint(msg.PrecisePoint);
-                    im.OnZoomDwell(realPoint);
+                    ManualSelectionIndicator.Hide();
+                    var realPoint = ManualSelectionOverlay.GetRealPhysicalPoint(msg.PrecisePoint);
+                    im.OnManualSelectionDwell(realPoint);
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, "Error handling zoom dwell completion");
+                    Log.Error(ex, "Error handling ManualSelection dwell completion");
                 }
             }));
 
-        // ResetZoomIndicator: Trigger animation
-        _context.Messenger.Register<EventCoordinator, ResetZoomIndicatorMessage>(this, (_, msg) =>
+        // ResetManualSelectionIndicator: Trigger animation
+        _context.Messenger.Register<EventCoordinator, ResetManualSelectionIndicatorMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 try
                 {
-                    if (!zoomIndicator.IsVisible) return;
-                    var targetDiameter = _context.Settings.Zoom.GazeIndicatorOuterDiameter;
-                    zoomIndicator.AnimateReset(targetDiameter, _context.ZoomIndicatorVM.ResetAnimationMs);
+                    if (!ManualSelectionIndicator.IsVisible) return;
+                    var targetDiameter = _context.Settings.ManualSelection.GazeIndicatorOuterDiameter;
+                    ManualSelectionIndicator.AnimateReset(targetDiameter, _context.ManualSelectionIndicatorVM.ResetAnimationMs);
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, "Error animating zoom indicator reset");
+                    Log.Error(ex, "Error animating ManualSelection indicator reset");
                 }
             }));
 
-        // ZoomCloseMessage -> exit zoom mode
-        _context.Messenger.Register<EventCoordinator, ZoomCloseMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() => im.OnZoomBack()));
+        // ManualSelectionCloseMessage -> exit ManualSelection mode
+        _context.Messenger.Register<EventCoordinator, ManualSelectionCloseMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(() => im.OnManualSelectionBack()));
 
-        // ZoomRecaptureMessage -> re-capture at same fixation point
-        _context.Messenger.Register<EventCoordinator, ZoomRecaptureMessage>(this, (_, _) =>
+        // ManualSelectionRecaptureMessage -> re-capture at same fixation point
+        _context.Messenger.Register<EventCoordinator, ManualSelectionRecaptureMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
-                if (im.CurrentState == InteractionState.ZoomSelectionActive && im.FixationPoint != null)
+                if (im.CurrentState == InteractionState.ManualSelectionActive && im.FixationPoint != null)
                 {
-                    _context.Messenger.Send(new StartZoomMessage(
+                    _context.Messenger.Send(new StartManualSelectionMessage(
                         im.FixationPoint.Value,
-                        _context.Settings.Zoom.CircleRadiusPixels,
-                        _context.Settings.Zoom.MagnificationLevel,
+                        _context.Settings.ManualSelection.CircleRadiusPixels,
+                        _context.Settings.ManualSelection.MagnificationLevel,
                         im.FixationPoint.Value));
                 }
             }));
@@ -269,75 +269,75 @@ public class EventCoordinator : IEventCoordinator
         }
     }
 
-    private void OnZoomVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnManualSelectionVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_context == null) return;
 
-        var zoomOverlay = _context.OverlayManager.ZoomOverlay;
+        var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
         var cursorCircle = _context.OverlayManager.CursorCircle;
         var activationButton = _context.OverlayManager.ActivationButton;
-        var zoomIndicator = _context.OverlayManager.ZoomIndicator;
+        var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
 
-        if (e.PropertyName == nameof(ZoomOverlayViewModel.Center) && _context.ZoomVM.IsVisible)
+        if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.Center) && _context.ManualSelectionVM.IsVisible)
         {
-            zoomOverlay.UpdateCenter(_context.ZoomVM.Center, _context.ZoomVM.Radius, _context.ZoomVM.Magnification);
+            ManualSelectionOverlay.UpdateCenter(_context.ManualSelectionVM.Center, _context.ManualSelectionVM.Radius, _context.ManualSelectionVM.Magnification);
         }
-        else if (e.PropertyName == nameof(ZoomOverlayViewModel.IsVisible))
+        else if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.IsVisible))
         {
-            if (_context.ZoomVM.IsVisible)
+            if (_context.ManualSelectionVM.IsVisible)
             {
                 cursorCircle.Hide();
                 activationButton.HideImmediate();
-                zoomOverlay.Show(_context.ZoomVM.Center, _context.ZoomVM.Radius, _context.ZoomVM.Magnification, _context.ZoomVM.GazePoint);
-                zoomIndicator.Show();
+                ManualSelectionOverlay.Show(_context.ManualSelectionVM.Center, _context.ManualSelectionVM.Radius, _context.ManualSelectionVM.Magnification, _context.ManualSelectionVM.GazePoint);
+                ManualSelectionIndicator.Show();
             }
             else
             {
-                zoomOverlay.Hide();
-                zoomIndicator.Hide();
+                ManualSelectionOverlay.Hide();
+                ManualSelectionIndicator.Hide();
             }
         }
     }
 
-    private void OnZoomIndicatorVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnManualSelectionIndicatorVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_context == null) return;
 
-        var zoomIndicator = _context.OverlayManager.ZoomIndicator;
+        var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
         switch (e.PropertyName)
         {
-            case nameof(ZoomGazeIndicatorViewModel.IndicatorX):
-            case nameof(ZoomGazeIndicatorViewModel.IndicatorY):
-                zoomIndicator.UpdatePosition(_context.ZoomIndicatorVM.IndicatorX, _context.ZoomIndicatorVM.IndicatorY);
+            case nameof(ManualSelectionGazeIndicatorViewModel.IndicatorX):
+            case nameof(ManualSelectionGazeIndicatorViewModel.IndicatorY):
+                ManualSelectionIndicator.UpdatePosition(_context.ManualSelectionIndicatorVM.IndicatorX, _context.ManualSelectionIndicatorVM.IndicatorY);
                 break;
-            case nameof(ZoomGazeIndicatorViewModel.OuterCircleDiameter):
-                zoomIndicator.UpdateOuterDiameter(_context.ZoomIndicatorVM.OuterCircleDiameter);
+            case nameof(ManualSelectionGazeIndicatorViewModel.OuterCircleDiameter):
+                ManualSelectionIndicator.UpdateOuterDiameter(_context.ManualSelectionIndicatorVM.OuterCircleDiameter);
                 break;
-            case nameof(ZoomGazeIndicatorViewModel.IsVisible):
-                if (_context.ZoomIndicatorVM.IsVisible) zoomIndicator.Show();
-                else zoomIndicator.Hide();
+            case nameof(ManualSelectionGazeIndicatorViewModel.IsVisible):
+                if (_context.ManualSelectionIndicatorVM.IsVisible) ManualSelectionIndicator.Show();
+                else ManualSelectionIndicator.Hide();
                 break;
         }
     }
 
-    private void OnZoomSideButtonsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnManualSelectionSideButtonsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_context == null) return;
 
-        var zoomSideButtons = _context.OverlayManager.ZoomSideButtons;
+        var ManualSelectionSideButtons = _context.OverlayManager.ManualSelectionSideButtons;
         switch (e.PropertyName)
         {
-            case nameof(ZoomOverlayViewModel.IsVisible):
-                if (_context.ZoomVM.IsVisible)
-                    zoomSideButtons.ShowAt(_context.ZoomVM.CloseButtonCenter, _context.ZoomVM.RecaptureButtonCenter);
+            case nameof(ManualSelectionOverlayViewModel.IsVisible):
+                if (_context.ManualSelectionVM.IsVisible)
+                    ManualSelectionSideButtons.ShowAt(_context.ManualSelectionVM.CloseButtonCenter, _context.ManualSelectionVM.RecaptureButtonCenter);
                 else
-                    zoomSideButtons.Hide();
+                    ManualSelectionSideButtons.Hide();
                 break;
-            case nameof(ZoomOverlayViewModel.CloseButtonProgress):
-                zoomSideButtons.UpdateProgress("zoom_close", _context.ZoomVM.CloseButtonProgress);
+            case nameof(ManualSelectionOverlayViewModel.CloseButtonProgress):
+                ManualSelectionSideButtons.UpdateProgress("ManualSelection_close", _context.ManualSelectionVM.CloseButtonProgress);
                 break;
-            case nameof(ZoomOverlayViewModel.RecaptureButtonProgress):
-                zoomSideButtons.UpdateProgress("zoom_recapture", _context.ZoomVM.RecaptureButtonProgress);
+            case nameof(ManualSelectionOverlayViewModel.RecaptureButtonProgress):
+                ManualSelectionSideButtons.UpdateProgress("ManualSelection_recapture", _context.ManualSelectionVM.RecaptureButtonProgress);
                 break;
         }
     }
@@ -361,13 +361,13 @@ public class EventCoordinator : IEventCoordinator
                     _context.ActionMenuVM.Center,
                     _context.Settings.ActionMenu.VisibleActions,
                     _context.ActionMenuVM.ShowBack,
-                    _context.ActionMenuVM.ShowBack ? _context.Settings.Dwell.ZoomActionMenuDwellMs : _context.Settings.Dwell.ActionMenuDwellMs,
+                    _context.ActionMenuVM.ShowBack ? _context.Settings.Dwell.ManualSelectionActionMenuDwellMs : _context.Settings.Dwell.ActionMenuDwellMs,
                     _context.ActionMenuVM.EffectiveRingRadius,
                     _context.Settings.Cursor.CircleSize,
                     _context.Settings.Cursor.CircleColor,
                     _context.Settings.Cursor.PositionIndicatorStyle,
-                    _context.ActionMenuVM.ZoomCenter,
-                    _context.ActionMenuVM.ZoomRadius,
+                    _context.ActionMenuVM.ManualSelectionCenter,
+                    _context.ActionMenuVM.ManualSelectionRadius,
                     _context.ActionMenuVM.GazePoint);
             }
             else
@@ -437,8 +437,8 @@ public class EventCoordinator : IEventCoordinator
         _context.OverlayManager.CursorCircle.UpdateAppearance(s.Cursor);
         _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
         _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
-        _context.InteractionManager.ZoomEnabled = s.Zoom.Enabled;
-        _context.OverlayManager.Toolbar.SetZoomState(s.Zoom.Enabled);
+        _context.InteractionManager.ManualSelectionEnabled = s.ManualSelection.Enabled;
+        _context.OverlayManager.Toolbar.SetManualSelectionState(s.ManualSelection.Enabled);
         LoadKeyboard(_context.OverlayManager.Keyboard, s, _context.InputSimulator, _context.SettingsService);
         Log.Information("Settings saved");
     }
@@ -588,9 +588,9 @@ public class EventCoordinator : IEventCoordinator
     {
         if (_context == null) return;
 
-        var pt = msg.IsFromZoom ? msg.Point : (_context.GazeEngine.StableCentroid ?? msg.Point);
-        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [zoom={IsFromZoom}]",
-            msg.Action, pt.X, pt.Y, msg.IsFromZoom);
+        var pt = msg.IsFromManualSelection ? msg.Point : (_context.GazeEngine.StableCentroid ?? msg.Point);
+        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [ManualSelection={IsFromManualSelection}]",
+            msg.Action, pt.X, pt.Y, msg.IsFromManualSelection);
 
         switch (msg.Action)
         {
@@ -673,9 +673,9 @@ public class EventCoordinator : IEventCoordinator
         // Unsubscribe from PropertyChanged events
         _context.CursorVM.PropertyChanged -= OnCursorVMPropertyChanged;
         _context.ActivationVM.PropertyChanged -= OnActivationVMPropertyChanged;
-        _context.ZoomVM.PropertyChanged -= OnZoomVMPropertyChanged;
-        _context.ZoomVM.PropertyChanged -= OnZoomSideButtonsPropertyChanged;
-        _context.ZoomIndicatorVM.PropertyChanged -= OnZoomIndicatorVMPropertyChanged;
+        _context.ManualSelectionVM.PropertyChanged -= OnManualSelectionVMPropertyChanged;
+        _context.ManualSelectionVM.PropertyChanged -= OnManualSelectionSideButtonsPropertyChanged;
+        _context.ManualSelectionIndicatorVM.PropertyChanged -= OnManualSelectionIndicatorVMPropertyChanged;
         _context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
         _context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;
 

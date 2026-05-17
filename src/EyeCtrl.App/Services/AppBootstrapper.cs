@@ -71,11 +71,11 @@ public class AppBootstrapper
         // ViewModels (singleton -- each registers message handlers in constructor)
         services.AddSingleton<CursorCircleViewModel>();
         services.AddSingleton<ActivationButtonViewModel>();
-        services.AddSingleton<ZoomOverlayViewModel>();
+        services.AddSingleton<ManualSelectionOverlayViewModel>();
         services.AddSingleton<ActionMenuViewModel>();
         services.AddSingleton<ToolbarViewModel>();
         services.AddSingleton<KeyboardViewModel>();
-        services.AddSingleton<ZoomGazeIndicatorViewModel>();
+        services.AddSingleton<ManualSelectionGazeIndicatorViewModel>();
         services.AddSingleton<SettingsViewModel>();
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
@@ -86,10 +86,10 @@ public class AppBootstrapper
             dispatcher,
             sp.GetRequiredService<ILogger<GazeEngineAdapter>>()));
 
-        // ZoomDwellService (handles zoom dwell detection and indicator updates)
-        services.AddSingleton(sp => new ZoomDwellService(
+        // ManualSelectionDwellService (handles ManualSelection dwell detection and indicator updates)
+        services.AddSingleton(sp => new ManualSelectionDwellService(
             sp.GetRequiredService<IMessenger>(),
-            sp.GetRequiredService<ILogger<ZoomDwellService>>(),
+            sp.GetRequiredService<ILogger<ManualSelectionDwellService>>(),
             sp.GetRequiredService<EyeCtrlSettings>(),
             dispatcher,
             sp.GetRequiredService<GazeEngine>().InteractionManager));

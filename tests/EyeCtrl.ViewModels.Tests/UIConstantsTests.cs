@@ -23,17 +23,17 @@ public class UIConstantsTests
     }
 
     [Fact]
-    public void ZoomSideButtonGap_IsDefinedAndPositive()
+    public void ManualSelectionSideButtonGap_IsDefinedAndPositive()
     {
-        Assert.True(UIConstants.ZoomSideButtonGap > 0);
-        Assert.Equal(20.0, UIConstants.ZoomSideButtonGap);
+        Assert.True(UIConstants.ManualSelectionSideButtonGap > 0);
+        Assert.Equal(20.0, UIConstants.ManualSelectionSideButtonGap);
     }
 
     [Fact]
-    public void ZoomSideButtonDwellMs_IsDefinedAndPositive()
+    public void ManualSelectionSideButtonDwellMs_IsDefinedAndPositive()
     {
-        Assert.True(UIConstants.ZoomSideButtonDwellMs > 0);
-        Assert.Equal(600, UIConstants.ZoomSideButtonDwellMs);
+        Assert.True(UIConstants.ManualSelectionSideButtonDwellMs > 0);
+        Assert.Equal(600, UIConstants.ManualSelectionSideButtonDwellMs);
     }
 
     [Fact]
@@ -49,8 +49,8 @@ public class UIConstantsTests
         // Verify all numeric constants are positive where appropriate
         Assert.True(UIConstants.ButtonRadius > 0);
         Assert.True(UIConstants.ActionMenuButtonOuterGap > 0);
-        Assert.True(UIConstants.ZoomSideButtonGap > 0);
-        Assert.True(UIConstants.ZoomSideButtonDwellMs > 0);
+        Assert.True(UIConstants.ManualSelectionSideButtonGap > 0);
+        Assert.True(UIConstants.ManualSelectionSideButtonDwellMs > 0);
         Assert.True(UIConstants.ActivationButtonOffset > 0);
     }
 }

@@ -12,31 +12,31 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
-/// Manages zoom dwell detection and gaze indicator updates during zoom mode.
-/// Subscribes to GazeCursorMovedMessage and emits ZoomDwellCompletedMessage.
-/// Extracts the 130+ lines of zoom dwell logic from App.xaml.cs into a testable service.
+/// Manages ManualSelection dwell detection and gaze indicator updates during ManualSelection mode.
+/// Subscribes to GazeCursorMovedMessage and emits ManualSelectionDwellCompletedMessage.
+/// Extracts the 130+ lines of ManualSelection dwell logic from App.xaml.cs into a testable service.
 /// </summary>
-public class ZoomDwellService : IDisposable
+public class ManualSelectionDwellService : IDisposable
 {
-    private const string ZoomDwellTargetId = "zoom_dwell_target";
+    private const string ManualSelectionDwellTargetId = "ManualSelection_dwell_target";
 
     private readonly IMessenger _messenger;
-    private readonly ILogger<ZoomDwellService> _logger;
+    private readonly ILogger<ManualSelectionDwellService> _logger;
     private readonly EyeCtrlSettings _settings;
     private readonly Dispatcher _dispatcher;
     private readonly InteractionManager _interactionManager;
 
     // State
     private DwellDetector? _dwellDetector;
-    private PhysicalPoint? _zoomCenter;
-    private double? _zoomRadius;
-    private long _zoomStartTimestamp;
+    private PhysicalPoint? _ManualSelectionCenter;
+    private double? _ManualSelectionRadius;
+    private long _ManualSelectionStartTimestamp;
     private bool _gracePeriodActive;
     private bool _isActive;
 
-    public ZoomDwellService(
+    public ManualSelectionDwellService(
         IMessenger messenger,
-        ILogger<ZoomDwellService> logger,
+        ILogger<ManualSelectionDwellService> logger,
         EyeCtrl.Core.Settings.EyeCtrlSettings settings,
         Dispatcher dispatcher,
         InteractionManager interactionManager)
@@ -48,20 +48,20 @@ public class ZoomDwellService : IDisposable
         _interactionManager = interactionManager;
 
         // Register message handlers
-        _messenger.Register<StartZoomMessage>(this, (r, m) => OnZoomStarted(m));
-        _messenger.Register<EndZoomMessage>(this, (r, m) => OnZoomEnded());
-        _messenger.Register<ZoomHiddenMessage>(this, (r, m) => OnZoomEnded());
+        _messenger.Register<StartManualSelectionMessage>(this, (r, m) => OnManualSelectionStarted(m));
+        _messenger.Register<EndManualSelectionMessage>(this, (r, m) => OnManualSelectionEnded());
+        _messenger.Register<ManualSelectionHiddenMessage>(this, (r, m) => OnManualSelectionEnded());
         _messenger.Register<GazeCursorMovedMessage>(this, (r, m) => OnGazeMoved(m));
     }
 
-    private void OnZoomStarted(StartZoomMessage message)
+    private void OnManualSelectionStarted(StartManualSelectionMessage message)
     {
         // Initialize state
-        _zoomCenter = message.Center;
-        _zoomRadius = message.Radius * DpiHelper.ScaleX; // Store physical pixel radius
+        _ManualSelectionCenter = message.Center;
+        _ManualSelectionRadius = message.Radius * DpiHelper.ScaleX; // Store physical pixel radius
         _isActive = true;
         _gracePeriodActive = false;
-        _zoomStartTimestamp = 0;
+        _ManualSelectionStartTimestamp = 0;
 
         // Create DwellDetector with cooldown disabled (we handle grace period separately)
         _dwellDetector = new DwellDetector(cooldownMs: 0);
@@ -71,23 +71,23 @@ public class ZoomDwellService : IDisposable
         _dwellDetector.TargetProgress += OnDwellProgress;
 
         // Create a virtual dwell target at the initial gaze position
-        // The radius is scaled by magnification since we're in zoom space
+        // The radius is scaled by magnification since we're in ManualSelection space
         var scaledRadius = _settings.Dwell.FixationRadiusPixels / message.Magnification;
-        var dwellTime = _settings.Dwell.ZoomActionMenuDwellMs;
+        var dwellTime = _settings.Dwell.ManualSelectionActionMenuDwellMs;
 
         var target = new DwellTarget(
-            ZoomDwellTargetId,
+            ManualSelectionDwellTargetId,
             message.GazePoint, // Initial position (will be updated as gaze moves)
             scaledRadius,
             dwellTime);
 
         _dwellDetector.AddTarget(target);
 
-        _logger.LogDebug("Zoom dwell tracking started: center=({X}, {Y}), radius={Radius}",
-            _zoomCenter.Value.X, _zoomCenter.Value.Y, message.Radius);
+        _logger.LogDebug("ManualSelection dwell tracking started: center=({X}, {Y}), radius={Radius}",
+            _ManualSelectionCenter.Value.X, _ManualSelectionCenter.Value.Y, message.Radius);
     }
 
-    private void OnZoomEnded()
+    private void OnManualSelectionEnded()
     {
         // Cleanup detector
         if (_dwellDetector != null)
@@ -101,17 +101,17 @@ public class ZoomDwellService : IDisposable
         // Reset state
         _isActive = false;
         _gracePeriodActive = false;
-        _zoomCenter = null;
-        _zoomRadius = null;
+        _ManualSelectionCenter = null;
+        _ManualSelectionRadius = null;
 
-        _logger.LogDebug("Zoom dwell tracking stopped");
+        _logger.LogDebug("ManualSelection dwell tracking stopped");
     }
 
     private void OnGazeMoved(GazeCursorMovedMessage message)
     {
         // Early exit if not active or wrong state
         if (!_isActive ||
-            _interactionManager.CurrentState != InteractionState.ZoomSelectionActive ||
+            _interactionManager.CurrentState != InteractionState.ManualSelectionActive ||
             _dwellDetector == null)
             return;
 
@@ -127,23 +127,23 @@ public class ZoomDwellService : IDisposable
         // 2. Handle grace period
         if (!_gracePeriodActive)
         {
-            _zoomStartTimestamp = ts;
+            _ManualSelectionStartTimestamp = ts;
             _gracePeriodActive = true;
         }
 
-        var gracePeriodUs = _settings.Zoom.ZoomGracePeriodMs * MathConstants.MicrosecondsPerMillisecond;
-        if ((ts - _zoomStartTimestamp) < gracePeriodUs)
+        var gracePeriodUs = _settings.ManualSelection.ManualSelectionGracePeriodMs * MathConstants.MicrosecondsPerMillisecond;
+        if ((ts - _ManualSelectionStartTimestamp) < gracePeriodUs)
             return;
 
         // 3. Bounds check
-        if (!IsWithinZoomBounds(pt))
+        if (!IsWithinManualSelectionBounds(pt))
         {
             ResetDwell();
             return;
         }
 
         // 4. Update dwell target position to follow gaze
-        _dwellDetector.UpdateTargetCenter(ZoomDwellTargetId, pt);
+        _dwellDetector.UpdateTargetCenter(ManualSelectionDwellTargetId, pt);
 
         // 5. Update dwell detector
         _dwellDetector.Update(pt, ts);
@@ -162,39 +162,39 @@ public class ZoomDwellService : IDisposable
 
     private void OnDwellActivated(string targetId)
     {
-        if (targetId != ZoomDwellTargetId) return;
+        if (targetId != ManualSelectionDwellTargetId) return;
 
         InvokeOnDispatcherIfNeeded(() =>
         {
             try
             {
                 // Get the current dwell target position as the precise fixation point
-                var target = _dwellDetector?.GetProgress(ZoomDwellTargetId);
+                var target = _dwellDetector?.GetProgress(ManualSelectionDwellTargetId);
                 if (_dwellDetector == null) return;
 
                 // We need to get the actual target to retrieve its center
                 // Since DwellDetector doesn't expose targets, we'll use the last gaze position
                 // This is acceptable because dwell activation happens when gaze is on target
-                _logger.LogInformation("Zoom dwell completed");
+                _logger.LogInformation("ManualSelection dwell completed");
 
                 // Reset indicator
-                _messenger.Send(new ResetZoomIndicatorMessage());
+                _messenger.Send(new ResetManualSelectionIndicatorMessage());
 
                 // We don't have access to the exact point, but we can send a completion message
                 // The EventCoordinator will need to track the last known gaze position
-                // For now, use the zoom center as fallback (this will be improved)
-                _messenger.Send(new ZoomDwellCompletedMessage(_lastGazePoint ?? _zoomCenter!.Value));
+                // For now, use the ManualSelection center as fallback (this will be improved)
+                _messenger.Send(new ManualSelectionDwellCompletedMessage(_lastGazePoint ?? _ManualSelectionCenter!.Value));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in zoom dwell activated handler");
+                _logger.LogError(ex, "Error in ManualSelection dwell activated handler");
             }
         });
     }
 
     private void OnDwellProgress(string targetId, double progress)
     {
-        if (targetId != ZoomDwellTargetId) return;
+        if (targetId != ManualSelectionDwellTargetId) return;
 
         InvokeOnDispatcherIfNeeded(() =>
         {
@@ -205,20 +205,20 @@ public class ZoomDwellService : IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in zoom dwell progress handler");
+                _logger.LogError(ex, "Error in ManualSelection dwell progress handler");
             }
         });
     }
 
     private PhysicalPoint? _lastGazePoint;
 
-    private bool IsWithinZoomBounds(PhysicalPoint gazePoint)
+    private bool IsWithinManualSelectionBounds(PhysicalPoint gazePoint)
     {
-        if (_zoomCenter == null || _zoomRadius == null) return false;
+        if (_ManualSelectionCenter == null || _ManualSelectionRadius == null) return false;
 
-        var dx = gazePoint.X - _zoomCenter.Value.X;
-        var dy = gazePoint.Y - _zoomCenter.Value.Y;
-        return (dx * dx + dy * dy) <= (_zoomRadius.Value * _zoomRadius.Value);
+        var dx = gazePoint.X - _ManualSelectionCenter.Value.X;
+        var dy = gazePoint.Y - _ManualSelectionCenter.Value.Y;
+        return (dx * dx + dy * dy) <= (_ManualSelectionRadius.Value * _ManualSelectionRadius.Value);
     }
 
     private void ResetDwell()
@@ -229,11 +229,11 @@ public class ZoomDwellService : IDisposable
         {
             try
             {
-                _messenger.Send(new ResetZoomIndicatorMessage());
+                _messenger.Send(new ResetManualSelectionIndicatorMessage());
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error resetting zoom indicator");
+                _logger.LogError(ex, "Error resetting ManualSelection indicator");
             }
         });
     }
@@ -244,11 +244,11 @@ public class ZoomDwellService : IDisposable
         {
             try
             {
-                _messenger.Send(new UpdateZoomIndicatorPositionMessage(gazePoint));
+                _messenger.Send(new UpdateManualSelectionIndicatorPositionMessage(gazePoint));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating zoom indicator position");
+                _logger.LogError(ex, "Error updating ManualSelection indicator position");
             }
         });
     }
@@ -259,18 +259,18 @@ public class ZoomDwellService : IDisposable
         {
             try
             {
-                _messenger.Send(new UpdateZoomIndicatorProgressMessage(progress));
+                _messenger.Send(new UpdateManualSelectionIndicatorProgressMessage(progress));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating zoom indicator progress");
+                _logger.LogError(ex, "Error updating ManualSelection indicator progress");
             }
         });
     }
 
     public void Dispose()
     {
-        OnZoomEnded();
+        OnManualSelectionEnded();
         _messenger.UnregisterAll(this);
     }
 }

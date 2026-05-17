@@ -55,7 +55,7 @@ public class GazeEngine : IDisposable
 
         InteractionManager = new InteractionManager
         {
-            ZoomEnabled = settings.Zoom.Enabled
+            ManualSelectionEnabled = settings.ManualSelection.Enabled
         };
 
         _gazeProvider.GazePointReceived += OnGazePoint;

@@ -5,11 +5,11 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using EyeCtrl.Core.Services;
 
-public partial class ZoomGazeIndicatorWindow : OverlayWindow
+public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow
 {
     private double _maxDiameter = 30;
 
-    public ZoomGazeIndicatorWindow()
+    public ManualSelectionGazeIndicatorWindow()
     {
         IsClickThrough = true;
         InitializeComponent();

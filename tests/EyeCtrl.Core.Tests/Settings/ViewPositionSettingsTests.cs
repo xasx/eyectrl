@@ -6,9 +6,9 @@ using EyeCtrl.Core.Settings;
 public class ViewPositionSettingsTests
 {
     [Fact]
-    public void ZoomSettings_DefaultPosition_IsAtGaze()
+    public void ManualSelectionSettings_DefaultPosition_IsAtGaze()
     {
-        var settings = new ZoomSettings();
+        var settings = new ManualSelectionSettings();
 
         Assert.Equal(ViewPosition.AtGaze, settings.Position);
     }
@@ -22,9 +22,9 @@ public class ViewPositionSettingsTests
     }
 
     [Fact]
-    public void ZoomSettings_CanSetPosition_ToAtCenter()
+    public void ManualSelectionSettings_CanSetPosition_ToAtCenter()
     {
-        var settings = new ZoomSettings
+        var settings = new ManualSelectionSettings
         {
             Position = ViewPosition.AtCenter
         };
@@ -44,13 +44,13 @@ public class ViewPositionSettingsTests
     }
 
     [Fact]
-    public void ZoomSettings_Position_RaisesPropertyChanged()
+    public void ManualSelectionSettings_Position_RaisesPropertyChanged()
     {
-        var settings = new ZoomSettings();
+        var settings = new ManualSelectionSettings();
         bool propertyChanged = false;
         settings.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(ZoomSettings.Position))
+            if (e.PropertyName == nameof(ManualSelectionSettings.Position))
                 propertyChanged = true;
         };
 

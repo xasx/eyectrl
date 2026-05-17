@@ -8,10 +8,10 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
-public partial class ZoomSideButtonWindow : OverlayWindow
+public partial class ManualSelectionSideButtonWindow : OverlayWindow
 {
     // UI Layout Constants
-    private const double ButtonRadius = 50; // Radius of zoom side buttons in pixels
+    private const double ButtonRadius = 50; // Radius of ManualSelection side buttons in pixels
     private const int ButtonMargin = 10; // Margin around buttons for window sizing
     private const int ProgressArcInset = 4; // Inset of progress arc from button edge
     private const int ButtonSymbolFontSize = 22; // Font size for button symbols
@@ -21,7 +21,7 @@ public partial class ZoomSideButtonWindow : OverlayWindow
 
     private readonly Dictionary<string, (Ellipse Background, Path ProgressArc, ArcSegment Arc, Point CanvasCenter)> _buttonVisuals = new();
 
-    public ZoomSideButtonWindow()
+    public ManualSelectionSideButtonWindow()
     {
         IsClickThrough = true;
         InitializeComponent();
@@ -48,8 +48,8 @@ public partial class ZoomSideButtonWindow : OverlayWindow
         Left = minX;
         Top = minY;
 
-        DrawButton("zoom_close", "\u2715", closeDipX - minX, closeDipY - minY);
-        DrawButton("zoom_recapture", "\u21BB", recapDipX - minX, recapDipY - minY);
+        DrawButton("ManualSelection_close", "\u2715", closeDipX - minX, closeDipY - minY);
+        DrawButton("ManualSelection_recapture", "\u21BB", recapDipX - minX, recapDipY - minY);
 
         Show();
     }

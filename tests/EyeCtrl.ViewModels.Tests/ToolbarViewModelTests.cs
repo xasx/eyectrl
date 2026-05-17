@@ -46,13 +46,13 @@ public class ToolbarViewModelTests
     }
 
     [Fact]
-    public void ZoomToggle_SendsZoomToggledMessage()
+    public void ManualSelectionToggle_SendsManualSelectionToggledMessage()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
         bool received = false;
-        _messenger.Register<ZoomToggledMessage>(_messenger, (_, _) => received = true);
+        _messenger.Register<ManualSelectionToggledMessage>(_messenger, (_, _) => received = true);
 
-        vm.SimulateButtonActivated("Zoom");
+        vm.SimulateButtonActivated("ManualSelection");
 
         Assert.True(received);
     }

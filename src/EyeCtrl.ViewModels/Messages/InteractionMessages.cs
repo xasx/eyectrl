@@ -17,12 +17,12 @@ public record HideActivationButtonMessage;
 /// Sent to show action menu.
 /// All position coordinates are in physical screen pixels.
 /// </summary>
-public record ShowActionMenuMessage(PhysicalPoint Center, IReadOnlyList<InteractionAction> Actions, bool ShowBack, int DwellTimeMs, PhysicalPoint GazePoint, int ZoomDisplayRadius = 0, double CircleSize = 250)
+public record ShowActionMenuMessage(PhysicalPoint Center, IReadOnlyList<InteractionAction> Actions, bool ShowBack, int DwellTimeMs, PhysicalPoint GazePoint, int ManualSelectionDisplayRadius = 0, double CircleSize = 250)
 {
-    /// <summary>Physical screen pixel center of the zoom circle (zoom entry point). Null for non-zoom paths.</summary>
-    public PhysicalPoint? ZoomCenter { get; init; }
-    /// <summary>Logical/DIP radius of the zoom circle (CircleRadiusPixels). Null for non-zoom paths.</summary>
-    public int? ZoomRadius { get; init; }
+    /// <summary>Physical screen pixel center of the ManualSelection circle (ManualSelection entry point). Null for non-ManualSelection paths.</summary>
+    public PhysicalPoint? ManualSelectionCenter { get; init; }
+    /// <summary>Logical/DIP radius of the ManualSelection circle (CircleRadiusPixels). Null for non-ManualSelection paths.</summary>
+    public int? ManualSelectionRadius { get; init; }
 }
 
 public record HideActionMenuMessage;
@@ -30,57 +30,57 @@ public record HideActionMenuMessage;
 public record StateChangedMessage(InteractionState NewState);
 
 /// <summary>
-/// Sent to start zoom mode.
+/// Sent to start ManualSelection mode.
 /// Center and GazePoint are in physical screen pixels.
 /// </summary>
-public record StartZoomMessage(PhysicalPoint Center, int Radius, double Magnification, PhysicalPoint GazePoint);
+public record StartManualSelectionMessage(PhysicalPoint Center, int Radius, double Magnification, PhysicalPoint GazePoint);
 
-public record EndZoomMessage;
+public record EndManualSelectionMessage;
 
-public record ZoomHiddenMessage;
+public record ManualSelectionHiddenMessage;
 
-public record ZoomCloseMessage;
+public record ManualSelectionCloseMessage;
 
-public record ZoomRecaptureMessage;
+public record ManualSelectionRecaptureMessage;
 
 /// <summary>
 /// Sent when an action is requested.
 /// Point is in physical screen pixels.
 /// </summary>
-public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Point, bool IsFromZoom = false);
+public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Point, bool IsFromManualSelection = false);
 
-// Zoom Dwell Service Messages
+// ManualSelection Dwell Service Messages
 /// <summary>
-/// Sent by ZoomDwellService when user completes dwell within zoom.
-/// Contains the precise on-screen physical point where the dwell occurred while the zoom overlay is shown
-/// (that is, the point within the magnified overlay, not yet converted to the underlying real/unzoomed screen coordinate).
+/// Sent by ManualSelectionDwellService when user completes dwell within ManualSelection.
+/// Contains the precise on-screen physical point where the dwell occurred while the ManualSelection overlay is shown
+/// (that is, the point within the magnified overlay, not yet converted to the underlying real/unManualSelectioned screen coordinate).
 /// </summary>
-public record ZoomDwellCompletedMessage(PhysicalPoint PrecisePoint);
+public record ManualSelectionDwellCompletedMessage(PhysicalPoint PrecisePoint);
 
 /// <summary>
-/// Sent by ZoomDwellService to update the zoom gaze indicator position.
-/// Published at ~30Hz during zoom mode.
+/// Sent by ManualSelectionDwellService to update the ManualSelection gaze indicator position.
+/// Published at ~30Hz during ManualSelection mode.
 /// GazePoint is in physical screen pixels.
 /// </summary>
-public record UpdateZoomIndicatorPositionMessage(PhysicalPoint GazePoint);
+public record UpdateManualSelectionIndicatorPositionMessage(PhysicalPoint GazePoint);
 
 /// <summary>
-/// Sent by ZoomDwellService to update dwell progress on the indicator.
+/// Sent by ManualSelectionDwellService to update dwell progress on the indicator.
 /// Progress ranges from 0.0 to 1.0.
 /// </summary>
-public record UpdateZoomIndicatorProgressMessage(double Progress);
+public record UpdateManualSelectionIndicatorProgressMessage(double Progress);
 
 /// <summary>
-/// Sent by ZoomDwellService to reset the zoom indicator (abort dwell).
+/// Sent by ManualSelectionDwellService to reset the ManualSelection indicator (abort dwell).
 /// </summary>
-public record ResetZoomIndicatorMessage;
+public record ResetManualSelectionIndicatorMessage;
 
 // ViewModel -> Core
 public record ActivationCompletedMessage;
 public record ActionSelectedMessage(InteractionAction Action);
 public record BackSelectedMessage;
 public record PauseToggledMessage;
-public record ZoomToggledMessage;
+public record ManualSelectionToggledMessage;
 public record KeyboardToggledMessage;
 public record SettingsRequestedMessage;
 public record KeyActivatedMessage(string Key, IReadOnlySet<ModifierKey>? Modifiers = null);

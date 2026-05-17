@@ -35,7 +35,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         var c = _settings.Cursor;
         var d = _settings.Dwell;
-        var z = _settings.Zoom;
+        var z = _settings.ManualSelection;
         var k = _settings.Keyboard;
         var t = _settings.Toolbar;
         var g = _settings.General;
@@ -61,17 +61,17 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new SliderSettingViewModel("fixationMs", "Fixation Detection (ms)", d.FixationDetectionMs, 100, 1000, 50, v => d.FixationDetectionMs = (int)v),
             new SliderSettingViewModel("activationMs", "Activation Button Dwell (ms)", d.ActivationButtonDwellMs, 200, 2000, 50, v => d.ActivationButtonDwellMs = (int)v),
             new SliderSettingViewModel("actionMenuMs", "Action Menu Dwell (ms)", d.ActionMenuDwellMs, 200, 2000, 50, v => d.ActionMenuDwellMs = (int)v),
-            new SliderSettingViewModel("zoomActionMs", "Zoom Action Menu Dwell (ms)", d.ZoomActionMenuDwellMs, 200, 2000, 50, v => d.ZoomActionMenuDwellMs = (int)v),
+            new SliderSettingViewModel("ManualSelectionActionMs", "ManualSelection Action Menu Dwell (ms)", d.ManualSelectionActionMenuDwellMs, 200, 2000, 50, v => d.ManualSelectionActionMenuDwellMs = (int)v),
             new SliderSettingViewModel("toolbarMs", "Toolbar Button Dwell (ms)", d.ToolbarButtonDwellMs, 200, 2000, 50, v => d.ToolbarButtonDwellMs = (int)v),
             new SliderSettingViewModel("keyboardMs", "Keyboard Key Dwell (ms)", d.KeyboardKeyDwellMs, 100, 1500, 50, v => d.KeyboardKeyDwellMs = (int)v),
             new SliderSettingViewModel("predictionMs", "Prediction Dwell (ms)", d.KeyboardPredictionDwellMs, 100, 1500, 50, v => d.KeyboardPredictionDwellMs = (int)v),
             new SliderSettingViewModel("fixationRadius", "Fixation Radius (px)", d.FixationRadiusPixels, 10, 200, 5, v => d.FixationRadiusPixels = v),
         }));
 
-        Tabs.Add(new SettingsTabViewModel("Zoom", "\uD83D\uDD0D", new List<SettingItemViewModel>
+        Tabs.Add(new SettingsTabViewModel("ManualSelection", "\uD83D\uDD0D", new List<SettingItemViewModel>
         {
-            new ToggleSettingViewModel("zoomEnabled", "Zoom Enabled", z.Enabled, v => z.Enabled = v),
-            new SliderSettingViewModel("zoomRadius", "Circle Radius (px)", z.CircleRadiusPixels, 50, 500, 10, v => z.CircleRadiusPixels = (int)v),
+            new ToggleSettingViewModel("ManualSelectionEnabled", "ManualSelection Enabled", z.Enabled, v => z.Enabled = v),
+            new SliderSettingViewModel("ManualSelectionRadius", "Circle Radius (px)", z.CircleRadiusPixels, 50, 500, 10, v => z.CircleRadiusPixels = (int)v),
             new SliderSettingViewModel("magnification", "Magnification Level", z.MagnificationLevel, 1.5, 5, 0.5, v => z.MagnificationLevel = v),
         }));
 
@@ -150,7 +150,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         var defaults = new EyeCtrlSettings();
         CopySettings(defaults.Cursor, _settings.Cursor);
         CopySettings(defaults.Dwell, _settings.Dwell);
-        CopySettings(defaults.Zoom, _settings.Zoom);
+        CopySettings(defaults.ManualSelection, _settings.ManualSelection);
         CopySettings(defaults.ActionMenu, _settings.ActionMenu);
         CopySettings(defaults.Keyboard, _settings.Keyboard);
         CopySettings(defaults.Toolbar, _settings.Toolbar);

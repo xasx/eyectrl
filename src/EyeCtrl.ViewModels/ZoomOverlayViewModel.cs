@@ -8,15 +8,15 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class ZoomOverlayViewModel : ObservableObject,
-    IRecipient<StartZoomMessage>,
-    IRecipient<EndZoomMessage>,
-    IRecipient<ZoomHiddenMessage>,
+public partial class ManualSelectionOverlayViewModel : ObservableObject,
+    IRecipient<StartManualSelectionMessage>,
+    IRecipient<EndManualSelectionMessage>,
+    IRecipient<ManualSelectionHiddenMessage>,
     IRecipient<GazeCursorMovedMessage>,
     IDisposable
 {
-    private const string CloseTargetId = "zoom_close";
-    private const string RecaptureTargetId = "zoom_recapture";
+    private const string CloseTargetId = "ManualSelection_close";
+    private const string RecaptureTargetId = "ManualSelection_recapture";
 
     private readonly IMessenger _messenger;
     private readonly DwellDetector _dwellDetector;
@@ -33,7 +33,7 @@ public partial class ZoomOverlayViewModel : ObservableObject,
     [ObservableProperty] private double _closeButtonProgress;
     [ObservableProperty] private double _recaptureButtonProgress;
 
-    public ZoomOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger)
+    public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger)
     {
         _messenger = messenger;
         _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
@@ -42,16 +42,16 @@ public partial class ZoomOverlayViewModel : ObservableObject,
         messenger.RegisterAll(this);
     }
 
-    public void Receive(StartZoomMessage message)
+    public void Receive(StartManualSelectionMessage message)
     {
         Center = message.Center;
         Radius = message.Radius;
         Magnification = message.Magnification;
         GazePoint = message.GazePoint;
 
-        // Compute side button positions: right side of zoom circle
+        // Compute side button positions: right side of ManualSelection circle
         var physicalDisplayRadius = DpiHelper.LogicalToPhysicalX(message.Radius * message.Magnification);
-        var physicalGap = DpiHelper.LogicalToPhysicalX(UIConstants.ZoomSideButtonGap);
+        var physicalGap = DpiHelper.LogicalToPhysicalX(UIConstants.ManualSelectionSideButtonGap);
         var physicalBtnRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
 
         var buttonX = message.Center.X + physicalDisplayRadius + physicalGap + physicalBtnRadius;
@@ -68,14 +68,14 @@ public partial class ZoomOverlayViewModel : ObservableObject,
         // Set up dwell targets
         _dwellDetector.ClearTargets();
         _dwellDetector.AddTarget(new DwellTarget(
-            CloseTargetId, CloseButtonCenter, physicalBtnRadius, UIConstants.ZoomSideButtonDwellMs));
+            CloseTargetId, CloseButtonCenter, physicalBtnRadius, UIConstants.ManualSelectionSideButtonDwellMs));
         _dwellDetector.AddTarget(new DwellTarget(
-            RecaptureTargetId, RecaptureButtonCenter, physicalBtnRadius, UIConstants.ZoomSideButtonDwellMs));
+            RecaptureTargetId, RecaptureButtonCenter, physicalBtnRadius, UIConstants.ManualSelectionSideButtonDwellMs));
 
         IsVisible = true;
     }
 
-    public void Receive(EndZoomMessage message)
+    public void Receive(EndManualSelectionMessage message)
     {
         IsVisible = false;
         _dwellDetector.ClearTargets();
@@ -83,7 +83,7 @@ public partial class ZoomOverlayViewModel : ObservableObject,
         RecaptureButtonProgress = 0;
     }
 
-    public void Receive(ZoomHiddenMessage message)
+    public void Receive(ManualSelectionHiddenMessage message)
     {
         IsVisible = false;
         _dwellDetector.ClearTargets();
@@ -100,9 +100,9 @@ public partial class ZoomOverlayViewModel : ObservableObject,
     private void OnTargetActivated(string targetId)
     {
         if (targetId == CloseTargetId)
-            _messenger.Send(new ZoomCloseMessage());
+            _messenger.Send(new ManualSelectionCloseMessage());
         else if (targetId == RecaptureTargetId)
-            _messenger.Send(new ZoomRecaptureMessage());
+            _messenger.Send(new ManualSelectionRecaptureMessage());
     }
 
     private void OnTargetProgress(string targetId, double progress)

@@ -11,12 +11,10 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
         InteractionAction.DoubleClick, InteractionAction.DragStart,
         InteractionAction.ScrollUp, InteractionAction.ScrollDown
     };
-    [ObservableProperty] private ViewPosition _position = ViewPosition.AtGaze;
 
     public IReadOnlyList<string> Validate()
     {
         // ActionMenuSettings has no numeric ranges to validate
-        // Position is an enum so type-safe by default
         return new List<string>();
     }
 }

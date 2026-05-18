@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Settings;
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using EyeCtrl.Core.Models;
 
 public partial class EyeCtrlSettings : ObservableObject, IValidatable
 {
@@ -12,6 +13,7 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private ToolbarSettings _toolbar = new();
     [ObservableProperty] private ThemeSettings _theme = new();
     [ObservableProperty] private GeneralSettings _general = new();
+    [ObservableProperty] private ViewPosition _viewPosition = ViewPosition.AtCenter;
 
     public IReadOnlyList<string> Validate()
     {

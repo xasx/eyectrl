@@ -84,6 +84,7 @@ public partial class SettingsWindow : OverlayWindow
             ("Dwell",    "⏱", "Dwell Times", BuildDwellPages),
             ("ManualSelection",     "⊕", "ManualSelection",        BuildManualSelectionPages),
             ("Actions",  "⊙", "Action Menu", BuildActionMenuPages),
+            ("Layout",   "⊞", "Layout",      BuildLayoutPages),
             ("Keyboard", "⌨", "Keyboard",    BuildKeyboardPages),
             ("Toolbar",  "▣", "Toolbar",     BuildToolbarPages),
             ("General",  "⚙", "General",     BuildGeneralPages)
@@ -507,11 +508,6 @@ public partial class SettingsWindow : OverlayWindow
                     () => _settings.ManualSelection.Enabled,
                     v => { _settings.ManualSelection.Enabled = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
-                () => Add(new DwellComboBox(_viewModel, "z_pos", "Position",
-                    ["At Gaze", "At Center"],
-                    () => _settings.ManualSelection.Position == ViewPosition.AtGaze ? "At Gaze" : "At Center",
-                    v => { _settings.ManualSelection.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
                 () => Add(new DwellSlider(_viewModel, "z_rad", "Circle Radius (px)",
                     50, 300, 10, 0,
                     () => _settings.ManualSelection.CircleRadiusPixels,
@@ -532,7 +528,6 @@ public partial class SettingsWindow : OverlayWindow
                     {
                         var z = new ManualSelectionSettings();
                         _settings.ManualSelection.Enabled = z.Enabled;
-                        _settings.ManualSelection.Position = z.Position;
                         _settings.ManualSelection.CircleRadiusPixels = z.CircleRadiusPixels;
                         _settings.ManualSelection.MagnificationLevel = z.MagnificationLevel;
                         _settings.ManualSelection.ManualSelectionGracePeriodMs = z.ManualSelectionGracePeriodMs;
@@ -552,16 +547,36 @@ public partial class SettingsWindow : OverlayWindow
         return
         [
             [
-                () => Add(new DwellComboBox(_viewModel, "am_pos", "Position",
-                    ["At Gaze", "At Center"],
-                    () => _settings.ActionMenu.Position == ViewPosition.AtGaze ? "At Gaze" : "At Center",
-                    v => { _settings.ActionMenu.Position = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
                 () => Add(new DwellButton(_viewModel, "am_reset", "Reset Action Menu Settings",
                     () => ShowModal("Reset Action Menu settings to defaults?", () =>
                     {
                         var a = new ActionMenuSettings();
-                        _settings.ActionMenu.Position = a.Position;
+                        ApplyAndSave();
+                        RebuildContent();
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+            ]
+        ];
+    }
+
+    private List<List<Action>> BuildLayoutPages()
+    {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
+        return
+        [
+            [
+                () => Add(new DwellComboBox(_viewModel, "lay_pos", "Position",
+                    ["At Gaze", "At Center"],
+                    () => _settings.ViewPosition == ViewPosition.AtGaze ? "At Gaze" : "At Center",
+                    v => { _settings.ViewPosition = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "lay_reset", "Reset Layout Settings",
+                    () => ShowModal("Reset Layout settings to defaults?", () =>
+                    {
+                        var d = new EyeCtrlSettings();
+                        _settings.ViewPosition = d.ViewPosition;
                         ApplyAndSave();
                         RebuildContent();
                     }),
@@ -747,6 +762,8 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.ManualSelection.Enabled = d.ManualSelection.Enabled;
                         _settings.ManualSelection.CircleRadiusPixels = d.ManualSelection.CircleRadiusPixels;
                         _settings.ManualSelection.MagnificationLevel = d.ManualSelection.MagnificationLevel;
+                        _settings.ManualSelection.ManualSelectionGracePeriodMs = d.ManualSelection.ManualSelectionGracePeriodMs;
+                        _settings.ViewPosition = d.ViewPosition;
                         _settings.Keyboard.ActiveLayout = d.Keyboard.ActiveLayout;
                         _settings.Keyboard.KeySizeMultiplier = d.Keyboard.KeySizeMultiplier;
                         _settings.Keyboard.PredictionEnabled = d.Keyboard.PredictionEnabled;

@@ -37,7 +37,7 @@ public class SettingsTests
     }
 
     [Fact]
-    public async Task SettingsWindow_HasSevenTabs()
+    public async Task SettingsWindow_HasEightTabs()
     {
         // Ensure settings is open
         var settings = _fixture.FindWindow("Settings_Window");
@@ -56,6 +56,7 @@ public class SettingsTests
             "Settings_Tab_Cursor",
             "Settings_Tab_Dwell",
             "Settings_Tab_ManualSelection",
+            "Settings_Tab_Layout",
             "Settings_Tab_Keyboard",
             "Settings_Tab_Toolbar",
             "Settings_Tab_Theme",

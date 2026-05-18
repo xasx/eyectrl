@@ -6,71 +6,36 @@ using EyeCtrl.Core.Settings;
 public class ViewPositionSettingsTests
 {
     [Fact]
-    public void ManualSelectionSettings_DefaultPosition_IsAtGaze()
+    public void EyeCtrlSettings_DefaultViewPosition_IsAtCenter()
     {
-        var settings = new ManualSelectionSettings();
+        var settings = new EyeCtrlSettings();
 
-        Assert.Equal(ViewPosition.AtGaze, settings.Position);
+        Assert.Equal(ViewPosition.AtCenter, settings.ViewPosition);
     }
 
     [Fact]
-    public void ActionMenuSettings_DefaultPosition_IsAtGaze()
+    public void EyeCtrlSettings_CanSetViewPosition_ToAtGaze()
     {
-        var settings = new ActionMenuSettings();
-
-        Assert.Equal(ViewPosition.AtGaze, settings.Position);
-    }
-
-    [Fact]
-    public void ManualSelectionSettings_CanSetPosition_ToAtCenter()
-    {
-        var settings = new ManualSelectionSettings
+        var settings = new EyeCtrlSettings
         {
-            Position = ViewPosition.AtCenter
+            ViewPosition = ViewPosition.AtGaze
         };
 
-        Assert.Equal(ViewPosition.AtCenter, settings.Position);
+        Assert.Equal(ViewPosition.AtGaze, settings.ViewPosition);
     }
 
     [Fact]
-    public void ActionMenuSettings_CanSetPosition_ToAtCenter()
+    public void EyeCtrlSettings_ViewPosition_RaisesPropertyChanged()
     {
-        var settings = new ActionMenuSettings
-        {
-            Position = ViewPosition.AtCenter
-        };
-
-        Assert.Equal(ViewPosition.AtCenter, settings.Position);
-    }
-
-    [Fact]
-    public void ManualSelectionSettings_Position_RaisesPropertyChanged()
-    {
-        var settings = new ManualSelectionSettings();
+        var settings = new EyeCtrlSettings();
         bool propertyChanged = false;
         settings.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(ManualSelectionSettings.Position))
+            if (e.PropertyName == nameof(EyeCtrlSettings.ViewPosition))
                 propertyChanged = true;
         };
 
-        settings.Position = ViewPosition.AtCenter;
-
-        Assert.True(propertyChanged);
-    }
-
-    [Fact]
-    public void ActionMenuSettings_Position_RaisesPropertyChanged()
-    {
-        var settings = new ActionMenuSettings();
-        bool propertyChanged = false;
-        settings.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(ActionMenuSettings.Position))
-                propertyChanged = true;
-        };
-
-        settings.Position = ViewPosition.AtCenter;
+        settings.ViewPosition = ViewPosition.AtGaze;
 
         Assert.True(propertyChanged);
     }

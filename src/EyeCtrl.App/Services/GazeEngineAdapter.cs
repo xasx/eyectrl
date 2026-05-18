@@ -92,7 +92,7 @@ public class GazeEngineAdapter : IDisposable
             var circleSize = _settings.Cursor.CircleSize;
             var clampedPoint = ActionMenuLayoutHelper.CalculateDisplayPoint(
                 point,
-                _settings.ActionMenu.Position,
+                _settings.ViewPosition,
                 circleSize,
                 physicalScreenW,
                 physicalScreenH);
@@ -129,7 +129,7 @@ public class GazeEngineAdapter : IDisposable
             // Calculate display point using helper (moves coordinate logic to ViewModels layer)
             var displayPoint = ManualSelectionLayoutHelper.CalculateDisplayPoint(
                 point,
-                _settings.ManualSelection.Position,
+                _settings.ViewPosition,
                 physicalScreenW,
                 physicalScreenH);
 

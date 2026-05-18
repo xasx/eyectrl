@@ -119,41 +119,30 @@ public class SettingsSerializationTests
     }
 
     [Fact]
-    public void ManualSelectionSettings_Position_RoundTrips()
+    public void EyeCtrlSettings_ViewPosition_RoundTrips()
     {
-        var settings = new ManualSelectionSettings { Position = ViewPosition.AtCenter };
+        var settings = new EyeCtrlSettings { ViewPosition = ViewPosition.AtGaze };
         var json = JsonSerializer.Serialize(settings, JsonOptions);
-        var deserialized = JsonSerializer.Deserialize<ManualSelectionSettings>(json, JsonOptions)!;
-        Assert.Equal(ViewPosition.AtCenter, deserialized.Position);
-    }
-
-    [Fact]
-    public void ActionMenuSettings_Position_RoundTrips()
-    {
-        var settings = new ActionMenuSettings { Position = ViewPosition.AtCenter };
-        var json = JsonSerializer.Serialize(settings, JsonOptions);
-        var deserialized = JsonSerializer.Deserialize<ActionMenuSettings>(json, JsonOptions)!;
-        Assert.Equal(ViewPosition.AtCenter, deserialized.Position);
+        var deserialized = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
+        Assert.Equal(ViewPosition.AtGaze, deserialized.ViewPosition);
     }
 
     [Fact]
     public void EyeCtrlSettings_ViewPositions_RoundTripTogether()
     {
         var original = new EyeCtrlSettings();
-        original.ManualSelection.Position = ViewPosition.AtCenter;
-        original.ActionMenu.Position = ViewPosition.AtCenter;
+        original.ViewPosition = ViewPosition.AtGaze;
 
         var json = JsonSerializer.Serialize(original, JsonOptions);
         var deserialized = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
 
-        Assert.Equal(ViewPosition.AtCenter, deserialized.ManualSelection.Position);
-        Assert.Equal(ViewPosition.AtCenter, deserialized.ActionMenu.Position);
+        Assert.Equal(ViewPosition.AtGaze, deserialized.ViewPosition);
     }
 
     [Fact]
     public void Settings_BackwardsCompatible_MissingViewPosition_UsesDefault()
     {
-        // Old settings JSON without Position property
+        // Old settings JSON without ViewPosition property
         var json = """
         {
           "ManualSelection": {
@@ -169,9 +158,8 @@ public class SettingsSerializationTests
 
         var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
 
-        // Should default to AtGaze when not specified
-        Assert.Equal(ViewPosition.AtGaze, settings.ManualSelection.Position);
-        Assert.Equal(ViewPosition.AtGaze, settings.ActionMenu.Position);
+        // Should default to AtCenter (the new shared default)
+        Assert.Equal(ViewPosition.AtCenter, settings.ViewPosition);
     }
 
     [Fact]

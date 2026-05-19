@@ -24,10 +24,10 @@ public class BackdropSettingsTests
     }
 
     [Fact]
-    public void Validate_OpacityOutOfRange_ReturnsError()
+    public void SetOpacity_OutOfRange_ThrowsArgumentOutOfRangeException()
     {
-        var settings = new BackdropSettings { Opacity = 0.05 };
-        var errors = settings.Validate();
-        Assert.NotEmpty(errors);
+        var settings = new BackdropSettings();
+        Assert.Throws<ArgumentOutOfRangeException>(() => settings.Opacity = 0.05);
+        Assert.Throws<ArgumentOutOfRangeException>(() => settings.Opacity = 0.95);
     }
 }

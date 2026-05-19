@@ -12,16 +12,13 @@ public partial class BackdropSettings : ObservableObject, IValidatable
     partial void OnOpacityChanging(double value)
     {
         if (value < 0.1 || value > 0.9)
-            throw new ArgumentOutOfRangeException(nameof(value), "Opacity must be between 0.1 and 0.9");
+            throw new ArgumentOutOfRangeException(nameof(value), value, $"Opacity must be between 0.1 and 0.9.");
     }
 
     public IReadOnlyList<string> Validate()
     {
-        var errors = new List<string>();
-        if (Opacity < 0.1 || Opacity > 0.9)
-            errors.Add($"Backdrop opacity must be between 0.1 and 0.9 (was {Opacity}).");
-        if (!Enum.IsDefined(typeof(BackdropType), Type))
-            errors.Add($"Invalid backdrop type: {Type}.");
-        return errors;
+        return ValidationHelper.CollectErrors(
+            ValidationHelper.ValidateRange(Opacity, 0.1, 0.9, nameof(Opacity))
+        );
     }
 }

@@ -77,10 +77,35 @@ public class GlassBackdropViewModelTests
     public void Gaze_WhenNotVisible_DoesNotThrow()
     {
         var settings = new EyeCtrlSettings();
-        var vm = new GlassBackdropViewModel(settings, new WeakReferenceMessenger());
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GlassBackdropViewModel(settings, messenger);
+
         var ex = Record.Exception(() =>
-            new WeakReferenceMessenger().Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 1_000_000)));
+            messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 1_000_000)));
+
         Assert.Null(ex);
+    }
+
+    [Fact]
+    public void Gaze_AwayFromHideButton_ResetsProgress()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GlassBackdropViewModel(settings, messenger);
+        var buttonCenter = new PhysicalPoint(1860, 40);
+        var farAway = new PhysicalPoint(1, 1);
+        messenger.Send(new ShowBackdropMessage(buttonCenter));
+
+        long now = 1_000_000;
+        long halfDwellUs = UIConstants.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
+        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
+        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + halfDwellUs));
+        Assert.True(vm.HideButtonProgress > 0);
+
+        // Move gaze away — progress should reset
+        messenger.Send(new GazeCursorMovedMessage(farAway, now + halfDwellUs + 1));
+
+        Assert.Equal(0, vm.HideButtonProgress);
     }
 
     [Fact]

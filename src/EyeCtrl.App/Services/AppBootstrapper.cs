@@ -77,6 +77,7 @@ public class AppBootstrapper
         services.AddSingleton<KeyboardViewModel>();
         services.AddSingleton<ManualSelectionGazeIndicatorViewModel>();
         services.AddSingleton<SettingsViewModel>();
+        services.AddSingleton<GlassBackdropViewModel>();
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(

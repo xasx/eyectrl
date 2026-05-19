@@ -53,6 +53,11 @@ public interface IOverlayManager
     ManualSelectionGazeIndicatorWindow ManualSelectionIndicator { get; }
 
     /// <summary>
+    /// Gets the fullscreen glass backdrop overlay window.
+    /// </summary>
+    GlassBackdropWindow GlassBackdrop { get; }
+
+    /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
     /// </summary>
     /// <param name="viewModels">Container with all ViewModels</param>

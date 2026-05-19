@@ -18,7 +18,8 @@ public partial class BackdropSettings : ObservableObject, IValidatable
     public IReadOnlyList<string> Validate()
     {
         return ValidationHelper.CollectErrors(
-            ValidationHelper.ValidateRange(Opacity, 0.1, 0.9, nameof(Opacity))
+            ValidationHelper.ValidateRange(Opacity, 0.1, 0.9, nameof(Opacity)),
+            ValidationHelper.ValidateEnumDefined(Type, nameof(Type))
         );
     }
 }

@@ -743,6 +743,7 @@ public class EventCoordinator : IEventCoordinator
         _context.ManualSelectionIndicatorVM.PropertyChanged -= OnManualSelectionIndicatorVMPropertyChanged;
         _context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
         _context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;
+        _context.BackdropVM.PropertyChanged -= OnBackdropVMPropertyChanged;
 
         // Unsubscribe from GazeEngine events
         if (_gazeMovedHandler != null)

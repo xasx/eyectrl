@@ -235,6 +235,12 @@ public partial class GlassBackdropWindow : OverlayWindow
 
     private void ClearButton()
     {
+        if (_hideButtonCircle != null)
+            BackdropCanvas.Children.Remove(_hideButtonCircle);
+        if (_hideButtonProgressArc != null)
+            BackdropCanvas.Children.Remove(_hideButtonProgressArc);
+        if (_hideButtonSymbol != null)
+            BackdropCanvas.Children.Remove(_hideButtonSymbol);
         _hideButtonCircle = null;
         _hideButtonProgressArc = null;
         _hideButtonSymbol = null;

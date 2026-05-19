@@ -74,7 +74,9 @@ public partial class GlassBackdropViewModel : ObservableObject,
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+            return;
+
         _dwellDetector.TargetActivated -= OnTargetActivated;
         _dwellDetector.TargetProgress -= OnTargetProgress;
         _messenger.UnregisterAll(this);

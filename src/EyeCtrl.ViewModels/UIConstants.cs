@@ -36,4 +36,10 @@ public static class UIConstants
     /// This determines how far the activation button appears from the cursor.
     /// </summary>
     public const int ActivationButtonOffset = 55;
+
+    /// <summary>Dwell time in milliseconds for the backdrop hide button.</summary>
+    public const int BackdropHideButtonDwellMs = 600;
+
+    /// <summary>Distance from screen edges to the backdrop hide button center in logical pixels.</summary>
+    public const double BackdropHideButtonOffset = 40.0;
 }

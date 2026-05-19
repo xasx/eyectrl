@@ -67,7 +67,10 @@ public partial class GlassBackdropWindow : OverlayWindow
     public void ApplyBackdrop(BackdropSettings settings)
     {
         if (!settings.Enabled)
+        {
+            ClearContent();
             return;
+        }
 
         ClearContent();
 
@@ -90,6 +93,7 @@ public partial class GlassBackdropWindow : OverlayWindow
 
     private bool TryApplyAcrylic()
     {
+        var data = default(WindowCompositionAttributeData);
         try
         {
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
@@ -99,20 +103,21 @@ public partial class GlassBackdropWindow : OverlayWindow
                 AccentFlags = 2,
                 GradientColor = 0x01000000
             };
-            var data = new WindowCompositionAttributeData
-            {
-                Attribute = 19,
-                SizeOfData = Marshal.SizeOf(accent),
-                Data = Marshal.AllocHGlobal(Marshal.SizeOf(accent))
-            };
+            data.SizeOfData = Marshal.SizeOf(accent);
+            data.Attribute = 19;
+            data.Data = Marshal.AllocHGlobal(data.SizeOfData);
             Marshal.StructureToPtr(accent, data.Data, false);
             var result = SetWindowCompositionAttribute(hwnd, ref data);
-            Marshal.FreeHGlobal(data.Data);
             return result == 0;
         }
         catch
         {
             return false;
+        }
+        finally
+        {
+            if (data.Data != IntPtr.Zero)
+                Marshal.FreeHGlobal(data.Data);
         }
     }
 
@@ -205,7 +210,20 @@ public partial class GlassBackdropWindow : OverlayWindow
 
     public void UpdateHideButtonProgress(double progress)
     {
-        DrawHideButton(_hideButtonCenter, progress);
+        if (_hideButtonProgressArc == null)
+        {
+            DrawHideButton(_hideButtonCenter, progress);
+            return;
+        }
+        var dipSize = UIConstants.ButtonRadius * 2;
+        var circumference = Math.PI * (dipSize - 4);
+        _hideButtonProgressArc.StrokeDashArray = new DoubleCollection { circumference * progress, circumference };
+
+        if (progress <= 0 && _hideButtonProgressArc != null)
+        {
+            BackdropCanvas.Children.Remove(_hideButtonProgressArc);
+            _hideButtonProgressArc = null;
+        }
     }
 
     private void ClearContent()

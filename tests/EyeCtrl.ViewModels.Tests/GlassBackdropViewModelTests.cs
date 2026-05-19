@@ -56,4 +56,47 @@ public class GlassBackdropViewModelTests
 
         Assert.NotNull(received);
     }
+
+    [Fact]
+    public void ImplementsIDisposable()
+    {
+        var vm = new GlassBackdropViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        Assert.IsAssignableFrom<IDisposable>(vm);
+    }
+
+    [Fact]
+    public void Dispose_IsIdempotent()
+    {
+        var vm = new GlassBackdropViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        vm.Dispose();
+        var ex = Record.Exception(() => vm.Dispose());
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void Gaze_WhenNotVisible_DoesNotThrow()
+    {
+        var settings = new EyeCtrlSettings();
+        var vm = new GlassBackdropViewModel(settings, new WeakReferenceMessenger());
+        var ex = Record.Exception(() =>
+            new WeakReferenceMessenger().Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 1_000_000)));
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void Dwell_OnHideButton_IncrementsProgress()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GlassBackdropViewModel(settings, messenger);
+        var buttonCenter = new PhysicalPoint(1860, 40);
+        messenger.Send(new ShowBackdropMessage(buttonCenter));
+
+        long now = 1_000_000;
+        long halfDwellUs = UIConstants.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
+        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
+        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + halfDwellUs));
+
+        Assert.True(vm.HideButtonProgress > 0.4 && vm.HideButtonProgress < 0.6);
+    }
 }

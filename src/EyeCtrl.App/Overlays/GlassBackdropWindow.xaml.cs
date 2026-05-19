@@ -30,7 +30,6 @@ public partial class GlassBackdropWindow : OverlayWindow
     private TextBlock? _hideButtonSymbol;
     private double _hideButtonCenterX;
     private double _hideButtonCenterY;
-    private BackdropType _currentType;
 
     public GlassBackdropWindow()
     {
@@ -83,14 +82,14 @@ public partial class GlassBackdropWindow : OverlayWindow
 
         if (settings.Type == BackdropType.Mica && TryApplyMica())
         {
-            _currentType = BackdropType.Mica;
+            return;
         }
-        else if (settings.Type == BackdropType.Mica || settings.Type == BackdropType.Acrylic)
+
+        if (settings.Type == BackdropType.Mica || settings.Type == BackdropType.Acrylic)
         {
             if (TryApplyAcrylic())
-                _currentType = BackdropType.Acrylic;
-            else
-                ApplySolidDarken(settings.Opacity);
+                return;
+            ApplySolidDarken(settings.Opacity);
         }
         else
         {
@@ -149,7 +148,6 @@ public partial class GlassBackdropWindow : OverlayWindow
 
     private void ApplySolidDarken(double opacity)
     {
-        _currentType = BackdropType.SolidDarken;
         _solidBackground = new Rectangle
         {
             Width = Width,

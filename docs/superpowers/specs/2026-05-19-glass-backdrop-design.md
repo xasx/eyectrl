@@ -99,7 +99,7 @@ _glassBackdrop.Show();
 
 ## Window Merge (Deferred)
 
-The user asked about merging Manual Selection's three windows (overlay, side buttons, gaze indicator) into one. This is technically feasible — all three use `IsClickThrough = true` and are positioned from a shared origin — but is a separate refactoring concern. Deferred to a follow-up issue.
+The user asked about merging Manual Selection's three windows (overlay, side buttons, gaze indicator) into one. Note: the gaze indicator is the movable cursor window during manual selection mode. Merging is technically feasible — all three use `IsClickThrough = true` and are positioned from a shared origin — but is a separate refactoring concern. Deferred to a follow-up issue.
 
 ## Files
 

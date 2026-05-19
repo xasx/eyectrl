@@ -17,12 +17,19 @@ public partial class GlassBackdropWindow : OverlayWindow
     private const int AccentEnableAcrylicBlurBehind = 4;
     private const int DwmwaSystemBackdropType = 38;
     private const int DwmwaUseImmersiveDarkMode = 20;
+    private const double ProgressArcInset = 4;
+    private const double ProgressArcThickness = 4;
+    private const byte ButtonBackgroundAlpha = 200;
+    private const byte ButtonBorderAlpha = 100;
+    private const int ButtonSymbolFontSize = 22;
 
     private Rectangle? _solidBackground;
     private Ellipse? _hideButtonCircle;
-    private Ellipse? _hideButtonProgressArc;
+    private Path? _hideButtonProgressPath;
+    private ArcSegment? _hideButtonArcSegment;
     private TextBlock? _hideButtonSymbol;
-    private PhysicalPoint _hideButtonCenter;
+    private double _hideButtonCenterX;
+    private double _hideButtonCenterY;
     private BackdropType _currentType;
 
     public GlassBackdropWindow()
@@ -159,71 +166,86 @@ public partial class GlassBackdropWindow : OverlayWindow
 
     public void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0)
     {
-        _hideButtonCenter = buttonCenter;
         ClearButton();
         var dipX = DpiHelper.PhysicalToLogicalX(buttonCenter.X) - UIConstants.ButtonRadius;
         var dipY = DpiHelper.PhysicalToLogicalY(buttonCenter.Y) - UIConstants.ButtonRadius;
         var dipSize = UIConstants.ButtonRadius * 2;
+        _hideButtonCenterX = DpiHelper.PhysicalToLogicalX(buttonCenter.X);
+        _hideButtonCenterY = DpiHelper.PhysicalToLogicalY(buttonCenter.Y);
 
         _hideButtonCircle = new Ellipse
         {
             Width = dipSize,
             Height = dipSize,
-            Fill = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
-            Stroke = new SolidColorBrush(Color.FromArgb(100, 100, 100, 100)),
+            Fill = new SolidColorBrush(Color.FromArgb(ButtonBackgroundAlpha, 30, 30, 30)),
+            Stroke = new SolidColorBrush(Color.FromArgb(ButtonBorderAlpha, 100, 100, 100)),
             StrokeThickness = 1
         };
         Canvas.SetLeft(_hideButtonCircle, dipX);
         Canvas.SetTop(_hideButtonCircle, dipY);
         BackdropCanvas.Children.Add(_hideButtonCircle);
 
-        if (progress > 0)
+        var arcRadius = UIConstants.ButtonRadius - ProgressArcInset;
+        _hideButtonArcSegment = new ArcSegment
         {
-            var circumference = Math.PI * (dipSize - 4);
-            _hideButtonProgressArc = new Ellipse
-            {
-                Width = dipSize - 4,
-                Height = dipSize - 4,
-                Stroke = Brushes.Lime,
-                StrokeThickness = 4,
-                StrokeDashArray = new DoubleCollection { circumference * progress, circumference },
-                RenderTransform = new RotateTransform(-90, (dipSize - 4) / 2, (dipSize - 4) / 2)
-            };
-            Canvas.SetLeft(_hideButtonProgressArc, dipX + 2);
-            Canvas.SetTop(_hideButtonProgressArc, dipY + 2);
-            BackdropCanvas.Children.Add(_hideButtonProgressArc);
-        }
+            Point = new Point(_hideButtonCenterX, _hideButtonCenterY - arcRadius),
+            Size = new Size(arcRadius, arcRadius),
+            IsLargeArc = false,
+            SweepDirection = SweepDirection.Clockwise
+        };
+        var figure = new PathFigure
+        {
+            StartPoint = new Point(_hideButtonCenterX, _hideButtonCenterY - arcRadius),
+            IsClosed = false
+        };
+        figure.Segments.Add(_hideButtonArcSegment);
+        var geometry = new PathGeometry();
+        geometry.Figures.Add(figure);
+        _hideButtonProgressPath = new Path
+        {
+            Data = geometry,
+            Stroke = Brushes.Lime,
+            StrokeThickness = ProgressArcThickness
+        };
+        BackdropCanvas.Children.Add(_hideButtonProgressPath);
+
+        if (progress > 0)
+            UpdateHideButtonArc(progress);
 
         _hideButtonSymbol = new TextBlock
         {
             Text = "\u2715",
-            FontSize = 22,
+            FontSize = ButtonSymbolFontSize,
             Foreground = Brushes.White,
             Width = dipSize,
             Height = dipSize,
             TextAlignment = TextAlignment.Center
         };
         Canvas.SetLeft(_hideButtonSymbol, dipX);
-        Canvas.SetTop(_hideButtonSymbol, dipY + (dipSize - 22) / 2 - 2);
+        Canvas.SetTop(_hideButtonSymbol, dipY + (dipSize - ButtonSymbolFontSize) / 2 - 2);
         BackdropCanvas.Children.Add(_hideButtonSymbol);
     }
 
     public void UpdateHideButtonProgress(double progress)
     {
-        if (_hideButtonProgressArc == null)
-        {
-            DrawHideButton(_hideButtonCenter, progress);
+        if (_hideButtonArcSegment == null)
             return;
-        }
-        var dipSize = UIConstants.ButtonRadius * 2;
-        var circumference = Math.PI * (dipSize - 4);
-        _hideButtonProgressArc.StrokeDashArray = new DoubleCollection { circumference * progress, circumference };
+        UpdateHideButtonArc(progress);
+    }
 
-        if (progress <= 0 && _hideButtonProgressArc != null)
-        {
-            BackdropCanvas.Children.Remove(_hideButtonProgressArc);
-            _hideButtonProgressArc = null;
-        }
+    private void UpdateHideButtonArc(double progress)
+    {
+        if (_hideButtonArcSegment == null)
+            return;
+        var radius = UIConstants.ButtonRadius - ProgressArcInset;
+        var angle = progress * MathConstants.FullCircleDegrees;
+        var radians = angle * MathConstants.DegreesToRadians;
+
+        var endX = _hideButtonCenterX + radius * Math.Sin(radians);
+        var endY = _hideButtonCenterY - radius * Math.Cos(radians);
+
+        _hideButtonArcSegment.Point = new Point(endX, endY);
+        _hideButtonArcSegment.IsLargeArc = angle > 180;
     }
 
     private void ClearContent()
@@ -237,12 +259,13 @@ public partial class GlassBackdropWindow : OverlayWindow
     {
         if (_hideButtonCircle != null)
             BackdropCanvas.Children.Remove(_hideButtonCircle);
-        if (_hideButtonProgressArc != null)
-            BackdropCanvas.Children.Remove(_hideButtonProgressArc);
+        if (_hideButtonProgressPath != null)
+            BackdropCanvas.Children.Remove(_hideButtonProgressPath);
         if (_hideButtonSymbol != null)
             BackdropCanvas.Children.Remove(_hideButtonSymbol);
         _hideButtonCircle = null;
-        _hideButtonProgressArc = null;
+        _hideButtonProgressPath = null;
+        _hideButtonArcSegment = null;
         _hideButtonSymbol = null;
     }
 

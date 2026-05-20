@@ -1,6 +1,6 @@
 # EyeCtrl Architecture
 
-> Generated from the GitNexus knowledge graph: **4,875 symbols**, **10,838 relationships**, **251 execution flows** across **168 functional clusters**.
+> Generated from the GitNexus knowledge graph: **5,021 symbols**, **11,207 relationships**, **264 execution flows** across **173 functional clusters**.
 
 EyeCtrl is a gaze-controlled desktop interaction system built on .NET 10 / WPF. It replaces the physical mouse with eye tracking, using dwell-based selection to perform clicks, scrolls, drags, and keyboard input.
 
@@ -8,22 +8,39 @@ EyeCtrl is a gaze-controlled desktop interaction system built on .NET 10 / WPF. 
 
 The knowledge graph auto-detected 14 functional areas (communities) via Leiden clustering. Tests and fixtures excluded.
 
-| Area | Symbols | Cohesion | Description |
-|------|---------|----------|-------------|
-| **Prediction** | 231 | 0.87 | Word prediction engine: n-gram + bigram models, fuzzy edit distance, language detection, capitalization |
-| **Processing** | 152 | 0.72 | Core gaze pipeline: filters (OneEuro, EMA), fixation/dwell detection, centroid tracking, state machine, gap interpolation |
-| **Settings** | 92 | 0.67 | JSON-persisted settings hierarchy: 9 sub-settings objects with range validation and camelCase serialization |
-| **Overlays** | 89 | 0.81 | WPF overlay windows: cursor circle, activation button, action menu, manual selection (magnified preview), toolbar, keyboard |
-| **Services** | 50 | 0.76 | App-layer services: EventCoordinator (message → overlay routing), GazeEngineAdapter (Core ↔ ViewModel bridge), AppBootstrapper (DI), ManualSelectionDwellService |
-| **EyeCtrl.ViewModels** | 36 | 0.81 | MVVM ViewModels (CommunityToolkit.Mvvm): CursorCircleVM, ActivationButtonVM, ManualSelectionOverlayVM, ActionMenuVM, ToolbarVM, KeyboardVM, SettingsVM |
-| **Views** | 32 | 0.87 | Settings window UI (dwell-friendly controls), toolbar window, tray icon, splash screen |
-| **Models** | 27 | 0.87 | Core value types: PhysicalPoint, LogicalPoint, GazePoint, NormalizedPoint, InteractionAction, ViewPosition, InteractionState |
-| **Controls** | 27 | 0.96 | Custom dwell-friendly WPF controls: DwellButton, DwellToggle, DwellSlider, DwellComboBox, DwellColorPicker, ColorBlend |
-| **Gaze** | 25 | 0.91 | Eye tracker providers: IGazeProvider interface, TobiiStreamEngineProvider (conditional), MouseGazeProvider (fallback) |
-| **Keyboard** | 22 | 0.83 | JSON keyboard layouts (QWERTY, AZERTY, etc.), key definitions, layout loader |
-| **Input** | 12 | 0.53 | Win32 P/Invoke: SendInput (mouse clicks, keystrokes, scroll), coordinate normalization |
-| **EyeCtrl.App** | 5 | 0.47 | Application entry point: App.xaml startup, splash screen lifecycle |
-| **Interfaces** | 4 | 1.00 | Core abstractions: IGazeProvider, IInputSimulator, IEventCoordinator, IOverlayManager |
+| Area | Symbols | Description |
+|------|---------|-------------|
+| **Prediction** | 229 | Word prediction engine: n-gram + bigram models, fuzzy edit distance, language detection, capitalization |
+| **Processing** | 153 | Core gaze pipeline: filters (OneEuro, EMA), fixation/dwell detection, centroid tracking, state machine, gap interpolation |
+| **Settings** | 98 | JSON-persisted settings hierarchy: 9 sub-settings objects with range validation and camelCase serialization |
+| **Overlays** | 104 | WPF overlay windows: cursor circle, activation button, action menu, manual selection (magnified preview), toolbar, keyboard, glass backdrop |
+| **Services** | 55 | App-layer services: EventCoordinator (message → overlay routing), GazeEngineAdapter (Core ↔ ViewModel bridge), AppBootstrapper (DI), ManualSelectionDwellService |
+| **EyeCtrl.ViewModels** | 37 | MVVM ViewModels (CommunityToolkit.Mvvm): CursorCircleVM, ActivationButtonVM, ManualSelectionOverlayVM, ActionMenuVM, ToolbarVM, KeyboardVM, SettingsVM |
+| **Views** | 32 | Settings window UI (dwell-friendly controls), toolbar window, tray icon, splash screen |
+| **Models** | 27 | Core value types: PhysicalPoint, LogicalPoint, GazePoint, NormalizedPoint, InteractionAction, ViewPosition, InteractionState |
+| **Controls** | 27 | Custom dwell-friendly WPF controls: DwellButton, DwellToggle, DwellSlider, DwellComboBox, DwellColorPicker, ColorBlend |
+| **Gaze** | 25 | Eye tracker providers: IGazeProvider interface, TobiiStreamEngineProvider (conditional), MouseGazeProvider (fallback) |
+| **Keyboard** | 22 | JSON keyboard layouts (QWERTY, AZERTY, etc.), key definitions, layout loader, emoji data |
+| **Input** | 12 | Win32 P/Invoke: SendInput (mouse clicks, keystrokes, scroll), coordinate normalization, IMouseCoordinateMapper |
+| **EyeCtrl.App** | 5 | Application entry point: App.xaml startup, splash screen lifecycle |
+| **Interfaces** | 10 | Core abstractions: IGazeProvider, IInputSimulator, IGazeFilter, IDictionaryProvider, IDwellRegistrar, IValidatable, IMouseCoordinateMapper, IEventCoordinator, IOverlayManager, IDwellComposite |
+
+## Interface Inventory
+
+All interfaces discovered by the knowledge graph:
+
+| Interface | Project | File | Purpose |
+|-----------|---------|------|---------|
+| `IGazeProvider` | Core | `src/EyeCtrl.Core/Interfaces/IGazeProvider.cs` | Abstraction for eye tracker data sources |
+| `IGazeFilter` | Core | `src/EyeCtrl.Core/Interfaces/IGazeFilter.cs` | Pluggable gaze data filtering |
+| `IInputSimulator` | Core | `src/EyeCtrl.Core/Interfaces/IInputSimulator.cs` | Abstraction for mouse/keyboard simulation |
+| `IDictionaryProvider` | Core | `src/EyeCtrl.Core/Prediction/IDictionaryProvider.cs` | Word frequency dictionary loading |
+| `IDwellRegistrar` | Core | `src/EyeCtrl.Core/Processing/IDwellRegistrar.cs` | Dwell target registration interface |
+| `IValidatable` | Core | `src/EyeCtrl.Core/Settings/IValidatable.cs` | Settings validation contract |
+| `IMouseCoordinateMapper` | Platform | `src/EyeCtrl.Platform/Input/IMouseCoordinateMapper.cs` | Logical ↔ physical coordinate mapping |
+| `IEventCoordinator` | App | `src/EyeCtrl.App/Services/IEventCoordinator.cs` | Message routing and event coordination |
+| `IOverlayManager` | App | `src/EyeCtrl.App/Services/IOverlayManager.cs` | Overlay window lifecycle management |
+| `IDwellComposite` | App | `src/EyeCtrl.App/Controls/IDwellComposite.cs` | Composite dwell control contract |
 
 ## Inter-Area Call Graph
 
@@ -39,25 +56,25 @@ graph LR
 
     %% Core layer
     Models("Models<br/>(27 symbols)")
-    Interfaces("Interfaces<br/>(4 symbols)")
-    Processing("Processing<br/>(152 symbols)")
-    Prediction("Prediction<br/>(231 symbols)")
+    Interfaces("Interfaces<br/>(10 symbols)")
+    Processing("Processing<br/>(153 symbols)")
+    Prediction("Prediction<br/>(229 symbols)")
     Keyboard("Keyboard<br/>(22 symbols)")
-    Settings("Settings<br/>(92 symbols)")
+    Settings("Settings<br/>(98 symbols)")
 
     %% Platform layer
     Gaze("Gaze<br/>(25 symbols)")
     Input("Input<br/>(12 symbols)")
 
     %% App layer
-    Services("Services<br/>(50 symbols)")
+    Services("Services<br/>(55 symbols)")
     EyeCtrlApp("EyeCtrl.App<br/>(5 symbols)")
 
     %% ViewModels
-    ViewModels("EyeCtrl.ViewModels<br/>(36 symbols)")
+    ViewModels("EyeCtrl.ViewModels<br/>(37 symbols)")
 
     %% UI
-    Overlays("Overlays<br/>(89 symbols)")
+    Overlays("Overlays<br/>(104 symbols)")
     Views("Views<br/>(32 symbols)")
     Controls("Controls<br/>(27 symbols)")
 
@@ -110,7 +127,7 @@ Arrows show the top inter-community `CALLS` edges from the graph. Edge labels ar
 
 ## Key Execution Flows
 
-The graph contains 251 processes (execution flows). Top 5 by relevance, with step-by-step traces:
+The graph contains 264 processes (execution flows). Top 5 by relevance, with step-by-step traces:
 
 ### 1. Gaze Engine Startup (`Start → GazePoint`)
 
@@ -242,9 +259,9 @@ stateDiagram-v2
 │  │ FixationCentroidTracker                          │  │        │
 │  └──────────────────────────────────────────────────┘  │        │
 │  ┌──────────────────────────────────────────────────┐  │        │
-│  │ WordPredictor (n-gram + bigram, 231 symbols)      │  │        │
+│  │ WordPredictor (n-gram + bigram, 229 symbols)      │  │        │
 │  │ KeyboardLayout (multi-lang JSON, 22 symbols)      │  │        │
-│  │ SettingsService (JSON persistence, 92 symbols)    │  │        │
+│  │ SettingsService (JSON persistence, 98 symbols)    │  │        │
 │  │ Models (PhysicalPoint, GazePoint, etc., 27 sym.)  │  │        │
 │  └──────────────────────────────────────────────────┘  │        │
 ├──────────────────────────────────────────────────────────────────┤
@@ -253,9 +270,22 @@ stateDiagram-v2
 │  │ IGazeProvider         │   │ IInputSimulator              │    │
 │  │ ├─ TobiiStreamEngine  │   │ └─ Win32InputSimulator       │    │
 │  │ └─ MouseGazeProvider  │   │    (SendInput P/Invoke)      │    │
-│  └──────────────────────┘   └──────────────────────────────┘    │
+│  └──────────────────────┘   │ IMouseCoordinateMapper       │    │
+│                              └──────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+## Messaging (WeakReferenceMessenger)
+
+The ViewModels layer communicates with the App layer via three message groups defined in `src/EyeCtrl.ViewModels/Messages/`:
+
+| Message Group | File | Purpose |
+|---------------|------|---------|
+| **GazeMessages** | `GazeMessages.cs` | Cursor position updates, gaze provider state changes |
+| **InteractionMessages** | `InteractionMessages.cs` | Dwell activation, action selection, key presses |
+| **OverlayMessages** | `OverlayMessages.cs` | Show/hide overlays, toolbar/keyboard visibility |
+
+This replaces direct ViewModel→App references with decoupled publish/subscribe via `WeakReferenceMessenger`.
 
 ## Communication Flow
 
@@ -301,8 +331,9 @@ sequenceDiagram
 
 | Metric | Count |
 |--------|-------|
-| Total symbols | 4,875 |
-| Relationships | 10,838 |
-| Communities | 168 |
-| Processes (execution flows) | 251 |
-| Source files indexed | 298 |
+| Total symbols | 5,021 |
+| Relationships | 11,207 |
+| Communities | 173 |
+| Processes (execution flows) | 264 |
+| Interfaces | 10 |
+| Source files indexed | 307 |

@@ -56,6 +56,7 @@ public record EventCoordinationContext(
     ActionMenuViewModel ActionMenuVM,
     ToolbarViewModel ToolbarVM,
     KeyboardViewModel KeyboardVM,
+    GlassBackdropViewModel BackdropVM,
 
     // Overlay Windows
     IOverlayManager OverlayManager,

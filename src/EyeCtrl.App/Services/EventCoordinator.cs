@@ -39,6 +39,7 @@ public class EventCoordinator : IEventCoordinator
     private bool _disposed;
     private Action<PhysicalPoint, long>? _gazeMovedHandler;
     private WordPredictor? _wordPredictor;
+    private GlassBackdropWindow? _glassBackdrop;
     private string? _appDataDir;
 
     /// <summary>
@@ -54,6 +55,7 @@ public class EventCoordinator : IEventCoordinator
         SetupPropertyChangedHandlers();
         SetupMessageHandlers();
         SetupGazeRouting();
+        SetupBackdrop();
     }
 
     private void SetupPropertyChangedHandlers()
@@ -88,6 +90,9 @@ public class EventCoordinator : IEventCoordinator
 
         // Toolbar: VM state changes -> toolbar state
         _context.ToolbarVM.PropertyChanged += OnToolbarVMPropertyChanged;
+
+        // GlassBackdrop: VM progress -> backdrop window update
+        _context.BackdropVM.PropertyChanged += OnBackdropVMPropertyChanged;
     }
 
     private void SetupMessageHandlers()
@@ -141,6 +146,7 @@ public class EventCoordinator : IEventCoordinator
             {
                 if (im.CurrentState == InteractionState.ManualSelectionActive && im.FixationPoint != null)
                 {
+                    HideBackdrop();
                     _context.Messenger.Send(new StartManualSelectionMessage(
                         im.FixationPoint.Value,
                         _context.Settings.ManualSelection.CircleRadiusPixels,
@@ -197,6 +203,18 @@ public class EventCoordinator : IEventCoordinator
                     _settingsWindow.Close();
                 }
             }));
+
+        // BackdropDismissMessage -> hide backdrop and navigate back
+        _context.Messenger.Register<EventCoordinator, BackdropDismissMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                HideBackdrop();
+                var im = _context.InteractionManager;
+                if (im.CurrentState == InteractionState.ActionMenuVisible)
+                    im.OnActionMenuDismissed();
+                else if (im.CurrentState == InteractionState.ManualSelectionActive)
+                    im.OnManualSelectionBack();
+            }));
     }
 
     private void SetupGazeRouting()
@@ -219,6 +237,42 @@ public class EventCoordinator : IEventCoordinator
             });
 
         _context.GazeEngine.CursorMoved += _gazeMovedHandler;
+    }
+
+    private void SetupBackdrop()
+    {
+        if (_context == null)
+            return;
+        _glassBackdrop = _context.OverlayManager.GlassBackdrop;
+    }
+
+    private void ShowBackdropIfEnabled()
+    {
+        if (_glassBackdrop == null || _context == null)
+            return;
+        var settings = _context.Settings.Backdrop;
+        if (!settings.Enabled)
+            return;
+
+        var screen = System.Windows.Forms.Screen.PrimaryScreen;
+        if (screen == null)
+            return;
+        var dipRight = screen.Bounds.Width / DpiHelper.ScaleX - UIConstants.BackdropHideButtonOffset;
+        var dipTop = UIConstants.BackdropHideButtonOffset;
+        var hideButtonCenter = new PhysicalPoint(
+            DpiHelper.LogicalToPhysicalX(dipRight),
+            DpiHelper.LogicalToPhysicalY(dipTop));
+
+        _glassBackdrop.Show();
+        _glassBackdrop.ApplyBackdrop(settings);
+        _glassBackdrop.DrawHideButton(hideButtonCenter);
+        _context.Messenger.Send(new ShowBackdropMessage(hideButtonCenter));
+    }
+
+    private void HideBackdrop()
+    {
+        _glassBackdrop?.Hide();
+        _context?.Messenger.Send(new HideBackdropMessage());
     }
 
     #region PropertyChanged Handlers
@@ -290,11 +344,13 @@ public class EventCoordinator : IEventCoordinator
                 activationButton.HideImmediate();
                 ManualSelectionOverlay.Show(_context.ManualSelectionVM.Center, _context.ManualSelectionVM.Radius, _context.ManualSelectionVM.Magnification, _context.ManualSelectionVM.GazePoint);
                 ManualSelectionIndicator.Show();
+                ShowBackdropIfEnabled();
             }
             else
             {
                 ManualSelectionOverlay.Hide();
                 ManualSelectionIndicator.Hide();
+                HideBackdrop();
             }
         }
     }
@@ -369,10 +425,12 @@ public class EventCoordinator : IEventCoordinator
                     _context.ActionMenuVM.ManualSelectionCenter,
                     _context.ActionMenuVM.ManualSelectionRadius,
                     _context.ActionMenuVM.GazePoint);
+                ShowBackdropIfEnabled();
             }
             else
             {
                 actionMenu.Hide();
+                HideBackdrop();
             }
         }
     }
@@ -386,6 +444,13 @@ public class EventCoordinator : IEventCoordinator
         {
             toolbar.SetPausedState(_context.ToolbarVM.IsPaused);
         }
+    }
+
+    private void OnBackdropVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_glassBackdrop == null) return;
+        if (e.PropertyName == nameof(GlassBackdropViewModel.HideButtonProgress))
+            _glassBackdrop.UpdateHideButtonProgress(_context!.BackdropVM.HideButtonProgress);
     }
 
     #endregion
@@ -678,6 +743,7 @@ public class EventCoordinator : IEventCoordinator
         _context.ManualSelectionIndicatorVM.PropertyChanged -= OnManualSelectionIndicatorVMPropertyChanged;
         _context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
         _context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;
+        _context.BackdropVM.PropertyChanged -= OnBackdropVMPropertyChanged;
 
         // Unsubscribe from GazeEngine events
         if (_gazeMovedHandler != null)

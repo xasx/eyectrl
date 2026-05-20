@@ -26,6 +26,7 @@ public class OverlayManager : IOverlayManager
     public ToolbarWindow Toolbar { get; private set; } = null!;
     public KeyboardWindow Keyboard { get; private set; } = null!;
     public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator { get; private set; } = null!;
+    public GlassBackdropWindow GlassBackdrop { get; private set; } = null!;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger)
     {
@@ -49,6 +50,7 @@ public class OverlayManager : IOverlayManager
         Toolbar = new ToolbarWindow();
         Keyboard = new KeyboardWindow();
         ManualSelectionIndicator = new ManualSelectionGazeIndicatorWindow();
+        GlassBackdrop = new GlassBackdropWindow();
 
         // Configure ManualSelection indicator
         ManualSelectionIndicator.Configure(

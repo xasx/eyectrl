@@ -87,3 +87,8 @@ public record KeyActivatedMessage(string Key, IReadOnlySet<ModifierKey>? Modifie
 public record PredictionSelectedMessage(string Word, int DeleteCount = 0);
 public record SpecialKeyMessage(string KeyName, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record SettingsChangedMessage;
+
+/// <summary>Sent to show the glass backdrop. HideButtonCenter is in physical screen pixels.</summary>
+public record ShowBackdropMessage(PhysicalPoint HideButtonCenter);
+public record HideBackdropMessage;
+public record BackdropDismissMessage;

@@ -124,6 +124,7 @@ public partial class App : Application
         var toolbarVM = _serviceProvider.GetRequiredService<ToolbarViewModel>();
         var keyboardVM = _serviceProvider.GetRequiredService<KeyboardViewModel>();
         var ManualSelectionIndicatorVM = _serviceProvider.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
+        var backdropVM = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
 
         // Resolve adapter (triggers Core event subscriptions)
         _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
@@ -147,7 +148,7 @@ public partial class App : Application
         // All PropertyChanged and message handlers are now managed by EventCoordinator
         _eventCoordinator = new EventCoordinator();
         var coordinationContext = new EventCoordinationContext(
-            cursorVM, activationVM, ManualSelectionVM, ManualSelectionIndicatorVM, actionMenuVM, toolbarVM, keyboardVM,
+            cursorVM, activationVM, ManualSelectionVM, ManualSelectionIndicatorVM, actionMenuVM, toolbarVM, keyboardVM, backdropVM,
             overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator);
         _eventCoordinator.Initialize(coordinationContext);
 

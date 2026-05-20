@@ -325,6 +325,48 @@ public class ViewModelDisposableTests
     }
 
     [Fact]
+    public void GlassBackdropViewModel_ImplementsIDisposable()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GlassBackdropViewModel(settings, messenger);
+
+        Assert.IsAssignableFrom<IDisposable>(vm);
+    }
+
+    [Fact]
+    public void GlassBackdropViewModel_UnregistersMessagesOnDispose()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GlassBackdropViewModel(settings, messenger);
+
+        // Verify VM receives messages before disposal
+        var buttonCenter = new PhysicalPoint(1860, 40);
+        messenger.Send(new ShowBackdropMessage(buttonCenter));
+        Assert.True(vm.IsVisible);
+
+        // Dispose the ViewModel
+        ((IDisposable)vm).Dispose();
+
+        // After disposal, messages should not be processed
+        messenger.Send(new HideBackdropMessage());
+        Assert.True(vm.IsVisible); // Should remain visible since message wasn't processed
+    }
+
+    [Fact]
+    public void GlassBackdropViewModel_DisposeIsIdempotent()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GlassBackdropViewModel(settings, messenger);
+
+        ((IDisposable)vm).Dispose();
+        ((IDisposable)vm).Dispose();
+        ((IDisposable)vm).Dispose();
+    }
+
+    [Fact]
     public void MultipleViewModels_CanBeDisposedIndependently()
     {
         var settings = new EyeCtrlSettings();

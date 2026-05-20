@@ -30,6 +30,18 @@ public static class ValidationHelper
     }
 
     /// <summary>
+    /// Validates that an enum value is defined.
+    /// </summary>
+    public static string? ValidateEnumDefined<TEnum>(TEnum value, string propertyName) where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            return $"{propertyName} must be a defined enum value of {typeof(TEnum).Name}, but was {value}";
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Validates that a color string is valid hex format.
     /// </summary>
     public static string? ValidateHexColor(string value, string propertyName)

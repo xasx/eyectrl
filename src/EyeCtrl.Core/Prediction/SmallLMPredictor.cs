@@ -282,6 +282,11 @@ public class SmallLMPredictor : IDisposable
         if (_disposed) return;
         _disposed = true;
         Cancel();
+
+        var timeout = DateTime.UtcNow.AddSeconds(5);
+        while (_isRunning && DateTime.UtcNow < timeout)
+            Thread.Sleep(10);
+
         _session?.Dispose();
         _session = null;
     }

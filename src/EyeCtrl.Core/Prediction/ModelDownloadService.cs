@@ -4,10 +4,11 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 
-public class ModelDownloadService
+public class ModelDownloadService : IDisposable
 {
     private readonly string _modelsDirectory;
     private readonly HttpClient _httpClient;
+    private readonly bool _ownsHttpClient;
     private readonly ILogger<ModelDownloadService>? _logger;
 
     private static readonly Dictionary<string, string> ModelFileNames = new()
@@ -20,6 +21,7 @@ public class ModelDownloadService
     public ModelDownloadService(string modelsDirectory, HttpClient? httpClient = null, ILogger<ModelDownloadService>? logger = null)
     {
         _modelsDirectory = modelsDirectory;
+        _ownsHttpClient = httpClient == null;
         _httpClient = httpClient ?? new HttpClient();
         _httpClient.Timeout = TimeSpan.FromMinutes(30);
         _logger = logger;
@@ -80,17 +82,16 @@ public class ModelDownloadService
             int bytesRead;
 
             using var sha256 = SHA256.Create();
-            using var cryptoStream = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read);
-
-            while ((bytesRead = await cryptoStream.ReadAsync(buffer, cancellationToken)) > 0)
+            using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
             {
-                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-                totalRead += bytesRead;
-                if (totalBytes > 0)
-                    progress?.Report((double)totalRead / totalBytes);
+                while ((bytesRead = await cs.ReadAsync(buffer, cancellationToken)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                    totalRead += bytesRead;
+                    if (totalBytes > 0)
+                        progress?.Report((double)totalRead / totalBytes);
+                }
             }
-
-            cryptoStream.FlushFinalBlock();
             var computedHash = Convert.ToHexStringLower(sha256.Hash!);
 
             if (!string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
@@ -116,5 +117,11 @@ public class ModelDownloadService
             if (File.Exists(tempPath)) File.Delete(tempPath);
             return false;
         }
+    }
+
+    public void Dispose()
+    {
+        if (_ownsHttpClient)
+            _httpClient?.Dispose();
     }
 }

@@ -31,6 +31,7 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
 
     private static readonly string[] ValidLayouts = { "QWERTY", "AZERTY", "QWERTZ" };
     private static readonly string[] ValidScreenEdges = { "Top", "Bottom" };
+    private static readonly string[] ValidMLModelSizes = { "135M", "360M", "1.5B", "Off" };
 
     public IReadOnlyList<string> Validate()
     {
@@ -38,6 +39,7 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateStringEnum(ActiveLayout, ValidLayouts, nameof(ActiveLayout)),
             ValidationHelper.ValidateRange(KeySizeMultiplier, 0.5, 2.0, nameof(KeySizeMultiplier)),
             ValidationHelper.ValidateStringEnum(ScreenEdge, ValidScreenEdges, nameof(ScreenEdge)),
+            ValidationHelper.ValidateStringEnum(MLModelSize, ValidMLModelSizes, nameof(MLModelSize)),
             ValidationHelper.ValidateRange(DecayHalfLifeDays, 1, 365, nameof(DecayHalfLifeDays))
         );
     }

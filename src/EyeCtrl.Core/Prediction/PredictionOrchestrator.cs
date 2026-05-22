@@ -1,6 +1,6 @@
 namespace EyeCtrl.Core.Prediction;
 
-public class PredictionOrchestrator
+public class PredictionOrchestrator : IDisposable
 {
     private readonly WordPredictor _wordPredictor;
     private readonly SentenceCompletionIndex? _sentenceIndex;
@@ -57,7 +57,7 @@ public class PredictionOrchestrator
             .Take(maxCount)
             .ToList();
 
-        if (_lmPredictor != null && _lmPredictor.IsAvailable)
+        if (_mlEnabled && _lmPredictor != null && _lmPredictor.IsAvailable)
         {
             var lmResults = _lmPredictor.TryGetResults();
             if (lmResults != null && lmResults.Count > 0)
@@ -66,6 +66,7 @@ public class PredictionOrchestrator
                 {
                     if (!merged.ContainsKey(lmResult.Word))
                     {
+                        merged[lmResult.Word] = lmResult;
                         sorted.Add(lmResult);
                         if (sorted.Count >= maxCount) break;
                     }
@@ -73,7 +74,7 @@ public class PredictionOrchestrator
                 sorted = sorted.OrderByDescending(r => r.Score).Take(maxCount).ToList();
             }
 
-            if (_mlEnabled && prefix != _lastLmPrefix && ShouldTriggerLm(sorted, context, prefix))
+            if (prefix != _lastLmPrefix && ShouldTriggerLm(sorted, context, prefix))
             {
                 _lastLmPrefix = prefix;
                 var lmContext = context ?? "";
@@ -109,4 +110,9 @@ public class PredictionOrchestrator
     }
 
     public WordPredictor WordPredictor => _wordPredictor;
+
+    public void Dispose()
+    {
+        _lmPredictor?.Dispose();
+    }
 }

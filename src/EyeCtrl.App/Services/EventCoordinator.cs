@@ -726,7 +726,8 @@ public class EventCoordinator : IEventCoordinator
             {
                 try
                 {
-                    trieIndex = SentenceCompletionIndex.Load(File.OpenRead(triePath));
+                    using var trieStream = File.OpenRead(triePath);
+                    trieIndex = SentenceCompletionIndex.Load(trieStream);
                     Log.Information("Loaded sentence completion trie: {Path}", triePath);
                 }
                 catch (Exception ex)
@@ -788,6 +789,9 @@ public class EventCoordinator : IEventCoordinator
 
         // Unregister all message handlers
         _context.Messenger.UnregisterAll(this);
+
+        _orchestrator?.WordPredictor.SaveUserDictionary();
+        _orchestrator = null;
 
         _settingsWindow = null;
         _disposed = true;

@@ -74,4 +74,42 @@ public class PredictionResultTests
         // result.Word = "modified"; // This should not compile with init
         Assert.Equal("original", result.Word);
     }
+
+    [Fact]
+    public void Constructor_SentenceCompletion_CreatesValidRecord()
+    {
+        var result = new PredictionResult("hand is worth two in the bush", 150.0, PredictionType.SentenceCompletion, 0.95);
+        Assert.Equal("hand is worth two in the bush", result.Word);
+        Assert.Equal(150.0, result.Score);
+        Assert.Equal(PredictionType.SentenceCompletion, result.Type);
+        Assert.Equal(0.95, result.Confidence);
+    }
+
+    [Fact]
+    public void Constructor_LMSuggestion_CreatesValidRecord()
+    {
+        var result = new PredictionResult("bush", 80.0, PredictionType.LMSuggestion, 0.6);
+        Assert.Equal("bush", result.Word);
+        Assert.Equal(80.0, result.Score);
+        Assert.Equal(PredictionType.LMSuggestion, result.Type);
+        Assert.Equal(0.6, result.Confidence);
+    }
+
+    [Theory]
+    [InlineData(PredictionType.SentenceCompletion)]
+    [InlineData(PredictionType.LMSuggestion)]
+    public void NewPredictionTypes_RoundTripThroughSwitch(PredictionType type)
+    {
+        var label = type switch
+        {
+            PredictionType.ExactPrefix => "ExactPrefix",
+            PredictionType.FuzzyMatch => "FuzzyMatch",
+            PredictionType.NextWord => "NextWord",
+            PredictionType.Phrase => "Phrase",
+            PredictionType.SentenceCompletion => "SentenceCompletion",
+            PredictionType.LMSuggestion => "LMSuggestion",
+            _ => "Unknown"
+        };
+        Assert.NotEqual("Unknown", label);
+    }
 }

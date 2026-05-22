@@ -23,6 +23,12 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     [ObservableProperty] private bool _decayEnabled = true;
     [ObservableProperty] private int _decayHalfLifeDays = 30;
 
+    // ML Model Settings
+    [ObservableProperty] private bool _mLSuggestionsEnabled = true;
+    [ObservableProperty] private string _mLModelSize = "360M";
+    [ObservableProperty] private bool _showLMLoadingIndicator = true;
+    [ObservableProperty] private bool _preferGPU = true;
+
     private static readonly string[] ValidLayouts = { "QWERTY", "AZERTY", "QWERTZ" };
     private static readonly string[] ValidScreenEdges = { "Top", "Bottom" };
 

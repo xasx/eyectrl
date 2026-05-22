@@ -62,5 +62,15 @@ public enum PredictionType
     /// <summary>
     /// Multi-word phrase suggestion (e.g., "thank you").
     /// </summary>
-    Phrase
+    Phrase,
+
+    /// <summary>
+    /// Sentence completion prediction from the trie index.
+    /// </summary>
+    SentenceCompletion,
+
+    /// <summary>
+    /// Suggestion from the ONNX language model.
+    /// </summary>
+    LMSuggestion
 }

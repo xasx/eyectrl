@@ -1,0 +1,120 @@
+namespace EyeCtrl.Core.Prediction;
+
+using System.Net.Http;
+using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
+
+public class ModelDownloadService
+{
+    private readonly string _modelsDirectory;
+    private readonly HttpClient _httpClient;
+    private readonly ILogger<ModelDownloadService>? _logger;
+
+    private static readonly Dictionary<string, string> ModelFileNames = new()
+    {
+        ["135M"] = "smollm2-135m.onnx",
+        ["360M"] = "smollm2-360m.onnx",
+        ["1.5B"] = "qwen2.5-1.5b.onnx",
+    };
+
+    public ModelDownloadService(string modelsDirectory, HttpClient? httpClient = null, ILogger<ModelDownloadService>? logger = null)
+    {
+        _modelsDirectory = modelsDirectory;
+        _httpClient = httpClient ?? new HttpClient();
+        _httpClient.Timeout = TimeSpan.FromMinutes(30);
+        _logger = logger;
+        Directory.CreateDirectory(_modelsDirectory);
+    }
+
+    public List<string> GetAvailableModels()
+    {
+        var available = new List<string>();
+        foreach (var (size, fileName) in ModelFileNames)
+        {
+            var path = Path.Combine(_modelsDirectory, fileName);
+            if (File.Exists(path))
+                available.Add(size);
+        }
+        return available;
+    }
+
+    public bool IsModelDownloaded(string modelSize)
+    {
+        if (!ModelFileNames.TryGetValue(modelSize, out var fileName)) return false;
+        return File.Exists(Path.Combine(_modelsDirectory, fileName));
+    }
+
+    public string GetModelPath(string modelSize)
+    {
+        if (!ModelFileNames.TryGetValue(modelSize, out var fileName))
+            throw new ArgumentException($"Unknown model size: {modelSize}");
+        return Path.Combine(_modelsDirectory, fileName);
+    }
+
+    public async Task<bool> DownloadModelAsync(
+        string modelSize,
+        string url,
+        string expectedSha256,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ModelFileNames.TryGetValue(modelSize, out var fileName))
+            throw new ArgumentException($"Unknown model size: {modelSize}");
+
+        var outputPath = Path.Combine(_modelsDirectory, fileName);
+        var tempPath = outputPath + ".download";
+
+        _logger?.LogInformation("Downloading model {Size} from {Url} to {Path}", modelSize, url, outputPath);
+
+        try
+        {
+            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            var totalBytes = response.Content.Headers.ContentLength ?? -1;
+            using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var fileStream = File.Create(tempPath);
+
+            var buffer = new byte[8192];
+            long totalRead = 0;
+            int bytesRead;
+
+            using var sha256 = SHA256.Create();
+            using var cryptoStream = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read);
+
+            while ((bytesRead = await cryptoStream.ReadAsync(buffer, cancellationToken)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                totalRead += bytesRead;
+                if (totalBytes > 0)
+                    progress?.Report((double)totalRead / totalBytes);
+            }
+
+            cryptoStream.FlushFinalBlock();
+            var computedHash = Convert.ToHexStringLower(sha256.Hash!);
+
+            if (!string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger?.LogError("Hash mismatch for model {Size}: expected {Expected}, got {Actual}", modelSize, expectedSha256, computedHash);
+                File.Delete(tempPath);
+                return false;
+            }
+
+            File.Move(tempPath, outputPath, overwrite: true);
+            _logger?.LogInformation("Model {Size} downloaded successfully ({Bytes} bytes)", modelSize, totalRead);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger?.LogInformation("Model download cancelled: {Size}", modelSize);
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to download model {Size}", modelSize);
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+            return false;
+        }
+    }
+}

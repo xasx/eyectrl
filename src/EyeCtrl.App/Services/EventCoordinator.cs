@@ -38,14 +38,15 @@ public class EventCoordinator : IEventCoordinator
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
     private Action<PhysicalPoint, long>? _gazeMovedHandler;
-    private WordPredictor? _wordPredictor;
+    private PredictionOrchestrator? _orchestrator;
     private GlassBackdropWindow? _glassBackdrop;
     private string? _appDataDir;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
     /// </summary>
-    public WordPredictor? WordPredictor => _wordPredictor;
+    public WordPredictor? WordPredictor => _orchestrator?.WordPredictor;
+    public PredictionOrchestrator? Orchestrator => _orchestrator;
 
     public void Initialize(EventCoordinationContext context)
     {
@@ -714,12 +715,39 @@ public class EventCoordinator : IEventCoordinator
             var dictPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                 "Resources", "Dictionaries", $"{langCode}.json");
             var provider = new FileDictionaryProvider(dictPath, _appDataDir!, langCode);
-            _wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);
+            var wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);
+            wordPredictor.ApplyDecay(settings.Keyboard.DecayEnabled, settings.Keyboard.DecayHalfLifeDays);
 
-            // Phase 8: Apply decay after loading to clean up old patterns using user settings
-            _wordPredictor.ApplyDecay(settings.Keyboard.DecayEnabled, settings.Keyboard.DecayHalfLifeDays);
+            // Load sentence completion trie if available
+            SentenceCompletionIndex? trieIndex = null;
+            var triePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                "Resources", "Completions", $"completions_{langCode}.bin");
+            if (File.Exists(triePath))
+            {
+                try
+                {
+                    trieIndex = SentenceCompletionIndex.Load(File.OpenRead(triePath));
+                    Log.Information("Loaded sentence completion trie: {Path}", triePath);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Failed to load sentence completion trie from {Path}", triePath);
+                }
+            }
 
-            keyboard.SetPredictor(_wordPredictor);
+            // Create LM predictor if ML settings are enabled
+            SmallLMPredictor? lmPredictor = null;
+            if (settings.Keyboard.MLSuggestionsEnabled)
+            {
+                var modelsDir = Path.Combine(_appDataDir!, "models");
+                lmPredictor = new SmallLMPredictor(
+                    modelsDir,
+                    settings.Keyboard.MLModelSize,
+                    settings.Keyboard.PreferGPU);
+            }
+
+            _orchestrator = new PredictionOrchestrator(wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled);
+            keyboard.SetOrchestrator(_orchestrator);
         }
 
         keyboard.SetScreenEdge(settings.Keyboard.ScreenEdge);

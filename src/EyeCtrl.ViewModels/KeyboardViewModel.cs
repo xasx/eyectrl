@@ -39,7 +39,7 @@ public partial class KeyboardViewModel : ObservableObject,
     [ObservableProperty] private string _currentInput = "";
     [ObservableProperty] private string _activeSubLayoutId = "letters";
 
-    private WordPredictor? _predictor;
+    private PredictionOrchestrator? _orchestrator;
     private KeyboardLayout? _layout;
     private string? _previousWord;
     private string _recentText = ""; // Track recent text for smart capitalization
@@ -136,7 +136,15 @@ public partial class KeyboardViewModel : ObservableObject,
         ActiveSubLayoutId = layout.DefaultSubLayout;
     }
 
-    public void SetPredictor(WordPredictor? predictor) => _predictor = predictor;
+    public void SetPredictor(WordPredictor? predictor)
+    {
+        if (predictor != null)
+            _orchestrator = new PredictionOrchestrator(predictor);
+        else
+            _orchestrator = null;
+    }
+
+    public void SetOrchestrator(PredictionOrchestrator? orchestrator) => _orchestrator = orchestrator;
 
     public void ToggleModifier(ModifierKey modifier)
     {
@@ -174,7 +182,7 @@ public partial class KeyboardViewModel : ObservableObject,
         if (!HasSystemModifiers)
         {
             CurrentInput += actualOutput;
-            _predictor?.LearnWord(actualOutput);
+            _orchestrator?.LearnWord(actualOutput);
         }
         _messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -211,7 +219,7 @@ public partial class KeyboardViewModel : ObservableObject,
         {
             if (CurrentInput.Length > 0)
             {
-                _predictor?.LearnWord(CurrentInput);
+                _orchestrator?.LearnWord(CurrentInput);
                 _previousWord = CurrentInput;
                 AppendRecentText(CurrentInput);
             }
@@ -248,17 +256,17 @@ public partial class KeyboardViewModel : ObservableObject,
     /// </summary>
     public List<PredictionResult> GetSuggestionsWithContext()
     {
-        if (_predictor == null) return new List<PredictionResult>();
+        if (_orchestrator == null) return new List<PredictionResult>();
 
         // Pass full text context for smart capitalization if enabled
         var fullText = _settings.Keyboard.SmartCapitalizationEnabled ? _recentText : null;
 
-        return _predictor.GetSuggestions(CurrentInput, _previousWord, maxCount: 5, fullText: fullText);
+        return _orchestrator.GetSuggestions(CurrentInput, _previousWord, maxCount: 5, fullText: fullText);
     }
 
     public void HandlePredictionSelected(string word)
     {
-        _predictor?.LearnWord(word);
+        _orchestrator?.LearnWord(word);
         var deleteCount = CurrentInput.Length;
         CurrentInput = "";
         _previousWord = word;

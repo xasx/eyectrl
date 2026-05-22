@@ -115,6 +115,8 @@ public partial class KeyboardWindow : OverlayWindow
 
     public void SetPredictor(WordPredictor predictor) => _viewModel?.SetPredictor(predictor);
 
+    public void SetOrchestrator(PredictionOrchestrator orchestrator) => _viewModel?.SetOrchestrator(orchestrator);
+
     public void SetScreenEdge(string edge)
     {
         _screenEdge = edge;

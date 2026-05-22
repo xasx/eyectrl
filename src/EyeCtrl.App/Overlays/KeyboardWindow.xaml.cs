@@ -27,6 +27,8 @@ public partial class KeyboardWindow : OverlayWindow
     private static readonly Brush ForegroundFuzzyMatch;
     private static readonly Brush ForegroundNextWord;
     private static readonly Brush ForegroundPhrase;
+    private static readonly Brush ForegroundSentenceCompletion;
+    private static readonly Brush ForegroundLMSuggestion;
 
     static KeyboardWindow()
     {
@@ -42,6 +44,14 @@ public partial class KeyboardWindow : OverlayWindow
         var phraseBrush = new SolidColorBrush(Color.FromRgb(255, 255, 200));
         phraseBrush.Freeze();
         ForegroundPhrase = phraseBrush;
+
+        var sentenceCompletionBrush = new SolidColorBrush(Color.FromRgb(100, 200, 255));
+        sentenceCompletionBrush.Freeze();
+        ForegroundSentenceCompletion = sentenceCompletionBrush;
+
+        var lmSuggestionBrush = new SolidColorBrush(Color.FromRgb(200, 150, 255));
+        lmSuggestionBrush.Freeze();
+        ForegroundLMSuggestion = lmSuggestionBrush;
     }
 
     private readonly DwellDetector _predictionDwellDetector = new();
@@ -533,6 +543,8 @@ public partial class KeyboardWindow : OverlayWindow
             PredictionType.FuzzyMatch => ForegroundFuzzyMatch,
             PredictionType.NextWord => ForegroundNextWord,
             PredictionType.Phrase => ForegroundPhrase,
+            PredictionType.SentenceCompletion => ForegroundSentenceCompletion,
+            PredictionType.LMSuggestion => ForegroundLMSuggestion,
             _ => ForegroundExactPrefix
         };
     }
@@ -544,9 +556,11 @@ public partial class KeyboardWindow : OverlayWindow
     {
         string? symbol = type switch
         {
-            PredictionType.NextWord => "→",
-            PredictionType.Phrase => "⋯",
+            PredictionType.NextWord => "\u2192",
+            PredictionType.Phrase => "\u22EF",
             PredictionType.FuzzyMatch => "~",
+            PredictionType.SentenceCompletion => "\u2606",
+            PredictionType.LMSuggestion => "\u2726",
             _ => null
         };
 

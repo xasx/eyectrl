@@ -43,7 +43,7 @@ public class PredictionOrchestratorTests
             trie: trie);
 
         var results = orchestrator.GetSuggestions("thank", context: null, maxCount: 5);
-        Assert.Contains(results, r => r.Type == PredictionType.SentenceCompletion && r.Word == "you");
+        Assert.Contains(results, r => r.Type == PredictionType.SentenceCompletion && r.Word == "you very much");
     }
 
     [Fact]

@@ -193,9 +193,9 @@ public class SmallLMPredictor : IDisposable
     public IReadOnlyList<PredictionResult>? TryGetResults()
     {
         if (!IsAvailable) return null;
-        if (_isRunning) return null;
         lock (_lock)
         {
+            if (_isRunning) return null;
             var results = _pendingResults;
             if (results == null || results.IsEmpty) return null;
             _pendingResults = null;
@@ -282,10 +282,6 @@ public class SmallLMPredictor : IDisposable
         if (_disposed) return;
         _disposed = true;
         Cancel();
-
-        var timeout = DateTime.UtcNow.AddSeconds(5);
-        while (_isRunning && DateTime.UtcNow < timeout)
-            Thread.Sleep(10);
 
         _session?.Dispose();
         _session = null;

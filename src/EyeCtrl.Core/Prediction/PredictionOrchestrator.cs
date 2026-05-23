@@ -7,6 +7,7 @@ public class PredictionOrchestrator : IDisposable
     private readonly SmallLMPredictor? _lmPredictor;
     private readonly bool _mlEnabled;
     private string? _lastLmPrefix;
+    private string? _lastLmContext;
 
     public PredictionOrchestrator(
         WordPredictor wordPredictor,
@@ -36,9 +37,8 @@ public class PredictionOrchestrator : IDisposable
             var trieCompletions = _sentenceIndex.GetCompletions(prefix, maxCount);
             foreach (var (completion, frequency) in trieCompletions)
             {
-                var firstWord = completion.Split(' ')[0];
                 allResults.Add(new PredictionResult(
-                    firstWord,
+                    completion,
                     Math.Log(Math.Max(1, frequency)) * 3.0,
                     PredictionType.SentenceCompletion,
                     Math.Min(1.0, Math.Log(Math.Max(1, frequency)) / 10.0)));
@@ -74,9 +74,10 @@ public class PredictionOrchestrator : IDisposable
                 sorted = sorted.OrderByDescending(r => r.Score).Take(maxCount).ToList();
             }
 
-            if (prefix != _lastLmPrefix && ShouldTriggerLm(sorted, context, prefix))
+            if ((prefix != _lastLmPrefix || context != _lastLmContext) && ShouldTriggerLm(sorted, context, prefix))
             {
                 _lastLmPrefix = prefix;
+                _lastLmContext = context;
                 var lmContext = context ?? "";
                 _lmPredictor.Predict(lmContext, prefix);
             }

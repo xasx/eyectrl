@@ -747,6 +747,7 @@ public class EventCoordinator : IEventCoordinator
                     settings.Keyboard.PreferGPU);
             }
 
+            _orchestrator?.Dispose();
             _orchestrator = new PredictionOrchestrator(wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled);
             keyboard.SetOrchestrator(_orchestrator);
         }
@@ -791,6 +792,7 @@ public class EventCoordinator : IEventCoordinator
         _context.Messenger.UnregisterAll(this);
 
         _orchestrator?.WordPredictor.SaveUserDictionary();
+        _orchestrator?.Dispose();
         _orchestrator = null;
 
         _settingsWindow = null;

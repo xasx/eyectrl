@@ -138,10 +138,8 @@ public partial class KeyboardViewModel : ObservableObject,
 
     public void SetPredictor(WordPredictor? predictor)
     {
-        if (predictor != null)
-            _orchestrator = new PredictionOrchestrator(predictor);
-        else
-            _orchestrator = null;
+        _orchestrator?.Dispose();
+        _orchestrator = predictor != null ? new PredictionOrchestrator(predictor) : null;
     }
 
     public void SetOrchestrator(PredictionOrchestrator? orchestrator) => _orchestrator = orchestrator;
@@ -294,6 +292,7 @@ public partial class KeyboardViewModel : ObservableObject,
     {
         if (_disposed) return;
         _messenger.UnregisterAll(this);
+        _orchestrator?.Dispose();
         _disposed = true;
     }
 }

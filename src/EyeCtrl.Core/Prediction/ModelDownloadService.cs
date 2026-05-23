@@ -23,7 +23,8 @@ public class ModelDownloadService : IDisposable
         _modelsDirectory = modelsDirectory;
         _ownsHttpClient = httpClient == null;
         _httpClient = httpClient ?? new HttpClient();
-        _httpClient.Timeout = TimeSpan.FromMinutes(30);
+        if (_ownsHttpClient)
+            _httpClient.Timeout = TimeSpan.FromMinutes(30);
         _logger = logger;
         Directory.CreateDirectory(_modelsDirectory);
     }

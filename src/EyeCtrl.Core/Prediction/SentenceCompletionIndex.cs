@@ -130,6 +130,9 @@ public class SentenceCompletionIndex
 
         if (node.Completions.Count > 0)
         {
+            if (node.Completions.Count > ushort.MaxValue)
+                throw new InvalidDataException($"Trie node has {node.Completions.Count} completions, exceeding max supported {ushort.MaxValue}.");
+
             writer.Write((ushort)node.Completions.Count);
             foreach (var (word, freq) in node.Completions)
             {
@@ -137,6 +140,9 @@ public class SentenceCompletionIndex
                 writer.Write(freq);
             }
         }
+
+        if (node.Children.Count > ushort.MaxValue)
+            throw new InvalidDataException($"Trie node has {node.Children.Count} children, exceeding max supported {ushort.MaxValue}.");
 
         writer.Write((ushort)node.Children.Count);
         foreach (var (word, child) in node.Children)

@@ -142,7 +142,14 @@ public partial class KeyboardViewModel : ObservableObject,
         _orchestrator = predictor != null ? new PredictionOrchestrator(predictor) : null;
     }
 
-    public void SetOrchestrator(PredictionOrchestrator? orchestrator) => _orchestrator = orchestrator;
+    public void SetOrchestrator(PredictionOrchestrator? orchestrator)
+    {
+        if (ReferenceEquals(_orchestrator, orchestrator))
+            return;
+
+        _orchestrator?.Dispose();
+        _orchestrator = orchestrator;
+    }
 
     public void ToggleModifier(ModifierKey modifier)
     {

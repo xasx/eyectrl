@@ -751,6 +751,12 @@ public class EventCoordinator : IEventCoordinator
             _orchestrator = new PredictionOrchestrator(wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled);
             keyboard.SetOrchestrator(_orchestrator);
         }
+        else
+        {
+            _orchestrator?.Dispose();
+            _orchestrator = null;
+            keyboard.SetOrchestrator(null);
+        }
 
         keyboard.SetScreenEdge(settings.Keyboard.ScreenEdge);
         keyboard.SetSettings(settings);

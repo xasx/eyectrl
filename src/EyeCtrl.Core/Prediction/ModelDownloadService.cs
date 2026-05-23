@@ -11,13 +11,6 @@ public class ModelDownloadService : IDisposable
     private readonly bool _ownsHttpClient;
     private readonly ILogger<ModelDownloadService>? _logger;
 
-    private static readonly Dictionary<string, string> ModelFileNames = new()
-    {
-        ["135M"] = "smollm2-135m.onnx",
-        ["360M"] = "smollm2-360m.onnx",
-        ["1.5B"] = "qwen2.5-1.5b.onnx",
-    };
-
     public ModelDownloadService(string modelsDirectory, HttpClient? httpClient = null, ILogger<ModelDownloadService>? logger = null)
     {
         _modelsDirectory = modelsDirectory;
@@ -32,7 +25,7 @@ public class ModelDownloadService : IDisposable
     public List<string> GetAvailableModels()
     {
         var available = new List<string>();
-        foreach (var (size, fileName) in ModelFileNames)
+        foreach (var (size, fileName) in ModelConstants.ModelFileNames)
         {
             var path = Path.Combine(_modelsDirectory, fileName);
             if (File.Exists(path))
@@ -43,13 +36,13 @@ public class ModelDownloadService : IDisposable
 
     public bool IsModelDownloaded(string modelSize)
     {
-        if (!ModelFileNames.TryGetValue(modelSize, out var fileName)) return false;
+        if (!ModelConstants.ModelFileNames.TryGetValue(modelSize, out var fileName)) return false;
         return File.Exists(Path.Combine(_modelsDirectory, fileName));
     }
 
     public string GetModelPath(string modelSize)
     {
-        if (!ModelFileNames.TryGetValue(modelSize, out var fileName))
+        if (!ModelConstants.ModelFileNames.TryGetValue(modelSize, out var fileName))
             throw new ArgumentException($"Unknown model size: {modelSize}");
         return Path.Combine(_modelsDirectory, fileName);
     }
@@ -61,7 +54,7 @@ public class ModelDownloadService : IDisposable
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        if (!ModelFileNames.TryGetValue(modelSize, out var fileName))
+        if (!ModelConstants.ModelFileNames.TryGetValue(modelSize, out var fileName))
             throw new ArgumentException($"Unknown model size: {modelSize}");
 
         var outputPath = Path.Combine(_modelsDirectory, fileName);

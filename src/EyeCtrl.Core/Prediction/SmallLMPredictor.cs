@@ -23,13 +23,6 @@ public class SmallLMPredictor : IDisposable
     public bool IsAvailable { get; private set; }
     public string? SelectedModelPath { get; private set; }
 
-    private static readonly Dictionary<string, string> ModelFileNames = new()
-    {
-        ["135M"] = "smollm2-135m.onnx",
-        ["360M"] = "smollm2-360m.onnx",
-        ["1.5B"] = "qwen2.5-1.5b.onnx",
-    };
-
     public SmallLMPredictor(string modelsDirectory, string? modelSize, bool preferGpu, ILogger<SmallLMPredictor>? logger = null)
     {
         _modelsDirectory = modelsDirectory;
@@ -48,7 +41,7 @@ public class SmallLMPredictor : IDisposable
 
     private void Initialize()
     {
-        if (!ModelFileNames.TryGetValue(_selectedModelSize!, out var fileName))
+        if (!ModelConstants.ModelFileNames.TryGetValue(_selectedModelSize!, out var fileName))
         {
             _logger?.LogWarning("Unknown model size: {Size}", _selectedModelSize);
             IsAvailable = false;

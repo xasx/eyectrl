@@ -5,7 +5,7 @@ namespace EyeCtrl.Core.Prediction;
 public class SentenceCompletionIndex
 {
     private const int Magic = 0x54524945;
-    private const int Version = 1;
+    private const int Version = 2;
 
     private readonly TrieNode _root = new();
 
@@ -130,10 +130,7 @@ public class SentenceCompletionIndex
 
         if (node.Completions.Count > 0)
         {
-            if (node.Completions.Count > ushort.MaxValue)
-                throw new InvalidDataException($"Trie node has {node.Completions.Count} completions, exceeding max supported {ushort.MaxValue}.");
-
-            writer.Write((ushort)node.Completions.Count);
+            writer.Write(node.Completions.Count);
             foreach (var (word, freq) in node.Completions)
             {
                 writer.Write(word);
@@ -141,10 +138,7 @@ public class SentenceCompletionIndex
             }
         }
 
-        if (node.Children.Count > ushort.MaxValue)
-            throw new InvalidDataException($"Trie node has {node.Children.Count} children, exceeding max supported {ushort.MaxValue}.");
-
-        writer.Write((ushort)node.Children.Count);
+        writer.Write(node.Children.Count);
         foreach (var (word, child) in node.Children)
         {
             writer.Write(word);
@@ -174,7 +168,7 @@ public class SentenceCompletionIndex
 
         if (hasCompletions)
         {
-            var count = reader.ReadUInt16();
+            var count = reader.ReadInt32();
             for (int i = 0; i < count; i++)
             {
                 var word = reader.ReadString();
@@ -184,7 +178,7 @@ public class SentenceCompletionIndex
             }
         }
 
-        var childCount = reader.ReadUInt16();
+        var childCount = reader.ReadInt32();
         for (int i = 0; i < childCount; i++)
         {
             var word = reader.ReadString();

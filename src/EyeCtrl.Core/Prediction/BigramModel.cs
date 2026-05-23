@@ -176,14 +176,15 @@ public class BigramModel
                 var decayFactor = Math.Pow(0.5, ageInDays / halfLifeDays);
                 var decayedFrequency = frequency * decayFactor;
 
-                // Update frequency or mark for removal using the precise decayed value for pruning
-                if (decayedFrequency < MinFrequency)
+                // Update frequency or mark for removal (round to avoid float drift pruning recent entries)
+                var roundedFrequency = (int)Math.Round(decayedFrequency);
+                if (roundedFrequency < MinFrequency)
                 {
                     entriesToRemove.Add((word1, word2));
                 }
                 else
                 {
-                    followers[word2] = (int)Math.Floor(decayedFrequency);
+                    followers[word2] = roundedFrequency;
                     // Update timestamp to now to prevent compounding decay on subsequent runs
                     if (word2Timestamps != null)
                         word2Timestamps[word2] = now;

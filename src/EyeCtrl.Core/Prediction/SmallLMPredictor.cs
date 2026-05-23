@@ -96,7 +96,7 @@ public class SmallLMPredictor : IDisposable
 
     public void Predict(string context, string? prefix = null)
     {
-        if (!IsAvailable || _session == null) return;
+        if (_disposed || !IsAvailable || _session == null) return;
 
         lock (_lock)
         {
@@ -161,30 +161,40 @@ public class SmallLMPredictor : IDisposable
                 NamedOnnxValue.CreateFromTensor("input_ids", inputTensor)
             };
 
-            using var outputs = session.Run(inputs);
-            var logits = outputs.First().AsTensor<float>();
-
-            var vocabSize = logits.Dimensions[^1];
-            var lastTokenLogits = new float[vocabSize];
-            var offset = (pastInputIds.Count - 1) * vocabSize;
-            for (int j = 0; j < vocabSize; j++)
-                lastTokenLogits[j] = logits.GetValue(offset + j);
-
-            var bestTokenId = 0L;
-            var bestLogit = float.MinValue;
-            for (int j = 0; j < lastTokenLogits.Length; j++)
+            try
             {
-                if (lastTokenLogits[j] > bestLogit)
+                using var outputs = session.Run(inputs);
+                var logits = outputs.First().AsTensor<float>();
+
+                var vocabSize = logits.Dimensions[^1];
+                var lastTokenLogits = new float[vocabSize];
+                var offset = (pastInputIds.Count - 1) * vocabSize;
+                for (int j = 0; j < vocabSize; j++)
+                    lastTokenLogits[j] = logits.GetValue(offset + j);
+
+                var bestTokenId = 0L;
+                var bestLogit = float.MinValue;
+                for (int j = 0; j < lastTokenLogits.Length; j++)
                 {
-                    bestLogit = lastTokenLogits[j];
-                    bestTokenId = j;
+                    if (lastTokenLogits[j] > bestLogit)
+                    {
+                        bestLogit = lastTokenLogits[j];
+                        bestTokenId = j;
+                    }
+                }
+
+                if (bestTokenId == 0) break;
+
+                generatedTokens.Add(bestTokenId);
+                pastInputIds.Add(bestTokenId);
+            }
+            finally
+            {
+                foreach (var input in inputs)
+                {
+                    (input as IDisposable)?.Dispose();
                 }
             }
-
-            if (bestTokenId == 0) break;
-
-            generatedTokens.Add(bestTokenId);
-            pastInputIds.Add(bestTokenId);
         }
 
         var generatedText = Detokenize(generatedTokens);
@@ -290,7 +300,26 @@ public class SmallLMPredictor : IDisposable
             Thread.Sleep(10);
         }
 
-        _session?.Dispose();
-        _session = null;
+        if (_inferenceCount == 0)
+        {
+            _session?.Dispose();
+            _session = null;
+            return;
+        }
+
+        _logger?.LogWarning("SmallLMPredictor dispose timed out while inference was still running; deferring session disposal");
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            while (Interlocked.CompareExchange(ref _inferenceCount, 0, 0) > 0)
+            {
+                Thread.Sleep(10);
+            }
+
+            lock (_lock)
+            {
+                _session?.Dispose();
+                _session = null;
+            }
+        });
     }
 }

@@ -17,7 +17,7 @@ public class SmallLMPredictor : IDisposable
     private readonly object _lock = new();
     private volatile bool _disposed;
     private CancellationTokenSource? _pendingCts;
-    private volatile bool _isRunning;
+    private volatile int _inferenceCount;
     private ConcurrentBag<PredictionResult>? _pendingResults;
 
     public bool IsAvailable { get; private set; }
@@ -110,12 +110,13 @@ public class SmallLMPredictor : IDisposable
             var capturePrefix = prefix;
             var captureContext = context;
 
-            _isRunning = true;
+            Interlocked.Increment(ref _inferenceCount);
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
                     if (token.IsCancellationRequested) return;
+                    if (_disposed) return;
 
                     var results = RunInference(session, captureContext, capturePrefix);
                     if (token.IsCancellationRequested) return;
@@ -135,7 +136,7 @@ public class SmallLMPredictor : IDisposable
                 }
                 finally
                 {
-                    _isRunning = false;
+                    Interlocked.Decrement(ref _inferenceCount);
                 }
             });
         }
@@ -195,7 +196,7 @@ public class SmallLMPredictor : IDisposable
         if (!IsAvailable) return null;
         lock (_lock)
         {
-            if (_isRunning) return null;
+            if (_inferenceCount > 0) return null;
             var results = _pendingResults;
             if (results == null || results.IsEmpty) return null;
             _pendingResults = null;
@@ -211,7 +212,7 @@ public class SmallLMPredictor : IDisposable
             _pendingCts?.Dispose();
             _pendingCts = null;
             _pendingResults = null;
-            _isRunning = false;
+            _pendingResults = null;
         }
     }
 
@@ -282,6 +283,12 @@ public class SmallLMPredictor : IDisposable
         if (_disposed) return;
         _disposed = true;
         Cancel();
+
+        var start = DateTime.UtcNow;
+        while (_inferenceCount > 0 && (DateTime.UtcNow - start) < TimeSpan.FromSeconds(5))
+        {
+            Thread.Sleep(10);
+        }
 
         _session?.Dispose();
         _session = null;

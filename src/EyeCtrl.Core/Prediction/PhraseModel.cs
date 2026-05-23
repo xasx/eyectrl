@@ -222,14 +222,15 @@ public class PhraseModel
                 var decayFactor = Math.Pow(0.5, ageInDays / halfLifeDays);
                 var decayedFrequency = frequency * decayFactor;
 
-                // Update frequency or mark for removal
-                if (decayedFrequency < MinFrequency)
+                // Update frequency or mark for removal (round to avoid float drift pruning recent entries)
+                var roundedFrequency = (int)Math.Round(decayedFrequency);
+                if (roundedFrequency < MinFrequency)
                 {
                     entriesToRemove.Add((prefix, fullPhrase));
                 }
                 else
                 {
-                    continuations[fullPhrase] = (int)Math.Floor(decayedFrequency);
+                    continuations[fullPhrase] = roundedFrequency;
                     // Update timestamp to now to prevent compounding decay on subsequent runs
                     if (phraseTimestamps != null)
                         phraseTimestamps[fullPhrase] = now;

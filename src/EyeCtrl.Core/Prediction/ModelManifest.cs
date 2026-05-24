@@ -18,4 +18,7 @@ public class ModelEntry
 
     [JsonPropertyName("sizeBytes")]
     public long SizeBytes { get; set; }
+
+    [JsonPropertyName("tokenizerSha256")]
+    public string TokenizerSha256 { get; set; } = "";
 }

@@ -22,7 +22,18 @@ public class LMTokenizer : IDisposable
             throw new InvalidOperationException($"Failed to load tokenizer from {tokenizerJsonPath}", ex);
         }
 
-        ParseTokenizerConfig(tokenizerJsonPath);
+        try
+        {
+            ParseTokenizerConfig(tokenizerJsonPath);
+        }
+        catch
+        {
+            _tokenizer.Dispose();
+            throw;
+        }
+
+        if (VocabSize == 0)
+            throw new InvalidOperationException("Tokenizer configuration contains no vocabulary");
     }
 
     public long[] Encode(string text)
@@ -50,6 +61,9 @@ public class LMTokenizer : IDisposable
         _tokenizer.Dispose();
     }
 
+    // Tokenizers.DotNet does not expose VocabSize, BosTokenId, or EosTokenId natively,
+    // so we re-parse the JSON config file. If the library adds these APIs in a future
+    // version, the JSON parsing below should be replaced.
     private void ParseTokenizerConfig(string path)
     {
         try

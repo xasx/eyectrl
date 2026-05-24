@@ -50,7 +50,7 @@ public class LMTokenizerTests : IDisposable
     {
         using var tokenizer = new LMTokenizer(_tokenizerJsonPath);
         var ids = tokenizer.Encode("");
-        Assert.NotNull(ids);
+        Assert.Empty(ids);
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class LMTokenizerTests : IDisposable
     {
         using var tokenizer = new LMTokenizer(_tokenizerJsonPath);
         var decoded = tokenizer.Decode(Array.Empty<long>());
-        Assert.NotNull(decoded);
+        Assert.Empty(decoded);
     }
 
     [Fact]

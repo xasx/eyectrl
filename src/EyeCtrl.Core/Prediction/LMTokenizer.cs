@@ -69,11 +69,9 @@ public class LMTokenizer : IDisposable
             BosTokenId = FindSpecialTokenId(root, bosCandidates);
             EosTokenId = FindSpecialTokenId(root, eosCandidates);
         }
-        catch
+        catch (Exception ex)
         {
-            VocabSize = 0;
-            BosTokenId = -1;
-            EosTokenId = -1;
+            throw new InvalidOperationException($"Failed to parse tokenizer config from {path}", ex);
         }
     }
 

@@ -741,10 +741,32 @@ public class EventCoordinator : IEventCoordinator
             if (settings.Keyboard.MLSuggestionsEnabled)
             {
                 var modelsDir = Path.Combine(_appDataDir!, "models");
+                var modelSize = settings.Keyboard.MLModelSize;
+
+                LMTokenizer? tokenizer = null;
+                if (ModelConstants.ModelFileNames.TryGetValue(modelSize, out var onnxFile))
+                {
+                    var tokenizerFileName = Path.GetFileNameWithoutExtension(onnxFile) + ".tokenizer.json";
+                    var tokenizerPath = Path.Combine(modelsDir, tokenizerFileName);
+
+                    try
+                    {
+                        if (File.Exists(tokenizerPath))
+                            tokenizer = new LMTokenizer(tokenizerPath);
+                        else
+                            Log.Warning("Tokenizer file not found at {Path}; LM suggestions disabled", tokenizerPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "Failed to load tokenizer from {Path}; LM suggestions disabled", tokenizerPath);
+                    }
+                }
+
                 lmPredictor = new SmallLMPredictor(
                     modelsDir,
-                    settings.Keyboard.MLModelSize,
-                    settings.Keyboard.PreferGPU);
+                    modelSize,
+                    settings.Keyboard.PreferGPU,
+                    tokenizer: tokenizer);
             }
 
             _orchestrator?.Dispose();

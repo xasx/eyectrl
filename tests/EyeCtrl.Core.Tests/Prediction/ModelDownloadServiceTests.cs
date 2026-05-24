@@ -28,7 +28,9 @@ public class ModelDownloadServiceTests
         try
         {
             File.WriteAllText(Path.Combine(tempDir, "smollm2-135m.onnx"), "dummy");
+            File.WriteAllText(Path.Combine(tempDir, "smollm2-135m.tokenizer.json"), "dummy");
             File.WriteAllText(Path.Combine(tempDir, "smollm2-360m.onnx"), "dummy");
+            File.WriteAllText(Path.Combine(tempDir, "smollm2-360m.tokenizer.json"), "dummy");
 
             var service = new ModelDownloadService(tempDir);
             var available = service.GetAvailableModels();
@@ -112,6 +114,26 @@ public class ModelDownloadServiceTests
             var service = new ModelDownloadService(tempDir);
 
             Assert.False(service.IsModelDownloaded("135M"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void GetAvailableModels_WithOnnxButNoTokenizer_ExcludesModel()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "smollm2-135m.onnx"), "dummy");
+            var service = new ModelDownloadService(tempDir);
+
+            var available = service.GetAvailableModels();
+
+            Assert.DoesNotContain("135M", available);
         }
         finally
         {

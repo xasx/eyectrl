@@ -150,7 +150,8 @@ public class SmallLMPredictor : IDisposable
         var inputIds = _tokenizer!.Encode(prompt).ToList();
         if (inputIds.Count == 0) return [];
 
-        inputIds.Insert(0, _tokenizer.BosTokenId);
+        if (_tokenizer.BosTokenId >= 0)
+            inputIds.Insert(0, _tokenizer.BosTokenId);
 
         const int maxNewTokens = 8;
         var generatedTokens = new List<long>();
@@ -189,7 +190,7 @@ public class SmallLMPredictor : IDisposable
                     }
                 }
 
-                if (bestTokenId == _tokenizer.EosTokenId) break;
+                if (_tokenizer.EosTokenId >= 0 && bestTokenId == _tokenizer.EosTokenId) break;
 
                 generatedTokens.Add(bestTokenId);
                 tokenProbabilities.Add(bestProb);
@@ -249,7 +250,6 @@ public class SmallLMPredictor : IDisposable
             _pendingCts?.Cancel();
             _pendingCts?.Dispose();
             _pendingCts = null;
-            _pendingResults = null;
             _pendingResults = null;
         }
     }

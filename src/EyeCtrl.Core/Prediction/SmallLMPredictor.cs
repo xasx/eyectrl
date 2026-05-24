@@ -12,6 +12,7 @@ public class SmallLMPredictor : IDisposable
     private readonly string? _selectedModelSize;
     private readonly bool _preferGpu;
     private readonly ILogger<SmallLMPredictor>? _logger;
+    private readonly LMTokenizer? _tokenizer;
 
     private InferenceSession? _session;
     private readonly object _lock = new();
@@ -23,15 +24,23 @@ public class SmallLMPredictor : IDisposable
     public bool IsAvailable { get; private set; }
     public string? SelectedModelPath { get; private set; }
 
-    public SmallLMPredictor(string modelsDirectory, string? modelSize, bool preferGpu, ILogger<SmallLMPredictor>? logger = null)
+    public SmallLMPredictor(string modelsDirectory, string? modelSize, bool preferGpu, ILogger<SmallLMPredictor>? logger = null, LMTokenizer? tokenizer = null)
     {
         _modelsDirectory = modelsDirectory;
         _selectedModelSize = modelSize;
         _preferGpu = preferGpu;
         _logger = logger;
+        _tokenizer = tokenizer;
 
         if (modelSize == "Off" || string.IsNullOrEmpty(modelSize))
         {
+            IsAvailable = false;
+            return;
+        }
+
+        if (_tokenizer == null)
+        {
+            _logger?.LogWarning("No tokenizer provided for {Model}; LM suggestions disabled", modelSize);
             IsAvailable = false;
             return;
         }
@@ -138,13 +147,16 @@ public class SmallLMPredictor : IDisposable
     private List<PredictionResult> RunInference(InferenceSession session, string context, string? prefix)
     {
         var prompt = BuildPrompt(context, prefix);
-        var inputIds = Tokenize(prompt);
+        var inputIds = _tokenizer!.Encode(prompt).ToList();
+        if (inputIds.Count == 0) return [];
 
-        if (inputIds.Length == 0) return [];
+        inputIds.Insert(0, _tokenizer.BosTokenId);
 
         const int maxNewTokens = 8;
         var generatedTokens = new List<long>();
+        var tokenProbabilities = new List<double>();
         var pastInputIds = inputIds.ToList();
+        var vocabSize = _tokenizer.VocabSize;
 
         for (int i = 0; i < maxNewTokens; i++)
         {
@@ -159,26 +171,28 @@ public class SmallLMPredictor : IDisposable
                 using var outputs = session.Run(inputs);
                 var logits = outputs.First().AsTensor<float>();
 
-                var vocabSize = logits.Dimensions[^1];
                 var lastTokenLogits = new float[vocabSize];
                 var offset = (pastInputIds.Count - 1) * vocabSize;
                 for (int j = 0; j < vocabSize; j++)
                     lastTokenLogits[j] = logits.GetValue(offset + j);
 
+                var softmaxProbs = Softmax(lastTokenLogits);
+
                 var bestTokenId = 0L;
-                var bestLogit = float.MinValue;
-                for (int j = 0; j < lastTokenLogits.Length; j++)
+                var bestProb = 0.0;
+                for (int j = 0; j < softmaxProbs.Length; j++)
                 {
-                    if (lastTokenLogits[j] > bestLogit)
+                    if (softmaxProbs[j] > bestProb)
                     {
-                        bestLogit = lastTokenLogits[j];
+                        bestProb = softmaxProbs[j];
                         bestTokenId = j;
                     }
                 }
 
-                if (bestTokenId == 0) break;
+                if (bestTokenId == _tokenizer.EosTokenId) break;
 
                 generatedTokens.Add(bestTokenId);
+                tokenProbabilities.Add(bestProb);
                 pastInputIds.Add(bestTokenId);
             }
             finally
@@ -190,8 +204,29 @@ public class SmallLMPredictor : IDisposable
             }
         }
 
-        var generatedText = Detokenize(generatedTokens);
-        return PostProcess(generatedText, prefix);
+        if (generatedTokens.Count == 0) return [];
+
+        var generatedText = _tokenizer.Decode(generatedTokens.ToArray());
+        var avgProb = tokenProbabilities.Count > 0
+            ? tokenProbabilities.Average()
+            : 0.0;
+
+        return PostProcess(generatedText, prefix, avgProb);
+    }
+
+    private static double[] Softmax(float[] logits)
+    {
+        var result = new double[logits.Length];
+        var maxLogit = logits.Max();
+        double sum = 0.0;
+        for (int i = 0; i < logits.Length; i++)
+        {
+            result[i] = Math.Exp(logits[i] - maxLogit);
+            sum += result[i];
+        }
+        for (int i = 0; i < result.Length; i++)
+            result[i] /= sum;
+        return result;
     }
 
     public IReadOnlyList<PredictionResult>? TryGetResults()
@@ -219,39 +254,6 @@ public class SmallLMPredictor : IDisposable
         }
     }
 
-    private static readonly Dictionary<string, long> StubVocab = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["the"] = 1, ["be"] = 2, ["to"] = 3, ["of"] = 4, ["and"] = 5,
-        ["a"] = 6, ["in"] = 7, ["that"] = 8, ["have"] = 9, ["i"] = 10,
-        ["it"] = 11, ["for"] = 12, ["not"] = 13, ["on"] = 14, ["with"] = 15,
-        ["he"] = 16, ["as"] = 17, ["you"] = 18, ["do"] = 19, ["at"] = 20,
-    };
-
-    private static long[] Tokenize(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return [];
-        var words = text.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var ids = new List<long>();
-        foreach (var word in words)
-        {
-            var cleanWord = word.TrimEnd('.', ',', '!', '?', ';', ':');
-            if (StubVocab.TryGetValue(cleanWord, out var id))
-                ids.Add(id);
-            else
-                ids.Add(StubVocab.Count + 1);
-        }
-        return ids.ToArray();
-    }
-
-    private static string Detokenize(List<long> tokenIds)
-    {
-        var reverseVocab = StubVocab.ToDictionary(kv => kv.Value, kv => kv.Key);
-        var words = tokenIds
-            .Select(id => reverseVocab.TryGetValue(id, out var word) ? word : "<unk>")
-            .ToList();
-        return string.Join(" ", words);
-    }
-
     private static string BuildPrompt(string context, string? prefix)
     {
         var sb = new StringBuilder();
@@ -262,7 +264,7 @@ public class SmallLMPredictor : IDisposable
         return sb.ToString().Trim();
     }
 
-    private List<PredictionResult> PostProcess(string generatedText, string? prefix)
+    private List<PredictionResult> PostProcess(string generatedText, string? prefix, double avgProb)
     {
         var results = new List<PredictionResult>();
         if (string.IsNullOrWhiteSpace(generatedText)) return results;
@@ -273,9 +275,7 @@ public class SmallLMPredictor : IDisposable
         {
             if (!string.IsNullOrEmpty(prefix) && !word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 continue;
-            // TODO: Use actual softmax-normalized logit values when a real tokenizer
-            // with log-probabilities is available instead of the hardcoded score.
-            results.Add(new PredictionResult(word, 10.0, PredictionType.LMSuggestion, 0.5));
+            results.Add(new PredictionResult(word, avgProb * 100.0, PredictionType.LMSuggestion, avgProb));
         }
 
         return results;
@@ -297,6 +297,7 @@ public class SmallLMPredictor : IDisposable
         {
             _session?.Dispose();
             _session = null;
+            _tokenizer?.Dispose();
             return;
         }
 
@@ -312,6 +313,7 @@ public class SmallLMPredictor : IDisposable
             {
                 _session?.Dispose();
                 _session = null;
+                _tokenizer?.Dispose();
             }
         });
     }

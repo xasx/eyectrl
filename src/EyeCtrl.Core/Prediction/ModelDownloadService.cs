@@ -27,8 +27,9 @@ public class ModelDownloadService : IDisposable
         var available = new List<string>();
         foreach (var (size, fileName) in ModelConstants.ModelFileNames)
         {
-            var path = Path.Combine(_modelsDirectory, fileName);
-            if (File.Exists(path))
+            var onnxPath = Path.Combine(_modelsDirectory, fileName);
+            var tokenizerPath = GetTokenizerPath(size);
+            if (File.Exists(onnxPath) && File.Exists(tokenizerPath))
                 available.Add(size);
         }
         return available;

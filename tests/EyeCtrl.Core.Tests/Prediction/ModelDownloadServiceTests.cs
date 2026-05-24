@@ -51,6 +51,7 @@ public class ModelDownloadServiceTests
         try
         {
             File.WriteAllText(Path.Combine(tempDir, "qwen2.5-1.5b.onnx"), "dummy");
+            File.WriteAllText(Path.Combine(tempDir, "qwen2.5-1.5b.tokenizer.json"), "dummy");
             var service = new ModelDownloadService(tempDir);
 
             Assert.True(service.IsModelDownloaded("1.5B"));
@@ -74,6 +75,62 @@ public class ModelDownloadServiceTests
 
             Assert.EndsWith("smollm2-360m.onnx", path);
             Assert.StartsWith(tempDir, path);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void GetTokenizerPath_ReturnsFullPath()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var service = new ModelDownloadService(tempDir);
+            var path = service.GetTokenizerPath("360M");
+
+            Assert.EndsWith("smollm2-360m.tokenizer.json", path);
+            Assert.StartsWith(tempDir, path);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void IsModelDownloaded_WithOnnxButNoTokenizer_ReturnsFalse()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "smollm2-135m.onnx"), "dummy");
+            var service = new ModelDownloadService(tempDir);
+
+            Assert.False(service.IsModelDownloaded("135M"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void IsModelDownloaded_WithOnnxAndTokenizer_ReturnsTrue()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "qwen2.5-1.5b.onnx"), "dummy");
+            File.WriteAllText(Path.Combine(tempDir, "qwen2.5-1.5b.tokenizer.json"), "dummy");
+            var service = new ModelDownloadService(tempDir);
+
+            Assert.True(service.IsModelDownloaded("1.5B"));
         }
         finally
         {

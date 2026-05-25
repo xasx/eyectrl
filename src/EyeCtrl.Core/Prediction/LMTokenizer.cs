@@ -33,7 +33,10 @@ public class LMTokenizer : IDisposable
         }
 
         if (VocabSize == 0)
+        {
+            _tokenizer.Dispose();
             throw new InvalidOperationException("Tokenizer configuration contains no vocabulary");
+        }
     }
 
     public long[] Encode(string text)

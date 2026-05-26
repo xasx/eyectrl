@@ -1,10 +1,9 @@
 namespace EyeCtrl.Core.Prediction;
 
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using EyeCtrl.Core.Settings;
 
-public class ModelRegistryService : IDisposable
+public class ModelRegistryService
 {
     private readonly string _modelsDirectory;
     private readonly ModelManifest _bundledManifest;
@@ -13,7 +12,6 @@ public class ModelRegistryService : IDisposable
     private readonly Dictionary<string, ModelRegistryEntry> _registry = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
     private string? _activeModelId;
-    private bool _disposed;
 
     public IReadOnlyDictionary<string, ModelRegistryEntry> Registry
     {
@@ -156,15 +154,9 @@ public class ModelRegistryService : IDisposable
 
     private static string GetBundledModelFileName(string modelId)
     {
-        return modelId switch
-        {
-            "135M" => "smollm2-135m.onnx",
-            "360M" => "smollm2-360m.onnx",
-            "0.5B" => "qwen2.5-0.5b.onnx",
-            "1.5B" => "qwen2.5-1.5b.onnx",
-            "3.8B" => "phi-3.5-mini.onnx",
-            _ => $"{modelId.ToLowerInvariant()}.onnx",
-        };
+        return ModelConstants.ModelFileNames.TryGetValue(modelId, out var fileName)
+            ? fileName
+            : $"{modelId.ToLowerInvariant()}.onnx";
     }
 
     public string GetModelPath(string modelId)
@@ -301,8 +293,4 @@ public class ModelRegistryService : IDisposable
         throw new InvalidOperationException($"Could not find unique filename for {sanitizedName} after 1000 attempts");
     }
 
-    public void Dispose()
-    {
-        _disposed = true;
-    }
 }

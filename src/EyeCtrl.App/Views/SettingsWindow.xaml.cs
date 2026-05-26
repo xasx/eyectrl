@@ -834,8 +834,6 @@ public partial class SettingsWindow : OverlayWindow
         return $"{bytes} B";
     }
 
-    private string _customModelName = "";
-
     private async Task DownloadModelAsync(string modelId, string url, string sha256,
         string tokenizerUrl, string tokenizerSha256, string outputFileName)
     {
@@ -851,16 +849,18 @@ public partial class SettingsWindow : OverlayWindow
             }
             Dispatcher.Invoke(() => RebuildContent());
         }
-        catch
+        catch (Exception ex)
         {
-            Dispatcher.Invoke(() => RebuildContent());
+            Dispatcher.Invoke(() =>
+            {
+                ShowError($"Download failed: {ex.Message}");
+                RebuildContent();
+            });
         }
     }
 
     private void ShowCustomModelModal()
     {
-        _customModelName = "";
-
         ShowModal("Add Custom Model\n\nDisplay Name: [dwell to edit]\nRepo URL: [dwell to edit]\n\n\uD83D\uDCCB Paste from URL",
             () => DownloadCustomModel());
     }
@@ -898,7 +898,6 @@ public partial class SettingsWindow : OverlayWindow
                     {
                         _registryService.AddCustomModel(finalName, displayName, url, "", 0,
                             tokenizerUrl, "", _settings.Keyboard);
-                        _settings.Keyboard.MLModelSize = finalName;
                         ApplyAndSave();
                         RebuildContent();
                     });

@@ -10,6 +10,9 @@ public class ModelManifest
 
 public class ModelEntry
 {
+    [JsonPropertyName("displayName")]
+    public string DisplayName { get; set; } = "";
+
     [JsonPropertyName("url")]
     public string Url { get; set; } = "";
 
@@ -18,6 +21,9 @@ public class ModelEntry
 
     [JsonPropertyName("sizeBytes")]
     public long SizeBytes { get; set; }
+
+    [JsonPropertyName("tokenizerUrl")]
+    public string TokenizerUrl { get; set; } = "";
 
     [JsonPropertyName("tokenizerSha256")]
     public string TokenizerSha256 { get; set; } = "";

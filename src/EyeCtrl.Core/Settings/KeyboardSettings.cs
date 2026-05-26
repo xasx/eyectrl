@@ -28,10 +28,10 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     [ObservableProperty] private string _mLModelSize = "360M";
     [ObservableProperty] private bool _showLMLoadingIndicator = true;
     [ObservableProperty] private bool _preferGPU = true;
+    [ObservableProperty] private List<CustomModelEntry> _customModels = [];
 
     private static readonly string[] ValidLayouts = { "QWERTY", "AZERTY", "QWERTZ" };
     private static readonly string[] ValidScreenEdges = { "Top", "Bottom" };
-    private static readonly string[] ValidMLModelSizes = { "135M", "360M", "1.5B", "Off" };
 
     public IReadOnlyList<string> Validate()
     {
@@ -39,8 +39,18 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateStringEnum(ActiveLayout, ValidLayouts, nameof(ActiveLayout)),
             ValidationHelper.ValidateRange(KeySizeMultiplier, 0.5, 2.0, nameof(KeySizeMultiplier)),
             ValidationHelper.ValidateStringEnum(ScreenEdge, ValidScreenEdges, nameof(ScreenEdge)),
-            ValidationHelper.ValidateStringEnum(MLModelSize, ValidMLModelSizes, nameof(MLModelSize)),
             ValidationHelper.ValidateRange(DecayHalfLifeDays, 1, 365, nameof(DecayHalfLifeDays))
         );
     }
+}
+
+public class CustomModelEntry
+{
+    public string Id { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+    public long SizeBytes { get; set; }
+    public string TokenizerUrl { get; set; } = "";
+    public string TokenizerSha256 { get; set; } = "";
 }

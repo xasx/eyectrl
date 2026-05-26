@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.App.Controls;
@@ -42,12 +43,15 @@ public partial class SettingsWindow : OverlayWindow
     private static readonly Color ModalYes = Color.FromArgb(200, 30, 100, 30);
     private static readonly Color ModalNo = Color.FromArgb(200, 100, 30, 30);
     private static readonly Color CloseBase = Color.FromArgb(200, 100, 30, 30);
+    private static readonly Color DeleteBase = Color.FromArgb(200, 200, 130, 40);
 
     // ────── State ──────
 
     private readonly SettingsWindowViewModel _viewModel;
     private readonly EyeCtrlSettings _settings;
     private readonly SettingsService _settingsService;
+    private readonly ModelRegistryService _registryService;
+    private readonly ModelDownloadService _downloadService;
     private readonly int _dwellMs;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
@@ -68,13 +72,17 @@ public partial class SettingsWindow : OverlayWindow
     public SettingsWindow(
         SettingsWindowViewModel viewModel,
         EyeCtrlSettings settings,
-        SettingsService settingsService)
+        SettingsService settingsService,
+        ModelRegistryService registryService,
+        ModelDownloadService downloadService)
     {
         InitializeComponent();
 
         _viewModel = viewModel;
         _settings = settings;
         _settingsService = settingsService;
+        _registryService = registryService;
+        _downloadService = downloadService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
         // Initialize tab definitions with page builders
@@ -86,6 +94,7 @@ public partial class SettingsWindow : OverlayWindow
             ("Actions",  "⊙", "Action Menu", BuildActionMenuPages),
             ("Layout",   "⊞", "Layout",      BuildLayoutPages),
             ("Keyboard", "⌨", "Keyboard",    BuildKeyboardPages),
+            ("Models",    "⬡", "Models",      BuildModelsPages),
             ("Toolbar",  "▣", "Toolbar",     BuildToolbarPages),
             ("General",  "⚙", "General",     BuildGeneralPages)
         ];
@@ -712,6 +721,217 @@ public partial class SettingsWindow : OverlayWindow
                     ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
             ]
         ];
+    }
+
+    private List<List<Action>> BuildModelsPages()
+    {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
+        var page1 = new List<Action>();
+
+        var downloadedModels = _registryService.SelectableModels;
+        if (downloadedModels.Count == 0)
+        {
+            page1.Add(() => Add(new DwellLabel("No models downloaded. Download one below.")));
+        }
+        else
+        {
+            var modelIds = downloadedModels.Select(m => m.DisplayName).ToList();
+            var activeDisplay = downloadedModels.FirstOrDefault(m => m.Id == _registryService.ActiveModelId)?.DisplayName ?? "Off";
+            page1.Add(() => Add(new DwellComboBox(_viewModel, "md_active", "Active Model",
+                modelIds.Prepend("Off").ToArray(),
+                () => activeDisplay,
+                v =>
+                {
+                    var selected = downloadedModels.FirstOrDefault(m => m.DisplayName == v);
+                    _settings.Keyboard.MLModelSize = selected?.Id ?? "Off";
+                    _registryService.ActiveModelId = selected?.Id;
+                    ApplyAndSave();
+                },
+                cat, r, _dwellMs)));
+        }
+
+        page1.Add(() => Add(new DwellLabel(new string('\u2500', 50))));
+
+        var allEntries = _registryService.Registry.Values.OrderBy(e => e.SizeBytes).ToList();
+        foreach (var entry in allEntries)
+        {
+            var entryId = entry.Id;
+            var displayName = entry.DisplayName;
+            var sizeText = FormatSize(entry.SizeBytes);
+
+            if (entry.IsDownloaded)
+            {
+                page1.Add(() => Add(new DwellLabel($"  {displayName}  {sizeText}  \u2713 Downloaded")));
+            }
+            else
+            {
+                page1.Add(() =>
+                {
+                    var isDownloading = _downloadService.IsDownloading;
+                    var label = isDownloading ? $"{displayName}  {sizeText}  [Waiting...]" : $"{displayName}  {sizeText}  [Download]";
+                    Add(new DwellButton(_viewModel, $"md_dl_{entryId}", label,
+                        isDownloading ? () => { } : () => ShowModal($"Download {displayName} ({sizeText})?", () =>
+                            _ = DownloadModelAsync(entryId, entry.Url, entry.Sha256,
+                                entry.TokenizerUrl, entry.TokenizerSha256,
+                                _registryService.GetModelFileName(entryId))),
+                        BtnBase, cat, r, _dwellMs, width: 400, height: 60));
+                });
+            }
+        }
+
+        page1.Add(() => Add(new DwellLabel(new string('\u2500', 50))));
+
+        page1.Add(() => Add(new DwellButton(_viewModel, "md_add", "\uff0b Add Custom Model",
+            () => ShowCustomModelModal(),
+            BtnBase, cat, r, _dwellMs, width: 300, height: 60)));
+
+        var manageableModels = _registryService.DownloadedModels;
+        if (manageableModels.Count > 0)
+        {
+            page1.Add(() => Add(new DwellButton(_viewModel, "md_manage", "Manage models...",
+                () => _viewModel.Settings.NextPage(),
+                BtnBase, cat, r, _dwellMs, width: 300, height: 60)));
+        }
+
+        var page2 = new List<Action>();
+        if (manageableModels.Count > 0)
+        {
+            foreach (var entry in manageableModels)
+            {
+                var entryId = entry.Id;
+                var displayName = entry.DisplayName;
+                var sizeText = FormatSize(entry.SizeBytes);
+                page2.Add(() => Add(new DwellButton(_viewModel, $"md_del_{entryId}", $"{displayName}  {sizeText}  \uD83D\uDDD1 Delete",
+                    () => ShowModal($"Delete {displayName}? This cannot be undone.", () =>
+                    {
+                        if (entry.Source == ModelSource.Custom)
+                            _registryService.RemoveCustomModel(entryId, _settings.Keyboard);
+                        else
+                            _registryService.DeleteModelFiles(entryId);
+                        ApplyAndSave();
+                        RebuildContent();
+                    }),
+                    DeleteBase, cat, r, _dwellMs, width: 400, height: 60)));
+            }
+
+            page2.Add(() => Add(new DwellButton(_viewModel, "md_back", "Back to models",
+                () => _viewModel.Settings.PreviousPage(),
+                BtnBase, cat, r, _dwellMs, width: 300, height: 60)));
+        }
+
+        return page2.Count > 0 ? [page1, page2] : [page1];
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes >= 1_073_741_824) return $"{bytes / 1_073_741_824.0:F1} GB";
+        if (bytes >= 1_048_576) return $"{bytes / 1_048_576:F0} MB";
+        if (bytes >= 1024) return $"{bytes / 1024:F0} KB";
+        return $"{bytes} B";
+    }
+
+    private string _customModelName = "";
+    private string _customModelUrl = "";
+
+    private async Task DownloadModelAsync(string modelId, string url, string sha256,
+        string tokenizerUrl, string tokenizerSha256, string outputFileName)
+    {
+        try
+        {
+            var downloaded = await _downloadService.DownloadModelAsync(
+                modelId, outputFileName, url, sha256, CancellationToken.None);
+            if (downloaded && !string.IsNullOrEmpty(tokenizerUrl))
+            {
+                var tokenizerFile = outputFileName.Replace(".onnx", ".tokenizer.json");
+                await _downloadService.DownloadTokenizerAsync(
+                    modelId, tokenizerFile, tokenizerUrl, tokenizerSha256, CancellationToken.None);
+            }
+            Dispatcher.Invoke(() => RebuildContent());
+        }
+        catch
+        {
+            Dispatcher.Invoke(() => RebuildContent());
+        }
+    }
+
+    private void ShowCustomModelModal()
+    {
+        _customModelName = "";
+        _customModelUrl = "";
+
+        ShowModal("Add Custom Model\n\nDisplay Name: [dwell to edit]\nRepo URL: [dwell to edit]\n\n\uD83D\uDCCB Paste from URL",
+            () => DownloadCustomModel());
+    }
+
+    private void DownloadCustomModel()
+    {
+        try
+        {
+            var url = System.Windows.Clipboard.GetText()?.Trim() ?? "";
+            if (string.IsNullOrEmpty(url) || !url.StartsWith("https://"))
+            {
+                ShowError("Paste a valid HTTPS URL (e.g., HuggingFace model URL).");
+                return;
+            }
+
+            var displayName = DeriveModelName(url);
+            var tokenizerUrl = ModelDownloadService.GetTokenizerUrl(url);
+            var sanitizedName = ModelRegistryService.SanitizeFileName(displayName);
+            var finalName = _registryService.ResolveUniqueFileName(sanitizedName);
+
+            _ = Task.Run(async () =>
+            {
+                var downloaded = await _downloadService.DownloadModelAsync(
+                    finalName, $"{finalName}.onnx", url, "");
+                if (downloaded)
+                {
+                    await _downloadService.DownloadTokenizerAsync(
+                        finalName, $"{finalName}.tokenizer.json", tokenizerUrl, "", CancellationToken.None);
+                    Dispatcher.Invoke(() =>
+                    {
+                        _registryService.AddCustomModel(finalName, displayName, url, "", 0,
+                            tokenizerUrl, "", _settings.Keyboard);
+                        _settings.Keyboard.MLModelSize = finalName;
+                        ApplyAndSave();
+                        RebuildContent();
+                    });
+                }
+                else
+                {
+                    Dispatcher.Invoke(() => ShowError("Download failed. Check the URL and try again."));
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Invalid URL: {ex.Message}");
+        }
+    }
+
+    private static string DeriveModelName(string url)
+    {
+        try
+        {
+            var uri = new Uri(url);
+            var path = uri.AbsolutePath.TrimEnd('/');
+            var resolveIdx = path.IndexOf("/resolve/", StringComparison.OrdinalIgnoreCase);
+            var effectivePath = resolveIdx >= 0 ? path[..resolveIdx] : path;
+            var segments = effectivePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length >= 2)
+                return segments[^1];
+            return segments.Length == 1 ? segments[0] : "CustomModel";
+        }
+        catch
+        {
+            return "CustomModel";
+        }
+    }
+
+    private void ShowError(string message)
+    {
+        ShowModal(message, () => { });
     }
 
     private List<List<Action>> BuildGeneralPages()

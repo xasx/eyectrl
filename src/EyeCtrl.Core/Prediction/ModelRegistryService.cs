@@ -26,7 +26,7 @@ public class ModelRegistryService
             lock (_lock)
             {
                 foreach (var entry in _registry.Values)
-                    entry.IsActive = entry.Id == value;
+                    entry.IsActive = string.Equals(entry.Id, value, StringComparison.OrdinalIgnoreCase);
                 _activeModelId = value;
             }
         }
@@ -37,7 +37,10 @@ public class ModelRegistryService
         get
         {
             lock (_lock)
+            {
+                RefreshIsDownloaded(_registry.Values);
                 return _registry.Values.Where(e => e.IsDownloaded && !e.IsActive).ToList();
+            }
         }
     }
 
@@ -46,8 +49,35 @@ public class ModelRegistryService
         get
         {
             lock (_lock)
+            {
+                RefreshIsDownloaded(_registry.Values);
                 return _registry.Values.Where(e => e.IsDownloaded).ToList();
+            }
         }
+    }
+
+    private void RefreshIsDownloaded(IEnumerable<ModelRegistryEntry> entries)
+    {
+        foreach (var entry in entries)
+        {
+            var onnxPath = Path.Combine(_modelsDirectory, GetModelFileNameInternal(entry));
+            var tokenizerPath = Path.Combine(_modelsDirectory, GetTokenizerFileNameInternal(entry));
+            entry.IsDownloaded = File.Exists(onnxPath) && File.Exists(tokenizerPath);
+        }
+    }
+
+    private string GetModelFileNameInternal(ModelRegistryEntry entry)
+    {
+        if (entry.Source == ModelSource.Bundled)
+            return GetBundledModelFileName(entry.Id);
+        return $"{SanitizeFileName(entry.Id)}.onnx";
+    }
+
+    private string GetTokenizerFileNameInternal(ModelRegistryEntry entry)
+    {
+        if (entry.Source == ModelSource.Bundled)
+            return GetBundledModelFileName(entry.Id).Replace(".onnx", ".tokenizer.json");
+        return $"{SanitizeFileName(entry.Id)}.tokenizer.json";
     }
 
     public ModelRegistryService(

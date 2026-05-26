@@ -24,7 +24,7 @@ public class SmallLMPredictor : IDisposable
     public bool IsAvailable { get; private set; }
     public string? SelectedModelPath { get; private set; }
 
-    public SmallLMPredictor(string modelsDirectory, string? modelSize, bool preferGpu, ILogger<SmallLMPredictor>? logger = null, LMTokenizer? tokenizer = null)
+    public SmallLMPredictor(string modelsDirectory, string? modelSize, bool preferGpu, ILogger<SmallLMPredictor>? logger = null, LMTokenizer? tokenizer = null, string? modelPath = null)
     {
         _modelsDirectory = modelsDirectory;
         _selectedModelSize = modelSize;
@@ -45,19 +45,25 @@ public class SmallLMPredictor : IDisposable
             return;
         }
 
-        Initialize();
+        Initialize(modelPath);
     }
 
-    private void Initialize()
+    private void Initialize(string? explicitModelPath = null)
     {
-        if (!ModelConstants.ModelFileNames.TryGetValue(_selectedModelSize!, out var fileName))
+        if (explicitModelPath != null)
+        {
+            SelectedModelPath = explicitModelPath;
+        }
+        else if (ModelConstants.ModelFileNames.TryGetValue(_selectedModelSize!, out var fileName))
+        {
+            SelectedModelPath = Path.Combine(_modelsDirectory, fileName);
+        }
+        else
         {
             _logger?.LogWarning("Unknown model size: {Size}", _selectedModelSize);
             IsAvailable = false;
             return;
         }
-
-        SelectedModelPath = Path.Combine(_modelsDirectory, fileName);
         if (!File.Exists(SelectedModelPath))
         {
             _logger?.LogInformation("Model file not found: {Path}", SelectedModelPath);

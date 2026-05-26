@@ -788,11 +788,14 @@ public class EventCoordinator : IEventCoordinator
                         Log.Warning(ex, "Failed to load tokenizer from {Path}; LM suggestions disabled", tokenizerPath);
                     }
 
+                    var modelPath = _modelRegistry.GetModelPath(modelSize);
+
                     lmPredictor = new SmallLMPredictor(
                         modelsDir,
                         modelSize,
                         settings.Keyboard.PreferGPU,
-                        tokenizer: tokenizer);
+                        tokenizer: tokenizer,
+                        modelPath: modelPath);
                 }
             }
 

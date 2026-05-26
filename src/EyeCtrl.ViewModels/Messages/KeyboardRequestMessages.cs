@@ -2,7 +2,7 @@ namespace EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// Sent from settings window when a text field is activated (user dwells on it).
-/// Carries the recipient window handle so EventCoordinator can route key events.
+/// Carries the target window handle for the receiving text field.
 /// </summary>
 public record ShowKeyboardRequestMessage
 {

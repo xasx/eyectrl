@@ -141,7 +141,8 @@ public class ModelDownloadService : IDisposable
             }
             var computedHash = Convert.ToHexStringLower(sha256.Hash!);
 
-            if (!string.Equals(computedHash, expectedSha256, System.StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(expectedSha256) &&
+                !string.Equals(computedHash, expectedSha256, System.StringComparison.OrdinalIgnoreCase))
             {
                 _logger?.LogError("Hash mismatch for model {Id}: expected {Expected}, got {Actual}", modelId, expectedSha256, computedHash);
                 File.Delete(tempPath);
@@ -221,7 +222,8 @@ public class ModelDownloadService : IDisposable
             }
             var computedHash = Convert.ToHexStringLower(sha256.Hash!);
 
-            if (!string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(expectedSha256) &&
+                !string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
             {
                 _logger?.LogError("Hash mismatch for tokenizer {Size}: expected {Expected}, got {Actual}", modelSize, expectedSha256, computedHash);
                 File.Delete(tempPath);

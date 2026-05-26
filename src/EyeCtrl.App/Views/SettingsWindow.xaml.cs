@@ -737,16 +737,18 @@ public partial class SettingsWindow : OverlayWindow
         }
         else
         {
-            var modelIds = downloadedModels.Select(m => m.DisplayName).ToList();
-            var activeDisplay = downloadedModels.FirstOrDefault(m => m.Id == _registryService.ActiveModelId)?.DisplayName ?? "Off";
+            var displayNames = downloadedModels.Select(m => m.DisplayName).ToList();
+            var modelIds = downloadedModels.Select(m => m.Id).ToList();
+            var activeId = _registryService.ActiveModelId ?? "Off";
             page1.Add(() => Add(new DwellComboBox(_viewModel, "md_active", "Active Model",
+                displayNames.Prepend("Off").ToArray(),
                 modelIds.Prepend("Off").ToArray(),
-                () => activeDisplay,
+                () => activeId,
                 v =>
                 {
-                    var selected = downloadedModels.FirstOrDefault(m => m.DisplayName == v);
-                    _settings.Keyboard.MLModelSize = selected?.Id ?? "Off";
-                    _registryService.ActiveModelId = selected?.Id;
+                    var selectedId = v == "Off" ? null : v;
+                    _settings.Keyboard.MLModelSize = selectedId ?? "Off";
+                    _registryService.ActiveModelId = selectedId;
                     ApplyAndSave();
                 },
                 cat, r, _dwellMs)));
@@ -885,8 +887,13 @@ public partial class SettingsWindow : OverlayWindow
                     finalName, $"{finalName}.onnx", url, "");
                 if (downloaded)
                 {
-                    await _downloadService.DownloadTokenizerAsync(
+                    var tokenizerOk = await _downloadService.DownloadTokenizerAsync(
                         finalName, $"{finalName}.tokenizer.json", tokenizerUrl, "", CancellationToken.None);
+                    if (!tokenizerOk)
+                    {
+                        Dispatcher.Invoke(() => ShowError("Tokenizer download failed. Check the URL and try again."));
+                        return;
+                    }
                     Dispatcher.Invoke(() =>
                     {
                         _registryService.AddCustomModel(finalName, displayName, url, "", 0,

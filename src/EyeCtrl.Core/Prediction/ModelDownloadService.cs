@@ -11,6 +11,22 @@ public class ModelDownloadService : IDisposable
     private readonly bool _ownsHttpClient;
     private readonly ILogger<ModelDownloadService>? _logger;
 
+    private volatile bool _isDownloading;
+    private CancellationTokenSource? _downloadCts;
+
+    public bool IsDownloading => _isDownloading;
+
+    public event Action<ModelDownloadProgress>? ProgressChanged;
+
+    public class ModelDownloadProgress
+    {
+        public string ModelId { get; init; } = "";
+        public double Progress { get; init; }
+        public bool IsComplete { get; init; }
+        public bool IsCancelled { get; init; }
+        public string? Error { get; init; }
+    }
+
     public ModelDownloadService(string modelsDirectory, HttpClient? httpClient = null, ILogger<ModelDownloadService>? logger = null)
     {
         _modelsDirectory = modelsDirectory;
@@ -55,6 +71,26 @@ public class ModelDownloadService : IDisposable
         return Path.Combine(_modelsDirectory, GetTokenizerFileName(modelSize));
     }
 
+    public static string GetTokenizerUrl(string modelUrl)
+    {
+        if (string.IsNullOrWhiteSpace(modelUrl))
+            throw new ArgumentException("Model URL cannot be empty", nameof(modelUrl));
+
+        var uri = new Uri(modelUrl);
+        var path = uri.AbsolutePath.TrimEnd('/');
+        var lastSlash = path.LastIndexOf('/');
+        if (lastSlash < 0)
+            throw new ArgumentException($"Cannot derive tokenizer URL from: {modelUrl}");
+
+        var dir = path[..lastSlash];
+        var tokenizerUrl = $"{uri.GetLeftPart(UriPartial.Authority)}{dir}/tokenizer.json";
+
+        if (!string.IsNullOrEmpty(uri.Query))
+            tokenizerUrl += uri.Query;
+
+        return tokenizerUrl;
+    }
+
     public string GetModelPath(string modelSize)
     {
         if (!ModelConstants.ModelFileNames.TryGetValue(modelSize, out var fileName))
@@ -62,69 +98,85 @@ public class ModelDownloadService : IDisposable
         return Path.Combine(_modelsDirectory, fileName);
     }
 
+    public void CancelDownload()
+    {
+        _downloadCts?.Cancel();
+    }
+
     public async Task<bool> DownloadModelAsync(
-        string modelSize,
+        string modelId,
+        string outputFileName,
         string url,
         string expectedSha256,
-        IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        if (!ModelConstants.ModelFileNames.TryGetValue(modelSize, out var fileName))
-            throw new ArgumentException($"Unknown model size: {modelSize}");
-
-        var outputPath = Path.Combine(_modelsDirectory, fileName);
+        var outputPath = Path.Combine(_modelsDirectory, outputFileName);
         var tempPath = outputPath + ".download";
 
-        _logger?.LogInformation("Downloading model {Size} from {Url} to {Path}", modelSize, url, outputPath);
+        _isDownloading = true;
+        _downloadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         try
         {
-            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            var progress = ProgressChanged;
+            progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Progress = 0 });
+
+            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, _downloadCts.Token);
             response.EnsureSuccessStatusCode();
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1;
-            using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var contentStream = await response.Content.ReadAsStreamAsync(_downloadCts.Token);
             using var fileStream = File.Create(tempPath);
 
             var buffer = new byte[8192];
             long totalRead = 0;
             int bytesRead;
 
-            using var sha256 = SHA256.Create();
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
             using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
             {
-                while ((bytesRead = await cs.ReadAsync(buffer, cancellationToken)) > 0)
+                while ((bytesRead = await cs.ReadAsync(buffer, _downloadCts.Token)) > 0)
                 {
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), _downloadCts.Token);
                     totalRead += bytesRead;
                     if (totalBytes > 0)
-                        progress?.Report((double)totalRead / totalBytes);
+                        progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Progress = (double)totalRead / totalBytes });
                 }
             }
             var computedHash = Convert.ToHexStringLower(sha256.Hash!);
 
-            if (!string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(computedHash, expectedSha256, System.StringComparison.OrdinalIgnoreCase))
             {
-                _logger?.LogError("Hash mismatch for model {Size}: expected {Expected}, got {Actual}", modelSize, expectedSha256, computedHash);
+                _logger?.LogError("Hash mismatch for model {Id}: expected {Expected}, got {Actual}", modelId, expectedSha256, computedHash);
                 File.Delete(tempPath);
+                progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, IsComplete = true, Error = "Hash mismatch" });
                 return false;
             }
 
             File.Move(tempPath, outputPath, overwrite: true);
-            _logger?.LogInformation("Model {Size} downloaded successfully ({Bytes} bytes)", modelSize, totalRead);
+            _logger?.LogInformation("Model {Id} downloaded successfully ({Bytes} bytes)", modelId, totalRead);
+            progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Progress = 1.0, IsComplete = true });
             return true;
         }
         catch (OperationCanceledException)
         {
-            _logger?.LogInformation("Model download cancelled: {Size}", modelSize);
+            _logger?.LogInformation("Model download cancelled: {Id}", modelId);
             if (File.Exists(tempPath)) File.Delete(tempPath);
+            ProgressChanged?.Invoke(new ModelDownloadProgress { ModelId = modelId, IsCancelled = true });
             throw;
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to download model {Size}", modelSize);
+            _logger?.LogError(ex, "Failed to download model {Id}", modelId);
             if (File.Exists(tempPath)) File.Delete(tempPath);
+            ProgressChanged?.Invoke(new ModelDownloadProgress { ModelId = modelId, Error = ex.Message });
             return false;
+        }
+        finally
+        {
+            _isDownloading = false;
+            _downloadCts?.Dispose();
+            _downloadCts = null;
         }
     }
 
@@ -193,6 +245,62 @@ public class ModelDownloadService : IDisposable
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to download tokenizer {Size}", modelSize);
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+            return false;
+        }
+    }
+
+    public async Task<bool> DownloadTokenizerAsync(
+        string modelId,
+        string outputFileName,
+        string url,
+        string expectedSha256,
+        CancellationToken cancellationToken = default)
+    {
+        var outputPath = Path.Combine(_modelsDirectory, outputFileName);
+        var tempPath = outputPath + ".download";
+
+        _logger?.LogInformation("Downloading tokenizer {Id} from {Url} to {Path}", modelId, url, outputPath);
+
+        try
+        {
+            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var fileStream = File.Create(tempPath);
+
+            var buffer = new byte[8192];
+            int bytesRead;
+
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
+            {
+                while ((bytesRead = await cs.ReadAsync(buffer, cancellationToken)) > 0)
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+            }
+            var computedHash = Convert.ToHexStringLower(sha256.Hash!);
+
+            if (!string.IsNullOrEmpty(expectedSha256) &&
+                !string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger?.LogError("Hash mismatch for tokenizer {Id}", modelId);
+                File.Delete(tempPath);
+                return false;
+            }
+
+            File.Move(tempPath, outputPath, overwrite: true);
+            _logger?.LogInformation("Tokenizer {Id} downloaded successfully", modelId);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to download tokenizer {Id}", modelId);
             if (File.Exists(tempPath)) File.Delete(tempPath);
             return false;
         }

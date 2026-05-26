@@ -41,12 +41,20 @@ public class EventCoordinator : IEventCoordinator
     private PredictionOrchestrator? _orchestrator;
     private GlassBackdropWindow? _glassBackdrop;
     private string? _appDataDir;
+    private ModelRegistryService? _modelRegistry;
+    private ModelDownloadService? _downloadService;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
     /// </summary>
     public WordPredictor? WordPredictor => _orchestrator?.WordPredictor;
     public PredictionOrchestrator? Orchestrator => _orchestrator;
+
+    public void SetModelServices(ModelRegistryService modelRegistry, ModelDownloadService modelDownload)
+    {
+        _modelRegistry = modelRegistry;
+        _downloadService = modelDownload;
+    }
 
     public void Initialize(EventCoordinationContext context)
     {
@@ -216,6 +224,24 @@ public class EventCoordinator : IEventCoordinator
                 else if (im.CurrentState == InteractionState.ManualSelectionActive)
                     im.OnManualSelectionBack();
             }));
+
+        // ShowKeyboardRequestMessage -> show keyboard for text input
+        _context.Messenger.Register<EventCoordinator, ShowKeyboardRequestMessage>(this, (_, msg) =>
+        {
+            if (_context?.OverlayManager.Keyboard == null) return;
+            _keyboardVisible = true;
+            _context.OverlayManager.Keyboard.Show();
+            Log.Debug("Keyboard shown for text input (target handle: {Handle})", msg.TargetHandle);
+        });
+
+        // HideKeyboardRequestMessage -> hide keyboard
+        _context.Messenger.Register<EventCoordinator, HideKeyboardRequestMessage>(this, (_, _) =>
+        {
+            if (_context?.OverlayManager.Keyboard == null) return;
+            _keyboardVisible = false;
+            _context.OverlayManager.Keyboard.Hide();
+            Log.Debug("Keyboard hidden");
+        });
     }
 
     private void SetupGazeRouting()
@@ -481,7 +507,9 @@ public class EventCoordinator : IEventCoordinator
             _settingsWindow = new SettingsWindow(
                 settingsWindowVM,
                 _context.Settings,
-                _context.SettingsService);
+                _context.SettingsService,
+                _modelRegistry!,
+                _downloadService!);
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;
@@ -738,16 +766,15 @@ public class EventCoordinator : IEventCoordinator
 
             // Create LM predictor if ML settings are enabled
             SmallLMPredictor? lmPredictor = null;
-            if (settings.Keyboard.MLSuggestionsEnabled)
+            if (settings.Keyboard.MLSuggestionsEnabled && _modelRegistry != null)
             {
                 var modelsDir = Path.Combine(_appDataDir!, "models");
                 var modelSize = settings.Keyboard.MLModelSize;
 
-                LMTokenizer? tokenizer = null;
-                if (ModelConstants.ModelFileNames.TryGetValue(modelSize, out var onnxFile))
+                if (!string.IsNullOrEmpty(modelSize) && modelSize != "Off")
                 {
-                    var tokenizerFileName = Path.GetFileNameWithoutExtension(onnxFile) + ".tokenizer.json";
-                    var tokenizerPath = Path.Combine(modelsDir, tokenizerFileName);
+                    LMTokenizer? tokenizer = null;
+                    var tokenizerPath = _modelRegistry.GetTokenizerPath(modelSize);
 
                     try
                     {
@@ -760,13 +787,13 @@ public class EventCoordinator : IEventCoordinator
                     {
                         Log.Warning(ex, "Failed to load tokenizer from {Path}; LM suggestions disabled", tokenizerPath);
                     }
-                }
 
-                lmPredictor = new SmallLMPredictor(
-                    modelsDir,
-                    modelSize,
-                    settings.Keyboard.PreferGPU,
-                    tokenizer: tokenizer);
+                    lmPredictor = new SmallLMPredictor(
+                        modelsDir,
+                        modelSize,
+                        settings.Keyboard.PreferGPU,
+                        tokenizer: tokenizer);
+                }
             }
 
             _orchestrator?.Dispose();

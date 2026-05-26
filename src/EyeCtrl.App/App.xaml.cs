@@ -152,6 +152,10 @@ public partial class App : Application
             overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator);
         _eventCoordinator.Initialize(coordinationContext);
 
+        var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();
+        var modelDownload = _serviceProvider.GetRequiredService<ModelDownloadService>();
+        _eventCoordinator.SetModelServices(modelRegistry, modelDownload);
+
         // Load keyboard using EventCoordinator
         _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
 

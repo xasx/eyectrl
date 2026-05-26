@@ -508,8 +508,8 @@ public class EventCoordinator : IEventCoordinator
                 settingsWindowVM,
                 _context.Settings,
                 _context.SettingsService,
-                _modelRegistry!,
-                _downloadService!);
+                _modelRegistry ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
+                _downloadService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."));
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;

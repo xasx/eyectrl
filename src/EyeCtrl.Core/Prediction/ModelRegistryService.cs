@@ -6,8 +6,6 @@ using EyeCtrl.Core.Settings;
 
 public class ModelRegistryService : IDisposable
 {
-    public const int DebounceDelayMs = 2000;
-
     private readonly string _modelsDirectory;
     private readonly ModelManifest _bundledManifest;
     private readonly ILogger<ModelRegistryService>? _logger;

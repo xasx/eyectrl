@@ -159,4 +159,42 @@ public class ModelDownloadServiceTests
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public void GetTokenizerUrl_StandardOnnxUrl_ReplacesLastSegment()
+    {
+        var url = "https://huggingface.co/org/repo/resolve/main/onnx/model.onnx";
+        var result = ModelDownloadService.GetTokenizerUrl(url);
+        Assert.Equal("https://huggingface.co/org/repo/resolve/main/onnx/tokenizer.json", result);
+    }
+
+    [Fact]
+    public void GetTokenizerUrl_UrlWithQueryParams_StripsThem()
+    {
+        var url = "https://huggingface.co/org/repo/resolve/main/model.onnx?download=true";
+        var result = ModelDownloadService.GetTokenizerUrl(url);
+        Assert.Equal("https://huggingface.co/org/repo/resolve/main/tokenizer.json", result);
+    }
+
+    [Fact]
+    public void GetTokenizerUrl_EmptyUrl_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => ModelDownloadService.GetTokenizerUrl(""));
+    }
+
+    [Fact]
+    public void GetTokenizerUrl_RootPath_ReturnsTokenizer()
+    {
+        var url = "https://example.com/model.onnx";
+        var result = ModelDownloadService.GetTokenizerUrl(url);
+        Assert.Equal("https://example.com/tokenizer.json", result);
+    }
+
+    [Fact]
+    public void GetTokenizerUrl_NestedPath_ReplacesLastComponent()
+    {
+        var url = "https://example.com/a/b/c/model.onnx";
+        var result = ModelDownloadService.GetTokenizerUrl(url);
+        Assert.Equal("https://example.com/a/b/c/tokenizer.json", result);
+    }
 }

@@ -81,8 +81,16 @@ public class AppBootstrapper
             ModelManifest manifest;
             if (File.Exists(manifestPath))
             {
-                var json = File.ReadAllText(manifestPath);
-                manifest = JsonSerializer.Deserialize<ModelManifest>(json) ?? new ModelManifest();
+                try
+                {
+                    var json = File.ReadAllText(manifestPath);
+                    manifest = JsonSerializer.Deserialize<ModelManifest>(json) ?? new ModelManifest();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Failed to load bundled model manifest from {Path}; falling back to empty manifest", manifestPath);
+                    manifest = new ModelManifest();
+                }
             }
             else
             {

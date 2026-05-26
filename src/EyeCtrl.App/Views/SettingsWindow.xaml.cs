@@ -739,11 +739,10 @@ public partial class SettingsWindow : OverlayWindow
         {
             var displayNames = downloadedModels.Select(m => m.DisplayName).ToList();
             var modelIds = downloadedModels.Select(m => m.Id).ToList();
-            var activeId = _registryService.ActiveModelId ?? "Off";
             page1.Add(() => Add(new DwellComboBox(_viewModel, "md_active", "Active Model",
                 displayNames.Prepend("Off").ToArray(),
                 modelIds.Prepend("Off").ToArray(),
-                () => activeId,
+                () => _registryService.ActiveModelId ?? "Off",
                 v =>
                 {
                     var selectedId = v == "Off" ? null : v;
@@ -763,7 +762,7 @@ public partial class SettingsWindow : OverlayWindow
             var displayName = entry.DisplayName;
             var sizeText = FormatSize(entry.SizeBytes);
 
-            if (entry.IsDownloaded)
+            if (_registryService.IsModelDownloaded(entryId))
             {
                 page1.Add(() => Add(new DwellLabel($"  {displayName}  {sizeText}  \u2713 Downloaded")));
             }
@@ -898,6 +897,7 @@ public partial class SettingsWindow : OverlayWindow
                     {
                         _registryService.AddCustomModel(finalName, displayName, url, "", 0,
                             tokenizerUrl, "", _settings.Keyboard);
+                        _registryService.ActiveModelId = finalName;
                         ApplyAndSave();
                         RebuildContent();
                     });

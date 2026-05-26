@@ -126,13 +126,13 @@ public class ModelDownloadService : IDisposable
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1;
             using var contentStream = await response.Content.ReadAsStreamAsync(_downloadCts.Token);
-            using var fileStream = File.Create(tempPath);
 
             var buffer = new byte[8192];
             long totalRead = 0;
             int bytesRead;
 
             using var sha256 = System.Security.Cryptography.SHA256.Create();
+            using (var fileStream = File.Create(tempPath))
             using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
             {
                 while ((bytesRead = await cs.ReadAsync(buffer, _downloadCts.Token)) > 0)
@@ -208,13 +208,13 @@ public class ModelDownloadService : IDisposable
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1;
             using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var fileStream = File.Create(tempPath);
 
             var buffer = new byte[8192];
             long totalRead = 0;
             int bytesRead;
 
             using var sha256 = SHA256.Create();
+            using (var fileStream = File.Create(tempPath))
             using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
             {
                 while ((bytesRead = await cs.ReadAsync(buffer, cancellationToken)) > 0)
@@ -271,12 +271,12 @@ public class ModelDownloadService : IDisposable
             response.EnsureSuccessStatusCode();
 
             using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var fileStream = File.Create(tempPath);
 
             var buffer = new byte[8192];
             int bytesRead;
 
             using var sha256 = System.Security.Cryptography.SHA256.Create();
+            using (var fileStream = File.Create(tempPath))
             using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
             {
                 while ((bytesRead = await cs.ReadAsync(buffer, cancellationToken)) > 0)

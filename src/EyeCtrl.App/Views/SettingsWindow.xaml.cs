@@ -833,7 +833,6 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     private string _customModelName = "";
-    private string _customModelUrl = "";
 
     private async Task DownloadModelAsync(string modelId, string url, string sha256,
         string tokenizerUrl, string tokenizerSha256, string outputFileName)
@@ -859,7 +858,6 @@ public partial class SettingsWindow : OverlayWindow
     private void ShowCustomModelModal()
     {
         _customModelName = "";
-        _customModelUrl = "";
 
         ShowModal("Add Custom Model\n\nDisplay Name: [dwell to edit]\nRepo URL: [dwell to edit]\n\n\uD83D\uDCCB Paste from URL",
             () => DownloadCustomModel());

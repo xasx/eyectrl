@@ -5,9 +5,13 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Gaze;
+using System.IO;
+using System.Net.Http;
+using System.Text.Json;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,6 +68,39 @@ public class AppBootstrapper
                 System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
                 System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
         });
+
+        // Model download services
+        services.AddSingleton<HttpClient>(_ => new HttpClient { Timeout = TimeSpan.FromMinutes(30) });
+        services.AddSingleton(sp =>
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var modelsDir = Path.Combine(appData, "EyeCtrl", "models");
+            var settings = sp.GetRequiredService<EyeCtrlSettings>();
+
+            var manifestPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "models.json");
+            ModelManifest manifest;
+            if (File.Exists(manifestPath))
+            {
+                var json = File.ReadAllText(manifestPath);
+                manifest = JsonSerializer.Deserialize<ModelManifest>(json) ?? new ModelManifest();
+            }
+            else
+            {
+                manifest = new ModelManifest();
+            }
+
+            return new ModelRegistryService(
+                modelsDir,
+                manifest,
+                settings,
+                sp.GetRequiredService<ILogger<ModelRegistryService>>());
+        });
+        services.AddSingleton(sp => new ModelDownloadService(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "EyeCtrl", "models"),
+            sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<ILogger<ModelDownloadService>>()));
 
         // Core engine
         services.AddSingleton<GazeEngine>();

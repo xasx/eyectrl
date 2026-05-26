@@ -1,0 +1,44 @@
+{
+    "models": {
+        "135M": {
+            "displayName": "SmolLM2 135M",
+            "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/onnx/model.onnx",
+            "sha256": "",
+            "sizeBytes": 73400320,
+            "tokenizerUrl": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/onnx/tokenizer.json",
+            "tokenizerSha256": ""
+        },
+        "360M": {
+            "displayName": "SmolLM2 360M",
+            "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/onnx/model.onnx",
+            "sha256": "",
+            "sizeBytes": 188743680,
+            "tokenizerUrl": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/onnx/tokenizer.json",
+            "tokenizerSha256": ""
+        },
+        "0.5B": {
+            "displayName": "Qwen2.5 0.5B",
+            "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/onnx/model.onnx",
+            "sha256": "",
+            "sizeBytes": 262144000,
+            "tokenizerUrl": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/onnx/tokenizer.json",
+            "tokenizerSha256": ""
+        },
+        "1.5B": {
+            "displayName": "Qwen2.5 1.5B",
+            "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/resolve/main/onnx/model.onnx",
+            "sha256": "",
+            "sizeBytes": 838860800,
+            "tokenizerUrl": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/resolve/main/onnx/tokenizer.json",
+            "tokenizerSha256": ""
+        },
+        "3.8B": {
+            "displayName": "Phi-3.5-mini",
+            "url": "https://huggingface.co/microsoft/Phi-3.5-mini-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/model.onnx",
+            "sha256": "",
+            "sizeBytes": 2147483648,
+            "tokenizerUrl": "https://huggingface.co/microsoft/Phi-3.5-mini-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/tokenizer.json",
+            "tokenizerSha256": ""
+        }
+    }
+}

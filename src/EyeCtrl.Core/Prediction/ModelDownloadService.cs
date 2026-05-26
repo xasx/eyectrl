@@ -84,10 +84,6 @@ public class ModelDownloadService : IDisposable
 
         var dir = path[..lastSlash];
         var tokenizerUrl = $"{uri.GetLeftPart(UriPartial.Authority)}{dir}/tokenizer.json";
-
-        if (!string.IsNullOrEmpty(uri.Query))
-            tokenizerUrl += uri.Query;
-
         return tokenizerUrl;
     }
 

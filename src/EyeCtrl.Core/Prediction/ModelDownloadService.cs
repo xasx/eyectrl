@@ -13,6 +13,7 @@ public class ModelDownloadService : IDisposable
 
     private volatile bool _isDownloading;
     private CancellationTokenSource? _downloadCts;
+    private readonly SemaphoreSlim _downloadSemaphore = new(1, 1);
 
     public bool IsDownloading => _isDownloading;
 
@@ -109,6 +110,9 @@ public class ModelDownloadService : IDisposable
         var outputPath = Path.Combine(_modelsDirectory, outputFileName);
         var tempPath = outputPath + ".download";
 
+        if (!await _downloadSemaphore.WaitAsync(0, cancellationToken))
+            return false;
+
         _isDownloading = true;
         _downloadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
@@ -174,6 +178,7 @@ public class ModelDownloadService : IDisposable
             _isDownloading = false;
             _downloadCts?.Dispose();
             _downloadCts = null;
+            _downloadSemaphore.Release();
         }
     }
 

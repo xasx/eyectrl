@@ -930,8 +930,11 @@ public partial class SettingsWindow : OverlayWindow
                     {
                         _registryService.AddCustomModel(finalName, displayName, url, "", 0,
                             tokenizerUrl, "", _settings.Keyboard);
-                        _settings.Keyboard.MLModelSize = finalName;
-                        _registryService.ActiveModelId = finalName;
+                        if (string.IsNullOrEmpty(_registryService.ActiveModelId) || _registryService.ActiveModelId == "Off")
+                        {
+                            _settings.Keyboard.MLModelSize = finalName;
+                            _registryService.ActiveModelId = finalName;
+                        }
                         ApplyAndSave();
                         RebuildContent();
                     });

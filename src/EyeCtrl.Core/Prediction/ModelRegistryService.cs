@@ -141,8 +141,9 @@ public class ModelRegistryService
         // 2. Add custom models from keyboard settings
         foreach (var custom in keyboardSettings.CustomModels)
         {
-            var onnxPath = Path.Combine(_modelsDirectory, $"{custom.Id}.onnx");
-            var tokenizerPath = Path.Combine(_modelsDirectory, $"{custom.Id}.tokenizer.json");
+            var sanitizedId = SanitizeFileName(custom.Id);
+            var onnxPath = Path.Combine(_modelsDirectory, $"{sanitizedId}.onnx");
+            var tokenizerPath = Path.Combine(_modelsDirectory, $"{sanitizedId}.tokenizer.json");
             var isDownloaded = File.Exists(onnxPath) && File.Exists(tokenizerPath);
 
             _registry[custom.Id] = new ModelRegistryEntry

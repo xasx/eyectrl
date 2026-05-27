@@ -111,7 +111,10 @@ public class ModelDownloadService : IDisposable
         var tempPath = outputPath + ".download";
 
         if (!await _downloadSemaphore.WaitAsync(0, cancellationToken))
+        {
+            ProgressChanged?.Invoke(new ModelDownloadProgress { ModelId = modelId, Error = "Another download is already in progress" });
             return false;
+        }
 
         _isDownloading = true;
         _downloadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -199,6 +202,14 @@ public class ModelDownloadService : IDisposable
         var outputPath = Path.Combine(_modelsDirectory, fileName);
         var tempPath = outputPath + ".download";
 
+        if (!await _downloadSemaphore.WaitAsync(0, cancellationToken))
+        {
+            _logger?.LogWarning("Tokenizer download rejected: another download is already in progress");
+            return false;
+        }
+
+        _isDownloading = true;
+
         _logger?.LogInformation("Downloading tokenizer {Size} from {Url} to {Path}", modelSize, url, outputPath);
 
         try
@@ -251,6 +262,11 @@ public class ModelDownloadService : IDisposable
             if (File.Exists(tempPath)) File.Delete(tempPath);
             return false;
         }
+        finally
+        {
+            _isDownloading = false;
+            _downloadSemaphore.Release();
+        }
     }
 
     public async Task<bool> DownloadTokenizerAsync(
@@ -262,6 +278,14 @@ public class ModelDownloadService : IDisposable
     {
         var outputPath = Path.Combine(_modelsDirectory, outputFileName);
         var tempPath = outputPath + ".download";
+
+        if (!await _downloadSemaphore.WaitAsync(0, cancellationToken))
+        {
+            _logger?.LogWarning("Tokenizer download rejected: another download is already in progress");
+            return false;
+        }
+
+        _isDownloading = true;
 
         _logger?.LogInformation("Downloading tokenizer {Id} from {Url} to {Path}", modelId, url, outputPath);
 
@@ -306,6 +330,11 @@ public class ModelDownloadService : IDisposable
             _logger?.LogError(ex, "Failed to download tokenizer {Id}", modelId);
             if (File.Exists(tempPath)) File.Delete(tempPath);
             return false;
+        }
+        finally
+        {
+            _isDownloading = false;
+            _downloadSemaphore.Release();
         }
     }
 }

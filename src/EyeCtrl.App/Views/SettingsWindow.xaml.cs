@@ -770,13 +770,17 @@ public partial class SettingsWindow : OverlayWindow
             {
                 page1.Add(() =>
                 {
-                    var isDownloading = _downloadService.IsDownloading;
-                    var label = isDownloading ? $"{displayName}  {sizeText}  [Waiting...]" : $"{displayName}  {sizeText}  [Download]";
+                    var label = $"{displayName}  {sizeText}  [Download]";
                     Add(new DwellButton(_viewModel, $"md_dl_{entryId}", label,
-                        isDownloading ? () => { } : () => ShowModal($"Download {displayName} ({sizeText})?", () =>
-                            _ = DownloadModelAsync(entryId, entry.Url, entry.Sha256,
-                                entry.TokenizerUrl, entry.TokenizerSha256,
-                                _registryService.GetModelFileName(entryId))),
+                        () =>
+                        {
+                            if (_downloadService.IsDownloading)
+                                return;
+                            ShowModal($"Download {displayName} ({sizeText})?", () =>
+                                _ = DownloadModelAsync(entryId, entry.Url, entry.Sha256,
+                                    entry.TokenizerUrl, entry.TokenizerSha256,
+                                    _registryService.GetModelFileName(entryId)));
+                        },
                         BtnBase, cat, r, _dwellMs, width: 400, height: 60));
                 });
             }
@@ -843,8 +847,31 @@ public partial class SettingsWindow : OverlayWindow
             if (downloaded && !string.IsNullOrEmpty(tokenizerUrl))
             {
                 var tokenizerFile = outputFileName.Replace(".onnx", ".tokenizer.json");
-                await _downloadService.DownloadTokenizerAsync(
+                var tokenizerOk = await _downloadService.DownloadTokenizerAsync(
                     modelId, tokenizerFile, tokenizerUrl, tokenizerSha256, CancellationToken.None);
+                if (!tokenizerOk)
+                {
+                    var modelPath = _registryService.GetModelPath(modelId);
+                    if (System.IO.File.Exists(modelPath)) System.IO.File.Delete(modelPath);
+                    Dispatcher.Invoke(() =>
+                    {
+                        ShowError("Tokenizer download failed. Model removed.");
+                        RebuildContent();
+                    });
+                    return;
+                }
+            }
+            else if (!downloaded)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (_downloadService.IsDownloading)
+                        ShowError("Another download is already in progress.");
+                    else
+                        ShowError("Download failed. Check the URL and try again.");
+                    RebuildContent();
+                });
+                return;
             }
             Dispatcher.Invoke(() => RebuildContent());
         }
@@ -880,6 +907,12 @@ public partial class SettingsWindow : OverlayWindow
             var sanitizedName = ModelRegistryService.SanitizeFileName(displayName);
             var finalName = _registryService.ResolveUniqueFileName(sanitizedName);
 
+            if (_downloadService.IsDownloading)
+            {
+                ShowError("Another download is already in progress.");
+                return;
+            }
+
             _ = Task.Run(async () =>
             {
                 var downloaded = await _downloadService.DownloadModelAsync(
@@ -897,6 +930,7 @@ public partial class SettingsWindow : OverlayWindow
                     {
                         _registryService.AddCustomModel(finalName, displayName, url, "", 0,
                             tokenizerUrl, "", _settings.Keyboard);
+                        _settings.Keyboard.MLModelSize = finalName;
                         _registryService.ActiveModelId = finalName;
                         ApplyAndSave();
                         RebuildContent();

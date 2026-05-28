@@ -146,6 +146,138 @@ public class ModelManagementServiceTests
         }
     }
 
+    [Fact]
+    public void DeriveModelName_HuggingFaceUrl_ReturnsRepoName()
+    {
+        var name = ModelManagementService.DeriveModelName(CustomModelUrl);
+        Assert.Equal("repo", name);
+    }
+
+    [Fact]
+    public void DeriveModelName_NestedPath_ReturnsLastSegmentBeforeResolve()
+    {
+        var name = ModelManagementService.DeriveModelName("https://huggingface.co/org/my-model-name/resolve/main/model.onnx");
+        Assert.Equal("my-model-name", name);
+    }
+
+    [Fact]
+    public void DeriveModelName_NoResolveSegment_ReturnsLastSegment()
+    {
+        var name = ModelManagementService.DeriveModelName("https://example.com/models/foo");
+        Assert.Equal("foo", name);
+    }
+
+    [Fact]
+    public void DeriveModelName_RootPath_ReturnsFallback()
+    {
+        var name = ModelManagementService.DeriveModelName("https://example.com/");
+        Assert.Equal("CustomModel", name);
+    }
+
+    [Fact]
+    public void DeriveModelName_InvalidUrl_ReturnsFallback()
+    {
+        var name = ModelManagementService.DeriveModelName("not a url");
+        Assert.Equal("CustomModel", name);
+    }
+
+    [Fact]
+    public void SetActiveModel_UpdatesSettingsAndRegistry()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var manifest = new ModelManifest();
+            var (registry, mgmt) = BuildServices(tempDir, settings, manifest, _ => Task.FromResult(NotFound()));
+
+            mgmt.SetActiveModel("135M");
+
+            Assert.Equal("135M", settings.Keyboard.MLModelSize);
+            Assert.Equal("135M", registry.ActiveModelId);
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
+    [Fact]
+    public void SetActiveModel_Off_SetsNullAndWritesOff()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var (registry, mgmt) = BuildServices(tempDir, settings, new ModelManifest(), _ => Task.FromResult(NotFound()));
+
+            mgmt.SetActiveModel("Off");
+
+            Assert.Equal("Off", settings.Keyboard.MLModelSize);
+            Assert.Null(registry.ActiveModelId);
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
+    [Fact]
+    public void DeleteModel_BundledModel_DeletesFilesButKeepsRegistry()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var manifest = new ModelManifest
+            {
+                Models =
+                {
+                    ["135M"] = new ModelEntry
+                    {
+                        DisplayName = "SmolLM2 135M",
+                        Url = "https://example.com/model.onnx",
+                        TokenizerUrl = "https://example.com/tokenizer.json",
+                    },
+                },
+            };
+            var (registry, mgmt) = BuildServices(tempDir, settings, manifest, _ => Task.FromResult(NotFound()));
+
+            mgmt.DeleteModel("135M");
+
+            Assert.True(registry.Registry.ContainsKey("135M"), "Bundled model should remain in registry");
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
+    [Fact]
+    public void DeleteModel_CustomModel_RemovesFromRegistryAndSettings()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var (registry, mgmt) = BuildServices(tempDir, settings, new ModelManifest(), _ => Task.FromResult(NotFound()));
+
+            registry.AddCustomModel("Custom", "Custom", "https://example.com/model.onnx",
+                "", 0, "https://example.com/tokenizer.json", "", settings.Keyboard);
+
+            Assert.True(registry.Registry.ContainsKey("Custom"));
+
+            mgmt.DeleteModel("Custom");
+
+            Assert.False(registry.Registry.ContainsKey("Custom"));
+            Assert.Empty(settings.Keyboard.CustomModels);
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
     private static (ModelRegistryService, ModelManagementService) BuildServices(
         string tempDir, EyeCtrlSettings settings, ModelManifest manifest,
         Func<HttpRequestMessage, Task<HttpResponseMessage>> responder)

@@ -16,6 +16,11 @@ public class ModelManagementService
     private readonly EyeCtrlSettings _settings;
     private readonly ILogger<ModelManagementService>? _logger;
 
+    // One download workflow (model + tokenizer) at a time. Held for the whole
+    // workflow so IsDownloading can't flicker false between the two transfers and
+    // a second workflow can't interleave in that gap.
+    private readonly SemaphoreSlim _workflowGate = new(1, 1);
+
     public event Action<ModelDownloadResult>? DownloadCompleted;
 
     public ModelManagementService(
@@ -30,7 +35,7 @@ public class ModelManagementService
         _logger = logger;
     }
 
-    public bool IsDownloading => _downloadService.IsDownloading;
+    public bool IsDownloading => _workflowGate.CurrentCount == 0 || _downloadService.IsDownloading;
 
     /// <summary>
     /// Downloads a bundled model and its tokenizer atomically.
@@ -41,40 +46,47 @@ public class ModelManagementService
         string tokenizerUrl, string tokenizerSha256,
         CancellationToken cancellationToken = default)
     {
-        if (_downloadService.IsDownloading)
+        if (!await _workflowGate.WaitAsync(0, cancellationToken))
             return ModelDownloadResult.Busy();
 
-        var outputFileName = _registryService.GetModelFileName(modelId);
-
-        var downloaded = await _downloadService.DownloadModelAsync(
-            modelId, outputFileName, url, sha256, cancellationToken);
-
-        if (!downloaded)
+        try
         {
-            var result = ModelDownloadResult.Failed("Download failed. Check the URL and try again.");
-            DownloadCompleted?.Invoke(result);
-            return result;
-        }
+            var outputFileName = _registryService.GetModelFileName(modelId);
 
-        if (!string.IsNullOrEmpty(tokenizerUrl))
-        {
-            var tokenizerFile = outputFileName.Replace(".onnx", ".tokenizer.json");
-            var tokenizerOk = await _downloadService.DownloadTokenizerAsync(
-                modelId, tokenizerFile, tokenizerUrl, tokenizerSha256, cancellationToken);
+            var downloaded = await _downloadService.DownloadModelAsync(
+                modelId, outputFileName, url, sha256, cancellationToken);
 
-            if (!tokenizerOk)
+            if (!downloaded)
             {
-                var modelPath = _registryService.GetModelPath(modelId);
-                if (File.Exists(modelPath)) File.Delete(modelPath);
-                var result = ModelDownloadResult.Failed("Tokenizer download failed. Model removed.");
+                var result = ModelDownloadResult.Failed("Download failed. Check the URL and try again.");
                 DownloadCompleted?.Invoke(result);
                 return result;
             }
-        }
 
-        var success = ModelDownloadResult.Success(modelId);
-        DownloadCompleted?.Invoke(success);
-        return success;
+            if (!string.IsNullOrEmpty(tokenizerUrl))
+            {
+                var tokenizerFile = outputFileName.Replace(".onnx", ".tokenizer.json");
+                var tokenizerOk = await _downloadService.DownloadTokenizerAsync(
+                    modelId, tokenizerFile, tokenizerUrl, tokenizerSha256, cancellationToken);
+
+                if (!tokenizerOk)
+                {
+                    var modelPath = _registryService.GetModelPath(modelId);
+                    if (File.Exists(modelPath)) File.Delete(modelPath);
+                    var result = ModelDownloadResult.Failed("Tokenizer download failed. Model removed.");
+                    DownloadCompleted?.Invoke(result);
+                    return result;
+                }
+            }
+
+            var success = ModelDownloadResult.Success(modelId);
+            DownloadCompleted?.Invoke(success);
+            return success;
+        }
+        finally
+        {
+            _workflowGate.Release();
+        }
     }
 
     /// <summary>
@@ -86,57 +98,72 @@ public class ModelManagementService
         if (string.IsNullOrEmpty(url) || !url.StartsWith("https://"))
             return ModelDownloadResult.Failed("Provide a valid HTTPS URL (e.g., HuggingFace model URL).");
 
-        if (_downloadService.IsDownloading)
+        if (!await _workflowGate.WaitAsync(0, cancellationToken))
             return ModelDownloadResult.Busy();
-
-        string displayName;
-        string tokenizerUrl;
-        string finalName;
 
         try
         {
-            displayName = DeriveModelName(url);
-            tokenizerUrl = ModelDownloadService.GetTokenizerUrl(url);
-            var sanitizedName = ModelRegistryService.SanitizeFileName(displayName);
-            finalName = _registryService.ResolveUniqueFileName(sanitizedName);
+            string displayName;
+            string tokenizerUrl;
+            string finalName;
+
+            try
+            {
+                displayName = DeriveModelName(url);
+                tokenizerUrl = ModelDownloadService.GetTokenizerUrl(url);
+                var sanitizedName = ModelRegistryService.SanitizeFileName(displayName);
+                finalName = _registryService.ResolveUniqueFileName(sanitizedName);
+            }
+            catch (Exception ex)
+            {
+                return ModelDownloadResult.Failed($"Invalid URL: {ex.Message}");
+            }
+
+            var downloaded = await _downloadService.DownloadModelAsync(
+                finalName, $"{finalName}.onnx", url, "", cancellationToken);
+
+            if (!downloaded)
+            {
+                var result = ModelDownloadResult.Failed("Download failed. Check the URL and try again.");
+                DownloadCompleted?.Invoke(result);
+                return result;
+            }
+
+            var tokenizerOk = await _downloadService.DownloadTokenizerAsync(
+                finalName, $"{finalName}.tokenizer.json", tokenizerUrl, "", cancellationToken);
+
+            if (!tokenizerOk)
+            {
+                // Roll back the orphaned model file so a retry isn't pushed to a "_2" name
+                // and the directory doesn't accumulate untracked files. Mirrors the bundled path.
+                var modelPath = _registryService.GetModelPath(finalName);
+                if (File.Exists(modelPath)) File.Delete(modelPath);
+                var result = ModelDownloadResult.Failed("Tokenizer download failed. Model removed.");
+                DownloadCompleted?.Invoke(result);
+                return result;
+            }
+
+            long sizeBytes = 0;
+            try { sizeBytes = new FileInfo(_registryService.GetModelPath(finalName)).Length; }
+            catch (Exception ex) { _logger?.LogWarning(ex, "Could not read size of downloaded model {Name}", finalName); }
+
+            _registryService.AddCustomModel(finalName, displayName, url, "", sizeBytes,
+                tokenizerUrl, "", _settings.Keyboard);
+
+            if (string.IsNullOrEmpty(_registryService.ActiveModelId) || _registryService.ActiveModelId == "Off")
+            {
+                _settings.Keyboard.MLModelSize = finalName;
+                _registryService.ActiveModelId = finalName;
+            }
+
+            var success = ModelDownloadResult.Success(finalName);
+            DownloadCompleted?.Invoke(success);
+            return success;
         }
-        catch (Exception ex)
+        finally
         {
-            return ModelDownloadResult.Failed($"Invalid URL: {ex.Message}");
+            _workflowGate.Release();
         }
-
-        var downloaded = await _downloadService.DownloadModelAsync(
-            finalName, $"{finalName}.onnx", url, "", cancellationToken);
-
-        if (!downloaded)
-        {
-            var result = ModelDownloadResult.Failed("Download failed. Check the URL and try again.");
-            DownloadCompleted?.Invoke(result);
-            return result;
-        }
-
-        var tokenizerOk = await _downloadService.DownloadTokenizerAsync(
-            finalName, $"{finalName}.tokenizer.json", tokenizerUrl, "", cancellationToken);
-
-        if (!tokenizerOk)
-        {
-            var result = ModelDownloadResult.Failed("Tokenizer download failed. Check the URL and try again.");
-            DownloadCompleted?.Invoke(result);
-            return result;
-        }
-
-        _registryService.AddCustomModel(finalName, displayName, url, "", 0,
-            tokenizerUrl, "", _settings.Keyboard);
-
-        if (string.IsNullOrEmpty(_registryService.ActiveModelId) || _registryService.ActiveModelId == "Off")
-        {
-            _settings.Keyboard.MLModelSize = finalName;
-            _registryService.ActiveModelId = finalName;
-        }
-
-        var success = ModelDownloadResult.Success(finalName);
-        DownloadCompleted?.Invoke(success);
-        return success;
     }
 
     /// <summary>

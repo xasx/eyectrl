@@ -1,205 +1,21 @@
 # EyeCtrl Architecture
 
-EyeCtrl is a gaze-controlled Windows application that enables hands-free computer interaction through eye tracking. It provides cursor control, an on-screen keyboard with word prediction, action menus (click, scroll, drag), and a manual selection mode for precise targeting.
+> Generated from the GitNexus knowledge graph (5,722 symbols, 12,863 relationships, 299 execution flows).
 
-## Layer Diagram
+## Overview
 
-```mermaid
-graph TB
-    subgraph "EyeCtrl.App (WPF Entry Point)"
-        App["App.xaml.cs<br/>Startup / Shutdown"]
-        Bootstrapper["AppBootstrapper<br/>DI Container"]
-        Coordinator["EventCoordinator<br/>Event Routing"]
-        OverlayMgr["OverlayManager<br/>Window Lifecycle"]
-        TrayIcon["TrayIconManager"]
-        GazeAdapter["GazeEngineAdapter<br/>Core → MVVM Bridge"]
-        MSelectionDwell["ManualSelectionDwellService"]
+EyeCtrl is a WPF desktop application for eye-tracking-based computer control. It enables gaze-driven cursor movement, dwell-to-click interaction, an on-screen keyboard with word prediction, and a suite of overlay interfaces. The system follows a four-layer architecture with MVVM pattern and dependency injection via `Microsoft.Extensions.DependencyInjection`.
 
-        subgraph "Overlay Windows"
-            CursorWin["CursorCircleWindow"]
-            ActivationWin["ActivationButtonWindow"]
-            ActionMenuWin["ActionMenuWindow"]
-            ToolbarWin["ToolbarWindow"]
-            KeyboardWin["KeyboardWindow"]
-            MSelectionWin["ManualSelectionOverlayWindow"]
-            MSelectionIndicator["ManualSelectionGazeIndicatorWindow"]
-            MSelectionSideBtns["ManualSelectionSideButtonWindow"]
-            BackdropWin["GlassBackdropWindow"]
-            SplashWin["SplashWindow"]
-            SettingsWin["SettingsWindow"]
-        end
-    end
-
-    subgraph "EyeCtrl.ViewModels (MVVM)"
-        CursorVM["CursorCircleViewModel"]
-        ActivationVM["ActivationButtonViewModel"]
-        ActionMenuVM["ActionMenuViewModel"]
-        ToolbarVM["ToolbarViewModel"]
-        KeyboardVM["KeyboardViewModel"]
-        MSelectionVM["ManualSelectionOverlayViewModel"]
-        MSelectionIndVM["ManualSelectionGazeIndicatorViewModel"]
-        BackdropVM["GlassBackdropViewModel"]
-        SettingsVM["SettingsViewModel"]
-        SettingsWinVM["SettingsWindowViewModel"]
-        Messenger["WeakReferenceMessenger<br/>(Message Bus)"]
-    end
-
-    subgraph "EyeCtrl.Core (Domain Logic)"
-        GazeEngine["GazeEngine<br/>Core Pipeline"]
-
-        subgraph "Processing"
-            GapInterp["GapInterpolator"]
-            Filter["OneEuroFilter / SmoothedFilter / DirectFilter"]
-            FixDet["FixationDetector"]
-            FixCentroid["FixationCentroidTracker"]
-            DwellDet["DwellDetector"]
-            DwellTarget["DwellTarget"]
-            IntMgr["InteractionManager<br/>State Machine"]
-        end
-
-        subgraph "Prediction"
-            PredOrch["PredictionOrchestrator"]
-            WordPred["WordPredictor"]
-            BigramModel["BigramModel"]
-            FuzzySearch["FuzzyEditDistance"]
-            SentenceIdx["SentenceCompletionIndex"]
-            LMPredictor["SmallLMPredictor"]
-            LMTokenizer["LMTokenizer"]
-            PhraseModel["PhraseModel"]
-        end
-
-        subgraph "Keyboard"
-            KBLayout["KeyboardLayout"]
-            KBLoader["KeyboardLayoutLoader"]
-            KeyDef["KeyDefinition"]
-            EmojiData["EmojiData"]
-            RecentEmoji["RecentEmojiStore"]
-        end
-
-        subgraph "Settings"
-            SettingsSvc["SettingsService"]
-            EyeCtrlSettings["EyeCtrlSettings"]
-            DwellSettings["DwellSettings"]
-            CursorSettings["CursorSettings"]
-            KBSettings["KeyboardSettings"]
-            ActionMenuSettings["ActionMenuSettings"]
-            ToolbarSettings["ToolbarSettings"]
-            MSelectionSettings["ManualSelectionSettings"]
-            ThemeSettings["ThemeSettings"]
-            BackdropSettings["BackdropSettings"]
-            GeneralSettings["GeneralSettings"]
-        end
-
-        subgraph "Services"
-            DPI["DpiHelper"]
-            Logging["LoggingInitializer"]
-        end
-
-        subgraph "Interfaces"
-            IGazeProvider["IGazeProvider"]
-            IInputSimulator["IInputSimulator"]
-            IDwellRegistrar["IDwellRegistrar"]
-        end
-    end
-
-    subgraph "EyeCtrl.Platform (OS/SDK Bridge)"
-        subgraph "Gaze"
-            GazeFactory["GazeProviderFactory"]
-            MouseGaze["MouseGazeProvider"]
-            TobiiGaze["TobiiStreamEngineProvider"]
-        end
-        subgraph "Input"
-            Win32Input["Win32InputSimulator"]
-            MouseCoord["MouseCoordinateMapper"]
-            NativeMethods["NativeMethods"]
-            VK["VirtualKeys"]
-        end
-    end
-
-    %% App → DI
-    App --> Bootstrapper
-    Bootstrapper -->|"registers"| GazeEngine
-    Bootstrapper -->|"registers"| CursorVM
-    Bootstrapper -->|"registers"| ActivationVM
-    Bootstrapper -->|"registers"| ActionMenuVM
-    Bootstrapper -->|"registers"| ToolbarVM
-    Bootstrapper -->|"registers"| KeyboardVM
-    Bootstrapper -->|"registers"| MSelectionVM
-    Bootstrapper -->|"registers"| Win32Input
-    Bootstrapper -->|"registers"| MouseGaze
-    Bootstrapper -->|"registers"| TobiiGaze
-
-    %% App → Coordination
-    App --> Coordinator
-    App --> OverlayMgr
-    App --> TrayIcon
-    App --> GazeAdapter
-
-    %% EventCoordinator wiring
-    Coordinator -->|"PropertyChanged"| CursorVM
-    Coordinator -->|"PropertyChanged"| ActivationVM
-    Coordinator -->|"PropertyChanged"| ActionMenuVM
-    Coordinator -->|"PropertyChanged"| ToolbarVM
-    Coordinator -->|"PropertyChanged"| MSelectionVM
-    Coordinator -->|"PropertyChanged"| BackdropVM
-    Coordinator -->|"messages"| Messenger
-    Coordinator -->|"routes gaze"| ToolbarWin
-    Coordinator -->|"routes gaze"| KeyboardWin
-    Coordinator -->|"routes gaze"| SettingsWin
-
-    %% GazeEngineAdapter bridge
-    GazeAdapter -->|"subscribes"| GazeEngine
-    GazeAdapter -->|"sends messages"| Messenger
-
-    %% GazeEngine pipeline
-    GazeEngine --> GapInterp
-    GapInterp --> Filter
-    GazeEngine --> FixDet
-    FixDet --> FixCentroid
-    GazeEngine --> IntMgr
-    FixDet -->|"FixationStarted"| IntMgr
-
-    %% InteractionManager events
-    IntMgr -->|"ShowActivationButton"| ActivationVM
-    IntMgr -->|"ShowActionMenu"| ActionMenuVM
-    IntMgr -->|"StartManualSelection"| MSelectionVM
-    IntMgr -->|"ActionRequested"| Coordinator
-
-    %% Prediction pipeline
-    KeyboardVM --> PredOrch
-    PredOrch --> WordPred
-    PredOrch --> SentenceIdx
-    PredOrch --> LMPredictor
-    WordPred --> BigramModel
-    WordPred --> FuzzySearch
-    LMPredictor --> LMTokenizer
-
-    %% Platform
-    GazeFactory --> MouseGaze
-    GazeFactory --> TobiiGaze
-    MouseGaze -->|"implements"| IGazeProvider
-    TobiiGaze -->|"implements"| IGazeProvider
-    Win32Input -->|"implements"| IInputSimulator
-    Win32Input --> NativeMethods
-
-    %% Dwell
-    DwellDet --> DwellTarget
-    DwellDet --> IDwellRegistrar
-
-    %% Settings
-    SettingsSvc -->|"loads/saves"| EyeCtrlSettings
-    EyeCtrlSettings --> DwellSettings
-    EyeCtrlSettings --> CursorSettings
-    EyeCtrlSettings --> KBSettings
-    EyeCtrlSettings --> ActionMenuSettings
-    EyeCtrlSettings --> ToolbarSettings
-    EyeCtrlSettings --> MSelectionSettings
-    EyeCtrlSettings --> ThemeSettings
-    EyeCtrlSettings --> BackdropSettings
-    EyeCtrlSettings --> GeneralSettings
-```
+| Project | Layer | Technology |
+|---------|-------|------------|
+| `EyeCtrl.Core` | Domain Logic | .NET 10, framework-agnostic |
+| `EyeCtrl.Platform` | OS/SDK Bridge | `unsafe` Win32, conditional Tobii SDK |
+| `EyeCtrl.ViewModels` | MVVM Layer | CommunityToolkit.Mvvm v8.4.0 |
+| `EyeCtrl.App` | WPF Entrypoint | `UseWPF` + `UseWindowsForms` |
 
 ## Functional Areas
+
+The knowledge graph identifies 197 communities (functional areas). Below are the major ones, grouped by architectural concern:
 
 ### 1. Gaze Processing Pipeline (`EyeCtrl.Core/Processing/`)
 
@@ -442,55 +258,227 @@ InteractionManager.OnActivationButtonDwelled() [ManualSelection enabled]
                           └── ShowActionMenu at precise point
 ```
 
-## Technology Stack
-
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| .NET | 10.0 | Runtime |
-| WPF | (bundled) | UI framework |
-| CommunityToolkit.Mvvm | 8.4.0 | MVVM framework with source generators |
-| Serilog | — | Structured logging |
-| Microsoft.Extensions.DependencyInjection | — | DI container |
-| ONNX Runtime | — | Neural language model inference |
-| Tobii EyeX SDK | (optional) | Eye tracker integration |
-| xUnit | 2.9.x | Testing framework |
-| BenchmarkDotNet | — | Performance benchmarks |
-
-## Project Structure
+## Directory Structure
 
 ```
-src/
-├── EyeCtrl.Core/           Domain logic (framework-agnostic)
-│   ├── GazeEngine.cs       Core gaze pipeline
-│   ├── Processing/         Signal processing, dwell, fixation, interaction state
-│   ├── Prediction/         Word prediction, n-gram, trie, LM
-│   ├── Keyboard/           Layout definitions, emoji data
-│   ├── Settings/           Settings model, validation, persistence
-│   ├── Interfaces/         IGazeProvider, IInputSimulator, IDwellRegistrar
-│   ├── Models/             GazePoint, PhysicalPoint, etc.
-│   └── Services/           DpiHelper, LoggingInitializer
-├── EyeCtrl.Platform/       OS/SDK bridge
-│   ├── Gaze/               GazeProviderFactory, MouseGazeProvider, TobiiStreamEngineProvider
-│   └── Input/              Win32InputSimulator, NativeMethods, VirtualKeys
-├── EyeCtrl.ViewModels/     MVVM layer
-│   ├── *.cs                ViewModels (CommunityToolkit.Mvvm)
-│   ├── Helpers/            Layout helpers
-│   └── Messages/           WeakReferenceMessenger message types
-└── EyeCtrl.App/            WPF application
-    ├── App.xaml.cs          Entry point, lifecycle
-    ├── Services/            AppBootstrapper, EventCoordinator, OverlayManager, etc.
-    ├── Overlays/            All overlay windows
-    ├── Views/               SettingsWindow
-    ├── Controls/            Dwell-aware custom controls
-    ├── Resources/           Layouts, dictionaries, emojis, completions, assets
-    └── Assets/              click.wav, icons
-
-tests/
-├── EyeCtrl.Core.Tests/     Core unit tests
-├── EyeCtrl.Platform.Tests/ Platform unit tests
-├── EyeCtrl.ViewModels.Tests/ ViewModel unit tests
-└── EyeCtrl.App.Tests/      UI integration tests
-
-benchmarks/
-└── EyeCtrl.Benchmarks/     BenchmarkDotNet performance tests
+eyectrl/
+├── src/
+│   ├── EyeCtrl.Core/           # Domain logic (framework-agnostic)
+│   │   ├── GazeEngine.cs       # Central gaze pipeline
+│   │   ├── Processing/         # DwellDetector, filters, fixation tracking
+│   │   ├── Prediction/         # Word prediction, LM, dictionaries
+│   │   ├── Settings/           # Configuration models & validation
+│   │   ├── Services/           # DpiHelper, SettingsService
+│   │   ├── Models/             # GazePoint, PhysicalPoint, etc.
+│   │   ├── Keyboard/           # Keyboard layout definitions
+│   │   ├── Interfaces/         # Core interfaces
+│   │   └── Enums/              # Enumerations
+│   ├── EyeCtrl.Platform/       # OS/SDK bridge
+│   │   ├── Gaze/               # GazeProviderFactory, Tobii, Mouse providers
+│   │   └── Input/              # Win32 SendInput wrappers
+│   ├── EyeCtrl.ViewModels/     # MVVM layer
+│   │   ├── Messages/           # Messenger message types
+│   │   └── Helpers/            # ViewModel utilities
+│   └── EyeCtrl.App/            # WPF application
+│       ├── App.xaml.cs         # Entry point, overlay lifecycle
+│       ├── Services/           # EventCoordinator, OverlayManager, DI bootstrapper
+│       ├── Overlays/           # Transparent overlay windows
+│       ├── Views/              # Settings window & other views
+│       ├── Controls/           # WPF custom controls (DwellControl)
+│       └── Assets/             # Resources, sounds, dictionaries
+├── tests/
+│   ├── EyeCtrl.Core.Tests/     # Unit tests for Core
+│   ├── EyeCtrl.Platform.Tests/ # Platform unit tests
+│   ├── EyeCtrl.ViewModels.Tests/ # ViewModel unit tests
+│   └── EyeCtrl.App.Tests/     # App service tests + UI tests
+└── benchmarks/
+    └── EyeCtrl.Benchmarks/     # BenchmarkDotNet benchmarks
 ```
+
+## Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "EyeCtrl.App (WPF Entrypoint)"
+        APP[App.xaml.cs<br/>OnStartup / lifecycle]
+        EVT[EventCoordinator<br/>central event wiring]
+        OM[OverlayManager<br/>overlay lifecycle]
+        GEA[GazeEngineAdapter]
+        MSDS[ManualSelectionDwellService]
+        MMS[ModelManagementService]
+        TIM[TrayIconManager]
+        SCS[ScreenCaptureService]
+    end
+
+    subgraph "Overlays"
+        KB[KeyboardWindow]
+        AM[ActionMenuWindow]
+        AB[ActivationButtonWindow]
+        CC[CursorCircleWindow]
+        GB[GlassBackdropWindow]
+        MSO[ManualSelectionOverlayWindow]
+        MSGI[ManualSelectionGazeIndicatorWindow]
+        MSSB[ManualSelectionSideButtonWindow]
+        TB[ToolbarWindow]
+        EMG[EmojiGridManager]
+        SPL[SplashWindow]
+        SET[SettingsWindow]
+    end
+
+    subgraph "EyeCtrl.ViewModels (MVVM)"
+        KVM[KeyboardViewModel]
+        SVM[SettingsWindowViewModel]
+        AMVM[ActionMenuViewModel]
+        AVM[ActivationButtonViewModel]
+        CCVM[CursorCircleViewModel]
+        GBVM[GlassBackdropViewModel]
+        MSOVM[ManualSelectionOverlayViewModel]
+        TVM[ToolbarViewModel]
+    end
+
+    subgraph "EyeCtrl.Core (Domain Logic)"
+        GE[GazeEngine<br/>pipeline hub]
+        subgraph "Processing"
+            DD[DwellDetector]
+            DT[DwellTarget]
+            IM[InteractionManager]
+            FD[FixationDetector]
+            FCT[FixationCentroidTracker]
+            OEF[OneEuroFilter]
+            DF[DirectFilter]
+            GI[GapInterpolator]
+        end
+        subgraph "Prediction"
+            PO[PredictionOrchestrator]
+            WP[WordPredictor]
+            SLM[SmallLMPredictor]
+            BM[BigramModel]
+            PM[PhraseModel]
+            MRS[ModelRegistryService]
+            MR[ModelRegistry]
+            MM[ModelManifest]
+            FDP[FileDictionaryProvider]
+        end
+        subgraph "Settings & Services"
+            SS[SettingsService]
+            DS[DwellSettings]
+            KS[KeyboardSettings]
+            DPI[DpiHelper]
+        end
+    end
+
+    subgraph "EyeCtrl.Platform (OS Bridge)"
+        GPF[GazeProviderFactory]
+        TSEP[TobiiStreamEngineProvider<br/>conditional TOBII_AVAILABLE]
+        MGP[MouseGazeProvider<br/>fallback]
+        IS[InputSimulator<br/>Win32 SendInput]
+    end
+
+    %% Startup flow
+    APP -->|BuildServiceProvider| GPF
+    GPF -->|CreateAuto| TSEP
+    GPF -->|CreateAuto| MGP
+    APP --> EVT
+    APP --> OM
+
+    %% Event Coordinator bridges
+    EVT -->|wires| GE
+    EVT -->|wires| OM
+    EVT -->|wires| KB
+    EVT -->|wires| PO
+    EVT -->|wires| SS
+
+    %% Gaze data flow
+    TSEP -->|gaze points| GE
+    MGP -->|gaze points| GE
+    GE --> GI --> DF --> FD
+    GE --> GI --> OEF --> FD
+    FD --> FCT
+    GE --> DD
+    GE --> IM
+
+    %% Dwell detection
+    DD -->|manages| DT
+    DD -->|Activates| IM
+    GE -->|Update| DD
+
+    %% InteractionManager events
+    IM -->|ShowActivationButton| AVM
+    IM -->|ShowActionMenu| AMVM
+    IM -->|StartManualSelection| MSOVM
+    IM -->|ActionRequested| EVT
+
+    %% Input simulation
+    IM --> IS
+    IS -->|SendInput| HOST[Windows OS]
+
+    %% Prediction flow
+    KB -->|key dwell| WP
+    WP --> PO
+    PO --> BM
+    PO --> PM
+    PO --> SLM
+    PO --> MR
+    SLM -->|inference| PR[PredictionResult]
+    MRS --> MR
+    MR --> MM
+    FDP --> PO
+
+    %% Overlay <-> ViewModel binding
+    KB --> KVM
+    AM --> AMVM
+    AB --> AVM
+    CC --> CCVM
+    GB --> GBVM
+    MSO --> MSOVM
+    TB --> TVM
+
+    %% Settings
+    SV[SettingsWindow.xaml.cs] --> SVM
+    SV --> DD
+    SV --> DS
+    SS --> DS
+    SS --> KS
+
+    %% Adapter
+    GEA --> GE
+```
+
+## Dependency Graph
+
+```
+EyeCtrl.App ──► EyeCtrl.ViewModels ──► EyeCtrl.Core
+    │                                       │
+    └───────────────► EyeCtrl.Platform ─────┘
+```
+
+- `EyeCtrl.App` depends on all three lower layers
+- `EyeCtrl.ViewModels` depends on `EyeCtrl.Core`
+- `EyeCtrl.Platform` depends on `EyeCtrl.Core` (for models/interfaces)
+- `EyeCtrl.Core` has no project dependencies (framework-agnostic)
+
+## Key Design Patterns
+
+| Pattern | Location | Purpose |
+|---------|----------|---------|
+| **DI / IoC** | `AppBootstrapper.cs` | Wire all services, ViewModels, and providers |
+| **MVVM + Messenger** | `EyeCtrl.ViewModels` | `WeakReferenceMessenger` for decoupled VM communication |
+| **Factory** | `GazeProviderFactory.cs` | Select gaze provider at runtime |
+| **Strategy** | `GazeFilterFactory.cs` | Select filter (OneEuro, Direct, Smoothed) per settings |
+| **Observer** | `EventCoordinator.cs` | PropertyChanged handlers on all overlay VMs |
+| **Adapter** | `GazeEngineAdapter.cs` | Bridge between Core engine and App layer |
+
+## Statistics
+
+| Metric | Value |
+|--------|-------|
+| Total symbols | 5,722 |
+| Relationships | 12,863 |
+| Execution flows | 299 |
+| Functional communities | 197 |
+| Source files | 337 |
+| Largest class | `EventCoordinator` (860 lines) |
+| Most tested class | `DwellDetector` (27 tests across 2 test classes) |
+| SDK | .NET 10.0.102 |
+| Gaze providers | 2 (Tobii Stream Engine, Mouse fallback) |
+| Filter modes | 3 (Direct, OneEuro, Smoothed) |

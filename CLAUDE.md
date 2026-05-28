@@ -1,7 +1,11 @@
+# CLAUDE.md
+
+See [AGENTS.md](AGENTS.md) for build commands, architecture, code conventions, testing conventions, dependencies, and key files.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **eyectrl** (5712 symbols, 12808 relationships, 299 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **eyectrl** (5722 symbols, 12863 relationships, 299 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

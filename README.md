@@ -63,24 +63,32 @@ dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"
 
 ```
 src/
-  EyeCtrl.Core/       Core logic — models, settings, processing (framework-agnostic)
-  EyeCtrl.Platform/   Win32 input simulation, Tobii SDK integration
-  EyeCtrl.App/        WPF overlays and application wiring
+  EyeCtrl.Core/        Domain logic (framework-agnostic)
+  EyeCtrl.Platform/    Win32 input simulation, Tobii SDK integration
+  EyeCtrl.ViewModels/  MVVM layer (CommunityToolkit.Mvvm)
+  EyeCtrl.App/         WPF overlays and application wiring
 tests/
-  EyeCtrl.Core.Tests/     Unit tests for Core (xUnit)
-  EyeCtrl.Platform.Tests/ Unit tests for Platform (xUnit)
-  EyeCtrl.App.Tests/      UI/E2E tests with FlaUI (xUnit)
+  EyeCtrl.Core.Tests/         Unit tests for Core (xUnit)
+  EyeCtrl.Platform.Tests/     Unit tests for Platform (xUnit)
+  EyeCtrl.ViewModels.Tests/   Unit tests for ViewModels (xUnit)
+  EyeCtrl.App.Tests/          Service tests + UI/E2E tests (xUnit, FlaUI)
+benchmarks/
+  EyeCtrl.Benchmarks/         BenchmarkDotNet benchmarks (standalone)
 docs/
-  plans/                   Design docs and implementation plans
+  plans/                      Design docs and implementation plans
 ```
 
 ## Architecture
 
-Three-layer design:
+Four-layer design (Core → Platform → ViewModels → App):
 
-- **Core** — `GazeEngine`, `InteractionManager` state machine, `DwellDetector`, `OneEuroFilter`, settings, keyboard layouts, word prediction. No framework dependencies.
-- **Platform** — `TobiiInteractionLibProvider` (eye tracker), `MouseGazeProvider` (fallback), `Win32InputSimulator` (SendInput for clicks/keystrokes).
-- **App** — WPF overlay windows (cursor circle, activation button, action menu, toolbar, keyboard, zoom, settings). All code-behind driven. `App.xaml.cs` is the central wiring hub.
+- **Core** — `GazeEngine`, `InteractionManager`, `DwellDetector`, `OneEuroFilter`, settings, keyboard layouts, word prediction. No framework dependencies.
+- **Platform** — `GazeProviderFactory`, `TobiiStreamEngineProvider` (eye tracker), `MouseGazeProvider` (fallback), `InputSimulator` (SendInput for clicks/keystrokes). `unsafe` Win32 code.
+- **ViewModels** — MVVM layer using CommunityToolkit.Mvvm v8.4.0 with source generators and `WeakReferenceMessenger`.
+- **App** — WPF overlay windows (cursor circle, activation button, action menu, toolbar, keyboard, emoji grid, manual selection). `EventCoordinator` is the central wiring hub; `App.xaml.cs` manages overlay lifecycle and tray icon.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full architecture diagram, execution flows, and functional areas.
+See [AGENTS.md](AGENTS.md) for development conventions and dependency quirks.
 
 ## License
 

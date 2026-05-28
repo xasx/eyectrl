@@ -53,7 +53,7 @@ Bundled in `src/EyeCtrl.App/Resources/models.json`:
 | 1.5B | Qwen2.5 1.5B | ~800 MB |
 | 3.8B | Phi-3.5-mini | ~2 GB |
 
-All Apache 2.0 or MIT. URLs point to HuggingFace repos; SHA256 hashes validate downloads.
+All Apache 2.0 or MIT. URLs point to HuggingFace repos. SHA256 hashes validate downloads **when present**; the shipped `models.json` currently leaves them empty, so downloads are trusted on HTTPS transport security alone (see Integrity note below).
 
 ### Manifest format
 
@@ -72,7 +72,9 @@ All Apache 2.0 or MIT. URLs point to HuggingFace repos; SHA256 hashes validate d
 }
 ```
 
-`ModelEntry` gains `displayName`, `tokenizerUrl`, and `tokenizerSha256` fields. The `source` field ("bundled" vs "custom") is stored in the merged runtime `ModelRegistry` entry (not in the manifest JSON — bundled manifests are always `source: "bundled"`; `user-models.json` entries are always `source: "custom"`). The `sha256` in the manifest is verified post-download.
+`ModelEntry` gains `displayName`, `tokenizerUrl`, and `tokenizerSha256` fields. The `source` field ("bundled" vs "custom") is stored in the merged runtime `ModelRegistry` entry (not in the manifest JSON — bundled manifests are always `source: "bundled"`; `user-models.json` entries are always `source: "custom"`).
+
+**Integrity:** The `sha256` / `tokenizerSha256` in the manifest are verified post-download **only when non-empty**. An empty value skips verification by design — required for custom models (hash unknown ahead of time) and accepted for bundled models whose manifest omits a hash. The currently shipped `models.json` leaves all hashes empty, so today every download relies on HTTPS transport security; populate the manifest hashes to enable end-to-end content verification.
 
 ## Models Tab Layout
 

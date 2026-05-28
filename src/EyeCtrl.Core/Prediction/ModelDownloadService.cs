@@ -100,6 +100,14 @@ public class ModelDownloadService : IDisposable
         _downloadCts?.Cancel();
     }
 
+    /// <summary>Downloads a model file to the models directory, verifying its SHA-256 when one is supplied.</summary>
+    /// <remarks>
+    /// Integrity policy: when <paramref name="expectedSha256"/> is empty the hash check is skipped by
+    /// design and the download is trusted on the basis of HTTPS transport security. This applies to
+    /// custom (user-supplied URL) models — whose hash can't be known in advance — and to bundled models
+    /// whose manifest omits a hash (the shipped models.json currently leaves these empty). Populate the
+    /// manifest's sha256 / tokenizerSha256 fields to enable end-to-end content verification.
+    /// </remarks>
     public async Task<bool> DownloadModelAsync(
         string modelId,
         string outputFileName,
@@ -148,6 +156,7 @@ public class ModelDownloadService : IDisposable
             }
             var computedHash = Convert.ToHexStringLower(sha256.Hash!);
 
+            // Integrity check is opt-in: an empty expectedSha256 skips it (HTTPS transport trust). See remarks above.
             if (!string.IsNullOrEmpty(expectedSha256) &&
                 !string.Equals(computedHash, expectedSha256, System.StringComparison.OrdinalIgnoreCase))
             {
@@ -238,6 +247,7 @@ public class ModelDownloadService : IDisposable
             }
             var computedHash = Convert.ToHexStringLower(sha256.Hash!);
 
+            // Integrity check is opt-in: an empty expectedSha256 skips it (HTTPS transport trust). See DownloadModelAsync remarks.
             if (!string.IsNullOrEmpty(expectedSha256) &&
                 !string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
             {
@@ -308,6 +318,7 @@ public class ModelDownloadService : IDisposable
             }
             var computedHash = Convert.ToHexStringLower(sha256.Hash!);
 
+            // Integrity check is opt-in: an empty expectedSha256 skips it (HTTPS transport trust). See DownloadModelAsync remarks.
             if (!string.IsNullOrEmpty(expectedSha256) &&
                 !string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
             {

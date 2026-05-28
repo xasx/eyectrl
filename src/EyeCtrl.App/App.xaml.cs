@@ -154,7 +154,8 @@ public partial class App : Application
 
         var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();
         var modelDownload = _serviceProvider.GetRequiredService<ModelDownloadService>();
-        _eventCoordinator.SetModelServices(modelRegistry, modelDownload);
+        var modelManagement = _serviceProvider.GetRequiredService<ModelManagementService>();
+        _eventCoordinator.SetModelServices(modelRegistry, modelDownload, modelManagement);
 
         // Load keyboard using EventCoordinator
         _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);

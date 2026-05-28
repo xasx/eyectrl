@@ -10,6 +10,7 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.App.Controls;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Services;
 using EyeCtrl.ViewModels;
 
 public partial class SettingsWindow : OverlayWindow
@@ -51,7 +52,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly EyeCtrlSettings _settings;
     private readonly SettingsService _settingsService;
     private readonly ModelRegistryService _registryService;
-    private readonly ModelDownloadService _downloadService;
+    private readonly ModelManagementService _modelManagementService;
     private readonly int _dwellMs;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
@@ -74,7 +75,7 @@ public partial class SettingsWindow : OverlayWindow
         EyeCtrlSettings settings,
         SettingsService settingsService,
         ModelRegistryService registryService,
-        ModelDownloadService downloadService)
+        ModelManagementService modelManagementService)
     {
         InitializeComponent();
 
@@ -82,7 +83,7 @@ public partial class SettingsWindow : OverlayWindow
         _settings = settings;
         _settingsService = settingsService;
         _registryService = registryService;
-        _downloadService = downloadService;
+        _modelManagementService = modelManagementService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
         // Initialize tab definitions with page builders
@@ -745,9 +746,7 @@ public partial class SettingsWindow : OverlayWindow
                 () => _registryService.ActiveModelId ?? "Off",
                 v =>
                 {
-                    var selectedId = v == "Off" ? null : v;
-                    _settings.Keyboard.MLModelSize = selectedId ?? "Off";
-                    _registryService.ActiveModelId = selectedId;
+                    _modelManagementService.SetActiveModel(v);
                     ApplyAndSave();
                 },
                 cat, r, _dwellMs)));
@@ -774,12 +773,11 @@ public partial class SettingsWindow : OverlayWindow
                     Add(new DwellButton(_viewModel, $"md_dl_{entryId}", label,
                         () =>
                         {
-                            if (_downloadService.IsDownloading)
+                            if (_modelManagementService.IsDownloading)
                                 return;
                             ShowModal($"Download {displayName} ({sizeText})?", () =>
-                                _ = DownloadModelAsync(entryId, entry.Url, entry.Sha256,
-                                    entry.TokenizerUrl, entry.TokenizerSha256,
-                                    _registryService.GetModelFileName(entryId)));
+                                _ = DownloadBundledModelAsync(entryId, entry.Url, entry.Sha256,
+                                    entry.TokenizerUrl, entry.TokenizerSha256));
                         },
                         BtnBase, cat, r, _dwellMs, width: 400, height: 60));
                 });
@@ -788,8 +786,8 @@ public partial class SettingsWindow : OverlayWindow
 
         page1.Add(() => Add(new DwellLabel(new string('\u2500', 50))));
 
-        page1.Add(() => Add(new DwellButton(_viewModel, "md_add", "\uff0b Add Custom Model",
-            () => ShowCustomModelModal(),
+        page1.Add(() => Add(new DwellButton(_viewModel, "md_add", "\uff0b Add Custom Model (paste URL)",
+            () => DownloadCustomModelFromClipboard(),
             BtnBase, cat, r, _dwellMs, width: 300, height: 60)));
 
         var manageableModels = _registryService.DownloadedModels;
@@ -811,10 +809,7 @@ public partial class SettingsWindow : OverlayWindow
                 page2.Add(() => Add(new DwellButton(_viewModel, $"md_del_{entryId}", $"{displayName}  {sizeText}  \uD83D\uDDD1 Delete",
                     () => ShowModal($"Delete {displayName}? This cannot be undone.", () =>
                     {
-                        if (entry.Source == ModelSource.Custom)
-                            _registryService.RemoveCustomModel(entryId, _settings.Keyboard);
-                        else
-                            _registryService.DeleteModelFiles(entryId);
+                        _modelManagementService.DeleteModel(entryId);
                         ApplyAndSave();
                         RebuildContent();
                     }),
@@ -837,43 +832,19 @@ public partial class SettingsWindow : OverlayWindow
         return $"{bytes} B";
     }
 
-    private async Task DownloadModelAsync(string modelId, string url, string sha256,
-        string tokenizerUrl, string tokenizerSha256, string outputFileName)
+    private async Task DownloadBundledModelAsync(string modelId, string url, string sha256,
+        string tokenizerUrl, string tokenizerSha256)
     {
         try
         {
-            var downloaded = await _downloadService.DownloadModelAsync(
-                modelId, outputFileName, url, sha256, CancellationToken.None);
-            if (downloaded && !string.IsNullOrEmpty(tokenizerUrl))
+            var result = await _modelManagementService.DownloadBundledModelAsync(
+                modelId, url, sha256, tokenizerUrl, tokenizerSha256);
+            Dispatcher.Invoke(() =>
             {
-                var tokenizerFile = outputFileName.Replace(".onnx", ".tokenizer.json");
-                var tokenizerOk = await _downloadService.DownloadTokenizerAsync(
-                    modelId, tokenizerFile, tokenizerUrl, tokenizerSha256, CancellationToken.None);
-                if (!tokenizerOk)
-                {
-                    var modelPath = _registryService.GetModelPath(modelId);
-                    if (System.IO.File.Exists(modelPath)) System.IO.File.Delete(modelPath);
-                    Dispatcher.Invoke(() =>
-                    {
-                        ShowError("Tokenizer download failed. Model removed.");
-                        RebuildContent();
-                    });
-                    return;
-                }
-            }
-            else if (!downloaded)
-            {
-                Dispatcher.Invoke(() =>
-                {
-                    if (_downloadService.IsDownloading)
-                        ShowError("Another download is already in progress.");
-                    else
-                        ShowError("Download failed. Check the URL and try again.");
-                    RebuildContent();
-                });
-                return;
-            }
-            Dispatcher.Invoke(() => RebuildContent());
+                if (!result.IsSuccess)
+                    ShowError(result.Error ?? "Download failed.");
+                RebuildContent();
+            });
         }
         catch (Exception ex)
         {
@@ -885,89 +856,37 @@ public partial class SettingsWindow : OverlayWindow
         }
     }
 
-    private void ShowCustomModelModal()
+    private void DownloadCustomModelFromClipboard()
     {
-        ShowModal("Add Custom Model\n\nDisplay Name: [dwell to edit]\nRepo URL: [dwell to edit]\n\n\uD83D\uDCCB Paste from URL",
-            () => DownloadCustomModel());
-    }
-
-    private void DownloadCustomModel()
-    {
-        try
+        var url = System.Windows.Clipboard.GetText()?.Trim() ?? "";
+        if (string.IsNullOrEmpty(url) || !url.StartsWith("https://"))
         {
-            var url = System.Windows.Clipboard.GetText()?.Trim() ?? "";
-            if (string.IsNullOrEmpty(url) || !url.StartsWith("https://"))
-            {
-                ShowError("Paste a valid HTTPS URL (e.g., HuggingFace model URL).");
-                return;
-            }
+            ShowError("Copy a valid HTTPS model URL to clipboard first, then dwell this button.");
+            return;
+        }
 
-            var displayName = DeriveModelName(url);
-            var tokenizerUrl = ModelDownloadService.GetTokenizerUrl(url);
-            var sanitizedName = ModelRegistryService.SanitizeFileName(displayName);
-            var finalName = _registryService.ResolveUniqueFileName(sanitizedName);
+        if (_modelManagementService.IsDownloading)
+        {
+            ShowError("Another download is already in progress.");
+            return;
+        }
 
-            if (_downloadService.IsDownloading)
-            {
-                ShowError("Another download is already in progress.");
-                return;
-            }
-
+        var displayName = ModelManagementService.DeriveModelName(url);
+        ShowModal($"Download custom model \"{displayName}\" from clipboard URL?", () =>
+        {
             _ = Task.Run(async () =>
             {
-                var downloaded = await _downloadService.DownloadModelAsync(
-                    finalName, $"{finalName}.onnx", url, "");
-                if (downloaded)
+                var result = await _modelManagementService.DownloadCustomModelAsync(url);
+                Dispatcher.Invoke(() =>
                 {
-                    var tokenizerOk = await _downloadService.DownloadTokenizerAsync(
-                        finalName, $"{finalName}.tokenizer.json", tokenizerUrl, "", CancellationToken.None);
-                    if (!tokenizerOk)
-                    {
-                        Dispatcher.Invoke(() => ShowError("Tokenizer download failed. Check the URL and try again."));
-                        return;
-                    }
-                    Dispatcher.Invoke(() =>
-                    {
-                        _registryService.AddCustomModel(finalName, displayName, url, "", 0,
-                            tokenizerUrl, "", _settings.Keyboard);
-                        if (string.IsNullOrEmpty(_registryService.ActiveModelId) || _registryService.ActiveModelId == "Off")
-                        {
-                            _settings.Keyboard.MLModelSize = finalName;
-                            _registryService.ActiveModelId = finalName;
-                        }
+                    if (!result.IsSuccess)
+                        ShowError(result.Error ?? "Download failed.");
+                    else
                         ApplyAndSave();
-                        RebuildContent();
-                    });
-                }
-                else
-                {
-                    Dispatcher.Invoke(() => ShowError("Download failed. Check the URL and try again."));
-                }
+                    RebuildContent();
+                });
             });
-        }
-        catch (Exception ex)
-        {
-            ShowError($"Invalid URL: {ex.Message}");
-        }
-    }
-
-    private static string DeriveModelName(string url)
-    {
-        try
-        {
-            var uri = new Uri(url);
-            var path = uri.AbsolutePath.TrimEnd('/');
-            var resolveIdx = path.IndexOf("/resolve/", StringComparison.OrdinalIgnoreCase);
-            var effectivePath = resolveIdx >= 0 ? path[..resolveIdx] : path;
-            var segments = effectivePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length >= 2)
-                return segments[^1];
-            return segments.Length == 1 ? segments[0] : "CustomModel";
-        }
-        catch
-        {
-            return "CustomModel";
-        }
+        });
     }
 
     private void ShowError(string message)

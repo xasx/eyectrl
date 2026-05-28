@@ -109,6 +109,11 @@ public class AppBootstrapper
                 "EyeCtrl", "models"),
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<ILogger<ModelDownloadService>>()));
+        services.AddSingleton(sp => new ModelManagementService(
+            sp.GetRequiredService<ModelRegistryService>(),
+            sp.GetRequiredService<ModelDownloadService>(),
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            sp.GetRequiredService<ILogger<ModelManagementService>>()));
 
         // Core engine
         services.AddSingleton<GazeEngine>();

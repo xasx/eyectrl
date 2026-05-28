@@ -43,6 +43,7 @@ public class EventCoordinator : IEventCoordinator
     private string? _appDataDir;
     private ModelRegistryService? _modelRegistry;
     private ModelDownloadService? _downloadService;
+    private ModelManagementService? _modelManagementService;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -50,10 +51,11 @@ public class EventCoordinator : IEventCoordinator
     public WordPredictor? WordPredictor => _orchestrator?.WordPredictor;
     public PredictionOrchestrator? Orchestrator => _orchestrator;
 
-    public void SetModelServices(ModelRegistryService modelRegistry, ModelDownloadService modelDownload)
+    public void SetModelServices(ModelRegistryService modelRegistry, ModelDownloadService modelDownload, ModelManagementService modelManagement)
     {
         _modelRegistry = modelRegistry;
         _downloadService = modelDownload;
+        _modelManagementService = modelManagement;
     }
 
     public void Initialize(EventCoordinationContext context)
@@ -509,7 +511,7 @@ public class EventCoordinator : IEventCoordinator
                 _context.Settings,
                 _context.SettingsService,
                 _modelRegistry ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
-                _downloadService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."));
+                _modelManagementService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."));
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;

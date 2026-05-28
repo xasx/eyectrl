@@ -32,8 +32,6 @@ public class ModelManagementService
 
     public bool IsDownloading => _downloadService.IsDownloading;
 
-    public ModelDownloadService.ModelDownloadProgress? LastProgress { get; private set; }
-
     /// <summary>
     /// Downloads a bundled model and its tokenizer atomically.
     /// If the tokenizer download fails, the model file is removed.
@@ -163,7 +161,7 @@ public class ModelManagementService
         _registryService.ActiveModelId = selectedId;
     }
 
-    internal static string DeriveModelName(string url)
+    public static string DeriveModelName(string url)
     {
         try
         {

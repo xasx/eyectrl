@@ -22,8 +22,8 @@ Read the existing `Program.cs` to confirm current content, then replace it:
 
 ```csharp
 using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Filters;
 using BenchmarkDotNet.Running;
-using EyeCtrl.Core.Prediction;
 
 namespace EyeCtrl.Benchmarks;
 
@@ -248,16 +248,18 @@ public class SentenceCompletionBenchmarks
 
         // Pre-populated index for query benchmarks
         _index = new SentenceCompletionIndex();
-        foreach (var sentence in _sentences)
+        for (int i = 0; i < _sentences.Length; i++)
         {
-            _index.Insert(sentence, i % 100 + 1);
+            _index.Insert(_sentences[i], (i % 100) + 1);
         }
     }
 
     [IterationSetup(Target = nameof(Insert_SingleSentence))]
     public void InsertSetup()
     {
-        // Fresh index per invocation
+        // Fresh index per invocation; IterationSetup forces UnrollFactor=1,
+        // so InvocationCount=1 below is valid (BDN requires InvocationCount
+        // to be a multiple of UnrollFactor when UnrollFactor > 1).
         _index = new SentenceCompletionIndex();
     }
 
@@ -389,7 +391,7 @@ Expected: 0 errors.
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -- --filter *FuzzyEdit* --job short
 ```
 
-Expected: All 4 benchmarks produce positive double values (`Compute_3chars` returns 0.5, longer strings return proportionally larger values).
+Expected: All 4 benchmarks produce positive double values (`Compute_3chars` returns 1.5, longer strings return proportionally larger values).
 
 - [ ] **Step 4: Commit**
 
@@ -432,7 +434,7 @@ public class CasingBenchmarks
     [Benchmark]
     public bool ShouldCapitalize_AfterPeriod()
     {
-        return CapitalizationHelper.ShouldCapitalize("I saw it.");
+        return CapitalizationHelper.ShouldCapitalize("The sentence ended.");
     }
 
     [Benchmark]
@@ -524,10 +526,12 @@ public class OrchestratorBenchmarks
         words["held"] = 300;
 
         var predictor = new WordPredictor(new InMemoryDictionaryProvider(words));
-        // Pre-load bigrams for "hello" context so GetSuggestions_WithContext returns results
-        predictor.LearnSequence(new[] { "hello", "world" });
-        predictor.LearnSequence(new[] { "hello", "there" });
-        predictor.LearnSequence(new[] { "hello", "friend" });
+        // Pre-load bigrams for "hello" context — learn 2x to survive MinFrequency=2 filter
+        foreach (var seq in new[] { new[] { "hello", "world" }, new[] { "hello", "there" }, new[] { "hello", "friend" } })
+        {
+            predictor.LearnSequence(seq);
+            predictor.LearnSequence(seq);
+        }
 
         _orchestrator = new PredictionOrchestrator(predictor, sentenceIndex: null, lmPredictor: null, mlEnabled: false);
 
@@ -592,6 +596,8 @@ git commit -m "feat: add PredictionOrchestrator benchmarks"
 - Create: `benchmarks/EyeCtrl.Benchmarks/SmallLMBenchmarks.cs`
 - Read for reference: `src/EyeCtrl.Core/Prediction/SmallLMPredictor.cs`, `src/EyeCtrl.Core/Prediction/LMTokenizer.cs`, `src/EyeCtrl.Core/Prediction/ModelConstants.cs`
 
+> **Note:** `onnxFiles[0]` and `tokenizerFiles[0]` pick the first file found via glob — they assume any .onnx + any .tokenizer.json pair is a compatible model-tokenizer pair. If the models directory has multiple incompatible models, the benchmark will fail on model loading. For benchmark purposes, a single-model directory is the expected setup. Additionally, `Tokenizer_Encode/Decode` are gated on full model availability (the Program.cs filter requires both an .onnx *and* a tokenizer), so tokenizer-only setups won't run these benchmarks either.
+
 - [ ] **Step 1: Write SmallLMBenchmarks.cs**
 
 ```csharp
@@ -644,11 +650,11 @@ public class SmallLMBenchmarks
 
         _predictor = new SmallLMPredictor(
             modelsDirectory: modelDir,
-            modelSize: null,
+            modelSize: "135M",     // any valid ModelConstants key or non-null/non-"Off" clears the guard
             preferGpu: false,
             logger: null,
             tokenizer: _tokenizer,
-            modelPath: modelPath);
+            modelPath: modelPath);   // explicit path overrides ModelConstants resolution
     }
 
     [Benchmark]
@@ -731,7 +737,7 @@ Expected: 0 errors, 0 warnings from the benchmark project (warnings from EyeCtrl
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -- --job short
 ```
 
-Expected: All 23 non-SmallLM benchmarks execute and produce numbers. No crashes, no `InvalidOperationException`, no null-reference exceptions. SmallLMBenchmarks is excluded by the filter (if no model present) or runs (if model present).
+Expected: All 25 non-SmallLM benchmarks (5 existing + 4 + 4 + 4 + 5 + 3 = 25) execute and produce numbers. No crashes, no `InvalidOperationException`, no null-reference exceptions. SmallLMBenchmarks is excluded by the filter (if no model present) or runs (if model present).
 
 - [ ] **Step 3: Verify benchmark results are sane**
 
@@ -756,14 +762,11 @@ git commit -m "feat: complete prediction pipeline benchmarks (7 classes, 28 benc
 
 **2. Placeholder scan:** No TBD, TODO, or vague instructions. Every step has complete code or exact commands with expected output.
 
-**3. Type consistency:**
-- `BigramModel.GetNextWords()` returns `List<(string, int)>` — confirmed from source
-- `PhraseModel.GetPhrases()` returns `List<(string, int)>` — confirmed
-- `SentenceCompletionIndex.GetCompletions()` returns `List<(string, int)>` — confirmed
-- `FuzzyEditDistance.Compute()` takes `(string, string, Dictionary<char, HashSet<char>>)` — confirmed
-- `CapitalizationHelper.ShouldCapitalize()` takes `(string, IReadOnlySet<string>?)` — confirmed
-- `CasingHelper.IsAllCaps()` takes `(string?)` — nullable string param, passing non-null is fine
-- `PredictionOrchestrator.GetSuggestions()` returns `List<PredictionResult>` — confirmed
-- `SmallLMPredictor.Predict()` returns `void` — used with spin-wait for `TryGetResults()`
-- `SmallLMPredictor.IsAvailable` is a `bool` property — confirmed
-- `DisableClassFilter` implements `IFilter.Predicate(BenchmarkCase)` — correct BDN API
+**3. Runtime-behavior review (post-type-check):**
+- `ShouldCapitalize("The sentence ended.")` → returns `true` (last word "ended." starts uppercase, bypasses abbreviation heuristic)
+- Orchestrator bigrams learned 2× → survive `MinFrequency=2` filter
+- `SmallLMPredictor` constructor receives `modelSize: "135M"` → passes the null/empty/"Off" guard, then `modelPath` takes over
+- SentenceCompletion foreach loop uses `for` with index variable `i`
+- `Program.cs` imports `BenchmarkDotNet.Filters` for `IFilter`
+
+**4. Task 8 benchmark count:** 25 non-SmallLM benchmarks (5 existing + 4 BigramPhrase + 4 SentenceCompletion + 4 FuzzyEdit + 5 Casing + 3 Orchestrator).

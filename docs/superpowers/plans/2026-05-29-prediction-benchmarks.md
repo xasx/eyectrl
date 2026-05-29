@@ -743,7 +743,7 @@ Expected: All 25 non-SmallLM benchmarks (5 existing + 4 + 4 + 4 + 5 + 3 = 25) ex
 
 Spot-check the output table:
 - `Bigram_GetNextWords` mean should be in µs range, not 0 ns
-- `FuzzyEditDistance.Compute_3chars` mean should be in ns–µs range, returning ~0.5
+- `FuzzyEditDistance.Compute_3chars` mean should be in ns–µs range, returning ~1.5
 - `CasingHelper_IsAllCaps` should return `true`
 - `Orchestrator.GetSuggestions_WordOnly` should return a list of 5 strings (not empty)
 
@@ -763,7 +763,7 @@ git commit -m "feat: complete prediction pipeline benchmarks (7 classes, 28 benc
 **2. Placeholder scan:** No TBD, TODO, or vague instructions. Every step has complete code or exact commands with expected output.
 
 **3. Runtime-behavior review (post-type-check):**
-- `ShouldCapitalize("The sentence ended.")` → returns `true` (last word "ended." starts uppercase, bypasses abbreviation heuristic)
+- `ShouldCapitalize("The sentence ended.")` → returns `true` (last word "ended." is >4 chars, bypasses abbreviation heuristic)
 - Orchestrator bigrams learned 2× → survive `MinFrequency=2` filter
 - `SmallLMPredictor` constructor receives `modelSize: "135M"` → passes the null/empty/"Off" guard, then `modelPath` takes over
 - SentenceCompletion foreach loop uses `for` with index variable `i`

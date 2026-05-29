@@ -11,6 +11,7 @@ public class SmallLMBenchmarks
 {
     private SmallLMPredictor _predictor = null!;
     private LMTokenizer _tokenizer = null!;
+    private long[] _pretokenized = null!;
     private bool _available;
 
     [GlobalSetup]
@@ -38,6 +39,7 @@ public class SmallLMBenchmarks
 
         var tokenizerPath = tokenizerFiles[0];
         _tokenizer = new LMTokenizer(tokenizerPath);
+        _pretokenized = _tokenizer.Encode("The quick brown fox jumps over the lazy dog");
 
         var modelPath = onnxFiles[0];
 
@@ -61,8 +63,7 @@ public class SmallLMBenchmarks
     public string Tokenizer_Decode()
     {
         if (!_available) return string.Empty;
-        var tokenIds = _tokenizer.Encode("The quick brown fox jumps over the lazy dog");
-        return _tokenizer.Decode(tokenIds);
+        return _tokenizer.Decode(_pretokenized);
     }
 
     [Benchmark]

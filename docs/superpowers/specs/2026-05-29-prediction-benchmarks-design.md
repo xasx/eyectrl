@@ -100,7 +100,7 @@ The method always allocates a full `(m+1)×(n+1)` DP table and runs the double l
 |-----------|---------|---------|----------|
 | `Compute_3chars` | "hel" | "hlo" | 3-char typical typo (adjacent key) |
 | `Compute_6chars` | "system" | "systen" | 6-char adjacent-key typo |
-| `Compute_12chars` | "application" | "applucation" | 12-char with typo |
+| `Compute_11chars` | "application" | "applucation" | 11-char with typo |
 | `Compute_25chars` | "extraordinarymeetingrooms" | "extraordinerymeetingroomz" | 25-char with multiple typos |
 
 ### CasingBenchmarks
@@ -117,7 +117,7 @@ CapitalizationHelper checks the *last word* of the trimmed text (after period). 
 
 ### OrchestratorBenchmarks
 
-Uses same `InMemoryDictionaryProvider` with 10K words as existing benchmarks. No ML component (SmallLMPredictor is null).
+Uses same `InMemoryDictionaryProvider` with 10K words as existing benchmarks. No ML component (SmallLMPredictor is null). For `GetSuggestions_WithContext`, the WordPredictor's BigramModel is pre-loaded with pairs containing `"hello"` so the context match produces results.
 
 `PredictionOrchestrator.GetSuggestions("", null, 5)` returns `[]` immediately via early-return guard (`if (IsNullOrEmpty(prefix) && IsNullOrEmpty(context))`). Benchmarks provide non-empty prefix or context.
 
@@ -143,11 +143,13 @@ Model discovery:
 - Construct `LMTokenizer(tokenizerJsonPath)` with the matching tokenizer JSON
 - Check `IsAvailable` in `[GlobalSetup]`; if false, skip all benchmarks
 
-Skip mechanism: gate at the class level. If `IsAvailable` is false after `[GlobalSetup]`, construct a no-op predictor. Do not emit benchmark rows when the model is absent. Do not write to `Console` inside `[Benchmark]` bodies.
+Skip mechanism: `Program.cs` checks model availability before `BenchmarkSwitcher.Run`. If no ONNX + tokenizer JSON pair is found in the model directory, `Program.cs` builds a `ManualConfig` that excludes `SmallLMBenchmarks` via a type filter, so no rows are emitted for it. When the model IS present, the `[GlobalSetup]` stores a flag; each `[Benchmark]` checks the flag and returns a zero-cost sentinel if unavailable (catching edge cases like file deletion between discovery and execution). Do not write to `Console` inside `[Benchmark]` bodies.
+
+Note: `Tokenizer_Encode/Decode` only require the tokenizer JSON file, not the ONNX model, but they are gated on full model availability alongside `PredictAndWait` to keep the class simple. If benchmarking tokenizers without a model becomes important later, they can be split into a separate class gated only on tokenizer JSON presence.
 
 | Benchmark | Method | Measures |
 |-----------|--------|----------|
-| `Tokenizer_Encode` | `Encode("The quick brown fox jumps over the lazy dog")` | Tokenization latency (independent of model — needs only tokenizer JSON) |
+| `Tokenizer_Encode` | `Encode("The quick brown fox jumps over the lazy dog")` | Tokenization latency |
 | `Tokenizer_Decode` | `Decode(tokenIds)` | Detokenization latency |
 | `PredictAndWait` | `Predict(context, null);` then spin-wait (with 5s timeout) for `TryGetResults()` non-null | End-to-end: background inference + result retrieval |
 
@@ -159,7 +161,7 @@ No new NuGet packages. Existing `BenchmarkDotNet` 0.15.8 covers all needs. `Micr
 
 | Risk | Mitigation |
 |------|-----------|
-| SmallLMPredictor benchmarks can't run without downloaded model | Check `IsAvailable` in `[GlobalSetup]`; if false, gate the class so no rows are emitted |
+| SmallLMPredictor benchmarks can't run without downloaded model | `Program.cs` pre-flight check: if no model/tokenizer found, use `ManualConfig` type filter to exclude `SmallLMBenchmarks` from the run entirely |
 | Synthetic data may not reflect real-world characteristics | Use deterministic seed-based generation; document that these are throughput baselines, not real-content accuracy tests |
 | Inter-benchmark state leakage | `[IterationSetup]` + `InvocationCount=1` where needed; each class runs in its own process (BenchmarkDotNet default) |
 | `MinFrequency=2` filter drops learned data before benchmark runs | Setup learns each pair at least 2x; documented in the spec |

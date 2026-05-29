@@ -1,7 +1,7 @@
 # Prediction Pipeline Benchmarks — Design Spec
 
 **Date:** 2026-05-29
-**Status:** Draft
+**Status:** Draft (revised after code review)
 
 ## Goal
 
@@ -22,14 +22,14 @@ All new files live in `benchmarks/EyeCtrl.Benchmarks/`, file-scoped namespace `E
 | File | Component(s) | Benchmark count |
 |------|-------------|----------------|
 | `PredictionBenchmarks.cs` | WordPredictor | 5 (existing, unchanged) |
-| `BigramPhraseBenchmarks.cs` | BigramModel, PhraseModel | 6 |
+| `BigramPhraseBenchmarks.cs` | BigramModel, PhraseModel | 4 |
 | `SentenceCompletionBenchmarks.cs` | SentenceCompletionIndex | 4 |
-| `FuzzyEditBenchmarks.cs` | FuzzyEditDistance | 5 |
+| `FuzzyEditBenchmarks.cs` | FuzzyEditDistance | 4 |
 | `CasingBenchmarks.cs` | CapitalizationHelper, CasingHelper, CasingPreferenceTracker | 5 |
-| `OrchestratorBenchmarks.cs` | PredictionOrchestrator | 4 |
-| `SmallLMBenchmarks.cs` | SmallLMPredictor, LMTokenizer | 5 |
+| `OrchestratorBenchmarks.cs` | PredictionOrchestrator | 3 |
+| `SmallLMBenchmarks.cs` | SmallLMPredictor, LMTokenizer | 3 |
 
-**Total: 34 benchmarks across 7 files**
+**Total: 28 benchmarks across 7 files** (5 existing + 23 new)
 
 ### Program.cs Change
 
@@ -40,7 +40,7 @@ Replace hardcoded `BenchmarkRunner.Run<PredictionBenchmarks>(args)` with `Benchm
 Every benchmark file follows the same conventions as the existing `PredictionBenchmarks.cs`:
 
 ```csharp
-[SimpleJob(RuntimeMoniker.Net90)]
+[SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
 [RankColumn]
 public class FooBenchmarks
@@ -56,102 +56,119 @@ public class FooBenchmarks
 }
 ```
 
-- `[SimpleJob(RuntimeMoniker.Net90)]` — targets .NET 10
+- `[SimpleJob(RuntimeMoniker.Net10_0)]` — targets .NET 10 (matching `net10.0` TFM in csproj)
 - `[MemoryDiagnoser]` — measures GC allocations
 - `[RankColumn]` — ranks benchmarks within the class
-- Private nested fake classes for dependencies (matching existing `InMemoryDictionaryProvider` pattern)
+- Reuse the existing public `InMemoryDictionaryProvider` class from `PredictionBenchmarks.cs` where needed
 - No mocking library — consistent with the repo's testing conventions
 
 ## Detailed Scenarios
 
 ### BigramPhraseBenchmarks
 
-Synthetic setup: 2000 bigrams learned from 500 unique word pairs, 1500 three-word phrases from 1000 sequences.
+Synthetic setup: learn each pair at least 2x so results survive the `MinFrequency = 2` filter in `GetNextWords`/`GetPhrases`. Example: 500 distinct word pairs learned twice each = 1000 calls to `Learn()`, producing 500 bigrams with frequency >= 2. Query contexts (`"hello"`, `"application"`) must be keys actually present in the learned data.
+
+`GetPhrases(prefix, maxCount)` is an exact dictionary key lookup (`_phrases.TryGetValue(prefix)`), not character-prefix matching. The prefix is a space-separated word sequence. Cost driver is the number of continuations under that key, not character length. Setup must ensure the queried prefix string is a real stored key.
 
 | Benchmark | Method | Dataset | Measures |
 |-----------|--------|---------|----------|
-| `Bigram_GetNextWords_Cold` | `GetNextWords()` | 500 bigrams, context="hello" | First-call latency |
-| `Bigram_GetNextWords_Warm` | `GetNextWords()` | Same, after all cached | Steady-state latency |
-| `Bigram_ApplyDecay_Large` | `ApplyDecay(true, 30)` | 2000 bigrams, halfLifeDays=30 | Decay scan throughput |
-| `Phrase_GetPhrases_ShortPrefix` | `GetPhrases("hel", 5)` | 1500 phrases | Short prefix search |
-| `Phrase_GetPhrases_LongPrefix` | `GetPhrases("application", 5)` | Same | Long prefix search |
-| `Phrase_ApplyDecay_Large` | `ApplyDecay(true, 30)` | 1500 phrases | Decay scan throughput |
+| `Bigram_GetNextWords` | `GetNextWords("hello", 5)` | 500 bigrams (each pair learned 2x), context="hello" | Dictionary lookup + LINQ sort |
+| `Bigram_ApplyDecay_Large` | `ApplyDecay(true, 30)` | 2000 bigrams, halfLifeDays=30 | Full bigram scan + decay |
+| `Phrase_GetPhrases` | `GetPhrases("hello there", 5)` | 1500 phrases, prefix matches real key | Dictionary lookup + sort |
+| `Phrase_ApplyDecay_Large` | `ApplyDecay(true, 30)` | 1500 phrases | Full phrase scan + decay |
 
 ### SentenceCompletionBenchmarks
 
-Synthetic setup: 5000 sentences generated programmatically (combinations of common words, e.g., "the quick brown fox..."). Data regenerated in `[IterationSetup]` for `Insert_5000Sentences` to avoid cross-benchmark state leakage.
+Synthetic setup: 5000 sentences generated programmatically in `[GlobalSetup]` (combinations of common words). For the insert benchmark, use `[IterationSetup]` to build a fresh empty index before each invocation, and `InvocationCount = 1` to prevent unbounded trie growth within a single measured iteration.
 
-| Benchmark | Method | Measures |
-|-----------|--------|----------|
-| `Insert_5000Sentences` | `Insert(sentence, freq)` loop | Bulk insert throughput |
-| `GetCompletions_ShortPrefix` | `GetCompletions("How do I", 5)` | Prefix matching on 5000 sentences |
-| `GetCompletions_NoMatch` | `GetCompletions("xyznonexistent", 5)` | Worst-case trie traversal |
-| `BoostAndDismiss` | `BoostCompletion()` + `DismissCompletion()` | Mutable operations overhead |
+`GetCompletions` splits the prefix into words and walks the trie depth-first. A nonexistent prefix's first word is not found in the root `Children`, so it returns `[]` immediately at depth 0 — this is the best case (early termination), not worst case. The worst case is a deep, fully-matching prefix with many completions to sort.
+
+| Benchmark | Method | Setup | Measures |
+|-----------|--------|-------|----------|
+| `Insert_SingleSentence` | `Insert(sentence, 1)` | Fresh empty index per invocation (`InvocationCount=1`) | Single-insert cost (walk + node allocation) |
+| `GetCompletions_DeepMatch` | `GetCompletions("the quick brown fox", 5)` | 5000 sentences, prefix deeply matches real data | Deep trie walk + sort over many completions |
+| `GetCompletions_NoMatch` | `GetCompletions("xyznonexistent", 5)` | Same dataset | Early termination (depth 0 miss) |
+| `BoostAndDismiss` | `BoostCompletion()` + `DismissCompletion()` | Pre-populated index with target sentence present | Mutable operations overhead |
 
 ### FuzzyEditBenchmarks
 
-No setup needed. Static method with inline parameters. Input sizes range from 3 to 13 chars to benchmark the O(m*n) DP table at realistic typo lengths.
+`FuzzyEditDistance.Compute(string a, string b, Dictionary<char, HashSet<char>> adjacencyMap)` — three args, not two. Build the QWERTY adjacency map via `KeyboardAdjacencyMap.For("QWERTY")` in `[GlobalSetup]`.
+
+The method always allocates a full `(m+1)×(n+1)` DP table and runs the double loop regardless of content (no early exit). Runtime is purely O(m*n) on string lengths; identical vs. different content has negligible difference. Benchmarks vary only by length.
 
 | Benchmark | Input A | Input B | Measures |
 |-----------|---------|---------|----------|
-| `Compute_ShortStrings` | "hel" | "hlo" | Typical typo (adjacent key) |
-| `Compute_MediumStrings` | "application" | "applucation" | 12-char with typo |
-| `Compute_LongStrings` | "extraordinary" | "extraordinery" | 13-char with double typo |
-| `Compute_Identical` | "identical" | "identical" | Best case (early exit) |
-| `Compute_CompletelyDifferent` | "abcdefghij" | "klmnopqrst" | Worst case (all chars different) |
+| `Compute_3chars` | "hel" | "hlo" | 3-char typical typo (adjacent key) |
+| `Compute_6chars` | "system" | "systen" | 6-char adjacent-key typo |
+| `Compute_12chars` | "application" | "applucation" | 12-char with typo |
+| `Compute_25chars` | "extraordinarymeetingrooms" | "extraordinerymeetingroomz" | 25-char with multiple typos |
 
 ### CasingBenchmarks
 
+CapitalizationHelper checks the *last word* of the trimmed text (after period). Inputs must end with the abbreviation for the abbreviation branch to be reached, and abbreviations include the trailing period (e.g. `"Dr."`, not `"Dr"`).
+
 | Benchmark | Method | Setup |
 |-----------|--------|-------|
-| `ShouldCapitalize_NoAbbrev` | `ShouldCapitalize(text)` | Varied input: ". end", "hello", "Dr. Smith", "" |
-| `ShouldCapitalize_WithAbbrev` | `ShouldCapitalize(text, abbrevs)` | Same input with abbreviation set {"Dr", "Mr", "Ms"} |
-| `ApplySmartCapitalization` | `ApplySmartCapitalization(word, text, abbrevs)` | word="hello", text="What is " |
-| `CasingPref_RecordAndGet` | `RecordCasing()` + `GetPreferredCasing()` | 100 casing variants across 20 words |
-| `CasingHelper_IsAllCaps` | `IsAllCaps(text)` | Mixed cases: "HELLO", "Hello", "HELLO WORLD", "hElLo" |
+| `ShouldCapitalize_AfterPeriod` | `ShouldCapitalize("I saw it.")` | Input ends with a period → returns true |
+| `ShouldCapitalize_MidSentence` | `ShouldCapitalize("hello world")` | No terminal punctuation → returns false |
+| `ShouldCapitalize_WithAbbrev` | `ShouldCapitalize("I saw Dr.", abbrevs)` | Input ends with "Dr."; abbreviation set `{"Dr.", "Mr.", "Ms."}` → returns false |
+| `ApplySmartCapitalization` | `ApplySmartCapitalization("hello", "What is ")` | Standard capitalization path |
+| `CasingHelper_IsAllCaps` | `IsAllCaps("HELLO WORLD")` | Two-word all-caps string (most representative input) |
 
 ### OrchestratorBenchmarks
 
 Uses same `InMemoryDictionaryProvider` with 10K words as existing benchmarks. No ML component (SmallLMPredictor is null).
 
+`PredictionOrchestrator.GetSuggestions("", null, 5)` returns `[]` immediately via early-return guard (`if (IsNullOrEmpty(prefix) && IsNullOrEmpty(context))`). Benchmarks provide non-empty prefix or context.
+
 | Benchmark | Method | Setup |
 |-----------|--------|-------|
-| `GetSuggestions_WordOnly_EmptyPrefix` | `GetSuggestions("", null, 5)` | WordPredictor only, no context |
-| `GetSuggestions_WordOnly_WithContext` | `GetSuggestions("", "hello", 5)` | WordPredictor only, with context |
-| `GetSuggestions_WithSentenceIndex` | `GetSuggestions("How ", null, 5)` | WordPredictor + SentenceCompletionIndex with 500 sentences |
-| `LearnSequence_Orchestrator` | `LearnSequence(words)` | Passthrough to WordPredictor.LearnSequence |
+| `GetSuggestions_WordOnly` | `GetSuggestions("hel", null, 5)` | WordPredictor only, prefix only |
+| `GetSuggestions_WithContext` | `GetSuggestions("", "hello", 5)` | WordPredictor only, context only |
+| `GetSuggestions_WithSentenceIndex` | `GetSuggestions("How do I", null, 5)` | WordPredictor + SentenceCompletionIndex with 500 sentences |
 
 ### SmallLMBenchmarks
 
-Reads model directory from environment variable `EYECTRL_MODEL_DIR` (default: `%APPDATA%/EyeCtrl/models`). If no `.onnx` + `.tokenizer.json` pair is found, sets `_skip = true` and all benchmarks return immediately.
+`SmallLMPredictor` requires three things to be available:
+1. An ONNX model file (resolved via `ModelConstants.ModelFileNames` from a `modelSize` key like `"135M"`, or passed directly as `modelPath`)
+2. A `LMTokenizer` instance (requires a tokenizer JSON file on disk)
+3. `IsAvailable` returns `true` only when both are loaded
+
+`Predict(context, prefix)` returns `void` — it cancels a prior CTS, allocates a result bag, and queues inference on the ThreadPool. `TryGetResults()` returns `null` while inference is still running (`_inferenceCount > 0`). To measure actual inference time, the benchmark must spin-wait (with timeout) for `TryGetResults()` to return non-null after calling `Predict()`.
+
+Model discovery:
+- Default model directory: `Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "models")`
+- Override via environment variable `EYECTRL_MODEL_DIR`
+- Construct `SmallLMPredictor` with a valid `modelSize` (e.g. `"135M"`) or `modelPath`
+- Construct `LMTokenizer(tokenizerJsonPath)` with the matching tokenizer JSON
+- Check `IsAvailable` in `[GlobalSetup]`; if false, skip all benchmarks
+
+Skip mechanism: gate at the class level. If `IsAvailable` is false after `[GlobalSetup]`, construct a no-op predictor. Do not emit benchmark rows when the model is absent. Do not write to `Console` inside `[Benchmark]` bodies.
 
 | Benchmark | Method | Measures |
 |-----------|--------|----------|
-| `Predict_Cold` | First `Predict(context, prefix)` | Model session creation + first inference |
-| `Predict_Warm` | Subsequent `Predict()` calls | Cached session inference |
-| `TryGetResults_Polling` | `TryGetResults()` after Predict | Result polling overhead |
-| `Tokenizer_Encode` | `Encode("The quick brown fox")` | Tokenization latency |
+| `Tokenizer_Encode` | `Encode("The quick brown fox jumps over the lazy dog")` | Tokenization latency (independent of model — needs only tokenizer JSON) |
 | `Tokenizer_Decode` | `Decode(tokenIds)` | Detokenization latency |
-
-If `_skip == true`, benchmarks return without executing and log a warning via `Console.WriteLine`.
+| `PredictAndWait` | `Predict(context, null);` then spin-wait (with 5s timeout) for `TryGetResults()` non-null | End-to-end: background inference + result retrieval |
 
 ## Dependencies
 
-No new NuGet packages. Existing `BenchmarkDotNet` 0.15.8 covers all needs. No additional project references needed (already references `EyeCtrl.Core`).
+No new NuGet packages. Existing `BenchmarkDotNet` 0.15.8 covers all needs. `Microsoft.ML.OnnxRuntime`, `Microsoft.Extensions.Logging`, and `Tokenizers.DotNet` (required by `SmallLMPredictor`/`LMTokenizer`) flow transitively through the `EyeCtrl.Core` project reference.
 
 ## Risk Assessment
 
 | Risk | Mitigation |
 |------|-----------|
-| SmallLMPredictor benchmarks can't run without downloaded model | Graceful skip with clear console message; env var for path override |
+| SmallLMPredictor benchmarks can't run without downloaded model | Check `IsAvailable` in `[GlobalSetup]`; if false, gate the class so no rows are emitted |
 | Synthetic data may not reflect real-world characteristics | Use deterministic seed-based generation; document that these are throughput baselines, not real-content accuracy tests |
-| Inter-benchmark state leakage | `[IterationSetup]` where needed; each class runs in its own process (BenchmarkDotNet default) |
+| Inter-benchmark state leakage | `[IterationSetup]` + `InvocationCount=1` where needed; each class runs in its own process (BenchmarkDotNet default) |
+| `MinFrequency=2` filter drops learned data before benchmark runs | Setup learns each pair at least 2x; documented in the spec |
 
 ## Verification
 
 After implementation:
-```bash
+```
 dotnet build benchmarks/EyeCtrl.Benchmarks              # must compile 0 errors
 dotnet run --project benchmarks/EyeCtrl.Benchmarks       # discovers and runs all classes
-dotnet run --project benchmarks/EyeCtrl.Benchmarks -- --filter *SmallLM*  # runs ML benchmarks (skips gracefully if no model)
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -- --filter *SmallLM*  # ML benchmarks (skip if no model)
 ```

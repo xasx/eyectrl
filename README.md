@@ -9,10 +9,10 @@ EyeCtrl replaces mouse and keyboard with gaze-driven overlays — a cursor circl
 - **Gaze cursor** — circle follows eye position with adaptive smoothing (1€ Filter)
 - **Dwell activation** — look at a button long enough to "click" it, with visual progress indicators
 - **Action menu** — radial menu for left click, right click, double click, drag, and scroll
-- **Zoom mode** — magnify a screen region for precise targeting; action menu buttons render outside the zoom circle in a ring layout
+- **Manual selection** — magnify a screen region for precise targeting; action menu buttons render outside the zoom circle in a ring layout
 - **On-screen keyboard** — QWERTY/QWERTZ/AZERTY layouts, word prediction, emoji support; audible click feedback (toggle in Settings → Keyboard)
 - **Toolbar** — pause, zoom toggle, keyboard toggle, settings
-- **Settings** — 7 tabs of configurable options, all dwell-activated
+- **Settings** — 9 tabs of configurable options, all dwell-activated
 - **System tray** — pause/resume, open settings, exit
 - **Logging** — structured event log via Serilog for diagnostics
 
@@ -20,8 +20,8 @@ EyeCtrl replaces mouse and keyboard with gaze-driven overlays — a cursor circl
 
 - Windows 10/11
 - .NET 10.0 Runtime
-- Tobii Dynavox PCEye 5 (or compatible Tobii eye tracker)
-- Tobii Dynavox Computer Control installed (provides `tobii_interaction_lib_cs.dll`)
+- Tobii Dynavox PCEye 5 (or compatible Tobii eye tracker with Stream Engine SDK)
+- Tobii Stream Engine SDK installed (provides `Tobii.StreamEngine.Net.dll` and `tobii_stream_engine.dll` in `C:\Program Files\Tobii\Tobii EyeX\`)
 
 Without an eye tracker, the app falls back to mouse-cursor-as-gaze mode.
 
@@ -37,6 +37,12 @@ dotnet build EyeCtrl.slnx
 dotnet run --project src/EyeCtrl.App
 ```
 
+With `--test-mode` to skip splash screen and force mouse gaze provider:
+
+```bash
+dotnet run --project src/EyeCtrl.App -- --test-mode
+```
+
 ## Publish
 
 Self-contained single-file executable:
@@ -47,16 +53,12 @@ dotnet publish src/EyeCtrl.App -c Release -r win-x64 --self-contained true -p:Pu
 
 ## Test
 
-Unit tests (fast, no display needed):
-
 ```bash
-dotnet test tests/EyeCtrl.Core.Tests
-```
-
-UI tests (requires display, launches the real app):
-
-```bash
-dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"
+dotnet test tests/EyeCtrl.Core.Tests            # unit tests (fast, no display)
+dotnet test tests/EyeCtrl.Platform.Tests        # platform unit tests
+dotnet test tests/EyeCtrl.ViewModels.Tests      # viewmodel unit tests
+dotnet test                                     # all tests
+dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"  # UI tests (needs display)
 ```
 
 ## Project Structure

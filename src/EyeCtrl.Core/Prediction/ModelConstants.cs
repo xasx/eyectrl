@@ -11,5 +11,6 @@ public static class ModelConstants
         ["0.5B"] = "qwen2.5-0.5b.onnx",
         ["1.5B"] = "qwen2.5-1.5b.onnx",
         ["3.8B"] = "phi-3.5-mini.onnx",
+        ["3.8B-GPU"] = "phi-3.5-mini-gpu.onnx",
     };
 }

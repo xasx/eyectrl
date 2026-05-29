@@ -17,18 +17,8 @@ public class SmallLMBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        var envDir = Environment.GetEnvironmentVariable("EYECTRL_MODEL_DIR");
-        var modelDir = envDir ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "EyeCtrl", "models");
-
-        var onnxFiles = Directory.Exists(modelDir)
-            ? Directory.GetFiles(modelDir, "*.onnx", SearchOption.TopDirectoryOnly)
-            : [];
-
-        var tokenizerFiles = Directory.Exists(modelDir)
-            ? Directory.GetFiles(modelDir, "*.tokenizer.json", SearchOption.TopDirectoryOnly)
-            : [];
+        var modelDir = ModelPathHelper.GetModelDirectory();
+        var (onnxFiles, tokenizerFiles) = ModelPathHelper.FindModelFiles(modelDir);
 
         _available = onnxFiles.Length > 0 && tokenizerFiles.Length > 0;
 
@@ -50,6 +40,16 @@ public class SmallLMBenchmarks
             logger: null,
             tokenizer: _tokenizer,
             modelPath: modelPath);   // explicit path overrides ModelConstants resolution
+    }
+
+    [GlobalCleanup]
+    public void Cleanup()
+    {
+        if (_available)
+        {
+            _predictor?.Dispose();
+            _tokenizer?.Dispose();
+        }
     }
 
     [Benchmark]

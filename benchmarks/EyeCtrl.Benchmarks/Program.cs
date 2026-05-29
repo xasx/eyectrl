@@ -12,7 +12,7 @@ class Program
 
         if (!SmallLMModelAvailable())
         {
-            config = config.AddFilter(new DisableClassFilter("SmallLMBenchmarks"));
+            config = config.AddFilter(new DisableClassFilter(nameof(SmallLMBenchmarks)));
         }
 
         BenchmarkSwitcher
@@ -22,17 +22,8 @@ class Program
 
     private static bool SmallLMModelAvailable()
     {
-        var envDir = Environment.GetEnvironmentVariable("EYECTRL_MODEL_DIR");
-        var modelDir = envDir ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "EyeCtrl", "models");
-
-        if (!Directory.Exists(modelDir))
-            return false;
-
-        var onnxFiles = Directory.GetFiles(modelDir, "*.onnx", SearchOption.TopDirectoryOnly);
-        var tokenizerFiles = Directory.GetFiles(modelDir, "*.tokenizer.json", SearchOption.TopDirectoryOnly);
-
+        var modelDir = ModelPathHelper.GetModelDirectory();
+        var (onnxFiles, tokenizerFiles) = ModelPathHelper.FindModelFiles(modelDir);
         return onnxFiles.Length > 0 && tokenizerFiles.Length > 0;
     }
 }

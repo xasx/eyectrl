@@ -12,6 +12,8 @@ using EyeCtrl.ViewModels.Messages;
 public partial class ToolbarViewModel : ObservableObject,
     IRecipient<GazeCursorMovedMessage>,
     IRecipient<StateChangedMessage>,
+    IRecipient<CalibrationCompletedMessage>,
+    IRecipient<CalibrationCancelledMessage>,
     IDisposable
 {
     private readonly IMessenger _messenger;
@@ -43,6 +45,7 @@ public partial class ToolbarViewModel : ObservableObject,
             ("Pause", "\u23F8"),
             ("ManualSelection", "\u2295"),
             ("Keyboard", "\u2328"),
+            ("Calibrate", "\u2316"),
             ("Settings", "\u2699"),
         };
 
@@ -74,6 +77,18 @@ public partial class ToolbarViewModel : ObservableObject,
             btn.Symbol = IsPaused ? "\u25B6" : "\u23F8";
     }
 
+    public void Receive(CalibrationCompletedMessage message)
+    {
+        if (_buttonLookup.TryGetValue("Calibrate", out var btn))
+            btn.Symbol = message.Success ? "\u2713" : "\u26A0";
+    }
+
+    public void Receive(CalibrationCancelledMessage message)
+    {
+        if (_buttonLookup.TryGetValue("Calibrate", out var btn))
+            btn.Symbol = "\u2316";
+    }
+
     /// <summary>For testing: simulate a button activation without gaze dwell.</summary>
     public void SimulateButtonActivated(string buttonId) => OnTargetActivated(buttonId);
 
@@ -87,6 +102,7 @@ public partial class ToolbarViewModel : ObservableObject,
             case "Pause": _messenger.Send(new PauseToggledMessage()); break;
             case "ManualSelection": _messenger.Send(new ManualSelectionToggledMessage()); break;
             case "Keyboard": _messenger.Send(new KeyboardToggledMessage()); break;
+            case "Calibrate": _messenger.Send(new CalibrationRequestedMessage()); break;
             case "Settings": _messenger.Send(new SettingsRequestedMessage()); break;
         }
     }

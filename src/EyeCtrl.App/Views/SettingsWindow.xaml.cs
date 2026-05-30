@@ -993,6 +993,12 @@ public partial class SettingsWindow : OverlayWindow
         UpdateAllTargetPositions();
     }
 
+    private void OnCalibrationActionButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.DataContext is ActionButtonSettingItem item)
+            item.OnActivate?.Invoke();
+    }
+
     private void UpdateAllTargetPositions()
     {
         // Update close button position

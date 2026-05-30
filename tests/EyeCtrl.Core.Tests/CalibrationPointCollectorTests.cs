@@ -61,4 +61,15 @@ public class CalibrationPointCollectorTests
         collector.End();
         Assert.False(collector.IsCollecting);
     }
+
+    [Fact]
+    public void MaxSamples_CapsSampleCount()
+    {
+        var collector = new CalibrationPointCollector(new PhysicalPoint(0, 0), settleWindowMs: 0, maxSamples: 10);
+        for (int i = 0; i < 100; i++)
+            collector.AddRawSample(new PhysicalPoint(1, 1));
+
+        var point = collector.End();
+        Assert.Equal(10, point.SampleCount);
+    }
 }

@@ -50,6 +50,15 @@ public class AffineTransform : ICalibrationTransform
 
         var x = SolveLeastSquares(A, B, 6, 2 * n);
 
+        // Guard against degenerate inputs (e.g. collinear targets or near-constant
+        // gaze) producing non-finite parameters that would poison the gaze pipeline.
+        foreach (var v in x)
+        {
+            if (!double.IsFinite(v))
+                throw new InvalidOperationException(
+                    "Calibration fit produced non-finite parameters (degenerate calibration points).");
+        }
+
         return new AffineTransform
         {
             _a = x[0], _b = x[1], _c = x[2],
@@ -96,6 +105,11 @@ public class AffineTransform : ICalibrationTransform
             for (int j = 0; j < n; j++)
                 (mat[col, j], mat[maxRow, j]) = (mat[maxRow, j], mat[col, j]);
             (rhs[col], rhs[maxRow]) = (rhs[maxRow], rhs[col]);
+
+            // Singular (or near-singular) matrix — degenerate calibration geometry.
+            if (Math.Abs(mat[col, col]) < 1e-9)
+                throw new InvalidOperationException(
+                    "Calibration points are degenerate (singular matrix); cannot fit transform.");
 
             for (int row = col + 1; row < n; row++)
             {

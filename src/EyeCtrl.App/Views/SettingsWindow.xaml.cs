@@ -3,6 +3,8 @@ namespace EyeCtrl.App.Views;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Prediction;
@@ -12,6 +14,7 @@ using EyeCtrl.App.Controls;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 
 public partial class SettingsWindow : OverlayWindow
 {
@@ -53,6 +56,8 @@ public partial class SettingsWindow : OverlayWindow
     private readonly SettingsService _settingsService;
     private readonly ModelRegistryService _registryService;
     private readonly ModelManagementService _modelManagementService;
+    private readonly IMessenger _messenger;
+    private readonly CalibrationService _calibrationService;
     private readonly int _dwellMs;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
@@ -75,7 +80,9 @@ public partial class SettingsWindow : OverlayWindow
         EyeCtrlSettings settings,
         SettingsService settingsService,
         ModelRegistryService registryService,
-        ModelManagementService modelManagementService)
+        ModelManagementService modelManagementService,
+        IMessenger messenger,
+        CalibrationService calibrationService)
     {
         InitializeComponent();
 
@@ -84,6 +91,8 @@ public partial class SettingsWindow : OverlayWindow
         _settingsService = settingsService;
         _registryService = registryService;
         _modelManagementService = modelManagementService;
+        _messenger = messenger;
+        _calibrationService = calibrationService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
         // Initialize tab definitions with page builders
@@ -97,6 +106,7 @@ public partial class SettingsWindow : OverlayWindow
             ("Keyboard", "⌨", "Keyboard",    BuildKeyboardPages),
             ("Models",    "⬡", "Models",      BuildModelsPages),
             ("Toolbar",  "▣", "Toolbar",     BuildToolbarPages),
+            ("Calibration", "⌖", "Calibration", BuildCalibrationPages),
             ("General",  "⚙", "General",     BuildGeneralPages)
         ];
 
@@ -965,6 +975,60 @@ public partial class SettingsWindow : OverlayWindow
         ];
     }
 
+    private List<List<Action>> BuildCalibrationPages()
+    {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+        var cal = _settings.Calibration;
+
+        return
+        [
+            [
+                () => Add(new DwellSlider(_viewModel, "cal_points", "Calibration Points",
+                    3, 16, 1, 0,
+                    () => cal.PointCount,
+                    v => { cal.PointCount = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "cal_samples", "Samples per Point",
+                    5, 100, 5, 0,
+                    () => cal.SamplesPerPoint,
+                    v => { cal.SamplesPerPoint = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "cal_hold", "Target Hold (ms)",
+                    200, 3000, 100, 0,
+                    () => cal.TargetHoldMs,
+                    v => { cal.TargetHoldMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "cal_settle", "Settle Window (ms)",
+                    0, 500, 25, 0,
+                    () => cal.SettleWindowMs,
+                    v => { cal.SettleWindowMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+            ],
+            [
+                () => Add(new DwellLabel(CalibrationStatusText())),
+                () => Add(new DwellButton(_viewModel, "cal_run", "Calibrate Now",
+                    () => { Close(); _messenger.Send(new CalibrationRequestedMessage()); },
+                    BtnBase, cat, r, _dwellMs, width: 300, height: 80)),
+                () => Add(new DwellButton(_viewModel, "cal_clear", "Clear Calibration",
+                    () => ShowModal("Clear saved calibration?", () =>
+                    {
+                        _messenger.Send(new CalibrationClearRequestedMessage());
+                        RebuildContent();
+                    }),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+            ]
+        ];
+    }
+
+    private string CalibrationStatusText()
+    {
+        var data = _calibrationService.CurrentData;
+        if (data == null) return "Last calibration: none";
+        return $"Last calibration: {data.CalibratedAt.LocalDateTime:g}  ·  "
+            + $"{data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)";
+    }
+
     // ────── Shared helpers ──────
 
     private void Add(DwellControl control)
@@ -991,12 +1055,6 @@ public partial class SettingsWindow : OverlayWindow
         // Update button positions for ViewModel's dwell detection
         // ViewModel handles actual dwell updates via GazeCursorMovedMessage
         UpdateAllTargetPositions();
-    }
-
-    private void OnCalibrationActionButtonClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button btn && btn.DataContext is ActionButtonSettingItem item)
-            item.OnActivate?.Invoke();
     }
 
     private void UpdateAllTargetPositions()

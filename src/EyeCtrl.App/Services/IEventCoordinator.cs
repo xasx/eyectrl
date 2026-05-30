@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
@@ -72,4 +73,5 @@ public record EventCoordinationContext(
     EyeCtrlSettings Settings,
 
     // Dependencies
-    IInputSimulator InputSimulator);
+    IInputSimulator InputSimulator,
+    CalibrationService CalibrationService);

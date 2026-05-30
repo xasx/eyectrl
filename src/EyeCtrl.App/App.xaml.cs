@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Services;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
@@ -125,6 +126,7 @@ public partial class App : Application
         var keyboardVM = _serviceProvider.GetRequiredService<KeyboardViewModel>();
         var ManualSelectionIndicatorVM = _serviceProvider.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
         var backdropVM = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
+        var calibrationVM = _serviceProvider.GetRequiredService<CalibrationViewModel>();
 
         // Resolve adapter (triggers Core event subscriptions)
         _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
@@ -137,8 +139,16 @@ public partial class App : Application
 
         // ── Initialize overlay windows via OverlayManager ──
         var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-        var viewModels = new OverlayViewModels(cursorVM, activationVM, ManualSelectionVM, actionMenuVM, toolbarVM, keyboardVM, ManualSelectionIndicatorVM);
+        var viewModels = new OverlayViewModels(cursorVM, activationVM, ManualSelectionVM, actionMenuVM, toolbarVM, keyboardVM, ManualSelectionIndicatorVM, calibrationVM);
         overlayManager.Initialize(viewModels, settings, activeProviderType);
+
+        // Load calibration
+        var calibrationPath = Path.Combine(_appDataDir, "calibration.json");
+        var screen = new PhysicalPoint(
+            SystemParameters.PrimaryScreenWidth,
+            SystemParameters.PrimaryScreenHeight);
+        var monitorName = System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "";
+        _serviceProvider.GetRequiredService<CalibrationService>().Load(calibrationPath, screen, monitorName);
 
         // Get references to overlay windows for event handlers
         var cursorCircle = overlayManager.CursorCircle;

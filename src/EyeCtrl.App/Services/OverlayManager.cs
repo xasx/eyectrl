@@ -27,6 +27,7 @@ public class OverlayManager : IOverlayManager
     public KeyboardWindow Keyboard { get; private set; } = null!;
     public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator { get; private set; } = null!;
     public GlassBackdropWindow GlassBackdrop { get; private set; } = null!;
+    public CalibrationWindow Calibration { get; private set; } = null!;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger)
     {
@@ -67,6 +68,9 @@ public class OverlayManager : IOverlayManager
         Toolbar.DataContext = viewModels.Toolbar;
         Keyboard.DataContext = viewModels.Keyboard;
         Keyboard.SetViewModel(viewModels.Keyboard);
+
+        Calibration = new CalibrationWindow();
+        Calibration.SetViewModel(viewModels.Calibration);
 
         // Initialize overlays with their specific APIs
         CursorCircle.UpdateAppearance(settings.Cursor);

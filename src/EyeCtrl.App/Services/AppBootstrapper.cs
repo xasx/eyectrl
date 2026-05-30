@@ -3,7 +3,9 @@ namespace EyeCtrl.App.Services;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
@@ -12,6 +14,7 @@ using EyeCtrl.Platform.Gaze;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
+using System.Windows.Forms;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -111,8 +114,15 @@ public class AppBootstrapper
             sp.GetRequiredService<ILogger<ModelDownloadService>>()));
         services.AddSingleton<ModelManagementService>();
 
+        // Calibration
+        services.AddSingleton(sp => new CalibrationService());
+
         // Core engine
-        services.AddSingleton<GazeEngine>();
+        services.AddSingleton(sp => new GazeEngine(
+            sp.GetRequiredService<IGazeProvider>(),
+            sp.GetRequiredService<IInputSimulator>(),
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            sp.GetRequiredService<CalibrationService>()));
 
         // ViewModels (singleton -- each registers message handlers in constructor)
         services.AddSingleton<CursorCircleViewModel>();
@@ -124,6 +134,15 @@ public class AppBootstrapper
         services.AddSingleton<ManualSelectionGazeIndicatorViewModel>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<GlassBackdropViewModel>();
+        services.AddSingleton(sp => new CalibrationViewModel(
+            sp.GetRequiredService<EyeCtrlSettings>().Calibration,
+            sp.GetRequiredService<CalibrationService>(),
+            sp.GetRequiredService<IMessenger>(),
+            sp.GetRequiredService<IGazeProvider>(),
+            new PhysicalPoint(
+                System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
+                System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY),
+            System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? ""));
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(

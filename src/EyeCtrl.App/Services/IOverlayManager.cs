@@ -58,6 +58,11 @@ public interface IOverlayManager
     GlassBackdropWindow GlassBackdrop { get; }
 
     /// <summary>
+    /// Gets the calibration overlay window.
+    /// </summary>
+    CalibrationWindow Calibration { get; }
+
+    /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
     /// </summary>
     /// <param name="viewModels">Container with all ViewModels</param>
@@ -76,4 +81,5 @@ public record OverlayViewModels(
     ActionMenuViewModel ActionMenu,
     ToolbarViewModel Toolbar,
     KeyboardViewModel Keyboard,
-    ManualSelectionGazeIndicatorViewModel ManualSelectionIndicator);
+    ManualSelectionGazeIndicatorViewModel ManualSelectionIndicator,
+    CalibrationViewModel Calibration);

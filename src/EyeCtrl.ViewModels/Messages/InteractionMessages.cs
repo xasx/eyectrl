@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels.Messages;
 
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 
@@ -92,3 +93,10 @@ public record SettingsChangedMessage;
 public record ShowBackdropMessage(PhysicalPoint HideButtonCenter);
 public record HideBackdropMessage;
 public record BackdropDismissMessage;
+
+public record CalibrationRequestedMessage;
+public record CalibrationCompletedMessage(bool Success, double? MeanErrorPixels);
+public record CalibrationCancelledMessage;
+public record CalibrationStateChangedMessage(CalibrationState State, double ProgressPercent);
+public record CalibrationTargetPositionMessage(PhysicalPoint Position, int TargetIndex, int TotalTargets);
+public record CalibrationClearRequestedMessage;

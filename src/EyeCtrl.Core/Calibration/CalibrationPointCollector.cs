@@ -7,18 +7,21 @@ public class CalibrationPointCollector
 {
     private readonly PhysicalPoint _target;
     private readonly long _settleWindowMs;
+    private readonly int _maxSamples;
     private readonly long _createdAt;
     private readonly ConcurrentBag<PhysicalPoint> _samples = new();
+    private int _count;
     private volatile bool _ended;
 
     public bool IsCollecting => !_ended;
 
     private static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-    public CalibrationPointCollector(PhysicalPoint target, int settleWindowMs)
+    public CalibrationPointCollector(PhysicalPoint target, int settleWindowMs, int maxSamples = int.MaxValue)
     {
         _target = target;
         _settleWindowMs = settleWindowMs;
+        _maxSamples = maxSamples <= 0 ? int.MaxValue : maxSamples;
         _createdAt = NowMs();
     }
 
@@ -27,7 +30,11 @@ public class CalibrationPointCollector
         if (_ended) return;
         var elapsed = NowMs() - _createdAt;
         if (elapsed < _settleWindowMs) return;
+        // Cap at _maxSamples (honors CalibrationSettings.SamplesPerPoint). A tiny
+        // overshoot under concurrency is harmless — mean/std are unaffected.
+        if (Volatile.Read(ref _count) >= _maxSamples) return;
         _samples.Add(gaze);
+        Interlocked.Increment(ref _count);
     }
 
     public CalibrationPoint End()

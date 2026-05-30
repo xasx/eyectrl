@@ -16,6 +16,12 @@ public class CalibrationService
     public ICalibrationTransform? CurrentTransform => _currentTransform;
     public bool IsSessionActive => _targetPositions != null;
 
+    /// <summary>
+    /// Metadata for the currently active calibration (from the last completed session
+    /// or a successful load). Null when no calibration is applied.
+    /// </summary>
+    public CalibrationData? CurrentData { get; private set; }
+
     public int StartSession(int pointCount, PhysicalPoint screenSize)
     {
         if (_targetPositions != null)
@@ -34,11 +40,11 @@ public class CalibrationService
         return _targetPositions[index];
     }
 
-    public void BeginTarget(int index, PhysicalPoint screenSize)
+    public void BeginTarget(int index, int settleWindowMs = 0, int maxSamples = int.MaxValue)
     {
         _currentTargetIndex = index;
         var target = GetTargetPosition(index);
-        _currentCollector = new CalibrationPointCollector(target, settleWindowMs: 0);
+        _currentCollector = new CalibrationPointCollector(target, settleWindowMs, maxSamples);
     }
 
     public void AddRawSample(PhysicalPoint gaze)
@@ -78,6 +84,7 @@ public class CalibrationService
         };
 
         lock (_transformLock) { _currentTransform = transform; }
+        CurrentData = data;
 
         _targetPositions = null;
         _collectedPoints.Clear();
@@ -94,6 +101,7 @@ public class CalibrationService
     public void Clear()
     {
         lock (_transformLock) { _currentTransform = null; }
+        CurrentData = null;
     }
 
     public void Load(string filePath, PhysicalPoint currentScreenSize, string currentMonitorDeviceName)
@@ -119,6 +127,7 @@ public class CalibrationService
             var transform = new AffineTransform();
             transform.SetParameters(data.TransformParams);
             lock (_transformLock) { _currentTransform = transform; }
+            CurrentData = data;
         }
         catch
         {

@@ -142,7 +142,10 @@ public class AppBootstrapper
             new PhysicalPoint(
                 System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
                 System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY),
-            System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? ""));
+            System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "",
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "EyeCtrl", "calibration.json")));
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(

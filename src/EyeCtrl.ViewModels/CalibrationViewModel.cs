@@ -19,6 +19,7 @@ public partial class CalibrationViewModel : ObservableObject,
     private readonly IGazeProvider _gazeProvider;
     private readonly PhysicalPoint _screenSize;
     private readonly string _monitorDeviceName;
+    private readonly string _calibrationFilePath;
     private readonly SynchronizationContext? _syncContext;
     private bool _disposed;
 
@@ -29,6 +30,7 @@ public partial class CalibrationViewModel : ObservableObject,
     [ObservableProperty] private PhysicalPoint _currentTargetPosition;
     [ObservableProperty] private string? _errorText;
     [ObservableProperty] private double? _meanErrorPixels;
+    [ObservableProperty] private double? _qualityPercent;
     [ObservableProperty] private string _targetColor = "#00FF00";
 
     public CalibrationViewModel(
@@ -37,7 +39,8 @@ public partial class CalibrationViewModel : ObservableObject,
         IMessenger messenger,
         IGazeProvider gazeProvider,
         PhysicalPoint screenSize,
-        string monitorDeviceName)
+        string monitorDeviceName,
+        string? calibrationFilePath = null)
     {
         _settings = settings;
         _calibrationService = calibrationService;
@@ -45,6 +48,9 @@ public partial class CalibrationViewModel : ObservableObject,
         _gazeProvider = gazeProvider;
         _screenSize = screenSize;
         _monitorDeviceName = monitorDeviceName;
+        _calibrationFilePath = calibrationFilePath ?? System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "EyeCtrl", "calibration.json");
         _targetColor = settings.TargetColor;
         _syncContext = SynchronizationContext.Current;
         messenger.RegisterAll(this);
@@ -86,7 +92,7 @@ public partial class CalibrationViewModel : ObservableObject,
 
         var pos = _calibrationService.GetTargetPosition(CurrentTargetIndex);
         CurrentTargetPosition = pos;
-        _calibrationService.BeginTarget(CurrentTargetIndex, _screenSize);
+        _calibrationService.BeginTarget(CurrentTargetIndex, _settings.SettleWindowMs, _settings.SamplesPerPoint);
 
         _messenger.Send(new CalibrationTargetPositionMessage(pos, CurrentTargetIndex, TotalTargets));
         _messenger.Send(new CalibrationStateChangedMessage(State, (CurrentTargetIndex / (double)TotalTargets) * 100));
@@ -142,13 +148,12 @@ public partial class CalibrationViewModel : ObservableObject,
             var data = _calibrationService.CompleteSession(_screenSize, _monitorDeviceName);
             var errorPx = data.ComputeMeanErrorPixels();
             MeanErrorPixels = errorPx;
+            QualityPercent = data.ComputeQualityPercent();
             State = CalibrationState.Active;
             _messenger.Send(new CalibrationStateChangedMessage(State, 100));
             _messenger.Send(new CalibrationCompletedMessage(true, errorPx));
 
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var filePath = System.IO.Path.Combine(appData, "EyeCtrl", "calibration.json");
-            _calibrationService.Save(filePath, data);
+            _calibrationService.Save(_calibrationFilePath, data);
         }
         catch (Exception ex)
         {
@@ -169,10 +174,33 @@ public partial class CalibrationViewModel : ObservableObject,
         _messenger.Send(new CalibrationCancelledMessage());
     }
 
+    /// <summary>
+    /// Dismisses a completed (Active) or failed result and returns to Idle so a new
+    /// calibration can be requested. Without this the VM stays stuck in Active/Failed
+    /// and ignores every subsequent calibration request.
+    /// </summary>
+    public void Acknowledge()
+    {
+        if (State != CalibrationState.Active && State != CalibrationState.Failed) return;
+        State = CalibrationState.Idle;
+        _messenger.Send(new CalibrationStateChangedMessage(State, 0));
+    }
+
+    /// <summary>Discards a completed/failed result and immediately restarts calibration.</summary>
+    public void Retry()
+    {
+        if (State != CalibrationState.Active && State != CalibrationState.Failed) return;
+        State = CalibrationState.Idle;
+        StartSession();
+    }
+
     public void ClearCalibration()
     {
         _calibrationService.Clear();
-        _messenger.Send(new CalibrationCompletedMessage(false, null));
+        MeanErrorPixels = null;
+        QualityPercent = null;
+        // Neutral reset (not a failure) so the toolbar icon returns to the idle state.
+        _messenger.Send(new CalibrationCancelledMessage());
     }
 
     public void Dispose()

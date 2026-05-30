@@ -37,14 +37,14 @@ public class AppLaunchTests
     }
 
     [Fact]
-    public void Toolbar_HasFourButtons()
+    public void Toolbar_HasFiveButtons()
     {
         var toolbar = _fixture.FindWindow("Toolbar_Window");
         Assert.NotNull(toolbar);
 
         var buttons = _fixture.FindElements(toolbar!, "Toolbar_Button_");
 
-        Assert.Equal(4, buttons.Length);
+        Assert.Equal(5, buttons.Length);
     }
 
     [Fact]
@@ -58,6 +58,7 @@ public class AppLaunchTests
             "Toolbar_Button_Pause",
             "Toolbar_Button_ManualSelection",
             "Toolbar_Button_Keyboard",
+            "Toolbar_Button_Calibrate",
             "Toolbar_Button_Settings"
         };
 

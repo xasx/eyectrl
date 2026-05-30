@@ -251,22 +251,28 @@ public class EventCoordinator : IEventCoordinator
             _context.Dispatcher.BeginInvoke(() =>
             {
                 var calWindow = _context.OverlayManager.Calibration;
+                var cursorCircle = _context.OverlayManager.CursorCircle;
                 switch (msg.State)
                 {
                     case CalibrationState.Collecting:
                     case CalibrationState.Training:
                         _context.GazeEngine.SuppressFixation = true;
+                        // Hide the cursor circle so it doesn't compete with the calibration dot.
+                        cursorCircle.Hide();
                         calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
                         calWindow.Show();
                         break;
                     case CalibrationState.Active:
                     case CalibrationState.Failed:
                         _context.GazeEngine.SuppressFixation = false;
+                        // Restore the cursor circle so the user can aim at Retry/Accept.
+                        if (_context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
                         calWindow.Show();
                         break;
                     default:
                         _context.GazeEngine.SuppressFixation = false;
+                        if (_context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.DismissCalibration();
                         break;
                 }
@@ -538,7 +544,9 @@ public class EventCoordinator : IEventCoordinator
                 _context.Settings,
                 _context.SettingsService,
                 _modelRegistry ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
-                _modelManagementService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."));
+                _modelManagementService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
+                _context.Messenger,
+                _context.CalibrationService);
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;

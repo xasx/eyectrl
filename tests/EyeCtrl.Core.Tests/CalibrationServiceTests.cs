@@ -23,7 +23,7 @@ public class CalibrationServiceTests
         var targets = CalibrationTargetPositionHelper.GetPositions(3, screen);
         for (int i = 0; i < 3; i++)
         {
-            service.BeginTarget(i, screen);
+            service.BeginTarget(i);
             for (int j = 0; j < 30; j++)
                 service.AddRawSample(new PhysicalPoint(targets[i].X + 10, targets[i].Y - 5));
             service.EndTarget();
@@ -59,7 +59,7 @@ public class CalibrationServiceTests
         var targets = CalibrationTargetPositionHelper.GetPositions(3, screen);
         for (int i = 0; i < 3; i++)
         {
-            service.BeginTarget(i, screen);
+            service.BeginTarget(i);
             for (int j = 0; j < 30; j++)
                 service.AddRawSample(new PhysicalPoint(targets[i].X + 1, targets[i].Y));
             service.EndTarget();
@@ -67,8 +67,25 @@ public class CalibrationServiceTests
         service.CompleteSession(screen, "DISPLAY1");
 
         Assert.NotNull(service.CurrentTransform);
+        Assert.NotNull(service.CurrentData);
         service.Clear();
         Assert.Null(service.CurrentTransform);
+        Assert.Null(service.CurrentData);
+    }
+
+    [Fact]
+    public void BeginTarget_HonorsMaxSamplesCap()
+    {
+        var service = new CalibrationService();
+        var screen = new PhysicalPoint(1920, 1080);
+        service.StartSession(3, screen);
+
+        service.BeginTarget(0, settleWindowMs: 0, maxSamples: 5);
+        for (int j = 0; j < 50; j++)
+            service.AddRawSample(new PhysicalPoint(100, 100));
+        var point = service.EndTarget();
+
+        Assert.Equal(5, point.SampleCount);
     }
 
     [Fact]
@@ -80,7 +97,7 @@ public class CalibrationServiceTests
         var targets = CalibrationTargetPositionHelper.GetPositions(3, screen1);
         for (int i = 0; i < 3; i++)
         {
-            service.BeginTarget(i, screen1);
+            service.BeginTarget(i);
             for (int j = 0; j < 30; j++)
                 service.AddRawSample(new PhysicalPoint(targets[i].X + 1, targets[i].Y));
             service.EndTarget();
@@ -106,7 +123,7 @@ public class CalibrationServiceTests
         var targets = CalibrationTargetPositionHelper.GetPositions(3, screen);
         for (int i = 0; i < 3; i++)
         {
-            service.BeginTarget(i, screen);
+            service.BeginTarget(i);
             for (int j = 0; j < 30; j++)
                 service.AddRawSample(new PhysicalPoint(targets[i].X + 1, targets[i].Y));
             service.EndTarget();

@@ -142,11 +142,12 @@ public partial class App : Application
         var viewModels = new OverlayViewModels(cursorVM, activationVM, ManualSelectionVM, actionMenuVM, toolbarVM, keyboardVM, ManualSelectionIndicatorVM, calibrationVM);
         overlayManager.Initialize(viewModels, settings, activeProviderType);
 
-        // Load calibration
+        // Load calibration. Screen size must be in PHYSICAL pixels to match what
+        // CompleteSession persists (logical DIPs here would discard calibration on any non-100% DPI).
         var calibrationPath = Path.Combine(_appDataDir, "calibration.json");
         var screen = new PhysicalPoint(
-            SystemParameters.PrimaryScreenWidth,
-            SystemParameters.PrimaryScreenHeight);
+            SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
+            SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
         var monitorName = System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "";
         _serviceProvider.GetRequiredService<CalibrationService>().Load(calibrationPath, screen, monitorName);
 
@@ -159,7 +160,8 @@ public partial class App : Application
         _eventCoordinator = new EventCoordinator();
         var coordinationContext = new EventCoordinationContext(
             cursorVM, activationVM, ManualSelectionVM, ManualSelectionIndicatorVM, actionMenuVM, toolbarVM, keyboardVM, backdropVM,
-            overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator);
+            overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator,
+            _serviceProvider.GetRequiredService<CalibrationService>());
         _eventCoordinator.Initialize(coordinationContext);
 
         var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();

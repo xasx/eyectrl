@@ -106,15 +106,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new ToggleSettingViewModel("themeHighContrast", "High Contrast", th.HighContrast, v => th.HighContrast = v),
         }));
 
+        // NOTE: item count here only drives pagination (ItemsPerPage = 6 \u2192 2 pages);
+        // the actual interactive controls are built in SettingsWindow.BuildCalibrationPages.
         Tabs.Add(new SettingsTabViewModel("Calibration", "\u2316", new List<SettingItemViewModel>
         {
             new SliderSettingViewModel("calPointCount", "Point Count", cal.PointCount, 3, 16, 1, v => cal.PointCount = (int)v),
             new SliderSettingViewModel("calSamples", "Samples per Point", cal.SamplesPerPoint, 5, 100, 5, v => cal.SamplesPerPoint = (int)v),
             new SliderSettingViewModel("calHoldMs", "Target Hold (ms)", cal.TargetHoldMs, 200, 3000, 100, v => cal.TargetHoldMs = (int)v),
+            new SliderSettingViewModel("calSettleMs", "Settle Window (ms)", cal.SettleWindowMs, 0, 500, 25, v => cal.SettleWindowMs = (int)v),
             new ActionButtonSettingItem("calCalibrate", "Calibrate Now",
-                () => WeakReferenceMessenger.Default.Send(new CalibrationRequestedMessage())),
+                () => _messenger.Send(new CalibrationRequestedMessage())),
             new ActionButtonSettingItem("calClear", "Clear Calibration",
-                () => WeakReferenceMessenger.Default.Send(new CalibrationClearRequestedMessage())),
+                () => _messenger.Send(new CalibrationClearRequestedMessage())),
             new ReadOnlyLabelSettingItem("calStatus", "Last Calibration", "No calibration data"),
         }));
     }

@@ -40,6 +40,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         var t = _settings.Toolbar;
         var g = _settings.General;
         var th = _settings.Theme;
+        var cal = _settings.Calibration;
 
         Tabs.Add(new SettingsTabViewModel("Cursor", "\uD83D\uDDB1", new List<SettingItemViewModel>
         {
@@ -104,6 +105,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new SliderSettingViewModel("overlayOpacity", "Overlay Opacity", th.OverlayOpacity, 0.1, 1.0, 0.1, v => th.OverlayOpacity = v),
             new ToggleSettingViewModel("themeHighContrast", "High Contrast", th.HighContrast, v => th.HighContrast = v),
         }));
+
+        Tabs.Add(new SettingsTabViewModel("Calibration", "\u2316", new List<SettingItemViewModel>
+        {
+            new SliderSettingViewModel("calPointCount", "Point Count", cal.PointCount, 3, 16, 1, v => cal.PointCount = (int)v),
+            new SliderSettingViewModel("calSamples", "Samples per Point", cal.SamplesPerPoint, 5, 100, 5, v => cal.SamplesPerPoint = (int)v),
+            new SliderSettingViewModel("calHoldMs", "Target Hold (ms)", cal.TargetHoldMs, 200, 3000, 100, v => cal.TargetHoldMs = (int)v),
+            new ActionButtonSettingItem("calCalibrate", "Calibrate Now",
+                () => WeakReferenceMessenger.Default.Send(new CalibrationRequestedMessage())),
+            new ActionButtonSettingItem("calClear", "Clear Calibration",
+                () => WeakReferenceMessenger.Default.Send(new CalibrationClearRequestedMessage())),
+            new ReadOnlyLabelSettingItem("calStatus", "Last Calibration", "No calibration data"),
+        }));
     }
 
     public void ShowTab(string tabName)
@@ -156,6 +169,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         CopySettings(defaults.Toolbar, _settings.Toolbar);
         CopySettings(defaults.Theme, _settings.Theme);
         CopySettings(defaults.General, _settings.General);
+        CopySettings(defaults.Calibration, _settings.Calibration);
 
         // Rebuild tabs to reflect new values
         Tabs.Clear();

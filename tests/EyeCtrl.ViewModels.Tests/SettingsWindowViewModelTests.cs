@@ -30,7 +30,7 @@ public class SettingsWindowViewModelTests
 
         Assert.NotNull(vm);
         Assert.NotNull(vm.Settings);
-        Assert.Equal(7, vm.Settings.Tabs.Count);
+        Assert.Equal(8, vm.Settings.Tabs.Count);
     }
 
     [Fact]

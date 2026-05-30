@@ -14,7 +14,7 @@ public class ToolbarViewModelTests
     public void InitializesWith4Buttons()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        Assert.Equal(4, vm.Buttons.Count);
+        Assert.Equal(5, vm.Buttons.Count);
     }
 
     [Fact]

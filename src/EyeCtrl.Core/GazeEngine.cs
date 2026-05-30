@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core;
 
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -14,6 +15,7 @@ public class GazeEngine : IDisposable
     private readonly IGazeProvider _gazeProvider;
     private readonly IInputSimulator _inputSimulator;
     private readonly EyeCtrlSettings _settings;
+    private readonly CalibrationService? _calibrationService;
     private GapInterpolator _gapInterpolator;
     private readonly FixationDetector _fixationDetector;
     private readonly FixationCentroidTracker _centroidTracker;
@@ -28,11 +30,13 @@ public class GazeEngine : IDisposable
     public GazeEngine(
         IGazeProvider gazeProvider,
         IInputSimulator inputSimulator,
-        EyeCtrlSettings settings)
+        EyeCtrlSettings settings,
+        CalibrationService? calibrationService = null)
     {
         _gazeProvider = gazeProvider;
         _inputSimulator = inputSimulator;
         _settings = settings;
+        _calibrationService = calibrationService;
 
         _gapInterpolator = new GapInterpolator(
             GazeFilterFactory.Create(settings.Cursor),
@@ -77,7 +81,13 @@ public class GazeEngine : IDisposable
 
     private void OnGazePoint(GazePoint gaze)
     {
-        var (filtered, isInGap) = _gapInterpolator.Process(gaze);
+        var corrected = gaze;
+        if (gaze.IsValid && _calibrationService?.CurrentTransform is { } t)
+        {
+            var p = t.Apply(new PhysicalPoint(gaze.X, gaze.Y));
+            corrected = gaze with { X = p.X, Y = p.Y };
+        }
+        var (filtered, isInGap) = _gapInterpolator.Process(corrected);
 
         // Always fire CursorMoved so the cursor circle + toolbar receive gaze
         // (this allows unpause via toolbar dwell even when paused)

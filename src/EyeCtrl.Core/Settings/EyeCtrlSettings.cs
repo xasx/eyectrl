@@ -13,6 +13,7 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private ToolbarSettings _toolbar = new();
     [ObservableProperty] private ThemeSettings _theme = new();
     [ObservableProperty] private BackdropSettings _backdrop = new();
+    [ObservableProperty] private CalibrationSettings _calibration = new();
     [ObservableProperty] private GeneralSettings _general = new();
     [ObservableProperty] private ViewPosition _viewPosition = ViewPosition.AtCenter;
 
@@ -60,6 +61,11 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
             errors.Add("Backdrop settings must not be null.");
         else
             errors.AddRange(Backdrop.Validate());
+
+        if (Calibration is null)
+            errors.Add("Calibration settings must not be null.");
+        else
+            errors.AddRange(Calibration.Validate());
 
         if (General is null)
             errors.Add("General settings must not be null.");

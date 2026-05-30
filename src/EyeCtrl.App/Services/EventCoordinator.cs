@@ -8,6 +8,7 @@ using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -244,6 +245,32 @@ public class EventCoordinator : IEventCoordinator
             _context.OverlayManager.Keyboard.Hide();
             Log.Debug("Keyboard hidden");
         });
+
+        // Calibration: show/hide overlay on state change, suppress interaction during capture
+        _context.Messenger.Register<EventCoordinator, CalibrationStateChangedMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                var calWindow = _context.OverlayManager.Calibration;
+                switch (msg.State)
+                {
+                    case CalibrationState.Collecting:
+                    case CalibrationState.Training:
+                        _context.GazeEngine.SuppressFixation = true;
+                        calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
+                        calWindow.Show();
+                        break;
+                    case CalibrationState.Active:
+                    case CalibrationState.Failed:
+                        _context.GazeEngine.SuppressFixation = false;
+                        calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
+                        calWindow.Show();
+                        break;
+                    default:
+                        _context.GazeEngine.SuppressFixation = false;
+                        calWindow.DismissCalibration();
+                        break;
+                }
+            }));
     }
 
     private void SetupGazeRouting()

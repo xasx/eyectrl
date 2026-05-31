@@ -1,10 +1,10 @@
-# StreamEngine Gaze Tracker Sample ÔÇö Implementation Plan
+# StreamEngine Gaze Tracker Sample — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Create a standalone WPF sample that demonstrates Tobii StreamEngine API usage with gaze trail visualization, debug overlay, and OneEuroFilter smoothing.
 
-**Architecture:** Single-window WPF app with all StreamEngine logic in MainWindow.xaml.cs. Background poll thread feeds gaze data, DispatcherTimer drives UI at 60Hz. Self-contained ÔÇö no dependencies on EyeCtrl.Core/Platform.
+**Architecture:** Single-window WPF app with all StreamEngine logic in MainWindow.xaml.cs. Background poll thread feeds gaze data, DispatcherTimer drives UI at 60Hz. Self-contained — no dependencies on EyeCtrl.Core/Platform.
 
 **Tech Stack:** .NET 10.0, WPF, Tobii.StreamEngine.Net (managed wrapper), `net10.0-windows`
 
@@ -102,7 +102,7 @@ public partial class App : Application
 }
 ```
 
-- [ ] **Step 5: Verify it compiles (will error if no Tobii SDK ÔÇö that's expected)**
+- [ ] **Step 5: Verify it compiles (will error if no Tobii SDK — that's expected)**
 
 ```bash
 dotnet build samples/StreamEngineGazeTracker
@@ -185,7 +185,7 @@ using Tobii.StreamEngine;
 
 public partial class MainWindow : Window
 {
-    // ÔöÇÔöÇ StreamEngine handles ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── StreamEngine handles ──────────────────────────────────────────
     private IntPtr _api;
     private IntPtr _device;
 
@@ -194,27 +194,27 @@ public partial class MainWindow : Window
     // with CallbackOnCollectedDelegate after the first GC.
     private tobii_gaze_point_callback_t? _gazeCallback;
 
-    // ÔöÇÔöÇ Poll loop ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── Poll loop ─────────────────────────────────────────────────────
     private CancellationTokenSource? _cts;
     private Task? _pollTask;
     private readonly IntPtr[] _deviceArray = new IntPtr[1]; // hoist to avoid per-iteration allocation
 
-    // ÔöÇÔöÇ Shared gaze data (callback thread ÔåÆ UI timer) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── Shared gaze data (callback thread → UI timer) ─────────────────
     private readonly object _gazeLock = new();
     private double _rawX;
     private double _rawY;
     private bool _rawValid;
     private int _gazeCallbackCount;
 
-    // ÔöÇÔöÇ Hz computation (1-second rolling window) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── Hz computation (1-second rolling window) ──────────────────────
     private readonly Queue<(DateTime time, int count)> _hzWindow = new();
     private double _currentHz;
 
-    // ÔöÇÔöÇ OneEuroFilter state ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── OneEuroFilter state ───────────────────────────────────────────
     private OneEuroFilter? _filterX;
     private OneEuroFilter? _filterY;
 
-    // ÔöÇÔöÇ Trail ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── Trail ─────────────────────────────────────────────────────────
     private const int MaxTrailPoints = 50;
     private const double TrailDotSize = 6;
     private const double GazeDotSize = 16;
@@ -230,10 +230,10 @@ public partial class MainWindow : Window
     private System.Windows.Shapes.Ellipse _gazeDot = null!;
     private bool _uiInitialized;
 
-    // ÔöÇÔöÇ Performance tracking ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── Performance tracking ──────────────────────────────────────────
     private readonly Stopwatch _uptime = new();
 
-    // ÔöÇÔöÇ UI timer ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── UI timer ──────────────────────────────────────────────────────
     private DispatcherTimer _uiTimer = null!;
 
     public MainWindow()
@@ -263,7 +263,7 @@ public partial class MainWindow : Window
         }
     }
 
-    // ÔöÇÔöÇ StreamEngine initialization ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── StreamEngine initialization ───────────────────────────────────
 
     private void InitializeStreamEngine()
     {
@@ -303,7 +303,7 @@ public partial class MainWindow : Window
             throw new InvalidOperationException($"Failed to subscribe to gaze data: {result}");
     }
 
-    // ÔöÇÔöÇ Poll loop ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── Poll loop ─────────────────────────────────────────────────────
 
     private void StartPollLoop()
     {
@@ -316,7 +316,7 @@ public partial class MainWindow : Window
             {
                 var result = Interop.tobii_wait_for_callbacks(_deviceArray);
                 if (result == tobii_error_t.TOBII_ERROR_TIMED_OUT)
-                    continue; // normal ÔÇö no data yet, loop back to wait
+                    continue; // normal — no data yet, loop back to wait
                 if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
                 {
                     Thread.Sleep(100); // avoid hot-spin on persistent device errors
@@ -333,7 +333,7 @@ public partial class MainWindow : Window
         }, token);
     }
 
-    // ÔöÇÔöÇ Cleanup ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── Cleanup ───────────────────────────────────────────────────────
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
@@ -341,7 +341,7 @@ public partial class MainWindow : Window
         // Otherwise the poll thread may be inside tobii_wait_for_callbacks on a destroyed device.
         // Null-conditional because OnClosing can fire if initialization failed (no _cts/_pollTask yet).
         _cts?.Cancel();
-        _pollTask?.Wait(1000);
+        _pollTask?.Wait(); // Must wait until the task has actually exited to avoid use-after-destroy
 
         if (_device != IntPtr.Zero)
         {
@@ -355,7 +355,7 @@ public partial class MainWindow : Window
         }
     }
 
-    // ÔöÇÔöÇ UI timer ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── UI timer ──────────────────────────────────────────────────────
 
     private void StartUITimer()
     {
@@ -404,9 +404,9 @@ public partial class MainWindow : Window
         }
 
         // 4. Apply OneEuroFilter (fixed dt = 1/60, tied to timer rate)
-        //    When no new data arrives, re-filtering the same point produces velocity Ôëê 0,
+        //    When no new data arrives, re-filtering the same point produces velocity ≈ 0,
         //    which momentarily increases smoothing. Acceptable for a sample.
-        //    Skip filter/trail/dot on invalid gaze (blinks, tracking loss) ÔÇö StreamEngine
+        //    Skip filter/trail/dot on invalid gaze (blinks, tracking loss) — StreamEngine
         //    leaves position undefined on invalid samples, so filtering garbage would snap
         //    the dot to (0,0) or stale coordinates.
         const double dt = 1.0 / 60.0;
@@ -496,7 +496,7 @@ public partial class MainWindow : Window
         GazeCanvas.Children.Add(_gazeDot);
     }
 
-    // ÔöÇÔöÇ Minimal OneEuro Filter ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+    // ── Minimal OneEuro Filter ────────────────────────────────────────
     // A self-contained ~30-line implementation for this sample.
     // See src/EyeCtrl.Core/Processing/OneEuroFilter.cs for the production version.
 
@@ -561,7 +561,7 @@ Expected: Build succeeds (with SDK present) or the custom SDK-not-found error.
 
 ```bash
 git add samples/StreamEngineGazeTracker/MainWindow.xaml.cs
-git commit -m "feat(sample): add complete MainWindow ÔÇö StreamEngine lifecycle, OneEuroFilter, gaze trail, debug overlay"
+git commit -m "feat(sample): add complete MainWindow — StreamEngine lifecycle, OneEuroFilter, gaze trail, debug overlay"
 ```
 
 ---
@@ -573,7 +573,7 @@ git commit -m "feat(sample): add complete MainWindow ÔÇö StreamEngine lifecyc
 Check:
 - `_gazeCallback` is stored in an instance field (GC guard)
 - Cleanup order: cancel + wait poll task, then unsubscribe, then destroy
-- `_cts?.Cancel()` / `_pollTask?.Wait(1000)` ÔÇö null-safe for failed init
+- `_cts?.Cancel()` / `_pollTask?.Wait()` — null-safe for failed init
 - `lock(_gazeLock)` used for callback writes and UI timer reads of gaze position
 - `Interlocked.Exchange` for counter read-and-reset (outside lock)
 - `Interlocked.Increment` in callback (outside lock)

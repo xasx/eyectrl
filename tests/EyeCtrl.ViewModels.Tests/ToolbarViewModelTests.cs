@@ -46,14 +46,14 @@ public class ToolbarViewModelTests
     }
 
     [Fact]
-    public void ManualSelectionToggle_SendsManualSelectionToggledMessage()
+    public void ManualSelectionToggle_SendsSelectionModeChangedMessage()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        bool received = false;
-        _messenger.Register<ManualSelectionToggledMessage>(_messenger, (_, _) => received = true);
+        SelectionMode? receivedMode = null;
+        _messenger.Register<SelectionModeChangedMessage>(_messenger, (_, msg) => receivedMode = msg.Mode);
 
         vm.SimulateButtonActivated("ManualSelection");
 
-        Assert.True(received);
+        Assert.Equal(SelectionMode.ManualSelection, receivedMode);
     }
 }

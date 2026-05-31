@@ -100,7 +100,7 @@ public partial class ToolbarViewModel : ObservableObject,
         switch (targetId)
         {
             case "Pause": _messenger.Send(new PauseToggledMessage()); break;
-            case "ManualSelection": _messenger.Send(new ManualSelectionToggledMessage()); break;
+            case "ManualSelection": _messenger.Send(new SelectionModeChangedMessage(SelectionMode.ManualSelection)); break;
             case "Keyboard": _messenger.Send(new KeyboardToggledMessage()); break;
             case "Calibrate": _messenger.Send(new CalibrationRequestedMessage()); break;
             case "Settings": _messenger.Send(new SettingsRequestedMessage()); break;

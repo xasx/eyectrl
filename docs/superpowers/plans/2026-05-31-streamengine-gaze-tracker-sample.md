@@ -341,7 +341,16 @@ public partial class MainWindow : Window
         // Otherwise the poll thread may be inside tobii_wait_for_callbacks on a destroyed device.
         // Null-conditional because OnClosing can fire if initialization failed (no _cts/_pollTask yet).
         _cts?.Cancel();
-        _pollTask?.Wait(); // Must wait until the task has actually exited to avoid use-after-destroy
+        try
+        {
+            // Bounded wait: the in-flight tobii_wait_for_callbacks returns within its internal
+            // timeout, so this completes near-instantly; the bound guards against a hang on close.
+            _pollTask?.Wait(TimeSpan.FromSeconds(5));
+        }
+        catch (AggregateException)
+        {
+            // Poll task faulted — proceed with native cleanup regardless.
+        }
 
         if (_device != IntPtr.Zero)
         {
@@ -573,7 +582,7 @@ git commit -m "feat(sample): add complete MainWindow — StreamEngine lifecycle,
 Check:
 - `_gazeCallback` is stored in an instance field (GC guard)
 - Cleanup order: cancel + wait poll task, then unsubscribe, then destroy
-- `_cts?.Cancel()` / `_pollTask?.Wait()` — null-safe for failed init
+- `_cts?.Cancel()` / bounded `_pollTask?.Wait(5s)` wrapped in `try/catch (AggregateException)` — null-safe for failed init, no hang or handle leak on close
 - `lock(_gazeLock)` used for callback writes and UI timer reads of gaze position
 - `Interlocked.Exchange` for counter read-and-reset (outside lock)
 - `Interlocked.Increment` in callback (outside lock)

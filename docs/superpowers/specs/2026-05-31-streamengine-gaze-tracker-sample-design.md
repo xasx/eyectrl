@@ -120,13 +120,13 @@ _pollTask = Task.Run(() => {
 
 ```
 1. _cts.Cancel()
-2. _pollTask.Wait()               // block until the poll task has actually exited
+2. _pollTask.Wait(5s) inside try/catch  // block until the poll task exits; bounded + fault-tolerant
 3. tobii_gaze_point_unsubscribe(_device)
 4. tobii_device_destroy(_device)
 5. tobii_api_destroy(_api)
 ```
 
-Destroying `_device` while the poll thread is inside `tobii_wait_for_callbacks` / `tobii_device_process_callbacks` is a use-after-destroy crash. The `Wait` guarantees the poll loop has exited before cleanup proceeds.
+Destroying `_device` while the poll thread is inside `tobii_wait_for_callbacks` / `tobii_device_process_callbacks` is a use-after-destroy crash, so the `Wait` must complete before cleanup proceeds. The in-flight `tobii_wait_for_callbacks` returns within its internal timeout, so the wait completes near-instantly in practice; the 5-second bound guards against a pathological hang blocking window close (far longer than any wait timeout, so the race stays effectively closed). The wait is wrapped in `try/catch (AggregateException)` so a faulted poll task still proceeds to unsubscribe/destroy rather than leaking the native handles.
 
 ## Threading Model
 

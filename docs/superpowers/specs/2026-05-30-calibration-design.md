@@ -72,7 +72,7 @@ public enum TransformType { Affine }
 
 ### AffineTransform (min 3 points)
 
-Standard 2D affine: `x' = a*x + b*y + c`, `y' = d*x + e*y + f`. Six parameters solved via linear least squares on the overdetermined system from all calibration points. Covers translation + scale + rotation + shear — enough for most drift patterns. Uses only `System.Numerics` matrix operations already available in .NET; no external dependencies.
+Standard 2D affine: `x' = a*x + b*y + c`, `y' = d*x + e*y + f`. Six parameters solved via linear least squares on the overdetermined system from all calibration points. Covers translation + scale + rotation + shear — enough for most drift patterns. Uses hand-rolled normal equations and Gaussian elimination with partial pivoting; no external dependencies.
 
 ### Selection
 
@@ -254,7 +254,7 @@ Active target uses a WPF `Storyboard` with a double-animation on the ring's `Sca
 - **6-9 points**: 3×3 grid (fill best-fit positions)
 - **10-16 points**: 4×4 grid (fill best-fit positions)
 
-All positions inset 10% from screen edges. Positions are ordered to alternate between near and far to reduce the visual jump distance between consecutive targets.
+All positions inset 20% from screen edges. Positions are ordered to alternate between near and far to reduce the visual jump distance between consecutive targets.
 
 ## GazeEngine Change
 

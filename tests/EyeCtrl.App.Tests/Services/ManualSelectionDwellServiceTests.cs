@@ -179,9 +179,12 @@ public class ManualSelectionDwellServiceTests
             progressUpdateReceived = true;
         });
 
-        // Act - Wait for grace period, then send gaze within bounds
+        // Act - Start the grace period, then send two gazes within bounds after it.
+        // The dwell detector only *enters* the target on the first post-grace sample; a
+        // second sample is required before it emits a progress update.
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 500), 100_000)); // Start grace period
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 400_000)); // After grace period (400ms)
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 400_000)); // After grace period — dwell begins
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 600_000)); // Dwell advances → progress emitted
 
         // Assert
         Assert.True(progressUpdateReceived, "Progress should be updated after grace period with valid gaze");

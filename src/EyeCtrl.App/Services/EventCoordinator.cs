@@ -569,7 +569,7 @@ public class EventCoordinator : IEventCoordinator
         _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
         _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
         _context.InteractionManager.SelectionMode = s.ManualSelection.Enabled ? SelectionMode.ManualSelection : SelectionMode.None;
-        _context.OverlayManager.Toolbar.SetManualSelectionState(s.ManualSelection.Enabled);
+        _context.OverlayManager.Toolbar.SetSelectionModeState(s.ManualSelection.Enabled ? SelectionMode.ManualSelection : SelectionMode.None);
         LoadKeyboard(_context.OverlayManager.Keyboard, s, _context.InputSimulator, _context.SettingsService);
         Log.Information("Settings saved");
     }

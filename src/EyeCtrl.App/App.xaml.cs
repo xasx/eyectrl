@@ -180,7 +180,7 @@ public partial class App : Application
         cursorCircle.Show();
         toolbar.Show();
         toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
-        toolbar.SetManualSelectionState(settings.ManualSelection.Enabled);
+        toolbar.SetSelectionModeState(settings.ManualSelection.Enabled ? SelectionMode.ManualSelection : SelectionMode.None);
         toolbar.BindToViewModel();
 
         if (settings.General.StartPaused)

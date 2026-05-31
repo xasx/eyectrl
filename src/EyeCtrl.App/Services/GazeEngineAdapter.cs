@@ -55,11 +55,8 @@ public class GazeEngineAdapter : IDisposable
             _interactionManager.OnManualSelectionBack());
         messenger.Register<PauseToggledMessage>(this, (_, _) =>
             _interactionManager.TogglePause());
-        messenger.Register<ManualSelectionToggledMessage>(this, (_, _) =>
-        {
-            _interactionManager.SelectionMode = _interactionManager.SelectionMode == SelectionMode.ManualSelection ? SelectionMode.None : SelectionMode.ManualSelection;
-            _settings.ManualSelection.Enabled = _interactionManager.SelectionMode == SelectionMode.ManualSelection;
-        });
+        messenger.Register<SelectionModeChangedMessage>(this, (_, msg) =>
+            _interactionManager.SelectionMode = msg.Mode);
     }
 
     private void OnCursorMoved(PhysicalPoint point, long timestamp) =>

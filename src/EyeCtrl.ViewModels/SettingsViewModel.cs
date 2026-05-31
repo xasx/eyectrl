@@ -69,11 +69,29 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new SliderSettingViewModel("fixationRadius", "Fixation Radius (px)", d.FixationRadiusPixels, 10, 200, 5, v => d.FixationRadiusPixels = v),
         }));
 
-        Tabs.Add(new SettingsTabViewModel("ManualSelection", "\uD83D\uDD0D", new List<SettingItemViewModel>
+        var highlightColor = new ColorSettingViewModel("highlightColor", "Highlight Color",
+            _settings.AutoSelection.HighlightColor, v => _settings.AutoSelection.HighlightColor = v);
+        var highlightThickness = new SliderSettingViewModel("highlightThickness", "Highlight Thickness",
+            _settings.AutoSelection.HighlightThickness, 1, 10, 1, v => _settings.AutoSelection.HighlightThickness = v);
+        highlightColor.IsEnabled = highlightThickness.IsEnabled = (_settings.SelectionMode == SelectionMode.AutoSelection);
+
+        Tabs.Add(new SettingsTabViewModel("Selection", "\uD83C\uDFAF", new List<SettingItemViewModel>
         {
-            new ToggleSettingViewModel("ManualSelectionEnabled", "ManualSelection Enabled", z.Enabled, v => z.Enabled = v),
-            new SliderSettingViewModel("ManualSelectionRadius", "Circle Radius (px)", z.CircleRadiusPixels, 50, 500, 10, v => z.CircleRadiusPixels = (int)v),
-            new SliderSettingViewModel("magnification", "Magnification Level", z.MagnificationLevel, 1.5, 5, 0.5, v => z.MagnificationLevel = v),
+            new ComboSettingViewModel("selectionMode", "Selection Mode",
+                _settings.SelectionMode.ToString(),
+                Enum.GetNames<SelectionMode>(),
+                v =>
+                {
+                    _settings.SelectionMode = Enum.Parse<SelectionMode>(v);
+                    highlightColor.IsEnabled = highlightThickness.IsEnabled =
+                        (_settings.SelectionMode == SelectionMode.AutoSelection);
+                }),
+            new SliderSettingViewModel("ManualSelectionRadius", "Circle Radius (px)",
+                z.CircleRadiusPixels, 50, 500, 10, v => z.CircleRadiusPixels = (int)v),
+            new SliderSettingViewModel("magnification", "Magnification Level",
+                z.MagnificationLevel, 1.5, 5, 0.5, v => z.MagnificationLevel = v),
+            highlightColor,
+            highlightThickness,
         }));
 
         Tabs.Add(new SettingsTabViewModel("Actions", "\u2699", new List<SettingItemViewModel>
@@ -173,6 +191,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         CopySettings(defaults.Theme, _settings.Theme);
         CopySettings(defaults.General, _settings.General);
         CopySettings(defaults.Calibration, _settings.Calibration);
+        CopySettings(defaults.AutoSelection, _settings.AutoSelection);
+        _settings.SelectionMode = defaults.SelectionMode;
+        _settings.ViewPosition = defaults.ViewPosition;
 
         // Rebuild tabs to reflect new values
         Tabs.Clear();

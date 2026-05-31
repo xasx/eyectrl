@@ -1,12 +1,24 @@
 namespace EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Models;
 
+/// <summary>
+/// Manages the interaction state machine for gaze-based interactions.
+/// All point coordinates are in physical screen pixels.
+/// </summary>
 public class InteractionManager
 {
     public InteractionState CurrentState { get; private set; } = InteractionState.FreeLook;
+    /// <summary>Active selection mode that drives the activation-button branch.</summary>
     public SelectionMode SelectionMode { get; set; } = SelectionMode.None;
+    /// <summary>Initial fixation point in physical screen pixels.</summary>
     public PhysicalPoint? FixationPoint { get; private set; }
+    /// <summary>Precise ManualSelection dwell point in physical screen pixels.</summary>
     public PhysicalPoint? ManualSelectionDwellPoint { get; private set; }
+    /// <summary>
+    /// Control resolved for Auto Selection at the current fixation, or null when none was found.
+    /// Set externally (by the platform adapter) before <see cref="OnActivationButtonDwelled"/>,
+    /// and cleared in <see cref="ResetToFreeLook"/> to prevent stale reuse.
+    /// </summary>
     public ControlInfo? AutoSelectionTarget { get; set; }
 
     public event Action<InteractionState>? StateChanged;
@@ -25,6 +37,10 @@ public class InteractionManager
         StateChanged?.Invoke(newState);
     }
 
+    /// <summary>
+    /// Called when fixation starts.
+    /// </summary>
+    /// <param name="point">Fixation point in physical screen pixels</param>
     public void OnFixationStarted(PhysicalPoint point)
     {
         if (CurrentState != InteractionState.FreeLook) return;
@@ -42,6 +58,12 @@ public class InteractionManager
         }
     }
 
+    /// <summary>
+    /// Called when the activation button dwell completes. Branches on <see cref="SelectionMode"/>:
+    /// Manual starts the zoom overlay; Auto shows the action menu at the resolved
+    /// <see cref="AutoSelectionTarget"/> (or the fixation point when none was found); None shows
+    /// the action menu at the fixation point.
+    /// </summary>
     public void OnActivationButtonDwelled()
     {
         if (CurrentState != InteractionState.Fixation) return;
@@ -69,6 +91,10 @@ public class InteractionManager
         }
     }
 
+    /// <summary>
+    /// Called when ManualSelection dwell completes.
+    /// </summary>
+    /// <param name="precisePoint">Precise dwell point in physical screen pixels</param>
     public void OnManualSelectionDwell(PhysicalPoint precisePoint)
     {
         if (CurrentState != InteractionState.ManualSelectionActive) return;
@@ -78,6 +104,11 @@ public class InteractionManager
         SetState(InteractionState.ManualSelectionActionMenuVisible);
     }
 
+    /// <summary>
+    /// Fires the chosen action at the resolved target point. In Auto Selection the click uses the
+    /// snapped <see cref="AutoSelectionTarget"/> center (falling back to the fixation point when no
+    /// control was resolved), so the action lands on the control rather than the raw gaze position.
+    /// </summary>
     public void OnActionSelected(InteractionAction action)
     {
         PhysicalPoint? targetPoint = CurrentState switch
@@ -106,6 +137,7 @@ public class InteractionManager
     {
         if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
         {
+            // Back from action view → return to ManualSelection selection
             HideActionMenu?.Invoke();
             ManualSelectionDwellPoint = null;
             SetState(InteractionState.ManualSelectionActive);
@@ -113,6 +145,7 @@ public class InteractionManager
         }
         else if (CurrentState == InteractionState.ManualSelectionActive)
         {
+            // Close from ManualSelection view → return to free look
             EndManualSelection?.Invoke();
             ResetToFreeLook();
         }

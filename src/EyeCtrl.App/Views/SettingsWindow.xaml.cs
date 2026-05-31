@@ -551,7 +551,7 @@ public partial class SettingsWindow : OverlayWindow
                 () => Add(new DwellSlider(_viewModel, "s_highlightThickness", "Highlight Thickness",
                     1, 10, 1, 0,
                     () => _settings.AutoSelection.HighlightThickness,
-                    v => { _settings.AutoSelection.HighlightThickness = (int)v; ApplyAndSave(); },
+                    v => { _settings.AutoSelection.HighlightThickness = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
             ]
         ];

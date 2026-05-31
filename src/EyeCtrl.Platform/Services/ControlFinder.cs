@@ -10,6 +10,8 @@ public class ControlFinder : IControlFinder
     private const int SearchStepPixels = 16;
     private const int SearchRadiusPixels = 48;
 
+    private static readonly int OwnProcessId = Environment.ProcessId;
+
     private readonly ILogger<ControlFinder> _logger;
 
     private static readonly HashSet<ControlType> InteractiveTypes = new()
@@ -72,6 +74,12 @@ public class ControlFinder : IControlFinder
         if (element == null)
             return null;
 
+        // Never target EyeCtrl's own overlay windows (cursor circle, activation button,
+        // highlight, etc.), which can sit under the gaze point as topmost windows and
+        // would otherwise be returned by AutomationElement.FromPoint.
+        if (element.Current.ProcessId == OwnProcessId)
+            return null;
+
         var walker = TreeWalker.ControlViewWalker;
         var current = element;
         while (current != null)
@@ -99,43 +107,63 @@ public class ControlFinder : IControlFinder
         return null;
     }
 
-    private static ControlInfo? FindNearestInteractiveControl(System.Windows.Point point)
+    /// <summary>
+    /// Probes in expanding square rings around the gaze point and returns as soon as a ring
+    /// yields a hit, choosing the nearest candidate within that ring. The early-exit keeps the
+    /// common (imprecise-gaze) path to roughly one ring (~8 UIA probes) instead of a full grid
+    /// sweep, which matters because each <see cref="AutomationElement.FromPoint"/> is a
+    /// cross-process COM call and the caller budgets only ~500ms for the whole resolution.
+    /// </summary>
+    private static ControlInfo? FindNearestInteractiveControl(System.Windows.Point origin)
     {
-        ControlInfo? nearest = null;
-        var bestDistance = double.MaxValue;
         var seenRects = new HashSet<PhysicalRect>();
 
-        foreach (var samplePoint in EnumerateSamplePoints(point))
+        for (var radius = SearchStepPixels; radius <= SearchRadiusPixels; radius += SearchStepPixels)
         {
-            var candidate = ResolveInteractiveElement(AutomationElement.FromPoint(samplePoint));
-            if (candidate == null || !seenRects.Add(candidate.BoundingRect))
-                continue;
+            ControlInfo? best = null;
+            var bestDistance = double.MaxValue;
 
-            var distance = DistanceSquaredToRect(point, candidate.BoundingRect);
-            if (distance < bestDistance)
+            foreach (var samplePoint in EnumerateRingPoints(origin, radius))
             {
-                bestDistance = distance;
-                nearest = candidate;
-            }
-        }
+                ControlInfo? candidate;
+                try
+                {
+                    candidate = ResolveInteractiveElement(AutomationElement.FromPoint(samplePoint));
+                }
+                catch (Exception)
+                {
+                    // A transient UIA failure at a single sample point must not abort the sweep.
+                    continue;
+                }
 
-        return nearest;
-    }
-
-    private static IEnumerable<System.Windows.Point> EnumerateSamplePoints(System.Windows.Point origin)
-    {
-        yield return origin;
-
-        for (var dy = -SearchRadiusPixels; dy <= SearchRadiusPixels; dy += SearchStepPixels)
-        {
-            for (var dx = -SearchRadiusPixels; dx <= SearchRadiusPixels; dx += SearchStepPixels)
-            {
-                if (dx == 0 && dy == 0)
+                if (candidate == null || !seenRects.Add(candidate.BoundingRect))
                     continue;
 
-                yield return new System.Windows.Point(origin.X + dx, origin.Y + dy);
+                var distance = DistanceSquaredToRect(origin, candidate.BoundingRect);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    best = candidate;
+                }
             }
+
+            if (best != null)
+                return best;
         }
+
+        return null;
+    }
+
+    private static IEnumerable<System.Windows.Point> EnumerateRingPoints(System.Windows.Point origin, int radius)
+    {
+        yield return new System.Windows.Point(origin.X - radius, origin.Y - radius);
+        yield return new System.Windows.Point(origin.X,          origin.Y - radius);
+        yield return new System.Windows.Point(origin.X + radius, origin.Y - radius);
+        yield return new System.Windows.Point(origin.X - radius, origin.Y);
+        yield return new System.Windows.Point(origin.X + radius, origin.Y);
+        yield return new System.Windows.Point(origin.X - radius, origin.Y + radius);
+        yield return new System.Windows.Point(origin.X,          origin.Y + radius);
+        yield return new System.Windows.Point(origin.X + radius, origin.Y + radius);
     }
 
     private static double DistanceSquaredToRect(System.Windows.Point point, PhysicalRect rect)

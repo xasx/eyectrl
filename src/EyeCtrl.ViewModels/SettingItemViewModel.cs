@@ -6,6 +6,7 @@ public abstract partial class SettingItemViewModel : ObservableObject
 {
     public string Label { get; }
     public string Id { get; }
+    [ObservableProperty] private bool _isEnabled = true;
 
     protected SettingItemViewModel(string id, string label) { Id = id; Label = label; }
 }

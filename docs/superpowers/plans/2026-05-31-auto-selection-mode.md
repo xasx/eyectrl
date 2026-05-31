@@ -26,7 +26,7 @@
 | `src/EyeCtrl.App/Overlays/TargetHighlightWindow.xaml` + `.xaml.cs` | Highlight overlay WPF window |
 | `tests/EyeCtrl.Core.Tests/Models/ControlInfoTests.cs` | ControlInfo + PhysicalRect tests |
 
-### Modified (15)
+### Modified (18)
 
 | File | Change summary |
 |------|---------------|
@@ -37,14 +37,17 @@
 | `src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs` | Add `SelectionModeChangedMessage` + `ResolvedControl`; rename `IsFromManualSelection`; delete `ManualSelectionToggledMessage` |
 | `src/EyeCtrl.ViewModels/SettingItemViewModel.cs` | Add `IsEnabled` property |
 | `src/EyeCtrl.ViewModels/SettingsViewModel.cs` | BuildTabs: replace toggle with combo + Auto settings; ResetAllSettings |
-| `src/EyeCtrl.ViewModels/ToolbarViewModel.cs` | 3-mode cycling; remove `ManualSelectionToggledMessage` + `IsManualSelectionOn` |
-| `src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs` | `SetSelectionModeState()` replaces `SetManualSelectionState()` |
+| `src/EyeCtrl.ViewModels/ToolbarViewModel.cs` | 3-mode cycling; remove `ManualSelectionToggledMessage` + `IsManualSelectionOn`; seed + sync mode from settings |
+| `src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs` | `SetSelectionModeState()` replaces `SetManualSelectionState()`; `"ManualSelection"` → `"SelectionMode"` |
 | `src/EyeCtrl.App/Services/IOverlayManager.cs` | Add `TargetHighlight` to `OverlayViewModels` record |
+| `src/EyeCtrl.App/Services/IEventCoordinator.cs` | Add `TargetHighlightVM` to `EventCoordinationContext` record |
 | `src/EyeCtrl.App/Services/OverlayManager.cs` | Add `TargetHighlight` window + init |
 | `src/EyeCtrl.App/Services/AppBootstrapper.cs` | Register `IControlFinder`, `TargetHighlightOverlayViewModel` |
-| `src/EyeCtrl.App/Services/GazeEngineAdapter.cs` | DI `IControlFinder`, async UIA resolve, new message handlers |
+| `src/EyeCtrl.App/Services/GazeEngineAdapter.cs` | DI `IControlFinder`, async UIA resolve, `FallbackToPixelOnNoControl` gate, new message handlers, toolbar seeding |
 | `src/EyeCtrl.App/Services/EventCoordinator.cs` | `IsPreciseTarget` rename; highlight overlay lifecycle; `OnSettingsChanged` |
-| `src/EyeCtrl.Platform/EyeCtrl.Platform.csproj` | Add `net10.0-windows` TFM + `System.Windows.Automation` |
+| `src/EyeCtrl.App/App.xaml.cs` | Resolve `TargetHighlightOverlayViewModel`, pass to `OverlayViewModels` and `EventCoordinationContext` |
+| `src/EyeCtrl.Platform/EyeCtrl.Platform.csproj` | Add `net10.0-windows` TFM + `FrameworkReference WindowsDesktop.App` |
+| `tests/EyeCtrl.Core.Tests/Processing/InteractionManagerTests.cs` | Replace `ManualSelectionEnabled` with `SelectionMode`, add Auto mode tests |
 
 ---
 
@@ -717,6 +720,13 @@ public abstract partial class SettingItemViewModel : ObservableObject
 In `src/EyeCtrl.ViewModels/SettingsViewModel.cs`, update the ManualSelection tab (lines 71-76). Replace the entire tab definition:
 
 ```csharp
+// Create Auto-specific items FIRST so the combo's lambda can capture them
+var highlightColor = new ColorSettingViewModel("highlightColor", "Highlight Color",
+    _settings.AutoSelection.HighlightColor, v => _settings.AutoSelection.HighlightColor = v);
+var highlightThickness = new SliderSettingViewModel("highlightThickness", "Highlight Thickness",
+    _settings.AutoSelection.HighlightThickness, 1, 10, 1, v => _settings.AutoSelection.HighlightThickness = (int)v);
+highlightColor.IsEnabled = highlightThickness.IsEnabled = (_settings.SelectionMode == SelectionMode.AutoSelection);
+
 Tabs.Add(new SettingsTabViewModel("Selection", "\uD83C\uDFAF", new List<SettingItemViewModel>
 {
     new ComboSettingViewModel("selectionMode", "Selection Mode",
@@ -725,26 +735,16 @@ Tabs.Add(new SettingsTabViewModel("Selection", "\uD83C\uDFAF", new List<SettingI
         v =>
         {
             _settings.SelectionMode = Enum.Parse<SelectionMode>(v);
-            // Gate Auto settings
-            highlightColor.IsEnabled = highlightThickness.IsEnabled = (_settings.SelectionMode == SelectionMode.AutoSelection);
+            highlightColor.IsEnabled = highlightThickness.IsEnabled =
+                (_settings.SelectionMode == SelectionMode.AutoSelection);
         }),
     new SliderSettingViewModel("ManualSelectionRadius", "Circle Radius (px)",
         z.CircleRadiusPixels, 50, 500, 10, v => z.CircleRadiusPixels = (int)v),
     new SliderSettingViewModel("magnification", "Magnification Level",
         z.MagnificationLevel, 1.5, 5, 0.5, v => z.MagnificationLevel = v),
+    highlightColor,
+    highlightThickness,
 }));
-
-// Create Auto-specific items after the tab so they can be referenced for IsEnabled gating
-var highlightColor = new ColorSettingViewModel("highlightColor", "Highlight Color",
-    _settings.AutoSelection.HighlightColor, v => _settings.AutoSelection.HighlightColor = v);
-var highlightThickness = new SliderSettingViewModel("highlightThickness", "Highlight Thickness",
-    _settings.AutoSelection.HighlightThickness, 1, 10, 1, v => _settings.AutoSelection.HighlightThickness = (int)v);
-highlightColor.IsEnabled = highlightThickness.IsEnabled = (_settings.SelectionMode == SelectionMode.AutoSelection);
-
-// Find the Selection tab and append Auto settings
-var selectionTab = Tabs.Find(t => t.Name == "Selection")!;
-selectionTab.Items.Add(highlightColor);
-selectionTab.Items.Add(highlightThickness);
 ```
 
 Add `using EyeCtrl.Core.Models;` at the top.
@@ -1005,32 +1005,22 @@ git commit -m "refactor: 3-mode cycling SelectionMode toolbar button replacing M
 In `src/EyeCtrl.Platform/EyeCtrl.Platform.csproj`, change the `TargetFramework`:
 
 ```xml
-<TargetFramework>net10.0;net10.0-windows</TargetFramework>
+<TargetFramework>net10.0-windows</TargetFramework>
 ```
 
-Add after the `PackageReference` for `Microsoft.Extensions.Logging.Abstractions`:
+The Platform project is already all-Win32; retargeting outright avoids multi-TFM complexity. Add after the `PackageReference` for `Microsoft.Extensions.Logging.Abstractions`:
 
 ```xml
-<ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
-  <PackageReference Include="System.Windows.Automation" Version="10.0.*-*" />
-</ItemGroup>
+<FrameworkReference Include="Microsoft.WindowsDesktop.App" />
 ```
 
-Alternatively, if `System.Windows.Automation` isn't available as a NuGet package on net10.0, use the WindowsDesktop framework reference:
-
-```xml
-<ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
-  <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
-</ItemGroup>
-```
-
-(WindowsDesktop gives both WPF and UIA. Since Platform already does Win32, this doesn't pull in unwanted dependencies.)
-
-Also add conditional compilation around UIA-using files. In `ControlFinder.cs`, wrap everything in:
+This provides both WPF types and `System.Windows.Automation` (UIA client). Wrap the UIA-using file in `#if WINDOWS` guards (the retargeted TFM defines WINDOWS automatically):
 
 ```csharp
+// src/EyeCtrl.Platform/Services/ControlFinder.cs
 #if WINDOWS
-// ... UIA code
+namespace EyeCtrl.Platform.Services;
+// ... all UIA code
 #endif
 ```
 
@@ -1104,29 +1094,33 @@ public class ControlFinder : IControlFinder
 
     private static ControlInfo? FallbackToWindow(System.Windows.Point point)
     {
-        var hwnd = GetWindowFromPoint((int)point.X, (int)point.Y);
+        var pt = new POINT { X = (int)point.X, Y = (int)point.Y };
+        var hwnd = WindowFromPoint(pt);
         if (hwnd == IntPtr.Zero) return null;
 
-        GetClientRect(hwnd, out var clientRect);
+        if (!GetClientRect(hwnd, out var clientRect)) return null;
 
-        System.Windows.Point clientScreenOrigin = default;
-        ClientToScreen(hwnd, ref clientScreenOrigin);
+        var topLeft = new POINT { X = 0, Y = 0 };
+        ClientToScreen(hwnd, ref topLeft);
 
         return new ControlInfo(new PhysicalRect(
-            clientScreenOrigin.X,
-            clientScreenOrigin.Y,
+            topLeft.X,
+            topLeft.Y,
             clientRect.Width,
             clientRect.Height));
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr GetWindowFromPoint(int x, int y);
+    private static extern IntPtr WindowFromPoint(POINT Point);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool ClientToScreen(IntPtr hWnd, ref System.Windows.Point lpPoint);
+    private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct RECT
@@ -1221,26 +1215,54 @@ public partial class TargetHighlightOverlayViewModel : ObservableObject
     [ObservableProperty] private PhysicalRect _boundingRect;
     [ObservableProperty] private string _highlightColor = "#0078D4";
     [ObservableProperty] private double _highlightThickness = 3.0;
+    [ObservableProperty] private double _highlightOpacity = 0.7;
     [ObservableProperty] private bool _isVisible;
+
+    /// <summary>Double-to-Thickness converter for XAML binding.</summary>
+    public static ThicknessConverter HighlightThicknessConverter { get; } = new();
+
+    public class ThicknessConverter : System.Windows.Data.IValueConverter
+    {
+        public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        {
+            if (value is double d)
+                return new System.Windows.Thickness(d);
+            return new System.Windows.Thickness(3);
+        }
+
+        public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+            => throw new NotSupportedException();
+    }
 }
 ```
+
+Add `using System.Globalization;` at the top. In the XAML, reference the converter via a static resource declared in App.xaml or via `{Binding HighlightThickness, Converter={x:Static ...}}`. Since App.xaml resource registration is outside scope, use a clean approach: expose a static instance on the VM and reference it in XAML as `{StaticResource HighlightThicknessConverter}` — register it in `TargetHighlightWindow.xaml`'s Resources:
+
+```xml
+<overlays:OverlayWindow.Resources>
+    <vm:TargetHighlightOverlayViewModel+ThicknessConverter x:Key="HighlightThicknessConverter"/>
+</overlays:OverlayWindow.Resources>
+```
+
+(Add `xmlns:vm="clr-namespace:EyeCtrl.ViewModels;assembly=EyeCtrl.ViewModels"` to the Window element.)
 
 - [ ] **Step 2: Create XAML window**
 
 ```xml
 <!-- src/EyeCtrl.App/Overlays/TargetHighlightWindow.xaml -->
-<Window x:Class="EyeCtrl.App.Overlays.TargetHighlightWindow"
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.TargetHighlightWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        Topmost="True" ShowInTaskbar="False" IsHitTestVisible="False"
+        Topmost="True" ShowInTaskbar="False" IsClickThrough="True"
         ResizeMode="NoResize">
     <Border x:Name="HighlightBorder"
-            BorderBrush="{Binding HighlightColor}"
-            BorderThickness="{Binding HighlightThickness}"
+            BorderBrush="{Binding HighlightColor, Converter={StaticResource HighlightThicknessConverter}}"
+            BorderThickness="{Binding HighlightThickness, Converter={StaticResource HighlightThicknessConverter}}"
             Background="Transparent"
             CornerRadius="2"
-            Opacity="0">
+            Opacity="{Binding HighlightOpacity}">
         <Border.Style>
             <Style TargetType="Border">
                 <Style.Triggers>
@@ -1249,7 +1271,7 @@ public partial class TargetHighlightOverlayViewModel : ObservableObject
                             <BeginStoryboard>
                                 <Storyboard>
                                     <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                     To="1" Duration="0:0:0.2"/>
+                                                     From="0" To="{Binding HighlightOpacity}" Duration="0:0:0.2"/>
                                 </Storyboard>
                             </BeginStoryboard>
                         </DataTrigger.EnterActions>
@@ -1258,7 +1280,7 @@ public partial class TargetHighlightOverlayViewModel : ObservableObject
             </Style>
         </Border.Style>
     </Border>
-</Window>
+</overlays:OverlayWindow>
 ```
 
 - [ ] **Step 3: Create code-behind**
@@ -1267,11 +1289,10 @@ public partial class TargetHighlightOverlayViewModel : ObservableObject
 // src/EyeCtrl.App/Overlays/TargetHighlightWindow.xaml.cs
 namespace EyeCtrl.App.Overlays;
 using System.Windows;
-using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
-public partial class TargetHighlightWindow : Window
+public partial class TargetHighlightWindow : OverlayWindow
 {
     public TargetHighlightWindow()
     {
@@ -1342,7 +1363,76 @@ git commit -m "feat: add TargetHighlight overlay window and ViewModel"
 
 ---
 
-### Task 10: AppBootstrapper + GazeEngineAdapter
+### Task 10: App.xaml.cs + EventCoordinationContext Wiring
+
+**Files:**
+- Modify: `src/EyeCtrl.App/App.xaml.cs`
+- Modify: `src/EyeCtrl.App/Services/IEventCoordinator.cs`
+
+- [ ] **Step 1: Add `TargetHighlightOverlayViewModel` to `EventCoordinationContext`**
+
+In `src/EyeCtrl.App/Services/IEventCoordinator.cs`, add after the `BackdropVM` line (line 59):
+
+```csharp
+TargetHighlightOverlayViewModel TargetHighlightVM,
+```
+
+- [ ] **Step 2: Resolve `TargetHighlightOverlayViewModel` in `App.xaml.cs`**
+
+In `src/EyeCtrl.App/App.xaml.cs`, add after the backdrop VM resolution (line 127):
+
+```csharp
+var targetHighlightVM = _serviceProvider.GetRequiredService<TargetHighlightOverlayViewModel>();
+```
+
+- [ ] **Step 3: Pass to `OverlayViewModels`**
+
+Change line 140 from:
+
+```csharp
+var viewModels = new OverlayViewModels(cursorVM, activationVM, ManualSelectionVM, actionMenuVM, toolbarVM, keyboardVM, ManualSelectionIndicatorVM);
+```
+
+To:
+
+```csharp
+var viewModels = new OverlayViewModels(cursorVM, activationVM, ManualSelectionVM, actionMenuVM, toolbarVM, keyboardVM, ManualSelectionIndicatorVM, targetHighlightVM);
+```
+
+- [ ] **Step 4: Pass to `EventCoordinationContext`**
+
+Change lines 150-152 from:
+
+```csharp
+var coordinationContext = new EventCoordinationContext(
+    cursorVM, activationVM, ManualSelectionVM, ManualSelectionIndicatorVM, actionMenuVM, toolbarVM, keyboardVM, backdropVM,
+    overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator);
+```
+
+To:
+
+```csharp
+var coordinationContext = new EventCoordinationContext(
+    cursorVM, activationVM, ManualSelectionVM, ManualSelectionIndicatorVM, actionMenuVM, toolbarVM, keyboardVM, backdropVM,
+    targetHighlightVM,
+    overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator);
+```
+
+- [ ] **Step 5: Build to verify wiring**
+
+Run: `dotnet build src/EyeCtrl.App`
+Expected: build succeeds (may have warnings about unused properties until Task 12 uses them).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/EyeCtrl.App/App.xaml.cs src/EyeCtrl.App/Services/IEventCoordinator.cs
+git commit -m "feat: wire TargetHighlightOverlayViewModel through App.xaml.cs and EventCoordinationContext"
+```
+
+---
+
+### Task 11: AppBootstrapper + GazeEngineAdapter
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Services/AppBootstrapper.cs`
@@ -1418,6 +1508,14 @@ messenger.Register<ActivationCompletedMessage>(this, async (_, _) =>
             _interactionManager.AutoSelectionTarget = await ResolveTargetAsync(fixationPoint.Value);
         }
     }
+    // Gate: skip action menu entirely if Auto mode + no control found + fallback disabled
+    if (_interactionManager.SelectionMode == SelectionMode.AutoSelection
+        && _interactionManager.AutoSelectionTarget == null
+        && !_settings.AutoSelection.FallbackToPixelOnNoControl)
+    {
+        _interactionManager.OnFixationEnded(); // silently reset to FreeLook
+        return;
+    }
     _interactionManager.OnActivationButtonDwelled();
 });
 ```
@@ -1432,6 +1530,9 @@ messenger.Register<SelectionModeChangedMessage>(this, (_, msg) =>
     _interactionManager.SelectionMode = msg.Mode;
     _settings.SelectionMode = msg.Mode;
 });
+
+// Seed toolbar with persisted selection mode on startup
+messenger.Send(new SelectionModeChangedMessage(_settings.SelectionMode));
 ```
 
 Update `OnActionRequested` (line 158):
@@ -1497,7 +1598,7 @@ git commit -m "feat: wire IControlFinder into DI, GazeEngineAdapter async UIA re
 
 ---
 
-### Task 11: EventCoordinator
+### Task 12: EventCoordinator
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Services/EventCoordinator.cs`
@@ -1529,31 +1630,32 @@ Find the `ShowActionMenuMessage` handler in `EventCoordinator` (around line 445)
 
 ```csharp
 // AutoSelection target highlight
-if (msg.ResolvedControl != null)
+if (msg.ResolvedControl != null && _context != null)
 {
-    var highlightVM = _context.OverlayViewModels.TargetHighlight; // or access via container
+    var highlightVM = _context.TargetHighlightVM;
     highlightVM.BoundingRect = msg.ResolvedControl.BoundingRect;
     highlightVM.HighlightColor = _context.Settings.AutoSelection.HighlightColor;
     highlightVM.HighlightThickness = _context.Settings.AutoSelection.HighlightThickness;
+    highlightVM.HighlightOpacity = _context.Settings.AutoSelection.HighlightOpacity;
     highlightVM.IsVisible = true;
     _context.OverlayManager.TargetHighlight.PositionAt(msg.ResolvedControl.BoundingRect);
     _context.OverlayManager.TargetHighlight.Show();
 }
 ```
 
-Note: The exact code depends on how `OverlayViewModels` is stored. The `EventCoordinator` holds a `_context` field. Find how overlay view models are accessed (likely `_context.OverlayManager` or a similar path) and adapt. You may need to store `TargetHighlightOverlayViewModel` as a field in the orchestration context.
-
 - [ ] **Step 3: Hide highlight on action/dismiss**
 
 In `HandleActionRequested` (after the click fires) and in the `BackdropDismissMessage` / `HideActionMenuMessage` handlers, add:
 
 ```csharp
-var highlightVM = _context.OverlayViewModels.TargetHighlight;
-highlightVM.IsVisible = false;
-_context.OverlayManager.TargetHighlight.Hide();
+if (_context != null && _context.TargetHighlightVM.IsVisible)
+{
+    _context.TargetHighlightVM.IsVisible = false;
+    _context.OverlayManager.TargetHighlight.Hide();
+}
 ```
 
-- [ ] **Step 4: Update `OnSettingsChanged`**
+- [ ] **Step 4: Update `OnSettingsChanged` and sync toolbar on mode change**
 
 Find lines 536-537:
 
@@ -1569,14 +1671,20 @@ _context.InteractionManager.SelectionMode = s.SelectionMode;
 _context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
 ```
 
+Also notify ViewModel so toolbar cycle state stays in sync:
+
+```csharp
+_context.Messenger.Send(new SelectionModeChangedMessage(s.SelectionMode));
+```
+
 - [ ] **Step 5: Remove any remaining `ManualSelectionToggledMessage` handlers**
 
-Search `EventCoordinator.cs` for `ManualSelectionToggled`. If a handler subscription exists (likely via `_messenger.Register`), remove it.
+Search `EventCoordinator.cs` for `ManualSelectionToggled`. If a handler subscription exists, remove it.
 
 - [ ] **Step 6: Build full solution**
 
 Run: `dotnet build EyeCtrl.slnx`
-Expected: build succeeds with zero errors. If there are compile errors, fix them now.
+Expected: build succeeds with zero errors.
 
 - [ ] **Step 7: Commit**
 
@@ -1587,12 +1695,101 @@ git commit -m "refactor: IsPreciseTarget rename, highlight overlay lifecycle, Se
 
 ---
 
-### Task 12: Final Build, Test, and Cleanup
+### Task 13: Final Build, Test, and Cleanup
 
 **Files:**
 - No new files — verification only
 
-- [ ] **Step 1: Run all tests**
+- [ ] **Step 1: Add XML doc comments to new public types**
+
+Each new public type must have `/// <summary>` doc comments (project has `GenerateDocumentationFile=true`):
+
+```csharp
+// src/EyeCtrl.Core/Models/SelectionMode.cs
+namespace EyeCtrl.Core.Models;
+
+/// <summary>Selection mode for gaze-based click targeting.</summary>
+public enum SelectionMode
+{
+    /// <summary>Raw pixel coordinates.</summary>
+    None,
+    /// <summary>Zoom-and-dwell via ManualSelection overlay.</summary>
+    ManualSelection,
+    /// <summary>Snap-to-control via UIA/Win32.</summary>
+    AutoSelection
+}
+```
+
+```csharp
+// src/EyeCtrl.Core/Models/PhysicalRect.cs
+namespace EyeCtrl.Core.Models;
+
+/// <summary>A rectangle in physical screen pixels.</summary>
+public readonly record struct PhysicalRect(double X, double Y, double Width, double Height)
+{
+    /// <summary>Horizontal center of the rectangle.</summary>
+    public double CenterX => X + Width / 2;
+    /// <summary>Vertical center of the rectangle.</summary>
+    public double CenterY => Y + Height / 2;
+    /// <summary>Center point of the rectangle.</summary>
+    public PhysicalPoint Center => new(CenterX, CenterY);
+}
+```
+
+```csharp
+// src/EyeCtrl.Core/Models/ControlInfo.cs
+namespace EyeCtrl.Core.Models;
+
+/// <summary>Resolved interactive UI control for Auto Selection targeting.</summary>
+public record ControlInfo(PhysicalRect BoundingRect)
+{
+    /// <summary>Center of the control's bounding rectangle — the click target.</summary>
+    public PhysicalPoint CenterPoint => BoundingRect.Center;
+}
+```
+
+```csharp
+// src/EyeCtrl.Core/Interfaces/IControlFinder.cs
+namespace EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Models;
+
+/// <summary>Resolves the nearest interactive UI control at a screen point.</summary>
+public interface IControlFinder
+{
+    /// <summary>Finds a target control at the given physical screen point.</summary>
+    ControlInfo? FindTarget(PhysicalPoint point);
+}
+```
+
+Go back and apply these doc comments to the code snippets in Task 1 and Task 2.
+
+- [ ] **Step 2: Add `HighlightOpacity` to `AutoSelectionSettings`**
+
+In `src/EyeCtrl.Core/Settings/AutoSelectionSettings.cs`, add:
+
+```csharp
+[ObservableProperty] private double _highlightOpacity = 0.7;
+```
+
+Add to `Validate()`:
+
+```csharp
+errors.AddRange(ValidationHelper.ValidateRange(HighlightOpacity, 0.1, 1.0, nameof(HighlightOpacity)));
+```
+
+Update the test in `AutoSelectionSettingsTests`:
+
+```csharp
+[Fact]
+public void DefaultHighlightOpacity_IsInRange()
+{
+    var s = new AutoSelectionSettings();
+    var errors = s.Validate();
+    Assert.Empty(errors); // 0.7 is valid
+}
+```
+
+- [ ] **Step 3: Run all tests**
 
 ```bash
 dotnet test tests/EyeCtrl.Core.Tests
@@ -1600,31 +1797,30 @@ dotnet test tests/EyeCtrl.ViewModels.Tests
 dotnet test tests/EyeCtrl.Platform.Tests -f net10.0-windows
 ```
 
-Expected: all existing tests pass, new tests pass.
+Expected: all existing tests pass, new tests pass. InteractionManagerTests has 19 tests (13 original + 6 new).
 
-- [ ] **Step 2: Run full solution build**
+- [ ] **Step 4: Run full solution build**
 
 ```bash
 dotnet build EyeCtrl.slnx
 ```
 
-Expected: zero errors, zero warnings.
+Expected: zero errors. Warnings from `CS1591` (missing XML docs) on new types must be zero — the doc comments in Step 1 + Task 1/2 snippets cover all public API.
 
-- [ ] **Step 3: Run App in test mode to verify startup**
+- [ ] **Step 5: Run App in test mode to verify startup**
 
 ```bash
 dotnet run --project src/EyeCtrl.App -- --test-mode
 ```
 
-The app should start with the toolbar showing 4 buttons, the middle one cycling modes. Since `--test-mode` uses MouseGazeProvider, test that:
-- Toolbar SelectionMode button shows ○ for None
-- Dwell on it shows ⊕ for ManualSelection  
-- Dwell again shows ◎ for AutoSelection
+The app should start with the toolbar showing 4 buttons, the middle one cycling modes:
+- Toolbar SelectionMode button starts with symbol matching persisted mode
+- Dwell cycles None (○) → Manual (⊕) → Auto (◎) → None
 - App does not crash
 
 (Exit with Ctrl+C or close the window.)
 
-- [ ] **Step 4: Verify settings persistence**
+- [ ] **Step 6: Verify settings persistence**
 
 After running the app in test mode, check `%APPDATA%/EyeCtrl/settings.json` for the new keys:
 
@@ -1634,18 +1830,21 @@ After running the app in test mode, check `%APPDATA%/EyeCtrl/settings.json` for 
   "autoSelection": {
     "highlightColor": "#0078D4",
     "highlightThickness": 3.0,
+    "highlightOpacity": 0.7,
     "fallbackToPixelOnNoControl": true
   }
 }
 ```
 
-- [ ] **Step 5: Fix any build warnings**
+- [ ] **Step 7: Fix any build warnings**
 
-Run `dotnet build EyeCtrl.slnx -warnaserror` (or just review the output for warnings). Fix any introduced warnings — unused `using` directives, missing XML docs on public API (if project has `CS1591` enabled).
+Review the build output for warnings. Fix any introduced issues — unused `using` directives on modified files.
 
-- [ ] **Step 6: Final commit**
+- [ ] **Step 8: Final commit**
 
 ```bash
 git add .
-git commit -m "chore: final cleanup, verify all tests and build pass"
+git commit -m "chore: final cleanup — doc comments, HighlightOpacity, verify all tests and build pass"
 ```
+
+> **Note on intermediate commits:** Tasks 5-8 intentionally leave the solution with broken references (renamed/deleted messages). These are resolved by Task 12. If you need every commit to build, reorder Tasks 5-7 to land after Task 12, or squash once complete.

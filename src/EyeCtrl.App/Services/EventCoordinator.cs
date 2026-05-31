@@ -216,11 +216,56 @@ public class EventCoordinator : IEventCoordinator
                 }
             }));
 
-        // BackdropDismissMessage -> hide backdrop and navigate back
+        // ShowActionMenu -> highlight overlay if auto-selection target resolved
+        _context.Messenger.Register<EventCoordinator, ShowActionMenuMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                try
+                {
+                    if (msg.ResolvedControl == null || _context == null) return;
+                    var highlightVM = _context.TargetHighlightVM;
+                    highlightVM.IsVisible = true;
+                    _context.OverlayManager.TargetHighlight.Configure(
+                        _context.Settings.AutoSelection.HighlightColor,
+                        _context.Settings.AutoSelection.HighlightThickness,
+                        _context.Settings.AutoSelection.HighlightOpacity);
+                    _context.OverlayManager.TargetHighlight.PositionAt(msg.ResolvedControl.BoundingRect);
+                    _context.OverlayManager.TargetHighlight.ShowHighlight();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error showing target highlight overlay");
+                }
+            }));
+
+        // HideActionMenu -> hide highlight overlay
+        _context.Messenger.Register<EventCoordinator, HideActionMenuMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                try
+                {
+                    if (_context != null && _context.TargetHighlightVM.IsVisible)
+                    {
+                        _context.TargetHighlightVM.IsVisible = false;
+                        _context.OverlayManager.TargetHighlight.HideHighlight();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error hiding target highlight overlay");
+                }
+            }));
+
+        // BackdropDismissMessage -> hide backdrop, highlight, and navigate back
         _context.Messenger.Register<EventCoordinator, BackdropDismissMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 HideBackdrop();
+                if (_context != null && _context.TargetHighlightVM.IsVisible)
+                {
+                    _context.TargetHighlightVM.IsVisible = false;
+                    _context.OverlayManager.TargetHighlight.HideHighlight();
+                }
                 var im = _context.InteractionManager;
                 if (im.CurrentState == InteractionState.ActionMenuVisible)
                     im.OnActionMenuDismissed();
@@ -568,8 +613,9 @@ public class EventCoordinator : IEventCoordinator
         _context.OverlayManager.CursorCircle.UpdateAppearance(s.Cursor);
         _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
         _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
-        _context.InteractionManager.SelectionMode = s.ManualSelection.Enabled ? SelectionMode.ManualSelection : SelectionMode.None;
-        _context.OverlayManager.Toolbar.SetSelectionModeState(s.ManualSelection.Enabled ? SelectionMode.ManualSelection : SelectionMode.None);
+        _context.InteractionManager.SelectionMode = s.SelectionMode;
+        _context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
+        _context.Messenger.Send(new SelectionModeChangedMessage(s.SelectionMode));
         LoadKeyboard(_context.OverlayManager.Keyboard, s, _context.InputSimulator, _context.SettingsService);
         Log.Information("Settings saved");
     }
@@ -734,6 +780,12 @@ public class EventCoordinator : IEventCoordinator
             case InteractionAction.ScrollDown:   _context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);   break;
             case InteractionAction.ScrollLeft:   _context.InputSimulator.Scroll(pt, -DefaultScrollAmount, 0);   break;
             case InteractionAction.ScrollRight:  _context.InputSimulator.Scroll(pt, DefaultScrollAmount, 0);    break;
+        }
+
+        if (_context.TargetHighlightVM.IsVisible)
+        {
+            _context.TargetHighlightVM.IsVisible = false;
+            _context.OverlayManager.TargetHighlight.HideHighlight();
         }
     }
 

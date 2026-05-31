@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Settings;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using EyeCtrl.Core.Models;
 using Microsoft.Extensions.Logging;
 
 public class SettingsService
@@ -67,6 +68,12 @@ public class SettingsService
         {
             var json = File.ReadAllText(_filePath);
             var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions) ?? new EyeCtrlSettings();
+
+            // Migration: seed SelectionMode from deprecated ManualSelection.Enabled
+            if (settings.SelectionMode == SelectionMode.None && settings.ManualSelection.Enabled)
+            {
+                settings.SelectionMode = SelectionMode.ManualSelection;
+            }
 
             // Validate loaded settings
             var validationErrors = settings.Validate();

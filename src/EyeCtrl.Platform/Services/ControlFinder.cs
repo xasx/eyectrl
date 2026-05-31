@@ -3,9 +3,12 @@ namespace EyeCtrl.Platform.Services;
 using System.Windows.Automation;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using Microsoft.Extensions.Logging;
 
 public class ControlFinder : IControlFinder
 {
+    private readonly ILogger<ControlFinder> _logger;
+
     private static readonly HashSet<ControlType> InteractiveTypes = new()
     {
         ControlType.Button, ControlType.Edit, ControlType.Hyperlink,
@@ -20,6 +23,11 @@ public class ControlFinder : IControlFinder
         ControlType.Group, ControlType.Window, ControlType.Table,
         ControlType.Header, ControlType.TitleBar, ControlType.ToolBar
     };
+
+    public ControlFinder(ILogger<ControlFinder> logger)
+    {
+        _logger = logger;
+    }
 
     public ControlInfo? FindTarget(PhysicalPoint point)
     {
@@ -39,22 +47,42 @@ public class ControlFinder : IControlFinder
                 if (InteractiveTypes.Contains(controlType))
                 {
                     var rect = current.Current.BoundingRectangle;
+                    if (rect.IsEmpty || rect.Width <= 0 || rect.Height <= 0)
+                    {
+                        current = walker.GetParent(current);
+                        continue;
+                    }
                     return new ControlInfo(new PhysicalRect(rect.X, rect.Y, rect.Width, rect.Height));
                 }
 
                 if (NonInteractiveTypes.Contains(controlType))
                 {
-                    current = walker.GetParent(current);
+                    var parent = walker.GetParent(current);
+                    if (parent == current) break; // reached root
+                    current = parent;
                     continue;
                 }
 
-                current = walker.GetParent(current);
+                var nextParent = walker.GetParent(current);
+                if (nextParent == current) break; // reached root
+                current = nextParent;
             }
 
             return FallbackToWindow(screenPoint);
         }
-        catch
+        catch (ElementNotAvailableException ex)
         {
+            _logger.LogDebug(ex, "UIA element became unavailable while finding target at ({X}, {Y})", point.X, point.Y);
+            return null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogDebug(ex, "Invalid operation while finding target at ({X}, {Y})", point.X, point.Y);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unexpected error while finding target at ({X}, {Y})", point.X, point.Y);
             return null;
         }
     }

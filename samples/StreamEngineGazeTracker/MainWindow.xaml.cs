@@ -164,7 +164,7 @@ public partial class MainWindow : Window
         // Otherwise the poll thread may be inside tobii_wait_for_callbacks on a destroyed device.
         // Null-conditional because OnClosing can fire if initialization failed (no _cts/_pollTask yet).
         _cts?.Cancel();
-        _pollTask?.Wait(1000);
+        _pollTask?.Wait(); // Must wait until the task has actually exited to avoid use-after-destroy
 
         if (_device != IntPtr.Zero)
         {

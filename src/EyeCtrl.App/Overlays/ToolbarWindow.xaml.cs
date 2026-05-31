@@ -233,10 +233,25 @@ public partial class ToolbarWindow : OverlayWindow
             var id = btn.Id;
             btn.PropertyChanged += (_, e) =>
             {
+                if (!_buttonVisuals.TryGetValue(id, out var visuals))
+                    return;
+
                 if (e.PropertyName == nameof(ToolbarButtonViewModel.DwellProgress))
                 {
-                    if (_buttonVisuals.TryGetValue(id, out var visuals))
-                        visuals.ProgressBar.Width = btn.DwellProgress * _buttonSize;
+                    visuals.ProgressBar.Width = btn.DwellProgress * _buttonSize;
+                }
+                else if (e.PropertyName == nameof(ToolbarButtonViewModel.Symbol))
+                {
+                    visuals.Label.Text = btn.Symbol;
+                    if (id == "SelectionMode")
+                    {
+                        SetSelectionModeState(btn.Symbol switch
+                        {
+                            "\u2295" => SelectionMode.ManualSelection,
+                            "\u25CE" => SelectionMode.AutoSelection,
+                            _ => SelectionMode.None
+                        });
+                    }
                 }
             };
         }

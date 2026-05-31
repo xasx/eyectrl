@@ -77,7 +77,10 @@ public class GazeEngineAdapter : IDisposable
         messenger.Register<PauseToggledMessage>(this, (_, _) =>
             _interactionManager.TogglePause());
         messenger.Register<SelectionModeChangedMessage>(this, (_, msg) =>
-            _interactionManager.SelectionMode = msg.Mode);
+        {
+            _settings.SelectionMode = msg.Mode;
+            _interactionManager.SelectionMode = msg.Mode;
+        });
 
         messenger.Send(new SelectionModeChangedMessage(_settings.SelectionMode));
     }

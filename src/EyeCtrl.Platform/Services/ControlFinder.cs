@@ -7,6 +7,9 @@ using Microsoft.Extensions.Logging;
 
 public class ControlFinder : IControlFinder
 {
+    private const int SearchStepPixels = 16;
+    private const int SearchRadiusPixels = 48;
+
     private readonly ILogger<ControlFinder> _logger;
 
     private static readonly HashSet<ControlType> InteractiveTypes = new()
@@ -35,38 +38,15 @@ public class ControlFinder : IControlFinder
         {
             var screenPoint = new System.Windows.Point(point.X, point.Y);
 
-            var element = AutomationElement.FromPoint(screenPoint);
-            if (element == null)
-                return FallbackToWindow(screenPoint);
-
-            var walker = TreeWalker.ControlViewWalker;
-            var current = element;
-            while (current != null)
+            var exactMatch = ResolveInteractiveElement(AutomationElement.FromPoint(screenPoint));
+            if (exactMatch != null)
             {
-                var controlType = current.Current.ControlType;
-                if (InteractiveTypes.Contains(controlType))
-                {
-                    var rect = current.Current.BoundingRectangle;
-                    if (rect.IsEmpty || rect.Width <= 0 || rect.Height <= 0)
-                    {
-                        current = walker.GetParent(current);
-                        continue;
-                    }
-                    return new ControlInfo(new PhysicalRect(rect.X, rect.Y, rect.Width, rect.Height));
-                }
-
-                if (NonInteractiveTypes.Contains(controlType))
-                {
-                    var parent = walker.GetParent(current);
-                    if (parent == current) break; // reached root
-                    current = parent;
-                    continue;
-                }
-
-                var nextParent = walker.GetParent(current);
-                if (nextParent == current) break; // reached root
-                current = nextParent;
+                return exactMatch;
             }
+
+            var nearbyMatch = FindNearestInteractiveControl(screenPoint);
+            if (nearbyMatch != null)
+                return nearbyMatch;
 
             return FallbackToWindow(screenPoint);
         }
@@ -85,6 +65,86 @@ public class ControlFinder : IControlFinder
             _logger.LogWarning(ex, "Unexpected error while finding target at ({X}, {Y})", point.X, point.Y);
             return null;
         }
+    }
+
+    private static ControlInfo? ResolveInteractiveElement(AutomationElement? element)
+    {
+        if (element == null)
+            return null;
+
+        var walker = TreeWalker.ControlViewWalker;
+        var current = element;
+        while (current != null)
+        {
+            var controlType = current.Current.ControlType;
+            if (InteractiveTypes.Contains(controlType))
+            {
+                var rect = current.Current.BoundingRectangle;
+                if (rect.IsEmpty || rect.Width <= 0 || rect.Height <= 0)
+                    return null;
+
+                return new ControlInfo(new PhysicalRect(rect.X, rect.Y, rect.Width, rect.Height));
+            }
+
+            var nextParent = walker.GetParent(current);
+            if (nextParent == current)
+                break;
+
+            if (!NonInteractiveTypes.Contains(controlType) && nextParent == null)
+                break;
+
+            current = nextParent;
+        }
+
+        return null;
+    }
+
+    private static ControlInfo? FindNearestInteractiveControl(System.Windows.Point point)
+    {
+        ControlInfo? nearest = null;
+        var bestDistance = double.MaxValue;
+        var seenRects = new HashSet<PhysicalRect>();
+
+        foreach (var samplePoint in EnumerateSamplePoints(point))
+        {
+            var candidate = ResolveInteractiveElement(AutomationElement.FromPoint(samplePoint));
+            if (candidate == null || !seenRects.Add(candidate.BoundingRect))
+                continue;
+
+            var distance = DistanceSquaredToRect(point, candidate.BoundingRect);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                nearest = candidate;
+            }
+        }
+
+        return nearest;
+    }
+
+    private static IEnumerable<System.Windows.Point> EnumerateSamplePoints(System.Windows.Point origin)
+    {
+        yield return origin;
+
+        for (var dy = -SearchRadiusPixels; dy <= SearchRadiusPixels; dy += SearchStepPixels)
+        {
+            for (var dx = -SearchRadiusPixels; dx <= SearchRadiusPixels; dx += SearchStepPixels)
+            {
+                if (dx == 0 && dy == 0)
+                    continue;
+
+                yield return new System.Windows.Point(origin.X + dx, origin.Y + dy);
+            }
+        }
+    }
+
+    private static double DistanceSquaredToRect(System.Windows.Point point, PhysicalRect rect)
+    {
+        var clampedX = Math.Clamp(point.X, rect.X, rect.X + rect.Width);
+        var clampedY = Math.Clamp(point.Y, rect.Y, rect.Y + rect.Height);
+        var dx = point.X - clampedX;
+        var dy = point.Y - clampedY;
+        return (dx * dx) + (dy * dy);
     }
 
     private static ControlInfo? FallbackToWindow(System.Windows.Point point)

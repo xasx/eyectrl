@@ -180,6 +180,7 @@ public partial class AutoSelectionSettings : ObservableObject, IValidatable
 {
     [ObservableProperty] private string _highlightColor = "#0078D4";
     [ObservableProperty] private double _highlightThickness = 3.0;
+    [ObservableProperty] private double _highlightOpacity = 0.7;
     [ObservableProperty] private bool _fallbackToPixelOnNoControl = true;
 
     public IReadOnlyList<string> Validate()
@@ -190,6 +191,7 @@ public partial class AutoSelectionSettings : ObservableObject, IValidatable
             errors.Add($"HighlightColor '{HighlightColor}' is not a valid hex color.");
 
         errors.AddRange(ValidationHelper.ValidateRange(HighlightThickness, 1, 10, nameof(HighlightThickness)));
+        errors.AddRange(ValidationHelper.ValidateRange(HighlightOpacity, 0.1, 1.0, nameof(HighlightOpacity)));
 
         return errors;
     }
@@ -244,13 +246,21 @@ public class AutoSelectionSettingsTests
         var errors = s.Validate();
         Assert.Empty(errors);
     }
+
+    [Fact]
+    public void HighlightOpacity_OutOfRange_ReturnsError()
+    {
+        var s = new AutoSelectionSettings { HighlightOpacity = 0 };
+        var errors = s.Validate();
+        Assert.Single(errors);
+    }
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AutoSelectionSettingsTests"`
-Expected: 4 tests PASS
+Expected: 5 tests PASS
 
 - [ ] **Step 5: Commit**
 
@@ -537,7 +547,7 @@ Also add `using EyeCtrl.Core.Models;` at the top (for `SelectionMode`).
 - [ ] **Step 5: Run tests to verify they all pass**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~InteractionManagerTests"`
-Expected: all tests PASS (18 total: 12 original + 6 new)
+Expected: all tests PASS (19 total: 13 original + 6 new)
 
 - [ ] **Step 6: Commit**
 
@@ -724,7 +734,7 @@ In `src/EyeCtrl.ViewModels/SettingsViewModel.cs`, update the ManualSelection tab
 var highlightColor = new ColorSettingViewModel("highlightColor", "Highlight Color",
     _settings.AutoSelection.HighlightColor, v => _settings.AutoSelection.HighlightColor = v);
 var highlightThickness = new SliderSettingViewModel("highlightThickness", "Highlight Thickness",
-    _settings.AutoSelection.HighlightThickness, 1, 10, 1, v => _settings.AutoSelection.HighlightThickness = (int)v);
+    _settings.AutoSelection.HighlightThickness, 1, 10, 1, v => _settings.AutoSelection.HighlightThickness = v);
 highlightColor.IsEnabled = highlightThickness.IsEnabled = (_settings.SelectionMode == SelectionMode.AutoSelection);
 
 Tabs.Add(new SettingsTabViewModel("Selection", "\uD83C\uDFAF", new List<SettingItemViewModel>
@@ -1217,34 +1227,8 @@ public partial class TargetHighlightOverlayViewModel : ObservableObject
     [ObservableProperty] private double _highlightThickness = 3.0;
     [ObservableProperty] private double _highlightOpacity = 0.7;
     [ObservableProperty] private bool _isVisible;
-
-    /// <summary>Double-to-Thickness converter for XAML binding.</summary>
-    public static ThicknessConverter HighlightThicknessConverter { get; } = new();
-
-    public class ThicknessConverter : System.Windows.Data.IValueConverter
-    {
-        public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        {
-            if (value is double d)
-                return new System.Windows.Thickness(d);
-            return new System.Windows.Thickness(3);
-        }
-
-        public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-            => throw new NotSupportedException();
-    }
 }
 ```
-
-Add `using System.Globalization;` at the top. In the XAML, reference the converter via a static resource declared in App.xaml or via `{Binding HighlightThickness, Converter={x:Static ...}}`. Since App.xaml resource registration is outside scope, use a clean approach: expose a static instance on the VM and reference it in XAML as `{StaticResource HighlightThicknessConverter}` — register it in `TargetHighlightWindow.xaml`'s Resources:
-
-```xml
-<overlays:OverlayWindow.Resources>
-    <vm:TargetHighlightOverlayViewModel+ThicknessConverter x:Key="HighlightThicknessConverter"/>
-</overlays:OverlayWindow.Resources>
-```
-
-(Add `xmlns:vm="clr-namespace:EyeCtrl.ViewModels;assembly=EyeCtrl.ViewModels"` to the Window element.)
 
 - [ ] **Step 2: Create XAML window**
 
@@ -1256,13 +1240,11 @@ Add `using System.Globalization;` at the top. In the XAML, reference the convert
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" IsClickThrough="True"
-        ResizeMode="NoResize">
+        ResizeMode="NoResize" Visibility="Collapsed">
     <Border x:Name="HighlightBorder"
-            BorderBrush="{Binding HighlightColor, Converter={StaticResource HighlightThicknessConverter}}"
-            BorderThickness="{Binding HighlightThickness, Converter={StaticResource HighlightThicknessConverter}}"
             Background="Transparent"
             CornerRadius="2"
-            Opacity="{Binding HighlightOpacity}">
+            Opacity="0">
         <Border.Style>
             <Style TargetType="Border">
                 <Style.Triggers>
@@ -1271,10 +1253,18 @@ Add `using System.Globalization;` at the top. In the XAML, reference the convert
                             <BeginStoryboard>
                                 <Storyboard>
                                     <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                     From="0" To="{Binding HighlightOpacity}" Duration="0:0:0.2"/>
+                                                     To="0.7" Duration="0:0:0.2"/>
                                 </Storyboard>
                             </BeginStoryboard>
                         </DataTrigger.EnterActions>
+                        <DataTrigger.ExitActions>
+                            <BeginStoryboard>
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                     To="0" Duration="0:0:0.2"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </DataTrigger.ExitActions>
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
@@ -1283,12 +1273,15 @@ Add `using System.Globalization;` at the top. In the XAML, reference the convert
 </overlays:OverlayWindow>
 ```
 
+BorderBrush, BorderThickness, and Opacity are set directly in code-behind (see Step 3). No converters needed — the ViewModel stays pure net10.0.
+
 - [ ] **Step 3: Create code-behind**
 
 ```csharp
 // src/EyeCtrl.App/Overlays/TargetHighlightWindow.xaml.cs
 namespace EyeCtrl.App.Overlays;
 using System.Windows;
+using System.Windows.Media;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
@@ -1297,6 +1290,20 @@ public partial class TargetHighlightWindow : OverlayWindow
     public TargetHighlightWindow()
     {
         InitializeComponent();
+    }
+
+    public void Configure(string color, double thickness)
+    {
+        try
+        {
+            var converter = new BrushConverter();
+            HighlightBorder.BorderBrush = (Brush)converter.ConvertFromString(color)!;
+        }
+        catch
+        {
+            HighlightBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(0, 120, 212));
+        }
+        HighlightBorder.BorderThickness = new Thickness(thickness);
     }
 
     public void PositionAt(PhysicalRect bounds)
@@ -1638,6 +1645,9 @@ if (msg.ResolvedControl != null && _context != null)
     highlightVM.HighlightThickness = _context.Settings.AutoSelection.HighlightThickness;
     highlightVM.HighlightOpacity = _context.Settings.AutoSelection.HighlightOpacity;
     highlightVM.IsVisible = true;
+    _context.OverlayManager.TargetHighlight.Configure(
+        _context.Settings.AutoSelection.HighlightColor,
+        _context.Settings.AutoSelection.HighlightThickness);
     _context.OverlayManager.TargetHighlight.PositionAt(msg.ResolvedControl.BoundingRect);
     _context.OverlayManager.TargetHighlight.Show();
 }
@@ -1763,33 +1773,7 @@ public interface IControlFinder
 
 Go back and apply these doc comments to the code snippets in Task 1 and Task 2.
 
-- [ ] **Step 2: Add `HighlightOpacity` to `AutoSelectionSettings`**
-
-In `src/EyeCtrl.Core/Settings/AutoSelectionSettings.cs`, add:
-
-```csharp
-[ObservableProperty] private double _highlightOpacity = 0.7;
-```
-
-Add to `Validate()`:
-
-```csharp
-errors.AddRange(ValidationHelper.ValidateRange(HighlightOpacity, 0.1, 1.0, nameof(HighlightOpacity)));
-```
-
-Update the test in `AutoSelectionSettingsTests`:
-
-```csharp
-[Fact]
-public void DefaultHighlightOpacity_IsInRange()
-{
-    var s = new AutoSelectionSettings();
-    var errors = s.Validate();
-    Assert.Empty(errors); // 0.7 is valid
-}
-```
-
-- [ ] **Step 3: Run all tests**
+- [ ] **Step 2: Run all tests**
 
 ```bash
 dotnet test tests/EyeCtrl.Core.Tests
@@ -1799,7 +1783,7 @@ dotnet test tests/EyeCtrl.Platform.Tests -f net10.0-windows
 
 Expected: all existing tests pass, new tests pass. InteractionManagerTests has 19 tests (13 original + 6 new).
 
-- [ ] **Step 4: Run full solution build**
+- [ ] **Step 3: Run full solution build**
 
 ```bash
 dotnet build EyeCtrl.slnx
@@ -1807,7 +1791,7 @@ dotnet build EyeCtrl.slnx
 
 Expected: zero errors. Warnings from `CS1591` (missing XML docs) on new types must be zero — the doc comments in Step 1 + Task 1/2 snippets cover all public API.
 
-- [ ] **Step 5: Run App in test mode to verify startup**
+- [ ] **Step 4: Run App in test mode to verify startup**
 
 ```bash
 dotnet run --project src/EyeCtrl.App -- --test-mode
@@ -1820,7 +1804,7 @@ The app should start with the toolbar showing 4 buttons, the middle one cycling 
 
 (Exit with Ctrl+C or close the window.)
 
-- [ ] **Step 6: Verify settings persistence**
+- [ ] **Step 5: Verify settings persistence**
 
 After running the app in test mode, check `%APPDATA%/EyeCtrl/settings.json` for the new keys:
 
@@ -1836,11 +1820,11 @@ After running the app in test mode, check `%APPDATA%/EyeCtrl/settings.json` for 
 }
 ```
 
-- [ ] **Step 7: Fix any build warnings**
+- [ ] **Step 6: Fix any build warnings**
 
 Review the build output for warnings. Fix any introduced issues — unused `using` directives on modified files.
 
-- [ ] **Step 8: Final commit**
+- [ ] **Step 7: Final commit**
 
 ```bash
 git add .

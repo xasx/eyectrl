@@ -61,7 +61,7 @@ public class ManualSelectionDwellServiceTests
 
         _indicatorVM = new ManualSelectionGazeIndicatorViewModel(_messenger);
         _interactionManager = new InteractionManager();
-        _interactionManager.ManualSelectionEnabled = true;
+        _interactionManager.SelectionMode = SelectionMode.ManualSelection;
 
         _service = new ManualSelectionDwellService(
             _messenger,

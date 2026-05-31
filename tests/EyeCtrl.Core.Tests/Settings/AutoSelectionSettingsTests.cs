@@ -24,9 +24,8 @@ public class AutoSelectionSettingsTests
     [Fact]
     public void HighlightThickness_OutOfRange_ReturnsError()
     {
-        var s = new AutoSelectionSettings { HighlightThickness = 0 };
-        var errors = s.Validate();
-        Assert.Single(errors);
+        var s = new AutoSelectionSettings();
+        Assert.Throws<ArgumentOutOfRangeException>(() => s.HighlightThickness = 0);
     }
 
     [Fact]
@@ -40,8 +39,7 @@ public class AutoSelectionSettingsTests
     [Fact]
     public void HighlightOpacity_OutOfRange_ReturnsError()
     {
-        var s = new AutoSelectionSettings { HighlightOpacity = 0 };
-        var errors = s.Validate();
-        Assert.Single(errors);
+        var s = new AutoSelectionSettings();
+        Assert.Throws<ArgumentOutOfRangeException>(() => s.HighlightOpacity = 0);
     }
 }

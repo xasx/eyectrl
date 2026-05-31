@@ -164,7 +164,18 @@ public partial class MainWindow : Window
         // Otherwise the poll thread may be inside tobii_wait_for_callbacks on a destroyed device.
         // Null-conditional because OnClosing can fire if initialization failed (no _cts/_pollTask yet).
         _cts?.Cancel();
-        _pollTask?.Wait(); // Must wait until the task has actually exited to avoid use-after-destroy
+        try
+        {
+            // Wait for the poll task to exit before destroying native handles (prevents a
+            // use-after-destroy crash). The in-flight tobii_wait_for_callbacks returns within
+            // its internal timeout, so this completes near-instantly in practice; the bound
+            // guards against a pathological hang blocking window close.
+            _pollTask?.Wait(TimeSpan.FromSeconds(5));
+        }
+        catch (AggregateException)
+        {
+            // Poll task faulted (e.g. an unexpected native error) — proceed with cleanup regardless.
+        }
 
         if (_device != IntPtr.Zero)
         {

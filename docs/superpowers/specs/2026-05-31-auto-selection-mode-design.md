@@ -33,13 +33,13 @@ OnActivationButtonDwelled():
   switch SelectionMode:
     None       → ShowActionMenu(fixationPoint)            // unchanged
     Manual     → StartManualSelection(fixationPoint)       // unchanged
-    Auto       → target = _controlFinder.FindTarget(fixationPoint)
-                 if target != null → _autoSelectionTarget = target
-                                     ShowActionMenu(target.CenterPoint)
-                 else             → (fallback, see §No-target fallback)
+    Auto       → if AutoSelectionTarget != null
+                     ShowActionMenu(AutoSelectionTarget.CenterPoint)
+                 else
+                     (fallback — see §No-target fallback)
 ```
 
-A new field `_autoSelectionTarget: ControlInfo?` is stored for later use when the action actually fires.
+A new settable property `AutoSelectionTarget` holds the resolved `ControlInfo?`. It is **set externally** — by `GazeEngineAdapter` before calling `OnActivationButtonDwelled()` (see [Async orchestration](#diasync-boundary)). It is cleared in `ResetToFreeLook()` to prevent stale reuse.
 
 No new `InteractionState` values. Auto mode uses the existing `ActionMenuVisible` state. The `Fixation → ActionMenuVisible → FreeLook` chain is shared with None mode.
 
@@ -47,25 +47,28 @@ No new `InteractionState` values. Auto mode uses the existing `ActionMenuVisible
 
 Currently the click target is determined in two places that must both be changed:
 
-**A) `InteractionManager.OnActionSelected()`** (line 84-91). The switch that resolves `targetPoint` from `CurrentState` must gain an Auto arm. The stored `_autoSelectionTarget` is used when the state is `ActionMenuVisible` **and** the mode is `AutoSelection`:
+**A) `InteractionManager.OnActionSelected()`** (line 84-91). The switch that resolves `targetPoint` from `CurrentState` must gain an Auto arm. The stored `AutoSelectionTarget` is used when the state is `ActionMenuVisible` **and** the mode is `AutoSelection` **and** a target was resolved:
 
 ```
 OnActionSelected(action):
   targetPoint = CurrentState switch {
-    ActionMenuVisible when SelectionMode == AutoSelection => _autoSelectionTarget?.CenterPoint,
-    ActionMenuVisible                                     => FixationPoint,
-    ManualSelectionActionMenuVisible                      => ManualSelectionDwellPoint,
-    _                                                     => null
+    ActionMenuVisible when SelectionMode == AutoSelection && AutoSelectionTarget != null
+                                        => AutoSelectionTarget.CenterPoint,
+    ActionMenuVisible                   => FixationPoint,
+    ManualSelectionActionMenuVisible    => ManualSelectionDwellPoint,
+    _                                   => null
   }
 ```
+
+The `&& AutoSelectionTarget != null` guard is essential: when `FallbackToPixelOnNoControl` is true and no control was found, the menu is shown at `FixationPoint` with state `ActionMenuVisible` and mode still `AutoSelection` — without the guard this arm matches but yields null (since `AutoSelectionTarget` is null), and `targetPoint == null` at line 93 silently swallows the click. With the guard, it falls through to the raw-pixel arm below.
 
 **B) `GazeEngineAdapter.OnActionRequested()`** (line 158). Currently:
 ```csharp
 var isFromManualSelection = _interactionManager.CurrentState == InteractionState.ManualSelectionActionMenuVisible;
 ```
-The message field `ActionRequestedMessage.IsFromManualSelection` controls whether `EventCoordinator` replaces the target with `StableCentroid` (line 687). For Auto mode the target must **also** survive that override, because after dwelling on the action menu the user's gaze is on the menu ring, not on the original control.
+The message field controls whether `EventCoordinator` replaces the target with `StableCentroid` (line 687). For Auto mode the target must also survive that override, because after dwelling on the action menu the user's gaze is on the menu ring, not on the control.
 
-**Change:** the message field is renamed `IsPreciseTarget` (meaning: this point was resolved precisely and must NOT be overwritten by live gaze). Set it true when either ManualSelection state OR Auto mode:
+**Change:** the message field is renamed `IsPreciseTarget` (meaning: this point was resolved precisely and must NOT be overwritten by live gaze). Set it true for both ManualSelection state AND Auto mode:
 
 ```csharp
 var isPrecise = _interactionManager.CurrentState == InteractionState.ManualSelectionActionMenuVisible
@@ -81,13 +84,24 @@ var pt = msg.IsPreciseTarget ? msg.Point : (_context.GazeEngine.StableCentroid ?
 
 These three changes together ensure the snapped control center flows all the way to `IInputSimulator.LeftClick(pt)`.
 
+### `ResetToFreeLook()`
+
+Must clear the new field:
+```
+ResetToFreeLook():
+  FixationPoint = null
+  ManualSelectionDwellPoint = null
+  AutoSelectionTarget = null        // NEW
+  SetState(FreeLook)
+```
+
 ### Deprecated / removed
 
 | Item | Reason |
 |------|--------|
 | `ManualSelectionEnabled` bool on `InteractionManager` | Replaced by `SelectionMode` |
 | `ManualSelectionToggledMessage` | Replaced by `SelectionModeChangedMessage` |
-| Toolbar ManualSelection toggle button | Replaced by 3-segment selector |
+| Toolbar ManualSelection toggle button | Replaced by cycling selection mode button |
 
 ---
 
@@ -102,6 +116,8 @@ EyeCtrl.Core/Interfaces/IControlFinder.cs
 ```csharp
 ControlInfo? FindTarget(PhysicalPoint point);
 ```
+
+Synchronous method. Core doesn't deal with async — the async orchestration (thread hop + timeout) happens in the App layer (see [Async boundary](#diasync-boundary)).
 
 ### `PhysicalRect` (new model)
 
@@ -130,7 +146,7 @@ No `WindowHandle` needed — clicks go through `IInputSimulator` which takes `Ph
 EyeCtrl.Platform/Services/ControlFinder.cs
 ```
 
-The Platform project already has `EnableWindowsTargeting=true` ([EyeCtrl.Platform.csproj:7](src/EyeCtrl.Platform/EyeCtrl.Platform.csproj:7)), which gives access to Win32 APIs. For UIA the project needs a new package reference: `System.Windows.Automation` (the managed UIA client library available on net10.0-windows — Platform will need either a `-windows` TFM variant or the COM `Interop.UIAutomationClient` route; the implementation chooses the shortest path available).
+The Platform project already has `EnableWindowsTargeting=true` ([EyeCtrl.Platform.csproj:7](src/EyeCtrl.Platform/EyeCtrl.Platform.csproj:7)), which gives access to Win32 APIs. For UIA the project needs a new package reference: `System.Windows.Automation` (the managed UIA client library — adding a `net10.0-windows` TFM variant to the Platform csproj alongside the existing `net10.0` provides UIA access without breaking the non-Windows TFM).
 
 The `ControlFinder` constructor creates a single `AutomationElement` tree walker (cached; the walker is thread-safe for reuse); it does NOT call `Automation.AddAutomationEventHandler` or any global hook — only fire-and-forget `FindTarget`.
 
@@ -148,17 +164,50 @@ The `ControlFinder` constructor creates a single `AutomationElement` tree walker
 - `InteractionManager.OnActivationButtonDwelled()` then falls back to raw pixel targeting (same as None mode)
 - This fallback is controlled by `AutoSelectionSettings.FallbackToPixelOnNoControl` (default `true`). When `false`, no action menu is shown and the user must refixate.
 
-### Threading model
+### DI + Async boundary
 
-`FindTarget` is called once per activation — NOT per gaze frame — from `OnActivationButtonDwelled()`. This runs on the WPF dispatcher path (the `GazeEngineAdapter` bridges events via `_dispatcher.BeginInvoke`).
+`IControlFinder` is **not** injected into `InteractionManager` (which is not DI-constructed — it's created by `GazeEngine` via `new InteractionManager { ... }` ([GazeEngine.cs:56](src/EyeCtrl.Core/GazeEngine.cs:56))). Instead, the async orchestration lives in the App layer (`GazeEngineAdapter`), which already owns the `Dispatcher`, `IMessenger`, and DI references.
 
-**UIA deadlock risk:** Calling `AutomationElement.FromPoint` from the same thread that owns the WPF overlay windows *could* cause a COM re-entrancy deadlock. To mitigate:
-1. `FindTarget` is called on a background thread via `Task.Run`
-2. `ShowActionMenu` is deferred until the result arrives (displayed on the dispatcher)
-3. A timeout (500ms) protects against hung UIA calls; on timeout the raw-pixel fallback is used
-4. The entire UIA path is wrapped in try/catch (COM exceptions, `ElementNotAvailableException`)
+`GazeEngineAdapter` receives `IControlFinder` via its constructor (DI from `AppBootstrapper`). The `ActivationCompletedMessage` handler (line 50-51) becomes:
 
-**Performance:** The <5ms budget from the original spec was incorrect — `FindTarget` is not in the gaze pipeline. It is called once per activation dwell (~700ms after fixation). Realistic budget: <500ms (the timeout), with typical UIA `FromPoint` costing 10-50ms for a local-process element and up to 150ms for a cross-process one.
+```
+messenger.Register<ActivationCompletedMessage>(this, async (_, _) =>
+{
+    if (_interactionManager.SelectionMode == SelectionMode.AutoSelection)
+    {
+        var fixationPoint = _interactionManager.FixationPoint;
+        if (fixationPoint != null)
+        {
+            var target = await ResolveTargetAsync(fixationPoint.Value);
+            _interactionManager.AutoSelectionTarget = target;
+        }
+    }
+    _interactionManager.OnActivationButtonDwelled();
+});
+
+async Task<ControlInfo?> ResolveTargetAsync(PhysicalPoint point)
+{
+    try
+    {
+        return await Task.Run(() => _controlFinder.FindTarget(point))
+            .WaitAsync(TimeSpan.FromMilliseconds(500));  // .NET 6+
+    }
+    catch (TimeoutException)
+    {
+        _logger.LogWarning("ControlFinder timed out after 500ms — falling back to pixel");
+        return null;
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "ControlFinder failed — falling back to pixel");
+        return null;
+    }
+}
+```
+
+This keeps `InteractionManager.OnActivationButtonDwelled()` and `IControlFinder.FindTarget()` both synchronous and testable. The async hop + timeout + error handling live entirely in `GazeEngineAdapter`. `InteractionManager` just reads the pre-resolved `AutoSelectionTarget` property when it's called.
+
+**Threading note:** `FindTarget` is called once per activation (not per gaze frame) on a background thread. UIA `FromPoint` cross-process COM calls typically cost 10-150ms. The 500ms timeout is conservative — protects against hung COM servers without rejecting legitimate calls.
 
 ---
 
@@ -168,28 +217,39 @@ The `ControlFinder` constructor creates a single `AutomationElement` tree walker
 
 When Auto Selection resolves a control, a new overlay draws a colored border rectangle around the control's `BoundingRect`.
 
-- **ViewModel:** `TargetHighlightOverlayViewModel` (in `EyeCtrl.ViewModels`). Holds `BoundingRect`, `HighlightColor`, `HighlightThickness`, `IsVisible`.
-- **Window:** `TargetHighlightWindow` (new WPF overlay window in `EyeCtrl.App/Overlays/`). Transparent border-less window, topmost, shows a `Border` element with the configured stroke and thickness. No hit-testing (`IsHitTestVisible = false`), `Background = Transparent`.
-- **Registration:** `OverlayManager` gains a `TargetHighlight` property (like the existing 9 overlays). `TargetHighlightWindow` is created in `OverlayManager.Initialize()` alongside the other windows. Its DataContext is set to `viewModels.TargetHighlight`, and `OverlayViewModels` gains a `TargetHighlight` property.
-- **Lifecycle:** `EventCoordinator` subscribes to `ShowActionMenuMessage` — when Auto mode is active and the message carries a resolved `ControlInfo`, it positions and shows the highlight. Hidden on `ActionRequestedMessage`, `HideActionMenuMessage`, or `BackdropDismissMessage`. Fade-in over 200ms, fade-out on dismiss.
-- If fallback to raw pixel occurs (no control found), no highlight is shown.
+- **ViewModel:** `TargetHighlightOverlayViewModel` (in `EyeCtrl.ViewModels`). Holds `BoundingRect: PhysicalRect`, `HighlightColor`, `HighlightThickness`, `IsVisible`.
+- **Window:** `TargetHighlightWindow` (new WPF overlay file `EyeCtrl.App/Overlays/TargetHighlightWindow.xaml` + `.xaml.cs`). Transparent border-less window, topmost, shows a `Border` element with the configured stroke and thickness. No hit-testing (`IsHitTestVisible = false`), `Background = Transparent`.
+- **Registration:** `OverlayManager` gains a `TargetHighlight` property (like the existing 9 overlays). Created in `OverlayManager.Initialize()`. Its DataContext is set to `viewModels.TargetHighlight`. `OverlayViewModels` gains a `TargetHighlight` property.
+- **Lifecycle:** `EventCoordinator` subscribes to `ShowActionMenuMessage` — when `msg.ResolvedControl != null`, it positions and shows the highlight. Hidden on `ActionRequestedMessage`, `HideActionMenuMessage`, or `BackdropDismissMessage`. Fade-in over 200ms, fade-out on dismiss.
+- If fallback to raw pixel occurs (`ResolvedControl` is null), no highlight is shown.
 
-### New `ShowActionMenuMessage` payload
+### `ShowActionMenuMessage` addition
 
-The existing `ShowActionMenuMessage` record carries a `PhysicalPoint`. For Auto mode it needs to also carry the resolved `ControlInfo?` so the highlight overlay can be positioned. Add an optional `ControlInfo? ResolvedControl` property to the message:
+The existing record ([InteractionMessages.cs:20](src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs:20)) gains one optional `init` property:
 
 ```csharp
 public record ShowActionMenuMessage(
-    IReadOnlyList<ActionMenuItemModel> Actions,
     PhysicalPoint Center,
-    int DwellMs,
-    bool IsFromManualSelection,
-    double? DwellRadiusPixels = null,
-    PhysicalPoint? CircleCenter = null,
-    double? CircleRadiusPixels = null,
-    ControlInfo? ResolvedControl = null  // NEW — non-null only in Auto mode
-);
+    IReadOnlyList<InteractionAction> Actions,
+    bool ShowBack,
+    int DwellTimeMs,
+    PhysicalPoint GazePoint,
+    int ManualSelectionDisplayRadius = 0,
+    double CircleSize = 250)
+{
+    public PhysicalPoint? ManualSelectionCenter { get; init; }
+    public int? ManualSelectionRadius { get; init; }
+    public ControlInfo? ResolvedControl { get; init; }  // NEW — non-null only in Auto mode
+}
 ```
+
+In `GazeEngineAdapter.OnShowActionMenu()` (line 74-117), when building the message, set:
+
+```csharp
+ResolvedControl = (im.SelectionMode == SelectionMode.AutoSelection) ? im.AutoSelectionTarget : null
+```
+
+`EventCoordinator` reads `ResolvedControl` from the message to drive the highlight overlay.
 
 ---
 
@@ -224,7 +284,7 @@ Inherits `ObservableObject, IValidatable`. Properties:
 
 ```json
 {
-  "selectionMode": 0,
+  "selectionMode": "none",
   "autoSelection": {
     "highlightColor": "#0078D4",
     "highlightThickness": 3.0,
@@ -235,11 +295,11 @@ Inherits `ObservableObject, IValidatable`. Properties:
 
 Notes on serialization:
 - `SettingsService` uses `JsonNamingPolicy.CamelCase` ([SettingsService.cs:12](src/EyeCtrl.Core/Settings/SettingsService.cs:12)) — keys are camelCase.
-- Enums serialize as integers by default. To support human-readable JSON, **add `JsonStringEnumConverter`** to `SettingsService.JsonOptions`. This affects `ViewPosition` (serialized as `"atCenter"` via camelCase) and the new `SelectionMode` (`"none"`, `"manualSelection"`, `"autoSelection"`) — both become readable strings. Existing integer-valued JSON files still deserialize correctly due to `JsonStringEnumConverter`'s built-in fallback.
+- Enums serialize as integers by default. To support human-readable JSON, **add `JsonStringEnumConverter`** to `SettingsService.JsonOptions`. This affects `ViewPosition` (serialized as `"atCenter"` via camelCase) and the new `SelectionMode` (`"none"`, `"manualSelection"`, `"autoSelection"`). Existing integer-valued JSON files still deserialize correctly — `JsonStringEnumConverter` falls back to integer parsing.
 
 ### Validate() arm
 
-`EyeCtrlSettings.Validate()` must gain:
+`EyeCtrlSettings.Validate()` gains after the `Theme` arm:
 
 ```csharp
 if (AutoSelection is null)
@@ -258,32 +318,33 @@ The app is unreleased. Old `ManualSelection.Enabled` key simply stops being writ
 
 ### ViewModel changes (`ToolbarViewModel`)
 
-The 4 existing buttons become: Pause, SelectionMode, Keyboard, Settings. The "SelectionMode" button replaces the "ManualSelection" toggle. Instead of a single toggle, it cycles the mode on each dwell.
+The 4 existing buttons (Pause, ManualSelection, Keyboard, Settings) stay — same count, same layout. The "ManualSelection" button becomes a cycling "Selection Mode" button. On each dwell it advances the mode:
 
-Mode cycle: `None → ManualSelection → AutoSelection → None → ...`
+```
+None → ManualSelection → AutoSelection → None → ...
+```
 
-- `OnTargetActivated("SelectionMode")` determines the next mode: `(SelectionMode)(((int)_currentMode + 1) % 3)`
-- Sends `SelectionModeChangedMessage(newMode)`
-- `_currentMode` is tracked as a field, updated by receiving `SelectionModeChangedMessage` (to reflect settings changes)
-- The button's symbol/label changes to show the current mode: `"⊙"` (None), `"⊕"` (ManualSelection), `"⊕A"` (AutoSelection, or similar distinguishable symbol)
+- Button ID changes from `"ManualSelection"` to `"SelectionMode"`
+- `OnTargetActivated("SelectionMode")`: computes `(SelectionMode)(((int)_currentSelectionMode + 1) % 3)`, sends `SelectionModeChangedMessage(newMode)`
+- `_currentSelectionMode` is tracked as a field, updated by receiving `SelectionModeChangedMessage` (to reflect settings changes)
+- `IsManualSelectionOn` property is replaced by `CurrentSelectionMode`
+- The button symbol changes per mode: `"⊙"` for None, `"⊕"` for Manual, `"◎"` for Auto
 
-### `SelectionModeChangedMessage` (new, in ViewModels)
+### `SelectionModeChangedMessage` (new)
 
 ```csharp
 // EyeCtrl.ViewModels/Messages/InteractionMessages.cs
 public record SelectionModeChangedMessage(SelectionMode Mode);
 ```
 
-(All existing messages live in this file ([InteractionMessages.cs](src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs)).)
+All existing messages live in this file ([InteractionMessages.cs](src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs)). The `ManualSelectionToggledMessage` record on line 83 is **deleted**.
 
 ### ToolbarWindow code-behind
 
-`SetManualSelectionState(bool)` becomes `SetSelectionModeState(SelectionMode)`, updating the SelectionMode button's appearance:
+`SetManualSelectionState(bool)` becomes `SetSelectionModeState(SelectionMode)`:
 - None: dark gray background (normal)
 - Manual: green background (same as current "on" state)
-- Auto: blue background (new)
-
-The existing 4-button layout (Pause, X, Keyboard, Settings) stays; the middle button just gets a new ID and behavior.
+- Auto: blue background (new accent)
 
 ### Message flow
 
@@ -297,46 +358,51 @@ GazeEngineAdapter receives → _interactionManager.SelectionMode = newMode
 
 When settings are saved (`SettingsChangedMessage`), `EventCoordinator.OnSettingsChanged` pushes `s.SelectionMode` to `InteractionManager.SelectionMode` — same pattern as the current `ManualSelectionEnabled` sync ([EventCoordinator.cs:536](src/EyeCtrl.App/Services/EventCoordinator.cs:536)).
 
+### `GazeEngineAdapter` handler changes
+
+Replace `ManualSelectionToggledMessage` registration (lines 58-62) with:
+
+```csharp
+messenger.Register<SelectionModeChangedMessage>(this, (_, msg) =>
+{
+    _interactionManager.SelectionMode = msg.Mode;
+    _settings.SelectionMode = msg.Mode;
+});
+```
+
 ---
 
 ## Settings Window Integration
 
 ### `BuildTabs()` in `SettingsViewModel`
 
-**ManualSelection tab** (L71-76): The `ToggleSettingViewModel("ManualSelectionEnabled", ...)` toggle is **removed**. The tab keeps Radius and Magnification sliders only. A new combo at the top switches the mode, or the mode selector is placed on the General tab.
+**ManualSelection tab** (lines 71-76) is renamed to "Selection". Items:
 
-**New AutoSelection tab** (or fold into ManualSelection / General):
+1. `ComboSettingViewModel("selectionMode", "Selection Mode", ...)` — values from `Enum.GetNames<SelectionMode>()`, formatted as "None", "Manual", "Auto". Bound to `_settings.SelectionMode`.
+2. (Existing) Circle Radius slider — unchanged, always visible
+3. (Existing) Magnification slider — unchanged, always visible
+4. (New) `ColorSettingViewModel("highlightColor", "Highlight Color", ...)` — bound to `_settings.AutoSelection.HighlightColor`
+5. (New) `SliderSettingViewModel("highlightThickness", "Highlight Thickness", ...)` — bound to `_settings.AutoSelection.HighlightThickness`, range 1–10
 
-Decision: **Add to ManualSelection tab** (renamed to "Selection"), since the three modes are siblings. Items:
+The `ToggleSettingViewModel("ManualSelectionEnabled", ...)` on line 73 is **deleted**.
 
-1. `ComboSettingViewModel("selectionMode", "Selection Mode", ...)` — values from `Enum.GetNames<SelectionMode>()`, formatted as "None", "Manual", "Auto". Gates `SelectionMode` on `_settings`.
-2. (Existing) Circle Radius slider
-3. (Existing) Magnification slider
-4. (New, Auto only) `ColorSettingViewModel` for `HighlightColor`
-5. (New, Auto only) `SliderSettingViewModel` for `HighlightThickness`, range 1–10
-
-**Conditional visibility:** Auto-specific settings (highlight color, thickness) are always present in the tab but use a lighter/disabled appearance when selection mode is not Auto. The Settings UI has no dynamic show/hide mechanism today; keeping items always present with disabled state is the low-friction choice.
+Auto-specific settings (items 4-5) are always visible. To semantically gate them behind Auto mode, add an `IsEnabled` property to `SettingItemViewModel` (default `true`). The combo sets `highlightColor.IsEnabled = highlightThickness.IsEnabled = (mode == AutoSelection)` whenever `SelectionMode` changes. This is two lines of inline logic in `BuildTabs` — no new setting item type needed.
 
 ### `ResetAllSettings()`
 
-Add line:
+Add:
 
 ```csharp
 CopySettings(defaults.AutoSelection, _settings.AutoSelection);
-```
-
-And reset top-level `SelectionMode` explicitly:
-
-```csharp
 _settings.SelectionMode = defaults.SelectionMode;
-_settings.ViewPosition = defaults.ViewPosition;
+_settings.ViewPosition = defaults.ViewPosition;  // previously missing
 ```
 
-(`ResetAllSettings` currently skips all top-level properties, only copying sub-setting objects ([SettingsViewModel.cs:148-165](src/EyeCtrl.ViewModels/SettingsViewModel.cs:148)). This fix corrects `ViewPosition` oversight too.)
+(`ResetAllSettings` currently only copies sub-setting objects, skipping top-level properties ([SettingsViewModel.cs:148-165](src/EyeCtrl.ViewModels/SettingsViewModel.cs:148)). This fix covers `ViewPosition` too.)
 
 ### `EventCoordinator.OnSettingsChanged()`
 
-Replace:
+Replace ([lines 536-537](src/EyeCtrl.App/Services/EventCoordinator.cs:536)):
 ```csharp
 _context.InteractionManager.ManualSelectionEnabled = s.ManualSelection.Enabled;
 _context.OverlayManager.Toolbar.SetManualSelectionState(s.ManualSelection.Enabled);
@@ -351,7 +417,7 @@ _context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
 
 ## Complete File Manifest
 
-### New files (7)
+### New files (8)
 
 | File | Purpose |
 |------|---------|
@@ -361,31 +427,27 @@ _context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
 | `EyeCtrl.Core/Interfaces/IControlFinder.cs` | Control detection interface |
 | `EyeCtrl.Core/Settings/AutoSelectionSettings.cs` | Auto-specific settings |
 | `EyeCtrl.Platform/Services/ControlFinder.cs` | UIA + Win32 implementation |
-| `EyeCtrl.App/Overlays/TargetHighlightWindow.xaml[.cs]` | Highlight overlay window |
+| `EyeCtrl.ViewModels/TargetHighlightOverlayViewModel.cs` | Highlight overlay VM |
+| `EyeCtrl.App/Overlays/TargetHighlightWindow.xaml` + `.xaml.cs` | Highlight overlay window |
 
-### Modified files (11)
+### Modified files (14)
 
 | File | Change |
 |------|--------|
-| `EyeCtrl.Core/Models/InteractionState.cs` | No change (no new states needed) |
-| `EyeCtrl.Core/Processing/InteractionManager.cs` | `SelectionMode` property, `_autoSelectionTarget` field, branch in `OnActivationButtonDwelled()`, Auto arm in `OnActionSelected()`, remove `ManualSelectionEnabled` |
+| `EyeCtrl.Core/Processing/InteractionManager.cs` | `SelectionMode` property, `AutoSelectionTarget` property, branch in `OnActivationButtonDwelled()`, Auto arm in `OnActionSelected()`, clear in `ResetToFreeLook()`, remove `ManualSelectionEnabled` |
 | `EyeCtrl.Core/Settings/EyeCtrlSettings.cs` | Add `SelectionMode` + `AutoSelection` properties + Validate arm |
 | `EyeCtrl.Core/Settings/SettingsService.cs` | Add `JsonStringEnumConverter` to `JsonOptions` |
-| `EyeCtrl.ViewModels/Messages/InteractionMessages.cs` | Add `SelectionModeChangedMessage`; rename `ActionRequestedMessage.IsFromManualSelection` → `IsPreciseTarget`; add `ControlInfo? ResolvedControl` to `ShowActionMenuMessage` |
-| `EyeCtrl.ViewModels/ToolbarViewModel.cs` | 3-mode cycle replaces toggle, `SelectionModeChangedMessage` send/receive, remove `IsManualSelectionOn` |
-| `EyeCtrl.ViewModels/SettingsViewModel.cs` | `BuildTabs`: remove toggle, add mode combo + Auto settings; `ResetAllSettings`: add AutoSelection + top-level props |
-| `EyeCtrl.App/Services/GazeEngineAdapter.cs` | Handle `SelectionModeChangedMessage`, remove `ManualSelectionToggledMessage`, set `IsPreciseTarget` for Auto mode |
-| `EyeCtrl.App/Services/EventCoordinator.cs` | `OnSettingsChanged`: use `SelectionMode`; handle highlight overlay lifecycle from `ShowActionMenuMessage.ResolvedControl`; rename `IsFromManualSelection` → `IsPreciseTarget` |
-| `EyeCtrl.App/Services/OverlayManager.cs` | Add `TargetHighlight` property + initialization |
+| `EyeCtrl.Core/GazeEngine.cs` | Object initializer: `ManualSelectionEnabled = ...` → `SelectionMode = settings.SelectionMode` |
+| `EyeCtrl.ViewModels/Messages/InteractionMessages.cs` | Add `SelectionModeChangedMessage` + `ControlInfo? ResolvedControl` to `ShowActionMenuMessage`; rename `ActionRequestedMessage.IsFromManualSelection` → `IsPreciseTarget`; delete `ManualSelectionToggledMessage` |
+| `EyeCtrl.ViewModels/ToolbarViewModel.cs` | 3-mode cycle replaces toggle, `SelectionModeChangedMessage` send/receive, `CurrentSelectionMode` replaces `IsManualSelectionOn` |
+| `EyeCtrl.ViewModels/SettingsViewModel.cs` | `BuildTabs`: remove toggle, add mode combo + Auto settings with `IsEnabled` gating; `ResetAllSettings`: add AutoSelection + top-level props; add `IsEnabled` to `SettingItemViewModel` |
+| `EyeCtrl.App/Services/GazeEngineAdapter.cs` | DI `IControlFinder`, async `ResolveTargetAsync` in `ActivationCompletedMessage` handler, handle `SelectionModeChangedMessage`, remove `ManualSelectionToggledMessage`, set `IsPreciseTarget` for Auto mode, set `ResolvedControl` in `ShowActionMenuMessage` |
+| `EyeCtrl.App/Services/EventCoordinator.cs` | `OnSettingsChanged`: use `SelectionMode`; handle highlight overlay lifecycle from `ShowActionMenuMessage.ResolvedControl`; rename `IsFromManualSelection` → `IsPreciseTarget` in `HandleActionRequested` |
+| `EyeCtrl.App/Services/OverlayManager.cs` | Add `TargetHighlight` property + create/initialize in `Initialize()` |
 | `EyeCtrl.App/Services/OverlayViewModels.cs` | Add `TargetHighlight` ViewModel property |
-| `EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs` | `SetSelectionModeState()` replaces `SetManualSelectionState()` |
-
-### Removed (2)
-
-| Item | Reason |
-|------|--------|
-| `ManualSelection.Enabled` property (settings + `InteractionManager`) | Replaced by `SelectionMode` |
-| `ManualSelectionToggledMessage` | Replaced by `SelectionModeChangedMessage` |
+| `EyeCtrl.App/Services/AppBootstrapper.cs` | Register `IControlFinder` → `ControlFinder` in DI |
+| `EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs` | `SetSelectionModeState()` replaces `SetManualSelectionState()`, selection mode button ID change |
+| `EyeCtrl.Platform/EyeCtrl.Platform.csproj` | Add `net10.0-windows` TFM (or `PackageReference` to `System.Windows.Automation`) |
 
 ### Renamed (1)
 
@@ -393,13 +455,20 @@ _context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
 |------|-----------|--------|
 | `ActionRequestedMessage.IsFromManualSelection` | → `IsPreciseTarget` | Generalized to cover Auto mode too |
 
+### Deleted (2)
+
+| Item | Reason |
+|------|--------|
+| `ManualSelection.Enabled` property (settings + `InteractionManager`) | Replaced by `SelectionMode` |
+| `ManualSelectionToggledMessage` | Replaced by `SelectionModeChangedMessage` |
+
 ---
 
 ## Error Handling
 
 - `ControlFinder.FindTarget()` wraps all UIA calls in try/catch. COM exceptions, `ElementNotAvailableException`, or missing UIA assemblies → return `null`.
-- `Task.Run` with 500ms timeout for the UIA call prevents dispatcher hangs.
-- If no control found and `FallbackToPixelOnNoControl` is `true` → `InteractionManager` proceeds with raw pixel targeting (behaves like None mode).
+- `GazeEngineAdapter.ResolveTargetAsync()` wraps `FindTarget` in `Task.Run` + `WaitAsync(500ms)`. On timeout or exception → return `null`.
+- If no control found and `FallbackToPixelOnNoControl` is `true` → `InteractionManager` proceeds with raw pixel targeting (behaves like None mode) — `AutoSelectionTarget` is null, so `OnActivationButtonDwelled()` shows action menu at `FixationPoint`, and `OnActionSelected()` falls through the guard to return `FixationPoint`.
 - If no control found and `FallbackToPixelOnNoControl` is `false` → `ShowActionMenu` is not invoked, `FixationPoint` is cleared, state resets to `FreeLook`. The user sees no menu and must refixate.
 
 ---
@@ -409,29 +478,33 @@ _context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
 ### Unit tests (`EyeCtrl.Core.Tests`)
 
 ```csharp
-OnActivationButtonDwelled_NoneMode_ShowsActionMenuAtFixationPoint()
-OnActivationButtonDwelled_AutoMode_ShowsActionMenuAtControlCenter()
-OnActivationButtonDwelled_AutoMode_NoControl_FallsBackToPixel()
+OnActivationButtonDwelled_AutoMode_WithTarget_ShowsActionMenuAtControlCenter()
+OnActivationButtonDwelled_AutoMode_NoTarget_FallbackToPixel_ShowsActionMenuAtFixationPoint()
 OnActionSelected_AutoMode_ReturnsStoredTargetPoint()
-SelectionMode_SetProperty_ValuePersists()
+OnActionSelected_AutoMode_NoTarget_FallbackToFixationPoint()
+ResetToFreeLook_ClearsAutoSelectionTarget()
 ```
+
+**Test site note:** ~8 tests do `new InteractionManager()` with no args ([InteractionManagerTests.cs](tests/EyeCtrl.Core.Tests/Processing/InteractionManagerTests.cs)). Since `SelectionMode` is a settable property (default `None`), and `AutoSelectionTarget` is nullable by default — no ctor change needed. Existing tests are unaffected. New tests set up mode + target via property assignment.
 
 ### Unit tests (`EyeCtrl.ViewModels.Tests`)
 
 ```csharp
 ToolbarViewModel_DwellOnSelectionMode_CyclesModes()
 ToolbarViewModel_ReceivesSelectionModeChangedMessage_UpdatesButton()
-SettingsViewModel_BuildTabs_Removes_ManualSelectionEnabled_Toggle()
 SettingsViewModel_BuildTabs_IncludesSelectionMode_Combo()
-SettingsViewModel_ResetAllSettings_ResetsSelectionMode_And_AutoSelection()
+SettingsViewModel_BuildTabs_AutoSettings_Disabled_WhenModeIsNotAuto()
+SettingsViewModel_ResetAllSettings_ResetsSelectionMode_And_AutoSelection_And_ViewPosition()
 ```
+
+**Test site note:** `ManualSelectionToggle_SendsManualSelectionToggledMessage` ([ToolbarViewModelTests.cs:49](tests/EyeCtrl.ViewModels.Tests/ToolbarViewModelTests.cs:49)) is updated to test the new button ID (`"SelectionMode"`) and new message type.
 
 ### Platform tests (`EyeCtrl.Platform.Tests`)
 
 ```csharp
 ControlFinder_FindTarget_ReturnsControlInfoForButton()
 ControlFinder_FindTarget_ReturnsNullForDesktopEmptyArea()
-ControlFinder_FindTarget_ReturnsNullWhenUIAUnavailable()
+ControlFinder_FindTarget_ThrowsOnUIAUnavailable_ReturnsNull()
 ```
 
-These need a live desktop session. Mark with `[SkippableFact]` or conditional `[Fact(Skip = "Requires interactive desktop")]` so they don't fail on headless CI — consistent with the existing pattern of graceful skips for environment-dependent code (see `EyeCtrl.Benchmarks` pre-flight checks in AGENTS.md).
+These need a live desktop session. Mark with `[SkippableFact]` or `[Fact(Skip = "Requires interactive desktop")]` so they don't fail on headless CI — consistent with the existing graceful-skip pattern for environment-dependent code (see `EyeCtrl.Benchmarks` pre-flight checks in AGENTS.md).

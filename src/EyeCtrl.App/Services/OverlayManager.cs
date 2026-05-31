@@ -28,6 +28,7 @@ public class OverlayManager : IOverlayManager
     public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator { get; private set; } = null!;
     public GlassBackdropWindow GlassBackdrop { get; private set; } = null!;
     public CalibrationWindow Calibration { get; private set; } = null!;
+    public TargetHighlightWindow TargetHighlight { get; private set; } = null!;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger)
     {
@@ -52,6 +53,7 @@ public class OverlayManager : IOverlayManager
         Keyboard = new KeyboardWindow();
         ManualSelectionIndicator = new ManualSelectionGazeIndicatorWindow();
         GlassBackdrop = new GlassBackdropWindow();
+        TargetHighlight = new TargetHighlightWindow();
 
         // Configure ManualSelection indicator
         ManualSelectionIndicator.Configure(
@@ -71,6 +73,9 @@ public class OverlayManager : IOverlayManager
 
         Calibration = new CalibrationWindow();
         Calibration.SetViewModel(viewModels.Calibration);
+
+        // Set DataContext for TargetHighlight
+        TargetHighlight.DataContext = viewModels.TargetHighlight;
 
         // Initialize overlays with their specific APIs
         CursorCircle.UpdateAppearance(settings.Cursor);

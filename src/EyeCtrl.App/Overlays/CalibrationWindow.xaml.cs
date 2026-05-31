@@ -78,8 +78,8 @@ public partial class CalibrationWindow : OverlayWindow
     private void PositionTarget(PhysicalPoint physicalPoint)
     {
         var logical = physicalPoint.ToLogical();
-        Canvas.SetLeft(TargetDot, logical.X - 20);
-        Canvas.SetTop(TargetDot, logical.Y - 20);
+        Canvas.SetLeft(TargetDot, logical.X - TargetDot.Width / 2);
+        Canvas.SetTop(TargetDot, logical.Y - TargetDot.Height / 2);
     }
 
     public void UpdateVisualState(CalibrationState state, double progress)

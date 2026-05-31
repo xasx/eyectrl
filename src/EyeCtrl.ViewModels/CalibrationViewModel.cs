@@ -116,6 +116,7 @@ public partial class CalibrationViewModel : ObservableObject,
                 }
                 catch (Exception ex)
                 {
+                    _calibrationService.CancelSession();
                     ErrorText = ex.Message;
                     State = CalibrationState.Failed;
                     _messenger.Send(new CalibrationStateChangedMessage(State, 100));
@@ -157,6 +158,7 @@ public partial class CalibrationViewModel : ObservableObject,
         }
         catch (Exception ex)
         {
+            _calibrationService.CancelSession();
             ErrorText = ex.Message;
             State = CalibrationState.Failed;
             _messenger.Send(new CalibrationStateChangedMessage(State, 100));
@@ -199,6 +201,11 @@ public partial class CalibrationViewModel : ObservableObject,
         _calibrationService.Clear();
         MeanErrorPixels = null;
         QualityPercent = null;
+
+        // Best-effort deletion of the persisted calibration file so it won't reload on next startup.
+        try { if (System.IO.File.Exists(_calibrationFilePath)) System.IO.File.Delete(_calibrationFilePath); }
+        catch { /* non-critical */ }
+
         // Neutral reset (not a failure) so the toolbar icon returns to the idle state.
         _messenger.Send(new CalibrationCancelledMessage());
     }

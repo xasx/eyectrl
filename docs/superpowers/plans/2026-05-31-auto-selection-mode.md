@@ -1244,36 +1244,11 @@ public partial class TargetHighlightOverlayViewModel : ObservableObject
     <Border x:Name="HighlightBorder"
             Background="Transparent"
             CornerRadius="2"
-            Opacity="0">
-        <Border.Style>
-            <Style TargetType="Border">
-                <Style.Triggers>
-                    <DataTrigger Binding="{Binding IsVisible}" Value="True">
-                        <DataTrigger.EnterActions>
-                            <BeginStoryboard>
-                                <Storyboard>
-                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                     To="0.7" Duration="0:0:0.2"/>
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </DataTrigger.EnterActions>
-                        <DataTrigger.ExitActions>
-                            <BeginStoryboard>
-                                <Storyboard>
-                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                     To="0" Duration="0:0:0.2"/>
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </DataTrigger.ExitActions>
-                    </DataTrigger>
-                </Style.Triggers>
-            </Style>
-        </Border.Style>
-    </Border>
+            Opacity="0"/>
 </overlays:OverlayWindow>
 ```
 
-BorderBrush, BorderThickness, and Opacity are set directly in code-behind (see Step 3). No converters needed — the ViewModel stays pure net10.0.
+BorderBrush, BorderThickness, and opacity are set + animated in code-behind via `Configure()` and `ShowHighlight()`/`HideHighlight()`. No converters needed.
 
 - [ ] **Step 3: Create code-behind**
 
@@ -1282,17 +1257,20 @@ BorderBrush, BorderThickness, and Opacity are set directly in code-behind (see S
 namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
 public partial class TargetHighlightWindow : OverlayWindow
 {
+    private double _configuredOpacity = 0.7;
+
     public TargetHighlightWindow()
     {
         InitializeComponent();
     }
 
-    public void Configure(string color, double thickness)
+    public void Configure(string color, double thickness, double opacity)
     {
         try
         {
@@ -1304,6 +1282,24 @@ public partial class TargetHighlightWindow : OverlayWindow
             HighlightBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(0, 120, 212));
         }
         HighlightBorder.BorderThickness = new Thickness(thickness);
+        _configuredOpacity = opacity;
+    }
+
+    /// <summary>Show the window and fade to the configured opacity.</summary>
+    public void ShowHighlight()
+    {
+        HighlightBorder.Opacity = 0;
+        Show();
+        HighlightBorder.BeginAnimation(Border.OpacityProperty,
+            new DoubleAnimation(_configuredOpacity, TimeSpan.FromMilliseconds(200)));
+    }
+
+    /// <summary>Hide the window with a fade-out.</summary>
+    public void HideHighlight()
+    {
+        var fadeOut = new DoubleAnimation(0, TimeSpan.FromMilliseconds(200));
+        fadeOut.Completed += (_, _) => Hide();
+        HighlightBorder.BeginAnimation(Border.OpacityProperty, fadeOut);
     }
 
     public void PositionAt(PhysicalRect bounds)
@@ -1647,9 +1643,10 @@ if (msg.ResolvedControl != null && _context != null)
     highlightVM.IsVisible = true;
     _context.OverlayManager.TargetHighlight.Configure(
         _context.Settings.AutoSelection.HighlightColor,
-        _context.Settings.AutoSelection.HighlightThickness);
+        _context.Settings.AutoSelection.HighlightThickness,
+        _context.Settings.AutoSelection.HighlightOpacity);
     _context.OverlayManager.TargetHighlight.PositionAt(msg.ResolvedControl.BoundingRect);
-    _context.OverlayManager.TargetHighlight.Show();
+    _context.OverlayManager.TargetHighlight.ShowHighlight();
 }
 ```
 
@@ -1661,7 +1658,7 @@ In `HandleActionRequested` (after the click fires) and in the `BackdropDismissMe
 if (_context != null && _context.TargetHighlightVM.IsVisible)
 {
     _context.TargetHighlightVM.IsVisible = false;
-    _context.OverlayManager.TargetHighlight.Hide();
+    _context.OverlayManager.TargetHighlight.HideHighlight();
 }
 ```
 

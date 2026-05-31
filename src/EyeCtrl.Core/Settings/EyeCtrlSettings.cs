@@ -16,6 +16,8 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private CalibrationSettings _calibration = new();
     [ObservableProperty] private GeneralSettings _general = new();
     [ObservableProperty] private ViewPosition _viewPosition = ViewPosition.AtCenter;
+    [ObservableProperty] private SelectionMode _selectionMode = SelectionMode.None;
+    [ObservableProperty] private AutoSelectionSettings _autoSelection = new();
 
     public IReadOnlyList<string> Validate()
     {
@@ -71,6 +73,11 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
             errors.Add("General settings must not be null.");
         else
             errors.AddRange(General.Validate());
+
+        if (AutoSelection is null)
+            errors.Add("AutoSelection settings must not be null.");
+        else
+            errors.AddRange(AutoSelection.Validate());
 
         return errors;
     }

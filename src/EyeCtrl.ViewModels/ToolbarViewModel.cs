@@ -95,15 +95,7 @@ public partial class ToolbarViewModel : ObservableObject,
     {
         _currentSelectionMode = message.Mode;
         if (_buttonLookup.TryGetValue("SelectionMode", out var btn))
-        {
-            btn.Symbol = message.Mode switch
-            {
-                SelectionMode.None => "\u25CB",
-                SelectionMode.ManualSelection => "\u2295",
-                SelectionMode.AutoSelection => "\u25CE",
-                _ => "\u25CB"
-            };
-        }
+            btn.Symbol = SelectionModeGlyphs.ForMode(message.Mode);
     }
 
     /// <summary>For testing: simulate a button activation without gaze dwell.</summary>

@@ -244,14 +244,7 @@ public partial class ToolbarWindow : OverlayWindow
                 {
                     visuals.Label.Text = btn.Symbol;
                     if (id == "SelectionMode")
-                    {
-                        SetSelectionModeState(btn.Symbol switch
-                        {
-                            "\u2295" => SelectionMode.ManualSelection,
-                            "\u25CE" => SelectionMode.AutoSelection,
-                            _ => SelectionMode.None
-                        });
-                    }
+                        SetSelectionModeState(SelectionModeGlyphs.ToMode(btn.Symbol));
                 }
             };
         }

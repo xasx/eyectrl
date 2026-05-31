@@ -231,6 +231,17 @@ public partial class ToolbarWindow : OverlayWindow
         foreach (var btn in vm.Buttons)
         {
             var id = btn.Id;
+
+            // Apply current symbol so the initial label/background match the actual mode
+            // (the ViewModel may already have received the startup SelectionModeChangedMessage
+            // before BindToViewModel is called).
+            if (_buttonVisuals.TryGetValue(id, out var currentVisuals))
+            {
+                currentVisuals.Label.Text = btn.Symbol;
+                if (id == "SelectionMode")
+                    SetSelectionModeState(SelectionModeGlyphs.ToMode(btn.Symbol));
+            }
+
             btn.PropertyChanged += (_, e) =>
             {
                 if (!_buttonVisuals.TryGetValue(id, out var visuals))

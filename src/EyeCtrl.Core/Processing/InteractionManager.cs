@@ -1,18 +1,13 @@
 namespace EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Models;
 
-/// <summary>
-/// Manages the interaction state machine for gaze-based interactions.
-/// All point coordinates are in physical screen pixels.
-/// </summary>
 public class InteractionManager
 {
     public InteractionState CurrentState { get; private set; } = InteractionState.FreeLook;
-    public bool ManualSelectionEnabled { get; set; }
-    /// <summary>Initial fixation point in physical screen pixels.</summary>
+    public SelectionMode SelectionMode { get; set; } = SelectionMode.None;
     public PhysicalPoint? FixationPoint { get; private set; }
-    /// <summary>Precise ManualSelection dwell point in physical screen pixels.</summary>
     public PhysicalPoint? ManualSelectionDwellPoint { get; private set; }
+    public ControlInfo? AutoSelectionTarget { get; set; }
 
     public event Action<InteractionState>? StateChanged;
     public event Action<InteractionAction, PhysicalPoint>? ActionRequested;
@@ -30,10 +25,6 @@ public class InteractionManager
         StateChanged?.Invoke(newState);
     }
 
-    /// <summary>
-    /// Called when fixation starts.
-    /// </summary>
-    /// <param name="point">Fixation point in physical screen pixels</param>
     public void OnFixationStarted(PhysicalPoint point)
     {
         if (CurrentState != InteractionState.FreeLook) return;
@@ -56,22 +47,28 @@ public class InteractionManager
         if (CurrentState != InteractionState.Fixation) return;
         HideActivationButton?.Invoke();
 
-        if (ManualSelectionEnabled)
+        switch (SelectionMode)
         {
-            StartManualSelection?.Invoke(FixationPoint!.Value);
-            SetState(InteractionState.ManualSelectionActive);
-        }
-        else
-        {
-            ShowActionMenu?.Invoke(FixationPoint!.Value);
-            SetState(InteractionState.ActionMenuVisible);
+            case SelectionMode.ManualSelection:
+                StartManualSelection?.Invoke(FixationPoint!.Value);
+                SetState(InteractionState.ManualSelectionActive);
+                break;
+
+            case SelectionMode.AutoSelection:
+                if (AutoSelectionTarget != null)
+                    ShowActionMenu?.Invoke(AutoSelectionTarget.CenterPoint);
+                else
+                    ShowActionMenu?.Invoke(FixationPoint!.Value);
+                SetState(InteractionState.ActionMenuVisible);
+                break;
+
+            default: // None
+                ShowActionMenu?.Invoke(FixationPoint!.Value);
+                SetState(InteractionState.ActionMenuVisible);
+                break;
         }
     }
 
-    /// <summary>
-    /// Called when ManualSelection dwell completes.
-    /// </summary>
-    /// <param name="precisePoint">Precise dwell point in physical screen pixels</param>
     public void OnManualSelectionDwell(PhysicalPoint precisePoint)
     {
         if (CurrentState != InteractionState.ManualSelectionActive) return;
@@ -85,9 +82,14 @@ public class InteractionManager
     {
         PhysicalPoint? targetPoint = CurrentState switch
         {
-            InteractionState.ActionMenuVisible => FixationPoint,
-            InteractionState.ManualSelectionActionMenuVisible => ManualSelectionDwellPoint,
-            _ => null
+            InteractionState.ActionMenuVisible
+                when SelectionMode == SelectionMode.AutoSelection && AutoSelectionTarget != null
+                    => AutoSelectionTarget.CenterPoint,
+            InteractionState.ActionMenuVisible
+                    => FixationPoint,
+            InteractionState.ManualSelectionActionMenuVisible
+                    => ManualSelectionDwellPoint,
+            _       => null
         };
 
         if (targetPoint == null) return;
@@ -104,7 +106,6 @@ public class InteractionManager
     {
         if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
         {
-            // Back from action view → return to ManualSelection selection
             HideActionMenu?.Invoke();
             ManualSelectionDwellPoint = null;
             SetState(InteractionState.ManualSelectionActive);
@@ -112,7 +113,6 @@ public class InteractionManager
         }
         else if (CurrentState == InteractionState.ManualSelectionActive)
         {
-            // Close from ManualSelection view → return to free look
             EndManualSelection?.Invoke();
             ResetToFreeLook();
         }
@@ -147,6 +147,7 @@ public class InteractionManager
     {
         FixationPoint = null;
         ManualSelectionDwellPoint = null;
+        AutoSelectionTarget = null;
         SetState(InteractionState.FreeLook);
     }
 }

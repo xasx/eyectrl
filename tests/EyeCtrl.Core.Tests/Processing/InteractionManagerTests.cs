@@ -40,7 +40,7 @@ public class InteractionManagerTests
     [Fact]
     public void OnActivationButtonDwelled_WithManualSelection_TransitionsToManualSelection()
     {
-        var manager = new InteractionManager { ManualSelectionEnabled = true };
+        var manager = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
         Assert.Equal(InteractionState.ManualSelectionActive, manager.CurrentState);
@@ -83,7 +83,7 @@ public class InteractionManagerTests
     [Fact]
     public void ManualSelectionFlow_FixateActivateFixateSelectAction()
     {
-        var manager = new InteractionManager { ManualSelectionEnabled = true };
+        var manager = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
         InteractionAction? firedAction = null;
         PhysicalPoint? firedPoint = null;
         manager.ActionRequested += (action, point) => { firedAction = action; firedPoint = point; };
@@ -104,7 +104,7 @@ public class InteractionManagerTests
     [Fact]
     public void ManualSelectionFlow_BackButton_TwoStepReturnsToFreeLook()
     {
-        var manager = new InteractionManager { ManualSelectionEnabled = true };
+        var manager = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
         manager.OnManualSelectionDwell(new PhysicalPoint(110, 110));
@@ -121,7 +121,7 @@ public class InteractionManagerTests
     [Fact]
     public void ManualSelectionBack_FromActionMenu_ReturnsToManualSelectionActive()
     {
-        var im = new InteractionManager { ManualSelectionEnabled = true };
+        var im = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
         var fixPoint = new PhysicalPoint(500, 500);
         var ManualSelectionPoint = new PhysicalPoint(510, 510);
         bool startManualSelectionFired = false;
@@ -151,7 +151,7 @@ public class InteractionManagerTests
     [Fact]
     public void OnManualSelectionDwell_FiresHideManualSelectionBeforeShowActionMenu()
     {
-        var im = new InteractionManager { ManualSelectionEnabled = true };
+        var im = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
         var events = new List<string>();
 
         im.HideManualSelection += () => events.Add("HideManualSelection");
@@ -167,7 +167,7 @@ public class InteractionManagerTests
     [Fact]
     public void ManualSelectionClose_FromManualSelectionView_ReturnsToFreeLook()
     {
-        var im = new InteractionManager { ManualSelectionEnabled = true };
+        var im = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
         var fixPoint = new PhysicalPoint(500, 500);
         bool endManualSelectionFired = false;
 
@@ -180,5 +180,86 @@ public class InteractionManagerTests
         im.OnManualSelectionBack(); // close from ManualSelection view → FreeLook
         Assert.Equal(InteractionState.FreeLook, im.CurrentState);
         Assert.True(endManualSelectionFired);
+    }
+
+    [Fact]
+    public void DefaultSelectionMode_IsNone()
+    {
+        var manager = new InteractionManager();
+        Assert.Equal(SelectionMode.None, manager.SelectionMode);
+    }
+
+    [Fact]
+    public void OnActivationButtonDwelled_AutoMode_WithTarget_ShowsActionMenuAtControlCenter()
+    {
+        var manager = new InteractionManager { SelectionMode = SelectionMode.AutoSelection };
+        PhysicalPoint? menuPoint = null;
+        manager.ShowActionMenu += p => menuPoint = p;
+
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.AutoSelectionTarget = new ControlInfo(new PhysicalRect(150, 150, 50, 50));
+        manager.OnActivationButtonDwelled();
+
+        Assert.Equal(InteractionState.ActionMenuVisible, manager.CurrentState);
+        Assert.Equal(new PhysicalPoint(175, 175), menuPoint);
+    }
+
+    [Fact]
+    public void OnActivationButtonDwelled_AutoMode_NoTarget_FallsBackToFixationPoint()
+    {
+        var manager = new InteractionManager { SelectionMode = SelectionMode.AutoSelection };
+        PhysicalPoint? menuPoint = null;
+        manager.ShowActionMenu += p => menuPoint = p;
+
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.AutoSelectionTarget = null;
+        manager.OnActivationButtonDwelled();
+
+        Assert.Equal(InteractionState.ActionMenuVisible, manager.CurrentState);
+        Assert.Equal(new PhysicalPoint(100, 100), menuPoint);
+    }
+
+    [Fact]
+    public void OnActionSelected_AutoMode_ReturnsStoredTargetPoint()
+    {
+        var manager = new InteractionManager { SelectionMode = SelectionMode.AutoSelection };
+        PhysicalPoint? firedPoint = null;
+        manager.ActionRequested += (_, p) => firedPoint = p;
+
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.AutoSelectionTarget = new ControlInfo(new PhysicalRect(150, 150, 50, 50));
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.LeftClick);
+
+        Assert.Equal(new PhysicalPoint(175, 175), firedPoint);
+    }
+
+    [Fact]
+    public void OnActionSelected_AutoMode_NoTarget_FallsBackToFixationPoint()
+    {
+        var manager = new InteractionManager { SelectionMode = SelectionMode.AutoSelection };
+        PhysicalPoint? firedPoint = null;
+        manager.ActionRequested += (_, p) => firedPoint = p;
+
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.AutoSelectionTarget = null;
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.LeftClick);
+
+        Assert.Equal(new PhysicalPoint(100, 100), firedPoint);
+    }
+
+    [Fact]
+    public void ResetToFreeLook_ClearsAutoSelectionTarget()
+    {
+        var manager = new InteractionManager { SelectionMode = SelectionMode.AutoSelection };
+
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.AutoSelectionTarget = new ControlInfo(new PhysicalRect(0, 0, 10, 10));
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.LeftClick);
+
+        Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
+        Assert.Null(manager.AutoSelectionTarget);
     }
 }

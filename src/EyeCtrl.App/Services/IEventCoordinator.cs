@@ -71,6 +71,7 @@ public record EventCoordinationContext(
     Dispatcher Dispatcher,
     SettingsService SettingsService,
     EyeCtrlSettings Settings,
+    TargetHighlightOverlayViewModel TargetHighlightVM,
 
     // Dependencies
     IInputSimulator InputSimulator,

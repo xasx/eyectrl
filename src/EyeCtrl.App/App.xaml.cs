@@ -161,7 +161,7 @@ public partial class App : Application
         _eventCoordinator = new EventCoordinator();
         var coordinationContext = new EventCoordinationContext(
             cursorVM, activationVM, ManualSelectionVM, ManualSelectionIndicatorVM, actionMenuVM, toolbarVM, keyboardVM, backdropVM,
-            overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, inputSimulator,
+            overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, targetHighlightVM, inputSimulator,
             _serviceProvider.GetRequiredService<CalibrationService>());
         _eventCoordinator.Initialize(coordinationContext);
 

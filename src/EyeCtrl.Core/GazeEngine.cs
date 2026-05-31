@@ -59,7 +59,7 @@ public class GazeEngine : IDisposable
 
         InteractionManager = new InteractionManager
         {
-            ManualSelectionEnabled = settings.ManualSelection.Enabled
+            SelectionMode = settings.ManualSelection.Enabled ? SelectionMode.ManualSelection : SelectionMode.None
         };
 
         _gazeProvider.GazePointReceived += OnGazePoint;

@@ -57,8 +57,8 @@ public class GazeEngineAdapter : IDisposable
             _interactionManager.TogglePause());
         messenger.Register<ManualSelectionToggledMessage>(this, (_, _) =>
         {
-            _interactionManager.ManualSelectionEnabled = !_interactionManager.ManualSelectionEnabled;
-            _settings.ManualSelection.Enabled = _interactionManager.ManualSelectionEnabled;
+            _interactionManager.SelectionMode = _interactionManager.SelectionMode == SelectionMode.ManualSelection ? SelectionMode.None : SelectionMode.ManualSelection;
+            _settings.ManualSelection.Enabled = _interactionManager.SelectionMode == SelectionMode.ManualSelection;
         });
     }
 

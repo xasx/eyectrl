@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -19,13 +20,15 @@ public class GazeEngineAdapter : IDisposable
     private readonly IMessenger _messenger;
     private readonly Dispatcher _dispatcher;
     private readonly ILogger<GazeEngineAdapter> _logger;
+    private readonly IControlFinder _controlFinder;
 
     public GazeEngineAdapter(
         GazeEngine gazeEngine,
         EyeCtrlSettings settings,
         IMessenger messenger,
         Dispatcher dispatcher,
-        ILogger<GazeEngineAdapter> logger)
+        ILogger<GazeEngineAdapter> logger,
+        IControlFinder controlFinder)
     {
         _logger = logger;
         _gazeEngine = gazeEngine;
@@ -33,6 +36,7 @@ public class GazeEngineAdapter : IDisposable
         _settings = settings;
         _messenger = messenger;
         _dispatcher = dispatcher;
+        _controlFinder = controlFinder;
 
         // Core -> ViewModel (via messages, marshaled to UI thread)
         _gazeEngine.CursorMoved += OnCursorMoved;
@@ -47,8 +51,25 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.ActionRequested += OnActionRequested;
 
         // ViewModel -> Core (via message subscriptions)
-        messenger.Register<ActivationCompletedMessage>(this, (_, _) =>
-            _interactionManager.OnActivationButtonDwelled());
+        messenger.Register<ActivationCompletedMessage>(this, async (_, _) =>
+        {
+            if (_interactionManager.SelectionMode == SelectionMode.AutoSelection)
+            {
+                var fixationPoint = _interactionManager.FixationPoint;
+                if (fixationPoint != null)
+                {
+                    _interactionManager.AutoSelectionTarget = await ResolveTargetAsync(fixationPoint.Value);
+                }
+            }
+            if (_interactionManager.SelectionMode == SelectionMode.AutoSelection
+                && _interactionManager.AutoSelectionTarget == null
+                && !_settings.AutoSelection.FallbackToPixelOnNoControl)
+            {
+                _interactionManager.OnFixationEnded();
+                return;
+            }
+            _interactionManager.OnActivationButtonDwelled();
+        });
         messenger.Register<ActionSelectedMessage>(this, (_, msg) =>
             _interactionManager.OnActionSelected(msg.Action));
         messenger.Register<BackSelectedMessage>(this, (_, _) =>
@@ -57,6 +78,8 @@ public class GazeEngineAdapter : IDisposable
             _interactionManager.TogglePause());
         messenger.Register<SelectionModeChangedMessage>(this, (_, msg) =>
             _interactionManager.SelectionMode = msg.Mode);
+
+        messenger.Send(new SelectionModeChangedMessage(_settings.SelectionMode));
     }
 
     private void OnCursorMoved(PhysicalPoint point, long timestamp) =>
@@ -109,7 +132,8 @@ public class GazeEngineAdapter : IDisposable
                 // FixationPoint is always non-null in the ManualSelection path (it is set before ManualSelection activation).
                 // ManualSelectionRadius is logical/DIP (CircleRadiusPixels); ActionMenuWindow converts it to physical with ScaleX.
                 ManualSelectionCenter = showBack ? _interactionManager.FixationPoint! : null,
-                ManualSelectionRadius = showBack ? _settings.ManualSelection.CircleRadiusPixels : null
+                ManualSelectionRadius = showBack ? _settings.ManualSelection.CircleRadiusPixels : null,
+                ResolvedControl = im.SelectionMode == SelectionMode.AutoSelection ? im.AutoSelectionTarget : null
             });
         });
 
@@ -152,8 +176,29 @@ public class GazeEngineAdapter : IDisposable
 
     private void OnActionRequested(InteractionAction action, PhysicalPoint point)
     {
-        var isFromManualSelection = _interactionManager.CurrentState == InteractionState.ManualSelectionActionMenuVisible;
-        _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isFromManualSelection)));
+        var isPrecise = _interactionManager.CurrentState == InteractionState.ManualSelectionActionMenuVisible
+                     || (_interactionManager.CurrentState == InteractionState.ActionMenuVisible
+                         && _interactionManager.SelectionMode == SelectionMode.AutoSelection);
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isPrecise)));
+    }
+
+    private async Task<ControlInfo?> ResolveTargetAsync(PhysicalPoint point)
+    {
+        try
+        {
+            return await Task.Run(() => _controlFinder.FindTarget(point))
+                .WaitAsync(TimeSpan.FromMilliseconds(500));
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("ControlFinder timed out after 500ms — falling back to pixel");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ControlFinder failed — falling back to pixel");
+            return null;
+        }
     }
 
     public void Dispose()

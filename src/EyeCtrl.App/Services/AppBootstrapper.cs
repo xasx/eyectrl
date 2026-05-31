@@ -16,6 +16,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Windows.Forms;
 using EyeCtrl.Platform.Input;
+using EyeCtrl.Platform.Services;
 using EyeCtrl.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -117,6 +118,9 @@ public class AppBootstrapper
         // Calibration
         services.AddSingleton(sp => new CalibrationService());
 
+        // ControlFinder (AutoSelection mode)
+        services.AddSingleton<IControlFinder, ControlFinder>();
+
         // Core engine
         services.AddSingleton(sp => new GazeEngine(
             sp.GetRequiredService<IGazeProvider>(),
@@ -154,7 +158,8 @@ public class AppBootstrapper
             sp.GetRequiredService<EyeCtrlSettings>(),
             sp.GetRequiredService<IMessenger>(),
             dispatcher,
-            sp.GetRequiredService<ILogger<GazeEngineAdapter>>()));
+            sp.GetRequiredService<ILogger<GazeEngineAdapter>>(),
+            sp.GetRequiredService<IControlFinder>()));
 
         // ManualSelectionDwellService (handles ManualSelection dwell detection and indicator updates)
         services.AddSingleton(sp => new ManualSelectionDwellService(

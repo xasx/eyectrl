@@ -24,6 +24,8 @@ public record ShowActionMenuMessage(PhysicalPoint Center, IReadOnlyList<Interact
     public PhysicalPoint? ManualSelectionCenter { get; init; }
     /// <summary>Logical/DIP radius of the ManualSelection circle (CircleRadiusPixels). Null for non-ManualSelection paths.</summary>
     public int? ManualSelectionRadius { get; init; }
+    /// <summary>Resolved control info in AutoSelection mode. Null otherwise.</summary>
+    public ControlInfo? ResolvedControl { get; init; }
 }
 
 public record HideActionMenuMessage;
@@ -48,7 +50,7 @@ public record ManualSelectionRecaptureMessage;
 /// Sent when an action is requested.
 /// Point is in physical screen pixels.
 /// </summary>
-public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Point, bool IsFromManualSelection = false);
+public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Point, bool IsPreciseTarget = false);
 
 // ManualSelection Dwell Service Messages
 /// <summary>
@@ -81,7 +83,7 @@ public record ActivationCompletedMessage;
 public record ActionSelectedMessage(InteractionAction Action);
 public record BackSelectedMessage;
 public record PauseToggledMessage;
-public record ManualSelectionToggledMessage;
+public record SelectionModeChangedMessage(SelectionMode Mode);
 public record KeyboardToggledMessage;
 public record SettingsRequestedMessage;
 public record KeyActivatedMessage(string Key, IReadOnlySet<ModifierKey>? Modifiers = null);

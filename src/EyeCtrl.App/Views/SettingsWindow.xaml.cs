@@ -544,6 +544,11 @@ public partial class SettingsWindow : OverlayWindow
                     () => _settings.ManualSelection.MagnificationLevel,
                     v => { _settings.ManualSelection.MagnificationLevel = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "s_grace", "Grace Period (ms)",
+                    0, 2000, 50, 0,
+                    () => _settings.ManualSelection.ManualSelectionGracePeriodMs,
+                    v => { _settings.ManualSelection.ManualSelectionGracePeriodMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
                 () => Add(new DwellColorPicker(_viewModel, "s_highlight", "Highlight Color",
                     () => _settings.AutoSelection.HighlightColor,
                     v => { _settings.AutoSelection.HighlightColor = v; ApplyAndSave(); },
@@ -951,6 +956,11 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.ManualSelection.CircleRadiusPixels = d.ManualSelection.CircleRadiusPixels;
                         _settings.ManualSelection.MagnificationLevel = d.ManualSelection.MagnificationLevel;
                         _settings.ManualSelection.ManualSelectionGracePeriodMs = d.ManualSelection.ManualSelectionGracePeriodMs;
+                        _settings.SelectionMode = d.SelectionMode;
+                        _settings.AutoSelection.HighlightColor = d.AutoSelection.HighlightColor;
+                        _settings.AutoSelection.HighlightThickness = d.AutoSelection.HighlightThickness;
+                        _settings.AutoSelection.HighlightOpacity = d.AutoSelection.HighlightOpacity;
+                        _settings.AutoSelection.FallbackToPixelOnNoControl = d.AutoSelection.FallbackToPixelOnNoControl;
                         _settings.ViewPosition = d.ViewPosition;
                         _settings.Keyboard.ActiveLayout = d.Keyboard.ActiveLayout;
                         _settings.Keyboard.KeySizeMultiplier = d.Keyboard.KeySizeMultiplier;

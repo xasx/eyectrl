@@ -14,6 +14,7 @@ public partial class ToolbarViewModel : ObservableObject,
     IRecipient<StateChangedMessage>,
     IRecipient<CalibrationCompletedMessage>,
     IRecipient<CalibrationCancelledMessage>,
+    IRecipient<SelectionModeChangedMessage>,
     IDisposable
 {
     private readonly IMessenger _messenger;
@@ -22,7 +23,8 @@ public partial class ToolbarViewModel : ObservableObject,
     private bool _disposed;
 
     [ObservableProperty] private bool _isPaused;
-    [ObservableProperty] private bool _isManualSelectionOn;
+
+    private SelectionMode _currentSelectionMode = SelectionMode.None;
 
     public ObservableCollection<ToolbarButtonViewModel> Buttons { get; } = new();
 
@@ -43,7 +45,7 @@ public partial class ToolbarViewModel : ObservableObject,
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause", "\u23F8"),
-            ("ManualSelection", "\u2295"),
+            ("SelectionMode", "\u2295"),
             ("Keyboard", "\u2328"),
             ("Calibrate", "\u2316"),
             ("Settings", "\u2699"),
@@ -89,6 +91,21 @@ public partial class ToolbarViewModel : ObservableObject,
             btn.Symbol = "\u2316";
     }
 
+    public void Receive(SelectionModeChangedMessage message)
+    {
+        _currentSelectionMode = message.Mode;
+        if (_buttonLookup.TryGetValue("SelectionMode", out var btn))
+        {
+            btn.Symbol = message.Mode switch
+            {
+                SelectionMode.None => "\u25CB",
+                SelectionMode.ManualSelection => "\u2295",
+                SelectionMode.AutoSelection => "\u25CE",
+                _ => "\u25CB"
+            };
+        }
+    }
+
     /// <summary>For testing: simulate a button activation without gaze dwell.</summary>
     public void SimulateButtonActivated(string buttonId) => OnTargetActivated(buttonId);
 
@@ -100,7 +117,10 @@ public partial class ToolbarViewModel : ObservableObject,
         switch (targetId)
         {
             case "Pause": _messenger.Send(new PauseToggledMessage()); break;
-            case "ManualSelection": _messenger.Send(new SelectionModeChangedMessage(SelectionMode.ManualSelection)); break;
+            case "SelectionMode":
+                var next = (SelectionMode)(((int)_currentSelectionMode + 1) % 3);
+                _messenger.Send(new SelectionModeChangedMessage(next));
+                break;
             case "Keyboard": _messenger.Send(new KeyboardToggledMessage()); break;
             case "Calibrate": _messenger.Send(new CalibrationRequestedMessage()); break;
             case "Settings": _messenger.Send(new SettingsRequestedMessage()); break;

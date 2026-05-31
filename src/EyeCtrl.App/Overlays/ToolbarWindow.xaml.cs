@@ -7,6 +7,7 @@ using System.Windows.Shapes;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
+using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 
 public partial class ToolbarWindow : OverlayWindow
 {
@@ -40,7 +41,7 @@ public partial class ToolbarWindow : OverlayWindow
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause",    "\u23F8"),    // ⏸ Pause
-            ("ManualSelection",     "\u2295"),    // ⊕ Magnify/ManualSelection
+            ("SelectionMode",     "\u2295"),    // ⊕ Magnify/ManualSelection
             ("Keyboard", "\u2328"),    // ⌨ Keyboard
             ("Settings", "\u2699"),    // ⚙ Gear
         };
@@ -206,13 +207,16 @@ public partial class ToolbarWindow : OverlayWindow
         }
     }
 
-    public void SetManualSelectionState(bool isManualSelectionOn)
+    public void SetSelectionModeState(SelectionMode mode)
     {
-        if (_buttonVisuals.TryGetValue("ManualSelection", out var visuals))
+        if (_buttonVisuals.TryGetValue("SelectionMode", out var visuals))
         {
-            visuals.Container.Background = isManualSelectionOn
-                ? new SolidColorBrush(Color.FromArgb(ManualSelectionActiveButtonAlpha, 0, 100, 0))
-                : new SolidColorBrush(Color.FromArgb(NormalButtonAlpha, 60, 60, 60));
+            visuals.Container.Background = mode switch
+            {
+                SelectionMode.ManualSelection => new SolidColorBrush(Color.FromArgb(ManualSelectionActiveButtonAlpha, 0, 100, 0)),
+                SelectionMode.AutoSelection => new SolidColorBrush(Color.FromArgb(ManualSelectionActiveButtonAlpha, 0, 100, 180)),
+                _ => new SolidColorBrush(Color.FromArgb(NormalButtonAlpha, 60, 60, 60))
+            };
         }
     }
 

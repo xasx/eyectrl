@@ -146,6 +146,7 @@ public class AppBootstrapper
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "EyeCtrl", "calibration.json")));
+        services.AddSingleton<TargetHighlightOverlayViewModel>();
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(

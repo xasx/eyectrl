@@ -719,9 +719,9 @@ public class EventCoordinator : IEventCoordinator
     {
         if (_context == null) return;
 
-        var pt = msg.IsFromManualSelection ? msg.Point : (_context.GazeEngine.StableCentroid ?? msg.Point);
-        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [ManualSelection={IsFromManualSelection}]",
-            msg.Action, pt.X, pt.Y, msg.IsFromManualSelection);
+        var pt = msg.IsPreciseTarget ? msg.Point : (_context.GazeEngine.StableCentroid ?? msg.Point);
+        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}]",
+            msg.Action, pt.X, pt.Y, msg.IsPreciseTarget);
 
         switch (msg.Action)
         {

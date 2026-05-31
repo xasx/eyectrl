@@ -63,6 +63,11 @@ public interface IOverlayManager
     CalibrationWindow Calibration { get; }
 
     /// <summary>
+    /// Gets the target highlight overlay window.
+    /// </summary>
+    TargetHighlightWindow TargetHighlight { get; }
+
+    /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
     /// </summary>
     /// <param name="viewModels">Container with all ViewModels</param>
@@ -82,4 +87,5 @@ public record OverlayViewModels(
     ToolbarViewModel Toolbar,
     KeyboardViewModel Keyboard,
     ManualSelectionGazeIndicatorViewModel ManualSelectionIndicator,
-    CalibrationViewModel Calibration);
+    CalibrationViewModel Calibration,
+    TargetHighlightOverlayViewModel TargetHighlight);

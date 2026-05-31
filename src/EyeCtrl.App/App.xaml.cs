@@ -127,6 +127,7 @@ public partial class App : Application
         var ManualSelectionIndicatorVM = _serviceProvider.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
         var backdropVM = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
         var calibrationVM = _serviceProvider.GetRequiredService<CalibrationViewModel>();
+        var targetHighlightVM = _serviceProvider.GetRequiredService<TargetHighlightOverlayViewModel>();
 
         // Resolve adapter (triggers Core event subscriptions)
         _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
@@ -139,7 +140,7 @@ public partial class App : Application
 
         // ── Initialize overlay windows via OverlayManager ──
         var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-        var viewModels = new OverlayViewModels(cursorVM, activationVM, ManualSelectionVM, actionMenuVM, toolbarVM, keyboardVM, ManualSelectionIndicatorVM, calibrationVM);
+        var viewModels = new OverlayViewModels(cursorVM, activationVM, ManualSelectionVM, actionMenuVM, toolbarVM, keyboardVM, ManualSelectionIndicatorVM, calibrationVM, targetHighlightVM);
         overlayManager.Initialize(viewModels, settings, activeProviderType);
 
         // Load calibration. Screen size must be in PHYSICAL pixels to match what

@@ -100,7 +100,7 @@ public partial class SettingsWindow : OverlayWindow
         [
             ("Cursor",   "◎", "Cursor",      BuildCursorPages),
             ("Dwell",    "⏱", "Dwell Times", BuildDwellPages),
-            ("ManualSelection",     "⊕", "ManualSelection",        BuildManualSelectionPages),
+            ("Selection", "⊕", "Selection", BuildSelectionPages),
             ("Actions",  "⊙", "Action Menu", BuildActionMenuPages),
             ("Layout",   "⊞", "Layout",      BuildLayoutPages),
             ("Keyboard", "⌨", "Keyboard",    BuildKeyboardPages),
@@ -516,7 +516,7 @@ public partial class SettingsWindow : OverlayWindow
         ];
     }
 
-    private List<List<Action>> BuildManualSelectionPages()
+    private List<List<Action>> BuildSelectionPages()
     {
         var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
         var cat = DwellCategory.Control;
@@ -524,37 +524,35 @@ public partial class SettingsWindow : OverlayWindow
         return
         [
             [
-                () => Add(new DwellToggle(_viewModel, "z_en", "Enable ManualSelection Mode",
-                    () => _settings.ManualSelection.Enabled,
-                    v => { _settings.ManualSelection.Enabled = v; ApplyAndSave(); },
+                () => Add(new DwellComboBox(_viewModel, "s_mode", "Selection Mode",
+                    ["None", "Manual Selection", "Auto Selection"],
+                    ["None", "ManualSelection", "AutoSelection"],
+                    () => _settings.SelectionMode.ToString(),
+                    v =>
+                    {
+                        _settings.SelectionMode = Enum.Parse<EyeCtrl.Core.Models.SelectionMode>(v);
+                        ApplyAndSave();
+                    },
                     cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "z_rad", "Circle Radius (px)",
+                () => Add(new DwellSlider(_viewModel, "s_rad", "Circle Radius (px)",
                     50, 300, 10, 0,
                     () => _settings.ManualSelection.CircleRadiusPixels,
                     v => { _settings.ManualSelection.CircleRadiusPixels = (int)v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "z_mag", "Magnification Level",
+                () => Add(new DwellSlider(_viewModel, "s_mag", "Magnification Level",
                     1.5, 5, 0.5, 1,
                     () => _settings.ManualSelection.MagnificationLevel,
                     v => { _settings.ManualSelection.MagnificationLevel = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "z_grace", "Grace Period (ms)",
-                    0, 2000, 50, 0,
-                    () => _settings.ManualSelection.ManualSelectionGracePeriodMs,
-                    v => { _settings.ManualSelection.ManualSelectionGracePeriodMs = (int)v; ApplyAndSave(); },
+                () => Add(new DwellColorPicker(_viewModel, "s_highlight", "Highlight Color",
+                    () => _settings.AutoSelection.HighlightColor,
+                    v => { _settings.AutoSelection.HighlightColor = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
-                () => Add(new DwellButton(_viewModel, "z_reset", "Reset ManualSelection Settings",
-                    () => ShowModal("Reset ManualSelection settings to defaults?", () =>
-                    {
-                        var z = new ManualSelectionSettings();
-                        _settings.ManualSelection.Enabled = z.Enabled;
-                        _settings.ManualSelection.CircleRadiusPixels = z.CircleRadiusPixels;
-                        _settings.ManualSelection.MagnificationLevel = z.MagnificationLevel;
-                        _settings.ManualSelection.ManualSelectionGracePeriodMs = z.ManualSelectionGracePeriodMs;
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                () => Add(new DwellSlider(_viewModel, "s_highlightThickness", "Highlight Thickness",
+                    1, 10, 1, 0,
+                    () => _settings.AutoSelection.HighlightThickness,
+                    v => { _settings.AutoSelection.HighlightThickness = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
             ]
         ];
     }

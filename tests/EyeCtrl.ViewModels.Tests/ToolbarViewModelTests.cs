@@ -57,4 +57,20 @@ public class ToolbarViewModelTests
         Assert.NotNull(received);
         Assert.Equal(SelectionMode.ManualSelection, received);
     }
+
+    [Fact]
+    public void SelectionModeChanged_UpdatesSelectionButtonSymbol()
+    {
+        var vm = new ToolbarViewModel(_settings, _messenger);
+        var selectionButton = vm.Buttons.First(b => b.Id == "SelectionMode");
+
+        _messenger.Send(new SelectionModeChangedMessage(SelectionMode.None));
+        Assert.Equal("\u25CB", selectionButton.Symbol);
+
+        _messenger.Send(new SelectionModeChangedMessage(SelectionMode.ManualSelection));
+        Assert.Equal("\u2295", selectionButton.Symbol);
+
+        _messenger.Send(new SelectionModeChangedMessage(SelectionMode.AutoSelection));
+        Assert.Equal("\u25CE", selectionButton.Symbol);
+    }
 }

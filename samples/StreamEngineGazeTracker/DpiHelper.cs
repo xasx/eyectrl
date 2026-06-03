@@ -26,6 +26,23 @@ internal static class DpiHelper
     }
 
     /// <summary>
+    /// Returns the horizontal and vertical DPI scales of the given
+    /// visual's window in a single lookup (e.g. (2.0, 2.0) at 200%
+    /// scaling). Windows scaling is uniform in practice, but the axes
+    /// are reported separately so each can be mapped correctly.
+    /// Falls back to (1.0, 1.0) if the visual is not yet connected to
+    /// a <see cref="PresentationSource"/>.
+    /// </summary>
+    public static (double X, double Y) GetScaleXY(Visual visual)
+    {
+        var compositionTarget = PresentationSource.FromVisual(visual)?.CompositionTarget;
+        if (compositionTarget == null)
+            return (1.0, 1.0);
+        var m = compositionTarget.TransformToDevice;
+        return (m.M11, m.M22);
+    }
+
+    /// <summary>
     /// Converts physical screen pixels to WPF device-independent
     /// pixels (DIPs) at the given visual's current DPI scale.
     /// </summary>

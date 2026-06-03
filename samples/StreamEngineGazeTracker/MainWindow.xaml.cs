@@ -167,6 +167,12 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        // Stop the UI timer first so no queued tick runs OnUITick during teardown:
+        // OnUITick calls GazeCanvas.PointFromScreen, which throws once the window's
+        // PresentationSource is gone. Null-conditional because OnClosing can fire if
+        // initialization failed before the timer was created.
+        _uiTimer?.Stop();
+
         // Order is critical: stop the poll thread BEFORE destroying native handles.
         // Otherwise the poll thread may be inside tobii_wait_for_callbacks on a destroyed device.
         // Null-conditional because OnClosing can fire if initialization failed (no _cts/_pollTask yet).
@@ -265,9 +271,9 @@ public partial class MainWindow : Window
             //    that screen point into the canvas's local DIP space,
             //    correctly handling DPI, window position, and window
             //    chrome (title bar / borders).
-            double scale = DpiHelper.GetScale(this);
-            double physX = fx * SystemParameters.PrimaryScreenWidth  * scale;
-            double physY = fy * SystemParameters.PrimaryScreenHeight * scale;
+            var (scaleX, scaleY) = DpiHelper.GetScaleXY(this);
+            double physX = fx * SystemParameters.PrimaryScreenWidth  * scaleX;
+            double physY = fy * SystemParameters.PrimaryScreenHeight * scaleY;
             Point canvasPt = GazeCanvas.PointFromScreen(new Point(physX, physY));
             px = canvasPt.X;
             py = canvasPt.Y;
@@ -278,7 +284,7 @@ public partial class MainWindow : Window
                 _trailPoints.RemoveAt(0);
 
             // 7. Update trail dots (pool of Ellipses)
-            double halfTrailDotDip = DpiHelper.PhysicalToLogical(this, TrailDotPhysicalSize / 2.0);
+            double halfTrailDotDip = TrailDotPhysicalSize / 2.0 / scaleX;
             for (int i = 0; i < _trailDots.Length; i++)
             {
                 if (i < _trailPoints.Count)
@@ -297,7 +303,7 @@ public partial class MainWindow : Window
             }
 
             // 8. Update gaze dot
-            double halfGazeDotDip = DpiHelper.PhysicalToLogical(this, GazeDotPhysicalSize / 2.0);
+            double halfGazeDotDip = GazeDotPhysicalSize / 2.0 / scaleX;
             Canvas.SetLeft(_gazeDot, px - halfGazeDotDip);
             Canvas.SetTop(_gazeDot, py - halfGazeDotDip);
         }

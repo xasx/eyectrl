@@ -1,165 +1,291 @@
 # External Dwell API — Design Spec
 
+> Revised 2026-06-04. Supersedes the original SDK-owned draft. Core architectural
+> change: EyeCtrl owns the single dwell engine; the SDK is a thin, framework-specific
+> client. Supports both **WinUI 3** and **WPF** consumer apps.
+
 ## Summary
 
-Enable external Windows applications to have their UI controls activated by gaze dwell, with minimal integration effort. Two paths: a NuGet SDK for cooperating apps (XAML-level integration), and profile config files for unmodified third-party apps.
+Enable an external Windows application that **you build** to have its UI controls
+activated by gaze dwell, with minimal integration effort. A control opts in with one
+XAML attached property; EyeCtrl does all dwell detection on the gaze it already tracks,
+renders the dwell-progress feedback it already renders, and calls back to the app to
+invoke the control.
+
+There is exactly **one dwell engine**, and it lives in EyeCtrl. The app-side SDK is a
+thin client that (a) reports each opted-in control's screen rectangle and window handle,
+and (b) invokes the control when EyeCtrl says it was activated. The SDK ships as **two
+NuGet packages** — one for WinUI 3 consumers, one for WPF consumers — over a shared,
+framework-agnostic core.
+
+## Why EyeCtrl-owned (not SDK-owned)
+
+The original draft had each app embed a copy of `DwellDetector`, poll the cursor, and
+fire the click in-process ("zero IPC for activation"). That design has a fatal coupling
+problem: EyeCtrl already runs its own fixation → activation-button → action-menu engine
+on the same cursor (`GazeEngine.OnGazePoint`, `src/EyeCtrl.Core/GazeEngine.cs`). To stop
+EyeCtrl from popping its own menu over a cooperating control, the SDK must signal EyeCtrl
+to suppress itself — so IPC is required anyway. Once IPC exists, the in-process advantage
+evaporates and the SDK-owned design is left with a duplicated dwell engine, a second
+cursor-polling timer sampling an already-filtered cursor, and duplicated dwell-time and
+feedback config.
+
+EyeCtrl-owned eliminates all of that:
+
+| Concern | SDK-owned (old) | EyeCtrl-owned (this spec) |
+|---|---|---|
+| Dwell engine | Duplicated in every app | Single, in EyeCtrl |
+| Coordination with EyeCtrl's own menu | Must add suppress signal | Inherent — one engine |
+| IPC | Suppress/resume (needed anyway) | Register + activate (bidirectional) |
+| Visual feedback | App re-implements | Reuses EyeCtrl's existing overlay |
+| Cursor polling | `GetCursorPos()` on a timer | None — hit-tests EyeCtrl's filtered gaze |
+| App integration code | Heavy (ships Core dwell types) | Trivial (one attached property) |
+| Activation latency | In-process | One pipe hop (negligible for ~800 ms dwell) |
+
+The only thing given up — in-process activation latency — is irrelevant for an action
+that by definition takes hundreds of milliseconds of dwell to trigger.
 
 ## Architecture
 
 ```
-┌───────────────────────────────┐     ┌──────────────────────────────┐
-│         EyeCtrl.App           │     │      External WPF App         │
-│                               │     │                              │
-│  GazeEngine → MoveCursor()    │     │  EyeCtrl.Sdk NuGet package   │
-│                     │         │     │  ┌────────────────────────┐  │
-│                     ▼         │     │  │ XAML: eyectrl:Dwell.*  │  │
-│              System Cursor ───┼─────┼──► Attached properties    │  │
-│                     ▲         │     │  │    ├─ Auto-register    │  │
-│  ┌──────────┐       │         │     │  │    ├─ DwellDetector   │  │
-│  │Zone Editor│──────┘         │     │  │    └─ OnActivate→Click│  │
-│  │ (Phase 2)│                 │     │  └────────────────────────┘  │
-│  └──────────┘   ┌──────────┐  │     │                              │
-│                 │Profile   │──┼─────┼── Config files (JSON)        │
-│                 │Loader    │  │     │  for unmodified apps          │
-│                 └──────────┘  │     │                              │
-│                               │     │                              │
-│  IPC: "hide cursor" signal    │     │  (only IPC channel)          │
-└───────────────────────────────┘     └──────────────────────────────┘
+┌─ External app (WinUI 3 or WPF) ─┐          ┌─ EyeCtrl.App (WPF, unchanged) ──┐
+│ EyeCtrl.Sdk.* (NuGet)           │          │ GazeEngine → filtered gaze      │
+│  XAML: eyectrl:Dwell.Enabled    │          │   │                             │
+│  • on load: element → screen    │ register │   ▼                             │
+│    rect (physical px) + HWND ───┼─────────►│ ExternalDwellService            │
+│  • push rect on layout change   │  update  │   • rect DwellTargets           │
+│  • map controlId ⇆ element      │          │   • topmost-HWND gating         │
+│                                 │          │   • suppresses own fixation     │
+│  • on activate: UIA Invoke ◄────┼──────────│   • draws progress overlay      │
+│    or Focus                     │ activated│   • applies dwell cooldown      │
+└─────────────────────────────────┘          └─────────────────────────────────┘
+   bidirectional named pipe "eyectrl_dwell": register / update / unregister  +  activated
 ```
 
-Zero IPC for control registration or activation. The cooperating app's SDK runs its own DwellDetector locally, watching the system cursor (already positioned by EyeCtrl). On activation, the SDK fires the control's click handler directly. No round-trip to EyeCtrl.
+The pipe contract is framework-agnostic: a WinUI 3 consumer and a WPF consumer look
+identical to EyeCtrl. EyeCtrl never reads the OS cursor; external targets are hit-tested
+against the already-filtered gaze point that `GazeEngine` produces
+(`CursorMoved`, `src/EyeCtrl.Core/GazeEngine.cs`).
 
-The sole IPC channel is a lightweight "hide/show cursor" signal, so EyeCtrl's gaze cursor ring disappears when the user is over a dwell-registered control (replaced by the control's own visual feedback).
+## SDK (app side)
 
-## Cooperating Apps (NuGet SDK)
+### Project layout — three projects, two packages
 
-### Project: `EyeCtrl.Sdk`
+```
+EyeCtrl.Contracts          ── wire DTOs (primitive fields only); referenced by App + SDK
+        ▲                         ▲
+        │                         │
+EyeCtrl.Sdk.Abstractions ─────────┘   ── pipe client, reconnect, rect-delta coalescing,
+        ▲          ▲                      activation routing   (NO UI-framework refs)
+        │          │
+  ┌─────┘          └─────┐
+EyeCtrl.Sdk.Wpf     EyeCtrl.Sdk.WinUI    ── attached properties + per-element adapter
+ (UseWPF)            (UseWinUI, WinAppSDK)
+```
 
-A new project producing a NuGet package. Targets `net10.0-windows`, references `EyeCtrl.Core` (for `DwellDetector`, `DwellTarget`, `PhysicalPoint`).
+- `EyeCtrl.Contracts` and `EyeCtrl.Sdk.Abstractions` are **not** published standalone;
+  they are packed into each head package (or referenced as a private dependency). The two
+  *consumer-facing* packages are `EyeCtrl.Sdk.Wpf` and `EyeCtrl.Sdk.WinUI`. WPF and WinUI
+  cannot share one assembly cleanly, hence two packages.
 
-### XAML Integration
+### Shared core (`EyeCtrl.Sdk.Abstractions`)
+
+Owns everything framework-independent: the named-pipe client, connect/reconnect with
+backoff, message (de)serialization, dedupe so only **changed** rects go on the wire, and
+routing an incoming `activated{id}` back to the correct element. The single seam each head
+implements:
+
+```csharp
+public interface IDwellElementAdapter
+{
+    string Id { get; }
+    bool TryGetScreenRect(out SdkRect rect);  // physical screen pixels
+    long WindowHandle { get; }                // HWND, for topmost-window gating
+    void Activate(DwellMode mode);            // marshal to UI thread, then invoke
+}
+
+public enum DwellMode { Invoke, Focus }
+```
+
+`SdkRect` is a lightweight struct (x, y, w, h doubles) defined in `EyeCtrl.Contracts` and
+used both by the adapter and by the wire DTOs. It is intentionally **separate** from
+`EyeCtrl.Core.Models.PhysicalRect` so the SDK never references Core. EyeCtrl maps the
+incoming primitive fields to Core's `PhysicalRect` / rectangular `DwellTarget` on its side.
+
+The head registers/unregisters an adapter as controls load/unload and notifies the client
+when a control's layout may have changed; the client recomputes via `TryGetScreenRect`,
+diffs, and sends `update` only on real change.
+
+### Framework heads
+
+Identical XAML surface for both:
 
 ```xml
-<Window xmlns:eyectrl="clr-namespace:EyeCtrl.Sdk;assembly=EyeCtrl.Sdk">
-    <Button Content="Save"
-            eyectrl:Dwell.Enabled="True"
-            eyectrl:Dwell.Time="800"
-            eyectrl:Dwell.Radius="60" />
-</Window>
+<!-- WinUI 3:  xmlns:eyectrl="using:EyeCtrl.Sdk.WinUI" -->
+<!-- WPF:      xmlns:eyectrl="clr-namespace:EyeCtrl.Sdk.Wpf;assembly=EyeCtrl.Sdk.Wpf" -->
+<Button Content="Save"
+        eyectrl:Dwell.Enabled="True"
+        eyectrl:Dwell.Mode="Invoke" />
 ```
 
-**Attached properties** (`Dwell.cs`):
+Attached properties (this phase):
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `Enabled` | `bool` | `false` | Enables dwell activation on this element |
-| `Time` | `int` | `800` | Dwell duration in milliseconds |
-| `Radius` | `double` | `60` | Hit-test radius in pixels |
-| `Mode` | `enum` | `Click` | `Click` (fires Click/Command) or `Focus` (sets focus only) |
+| `Enabled` | `bool` | `false` | Opt this element into gaze-dwell activation |
+| `Mode` | `DwellMode` | `Invoke` | `Invoke` fires the control's invoke pattern (Button Click + bound Command); `Focus` only sets focus |
 
-**Registration lifecycle** (`DwellManager.cs`):
+Dwell **time** is global this phase (`ExternalDwellSettings.DefaultDwellMs` in EyeCtrl) —
+there is no per-control `Time` property and no `dwellMs` field on the wire. (Deferred; see
+Non-Goals.)
 
-1. `FrameworkElement.Loaded` → walk visual tree to root `Window` → get HWND via `WindowInteropHelper` → compute control bounds relative to window → register `DwellTarget(controlId, relativeRect, time, radius)` with local `DwellDetector`
-2. `FrameworkElement.Unloaded` → unregister
-3. Optional: `LayoutUpdated` hook for controls that reposition within window (off by default)
+Per-head implementation differences:
 
-**Screen-position resolution**:
+| Concern | `EyeCtrl.Sdk.Wpf` | `EyeCtrl.Sdk.WinUI` |
+|---|---|---|
+| Element → physical rect | `element.PointToScreen(0,0)` and `PointToScreen(ActualWidth, ActualHeight)` (already physical device px; per-monitor DPI handled by WPF) | `element.TransformToVisual(XamlRoot.Content).TransformPoint(...)` (DIPs) × `XamlRoot.RasterizationScale`, offset by `ClientToScreen(hwnd, {0,0})` for the client origin |
+| HWND | `new WindowInteropHelper(Window.GetWindow(element)).Handle` | Explicit `EyeCtrlDwell.Initialize(window)` if called; **else implicit** fallback via `XamlRoot.ContentIslandEnvironment.AppWindowId` → `Win32Interop.GetWindowFromWindowId` |
+| UI-thread marshal | `element.Dispatcher.BeginInvoke(...)` | `element.DispatcherQueue.TryEnqueue(...)` |
+| Activate (`Invoke`) | `UIElementAutomationPeer.CreatePeerForElement(e)` → `IInvokeProvider.Invoke()` | `FrameworkElementAutomationPeer.CreatePeerForElement(e)` → `IInvokeProvider.Invoke()` |
+| Activate (`Focus`) | `element.Focus()` | `element.Focus(FocusState.Programmatic)` |
+| Rect-change events | `LayoutUpdated` + window `LocationChanged` / `SizeChanged` | `LayoutUpdated` + `AppWindow.Changed` (move/resize) + `XamlRoot.Changed` (scale) |
+| TFM / props | `net8.0-windows`, `<UseWPF>true</UseWPF>` | `net8.0-windows10.0.19041.0`, `<UseWinUI>true</UseWinUI>`, `Microsoft.WindowsAppSDK` |
 
-Each frame, `DwellManager` calls `GetWindowRect(hwnd)` and offsets each control's relative bounds to compute current screen coordinates. The app never sends position updates. Window moves, resizes, and minimizes are handled automatically.
+`IInvokeProvider.Invoke()` is the correct activation primitive for both frameworks: on a
+`Button` it raises Click **and** runs the bound `Command`, and it generalizes to other
+invokable controls without reflection. (The original draft's "raise the Click event"
+directly is not possible — `OnClick` is protected.)
 
-### Dwell Detection
+### Failure behavior
 
-The SDK embeds a copy of `DwellDetector` from `EyeCtrl.Core.Processing`. It polls cursor position via `GetCursorPos()` on a timer, running the same nearest-target accumulation algorithm EyeCtrl uses for its own overlays.
+If EyeCtrl is not running, the pipe client connect fails silently and retries with
+backoff; the app functions normally with no gaze dwell. No exceptions surface to the host
+app.
 
-On activation:
-- For `ButtonBase` controls: raises the `Click` event or executes the bound `ICommand`
-- For `Mode=Focus`: calls `element.Focus()`
-- The activation happens in-process, no IPC
+## EyeCtrl side (`ExternalDwellService`)
 
-### IPC Client (Cursor Visibility)
+New service in `src/EyeCtrl.App/Services/`, registered in `AppBootstrapper`'s DI.
 
-A lightweight named pipe client in the SDK sends two signals to EyeCtrl:
-- `cursor:hide` — when gaze enters any dwell-registered element's hit area
-- `cursor:show` — when gaze leaves all dwell-registered elements' hit areas
+- **Pipe server** `eyectrl_dwell` (message-mode, bidirectional). Accepts multiple
+  connections; one connection = one app instance. Target `id`s are namespaced per
+  connection. On disconnect (app closes/crashes), all of that connection's targets are
+  removed.
+- **Dedicated `DwellDetector`** instance, fed the filtered gaze from
+  `GazeEngine.CursorMoved`. External targets are **rectangular** `DwellTarget`s
+  (see Core Change). This detector is separate from EyeCtrl's own overlay/toolbar
+  detectors and carries its own cooldown (`ExternalDwellSettings.CooldownMs`).
+- **Topmost-window gating.** Each target carries its owning HWND. Before accumulating
+  dwell / activating, EyeCtrl checks `WindowFromPoint(gaze)` resolves to that HWND or a
+  descendant; otherwise the target is ignored. This rejects controls that are covered by
+  another window, scrolled off, or whose app is minimized, and disambiguates side-by-side
+  apps. Note: EyeCtrl's own overlays are click-through (`WS_EX_TRANSPARENT`), and
+  `WindowFromPoint` skips those, so EyeCtrl's feedback overlay never defeats the check.
+- **Interaction integration.** While gaze is over a (gated) external target, EyeCtrl sets
+  `GazeEngine.SuppressFixation = true` (suppresses its own fixation → activation-button →
+  action-menu flow, `src/EyeCtrl.Core/GazeEngine.cs`) and hides the cursor ring. On leave,
+  both are restored. Cursor movement (FreeLook `MoveCursor`) is **not** suppressed — the
+  user can still move between controls.
+- **Feedback.** EyeCtrl draws a dwell-progress indicator as a click-through overlay over
+  the target's screen rect, reusing the existing overlay infrastructure
+  (`OverlayManager` / overlay windows).
+- **Activation.** On dwell completion, EyeCtrl sends `activated{id}` to the owning
+  connection and applies the external-dwell cooldown.
 
-Failure to connect (EyeCtrl not running) is silent — the app functions normally, the gaze cursor ring simply remains visible.
+### Settings
 
-## Unmodified Apps (Profile Configs)
+New `ExternalDwellSettings` following the project convention (`ObservableObject +
+IValidatable`, `partial void OnXChanging` guards + `Validate()`):
 
-### Profile Loader: `ProfileDwellService`
+| Setting | Purpose |
+|---|---|
+| `Enabled` | Master switch for the external dwell feature |
+| `DefaultDwellMs` | Dwell time for all external targets (global this phase) |
+| `CooldownMs` | Re-trigger cooldown for the external detector |
 
-EyeCtrl watches a profiles directory (`%APPDATA%/EyeCtrl/profiles/`). Each `.json` file defines dwell targets for a specific application window.
+Must be wired into `EyeCtrlSettings.Validate()` **and**
+`SettingsViewModel.ResetAllSettings()` (both enumerate every sub-setting).
 
-**Profile JSON schema**:
+## IPC protocol
 
-```json
-{
-  "app": "notepad",
-  "windowTitle": "*Notepad*",
-  "windowClass": "Notepad",
-  "targets": [
-    {
-      "id": "file_menu",
-      "relativeX": 0, "relativeY": 0,
-      "width": 40, "height": 24,
-      "dwellTimeMs": 800,
-      "radius": 30
-    }
-  ]
-}
+Bidirectional message-mode named pipe `eyectrl_dwell`, length-prefixed JSON. Rects are
+primitive fields (`SdkRect`) in **physical screen pixels**; HWND is an int64. DTOs live
+in `EyeCtrl.Contracts`, referenced by both sides. EyeCtrl maps `SdkRect` to Core's
+`PhysicalRect`; the SDK never references Core.
+
+Client → server:
+
+```
+register   { "id": "save_btn", "x": 1200, "y": 340, "w": 96, "h": 32, "hwnd": 132456 }
+update     { "id": "save_btn", "x": 1205, "y": 340, "w": 96, "h": 32 }
+unregister { "id": "save_btn" }
 ```
 
-**Runtime behavior**:
+Server → client:
 
-- `ProfileDwellService` enumerates top-level windows via `EnumWindows`, matches against profile criteria (title and/or class wildcard)
-- For matched windows, creates `DwellTargets` in EyeCtrl's own `DwellDetector`
-- On activation, EyeCtrl performs `SendInput` click at the target's resolved screen position
-- Tracks window minimize/close: removes targets when window disappears
-
-This runs entirely within EyeCtrl's process — no SDK code in the target app.
-
-### Zone Editor (Phase 2, out of initial scope)
-
-A companion tool to visually define dwell zones by dragging rectangles on any window, then exporting to profile JSON. Not built in Phase 1.
-
-## IPC Server: `CursorHideService`
-
-EyeCtrl runs a named pipe server (`eyectrl_cursor_hide`) with a simple text protocol:
 ```
-cursor:hide
-cursor:show
+activated  { "id": "save_btn" }
 ```
 
-When any connected SDK client signals `cursor:hide`, EyeCtrl hides the gaze cursor ring (the `CursorCircleWindow`). When all clients have signaled `cursor:show`, the ring reappears.
+## Core change (the only one)
 
-## Files Changed / Created
+Extend `DwellTarget` (`src/EyeCtrl.Core/Processing/DwellTarget.cs`) to support a
+**rectangular** shape in addition to its current circle:
+
+- Add an **additional constructor / optional shape**; the existing circle constructor is
+  left unchanged so current callers are untouched.
+- `HitTest` gains a rectangle branch. "Nearest target" selection in `DwellDetector.Update`
+  continues to use center-distance and needs no change.
+
+**Risk: LOW** (impact analysis, upstream): `DwellTarget.HitTest` has exactly one direct
+caller (`DwellDetector.Update`); the constructor's only non-test callers are
+`KeyboardWindow.UpdateGaze` and `EmojiGridManager.UpdateCategoryTargets`. Adding rather
+than changing leaves all of them untouched. The change is contained to the `Processing`
+area. (Per project convention, re-run `gitnexus_impact` before editing during
+implementation.)
+
+No thread-safety change to `DwellDetector` is needed — the SDK never touches it, and the
+service feeds it on the UI thread like every other detector.
+
+## Files Created / Changed
 
 | File | New/Change | Purpose |
 |------|------------|---------|
-| `src/EyeCtrl.Sdk/EyeCtrl.Sdk.csproj` | New | SDK project, produces NuGet package |
-| `src/EyeCtrl.Sdk/Dwell.cs` | New | Attached properties (Enabled, Time, Radius, Mode) |
-| `src/EyeCtrl.Sdk/DwellManager.cs` | New | Per-app dwell engine: registration lifecycle, cursor polling, screen-coord resolution |
-| `src/EyeCtrl.Sdk/DwellCursorNotifier.cs` | New | Named pipe client for cursor hide/show signals |
-| `src/EyeCtrl.Core/Processing/DwellDetector.cs` | Change | Make non-UI-thread-safe or expose shared instance for SDK embedding |
-| `src/EyeCtrl.App/Services/ProfileDwellService.cs` | New | Loads JSON profiles, matches windows, creates EyeCtrl-side DwellTargets |
-| `src/EyeCtrl.App/Services/CursorHideService.cs` | New | Named pipe server for cursor visibility signals |
-| `src/EyeCtrl.App/Services/AppBootstrapper.cs` | Change | Register new services in DI |
-| `tests/EyeCtrl.Core.Tests/Processing/DwellDetectorTests.cs` | Change | Add tests for SDK embedding scenario (non-UI-thread) |
-| `tests/EyeCtrl.Sdk.Tests/` | New | SDK unit tests |
-
-## Non-Goals (for this phase)
-
-- Zone editor visual tool (Phase 2)
-- Gaze data streaming to SDK (future)
-- Cross-platform support (Windows-only)
-- Non-WPF app support in SDK (WinForms, etc.)
-- UI Automation auto-discovery
-- Per-app dwell time/cooldown configuration in profiles
+| `src/EyeCtrl.Contracts/*` | New | Wire DTOs (register/update/unregister/activated), primitive fields; shared by App + SDK |
+| `src/EyeCtrl.Sdk.Abstractions/DwellClient.cs` | New | Pipe client, reconnect/backoff, rect-delta coalescing, activation routing |
+| `src/EyeCtrl.Sdk.Abstractions/IDwellElementAdapter.cs` | New | Per-element seam (rect, HWND, activate) + `DwellMode` |
+| `src/EyeCtrl.Sdk.Wpf/Dwell.cs` (+ adapter) | New | WPF attached properties + adapter → NuGet package |
+| `src/EyeCtrl.Sdk.WinUI/Dwell.cs` (+ adapter, `EyeCtrlDwell.Initialize`) | New | WinUI 3 attached properties + adapter → NuGet package |
+| `src/EyeCtrl.Core/Processing/DwellTarget.cs` | Change | Optional rectangular shape + rect `HitTest` |
+| `src/EyeCtrl.Core/Settings/ExternalDwellSettings.cs` | New | Settings (wire into `EyeCtrlSettings.Validate()` + `SettingsViewModel.ResetAllSettings()`) |
+| `src/EyeCtrl.App/Services/ExternalDwellService.cs` | New | Pipe server, rect detector, gating, suppression, feedback overlay |
+| `src/EyeCtrl.App/Services/AppBootstrapper.cs` | Change | Register `ExternalDwellService` in DI |
+| `tests/EyeCtrl.Core.Tests/Processing/DwellDetectorTests.cs` | Change | Add rect hit-test cases (inside/edge/outside); confirm circle unchanged |
+| `tests/EyeCtrl.App.Tests/...` | New | `ExternalDwellService`: register/update/unregister, per-connection cleanup on disconnect, gating (mock seam over `WindowFromPoint`), suppression toggle |
+| `tests/EyeCtrl.Sdk.Tests/...` | New | Shared `DwellClient` (dedupe, reconnect, routing) once; per-head adapter coordinate math |
+| `samples/` | New | A WinUI 3 sample and a WPF sample, each with `eyectrl:Dwell.Enabled="True"` |
 
 ## Testing Strategy
 
-- **DwellDetector**: existing tests pass; add concurrency tests for SDK embedding scenario
-- **SDK**: test attached property lifecycle (register on load, unregister on unload, screen-coord resolution)
-- **ProfileDwellService**: test JSON parsing, window matching, target creation/destruction
-- **CursorHideService**: test pipe connect/disconnect, single vs multi-client visibility state
-- **Integration**: manual smoke test with a sample WPF app using `eyectrl:Dwell.Enabled="True"`
+- **`DwellTarget`**: rectangular hit-test (inside, on edge, outside); existing circle
+  behavior unchanged.
+- **`ExternalDwellService`**: register/update/unregister; per-connection target cleanup on
+  disconnect; topmost-HWND gating via a mockable seam over `WindowFromPoint`; fixation
+  suppression toggles on target enter/leave.
+- **`EyeCtrl.Sdk.Abstractions`**: `DwellClient` rect-delta dedupe, reconnect/backoff, and
+  `activated` → element routing — tested once, framework-free.
+- **Heads**: adapter coordinate math (WPF `PointToScreen`; WinUI
+  `TransformToVisual` × `RasterizationScale` + `ClientToScreen`) and `Invoke`/`Focus`
+  activation.
+- **Manual smoke**: WinUI 3 sample and WPF sample, each dwell-activating a `Button` with
+  EyeCtrl running.
+
+## Non-Goals (this phase)
+
+- JSON profiles for **unmodified** third-party apps (and the visual zone editor). Deferred;
+  the EyeCtrl-owned architecture already accommodates them later — a profile loader would
+  feed the same rect `DwellTarget`s into the same detector.
+- Per-control dwell-time override (`Dwell.Time`) — global `DefaultDwellMs` only for now.
+- Gaze-data streaming to the SDK.
+- WinForms consumer support.
+- UI Automation auto-discovery of controls.
+- Cross-platform (Windows-only).

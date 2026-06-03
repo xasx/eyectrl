@@ -17,10 +17,10 @@ double canvasW = GazeCanvas.ActualWidth;   // in DIPs (e.g. 800 at 200% DPI)
 px = fx * canvasW;                          // treats canvas as full physical screen
 ```
 
-treats the Canvas as if it were the full physical screen, but the Canvas only covers the window's client area. At non-100% DPI the mismatch is amplified:
+treats the Canvas as if it were the full physical screen, but the Canvas only covers the window's client area — which is offset from the window's outer (`Left`/`Top`) position by the title bar and borders. At non-100% DPI the mismatch is amplified:
 
-- 100% DPI, 800×600 window on a 1920×1080 screen: gaze at the center of the physical screen (fx=0.5) goes to the center of the canvas (px=400), which happens to coincide with where the user is looking **only if** the window covers the full screen.
-- 200% DPI: the same window is 800 DIPs wide but 1600 physical pixels wide on the screen. `canvasW = 800` DIPs; the gaze normalization is to 1920 physical pixels. The dot lands at `fx * 800` DIPs, but the user's actual gaze in DIPs (relative to the window) is `fx * 1920 / 2.0 = fx * 960` DIPs — i.e. off by 160 DIPs at the right edge of the window.
+- 100% DPI, 800×600 window centered on a 1920×1080 screen: at `fx=0.5` (screen center) the dot happens to land correctly because canvas center coincides with screen center. The error grows linearly with distance from the center, reaching ~80 DIPs (= 80 physical px) at the left/right edges of the screen.
+- 200% DPI, same window: the window is 800 DIPs wide but 1600 physical px wide on the screen, with a 160-px physical margin on each side. The Canvas is 800 DIPs wide. `px = fx * 800` DIPs ≠ where the user is actually looking. The error at the edges grows to ~160 physical px (= 80 DIPs at 200% DPI) horizontally and ~titlebar-height vertical offset (the canvas's (0,0) is below the title bar, but the old math doesn't know that).
 
 The main app avoids this by treating the gaze as physical pixels throughout the pipeline (`TobiiStreamEngineProvider.cs:108-110` → `DpiHelper.PhysicalToLogicalX` at the WPF boundary in each overlay window). The sample does not.
 
@@ -32,7 +32,7 @@ The main app avoids this by treating the gaze as physical pixels throughout the 
 
 ## Non-Goals
 
-- Live visual-size updates when dragging the window between monitors with different DPI (PerMonitorV2). The gaze math is correct across monitors; the visual sizes are set once in `InitializeVisuals`. A monitor swap would require a restart to pick up the new DPI for sizes. This is acceptable for a sample and documented below.
+- **PerMonitorV2 awareness / cross-DPI monitor drag handling.** The sample has no `app.manifest` and no `ApplicationHighDpiMode` set in the `.csproj`, so it runs at WPF's **default System-DPI awareness**. On a cross-DPI monitor drag, Windows bitmap-scales the window (blurry) and WPF does not raise a DPI-change notification. The `GetScale` value is effectively constant for a given system config. The gaze math (`PointFromScreen` based) is correct *for the monitor where the window was first shown*; dragging to a different-DPI monitor requires a restart to pick up the new scale. Acceptable for a sample's primary scenario (single monitor, fixed window). Adding an `app.manifest` opting into PerMonitorV2 is a separate, optional improvement.
 - Adding a test project for the sample. The DpiHelper is trivial; verification is visual.
 - Refactoring the sample to use `EyeCtrl.Core.DpiHelper`. That would break the self-contained property.
 
@@ -103,7 +103,7 @@ _gazeDot = new System.Windows.Shapes.Ellipse
 };
 ```
 
-**`OnUITick`** fixes the gaze→canvas math:
+**`OnUITick`** fixes the gaze→canvas math using WPF's `PointFromScreen`, which maps a screen point (physical pixels) to the visual's local DIPs in one call. This handles DPI scaling, window position, and window chrome (title bar / borders) correctly — manually subtracting `Window.Left`/`Top` would not, because the Canvas's (0,0) is at the *client area* (below the title bar, inside the borders), not at the window's outer position.
 
 ```csharp
 // Before (buggy)
@@ -116,14 +116,15 @@ py = fy * canvasH;
 double scale = DpiHelper.GetScale(this);
 
 // StreamEngine's normalized 0..1 is relative to the physical screen.
-double physScreenW = SystemParameters.PrimaryScreenWidth * scale;
-double physScreenH = SystemParameters.PrimaryScreenHeight * scale;
-double physX = fx * physScreenW;
-double physY = fy * physScreenH;
+// SystemParameters.* is in DIPs, so multiply by the DPI scale to get physical px.
+double physX = fx * SystemParameters.PrimaryScreenWidth  * scale;
+double physY = fy * SystemParameters.PrimaryScreenHeight * scale;
 
-// Convert physical → DIPs, then offset to the window's client area.
-px = physX / scale - Left;
-py = physY / scale - Top;
+// PointFromScreen maps a screen point in physical pixels to the visual's
+// local DIPs. Accounts for DPI, window position, and chrome.
+Point canvasPt = GazeCanvas.PointFromScreen(new Point(physX, physY));
+px = canvasPt.X;
+py = canvasPt.Y;
 ```
 
 The half-dot offset for centering also converts from physical pixels to DIPs:
@@ -170,8 +171,8 @@ Remove the two attributes that are now set in code-behind:
 
 ## Error Handling
 
-- **`PresentationSource` is null** (e.g., before the window is shown): `GetScale` returns 1.0. Behavior degrades to the old buggy mapping, but the UI timer doesn't fire until after `Loaded`, so this is unreachable in practice. Defensive only.
-- **Window dragged between monitors with different DPI** (PerMonitorV2): `GetScale` is re-evaluated each tick, so the gaze math stays correct after a drag. The Ellipse `Width`/`Height` and the font/padding are set once (in `InitializeVisuals` and `OnLoaded`); they retain the original monitor's DPI. A restart picks up the new monitor's DPI. Out of scope to fix.
+- **`PresentationSource` is null** (e.g., before the window is shown): `GetScale` returns 1.0. `PointFromScreen` returns `(NaN, NaN)` for a non-connected visual — the existing `if (rawValid)` guard in `OnUITick` would propagate NaN into the dot position. Defensive only; the UI timer doesn't fire until after `Loaded`, so `PresentationSource` is available.
+- **Window dragged between monitors with different DPI** (PerMonitorV2): not handled. The sample is System-DPI-aware (default); see *Non-Goals*. A cross-DPI drag results in WPF bitmap-scaling the window and no DPI change event — gaze math and visual sizes retain the original monitor's values. A restart picks up the new monitor's DPI. Out of scope to fix.
 - **Tobii stream produces invalid gaze** (blinks, tracking loss): unchanged — sample already skips trail/dot updates on invalid samples (`MainWindow.xaml.cs:249-250`).
 
 ## Data Flow (per-tick)
@@ -214,6 +215,6 @@ The sample has no test project. The DpiHelper is ~10 lines of trivial math (one 
 
 ## Known Limitations
 
-- **Visual sizes don't update on PerMonitorV2 drag.** Gaze math does, but Ellipse sizes and font are set once. A drag to a different-DPI monitor leaves the visuals at the original monitor's size until restart.
+- **System-DPI-aware, not PerMonitorV2.** Dragging the window to a different-DPI monitor does not trigger a DPI update; gaze math and visual sizes retain the original monitor's values. A restart picks up the new monitor's DPI. Adding an `app.manifest` for PerMonitorV2 is a separate, optional improvement.
+- **Debug overlay text is physical-pixel-sized.** This is intentional (per the chosen design direction) so the sample "looks the same" across DPI scales, but it does mean the overlay text resists the OS's normal high-DPI text scaling. High-DPI users who rely on OS text scaling will see the debug overlay render smaller than other UI. The gaze dot and trail dots being physical-pixel-sized is clearly correct (consistent gaze target); the text being physical-pixel-sized is a deliberate trade-off and could be reverted to DIPs in a follow-up.
 - **No tests.** Acceptable for a sample.
-- **Window-position-dependent.** If the user moves the window to a secondary monitor with different DPI, both the gaze math and visual sizing would need a restart. Same as above.

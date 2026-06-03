@@ -12,6 +12,10 @@
 
 **Reference spec:** `docs/superpowers/specs/2026-06-03-sample-dpi-awareness-design.md`
 
+**Build prerequisite — Tobii SDK:** Every `dotnet build samples/StreamEngineGazeTracker` in this plan requires the Tobii StreamEngine SDK on disk. The `.csproj` has a hard `ErrorWhenNoTobiiSdk` target that fails the build with a clear error if either `Tobii.StreamEngine.Net.dll` or `tobii_stream_engine.dll` is missing from `C:\Program Files\Tobii\Tobii EyeX\`. Default path; override with `-p:TobiiSdkPath="path/to/sdk"`. On a non-Tobii dev machine, the SDK error is expected — compilation cannot proceed without the SDK.
+
+**Confirmation of physical-pixel-constant text (Task 3):** Per the spec's Goal 2 (debug overlay text included) and the user's explicit choice during brainstorming, the debug overlay's font and padding are sized in physical pixels. This means the overlay text deliberately resists the OS's normal high-DPI text scaling — at 200% DPI, the overlay renders ~13 physical px (≈ 6.5 DIPs) rather than ~26 DIPs. The gaze dot and trail being physical-pixel-sized is clearly correct (consistent gaze target); the text being physical-pixel-sized is a deliberate, conscious trade-off documented in the spec's *Known Limitations*. Reverting just the text to DIPs is a one-line follow-up if the user later prefers it.
+
 ---
 
 ## File Structure
@@ -89,12 +93,12 @@ git commit -m "feat: add sample-local DpiHelper for DPI scale queries"
 
 ---
 
-## Task 2: Rename size constants and use `DpiHelper` in `InitializeVisuals`
+## Task 2: Apply `DpiHelper` throughout `MainWindow.xaml.cs` (rename, sizing, gaze math)
 
 **Files:**
 - Modify: `samples/StreamEngineGazeTracker/MainWindow.xaml.cs`
 
-The hard-coded size constants are now interpreted as **physical pixels** (their values are unchanged, but the meaning is explicit). `InitializeVisuals` converts them to DIPs via `DpiHelper.PhysicalToLogical` so the Ellipses render at the requested physical size regardless of DPI.
+This is the bulk of the work. The size constants are renamed to make their units explicit (physical pixels), and four call sites are updated: `InitializeVisuals` (Ellipse sizes), the gaze→canvas math in `OnUITick` (the actual bug fix), and the half-dot offset calculations in `OnUITick`. **All four edits must land in the same commit** — the constants are referenced in five places, so a partial rename leaves the tree non-compiling. Each step below shows one of the four edits; do all four, then build, then commit.
 
 - [ ] **Step 1: Rename the two size constants**
 
@@ -118,11 +122,11 @@ with:
     private const double GazeDotPhysicalSize  = 16;
 ```
 
-- [ ] **Step 2: Replace the `Width`/`Height` literals in `InitializeVisuals`**
+- [ ] **Step 2: Update `InitializeVisuals` to size Ellipses via `DpiHelper`**
 
-Find `InitializeVisuals` (around line 303-331) and replace the body of the trail-dots loop and the gaze-dot creation. The change: compute `trailDip` and `gazeDip` once at the top, then use them in place of the bare constants.
+Find `InitializeVisuals` (around line 303-331) and replace the body so the trail-dots loop and the gaze-dot creation use the new constants via `DpiHelper.PhysicalToLogical`.
 
-Replace this block (the full for-loop that creates the trail dot pool):
+Replace this block:
 
 ```csharp
     private void InitializeVisuals()
@@ -195,33 +199,11 @@ with:
     }
 ```
 
-- [ ] **Step 3: Build**
+- [ ] **Step 3: Fix the gaze→canvas math in `OnUITick`**
 
-```bash
-dotnet build samples/StreamEngineGazeTracker
-```
+The old math (`px = fx * canvasW`) treats the Canvas as if it were the full physical screen. The new math uses WPF's `UIElement.PointFromScreen`, which maps a screen point in physical pixels to the visual's local DIPs in one call — handling DPI, window position, and window chrome (title bar / borders) correctly.
 
-Expected: build succeeds. (`DpiHelper` is now referenced, so this verifies the new constant names compile and `DpiHelper`'s surface is correct.)
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add samples/StreamEngineGazeTracker/MainWindow.xaml.cs
-git commit -m "fix: use physical-pixel sizes for sample gaze and trail dots"
-```
-
----
-
-## Task 3: Fix the gaze→canvas math in `OnUITick`
-
-**Files:**
-- Modify: `samples/StreamEngineGazeTracker/MainWindow.xaml.cs`
-
-This is the actual bug fix. The old math (`px = fx * canvasW`) treats the Canvas as if it were the full physical screen. The new math uses WPF's `UIElement.PointFromScreen`, which maps a screen point in physical pixels to the visual's local DIPs in one call — handling DPI, window position, and window chrome (title bar / borders) correctly.
-
-- [ ] **Step 1: Replace the gaze→canvas math block**
-
-Find the section in `OnUITick` (around line 254-258) that currently reads:
+Find the block in `OnUITick` (around line 254-258) that currently reads:
 
 ```csharp
             // 5. Convert normalized coords to canvas pixels
@@ -249,11 +231,11 @@ Replace it with:
             py = canvasPt.Y;
 ```
 
-- [ ] **Step 2: Update the half-dot offset calculations**
+- [ ] **Step 4: Update the half-dot offset calculations in `OnUITick`**
 
-The existing code subtracts `GazeDotSize / 2` and `TrailDotSize / 2` to center the dot on the gaze point. These now need to be converted to DIPs too.
+The existing code subtracts `GazeDotSize / 2` and `TrailDotSize / 2` (the OLD constant names — now renamed) to center the dot on the gaze point. These need to use the new physical-pixel names, converted to DIPs.
 
-Find the block (around line 266-285) that updates the trail dots and gaze dot:
+Find the block in `OnUITick` (around line 260-285) that updates the trail dots and gaze dot:
 
 ```csharp
             // 6. Update trail
@@ -284,7 +266,7 @@ Find the block (around line 266-285) that updates the trail dots and gaze dot:
             Canvas.SetTop(_gazeDot, py - GazeDotSize / 2);
 ```
 
-Replace the `Canvas.SetLeft`/`SetTop` lines (just those four lines) with:
+Replace the `Canvas.SetLeft`/`SetTop` lines (just those four lines, plus add a hoisted `halfTrailDotDip` and a `halfGazeDotDip`) with:
 
 ```csharp
             // 6. Update trail
@@ -319,24 +301,24 @@ Replace the `Canvas.SetLeft`/`SetTop` lines (just those four lines) with:
 
 (`halfTrailDotDip` is hoisted out of the loop since it doesn't change per iteration.)
 
-- [ ] **Step 3: Build**
+- [ ] **Step 5: Build — must succeed**
 
 ```bash
 dotnet build samples/StreamEngineGazeTracker
 ```
 
-Expected: build succeeds. This verifies the new math compiles and references `DpiHelper.GetScale` and `Point` (`Point` is in `System.Windows`, already imported) and `PointFromScreen` (a `UIElement` method on `GazeCanvas`).
+Expected: build succeeds. This verifies the constant rename, the `DpiHelper` call sites in `InitializeVisuals` and `OnUITick`, the `PointFromScreen` call, and the `Point` reference (already covered by the existing `using System.Windows;`) all compile together. If the build fails, the most likely cause is a missed `TrailDotSize` / `GazeDotSize` reference — search for those old names and update them.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit — all four edits atomically**
 
 ```bash
 git add samples/StreamEngineGazeTracker/MainWindow.xaml.cs
-git commit -m "fix: DPI-correct gaze position in sample using PointFromScreen"
+git commit -m "fix: apply DpiHelper throughout sample (gaze math, sizing, constants)"
 ```
 
 ---
 
-## Task 4: Make the debug overlay's font and padding physical-pixel-sized
+## Task 3: Make the debug overlay's font and padding physical-pixel-sized
 
 **Files:**
 - Modify: `samples/StreamEngineGazeTracker/MainWindow.xaml.cs`
@@ -435,7 +417,7 @@ git commit -m "fix: set sample debug overlay font/padding in code-behind for DPI
 
 ---
 
-## Task 5: Visual verification
+## Task 4: Visual verification
 
 **Files:** none (read-only inspection)
 
@@ -478,10 +460,17 @@ Verification step — nothing to commit. If anything looks wrong, fix the offend
 | File | Lines changed | Purpose |
 |------|---------------|---------|
 | `samples/StreamEngineGazeTracker/DpiHelper.cs` | +18 (new) | DPI scale queries + physical→DIP conversion |
-| `samples/StreamEngineGazeTracker/MainWindow.xaml.cs` | ~15 lines changed across 4 locations | Constants renamed, visual sizing, gaze math, font/padding |
+| `samples/StreamEngineGazeTracker/MainWindow.xaml.cs` | ~20 lines changed across 5 locations | Constants renamed, `InitializeVisuals` sizing, gaze math, half-dot offsets, font/padding |
 | `samples/StreamEngineGazeTracker/MainWindow.xaml` | 1 attribute removed (`FontSize`), 1 removed (`Padding`), 1 added (`x:Name` on Border) | Allow code-behind to set physical-pixel-sized text |
 
-Five small commits, each with a self-contained change. Build at the end of every task; visual verification at the end.
+Four small commits:
+
+1. **feat:** add sample-local `DpiHelper` (Task 1) — DpiHelper.cs is created and compiles
+2. **fix:** apply `DpiHelper` throughout sample — gaze math, sizing, constants (Task 2) — the four edits in `MainWindow.xaml.cs` land atomically because the constant rename and all five call sites must move together
+3. **fix:** set sample debug overlay font/padding in code-behind for DPI sizing (Task 3) — XAML + `OnLoaded` change
+4. (no commit) — visual verification (Task 4) — build + run at 100% / 200% DPI; nothing to commit unless a fix is needed
+
+Build at the end of every code-change task; visual verification at the end.
 
 ## What stays unchanged
 

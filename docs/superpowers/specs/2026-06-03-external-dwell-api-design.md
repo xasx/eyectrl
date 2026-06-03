@@ -156,6 +156,21 @@ Per-head implementation differences:
 invokable controls without reflection. (The original draft's "raise the Click event"
 directly is not possible — `OnClick` is protected.)
 
+### Target frameworks
+
+The SDK deliberately floors **below** the first consumer (a net10 / Windows 11 app),
+because nothing it does needs net10 or Win11, and a lower floor maximizes who can consume
+it:
+
+| Project | TFM | Notes |
+|---|---|---|
+| `EyeCtrl.Contracts` | `net8.0` | DTOs + `SdkRect`; consumable by net8 and net10 apps |
+| `EyeCtrl.Sdk.Abstractions` | `net8.0` | Pipe client + coordination; no UI-framework or OS-version dependency |
+| `EyeCtrl.Sdk.Wpf` | `net8.0-windows`, `UseWPF` | — |
+| `EyeCtrl.Sdk.WinUI` | `net8.0-windows10.0.19041.0`, `UseWinUI` | Win10 2004 floor; **Win11 not required**. References **Windows App SDK 1.4+** — the minimum for the implicit `XamlRoot.ContentIslandEnvironment` HWND fallback. Explicit `Initialize(window)` has no such requirement. |
+
+All four are referenceable from the net10 / Win11 consumer without friction.
+
 ### Failure behavior
 
 If EyeCtrl is not running, the pipe client connect fails silently and retries with
@@ -278,6 +293,26 @@ service feeds it on the UI thread like every other detector.
   activation.
 - **Manual smoke**: WinUI 3 sample and WPF sample, each dwell-activating a `Button` with
   EyeCtrl running.
+
+## Delivery — two implementation plans
+
+The work splits into two plans so the first delivers a complete, testable vertical slice
+before the second framework head is added.
+
+**Plan 1 — EyeCtrl side + WPF head (the full vertical slice).**
+`EyeCtrl.Contracts`, `EyeCtrl.Sdk.Abstractions` (pipe client, coalescing, routing),
+`EyeCtrl.Sdk.Wpf` head + adapter, the rectangular `DwellTarget` Core change,
+`ExternalDwellSettings`, `ExternalDwellService` (server, detector, gating, suppression,
+feedback overlay), DI wiring, a WPF sample, and all of the above's tests. Outcome: a
+working WPF-app → EyeCtrl dwell loop, end to end. WPF first because EyeCtrl is itself WPF
+and the slice is easiest to exercise in-process.
+
+**Plan 2 — WinUI 3 head.** `EyeCtrl.Sdk.WinUI` head + adapter (TransformToVisual ×
+RasterizationScale + ClientToScreen, `Initialize(window)` with implicit
+`ContentIslandEnvironment` fallback, `DispatcherQueue` marshaling,
+`FrameworkElementAutomationPeer` invoke), a WinUI 3 sample, and head tests. Reuses
+`EyeCtrl.Contracts`, `EyeCtrl.Sdk.Abstractions`, and the entire EyeCtrl side from Plan 1
+unchanged — the pipe contract is framework-agnostic.
 
 ## Non-Goals (this phase)
 

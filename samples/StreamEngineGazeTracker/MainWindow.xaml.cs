@@ -70,6 +70,11 @@ public partial class MainWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // Size debug overlay in physical pixels so it looks the same
+        // regardless of system DPI scaling.
+        DebugText.FontSize   = DpiHelper.PhysicalToLogical(this, 13);
+        DebugOverlay.Padding = new Thickness(DpiHelper.PhysicalToLogical(this, 8));
+
         try
         {
             InitializeStreamEngine();

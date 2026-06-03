@@ -39,8 +39,10 @@ public partial class MainWindow : Window
 
     // ── Trail ─────────────────────────────────────────────────────────
     private const int MaxTrailPoints = 50;
-    private const double TrailDotSize = 6;
-    private const double GazeDotSize = 16;
+    // Trail/gaze dot sizes are physical pixels — converted to DIPs at
+    // runtime via DpiHelper so they look the same at any DPI scale.
+    private const double TrailDotPhysicalSize = 6;
+    private const double GazeDotPhysicalSize  = 16;
     private const double TrailColorR = 0;
     private const double TrailColorG = 212;
     private const double TrailColorB = 255;
@@ -251,11 +253,19 @@ public partial class MainWindow : Window
             fx = _filterX!.Filter(rawX, dt);
             fy = _filterY!.Filter(rawY, dt);
 
-            // 5. Convert normalized coords to canvas pixels
-            double canvasW = GazeCanvas.ActualWidth;
-            double canvasH = GazeCanvas.ActualHeight;
-            px = fx * canvasW;
-            py = fy * canvasH;
+            // 5. Convert normalized (0..1) gaze coords to canvas-local DIPs.
+            //    StreamEngine's normalization is to the physical screen.
+            //    SystemParameters.* is in DIPs, so multiply by the DPI
+            //    scale to get physical pixels. PointFromScreen then maps
+            //    that screen point into the canvas's local DIP space,
+            //    correctly handling DPI, window position, and window
+            //    chrome (title bar / borders).
+            double scale = DpiHelper.GetScale(this);
+            double physX = fx * SystemParameters.PrimaryScreenWidth  * scale;
+            double physY = fy * SystemParameters.PrimaryScreenHeight * scale;
+            Point canvasPt = GazeCanvas.PointFromScreen(new Point(physX, physY));
+            px = canvasPt.X;
+            py = canvasPt.Y;
 
             // 6. Update trail
             _trailPoints.Add(new Point(px, py));
@@ -263,14 +273,15 @@ public partial class MainWindow : Window
                 _trailPoints.RemoveAt(0);
 
             // 7. Update trail dots (pool of Ellipses)
+            double halfTrailDotDip = DpiHelper.PhysicalToLogical(this, TrailDotPhysicalSize / 2.0);
             for (int i = 0; i < _trailDots.Length; i++)
             {
                 if (i < _trailPoints.Count)
                 {
                     var pt = _trailPoints[i];
                     double opacity = (double)(i + 1) / _trailPoints.Count;
-                    Canvas.SetLeft(_trailDots[i], pt.X - TrailDotSize / 2);
-                    Canvas.SetTop(_trailDots[i], pt.Y - TrailDotSize / 2);
+                    Canvas.SetLeft(_trailDots[i], pt.X - halfTrailDotDip);
+                    Canvas.SetTop(_trailDots[i], pt.Y - halfTrailDotDip);
                     _trailDots[i].Opacity = opacity * 0.7;
                     _trailDots[i].Visibility = Visibility.Visible;
                 }
@@ -281,8 +292,9 @@ public partial class MainWindow : Window
             }
 
             // 8. Update gaze dot
-            Canvas.SetLeft(_gazeDot, px - GazeDotSize / 2);
-            Canvas.SetTop(_gazeDot, py - GazeDotSize / 2);
+            double halfGazeDotDip = DpiHelper.PhysicalToLogical(this, GazeDotPhysicalSize / 2.0);
+            Canvas.SetLeft(_gazeDot, px - halfGazeDotDip);
+            Canvas.SetTop(_gazeDot, py - halfGazeDotDip);
         }
 
         // 9. Update debug overlay (single assignment per tick)
@@ -302,14 +314,19 @@ public partial class MainWindow : Window
 
     private void InitializeVisuals()
     {
+        // Convert physical-pixel sizes to DIPs at the current DPI so the
+        // dots look the same regardless of system display scaling.
+        double trailDip = DpiHelper.PhysicalToLogical(this, TrailDotPhysicalSize);
+        double gazeDip  = DpiHelper.PhysicalToLogical(this, GazeDotPhysicalSize);
+
         // Create trail dot pool
         _trailDots = new System.Windows.Shapes.Ellipse[MaxTrailPoints];
         for (int i = 0; i < _trailDots.Length; i++)
         {
             _trailDots[i] = new System.Windows.Shapes.Ellipse
             {
-                Width = TrailDotSize,
-                Height = TrailDotSize,
+                Width = trailDip,
+                Height = trailDip,
                 Fill = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(
                         (byte)TrailColorR, (byte)TrailColorG, (byte)TrailColorB)),
@@ -321,8 +338,8 @@ public partial class MainWindow : Window
         // Create gaze dot
         _gazeDot = new System.Windows.Shapes.Ellipse
         {
-            Width = GazeDotSize,
-            Height = GazeDotSize,
+            Width = gazeDip,
+            Height = gazeDip,
             Fill = new System.Windows.Media.SolidColorBrush(
                 System.Windows.Media.Color.FromRgb(
                     (byte)GazeDotColorR, (byte)GazeDotColorG, (byte)GazeDotColorB))

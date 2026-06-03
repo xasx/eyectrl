@@ -10,15 +10,16 @@
             ClipToBounds="True"
             Background="Transparent">
 
-        <!-- Debug overlay (high ZIndex so dots never draw over it) -->
-        <Border Canvas.Left="10" Canvas.Top="10"
+        <!-- Debug overlay (high ZIndex so dots never draw over it).
+             FontSize and Padding are set in code-behind so they can be
+             physical-pixel-sized at the current DPI. -->
+        <Border x:Name="DebugOverlay"
+                Canvas.Left="10" Canvas.Top="10"
                 Panel.ZIndex="100"
                 Background="#80000000"
-                Padding="8"
                 CornerRadius="4">
             <TextBlock x:Name="DebugText"
                        FontFamily="Consolas"
-                       FontSize="13"
                        Foreground="White"
                        Text="Connecting..." />
         </Border>

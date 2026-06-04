@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageId>EyeCtrl.Sdk.Wpf</PackageId>
+    <Description>EyeCtrl gaze-dwell integration for WPF. Attach eyectrl:Dwell.Enabled="True" to any FrameworkElement.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

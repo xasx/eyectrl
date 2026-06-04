@@ -1,0 +1,134 @@
+namespace EyeCtrl.Sdk.Abstractions;
+
+using System.Collections.Concurrent;
+using System.IO.Pipes;
+using System.Text;
+using System.Text.Json;
+using EyeCtrl.Contracts;
+
+/// <summary>
+/// Named-pipe client to the EyeCtrl dwell service. Byte-mode, newline-framed JSON.
+/// Dedupes outgoing rects (Register/Update/skip) and routes incoming `activated` to adapters.
+/// Reconnects with exponential backoff. All connect/IO failures are silent (EyeCtrl may be absent).
+/// </summary>
+public sealed class DwellClient : IDisposable
+{
+    private const string PipeName = "eyectrl_dwell";
+    private const int ConnectTimeoutMs = 2000;
+    private const int MinBackoffMs = 1000;
+    private const int MaxBackoffMs = 30000;
+
+    private readonly ConcurrentDictionary<string, IDwellElementAdapter> _adapters = new();
+    private readonly OutboundRectTracker _tracker = new();
+    private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    private readonly object _writeLock = new();
+
+    private NamedPipeClientStream? _pipe;
+    private StreamWriter? _writer;
+    private CancellationTokenSource? _cts;
+    private volatile bool _disposed;
+
+    public void RegisterAdapter(IDwellElementAdapter adapter)
+    {
+        _adapters[adapter.Id] = adapter;
+        SendRect(adapter);
+    }
+
+    public void UnregisterAdapter(string id)
+    {
+        _adapters.TryRemove(id, out _);
+        WireMessage msg;
+        lock (_tracker) msg = _tracker.OnUnregister(id);
+        TrySend(msg);
+    }
+
+    public void OnAdapterLayoutChanged(string id)
+    {
+        if (_adapters.TryGetValue(id, out var adapter)) SendRect(adapter);
+    }
+
+    public void Start()
+    {
+        if (_cts != null) return;
+        _cts = new CancellationTokenSource();
+        _ = RunAsync(_cts.Token);
+    }
+
+    private async Task RunAsync(CancellationToken token)
+    {
+        var backoff = MinBackoffMs;
+        while (!_disposed && !token.IsCancellationRequested)
+        {
+            try
+            {
+                _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                await _pipe.ConnectAsync(ConnectTimeoutMs, token);
+                lock (_writeLock)
+                    _writer = new StreamWriter(_pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+                backoff = MinBackoffMs;
+
+                lock (_tracker) _tracker.Reset();
+                foreach (var adapter in _adapters.Values) SendRect(adapter);
+
+                await ReadLoopAsync(_pipe, token);
+            }
+            catch (OperationCanceledException) { break; }
+            catch { /* EyeCtrl not running or pipe broke */ }
+            finally
+            {
+                lock (_writeLock) { _writer?.Dispose(); _writer = null; }
+                _pipe?.Dispose(); _pipe = null;
+            }
+
+            if (_disposed || token.IsCancellationRequested) break;
+            try { await Task.Delay(backoff, token); } catch (OperationCanceledException) { break; }
+            backoff = Math.Min(backoff * 2, MaxBackoffMs);
+        }
+    }
+
+    private async Task ReadLoopAsync(NamedPipeClientStream pipe, CancellationToken token)
+    {
+        using var reader = new StreamReader(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
+        while (!token.IsCancellationRequested && pipe.IsConnected)
+        {
+            var line = await reader.ReadLineAsync(token);
+            if (line == null) break;
+            try
+            {
+                if (JsonSerializer.Deserialize<WireMessage>(line, _json) is ActivatedMessage a
+                    && _adapters.TryGetValue(a.Id, out var adapter))
+                {
+                    adapter.Activate();
+                }
+            }
+            catch { /* skip malformed */ }
+        }
+    }
+
+    private void SendRect(IDwellElementAdapter adapter)
+    {
+        if (!adapter.TryGetScreenRect(out var rect)) return;
+        WireMessage? msg;
+        lock (_tracker) msg = _tracker.OnRect(adapter.Id, rect, adapter.WindowHandle);
+        if (msg != null) TrySend(msg);
+    }
+
+    private void TrySend(WireMessage msg)
+    {
+        lock (_writeLock)
+        {
+            if (_writer == null) return;
+            try { _writer.WriteLine(JsonSerializer.Serialize(msg, _json)); }
+            catch { /* reconnect will handle */ }
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _cts?.Cancel();
+        lock (_writeLock) { _writer?.Dispose(); _writer = null; }
+        _pipe?.Dispose();
+        _cts?.Dispose();
+    }
+}

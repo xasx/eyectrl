@@ -5,6 +5,7 @@
     <Project Path="src/EyeCtrl.Platform/EyeCtrl.Platform.csproj" />
     <Project Path="src/EyeCtrl.ViewModels/EyeCtrl.ViewModels.csproj" />
     <Project Path="src/EyeCtrl.Contracts/EyeCtrl.Contracts.csproj" />
+    <Project Path="src/EyeCtrl.Sdk.Abstractions/EyeCtrl.Sdk.Abstractions.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj" />

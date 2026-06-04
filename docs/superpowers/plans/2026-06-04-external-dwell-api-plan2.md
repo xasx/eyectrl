@@ -26,6 +26,8 @@
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- Published SDK package: floored at net8 ON PURPOSE so net8 AND net10 consumers can use
+         it (the net10/Win11 consumer app references it fine). Do NOT "fix" this to net10. -->
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
@@ -58,9 +60,11 @@ namespace EyeCtrl.Sdk.WinUI;
 using Microsoft.UI.Xaml;
 
 /// <summary>
-/// Optional one-time initialization for WinUI hosts. Call once with your main Window to
-/// supply the owning HWND explicitly. If you don't, the adapter resolves it implicitly via
-/// XamlRoot.ContentIslandEnvironment (Windows App SDK 1.4+).
+/// Optional fallback for WinUI hosts. The adapter normally resolves each control's owning
+/// window per-element via XamlRoot.ContentIslandEnvironment (Windows App SDK 1.4+), which is
+/// correct for multi-window apps. This explicit HWND is used only when that per-element path
+/// is unavailable. Note: it is a process-wide value, so it suits single-window hosts;
+/// multi-window hosts should rely on the implicit per-element resolution and need not call this.
 /// </summary>
 public static class EyeCtrlDwell
 {
@@ -143,7 +147,7 @@ public static class WinUiCoords
 </Project>
 ```
 
-> Match xUnit `Version="…"` to the existing test projects (or central package management). Linking `WinUiCoords.cs` keeps the helper testable on plain `net8.0`; if the team prefers referencing the WinUI project, the test must target the WinUI TFM and run on Windows.
+> Match xUnit `Version="…"` to the existing test projects (or central package management). Linking `WinUiCoords.cs` keeps the helper testable on plain `net10.0`; if the team prefers referencing the WinUI project, the test must target the WinUI TFM and run on Windows.
 
 - [ ] **Step 3: Add to `EyeCtrl.slnx`** under `/tests/`:
 ```xml
@@ -216,7 +220,6 @@ using Windows.Foundation;
 internal sealed class WinUiElementAdapter : IDwellElementAdapter
 {
     private readonly FrameworkElement _element;
-    private long _hwndCache;
 
     public string Id { get; }
     public DwellMode Mode { get; }
@@ -228,15 +231,19 @@ internal sealed class WinUiElementAdapter : IDwellElementAdapter
         Mode = mode;
     }
 
-    public long WindowHandle => _hwndCache != 0 ? _hwndCache : (_hwndCache = ResolveHwnd());
+    // Computed each call (cheap, no caching → no staleness if the window resolves later).
+    public long WindowHandle => ResolveHwnd();
 
     private long ResolveHwnd()
     {
-        if (EyeCtrlDwell.ExplicitHwnd != 0) return EyeCtrlDwell.ExplicitHwnd;
-        // Implicit fallback (Windows App SDK 1.4+): XamlRoot → ContentIslandEnvironment → AppWindowId → HWND.
+        // Implicit, PER-ELEMENT resolution first — correct for multi-window apps: the element's
+        // own XamlRoot → ContentIslandEnvironment → AppWindowId → HWND (Windows App SDK 1.4+).
+        // Falls back to the explicitly-registered window (EyeCtrlDwell.Initialize) only when the
+        // element has no XamlRoot yet / ContentIslandEnvironment is unavailable.
         var env = _element.XamlRoot?.ContentIslandEnvironment;
-        if (env is null) return 0;
-        return Win32Interop.GetWindowFromWindowId(env.AppWindowId).ToInt64();
+        if (env is not null)
+            return Win32Interop.GetWindowFromWindowId(env.AppWindowId).ToInt64();
+        return EyeCtrlDwell.ExplicitHwnd;
     }
 
     public bool TryGetScreenRect(out SdkRect rect)
@@ -293,7 +300,7 @@ git commit -m "feat: add WinUiElementAdapter (coords, HWND resolution, UIA invok
 
 ### Task 4: WinUI attached properties (Dwell) + rect-refresh wiring
 
-Mirrors `EyeCtrl.Sdk.Wpf.Dwell`, using `Microsoft.UI.Xaml` types. Because moving a WinUI window does **not** raise `LayoutUpdated`, also refresh rects on `AppWindow` changes and `XamlRoot` scale changes.
+Mirrors `EyeCtrl.Sdk.Wpf.Dwell`, using `Microsoft.UI.Xaml` types. Rect refresh uses a single shared `DispatcherQueueTimer` (a WinUI window move doesn't raise `LayoutUpdated`, and per-element `XamlRoot.Changed`/`AppWindow.Changed` subscriptions would leak on unregister and duplicate on re-register).
 
 **Files:**
 - Create: `src/EyeCtrl.Sdk.WinUI/Dwell.cs`
@@ -305,6 +312,7 @@ namespace EyeCtrl.Sdk.WinUI;
 
 using System.Collections.Concurrent;
 using EyeCtrl.Sdk.Abstractions;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
 public static class Dwell
@@ -324,9 +332,10 @@ public static class Dwell
     private static readonly ConcurrentDictionary<FrameworkElement, Entry> _entries = new();
     private static int _started;
     private static long _idCounter;
+    private static DispatcherQueueTimer? _refreshTimer;
 
-    private sealed record Entry(WinUiElementAdapter Adapter, RoutedEventHandler Loaded,
-                                RoutedEventHandler Unloaded, EventHandler<object> LayoutUpdated);
+    private sealed record Entry(WinUiElementAdapter Adapter,
+                                RoutedEventHandler Loaded, RoutedEventHandler Unloaded);
 
     private static void OnEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -335,14 +344,28 @@ public static class Dwell
         else Unregister(el);
     }
 
-    private static void EnsureStarted()
+    // Started once, on the UI thread, from the first registration. A single low-frequency
+    // timer re-pushes every element's rect; OutboundRectTracker dedupes so only changed rects
+    // hit the wire. This catches window moves / resizes / DPI-scale changes WITHOUT per-element
+    // XamlRoot.Changed / AppWindow.Changed subscriptions (which would leak on unregister and
+    // duplicate on re-register).
+    private static void EnsureStarted(FrameworkElement el)
     {
-        if (Interlocked.Exchange(ref _started, 1) == 0) _client.Start();
+        if (Interlocked.Exchange(ref _started, 1) != 0) return;
+        _client.Start();
+        _refreshTimer = el.DispatcherQueue.CreateTimer();
+        _refreshTimer.Interval = TimeSpan.FromMilliseconds(200);   // ~5 Hz position reporting
+        _refreshTimer.Tick += (_, _) =>
+        {
+            foreach (var entry in _entries.Values)
+                _client.OnAdapterLayoutChanged(entry.Adapter.Id);
+        };
+        _refreshTimer.Start();
     }
 
     private static void Register(FrameworkElement el)
     {
-        EnsureStarted();
+        EnsureStarted(el);
         if (_entries.ContainsKey(el)) return;
 
         var id = $"winui_{Interlocked.Increment(ref _idCounter)}";
@@ -350,16 +373,11 @@ public static class Dwell
 
         RoutedEventHandler loaded = (_, _) => _client.RegisterAdapter(adapter);
         RoutedEventHandler unloaded = (_, _) => _client.UnregisterAdapter(id);
-        EventHandler<object> layout = (_, _) => _client.OnAdapterLayoutChanged(id);
-
         el.Loaded += loaded;
         el.Unloaded += unloaded;
-        el.LayoutUpdated += layout;
 
-        _entries[el] = new Entry(adapter, loaded, unloaded, layout);
-
+        _entries[el] = new Entry(adapter, loaded, unloaded);
         if (el.IsLoaded) _client.RegisterAdapter(adapter);
-        HookWindowMoves(el, id);  // see Step 2
     }
 
     private static void Unregister(FrameworkElement el)
@@ -367,49 +385,18 @@ public static class Dwell
         if (!_entries.TryRemove(el, out var entry)) return;
         el.Loaded -= entry.Loaded;
         el.Unloaded -= entry.Unloaded;
-        el.LayoutUpdated -= entry.LayoutUpdated;
         _client.UnregisterAdapter(entry.Adapter.Id);
     }
-
-    private static void HookWindowMoves(FrameworkElement el, string id) { /* Step 2 */ }
 }
 ```
 
-- [ ] **Step 2: Implement `HookWindowMoves`** so window moves/resizes/scale-changes re-push the rect (LayoutUpdated alone misses window moves):
+> Rect refresh is handled by the shared `DispatcherQueueTimer` in `EnsureStarted` (above) — **not** per-element `XamlRoot.Changed` / `AppWindow.Changed` subscriptions, which would leak handlers on unregister, duplicate on re-register, and are fragile across Windows App SDK versions. The ~5 Hz cadence catches window moves, resizes, and DPI-scale changes; it's position reporting (not dwell detection), and `OutboundRectTracker` dedupes unchanged rects so the wire stays quiet. If snappier in-window updates are ever wanted, a per-element `LayoutUpdated` handler can be added back — but it must be stored in `Entry` and detached in `Unregister`.
 
-```csharp
-private static void HookWindowMoves(FrameworkElement el, string id)
-{
-    void Wire()
-    {
-        var xr = el.XamlRoot;
-        if (xr is null) return;
-
-        // Scale changes (monitor DPI change / move across monitors).
-        xr.Changed += (_, _) => _client.OnAdapterLayoutChanged(id);
-
-        // Window move/resize via AppWindow.
-        var env = xr.ContentIslandEnvironment;
-        if (env is not null)
-        {
-            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(env.AppWindowId);
-            if (appWindow is not null)
-                appWindow.Changed += (_, _) => _client.OnAdapterLayoutChanged(id);
-        }
-    }
-
-    if (el.XamlRoot is not null) Wire();
-    else el.Loaded += (_, _) => Wire();
-}
-```
-
-> Alternative if the AppWindow plumbing proves flaky across SDK versions: a single shared `DispatcherQueueTimer` at ~5 Hz that calls `OnAdapterLayoutChanged` for all entries. It's cheap because `OutboundRectTracker` dedupes unchanged rects on the wire. (This is *position reporting*, not dwell detection — unlike the rejected SDK-owned design, nothing time-critical rides on it.)
-
-- [ ] **Step 3: Build verify** — `dotnet build src/EyeCtrl.Sdk.WinUI/EyeCtrl.Sdk.WinUI.csproj`.
-- [ ] **Step 4: Commit**
+- [ ] **Step 2: Build verify** — `dotnet build src/EyeCtrl.Sdk.WinUI/EyeCtrl.Sdk.WinUI.csproj`.
+- [ ] **Step 3: Commit**
 ```bash
 git add src/EyeCtrl.Sdk.WinUI/Dwell.cs
-git commit -m "feat: add WinUI Dwell attached properties + window-move rect refresh"
+git commit -m "feat: add WinUI Dwell attached properties + shared-timer rect refresh"
 ```
 
 ---
@@ -465,6 +452,8 @@ git commit -m "test: lock WinUI island-child HWND gating via root-window seam"
     <!-- Sample: net10 (matches the repo / real consumer) consuming the net8 SDK package. -->
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <!-- Unpackaged WinUI needs a RID; win-x64 for this dev machine. Use win-arm64 (or a
+         RuntimeIdentifiers list) if running on ARM64. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
@@ -570,7 +559,7 @@ git commit -m "chore: External Dwell API Plan 2 — WinUI 3 head complete"
   4. **Plain** still clicks normally.
   5. **Move the window** to another position/monitor mid-session, then dwell again → overlay still lands on the button (validates `AppWindow.Changed`/scale refresh + island-child gating via `GetAncestor(GA_ROOT)`).
   6. Per-monitor DPI: confirm correct placement at 125%/150% scaling and across monitors with different scales.
-  7. Remove the `EyeCtrlDwell.Initialize(this)` call and re-run to confirm the **implicit** `ContentIslandEnvironment` HWND fallback also works.
+  7. Remove the `EyeCtrlDwell.Initialize(this)` call and re-run to confirm the **implicit per-element** `ContentIslandEnvironment` HWND resolution (the primary path) works on its own.
 - [ ] **Step 4:** Fix and re-test as needed.
 
 ---

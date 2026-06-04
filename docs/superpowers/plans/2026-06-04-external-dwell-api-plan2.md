@@ -123,8 +123,9 @@ public static class WinUiCoords
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- Plain net8.0: tests exercise the pure helper only; no WinUI runtime needed. -->
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- Plain net10.0 (matches the repo; runs on the installed runtime): tests exercise the
+         pure helper only, so no WinUI runtime is needed. -->
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -461,7 +462,8 @@ git commit -m "test: lock WinUI island-child HWND gating via root-window seam"
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <!-- Sample: net10 (matches the repo / real consumer) consuming the net8 SDK package. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>

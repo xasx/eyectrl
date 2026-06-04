@@ -69,6 +69,14 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new SliderSettingViewModel("fixationRadius", "Fixation Radius (px)", d.FixationRadiusPixels, 10, 200, 5, v => d.FixationRadiusPixels = v),
         }));
 
+        var ed = _settings.ExternalDwell;
+        Tabs.Add(new SettingsTabViewModel("ExternalDwell", "\uD83D\uDD17", new List<SettingItemViewModel>
+        {
+            new ToggleSettingViewModel("externalEnabled", "Enabled", ed.Enabled, v => ed.Enabled = v),
+            new SliderSettingViewModel("externalDwell", "Dwell Time (ms)", ed.DefaultDwellMs, 200, 3000, 50, v => ed.DefaultDwellMs = (int)v),
+            new SliderSettingViewModel("externalCooldown", "Cooldown (ms)", ed.CooldownMs, 0, 5000, 50, v => ed.CooldownMs = (int)v),
+        }));
+
         var highlightColor = new ColorSettingViewModel("highlightColor", "Highlight Color",
             _settings.AutoSelection.HighlightColor, v => _settings.AutoSelection.HighlightColor = v);
         var highlightThickness = new SliderSettingViewModel("highlightThickness", "Highlight Thickness",
@@ -192,6 +200,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         CopySettings(defaults.General, _settings.General);
         CopySettings(defaults.Calibration, _settings.Calibration);
         CopySettings(defaults.AutoSelection, _settings.AutoSelection);
+        CopySettings(defaults.ExternalDwell, _settings.ExternalDwell);
         _settings.SelectionMode = defaults.SelectionMode;
         _settings.ViewPosition = defaults.ViewPosition;
 

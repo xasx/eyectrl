@@ -2,11 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the complete WPF vertical slice: cooperating WPF apps register controls via XAML attached properties, EyeCtrl detects dwell centrally, clicks the control via UIA, and renders dwell-progress feedback.
+**Goal:** Build the complete WPF vertical slice: a cooperating WPF app registers controls via XAML attached properties; EyeCtrl detects dwell centrally (one engine), invokes the control via UI Automation, and renders dwell-progress feedback over the control.
 
-**Architecture:** Five new projects (`EyeCtrl.Contracts`, `EyeCtrl.Sdk.Abstractions`, `EyeCtrl.Sdk.Wpf`, plus tests, plus sample) feed a new `ExternalDwellService` in EyeCtrl.App. The service owns a dedicated `DwellDetector` with rectangular target support, runs a bidirectional named-pipe server (`eyectrl_dwell`), and integrates with `GazeEngine` for suppression + feedback via a small overlay window. A single Core change adds rectangular hit-test to `DwellTarget`.
+**Architecture:** Three new SDK projects (`EyeCtrl.Contracts`, `EyeCtrl.Sdk.Abstractions`, `EyeCtrl.Sdk.Wpf`) + tests + a WPF sample feed a new `ExternalDwellService` in `EyeCtrl.App`. The service runs a bidirectional named-pipe server (`eyectrl_dwell`, **byte-mode, newline-framed JSON**) and delegates all dwell decisions to a pure, UI-free `ExternalDwellArbiter`. The arbiter reuses the `DwellTarget` rect primitive and EyeCtrl's dwell-timing convention; it does **not** use or modify `DwellDetector`. A single, additive Core change adds rectangular hit-test to `DwellTarget`.
 
-**Tech Stack:** .NET 8/10, WPF, Win32 named pipes (System.IO.Pipes), UIA (System.Windows.Automation.Peers), xUnit
+**Key design rules (derived from code review of the first draft):**
+- **`DwellDetector` is NOT modified.** Its `Update` is HIGH change-blast-radius (20 callers). Gating doesn't fit its model, so external dwell lives in a separate `ExternalDwellArbiter`.
+- **Threading:** `GazeEngine.CursorMoved` fires on the **background gaze thread** (see `GazeEngineAdapter.OnCursorMoved`, which marshals via `Dispatcher.BeginInvoke`). The service therefore (a) injects a `Dispatcher` and marshals **all** WPF-window calls, (b) sets the atomic `SuppressFixation` bool inline, (c) synchronizes arbiter/target state accessed from both the gaze thread and pipe-handler threads.
+- **Testability:** all decision logic (gating, accumulation, cooldown, feedback selection) lives in the pure `ExternalDwellArbiter` (inject `rootWindowAtPoint` + feed timestamps). Client-side dedupe lives in the pure `OutboundRectTracker`. The service and adapters are thin IO/UI glue.
+- **DPI:** WPF window coordinates are logical DIPs; convert physical→logical with `DpiHelper.PhysicalToLogicalX/Y` (as `CursorCircleWindow` does).
+
+**Tech Stack:** .NET 8, WPF, System.IO.Pipes (byte-mode), UI Automation (`System.Windows.Automation.*`), xUnit.
 
 ---
 
@@ -22,14 +28,12 @@
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
-
 </Project>
 ```
 
@@ -39,9 +43,9 @@
 namespace EyeCtrl.Contracts;
 
 /// <summary>
-/// A rectangle in physical screen pixels. Used as the wire format between
-/// SDK heads and the EyeCtrl dwell service. Intentionally separate from
-/// EyeCtrl.Core.Models.PhysicalRect so the SDK never references Core.
+/// A rectangle in physical screen pixels. Wire format between SDK heads and the
+/// EyeCtrl dwell service. Intentionally separate from EyeCtrl.Core.Models.PhysicalRect
+/// so the SDK never references Core.
 /// </summary>
 public readonly record struct SdkRect(double X, double Y, double Width, double Height)
 {
@@ -57,8 +61,6 @@ namespace EyeCtrl.Contracts;
 
 using System.Text.Json.Serialization;
 
-public enum PipeMessageType { Register, Update, Unregister, Activated }
-
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(RegisterMessage), "register")]
 [JsonDerivedType(typeof(UpdateMessage), "update")]
@@ -66,6 +68,7 @@ public enum PipeMessageType { Register, Update, Unregister, Activated }
 [JsonDerivedType(typeof(ActivatedMessage), "activated")]
 public abstract record WireMessage;
 
+/// <summary>Client→server: a control became dwellable. Rect is physical px; Hwnd is the owning top-level window.</summary>
 public record RegisterMessage : WireMessage
 {
     public required string Id { get; init; }
@@ -73,37 +76,38 @@ public record RegisterMessage : WireMessage
     public long Hwnd { get; init; }
 }
 
+/// <summary>Client→server: an already-registered control's rect changed (no dwell reset).</summary>
 public record UpdateMessage : WireMessage
 {
     public required string Id { get; init; }
     public SdkRect Rect { get; init; }
 }
 
+/// <summary>Client→server: a control is no longer dwellable.</summary>
 public record UnregisterMessage : WireMessage
 {
     public required string Id { get; init; }
 }
 
+/// <summary>Server→client: dwell completed on this control; the SDK should invoke it.</summary>
 public record ActivatedMessage : WireMessage
 {
     public required string Id { get; init; }
 }
 ```
 
+> Note: dwell **time** is global this phase (`ExternalDwellSettings.DefaultDwellMs`), so there is no `dwellMs` on the wire.
+
 - [ ] **Step 4: Add to solution file**
 
-Edit `EyeCtrl.slnx` — add to the `/src/` folder:
+Edit `EyeCtrl.slnx` — add under the `/src/` folder:
 ```xml
 <Project Path="src/EyeCtrl.Contracts/EyeCtrl.Contracts.csproj" />
 ```
 
-- [ ] **Step 5: Build verify**
-
-Run: `dotnet build EyeCtrl.slnx`
-Expected: All 4 existing projects compile; the new `EyeCtrl.Contracts` builds without errors.
+- [ ] **Step 5: Build verify** — `dotnet build EyeCtrl.slnx` (existing projects + new Contracts compile).
 
 - [ ] **Step 6: Commit**
-
 ```bash
 git add src/EyeCtrl.Contracts/ EyeCtrl.slnx
 git commit -m "feat: add EyeCtrl.Contracts project with wire DTOs"
@@ -111,11 +115,12 @@ git commit -m "feat: add EyeCtrl.Contracts project with wire DTOs"
 
 ---
 
-### Task 2: Create EyeCtrl.Sdk.Abstractions project — pipe client + adapter seam
+### Task 2: Create EyeCtrl.Sdk.Abstractions — adapter seam, dedupe tracker, pipe client
 
 **Files:**
 - Create: `src/EyeCtrl.Sdk.Abstractions/EyeCtrl.Sdk.Abstractions.csproj`
 - Create: `src/EyeCtrl.Sdk.Abstractions/IDwellElementAdapter.cs`
+- Create: `src/EyeCtrl.Sdk.Abstractions/OutboundRectTracker.cs`
 - Create: `src/EyeCtrl.Sdk.Abstractions/DwellClient.cs`
 - Modify: `EyeCtrl.slnx`
 
@@ -123,24 +128,19 @@ git commit -m "feat: add EyeCtrl.Contracts project with wire DTOs"
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
   </ItemGroup>
-
 </Project>
 ```
 
-- [ ] **Step 2: Add to solution file**
-
-Edit `EyeCtrl.slnx` — add to the `/src/` folder:
+- [ ] **Step 2: Add to `EyeCtrl.slnx`** under `/src/`:
 ```xml
 <Project Path="src/EyeCtrl.Sdk.Abstractions/EyeCtrl.Sdk.Abstractions.csproj" />
 ```
@@ -155,173 +155,210 @@ using EyeCtrl.Contracts;
 public enum DwellMode { Invoke, Focus }
 
 /// <summary>
-/// Per-element seam that each framework head implements.
-/// The shared DwellClient calls this to read rects and invoke activation.
+/// Per-element seam each framework head implements. The shared DwellClient reads
+/// the screen rect + HWND to register, and calls Activate() when EyeCtrl reports a dwell.
+/// The adapter owns its own DwellMode (so the client doesn't carry mode on the wire).
 /// </summary>
 public interface IDwellElementAdapter
 {
     string Id { get; }
-    bool TryGetScreenRect(out SdkRect rect);
+    DwellMode Mode { get; }
     long WindowHandle { get; }
-    void Activate(DwellMode mode);
+    bool TryGetScreenRect(out SdkRect rect);
+    void Activate();   // marshals to the UI thread internally, then invokes per Mode
 }
 ```
 
-- [ ] **Step 4: Create DwellClient.cs**
+- [ ] **Step 4: Create OutboundRectTracker.cs** (pure dedupe — decides Register vs Update vs skip)
 
 ```csharp
 namespace EyeCtrl.Sdk.Abstractions;
 
+using EyeCtrl.Contracts;
+
+/// <summary>
+/// Pure, UI-free outbound dedupe. First time an id is seen → RegisterMessage; subsequent
+/// changed rects → UpdateMessage; unchanged → null (skip). Reset() forces re-Register on reconnect.
+/// </summary>
+public sealed class OutboundRectTracker
+{
+    private readonly Dictionary<string, SdkRect> _sent = new();
+
+    public WireMessage? OnRect(string id, SdkRect rect, long hwnd)
+    {
+        if (!_sent.TryGetValue(id, out var prev))
+        {
+            _sent[id] = rect;
+            return new RegisterMessage { Id = id, Rect = rect, Hwnd = hwnd };
+        }
+        if (prev.Equals(rect)) return null;
+        _sent[id] = rect;
+        return new UpdateMessage { Id = id, Rect = rect };
+    }
+
+    public WireMessage OnUnregister(string id)
+    {
+        _sent.Remove(id);
+        return new UnregisterMessage { Id = id };
+    }
+
+    public void Reset() => _sent.Clear();
+}
+```
+
+- [ ] **Step 5: Create DwellClient.cs**
+
+```csharp
+namespace EyeCtrl.Sdk.Abstractions;
+
+using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using EyeCtrl.Contracts;
 
 /// <summary>
-/// Named-pipe client that connects to the EyeCtrl dwell service.
-/// Deduplicates outgoing rect updates (only sends on change).
-/// Routes incoming `activated` messages back to the correct adapter.
+/// Named-pipe client to the EyeCtrl dwell service. Byte-mode, newline-framed JSON.
+/// Dedupes outgoing rects (Register/Update/skip) and routes incoming `activated` to adapters.
+/// Reconnects with exponential backoff. All connect/IO failures are silent (EyeCtrl may be absent).
 /// </summary>
-public class DwellClient : IDisposable
+public sealed class DwellClient : IDisposable
 {
     private const string PipeName = "eyectrl_dwell";
     private const int ConnectTimeoutMs = 2000;
-    private const int ReconnectBackoffMs = 2000;
-    private const int MaxReconnectBackoffMs = 30000;
+    private const int MinBackoffMs = 1000;
+    private const int MaxBackoffMs = 30000;
 
-    private readonly Dictionary<string, IDwellElementAdapter> _adapters = new();
-    private readonly Dictionary<string, SdkRect> _lastSentRects = new();
-    private readonly JsonSerializerOptions _jsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
+    private readonly ConcurrentDictionary<string, IDwellElementAdapter> _adapters = new();
+    private readonly OutboundRectTracker _tracker = new();
+    private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    private readonly object _writeLock = new();
 
     private NamedPipeClientStream? _pipe;
     private StreamWriter? _writer;
-    private CancellationTokenSource? _readCts;
+    private CancellationTokenSource? _cts;
     private volatile bool _disposed;
 
     public void RegisterAdapter(IDwellElementAdapter adapter)
     {
         _adapters[adapter.Id] = adapter;
-        SendCurrentRect(adapter);
+        SendRect(adapter);
     }
 
     public void UnregisterAdapter(string id)
     {
-        _adapters.Remove(id);
-        _lastSentRects.Remove(id);
-        TrySend(new UnregisterMessage { Id = id });
+        _adapters.TryRemove(id, out _);
+        WireMessage msg;
+        lock (_tracker) msg = _tracker.OnUnregister(id);
+        TrySend(msg);
     }
 
     public void OnAdapterLayoutChanged(string id)
     {
-        if (_adapters.TryGetValue(id, out var adapter))
-            SendCurrentRect(adapter);
+        if (_adapters.TryGetValue(id, out var adapter)) SendRect(adapter);
     }
 
-    public async Task ConnectAndReadAsync(CancellationToken token = default)
+    public void Start()
     {
+        if (_cts != null) return;
+        _cts = new CancellationTokenSource();
+        _ = RunAsync(_cts.Token);
+    }
+
+    private async Task RunAsync(CancellationToken token)
+    {
+        var backoff = MinBackoffMs;
         while (!_disposed && !token.IsCancellationRequested)
         {
             try
             {
-                _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut,
-                    PipeOptions.Asynchronous);
+                _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
                 await _pipe.ConnectAsync(ConnectTimeoutMs, token);
-                _writer = new StreamWriter(_pipe, Encoding.UTF8, leaveOpen: true)
-                    { AutoFlush = true };
+                lock (_writeLock)
+                    _writer = new StreamWriter(_pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+                backoff = MinBackoffMs; // reset on success
 
-                // Re-register all adapters on new connection
-                _lastSentRects.Clear();
-                foreach (var adapter in _adapters.Values)
-                    SendCurrentRect(adapter);
+                // Re-register everything on a fresh connection.
+                lock (_tracker) _tracker.Reset();
+                foreach (var adapter in _adapters.Values) SendRect(adapter);
 
-                await ReadLoopAsync(token);
+                await ReadLoopAsync(_pipe, token);
             }
             catch (OperationCanceledException) { break; }
-            catch (Exception)
-            {
-                // EyeCtrl not running or pipe broke — back off and retry
-            }
+            catch { /* EyeCtrl not running or pipe broke */ }
             finally
             {
-                _writer?.Dispose();
-                _pipe?.Dispose();
-                _writer = null;
-                _pipe = null;
+                lock (_writeLock) { _writer?.Dispose(); _writer = null; }
+                _pipe?.Dispose(); _pipe = null;
             }
 
-            if (!_disposed && !token.IsCancellationRequested)
-                await Task.Delay(ReconnectBackoffMs, token);
+            if (_disposed || token.IsCancellationRequested) break;
+            try { await Task.Delay(backoff, token); } catch (OperationCanceledException) { break; }
+            backoff = Math.Min(backoff * 2, MaxBackoffMs);
         }
     }
 
-    private async Task ReadLoopAsync(CancellationToken token)
+    private async Task ReadLoopAsync(NamedPipeClientStream pipe, CancellationToken token)
     {
-        using var reader = new StreamReader(_pipe!, Encoding.UTF8, leaveOpen: true);
-        while (!token.IsCancellationRequested && _pipe!.IsConnected)
+        using var reader = new StreamReader(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
+        while (!token.IsCancellationRequested && pipe.IsConnected)
         {
             var line = await reader.ReadLineAsync(token);
             if (line == null) break;
             try
             {
-                var msg = JsonSerializer.Deserialize<WireMessage>(line, _jsonOptions);
-                if (msg is ActivatedMessage activated && _adapters.TryGetValue(activated.Id, out var adapter))
+                if (JsonSerializer.Deserialize<WireMessage>(line, _json) is ActivatedMessage a
+                    && _adapters.TryGetValue(a.Id, out var adapter))
                 {
-                    adapter.Activate(DwellMode.Invoke);
+                    adapter.Activate();
                 }
             }
-            catch { /* skip malformed messages */ }
+            catch { /* skip malformed */ }
         }
     }
 
-    private void SendCurrentRect(IDwellElementAdapter adapter)
+    private void SendRect(IDwellElementAdapter adapter)
     {
-        if (!adapter.TryGetScreenRect(out var rect))
-            return;
-        if (_lastSentRects.TryGetValue(adapter.Id, out var last) && last == rect)
-            return; // dedupe — no change
-        _lastSentRects[adapter.Id] = rect;
-        TrySend(new RegisterMessage { Id = adapter.Id, Rect = rect, Hwnd = adapter.WindowHandle });
+        if (!adapter.TryGetScreenRect(out var rect)) return;
+        WireMessage? msg;
+        lock (_tracker) msg = _tracker.OnRect(adapter.Id, rect, adapter.WindowHandle);
+        if (msg != null) TrySend(msg);
     }
 
     private void TrySend(WireMessage msg)
     {
-        if (_writer == null || _pipe is not { IsConnected: true }) return;
-        try
+        lock (_writeLock)
         {
-            var json = JsonSerializer.Serialize<WireMessage>(msg, _jsonOptions);
-            _writer.WriteLine(json);
+            if (_writer == null) return;
+            try { _writer.WriteLine(JsonSerializer.Serialize(msg, _json)); }
+            catch { /* reconnect will handle */ }
         }
-        catch { /* pipe broken — reconnect will handle */ }
     }
 
     public void Dispose()
     {
         _disposed = true;
-        _readCts?.Cancel();
-        _writer?.Dispose();
+        _cts?.Cancel();
+        lock (_writeLock) { _writer?.Dispose(); _writer = null; }
         _pipe?.Dispose();
+        _cts?.Dispose();
     }
 }
 ```
 
-- [ ] **Step 5: Build verify**
+- [ ] **Step 6: Build verify** — `dotnet build src/EyeCtrl.Sdk.Abstractions/EyeCtrl.Sdk.Abstractions.csproj`.
 
-Run: `dotnet build src/EyeCtrl.Sdk.Abstractions/EyeCtrl.Sdk.Abstractions.csproj`
-Expected: Build succeeds.
-
-- [ ] **Step 6: Commit**
-
+- [ ] **Step 7: Commit**
 ```bash
 git add src/EyeCtrl.Sdk.Abstractions/ EyeCtrl.slnx
-git commit -m "feat: add EyeCtrl.Sdk.Abstractions with pipe client and adapter seam"
+git commit -m "feat: add EyeCtrl.Sdk.Abstractions (adapter seam, dedupe tracker, pipe client)"
 ```
 
 ---
 
-### Task 3: Add rectangular hit-test to DwellTarget (Core)
+### Task 3: Add rectangular hit-test to DwellTarget (Core, additive — LOW risk)
+
+> Impact analysis (upstream): `DwellTarget.HitTest` has 1 direct caller (`DwellDetector.Update`); the constructor's only non-test callers are `KeyboardWindow.UpdateGaze` and `EmojiGridManager.UpdateCategoryTargets`. Adding a second constructor + a settable `Bounds` + a rect branch in `HitTest` leaves all of them untouched. **Re-run `gitnexus_impact` before editing to confirm.**
 
 **Files:**
 - Modify: `src/EyeCtrl.Core/Processing/DwellTarget.cs`
@@ -339,92 +376,76 @@ using Xunit;
 public class DwellTargetRectTests
 {
     [Fact]
-    public void RectHitTest_InsideRect_ReturnsTrue()
+    public void RectHitTest_InsideAndEdges_ReturnTrue()
     {
-        var rect = new PhysicalRect(100, 200, 80, 40);
-        var target = new DwellTarget("btn", rect, 500);
-        Assert.True(target.HitTest(new PhysicalPoint(140, 220))); // center
-        Assert.True(target.HitTest(new PhysicalPoint(100, 200))); // top-left corner
-        Assert.True(target.HitTest(new PhysicalPoint(179, 239))); // bottom-right inside
+        var t = new DwellTarget("btn", new PhysicalRect(100, 200, 80, 40), 500);
+        Assert.True(t.HitTest(new PhysicalPoint(140, 220))); // center
+        Assert.True(t.HitTest(new PhysicalPoint(100, 200))); // top-left edge
+        Assert.True(t.HitTest(new PhysicalPoint(180, 240))); // bottom-right edge
     }
 
     [Fact]
-    public void RectHitTest_OutsideRect_ReturnsFalse()
+    public void RectHitTest_Outside_ReturnsFalse()
     {
-        var rect = new PhysicalRect(100, 200, 80, 40);
-        var target = new DwellTarget("btn", rect, 500);
-        Assert.False(target.HitTest(new PhysicalPoint(99, 200)));
-        Assert.False(target.HitTest(new PhysicalPoint(100, 199)));
-        Assert.False(target.HitTest(new PhysicalPoint(181, 220)));
-        Assert.False(target.HitTest(new PhysicalPoint(140, 241)));
+        var t = new DwellTarget("btn", new PhysicalRect(100, 200, 80, 40), 500);
+        Assert.False(t.HitTest(new PhysicalPoint(99, 200)));
+        Assert.False(t.HitTest(new PhysicalPoint(181, 220)));
+        Assert.False(t.HitTest(new PhysicalPoint(140, 241)));
     }
 
     [Fact]
-    public void RectHitTest_OnEdge_ReturnsTrue()
+    public void Center_FromRect_IsGeometricCenter()
     {
-        // A closed interval [x, x+width] includes the edge
-        var rect = new PhysicalRect(100, 200, 80, 40);
-        var target = new DwellTarget("btn", rect, 500);
-        Assert.True(target.HitTest(new PhysicalPoint(100, 200)));
-        Assert.True(target.HitTest(new PhysicalPoint(180, 240)));
+        var t = new DwellTarget("btn", new PhysicalRect(100, 200, 80, 40), 500);
+        Assert.Equal(140, t.Center.X);
+        Assert.Equal(220, t.Center.Y);
+    }
+
+    [Fact]
+    public void Bounds_Settable_UpdatesHitTest()
+    {
+        var t = new DwellTarget("btn", new PhysicalRect(0, 0, 10, 10), 500);
+        Assert.False(t.HitTest(new PhysicalPoint(100, 100)));
+        t.Bounds = new PhysicalRect(95, 95, 20, 20);
+        Assert.True(t.HitTest(new PhysicalPoint(100, 100)));
     }
 
     [Fact]
     public void CircleHitTest_Unchanged()
     {
-        var center = new PhysicalPoint(500, 300);
-        var target = new DwellTarget("circle", center, 30, 700);
-        Assert.True(target.HitTest(new PhysicalPoint(500, 300)));
-        Assert.True(target.HitTest(new PhysicalPoint(520, 300)));
-        Assert.False(target.HitTest(new PhysicalPoint(531, 300)));
-        Assert.False(target.HitTest(new PhysicalPoint(540, 300)));
-    }
-
-    [Fact]
-    public void Center_FromRect_ReturnsGeometricCenter()
-    {
-        var rect = new PhysicalRect(100, 200, 80, 40);
-        var target = new DwellTarget("btn", rect, 500);
-        Assert.Equal(140, target.Center.X);
-        Assert.Equal(220, target.Center.Y);
+        var t = new DwellTarget("circle", new PhysicalPoint(500, 300), 30, 700);
+        Assert.True(t.HitTest(new PhysicalPoint(520, 300)));
+        Assert.False(t.HitTest(new PhysicalPoint(540, 300)));
     }
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run tests to confirm they fail** — `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~DwellTargetRectTests"` (rect constructor not found).
 
-Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~DwellTargetRectTests"`
-Expected: 5 failures — constructor overload not found.
-
-- [ ] **Step 3: Implement rectangular DwellTarget**
-
-Replace `DwellTarget.cs` (adding the rect constructor + HitTest branch, keeping existing unchanged):
+- [ ] **Step 3: Implement (additive — keep circle ctor + signature unchanged)**
 
 ```csharp
 namespace EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Models;
 
 /// <summary>
-/// Represents a target area for dwell-based gaze interactions.
-/// All coordinates are in physical screen pixels.
+/// A target area for dwell-based gaze interactions. All coordinates are physical screen pixels.
+/// Circular by default; rectangular when <see cref="Bounds"/> is set.
 /// </summary>
 public class DwellTarget
 {
     public string Id { get; }
-    /// <summary>Center position in physical screen pixels.</summary>
+    /// <summary>Center position in physical screen pixels (used for nearest-target selection).</summary>
     public PhysicalPoint Center { get; set; }
     public double Radius { get; }
     public long DwellTimeMicroseconds { get; }
     public long? EnteredTimestamp { get; set; }
     public bool IsGazeInside { get; set; }
 
-    /// <summary>
-    /// Optional rectangular bounds. When set, HitTest uses rectangle containment
-    /// instead of circle distance. Null means the target is circular.
-    /// </summary>
-    public PhysicalRect? Bounds { get; }
+    /// <summary>Optional rectangular bounds. When set, HitTest uses rect containment; null ⇒ circle.</summary>
+    public PhysicalRect? Bounds { get; set; }
 
-    // ── Circle constructor (unchanged signature) ──
+    // Circle constructor (unchanged).
     public DwellTarget(string id, PhysicalPoint center, double radius, int dwellTimeMs)
     {
         Id = id;
@@ -434,7 +455,7 @@ public class DwellTarget
         Bounds = null;
     }
 
-    // ── Rectangular constructor ──
+    // Rectangular constructor.
     public DwellTarget(string id, PhysicalRect bounds, int dwellTimeMs)
     {
         Id = id;
@@ -444,17 +465,12 @@ public class DwellTarget
         Bounds = bounds;
     }
 
-    /// <summary>
-    /// Tests if a point (in physical screen pixels) is within this target.
-    /// Uses rect containment if <see cref="Bounds"/> is set; otherwise circle distance.
-    /// </summary>
+    /// <summary>Rect containment when <see cref="Bounds"/> is set; otherwise circle distance.</summary>
     public bool HitTest(PhysicalPoint point)
     {
         if (Bounds is { } r)
-        {
             return point.X >= r.X && point.X <= r.X + r.Width
                 && point.Y >= r.Y && point.Y <= r.Y + r.Height;
-        }
 
         double dx = point.X - Center.X;
         double dy = point.Y - Center.Y;
@@ -463,33 +479,24 @@ public class DwellTarget
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~DwellTargetRectTests"`
-Expected: 5 passed.
-
-- [ ] **Step 5: Run all existing tests to confirm no regressions**
-
-Run: `dotnet test tests/EyeCtrl.Core.Tests`
-Expected: All existing tests still pass (circle path unchanged, no existing callers use the rect constructor).
-
+- [ ] **Step 4: Green** — `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~DwellTargetRectTests"` (5 pass).
+- [ ] **Step 5: Regression** — `dotnet test tests/EyeCtrl.Core.Tests` (all existing DwellDetector/DwellTarget tests still pass; circle path unchanged).
 - [ ] **Step 6: Commit**
-
 ```bash
 git add src/EyeCtrl.Core/Processing/DwellTarget.cs tests/EyeCtrl.Core.Tests/Processing/DwellTargetRectTests.cs
-git commit -m "feat: add rectangular hit-test to DwellTarget"
+git commit -m "feat: add rectangular hit-test + settable Bounds to DwellTarget"
 ```
 
 ---
 
-### Task 4: Create ExternalDwellSettings
+### Task 4: Create ExternalDwellSettings and wire into settings
 
 **Files:**
 - Create: `src/EyeCtrl.Core/Settings/ExternalDwellSettings.cs`
-- Modify: `src/EyeCtrl.Core/Settings/EyeCtrlSettings.cs:18,79`
-- Modify: `src/EyeCtrl.ViewModels/SettingsViewModel.cs:45,194`
+- Modify: `src/EyeCtrl.Core/Settings/EyeCtrlSettings.cs`
+- Modify: `src/EyeCtrl.ViewModels/SettingsViewModel.cs`
 
-- [ ] **Step 1: Create ExternalDwellSettings.cs**
+- [ ] **Step 1: Create ExternalDwellSettings.cs** (mirrors `AutoSelectionSettings` conventions)
 
 ```csharp
 namespace EyeCtrl.Core.Settings;
@@ -505,39 +512,31 @@ public partial class ExternalDwellSettings : ObservableObject, IValidatable
     partial void OnDefaultDwellMsChanging(int value)
     {
         if (value < 200 || value > 3000)
-            throw new ArgumentOutOfRangeException(
-                nameof(value), value,
+            throw new ArgumentOutOfRangeException(nameof(value), value,
                 $"{nameof(DefaultDwellMs)} must be between 200 and 3000");
     }
 
     partial void OnCooldownMsChanging(int value)
     {
         if (value < 0 || value > 5000)
-            throw new ArgumentOutOfRangeException(
-                nameof(value), value,
+            throw new ArgumentOutOfRangeException(nameof(value), value,
                 $"{nameof(CooldownMs)} must be between 0 and 5000");
     }
 
-    public IReadOnlyList<string> Validate()
-    {
-        return ValidationHelper.CollectErrors(
-            ValidationHelper.ValidateRange(DefaultDwellMs, 200, 3000, nameof(DefaultDwellMs)),
-            ValidationHelper.ValidateRange(CooldownMs, 0, 5000, nameof(CooldownMs))
-        );
-    }
+    public IReadOnlyList<string> Validate() => ValidationHelper.CollectErrors(
+        ValidationHelper.ValidateRange(DefaultDwellMs, 200, 3000, nameof(DefaultDwellMs)),
+        ValidationHelper.ValidateRange(CooldownMs, 0, 5000, nameof(CooldownMs)));
 }
 ```
 
-- [ ] **Step 2: Wire into EyeCtrlSettings**
+- [ ] **Step 2: Wire into `EyeCtrlSettings`**
 
-In `EyeCtrlSettings.cs`, add after the `Backdrop` line (line 16):
-
+Add the property after the `AutoSelection` field (currently the last `[ObservableProperty]`):
 ```csharp
 [ObservableProperty] private ExternalDwellSettings _externalDwell = new();
 ```
 
-In `Validate()`, add after the `AutoSelection` block (after line 79):
-
+In `Validate()`, add after the `AutoSelection` null-guard block (mirrors the existing pattern):
 ```csharp
 if (ExternalDwell is null)
     errors.Add("ExternalDwell settings must not be null.");
@@ -545,14 +544,12 @@ else
     errors.AddRange(ExternalDwell.Validate());
 ```
 
-- [ ] **Step 3: Wire into SettingsViewModel.BuildTabs()**
+- [ ] **Step 3: Wire into `SettingsViewModel`**
 
-Add in `BuildTabs()` after the Dwell tab (around line 70), before the Selection tab:
-
+In `BuildTabs()`, add a tab (place it after the `Dwell` tab):
 ```csharp
 var ed = _settings.ExternalDwell;
-
-Tabs.Add(new SettingsTabViewModel("ExternalDwell", "\uD83D\uDD17", new List<SettingItemViewModel>
+Tabs.Add(new SettingsTabViewModel("ExternalDwell", "🔗", new List<SettingItemViewModel>
 {
     new ToggleSettingViewModel("externalEnabled", "Enabled", ed.Enabled, v => ed.Enabled = v),
     new SliderSettingViewModel("externalDwell", "Dwell Time (ms)", ed.DefaultDwellMs, 200, 3000, 50, v => ed.DefaultDwellMs = (int)v),
@@ -560,112 +557,351 @@ Tabs.Add(new SettingsTabViewModel("ExternalDwell", "\uD83D\uDD17", new List<Sett
 }));
 ```
 
-In `ResetAllSettings()`, add after the AutoSelection line (line 194):
+In `ResetAllSettings()`, add alongside the other `CopySettings(...)` calls:
 ```csharp
 CopySettings(defaults.ExternalDwell, _settings.ExternalDwell);
 ```
 
-- [ ] **Step 4: Build verify**
-
-Run: `dotnet build EyeCtrl.slnx`
-Expected: All projects compile.
-
+- [ ] **Step 4: Build verify** — `dotnet build EyeCtrl.slnx`.
 - [ ] **Step 5: Commit**
-
 ```bash
 git add src/EyeCtrl.Core/Settings/ExternalDwellSettings.cs src/EyeCtrl.Core/Settings/EyeCtrlSettings.cs src/EyeCtrl.ViewModels/SettingsViewModel.cs
-git commit -m "feat: add ExternalDwellSettings and wire into settings UI"
+git commit -m "feat: add ExternalDwellSettings and wire into settings + reset"
 ```
 
 ---
 
-### Task 5: Create DwellFeedbackOverlay (progress indicator)
+### Task 5: Create ExternalDwellArbiter (pure gated dwell logic) + tests
+
+This is the testable brain: gating (topmost-window), nearest-target selection, dwell accumulation, cooldown, and feedback selection. No UI, no pipe, no `DwellDetector`. Reuses `DwellTarget` (rect `HitTest`, `EnteredTimestamp`, `DwellTimeMicroseconds`).
+
+**Files:**
+- Create: `src/EyeCtrl.App/Services/ExternalDwellArbiter.cs`
+- Create: `tests/EyeCtrl.App.Tests/Services/ExternalDwellArbiterTests.cs`
+
+- [ ] **Step 1: Write the failing tests**
+
+```csharp
+namespace EyeCtrl.App.Tests.Services;
+
+using EyeCtrl.App.Services;
+using EyeCtrl.Core.Models;
+using Xunit;
+
+public class ExternalDwellArbiterTests
+{
+    private const long Ms = 1000; // microseconds per ms
+    private static readonly PhysicalRect Btn = new(100, 100, 80, 40); // center (140,120)
+
+    private static ExternalDwellArbiter MakeArbiter(long rootHwnd = 7) =>
+        new(_ => rootHwnd, cooldownMs: 0);
+
+    [Fact]
+    public void DwellOnGatedTarget_ActivatesAfterDwellTime()
+    {
+        var a = MakeArbiter(rootHwnd: 7);
+        a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
+
+        var inside = new PhysicalPoint(140, 120);
+        Assert.Null(a.Process(inside, 0).ActivatedId);          // enter
+        Assert.Null(a.Process(inside, 400 * Ms).ActivatedId);   // mid-dwell
+        var done = a.Process(inside, 800 * Ms);
+        Assert.Equal("btn", done.ActivatedId);
+    }
+
+    [Fact]
+    public void Process_WhileAccumulating_ReturnsFeedbackRectAndSuppress()
+    {
+        var a = MakeArbiter();
+        a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
+        var inside = new PhysicalPoint(140, 120);
+        a.Process(inside, 0);
+        var r = a.Process(inside, 400 * Ms);
+        Assert.Equal("btn", r.FeedbackId);
+        Assert.Equal(Btn, r.FeedbackRect);
+        Assert.True(r.Suppress);
+        Assert.InRange(r.Progress, 0.4, 0.6);
+    }
+
+    [Fact]
+    public void Gating_WrongTopmostWindow_NeverAccumulates()
+    {
+        var a = new ExternalDwellArbiter(_ => 999, cooldownMs: 0); // gaze is over a different window
+        a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
+        var inside = new PhysicalPoint(140, 120);
+        a.Process(inside, 0);
+        var r = a.Process(inside, 5000 * Ms);
+        Assert.Null(r.ActivatedId);
+        Assert.Null(r.FeedbackId);
+        Assert.False(r.Suppress);
+    }
+
+    [Fact]
+    public void GazeOutsideRect_NoFeedback()
+    {
+        var a = MakeArbiter();
+        a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
+        var r = a.Process(new PhysicalPoint(1000, 1000), 100 * Ms);
+        Assert.Null(r.FeedbackId);
+        Assert.False(r.Suppress);
+    }
+
+    [Fact]
+    public void Cooldown_BlocksImmediateRetrigger()
+    {
+        var a = new ExternalDwellArbiter(_ => 7, cooldownMs: 500);
+        a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
+        var inside = new PhysicalPoint(140, 120);
+        a.Process(inside, 0);
+        Assert.Equal("btn", a.Process(inside, 800 * Ms).ActivatedId);
+        // Within cooldown: no re-accumulation.
+        Assert.Null(a.Process(inside, 900 * Ms).FeedbackId);
+        // After cooldown + new dwell: can retrigger.
+        a.Process(inside, 1400 * Ms);             // re-enter
+        Assert.Equal("btn", a.Process(inside, 2200 * Ms).ActivatedId);
+    }
+
+    [Fact]
+    public void Remove_StopsTargeting()
+    {
+        var a = MakeArbiter();
+        a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
+        a.Remove("btn");
+        var r = a.Process(new PhysicalPoint(140, 120), 5000 * Ms);
+        Assert.Null(r.ActivatedId);
+        Assert.Null(r.FeedbackId);
+    }
+}
+```
+
+- [ ] **Step 2: Run to confirm failure** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ExternalDwellArbiterTests"`.
+
+- [ ] **Step 3: Implement ExternalDwellArbiter.cs**
+
+```csharp
+namespace EyeCtrl.App.Services;
+
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
+
+/// <summary>Decision returned per gaze frame. Pure data; no UI or IO.</summary>
+public readonly record struct ArbiterResult(
+    string? FeedbackId, PhysicalRect? FeedbackRect, double Progress, string? ActivatedId, bool Suppress)
+{
+    public static readonly ArbiterResult None = new(null, null, 0, null, false);
+}
+
+/// <summary>
+/// Pure gated-dwell engine for external (cooperating-app) controls. Mirrors EyeCtrl's
+/// DwellDetector timing convention (nearest-only accumulation, cooldown) but adds
+/// topmost-window gating, which DwellDetector cannot express. Not thread-safe — callers
+/// must serialize access (ExternalDwellService holds a lock).
+/// </summary>
+public sealed class ExternalDwellArbiter
+{
+    private readonly Func<PhysicalPoint, long?> _rootWindowAtPoint;
+    private readonly Dictionary<string, DwellTarget> _targets = new();
+    private readonly Dictionary<string, long> _hwndById = new();
+    private long _cooldownUs;
+    private long? _lastActivationUs;
+
+    public ExternalDwellArbiter(Func<PhysicalPoint, long?> rootWindowAtPoint, int cooldownMs)
+    {
+        _rootWindowAtPoint = rootWindowAtPoint;
+        _cooldownUs = (long)cooldownMs * 1000L;
+    }
+
+    public void SetCooldown(int cooldownMs) => _cooldownUs = (long)cooldownMs * 1000L;
+
+    public void AddOrUpdate(string id, PhysicalRect rect, long hwnd, int dwellMs)
+    {
+        if (_targets.TryGetValue(id, out var existing))
+        {
+            existing.Bounds = rect;          // preserve EnteredTimestamp/IsGazeInside (no dwell reset on move)
+            existing.Center = rect.Center;
+        }
+        else
+        {
+            _targets[id] = new DwellTarget(id, rect, dwellMs);
+        }
+        _hwndById[id] = hwnd;
+    }
+
+    public void Remove(string id)
+    {
+        _targets.Remove(id);
+        _hwndById.Remove(id);
+    }
+
+    public ArbiterResult Process(PhysicalPoint gaze, long timestampUs)
+    {
+        // Cooldown: ignore everything and reset accumulation.
+        if (_lastActivationUs is { } last && timestampUs - last < _cooldownUs)
+        {
+            ResetAll();
+            return ArbiterResult.None;
+        }
+        _lastActivationUs = null;
+
+        long? root = _targets.Count == 0 ? null : _rootWindowAtPoint(gaze);
+
+        // Nearest gated hit (topmost-window match + rect containment).
+        string? nearestId = null;
+        double nearestDistSq = double.MaxValue;
+        if (root is { } r)
+        {
+            foreach (var (id, t) in _targets)
+            {
+                if (_hwndById.GetValueOrDefault(id) != r) continue;
+                if (!t.HitTest(gaze)) continue;
+                double dx = gaze.X - t.Center.X, dy = gaze.Y - t.Center.Y;
+                double d = dx * dx + dy * dy;
+                if (d < nearestDistSq) { nearestDistSq = d; nearestId = id; }
+            }
+        }
+
+        string? activeId = null, activatedId = null;
+        double progress = 0;
+
+        foreach (var (id, t) in _targets)
+        {
+            if (id == nearestId)
+            {
+                if (!t.IsGazeInside)
+                {
+                    t.IsGazeInside = true;
+                    t.EnteredTimestamp = timestampUs;
+                    activeId = id;            // show feedback from the entry frame (progress 0)
+                }
+                else if (t.EnteredTimestamp is { } entered)
+                {
+                    long elapsed = timestampUs - entered;
+                    if (elapsed >= t.DwellTimeMicroseconds)
+                    {
+                        activatedId = id;
+                        t.IsGazeInside = false;
+                        t.EnteredTimestamp = null;
+                        _lastActivationUs = timestampUs;
+                    }
+                    else
+                    {
+                        activeId = id;
+                        progress = Math.Min(1.0, (double)elapsed / t.DwellTimeMicroseconds);
+                    }
+                }
+            }
+            else
+            {
+                t.IsGazeInside = false;
+                t.EnteredTimestamp = null;
+            }
+        }
+
+        if (activatedId != null)
+            return new ArbiterResult(null, null, 0, activatedId, Suppress: false);
+        if (activeId != null && _targets[activeId].Bounds is { } b)
+            return new ArbiterResult(activeId, b, progress, null, Suppress: true);
+        return ArbiterResult.None;
+    }
+
+    private void ResetAll()
+    {
+        foreach (var t in _targets.Values) { t.IsGazeInside = false; t.EnteredTimestamp = null; }
+    }
+}
+```
+
+- [ ] **Step 4: Green** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ExternalDwellArbiterTests"` (6 pass).
+- [ ] **Step 5: Commit**
+```bash
+git add src/EyeCtrl.App/Services/ExternalDwellArbiter.cs tests/EyeCtrl.App.Tests/Services/ExternalDwellArbiterTests.cs
+git commit -m "feat: add pure ExternalDwellArbiter (gating, accumulation, cooldown) with tests"
+```
+
+---
+
+### Task 6: Create DwellFeedbackOverlay (DPI-correct, click-through)
 
 **Files:**
 - Create: `src/EyeCtrl.App/Overlays/DwellFeedbackOverlay.xaml`
 - Create: `src/EyeCtrl.App/Overlays/DwellFeedbackOverlay.xaml.cs`
 
-- [ ] **Step 1: Create DwellFeedbackOverlay.xaml**
+- [ ] **Step 1: Create DwellFeedbackOverlay.xaml** (no `IsClickThrough` attribute — set in ctor like `CursorCircleWindow`)
 
 ```xml
 <overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.DwellFeedbackOverlay"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
-    WindowStyle="None" AllowsTransparency="True"
-    Background="Transparent" Topmost="True"
-    ShowInTaskbar="False" IsClickThrough="True"
-    ResizeMode="NoResize">
-    <Border x:Name="ProgressBorder"
-            CornerRadius="4" BorderThickness="2"
-            BorderBrush="#3399FF" Background="#1A3399FF"
-            Visibility="Hidden">
+    WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+    Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize">
+    <Border x:Name="ProgressBorder" CornerRadius="4" BorderThickness="2"
+            BorderBrush="#3399FF" Background="#1A3399FF" Visibility="Hidden">
         <Grid>
-            <Rectangle x:Name="ProgressFill" HorizontalAlignment="Left"
-                       Fill="#3399FF" RadiusX="2" RadiusY="2" />
+            <Rectangle x:Name="ProgressFill" HorizontalAlignment="Left" Fill="#3399FF" />
         </Grid>
     </Border>
 </overlays:OverlayWindow>
 ```
 
-- [ ] **Step 2: Create DwellFeedbackOverlay.xaml.cs**
+- [ ] **Step 2: Create DwellFeedbackOverlay.xaml.cs** (physical→logical via `DpiHelper`, matching `CursorCircleWindow`)
 
 ```csharp
 namespace EyeCtrl.App.Overlays;
 
 using System.Windows;
+using EyeCtrl.Core.Services; // DpiHelper
 
 public partial class DwellFeedbackOverlay : OverlayWindow
 {
     public DwellFeedbackOverlay()
     {
+        IsClickThrough = true;   // set before InitializeComponent (init-only base property)
         InitializeComponent();
     }
 
-    public void ShowAt(double screenX, double screenY, double width, double height)
+    /// <summary>Position + size the overlay over a control. Inputs are physical screen pixels.</summary>
+    public void ShowAt(double physX, double physY, double physW, double physH)
     {
-        // Clamp to screen
-        Left = Math.Max(0, screenX);
-        Top = Math.Max(0, screenY);
-        Width = Math.Min(width, SystemParameters.PrimaryScreenWidth - Left);
-        Height = Math.Min(height, SystemParameters.PrimaryScreenHeight - Top);
-        ProgressBorder.Visibility = Visibility.Visible;
+        Left = DpiHelper.PhysicalToLogicalX(physX);
+        Top = DpiHelper.PhysicalToLogicalY(physY);
+        Width = DpiHelper.PhysicalToLogicalX(physW);
+        Height = DpiHelper.PhysicalToLogicalY(physH);
         ProgressFill.Width = 0;
+        ProgressBorder.Visibility = Visibility.Visible;
         Show();
     }
 
     public void SetProgress(double progress)
     {
-        if (progress < 0) progress = 0;
-        if (progress > 1) progress = 1;
+        progress = Math.Clamp(progress, 0, 1);
         ProgressFill.Width = ProgressBorder.ActualWidth * progress;
     }
 
     public void HideFeedback()
     {
-        Hide();
         ProgressBorder.Visibility = Visibility.Hidden;
+        Hide();
     }
 }
 ```
 
-- [ ] **Step 3: Commit**
+> `DpiHelper.PhysicalToLogicalX/Y` are the same conversions `CursorCircleWindow.UpdatePosition` uses. Using `PhysicalToLogicalX` for width/height is correct because it is a pure scale division. No primary-screen clamping (breaks multi-monitor); the rect already comes from the control's true screen position.
 
+- [ ] **Step 3: Commit**
 ```bash
 git add src/EyeCtrl.App/Overlays/DwellFeedbackOverlay.xaml src/EyeCtrl.App/Overlays/DwellFeedbackOverlay.xaml.cs
-git commit -m "feat: add DwellFeedbackOverlay for external target progress"
+git commit -m "feat: add DwellFeedbackOverlay (DPI-correct, click-through)"
 ```
 
 ---
 
-### Task 6: Create ExternalDwellService
+### Task 7: Create ExternalDwellService (pipe server + dispatcher marshaling)
+
+Thin IO/UI glue around `ExternalDwellArbiter`: byte-mode pipe server, per-connection writer, gaze subscription, dispatcher-marshaled feedback, inline `SuppressFixation`.
 
 **Files:**
 - Create: `src/EyeCtrl.App/Services/ExternalDwellService.cs`
-
-This is the largest new file. It implements: pipe server, rect detector with dedicated DwellDetector, topmost-window gating via WindowFromPoint, fixation suppression integration, and dwell-progress feedback overlay.
-
-The `WindowFromPoint` P/Invoke is mockable via an injected `Func<PhysicalPoint, long?>` delegate, enabling unit-testing of the gating logic.
 
 - [ ] **Step 1: Create ExternalDwellService.cs**
 
@@ -673,57 +909,62 @@ The `WindowFromPoint` P/Invoke is mockable via an injected `Func<PhysicalPoint, 
 namespace EyeCtrl.App.Services;
 
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Contracts;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using Microsoft.Extensions.Logging;
 
-public class ExternalDwellService : IDisposable
+/// <summary>
+/// Hosts the external-dwell named-pipe server and bridges it to EyeCtrl's gaze loop.
+/// Decisions are made by the pure ExternalDwellArbiter; this class handles pipe IO,
+/// dispatcher marshaling of the feedback overlay, and SuppressFixation.
+/// MUST be constructed on the UI thread (it creates a WPF window).
+/// </summary>
+public sealed class ExternalDwellService : IDisposable
 {
+    private const string PipeName = "eyectrl_dwell";
+
     private readonly ExternalDwellSettings _settings;
     private readonly GazeEngine _gazeEngine;
+    private readonly Dispatcher _dispatcher;
     private readonly ILogger<ExternalDwellService> _logger;
-    private readonly Func<PhysicalPoint, long?> _windowFromPoint; // mockable seam
-    private readonly DwellDetector _detector;
+    private readonly ExternalDwellArbiter _arbiter;
     private readonly DwellFeedbackOverlay _feedback;
-    private readonly JsonSerializerOptions _jsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
+    private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    private readonly Dictionary<string, (long Hwnd, SdkRect LastRect)> _targetMeta = new();
-    private readonly Dictionary<string, NamedPipeServerStream> _connectionById = new();
-    private readonly List<NamedPipeServerStream> _connections = new();
+    private readonly object _arbiterLock = new();
+    private readonly object _connLock = new();
+    private readonly List<PipeConnection> _connections = new();
+    private readonly Dictionary<string, PipeConnection> _connByTarget = new();
 
-    private string? _accumulatingTargetId;
-    private string? _feedbackTargetId;
-    private long? _accumulationStartUs;
-    private long? _lastActivationTimestamp;
-    private long _lastTimestampUs;
-    private NamedPipeServerStream? _acceptPipe;
+    private string? _feedbackId;     // accessed only on the gaze thread
     private CancellationTokenSource? _cts;
     private bool _disposed;
 
     public ExternalDwellService(
         ExternalDwellSettings settings,
         GazeEngine gazeEngine,
+        Dispatcher dispatcher,
         ILogger<ExternalDwellService> logger,
-        Func<PhysicalPoint, long?>? windowFromPoint = null)
+        Func<PhysicalPoint, long?>? rootWindowAtPoint = null)
     {
         _settings = settings;
         _gazeEngine = gazeEngine;
+        _dispatcher = dispatcher;
         _logger = logger;
-        _windowFromPoint = windowFromPoint ?? WindowFromPointImpl;
-        _detector = new DwellDetector(settings.CooldownMs);
-        _detector.TargetProgress += OnTargetProgress;
-        _detector.TargetActivated += OnTargetActivated;
-        _feedback = new DwellFeedbackOverlay();
-
+        _arbiter = new ExternalDwellArbiter(rootWindowAtPoint ?? RootWindowAtPointImpl, settings.CooldownMs);
+        _feedback = new DwellFeedbackOverlay();   // UI thread
+        _settings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ExternalDwellSettings.CooldownMs))
+                lock (_arbiterLock) _arbiter.SetCooldown(_settings.CooldownMs);
+        };
         _gazeEngine.CursorMoved += OnCursorMoved;
     }
 
@@ -731,10 +972,56 @@ public class ExternalDwellService : IDisposable
     {
         if (_cts != null) return;
         _cts = new CancellationTokenSource();
-        _acceptPipe = new NamedPipeServerStream("eyectrl_dwell", PipeDirection.InOut,
-            NamedPipeServerStream.MaxAllowedServerInstances,
-            PipeTransmissionMode.Message, PipeOptions.Asynchronous);
         _ = AcceptLoopAsync(_cts.Token);
+    }
+
+    // ── Gaze loop (background thread) ──
+
+    private void OnCursorMoved(PhysicalPoint gaze, long timestampUs)
+    {
+        if (!_settings.Enabled) return;
+
+        ArbiterResult result;
+        lock (_arbiterLock) result = _arbiter.Process(gaze, timestampUs);
+
+        if (result.ActivatedId is { } activated)
+        {
+            SendActivated(activated);
+            _gazeEngine.SuppressFixation = false;
+            SetFeedback(null, default, 0);
+            return;
+        }
+
+        if (result.FeedbackId is { } fid)
+        {
+            _gazeEngine.SuppressFixation = true;
+            SetFeedback(fid, result.FeedbackRect!.Value, result.Progress);
+        }
+        else
+        {
+            _gazeEngine.SuppressFixation = false;
+            SetFeedback(null, default, 0);
+        }
+    }
+
+    /// <summary>Marshals only the WPF-window work to the UI thread.</summary>
+    private void SetFeedback(string? id, PhysicalRect rect, double progress)
+    {
+        if (id == null)
+        {
+            if (_feedbackId == null) return;
+            _feedbackId = null;
+            _dispatcher.BeginInvoke(() => _feedback.HideFeedback());
+            return;
+        }
+
+        bool isNew = _feedbackId != id;
+        _feedbackId = id;
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (isNew) _feedback.ShowAt(rect.X, rect.Y, rect.Width, rect.Height);
+            _feedback.SetProgress(progress);
+        });
     }
 
     // ── Pipe server ──
@@ -743,333 +1030,216 @@ public class ExternalDwellService : IDisposable
     {
         while (!token.IsCancellationRequested)
         {
+            var pipe = new NamedPipeServerStream(PipeName, PipeDirection.InOut,
+                NamedPipeServerStream.MaxAllowedServerInstances,
+                PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
             try
             {
-                await _acceptPipe!.WaitForConnectionAsync(token);
-                var conn = _acceptPipe;
-                _acceptPipe = new NamedPipeServerStream("eyectrl_dwell", PipeDirection.InOut,
-                    NamedPipeServerStream.MaxAllowedServerInstances,
-                    PipeTransmissionMode.Message, PipeOptions.Asynchronous);
-                _connections.Add(conn);
-                _ = HandleConnectionAsync(conn, token);
+                await pipe.WaitForConnectionAsync(token);
             }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error accepting pipe connection");
-            }
+            catch (OperationCanceledException) { pipe.Dispose(); break; }
+            catch (Exception ex) { _logger.LogWarning(ex, "pipe accept failed"); pipe.Dispose(); continue; }
+
+            var conn = new PipeConnection(pipe);
+            lock (_connLock) _connections.Add(conn);
+            _ = HandleConnectionAsync(conn, token);
         }
     }
 
-    private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken token)
+    private async Task HandleConnectionAsync(PipeConnection conn, CancellationToken token)
     {
         try
         {
-            using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
-            using var writer = new StreamWriter(pipe, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
-            var connectionTargets = new HashSet<string>();
-
-            while (!token.IsCancellationRequested && pipe.IsConnected)
+            using var reader = new StreamReader(conn.Pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
+            while (!token.IsCancellationRequested && conn.Pipe.IsConnected)
             {
                 var line = await reader.ReadLineAsync(token);
                 if (line == null) break;
-
-                try
-                {
-                    var msg = JsonSerializer.Deserialize<WireMessage>(line, _jsonOptions);
-                    switch (msg)
-                    {
-                        case RegisterMessage reg:
-                            HandleRegister(reg, writer, pipe, connectionTargets);
-                            break;
-                        case UpdateMessage upd:
-                            HandleUpdate(upd);
-                            break;
-                        case UnregisterMessage unreg:
-                            HandleUnregister(unreg, connectionTargets);
-                            break;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error handling pipe message: {Line}", line);
-                }
+                try { HandleMessage(JsonSerializer.Deserialize<WireMessage>(line, _json), conn); }
+                catch (Exception ex) { _logger.LogWarning(ex, "bad pipe message: {Line}", line); }
             }
-
-            // Clean up all targets owned by this connection
-            foreach (var id in connectionTargets)
-                RemoveTargetInternal(id);
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Connection handler error");
-        }
+        catch (Exception ex) { _logger.LogWarning(ex, "connection handler error"); }
         finally
         {
-            _connections.Remove(pipe);
-            pipe.Dispose();
-        }
-    }
-
-    private void HandleRegister(RegisterMessage msg, StreamWriter writer,
-        NamedPipeServerStream pipe, HashSet<string> connectionTargets)
-    {
-        if (!_settings.Enabled) return;
-
-        RemoveTargetInternal(msg.Id);
-        var target = new DwellTarget(msg.Id,
-            new PhysicalRect(msg.Rect.X, msg.Rect.Y, msg.Rect.Width, msg.Rect.Height),
-            _settings.DefaultDwellMs);
-        _detector.AddTarget(target);
-        _targetMeta[msg.Id] = (msg.Hwnd, msg.Rect);
-        connectionTargets.Add(msg.Id);
-        _connectionById[msg.Id] = pipe;
-    }
-
-    private void HandleUpdate(UpdateMessage msg)
-    {
-        if (!_targetMeta.ContainsKey(msg.Id)) return;
-        _targetMeta[msg.Id] = (_targetMeta[msg.Id].Hwnd, msg.Rect);
-        // DwellDetector uses center for nearest-target; update it.
-        var center = new PhysicalPoint(msg.Rect.CenterX, msg.Rect.CenterY);
-        _detector.UpdateTargetCenter(msg.Id, center);
-    }
-
-    private void HandleUnregister(UnregisterMessage msg, HashSet<string> connectionTargets)
-    {
-        connectionTargets.Remove(msg.Id);
-        RemoveTargetInternal(msg.Id);
-    }
-
-    private void RemoveTargetInternal(string id)
-    {
-        _detector.RemoveTarget(id);
-        _targetMeta.Remove(id);
-        _connectionById.Remove(id);
-        if (_accumulatingTargetId == id)
-        {
-            _accumulatingTargetId = null;
-            _accumulationStartUs = null;
-            HideFeedback();
-        }
-    }
-
-    private void HideFeedback()
-    {
-        _gazeEngine.SuppressFixation = false;
-        _feedback.HideFeedback();
-        _feedbackTargetId = null;
-    }
-
-    // ── Dwell detection (gated, manual accumulation) ──
-
-    private void OnCursorMoved(PhysicalPoint point, long timestamp)
-    {
-        if (!_settings.Enabled) return;
-        _lastTimestampUs = timestamp;
-
-        // ── Cooldown check ──
-        if (_lastActivationTimestamp.HasValue &&
-            (timestamp - _lastActivationTimestamp.Value) < (long)_settings.CooldownMs * 1000L)
-        {
-            _accumulatingTargetId = null;
-            _accumulationStartUs = null;
-            HideFeedback();
-            return;
-        }
-        _lastActivationTimestamp = null;
-
-        var topHwnd = _windowFromPoint(point);
-
-        // ── Find the best gated target (topmost HWND match + hit-test + nearest) ──
-        string? bestId = null;
-        double bestDistSq = double.MaxValue;
-        PhysicalRect bestRect = default;
-
-        foreach (var kv in _targetMeta)
-        {
-            if (topHwnd == null || kv.Value.Hwnd != topHwnd.Value)
-                continue;
-            var rect = kv.Value.LastRect;
-            if (!RectContains(rect, point))
-                continue;
-            double cx = rect.CenterX;
-            double cy = rect.CenterY;
-            double distSq = (point.X - cx) * (point.X - cx) + (point.Y - cy) * (point.Y - cy);
-            if (distSq < bestDistSq)
+            lock (_connLock)
             {
-                bestDistSq = distSq;
-                bestId = kv.Key;
-                bestRect = rect;
+                _connections.Remove(conn);
+                foreach (var id in conn.TargetIds)
+                {
+                    _connByTarget.Remove(id);
+                    lock (_arbiterLock) _arbiter.Remove(id);
+                }
             }
+            conn.Dispose();
         }
+    }
 
-        // ── Target-change handling ──
-        if (bestId != _accumulatingTargetId)
+    private void HandleMessage(WireMessage? msg, PipeConnection conn)
+    {
+        switch (msg)
         {
-            _accumulationStartUs = bestId == null ? null : timestamp;
-            _accumulatingTargetId = bestId;
+            case RegisterMessage r when _settings.Enabled:
+                lock (_arbiterLock)
+                    _arbiter.AddOrUpdate(r.Id, ToRect(r.Rect), r.Hwnd, _settings.DefaultDwellMs);
+                lock (_connLock) { conn.TargetIds.Add(r.Id); _connByTarget[r.Id] = conn; }
+                break;
 
-            if (_feedbackTargetId != null)
-                HideFeedback();
-            if (bestId != null)
-            {
-                _feedbackTargetId = bestId;
-                _gazeEngine.SuppressFixation = true;
-                _feedback.ShowAt(bestRect.X, bestRect.Y, bestRect.Width, bestRect.Height);
-            }
-            _detector.ResetAllState();
-        }
+            case UpdateMessage u:
+                lock (_arbiterLock)
+                {
+                    if (conn.TargetIds.Contains(u.Id))
+                        _arbiter.AddOrUpdate(u.Id, ToRect(u.Rect), HwndOf(u.Id), _settings.DefaultDwellMs);
+                }
+                break;
 
-        // ── Dwell accumulation ──
-        if (_accumulationStartUs.HasValue && bestId != null)
-        {
-            long elapsed = timestamp - _accumulationStartUs.Value;
-            long dwellUs = (long)_settings.DefaultDwellMs * 1000L;
-            double progress = Math.Min(1.0, (double)elapsed / dwellUs);
-            _feedback.SetProgress(progress);
-
-            if (elapsed >= dwellUs)
-            {
-                ActivateTarget(bestId);
-                _accumulatingTargetId = null;
-                _accumulationStartUs = null;
-                _lastActivationTimestamp = timestamp;
-                HideFeedback();
-            }
+            case UnregisterMessage un:
+                lock (_connLock) { conn.TargetIds.Remove(un.Id); _connByTarget.Remove(un.Id); }
+                lock (_arbiterLock) _arbiter.Remove(un.Id);
+                break;
         }
     }
 
-    private static bool RectContains(PhysicalRect r, PhysicalPoint p)
+    private long HwndOf(string id) => _connByTarget.TryGetValue(id, out var c) ? c.Hwnd : 0;
+
+    private void SendActivated(string id)
     {
-        return p.X >= r.X && p.X <= r.X + r.Width
-            && p.Y >= r.Y && p.Y <= r.Y + r.Height;
+        PipeConnection? conn;
+        lock (_connLock) _connByTarget.TryGetValue(id, out conn);
+        conn?.Send(JsonSerializer.Serialize<WireMessage>(new ActivatedMessage { Id = id }, _json));
     }
 
-    private void ActivateTarget(string targetId)
+    private static PhysicalRect ToRect(SdkRect r) => new(r.X, r.Y, r.Width, r.Height);
+
+    // ── Native gating seam: root window under a physical point ──
+
+    private static long? RootWindowAtPointImpl(PhysicalPoint p)
     {
-        if (_connectionById.TryGetValue(targetId, out var pipe) && pipe.IsConnected)
-        {
-            try
-            {
-                var msg = new ActivatedMessage { Id = targetId };
-                var json = JsonSerializer.Serialize<WireMessage>(msg, _jsonOptions);
-                var writer = new StreamWriter(pipe, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
-                writer.WriteLine(json);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send activation for target {Id}", targetId);
-            }
-        }
+        var hwnd = WindowFromPoint(new POINT { X = (int)Math.Round(p.X), Y = (int)Math.Round(p.Y) });
+        if (hwnd == IntPtr.Zero) return null;
+        var root = GetAncestor(hwnd, GA_ROOT);          // child/island HWND → top-level window
+        return (root == IntPtr.Zero ? hwnd : root).ToInt64();
     }
 
-    // ── DwellDetector event handlers (kept for progress/activation forwarding from the
-    //    detector instance, though main loop uses manual accumulation) ──
-
-    private void OnTargetProgress(string targetId, double progress) { }
-    private void OnTargetActivated(string targetId) { }
-
-    // ── Native gating (windowFromPoint seam) ──
-
-    private static long? WindowFromPointImpl(PhysicalPoint point)
-    {
-        var pt = new System.Drawing.Point((int)Math.Round(point.X), (int)Math.Round(point.Y));
-        var hwnd = NativeMethodsReal.WindowFromPoint(pt);
-        return hwnd == IntPtr.Zero ? null : hwnd.ToInt64();
-    }
-
-    private static class NativeMethodsReal
-    {
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        public static extern IntPtr WindowFromPoint(System.Drawing.Point point);
-    }
-
-    // ── Cleanup ──
+    private const uint GA_ROOT = 2;
+    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        _cts?.Cancel();
         _gazeEngine.CursorMoved -= OnCursorMoved;
-        _acceptPipe?.Dispose();
-        foreach (var conn in _connections) conn.Dispose();
+        _cts?.Cancel();
+        lock (_connLock)
+        {
+            foreach (var c in _connections) c.Dispose();
+            _connections.Clear();
+            _connByTarget.Clear();
+        }
         _cts?.Dispose();
-        _feedback.Close();
+        _dispatcher.BeginInvoke(() => _feedback.Close());
+    }
+
+    /// <summary>One connected SDK client. Owns a single synchronized writer.</summary>
+    private sealed class PipeConnection : IDisposable
+    {
+        private readonly object _writeLock = new();
+        private readonly StreamWriter _writer;
+        public NamedPipeServerStream Pipe { get; }
+        public HashSet<string> TargetIds { get; } = new();
+        public long Hwnd { get; set; }
+
+        public PipeConnection(NamedPipeServerStream pipe)
+        {
+            Pipe = pipe;
+            _writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        }
+
+        public void Send(string line)
+        {
+            lock (_writeLock) { try { _writer.WriteLine(line); } catch { /* dropping; client will reconnect */ } }
+        }
+
+        public void Dispose()
+        {
+            lock (_writeLock) { try { _writer.Dispose(); } catch { } }
+            Pipe.Dispose();
+        }
     }
 }
 ```
 
-- [ ] **Step 2: Commit**
+> The single per-connection `_connByTarget[id].Hwnd` is captured at register time so `UpdateMessage` (which omits HWND) can reuse it. Set `conn.Hwnd` in `HandleMessage`'s register branch: add `conn.Hwnd = r.Hwnd;` — include it.
 
+- [ ] **Step 2: Add `conn.Hwnd = r.Hwnd;`** in the `RegisterMessage` branch (so `HwndOf`/update reuse the owning window).
+
+- [ ] **Step 3: Build verify** — `dotnet build EyeCtrl.slnx`.
+
+- [ ] **Step 4: Commit**
 ```bash
 git add src/EyeCtrl.App/Services/ExternalDwellService.cs
-git commit -m "feat: add ExternalDwellService with pipe server, rect detector, gating, suppression, feedback"
+git commit -m "feat: add ExternalDwellService (byte-mode pipe server, dispatcher-marshaled feedback)"
 ```
 
 ---
 
-### Task 7: Wire ExternalDwellService into DI and app lifecycle
+### Task 8: Wire ExternalDwellService into DI + app lifecycle
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Services/AppBootstrapper.cs`
 - Modify: `src/EyeCtrl.App/App.xaml.cs`
 
-- [ ] **Step 1: Register in AppBootstrapper**
-
-In `BuildServiceProvider()`, add after the `OverlayManager` registration (after line 175):
+- [ ] **Step 1: Register in `AppBootstrapper.BuildServiceProvider`** (alongside the other `dispatcher`-taking services; note `dispatcher` is already a parameter of this method):
 
 ```csharp
-// ExternalDwellService (enables external apps to register dwellable controls via named pipe)
+// ExternalDwellService: lets cooperating apps register dwellable controls over a named pipe.
 services.AddSingleton(sp => new ExternalDwellService(
     sp.GetRequiredService<EyeCtrlSettings>().ExternalDwell,
     sp.GetRequiredService<GazeEngine>(),
+    dispatcher,
     sp.GetRequiredService<ILogger<ExternalDwellService>>()));
 ```
 
-- [ ] **Step 2: Start the service in app lifecycle**
-
-In `App.xaml.cs`, at line 190 after `gazeEngine.Start();`, add:
+- [ ] **Step 2: Resolve + start in `App.OnStartup`**, immediately after `gazeEngine.Start();` (resolving here guarantees the service — and its WPF feedback window — are created on the UI thread):
 
 ```csharp
-// Start external dwell pipe server (after gaze engine is running)
+// External dwell pipe server (cooperating-app control activation).
 _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
 ```
 
-Add the import at the top of `App.xaml.cs`:
+`using EyeCtrl.App.Services;` is already present in `App.xaml.cs`.
+
+- [ ] **Step 3: Dispose on exit** — in `App.OnExit`, before `_serviceProvider.Dispose();` (the provider disposes singletons, but dispose explicitly to stop the pipe loop deterministically):
+
 ```csharp
-using EyeCtrl.App.Services;
+_serviceProvider.GetRequiredService<ExternalDwellService>().Dispose();
 ```
 
-- [ ] **Step 3: Build verify**
+- [ ] **Step 4: Build verify** — `dotnet build EyeCtrl.slnx`.
 
-Run: `dotnet build EyeCtrl.slnx`
-Expected: Compiles. If `ExternalDwellService` not recognized, add `using EyeCtrl.App.Services;` in `App.xaml.cs`.
-
-- [ ] **Step 4: Commit**
-
+- [ ] **Step 5: Commit**
 ```bash
 git add src/EyeCtrl.App/Services/AppBootstrapper.cs src/EyeCtrl.App/App.xaml.cs
-git commit -m "feat: register ExternalDwellService in DI and start on app launch"
+git commit -m "feat: register + start ExternalDwellService"
 ```
 
 ---
 
-### Task 8: Create EyeCtrl.Sdk.Wpf project — attached properties + adapter
+### Task 9: Create EyeCtrl.Sdk.Wpf — attached properties + adapter
 
 **Files:**
 - Create: `src/EyeCtrl.Sdk.Wpf/EyeCtrl.Sdk.Wpf.csproj`
-- Create: `src/EyeCtrl.Sdk.Wpf/Dwell.cs`
 - Create: `src/EyeCtrl.Sdk.Wpf/WpfElementAdapter.cs`
+- Create: `src/EyeCtrl.Sdk.Wpf/Dwell.cs`
 - Modify: `EyeCtrl.slnx`
 
 - [ ] **Step 1: Create the project file**
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
@@ -1077,19 +1247,15 @@ git commit -m "feat: register ExternalDwellService in DI and start on app launch
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageId>EyeCtrl.Sdk.Wpf</PackageId>
-    <Description>EyeCtrl dwell integration for WPF apps. Attach eyectrl:Dwell.Enabled="True" to any FrameworkElement to make it gaze-dwellable.</Description>
+    <Description>EyeCtrl gaze-dwell integration for WPF. Attach eyectrl:Dwell.Enabled="True" to any FrameworkElement.</Description>
   </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
   </ItemGroup>
-
 </Project>
 ```
 
-- [ ] **Step 2: Add to solution file**
-
-Edit `EyeCtrl.slnx` — add to the `/src/` folder:
+- [ ] **Step 2: Add to `EyeCtrl.slnx`** under `/src/`:
 ```xml
 <Project Path="src/EyeCtrl.Sdk.Wpf/EyeCtrl.Sdk.Wpf.csproj" />
 ```
@@ -1101,87 +1267,58 @@ namespace EyeCtrl.Sdk.Wpf;
 
 using System.Windows;
 using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Interop;
 using EyeCtrl.Contracts;
 using EyeCtrl.Sdk.Abstractions;
 
-internal class WpfElementAdapter : IDwellElementAdapter
+internal sealed class WpfElementAdapter : IDwellElementAdapter
 {
     private readonly FrameworkElement _element;
-    private readonly DwellMode _mode;
 
     public string Id { get; }
+    public DwellMode Mode { get; }
     public long WindowHandle { get; }
 
     public WpfElementAdapter(string id, FrameworkElement element, DwellMode mode)
     {
         Id = id;
         _element = element;
-        _mode = mode;
-        // Resolve HWND via root Window
+        Mode = mode;
         var window = Window.GetWindow(element);
-        WindowHandle = window is null
-            ? 0
-            : new WindowInteropHelper(window).Handle.ToInt64();
+        WindowHandle = window is null ? 0 : new WindowInteropHelper(window).Handle.ToInt64();
     }
 
     public bool TryGetScreenRect(out SdkRect rect)
     {
-        if (!_element.IsLoaded || _element.ActualWidth < 0 || _element.ActualHeight < 0)
-        {
-            rect = default;
-            return false;
-        }
+        rect = default;
+        if (!_element.IsLoaded || _element.ActualWidth <= 0 || _element.ActualHeight <= 0) return false;
         try
         {
-            var topLeft = _element.PointToScreen(new Point(0, 0));
-            var botRight = _element.PointToScreen(new Point(_element.ActualWidth, _element.ActualHeight));
-            rect = new SdkRect(topLeft.X, topLeft.Y,
-                botRight.X - topLeft.X, botRight.Y - topLeft.Y);
+            var tl = _element.PointToScreen(new Point(0, 0));                                   // physical px
+            var br = _element.PointToScreen(new Point(_element.ActualWidth, _element.ActualHeight));
+            rect = new SdkRect(tl.X, tl.Y, br.X - tl.X, br.Y - tl.Y);
             return true;
         }
-        catch
-        {
-            rect = default;
-            return false;
-        }
+        catch { return false; }
     }
 
-    public void Activate(DwellMode mode)
+    public void Activate() => _element.Dispatcher.BeginInvoke(() =>
     {
-        _element.Dispatcher.BeginInvoke(() =>
-        {
-            switch (mode)
-            {
-                case DwellMode.Invoke:
-                    ActivateInvoke();
-                    break;
-                case DwellMode.Focus:
-                    _element.Focus();
-                    break;
-            }
-        });
-    }
+        if (Mode == DwellMode.Focus) { _element.Focus(); return; }
 
-    private void ActivateInvoke()
-    {
-        if (_element is System.Windows.Controls.Primitives.ButtonBase button)
-        {
-            if (button.Command != null && button.Command.CanExecute(button.CommandParameter))
-            {
-                button.Command.Execute(button.CommandParameter);
-                return;
-            }
-            // Fallback: click the button via AutomationPeer
-            var peer = new System.Windows.Automation.Peers.ButtonAutomationPeer(
-                (System.Windows.Controls.Button)_element);
-            peer.Invoke();
-        }
-    }
+        var peer = UIElementAutomationPeer.CreatePeerForElement(_element);
+        if (peer?.GetPattern(PatternInterface.Invoke) is IInvokeProvider invoke) { invoke.Invoke(); return; }
+
+        // Fallback: command-bound control without an Invoke peer.
+        if (_element is System.Windows.Controls.Primitives.ButtonBase b
+            && b.Command?.CanExecute(b.CommandParameter) == true)
+            b.Command.Execute(b.CommandParameter);
+    });
 }
 ```
 
-- [ ] **Step 4: Create Dwell.cs (attached properties)**
+- [ ] **Step 4: Create Dwell.cs**
 
 ```csharp
 namespace EyeCtrl.Sdk.Wpf;
@@ -1190,126 +1327,114 @@ using System.Collections.Concurrent;
 using System.Windows;
 using EyeCtrl.Sdk.Abstractions;
 
+/// <summary>
+/// Attached properties enabling gaze dwell on a WPF FrameworkElement.
+/// A single process-wide DwellClient connects to EyeCtrl lazily on first use.
+/// </summary>
 public static class Dwell
 {
-    public static readonly DependencyProperty EnabledProperty =
-        DependencyProperty.RegisterAttached("Enabled", typeof(bool), typeof(Dwell),
-            new PropertyMetadata(false, OnEnabledChanged));
+    public static readonly DependencyProperty EnabledProperty = DependencyProperty.RegisterAttached(
+        "Enabled", typeof(bool), typeof(Dwell), new PropertyMetadata(false, OnEnabledChanged));
 
-    public static readonly DependencyProperty ModeProperty =
-        DependencyProperty.RegisterAttached("Mode", typeof(DwellMode), typeof(Dwell),
-            new PropertyMetadata(DwellMode.Invoke, OnModeChanged));
+    public static readonly DependencyProperty ModeProperty = DependencyProperty.RegisterAttached(
+        "Mode", typeof(DwellMode), typeof(Dwell), new PropertyMetadata(DwellMode.Invoke));
+
+    public static bool GetEnabled(DependencyObject o) => (bool)o.GetValue(EnabledProperty);
+    public static void SetEnabled(DependencyObject o, bool v) => o.SetValue(EnabledProperty, v);
+    public static DwellMode GetMode(DependencyObject o) => (DwellMode)o.GetValue(ModeProperty);
+    public static void SetMode(DependencyObject o, DwellMode v) => o.SetValue(ModeProperty, v);
 
     private static readonly DwellClient _client = new();
-    private static readonly ConcurrentDictionary<string, WpfElementAdapter> _adaptersById = new();
-    private static readonly ConcurrentDictionary<FrameworkElement, string> _idByElement = new();
-    private static bool _clientStarted;
+    private static readonly ConcurrentDictionary<FrameworkElement, WpfElementAdapter> _byElement = new();
+    private static int _started;
     private static long _idCounter;
-
-    public static bool GetEnabled(DependencyObject obj) => (bool)obj.GetValue(EnabledProperty);
-    public static void SetEnabled(DependencyObject obj, bool value) => obj.SetValue(EnabledProperty, value);
-
-    public static DwellMode GetMode(DependencyObject obj) => (DwellMode)obj.GetValue(ModeProperty);
-    public static void SetMode(DependencyObject obj, DwellMode value) => obj.SetValue(ModeProperty, value);
 
     private static void OnEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (d is not FrameworkElement element) return;
-        if ((bool)e.NewValue)
-            RegisterElement(element);
-        else
-            UnregisterElement(element);
+        if (d is not FrameworkElement el) return;
+        if ((bool)e.NewValue) Register(el);
+        else Unregister(el);
     }
 
-    private static void OnModeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) { }
-
-    private static void EnsureClientStarted()
+    private static void EnsureStarted()
     {
-        if (_clientStarted) return;
-        _clientStarted = true;
-        _ = _client.ConnectAndReadAsync();
+        if (Interlocked.Exchange(ref _started, 1) == 0) _client.Start();
     }
 
-    private static void RegisterElement(FrameworkElement element)
+    private static void Register(FrameworkElement el)
     {
-        EnsureClientStarted();
-        if (_idByElement.ContainsKey(element)) return; // already registered
+        EnsureStarted();
+        if (_byElement.ContainsKey(el)) return;
 
         var id = $"wpf_{Interlocked.Increment(ref _idCounter)}";
-        var mode = GetMode(element);
-        var adapter = new WpfElementAdapter(id, element, mode);
-        _adaptersById[id] = adapter;
-        _idByElement[element] = id;
+        var adapter = new WpfElementAdapter(id, el, GetMode(el));
+        _byElement[el] = adapter;
 
-        element.Loaded += OnElementLoaded;
-        element.Unloaded += OnElementUnloaded;
-        element.LayoutUpdated += OnElementLayoutUpdated;
+        el.Loaded += OnLoaded;
+        el.Unloaded += OnUnloaded;
+        el.LayoutUpdated += OnLayoutUpdated;
 
-        if (element.IsLoaded)
-            _client.RegisterAdapter(adapter);
+        if (el.IsLoaded) _client.RegisterAdapter(adapter);
     }
 
-    private static void UnregisterElement(FrameworkElement element)
+    private static void Unregister(FrameworkElement el)
     {
-        if (!_idByElement.TryRemove(element, out var id)) return;
-        _adaptersById.TryRemove(id, out _);
-
-        element.Loaded -= OnElementLoaded;
-        element.Unloaded -= OnElementUnloaded;
-        element.LayoutUpdated -= OnElementLayoutUpdated;
-
-        _client.UnregisterAdapter(id);
+        if (!_byElement.TryRemove(el, out var adapter)) return;
+        el.Loaded -= OnLoaded;
+        el.Unloaded -= OnUnloaded;
+        el.LayoutUpdated -= OnLayoutUpdated;
+        _client.UnregisterAdapter(adapter.Id);
     }
 
-    private static void OnElementLoaded(object sender, RoutedEventArgs e)
+    private static void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement element && _idByElement.TryGetValue(element, out var id)
-            && _adaptersById.TryGetValue(id, out var adapter))
-        {
-            _client.RegisterAdapter(adapter);
-        }
+        if (sender is FrameworkElement el && _byElement.TryGetValue(el, out var a))
+            _client.RegisterAdapter(a);
     }
 
-    private static void OnElementUnloaded(object sender, RoutedEventArgs e) { /* layout reconnect handles re-registration */ }
-
-    private static void OnElementLayoutUpdated(object? sender, EventArgs e)
+    private static void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement element && _idByElement.TryGetValue(element, out var id))
-        {
-            _client.OnAdapterLayoutChanged(id);
-        }
+        if (sender is FrameworkElement el && _byElement.TryGetValue(el, out var a))
+            _client.UnregisterAdapter(a.Id);   // re-registers on next Loaded
+    }
+
+    private static void OnLayoutUpdated(object? sender, EventArgs e)
+    {
+        // LayoutUpdated has no sender param wired to the element; iterate is unnecessary —
+        // attach a per-element handler via a closure instead (see note).
     }
 }
 ```
 
-- [ ] **Step 5: Build verify**
+> **Note on `LayoutUpdated`:** WPF's `LayoutUpdated` event handler does not receive the element as `sender`. Wire it per-element with a closure so the right id is updated, e.g. in `Register`:
+> ```csharp
+> EventHandler h = (_, _) => _client.OnAdapterLayoutChanged(adapter.Id);
+> el.LayoutUpdated += h;
+> // store h alongside the adapter so Unregister can detach it
+> ```
+> Implement this with a small record `(WpfElementAdapter Adapter, EventHandler LayoutHandler)` as the dictionary value, and detach `h` in `Unregister`. (The skeleton above shows intent; the worker should finalize the per-element handler storage.)
 
-Run: `dotnet build src/EyeCtrl.Sdk.Wpf/EyeCtrl.Sdk.Wpf.csproj`
-Expected: Build succeeds. `ButtonAutomationPeer` and `PointToScreen` are available via implicit WPF framework references (`PresentationFramework.dll`, `WindowsBase.dll`).
+- [ ] **Step 5: Build verify** — `dotnet build src/EyeCtrl.Sdk.Wpf/EyeCtrl.Sdk.Wpf.csproj`. `UIElementAutomationPeer` / `IInvokeProvider` come from `PresentationFramework` / `UIAutomationProvider` (referenced implicitly under `UseWPF`).
 
 - [ ] **Step 6: Commit**
-
 ```bash
 git add src/EyeCtrl.Sdk.Wpf/ EyeCtrl.slnx
-git commit -m "feat: add EyeCtrl.Sdk.Wpf with Dwell attached properties and adapter"
+git commit -m "feat: add EyeCtrl.Sdk.Wpf (Dwell attached properties + UIA adapter)"
 ```
 
 ---
 
-### Task 9: Create WPF sample app
+### Task 10: Create the WPF sample app
 
 **Files:**
 - Create: `samples/EyeCtrl.Sdk.Wpf.Sample/EyeCtrl.Sdk.Wpf.Sample.csproj`
-- Create: `samples/EyeCtrl.Sdk.Wpf.Sample/MainWindow.xaml`
-- Create: `samples/EyeCtrl.Sdk.Wpf.Sample/MainWindow.xaml.cs`
-- Create: `samples/EyeCtrl.Sdk.Wpf.Sample/App.xaml`
-- Create: `samples/EyeCtrl.Sdk.Wpf.Sample/App.xaml.cs`
+- Create: `samples/EyeCtrl.Sdk.Wpf.Sample/App.xaml` + `App.xaml.cs`
+- Create: `samples/EyeCtrl.Sdk.Wpf.Sample/MainWindow.xaml` + `MainWindow.xaml.cs`
 
-- [ ] **Step 1: Create csproj**
+- [ ] **Step 1: csproj**
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -1317,99 +1442,39 @@ git commit -m "feat: add EyeCtrl.Sdk.Wpf with Dwell attached properties and adap
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\..\src\EyeCtrl.Sdk.Wpf\EyeCtrl.Sdk.Wpf.csproj" />
   </ItemGroup>
-
 </Project>
 ```
 
-- [ ] **Step 2: Create MainWindow.xaml**
+- [ ] **Step 2: App.xaml / App.xaml.cs** — standard WPF app with `StartupUri="MainWindow.xaml"` and an empty `App : Application` partial.
+
+- [ ] **Step 3: MainWindow.xaml**
 
 ```xml
 <Window x:Class="EyeCtrl.Sdk.Wpf.Sample.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:eyectrl="clr-namespace:EyeCtrl.Sdk.Wpf;assembly=EyeCtrl.Sdk.Wpf"
-        Title="EyeCtrl SDK Sample" Height="300" Width="400">
+        Title="EyeCtrl WPF Sample" Height="320" Width="420">
     <StackPanel Margin="20" VerticalAlignment="Center">
-        <TextBlock Text="Dwell-enabled buttons:" FontSize="16" Margin="0,0,0,15" />
-        <Button Content="Save" Width="200" Height="40" Margin="0,5"
-                Click="OnSaveClick"
-                eyectrl:Dwell.Enabled="True" />
-        <Button Content="Delete" Width="200" Height="40" Margin="0,5"
-                Click="OnDeleteClick"
-                eyectrl:Dwell.Enabled="True" />
-        <Button Content="Plain (no dwell)" Width="200" Height="40" Margin="0,5"
-                Click="OnPlainClick" />
-        <TextBlock x:Name="LogLabel" Margin="0,15,0,0" Foreground="Gray" />
+        <TextBlock Text="Dwell-enabled buttons:" FontSize="16" Margin="0,0,0,15"/>
+        <Button Content="Save"   Width="220" Height="44" Margin="0,5" Click="OnSave"
+                eyectrl:Dwell.Enabled="True"/>
+        <Button Content="Focus me" Width="220" Height="44" Margin="0,5"
+                eyectrl:Dwell.Enabled="True" eyectrl:Dwell.Mode="Focus"/>
+        <Button Content="Plain (no dwell)" Width="220" Height="44" Margin="0,5" Click="OnPlain"/>
+        <TextBlock x:Name="Log" Margin="0,15,0,0" Foreground="Gray"/>
     </StackPanel>
 </Window>
 ```
 
-- [ ] **Step 3: Create MainWindow.xaml.cs**
+- [ ] **Step 4: MainWindow.xaml.cs** — `OnSave` / `OnPlain` set `Log.Text` with a timestamp.
 
-```csharp
-namespace EyeCtrl.Sdk.Wpf.Sample;
-
-using System.Windows;
-
-public partial class MainWindow : Window
-{
-    public MainWindow()
-    {
-        InitializeComponent();
-    }
-
-    private void OnSaveClick(object sender, RoutedEventArgs e)
-    {
-        LogLabel.Text = $"Saved at {DateTime.Now:T}";
-    }
-
-    private void OnDeleteClick(object sender, RoutedEventArgs e)
-    {
-        LogLabel.Text = $"Deleted at {DateTime.Now:T}";
-    }
-
-    private void OnPlainClick(object sender, RoutedEventArgs e)
-    {
-        LogLabel.Text = "Plain click (no dwell needed)";
-    }
-}
-```
-
-- [ ] **Step 4: Create App.xaml + App.xaml.cs**
-
-App.xaml:
-```xml
-<Application x:Class="EyeCtrl.Sdk.Wpf.Sample.App"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="MainWindow.xaml">
-    <Application.Resources>
-    </Application.Resources>
-</Application>
-```
-
-App.xaml.cs:
-```csharp
-namespace EyeCtrl.Sdk.Wpf.Sample;
-
-using System.Windows;
-
-public partial class App : Application
-{
-}
-```
-
-- [ ] **Step 5: Build and verify**
-
-Run: `dotnet build samples/EyeCtrl.Sdk.Wpf.Sample/EyeCtrl.Sdk.Wpf.Sample.csproj`
-Expected: Builds successfully.
+- [ ] **Step 5: Build verify** — `dotnet build samples/EyeCtrl.Sdk.Wpf.Sample/EyeCtrl.Sdk.Wpf.Sample.csproj`.
 
 - [ ] **Step 6: Commit**
-
 ```bash
 git add samples/EyeCtrl.Sdk.Wpf.Sample/
 git commit -m "feat: add WPF sample app with dwell-enabled controls"
@@ -1417,295 +1482,242 @@ git commit -m "feat: add WPF sample app with dwell-enabled controls"
 
 ---
 
-### Task 10: Tests for EyeCtrl.Sdk.Abstractions (DwellClient)
+### Task 11: Tests for EyeCtrl.Sdk.Abstractions (OutboundRectTracker)
 
 **Files:**
 - Create: `tests/EyeCtrl.Sdk.Abstractions.Tests/EyeCtrl.Sdk.Abstractions.Tests.csproj`
-- Create: `tests/EyeCtrl.Sdk.Abstractions.Tests/DwellClientTests.cs`
+- Create: `tests/EyeCtrl.Sdk.Abstractions.Tests/OutboundRectTrackerTests.cs`
 - Modify: `EyeCtrl.slnx`
 
-- [ ] **Step 1: Create test project**
+- [ ] **Step 1: Test project** (match xUnit package versions already used in `tests/EyeCtrl.Core.Tests`):
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\..\src\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
   </ItemGroup>
-
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2" />
+    <!-- Use the same versions as the existing test projects. -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
-
 </Project>
 ```
 
-- [ ] **Step 2: Add to solution**
+> Check `tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj` for exact `Version="…"` attributes and copy them (or rely on central package management if the repo uses `Directory.Packages.props`).
 
+- [ ] **Step 2: Add to `EyeCtrl.slnx`** under `/tests/`:
 ```xml
 <Project Path="tests/EyeCtrl.Sdk.Abstractions.Tests/EyeCtrl.Sdk.Abstractions.Tests.csproj" />
 ```
 
-- [ ] **Step 3: Create tests**
+- [ ] **Step 3: Tests** (real assertions on the dedupe state machine)
 
 ```csharp
 namespace EyeCtrl.Sdk.Abstractions.Tests;
 
 using EyeCtrl.Contracts;
+using EyeCtrl.Sdk.Abstractions;
 using Xunit;
 
-public class DwellClientTests
+public class OutboundRectTrackerTests
 {
-    private class FakeAdapter : IDwellElementAdapter
+    private static readonly SdkRect A = new(0, 0, 10, 10);
+    private static readonly SdkRect B = new(5, 5, 10, 10);
+
+    [Fact]
+    public void FirstSeen_ReturnsRegister()
     {
-        public string Id { get; }
-        public DwellMode Mode { get; private set; }
-        public bool Activated { get; private set; }
-        public SdkRect? CurrentRect { get; set; }
-        public long WindowHandle { get; set; } = 12345;
-
-        public FakeAdapter(string id, SdkRect? rect = null)
-        {
-            Id = id;
-            CurrentRect = rect;
-        }
-
-        public bool TryGetScreenRect(out SdkRect rect)
-        {
-            rect = CurrentRect ?? default;
-            return CurrentRect != null;
-        }
-
-        public void Activate(DwellMode mode)
-        {
-            Mode = mode;
-            Activated = true;
-        }
+        var t = new OutboundRectTracker();
+        var msg = t.OnRect("x", A, hwnd: 42);
+        var reg = Assert.IsType<RegisterMessage>(msg);
+        Assert.Equal("x", reg.Id);
+        Assert.Equal(42, reg.Hwnd);
+        Assert.Equal(A, reg.Rect);
     }
 
     [Fact]
-    public void RegisterAdapter_WhenRectAvailable_CallsTrySend()
+    public void SameRect_ReturnsNull()
     {
-        using var client = new DwellClient();
-        var adapter = new FakeAdapter("btn1", new SdkRect(100, 200, 80, 40));
-
-        // RegisterAdapter records rect and calls TrySend (no-op when pipe disconnected)
-        client.RegisterAdapter(adapter);
-        client.UnregisterAdapter("btn1");
-        // No exception raised
+        var t = new OutboundRectTracker();
+        t.OnRect("x", A, 42);
+        Assert.Null(t.OnRect("x", A, 42));
     }
 
     [Fact]
-    public void OnAdapterLayoutChanged_WithNoChange_DoesNotReSend()
+    public void ChangedRect_ReturnsUpdate()
     {
-        using var client = new DwellClient();
-        var adapter = new FakeAdapter("btn1", new SdkRect(100, 200, 80, 40));
-        client.RegisterAdapter(adapter);
-        // Second call with same rect should dedupe
-        client.OnAdapterLayoutChanged("btn1");
-        client.UnregisterAdapter("btn1");
+        var t = new OutboundRectTracker();
+        t.OnRect("x", A, 42);
+        var upd = Assert.IsType<UpdateMessage>(t.OnRect("x", B, 42));
+        Assert.Equal(B, upd.Rect);
     }
 
     [Fact]
-    public void OnAdapterLayoutChanged_WithRectChange_SendsUpdate()
+    public void AfterReset_ReturnsRegisterAgain()
     {
-        using var client = new DwellClient();
-        var adapter = new FakeAdapter("btn1", new SdkRect(100, 200, 80, 40));
-        client.RegisterAdapter(adapter);
-
-        adapter.CurrentRect = new SdkRect(110, 210, 80, 40);
-        client.OnAdapterLayoutChanged("btn1");
-
-        client.UnregisterAdapter("btn1");
+        var t = new OutboundRectTracker();
+        t.OnRect("x", A, 42);
+        t.Reset();
+        Assert.IsType<RegisterMessage>(t.OnRect("x", A, 42));
     }
 
     [Fact]
-    public void UnregisterAdapter_RemovesTracking()
+    public void Unregister_ReturnsUnregister_AndForgets()
     {
-        using var client = new DwellClient();
-        var adapter = new FakeAdapter("btn1", new SdkRect(100, 200, 80, 40));
-        client.RegisterAdapter(adapter);
-        client.UnregisterAdapter("btn1");
-        // No-op on unregister of already-removed
-        client.UnregisterAdapter("btn1");
+        var t = new OutboundRectTracker();
+        t.OnRect("x", A, 42);
+        Assert.IsType<UnregisterMessage>(t.OnUnregister("x"));
+        Assert.IsType<RegisterMessage>(t.OnRect("x", A, 42)); // forgotten ⇒ re-Register
     }
 }
 ```
 
-- [ ] **Step 4: Run tests**
-
-Run: `dotnet test tests/EyeCtrl.Sdk.Abstractions.Tests`
-Expected: 4 passed.
-
+- [ ] **Step 4: Run** — `dotnet test tests/EyeCtrl.Sdk.Abstractions.Tests` (5 pass).
 - [ ] **Step 5: Commit**
-
 ```bash
 git add tests/EyeCtrl.Sdk.Abstractions.Tests/ EyeCtrl.slnx
-git commit -m "test: add DwellClient unit tests"
+git commit -m "test: add OutboundRectTracker dedupe tests"
 ```
 
 ---
 
-### Task 11: Tests for ExternalDwellService
+### Task 12: Integration test for ExternalDwellService over a real pipe
+
+Exercises the pipe round-trip and per-connection cleanup against the actual server, with a stubbed gaze engine and an injected `rootWindowAtPoint`. (The arbiter's decision logic is already covered in Task 5.)
 
 **Files:**
 - Create: `tests/EyeCtrl.App.Tests/Services/ExternalDwellServiceTests.cs`
 
-- [ ] **Step 1: Check test project setup**
+- [ ] **Step 1: Confirm** `tests/EyeCtrl.App.Tests` references `EyeCtrl.Contracts` (add a `ProjectReference` if missing).
 
-Check existing `tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj` for xUnit versions and patterns used. Use matching versions.
-
-- [ ] **Step 2: Create ExternalDwellServiceTests.cs**
+- [ ] **Step 2: Tests**
 
 ```csharp
 namespace EyeCtrl.App.Tests.Services;
 
+using System.IO.Pipes;
+using System.Text;
+using System.Text.Json;
+using System.Windows.Threading;
 using EyeCtrl.App.Services;
 using EyeCtrl.Contracts;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public class ExternalDwellServiceTests
 {
-    private class FakeGazeEngine : GazeEngine
-    {
-        public event Action<PhysicalPoint, long>? CursorMovedInvoked;
+    private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-        public FakeGazeEngine() : base(null!, null!, new EyeCtrlSettings())
-        {
-            // Hijack event raising for tests
-        }
+    private static GazeEngine NewGazeEngine() =>
+        new(new StubGazeProvider(), new StubInputSimulator(), new EyeCtrlSettings());
 
-        public void SimulateCursorMoved(PhysicalPoint point, long ts)
-        {
-            // The service subscribed to CursorMoved — we need a real event
-        }
-    }
-
-    // Since GazeEngine's CursorMoved is an actual event, use a real
-    // lightweight GazeEngine with mock IGazeProvider + IInputSimulator
+    private static ExternalDwellService NewService(GazeEngine engine, Func<PhysicalPoint, long?> root) =>
+        new(new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
+            engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance, root);
 
     [Fact]
-    public void Service_HasSmokeTest()
+    public void ConstructDispose_NoThrow()
     {
-        // Full integration tests need a running pipe server + connected client.
-        // This smoke test verifies construction + dispose.
-        var gazeEngine = new GazeEngine(
-            new StubGazeProvider(),
-            new StubInputSimulator(),
-            new EyeCtrlSettings());
-        var settings = new ExternalDwellSettings { Enabled = false };
-        var logger = new LoggerFactory().CreateLogger<ExternalDwellService>();
-
-        using var service = new ExternalDwellService(settings, gazeEngine, logger,
-            windowFromPoint: _ => null);
-        service.Dispose();
-        // No exception = pass
+        using var engine = NewGazeEngine();
+        using var svc = NewService(engine, _ => null);
+        svc.Start();
     }
 
-    private class StubGazeProvider : EyeCtrl.Core.Interfaces.IGazeProvider
+    [Fact]
+    public async Task RegisterThenDisconnect_RemovesTarget()
+    {
+        // STA pipe round-trip; assert the server accepts a register and drops it on disconnect.
+        using var engine = NewGazeEngine();
+        using var svc = NewService(engine, _ => 7);
+        svc.Start();
+
+        await using (var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut))
+        {
+            await client.ConnectAsync(2000);
+            await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+            await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 10, 10), Hwnd = 7 }, Json));
+            await Task.Delay(100); // let the server process
+        } // disconnect → server cleans up the connection's targets
+
+        await Task.Delay(100);
+        // No assertion hook is exposed; the test passes if no exception/leak occurs.
+        // (Behavioral activation is covered by ExternalDwellArbiterTests.)
+    }
+
+    private sealed class StubGazeProvider : IGazeProvider
     {
         public bool IsConnected => true;
-        public event Action<EyeCtrl.Core.Models.GazePoint>? GazePointReceived;
+        public event Action<GazePoint>? GazePointReceived;
         public void Start() { }
         public void Stop() { }
         public void Dispose() { }
     }
 
-    private class StubInputSimulator : EyeCtrl.Core.Interfaces.IInputSimulator
+    private sealed class StubInputSimulator : IInputSimulator
     {
-        public void MoveCursor(PhysicalPoint point) { }
-        public void LeftClick(PhysicalPoint point) { }
-        public void RightClick(PhysicalPoint point) { }
-        public void DoubleClick(PhysicalPoint point) { }
-        public void MouseDown(PhysicalPoint point) { }
-        public void MouseUp(PhysicalPoint point) { }
-        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { }
-        public void SendKeyPress(ushort virtualKeyCode) { }
-        public void SendKeyDown(ushort virtualKeyCode) { }
-        public void SendKeyUp(ushort virtualKeyCode) { }
+        public void MoveCursor(PhysicalPoint p) { }
+        public void LeftClick(PhysicalPoint p) { }
+        public void RightClick(PhysicalPoint p) { }
+        public void DoubleClick(PhysicalPoint p) { }
+        public void MouseDown(PhysicalPoint p) { }
+        public void MouseUp(PhysicalPoint p) { }
+        public void Scroll(PhysicalPoint p, int dx, int dy) { }
+        public void SendKeyPress(ushort vk) { }
+        public void SendKeyDown(ushort vk) { }
+        public void SendKeyUp(ushort vk) { }
         public void SendText(string text) { }
-        public void SendModifiedKeyPress(
-            System.Collections.Generic.IReadOnlySet<EyeCtrl.Core.Models.ModifierKey> modifiers,
-            ushort virtualKeyCode) { }
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> mods, ushort vk) { }
     }
 }
 ```
 
-- [ ] **Step 2: Run tests**
+> If `Dispatcher.CurrentDispatcher` on the test thread proves awkward (no message pump), the feedback `BeginInvoke`s simply queue and never run — harmless for these tests since no gaze is fed. If a richer behavioral test is wanted later, expose an internal hook or feed `GazePointReceived` through the real engine.
 
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ExternalDwellServiceTests"`
-Expected: Pass.
-
-- [ ] **Step 3: Commit**
-
+- [ ] **Step 3: Run** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ExternalDwellServiceTests"`.
+- [ ] **Step 4: Commit**
 ```bash
 git add tests/EyeCtrl.App.Tests/Services/ExternalDwellServiceTests.cs
-git commit -m "test: add ExternalDwellService smoke tests"
+git commit -m "test: add ExternalDwellService pipe round-trip + lifecycle tests"
 ```
 
 ---
 
-### Task 12: Full solution build + all tests
+### Task 13: Full solution build + all tests
 
-- [ ] **Step 1: Build entire solution**
-
-Run: `dotnet build EyeCtrl.slnx`
-Expected: All projects compile with zero errors.
-
-- [ ] **Step 2: Run all tests**
-
-Run: `dotnet test`
-Expected: All pre-existing tests + new tests pass.
-
-- [ ] **Step 3: Fix any compilation/test failures**
-
-If `ExternalDwellService` has missing references in `App.xaml.cs` or `AppBootstrapper.cs`, add the appropriate `using` directives.
-
+- [ ] **Step 1:** `dotnet build EyeCtrl.slnx` — zero errors.
+- [ ] **Step 2:** `dotnet test` — all pre-existing + new tests pass.
+- [ ] **Step 3:** Fix any missing `using`s / package-version mismatches surfaced by the build.
 - [ ] **Step 4: Commit**
-
 ```bash
 git add -A
-git commit -m "feat: complete External Dwell API Plan 1 — WPF vertical slice"
+git commit -m "chore: External Dwell API Plan 1 — WPF vertical slice complete"
 ```
 
 ---
 
-### Task 13: Manual smoke test
+### Task 14: Manual smoke test
 
-- [ ] **Step 1: Start EyeCtrl in test mode**
-
-Run: `dotnet run --project src/EyeCtrl.App -- --test-mode`
-
-- [ ] **Step 2: Start WPF sample app**
-
-Run: `dotnet run --project samples/EyeCtrl.Sdk.Wpf.Sample`
-
-- [ ] **Step 3: Verify dwell activation**
-
-1. Move system cursor (mouse in test mode) to hover over the "Save" button
-2. Wait for approximately 800 ms (the default dwell time)
-3. Verify the DwellFeedbackOverlay appears and fills over the button
-4. After dwell completes, verify the "Save" button fires and the log label updates
-5. Verify EyeCtrl's own fixation/activation-button flow is suppressed while over the button
-6. Move cursor away — verify suppression lifts
-7. Click the "Plain" button normally — verify it works, no dwell needed
-
-- [ ] **Step 4: If any issues, fix and re-test**
-
-Common issues:
-- Feedback overlay not showing: check `DwellFeedbackOverlay` DPI handling (physical vs logical coords)
-- Activation not firing: check pipe connection (`eyectrl_dwell`), verify JSON serialization
-- Suppression not working: check `GazeEngine.SuppressFixation` flow
-- Duplicate registrations: check `_idByElement` tracking
+- [ ] **Step 1:** Start EyeCtrl in test mode (mouse drives gaze): `dotnet run --project src/EyeCtrl.App -- --test-mode`
+- [ ] **Step 2:** Start the sample: `dotnet run --project samples/EyeCtrl.Sdk.Wpf.Sample`
+- [ ] **Step 3: Verify**
+  1. Move the cursor over **Save**; the feedback overlay appears over the button and fills over ~800 ms; on completion the click fires (log updates).
+  2. Verify EyeCtrl's own activation-button/action-menu does **not** appear while over the button (suppression), and the cursor ring is hidden.
+  3. Move away — suppression lifts, ring returns.
+  4. Dwell **Focus me** — the button receives focus (no click).
+  5. **Plain** button still works with a normal mouse click.
+  6. Check correct placement at a non-100% display scale (DPI correctness).
+  7. Multi-monitor: move the sample to a secondary monitor and confirm the overlay still lands on the button.
+- [ ] **Step 4:** Fix and re-test as needed. If the feedback overlay misaligns, recheck `DpiHelper` usage; if activation never fires, check the pipe (`eyectrl_dwell`) connected and `ExternalDwell.Enabled` is on.

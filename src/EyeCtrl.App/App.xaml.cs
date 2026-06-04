@@ -188,6 +188,9 @@ public partial class App : Application
             im.TogglePause();
 
         gazeEngine.Start();
+
+        // External dwell pipe server (cooperating-app control activation).
+        _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -210,6 +213,7 @@ public partial class App : Application
             var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
             adapter.Dispose();
             gazeEngine.Dispose();
+            _serviceProvider.GetRequiredService<ExternalDwellService>().Dispose();
             _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ManualSelectionDwellService
         }
 

@@ -15,7 +15,7 @@ public class SettingsViewModelTests
         var service = new SettingsService("test.json");
         var vm = new SettingsViewModel(settings, service, _messenger);
 
-        Assert.Equal(8, vm.Tabs.Count);
+        Assert.Equal(9, vm.Tabs.Count);
     }
 
     [Fact]

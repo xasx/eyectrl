@@ -12,7 +12,9 @@
 - **Testability:** all decision logic (gating, accumulation, cooldown, feedback selection) lives in the pure `ExternalDwellArbiter` (inject `rootWindowAtPoint` + feed timestamps). Client-side dedupe lives in the pure `OutboundRectTracker`. The service and adapters are thin IO/UI glue.
 - **DPI:** WPF window coordinates are logical DIPs; convert physical→logical with `DpiHelper.PhysicalToLogicalX/Y` (as `CursorCircleWindow` does).
 
-**Tech Stack:** .NET 8, WPF, System.IO.Pipes (byte-mode), UI Automation (`System.Windows.Automation.*`), xUnit.
+**Tech Stack:** WPF on .NET 10 (the repo's TFM), System.IO.Pipes (byte-mode), UI Automation (`System.Windows.Automation.*`), xUnit.
+
+**Target-framework policy:** the repo's existing projects all target `net10.0` / `net10.0-windows` (SDK pinned to 10.0.102 via `global.json`). Internal projects and **test** projects therefore target net10. The **published SDK packages** (`EyeCtrl.Contracts`, `EyeCtrl.Sdk.Abstractions`, `EyeCtrl.Sdk.Wpf`, `EyeCtrl.Sdk.WinUI`) are **deliberately floored at net8** (per the spec) so external consumers on net8 *or* net10 can use them — a net8 library is fully consumable by the net10 consumer app. (SDK pin ≠ target framework: a net10 SDK builds net8 targets fine.)
 
 ---
 
@@ -938,8 +940,10 @@ public sealed class ExternalDwellService : IDisposable
     private readonly DwellFeedbackOverlay _feedback;
     private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    private readonly object _arbiterLock = new();
-    private readonly object _connLock = new();
+    // A single lock guards the arbiter + both connection maps, so there is no lock-ordering
+    // hazard between the gaze thread and pipe-handler threads. Pipe WRITES happen OUTSIDE
+    // this lock (see SendActivated) so a stalled client can't block the gaze loop.
+    private readonly object _stateLock = new();
     private readonly List<PipeConnection> _connections = new();
     private readonly Dictionary<string, PipeConnection> _connByTarget = new();
 
@@ -963,7 +967,7 @@ public sealed class ExternalDwellService : IDisposable
         _settings.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ExternalDwellSettings.CooldownMs))
-                lock (_arbiterLock) _arbiter.SetCooldown(_settings.CooldownMs);
+                lock (_stateLock) _arbiter.SetCooldown(_settings.CooldownMs);
         };
         _gazeEngine.CursorMoved += OnCursorMoved;
     }
@@ -982,7 +986,7 @@ public sealed class ExternalDwellService : IDisposable
         if (!_settings.Enabled) return;
 
         ArbiterResult result;
-        lock (_arbiterLock) result = _arbiter.Process(gaze, timestampUs);
+        lock (_stateLock) result = _arbiter.Process(gaze, timestampUs);
 
         if (result.ActivatedId is { } activated)
         {
@@ -1041,7 +1045,7 @@ public sealed class ExternalDwellService : IDisposable
             catch (Exception ex) { _logger.LogWarning(ex, "pipe accept failed"); pipe.Dispose(); continue; }
 
             var conn = new PipeConnection(pipe);
-            lock (_connLock) _connections.Add(conn);
+            lock (_stateLock) _connections.Add(conn);
             _ = HandleConnectionAsync(conn, token);
         }
     }
@@ -1063,13 +1067,13 @@ public sealed class ExternalDwellService : IDisposable
         catch (Exception ex) { _logger.LogWarning(ex, "connection handler error"); }
         finally
         {
-            lock (_connLock)
+            lock (_stateLock)
             {
                 _connections.Remove(conn);
                 foreach (var id in conn.TargetIds)
                 {
                     _connByTarget.Remove(id);
-                    lock (_arbiterLock) _arbiter.Remove(id);
+                    _arbiter.Remove(id);
                 }
             }
             conn.Dispose();
@@ -1078,36 +1082,45 @@ public sealed class ExternalDwellService : IDisposable
 
     private void HandleMessage(WireMessage? msg, PipeConnection conn)
     {
+        // All branches take the single _stateLock (no nested/ordered locks).
         switch (msg)
         {
             case RegisterMessage r when _settings.Enabled:
-                lock (_arbiterLock)
+                lock (_stateLock)
+                {
+                    conn.Hwnd = r.Hwnd;
+                    conn.TargetIds.Add(r.Id);
+                    _connByTarget[r.Id] = conn;
                     _arbiter.AddOrUpdate(r.Id, ToRect(r.Rect), r.Hwnd, _settings.DefaultDwellMs);
-                lock (_connLock) { conn.TargetIds.Add(r.Id); _connByTarget[r.Id] = conn; }
+                }
                 break;
 
             case UpdateMessage u:
-                lock (_arbiterLock)
+                lock (_stateLock)
                 {
                     if (conn.TargetIds.Contains(u.Id))
-                        _arbiter.AddOrUpdate(u.Id, ToRect(u.Rect), HwndOf(u.Id), _settings.DefaultDwellMs);
+                        _arbiter.AddOrUpdate(u.Id, ToRect(u.Rect), conn.Hwnd, _settings.DefaultDwellMs);
                 }
                 break;
 
             case UnregisterMessage un:
-                lock (_connLock) { conn.TargetIds.Remove(un.Id); _connByTarget.Remove(un.Id); }
-                lock (_arbiterLock) _arbiter.Remove(un.Id);
+                lock (_stateLock)
+                {
+                    conn.TargetIds.Remove(un.Id);
+                    _connByTarget.Remove(un.Id);
+                    _arbiter.Remove(un.Id);
+                }
                 break;
         }
     }
 
-    private long HwndOf(string id) => _connByTarget.TryGetValue(id, out var c) ? c.Hwnd : 0;
-
     private void SendActivated(string id)
     {
         PipeConnection? conn;
-        lock (_connLock) _connByTarget.TryGetValue(id, out conn);
-        conn?.Send(JsonSerializer.Serialize<WireMessage>(new ActivatedMessage { Id = id }, _json));
+        lock (_stateLock) _connByTarget.TryGetValue(id, out conn);  // lookup under lock
+        if (conn is null) return;
+        var json = JsonSerializer.Serialize<WireMessage>(new ActivatedMessage { Id = id }, _json);
+        _ = Task.Run(() => conn.Send(json));                        // write OFF the gaze thread
     }
 
     private static PhysicalRect ToRect(SdkRect r) => new(r.X, r.Y, r.Width, r.Height);
@@ -1133,7 +1146,7 @@ public sealed class ExternalDwellService : IDisposable
         _disposed = true;
         _gazeEngine.CursorMoved -= OnCursorMoved;
         _cts?.Cancel();
-        lock (_connLock)
+        lock (_stateLock)
         {
             foreach (var c in _connections) c.Dispose();
             _connections.Clear();
@@ -1172,13 +1185,11 @@ public sealed class ExternalDwellService : IDisposable
 }
 ```
 
-> The single per-connection `_connByTarget[id].Hwnd` is captured at register time so `UpdateMessage` (which omits HWND) can reuse it. Set `conn.Hwnd` in `HandleMessage`'s register branch: add `conn.Hwnd = r.Hwnd;` — include it.
+> `conn.Hwnd` is captured in the register branch so `UpdateMessage` (which omits HWND) reuses the owning window. All shared-state access (arbiter + connection maps) is under the single `_stateLock`; the only work done outside it is the offloaded pipe write in `SendActivated`.
 
-- [ ] **Step 2: Add `conn.Hwnd = r.Hwnd;`** in the `RegisterMessage` branch (so `HwndOf`/update reuse the owning window).
+- [ ] **Step 2: Build verify** — `dotnet build EyeCtrl.slnx`.
 
-- [ ] **Step 3: Build verify** — `dotnet build EyeCtrl.slnx`.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 ```bash
 git add src/EyeCtrl.App/Services/ExternalDwellService.cs
 git commit -m "feat: add ExternalDwellService (byte-mode pipe server, dispatcher-marshaled feedback)"
@@ -1275,18 +1286,31 @@ using EyeCtrl.Sdk.Abstractions;
 internal sealed class WpfElementAdapter : IDwellElementAdapter
 {
     private readonly FrameworkElement _element;
+    private long _hwndCache;
 
     public string Id { get; }
     public DwellMode Mode { get; }
-    public long WindowHandle { get; }
+
+    // Resolved lazily: the adapter may be constructed before the element is in a window
+    // (the attached-property callback can fire during XAML parse, before Loaded). Caching
+    // once non-zero avoids repeated visual-tree walks. DwellClient reads this during
+    // RegisterAdapter (fired on Loaded), so the window is available by then.
+    public long WindowHandle
+    {
+        get
+        {
+            if (_hwndCache != 0) return _hwndCache;
+            if (Window.GetWindow(_element) is { } w)
+                _hwndCache = new WindowInteropHelper(w).Handle.ToInt64();
+            return _hwndCache;
+        }
+    }
 
     public WpfElementAdapter(string id, FrameworkElement element, DwellMode mode)
     {
         Id = id;
         _element = element;
         Mode = mode;
-        var window = Window.GetWindow(element);
-        WindowHandle = window is null ? 0 : new WindowInteropHelper(window).Handle.ToInt64();
     }
 
     public bool TryGetScreenRect(out SdkRect rect)
@@ -1437,7 +1461,8 @@ git commit -m "feat: add EyeCtrl.Sdk.Wpf (Dwell attached properties + UIA adapte
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- Sample: net10 (matches the repo / real consumer) consuming the net8 SDK package. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -1494,12 +1519,14 @@ git commit -m "feat: add WPF sample app with dwell-enabled controls"
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- Internal test project: match the repo TFM (runs on the installed net10 runtime). -->
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <!-- net10 test referencing the net8 Abstractions library is fully supported. -->
     <ProjectReference Include="..\..\src\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
   </ItemGroup>
   <ItemGroup>

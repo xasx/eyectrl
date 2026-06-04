@@ -18,6 +18,7 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private ViewPosition _viewPosition = ViewPosition.AtCenter;
     [ObservableProperty] private SelectionMode _selectionMode = SelectionMode.None;
     [ObservableProperty] private AutoSelectionSettings _autoSelection = new();
+    [ObservableProperty] private ExternalDwellSettings _externalDwell = new();
 
     public IReadOnlyList<string> Validate()
     {
@@ -78,6 +79,11 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
             errors.Add("AutoSelection settings must not be null.");
         else
             errors.AddRange(AutoSelection.Validate());
+
+        if (ExternalDwell is null)
+            errors.Add("ExternalDwell settings must not be null.");
+        else
+            errors.AddRange(ExternalDwell.Validate());
 
         return errors;
     }

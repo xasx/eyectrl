@@ -169,6 +169,13 @@ public class AppBootstrapper
             dispatcher,
             sp.GetRequiredService<GazeEngine>().InteractionManager));
 
+        // ExternalDwellService: lets cooperating apps register dwellable controls over a named pipe.
+        services.AddSingleton(sp => new ExternalDwellService(
+            sp.GetRequiredService<EyeCtrlSettings>().ExternalDwell,
+            sp.GetRequiredService<GazeEngine>(),
+            dispatcher,
+            sp.GetRequiredService<ILogger<ExternalDwellService>>()));
+
         // OverlayManager (manages all overlay window lifecycle)
         services.AddSingleton<IOverlayManager>(sp => new OverlayManager(
             dispatcher,

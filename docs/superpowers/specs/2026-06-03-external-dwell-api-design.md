@@ -181,20 +181,31 @@ app.
 
 New service in `src/EyeCtrl.App/Services/`, registered in `AppBootstrapper`'s DI.
 
-- **Pipe server** `eyectrl_dwell` (message-mode, bidirectional). Accepts multiple
-  connections; one connection = one app instance. Target `id`s are namespaced per
+- **Pipe server** `eyectrl_dwell` (byte-mode, newline-framed JSON, bidirectional). Accepts
+  multiple connections; one connection = one app instance. Target `id`s are namespaced per
   connection. On disconnect (app closes/crashes), all of that connection's targets are
-  removed.
-- **Dedicated `DwellDetector`** instance, fed the filtered gaze from
-  `GazeEngine.CursorMoved`. External targets are **rectangular** `DwellTarget`s
-  (see Core Change). This detector is separate from EyeCtrl's own overlay/toolbar
-  detectors and carries its own cooldown (`ExternalDwellSettings.CooldownMs`).
+  removed. Each connection owns a single synchronized writer.
+- **`ExternalDwellArbiter`** (pure, UI-free) — the dwell decision engine for external
+  targets: topmost-window gating, nearest-target selection, dwell accumulation, and
+  cooldown (`ExternalDwellSettings.CooldownMs`). External targets are **rectangular**
+  `DwellTarget`s (see Core Change). The arbiter **reuses `DwellTarget` and EyeCtrl's
+  dwell-timing convention** (`EnteredTimestamp` + `DwellTimeMicroseconds`) for a consistent
+  feel, but does **not** use or modify `DwellDetector` (see Core Change for why). It is fed
+  the filtered gaze from `GazeEngine.CursorMoved` and is fully unit-testable via an injected
+  `rootWindowAtPoint` seam.
 - **Topmost-window gating.** Each target carries its owning HWND. Before accumulating
-  dwell / activating, EyeCtrl checks `WindowFromPoint(gaze)` resolves to that HWND or a
-  descendant; otherwise the target is ignored. This rejects controls that are covered by
-  another window, scrolled off, or whose app is minimized, and disambiguates side-by-side
-  apps. Note: EyeCtrl's own overlays are click-through (`WS_EX_TRANSPARENT`), and
-  `WindowFromPoint` skips those, so EyeCtrl's feedback overlay never defeats the check.
+  dwell / activating, the arbiter checks the **root** window under the gaze point —
+  `GetAncestor(WindowFromPoint(gaze), GA_ROOT)` — equals that HWND; otherwise the target is
+  ignored. The `GA_ROOT` step is essential for WinUI 3, where `WindowFromPoint` returns the
+  child **content-island** HWND, not the top-level window the SDK reports. This also rejects
+  controls covered by another window, scrolled off, or minimized, and disambiguates
+  side-by-side apps. Note: EyeCtrl's own overlays are click-through (`WS_EX_TRANSPARENT`),
+  which `WindowFromPoint` skips, so the feedback overlay never defeats the check.
+- **Threading.** `GazeEngine.CursorMoved` fires on the **background gaze thread**
+  (`GazeEngineAdapter` marshals via `Dispatcher.BeginInvoke`). `ExternalDwellService`
+  therefore injects a `Dispatcher` and marshals all WPF-window (feedback) calls; the atomic
+  `SuppressFixation` bool and pipe writes happen inline. Arbiter/target state touched by both
+  the gaze thread and pipe-handler threads is lock-guarded.
 - **Interaction integration.** While gaze is over a (gated) external target, EyeCtrl sets
   `GazeEngine.SuppressFixation = true` (suppresses its own fixation → activation-button →
   action-menu flow, `src/EyeCtrl.Core/GazeEngine.cs`) and hides the cursor ring. On leave,
@@ -215,17 +226,17 @@ IValidatable`, `partial void OnXChanging` guards + `Validate()`):
 |---|---|
 | `Enabled` | Master switch for the external dwell feature |
 | `DefaultDwellMs` | Dwell time for all external targets (global this phase) |
-| `CooldownMs` | Re-trigger cooldown for the external detector |
+| `CooldownMs` | Re-trigger cooldown for the external arbiter |
 
 Must be wired into `EyeCtrlSettings.Validate()` **and**
 `SettingsViewModel.ResetAllSettings()` (both enumerate every sub-setting).
 
 ## IPC protocol
 
-Bidirectional message-mode named pipe `eyectrl_dwell`, length-prefixed JSON. Rects are
-primitive fields (`SdkRect`) in **physical screen pixels**; HWND is an int64. DTOs live
-in `EyeCtrl.Contracts`, referenced by both sides. EyeCtrl maps `SdkRect` to Core's
-`PhysicalRect`; the SDK never references Core.
+Bidirectional byte-mode named pipe `eyectrl_dwell`, newline-framed JSON (one message per
+line). Rects are primitive fields (`SdkRect`) in **physical screen pixels**; HWND is an
+int64. DTOs live in `EyeCtrl.Contracts`, referenced by both sides. EyeCtrl maps `SdkRect`
+to Core's `PhysicalRect`; the SDK never references Core.
 
 Client → server:
 
@@ -246,10 +257,11 @@ activated  { "id": "save_btn" }
 Extend `DwellTarget` (`src/EyeCtrl.Core/Processing/DwellTarget.cs`) to support a
 **rectangular** shape in addition to its current circle:
 
-- Add an **additional constructor / optional shape**; the existing circle constructor is
-  left unchanged so current callers are untouched.
-- `HitTest` gains a rectangle branch. "Nearest target" selection in `DwellDetector.Update`
-  continues to use center-distance and needs no change.
+- Add a **rectangular constructor** + a settable optional `Bounds` (so a moved control's
+  rect can update without resetting dwell); the existing circle constructor is left
+  unchanged so current callers are untouched.
+- `HitTest` gains a rectangle branch (used by `ExternalDwellArbiter`). "Nearest target"
+  selection continues to use center-distance.
 
 **Risk: LOW** (impact analysis, upstream): `DwellTarget.HitTest` has exactly one direct
 caller (`DwellDetector.Update`); the constructor's only non-test callers are
@@ -258,41 +270,51 @@ than changing leaves all of them untouched. The change is contained to the `Proc
 area. (Per project convention, re-run `gitnexus_impact` before editing during
 implementation.)
 
-No thread-safety change to `DwellDetector` is needed — the SDK never touches it, and the
-service feeds it on the UI thread like every other detector.
+**`DwellDetector` is deliberately NOT modified.** Impact analysis shows its `Update` is
+**HIGH** change-blast-radius (20 direct callers — every overlay/ViewModel gaze receiver).
+Topmost-window gating doesn't fit its model, and adding a gate hook would touch that hot,
+widely-depended-on method. Instead, `ExternalDwellArbiter` owns the gated accumulation in
+isolation while reusing the `DwellTarget` primitive and the same timing convention — so
+the "feel" stays consistent and the engine all of EyeCtrl depends on stays untouched.
+No thread-safety change to `DwellDetector` is needed; the SDK never touches it.
 
 ## Files Created / Changed
 
 | File | New/Change | Purpose |
 |------|------------|---------|
-| `src/EyeCtrl.Contracts/*` | New | Wire DTOs (register/update/unregister/activated), primitive fields; shared by App + SDK |
-| `src/EyeCtrl.Sdk.Abstractions/DwellClient.cs` | New | Pipe client, reconnect/backoff, rect-delta coalescing, activation routing |
-| `src/EyeCtrl.Sdk.Abstractions/IDwellElementAdapter.cs` | New | Per-element seam (rect, HWND, activate) + `DwellMode` |
-| `src/EyeCtrl.Sdk.Wpf/Dwell.cs` (+ adapter) | New | WPF attached properties + adapter → NuGet package |
-| `src/EyeCtrl.Sdk.WinUI/Dwell.cs` (+ adapter, `EyeCtrlDwell.Initialize`) | New | WinUI 3 attached properties + adapter → NuGet package |
-| `src/EyeCtrl.Core/Processing/DwellTarget.cs` | Change | Optional rectangular shape + rect `HitTest` |
+| `src/EyeCtrl.Contracts/*` | New | Wire DTOs (register/update/unregister/activated) + `SdkRect`; shared by App + SDK |
+| `src/EyeCtrl.Sdk.Abstractions/IDwellElementAdapter.cs` | New | Per-element seam (rect, HWND, `Activate()`) + `DwellMode` |
+| `src/EyeCtrl.Sdk.Abstractions/OutboundRectTracker.cs` | New | Pure dedupe: Register vs Update vs skip; reset on reconnect |
+| `src/EyeCtrl.Sdk.Abstractions/DwellClient.cs` | New | Byte-mode pipe client, reconnect/backoff, activation routing |
+| `src/EyeCtrl.Sdk.Wpf/Dwell.cs` (+ `WpfElementAdapter`) | New | WPF attached properties + adapter → NuGet package |
+| `src/EyeCtrl.Sdk.WinUI/Dwell.cs` (+ `WinUiElementAdapter`, `WinUiCoords`, `EyeCtrlDwell.Initialize`) | New | WinUI 3 attached properties + adapter → NuGet package |
+| `src/EyeCtrl.Core/Processing/DwellTarget.cs` | Change | Rectangular ctor + settable `Bounds` + rect `HitTest` (additive; `DwellDetector` untouched) |
 | `src/EyeCtrl.Core/Settings/ExternalDwellSettings.cs` | New | Settings (wire into `EyeCtrlSettings.Validate()` + `SettingsViewModel.ResetAllSettings()`) |
-| `src/EyeCtrl.App/Services/ExternalDwellService.cs` | New | Pipe server, rect detector, gating, suppression, feedback overlay |
-| `src/EyeCtrl.App/Services/AppBootstrapper.cs` | Change | Register `ExternalDwellService` in DI |
-| `tests/EyeCtrl.Core.Tests/Processing/DwellDetectorTests.cs` | Change | Add rect hit-test cases (inside/edge/outside); confirm circle unchanged |
-| `tests/EyeCtrl.App.Tests/...` | New | `ExternalDwellService`: register/update/unregister, per-connection cleanup on disconnect, gating (mock seam over `WindowFromPoint`), suppression toggle |
-| `tests/EyeCtrl.Sdk.Tests/...` | New | Shared `DwellClient` (dedupe, reconnect, routing) once; per-head adapter coordinate math |
+| `src/EyeCtrl.App/Services/ExternalDwellArbiter.cs` | New | Pure gated-dwell engine (gating, accumulation, cooldown) reusing `DwellTarget` |
+| `src/EyeCtrl.App/Services/ExternalDwellService.cs` | New | Byte-mode pipe server, dispatcher-marshaled feedback overlay, suppression, activation |
+| `src/EyeCtrl.App/Services/AppBootstrapper.cs` | Change | Register `ExternalDwellService` in DI (with `dispatcher`) |
+| `src/EyeCtrl.App/App.xaml.cs` | Change | Resolve + `Start()` on the UI thread; dispose on exit |
+| `tests/EyeCtrl.Core.Tests/Processing/DwellTargetRectTests.cs` | New | Rect hit-test (inside/edge/outside), settable `Bounds`, circle unchanged |
+| `tests/EyeCtrl.App.Tests/Services/ExternalDwellArbiterTests.cs` | New | Gating, accumulation, cooldown, feedback selection, suppression |
+| `tests/EyeCtrl.App.Tests/Services/ExternalDwellServiceTests.cs` | New | Pipe round-trip + per-connection cleanup |
+| `tests/EyeCtrl.Sdk.Abstractions.Tests/*` | New | `OutboundRectTracker` dedupe state machine |
+| `tests/EyeCtrl.Sdk.WinUI.Tests/*` | New | `WinUiCoords` pure coordinate composition |
 | `samples/` | New | A WinUI 3 sample and a WPF sample, each with `eyectrl:Dwell.Enabled="True"` |
 
 ## Testing Strategy
 
-- **`DwellTarget`**: rectangular hit-test (inside, on edge, outside); existing circle
-  behavior unchanged.
-- **`ExternalDwellService`**: register/update/unregister; per-connection target cleanup on
-  disconnect; topmost-HWND gating via a mockable seam over `WindowFromPoint`; fixation
-  suppression toggles on target enter/leave.
-- **`EyeCtrl.Sdk.Abstractions`**: `DwellClient` rect-delta dedupe, reconnect/backoff, and
-  `activated` → element routing — tested once, framework-free.
-- **Heads**: adapter coordinate math (WPF `PointToScreen`; WinUI
-  `TransformToVisual` × `RasterizationScale` + `ClientToScreen`) and `Invoke`/`Focus`
-  activation.
+- **`DwellTarget`**: rectangular hit-test (inside, on edge, outside); settable `Bounds`;
+  existing circle behavior unchanged.
+- **`ExternalDwellArbiter`** (pure): topmost-window gating (incl. WinUI island root-window
+  case), dwell accumulation, cooldown, feedback rect + suppression — fed timestamps and a
+  mock `rootWindowAtPoint`. This is where the behavioral coverage lives.
+- **`ExternalDwellService`**: real-pipe round-trip (register) and per-connection cleanup on
+  disconnect.
+- **`OutboundRectTracker`** (pure): first-seen → Register, unchanged → skip, changed →
+  Update, reset → Register again.
+- **`WinUiCoords`** (pure): DIP×scale + client-origin composition.
 - **Manual smoke**: WinUI 3 sample and WPF sample, each dwell-activating a `Button` with
-  EyeCtrl running.
+  EyeCtrl running (incl. non-100% DPI and window-move cases).
 
 ## Delivery — two implementation plans
 
@@ -302,8 +324,9 @@ before the second framework head is added.
 **Plan 1 — EyeCtrl side + WPF head (the full vertical slice).**
 `EyeCtrl.Contracts`, `EyeCtrl.Sdk.Abstractions` (pipe client, coalescing, routing),
 `EyeCtrl.Sdk.Wpf` head + adapter, the rectangular `DwellTarget` Core change,
-`ExternalDwellSettings`, `ExternalDwellService` (server, detector, gating, suppression,
-feedback overlay), DI wiring, a WPF sample, and all of the above's tests. Outcome: a
+`ExternalDwellSettings`, `ExternalDwellArbiter` (gated dwell) + `ExternalDwellService`
+(pipe server, suppression, feedback overlay), DI wiring, a WPF sample, and all of the
+above's tests. Outcome: a
 working WPF-app → EyeCtrl dwell loop, end to end. WPF first because EyeCtrl is itself WPF
 and the slice is easiest to exercise in-process.
 

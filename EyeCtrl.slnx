@@ -6,6 +6,7 @@
     <Project Path="src/EyeCtrl.ViewModels/EyeCtrl.ViewModels.csproj" />
     <Project Path="src/EyeCtrl.Contracts/EyeCtrl.Contracts.csproj" />
     <Project Path="src/EyeCtrl.Sdk.Abstractions/EyeCtrl.Sdk.Abstractions.csproj" />
+    <Project Path="src/EyeCtrl.Sdk.Wpf/EyeCtrl.Sdk.Wpf.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj" />

@@ -1,0 +1,13 @@
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.DwellFeedbackOverlay"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+    WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+    Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize">
+    <Border x:Name="ProgressBorder" CornerRadius="4" BorderThickness="2"
+            BorderBrush="#3399FF" Background="#1A3399FF" Visibility="Hidden">
+        <Grid>
+            <Rectangle x:Name="ProgressFill" HorizontalAlignment="Left" Fill="#3399FF" />
+        </Grid>
+    </Border>
+</overlays:OverlayWindow>

@@ -56,6 +56,8 @@ internal sealed class WpfElementAdapter : IDwellElementAdapter
 
         if (_element is System.Windows.Controls.Primitives.ButtonBase b
             && b.Command?.CanExecute(b.CommandParameter) == true)
-            b.Command.Execute(b.CommandParameter);
+        { b.Command.Execute(b.CommandParameter); return; }
+
+        System.Diagnostics.Debug.WriteLine($"[EyeCtrl] Dwell activation on '{_element.GetType().Name}' ({Id}) has no invoke target. Element is not focusable, has no UIA invoke pattern, and is not a ButtonBase with a command.");
     });
 }

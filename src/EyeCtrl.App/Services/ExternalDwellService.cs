@@ -57,6 +57,17 @@ public sealed class ExternalDwellService : IDisposable
         {
             if (e.PropertyName == nameof(ExternalDwellSettings.CooldownMs))
                 lock (_stateLock) _arbiter.SetCooldown(_settings.CooldownMs);
+            if (e.PropertyName == nameof(ExternalDwellSettings.Enabled) && !_settings.Enabled)
+            {
+                lock (_stateLock)
+                {
+                    _arbiter.Clear();
+                    foreach (var c in _connections) c.TargetIds.Clear();
+                    _connByTarget.Clear();
+                }
+                ReleaseSuppression();
+                SetFeedback(null, default, 0);
+            }
         };
         _gazeEngine.CursorMoved += OnCursorMoved;
     }

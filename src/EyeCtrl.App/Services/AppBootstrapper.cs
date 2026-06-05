@@ -174,7 +174,8 @@ public class AppBootstrapper
             sp.GetRequiredService<EyeCtrlSettings>().ExternalDwell,
             sp.GetRequiredService<GazeEngine>(),
             dispatcher,
-            sp.GetRequiredService<ILogger<ExternalDwellService>>()));
+            sp.GetRequiredService<ILogger<ExternalDwellService>>(),
+            sp.GetRequiredService<IMessenger>()));
 
         // OverlayManager (manages all overlay window lifecycle)
         services.AddSingleton<IOverlayManager>(sp => new OverlayManager(

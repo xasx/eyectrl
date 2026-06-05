@@ -89,7 +89,7 @@ Serilog, initialized in `LoggingInitializer.Initialize()`. Logs to `%APPDATA%/Ey
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **eyectrl** (6469 symbols, 14553 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **eyectrl** (6810 symbols, 15365 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Windows.Threading;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Contracts;
 using EyeCtrl.Core;
@@ -25,7 +26,8 @@ public class ExternalDwellServiceTests
 
     private static ExternalDwellService NewService(GazeEngine engine, Func<PhysicalPoint, long?> root) =>
         new(new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
-            engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance, root);
+            engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
+            new WeakReferenceMessenger(), root);
 
     private static void RunOnStaThread(Action action)
     {

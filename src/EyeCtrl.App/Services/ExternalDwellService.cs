@@ -6,11 +6,13 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Threading;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Contracts;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging;
 
 public sealed class ExternalDwellService : IDisposable
@@ -21,6 +23,7 @@ public sealed class ExternalDwellService : IDisposable
     private readonly GazeEngine _gazeEngine;
     private readonly Dispatcher _dispatcher;
     private readonly ILogger<ExternalDwellService> _logger;
+    private readonly IMessenger _messenger;
     private readonly ExternalDwellArbiter _arbiter;
     private readonly DwellFeedbackOverlay _feedback;
     private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -30,6 +33,7 @@ public sealed class ExternalDwellService : IDisposable
     private readonly Dictionary<string, PipeConnection> _connByTarget = new();
 
     private string? _feedbackId;
+    private PhysicalRect _feedbackRect;
     private bool _suppressing;
     private CancellationTokenSource? _cts;
     private bool _disposed;
@@ -39,12 +43,14 @@ public sealed class ExternalDwellService : IDisposable
         GazeEngine gazeEngine,
         Dispatcher dispatcher,
         ILogger<ExternalDwellService> logger,
+        IMessenger messenger,
         Func<PhysicalPoint, long?>? rootWindowAtPoint = null)
     {
         _settings = settings;
         _gazeEngine = gazeEngine;
         _dispatcher = dispatcher;
         _logger = logger;
+        _messenger = messenger;
         _arbiter = new ExternalDwellArbiter(rootWindowAtPoint ?? RootWindowAtPointImpl, settings.CooldownMs);
         _feedback = new DwellFeedbackOverlay();
         _settings.PropertyChanged += (_, e) =>
@@ -106,6 +112,7 @@ public sealed class ExternalDwellService : IDisposable
         if (_suppressing) return;
         _suppressing = true;
         _gazeEngine.SuppressFixation = true;
+        SetCursorRingHidden(true);
     }
 
     private void ReleaseSuppression()
@@ -113,7 +120,15 @@ public sealed class ExternalDwellService : IDisposable
         if (!_suppressing) return;
         _suppressing = false;
         _gazeEngine.SuppressFixation = false;
+        SetCursorRingHidden(false);
     }
+
+    // Hide the gaze cursor ring while an external target is active (the dwell-progress overlay
+    // replaces it). Routed through a message so CursorCircleViewModel remains the single owner of
+    // ring visibility (it combines this with interaction state); marshaled because the recipient
+    // touches the cursor window on the UI thread.
+    private void SetCursorRingHidden(bool hidden) =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ExternalDwellActiveMessage(hidden)));
 
     private void SetFeedback(string? id, PhysicalRect rect, double progress)
     {
@@ -121,15 +136,19 @@ public sealed class ExternalDwellService : IDisposable
         {
             if (_feedbackId == null) return;
             _feedbackId = null;
+            _feedbackRect = default;
             _dispatcher.BeginInvoke(() => _feedback.HideFeedback());
             return;
         }
 
-        bool isNew = _feedbackId != id;
+        // Reposition on target change OR when the same target's rect moves (e.g. window dragged
+        // mid-dwell), not only on first show.
+        bool reposition = _feedbackId != id || _feedbackRect != rect;
         _feedbackId = id;
+        _feedbackRect = rect;
         _dispatcher.BeginInvoke(() =>
         {
-            if (isNew) _feedback.ShowAt(rect.X, rect.Y, rect.Width, rect.Height);
+            if (reposition) _feedback.ShowAt(rect.X, rect.Y, rect.Width, rect.Height);
             _feedback.SetProgress(progress);
         });
     }

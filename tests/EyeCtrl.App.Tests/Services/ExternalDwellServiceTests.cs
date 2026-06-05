@@ -67,6 +67,27 @@ public class ExternalDwellServiceTests
         });
     }
 
+    [Fact]
+    public void NoActiveTarget_LeavesForeignSuppressFixationUntouched()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            // root => null: no target is ever gated in, so the service has no active target.
+            using var svc = NewService(engine, _ => null);
+            svc.Start();
+
+            // Another owner (keyboard / calibration via EventCoordinator) suppresses fixation.
+            engine.SuppressFixation = true;
+
+            // A gaze frame with no registered targets must NOT clear another owner's suppression.
+            provider.Raise(new GazePoint(500, 500, 1_000, IsValid: true));
+
+            Assert.True(engine.SuppressFixation);
+        });
+    }
+
     private static async Task RunPipeClient()
     {
         await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut);
@@ -81,6 +102,7 @@ public class ExternalDwellServiceTests
     {
         public bool IsConnected => true;
         public event Action<GazePoint>? GazePointReceived;
+        public void Raise(GazePoint p) => GazePointReceived?.Invoke(p);
         public void Start() { }
         public void Stop() { }
         public void Dispose() { }

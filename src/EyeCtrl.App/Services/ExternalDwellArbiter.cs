@@ -46,13 +46,6 @@ public sealed class ExternalDwellArbiter
         _hwndById.Remove(id);
     }
 
-    public void Clear()
-    {
-        _targets.Clear();
-        _hwndById.Clear();
-        _lastActivationUs = null;
-    }
-
     public ArbiterResult Process(PhysicalPoint gaze, long timestampUs)
     {
         if (_lastActivationUs is { } last && timestampUs - last < _cooldownUs)

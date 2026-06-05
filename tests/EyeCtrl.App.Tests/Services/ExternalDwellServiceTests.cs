@@ -90,6 +90,52 @@ public class ExternalDwellServiceTests
         });
     }
 
+    [Fact]
+    public void DisableThenReEnable_StillActivatesRegisteredTarget()
+    {
+        RunOnStaThread(() =>
+        {
+            var settings = new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 };
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = new ExternalDwellService(settings, engine, Dispatcher.CurrentDispatcher,
+                NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => 7);
+            svc.Start();
+
+            var activated = RegisterToggleAndDwell(settings, provider).GetAwaiter().GetResult();
+
+            // With the target retained across the disable/enable toggle, dwell still activates it.
+            Assert.NotNull(activated);
+            Assert.Contains("activated", activated);
+            Assert.Contains("\"id\":\"btn\"", activated);
+        });
+    }
+
+    // Registers a target, toggles Enabled off then on, dwells over it, and returns the server's
+    // activation line (or null on timeout). Used to verify re-enable does not drop the target.
+    private static async Task<string?> RegisterToggleAndDwell(ExternalDwellSettings settings, StubGazeProvider provider)
+    {
+        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+        await Task.Delay(200); // let the server register the target
+
+        // Toggle the feature off then back on — must NOT drop the registered target.
+        settings.Enabled = false;
+        settings.Enabled = true;
+
+        // Dwell over the target: enter (t=0), complete after DefaultDwellMs (800 ms in microseconds).
+        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
+        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+
+        var read = r.ReadLineAsync();
+        return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
     private static async Task RunPipeClient()
     {
         await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut);

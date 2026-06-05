@@ -30,6 +30,7 @@ public sealed class ExternalDwellService : IDisposable
     private readonly Dictionary<string, PipeConnection> _connByTarget = new();
 
     private string? _feedbackId;
+    private bool _suppressing;
     private CancellationTokenSource? _cts;
     private bool _disposed;
 
@@ -63,7 +64,15 @@ public sealed class ExternalDwellService : IDisposable
 
     private void OnCursorMoved(PhysicalPoint gaze, long timestampUs)
     {
-        if (!_settings.Enabled) return;
+        // Don't run while disabled or while EyeCtrl is paused. If we were holding
+        // suppression/feedback, release it so we never strand SuppressFixation = true.
+        if (!_settings.Enabled
+            || _gazeEngine.InteractionManager.CurrentState == InteractionState.Paused)
+        {
+            ReleaseSuppression();
+            SetFeedback(null, default, 0);
+            return;
+        }
 
         ArbiterResult result;
         lock (_stateLock) result = _arbiter.Process(gaze, timestampUs);
@@ -71,21 +80,39 @@ public sealed class ExternalDwellService : IDisposable
         if (result.ActivatedId is { } activated)
         {
             SendActivated(activated);
-            _gazeEngine.SuppressFixation = false;
+            ReleaseSuppression();
             SetFeedback(null, default, 0);
             return;
         }
 
         if (result.FeedbackId is { } fid)
         {
-            _gazeEngine.SuppressFixation = true;
+            AcquireSuppression();
             SetFeedback(fid, result.FeedbackRect!.Value, result.Progress);
         }
         else
         {
-            _gazeEngine.SuppressFixation = false;
+            ReleaseSuppression();
             SetFeedback(null, default, 0);
         }
+    }
+
+    // SuppressFixation is a single bool shared with EventCoordinator (keyboard / calibration).
+    // We manage ONLY our own contribution: set it true while an external target is active, and
+    // clear it ONLY if we set it. We never write it on frames where we aren't involved — doing so
+    // would clobber another owner (e.g. clearing suppression while the keyboard is open).
+    private void AcquireSuppression()
+    {
+        if (_suppressing) return;
+        _suppressing = true;
+        _gazeEngine.SuppressFixation = true;
+    }
+
+    private void ReleaseSuppression()
+    {
+        if (!_suppressing) return;
+        _suppressing = false;
+        _gazeEngine.SuppressFixation = false;
     }
 
     private void SetFeedback(string? id, PhysicalRect rect, double progress)
@@ -219,6 +246,7 @@ public sealed class ExternalDwellService : IDisposable
         if (_disposed) return;
         _disposed = true;
         _gazeEngine.CursorMoved -= OnCursorMoved;
+        ReleaseSuppression();
         _cts?.Cancel();
         lock (_stateLock)
         {

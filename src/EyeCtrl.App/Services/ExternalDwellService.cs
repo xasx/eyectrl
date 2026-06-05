@@ -57,17 +57,11 @@ public sealed class ExternalDwellService : IDisposable
         {
             if (e.PropertyName == nameof(ExternalDwellSettings.CooldownMs))
                 lock (_stateLock) _arbiter.SetCooldown(_settings.CooldownMs);
-            if (e.PropertyName == nameof(ExternalDwellSettings.Enabled) && !_settings.Enabled)
-            {
-                lock (_stateLock)
-                {
-                    _arbiter.Clear();
-                    foreach (var c in _connections) c.TargetIds.Clear();
-                    _connByTarget.Clear();
-                }
-                ReleaseSuppression();
-                SetFeedback(null, default, 0);
-            }
+            // When disabled, OnCursorMoved's early-return releases suppression + hides feedback on
+            // the next gaze frame (on the gaze thread, where those fields live). We intentionally do
+            // NOT clear registered targets here: clearing would strand already-connected clients on
+            // re-enable (their tracker would send Update, which the server drops once TargetIds is
+            // cleared), and it's unnecessary — disabled frames are simply not processed.
         };
         _gazeEngine.CursorMoved += OnCursorMoved;
     }

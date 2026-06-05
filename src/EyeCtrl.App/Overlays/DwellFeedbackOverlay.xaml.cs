@@ -17,9 +17,10 @@ public partial class DwellFeedbackOverlay : OverlayWindow
         Top = DpiHelper.PhysicalToLogicalY(physY);
         Width = DpiHelper.PhysicalToLogicalX(physW);
         Height = DpiHelper.PhysicalToLogicalY(physH);
-        ProgressFill.Width = 0;
+        // Note: don't reset ProgressFill here — ShowAt is also called to reposition a target that
+        // moves mid-dwell, and the immediately-following SetProgress drives the fill width.
         ProgressBorder.Visibility = Visibility.Visible;
-        Show();
+        if (!IsVisible) Show();
     }
 
     public void SetProgress(double progress)

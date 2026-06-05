@@ -77,4 +77,37 @@ public class CursorCircleViewModelTests
         messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
         Assert.True(vm.IsVisible);
     }
+
+    [Fact]
+    public void ExternalDwellActive_HidesCursor_EvenInFreeLook()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(settings, messenger);
+
+        messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Assert.True(vm.IsVisible);
+
+        messenger.Send(new ExternalDwellActiveMessage(true));
+        Assert.False(vm.IsVisible);
+
+        messenger.Send(new ExternalDwellActiveMessage(false));
+        Assert.True(vm.IsVisible);
+    }
+
+    [Fact]
+    public void LeavingExternalTarget_DoesNotShowCursor_WhilePaused()
+    {
+        // Combined-owner check: clearing external-dwell must not override the paused state.
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(settings, messenger);
+
+        messenger.Send(new StateChangedMessage(InteractionState.Paused));
+        messenger.Send(new ExternalDwellActiveMessage(true));
+        Assert.False(vm.IsVisible);
+
+        messenger.Send(new ExternalDwellActiveMessage(false));
+        Assert.False(vm.IsVisible);
+    }
 }

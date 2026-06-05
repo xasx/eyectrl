@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using EyeCtrl.Contracts;
 
 /// <summary>
@@ -22,6 +23,11 @@ public sealed class DwellClient : IDisposable
     private readonly OutboundRectTracker _tracker = new();
     private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly object _writeLock = new();
+
+    // Outbound messages are queued and written by a single background consumer, so callers
+    // (typically the app's UI thread, during register/layout) never block on pipe IO.
+    private readonly Channel<WireMessage> _outbox =
+        Channel.CreateUnbounded<WireMessage>(new UnboundedChannelOptions { SingleReader = true });
 
     private NamedPipeClientStream? _pipe;
     private StreamWriter? _writer;
@@ -52,6 +58,7 @@ public sealed class DwellClient : IDisposable
         if (_cts != null) return;
         _cts = new CancellationTokenSource();
         _ = RunAsync(_cts.Token);
+        _ = SendLoopAsync(_cts.Token);
     }
 
     private async Task RunAsync(CancellationToken token)
@@ -113,19 +120,30 @@ public sealed class DwellClient : IDisposable
         if (msg != null) TrySend(msg);
     }
 
-    private void TrySend(WireMessage msg)
+    // Non-blocking enqueue; the actual write happens on the SendLoop consumer.
+    private void TrySend(WireMessage msg) => _outbox.Writer.TryWrite(msg);
+
+    private async Task SendLoopAsync(CancellationToken token)
     {
-        lock (_writeLock)
+        try
         {
-            if (_writer == null) return;
-            try { _writer.WriteLine(JsonSerializer.Serialize(msg, _json)); }
-            catch { /* reconnect will handle */ }
+            await foreach (var msg in _outbox.Reader.ReadAllAsync(token))
+            {
+                var line = JsonSerializer.Serialize(msg, _json);
+                lock (_writeLock)
+                {
+                    if (_writer is null) continue;   // disconnected; reconnect re-sends current state
+                    try { _writer.WriteLine(line); } catch { /* broke; reconnect handles */ }
+                }
+            }
         }
+        catch (OperationCanceledException) { }
     }
 
     public void Dispose()
     {
         _disposed = true;
+        _outbox.Writer.TryComplete();
         _cts?.Cancel();
         lock (_writeLock) { _writer?.Dispose(); _writer = null; }
         _pipe?.Dispose();

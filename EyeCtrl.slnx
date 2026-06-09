@@ -15,5 +15,6 @@
     <Project Path="tests/EyeCtrl.Platform.Tests/EyeCtrl.Platform.Tests.csproj" />
     <Project Path="tests/EyeCtrl.ViewModels.Tests/EyeCtrl.ViewModels.Tests.csproj" />
     <Project Path="tests/EyeCtrl.Sdk.Abstractions.Tests/EyeCtrl.Sdk.Abstractions.Tests.csproj" />
+    <Project Path="tests/EyeCtrl.Sdk.WinUI.Tests/EyeCtrl.Sdk.WinUI.Tests.csproj" />
   </Folder>
 </Solution>

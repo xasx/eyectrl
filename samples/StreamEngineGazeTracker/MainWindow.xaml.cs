@@ -3,44 +3,36 @@ namespace StreamEngineGazeTracker;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Shapes;
 using System.Windows.Threading;
-using Tobii.StreamEngine;
+using EyeCtrl.Core;
+using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.Platform.Gaze;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 public partial class MainWindow : Window
 {
-    // ── StreamEngine handles ──────────────────────────────────────────
-    private IntPtr _api;
-    private IntPtr _device;
+    // ── GazeEngine pipeline ────────────────────────────────────────────
+    private GazeEngine? _gazeEngine;
+    private TobiiStreamEngineProvider? _gazeProvider;
 
-    // Must keep a reference to prevent GC from collecting the marshalled delegate.
-    // Without this field, the GC collects the delegate and StreamEngine crashes
-    // with CallbackOnCollectedDelegate after the first GC.
-    private tobii_gaze_point_callback_t? _gazeCallback;
-
-    // ── Poll loop ─────────────────────────────────────────────────────
-    private CancellationTokenSource? _cts;
-    private Task? _pollTask;
-    private readonly IntPtr[] _deviceArray = new IntPtr[1]; // hoist to avoid per-iteration allocation
-
-    // ── Shared gaze data (callback thread → UI timer) ─────────────────
+    // ── Shared gaze state (CursorMoved thread → UI timer) ─────────────
     private readonly object _gazeLock = new();
-    private double _rawX;
-    private double _rawY;
-    private bool _rawValid;
+    private double _filteredX;
+    private double _filteredY;
+    private bool _hasNewSample;
     private int _gazeCallbackCount;
 
     // ── Hz computation (1-second rolling window) ──────────────────────
     private readonly Queue<(DateTime time, int count)> _hzWindow = new();
     private double _currentHz;
 
-    // ── OneEuroFilter state ───────────────────────────────────────────
-    private OneEuroFilter? _filterX;
-    private OneEuroFilter? _filterY;
-
     // ── Trail ─────────────────────────────────────────────────────────
     private const int MaxTrailPoints = 50;
-    // Trail/gaze dot sizes are physical pixels — converted to DIPs at
-    // runtime via DpiHelper so they look the same at any DPI scale.
     private const double TrailDotPhysicalSize = 6;
     private const double GazeDotPhysicalSize  = 16;
     private const double TrailColorR = 0;
@@ -51,8 +43,8 @@ public partial class MainWindow : Window
     private const double GazeDotColorB = 102;
 
     private readonly List<Point> _trailPoints = new(MaxTrailPoints + 1);
-    private System.Windows.Shapes.Ellipse[] _trailDots = null!;
-    private System.Windows.Shapes.Ellipse _gazeDot = null!;
+    private Ellipse[] _trailDots = null!;
+    private Ellipse _gazeDot = null!;
     private bool _uiInitialized;
 
     // ── Performance tracking ──────────────────────────────────────────
@@ -70,16 +62,23 @@ public partial class MainWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // Size debug overlay in physical pixels so it looks the same
-        // regardless of system DPI scaling.
-        DebugText.FontSize   = DpiHelper.PhysicalToLogical(this, 13);
-        DebugOverlay.Padding = new Thickness(DpiHelper.PhysicalToLogical(this, 8));
+        DebugText.FontSize   = 24;
+        DebugOverlay.Padding = new Thickness(16);
 
         try
         {
-            InitializeStreamEngine();
-            SubscribeGaze();
-            StartPollLoop();
+            var scaleX = DpiHelper.GetScale(this);
+            var screenWidth  = SystemParameters.PrimaryScreenWidth  * scaleX;
+            var screenHeight = SystemParameters.PrimaryScreenHeight * scaleX;
+
+            var logger = NullLoggerFactory.Instance.CreateLogger<TobiiStreamEngineProvider>();
+            _gazeProvider = new TobiiStreamEngineProvider(screenWidth, screenHeight, logger);
+
+            var settings = new EyeCtrlSettings();
+            _gazeEngine = new GazeEngine(_gazeProvider, new NopInputSimulator(), settings);
+            _gazeEngine.CursorMoved += OnCursorMoved;
+            _gazeEngine.Start();
+
             StartUITimer();
             _uptime.Start();
         }
@@ -93,112 +92,19 @@ public partial class MainWindow : Window
         }
     }
 
-    // ── StreamEngine initialization ───────────────────────────────────
+    // ── CursorMoved handler (runs on Tobii poll thread) ───────────────
+    //    GazeEngine fires this after calibration + gap interpolation + OneEuro filtering.
+    //    The point is in physical screen pixels.
 
-    private void InitializeStreamEngine()
+    private void OnCursorMoved(PhysicalPoint filteredPoint, long timestamp)
     {
-        var result = Interop.tobii_api_create(out _api, null);
-        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
-            throw new InvalidOperationException($"Failed to create Tobii API: {result}");
+        Interlocked.Increment(ref _gazeCallbackCount);
 
-        result = Interop.tobii_enumerate_local_device_urls(_api, out List<string> urls);
-        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR || urls.Count == 0)
-            throw new InvalidOperationException("No Tobii device found. Connect a Tobii tracker and try again.");
-
-        result = Interop.tobii_device_create(
-            _api, urls[0],
-            Interop.tobii_field_of_use_t.TOBII_FIELD_OF_USE_STORE_OR_TRANSFER_FALSE,
-            out _device);
-        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
-            throw new InvalidOperationException($"Failed to create Tobii device: {result}");
-
-        _deviceArray[0] = _device;
-    }
-
-    private void SubscribeGaze()
-    {
-        _gazeCallback = (ref tobii_gaze_point_t gazePoint, IntPtr userData) =>
+        lock (_gazeLock)
         {
-            lock (_gazeLock)
-            {
-                _rawX = gazePoint.position.x;
-                _rawY = gazePoint.position.y;
-                _rawValid = gazePoint.validity == tobii_validity_t.TOBII_VALIDITY_VALID;
-            }
-            Interlocked.Increment(ref _gazeCallbackCount);
-        };
-
-        var result = Interop.tobii_gaze_point_subscribe(_device, _gazeCallback, IntPtr.Zero);
-        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
-            throw new InvalidOperationException($"Failed to subscribe to gaze data: {result}");
-    }
-
-    // ── Poll loop ─────────────────────────────────────────────────────
-
-    private void StartPollLoop()
-    {
-        _cts = new CancellationTokenSource();
-        var token = _cts.Token;
-
-        _pollTask = Task.Run(() =>
-        {
-            while (!token.IsCancellationRequested)
-            {
-                var result = Interop.tobii_wait_for_callbacks(_deviceArray);
-                if (result == tobii_error_t.TOBII_ERROR_TIMED_OUT)
-                    continue; // normal — no data yet, loop back to wait
-                if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
-                {
-                    Thread.Sleep(100); // avoid hot-spin on persistent device errors
-                    continue;
-                }
-
-                result = Interop.tobii_device_process_callbacks(_device);
-                if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
-                {
-                    Thread.Sleep(100);
-                    continue;
-                }
-            }
-        }, token);
-    }
-
-    // ── Cleanup ───────────────────────────────────────────────────────
-
-    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
-    {
-        // Stop the UI timer first so no queued tick runs OnUITick during teardown:
-        // OnUITick calls GazeCanvas.PointFromScreen, which throws once the window's
-        // PresentationSource is gone. Null-conditional because OnClosing can fire if
-        // initialization failed before the timer was created.
-        _uiTimer?.Stop();
-
-        // Order is critical: stop the poll thread BEFORE destroying native handles.
-        // Otherwise the poll thread may be inside tobii_wait_for_callbacks on a destroyed device.
-        // Null-conditional because OnClosing can fire if initialization failed (no _cts/_pollTask yet).
-        _cts?.Cancel();
-        try
-        {
-            // Wait for the poll task to exit before destroying native handles (prevents a
-            // use-after-destroy crash). The in-flight tobii_wait_for_callbacks returns within
-            // its internal timeout, so this completes near-instantly in practice; the bound
-            // guards against a pathological hang blocking window close.
-            _pollTask?.Wait(TimeSpan.FromSeconds(5));
-        }
-        catch (AggregateException)
-        {
-            // Poll task faulted (e.g. an unexpected native error) — proceed with cleanup regardless.
-        }
-
-        if (_device != IntPtr.Zero)
-        {
-            Interop.tobii_gaze_point_unsubscribe(_device);
-            Interop.tobii_device_destroy(_device);
-        }
-
-        if (_api != IntPtr.Zero)
-        {
-            Interop.tobii_api_destroy(_api);
+            _filteredX = filteredPoint.X;
+            _filteredY = filteredPoint.Y;
+            _hasNewSample = true;
         }
     }
 
@@ -206,14 +112,6 @@ public partial class MainWindow : Window
 
     private void StartUITimer()
     {
-        // OneEuroFilter: separate instances for X and Y axes.
-        // Parameters are for normalized (0..1) coordinate space.
-        // NOTE: The production EyeCtrl app uses different params (minCutoff=5.0, beta=0.5)
-        // and operates in pixel space with timestamp-derived dt.
-        // See: src/EyeCtrl.Core/Processing/OneEuroFilter.cs
-        _filterX = new OneEuroFilter(minCutoff: 1.0, beta: 0.007, dCutoff: 1.0);
-        _filterY = new OneEuroFilter(minCutoff: 1.0, beta: 0.007, dCutoff: 1.0);
-
         _uiTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000.0 / 60) };
         _uiTimer.Tick += OnUITick;
         _uiTimer.Start();
@@ -221,19 +119,19 @@ public partial class MainWindow : Window
 
     private void OnUITick(object? sender, EventArgs e)
     {
-        // 1. Read latest gaze data
-        double rawX, rawY;
-        bool rawValid;
+        // 1. Read latest filtered gaze point
+        double fx, fy;
+        bool hasSample;
         int ticksThisFrame;
         lock (_gazeLock)
         {
-            rawX = _rawX;
-            rawY = _rawY;
-            rawValid = _rawValid;
+            fx = _filteredX;
+            fy = _filteredY;
+            hasSample = _hasNewSample;
         }
         ticksThisFrame = Interlocked.Exchange(ref _gazeCallbackCount, 0);
 
-        // 2. Update Hz rolling window (1-second accumulation)
+        // 2. Update Hz rolling window
         var now = DateTime.UtcNow;
         _hzWindow.Enqueue((now, ticksThisFrame));
         while (_hzWindow.Count > 0 && (now - _hzWindow.Peek().time).TotalSeconds > 1.0)
@@ -241,49 +139,32 @@ public partial class MainWindow : Window
         int totalInWindow = 0;
         foreach (var entry in _hzWindow)
             totalInWindow += entry.count;
-        _currentHz = totalInWindow; // samples per 1-second window = Hz
+        _currentHz = totalInWindow;
 
-        // 3. Initialize visual elements on first tick
+        // 3. Initialize visuals on first tick
         if (!_uiInitialized)
         {
             InitializeVisuals();
             _uiInitialized = true;
         }
 
-        // 4. Apply OneEuroFilter (fixed dt = 1/60, tied to timer rate)
-        //    When no new data arrives, re-filtering the same point produces velocity ≈ 0,
-        //    which momentarily increases smoothing. Acceptable for a sample.
-        //    Skip filter/trail/dot on invalid gaze (blinks, tracking loss) — StreamEngine
-        //    leaves position undefined on invalid samples, so filtering garbage would snap
-        //    the dot to (0,0) or stale coordinates.
-        const double dt = 1.0 / 60.0;
+        // 4. Convert physical screen pixel coords to canvas-local DIPs
+        //    PointFromScreen maps screen coordinates (physical pixels) to canvas-local DIPs,
+        //    correctly handling DPI, window position, and window chrome.
         double px = 0, py = 0;
-        double fx = 0, fy = 0;
-        if (rawValid)
+        if (hasSample)
         {
-            fx = _filterX!.Filter(rawX, dt);
-            fy = _filterY!.Filter(rawY, dt);
-
-            // 5. Convert normalized (0..1) gaze coords to canvas-local DIPs.
-            //    StreamEngine's normalization is to the physical screen.
-            //    SystemParameters.* is in DIPs, so multiply by the DPI
-            //    scale to get physical pixels. PointFromScreen then maps
-            //    that screen point into the canvas's local DIP space,
-            //    correctly handling DPI, window position, and window
-            //    chrome (title bar / borders).
-            var (scaleX, scaleY) = DpiHelper.GetScaleXY(this);
-            double physX = fx * SystemParameters.PrimaryScreenWidth  * scaleX;
-            double physY = fy * SystemParameters.PrimaryScreenHeight * scaleY;
-            Point canvasPt = GazeCanvas.PointFromScreen(new Point(physX, physY));
+            Point canvasPt = GazeCanvas.PointFromScreen(new Point(fx, fy));
             px = canvasPt.X;
             py = canvasPt.Y;
 
-            // 6. Update trail
+            // 5. Update trail
             _trailPoints.Add(new Point(px, py));
             while (_trailPoints.Count > MaxTrailPoints)
                 _trailPoints.RemoveAt(0);
 
-            // 7. Update trail dots (pool of Ellipses)
+            // 6. Update trail dots
+            double scaleX = DpiHelper.GetScale(this);
             double halfTrailDotDip = TrailDotPhysicalSize / 2.0 / scaleX;
             for (int i = 0; i < _trailDots.Length; i++)
             {
@@ -302,39 +183,44 @@ public partial class MainWindow : Window
                 }
             }
 
-            // 8. Update gaze dot
+            // 7. Update gaze dot
             double halfGazeDotDip = GazeDotPhysicalSize / 2.0 / scaleX;
             Canvas.SetLeft(_gazeDot, px - halfGazeDotDip);
             Canvas.SetTop(_gazeDot, py - halfGazeDotDip);
         }
 
-        // 9. Update debug overlay (single assignment per tick)
-        string status = rawValid ? "Connected" : "Invalid";
-        DebugText.Text = rawValid
-            ? $"Status: {status}\n" +
-              $"Raw:    ({rawX:F4}, {rawY:F4})\n" +
-              $"Filter: ({fx:F4}, {fy:F4})\n" +
-              $"Screen: ({px:F0}, {py:F0})\n" +
+        // 8. Update debug overlay
+        DebugText.Text = hasSample
+            ? $"Status: Connected\n" +
+              $"Filter: ({fx:F0}, {fy:F0})\n" +
+              $"Canvas: ({px:F0}, {py:F0})\n" +
               $"Gaze:   {_currentHz:F0} Hz\n" +
               $"Uptime: {_uptime.Elapsed:mm\\:ss}"
-            : $"Status: {status}\n" +
-              $"Raw:    ({rawX:F4}, {rawY:F4})\n" +
+            : $"Status: Waiting for gaze...\n" +
               $"Gaze:   {_currentHz:F0} Hz\n" +
               $"Uptime: {_uptime.Elapsed:mm\\:ss}";
     }
 
+    // ── Cleanup ───────────────────────────────────────────────────────
+
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        _uiTimer?.Stop();
+        _gazeEngine?.Stop();
+        _gazeEngine?.Dispose();
+    }
+
+    // ── Visual initialization ─────────────────────────────────────────
+
     private void InitializeVisuals()
     {
-        // Convert physical-pixel sizes to DIPs at the current DPI so the
-        // dots look the same regardless of system display scaling.
         double trailDip = DpiHelper.PhysicalToLogical(this, TrailDotPhysicalSize);
         double gazeDip  = DpiHelper.PhysicalToLogical(this, GazeDotPhysicalSize);
 
-        // Create trail dot pool
-        _trailDots = new System.Windows.Shapes.Ellipse[MaxTrailPoints];
+        _trailDots = new Ellipse[MaxTrailPoints];
         for (int i = 0; i < _trailDots.Length; i++)
         {
-            _trailDots[i] = new System.Windows.Shapes.Ellipse
+            _trailDots[i] = new Ellipse
             {
                 Width = trailDip,
                 Height = trailDip,
@@ -346,8 +232,7 @@ public partial class MainWindow : Window
             GazeCanvas.Children.Add(_trailDots[i]);
         }
 
-        // Create gaze dot
-        _gazeDot = new System.Windows.Shapes.Ellipse
+        _gazeDot = new Ellipse
         {
             Width = gazeDip,
             Height = gazeDip,
@@ -358,54 +243,21 @@ public partial class MainWindow : Window
         GazeCanvas.Children.Add(_gazeDot);
     }
 
-    // ── Minimal OneEuro Filter ────────────────────────────────────────
-    // A self-contained ~30-line implementation for this sample.
-    // See src/EyeCtrl.Core/Processing/OneEuroFilter.cs for the production version.
+    // ── NopInputSimulator (sample is visualization-only) ──────────────
 
-    private class OneEuroFilter
+    private sealed class NopInputSimulator : IInputSimulator
     {
-        private readonly double _minCutoff;
-        private readonly double _beta;
-        private readonly double _dCutoff;
-        private double _xFilt;
-        private double _dxFilt;
-        private bool _initialized;
-
-        public OneEuroFilter(double minCutoff, double beta, double dCutoff)
-        {
-            _minCutoff = minCutoff;
-            _beta = beta;
-            _dCutoff = dCutoff;
-        }
-
-        public double Filter(double x, double dt)
-        {
-            if (!_initialized)
-            {
-                _xFilt = x;
-                _dxFilt = 0;
-                _initialized = true;
-                return x;
-            }
-
-            double dx = (x - _xFilt) / dt;
-            double edx = LowPass(dx, _dxFilt, Alpha(_dCutoff, dt));
-            _dxFilt = edx;
-
-            double cutoff = _minCutoff + _beta * Math.Abs(edx);
-            _xFilt = LowPass(x, _xFilt, Alpha(cutoff, dt));
-            return _xFilt;
-        }
-
-        private static double Alpha(double cutoff, double dt)
-        {
-            double tau = 1.0 / (2 * Math.PI * cutoff);
-            return 1.0 / (1.0 + tau / dt);
-        }
-
-        private static double LowPass(double x, double prev, double alpha)
-        {
-            return alpha * x + (1 - alpha) * prev;
-        }
+        public void MoveCursor(PhysicalPoint point) { }
+        public void LeftClick(PhysicalPoint point) { }
+        public void RightClick(PhysicalPoint point) { }
+        public void DoubleClick(PhysicalPoint point) { }
+        public void MouseDown(PhysicalPoint point) { }
+        public void MouseUp(PhysicalPoint point) { }
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { }
+        public void SendKeyPress(ushort virtualKeyCode) { }
+        public void SendKeyDown(ushort virtualKeyCode) { }
+        public void SendKeyUp(ushort virtualKeyCode) { }
+        public void SendText(string text) { }
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode) { }
     }
 }

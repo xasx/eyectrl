@@ -9,6 +9,11 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\EyeCtrl.Core\EyeCtrl.Core.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Platform\EyeCtrl.Platform.csproj" />
+  </ItemGroup>
+
   <!-- Tobii Stream Engine: requires the SDK to be installed.
        This sample hard-fails without it (unlike EyeCtrl.Platform which degrades gracefully).
        Override path via -p:TobiiSdkPath="..." -->

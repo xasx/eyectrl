@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- VS 2022 Insiders AppxPackage tools (required for PRI generation by WindowsAppSDK).
+         This path is not included in the .NET 10 SDK; override from the VS install. -->
+    <AppxMSBuildToolsPath Condition="'$(AppxMSBuildToolsPath)' == ''">C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VisualStudio\v18.0\AppxPackage\</AppxMSBuildToolsPath>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageId>EyeCtrl.Sdk.WinUI</PackageId>
+    <Description>EyeCtrl gaze-dwell integration for WinUI 3. Attach eyectrl:Dwell.Enabled="True" to any FrameworkElement.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250602001" />
+    <ProjectReference Include="..\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

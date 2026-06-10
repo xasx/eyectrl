@@ -34,12 +34,14 @@ public sealed class DwellClient : IDisposable
     private CancellationTokenSource? _cts;
     private volatile bool _disposed;
 
+    /// <summary>Registers an adapter and sends its current rect. Idempotent per adapter id.</summary>
     public void RegisterAdapter(IDwellElementAdapter adapter)
     {
         _adapters[adapter.Id] = adapter;
         SendRect(adapter);
     }
 
+    /// <summary>Removes the adapter with this id and tells the service it is no longer dwellable.</summary>
     public void UnregisterAdapter(string id)
     {
         _adapters.TryRemove(id, out _);
@@ -48,11 +50,13 @@ public sealed class DwellClient : IDisposable
         TrySend(msg);
     }
 
+    /// <summary>Re-reads and re-sends the adapter's rect (deduped); call when its layout may have changed.</summary>
     public void OnAdapterLayoutChanged(string id)
     {
         if (_adapters.TryGetValue(id, out var adapter)) SendRect(adapter);
     }
 
+    /// <summary>Starts the background connect/read and send loops. Idempotent; safe to call once per process.</summary>
     public void Start()
     {
         if (_cts != null) return;
@@ -74,6 +78,10 @@ public sealed class DwellClient : IDisposable
                     _writer = new StreamWriter(_pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
                 backoff = MinBackoffMs;
 
+                // Re-send current state after (re)connect. This runs on the background connect loop,
+                // so adapters whose TryGetScreenRect is UI-thread-affine (WPF/WinUI) fail here and
+                // return false; their rects are re-sent by the head's own UI-thread refresh loop once
+                // the tracker is Reset. The resend still covers thread-agnostic adapters directly.
                 lock (_tracker) _tracker.Reset();
                 foreach (var adapter in _adapters.Values) SendRect(adapter);
 
@@ -140,6 +148,7 @@ public sealed class DwellClient : IDisposable
         catch (OperationCanceledException) { }
     }
 
+    /// <summary>Stops the background loops, drops the queue, and disconnects from the service.</summary>
     public void Dispose()
     {
         _disposed = true;

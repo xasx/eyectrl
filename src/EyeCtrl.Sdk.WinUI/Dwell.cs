@@ -5,24 +5,55 @@ using EyeCtrl.Sdk.Abstractions;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
+/// <summary>
+/// Attached properties enabling gaze dwell on a WinUI <see cref="FrameworkElement"/>.
+/// A single process-wide DwellClient connects to EyeCtrl lazily on first use. Each UI thread
+/// gets its own rect-refresh timer, so multi-window apps (each window on its own dispatcher)
+/// track layout on the correct thread. The SDK holds no static strong reference to any element:
+/// per-element state lives on the element itself, so it is collected with the element.
+/// </summary>
 public static class Dwell
 {
+    /// <summary>Identifies the Dwell.Enabled attached property. Set <c>true</c> to make an element gaze-dwellable.</summary>
     public static readonly DependencyProperty EnabledProperty = DependencyProperty.RegisterAttached(
         "Enabled", typeof(bool), typeof(Dwell), new PropertyMetadata(false, OnEnabledChanged));
 
+    /// <summary>Identifies the Dwell.Mode attached property (<see cref="DwellMode.Invoke"/> or <see cref="DwellMode.Focus"/>; defaults to Invoke).</summary>
     public static readonly DependencyProperty ModeProperty = DependencyProperty.RegisterAttached(
         "Mode", typeof(DwellMode), typeof(Dwell), new PropertyMetadata(DwellMode.Invoke));
 
+    /// <summary>Gets the value of the Dwell.Enabled attached property.</summary>
     public static bool GetEnabled(DependencyObject o) => (bool)o.GetValue(EnabledProperty);
+
+    /// <summary>Sets the value of the Dwell.Enabled attached property.</summary>
     public static void SetEnabled(DependencyObject o, bool v) => o.SetValue(EnabledProperty, v);
+
+    /// <summary>Gets the value of the Dwell.Mode attached property.</summary>
     public static DwellMode GetMode(DependencyObject o) => (DwellMode)o.GetValue(ModeProperty);
+
+    /// <summary>Sets the value of the Dwell.Mode attached property.</summary>
     public static void SetMode(DependencyObject o, DwellMode v) => o.SetValue(ModeProperty, v);
 
+    // Per-element companion state is stashed on the element itself via a private attached property,
+    // so it is collected together with the element — the SDK keeps no static reference to any element.
+    private static readonly DependencyProperty EntryProperty = DependencyProperty.RegisterAttached(
+        "Entry", typeof(object), typeof(Dwell), new PropertyMetadata(null));
+
     private static readonly DwellClient _client = new();
-    private static readonly ConcurrentDictionary<FrameworkElement, Entry> _entries = new();
     private static int _started;
     private static long _idCounter;
-    private static DispatcherQueueTimer? _refreshTimer;
+
+    // One refresh timer per UI thread. Its Tick runs on that dispatcher's thread, so reading
+    // thread-affine layout (XamlRoot / TransformToVisual / ActualWidth) always happens on the
+    // element's own thread. Adapters are added on Loaded and removed on Unloaded, so only
+    // currently-loaded elements are referenced here.
+    private sealed class ThreadGroup
+    {
+        public DispatcherQueueTimer Timer = null!;
+        public readonly ConcurrentDictionary<string, WinUiElementAdapter> Adapters = new();
+    }
+
+    private static readonly ConcurrentDictionary<DispatcherQueue, ThreadGroup> _groups = new();
 
     private sealed record Entry(WinUiElementAdapter Adapter,
                                 RoutedEventHandler Loaded, RoutedEventHandler Unloaded);
@@ -34,42 +65,60 @@ public static class Dwell
         else Unregister(el);
     }
 
-    private static void EnsureStarted(FrameworkElement el)
-    {
-        if (Interlocked.Exchange(ref _started, 1) != 0) return;
-        _client.Start();
-        _refreshTimer = el.DispatcherQueue.CreateTimer();
-        _refreshTimer.Interval = TimeSpan.FromMilliseconds(200);
-        _refreshTimer.Tick += (_, _) =>
-        {
-            foreach (var entry in _entries.Values)
-                _client.OnAdapterLayoutChanged(entry.Adapter.Id);
-        };
-        _refreshTimer.Start();
-    }
-
     private static void Register(FrameworkElement el)
     {
-        EnsureStarted(el);
-        if (_entries.ContainsKey(el)) return;
+        if (Interlocked.Exchange(ref _started, 1) == 0) _client.Start();
+        if (el.GetValue(EntryProperty) is Entry) return;
 
         var id = $"winui_{Interlocked.Increment(ref _idCounter)}";
         var adapter = new WinUiElementAdapter(id, el, GetMode(el));
 
-        RoutedEventHandler loaded = (_, _) => _client.RegisterAdapter(adapter);
-        RoutedEventHandler unloaded = (_, _) => _client.UnregisterAdapter(id);
+        RoutedEventHandler loaded = (_, _) => OnLoaded(el, adapter);
+        RoutedEventHandler unloaded = (_, _) => OnUnloaded(el, adapter);
         el.Loaded += loaded;
         el.Unloaded += unloaded;
+        el.SetValue(EntryProperty, new Entry(adapter, loaded, unloaded));
 
-        _entries[el] = new Entry(adapter, loaded, unloaded);
-        if (el.IsLoaded) _client.RegisterAdapter(adapter);
+        if (el.IsLoaded) OnLoaded(el, adapter);
     }
 
     private static void Unregister(FrameworkElement el)
     {
-        if (!_entries.TryRemove(el, out var entry)) return;
+        if (el.GetValue(EntryProperty) is not Entry entry) return;
+        el.ClearValue(EntryProperty);
         el.Loaded -= entry.Loaded;
         el.Unloaded -= entry.Unloaded;
-        _client.UnregisterAdapter(entry.Adapter.Id);
+        OnUnloaded(el, entry.Adapter);
+    }
+
+    private static void OnLoaded(FrameworkElement el, WinUiElementAdapter adapter)
+    {
+        var group = _groups.GetOrAdd(el.DispatcherQueue, CreateGroup);
+        group.Adapters[adapter.Id] = adapter;
+        _client.RegisterAdapter(adapter);
+    }
+
+    private static void OnUnloaded(FrameworkElement el, WinUiElementAdapter adapter)
+    {
+        if (_groups.TryGetValue(el.DispatcherQueue, out var group))
+            group.Adapters.TryRemove(adapter.Id, out _);
+        _client.UnregisterAdapter(adapter.Id);
+    }
+
+    // Runs on the owning UI thread (GetOrAdd factory is invoked synchronously by OnLoaded, which
+    // fires on that thread), so CreateTimer() binds the timer to the correct dispatcher.
+    private static ThreadGroup CreateGroup(DispatcherQueue dispatcher)
+    {
+        var group = new ThreadGroup();
+        var timer = dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(200);
+        timer.Tick += (_, _) =>
+        {
+            foreach (var adapter in group.Adapters.Values)
+                _client.OnAdapterLayoutChanged(adapter.Id);
+        };
+        timer.Start();
+        group.Timer = timer;
+        return group;
     }
 }

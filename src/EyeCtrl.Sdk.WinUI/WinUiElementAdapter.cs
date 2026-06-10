@@ -45,6 +45,11 @@ internal sealed class WinUiElementAdapter : IDwellElementAdapter
 
         try
         {
+            // dip is the element's offset from the XamlRoot content root, in DIPs; origin is the
+            // client-area top-left of the root window in physical px. This assumes the XamlRoot
+            // content root sits at that window's client origin — true for a standard top-level
+            // WinUI 3 Window. A XAML island offset inside a larger Win32 host would need that
+            // island's own screen origin instead.
             var dip = _element.TransformToVisual(xr.Content).TransformPoint(new Point(0, 0));
             var origin = new POINT { X = 0, Y = 0 };
             if (!ClientToScreen(new IntPtr(hwnd), ref origin)) return false;
@@ -65,7 +70,9 @@ internal sealed class WinUiElementAdapter : IDwellElementAdapter
         if (peer?.GetPattern(PatternInterface.Invoke) is IInvokeProvider invoke) { invoke.Invoke(); return; }
 
         if (_element is ButtonBase b && b.Command?.CanExecute(b.CommandParameter) == true)
-            b.Command.Execute(b.CommandParameter);
+        { b.Command.Execute(b.CommandParameter); return; }
+
+        System.Diagnostics.Debug.WriteLine($"[EyeCtrl] Dwell activation on '{_element.GetType().Name}' ({Id}) has no invoke target. Element is not focusable, has no UIA invoke pattern, and is not a ButtonBase with a command.");
     });
 
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }

@@ -2,7 +2,15 @@ namespace EyeCtrl.Sdk.Abstractions;
 
 using EyeCtrl.Contracts;
 
-public enum DwellMode { Invoke, Focus }
+/// <summary>How a dwell activation is delivered to the target element.</summary>
+public enum DwellMode
+{
+    /// <summary>Invoke the element (UIA Invoke pattern, else a ButtonBase command).</summary>
+    Invoke,
+
+    /// <summary>Move keyboard focus to the element instead of invoking it.</summary>
+    Focus,
+}
 
 /// <summary>
 /// Per-element seam each framework head implements. The shared DwellClient reads
@@ -11,9 +19,18 @@ public enum DwellMode { Invoke, Focus }
 /// </summary>
 public interface IDwellElementAdapter
 {
+    /// <summary>Stable id identifying this element to the dwell service.</summary>
     string Id { get; }
+
+    /// <summary>How activation is delivered (invoke vs focus).</summary>
     DwellMode Mode { get; }
+
+    /// <summary>Handle of the element's owning top-level window.</summary>
     long WindowHandle { get; }
+
+    /// <summary>Tries to get the element's current bounds in physical screen pixels.</summary>
     bool TryGetScreenRect(out SdkRect rect);
-    void Activate();   // marshals to the UI thread internally, then invokes per Mode
+
+    /// <summary>Activates the element, marshaling to the UI thread internally and invoking per <see cref="Mode"/>.</summary>
+    void Activate();
 }

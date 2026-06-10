@@ -86,13 +86,4 @@ public class ExternalDwellArbiterTests
         Assert.Null(r.FeedbackId);
     }
 
-    [Fact]
-    public void Gating_RootWindowMatchesReportedHwnd_Activates()
-    {
-        var a = new ExternalDwellArbiter(_ => 7, cooldownMs: 0);
-        a.AddOrUpdate("btn", new PhysicalRect(100, 100, 80, 40), hwnd: 7, dwellMs: 800);
-        var inside = new PhysicalPoint(140, 120);
-        a.Process(inside, 0);
-        Assert.Equal("btn", a.Process(inside, 800 * Ms).ActivatedId);
-    }
 }

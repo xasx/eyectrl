@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\src\EyeCtrl.Sdk.WinUI\WinUiCoords.cs" Link="WinUiCoords.cs" />
+    <Compile Include="..\..\src\EyeCtrl.Sdk.WinUI\AdapterGroupTracker.cs" Link="AdapterGroupTracker.cs" />
     <ProjectReference Include="..\..\src\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>

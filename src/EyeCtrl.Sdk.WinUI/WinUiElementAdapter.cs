@@ -13,6 +13,7 @@ using Windows.Foundation;
 internal sealed class WinUiElementAdapter : IDwellElementAdapter
 {
     private readonly FrameworkElement _element;
+    private long _hwndCache;
 
     public string Id { get; }
     public DwellMode Mode { get; }
@@ -28,9 +29,13 @@ internal sealed class WinUiElementAdapter : IDwellElementAdapter
 
     private long ResolveHwnd()
     {
+        if (_hwndCache != 0) return _hwndCache;
         var env = _element.XamlRoot?.ContentIslandEnvironment;
         if (env is not null)
-            return Win32Interop.GetWindowFromWindowId(env.AppWindowId).ToInt64();
+        {
+            _hwndCache = Win32Interop.GetWindowFromWindowId(env.AppWindowId).ToInt64();
+            return _hwndCache;
+        }
         return EyeCtrlDwell.ExplicitHwnd;
     }
 
@@ -62,18 +67,24 @@ internal sealed class WinUiElementAdapter : IDwellElementAdapter
         catch { return false; }
     }
 
-    public void Activate() => _element.DispatcherQueue.TryEnqueue(() =>
+    public void Activate()
     {
-        if (Mode == DwellMode.Focus) { _element.Focus(FocusState.Programmatic); return; }
+        if (!_element.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (Mode == DwellMode.Focus) { _element.Focus(FocusState.Programmatic); return; }
 
-        var peer = FrameworkElementAutomationPeer.CreatePeerForElement(_element);
-        if (peer?.GetPattern(PatternInterface.Invoke) is IInvokeProvider invoke) { invoke.Invoke(); return; }
+            var peer = FrameworkElementAutomationPeer.CreatePeerForElement(_element);
+            if (peer?.GetPattern(PatternInterface.Invoke) is IInvokeProvider invoke) { invoke.Invoke(); return; }
 
-        if (_element is ButtonBase b && b.Command?.CanExecute(b.CommandParameter) == true)
-        { b.Command.Execute(b.CommandParameter); return; }
+            if (_element is ButtonBase b && b.Command?.CanExecute(b.CommandParameter) == true)
+            { b.Command.Execute(b.CommandParameter); return; }
 
-        System.Diagnostics.Debug.WriteLine($"[EyeCtrl] Dwell activation on '{_element.GetType().Name}' ({Id}) has no invoke target. Element is not focusable, has no UIA invoke pattern, and is not a ButtonBase with a command.");
-    });
+            System.Diagnostics.Debug.WriteLine($"[EyeCtrl] Dwell activation on '{_element.GetType().Name}' ({Id}) has no invoke target. Element is not focusable, has no UIA invoke pattern, and is not a ButtonBase with a command.");
+        }))
+        {
+            System.Diagnostics.Debug.WriteLine($"[EyeCtrl] Dwell activation on '{Id}' dropped: dispatcher queue is shut down.");
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
     [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT pt);

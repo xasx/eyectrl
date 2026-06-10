@@ -47,10 +47,18 @@ public static class Dwell
     // thread-affine layout (XamlRoot / TransformToVisual / ActualWidth) always happens on the
     // element's own thread. Adapters are added on Loaded and removed on Unloaded, so only
     // currently-loaded elements are referenced here.
+    //
+    // LIFECYCLE: the group is created lazily on first Loaded for that dispatcher, and torn
+    // down (timer stopped, group removed from _groups) when the last adapter is removed.
+    // This avoids leaking a per-dispatcher timer for any dispatcher that ever hosted a dwell
+    // element. The cleanup is driven by AdapterGroupTracker, which is unit-tested in
+    // EyeCtrl.Sdk.WinUI.Tests.
     private sealed class ThreadGroup
     {
         public DispatcherQueueTimer Timer = null!;
         public readonly ConcurrentDictionary<string, WinUiElementAdapter> Adapters = new();
+        public readonly AdapterGroupTracker Tracker;
+        public ThreadGroup(Action onEmpty) => Tracker = new AdapterGroupTracker(onEmpty);
     }
 
     private static readonly ConcurrentDictionary<DispatcherQueue, ThreadGroup> _groups = new();
@@ -95,21 +103,33 @@ public static class Dwell
     {
         var group = _groups.GetOrAdd(el.DispatcherQueue, CreateGroup);
         group.Adapters[adapter.Id] = adapter;
+        group.Tracker.Add(adapter.Id);
         _client.RegisterAdapter(adapter);
     }
 
     private static void OnUnloaded(FrameworkElement el, WinUiElementAdapter adapter)
     {
         if (_groups.TryGetValue(el.DispatcherQueue, out var group))
+        {
             group.Adapters.TryRemove(adapter.Id, out _);
+            group.Tracker.Remove(adapter.Id);
+        }
         _client.UnregisterAdapter(adapter.Id);
     }
 
     // Runs on the owning UI thread (GetOrAdd factory is invoked synchronously by OnLoaded, which
-    // fires on that thread), so CreateTimer() binds the timer to the correct dispatcher.
+    // fires on that thread), so CreateTimer() binds the timer to the correct dispatcher. The
+    // onEmpty callback tears down the group when the tracker reports no remaining adapters.
     private static ThreadGroup CreateGroup(DispatcherQueue dispatcher)
     {
-        var group = new ThreadGroup();
+        var group = new ThreadGroup(onEmpty: () =>
+        {
+            if (_groups.TryGetValue(dispatcher, out var g) && g.Tracker.IsEmpty)
+            {
+                g.Timer.Stop();
+                _groups.TryRemove(dispatcher, out _);
+            }
+        });
         var timer = dispatcher.CreateTimer();
         timer.Interval = TimeSpan.FromMilliseconds(200);
         timer.Tick += (_, _) =>

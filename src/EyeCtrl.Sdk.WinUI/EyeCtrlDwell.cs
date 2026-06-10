@@ -13,6 +13,11 @@ public static class EyeCtrlDwell
 {
     internal static long ExplicitHwnd;
 
+    /// <summary>
+    /// Sets the process-wide fallback window handle used when a dwell element cannot resolve its
+    /// owning window per-element (see the type remarks). Call once from a single-window host,
+    /// passing the main <see cref="Window"/>. Multi-window hosts need not call this.
+    /// </summary>
     public static void Initialize(Window window)
         => ExplicitHwnd = WinRT.Interop.WindowNative.GetWindowHandle(window).ToInt64();
 }

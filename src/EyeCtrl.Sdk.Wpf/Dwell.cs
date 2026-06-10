@@ -10,15 +10,21 @@ using EyeCtrl.Sdk.Abstractions;
 /// </summary>
 public static class Dwell
 {
+    /// <summary>Identifies the Dwell.Enabled attached property. Set <c>true</c> to make an element gaze-dwellable.</summary>
     public static readonly DependencyProperty EnabledProperty = DependencyProperty.RegisterAttached(
         "Enabled", typeof(bool), typeof(Dwell), new PropertyMetadata(false, OnEnabledChanged));
 
+    /// <summary>Identifies the Dwell.Mode attached property (<see cref="DwellMode.Invoke"/> or <see cref="DwellMode.Focus"/>; defaults to Invoke).</summary>
     public static readonly DependencyProperty ModeProperty = DependencyProperty.RegisterAttached(
         "Mode", typeof(DwellMode), typeof(Dwell), new PropertyMetadata(DwellMode.Invoke));
 
+    /// <summary>Gets the value of the Dwell.Enabled attached property.</summary>
     public static bool GetEnabled(DependencyObject o) => (bool)o.GetValue(EnabledProperty);
+    /// <summary>Sets the value of the Dwell.Enabled attached property.</summary>
     public static void SetEnabled(DependencyObject o, bool v) => o.SetValue(EnabledProperty, v);
+    /// <summary>Gets the value of the Dwell.Mode attached property.</summary>
     public static DwellMode GetMode(DependencyObject o) => (DwellMode)o.GetValue(ModeProperty);
+    /// <summary>Sets the value of the Dwell.Mode attached property.</summary>
     public static void SetMode(DependencyObject o, DwellMode v) => o.SetValue(ModeProperty, v);
 
     private static readonly DwellClient _client = new();

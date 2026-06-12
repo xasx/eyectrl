@@ -19,7 +19,7 @@ public class NoteManagerTests
     public void CreateNote_AddsToActiveNotes()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger);
 
         manager.CreateNoteAt(new PhysicalPoint(100, 200));
 
@@ -32,7 +32,7 @@ public class NoteManagerTests
     public void CreateNote_DefaultsToEditState()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger);
 
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
 
@@ -43,7 +43,7 @@ public class NoteManagerTests
     public void RemoveNote_RemovesFromActiveNotes()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger);
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
         var id = manager.ActiveNotes[0].Id;
 
@@ -56,7 +56,7 @@ public class NoteManagerTests
     public void IsAtCapacity_ReturnsTrue_WhenMaxReached()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger);
 
         for (int i = 0; i < 8; i++)
             manager.CreateNoteAt(new PhysicalPoint(i * 50, 0));
@@ -65,10 +65,23 @@ public class NoteManagerTests
     }
 
     [StaFact]
+    public void CreateNote_DoesNotAdd_WhenAtCapacity()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+
+        for (int i = 0; i < 8; i++)
+            manager.CreateNoteAt(new PhysicalPoint(i * 50, 0));
+        manager.CreateNoteAt(new PhysicalPoint(999, 999)); // 9th — denied
+
+        Assert.Equal(8, manager.ActiveNotes.Count);
+    }
+
+    [StaFact]
     public void StartEdit_ChangesState()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger);
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
         var id = manager.ActiveNotes[0].Id;
         manager.FinishEdit(id, "test text");
@@ -82,7 +95,7 @@ public class NoteManagerTests
     public void FinishEdit_SavesText()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger);
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
         var id = manager.ActiveNotes[0].Id;
 
@@ -96,7 +109,7 @@ public class NoteManagerTests
     public void StartMove_ChangesState()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger);
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
         var id = manager.ActiveNotes[0].Id;
         manager.FinishEdit(id, "test");
@@ -110,7 +123,7 @@ public class NoteManagerTests
     public void FinishMove_UpdatesPosition()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger);
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
         var id = manager.ActiveNotes[0].Id;
         manager.FinishEdit(id, "test");
@@ -121,5 +134,22 @@ public class NoteManagerTests
         Assert.Equal(500, manager.ActiveNotes[0].Position.X);
         Assert.Equal(600, manager.ActiveNotes[0].Position.Y);
         Assert.Equal(NoteState.Display, manager.ActiveNotes[0].State);
+    }
+
+    [StaFact]
+    public void OnGazeMoved_UpdatesLastGazePoint_ForPlaceTarget()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        manager.CreateNoteAt(new PhysicalPoint(0, 0));
+        var id = manager.ActiveNotes[0].Id;
+        manager.FinishEdit(id, "test");
+        manager.StartMove(id);
+
+        manager.OnGazeMoved(new PhysicalPoint(300, 400), 1000000);
+        manager.FinishMove(id, new PhysicalPoint(300, 400));
+
+        Assert.Equal(300, manager.ActiveNotes[0].Position.X);
+        Assert.Equal(400, manager.ActiveNotes[0].Position.Y);
     }
 }

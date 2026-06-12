@@ -84,6 +84,9 @@ public partial class App : Application
         var tempSettingsService = new SettingsService(settingsFilePath);
         var settings = tempSettingsService.Load();
 
+        // Migrate settings for newly-introduced features
+        settings.ActionMenu.EnsureDefaults();
+
         // ── Logging ──
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);

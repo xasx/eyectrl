@@ -126,6 +126,7 @@ public partial class ActionMenuViewModel : ObservableObject,
         InteractionAction.ScrollDown => "\u25BC",
         InteractionAction.ScrollLeft => "\u25C0",
         InteractionAction.ScrollRight => "\u25B6",
+        InteractionAction.PinNote => "\uD83D\uDCCC",     // 📌 Pushpin
         _ => action.ToString()
     };
 

@@ -81,6 +81,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         note.State = NoteState.Edit;
         window.SetState(NoteState.Edit);
         window.SetText(note.Text);
+        // Keep only close target active; edit = confirm, move removed
+        _dwellDetector.ClearTargets();
+        RegisterDwellTargets(id, registerCloseOnly: true);
         _dwellDetector.ResetAllState();
     }
 
@@ -119,6 +122,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         window.SetState(NoteState.Display);
         _dwellDetector.ClearTargets();
         RegisterDwellTargets(id);
+        // Re-register all other notes (StartMove cleared their targets too)
+        foreach (var other in _notes.Where(n => n.Id != id))
+            RegisterDwellTargets(other.Id);
         _dwellDetector.ResetAllState();
     }
 
@@ -144,7 +150,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         OnGazeMoved(message.Position, message.TimestampMicroseconds);
     }
 
-    private void RegisterDwellTargets(string noteId)
+    private void RegisterDwellTargets(string noteId, bool registerCloseOnly = false)
     {
         var note = _notes.FirstOrDefault(n => n.Id == noteId);
         if (note == null) return;
@@ -152,15 +158,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         double physicalButtonRadius = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
         double physicalWindowWidth = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteWindowWidth);
         double physicalGap = DpiHelper.LogicalToPhysicalX(10);
-        double physicalTitleHeight = DpiHelper.LogicalToPhysicalY(24);
+        double physicalTitleHeight = DpiHelper.LogicalToPhysicalY(34);
 
         double bx = note.Position.X + physicalWindowWidth - physicalButtonRadius;
         double byBase = note.Position.Y + physicalTitleHeight;
         double step = physicalButtonRadius * 2 + physicalGap;
 
         _dwellDetector.AddTarget(new DwellTarget($"{noteId}:close", new PhysicalPoint(bx, byBase), physicalButtonRadius, DwellTimeMs));
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:edit", new PhysicalPoint(bx, byBase + step), physicalButtonRadius, DwellTimeMs));
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:move", new PhysicalPoint(bx, byBase + step * 2), physicalButtonRadius, DwellTimeMs));
+        if (!registerCloseOnly)
+        {
+            _dwellDetector.AddTarget(new DwellTarget($"{noteId}:edit", new PhysicalPoint(bx, byBase + step), physicalButtonRadius, DwellTimeMs));
+            _dwellDetector.AddTarget(new DwellTarget($"{noteId}:move", new PhysicalPoint(bx, byBase + step * 2), physicalButtonRadius, DwellTimeMs));
+        }
     }
 
     private void OnTargetActivated(string targetId)

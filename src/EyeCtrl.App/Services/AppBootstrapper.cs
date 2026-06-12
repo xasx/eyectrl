@@ -177,6 +177,10 @@ public class AppBootstrapper
             sp.GetRequiredService<ILogger<ExternalDwellService>>(),
             sp.GetRequiredService<IMessenger>()));
 
+        // NoteManager (pinned notes lifecycle)
+        services.AddSingleton<INoteManager>(sp => new NoteManager(
+            sp.GetRequiredService<IMessenger>()));
+
         // OverlayManager (manages all overlay window lifecycle)
         services.AddSingleton<IOverlayManager>(sp => new OverlayManager(
             dispatcher,

@@ -1,6 +1,5 @@
 namespace EyeCtrl.App.Tests.Services;
 
-using System.Linq;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
@@ -72,7 +71,7 @@ public class NoteManagerTests
 
         for (int i = 0; i < 8; i++)
             manager.CreateNoteAt(new PhysicalPoint(i * 50, 0));
-        manager.CreateNoteAt(new PhysicalPoint(999, 999)); // 9th — denied
+        manager.CreateNoteAt(new PhysicalPoint(999, 999));
 
         Assert.Equal(8, manager.ActiveNotes.Count);
     }

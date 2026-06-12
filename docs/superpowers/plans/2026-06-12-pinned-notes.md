@@ -18,26 +18,31 @@
 # Create worktree and switch to it
 git worktree add -b feature/pinned-notes ../eyectrl-pinned-notes main
 cd ../eyectrl-pinned-notes
-dotnet test  # baseline — all must pass
 ```
+Run baseline: `dotnet test` — all must pass **before** any edits or package additions.
 
 ---
 
-### Task 0: Test Infrastructure (Xunit.StaFact + DpiHelper)
+### Task 0: Test Infrastructure (Xunit.StaFact)
 
 **Files:**
 - Modify: `tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj`
 
-- [ ] **Step 1: Add StaFact package**
+- [ ] **Step 1: Verify baseline passes** (should already be done during worktree setup)
+
+Run: `dotnet test tests/EyeCtrl.App.Tests`
+Expected: All pass
+
+- [ ] **Step 2: Add StaFact package**
 
 Run: `dotnet add tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj package Xunit.StaFact`
 
-- [ ] **Step 2: Verify the package resolves**
+- [ ] **Step 3: Verify the package resolves**
 
 Run: `dotnet restore tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj`
 Expected: No errors
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj
@@ -721,11 +726,18 @@ using System.Linq;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
+[Collection("DpiHelper Tests (App)")]
 public class NoteManagerTests
 {
+    static NoteManagerTests()
+    {
+        DpiHelper.Initialize(1.0, 1.0);
+    }
+
     [StaFact]
     public void CreateNote_AddsToActiveNotes()
     {
@@ -763,7 +775,7 @@ public class NoteManagerTests
         Assert.Empty(manager.ActiveNotes);
     }
 
-    [Fact]
+    [StaFact]
     public void IsAtCapacity_ReturnsTrue_WhenMaxReached()
     {
         var messenger = new WeakReferenceMessenger();
@@ -775,7 +787,7 @@ public class NoteManagerTests
         Assert.True(manager.IsAtCapacity);
     }
 
-    [Fact]
+    [StaFact]
     public void StartEdit_ChangesState()
     {
         var messenger = new WeakReferenceMessenger();
@@ -789,7 +801,7 @@ public class NoteManagerTests
         Assert.Equal(NoteState.Edit, manager.ActiveNotes[0].State);
     }
 
-    [Fact]
+    [StaFact]
     public void FinishEdit_SavesText()
     {
         var messenger = new WeakReferenceMessenger();
@@ -803,7 +815,7 @@ public class NoteManagerTests
         Assert.Equal(NoteState.Display, manager.ActiveNotes[0].State);
     }
 
-    [Fact]
+    [StaFact]
     public void StartMove_ChangesState()
     {
         var messenger = new WeakReferenceMessenger();
@@ -817,7 +829,7 @@ public class NoteManagerTests
         Assert.Equal(NoteState.Move, manager.ActiveNotes[0].State);
     }
 
-    [Fact]
+    [StaFact]
     public void FinishMove_UpdatesPosition()
     {
         var messenger = new WeakReferenceMessenger();
@@ -853,15 +865,16 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels.Messages;
 
-public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>
+public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDisposable
 {
     private readonly List<NoteWindow> _windows = new();
     private readonly List<NoteData> _notes = new();
     private readonly DwellDetector _dwellDetector = new(cooldownMs: 300);
     private readonly IMessenger _messenger;
+    private PhysicalPoint _lastGazePoint;
+    private bool _disposed;
     private const int MaxNotes = 8;
     private const int DwellTimeMs = 600;
-    private const double PlacementRadius = 100;
 
     public IReadOnlyList<NoteData> ActiveNotes => _notes.AsReadOnly();
     public bool IsAtCapacity => _windows.Count >= MaxNotes;
@@ -886,7 +899,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>
         window.SetState(NoteState.Edit);
         window.Loaded += (_, _) =>
         {
-            window.Left = DpiHelper.PhysicalToLogicalX(point.X) - NoteWidth / 2;
+            window.Left = DpiHelper.PhysicalToLogicalX(point.X) - LayoutConstants.NoteWindowWidth / 2;
             window.Top = DpiHelper.PhysicalToLogicalY(point.Y) - 70;
             window.Show();
             window.SetText(data.Text);
@@ -949,7 +962,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>
         note.State = NoteState.Move;
         window.SetState(NoteState.Move);
         _dwellDetector.ClearTargets();
-        _dwellDetector.AddTarget(new DwellTarget($"{id}:place", note.Position, PlacementRadius, DwellTimeMs));
+        // PlacementRadius in physical pixels for the move-mode dwell target
+        double physicalPlacementRadius = DpiHelper.LogicalToPhysicalX(100);
+        _dwellDetector.AddTarget(new DwellTarget($"{id}:place", note.Position, physicalPlacementRadius, DwellTimeMs));
         _dwellDetector.ResetAllState();
     }
 
@@ -968,7 +983,20 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>
 
     public void OnGazeMoved(PhysicalPoint gazePoint, long timestamp)
     {
+        _lastGazePoint = gazePoint;
         _dwellDetector.Update(gazePoint, timestamp);
+
+        // During move mode, snap the placement target and note visual to gaze
+        foreach (var note in _notes.Where(n => n.State == NoteState.Move))
+        {
+            _dwellDetector.UpdateTargetCenter($"{note.Id}:place", gazePoint);
+            var window = _windows.FirstOrDefault(w => w.NoteId == note.Id);
+            if (window != null)
+            {
+                window.Left = DpiHelper.PhysicalToLogicalX(gazePoint.X) - LayoutConstants.NoteWindowWidth / 2;
+                window.Top = DpiHelper.PhysicalToLogicalY(gazePoint.Y) - 70;
+            }
+        }
     }
 
     public void Receive(GazeCursorMovedMessage message)
@@ -981,13 +1009,19 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>
         var note = _notes.FirstOrDefault(n => n.Id == noteId);
         if (note == null) return;
 
-        double bx = note.Position.X + LayoutConstants.NoteWindowWidth - LayoutConstants.NoteButtonRadius;
-        double byBase = note.Position.Y + 34; // 24 title + 10 padding
-        double step = LayoutConstants.NoteButtonRadius * 2 + 10;
+        // DwellDetector requires physical pixels. Convert logical constants.
+        double physicalButtonRadius = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
+        double physicalWindowWidth = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteWindowWidth);
+        double physicalGap = DpiHelper.LogicalToPhysicalX(10);
+        double physicalTitleHeight = DpiHelper.LogicalToPhysicalY(34);
 
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:close", new PhysicalPoint(bx, byBase), LayoutConstants.NoteButtonRadius, DwellTimeMs));
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:edit", new PhysicalPoint(bx, byBase + step), LayoutConstants.NoteButtonRadius, DwellTimeMs));
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:move", new PhysicalPoint(bx, byBase + step * 2), LayoutConstants.NoteButtonRadius, DwellTimeMs));
+        double bx = note.Position.X + physicalWindowWidth - physicalButtonRadius;
+        double byBase = note.Position.Y + physicalTitleHeight;
+        double step = physicalButtonRadius * 2 + physicalGap;
+
+        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:close", new PhysicalPoint(bx, byBase), physicalButtonRadius, DwellTimeMs));
+        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:edit", new PhysicalPoint(bx, byBase + step), physicalButtonRadius, DwellTimeMs));
+        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:move", new PhysicalPoint(bx, byBase + step * 2), physicalButtonRadius, DwellTimeMs));
     }
 
     private void OnTargetActivated(string targetId)
@@ -1001,7 +1035,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>
             case "close": RemoveNote(noteId); break;
             case "edit": StartEdit(noteId); break;
             case "move": StartMove(noteId); break;
-            case "place": FinishMove(noteId, _notes.FirstOrDefault(n => n.Id == noteId)?.Position ?? new PhysicalPoint(0, 0)); break;
+            case "place": FinishMove(noteId, _lastGazePoint); break;
         }
     }
 
@@ -1013,10 +1047,26 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>
         var window = _windows.FirstOrDefault(w => w.NoteId == noteId);
         window?.UpdateDwellProgress(targetId, progress);
     }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        _dwellDetector.TargetActivated -= OnTargetActivated;
+        _dwellDetector.TargetProgress -= OnTargetProgress;
+        _messenger.Unregister<GazeCursorMovedMessage>(this);
+
+        foreach (var window in _windows.ToList())
+            window.Close();
+        _windows.Clear();
+        _notes.Clear();
+        _dwellDetector.ClearTargets();
+    }
 }
 ```
 
-**Test note:** Tests that create `NoteWindow` instances require `[StaFact]` (WPF threading). The `NoteManager` constructor only takes `IMessenger`, making it testable without WPF dependencies — but `CreateNoteAt` instantiates WPF windows, so those tests need STA. Pure-logic tests (state transitions, text save, capacity check without window creation) can use `[Fact]`; window-creating tests (CreateNoteAt, RemoveNote) need `[StaFact]`. DpiHelper must be initialized before tests: call `DpiHelper.Initialize(1.0, 1.0)` in a static constructor or `[StaFact]` test setup.
+**Test setup:** All `NoteManagerTests` use `[StaFact]` (WPF-threaded) and are in the `"DpiHelper Tests (App)"` non-parallel collection. `DpiHelper.Initialize(1.0, 1.0)` runs in the static constructor. Note: tests that create `NoteWindow` instances must run on STA thread — this covers all tests shown since they call `CreateNoteAt`.
 
 **Toast simplification:** The spec calls for a toast when at capacity. For v1 simplicity, the implementation returns silently (no note created) when `IsAtCapacity`. The toast can be added as a follow-up.
 
@@ -1089,6 +1139,13 @@ if (msg.Action == InteractionAction.PinNote)
 {
     if (_context is { NoteManager.IsAtCapacity: false })
         _context.NoteManager.CreateNoteAt(pt);
+
+    // Clean up target highlight (same as post-switch block)
+    if (_context is { TargetHighlightVM.IsVisible: true })
+    {
+        _context.TargetHighlightVM.IsVisible = false;
+        _context.OverlayManager.TargetHighlight.HideHighlight();
+    }
     return;
 }
 ```

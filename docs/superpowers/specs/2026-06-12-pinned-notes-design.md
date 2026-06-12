@@ -84,18 +84,22 @@ Add a "Pin Note" action to the action menu that places a persistent, editable te
 | File | Change |
 |------|--------|
 | `src/EyeCtrl.Core/Models/InteractionAction.cs` | Add `PinNote = 9` |
-| `src/EyeCtrl.Core/Processing/InteractionManager.cs` | Handle PinNote in `OnActionSelected` (no InputSimulator call — fires ActionRequested for NoteManager) |
+| `src/EyeCtrl.Core/Processing/InteractionManager.cs` | **No changes required.** `OnActionSelected` already handles all `InteractionAction` values generically — resolves target point from current state, fires `ActionRequested`, resets to `FreeLook`. The PinNote special case (no `InputSimulator` call) is entirely in `EventCoordinator`. |
 | `src/EyeCtrl.Core/Settings/ActionMenuSettings.cs` | Add PinNote to default `VisibleActions` |
-| `src/EyeCtrl.App/Services/EventCoordinator.cs` | Wire `ActionRequestedMessage(PinNote)` → `NoteManager.CreateNoteAt()` |
-| `src/EyeCtrl.App/Services/AppBootstrapper.cs` | Register `INoteManager` as singleton in DI; pass to `EventCoordinationContext` |
+| `src/EyeCtrl.App/Services/EventCoordinator.cs` | Add `case PinNote:` before the existing InputSimulator switch in `HandleActionRequested` (around line 772) |
+| `src/EyeCtrl.App/Services/AppBootstrapper.cs` | Register `INoteManager` as singleton in DI |
+| `src/EyeCtrl.App/App.xaml.cs` | Add `INoteManager` to the `EventCoordinationContext` constructor call |
 | `src/EyeCtrl.App/Services/IEventCoordinator.cs` | Add `INoteManager NoteManager` to `EventCoordinationContext` record |
-| `src/EyeCtrl.App/Overlays/ActionMenuWindow.xaml.cs` | Add pin symbol mapping for `PinNote` in `GetActionSymbol()` (duplicated in both ViewModels and App — see #8 below) |
-| `src/EyeCtrl.ViewModels/ActionMenuItemViewModel.cs` | Add pin symbol mapping for `PinNote` in `GetActionSymbol()` |
-| `src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs` | Add note lifecycle messages if needed |
-| `src/EyeCtrl.App/Services/IOverlayManager.cs` | Add `NoteWindow` collection property if centralized creation needed |
+| `src/EyeCtrl.App/Overlays/ActionMenuWindow.xaml.cs` | Add pin symbol mapping for `PinNote` in `GetActionSymbol()` |
+| `src/EyeCtrl.ViewModels/ActionMenuViewModel.cs` | Add pin symbol mapping for `PinNote` in `GetActionSymbol()` (the other copy of the duplicated switch — see note below) |
+| `src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs` | No changes required — existing `ActionRequestedMessage` covers PinNote |
 | `src/EyeCtrl.Core/LayoutConstants.cs` | Add `NoteButtonRadius = 30.0` constant (60px diameter — gaze-targetable but compact) |
 
-**Code duplication note:** `GetActionSymbol()` exists in both `ActionMenuItemViewModel` and `ActionMenuWindow.xaml.cs` with identical switch statements. This pre-existing duplication means the pin symbol must be added in both places. A future refactor could extract this into a shared helper, but that's out of scope for this feature.
+**Code duplication note:** `GetActionSymbol()` exists in two places with near-identical switch statements:
+- `src/EyeCtrl.ViewModels/ActionMenuViewModel.cs` (lines ~120+)
+- `src/EyeCtrl.App/Overlays/ActionMenuWindow.xaml.cs` (line ~296)
+
+The pin symbol must be added to both. `ActionMenuItemViewModel` only receives a `string Symbol` in its constructor — it does not do symbol mapping. A future refactor could extract the switch into a shared helper, but that's out of scope for this feature.
 
 ### Focus Mode for Editing
 
@@ -285,14 +289,14 @@ ActionMenuViewModel.OnTargetActivated("PinNote")
           → default: // existing InputSimulator switch for mouse actions
 ```
 
-**Important:** The `PinNote` case must be added **before** the existing `switch` block in `HandleActionRequested` (around `EventCoordinator.cs:772`) since `PinNote` does not call `InputSimulator`. It returns early after delegating to `NoteManager`.
+**Important:** The `PinNote` case must be added **before** the existing `switch` block in `HandleActionRequested` (around `EventCoordinator.cs:772`) since `PinNote` does not call `InputSimulator`. It returns early after delegating to `NoteManager`. `InteractionManager.OnActionSelected` requires **no changes** — it generically resolves the target point and fires `ActionRequested` for all `InteractionAction` values regardless of which action is selected.
 
 ## Event Flow Summary
 
 ```
 Gaze → GazeEngine → CursorMoved
   → GazeEngineAdapter (Dispatcher marshaling to UI thread)
-    → GazeCursorMovedMessage (broadcast via WeakReferenceMessenger)
+    → GazeCursorMovedMessage (broadcast via WeakReferenceMessenger; sent by GazeEngineAdapter)
       ├→ EventCoordinator (handles action menu dwell)
       └→ NoteManager.OnGazeMoved(position, timestamp)
            → DwellDetector.Update(position, timestamp)
@@ -354,3 +358,15 @@ Edit mode:
 - Note rotation
 - Image attachments
 - Export/import notes
+
+## Impact Summary (GitNexus)
+
+Blast radius for the primary symbols touched:
+
+| Symbol | Risk | Affected |
+|--------|------|----------|
+| `EventCoordinator.HandleActionRequested` | **HIGH** | 4 direct dependents, affects Initialize/OnStartup/SetupMessageHandlers processes |
+| `ActionMenuViewModel` (GetActionSymbol) | **HIGH** | 16 direct dependents, mostly its 10+ viewmodel tests |
+| `InteractionAction` (enum) | LOW | Graph edges weak for enums; real surface is 2x symbol switches + settings + exec switch + downstream tests |
+
+All changes are surgical additions (new enum value, new case, new default in list, new symbol mapping) — no existing behavior is modified.

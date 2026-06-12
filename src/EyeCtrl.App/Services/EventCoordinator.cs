@@ -775,6 +775,19 @@ public class EventCoordinator : IEventCoordinator
         Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}]",
             msg.Action, pt.X, pt.Y, msg.IsPreciseTarget);
 
+        if (msg.Action == InteractionAction.PinNote)
+        {
+            if (_context is { NoteManager.IsAtCapacity: false })
+                _context.NoteManager.CreateNoteAt(pt);
+
+            if (_context is { TargetHighlightVM.IsVisible: true })
+            {
+                _context.TargetHighlightVM.IsVisible = false;
+                _context.OverlayManager.TargetHighlight.HideHighlight();
+            }
+            return;
+        }
+
         switch (msg.Action)
         {
             case InteractionAction.LeftClick:    _context.InputSimulator.LeftClick(pt);        break;

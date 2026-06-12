@@ -75,4 +75,5 @@ public record EventCoordinationContext(
 
     // Dependencies
     IInputSimulator InputSimulator,
-    CalibrationService CalibrationService);
+    CalibrationService CalibrationService,
+    INoteManager NoteManager);

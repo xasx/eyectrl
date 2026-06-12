@@ -159,10 +159,12 @@ public partial class App : Application
         // ── Event Coordination ──
         // All PropertyChanged and message handlers are now managed by EventCoordinator
         _eventCoordinator = new EventCoordinator();
+        var noteManager = _serviceProvider.GetRequiredService<INoteManager>();
         var coordinationContext = new EventCoordinationContext(
             cursorVM, activationVM, ManualSelectionVM, ManualSelectionIndicatorVM, actionMenuVM, toolbarVM, keyboardVM, backdropVM,
             overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, targetHighlightVM, inputSimulator,
-            _serviceProvider.GetRequiredService<CalibrationService>());
+            _serviceProvider.GetRequiredService<CalibrationService>(),
+            noteManager);
         _eventCoordinator.Initialize(coordinationContext);
 
         var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();

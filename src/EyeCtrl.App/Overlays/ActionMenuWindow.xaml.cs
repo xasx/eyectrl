@@ -305,6 +305,7 @@ public partial class ActionMenuWindow : OverlayWindow
         InteractionAction.ScrollDown => "\u25BC",    // ▼ Down triangle
         InteractionAction.ScrollLeft => "\u25C0",    // ◀ Left triangle
         InteractionAction.ScrollRight => "\u25B6",   // ▶ Right triangle
+        InteractionAction.PinNote => "\uD83D\uDCCC",     // 📌 Pushpin
         _ => action.ToString()
     };
 }

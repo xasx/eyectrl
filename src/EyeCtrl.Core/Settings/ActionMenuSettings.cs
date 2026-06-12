@@ -9,7 +9,8 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
     {
         InteractionAction.LeftClick, InteractionAction.RightClick,
         InteractionAction.DoubleClick, InteractionAction.DragStart,
-        InteractionAction.ScrollUp, InteractionAction.ScrollDown
+        InteractionAction.ScrollUp, InteractionAction.ScrollDown,
+        InteractionAction.PinNote
     };
 
     public IReadOnlyList<string> Validate()

@@ -1,19 +1,19 @@
 # EyeCtrl Architecture
 
-> Auto-generated from the GitNexus knowledge graph: **eyectrl** (390 files, 6 469 symbols, 14 553 relationships, 224 communities, 300 execution flows).
+> Auto-generated from the GitNexus knowledge graph: **eyectrl** (5525 symbols, 12290 relationships, 300 execution flows).
 
-EyeCtrl is a WPF-based gaze control application for Windows that turns an eye tracker (Tobii Stream Engine, or a mouse fallback) into a cursor, dwell-click, on-screen keyboard, and word-prediction input system. The codebase is split into four .NET projects with a strict dependency direction (`App → ViewModels → Core`, `App → Platform → Core`).
+EyeCtrl is a gaze control platform for Windows that turns an eye tracker (Tobii Stream Engine, or a mouse fallback) into a cursor, dwell-click, on-screen keyboard, and word-prediction input system. The codebase is split into eight .NET projects with a strict dependency direction (`App → ViewModels → Core`, `App → Platform → Core`), plus a standalone SDK layer (`Contracts → Abstractions → Sdk.Wpf / Sdk.WinUI`) that enables third-party apps to add gaze-dwell via named-pipe IPC.
 
 ---
 
 ## 1. Overview
 
 ```
-+----------------------------------------------------------+
-|                      EyeCtrl.App (WPF)                   |
-|  App.xaml.cs  AppBootstrapper  EventCoordinator          |
-|  TrayIconManager  OverlayManager  Overlays/*  Views/*    |
-+----------------------------+-----------------------------+
++------------------------------------------------------------------+
+|                        EyeCtrl.App (WPF)                         |
+|  App.xaml.cs  AppBootstrapper  EventCoordinator                  |
+|  ExternalDwellService  OverlayManager  Overlays/*  Views/*       |
++----------------------------+-------------------------------------+
                              |
         +--------------------+--------------------+
         |                                         |
@@ -31,20 +31,52 @@ EyeCtrl is a WPF-based gaze control application for Windows that turns an eye tr
                   | Prediction/*        |
                   | Settings/*          |
                   +---------------------+
+
+  ┌──────────── Named-pipe IPC (eyectrl_dwell) ────────────┐
+  │                                                         │
+  │  ExternalDwellService (server) ◄──── DwellClient (SDK) │
+  │                                                         │
+  └─────────────────────────────────────────────────────────┘
+                    │                         │
+         +----------+----------+    +---------+---------+
+         | EyeCtrl.Sdk.Wpf     |    | EyeCtrl.Sdk.WinUI |
+         | Dwell (attached     |    | Dwell (attached    |
+         |   properties)       |    |   properties)      |
+         | WpfElementAdapter   |    | WinUiElementAdapter|
+         +---------------------+    +--------------------+
+                    │                         │
+                    └────────┬────────────────┘
+                             │
+                  +----------v----------+
+                  | EyeCtrl.Sdk.Abstractions
+                  | IDwellElementAdapter |
+                  | DwellClient         |
+                  | OutboundRectTracker  |
+                  +---------------------+
+                             │
+                  +----------v----------+
+                  | EyeCtrl.Contracts   |
+                  | WireMessages        |
+                  | SdkRect             |
+                  +---------------------+
 ```
 
-**Dependency direction**: `App` references everything. `ViewModels` and `Platform` depend on `Core`. `Core` has zero internal dependencies. This keeps the domain logic testable without WPF or hardware.
+**Dependency direction**: `App` references everything. `ViewModels` and `Platform` depend on `Core`. `Core` has zero internal dependencies. The SDK layer (`Contracts → Abstractions → Sdk.Wpf/WinUI`) is fully independent of Core and App — it communicates with EyeCtrl exclusively via named-pipe IPC using the `Contracts` wire format.
 
 ---
 
-## 2. The Four Projects
+## 2. The Eight Projects
 
 | Project | Target | Role |
 |---|---|---|
 | `EyeCtrl.Core` | `net10.0` | Domain logic, gaze pipeline, prediction, settings model. Zero UI / OS dependencies. |
 | `EyeCtrl.Platform` | `net10.0-windows` | `unsafe` Win32 (`SendInput`), Tobii Stream Engine SDK (conditional, only when DLLs are present). |
 | `EyeCtrl.ViewModels` | `net10.0-windows` | MVVM with `CommunityToolkit.Mvvm` v8.4.0. `[ObservableProperty]` source generators, `WeakReferenceMessenger` for pub/sub. |
-| `EyeCtrl.App` | `net10.0-windows`, `WinExe`, `UseWPF`+`UseWindowsForms` | WPF entry point, DI wiring, overlay windows, settings UI, tray icon. |
+| `EyeCtrl.App` | `net10.0-windows`, `WinExe`, `UseWPF`+`UseWindowsForms` | WPF entry point, DI wiring, overlay windows, settings UI, tray icon, **ExternalDwellService** (named-pipe server). |
+| `EyeCtrl.Contracts` | `net8.0` | Shared wire-format records (`WireMessage`, `SdkRect`). Zero dependencies. Used by both App (server) and SDK (client). |
+| `EyeCtrl.Sdk.Abstractions` | `net8.0` | Framework-agnostic SDK surface: `IDwellElementAdapter`, `DwellClient` (named-pipe client), `OutboundRectTracker`. |
+| `EyeCtrl.Sdk.Wpf` | `net8.0-windows` | WPF attached properties (`Dwell.Enabled`, `Dwell.Mode`). `WpfElementAdapter` bridges WPF elements to `IDwellElementAdapter`. |
+| `EyeCtrl.Sdk.WinUI` | `net8.0-windows10.0.22621` | WinUI 3 attached properties. `WinUiElementAdapter` resolves HWNDs via `XamlRoot.ContentIslandEnvironment`. Per-dispatcher rect-refresh timers via `AdapterGroupTracker`. |
 
 ---
 
@@ -56,9 +88,9 @@ Communities are auto-detected functional clusters. Numbers are total symbols acr
 |---|---:|---:|---|
 | **Prediction** | 378 | up to 1.0 | Word prediction pipeline: `WordPredictor`, `BigramModel`, `PhraseModel`, `SentenceCompletionIndex`, `FuzzyEditDistance`, `CapitalizationHelper`, `PredictionOrchestrator`, `SmallLMPredictor` (optional ONNX LM). |
 | **Processing** | 160 | 0.98 | Gaze signal processing: `FixationDetector`, `FixationCentroidTracker`, `GapInterpolator`, `OneEuroFilter`, `DwellDetector`, `DwellTarget`, `GazeFilterFactory`, `SmoothingFilter`. |
-| **Overlays** | 120 | 1.0 | WPF overlay windows: cursor circle, activation button, manual selection grid, action menu, toolbar, on-screen keyboard, glass backdrop, calibration window, target highlight. |
+| **Overlays** | 120 | 1.0 | WPF overlay windows: cursor circle, activation button, manual selection grid, action menu, toolbar, on-screen keyboard, glass backdrop, calibration window, target highlight, **DwellFeedbackOverlay** (external dwell progress). |
 | **Settings** | 110 | 0.95 | `SettingsService` (JSON persistence + validation), `EyeCtrlSettings` model tree, settings-window tab/page builders. |
-| **Services** | 108 | 1.0 | DI composition (`AppBootstrapper`), `EventCoordinator`, `GazeEngineAdapter`, `OverlayManager`, `TrayIconManager`, model download/registry/management. |
+| **Services** | 108 | 1.0 | DI composition (`AppBootstrapper`), `EventCoordinator`, `GazeEngineAdapter`, `OverlayManager`, `TrayIconManager`, model download/registry/management, **ExternalDwellService**. |
 | **Calibration** | 50 | 0.95 | `CalibrationService`, `CalibrationViewModel`, 2-D transform (affine / polynomial), Gaussian-elimination solver, on-screen calibration flow. |
 | **Views** | 45 | 0.93 | WPF XAML windows: `SplashWindow`, `SettingsWindow` (and its tab page builders). |
 | **Models / Interfaces** | 33 | 1.0 | `GazePoint`, `PhysicalPoint`, `DwellTarget`, `EyeCtrlSettings` (and sub-settings), `IGazeProvider`, `IInputSimulator`, `IMouseCoordinateMapper`, `IControlFinder`, `IOverlayManager`, `IEventCoordinator`. |
@@ -67,6 +99,7 @@ Communities are auto-detected functional clusters. Numbers are total symbols acr
 | **Keyboard** | 22 | 0.95 | On-screen keyboard layouts (JSON), `KeyboardViewModel`, key renderers, `KeyBaseColor` theming. |
 | **Input** | 12 | 0.53 | `IInputSimulator` ↔ `Win32InputSimulator`, `MouseCoordinateMapper`, `MouseGazeProvider` (test-mode gaze source). |
 | **StreamEngineGazeTracker** | 11 | 1.0 | Tobii Stream Engine wrapper (`TOBII_AVAILABLE`-guarded). |
+| **SDK** | 45 | 0.90 | Named-pipe IPC layer: `Contracts` (wire messages), `Sdk.Abstractions` (`DwellClient`, `IDwellElementAdapter`), `Sdk.Wpf` (`Dwell` attached properties), `Sdk.WinUI` (`Dwell` attached properties + `AdapterGroupTracker`). |
 | **Tests** | 244 | — | xUnit 2.9; private nested fakes (no mocking library). Per-test class instantiation, no `IClassFixture`. |
 
 ---
@@ -227,6 +260,43 @@ InteractionManager.OnActivationButtonDwelled() [ManualSelection enabled]
 4. Result wrapped in a `Transform` and written to `%APPDATA%/EyeCtrl/calibration.json` by `CalibrationService.Save`.
 5. On next startup, `CalibrationService.Load` (step 9 of §4.1) restores it; the `CurrentTransform` is consulted on every `OnGazePoint`.
 
+### 4.10 External Dwell IPC — `ExternalDwellService`
+`src/EyeCtrl.App/Services/ExternalDwellService.cs`
+
+EyeCtrl exposes a named-pipe server (`eyectrl_dwell`) so third-party apps can register UI elements as dwell targets without referencing Core.
+
+```
+[Third-party app]                              [EyeCtrl]
+Dwell.Enabled="True"                           ExternalDwellService
+  │                                               │
+  ├─ DwellClient.Start() ──pipe connect──────────► AcceptLoopAsync()
+  │                                               │
+  ├─ RegisterAdapter(adapter)                     │
+  │  ├─ adapter.TryGetScreenRect → SdkRect        │
+  │  └─ RegisterMessage{id, rect, hwnd} ────────► HandleMessage(Register)
+  │                                               ├─ arbiter.AddOrUpdate()
+  │                                               │
+  │                          ◄── gaze loop ──── OnCursorMoved()
+  │                                               ├─ arbiter.Process(gaze)
+  │                                               │  ├─ tracks dwell time
+  │                                               │  └─ emits FeedbackId + progress
+  │                                               ├─ DwellFeedbackOverlay.ShowAt()
+  │                                               ├─ SuppressFixation = true
+  │                                               │
+  │                          ◄── Activated{id} ── arbiter fires activation
+  │                                               ├─ SuppressFixation = false
+  │  adapter.Activate()                           │
+  │  ├─ UIA Invoke pattern, or                    │
+  │  └─ ButtonBase.Command.Execute()              │
+```
+
+**Key design points:**
+- `DwellClient` dedupes outbound rects via `OutboundRectTracker` (register once, update on layout change).
+- Per-UI-thread refresh timers (WinUI: `DispatcherQueueTimer` per `ThreadGroup`; WPF: `LayoutUpdated` event) keep rects current.
+- `ExternalDwellArbiter` handles occlusion gating (checks `WindowFromPoint` + `GetAncestor`) and cooldown.
+- `DwellFeedbackOverlay` is a click-through, DPI-correct WPF window showing dwell-progress rings.
+- `SuppressFixation` is shared with `EventCoordinator` — the external dwell service acquires/releases its own contribution only, never clobbering other owners (keyboard, calibration).
+
 ---
 
 ## 5. Cross-Cutting Concerns
@@ -234,14 +304,15 @@ InteractionManager.OnActivationButtonDwelled() [ManualSelection enabled]
 | Concern | Where |
 |---|---|
 | **DI** | `AppBootstrapper.BuildServiceProvider` — `Microsoft.Extensions.DependencyInjection`. All ViewModels and services are singletons. |
-| **Pub/sub** | `CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default` — used by ViewModels to decouple (e.g., `CalibrationRequestedMessage`, selection-mode toggles, model-status updates). |
+| **Pub/sub** | `CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default` — used by ViewModels to decouple (e.g., `CalibrationRequestedMessage`, selection-mode toggles, model-status updates, `ExternalDwellActiveMessage`). |
 | **Logging** | Serilog (file + `ILogger<T>`). Initialised in `App.OnStartup`, flushed on `OnExit`. |
-| **Settings persistence** | `SettingsService` (JSON, validated on load). Sub-settings (`Cursor`, `Dwell`, `Toolbar`, `Keyboard`, `Calibration`, `General`, `Selection`, `ActionMenu`, `Model`) are nested under `EyeCtrlSettings`. |
+| **Settings persistence** | `SettingsService` (JSON, validated on load). Sub-settings (`Cursor`, `Dwell`, `Toolbar`, `Keyboard`, `Calibration`, `General`, `Selection`, `ActionMenu`, `Model`, `ExternalDwell`) are nested under `EyeCtrlSettings`. |
 | **DPI** | `DpiHelper` initialised once from `CompositionTarget.TransformToDevice`; physical-vs-logical conversion is centralised. |
 | **Input simulation** | `IInputSimulator` → `Win32InputSimulator` (`SendInput`). Gaze is *never* synthesised by writing the mouse position from the gaze thread; cursor move is dispatched on the UI thread. |
 | **Threading** | `DwellDetector` and most stateful services are designed for UI-thread use; `GazeEngineAdapter` marshals events via `Dispatcher.BeginInvoke`. |
 | **Hardware abstraction** | `IGazeProvider`; concrete: `TobiiStreamEngineProvider` (conditional) and `MouseGazeProvider` (test-mode fallback). Selected by `GazeProviderFactory` based on `settings.General.GazeProviderType`. |
 | **Resource files** | JSON layouts, dictionaries, emojis, `click.wav` use `<ExcludeFromSingleFile>true</ExcludeFromSingleFile>` — they ship alongside the single-file exe. |
+| **Named-pipe IPC** | `ExternalDwellService` (server, in App) ↔ `DwellClient` (client, in SDK). Byte-mode, newline-framed JSON via `eyectrl_dwell` pipe. Wire format lives in `EyeCtrl.Contracts` so the SDK never references Core. |
 
 ---
 
@@ -308,6 +379,9 @@ flowchart TB
         ADAPT["GazeEngineAdapter<br/>Core events → IMessenger"]
         OVM["OverlayManager<br/>(IOverlayManager)"]
         MSGI["ManualSelectionDwellService"]
+        EXTDWELL["ExternalDwellService<br/>(named-pipe server)"]
+        ARBITER["ExternalDwellArbiter<br/>(occlusion + cooldown)"]
+        FEEDBACK["DwellFeedbackOverlay<br/>(click-through)"]
         OV_CUR["CursorCircle window"]
         OV_ACT["ActivationButton window"]
         OV_MSO["ManualSelectionOverlay window"]
@@ -322,6 +396,15 @@ flowchart TB
         SPLASH["SplashWindow"]
     end
 
+    %% ───────── SDK layer ─────────
+    subgraph SDK["SDK  (third-party integration)"]
+        direction TB
+        CONTRACTS["EyeCtrl.Contracts<br/>WireMessages / SdkRect"]
+        ABSTRACTIONS["EyeCtrl.Sdk.Abstractions<br/>DwellClient / IDwellElementAdapter"]
+        SDKWPF["EyeCtrl.Sdk.Wpf<br/>Dwell attached properties"]
+        SDKWINUI["EyeCtrl.Sdk.WinUI<br/>Dwell attached properties"]
+    end
+
     %% ───────── External infra ─────────
     subgraph EXT["External"]
         FILES[("%APPDATA%/EyeCtrl/<br/>settings.json<br/>calibration.json<br/>user-dict.json<br/>models/")]
@@ -329,6 +412,7 @@ flowchart TB
         DICT[("bundled dictionaries<br/>+ emoji + click.wav")]
         ONNX[("ONNX LM model<br/>(user-supplied)")]
         HTTP(["GitHub Releases<br/>(model download)"])
+        PIPE[("Named Pipe<br/>eyectrl_dwell")]
     end
 
     %% ── edges ──
@@ -377,6 +461,12 @@ flowchart TB
     MSGI -- subscribes IMessenger --> MSOVM
     MSGI --> DWELL
 
+    EXTDWELL -- CursorMoved --> ENGINE
+    EXTDWELL --> ARBITER
+    EXTDWELL --> FEEDBACK
+    EXTDWELL -- SuppressFixation --> ENGINE
+    EXTDWELL -- ExternalDwellActiveMessage --> CURSORVM
+
     PRED --> WORDP
     PRED --> BIGRAM
     PRED --> PHRASE
@@ -409,6 +499,13 @@ flowchart TB
     SETW   -- GetActions --> SETVM
     SPLASH --> APPCL
     TRAY   --> APPCL
+
+    CONTRACTS --> ABSTRACTIONS
+    ABSTRACTIONS --> SDKWPF
+    ABSTRACTIONS --> SDKWINUI
+    SDKWPF -- RegisterAdapter --> PIPE
+    SDKWINUI -- RegisterAdapter --> PIPE
+    PIPE -- WireMessages --> EXTDWELL
 
     SETTINGS -. read / write .-> FILES
     CAL     -. read / write .-> FILES
@@ -445,6 +542,8 @@ flowchart TB
 | **Strategy** | `GazeFilterFactory.cs` | Select filter (OneEuro, Direct, Smoothed) per settings |
 | **Observer** | `EventCoordinator.cs` | PropertyChanged handlers on all overlay VMs |
 | **Adapter** | `GazeEngineAdapter.cs` | Bridge between Core engine and App layer |
+| **IPC / Bridge** | `ExternalDwellService` + `DwellClient` | Named-pipe IPC between EyeCtrl and third-party SDK consumers |
+| **Attached Properties** | `Sdk.Wpf.Dwell` / `Sdk.WinUI.Dwell` | Declarative `Dwell.Enabled="True"` on any `FrameworkElement` |
 
 ---
 
@@ -459,6 +558,9 @@ flowchart TB
 | Add a new keyboard layout | Drop a JSON layout into `Resources/KeyboardLayouts/`, extend the layout enum, no code change required to load |
 | Add a new settings tab | `SettingsWindow.xaml.cs` (`BuildXxxPages`) + a new sub-model in `EyeCtrlSettings` |
 | Improve word prediction | `src/EyeCtrl.Core/Prediction/PredictionOrchestrator.cs` orchestrates the existing models; new strategies plug in alongside `BigramModel`, `PhraseModel`, `SmallLMPredictor` |
+| Add dwell to a WPF app | `src/EyeCtrl.Sdk.Wpf/Dwell.cs` — set `Dwell.Enabled="True"` on any `FrameworkElement` |
+| Add dwell to a WinUI 3 app | `src/EyeCtrl.Sdk.WinUI/Dwell.cs` — same attached-property API; see `samples/EyeCtrl.Sdk.WinUI.Sample/` |
+| Understand the IPC protocol | `src/EyeCtrl.Contracts/WireMessages.cs` (wire format) → `src/EyeCtrl.Sdk.Abstractions/DwellClient.cs` (client) → `src/EyeCtrl.App/Services/ExternalDwellService.cs` (server) |
 
 ---
 
@@ -483,18 +585,41 @@ eyectrl/
 │   ├── EyeCtrl.ViewModels/     # MVVM layer
 │   │   ├── Messages/           # Messenger message types
 │   │   └── Helpers/            # ViewModel utilities
-│   └── EyeCtrl.App/            # WPF application
-│       ├── App.xaml.cs         # Entry point, overlay lifecycle
-│       ├── Services/           # EventCoordinator, OverlayManager, DI bootstrapper
-│       ├── Overlays/           # Transparent overlay windows
-│       ├── Views/              # Settings window & other views
-│       ├── Controls/           # WPF custom controls (DwellControl)
-│       └── Assets/             # Resources, sounds, dictionaries
+│   ├── EyeCtrl.App/            # WPF application
+│   │   ├── App.xaml.cs         # Entry point, overlay lifecycle
+│   │   ├── Services/           # EventCoordinator, OverlayManager, DI bootstrapper,
+│   │   │                       #   ExternalDwellService (named-pipe server)
+│   │   ├── Overlays/           # Transparent overlay windows + DwellFeedbackOverlay
+│   │   ├── Views/              # Settings window & other views
+│   │   ├── Controls/           # WPF custom controls (DwellControl)
+│   │   └── Assets/             # Resources, sounds, dictionaries
+│   ├── EyeCtrl.Contracts/      # Shared wire format (SDK ↔ App IPC)
+│   │   ├── WireMessages.cs     # Register/Update/Unregister/Activated records
+│   │   └── SdkRect.cs          # Physical-px rect for wire transport
+│   ├── EyeCtrl.Sdk.Abstractions/  # Framework-agnostic SDK client
+│   │   ├── DwellClient.cs      # Named-pipe client (connect, reconnect, send rects)
+│   │   ├── IDwellElementAdapter.cs  # Per-element seam (rect, hwnd, activate)
+│   │   └── OutboundRectTracker.cs   # Dedup register/update messages
+│   ├── EyeCtrl.Sdk.Wpf/       # WPF dwell SDK
+│   │   ├── Dwell.cs            # Attached properties (Enabled, Mode)
+│   │   └── WpfElementAdapter.cs  # WPF → IDwellElementAdapter bridge
+│   └── EyeCtrl.Sdk.WinUI/     # WinUI 3 dwell SDK
+│       ├── Dwell.cs            # Attached properties + per-dispatcher ThreadGroup
+│       ├── WinUiElementAdapter.cs  # WinUI → IDwellElementAdapter bridge
+│       ├── WinUiCoords.cs      # DIP → physical-px conversion
+│       ├── AdapterGroupTracker.cs  # Lifecycle tracking for per-UI-thread timers
+│       └── EyeCtrlDwell.cs     # Explicit HWND fallback
 ├── tests/
 │   ├── EyeCtrl.Core.Tests/     # Unit tests for Core
 │   ├── EyeCtrl.Platform.Tests/ # Platform unit tests
 │   ├── EyeCtrl.ViewModels.Tests/ # ViewModel unit tests
-│   └── EyeCtrl.App.Tests/     # App service tests + UI tests
+│   ├── EyeCtrl.App.Tests/     # App service tests + UI tests
+│   ├── EyeCtrl.Sdk.Abstractions.Tests/ # DwellClient + OutboundRectTracker tests
+│   └── EyeCtrl.Sdk.WinUI.Tests/ # AdapterGroupTracker tests
+├── samples/
+│   ├── EyeCtrl.Sdk.Wpf.Sample/    # WPF sample app with dwell-enabled controls
+│   ├── EyeCtrl.Sdk.WinUI.Sample/  # WinUI 3 sample app with dwell-enabled controls
+│   └── StreamEngineGazeTracker/    # Tobii SDK sample
 └── benchmarks/
     └── EyeCtrl.Benchmarks/     # BenchmarkDotNet benchmarks
 ```

@@ -6,7 +6,43 @@
 
 **Architecture:** Per-note `OverlayWindow` instances managed by a `NoteManager` singleton. Notes use the existing `DwellDetector` for gaze-based controls (close, edit, move). Editable via physical keyboard or eye-tracking keyboard `SendInput`. Session-only, max 8 notes, pin action routes through `EventCoordinator` before the simulator switch.
 
-**Tech Stack:** C# 13, .NET 10, WPF, CommunityToolkit.Mvvm v8.4.0, xUnit 2.9.x, file-scoped namespaces, Allman braces.
+**Tech Stack:** C# 13, .NET 10, WPF, CommunityToolkit.Mvvm v8.4.0, xUnit 2.9.x, Xunit.StaFact, file-scoped namespaces, Allman braces.
+
+**Prerequisites:**
+- Work in an isolated git worktree (run `using-git-worktrees` skill before any edits).
+- Run `dotnet test` once on the clean worktree to establish baseline.
+- Run `gitnexus_impact` on each modified symbol before editing (per AGENTS.md).
+
+**Worktree setup** (execute first):
+```bash
+# Create worktree and switch to it
+git worktree add -b feature/pinned-notes ../eyectrl-pinned-notes main
+cd ../eyectrl-pinned-notes
+dotnet test  # baseline — all must pass
+```
+
+---
+
+### Task 0: Test Infrastructure (Xunit.StaFact + DpiHelper)
+
+**Files:**
+- Modify: `tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj`
+
+- [ ] **Step 1: Add StaFact package**
+
+Run: `dotnet add tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj package Xunit.StaFact`
+
+- [ ] **Step 2: Verify the package resolves**
+
+Run: `dotnet restore tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj`
+Expected: No errors
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj
+git commit -m "chore: add Xunit.StaFact for WPF-threaded App tests"
+```
 
 ---
 
@@ -127,9 +163,9 @@ git commit -m "feat: add NoteData model and NoteState enum for pinned notes"
 **Files:**
 - Modify: `src/EyeCtrl.Core/LayoutConstants.cs`
 
-- [ ] **Step 1: Add the constant**
+- [ ] **Step 1: Add the constants**
 
-Add after `ActionMenuButtonOuterGap` (line 19):
+Add before the closing brace of `LayoutConstants` (after `ActionMenuButtonOuterGap` on line 19):
 
 ```csharp
 /// <summary>
@@ -137,6 +173,11 @@ Add after `ActionMenuButtonOuterGap` (line 19):
 /// 30px radius = 60px diameter — large enough for gaze targeting, compact enough for the note sidebar.
 /// </summary>
 public const double NoteButtonRadius = 30.0;
+
+/// <summary>
+/// Width of the NoteWindow in logical pixels (text area + button column: 200 + 60 + 10 + 10).
+/// </summary>
+public const double NoteWindowWidth = 280.0;
 ```
 
 - [ ] **Step 2: Verify build**
@@ -364,33 +405,15 @@ git commit -m "feat: add INoteManager interface for pinned notes lifecycle"
 
 ---
 
-### Task 7: NoteWindow Overlay
+### Task 7: NoteWindow Overlay (Pure Code-Behind)
 
 **Files:**
-- Create: `src/EyeCtrl.App/Overlays/NoteWindow.xaml`
 - Create: `src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs`
+- Modify: `src/EyeCtrl.Core/LayoutConstants.cs` (add `NoteWindowWidth` — already done in Task 2)
 
-- [ ] **Step 1: Create the XAML template**
+**Note:** Uses pure code-behind (no `.xaml` file). Several existing overlays follow this pattern. The XAML approach with a custom `OverlayWindow` root element is complex; code-behind is simpler and sufficient here.
 
-```xml
-<!-- src/EyeCtrl.App/Overlays/NoteWindow.xaml -->
-<OverlayWindow x:Class="EyeCtrl.App.Overlays.NoteWindow"
-               xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-               xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
-               WindowStyle="None"
-               AllowsTransparency="True"
-               Background="Transparent"
-               Topmost="True"
-               ShowInTaskbar="False"
-               IsClickThrough="False"
-               Width="280" Height="140">
-    <Canvas x:Name="MainCanvas" ClipToBounds="False">
-    </Canvas>
-</OverlayWindow>
-```
-
-- [ ] **Step 2: Write the code-behind**
+- [ ] **Step 1: Write the code-behind file**
 
 ```csharp
 // src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs
@@ -398,22 +421,23 @@ namespace EyeCtrl.App.Overlays;
 
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
-public partial class NoteWindow : OverlayWindow
+public class NoteWindow : OverlayWindow
 {
-    private const double ButtonRadius = LayoutConstants.NoteButtonRadius;  // 30 logical px
+    private const double ButtonRadius = LayoutConstants.NoteButtonRadius;
     private const double ButtonDiameter = ButtonRadius * 2;
     private const double ButtonGap = 10;
     private const double ButtonPadding = 10;
     private const double TextAreaWidth = 200;
-    private const double NoteWidth = TextAreaWidth + ButtonDiameter + ButtonGap + ButtonPadding;
 
     private readonly string _noteId;
+    private readonly Canvas _canvas;
     private readonly Dictionary<string, Ellipse> _buttons = new();
     private readonly Dictionary<string, (Path Arc, double StartAngle)> _arcs = new();
     private TextBlock? _textBlock;
@@ -428,8 +452,17 @@ public partial class NoteWindow : OverlayWindow
     public NoteWindow(string noteId)
     {
         _noteId = noteId;
-        Width = NoteWidth;
+        WindowStyle = WindowStyle.None;
+        AllowsTransparency = true;
+        Background = Brushes.Transparent;
+        Topmost = true;
+        ShowInTaskbar = false;
+        IsClickThrough = false;
+        Width = LayoutConstants.NoteWindowWidth;
         Height = 140;
+
+        _canvas = new Canvas { ClipToBounds = false };
+        Content = _canvas;
         Loaded += OnLoaded;
     }
 
@@ -440,13 +473,13 @@ public partial class NoteWindow : OverlayWindow
 
     private void Draw()
     {
-        MainCanvas.Children.Clear();
+        _canvas.Children.Clear();
         _buttons.Clear();
         _arcs.Clear();
 
         var bg = new Border
         {
-            Width = NoteWidth, Height = Height,
+            Width = LayoutConstants.NoteWindowWidth, Height = Height,
             Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x2E)),
             CornerRadius = new CornerRadius(6),
             BorderBrush = GetBorderBrush(),
@@ -454,11 +487,11 @@ public partial class NoteWindow : OverlayWindow
             Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 8, Opacity = 0.4, ShadowDepth = 2 }
         };
         Canvas.SetLeft(bg, 0); Canvas.SetTop(bg, 0);
-        MainCanvas.Children.Add(bg);
+        _canvas.Children.Add(bg);
 
         _titleBar = new Border
         {
-            Height = 24, Width = NoteWidth,
+            Height = 24, Width = LayoutConstants.NoteWindowWidth,
             Background = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x3F)),
             CornerRadius = new CornerRadius(6, 6, 0, 0)
         };
@@ -470,15 +503,15 @@ public partial class NoteWindow : OverlayWindow
         };
         _titleBar.Child = titleLabel;
         Canvas.SetLeft(_titleBar, 0); Canvas.SetTop(_titleBar, 0);
-        MainCanvas.Children.Add(_titleBar);
+        _canvas.Children.Add(_titleBar);
 
         _contentBorder = new Border
         {
-            Width = NoteWidth, Height = Height - 24,
+            Width = LayoutConstants.NoteWindowWidth, Height = Height - 24,
             Background = Brushes.Transparent
         };
         Canvas.SetLeft(_contentBorder, 0); Canvas.SetTop(_contentBorder, 24);
-        MainCanvas.Children.Add(_contentBorder);
+        _canvas.Children.Add(_contentBorder);
 
         DrawButtons();
         UpdateContent();
@@ -538,9 +571,6 @@ public partial class NoteWindow : OverlayWindow
         _state = state;
         Dispatcher.Invoke(() =>
         {
-            if (_titleBar != null)
-                _titleBar.Background = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x3F));
-
             UpdateContent();
             UpdateBorder();
 
@@ -556,12 +586,14 @@ public partial class NoteWindow : OverlayWindow
         });
     }
 
-    public void UpdateBorder() => Dispatcher.Invoke(() =>
+    private void UpdateBorder() => Dispatcher.Invoke(() =>
     {
-        if (!MainCanvas.Children.OfType<Border>().Any()) return;
-        var bg = (Border)MainCanvas.Children[0];
-        bg.BorderBrush = GetBorderBrush();
-        bg.BorderThickness = GetBorderThickness();
+        if (_canvas.Children.Count == 0) return;
+        if (_canvas.Children[0] is Border bg)
+        {
+            bg.BorderBrush = GetBorderBrush();
+            bg.BorderThickness = GetBorderThickness();
+        }
     });
 
     private Brush GetBorderBrush()
@@ -588,7 +620,7 @@ public partial class NoteWindow : OverlayWindow
         for (int i = 0; i < 3; i++)
         {
             var (suffix, symbol, color) = symbols[i];
-            double cx = NoteWidth - ButtonPadding - ButtonRadius;
+            double cx = LayoutConstants.NoteWindowWidth - ButtonPadding - ButtonRadius;
             double cy = ButtonPadding + ButtonRadius + i * (ButtonDiameter + ButtonGap);
 
             var ellipse = new Ellipse
@@ -600,7 +632,7 @@ public partial class NoteWindow : OverlayWindow
             };
             Canvas.SetLeft(ellipse, cx - ButtonRadius);
             Canvas.SetTop(ellipse, cy - ButtonRadius);
-            MainCanvas.Children.Add(ellipse);
+            _canvas.Children.Add(ellipse);
             _buttons[$"{_noteId}:{suffix}"] = ellipse;
 
             var label = new TextBlock
@@ -611,7 +643,7 @@ public partial class NoteWindow : OverlayWindow
             };
             Canvas.SetLeft(label, cx - 8);
             Canvas.SetTop(label, cy - 10);
-            MainCanvas.Children.Add(label);
+            _canvas.Children.Add(label);
 
             var arcPath = new Path
             {
@@ -619,7 +651,7 @@ public partial class NoteWindow : OverlayWindow
                 StrokeThickness = 3, Visibility = Visibility.Hidden
             };
             Canvas.SetLeft(arcPath, 0); Canvas.SetTop(arcPath, 0);
-            MainCanvas.Children.Add(arcPath);
+            _canvas.Children.Add(arcPath);
             _arcs[$"{_noteId}:{suffix}"] = (arcPath, -90);
         }
     }
@@ -661,39 +693,14 @@ public partial class NoteWindow : OverlayWindow
 }
 ```
 
-Note: `OverlayWindow` is declared as `overlays:OverlayWindow` in XAML; the code-behind inherits from it. If XAML `x:Class` binding fails, convert to pure code-behind construction (no XAML file) which is simpler and matches the existing pattern used by other overlays like `ToolbarWindow`. Use:
-
-```csharp
-// Pure code-behind approach (no .xaml):
-public NoteWindow(string noteId) : base()
-{
-    _noteId = noteId;
-    WindowStyle = WindowStyle.None;
-    AllowsTransparency = true;
-    Background = Brushes.Transparent;
-    Topmost = true;
-    ShowInTaskbar = false;
-    IsClickThrough = false;
-    Width = NoteWidth;
-    Height = 140;
-    var canvas = new Canvas { ClipToBounds = false };
-    Content = canvas;
-    Loaded += OnLoaded;
-}
-```
-
-But start with the XAML approach; if the compiler complains about `OverlayWindow` in XAML, switch to pure code-behind.
-
-- [ ] **Step 2: Verify build**
-
 Run: `dotnet build src/EyeCtrl.App/EyeCtrl.App.csproj`
 Expected: Build succeeded
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Overlays/NoteWindow.xaml src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs
-git commit -m "feat: add NoteWindow overlay for pinned notes"
+git add src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs
+git commit -m "feat: add NoteWindow overlay for pinned notes (pure code-behind)"
 ```
 
 ---
@@ -974,7 +981,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>
         var note = _notes.FirstOrDefault(n => n.Id == noteId);
         if (note == null) return;
 
-        double bx = note.Position.X + NoteWidth - LayoutConstants.NoteButtonRadius;
+        double bx = note.Position.X + LayoutConstants.NoteWindowWidth - LayoutConstants.NoteButtonRadius;
         double byBase = note.Position.Y + 34; // 24 title + 10 padding
         double step = LayoutConstants.NoteButtonRadius * 2 + 10;
 
@@ -1009,26 +1016,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>
 }
 ```
 
-Note: The `NoteWidth` constant (from `NoteWindow`) is needed in `RegisterDwellTargets`. Add this to `LayoutConstants.cs` alongside `NoteButtonRadius`:
-
-```csharp
-/// <summary>Width of the NoteWindow in logical pixels (text area + button column).</summary>
-public const double NoteWindowWidth = 280.0;
-```
-
-Then use `LayoutConstants.NoteWindowWidth` in both `NoteManager` and `NoteWindow`. Also add this constant in Task 2 along with `NoteButtonRadius`.
-
-**Test note:** Tests that create `NoteWindow` instances require `[StaFact]` (WPF threading). The `NoteManager` constructor only takes `IMessenger`, making it testable without WPF dependencies — but `CreateNoteAt` instantiates WPF windows, so those tests need STA. If this causes test failures, split the test class: pure-logic tests with `[Fact]`, window-creating tests with `[StaFact]`.
+**Test note:** Tests that create `NoteWindow` instances require `[StaFact]` (WPF threading). The `NoteManager` constructor only takes `IMessenger`, making it testable without WPF dependencies — but `CreateNoteAt` instantiates WPF windows, so those tests need STA. Pure-logic tests (state transitions, text save, capacity check without window creation) can use `[Fact]`; window-creating tests (CreateNoteAt, RemoveNote) need `[StaFact]`. DpiHelper must be initialized before tests: call `DpiHelper.Initialize(1.0, 1.0)` in a static constructor or `[StaFact]` test setup.
 
 **Toast simplification:** The spec calls for a toast when at capacity. For v1 simplicity, the implementation returns silently (no note created) when `IsAtCapacity`. The toast can be added as a follow-up.
-
-Add this to `LayoutConstants.cs`:
-```csharp
-/// <summary>Width of the NoteWindow in logical pixels (text area + button column).</summary>
-public const double NoteWindowWidth = 280.0;
-```
-
-Then use `LayoutConstants.NoteWindowWidth` in both files.
 
 - [ ] **Step 4: Run tests to verify they pass**
 

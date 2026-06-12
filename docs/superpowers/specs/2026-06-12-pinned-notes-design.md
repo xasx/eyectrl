@@ -47,15 +47,15 @@ Add a "Pin Note" action to the action menu that places a persistent, editable te
 │  App Layer                                              │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │ INoteManager / NoteManager                        │   │
-│  │ - CreateNoteAt(PhysicalPoint) → NoteWindow        │   │
-│  │ - RemoveNote(string id)                           │   │
-│  │ - EditNote(string id)                             │   │
-│  │ - StartMoveNote(string id)                        │   │
-│  │ - FinishMoveNote(string id, PhysicalPoint)        │   │
-│  │ - ActiveNotes: IReadOnlyList<NoteWindow>          │   │
-│  │ - MaxNotes: int (8)                               │   │
-│  │ - Owns DwellDetector for note controls            │   │
-│  │ - Subscribes to GazeCursorMovedMessage for dwell  │   │
+│  │ - CreateNoteAt(PhysicalPoint) → NoteData           │   │
+│  │ - RemoveNote(string id)                            │   │
+│  │ - EditNote(string id)                              │   │
+│  │ - StartMoveNote(string id)                         │   │
+│  │ - FinishMoveNote(string id, PhysicalPoint)         │   │
+│  │ - ActiveNotes: IReadOnlyList<NoteData>             │   │
+│  │ - IsAtCapacity: bool                               │   │
+│  │ - Owns DwellDetector for note controls             │   │
+│  │ - Subscribes to GazeCursorMovedMessage for dwell   │   │
 │  └──────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │ NoteWindow : OverlayWindow                        │   │
@@ -93,8 +93,17 @@ Add a "Pin Note" action to the action menu that places a persistent, editable te
 | `src/EyeCtrl.ViewModels/ActionMenuItemViewModel.cs` | Add pin symbol mapping for `PinNote` in `GetActionSymbol()` |
 | `src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs` | Add note lifecycle messages if needed |
 | `src/EyeCtrl.App/Services/IOverlayManager.cs` | Add `NoteWindow` collection property if centralized creation needed |
+| `src/EyeCtrl.Core/LayoutConstants.cs` | Add `NoteButtonRadius = 30.0` constant (60px diameter — gaze-targetable but compact) |
 
 **Code duplication note:** `GetActionSymbol()` exists in both `ActionMenuItemViewModel` and `ActionMenuWindow.xaml.cs` with identical switch statements. This pre-existing duplication means the pin symbol must be added in both places. A future refactor could extract this into a shared helper, but that's out of scope for this feature.
+
+### Focus Mode for Editing
+
+`OverlayWindow`'s `SetOverlayInteraction(clickThrough, focusable)` (at `OverlayWindow.cs:37`) supports runtime toggling of `WS_EX_NOACTIVATE`. During Edit state, `NoteWindow` calls `SetOverlayInteraction(clickThrough: false, focusable: true)` so the `TextBox` can receive focus and keyboard input (physical keyboard + eye keyboard `SendInput` keystrokes). On exiting Edit state, restore `SetOverlayInteraction(clickThrough: false, focusable: false)`.
+
+### Eye Keyboard Integration
+
+The eye keyboard types via `InputSimulator.SendInput` (which synthesizes keystrokes at the OS level). When the note's `TextBox` has focus (enabled by `focusable: true` during Edit), these synthesized keystrokes arrive at the `TextBox` naturally — no special message routing needed. Prediction selection (`PredictionSelectedMessage`) also calls `InputSimulator.TypeText()`, so predictions work the same way. The note's `TextBox` handles `KeyDown` events for Enter (confirm) and Escape (cancel).
 
 ## Data Model
 
@@ -133,7 +142,7 @@ FreeLook → Fixation → ActivationButton → ActionMenu → PinNote selected
 
 Display state:
   ┌──────────────────────────────────┐
-  │ PINNED NOTE              ◎  ◎  ◎│  ← close/edit/move buttons (50px each)
+  │ PINNED NOTE              ◎  ◎  ◎│  ← 30px radius note buttons
   │                                  │
   │  Click the gear icon             │  ← text content (yellow-ish on dark)
   │  in the top-right corner         │
@@ -141,11 +150,12 @@ Display state:
   └──────────────────────────────────┘
 
 Edit state (dwell on edit button):
-  - Green border appears
-  - TextBox auto-focuses (no extra click/dwell needed)
+  - Green border appears; `SetOverlayInteraction(clickThrough: false, focusable: true)` enables focus
+  - TextBox auto-focuses (no extra click/dwell needed) — receives both physical keyboard and eye-keyboard `SendInput`
   - User types via physical keyboard or on-screen eye-tracking keyboard
-  - Enter to save, Escape to cancel
+  - Enter to save, Escape to cancel; `TextBox.KeyDown` handler intercepts these
   - Close button remains active (to abort); Move button is disabled during Edit
+  - On exit: `SetOverlayInteraction(clickThrough: false, focusable: false)` restores no-activate
 
 Move state (dwell on move button):
   - Note becomes semi-transparent, blue border
@@ -156,14 +166,14 @@ Move state (dwell on move button):
   - Returns to Display state after placement
 
 Close (dwell on close button):
-  - Note window closes
-  - Removed from NoteManager.ActiveNotes
+  - Note window closes, all dwell targets removed, message subscriptions unsubscribed
+  - Removed from NoteManager.ActiveNotes collection
 ```
 
 ## NoteWindow Visual Design
 
 **Layout:**
-- Width: ~280px (200px text area + 80px button column)
+- Width: ~280px (200px text area + 80px button column: 60px buttons + 10px gap + 10px right padding)
 - Height: auto, min ~120px
 - Rounded corners (6px)
 - Background: `#1A1A2E` (dark navy, matching EyeCtrl palette)
@@ -178,18 +188,21 @@ Close (dwell on close button):
 - Max width 200px
 
 **Button column (right side):**
-- 3 circular buttons stacked vertically, 50px diameter each
+- 3 circular buttons stacked vertically, **30px radius (60px diameter)** each — defined as `LayoutConstants.NoteButtonRadius`
 - 10px gap between buttons
 - 10px padding from top/right edges
-- Background: dark semi-transparent circle
+- Background: dark semi-transparent circle (`#33FFFFFF` with `#1A1A2E` fill)
 - Symbols: close `"\u2715"` (✕), edit `"\u270E"` (✎), move `"\u2195"` (↕)
   - Colors: close = `#FF6666` (soft red), edit = `#66FF66` (soft green), move = `#6688FF` (soft blue)
-  - All three symbols render correctly in Segoe UI at 16pt and above
+  - All three symbols render correctly in Segoe UI at 14pt
+  - Font size scales with button radius (14pt for 30px radius, ~80% of diameter)
 - Dwell progress: lime-green arc (same pattern as `ActionMenuWindow`)
 
 **Window behavior:**
 - Topmost, `WS_EX_TOOLWINDOW` (no taskbar)
-- NOT click-through (captures mouse for text editing)
+- NOT click-through (captures mouse for text editing): `WS_EX_TRANSPARENT` removed
+- Default: `WS_EX_NOACTIVATE` set (does not steal focus)
+- **Edit state:** `WS_EX_NOACTIVATE` removed via `SetOverlayInteraction(clickThrough: false, focusable: true)` — enables `TextBox` focus for keyboard input
 - Window position follows note position in physical coordinates, converted to DIPs
 - `ShowInTaskbar = false`
 
@@ -200,13 +213,14 @@ Close (dwell on close button):
 ```csharp
 public class NoteManager : INoteManager
 {
-    private readonly List<NoteWindow> _notes = new();
+    private readonly List<NoteWindow> _noteWindows = new();
     private readonly DwellDetector _dwellDetector = new(cooldownMs: 300);
     private const int MaxNotes = 8;
 
-    public IReadOnlyList<NoteWindow> ActiveNotes => _notes.AsReadOnly();
+    public IReadOnlyList<NoteData> ActiveNotes => ...; // exposes NoteData, not NoteWindow
+    public bool IsAtCapacity => _noteWindows.Count >= MaxNotes;
 
-    public NoteWindow CreateNoteAt(PhysicalPoint point);
+    public void CreateNoteAt(PhysicalPoint point);
     public void RemoveNote(string id);
     public void StartEdit(string id);
     public void FinishEdit(string id, string text);
@@ -217,6 +231,8 @@ public class NoteManager : INoteManager
     public void OnGazeMoved(PhysicalPoint gazePoint, long timestamp);
 }
 ```
+
+**API design:** `INoteManager` exposes `NoteData` (Core model) and string IDs, never WPF `NoteWindow` types. This keeps the interface testable without WPF dependencies. `NoteManager` owns `NoteWindow` instances internally.
 
 **Dwell target ID scheme:** `"{noteId}:close"`, `"{noteId}:edit"`, `"{noteId}:move"`, `"{noteId}:place"`. The `place` target is only active during Move state. `NoteWindow` uses the ID suffix to identify which button to animate.
 
@@ -230,6 +246,13 @@ public class NoteManager : INoteManager
 - **Display state:** close, edit, move targets are active
 - **Edit state:** close target active; edit target acts as "confirm" (same as Enter); move target removed
 - **Move state:** only the "place" target is active; close/edit/move targets are removed to prevent accidental activation
+- **On every state transition:** call `_dwellDetector.ResetAllState()` to clear stale progress and prevent spurious activation after the switch
+
+**RemoveNote cleanup (full lifecycle):**
+1. Remove all dwell targets for the note from `_dwellDetector`
+2. Unsubscribe from any note-specific message handlers
+3. Call `NoteWindow.Close()` to destroy the WPF window
+4. Remove from internal `_noteWindows` list
 
 **Move mode placement mechanism:**
 1. `StartMove(id)` → add a large `DwellTarget` with ID `"{noteId}:place"`, radius ~100px, centered at note position
@@ -239,14 +262,14 @@ public class NoteManager : INoteManager
 
 **Max notes enforcement:**
 - Keep `PinNote` visible in the action menu at all times
-- When 8 notes are active and `PinNote` is selected, show a brief toast message ("Max 8 notes") on the oldest note, and do not create a new note
-- Toast disappears after 2 seconds
+- When `IsAtCapacity` is true and `PinNote` is selected, show a brief toast message ("Max 8 notes") instead of creating a new note
+- **Toast implementation:** a temporary `TextBlock` overlaid on the most recently created note's window. Text fades in, holds for 2 seconds, then fades out via a WPF `DispatcherTimer`. No new overlay window is needed — reuses the existing note's `Canvas`.
 
 ## Action Menu Integration
 
 **Enum:** `InteractionAction.PinNote = 9` (next available after `ScrollRight = 8` in the existing enum).
 
-**Symbol:** Unicode pin `"\uD83D\uDCCC"` (📌). If standard WPF `TextBlock` renders this poorly at the button size (50px radius), fall back to a geometric glyph `"\u25C9"` (◉) or a simple `"P"` character. The existing emoji infrastructure (`Emoji.Wpf.TextBlock`) may be used if needed, matching how the emoji keyboard renders emoji.
+**Symbol:** Unicode pin `"\uD83D\uDCCC"` (📌). If standard WPF `TextBlock` renders this poorly at the action menu button size (50px radius / 100px diameter), fall back to a geometric glyph `"\u25C9"` (◉) or a simple `"P"` character. The existing emoji infrastructure (`Emoji.Wpf.TextBlock`) may be used if needed, matching how the emoji keyboard renders emoji.
 
 **Default visibility:** Enabled in `ActionMenuSettings.VisibleActions` alongside LeftClick, RightClick, DoubleClick, DragStart, ScrollUp, ScrollDown.
 
@@ -258,10 +281,11 @@ ActionMenuViewModel.OnTargetActivated("PinNote")
       → Determines target point from current state (fixation point)
       → Fires ActionRequested(PinNote, targetPoint)
         → EventCoordinator.HandleActionRequested()
-          → case PinNote: _context.NoteManager.CreateNoteAt(point)
+          → case PinNote: _context.NoteManager.CreateNoteAt(point); return;
+          → default: // existing InputSimulator switch for mouse actions
 ```
 
-Note: `PinNote` does NOT call `InputSimulator` — it's a meta-action that spawns UI.
+**Important:** The `PinNote` case must be added **before** the existing `switch` block in `HandleActionRequested` (around `EventCoordinator.cs:772`) since `PinNote` does not call `InputSimulator`. It returns early after delegating to `NoteManager`.
 
 ## Event Flow Summary
 
@@ -272,8 +296,8 @@ Gaze → GazeEngine → CursorMoved
       ├→ EventCoordinator (handles action menu dwell)
       └→ NoteManager.OnGazeMoved(position, timestamp)
            → DwellDetector.Update(position, timestamp)
-             → Hit-tests all note control targets
-             → TargetProgress → NoteWindow.UpdateDwellProgress(targetId, progress)
+              → Hit-tests all note control targets, accumulates dwell only on the nearest one
+              → TargetProgress → NoteWindow.UpdateDwellProgress(targetId, progress)
                → Maps suffix: "close" → red arc, "edit" → green arc, "move" → blue arc
              → TargetActivated → dispatch based on suffix:
                  "close" → RemoveNote(id)
@@ -306,17 +330,19 @@ Edit mode:
 **Unit tests** (`EyeCtrl.Core.Tests`):
 - `NoteData` construction and state transitions
 - `InteractionAction.PinNote` enum value
+- `PinNote` in default `ActionMenuSettings.VisibleActions`
 
 **ViewModel tests** (`EyeCtrl.ViewModels.Tests`):
-- `PinNote` action symbol mapping
-- `PinNote` in default visible actions
+- `PinNote` action symbol mapping in `GetActionSymbol()`
 
 **App tests** (`EyeCtrl.App.Tests`):
-- `NoteManager` create/remove/edit/move lifecycle
-- `NoteManager` enforces max 8 notes
+- `NoteManager` create/remove/edit/move lifecycle (using `NoteData` API)
+- `NoteManager` enforces max 8 notes (toast shown, no new note created)
+- `NoteManager.RemoveNote` full cleanup (targets removed, window closed)
 - Dwell detection on note control buttons
 - Move mode gaze-follow updates position
-- `EventCoordinator` routes `PinNote` to `NoteManager.CreateNoteAt()`
+- State transitions call `ResetAllState()`
+- `EventCoordinator` routes `PinNote` to `NoteManager.CreateNoteAt()` (not `InputSimulator`)
 
 ## Out of Scope
 

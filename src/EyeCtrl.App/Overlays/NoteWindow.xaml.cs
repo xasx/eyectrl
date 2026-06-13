@@ -261,6 +261,7 @@ public class NoteWindow : OverlayWindow
                 Size = new Size(r, r), SweepDirection = SweepDirection.Clockwise,
                 IsLargeArc = sweep > 180
             };
+            fig.Segments.Add(seg);
             arcPath.Data = new PathGeometry(new[] { fig });
         });
     }

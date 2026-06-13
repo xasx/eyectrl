@@ -96,6 +96,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         note.State = NoteState.Display;
         window.SetState(NoteState.Display);
         window.SetText(text);
+        _dwellDetector.ClearTargets();
+        RegisterDwellTargets(id);
+        foreach (var other in _notes.Where(n => n.Id != id))
+            RegisterDwellTargets(other.Id);
         _dwellDetector.ResetAllState();
     }
 

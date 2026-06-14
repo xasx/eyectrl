@@ -13,13 +13,15 @@ public class NoteWindow : OverlayWindow
 {
     private const double ButtonRadius = LayoutConstants.NoteButtonRadius;
     private const double ButtonDiameter = ButtonRadius * 2;
-    private const double ButtonGap = 10;
-    private const double ButtonPadding = 10;
+    private const double ButtonGap = LayoutConstants.NoteButtonGap;
+    private const double ButtonPadding = LayoutConstants.NoteButtonPadding;
+    private const double TitleBarHeight = LayoutConstants.NoteTitleBarHeight;
     private const double TextAreaWidth = 200;
 
     private readonly string _noteId;
     private readonly Canvas _canvas;
     private readonly Dictionary<string, Ellipse> _buttons = new();
+    private readonly Dictionary<string, TextBlock> _buttonLabels = new();
     private readonly Dictionary<string, (Path Arc, double StartAngle)> _arcs = new();
     private TextBlock? _textBlock;
     private TextBox? _textBox;
@@ -39,7 +41,7 @@ public class NoteWindow : OverlayWindow
         ShowInTaskbar = false;
         IsClickThrough = false;
         Width = LayoutConstants.NoteWindowWidth;
-        Height = 140;
+        Height = LayoutConstants.NoteWindowHeight;
 
         _canvas = new Canvas { ClipToBounds = false };
         Content = _canvas;
@@ -55,6 +57,7 @@ public class NoteWindow : OverlayWindow
     {
         _canvas.Children.Clear();
         _buttons.Clear();
+        _buttonLabels.Clear();
         _arcs.Clear();
 
         var bg = new Border
@@ -71,7 +74,7 @@ public class NoteWindow : OverlayWindow
 
         var titleBar = new Border
         {
-            Height = 24, Width = LayoutConstants.NoteWindowWidth,
+            Height = TitleBarHeight, Width = LayoutConstants.NoteWindowWidth,
             Background = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x3F)),
             CornerRadius = new CornerRadius(6, 6, 0, 0)
         };
@@ -87,14 +90,15 @@ public class NoteWindow : OverlayWindow
 
         _contentBorder = new Border
         {
-            Width = LayoutConstants.NoteWindowWidth, Height = Height - 24,
+            Width = LayoutConstants.NoteWindowWidth, Height = Height - TitleBarHeight,
             Background = Brushes.Transparent
         };
-        Canvas.SetLeft(_contentBorder, 0); Canvas.SetTop(_contentBorder, 24);
+        Canvas.SetLeft(_contentBorder, 0); Canvas.SetTop(_contentBorder, TitleBarHeight);
         _canvas.Children.Add(_contentBorder);
 
         DrawButtons();
         UpdateContent();
+        UpdateButtonVisibility();
     }
 
     public void UpdateContent()
@@ -104,9 +108,10 @@ public class NoteWindow : OverlayWindow
 
         if (_state == NoteState.Edit)
         {
+            _textBlock = null;
             _textBox = new TextBox
             {
-                Width = TextAreaWidth - 20, Height = Height - 44,
+                Width = TextAreaWidth - 20, Height = Height - TitleBarHeight - 20,
                 Margin = new Thickness(10, 10, 0, 0),
                 Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x40)),
                 Foreground = Brushes.White,
@@ -121,6 +126,7 @@ public class NoteWindow : OverlayWindow
         }
         else
         {
+            _textBox = null;
             _textBlock = new TextBlock
             {
                 Width = TextAreaWidth - 20,
@@ -146,6 +152,25 @@ public class NoteWindow : OverlayWindow
         return _textBlock?.Text ?? "";
     }
 
+    /// <summary>
+    /// Activates the window and moves keyboard focus into the editor TextBox so that both
+    /// physical-keyboard input and eye-keyboard <c>SendInput</c> text land in the note.
+    /// Must be called after the window has been shown and made focusable.
+    /// </summary>
+    public void FocusEditor()
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            Activate();
+            if (_textBox != null)
+            {
+                _textBox.Focus();
+                Keyboard.Focus(_textBox);
+                _textBox.CaretIndex = _textBox.Text?.Length ?? 0;
+            }
+        }), System.Windows.Threading.DispatcherPriority.Input);
+    }
+
     public void SetState(NoteState state)
     {
         _state = state;
@@ -153,6 +178,8 @@ public class NoteWindow : OverlayWindow
         {
             UpdateContent();
             UpdateBorder();
+            UpdateButtonVisibility();
+            Opacity = state == NoteState.Move ? 0.85 : 1.0;
 
             if (state == NoteState.Edit)
             {
@@ -193,15 +220,15 @@ public class NoteWindow : OverlayWindow
 
     private void DrawButtons()
     {
-        var symbols = new[] { ("close", "\u2715", Color.FromRgb(0xFF, 0x66, 0x66)),
-                              ("edit",  "\u270E", Color.FromRgb(0x66, 0xFF, 0x66)),
-                              ("move",  "\u2195", Color.FromRgb(0x66, 0x88, 0xFF)) };
+        var symbols = new[] { ("close", "✕", Color.FromRgb(0xFF, 0x66, 0x66)),
+                              ("edit",  "✎", Color.FromRgb(0x66, 0xFF, 0x66)),
+                              ("move",  "↕", Color.FromRgb(0x66, 0x88, 0xFF)) };
 
         for (int i = 0; i < 3; i++)
         {
             var (suffix, symbol, color) = symbols[i];
             double cx = LayoutConstants.NoteWindowWidth - ButtonPadding - ButtonRadius;
-            double cy = ButtonPadding + ButtonRadius + i * (ButtonDiameter + ButtonGap);
+            double cy = TitleBarHeight + ButtonPadding + ButtonRadius + i * (ButtonDiameter + ButtonGap);
 
             var ellipse = new Ellipse
             {
@@ -224,6 +251,7 @@ public class NoteWindow : OverlayWindow
             Canvas.SetLeft(label, cx - 8);
             Canvas.SetTop(label, cy - 10);
             _canvas.Children.Add(label);
+            _buttonLabels[$"{_noteId}:{suffix}"] = label;
 
             var arcPath = new Path
             {
@@ -234,6 +262,27 @@ public class NoteWindow : OverlayWindow
             _canvas.Children.Add(arcPath);
             _arcs[$"{_noteId}:{suffix}"] = (arcPath, -90);
         }
+    }
+
+    /// <summary>
+    /// Shows or hides the control buttons to match the current state so the visible buttons stay
+    /// in sync with the dwell targets registered by <c>NoteManager</c>:
+    /// Display = close+edit+move, Edit = close only, Move = none (placement target only).
+    /// </summary>
+    private void UpdateButtonVisibility()
+    {
+        SetButtonVisible("close", _state != NoteState.Move);
+        SetButtonVisible("edit", _state == NoteState.Display);
+        SetButtonVisible("move", _state == NoteState.Display);
+    }
+
+    private void SetButtonVisible(string suffix, bool visible)
+    {
+        var key = $"{_noteId}:{suffix}";
+        var vis = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (_buttons.TryGetValue(key, out var ellipse)) ellipse.Visibility = vis;
+        if (_buttonLabels.TryGetValue(key, out var label)) label.Visibility = vis;
+        if (!visible && _arcs.TryGetValue(key, out var arc)) arc.Arc.Visibility = Visibility.Hidden;
     }
 
     public void UpdateDwellProgress(string targetId, double progress)

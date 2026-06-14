@@ -28,4 +28,34 @@ public static class LayoutConstants
     /// Width of the NoteWindow in logical pixels (text area + button column: 200 + 60 + 10 + 10).
     /// </summary>
     public const double NoteWindowWidth = 280.0;
+
+    /// <summary>Height of the NoteWindow title bar in logical pixels.</summary>
+    public const double NoteTitleBarHeight = 24.0;
+
+    /// <summary>Gap between the stacked note control buttons in logical pixels.</summary>
+    public const double NoteButtonGap = 10.0;
+
+    /// <summary>Padding from the note window edges to the button column in logical pixels.</summary>
+    public const double NoteButtonPadding = 10.0;
+
+    /// <summary>
+    /// Vertical distance (logical px) from the note window's top edge down to the gaze anchor point.
+    /// The fixation point maps to this offset below the window top so the note appears just under the gaze.
+    /// Shared by <c>NoteManager</c> (window positioning + dwell-target math) and must stay in sync.
+    /// </summary>
+    public const double NoteAnchorOffsetY = 70.0;
+
+    /// <summary>
+    /// Height of the NoteWindow in logical pixels. Sized to fit the title bar plus the vertical
+    /// column of three control buttons (close/edit/move) with top and bottom padding, so no button
+    /// is clipped: title + padding + 3·diameter + 2·gap + padding.
+    /// </summary>
+    public const double NoteWindowHeight =
+        NoteTitleBarHeight + NoteButtonPadding
+        + 6 * NoteButtonRadius
+        + 2 * NoteButtonGap
+        + NoteButtonPadding;
+
+    /// <summary>Radius (logical px) of the placement dwell target shown while a note is being moved.</summary>
+    public const double NotePlacementRadius = 100.0;
 }

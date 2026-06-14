@@ -191,4 +191,47 @@ public class NoteManagerTests
         Assert.Equal("changed", manager.ActiveNotes[0].Text);
         Assert.Equal(NoteState.Display, manager.ActiveNotes[0].State);
     }
+
+    [StaFact]
+    public void CreateNote_ShowsWindow()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+
+        manager.CreateNoteAt(new PhysicalPoint(400, 300));
+
+        // Regression guard: the original code only called Show() inside the window's own Loaded
+        // handler, which never fires, so the note was never displayed. The window must be visible.
+        Assert.True(manager.AllWindowsVisible);
+    }
+
+    [StaFact]
+    public void CloseButtonDwell_AtVisiblePosition_RemovesNote()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var anchor = new PhysicalPoint(800, 500);
+        manager.CreateNoteAt(anchor);
+        var id = manager.ActiveNotes[0].Id;
+        manager.FinishEdit(id, "x"); // -> Display: registers close/edit/move dwell targets
+
+        // Close-button center, computed the same way NoteWindow lays the button out (DPI 1.0 here,
+        // so logical == physical). Regression guard for the dwell-target/visual-button mismatch:
+        // the buggy code placed the target ~150px right of where the button actually renders.
+        double winLeft = anchor.X - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
+        double winTop = anchor.Y - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
+        double cx = EyeCtrl.Core.LayoutConstants.NoteWindowWidth
+            - EyeCtrl.Core.LayoutConstants.NoteButtonPadding
+            - EyeCtrl.Core.LayoutConstants.NoteButtonRadius;
+        double cy = EyeCtrl.Core.LayoutConstants.NoteTitleBarHeight
+            + EyeCtrl.Core.LayoutConstants.NoteButtonPadding
+            + EyeCtrl.Core.LayoutConstants.NoteButtonRadius;
+        var closeCenter = new PhysicalPoint(winLeft + cx, winTop + cy);
+
+        // Hold gaze on the close button past the 600ms dwell threshold.
+        for (long t = 0; t <= 800_000; t += 33_000)
+            manager.OnGazeMoved(closeCenter, t);
+
+        Assert.Empty(manager.ActiveNotes);
+    }
 }

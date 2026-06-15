@@ -33,6 +33,7 @@ public partial class GlassBackdropWindow : OverlayWindow
 
     public GlassBackdropWindow()
     {
+        InitializeComponent();
         IsClickThrough = true;
     }
 

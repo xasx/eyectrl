@@ -260,13 +260,19 @@ public class EventCoordinator : IEventCoordinator
         _context.Messenger.Register<EventCoordinator, BackdropDismissMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(() =>
             {
+                var context = _context;
+                if (context == null)
+                    return;
+
                 HideBackdrop();
-                if (_context != null && _context.TargetHighlightVM.IsVisible)
+
+                if (context.TargetHighlightVM.IsVisible)
                 {
-                    _context.TargetHighlightVM.IsVisible = false;
-                    _context.OverlayManager.TargetHighlight.HideHighlight();
+                    context.TargetHighlightVM.IsVisible = false;
+                    context.OverlayManager.TargetHighlight.HideHighlight();
                 }
-                var im = _context.InteractionManager;
+
+                var im = context.InteractionManager;
                 if (im.CurrentState == InteractionState.ActionMenuVisible)
                     im.OnActionMenuDismissed();
                 else if (im.CurrentState == InteractionState.ManualSelectionActive)

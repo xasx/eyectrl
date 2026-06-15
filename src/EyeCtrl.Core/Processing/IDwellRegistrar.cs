@@ -32,7 +32,7 @@ public enum DwellCategory
 /// </summary>
 /// <remarks>
 /// Implemented by the ViewModel of each overlay window so that
-/// <see cref="Controls.DwellControl"/> sub-classes can self-register without
+/// <c>DwellControl</c> sub-classes can self-register without
 /// taking a direct dependency on the WPF layer or a concrete ViewModel type.
 /// All positions must be supplied in physical screen pixels (device pixels) to
 /// match the coordinates produced by the Tobii eye-tracker.

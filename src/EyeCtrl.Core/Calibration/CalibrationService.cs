@@ -134,18 +134,22 @@ public class CalibrationService
                 return;
             }
 
+            if (data.TransformParams is not { Length: 6 })
+            {
+                _logger?.LogWarning(
+                    "Calibration data from {FilePath} has invalid transform parameters (expected 6); ignoring",
+                    filePath);
+                return;
+            }
+
             var transform = new AffineTransform();
             transform.SetParameters(data.TransformParams);
             lock (_transformLock) { _currentTransform = transform; }
             CurrentData = data;
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
-            _logger?.LogWarning(ex, "Failed to deserialize calibration data from {FilePath}", filePath);
-        }
-        catch (IOException ex)
-        {
-            _logger?.LogWarning(ex, "Failed to load calibration data from {FilePath}", filePath);
+            _logger?.LogWarning(ex, "Failed to load calibration data from {FilePath}; ignoring", filePath);
         }
     }
 

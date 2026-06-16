@@ -75,6 +75,7 @@ public class GazeEngineAdapter : IDisposable
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to handle activation completed");
+                _interactionManager.OnFixationEnded();
             }
         });
         messenger.Register<ActionSelectedMessage>(this, (_, msg) =>

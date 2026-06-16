@@ -361,6 +361,7 @@ public class EventCoordinator : IEventCoordinator
 
     private void ShowBackdropIfEnabled()
     {
+        return; // TODO: re-enable when glass backdrop is fixed
         if (_glassBackdrop == null || _context == null)
             return;
         var settings = _context.Settings.Backdrop;

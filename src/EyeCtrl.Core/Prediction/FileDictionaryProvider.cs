@@ -83,11 +83,26 @@ public class FileDictionaryProvider : IDictionaryProvider
 
         if (File.Exists(_userDictionaryPath))
         {
-            var json = File.ReadAllText(_userDictionaryPath);
-            var userWords = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
-            if (userWords != null)
-                foreach (var kv in userWords)
-                    words[kv.Key] = words.GetValueOrDefault(kv.Key) + kv.Value;
+            try
+            {
+                var json = File.ReadAllText(_userDictionaryPath);
+                var userWords = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
+                if (userWords != null)
+                    foreach (var kv in userWords)
+                        words[kv.Key] = words.GetValueOrDefault(kv.Key) + kv.Value;
+            }
+            catch (JsonException ex)
+            {
+                _logger?.LogError(ex, "Failed to deserialize user dictionary from {Path}", _userDictionaryPath);
+            }
+            catch (IOException ex)
+            {
+                _logger?.LogError(ex, "Failed to read user dictionary from {Path}", _userDictionaryPath);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger?.LogError(ex, "Access denied reading user dictionary from {Path}", _userDictionaryPath);
+            }
         }
 
         return words;

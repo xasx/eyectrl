@@ -159,13 +159,42 @@ public class CalibrationServiceTests
         var logger = new FakeLogger<CalibrationService>();
         var service = new CalibrationService(logger);
         var path = Path.GetTempFileName();
-        File.WriteAllText(path, "not valid json {{{");
+        try
+        {
+            File.WriteAllText(path, "not valid json {{{");
 
-        service.Load(path, new PhysicalPoint(1920, 1080), "DISPLAY1");
-        Assert.Null(service.CurrentTransform);
-        Assert.True(logger.LoggedCount > 0);
+            service.Load(path, new PhysicalPoint(1920, 1080), "DISPLAY1");
+            Assert.Null(service.CurrentTransform);
+            Assert.True(logger.LoggedCount > 0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 
-        File.Delete(path);
+    [Fact]
+    public void Load_DoesNotThrowOnInvalidTransformParams()
+    {
+        // Valid JSON whose screen/monitor match, but transformParams has the wrong length.
+        // AffineTransform.SetParameters would throw ArgumentException — Load must swallow it
+        // (and the pre-check must short-circuit) rather than crash startup.
+        var logger = new FakeLogger<CalibrationService>();
+        var service = new CalibrationService(logger);
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path,
+                "{\"transformParams\":[1.0,0.0,0.0],\"screenWidth\":1920,\"screenHeight\":1080,\"monitorDeviceName\":\"DISPLAY1\"}");
+
+            service.Load(path, new PhysicalPoint(1920, 1080), "DISPLAY1");
+            Assert.Null(service.CurrentTransform);
+            Assert.True(logger.LoggedCount > 0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private sealed class FakeLogger<T> : ILogger<T>

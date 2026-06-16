@@ -75,7 +75,9 @@ public class GazeEngineAdapter : IDisposable
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to handle activation completed");
-                _interactionManager.OnFixationEnded();
+                // Recovery must not throw out of this async void handler, or it crashes the app.
+                try { _interactionManager.OnFixationEnded(); }
+                catch (Exception resetEx) { _logger.LogError(resetEx, "Failed to reset interaction state after activation error"); }
             }
         });
         messenger.Register<ActionSelectedMessage>(this, (_, msg) =>

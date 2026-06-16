@@ -71,9 +71,10 @@ public class SmallLMPredictor : IDisposable
             return;
         }
 
+        SessionOptions? options = null;
         try
         {
-            var options = new SessionOptions();
+            options = new SessionOptions();
 
             if (_preferGpu)
             {
@@ -100,6 +101,12 @@ public class SmallLMPredictor : IDisposable
         {
             _logger?.LogError(ex, "Failed to initialize ONNX session for {Model}", _selectedModelSize);
             IsAvailable = false;
+        }
+        finally
+        {
+            // InferenceSession copies the options at construction; the SessionOptions
+            // instance itself is not retained and must be disposed (native handle).
+            options?.Dispose();
         }
     }
 

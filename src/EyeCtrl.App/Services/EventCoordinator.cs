@@ -361,7 +361,6 @@ public class EventCoordinator : IEventCoordinator
 
     private void ShowBackdropIfEnabled()
     {
-        return; // TODO: re-enable when glass backdrop is fixed
         if (_glassBackdrop == null || _context == null)
             return;
         var settings = _context.Settings.Backdrop;
@@ -458,7 +457,7 @@ public class EventCoordinator : IEventCoordinator
                 activationButton.HideImmediate();
                 ManualSelectionOverlay.Show(_context.ManualSelectionVM.Center, _context.ManualSelectionVM.Radius, _context.ManualSelectionVM.Magnification, _context.ManualSelectionVM.GazePoint);
                 ManualSelectionIndicator.Show();
-                ShowBackdropIfEnabled();
+                // ShowBackdropIfEnabled(); // disabled: glass backdrop blocks the screen — re-enable when fixed
             }
             else
             {
@@ -539,7 +538,7 @@ public class EventCoordinator : IEventCoordinator
                     _context.ActionMenuVM.ManualSelectionCenter,
                     _context.ActionMenuVM.ManualSelectionRadius,
                     _context.ActionMenuVM.GazePoint);
-                ShowBackdropIfEnabled();
+                // ShowBackdropIfEnabled(); // disabled: glass backdrop blocks the screen — re-enable when fixed
             }
             else
             {

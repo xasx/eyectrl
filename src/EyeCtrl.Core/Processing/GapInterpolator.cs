@@ -51,6 +51,11 @@ public sealed class GapInterpolator
         return (_lastValidPosition, true);
     }
 
+    // Called on the UI thread during a settings change while the gaze thread may still be
+    // writing `other`'s fields in Process(). On x64 the 64-bit _lastValidTimestamp reads
+    // atomically; _lastValidPosition could read a sub-pixel torn value for a single frame,
+    // which the next valid sample immediately overwrites. We accept this rather than lock
+    // the hot gaze path (Process runs every sample) to guard a self-healing, sub-pixel glitch.
     public void CopyStateFrom(GapInterpolator other)
     {
         _lastValidPosition = other._lastValidPosition;

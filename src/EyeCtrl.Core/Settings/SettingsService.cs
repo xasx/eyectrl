@@ -16,6 +16,7 @@ public class SettingsService
     };
 
     private CancellationTokenSource? _debounceCts;
+    private readonly object _debounceLock = new();
     private const int DebounceMs = 500;
 
     public SettingsService(string filePath, ILogger<SettingsService>? logger = null)
@@ -26,14 +27,16 @@ public class SettingsService
 
     public void SaveDebounced(EyeCtrlSettings settings)
     {
-        // Cancel and dispose old CancellationTokenSource to prevent resource leak
-        var oldCts = _debounceCts;
-        _debounceCts = new CancellationTokenSource();
-        var token = _debounceCts.Token;
+        CancellationToken token;
+        lock (_debounceLock)
+        {
+            var oldCts = _debounceCts;
+            _debounceCts = new CancellationTokenSource();
+            token = _debounceCts.Token;
 
-        // Dispose old CTS after extracting the new token to avoid race conditions
-        oldCts?.Cancel();
-        oldCts?.Dispose();
+            oldCts?.Cancel();
+            oldCts?.Dispose();
+        }
 
         Task.Run(async () =>
         {

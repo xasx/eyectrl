@@ -74,4 +74,32 @@ public class GazeEngineTests
 
         Assert.Equal(InteractionAction.LeftClick, firedAction);
     }
+
+    [Fact]
+    public void SuppressFixation_DefaultsToFalse()
+    {
+        var provider = new FakeGazeProvider();
+        var simulator = new FakeInputSimulator();
+        var settings = new EyeCtrlSettings();
+
+        var engine = new GazeEngine(provider, simulator, settings);
+
+        Assert.False(engine.SuppressFixation);
+    }
+
+    [Fact]
+    public void SuppressFixation_CanBeToggled()
+    {
+        var provider = new FakeGazeProvider();
+        var simulator = new FakeInputSimulator();
+        var settings = new EyeCtrlSettings();
+
+        var engine = new GazeEngine(provider, simulator, settings);
+
+        engine.SuppressFixation = true;
+        Assert.True(engine.SuppressFixation);
+
+        engine.SuppressFixation = false;
+        Assert.False(engine.SuppressFixation);
+    }
 }

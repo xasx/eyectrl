@@ -30,6 +30,29 @@ public class GazeEngineFilterRecreationTests
         Assert.True(true);
     }
 
+    [Fact]
+    public void RecreatesFilter_PreservesGapState()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        settings.Cursor.MaxGapInterpolationMs = 150;
+
+        var provider = new TestGazeProvider();
+        var simulator = new TestInputSimulator();
+        var engine = new GazeEngine(provider, simulator, settings);
+
+        PhysicalPoint? lastMoved = null;
+        engine.CursorMoved += (pos, _) => lastMoved = pos;
+
+        provider.SimulateGaze(500, 300);
+        Assert.Equal(500, lastMoved!.Value.X);
+
+        settings.Cursor.MaxGapInterpolationMs = 300;
+
+        provider.SimulateGazeInvalid(0, 0, 50_000);
+        Assert.Equal(500, lastMoved!.Value.X);
+    }
+
     private class TestGazeProvider : IGazeProvider
     {
         public event Action<GazePoint>? GazePointReceived;
@@ -39,6 +62,9 @@ public class GazeEngineFilterRecreationTests
         public void Dispose() { }
         public void SimulateGaze(double x, double y) =>
             GazePointReceived?.Invoke(new GazePoint(x, y, 0, true));
+
+        public void SimulateGazeInvalid(double x, double y, long ts) =>
+            GazePointReceived?.Invoke(new GazePoint(x, y, ts, false));
     }
 
     private class TestInputSimulator : IInputSimulator

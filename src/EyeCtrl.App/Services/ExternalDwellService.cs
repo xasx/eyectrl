@@ -172,7 +172,7 @@ public sealed class ExternalDwellService : IDisposable
             catch (OperationCanceledException) { pipe.Dispose(); break; }
             catch (Exception ex) { _logger.LogWarning(ex, "pipe accept failed"); pipe.Dispose(); continue; }
 
-            var conn = new PipeConnection(pipe);
+            var conn = new PipeConnection(pipe, ex => _logger.LogWarning(ex, "pipe write failed"));
             lock (_stateLock) _connections.Add(conn);
             _ = HandleConnectionAsync(conn, token);
         }
@@ -286,19 +286,21 @@ public sealed class ExternalDwellService : IDisposable
     {
         private readonly object _writeLock = new();
         private readonly StreamWriter _writer;
+        private readonly Action<Exception> _onError;
         public NamedPipeServerStream Pipe { get; }
         public HashSet<string> TargetIds { get; } = new();
         public long Hwnd { get; set; }
 
-        public PipeConnection(NamedPipeServerStream pipe)
+        public PipeConnection(NamedPipeServerStream pipe, Action<Exception> onError)
         {
             Pipe = pipe;
             _writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+            _onError = onError;
         }
 
         public void Send(string line)
         {
-            lock (_writeLock) { try { _writer.WriteLine(line); } catch { } }
+            lock (_writeLock) { try { _writer.WriteLine(line); } catch (Exception ex) { _onError(ex); } }
         }
 
         public void Dispose()

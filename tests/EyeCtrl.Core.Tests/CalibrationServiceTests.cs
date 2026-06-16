@@ -2,6 +2,7 @@ namespace EyeCtrl.Core.Tests.Calibration;
 
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
+using Microsoft.Extensions.Logging;
 
 public class CalibrationServiceTests
 {
@@ -138,5 +139,46 @@ public class CalibrationServiceTests
         Assert.NotNull(service2.CurrentTransform);
 
         File.Delete(path);
+    }
+
+    [Fact]
+    public void BeginTarget_ThrowsWhenAlreadyCollecting()
+    {
+        var service = new CalibrationService();
+        var screen = new PhysicalPoint(1920, 1080);
+        service.StartSession(3, screen);
+        service.BeginTarget(0);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => service.BeginTarget(1));
+        Assert.Equal("A target is already being collected. Call EndTarget() first.", ex.Message);
+    }
+
+    [Fact]
+    public void Load_DoesNotThrowOnInvalidJson()
+    {
+        var logger = new FakeLogger<CalibrationService>();
+        var service = new CalibrationService(logger);
+        var path = Path.GetTempFileName();
+        File.WriteAllText(path, "not valid json {{{");
+
+        service.Load(path, new PhysicalPoint(1920, 1080), "DISPLAY1");
+        Assert.Null(service.CurrentTransform);
+        Assert.True(logger.LoggedCount > 0);
+
+        File.Delete(path);
+    }
+
+    private sealed class FakeLogger<T> : ILogger<T>
+    {
+        public int LoggedCount { get; private set; }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            LoggedCount++;
+        }
     }
 }

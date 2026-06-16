@@ -2,16 +2,23 @@ namespace EyeCtrl.Core.Calibration;
 
 using System.Text.Json;
 using EyeCtrl.Core.Models;
+using Microsoft.Extensions.Logging;
 
 public class CalibrationService
 {
     private readonly object _transformLock = new();
     private volatile ICalibrationTransform? _currentTransform;
+    private readonly ILogger<CalibrationService>? _logger;
 
     private List<PhysicalPoint>? _targetPositions;
     private CalibrationPointCollector? _currentCollector;
     private readonly List<CalibrationPoint> _collectedPoints = new();
     private int _currentTargetIndex;
+
+    public CalibrationService(ILogger<CalibrationService>? logger = null)
+    {
+        _logger = logger;
+    }
 
     public ICalibrationTransform? CurrentTransform => _currentTransform;
     public bool IsSessionActive => _targetPositions != null;
@@ -42,6 +49,9 @@ public class CalibrationService
 
     public void BeginTarget(int index, int settleWindowMs = 0, int maxSamples = int.MaxValue)
     {
+        if (_currentCollector != null)
+            throw new InvalidOperationException("A target is already being collected. Call EndTarget() first.");
+
         _currentTargetIndex = index;
         var target = GetTargetPosition(index);
         _currentCollector = new CalibrationPointCollector(target, settleWindowMs, maxSamples);
@@ -129,8 +139,13 @@ public class CalibrationService
             lock (_transformLock) { _currentTransform = transform; }
             CurrentData = data;
         }
-        catch
+        catch (JsonException ex)
         {
+            _logger?.LogWarning(ex, "Failed to deserialize calibration data from {FilePath}", filePath);
+        }
+        catch (IOException ex)
+        {
+            _logger?.LogWarning(ex, "Failed to load calibration data from {FilePath}", filePath);
         }
     }
 

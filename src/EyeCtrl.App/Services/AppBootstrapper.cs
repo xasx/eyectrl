@@ -116,7 +116,7 @@ public class AppBootstrapper
         services.AddSingleton<ModelManagementService>();
 
         // Calibration
-        services.AddSingleton(sp => new CalibrationService());
+        services.AddSingleton(sp => new CalibrationService(sp.GetService<ILogger<CalibrationService>>()));
 
         // ControlFinder (AutoSelection mode)
         services.AddSingleton<IControlFinder, ControlFinder>();

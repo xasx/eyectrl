@@ -85,6 +85,7 @@ public class SmallLMPredictor : IDisposable
                 catch (Exception ex)
                 {
                     _logger?.LogWarning(ex, "DirectML not available, falling back to CPU");
+                    options.Dispose();
                     options = new SessionOptions();
                 }
             }

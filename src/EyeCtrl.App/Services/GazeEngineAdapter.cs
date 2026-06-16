@@ -53,22 +53,29 @@ public class GazeEngineAdapter : IDisposable
         // ViewModel -> Core (via message subscriptions)
         messenger.Register<ActivationCompletedMessage>(this, async (_, _) =>
         {
-            if (_interactionManager.SelectionMode == SelectionMode.AutoSelection)
+            try
             {
-                var fixationPoint = _interactionManager.FixationPoint;
-                if (fixationPoint != null)
+                if (_interactionManager.SelectionMode == SelectionMode.AutoSelection)
                 {
-                    _interactionManager.AutoSelectionTarget = await ResolveTargetAsync(fixationPoint.Value);
+                    var fixationPoint = _interactionManager.FixationPoint;
+                    if (fixationPoint != null)
+                    {
+                        _interactionManager.AutoSelectionTarget = await ResolveTargetAsync(fixationPoint.Value);
+                    }
                 }
+                if (_interactionManager.SelectionMode == SelectionMode.AutoSelection
+                    && _interactionManager.AutoSelectionTarget == null
+                    && !_settings.AutoSelection.FallbackToPixelOnNoControl)
+                {
+                    _interactionManager.OnFixationEnded();
+                    return;
+                }
+                _interactionManager.OnActivationButtonDwelled();
             }
-            if (_interactionManager.SelectionMode == SelectionMode.AutoSelection
-                && _interactionManager.AutoSelectionTarget == null
-                && !_settings.AutoSelection.FallbackToPixelOnNoControl)
+            catch (Exception ex)
             {
-                _interactionManager.OnFixationEnded();
-                return;
+                _logger.LogError(ex, "Failed to handle activation completed");
             }
-            _interactionManager.OnActivationButtonDwelled();
         });
         messenger.Register<ActionSelectedMessage>(this, (_, msg) =>
             _interactionManager.OnActionSelected(msg.Action));

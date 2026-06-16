@@ -51,6 +51,12 @@ public sealed class GapInterpolator
         return (_lastValidPosition, true);
     }
 
+    public void CopyStateFrom(GapInterpolator other)
+    {
+        _lastValidPosition = other._lastValidPosition;
+        _lastValidTimestamp = other._lastValidTimestamp;
+    }
+
     public void Reset()
     {
         _filter.Reset();

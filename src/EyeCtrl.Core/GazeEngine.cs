@@ -16,12 +16,18 @@ public class GazeEngine : IDisposable
     private readonly IInputSimulator _inputSimulator;
     private readonly EyeCtrlSettings _settings;
     private readonly CalibrationService? _calibrationService;
-    private GapInterpolator _gapInterpolator;
+    private volatile GapInterpolator _gapInterpolator;
     private readonly FixationDetector _fixationDetector;
     private readonly FixationCentroidTracker _centroidTracker;
 
     public InteractionManager InteractionManager { get; }
-    public bool SuppressFixation { get; set; }
+    private volatile bool _suppressFixation;
+
+    public bool SuppressFixation
+    {
+        get => _suppressFixation;
+        set => _suppressFixation = value;
+    }
     /// <summary>Stable centroid position in physical screen pixels.</summary>
     public PhysicalPoint? StableCentroid => _centroidTracker.StableCentroid;
     /// <summary>Fired when cursor moves with filtered position in physical screen pixels.</summary>
@@ -46,9 +52,13 @@ public class GazeEngine : IDisposable
         {
             if (e.PropertyName is nameof(CursorSettings.FilterMode)
                                or nameof(CursorSettings.MaxGapInterpolationMs))
-                _gapInterpolator = new GapInterpolator(
+            {
+                var newInterpolator = new GapInterpolator(
                     GazeFilterFactory.Create(_settings.Cursor),
                     _settings.Cursor.MaxGapInterpolationMs);
+                newInterpolator.CopyStateFrom(_gapInterpolator);
+                _gapInterpolator = newInterpolator;
+            }
         };
 
         _fixationDetector = new FixationDetector(

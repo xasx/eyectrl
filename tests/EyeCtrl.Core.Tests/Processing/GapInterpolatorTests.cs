@@ -83,4 +83,49 @@ public class GapInterpolatorTests
         var (_, isInGap) = gi.Process(Invalid(0, 0, 0));
         Assert.False(isInGap);
     }
+
+    [Fact]
+    public void CopyStateFrom_PreservesLastValidPosition()
+    {
+        var old = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
+        old.Process(Valid(333, 444, 1_000_000));
+
+        var replacement = new GapInterpolator(new PassThroughFilter(), maxGapMs: 300);
+        replacement.CopyStateFrom(old);
+
+        var (pos, isInGap) = replacement.Process(Invalid(0, 0, 1_050_000));
+        Assert.Equal(333, pos.X);
+        Assert.Equal(444, pos.Y);
+        Assert.True(isInGap);
+    }
+
+    [Fact]
+    public void CopyStateFrom_PreservesInGapBehavior()
+    {
+        var old = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
+        old.Process(Valid(100, 200, 0));
+
+        var replacement = new GapInterpolator(new PassThroughFilter(), maxGapMs: 300);
+        replacement.CopyStateFrom(old);
+
+        var (pos, isInGap) = replacement.Process(Invalid(0, 0, 50_000));
+        Assert.Equal(100, pos.X);
+        Assert.Equal(200, pos.Y);
+        Assert.True(isInGap);
+    }
+
+    [Fact]
+    public void CopyStateFrom_PreservesLongGapReset()
+    {
+        var old = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
+        old.Process(Valid(100, 200, 0));
+
+        var replacement = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
+        replacement.CopyStateFrom(old);
+
+        var (pos, isInGap) = replacement.Process(Invalid(0, 0, 200_000));
+        Assert.Equal(100, pos.X);
+        Assert.Equal(200, pos.Y);
+        Assert.False(isInGap);
+    }
 }

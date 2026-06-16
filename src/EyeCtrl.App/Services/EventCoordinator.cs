@@ -949,6 +949,9 @@ public class EventCoordinator : IEventCoordinator
         _orchestrator?.Dispose();
         _orchestrator = null;
 
+        _glassBackdrop?.Hide();
+        _glassBackdrop = null;
+
         _settingsWindow = null;
         _disposed = true;
     }

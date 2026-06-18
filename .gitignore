@@ -31,3 +31,6 @@ publish/
 
 ## GitNexus analysis data
 .gitnexus/
+
+## Qoder
+.qoder/

@@ -25,7 +25,7 @@ public class SettingsServiceDebounceTests : IDisposable
         Assert.False(File.Exists(_tempFile));
 
         // Wait for debounce (500ms + buffer)
-        await Task.Delay(800);
+        await Task.Delay(800, TestContext.Current.CancellationToken);
 
         Assert.True(File.Exists(_tempFile));
         var loaded = _service.Load();
@@ -40,16 +40,16 @@ public class SettingsServiceDebounceTests : IDisposable
         settings.Dwell.FixationDetectionMs = 100;
         _service.SaveDebounced(settings);
 
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
         settings.Dwell.FixationDetectionMs = 200;
         _service.SaveDebounced(settings);
 
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
         settings.Dwell.FixationDetectionMs = 300;
         _service.SaveDebounced(settings);
 
         // Wait for debounce
-        await Task.Delay(800);
+        await Task.Delay(800, TestContext.Current.CancellationToken);
 
         var loaded = _service.Load();
         Assert.Equal(300, loaded.Dwell.FixationDetectionMs);

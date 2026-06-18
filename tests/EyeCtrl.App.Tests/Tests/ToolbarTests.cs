@@ -37,7 +37,7 @@ public class ToolbarTests
         await _fixture.SimulateDwellOn(pauseBtn!);
 
         // Assert — cursor circle should now be hidden
-        await Task.Delay(200); // Let UI update propagate
+        await Task.Delay(200, TestContext.Current.CancellationToken); // Let UI update propagate
         cursorCircle = _fixture.FindWindow("CursorCircle_Window");
 
         // In paused state, the circle window is hidden (not visible)
@@ -53,7 +53,7 @@ public class ToolbarTests
 
         // Move cursor away so it doesn't interfere with other tests
         _fixture.MoveCursorAway();
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public class ToolbarTests
         Assert.NotNull(pauseBtn);
 
         await _fixture.SimulateDwellOn(pauseBtn!);
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
 
         // Act — unpause
         toolbar = _fixture.FindWindow("Toolbar_Window");
@@ -85,6 +85,6 @@ public class ToolbarTests
             "Cursor circle should be visible after unpause");
 
         _fixture.MoveCursorAway();
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
     }
 }

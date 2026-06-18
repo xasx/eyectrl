@@ -42,7 +42,7 @@ public class KeyboardTests
             await _fixture.SimulateDwellOn(kbBtn);
 
         _fixture.MoveCursorAway();
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class KeyboardTests
             var settingsBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Settings");
             Assert.NotNull(settingsBtn);
             await _fixture.SimulateDwellOn(settingsBtn!);
-            await Task.Delay(500);
+            await Task.Delay(500, TestContext.Current.CancellationToken);
             settings = _fixture.FindWindow("Settings_Window");
         }
         Assert.NotNull(settings);
@@ -64,7 +64,7 @@ public class KeyboardTests
         var keyboardTab = _fixture.FindElement(settings!, "Settings_Tab_Keyboard");
         Assert.NotNull(keyboardTab);
         await _fixture.SimulateDwellOn(keyboardTab!);
-        await Task.Delay(500); // wait for tab content to rebuild
+        await Task.Delay(500, TestContext.Current.CancellationToken); // wait for tab content to rebuild
 
         // Find the Click Sound toggle — AutomationId set by AddToggle
         settings = _fixture.FindWindow("Settings_Window");
@@ -75,7 +75,7 @@ public class KeyboardTests
 
         // Act — dwell to disable
         await _fixture.SimulateDwellOn(toggle);
-        await Task.Delay(300);
+        await Task.Delay(300, TestContext.Current.CancellationToken);
 
         // Assert — toggle now shows disabled
         settings = _fixture.FindWindow("Settings_Window");
@@ -84,7 +84,7 @@ public class KeyboardTests
 
         // Cleanup — restore to enabled
         await _fixture.SimulateDwellOn(toggle);
-        await Task.Delay(300);
+        await Task.Delay(300, TestContext.Current.CancellationToken);
         _fixture.MoveCursorAway();
     }
 
@@ -114,6 +114,6 @@ public class KeyboardTests
             await _fixture.SimulateDwellOn(kbBtn);
 
         _fixture.MoveCursorAway();
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
     }
 }

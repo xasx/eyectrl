@@ -11,7 +11,7 @@ using EyeCtrl.Core.Models;
 public class DwellDetectorThreadSafetyTests
 {
     [Fact]
-    public void ConcurrentAddRemove_ShouldNotThrow()
+    public async Task ConcurrentAddRemove_ShouldNotThrow()
     {
         var detector = new DwellDetector();
         var exceptions = new List<Exception>();
@@ -40,17 +40,17 @@ public class DwellDetectorThreadSafetyTests
                         exceptions.Add(ex);
                     }
                 }
-            }));
+            }, TestContext.Current.CancellationToken));
         }
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
 
         // Should not have any collection modified exceptions
         Assert.Empty(exceptions);
     }
 
     [Fact]
-    public void ConcurrentUpdateWhileModifyingCollection_ShouldNotThrow()
+    public async Task ConcurrentUpdateWhileModifyingCollection_ShouldNotThrow()
     {
         var detector = new DwellDetector();
         var exceptions = new List<Exception>();
@@ -80,7 +80,7 @@ public class DwellDetectorThreadSafetyTests
                     exceptions.Add(ex);
                 }
             }
-        }));
+        }, TestContext.Current.CancellationToken));
 
         // Thread 2: Continuously add/remove targets while Update is enumerating
         tasks.Add(Task.Run(() =>
@@ -102,9 +102,9 @@ public class DwellDetectorThreadSafetyTests
                     exceptions.Add(ex);
                 }
             }
-        }));
+        }, TestContext.Current.CancellationToken));
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
 
         // Should not have any collection modified exceptions
         Assert.Empty(exceptions);
@@ -170,7 +170,7 @@ public class DwellDetectorThreadSafetyTests
     }
 
     [Fact]
-    public void ConcurrentClearTargets_ShouldNotThrow()
+    public async Task ConcurrentClearTargets_ShouldNotThrow()
     {
         var detector = new DwellDetector();
         var exceptions = new List<Exception>();
@@ -194,7 +194,7 @@ public class DwellDetectorThreadSafetyTests
                     exceptions.Add(ex);
                 }
             }
-        }));
+        }, TestContext.Current.CancellationToken));
 
         // Thread 2: Clear targets
         tasks.Add(Task.Run(() =>
@@ -214,7 +214,7 @@ public class DwellDetectorThreadSafetyTests
                     exceptions.Add(ex);
                 }
             }
-        }));
+        }, TestContext.Current.CancellationToken));
 
         // Thread 3: Update with gaze points
         tasks.Add(Task.Run(() =>
@@ -234,16 +234,16 @@ public class DwellDetectorThreadSafetyTests
                     exceptions.Add(ex);
                 }
             }
-        }));
+        }, TestContext.Current.CancellationToken));
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
 
         // Should not have any exceptions
         Assert.Empty(exceptions);
     }
 
     [Fact]
-    public void ConcurrentUpdateTargetCenter_ShouldNotThrow()
+    public async Task ConcurrentUpdateTargetCenter_ShouldNotThrow()
     {
         var detector = new DwellDetector();
         var exceptions = new List<Exception>();
@@ -280,7 +280,7 @@ public class DwellDetectorThreadSafetyTests
                         exceptions.Add(ex);
                     }
                 }
-            }));
+            }, TestContext.Current.CancellationToken));
         }
 
         // Thread updating with gaze points
@@ -301,16 +301,16 @@ public class DwellDetectorThreadSafetyTests
                     exceptions.Add(ex);
                 }
             }
-        }));
+        }, TestContext.Current.CancellationToken));
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
 
         // Should not have any exceptions
         Assert.Empty(exceptions);
     }
 
     [Fact]
-    public void HighFrequencyUpdates_WithConcurrentModifications_ShouldNotThrow()
+    public async Task HighFrequencyUpdates_WithConcurrentModifications_ShouldNotThrow()
     {
         // Simulates real-world scenario: 30 Hz gaze updates while UI modifies targets
         var detector = new DwellDetector();
@@ -338,7 +338,7 @@ public class DwellDetectorThreadSafetyTests
                     exceptions.Add(ex);
                 }
             }
-        }));
+        }, TestContext.Current.CancellationToken));
 
         // Thread 2: Simulate UI adding/removing targets (slower frequency)
         tasks.Add(Task.Run(() =>
@@ -362,9 +362,9 @@ public class DwellDetectorThreadSafetyTests
                     exceptions.Add(ex);
                 }
             }
-        }));
+        }, TestContext.Current.CancellationToken));
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
 
         // Should complete without exceptions
         Assert.Empty(exceptions);

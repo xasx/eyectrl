@@ -27,7 +27,7 @@ public class ModelManagementServiceTests
                     ? NotFound()
                     : Ok(new byte[2048])));
 
-            var result = await mgmt.DownloadCustomModelAsync(CustomModelUrl);
+            var result = await mgmt.DownloadCustomModelAsync(CustomModelUrl, TestContext.Current.CancellationToken);
 
             Assert.False(result.IsSuccess);
             // The orphaned .onnx must be rolled back, mirroring the bundled path.
@@ -52,7 +52,7 @@ public class ModelManagementServiceTests
                     ? Ok(new byte[64])
                     : Ok(new byte[2048])));
 
-            var result = await mgmt.DownloadCustomModelAsync(CustomModelUrl);
+            var result = await mgmt.DownloadCustomModelAsync(CustomModelUrl, TestContext.Current.CancellationToken);
 
             Assert.True(result.IsSuccess);
             Assert.Equal("repo", result.ModelId);
@@ -95,7 +95,8 @@ public class ModelManagementServiceTests
 
             var result = await mgmt.DownloadBundledModelAsync(
                 "135M", "https://example.com/onnx/model.onnx", "",
-                "https://example.com/onnx/tokenizer.json", "");
+                "https://example.com/onnx/tokenizer.json", "",
+                TestContext.Current.CancellationToken);
 
             Assert.False(result.IsSuccess);
             Assert.False(File.Exists(Path.Combine(tempDir, "smollm2-135m.onnx")));
@@ -127,12 +128,13 @@ public class ModelManagementServiceTests
                 return Ok(new byte[2048]);
             });
 
-            var first = mgmt.DownloadCustomModelAsync(CustomModelUrl);
+            var first = mgmt.DownloadCustomModelAsync(CustomModelUrl, TestContext.Current.CancellationToken);
             await modelStarted.Task;
 
             Assert.True(mgmt.IsDownloading);
             var second = await mgmt.DownloadCustomModelAsync(
-                "https://huggingface.co/org/other/resolve/main/onnx/model.onnx");
+                "https://huggingface.co/org/other/resolve/main/onnx/model.onnx",
+                TestContext.Current.CancellationToken);
             Assert.True(second.IsBusy);
 
             allowFinish.TrySetResult();

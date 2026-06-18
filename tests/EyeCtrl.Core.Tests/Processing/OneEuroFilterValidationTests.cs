@@ -91,7 +91,6 @@ public class OneEuroFilterValidationTests
         // Second point with same timestamp - should use fallback dt and not crash
         var result2 = filter.Filter(new GazePoint(101, 101, 0, true));
 
-        Assert.NotNull(result2);
         Assert.True(double.IsFinite(result2.X));
         Assert.True(double.IsFinite(result2.Y));
     }
@@ -108,7 +107,6 @@ public class OneEuroFilterValidationTests
         // Second point at t=500 (backwards in time) - should use fallback dt
         var result2 = filter.Filter(new GazePoint(101, 101, 500, true));
 
-        Assert.NotNull(result2);
         Assert.True(double.IsFinite(result2.X));
         Assert.True(double.IsFinite(result2.Y));
     }
@@ -125,7 +123,6 @@ public class OneEuroFilterValidationTests
         // Second point with 1 microsecond difference
         var result2 = filter.Filter(new GazePoint(101, 101, 1, true));
 
-        Assert.NotNull(result2);
         Assert.True(double.IsFinite(result2.X));
         Assert.True(double.IsFinite(result2.Y));
     }

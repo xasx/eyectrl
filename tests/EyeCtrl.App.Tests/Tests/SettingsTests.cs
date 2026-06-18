@@ -27,7 +27,7 @@ public class SettingsTests
 
         // Act — dwell on settings button
         await _fixture.SimulateDwellOn(settingsBtn!);
-        await Task.Delay(500); // Wait for window to appear
+        await Task.Delay(500, TestContext.Current.CancellationToken); // Wait for window to appear
 
         // Assert — settings window should appear
         var settings = _fixture.FindWindow("Settings_Window");
@@ -46,7 +46,7 @@ public class SettingsTests
             var toolbar = _fixture.FindWindow("Toolbar_Window");
             var settingsBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Settings");
             await _fixture.SimulateDwellOn(settingsBtn!);
-            await Task.Delay(500);
+            await Task.Delay(500, TestContext.Current.CancellationToken);
             settings = _fixture.FindWindow("Settings_Window");
         }
         Assert.NotNull(settings);
@@ -81,7 +81,7 @@ public class SettingsTests
             var toolbar = _fixture.FindWindow("Toolbar_Window");
             var settingsBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Settings");
             await _fixture.SimulateDwellOn(settingsBtn!);
-            await Task.Delay(500);
+            await Task.Delay(500, TestContext.Current.CancellationToken);
             settings = _fixture.FindWindow("Settings_Window");
         }
         Assert.NotNull(settings);

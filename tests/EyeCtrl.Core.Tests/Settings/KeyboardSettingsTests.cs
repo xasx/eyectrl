@@ -26,7 +26,7 @@ public class KeyboardSettingsTests
         var settings = new KeyboardSettings { MLModelSize = value };
         Assert.Equal(value, settings.MLModelSize);
         // Validation no longer restricts MLModelSize — custom model IDs must be accepted.
-        Assert.Empty(settings.Validate().Where(e => e.Contains("MLModelSize")));
+        Assert.DoesNotContain(settings.Validate(), e => e.Contains("MLModelSize"));
     }
 
     [Fact]

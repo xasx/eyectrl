@@ -34,7 +34,7 @@ public class AppFixture : IAsyncLifetime
     public int DefaultDwellMs => 800;
     public int DwellMarginMs => 300;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         _automation = new UIA3Automation();
 
@@ -70,7 +70,7 @@ public class AppFixture : IAsyncLifetime
         await Task.Delay(1000);
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         try
         {
@@ -82,7 +82,7 @@ public class AppFixture : IAsyncLifetime
         }
 
         _automation?.Dispose();
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>

@@ -1,6 +1,6 @@
 # EyeCtrl Architecture
 
-> Auto-generated from the GitNexus knowledge graph: **eyectrl** (5525 symbols, 12290 relationships, 300 execution flows).
+> Auto-generated from the GitNexus knowledge graph: **eyectrl** (5746 symbols, 12865 relationships, 300 execution flows, 293 functional areas). Index dated 2026-06-18 (commit `5df4a426`).
 
 EyeCtrl is a gaze control platform for Windows that turns an eye tracker (Tobii Stream Engine, or a mouse fallback) into a cursor, dwell-click, on-screen keyboard, and word-prediction input system. The codebase is split into eight .NET projects with a strict dependency direction (`App → ViewModels → Core`, `App → Platform → Core`), plus a standalone SDK layer (`Contracts → Abstractions → Sdk.Wpf / Sdk.WinUI`) that enables third-party apps to add gaze-dwell via named-pipe IPC.
 
@@ -63,6 +63,19 @@ EyeCtrl is a gaze control platform for Windows that turns an eye tracker (Tobii 
 
 **Dependency direction**: `App` references everything. `ViewModels` and `Platform` depend on `Core`. `Core` has zero internal dependencies. The SDK layer (`Contracts → Abstractions → Sdk.Wpf/WinUI`) is fully independent of Core and App — it communicates with EyeCtrl exclusively via named-pipe IPC using the `Contracts` wire format.
 
+**Cross-project import weights** (from IMPORTS edges in the knowledge graph):
+
+| Dependency | Import count |
+|------------|-------------:|
+| `Platform → Core` | 120 |
+| `App → Core` | 53 |
+| `App → ViewModels` | 20 |
+| `App → Platform` | 14 |
+| `ViewModels → Core` | 7 |
+| `ViewModels ↔ Platform` | 0 (independent) |
+
+`Platform` leans heavily on `Core` (120 imports — it wraps Core interfaces for the OS/SDK boundary). `ViewModels` depends only on `Core`, never on `Platform`. `App` is the sole composition root touching all three lower layers.
+
 ---
 
 ## 2. The Eight Projects
@@ -102,11 +115,32 @@ Communities are auto-detected functional clusters. Numbers are total symbols acr
 | **SDK** | 45 | 0.90 | Named-pipe IPC layer: `Contracts` (wire messages), `Sdk.Abstractions` (`DwellClient`, `IDwellElementAdapter`), `Sdk.Wpf` (`Dwell` attached properties), `Sdk.WinUI` (`Dwell` attached properties + `AdapterGroupTracker`). |
 | **Tests** | 244 | — | xUnit 2.9; private nested fakes (no mocking library). Per-test class instantiation, no `IClassFixture`. |
 
+### Hub Symbols (most-referenced in the graph)
+
+The load-bearing types — these appear in the most execution flows:
+
+| Symbol | File | Incoming calls |
+|--------|------|---------------:|
+| `PhysicalPoint` | `Core/Models/PhysicalPoint.cs` | 220 |
+| `EyeCtrlSettings` | `Core/Settings/EyeCtrlSettings.cs` | 117 |
+| `GazeCursorMovedMessage` | `ViewModels/Messages/GazeMessages.cs` | 41 |
+| `WordPredictor.GetSuggestions` | `Core/Prediction/WordPredictor.cs` | 39 |
+| `DpiHelper.LogicalToPhysicalX` | `Core/Services/DpiHelper.cs` | 37 |
+| `DwellTarget` | `Core/Processing/DwellTarget.cs` | 33 |
+| `DwellSettings` | `Core/Settings/DwellSettings.cs` | 31 |
+| `DwellDetector.AddTarget` | `Core/Processing/DwellDetector.cs` | 27 |
+| `StartManualSelectionMessage` | `ViewModels/Messages/InteractionMessages.cs` | 24 |
+| `PhraseModel` | `Core/Prediction/PhraseModel.cs` | 24 |
+| `InteractionManager.OnFixationStarted` | `Core/Processing/InteractionManager.cs` | 23 |
+| `InteractionManager.OnActivationButtonDwelled` | `Core/Processing/InteractionManager.cs` | 22 |
+
+`PhysicalPoint` (220 callers) and `EyeCtrlSettings` (117 callers) are the two universal dependencies — the coordinate type and the configuration aggregate.
+
 ---
 
 ## 4. Key Execution Flows
 
-GitNexus traced 300 call-chain processes. The five most important entry-to-terminal flows are summarised below.
+GitNexus traced 300 call-chain processes. The most important entry-to-terminal flows are summarised below. Each narrative description is accompanied by a graph-verified step trace (from `STEP_IN_PROCESS` edges).
 
 ### 4.1 Application startup — `App.OnStartup`
 `src/EyeCtrl.App/App.xaml.cs:50`
@@ -125,6 +159,19 @@ GitNexus traced 300 call-chain processes. The five most important entry-to-termi
 12. Start `TrayIconManager`, close splash, show `CursorCircle` + `Toolbar`.
 13. If `settings.General.StartPaused` → `InteractionManager.TogglePause()`.
 14. `gazeEngine.Start()` → `IGazeProvider.Start()` begins emitting samples.
+
+**Graph-verified trace** (`OnStartup → ConnectApi`, 6 steps):
+
+| Step | Symbol | File |
+|------|--------|------|
+| 1 | `App.OnStartup` | `src/EyeCtrl.App/App.xaml.cs` |
+| 2 | `AppBootstrapper.BuildServiceProvider` | `src/EyeCtrl.App/Services/AppBootstrapper.cs` |
+| 3 | `GazeProviderFactory.Create` | `src/EyeCtrl.Platform/Gaze/GazeProviderFactory.cs` |
+| 4 | `GazeProviderFactory.CreateAuto` | `src/EyeCtrl.Platform/Gaze/GazeProviderFactory.cs` |
+| 5 | `TobiiStreamEngineProvider` (ctor) | `src/EyeCtrl.Platform/Gaze/TobiiStreamEngineProvider.cs` |
+| 6 | `TobiiStreamEngineProvider.ConnectApi` | `src/EyeCtrl.Platform/Gaze/TobiiStreamEngineProvider.cs` |
+
+A sibling flow `OnStartup → ConnectDevice` (6 steps) follows the same path but terminates at `ConnectDevice`. The mouse fallback is `OnStartup → MouseGazeProvider` (5 steps) — used when no Tobii SDK is present or `--test-mode` is passed.
 
 ### 4.2 Gaze pipeline — `GazeEngine.OnGazePoint`
 `src/EyeCtrl.Core/GazeEngine.cs:82`
@@ -159,6 +206,17 @@ IGazeProvider ──GazePointReceived──▶ GazeEngine.OnGazePoint
 * Coordinates are always in **physical** screen pixels. Calibration applies a pre-computed 2-D transform (`PhysicalPoint` → `PhysicalPoint`).
 * `GapInterpolator` wraps `GazeFilterFactory.Create(settings.Cursor)` (One-Euro or other) and fills short tracker gaps up to `MaxGapInterpolationMs`.
 * `SuppressFixation` and the `InteractionState.Paused` short-circuit guard the cursor / dwell path so the toolbar can still receive gaze while paused (allows unpause via dwell).
+
+**Graph-verified trace** (`OnGazePoint → PhysicalPoint`, 4 steps):
+
+| Step | Symbol | File |
+|------|--------|------|
+| 1 | `GazeEngine.OnGazePoint` | `src/EyeCtrl.Core/GazeEngine.cs` |
+| 2 | `GapInterpolator.Process` | `src/EyeCtrl.Core/Processing/GapInterpolator.cs` |
+| 3 | `SmoothedFilter.Filter` | `src/EyeCtrl.Core/Processing/SmoothedFilter.cs` |
+| 4 | `PhysicalPoint` (ctor) | `src/EyeCtrl.Core/Models/PhysicalPoint.cs` |
+
+Related flows terminate at `OneEuroFilter.Alpha` and `LowPassFilter`, showing the adaptive-smoothing branch.
 
 ### 4.3 Dwell activation — `DwellDetector.Update`
 `src/EyeCtrl.Core/Processing/DwellDetector.cs`
@@ -201,6 +259,24 @@ ActionMenuViewModel action dwell
               └── IInputSimulator.LeftClick / RightClick / DoubleClick / Drag / Scroll
                     └── Win32InputSimulator → SendInput P/Invoke
 ```
+
+**Graph-verified trace** (`OnShowActionMenu → PhysicalPoint`, 3 steps) — triggered when the user dwells on the activation button to anchor the radial action menu:
+
+| Step | Symbol | File |
+|------|--------|------|
+| 1 | `GazeEngineAdapter.OnShowActionMenu` | `src/EyeCtrl.App/Services/GazeEngineAdapter.cs` |
+| 2 | `ActionMenuLayoutHelper.CalculateDisplayPoint` | `src/EyeCtrl.ViewModels/Helpers/ActionMenuLayoutHelper.cs` |
+| 3 | `PhysicalPoint` (ctor) | `src/EyeCtrl.Core/Models/PhysicalPoint.cs` |
+
+**Graph-verified trace** (`ResolveTargetAsync → ControlInfo`, 5 steps) — when a dwell/fixation occurs, this resolves which on-screen control the user is looking at:
+
+| Step | Symbol | File |
+|------|--------|------|
+| 1 | `GazeEngineAdapter.ResolveTargetAsync` | `src/EyeCtrl.App/Services/GazeEngineAdapter.cs` |
+| 2 | `ControlFinder.FindTarget` | `src/EyeCtrl.Platform/Services/ControlFinder.cs` |
+| 3 | `ControlFinder.FindNearestInteractiveControl` | `src/EyeCtrl.Platform/Services/ControlFinder.cs` |
+| 4 | `ControlFinder.ResolveInteractiveElement` | `src/EyeCtrl.Platform/Services/ControlFinder.cs` |
+| 5 | `ControlInfo` (ctor) | `src/EyeCtrl.Core/Models/ControlInfo.cs` |
 
 ### 4.6 Keyboard Prediction
 `src/EyeCtrl.ViewModels/KeyboardViewModel.cs`
@@ -250,6 +326,22 @@ InteractionManager.OnActivationButtonDwelled() [ManualSelection enabled]
   * `SettingsWindowViewModel.GetActions` / `GetDetector` — bind view-model getters to the row.
 * Live edits call into `SettingsService.Save` on exit (`App.OnExit`) and selectively persist via `EyeCtrlSettings.PropertyChanged` subscribers.
 * Model registry/download/management services (small-LM) are exposed via `_eventCoordinator.SetModelServices(...)` so the settings UI can list / fetch / delete ONNX models.
+
+**Graph-verified trace** (`Initialize → SettingItemViewModel`, 7 steps) — the longest cross-community flow; wires messaging, opens settings, constructs tab VMs:
+
+| Step | Symbol | File |
+|------|--------|------|
+| 1 | `EventCoordinator.Initialize` | `src/EyeCtrl.App/Services/EventCoordinator.cs` |
+| 2 | `EventCoordinator.SetupMessageHandlers` | `src/EyeCtrl.App/Services/EventCoordinator.cs` |
+| 3 | `EventCoordinator.ShowSettingsWindow` | `src/EyeCtrl.App/Services/EventCoordinator.cs` |
+| 4 | `SettingsViewModel` (ctor) | `src/EyeCtrl.ViewModels/SettingsViewModel.cs` |
+| 5 | `SettingsViewModel.BuildTabs` | `src/EyeCtrl.ViewModels/SettingsViewModel.cs` |
+| 6 | `ComboSettingViewModel` (ctor) | `src/EyeCtrl.ViewModels/SettingItemViewModel.cs` |
+| 7 | `SettingItemViewModel` (ctor) | `src/EyeCtrl.ViewModels/SettingItemViewModel.cs` |
+
+Sibling `Initialize →` flows terminate at `DwellDetector` (ctor), `DpiHelper.LogicalToPhysicalX`, `SettingsViewModel.Dispose`, and `SettingsWindowViewModel.GetProgressDict` — showing `Initialize` is a fan-out hub wiring many subsystems.
+
+The `BuildXxxPages` family (Cursor, Keyboard, Toolbar, Theme, Calibration, General, Dwell, Layout, ActionMenu) shares a common 6-step shape verified by the graph: `SettingsWindow.BuildXxxPages` → `SettingsWindowViewModel.GetDetector` / `GetActions` → `DwellDetector.AddTarget` / `DwellTarget` ctor / `DwellControl.CreateRoot`.
 
 ### 4.9 Calibration flow — `CalibrationViewModel.CompleteSession`
 `src/EyeCtrl.ViewModels/CalibrationViewModel.cs`
@@ -623,3 +715,19 @@ eyectrl/
 └── benchmarks/
     └── EyeCtrl.Benchmarks/     # BenchmarkDotNet benchmarks
 ```
+
+---
+
+## 11. Index Provenance
+
+| Field | Value |
+|-------|-------|
+| Repository | `eyectrl` (`C:\Users\andre\source\repos\eyectrl`) |
+| Remote | https://github.com/xasx/eyectrl |
+| Indexed at | 2026-06-18T20:34:39Z |
+| Last indexed commit | `5df4a426` |
+| Symbols / relationships / flows | 5746 / 12865 / 300 |
+| Functional areas (communities) | 293 |
+| Embeddings | disabled (BM25 + structural only) |
+
+To refresh this document after code changes, re-index (`node .gitnexus/run.cjs analyze`) and regenerate. Check staleness with `gitnexus status`. The graph-verified step traces in §4 are derived from `STEP_IN_PROCESS` edges; the hub symbol table in §3 from `CALLS` edge aggregation; the cross-project import weights in §1 from `IMPORTS` edges.

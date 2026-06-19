@@ -1,0 +1,160 @@
+namespace EyeCtrl.Core.Tests.Calibration;
+
+using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Models;
+
+public class CalibrationValidatorTests
+{
+    // The exact degenerate parameters that were persisted to calibration.json on 2026-06-16
+    // and silently poisoned the gaze pipeline (mapping screen centre millions of pixels off-screen).
+    private static readonly double[] DegenerateParams =
+    {
+        164.17311285043388, -10147.434961907775, 11285.824336762067,
+        -59.27218454102549, 3683.7487218623305, -2847.0947780201545
+    };
+
+    private static AffineTransform FromParams(double[] p)
+    {
+        var t = new AffineTransform();
+        t.SetParameters(p);
+        return t;
+    }
+
+    [Fact]
+    public void IsTransformSane_ReturnsTrue_ForIdentity()
+    {
+        var identity = new AffineTransform(); // defaults to identity
+
+        Assert.True(CalibrationValidator.IsTransformSane(identity, 3840, 2400));
+    }
+
+    [Fact]
+    public void IsTransformSane_ReturnsTrue_ForReasonableCorrection()
+    {
+        // Modest translation + scale — a realistic calibration correction.
+        var t = FromParams(new[] { 1.05, 0.02, 40.0, -0.01, 0.98, -25.0 });
+
+        Assert.True(CalibrationValidator.IsTransformSane(t, 3840, 2400));
+    }
+
+    [Fact]
+    public void IsTransformSane_ReturnsFalse_ForDegenerateRealWorldTransform()
+    {
+        var t = FromParams(DegenerateParams);
+
+        Assert.False(CalibrationValidator.IsTransformSane(t, 3840, 2400));
+    }
+
+    [Fact]
+    public void IsTransformSane_ReturnsFalse_ForNonFiniteParams()
+    {
+        var t = FromParams(new[] { double.NaN, 0, 0, 0, 1, 0 });
+
+        Assert.False(CalibrationValidator.IsTransformSane(t, 3840, 2400));
+    }
+
+    [Fact]
+    public void IsTransformSane_ReturnsFalse_ForNonPositiveScreen()
+    {
+        var identity = new AffineTransform();
+
+        Assert.False(CalibrationValidator.IsTransformSane(identity, 0, 2400));
+    }
+
+    [Fact]
+    public void MaxResidualPixels_NearZero_WhenTransformReproducesTargets()
+    {
+        var identity = new AffineTransform();
+        var points = new CalibrationPoint[]
+        {
+            new(new PhysicalPoint(100, 100), new PhysicalPoint(100, 100), 0, 0, 30),
+            new(new PhysicalPoint(900, 100), new PhysicalPoint(900, 100), 0, 0, 30),
+            new(new PhysicalPoint(100, 900), new PhysicalPoint(100, 900), 0, 0, 30),
+        };
+
+        Assert.True(CalibrationValidator.MaxResidualPixels(identity, points) < 1.0);
+    }
+
+    [Fact]
+    public void MaxResidualPixels_Large_WhenTransformDoesNotFitPoints()
+    {
+        var identity = new AffineTransform();
+        // Identity maps gaze→gaze, but the target sits 1000-ish px away from the gaze.
+        var points = new CalibrationPoint[]
+        {
+            new(new PhysicalPoint(1000, 1000), new PhysicalPoint(0, 0), 0, 0, 30),
+        };
+
+        Assert.True(CalibrationValidator.MaxResidualPixels(identity, points) > 1000.0);
+    }
+
+    [Fact]
+    public void IsPlausibleSample_True_ForOnScreenPoint()
+    {
+        Assert.True(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(1920, 1200), 3840, 2400));
+    }
+
+    [Fact]
+    public void IsPlausibleSample_False_ForNonFinite()
+    {
+        Assert.False(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(double.NaN, 0), 3840, 2400));
+        Assert.False(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(0, double.PositiveInfinity), 3840, 2400));
+    }
+
+    [Fact]
+    public void IsPlausibleSample_False_ForFarOffScreen()
+    {
+        Assert.False(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(1_000_000, 1200), 3840, 2400));
+        Assert.False(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(1920, -50_000), 3840, 2400));
+    }
+
+    [Fact]
+    public void IsPlausibleSample_True_WhenScreenUnknown_AndFinite()
+    {
+        // No screen bounds to judge against → accept any finite coordinate.
+        Assert.True(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(99999, 99999), 0, 0));
+    }
+
+    [Fact]
+    public void HasSufficientGazeVariation_True_WhenGazeTracksTargets()
+    {
+        var points = new CalibrationPoint[]
+        {
+            new(new PhysicalPoint(768, 480), new PhysicalPoint(780, 470), 0, 0, 30),
+            new(new PhysicalPoint(3072, 480), new PhysicalPoint(3060, 500), 0, 0, 30),
+            new(new PhysicalPoint(768, 1920), new PhysicalPoint(800, 1900), 0, 0, 30),
+            new(new PhysicalPoint(3072, 1920), new PhysicalPoint(3050, 1930), 0, 0, 30),
+        };
+
+        Assert.True(CalibrationValidator.HasSufficientGazeVariation(points));
+    }
+
+    [Fact]
+    public void HasSufficientGazeVariation_False_WhenGazeCollapsedOnOneAxis()
+    {
+        // The 2026-06-16 signature: gaze X spread across the screen but Y stuck near the top.
+        var points = new CalibrationPoint[]
+        {
+            new(new PhysicalPoint(768, 480), new PhysicalPoint(1, 1), 0, 0, 30),
+            new(new PhysicalPoint(3072, 480), new PhysicalPoint(2485, 41), 0, 0, 30),
+            new(new PhysicalPoint(3072, 1920), new PhysicalPoint(3718, 61), 0, 0, 30),
+            new(new PhysicalPoint(768, 1920), new PhysicalPoint(3707, 61), 0, 0, 30),
+        };
+
+        Assert.False(CalibrationValidator.HasSufficientGazeVariation(points));
+    }
+
+    [Fact]
+    public void HasSufficientGazeVariation_False_WhenGazeConstant()
+    {
+        // Sensor stuck on a single value regardless of target — no variation on either axis.
+        var points = new CalibrationPoint[]
+        {
+            new(new PhysicalPoint(768, 480), new PhysicalPoint(1, 1), 0, 0, 30),
+            new(new PhysicalPoint(1920, 1200), new PhysicalPoint(1, 1), 0, 0, 30),
+            new(new PhysicalPoint(3072, 1920), new PhysicalPoint(1, 1), 0, 0, 30),
+        };
+
+        Assert.False(CalibrationValidator.HasSufficientGazeVariation(points));
+    }
+}

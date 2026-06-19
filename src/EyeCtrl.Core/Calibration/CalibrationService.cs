@@ -14,6 +14,7 @@ public class CalibrationService
     private CalibrationPointCollector? _currentCollector;
     private readonly List<CalibrationPoint> _collectedPoints = new();
     private int _currentTargetIndex;
+    private PhysicalPoint _screenSize;
 
     public CalibrationService(ILogger<CalibrationService>? logger = null)
     {
@@ -37,6 +38,7 @@ public class CalibrationService
         _targetPositions = CalibrationTargetPositionHelper.GetPositions(pointCount, screenSize).ToList();
         _collectedPoints.Clear();
         _currentTargetIndex = 0;
+        _screenSize = screenSize;
         return _targetPositions.Count;
     }
 
@@ -59,6 +61,10 @@ public class CalibrationService
 
     public void AddRawSample(PhysicalPoint gaze)
     {
+        // Drop implausible samples (non-finite / far off-screen) so a misbehaving sensor cannot
+        // pollute a target's mean during capture.
+        if (!CalibrationValidator.IsPlausibleSample(gaze, _screenSize.X, _screenSize.Y))
+            return;
         _currentCollector?.AddRawSample(gaze);
     }
 
@@ -80,6 +86,13 @@ public class CalibrationService
             throw new InvalidOperationException("No session in progress.");
 
         var points = _collectedPoints.ToArray();
+
+        // Reject capture data where the sensor was not tracking the user's gaze — the gaze barely
+        // moved across targets that span the screen. Caught before fitting for a clear message.
+        if (!CalibrationValidator.HasSufficientGazeVariation(points))
+            throw new InvalidOperationException(
+                "Gaze barely changed across calibration targets — the eye tracker may not be tracking. Please recalibrate.");
+
         var transform = AffineTransform.Fit(points);
 
         var data = new CalibrationData
@@ -92,6 +105,21 @@ public class CalibrationService
             ScreenHeight = (int)screenSize.Y,
             MonitorDeviceName = monitorDeviceName,
         };
+
+        // Reject degenerate fits before they are applied or persisted. A calibration fit to
+        // near-constant or contradictory gaze samples can yield a finite (so AffineTransform.Fit's
+        // non-finite/singular guards don't catch it) but unusable transform that maps every gaze
+        // point far off-screen — silently breaking all gaze interaction. The caller surfaces this
+        // as a failed calibration and never persists it.
+        if (!CalibrationValidator.IsTransformSane(transform, screenSize.X, screenSize.Y))
+            throw new InvalidOperationException(
+                "Calibration produced an unusable transform — gaze would map off-screen. Please recalibrate.");
+
+        double diagonal = Math.Sqrt(screenSize.X * screenSize.X + screenSize.Y * screenSize.Y);
+        double maxResidual = CalibrationValidator.MaxResidualPixels(transform, points);
+        if (maxResidual > diagonal * CalibrationValidator.MaxResidualScreenFraction)
+            throw new InvalidOperationException(
+                $"Calibration accuracy is too poor ({maxResidual:F0}px off target). Please recalibrate.");
 
         lock (_transformLock) { _currentTransform = transform; }
         CurrentData = data;
@@ -144,6 +172,18 @@ public class CalibrationService
 
             var transform = new AffineTransform();
             transform.SetParameters(data.TransformParams);
+
+            // Defense in depth: never trust a persisted transform that maps gaze far off-screen
+            // (e.g. a degenerate calibration written by an older build). Ignoring it leaves the
+            // pipeline uncalibrated (raw gaze) rather than poisoning every gaze point.
+            if (!CalibrationValidator.IsTransformSane(transform, currentScreenSize.X, currentScreenSize.Y))
+            {
+                _logger?.LogWarning(
+                    "Calibration data from {FilePath} maps gaze off-screen (degenerate transform); ignoring",
+                    filePath);
+                return;
+            }
+
             lock (_transformLock) { _currentTransform = transform; }
             CurrentData = data;
         }

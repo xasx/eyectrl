@@ -197,6 +197,92 @@ public class CalibrationServiceTests
         }
     }
 
+    [Fact]
+    public void CompleteSession_Throws_AndDoesNotApply_OnDegenerateCalibration()
+    {
+        // Reproduces the 2026-06-16 failure: gaze Y barely varied across targets that span
+        // the whole screen, so the fit's Y-slope explodes and maps gaze far off-screen.
+        // The fit is finite and non-singular, so only an explicit sanity check catches it.
+        var service = new CalibrationService();
+        var screen = new PhysicalPoint(3840, 2400);
+        service.StartSession(5, screen);
+
+        var targets = CalibrationTargetPositionHelper.GetPositions(5, screen);
+        for (int i = 0; i < 5; i++)
+        {
+            service.BeginTarget(i);
+            for (int j = 0; j < 30; j++)
+                service.AddRawSample(new PhysicalPoint(targets[i].X, i * 3.0)); // Y collapsed
+            service.EndTarget();
+        }
+
+        Assert.Throws<InvalidOperationException>(() => service.CompleteSession(screen, "DISPLAY1"));
+        Assert.Null(service.CurrentTransform); // garbage must never be applied
+    }
+
+    [Fact]
+    public void Load_IgnoresDegenerateTransform()
+    {
+        // The exact params persisted on 2026-06-16: they map screen centre millions of px off-screen.
+        var logger = new FakeLogger<CalibrationService>();
+        var service = new CalibrationService(logger);
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path,
+                "{\"transformParams\":[164.17311285043388,-10147.434961907775,11285.824336762067," +
+                "-59.27218454102549,3683.7487218623305,-2847.0947780201545]," +
+                "\"screenWidth\":3840,\"screenHeight\":2400,\"monitorDeviceName\":\"DISPLAY1\"}");
+
+            service.Load(path, new PhysicalPoint(3840, 2400), "DISPLAY1");
+
+            Assert.Null(service.CurrentTransform); // would have poisoned every gaze point
+            Assert.True(logger.LoggedCount > 0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void AddRawSample_DropsImplausibleSamples()
+    {
+        var service = new CalibrationService();
+        var screen = new PhysicalPoint(3840, 2400);
+        service.StartSession(3, screen);
+
+        service.BeginTarget(0);
+        for (int j = 0; j < 5; j++)
+            service.AddRawSample(new PhysicalPoint(1920, 1200)); // plausible, on-screen
+        service.AddRawSample(new PhysicalPoint(double.NaN, 0));   // junk
+        service.AddRawSample(new PhysicalPoint(1_000_000, 1200)); // junk, far off-screen
+        var point = service.EndTarget();
+
+        Assert.Equal(5, point.SampleCount); // only the plausible samples were retained
+    }
+
+    [Fact]
+    public void CompleteSession_Throws_WhenGazeDidNotVaryAcrossTargets()
+    {
+        // Sensor returned a constant (the 2026-06-16 signature: meanGaze (1,1), stdDev 0)
+        // regardless of which target the user looked at.
+        var service = new CalibrationService();
+        var screen = new PhysicalPoint(3840, 2400);
+        service.StartSession(5, screen);
+
+        for (int i = 0; i < 5; i++)
+        {
+            service.BeginTarget(i);
+            for (int j = 0; j < 27; j++)
+                service.AddRawSample(new PhysicalPoint(1, 1)); // never moves
+            service.EndTarget();
+        }
+
+        Assert.Throws<InvalidOperationException>(() => service.CompleteSession(screen, "DISPLAY1"));
+        Assert.Null(service.CurrentTransform);
+    }
+
     private sealed class FakeLogger<T> : ILogger<T>
     {
         public int LoggedCount { get; private set; }

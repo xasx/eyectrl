@@ -2,7 +2,6 @@ namespace EyeCtrl.Sdk.Abstractions.Tests;
 
 using EyeCtrl.Contracts;
 using EyeCtrl.Sdk.Abstractions;
-using Xunit;
 
 public class OutboundRectTrackerTests
 {
@@ -14,10 +13,11 @@ public class OutboundRectTrackerTests
     {
         var t = new OutboundRectTracker();
         var msg = t.OnRect("x", A, hwnd: 42);
-        var reg = Assert.IsType<RegisterMessage>(msg);
-        Assert.Equal("x", reg.Id);
-        Assert.Equal(42, reg.Hwnd);
-        Assert.Equal(A, reg.Rect);
+        Check.That(msg).IsInstanceOf<RegisterMessage>();
+        var reg = (RegisterMessage)msg!;
+        Check.That(reg.Id).IsEqualTo("x");
+        Check.That(reg.Hwnd).IsEqualTo(42);
+        Check.That(reg.Rect).IsEqualTo(A);
     }
 
     [Fact]
@@ -25,7 +25,7 @@ public class OutboundRectTrackerTests
     {
         var t = new OutboundRectTracker();
         t.OnRect("x", A, 42);
-        Assert.Null(t.OnRect("x", A, 42));
+        Check.That(t.OnRect("x", A, 42)).IsNull();
     }
 
     [Fact]
@@ -33,8 +33,10 @@ public class OutboundRectTrackerTests
     {
         var t = new OutboundRectTracker();
         t.OnRect("x", A, 42);
-        var upd = Assert.IsType<UpdateMessage>(t.OnRect("x", B, 42));
-        Assert.Equal(B, upd.Rect);
+        var result = t.OnRect("x", B, 42);
+        Check.That(result).IsInstanceOf<UpdateMessage>();
+        var upd = (UpdateMessage)result!;
+        Check.That(upd.Rect).IsEqualTo(B);
     }
 
     [Fact]
@@ -43,7 +45,7 @@ public class OutboundRectTrackerTests
         var t = new OutboundRectTracker();
         t.OnRect("x", A, 42);
         t.Reset();
-        Assert.IsType<RegisterMessage>(t.OnRect("x", A, 42));
+        Check.That(t.OnRect("x", A, 42)).IsInstanceOf<RegisterMessage>();
     }
 
     [Fact]
@@ -51,7 +53,7 @@ public class OutboundRectTrackerTests
     {
         var t = new OutboundRectTracker();
         t.OnRect("x", A, 42);
-        Assert.IsType<UnregisterMessage>(t.OnUnregister("x"));
-        Assert.IsType<RegisterMessage>(t.OnRect("x", A, 42));
+        Check.That(t.OnUnregister("x")).IsInstanceOf<UnregisterMessage>();
+        Check.That(t.OnRect("x", A, 42)).IsInstanceOf<RegisterMessage>();
     }
 }

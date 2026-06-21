@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Tests.Prediction;
 
 using EyeCtrl.Core.Prediction;
+using NFluent;
 
 public class WordPredictorTests
 {
@@ -19,8 +20,8 @@ public class WordPredictorTests
 
         var results = predictor.GetSuggestions("hel", null, maxCount: 5);
 
-        Assert.Contains(results, r => r.Word == "hello");
-        Assert.Contains(results, r => r.Word == "help");
+        Check.That(results).HasElementThatMatches(r => r.Word == "hello");
+        Check.That(results).HasElementThatMatches(r => r.Word == "help");
     }
 
     [Fact]
@@ -33,9 +34,9 @@ public class WordPredictorTests
 
         var results = predictor.GetSuggestions("the", null, maxCount: 3);
 
-        Assert.Equal("the", results[0].Word);
-        Assert.Equal("they", results[1].Word);
-        Assert.Equal("there", results[2].Word);
+        Check.That(results[0].Word).IsEqualTo("the");
+        Check.That(results[1].Word).IsEqualTo("they");
+        Check.That(results[2].Word).IsEqualTo("there");
     }
 
     [Fact]
@@ -48,14 +49,14 @@ public class WordPredictorTests
 
         // "test" starts lower than "team"
         var before = predictor.GetSuggestions("te", null, maxCount: 2);
-        Assert.Equal("team", before[0].Word);
+        Check.That(before[0].Word).IsEqualTo("team");
 
         // Learn "test" many times
         for (int i = 0; i < 200; i++)
             predictor.LearnWord("test");
 
         var after = predictor.GetSuggestions("te", null, maxCount: 2);
-        Assert.Equal("test", after[0].Word);
+        Check.That(after[0].Word).IsEqualTo("test");
     }
 
     [Fact]
@@ -67,7 +68,7 @@ public class WordPredictorTests
         });
 
         var results = predictor.GetSuggestions("", null, maxCount: 3);
-        Assert.Equal(3, results.Count);
+        Check.That(results).HasSize(3);
     }
 
     [Fact]
@@ -79,7 +80,7 @@ public class WordPredictorTests
         });
 
         var results = predictor.GetSuggestions("rhe", null, maxCount: 5);
-        Assert.Contains(results, r => r.Word == "the");
+        Check.That(results).HasElementThatMatches(r => r.Word == "the");
     }
 
     [Fact]
@@ -91,8 +92,8 @@ public class WordPredictorTests
         });
 
         var results = predictor.GetSuggestions("the", null, maxCount: 5);
-        Assert.Contains(results, r => r.Word == "there");
-        Assert.Contains(results, r => r.Word == "the");
+        Check.That(results).HasElementThatMatches(r => r.Word == "there");
+        Check.That(results).HasElementThatMatches(r => r.Word == "the");
     }
 
     [Fact]
@@ -104,7 +105,7 @@ public class WordPredictorTests
         });
 
         var results = predictor.GetSuggestions("rhe", null, maxCount: 5);
-        Assert.Equal("the", results[0].Word);
+        Check.That(results[0].Word).IsEqualTo("the");
     }
 
     [Fact]
@@ -116,7 +117,7 @@ public class WordPredictorTests
         });
 
         var results = predictor.GetSuggestions("she", null, maxCount: 5);
-        Assert.Contains(results, r => r.Word == "the");
+        Check.That(results).HasElementThatMatches(r => r.Word == "the");
     }
 
     [Fact]
@@ -128,7 +129,7 @@ public class WordPredictorTests
         });
 
         var results = predictor.GetSuggestions("xyz", null, maxCount: 5);
-        Assert.DoesNotContain(results, r => r.Word == "the");
+        Check.That(results.Any(r => r.Word == "the")).IsFalse();
     }
 
     [Fact]
@@ -146,12 +147,12 @@ public class WordPredictorTests
 
         // With "thank" as context, "you" should be suggested with NextWord type
         var results = predictor.GetSuggestions("", "thank", maxCount: 5);
-        Assert.NotEmpty(results);
+        Check.That(results).Not.IsEmpty();
 
         // Find "you" in results - it should be there with NextWord type
         var youResult = results.FirstOrDefault(r => r.Word == "you");
-        Assert.NotNull(youResult);
-        Assert.Equal(PredictionType.NextWord, youResult.Type);
+        Check.That(youResult).IsNotNull();
+        Check.That(youResult.Type).IsEqualTo(PredictionType.NextWord);
     }
 
     [Fact]
@@ -168,7 +169,7 @@ public class WordPredictorTests
 
         // With "looking" as context, should suggest words from learned phrase
         var results = predictor.GetSuggestions("", "looking", maxCount: 5);
-        Assert.Contains(results, r => r.Word == "forward");
+        Check.That(results).HasElementThatMatches(r => r.Word == "forward");
     }
 
     [Fact]
@@ -184,7 +185,7 @@ public class WordPredictorTests
 
         // Check that "world" is suggested after "hello"
         var results = predictor.GetSuggestions("", "hello", maxCount: 5);
-        Assert.Contains(results, r => r.Word == "world");
+        Check.That(results).HasElementThatMatches(r => r.Word == "world");
     }
 
     [Fact]
@@ -197,14 +198,14 @@ public class WordPredictorTests
 
         // Exact prefix match
         var exactResults = predictor.GetSuggestions("hel", null, maxCount: 5);
-        Assert.All(exactResults.Where(r => r.Word.StartsWith("hel")),
-            r => Assert.Equal(PredictionType.ExactPrefix, r.Type));
+        Check.That(exactResults.Where(r => r.Word.StartsWith("hel")))
+            .ContainsOnlyElementsThatMatch(r => r.Type == PredictionType.ExactPrefix);
 
         // Fuzzy match
         var fuzzyResults = predictor.GetSuggestions("rhe", null, maxCount: 5);
         var theResult = fuzzyResults.FirstOrDefault(r => r.Word == "the");
-        Assert.NotNull(theResult);
-        Assert.Equal(PredictionType.FuzzyMatch, theResult.Type);
+        Check.That(theResult).IsNotNull();
+        Check.That(theResult.Type).IsEqualTo(PredictionType.FuzzyMatch);
     }
 
     // Phase 2 Tests - Enhanced Context Awareness
@@ -227,12 +228,12 @@ public class WordPredictorTests
         var youResult = results.FirstOrDefault(r => r.Word == "you");
         var yourResult = results.FirstOrDefault(r => r.Word == "your");
 
-        Assert.NotNull(youResult);
-        Assert.NotNull(yourResult);
+        Check.That(youResult).IsNotNull();
+        Check.That(yourResult).IsNotNull();
 
         // "you" should be first due to NextWord prediction boost
-        Assert.Equal("you", results[0].Word);
-        Assert.Equal(PredictionType.NextWord, youResult.Type);
+        Check.That(results[0].Word).IsEqualTo("you");
+        Check.That(youResult.Type).IsEqualTo(PredictionType.NextWord);
     }
 
     [Fact]
@@ -255,22 +256,20 @@ public class WordPredictorTests
         var youWithContext = withContext.FirstOrDefault(r => r.Word == "you");
         var youWithoutContext = withoutContext.FirstOrDefault(r => r.Word == "you");
 
-        Assert.NotNull(youWithContext);
-        Assert.NotNull(youWithoutContext);
+        Check.That(youWithContext).IsNotNull();
+        Check.That(youWithoutContext).IsNotNull();
 
         // "you" should appear in both result sets, but context should improve its rank/score via BigramContextBoost
-        Assert.Contains("you", withContext.Select(r => r.Word));
-        Assert.Contains("you", withoutContext.Select(r => r.Word));
+        Check.That(withContext.Select(r => r.Word)).Contains("you");
+        Check.That(withoutContext.Select(r => r.Word)).Contains("you");
 
         // With context, "you" should rank higher (lower index = higher rank) due to BigramContextBoost
         var youIndexWithContext = withContext.ToList().FindIndex(r => r.Word == "you");
         var youIndexWithoutContext = withoutContext.ToList().FindIndex(r => r.Word == "you");
-        Assert.True(youIndexWithContext < youIndexWithoutContext,
-            $"\"you\" should rank higher with context (index {youIndexWithContext}) than without (index {youIndexWithoutContext}) due to BigramContextBoost");
+        Check.That(youIndexWithContext < youIndexWithoutContext).IsTrue();
 
         // With context, "you" should have a higher score due to BigramContextBoost multiplier
-        Assert.True(youWithContext.Score > youWithoutContext.Score,
-            $"\"you\" should have higher score with context ({youWithContext.Score}) than without ({youWithoutContext.Score}) due to BigramContextBoost");
+        Check.That(youWithContext.Score > youWithoutContext.Score).IsTrue();
     }
 
     [Fact]
@@ -288,9 +287,9 @@ public class WordPredictorTests
         // Empty prefix with context should prioritize next-word and phrase predictions
         var results = predictor.GetSuggestions("", "thank", maxCount: 5);
 
-        Assert.NotEmpty(results);
+        Check.That(results).Not.IsEmpty();
         // "you" should be suggested despite "world" having much higher frequency
-        Assert.Contains(results, r => r.Word == "you");
+        Check.That(results).HasElementThatMatches(r => r.Word == "you");
     }
 
     [Fact]
@@ -311,10 +310,10 @@ public class WordPredictorTests
         // Should get phrase suggestions - the phrase model returns full phrases that match the context
         // When context is "looking forward", we should get phrases like "looking forward to" or "looking forward to hearing"
         var phraseResults = results.Where(r => r.Type == PredictionType.Phrase).ToList();
-        Assert.NotEmpty(phraseResults);
+        Check.That(phraseResults).Not.IsEmpty();
 
         // Verify at least one phrase result contains "to" (part of the learned phrase)
-        Assert.Contains(phraseResults, r => r.Word.Contains("to"));
+        Check.That(phraseResults).HasElementThatMatches(r => r.Word.Contains("to"));
     }
 
     [Fact]
@@ -332,14 +331,14 @@ public class WordPredictorTests
         // Check confidence for exact match
         var exactResults = predictor.GetSuggestions("hel", null, maxCount: 5);
         var helloResult = exactResults.FirstOrDefault(r => r.Word == "hello");
-        Assert.NotNull(helloResult);
-        Assert.True(helloResult.Confidence > 0 && helloResult.Confidence <= 1.0);
+        Check.That(helloResult).IsNotNull();
+        Check.That(helloResult.Confidence > 0 && helloResult.Confidence <= 1.0).IsTrue();
 
         // Check confidence for next-word prediction
         var nextWordResults = predictor.GetSuggestions("", "thank", maxCount: 5);
         var youResult = nextWordResults.FirstOrDefault(r => r.Word == "you");
-        Assert.NotNull(youResult);
-        Assert.True(youResult.Confidence > 0 && youResult.Confidence <= 1.0);
+        Check.That(youResult).IsNotNull();
+        Check.That(youResult.Confidence > 0 && youResult.Confidence <= 1.0).IsTrue();
     }
 
     [Fact]
@@ -357,8 +356,8 @@ public class WordPredictorTests
         // With both prefix "y" and context "thank", should favor "you"
         var results = predictor.GetSuggestions("y", "thank", maxCount: 5);
 
-        Assert.NotEmpty(results);
-        Assert.Equal("you", results[0].Word);
+        Check.That(results).Not.IsEmpty();
+        Check.That(results[0].Word).IsEqualTo("you");
     }
 
     [Fact]
@@ -375,10 +374,10 @@ public class WordPredictorTests
 
         // Should create bigrams: "looking -> forward" and "forward -> to"
         var afterLooking = predictor.GetSuggestions("", "looking", maxCount: 5);
-        Assert.Contains(afterLooking, r => r.Word == "forward" || r.Word.Contains("forward"));
+        Check.That(afterLooking).HasElementThatMatches(r => r.Word == "forward" || r.Word.Contains("forward"));
 
         var afterForward = predictor.GetSuggestions("", "forward", maxCount: 5);
-        Assert.Contains(afterForward, r => r.Word == "to" || r.Word.Contains("to"));
+        Check.That(afterForward).HasElementThatMatches(r => r.Word == "to" || r.Word.Contains("to"));
     }
 
     [Fact]
@@ -391,7 +390,7 @@ public class WordPredictorTests
         });
 
         var results = predictor.GetSuggestions("he", null, maxCount: 3);
-        Assert.Equal(3, results.Count);
+        Check.That(results).HasSize(3);
     }
 
     [Fact]
@@ -407,8 +406,7 @@ public class WordPredictorTests
         // Verify results are sorted by score descending
         for (int i = 0; i < results.Count - 1; i++)
         {
-            Assert.True(results[i].Score >= results[i + 1].Score,
-                $"Score at index {i} ({results[i].Score}) should be >= score at index {i + 1} ({results[i + 1].Score})");
+            Check.That(results[i].Score >= results[i + 1].Score).IsTrue();
         }
     }
 
@@ -423,8 +421,8 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("hel", null, maxCount: 5, fullText: "");
 
         // Should capitalize at start of text
-        Assert.Contains(results, r => r.Word == "Hello");
-        Assert.DoesNotContain(results, r => r.Word == "hello");
+        Check.That(results).HasElementThatMatches(r => r.Word == "Hello");
+        Check.That(results.Any(r => r.Word == "hello")).IsFalse();
     }
 
     [Fact]
@@ -438,8 +436,8 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("wo", null, maxCount: 5, fullText: "Hello. ");
 
         // Should capitalize after sentence ending
-        Assert.Contains(results, r => r.Word == "World");
-        Assert.DoesNotContain(results, r => r.Word == "world");
+        Check.That(results).HasElementThatMatches(r => r.Word == "World");
+        Check.That(results.Any(r => r.Word == "world")).IsFalse();
     }
 
     [Fact]
@@ -453,8 +451,8 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("wo", null, maxCount: 5, fullText: "Hello ");
 
         // Should NOT capitalize in middle of sentence
-        Assert.Contains(results, r => r.Word == "world");
-        Assert.DoesNotContain(results, r => r.Word == "World");
+        Check.That(results).HasElementThatMatches(r => r.Word == "world");
+        Check.That(results.Any(r => r.Word == "World")).IsFalse();
     }
 
     [Fact]
@@ -470,10 +468,10 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("jo", null, maxCount: 5, fullText: "");
 
         // At start of sentence, should capitalize the suggestion.
-        Assert.Contains(results, r => r.Word == "John");
+        Check.That(results).HasElementThatMatches(r => r.Word == "John");
 
         // Word should not be all-caps or otherwise mangled.
-        Assert.DoesNotContain(results, r => r.Word == "JOHN");
+        Check.That(results.Any(r => r.Word == "JOHN")).IsFalse();
     }
 
     [Fact]
@@ -487,8 +485,8 @@ public class WordPredictorTests
         // fullText is null - no capitalization should be applied
         var results = predictor.GetSuggestions("hel", null, maxCount: 5, fullText: null);
 
-        Assert.Contains(results, r => r.Word == "hello");
-        Assert.DoesNotContain(results, r => r.Word == "Hello");
+        Check.That(results).HasElementThatMatches(r => r.Word == "hello");
+        Check.That(results.Any(r => r.Word == "Hello")).IsFalse();
     }
 
     // Phase 7 Tests - Case-Sensitivity Enhancements
@@ -516,14 +514,13 @@ public class WordPredictorTests
         var hausResult = results.FirstOrDefault(r => r.Word.Equals("Haus", StringComparison.Ordinal));
         var handResult = results.FirstOrDefault(r => r.Word.Equals("hand", StringComparison.Ordinal));
 
-        Assert.NotNull(hausResult);
-        Assert.NotNull(handResult);
+        Check.That(hausResult).IsNotNull();
+        Check.That(handResult).IsNotNull();
 
         var hausIndex = results.IndexOf(hausResult);
         var handIndex = results.IndexOf(handResult);
 
-        Assert.True(hausIndex < handIndex,
-            $"Expected 'Haus' (exact-case match after preference, bonus=1.2) at index {hausIndex} to appear before 'hand' (case-insensitive match, multiplier=0.8) at index {handIndex}");
+        Check.That(hausIndex < handIndex).IsTrue();
     }
 
     [Fact]
@@ -542,8 +539,8 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("haus", "Das", maxCount: 5);
 
         // "Haus" should be suggested even though user typed lowercase
-        Assert.Contains(results, r => r.Word.Equals("Haus", StringComparison.Ordinal) ||
-                                      r.Word.Equals("haus", StringComparison.Ordinal));
+        Check.That(results).HasElementThatMatches(r => r.Word.Equals("Haus", StringComparison.Ordinal) ||
+                                                       r.Word.Equals("haus", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -562,8 +559,8 @@ public class WordPredictorTests
 
         // Should suggest "Hello" with normalized title casing
         var helloResult = results.FirstOrDefault(r => r.Word.StartsWith("Hel", StringComparison.OrdinalIgnoreCase));
-        Assert.NotNull(helloResult);
-        Assert.Equal("Hello", helloResult.Word);
+        Check.That(helloResult).IsNotNull();
+        Check.That(helloResult.Word).IsEqualTo("Hello");
     }
 
     [Fact]
@@ -581,7 +578,7 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("nasa", null, maxCount: 5);
 
         // Should find NASA with exact acronym casing preserved
-        Assert.Contains(results, r => r.Word.Equals("NASA", StringComparison.Ordinal));
+        Check.That(results).HasElementThatMatches(r => r.Word.Equals("NASA", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -603,10 +600,10 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("ha", null, maxCount: 5);
 
         var hausResult = results.FirstOrDefault(r => r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
-        Assert.NotNull(hausResult);
+        Check.That(hausResult).IsNotNull();
 
         // Should prefer the more frequently used casing "Haus" (10 times vs 1 time)
-        Assert.Equal("Haus", hausResult.Word);
+        Check.That(hausResult.Word).IsEqualTo("Haus");
     }
 
     [Fact]
@@ -625,8 +622,8 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("h", "das", maxCount: 5);
 
         // Should still suggest "Haus" even though context is lowercase
-        Assert.Contains(results, r => r.Word.Equals("Haus", StringComparison.Ordinal) ||
-                                      r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
+        Check.That(results).HasElementThatMatches(r => r.Word.Equals("Haus", StringComparison.Ordinal) ||
+                                                       r.Word.Equals("haus", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -645,7 +642,7 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("f", "Looking", maxCount: 5);
 
         // Should still suggest "Forward" even with different case
-        Assert.Contains(results, r => r.Word.Equals("Forward", StringComparison.OrdinalIgnoreCase));
+        Check.That(results).HasElementThatMatches(r => r.Word.Equals("Forward", StringComparison.OrdinalIgnoreCase));
     }
 }
 

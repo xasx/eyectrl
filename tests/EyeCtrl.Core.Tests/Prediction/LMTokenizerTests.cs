@@ -26,14 +26,14 @@ public class LMTokenizerTests : IDisposable
     public void Constructor_ValidTokenizerJson_LoadsSuccessfully()
     {
         using var tokenizer = new LMTokenizer(_tokenizerJsonPath);
-        Assert.True(tokenizer.VocabSize > 0);
+        Check.That(tokenizer.VocabSize > 0).IsTrue();
     }
 
     [Fact]
     public void Constructor_MissingFile_ThrowsFileNotFoundException()
     {
         var missingPath = Path.Combine(_tempDir, "nonexistent.json");
-        Assert.Throws<FileNotFoundException>(() => new LMTokenizer(missingPath));
+        Check.ThatCode(() => new LMTokenizer(missingPath)).Throws<FileNotFoundException>();
     }
 
     [Fact]
@@ -41,8 +41,8 @@ public class LMTokenizerTests : IDisposable
     {
         using var tokenizer = new LMTokenizer(_tokenizerJsonPath);
         var ids = tokenizer.Encode("hello world");
-        Assert.NotEmpty(ids);
-        Assert.All(ids, id => Assert.True(id >= 0));
+        Check.That(ids).Not.IsEmpty();
+        Check.That(ids).ContainsOnlyElementsThatMatch(id => id >= 0);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class LMTokenizerTests : IDisposable
     {
         using var tokenizer = new LMTokenizer(_tokenizerJsonPath);
         var ids = tokenizer.Encode("");
-        Assert.Empty(ids);
+        Check.That(ids).IsEmpty();
     }
 
     [Fact]
@@ -58,9 +58,9 @@ public class LMTokenizerTests : IDisposable
     {
         using var tokenizer = new LMTokenizer(_tokenizerJsonPath);
         var ids = tokenizer.Encode("hello");
-        Assert.NotEmpty(ids);
+        Check.That(ids).Not.IsEmpty();
         var decoded = tokenizer.Decode(ids);
-        Assert.False(string.IsNullOrEmpty(decoded));
+        Check.That(string.IsNullOrEmpty(decoded)).IsFalse();
     }
 
     [Fact]
@@ -68,22 +68,22 @@ public class LMTokenizerTests : IDisposable
     {
         using var tokenizer = new LMTokenizer(_tokenizerJsonPath);
         var decoded = tokenizer.Decode(Array.Empty<long>());
-        Assert.Empty(decoded);
+        Check.That(decoded).IsEmpty();
     }
 
     [Fact]
     public void SpecialTokenIds_AreSet()
     {
         using var tokenizer = new LMTokenizer(_tokenizerJsonPath);
-        Assert.True(tokenizer.BosTokenId >= 0);
-        Assert.True(tokenizer.EosTokenId >= 0);
+        Check.That(tokenizer.BosTokenId >= 0).IsTrue();
+        Check.That(tokenizer.EosTokenId >= 0).IsTrue();
     }
 
     [Fact]
     public void VocabSize_MatchesConfig()
     {
         using var tokenizer = new LMTokenizer(_tokenizerJsonPath);
-        Assert.True(tokenizer.VocabSize >= 10);
+        Check.That(tokenizer.VocabSize >= 10).IsTrue();
     }
 
     [Fact]

@@ -11,7 +11,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("");
 
         // Assert
-        Assert.True(result);
+        Check.That(result).IsTrue();
     }
 
     [Fact]
@@ -21,7 +21,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("Hello world.");
 
         // Assert
-        Assert.True(result);
+        Check.That(result).IsTrue();
     }
 
     [Fact]
@@ -31,7 +31,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("Wow!");
 
         // Assert
-        Assert.True(result);
+        Check.That(result).IsTrue();
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("Really?");
 
         // Assert
-        Assert.True(result);
+        Check.That(result).IsTrue();
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("Hello.   ");
 
         // Assert
-        Assert.True(result);
+        Check.That(result).IsTrue();
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("Hello world");
 
         // Assert
-        Assert.False(result);
+        Check.That(result).IsFalse();
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("Hello, world");
 
         // Assert
-        Assert.False(result);
+        Check.That(result).IsFalse();
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("Mr. Smith");
 
         // Assert
-        Assert.False(result);
+        Check.That(result).IsFalse();
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("I.e. this");
 
         // Assert
-        Assert.False(result);
+        Check.That(result).IsFalse();
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("First. Second. Third.");
 
         // Assert
-        Assert.True(result);
+        Check.That(result).IsTrue();
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.Capitalize("hello");
 
         // Assert
-        Assert.Equal("Hello", result);
+        Check.That(result).IsEqualTo("Hello");
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.Capitalize("hELLO");
 
         // Assert
-        Assert.Equal("HELLO", result);
+        Check.That(result).IsEqualTo("HELLO");
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.Capitalize("");
 
         // Assert
-        Assert.Equal("", result);
+        Check.That(result).IsEqualTo("");
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.Capitalize(null!);
 
         // Assert
-        Assert.Equal("", result);
+        Check.That(result).IsEqualTo("");
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.Capitalize("a");
 
         // Assert
-        Assert.Equal("A", result);
+        Check.That(result).IsEqualTo("A");
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.Capitalize("Hello");
 
         // Assert
-        Assert.Equal("Hello", result);
+        Check.That(result).IsEqualTo("Hello");
     }
 
     [Fact]
@@ -171,7 +171,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.Capitalize("   ");
 
         // Assert
-        Assert.Equal("   ", result);
+        Check.That(result).IsEqualTo("   ");
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.Capitalize("123abc");
 
         // Assert
-        Assert.Equal("123Abc", result);
+        Check.That(result).IsEqualTo("123Abc");
     }
 
     [Fact]
@@ -191,7 +191,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.Capitalize("!hello");
 
         // Assert
-        Assert.Equal("!Hello", result);
+        Check.That(result).IsEqualTo("!Hello");
     }
 
     [Fact]
@@ -201,7 +201,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ApplySmartCapitalization("hello", "");
 
         // Assert
-        Assert.Equal("Hello", result);
+        Check.That(result).IsEqualTo("Hello");
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ApplySmartCapitalization("hello", "start");
 
         // Assert
-        Assert.Equal("hello", result);
+        Check.That(result).IsEqualTo("hello");
     }
 
     [Fact]
@@ -221,7 +221,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ApplySmartCapitalization("world", "Hello.");
 
         // Assert
-        Assert.Equal("World", result);
+        Check.That(result).IsEqualTo("World");
     }
 
     [Fact]
@@ -231,7 +231,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ApplySmartCapitalization("Hello", "start");
 
         // Assert
-        Assert.Equal("Hello", result);
+        Check.That(result).IsEqualTo("Hello");
     }
 
     [Fact]
@@ -241,7 +241,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ApplySmartCapitalization("", "text");
 
         // Assert
-        Assert.Equal("", result);
+        Check.That(result).IsEqualTo("");
     }
 
     // Language-specific abbreviation tests
@@ -256,7 +256,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("z.B. ", germanAbbreviations);
 
         // Assert
-        Assert.False(result);
+        Check.That(result).IsFalse();
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("M. ", frenchAbbreviations);
 
         // Assert
-        Assert.False(result);
+        Check.That(result).IsFalse();
     }
 
     [Fact]
@@ -282,7 +282,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("Sr. ", spanishAbbreviations);
 
         // Assert
-        Assert.False(result);
+        Check.That(result).IsFalse();
     }
 
     [Fact]
@@ -295,7 +295,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("np. ", polishAbbreviations);
 
         // Assert
-        Assert.False(result);
+        Check.That(result).IsFalse();
     }
 
     [Fact]
@@ -308,7 +308,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ShouldCapitalize("Das ist ein Wort. ", germanAbbreviations);
 
         // Assert
-        Assert.True(result);
+        Check.That(result).IsTrue();
     }
 
     [Fact]
@@ -321,7 +321,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ApplySmartCapitalization("beispiel", "zum Beispiel prof. ", germanAbbreviations);
 
         // Assert - Should not capitalize after German abbreviation
-        Assert.Equal("beispiel", result);
+        Check.That(result).IsEqualTo("beispiel");
     }
 
     [Fact]
@@ -332,7 +332,7 @@ public class CapitalizationHelperTests
         var result = CapitalizationHelper.ApplySmartCapitalization("word", "for example prof. ", null);
 
         // Assert - Should capitalize because "prof" is not recognized without abbreviations
-        Assert.Equal("Word", result);
+        Check.That(result).IsEqualTo("Word");
     }
 
     [Fact]
@@ -343,9 +343,9 @@ public class CapitalizationHelperTests
         var resultWith = CapitalizationHelper.ShouldCapitalize("Mr. Smith", null);
 
         // Assert - Both should return false (heuristic catches short lowercase abbreviations)
-        Assert.False(resultWithout);
-        Assert.False(resultWith);
-        Assert.Equal(resultWith, resultWithout);
+        Check.That(resultWithout).IsFalse();
+        Check.That(resultWith).IsFalse();
+        Check.That(resultWithout).IsEqualTo(resultWith);
     }
 
     [Fact]
@@ -356,7 +356,7 @@ public class CapitalizationHelperTests
         var resultWith = CapitalizationHelper.ApplySmartCapitalization("hello", "", null);
 
         // Assert - Empty context should capitalize, with or without explicit abbreviations
-        Assert.Equal("Hello", resultWithout);
-        Assert.Equal("Hello", resultWith);
+        Check.That(resultWithout).IsEqualTo("Hello");
+        Check.That(resultWith).IsEqualTo("Hello");
     }
 }

@@ -50,27 +50,27 @@ public class KeyboardLayoutLoaderTests
             File.WriteAllText(tempPath, json);
             var layout = KeyboardLayoutLoader.Load(tempPath);
 
-            Assert.Equal("QWERTY", layout.Name);
-            Assert.Equal("letters", layout.DefaultSubLayout);
-            Assert.Equal(2, layout.SubLayouts.Count);
-            Assert.True(layout.SubLayouts.ContainsKey("letters"));
-            Assert.True(layout.SubLayouts.ContainsKey("numbers"));
+            Check.That(layout.Name).IsEqualTo("QWERTY");
+            Check.That(layout.DefaultSubLayout).IsEqualTo("letters");
+            Check.That(layout.SubLayouts.Count).IsEqualTo(2);
+            Check.That(layout.SubLayouts.ContainsKey("letters")).IsTrue();
+            Check.That(layout.SubLayouts.ContainsKey("numbers")).IsTrue();
 
             var letters = layout.SubLayouts["letters"];
-            Assert.Equal("ABC", letters.Label);
-            Assert.Equal(3, letters.Rows.Count);
-            Assert.Equal("Q", letters.Rows[0][0].Label);
-            Assert.Equal("q", letters.Rows[0][0].Output);
-            Assert.Equal("Q", letters.Rows[0][0].ShiftOutput);
+            Check.That(letters.Label).IsEqualTo("ABC");
+            Check.That(letters.Rows.Count).IsEqualTo(3);
+            Check.That(letters.Rows[0][0].Label).IsEqualTo("Q");
+            Check.That(letters.Rows[0][0].Output).IsEqualTo("q");
+            Check.That(letters.Rows[0][0].ShiftOutput).IsEqualTo("Q");
 
             // Switch button
             var switchKey = letters.Rows[2][0];
-            Assert.Equal("switchSub:numbers", switchKey.SpecialAction);
+            Check.That(switchKey.SpecialAction).IsEqualTo("switchSub:numbers");
 
             var numbers = layout.SubLayouts["numbers"];
-            Assert.Equal("123", numbers.Label);
-            Assert.Equal(2, numbers.Rows.Count);
-            Assert.Equal("1", numbers.Rows[0][0].Label);
+            Check.That(numbers.Label).IsEqualTo("123");
+            Check.That(numbers.Rows.Count).IsEqualTo(2);
+            Check.That(numbers.Rows[0][0].Label).IsEqualTo("1");
         }
         finally
         {
@@ -119,13 +119,13 @@ public class KeyboardLayoutLoaderTests
             var layout = KeyboardLayoutLoader.Load(tempPath);
 
             var letters = layout.SubLayouts["letters"];
-            Assert.Equal(4, letters.Rows.Count);
+            Check.That(letters.Rows.Count).IsEqualTo(4);
 
-            Assert.Equal("modifier:win", letters.Rows[0][0].SpecialAction);
-            Assert.Equal("toggle:capslock", letters.Rows[1][0].SpecialAction);
-            Assert.Equal("modifier:alt", letters.Rows[2][0].SpecialAction);
-            Assert.Equal("modifier:shift", letters.Rows[2][1].SpecialAction);
-            Assert.Equal("modifier:ctrl", letters.Rows[3][0].SpecialAction);
+            Check.That(letters.Rows[0][0].SpecialAction).IsEqualTo("modifier:win");
+            Check.That(letters.Rows[1][0].SpecialAction).IsEqualTo("toggle:capslock");
+            Check.That(letters.Rows[2][0].SpecialAction).IsEqualTo("modifier:alt");
+            Check.That(letters.Rows[2][1].SpecialAction).IsEqualTo("modifier:shift");
+            Check.That(letters.Rows[3][0].SpecialAction).IsEqualTo("modifier:ctrl");
         }
         finally
         {
@@ -184,30 +184,30 @@ public class KeyboardLayoutLoaderTests
             File.WriteAllText(tempPath, json);
             var layout = KeyboardLayoutLoader.Load(tempPath);
 
-            Assert.Equal("QWERTY", layout.Name);
-            Assert.Equal(2, layout.SubLayouts.Count);
-            Assert.True(layout.SubLayouts.ContainsKey("function"));
+            Check.That(layout.Name).IsEqualTo("QWERTY");
+            Check.That(layout.SubLayouts.Count).IsEqualTo(2);
+            Check.That(layout.SubLayouts.ContainsKey("function")).IsTrue();
 
             var functionLayout = layout.SubLayouts["function"];
-            Assert.Equal("Fn", functionLayout.Label);
-            Assert.Equal(3, functionLayout.Rows.Count);
+            Check.That(functionLayout.Label).IsEqualTo("Fn");
+            Check.That(functionLayout.Rows.Count).IsEqualTo(3);
 
             // Verify first row (F1-F6)
-            Assert.Equal(6, functionLayout.Rows[0].Count);
-            Assert.Equal("F1", functionLayout.Rows[0][0].Label);
-            Assert.Equal("key:F1", functionLayout.Rows[0][0].SpecialAction);
-            Assert.Equal("F6", functionLayout.Rows[0][5].Label);
-            Assert.Equal("key:F6", functionLayout.Rows[0][5].SpecialAction);
+            Check.That(functionLayout.Rows[0].Count).IsEqualTo(6);
+            Check.That(functionLayout.Rows[0][0].Label).IsEqualTo("F1");
+            Check.That(functionLayout.Rows[0][0].SpecialAction).IsEqualTo("key:F1");
+            Check.That(functionLayout.Rows[0][5].Label).IsEqualTo("F6");
+            Check.That(functionLayout.Rows[0][5].SpecialAction).IsEqualTo("key:F6");
 
             // Verify second row (F7-F12)
-            Assert.Equal(6, functionLayout.Rows[1].Count);
-            Assert.Equal("F7", functionLayout.Rows[1][0].Label);
-            Assert.Equal("key:F7", functionLayout.Rows[1][0].SpecialAction);
-            Assert.Equal("F12", functionLayout.Rows[1][5].Label);
-            Assert.Equal("key:F12", functionLayout.Rows[1][5].SpecialAction);
+            Check.That(functionLayout.Rows[1].Count).IsEqualTo(6);
+            Check.That(functionLayout.Rows[1][0].Label).IsEqualTo("F7");
+            Check.That(functionLayout.Rows[1][0].SpecialAction).IsEqualTo("key:F7");
+            Check.That(functionLayout.Rows[1][5].Label).IsEqualTo("F12");
+            Check.That(functionLayout.Rows[1][5].SpecialAction).IsEqualTo("key:F12");
 
             // Verify switch back button
-            Assert.Equal("switchSub:letters", functionLayout.Rows[2][0].SpecialAction);
+            Check.That(functionLayout.Rows[2][0].SpecialAction).IsEqualTo("switchSub:letters");
         }
         finally
         {

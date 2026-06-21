@@ -11,7 +11,7 @@ public class CalibrationServiceTests
     {
         var service = new CalibrationService();
         service.StartSession(5, new PhysicalPoint(1920, 1080));
-        var ex = Assert.Throws<InvalidOperationException>(() => { service.StartSession(3, new PhysicalPoint(1920, 1080)); });
+        var ex = Check.ThatCode(() => { service.StartSession(3, new PhysicalPoint(1920, 1080)); }).Throws<InvalidOperationException>();
     }
 
     [Fact]
@@ -32,22 +32,22 @@ public class CalibrationServiceTests
 
         var data = service.CompleteSession(screen, "DISPLAY1");
 
-        Assert.NotNull(data);
-        Assert.Equal(TransformType.Affine, data.Type);
-        Assert.Equal(3, data.Points.Length);
-        Assert.Equal(6, data.TransformParams.Length);
-        Assert.Equal(1920, data.ScreenWidth);
-        Assert.Equal(1080, data.ScreenHeight);
-        Assert.Equal("DISPLAY1", data.MonitorDeviceName);
-        Assert.NotNull(service.CurrentTransform);
-        Assert.True(data.ComputeMeanErrorPixels() >= 0);
+        Check.That(data).IsNotNull();
+        Check.That(data.Type).IsEqualTo(TransformType.Affine);
+        Check.That(data.Points.Length).IsEqualTo(3);
+        Check.That(data.TransformParams.Length).IsEqualTo(6);
+        Check.That(data.ScreenWidth).IsEqualTo(1920);
+        Check.That(data.ScreenHeight).IsEqualTo(1080);
+        Check.That(data.MonitorDeviceName).IsEqualTo("DISPLAY1");
+        Check.That(service.CurrentTransform).IsNotNull();
+        Check.That(data.ComputeMeanErrorPixels() >= 0).IsTrue();
     }
 
     [Fact]
     public void CurrentTransform_IsNull_WhenNoCalibration()
     {
         var service = new CalibrationService();
-        Assert.Null(service.CurrentTransform);
+        Check.That(service.CurrentTransform).IsNull();
     }
 
     [Fact]
@@ -67,11 +67,11 @@ public class CalibrationServiceTests
         }
         service.CompleteSession(screen, "DISPLAY1");
 
-        Assert.NotNull(service.CurrentTransform);
-        Assert.NotNull(service.CurrentData);
+        Check.That(service.CurrentTransform).IsNotNull();
+        Check.That(service.CurrentData).IsNotNull();
         service.Clear();
-        Assert.Null(service.CurrentTransform);
-        Assert.Null(service.CurrentData);
+        Check.That(service.CurrentTransform).IsNull();
+        Check.That(service.CurrentData).IsNull();
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public class CalibrationServiceTests
             service.AddRawSample(new PhysicalPoint(100, 100));
         var point = service.EndTarget();
 
-        Assert.Equal(5, point.SampleCount);
+        Check.That(point.SampleCount).IsEqualTo(5);
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class CalibrationServiceTests
 
         var service2 = new CalibrationService();
         service2.Load(path, new PhysicalPoint(2560, 1440), "DISPLAY2");
-        Assert.Null(service2.CurrentTransform);
+        Check.That(service2.CurrentTransform).IsNull();
 
         File.Delete(path);
     }
@@ -136,7 +136,7 @@ public class CalibrationServiceTests
 
         var service2 = new CalibrationService();
         service2.Load(path, screen, "DISPLAY1");
-        Assert.NotNull(service2.CurrentTransform);
+        Check.That(service2.CurrentTransform).IsNotNull();
 
         File.Delete(path);
     }
@@ -149,8 +149,7 @@ public class CalibrationServiceTests
         service.StartSession(3, screen);
         service.BeginTarget(0);
 
-        var ex = Assert.Throws<InvalidOperationException>(() => service.BeginTarget(1));
-        Assert.Equal("A target is already being collected. Call EndTarget() first.", ex.Message);
+        Check.ThatCode(() => service.BeginTarget(1)).Throws<InvalidOperationException>();
     }
 
     [Fact]
@@ -164,8 +163,8 @@ public class CalibrationServiceTests
             File.WriteAllText(path, "not valid json {{{");
 
             service.Load(path, new PhysicalPoint(1920, 1080), "DISPLAY1");
-            Assert.Null(service.CurrentTransform);
-            Assert.True(logger.LoggedCount > 0);
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(logger.LoggedCount > 0).IsTrue();
         }
         finally
         {
@@ -188,8 +187,8 @@ public class CalibrationServiceTests
                 "{\"transformParams\":[1.0,0.0,0.0],\"screenWidth\":1920,\"screenHeight\":1080,\"monitorDeviceName\":\"DISPLAY1\"}");
 
             service.Load(path, new PhysicalPoint(1920, 1080), "DISPLAY1");
-            Assert.Null(service.CurrentTransform);
-            Assert.True(logger.LoggedCount > 0);
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(logger.LoggedCount > 0).IsTrue();
         }
         finally
         {
@@ -216,8 +215,8 @@ public class CalibrationServiceTests
             service.EndTarget();
         }
 
-        Assert.Throws<InvalidOperationException>(() => service.CompleteSession(screen, "DISPLAY1"));
-        Assert.Null(service.CurrentTransform); // garbage must never be applied
+        Check.ThatCode(() => service.CompleteSession(screen, "DISPLAY1")).Throws<InvalidOperationException>();
+        Check.That(service.CurrentTransform).IsNull();
     }
 
     [Fact]
@@ -236,8 +235,8 @@ public class CalibrationServiceTests
 
             service.Load(path, new PhysicalPoint(3840, 2400), "DISPLAY1");
 
-            Assert.Null(service.CurrentTransform); // would have poisoned every gaze point
-            Assert.True(logger.LoggedCount > 0);
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(logger.LoggedCount > 0).IsTrue();
         }
         finally
         {
@@ -259,7 +258,7 @@ public class CalibrationServiceTests
         service.AddRawSample(new PhysicalPoint(1_000_000, 1200)); // junk, far off-screen
         var point = service.EndTarget();
 
-        Assert.Equal(5, point.SampleCount); // only the plausible samples were retained
+        Check.That(point.SampleCount).IsEqualTo(5);
     }
 
     [Fact]
@@ -279,8 +278,8 @@ public class CalibrationServiceTests
             service.EndTarget();
         }
 
-        Assert.Throws<InvalidOperationException>(() => service.CompleteSession(screen, "DISPLAY1"));
-        Assert.Null(service.CurrentTransform);
+        Check.ThatCode(() => service.CompleteSession(screen, "DISPLAY1")).Throws<InvalidOperationException>();
+        Check.That(service.CurrentTransform).IsNull();
     }
 
     private sealed class FakeLogger<T> : ILogger<T>

@@ -9,8 +9,8 @@ public class SmoothedFilterTests
     {
         var filter = new SmoothedFilter(smoothingFactor: 0.5);
         var result = filter.Filter(new GazePoint(100.0, 200.0, 0, true));
-        Assert.Equal(100.0, result.X);
-        Assert.Equal(200.0, result.Y);
+        Check.That(result.X).IsEqualTo(100.0);
+        Check.That(result.Y).IsEqualTo(200.0);
     }
 
     [Fact]
@@ -20,8 +20,8 @@ public class SmoothedFilterTests
         filter.Filter(new GazePoint(100.0, 200.0, 0, true));
         var result = filter.Filter(new GazePoint(200.0, 400.0, 1, true));
         // EMA: new = factor * raw + (1-factor) * prev
-        Assert.Equal(150.0, result.X);
-        Assert.Equal(300.0, result.Y);
+        Check.That(result.X).IsEqualTo(150.0);
+        Check.That(result.Y).IsEqualTo(300.0);
     }
 
     [Fact]
@@ -31,7 +31,7 @@ public class SmoothedFilterTests
         filter.Filter(new GazePoint(100.0, 200.0, 0, true));
         filter.Reset();
         var result = filter.Filter(new GazePoint(500.0, 600.0, 1, true));
-        Assert.Equal(500.0, result.X);
-        Assert.Equal(600.0, result.Y);
+        Check.That(result.X).IsEqualTo(500.0);
+        Check.That(result.Y).IsEqualTo(600.0);
     }
 }

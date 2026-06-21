@@ -11,11 +11,11 @@ public class ActionMenuSettingsMigrationTests
     {
         var settings = new ActionMenuSettings();
         settings.VisibleActions.Remove(InteractionAction.PinNote);
-        Assert.DoesNotContain(InteractionAction.PinNote, settings.VisibleActions);
+        Check.That(settings.VisibleActions.Contains(InteractionAction.PinNote)).IsFalse();
 
         settings.EnsureDefaults();
 
-        Assert.Contains(InteractionAction.PinNote, settings.VisibleActions);
+        Check.That(settings.VisibleActions).Contains(InteractionAction.PinNote);
     }
 
     [Fact]
@@ -26,6 +26,6 @@ public class ActionMenuSettingsMigrationTests
 
         settings.EnsureDefaults();
 
-        Assert.Equal(count, settings.VisibleActions.Count);
+        Check.That(settings.VisibleActions.Count).IsEqualTo(count);
     }
 }

@@ -15,8 +15,8 @@ public class SettingsServiceTests
             var service = new SettingsService(tempPath);
             service.Save(settings);
             var loaded = service.Load();
-            Assert.Equal(600, loaded.Dwell.ActivationButtonDwellMs);
-            Assert.Equal(0.7, loaded.Cursor.SmoothingFactor);
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
+            Check.That(loaded.Cursor.SmoothingFactor).IsEqualTo(0.7);
         }
         finally { File.Delete(tempPath); }
     }
@@ -26,7 +26,7 @@ public class SettingsServiceTests
     {
         var service = new SettingsService("/nonexistent/path.json");
         var settings = service.Load();
-        Assert.NotNull(settings);
-        Assert.Equal(700, settings.Dwell.ActivationButtonDwellMs);
+        Check.That(settings).IsNotNull();
+        Check.That(settings.Dwell.ActivationButtonDwellMs).IsEqualTo(700);
     }
 }

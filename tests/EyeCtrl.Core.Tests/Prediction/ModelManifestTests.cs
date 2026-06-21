@@ -29,13 +29,13 @@ public class ModelManifestTests
 
         var manifest = JsonSerializer.Deserialize<ModelManifest>(json);
 
-        Assert.NotNull(manifest);
-        Assert.NotNull(manifest!.Models);
-        Assert.Equal(2, manifest.Models.Count);
-        Assert.Equal(73400320, manifest.Models["135M"].SizeBytes);
-        Assert.Equal("abc123def456", manifest.Models["135M"].Sha256);
-        Assert.Equal("tok456abc789", manifest.Models["135M"].TokenizerSha256);
-        Assert.Equal("tok789def012", manifest.Models["360M"].TokenizerSha256);
+        Check.That(manifest).IsNotNull();
+        Check.That(manifest!.Models).IsNotNull();
+        Check.That(manifest.Models.Count).IsEqualTo(2);
+        Check.That(manifest.Models["135M"].SizeBytes).IsEqualTo(73400320);
+        Check.That(manifest.Models["135M"].Sha256).IsEqualTo("abc123def456");
+        Check.That(manifest.Models["135M"].TokenizerSha256).IsEqualTo("tok456abc789");
+        Check.That(manifest.Models["360M"].TokenizerSha256).IsEqualTo("tok789def012");
     }
 
     [Fact]
@@ -57,10 +57,10 @@ public class ModelManifestTests
         """;
 
         var manifest = JsonSerializer.Deserialize<ModelManifest>(json);
-        Assert.NotNull(manifest);
+        Check.That(manifest).IsNotNull();
         var entry = manifest!.Models["135M"];
-        Assert.Equal("SmolLM2 135M", entry.DisplayName);
-        Assert.Equal("https://example.com/tokenizer.json", entry.TokenizerUrl);
-        Assert.Equal("def", entry.TokenizerSha256);
+        Check.That(entry.DisplayName).IsEqualTo("SmolLM2 135M");
+        Check.That(entry.TokenizerUrl).IsEqualTo("https://example.com/tokenizer.json");
+        Check.That(entry.TokenizerSha256).IsEqualTo("def");
     }
 }

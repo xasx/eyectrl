@@ -12,7 +12,7 @@ public class ModelDownloadServiceTests
         {
             var service = new ModelDownloadService(tempDir);
             var available = service.GetAvailableModels();
-            Assert.Empty(available);
+            Check.That(available).IsEmpty();
         }
         finally
         {
@@ -35,9 +35,9 @@ public class ModelDownloadServiceTests
             var service = new ModelDownloadService(tempDir);
             var available = service.GetAvailableModels();
 
-            Assert.Contains("135M", available);
-            Assert.Contains("360M", available);
-            Assert.DoesNotContain("1.5B", available);
+            Check.That(available).Contains("135M");
+            Check.That(available).Contains("360M");
+            Check.That(available.Contains("1.5B")).IsFalse();
         }
         finally
         {
@@ -56,8 +56,8 @@ public class ModelDownloadServiceTests
             File.WriteAllText(Path.Combine(tempDir, "qwen2.5-1.5b.tokenizer.json"), "dummy");
             var service = new ModelDownloadService(tempDir);
 
-            Assert.True(service.IsModelDownloaded("1.5B"));
-            Assert.False(service.IsModelDownloaded("360M"));
+            Check.That(service.IsModelDownloaded("1.5B")).IsTrue();
+            Check.That(service.IsModelDownloaded("360M")).IsFalse();
         }
         finally
         {
@@ -75,8 +75,8 @@ public class ModelDownloadServiceTests
             var service = new ModelDownloadService(tempDir);
             var path = service.GetModelPath("360M");
 
-            Assert.EndsWith("smollm2-360m.onnx", path);
-            Assert.StartsWith(tempDir, path);
+            Check.That(path).EndsWith("smollm2-360m.onnx");
+            Check.That(path).StartsWith(tempDir);
         }
         finally
         {
@@ -94,8 +94,8 @@ public class ModelDownloadServiceTests
             var service = new ModelDownloadService(tempDir);
             var path = service.GetTokenizerPath("360M");
 
-            Assert.EndsWith("smollm2-360m.tokenizer.json", path);
-            Assert.StartsWith(tempDir, path);
+            Check.That(path).EndsWith("smollm2-360m.tokenizer.json");
+            Check.That(path).StartsWith(tempDir);
         }
         finally
         {
@@ -113,7 +113,7 @@ public class ModelDownloadServiceTests
             File.WriteAllText(Path.Combine(tempDir, "smollm2-135m.onnx"), "dummy");
             var service = new ModelDownloadService(tempDir);
 
-            Assert.False(service.IsModelDownloaded("135M"));
+            Check.That(service.IsModelDownloaded("135M")).IsFalse();
         }
         finally
         {
@@ -133,7 +133,7 @@ public class ModelDownloadServiceTests
 
             var available = service.GetAvailableModels();
 
-            Assert.DoesNotContain("135M", available);
+            Check.That(available.Contains("135M")).IsFalse();
         }
         finally
         {
@@ -152,7 +152,7 @@ public class ModelDownloadServiceTests
             File.WriteAllText(Path.Combine(tempDir, "qwen2.5-1.5b.tokenizer.json"), "dummy");
             var service = new ModelDownloadService(tempDir);
 
-            Assert.True(service.IsModelDownloaded("1.5B"));
+            Check.That(service.IsModelDownloaded("1.5B")).IsTrue();
         }
         finally
         {
@@ -165,7 +165,7 @@ public class ModelDownloadServiceTests
     {
         var url = "https://huggingface.co/org/repo/resolve/main/onnx/model.onnx";
         var result = ModelDownloadService.GetTokenizerUrl(url);
-        Assert.Equal("https://huggingface.co/org/repo/resolve/main/onnx/tokenizer.json", result);
+        Check.That(result).IsEqualTo("https://huggingface.co/org/repo/resolve/main/onnx/tokenizer.json");
     }
 
     [Fact]
@@ -173,13 +173,13 @@ public class ModelDownloadServiceTests
     {
         var url = "https://huggingface.co/org/repo/resolve/main/model.onnx?download=true";
         var result = ModelDownloadService.GetTokenizerUrl(url);
-        Assert.Equal("https://huggingface.co/org/repo/resolve/main/tokenizer.json", result);
+        Check.That(result).IsEqualTo("https://huggingface.co/org/repo/resolve/main/tokenizer.json");
     }
 
     [Fact]
     public void GetTokenizerUrl_EmptyUrl_Throws()
     {
-        Assert.Throws<ArgumentException>(() => ModelDownloadService.GetTokenizerUrl(""));
+        Check.ThatCode(() => ModelDownloadService.GetTokenizerUrl("")).Throws<ArgumentException>();
     }
 
     [Fact]
@@ -187,7 +187,7 @@ public class ModelDownloadServiceTests
     {
         var url = "https://example.com/model.onnx";
         var result = ModelDownloadService.GetTokenizerUrl(url);
-        Assert.Equal("https://example.com/tokenizer.json", result);
+        Check.That(result).IsEqualTo("https://example.com/tokenizer.json");
     }
 
     [Fact]
@@ -195,6 +195,6 @@ public class ModelDownloadServiceTests
     {
         var url = "https://example.com/a/b/c/model.onnx";
         var result = ModelDownloadService.GetTokenizerUrl(url);
-        Assert.Equal("https://example.com/a/b/c/tokenizer.json", result);
+        Check.That(result).IsEqualTo("https://example.com/a/b/c/tokenizer.json");
     }
 }

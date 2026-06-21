@@ -30,7 +30,7 @@ public class SettingsServiceValidationTests : IDisposable
 
         // Act & Assert - should not throw
         service.Save(settings);
-        Assert.True(File.Exists(_testFilePath));
+        Check.That(File.Exists(_testFilePath)).IsTrue();
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class SettingsServiceValidationTests : IDisposable
         settings.Keyboard.ActiveLayout = "DVORAK";
 
         // Act & Assert
-        Assert.Throws<InvalidOperationException>(() => service.Save(settings));
+        Check.ThatCode(() => service.Save(settings)).Throws<InvalidOperationException>();
     }
 
     [Fact]
@@ -65,8 +65,8 @@ public class SettingsServiceValidationTests : IDisposable
 
         // Assert - should return defaults instead of invalid settings
         var defaults = new EyeCtrlSettings();
-        Assert.Equal(defaults.Cursor.SmoothingFactor, settings.Cursor.SmoothingFactor);
-        Assert.Equal(defaults.Cursor.CircleColor, settings.Cursor.CircleColor);
+        Check.That(settings.Cursor.SmoothingFactor).IsEqualTo(defaults.Cursor.SmoothingFactor);
+        Check.That(settings.Cursor.CircleColor).IsEqualTo(defaults.Cursor.CircleColor);
     }
 
     [Fact]
@@ -89,8 +89,8 @@ public class SettingsServiceValidationTests : IDisposable
 
         // Assert - should return defaults
         var defaults = new EyeCtrlSettings();
-        Assert.Equal(defaults.Keyboard.ActiveLayout, settings.Keyboard.ActiveLayout);
-        Assert.Equal(defaults.Keyboard.ScreenEdge, settings.Keyboard.ScreenEdge);
+        Check.That(settings.Keyboard.ActiveLayout).IsEqualTo(defaults.Keyboard.ActiveLayout);
+        Check.That(settings.Keyboard.ScreenEdge).IsEqualTo(defaults.Keyboard.ScreenEdge);
     }
 
     [Fact]
@@ -116,9 +116,9 @@ public class SettingsServiceValidationTests : IDisposable
 
         // Assert - should return defaults
         var defaults = new EyeCtrlSettings();
-        Assert.Equal(defaults.ManualSelection.CircleRadiusPixels, settings.ManualSelection.CircleRadiusPixels);
-        Assert.Equal(defaults.ManualSelection.MagnificationLevel, settings.ManualSelection.MagnificationLevel);
-        Assert.Equal(defaults.Toolbar.Size, settings.Toolbar.Size);
+        Check.That(settings.ManualSelection.CircleRadiusPixels).IsEqualTo(defaults.ManualSelection.CircleRadiusPixels);
+        Check.That(settings.ManualSelection.MagnificationLevel).IsEqualTo(defaults.ManualSelection.MagnificationLevel);
+        Check.That(settings.Toolbar.Size).IsEqualTo(defaults.Toolbar.Size);
     }
 
     [Fact]
@@ -131,8 +131,8 @@ public class SettingsServiceValidationTests : IDisposable
         var settings = service.Load();
 
         // Assert
-        Assert.NotNull(settings);
-        Assert.Empty(settings.Validate());
+        Check.That(settings).IsNotNull();
+        Check.That(settings.Validate()).IsEmpty();
     }
 
     [Fact]
@@ -151,9 +151,9 @@ public class SettingsServiceValidationTests : IDisposable
         var loadedSettings = service.Load();
 
         // Assert
-        Assert.Equal(0.7, loadedSettings.Cursor.SmoothingFactor);
-        Assert.Equal("AZERTY", loadedSettings.Keyboard.ActiveLayout);
-        Assert.Empty(loadedSettings.Validate());
+        Check.That(loadedSettings.Cursor.SmoothingFactor).IsEqualTo(0.7);
+        Check.That(loadedSettings.Keyboard.ActiveLayout).IsEqualTo("AZERTY");
+        Check.That(loadedSettings.Validate()).IsEmpty();
     }
 
     [Fact]
@@ -196,16 +196,16 @@ public class SettingsServiceValidationTests : IDisposable
         var loaded = service.Load();
 
         // Assert - all values should be preserved
-        Assert.Equal(0.8, loaded.Cursor.SmoothingFactor);
-        Assert.Equal("#FF0000", loaded.Cursor.CircleColor);
-        Assert.Equal(300, loaded.Cursor.CircleSize);
-        Assert.Equal(500, loaded.Dwell.FixationDetectionMs);
-        Assert.Equal(1000, loaded.Dwell.ActivationButtonDwellMs);
-        Assert.Equal("QWERTZ", loaded.Keyboard.ActiveLayout);
-        Assert.Equal("Top", loaded.Keyboard.ScreenEdge);
-        Assert.Equal("Left", loaded.Toolbar.DockedEdge);
-        Assert.Equal(100, loaded.Toolbar.Size);
-        Assert.Equal("Dark", loaded.Theme.Mode);
-        Assert.Equal(0.5, loaded.Theme.OverlayOpacity);
+        Check.That(loaded.Cursor.SmoothingFactor).IsEqualTo(0.8);
+        Check.That(loaded.Cursor.CircleColor).IsEqualTo("#FF0000");
+        Check.That(loaded.Cursor.CircleSize).IsEqualTo(300);
+        Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(500);
+        Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(1000);
+        Check.That(loaded.Keyboard.ActiveLayout).IsEqualTo("QWERTZ");
+        Check.That(loaded.Keyboard.ScreenEdge).IsEqualTo("Top");
+        Check.That(loaded.Toolbar.DockedEdge).IsEqualTo("Left");
+        Check.That(loaded.Toolbar.Size).IsEqualTo(100);
+        Check.That(loaded.Theme.Mode).IsEqualTo("Dark");
+        Check.That(loaded.Theme.OverlayOpacity).IsEqualTo(0.5);
     }
 }

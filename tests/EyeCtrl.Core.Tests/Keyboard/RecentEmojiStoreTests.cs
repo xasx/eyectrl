@@ -23,8 +23,8 @@ public class RecentEmojiStoreTests : IDisposable
         store.Add("\U0001f600");
         store.Add("\U0001f603");
 
-        Assert.Equal("\U0001f603", store.Recent[0]);
-        Assert.Equal("\U0001f600", store.Recent[1]);
+        Check.That(store.Recent[0]).IsEqualTo("\U0001f603");
+        Check.That(store.Recent[1]).IsEqualTo("\U0001f600");
     }
 
     [Fact]
@@ -35,8 +35,8 @@ public class RecentEmojiStoreTests : IDisposable
         store.Add("\U0001f603");
         store.Add("\U0001f600"); // move to front
 
-        Assert.Equal(2, store.Recent.Count);
-        Assert.Equal("\U0001f600", store.Recent[0]);
+        Check.That(store.Recent.Count).IsEqualTo(2);
+        Check.That(store.Recent[0]).IsEqualTo("\U0001f600");
     }
 
     [Fact]
@@ -48,8 +48,8 @@ public class RecentEmojiStoreTests : IDisposable
         store.Add("C");
         store.Add("D");
 
-        Assert.Equal(3, store.Recent.Count);
-        Assert.DoesNotContain("A", store.Recent);
+        Check.That(store.Recent.Count).IsEqualTo(3);
+        Check.That(store.Recent.Contains("A")).IsFalse();
     }
 
     [Fact]
@@ -61,14 +61,14 @@ public class RecentEmojiStoreTests : IDisposable
         store1.Save();
 
         var store2 = new RecentEmojiStore(_tempFile);
-        Assert.Equal(2, store2.Recent.Count);
-        Assert.Equal("\u2764\ufe0f", store2.Recent[0]);
+        Check.That(store2.Recent.Count).IsEqualTo(2);
+        Check.That(store2.Recent[0]).IsEqualTo("\u2764\ufe0f");
     }
 
     [Fact]
     public void Load_MissingFile_ReturnsEmpty()
     {
         var store = new RecentEmojiStore(_tempFile);
-        Assert.Empty(store.Recent);
+        Check.That(store.Recent).IsEmpty();
     }
 }

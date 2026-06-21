@@ -8,12 +8,12 @@ public class InteractionActionEnumTests
     [Fact]
     public void PinNote_HasValue_9()
     {
-        Assert.Equal(9, (int)InteractionAction.PinNote);
+        Check.That((int)InteractionAction.PinNote).IsEqualTo(9);
     }
 
     [Fact]
     public void Enum_Contains_PinNote()
     {
-        Assert.Contains(InteractionAction.PinNote, Enum.GetValues<InteractionAction>());
+        Check.That(Enum.GetValues<InteractionAction>()).Contains(InteractionAction.PinNote);
     }
 }

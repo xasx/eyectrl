@@ -22,14 +22,14 @@ public class SettingsServiceDebounceTests : IDisposable
         _service.SaveDebounced(settings);
 
         // Not saved yet immediately
-        Assert.False(File.Exists(_tempFile));
+        Check.That(File.Exists(_tempFile)).IsFalse();
 
         // Wait for debounce (500ms + buffer)
         await Task.Delay(800, TestContext.Current.CancellationToken);
 
-        Assert.True(File.Exists(_tempFile));
+        Check.That(File.Exists(_tempFile)).IsTrue();
         var loaded = _service.Load();
-        Assert.Equal(999, loaded.Dwell.FixationDetectionMs);
+        Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(999);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class SettingsServiceDebounceTests : IDisposable
         await Task.Delay(800, TestContext.Current.CancellationToken);
 
         var loaded = _service.Load();
-        Assert.Equal(300, loaded.Dwell.FixationDetectionMs);
+        Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(300);
     }
 
     public void Dispose()

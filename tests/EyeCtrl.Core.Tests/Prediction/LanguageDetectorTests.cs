@@ -18,7 +18,7 @@ public class LanguageDetectorTests
     public void DetectFromCulture_KnownCulture_ReturnsMappedCode(string cultureName, string expected)
     {
         var culture = new CultureInfo(cultureName);
-        Assert.Equal(expected, LanguageDetector.DetectFromCulture(culture));
+        Check.That(LanguageDetector.DetectFromCulture(culture)).IsEqualTo(expected);
     }
 
     [Theory]
@@ -28,6 +28,6 @@ public class LanguageDetectorTests
     public void DetectFromCulture_UnsupportedCulture_FallsBackToEnglish(string cultureName)
     {
         var culture = new CultureInfo(cultureName);
-        Assert.Equal("en", LanguageDetector.DetectFromCulture(culture));
+        Check.That(LanguageDetector.DetectFromCulture(culture)).IsEqualTo("en");
     }
 }

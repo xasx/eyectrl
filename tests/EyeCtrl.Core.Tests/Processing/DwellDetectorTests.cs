@@ -22,8 +22,8 @@ public class DwellDetectorTests
             time += 30_000;
         }
 
-        Assert.True(activated);
-        Assert.Equal("test", activatedId);
+        Check.That(activated).IsTrue();
+        Check.That(activatedId).IsEqualTo("test");
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class DwellDetectorTests
         detector.Update(new PhysicalPoint(100, 100), 150_000);
         detector.Update(new PhysicalPoint(100, 100), 180_000);
 
-        Assert.False(activated);
+        Check.That(activated).IsFalse();
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class DwellDetectorTests
         detector.Update(new PhysicalPoint(100, 100), 150_000);
 
         double progress = detector.GetProgress("test");
-        Assert.InRange(progress, 0.4, 0.6);
+        Check.That(progress >= 0.4 && progress <= 0.6).IsTrue();
     }
 
     [Fact]
@@ -86,8 +86,8 @@ public class DwellDetectorTests
         }
 
         // Only A should have received positive progress
-        Assert.Contains("A", progressIds);
-        Assert.DoesNotContain("B", progressIds);
+        Check.That(progressIds).Contains("A");
+        Check.That(progressIds.Contains("B")).IsFalse();
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public class DwellDetectorTests
             detector.Update(new PhysicalPoint(100, 100), time);
             time += 30_000; // 30ms per frame
         }
-        Assert.Single(activations);
+        Check.That(activations).HasSize(1);
 
         // Continue gazing within cooldown (400ms = 400_000us from activation)
         // Activation happened around time ~240_000. Cooldown ends at ~640_000.
@@ -119,7 +119,7 @@ public class DwellDetectorTests
             time += 30_000;
         }
 
-        Assert.Single(activations); // still only one
+        Check.That(activations).HasSize(1); // still only one
     }
 
     [Fact]
@@ -140,7 +140,7 @@ public class DwellDetectorTests
             detector.Update(new PhysicalPoint(100, 100), time);
             time += 30_000;
         }
-        Assert.Single(activations);
+        Check.That(activations).HasSize(1);
 
         // Jump past cooldown period (400ms beyond activation)
         time += 500_000; // 500ms jump — well past cooldown
@@ -152,7 +152,7 @@ public class DwellDetectorTests
             time += 30_000;
         }
 
-        Assert.Equal(2, activations.Count);
+        Check.That(activations.Count).IsEqualTo(2);
     }
 
     [Fact]
@@ -173,7 +173,7 @@ public class DwellDetectorTests
             detector.Update(new PhysicalPoint(100, 100), time);
             time += 30_000;
         }
-        Assert.Single(activations);
+        Check.That(activations).HasSize(1);
 
         // Immediately continue — with 0 cooldown, should re-trigger after another 200ms
         for (int i = 0; i < 9; i++)
@@ -182,6 +182,6 @@ public class DwellDetectorTests
             time += 30_000;
         }
 
-        Assert.Equal(2, activations.Count);
+        Check.That(activations.Count).IsEqualTo(2);
     }
 }

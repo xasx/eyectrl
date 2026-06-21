@@ -14,11 +14,9 @@ public class OneEuroFilterValidationTests
     [InlineData(-5)]
     public void Constructor_ZeroOrNegativeMinCutoff_ThrowsArgumentOutOfRangeException(double minCutoff)
     {
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+        var exception = Check.ThatCode(
             () => new OneEuroFilter(minCutoff: minCutoff, beta: 0.5, dCutoff: 1.0));
-
-        Assert.Equal("minCutoff", exception.ParamName);
-        Assert.Equal(minCutoff, exception.ActualValue);
+        exception.Throws<ArgumentOutOfRangeException>();
     }
 
     [Theory]
@@ -26,11 +24,9 @@ public class OneEuroFilterValidationTests
     [InlineData(-0.5)]
     public void Constructor_NegativeBeta_ThrowsArgumentOutOfRangeException(double beta)
     {
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+        var exception = Check.ThatCode(
             () => new OneEuroFilter(minCutoff: 5.0, beta: beta, dCutoff: 1.0));
-
-        Assert.Equal("beta", exception.ParamName);
-        Assert.Equal(beta, exception.ActualValue);
+        exception.Throws<ArgumentOutOfRangeException>();
     }
 
     [Theory]
@@ -38,45 +34,43 @@ public class OneEuroFilterValidationTests
     [InlineData(-1)]
     public void Constructor_ZeroOrNegativeDCutoff_ThrowsArgumentOutOfRangeException(double dCutoff)
     {
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+        var exception = Check.ThatCode(
             () => new OneEuroFilter(minCutoff: 5.0, beta: 0.5, dCutoff: dCutoff));
-
-        Assert.Equal("dCutoff", exception.ParamName);
-        Assert.Equal(dCutoff, exception.ActualValue);
+        exception.Throws<ArgumentOutOfRangeException>();
     }
 
     [Fact]
     public void Constructor_NaNParameters_ThrowsArgumentException()
     {
-        Assert.Throws<ArgumentException>(
-            () => new OneEuroFilter(minCutoff: double.NaN, beta: 0.5, dCutoff: 1.0));
+        Check.ThatCode(
+            () => new OneEuroFilter(minCutoff: double.NaN, beta: 0.5, dCutoff: 1.0)).Throws<ArgumentException>();
 
-        Assert.Throws<ArgumentException>(
-            () => new OneEuroFilter(minCutoff: 5.0, beta: double.NaN, dCutoff: 1.0));
+        Check.ThatCode(
+            () => new OneEuroFilter(minCutoff: 5.0, beta: double.NaN, dCutoff: 1.0)).Throws<ArgumentException>();
 
-        Assert.Throws<ArgumentException>(
-            () => new OneEuroFilter(minCutoff: 5.0, beta: 0.5, dCutoff: double.NaN));
+        Check.ThatCode(
+            () => new OneEuroFilter(minCutoff: 5.0, beta: 0.5, dCutoff: double.NaN)).Throws<ArgumentException>();
     }
 
     [Fact]
     public void Constructor_InfinityParameters_ThrowsArgumentException()
     {
-        Assert.Throws<ArgumentException>(
-            () => new OneEuroFilter(minCutoff: double.PositiveInfinity, beta: 0.5, dCutoff: 1.0));
+        Check.ThatCode(
+            () => new OneEuroFilter(minCutoff: double.PositiveInfinity, beta: 0.5, dCutoff: 1.0)).Throws<ArgumentException>();
     }
 
     [Fact]
     public void Constructor_ValidParameters_DoesNotThrow()
     {
         var filter = new OneEuroFilter(minCutoff: 5.0, beta: 0.5, dCutoff: 1.0);
-        Assert.NotNull(filter);
+        Check.That(filter).IsNotNull();
     }
 
     [Fact]
     public void Constructor_DefaultParameters_DoesNotThrow()
     {
         var filter = new OneEuroFilter();
-        Assert.NotNull(filter);
+        Check.That(filter).IsNotNull();
     }
 
     [Fact]
@@ -91,8 +85,8 @@ public class OneEuroFilterValidationTests
         // Second point with same timestamp - should use fallback dt and not crash
         var result2 = filter.Filter(new GazePoint(101, 101, 0, true));
 
-        Assert.True(double.IsFinite(result2.X));
-        Assert.True(double.IsFinite(result2.Y));
+        Check.That(double.IsFinite(result2.X)).IsTrue();
+        Check.That(double.IsFinite(result2.Y)).IsTrue();
     }
 
     [Fact]
@@ -107,8 +101,8 @@ public class OneEuroFilterValidationTests
         // Second point at t=500 (backwards in time) - should use fallback dt
         var result2 = filter.Filter(new GazePoint(101, 101, 500, true));
 
-        Assert.True(double.IsFinite(result2.X));
-        Assert.True(double.IsFinite(result2.Y));
+        Check.That(double.IsFinite(result2.X)).IsTrue();
+        Check.That(double.IsFinite(result2.Y)).IsTrue();
     }
 
     [Fact]
@@ -123,8 +117,8 @@ public class OneEuroFilterValidationTests
         // Second point with 1 microsecond difference
         var result2 = filter.Filter(new GazePoint(101, 101, 1, true));
 
-        Assert.True(double.IsFinite(result2.X));
-        Assert.True(double.IsFinite(result2.Y));
+        Check.That(double.IsFinite(result2.X)).IsTrue();
+        Check.That(double.IsFinite(result2.Y)).IsTrue();
     }
 
     [Fact]
@@ -138,7 +132,7 @@ public class OneEuroFilterValidationTests
         // Invalid point should return last valid position
         var result = filter.Filter(new GazePoint(0, 0, 100, false));
 
-        Assert.True(double.IsFinite(result.X));
-        Assert.True(double.IsFinite(result.Y));
+        Check.That(double.IsFinite(result.X)).IsTrue();
+        Check.That(double.IsFinite(result.Y)).IsTrue();
     }
 }

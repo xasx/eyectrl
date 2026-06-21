@@ -54,7 +54,7 @@ public class DictionaryQualityTests
         var wordCount = words.EnumerateObject().Count();
 
         // Assert
-        Assert.Equal(expectedCount, wordCount);
+        Check.That(wordCount).IsEqualTo(expectedCount);
     }
 
     [Theory]
@@ -73,12 +73,12 @@ public class DictionaryQualityTests
         var dict = JsonSerializer.Deserialize<JsonElement>(json);
 
         // Assert - Must have 'words' property
-        Assert.True(dict.TryGetProperty("words", out var words));
-        Assert.Equal(JsonValueKind.Object, words.ValueKind);
+        Check.That(dict.TryGetProperty("words", out var words)).IsTrue();
+        Check.That(words.ValueKind).IsEqualTo(JsonValueKind.Object);
 
         // Assert - Must have 'abbreviations' property
-        Assert.True(dict.TryGetProperty("abbreviations", out var abbrevs));
-        Assert.Equal(JsonValueKind.Array, abbrevs.ValueKind);
+        Check.That(dict.TryGetProperty("abbreviations", out var abbrevs)).IsTrue();
+        Check.That(abbrevs.ValueKind).IsEqualTo(JsonValueKind.Array);
     }
 
     [Theory]
@@ -100,10 +100,8 @@ public class DictionaryQualityTests
         // Assert - Every word must have a positive integer frequency
         foreach (var word in words.EnumerateObject())
         {
-            Assert.True(word.Value.TryGetInt32(out var freq),
-                $"Word '{word.Name}' does not have a valid integer frequency");
-            Assert.True(freq > 0,
-                $"Word '{word.Name}' has non-positive frequency: {freq}");
+            Check.That(word.Value.TryGetInt32(out var freq)).IsTrue();
+            Check.That(freq > 0).IsTrue();
         }
     }
 
@@ -126,8 +124,7 @@ public class DictionaryQualityTests
         // Assert - No word should be empty or whitespace
         foreach (var word in words.EnumerateObject())
         {
-            Assert.False(string.IsNullOrWhiteSpace(word.Name),
-                "Dictionary contains empty or whitespace word");
+            Check.That(string.IsNullOrWhiteSpace(word.Name)).IsFalse();
         }
     }
 
@@ -150,7 +147,7 @@ public class DictionaryQualityTests
         // Assert - Words should be between 1 and 25 characters (reasonable limits)
         foreach (var word in words.EnumerateObject())
         {
-            Assert.InRange(word.Name.Length, 1, 25);
+            Check.That(word.Name.Length >= 1 && word.Name.Length <= 25).IsTrue();
         }
     }
 
@@ -171,7 +168,6 @@ public class DictionaryQualityTests
         var abbrevs = dict.GetProperty("abbreviations");
 
         // Assert - Should have at least a few common abbreviations
-        Assert.True(abbrevs.GetArrayLength() > 0,
-            $"Dictionary {fileName} has no abbreviations");
+        Check.That(abbrevs.GetArrayLength() > 0).IsTrue();
     }
 }

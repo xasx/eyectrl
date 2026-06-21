@@ -18,8 +18,8 @@ public class DpiHelperTests
     public void PhysicalToLogical_DividesByScale(double scale)
     {
         DpiHelper.Initialize(scale, scale);
-        Assert.Equal(100.0, DpiHelper.PhysicalToLogicalX(100.0 * scale), 5);
-        Assert.Equal(100.0, DpiHelper.PhysicalToLogicalY(100.0 * scale), 5);
+        Check.That(DpiHelper.PhysicalToLogicalX(100.0 * scale)).IsCloseTo(100.0, 1E-05);
+        Check.That(DpiHelper.PhysicalToLogicalY(100.0 * scale)).IsCloseTo(100.0, 1E-05);
     }
 
     [Theory]
@@ -30,25 +30,25 @@ public class DpiHelperTests
     public void LogicalToPhysical_MultipliesByScale(double scale)
     {
         DpiHelper.Initialize(scale, scale);
-        Assert.Equal(100.0 * scale, DpiHelper.LogicalToPhysicalX(100.0), 5);
-        Assert.Equal(100.0 * scale, DpiHelper.LogicalToPhysicalY(100.0), 5);
+        Check.That(DpiHelper.LogicalToPhysicalX(100.0)).IsCloseTo(100.0 * scale, 1E-05);
+        Check.That(DpiHelper.LogicalToPhysicalY(100.0)).IsCloseTo(100.0 * scale, 1E-05);
     }
 
     [Fact]
     public void DefaultScale_IsOne()
     {
         DpiHelper.Initialize(1.0, 1.0);
-        Assert.Equal(500.0, DpiHelper.PhysicalToLogicalX(500.0));
-        Assert.Equal(500.0, DpiHelper.LogicalToPhysicalX(500.0));
+        Check.That(DpiHelper.PhysicalToLogicalX(500.0)).IsEqualTo(500.0);
+        Check.That(DpiHelper.LogicalToPhysicalX(500.0)).IsEqualTo(500.0);
     }
 
     [Fact]
     public void AsymmetricScale_UsesCorrectAxis()
     {
         DpiHelper.Initialize(2.0, 1.5);
-        Assert.Equal(50.0, DpiHelper.PhysicalToLogicalX(100.0));
-        Assert.Equal(100.0 / 1.5, DpiHelper.PhysicalToLogicalY(100.0), 5);
-        Assert.Equal(200.0, DpiHelper.LogicalToPhysicalX(100.0));
-        Assert.Equal(150.0, DpiHelper.LogicalToPhysicalY(100.0));
+        Check.That(DpiHelper.PhysicalToLogicalX(100.0)).IsEqualTo(50.0);
+        Check.That(DpiHelper.PhysicalToLogicalY(100.0)).IsCloseTo(100.0 / 1.5, 1E-05);
+        Check.That(DpiHelper.LogicalToPhysicalX(100.0)).IsEqualTo(200.0);
+        Check.That(DpiHelper.LogicalToPhysicalY(100.0)).IsEqualTo(150.0);
     }
 }

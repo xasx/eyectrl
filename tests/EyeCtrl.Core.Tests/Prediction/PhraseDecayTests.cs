@@ -18,8 +18,8 @@ public class PhraseDecayTests
 
         // Assert
         var phrases = model.GetPhrases("looking forward", 10);
-        Assert.Single(phrases);
-        Assert.Equal(2, phrases[0].frequency);
+        Check.That(phrases).HasSize(1);
+        Check.That(phrases[0].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -36,8 +36,8 @@ public class PhraseDecayTests
 
         // Assert - Frequency should remain unchanged
         var phrases = model.GetPhrases("thank you very", 10);
-        Assert.Single(phrases);
-        Assert.Equal(2, phrases[0].frequency);
+        Check.That(phrases).HasSize(1);
+        Check.That(phrases[0].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public class PhraseDecayTests
 
         // Assert - Entry should be removed (frequency < MinFrequency threshold of 2)
         var phrases = model.GetPhrases("how are", 10);
-        Assert.Empty(phrases);
+        Check.That(phrases).IsEmpty();
     }
 
     [Fact]
@@ -88,13 +88,13 @@ public class PhraseDecayTests
 
         // "looking forward to it" should still be present with frequency 4
         var recentPhrase = phrases.FirstOrDefault(p => p.phrase == "looking forward to it");
-        Assert.NotEqual(default, recentPhrase); // Ensure we found the entry
-        Assert.Equal("looking forward to it", recentPhrase.phrase);
-        Assert.Equal(4, recentPhrase.frequency);
+        Check.That(recentPhrase.phrase).IsNotNull(); // Ensure we found the entry
+        Check.That(recentPhrase.phrase).IsEqualTo("looking forward to it");
+        Check.That(recentPhrase.frequency).IsEqualTo(4);
 
         // "looking forward to seeing" should be removed (4 * 0.5^3 = 0.5, below threshold)
         var oldExists = phrases.Any(p => p.phrase == "looking forward to seeing");
-        Assert.False(oldExists);
+        Check.That(oldExists).IsFalse();
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public class PhraseDecayTests
         var phrases = model.GetPhrases("hello", 10);
 
         // Entry should still exist (10 days is less than one half-life)
-        Assert.Single(phrases);
-        Assert.Equal(2, phrases[0].frequency);
+        Check.That(phrases).HasSize(1);
+        Check.That(phrases[0].frequency).IsEqualTo(2);
     }
 }

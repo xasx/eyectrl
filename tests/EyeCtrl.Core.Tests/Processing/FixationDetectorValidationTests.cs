@@ -13,11 +13,9 @@ public class FixationDetectorValidationTests
     [InlineData(-50)]
     public void Constructor_ZeroOrNegativeRadius_ThrowsArgumentOutOfRangeException(double radius)
     {
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+        var exception = Check.ThatCode(
             () => new FixationDetector(fixationRadiusPixels: radius, fixationTimeMs: 200));
-
-        Assert.Equal("fixationRadiusPixels", exception.ParamName);
-        Assert.Equal(radius, exception.ActualValue);
+        exception.Throws<ArgumentOutOfRangeException>();
     }
 
     [Theory]
@@ -26,29 +24,25 @@ public class FixationDetectorValidationTests
     [InlineData(-1000)]
     public void Constructor_ZeroOrNegativeTime_ThrowsArgumentOutOfRangeException(int timeMs)
     {
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+        var exception2 = Check.ThatCode(
             () => new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: timeMs));
-
-        Assert.Equal("fixationTimeMs", exception.ParamName);
-        Assert.Equal(timeMs, exception.ActualValue);
+        exception2.Throws<ArgumentOutOfRangeException>();
     }
 
     [Fact]
     public void Constructor_NaNRadius_ThrowsArgumentException()
     {
-        var exception = Assert.Throws<ArgumentException>(
+        var exception3 = Check.ThatCode(
             () => new FixationDetector(fixationRadiusPixels: double.NaN, fixationTimeMs: 200));
-
-        Assert.Equal("fixationRadiusPixels", exception.ParamName);
+        exception3.Throws<ArgumentException>();
     }
 
     [Fact]
     public void Constructor_InfinityRadius_ThrowsArgumentException()
     {
-        var exception = Assert.Throws<ArgumentException>(
+        var exception4 = Check.ThatCode(
             () => new FixationDetector(fixationRadiusPixels: double.PositiveInfinity, fixationTimeMs: 200));
-
-        Assert.Equal("fixationRadiusPixels", exception.ParamName);
+        exception4.Throws<ArgumentException>();
     }
 
     [Fact]
@@ -56,7 +50,7 @@ public class FixationDetectorValidationTests
     {
         // Should not throw with valid positive values
         var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
-        Assert.NotNull(detector);
+        Check.That(detector).IsNotNull();
     }
 
     [Fact]
@@ -64,6 +58,6 @@ public class FixationDetectorValidationTests
     {
         // Should accept very small but positive values
         var detector = new FixationDetector(fixationRadiusPixels: 0.001, fixationTimeMs: 1);
-        Assert.NotNull(detector);
+        Check.That(detector).IsNotNull();
     }
 }

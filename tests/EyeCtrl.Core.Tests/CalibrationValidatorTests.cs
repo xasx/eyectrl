@@ -25,7 +25,7 @@ public class CalibrationValidatorTests
     {
         var identity = new AffineTransform(); // defaults to identity
 
-        Assert.True(CalibrationValidator.IsTransformSane(identity, 3840, 2400));
+        Check.That(CalibrationValidator.IsTransformSane(identity, 3840, 2400)).IsTrue();
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class CalibrationValidatorTests
         // Modest translation + scale — a realistic calibration correction.
         var t = FromParams(new[] { 1.05, 0.02, 40.0, -0.01, 0.98, -25.0 });
 
-        Assert.True(CalibrationValidator.IsTransformSane(t, 3840, 2400));
+        Check.That(CalibrationValidator.IsTransformSane(t, 3840, 2400)).IsTrue();
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class CalibrationValidatorTests
     {
         var t = FromParams(DegenerateParams);
 
-        Assert.False(CalibrationValidator.IsTransformSane(t, 3840, 2400));
+        Check.That(CalibrationValidator.IsTransformSane(t, 3840, 2400)).IsFalse();
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class CalibrationValidatorTests
     {
         var t = FromParams(new[] { double.NaN, 0, 0, 0, 1, 0 });
 
-        Assert.False(CalibrationValidator.IsTransformSane(t, 3840, 2400));
+        Check.That(CalibrationValidator.IsTransformSane(t, 3840, 2400)).IsFalse();
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class CalibrationValidatorTests
     {
         var identity = new AffineTransform();
 
-        Assert.False(CalibrationValidator.IsTransformSane(identity, 0, 2400));
+        Check.That(CalibrationValidator.IsTransformSane(identity, 0, 2400)).IsFalse();
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class CalibrationValidatorTests
             new(new PhysicalPoint(100, 900), new PhysicalPoint(100, 900), 0, 0, 30),
         };
 
-        Assert.True(CalibrationValidator.MaxResidualPixels(identity, points) < 1.0);
+        Check.That(CalibrationValidator.MaxResidualPixels(identity, points) < 1.0).IsTrue();
     }
 
     [Fact]
@@ -85,34 +85,34 @@ public class CalibrationValidatorTests
             new(new PhysicalPoint(1000, 1000), new PhysicalPoint(0, 0), 0, 0, 30),
         };
 
-        Assert.True(CalibrationValidator.MaxResidualPixels(identity, points) > 1000.0);
+        Check.That(CalibrationValidator.MaxResidualPixels(identity, points) > 1000.0).IsTrue();
     }
 
     [Fact]
     public void IsPlausibleSample_True_ForOnScreenPoint()
     {
-        Assert.True(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(1920, 1200), 3840, 2400));
+        Check.That(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(1920, 1200), 3840, 2400)).IsTrue();
     }
 
     [Fact]
     public void IsPlausibleSample_False_ForNonFinite()
     {
-        Assert.False(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(double.NaN, 0), 3840, 2400));
-        Assert.False(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(0, double.PositiveInfinity), 3840, 2400));
+        Check.That(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(double.NaN, 0), 3840, 2400)).IsFalse();
+        Check.That(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(0, double.PositiveInfinity), 3840, 2400)).IsFalse();
     }
 
     [Fact]
     public void IsPlausibleSample_False_ForFarOffScreen()
     {
-        Assert.False(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(1_000_000, 1200), 3840, 2400));
-        Assert.False(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(1920, -50_000), 3840, 2400));
+        Check.That(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(1_000_000, 1200), 3840, 2400)).IsFalse();
+        Check.That(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(1920, -50_000), 3840, 2400)).IsFalse();
     }
 
     [Fact]
     public void IsPlausibleSample_True_WhenScreenUnknown_AndFinite()
     {
         // No screen bounds to judge against → accept any finite coordinate.
-        Assert.True(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(99999, 99999), 0, 0));
+        Check.That(CalibrationValidator.IsPlausibleSample(new PhysicalPoint(99999, 99999), 0, 0)).IsTrue();
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class CalibrationValidatorTests
             new(new PhysicalPoint(3072, 1920), new PhysicalPoint(3050, 1930), 0, 0, 30),
         };
 
-        Assert.True(CalibrationValidator.HasSufficientGazeVariation(points));
+        Check.That(CalibrationValidator.HasSufficientGazeVariation(points)).IsTrue();
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class CalibrationValidatorTests
             new(new PhysicalPoint(768, 1920), new PhysicalPoint(3707, 61), 0, 0, 30),
         };
 
-        Assert.False(CalibrationValidator.HasSufficientGazeVariation(points));
+        Check.That(CalibrationValidator.HasSufficientGazeVariation(points)).IsFalse();
     }
 
     [Fact]
@@ -155,6 +155,6 @@ public class CalibrationValidatorTests
             new(new PhysicalPoint(3072, 1920), new PhysicalPoint(1, 1), 0, 0, 30),
         };
 
-        Assert.False(CalibrationValidator.HasSufficientGazeVariation(points));
+        Check.That(CalibrationValidator.HasSufficientGazeVariation(points)).IsFalse();
     }
 }

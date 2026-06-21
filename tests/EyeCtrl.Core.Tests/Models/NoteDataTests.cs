@@ -10,22 +10,22 @@ public class NoteDataTests
     {
         var a = new NoteData();
         var b = new NoteData();
-        Assert.NotEqual(a.Id, b.Id);
-        Assert.False(string.IsNullOrWhiteSpace(a.Id));
+        Check.That(a.Id).IsNotEqualTo(b.Id);
+        Check.That(string.IsNullOrWhiteSpace(a.Id)).IsFalse();
     }
 
     [Fact]
     public void Constructor_DefaultsToEditState()
     {
         var note = new NoteData();
-        Assert.Equal(NoteState.Edit, note.State);
+        Check.That(note.State).IsEqualTo(NoteState.Edit);
     }
 
     [Fact]
     public void Constructor_HasEmptyText()
     {
         var note = new NoteData();
-        Assert.Equal(string.Empty, note.Text);
+        Check.That(note.Text).IsEqualTo(string.Empty);
     }
 
     [Fact]
@@ -33,8 +33,8 @@ public class NoteDataTests
     {
         var note = new NoteData();
         note.Position = new PhysicalPoint(100, 200);
-        Assert.Equal(100, note.Position.X);
-        Assert.Equal(200, note.Position.Y);
+        Check.That(note.Position.X).IsEqualTo(100);
+        Check.That(note.Position.Y).IsEqualTo(200);
     }
 
     [Fact]
@@ -42,18 +42,18 @@ public class NoteDataTests
     {
         var note = new NoteData();
         note.State = NoteState.Display;
-        Assert.Equal(NoteState.Display, note.State);
+        Check.That(note.State).IsEqualTo(NoteState.Display);
         note.State = NoteState.Move;
-        Assert.Equal(NoteState.Move, note.State);
+        Check.That(note.State).IsEqualTo(NoteState.Move);
     }
 
     [Fact]
     public void NoteState_Enum_HasThreeValues()
     {
         var values = Enum.GetValues<NoteState>();
-        Assert.Equal(3, values.Length);
-        Assert.Contains(NoteState.Display, values);
-        Assert.Contains(NoteState.Edit, values);
-        Assert.Contains(NoteState.Move, values);
+        Check.That(values.Length).IsEqualTo(3);
+        Check.That(values).Contains(NoteState.Display);
+        Check.That(values).Contains(NoteState.Edit);
+        Check.That(values).Contains(NoteState.Move);
     }
 }

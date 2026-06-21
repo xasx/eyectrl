@@ -17,8 +17,8 @@ public class BigramDecayTests
 
         // Assert
         var nextWords = model.GetNextWords("hello", 10);
-        Assert.Single(nextWords);
-        Assert.Equal(2, nextWords[0].frequency);
+        Check.That(nextWords).HasSize(1);
+        Check.That(nextWords[0].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -34,8 +34,8 @@ public class BigramDecayTests
 
         // Assert - Frequency should remain unchanged
         var nextWords = model.GetNextWords("hello", 10);
-        Assert.Single(nextWords);
-        Assert.Equal(2, nextWords[0].frequency);
+        Check.That(nextWords).HasSize(1);
+        Check.That(nextWords[0].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public class BigramDecayTests
 
         // Assert - Entry should be removed (frequency < MinFrequency threshold of 2)
         var nextWords = model.GetNextWords("hello", 10);
-        Assert.Empty(nextWords);
+        Check.That(nextWords).IsEmpty();
     }
 
     [Fact]
@@ -82,13 +82,13 @@ public class BigramDecayTests
 
         // "world" should still be present with frequency 4
         var worldEntry = nextWords.FirstOrDefault(w => w.word == "world");
-        Assert.NotEqual(default, worldEntry); // Ensure we found the entry
-        Assert.Equal("world", worldEntry.word);
-        Assert.Equal(4, worldEntry.frequency);
+        Check.That(worldEntry.word).IsNotNull(); // Ensure we found the entry
+        Check.That(worldEntry.word).IsEqualTo("world");
+        Check.That(worldEntry.frequency).IsEqualTo(4);
 
         // "there" should be removed (4 * 0.5^3 = 0.5, below threshold)
         var thereExists = nextWords.Any(w => w.word == "there");
-        Assert.False(thereExists);
+        Check.That(thereExists).IsFalse();
     }
 
     [Fact]
@@ -107,8 +107,8 @@ public class BigramDecayTests
         var nextWords = model.GetNextWords("hello", 10);
 
         // Entry should still exist (10 days is less than one half-life)
-        Assert.Single(nextWords);
-        Assert.Equal(2, nextWords[0].frequency);
+        Check.That(nextWords).HasSize(1);
+        Check.That(nextWords[0].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public class BigramDecayTests
         // Assert - Should behave as if timestamp is now
         model.ApplyDecay(decayEnabled: true, halfLifeDays: 30);
         var nextWords = model.GetNextWords("hello", 10);
-        Assert.Single(nextWords);
-        Assert.Equal(2, nextWords[0].frequency);
+        Check.That(nextWords).HasSize(1);
+        Check.That(nextWords[0].frequency).IsEqualTo(2);
     }
 }

@@ -9,12 +9,12 @@ public class DwellSettingsDefaultsTests
     {
         var dwell = new DwellSettings();
 
-        Assert.Equal(300, dwell.FixationDetectionMs);
-        Assert.Equal(700, dwell.ActivationButtonDwellMs);
-        Assert.Equal(600, dwell.ActionMenuDwellMs);
-        Assert.Equal(600, dwell.ManualSelectionActionMenuDwellMs);
-        Assert.Equal(700, dwell.ToolbarButtonDwellMs);
-        Assert.Equal(450, dwell.KeyboardKeyDwellMs);
-        Assert.Equal(500, dwell.KeyboardPredictionDwellMs);
+        Check.That(dwell.FixationDetectionMs).IsEqualTo(300);
+        Check.That(dwell.ActivationButtonDwellMs).IsEqualTo(700);
+        Check.That(dwell.ActionMenuDwellMs).IsEqualTo(600);
+        Check.That(dwell.ManualSelectionActionMenuDwellMs).IsEqualTo(600);
+        Check.That(dwell.ToolbarButtonDwellMs).IsEqualTo(700);
+        Check.That(dwell.KeyboardKeyDwellMs).IsEqualTo(450);
+        Check.That(dwell.KeyboardPredictionDwellMs).IsEqualTo(500);
     }
 }

@@ -11,8 +11,8 @@ public class CasingPreferenceTrackerTests
 
         tracker.RecordCasing("Hello");
 
-        Assert.True(tracker.HasPreference("hello"));
-        Assert.Equal("Hello", tracker.GetPreferredCasing("hello"));
+        Check.That(tracker.HasPreference("hello")).IsTrue();
+        Check.That(tracker.GetPreferredCasing("hello")).IsEqualTo("Hello");
     }
 
     [Fact]
@@ -28,10 +28,10 @@ public class CasingPreferenceTrackerTests
 
         var variants = tracker.GetVariants("hello");
 
-        Assert.Equal(3, variants.Count);
-        Assert.Equal(1, variants["hello"]);
-        Assert.Equal(2, variants["Hello"]);
-        Assert.Equal(1, variants["HELLO"]);
+        Check.That(variants.Count).IsEqualTo(3);
+        Check.That(variants["hello"]).IsEqualTo(1);
+        Check.That(variants["Hello"]).IsEqualTo(2);
+        Check.That(variants["HELLO"]).IsEqualTo(1);
     }
 
     [Fact]
@@ -48,8 +48,8 @@ public class CasingPreferenceTrackerTests
             tracker.RecordCasing("haus");
 
         // Preferred should be "Haus"
-        Assert.Equal("Haus", tracker.GetPreferredCasing("haus"));
-        Assert.Equal("Haus", tracker.GetPreferredCasing("HAUS"));
+        Check.That(tracker.GetPreferredCasing("haus")).IsEqualTo("Haus");
+        Check.That(tracker.GetPreferredCasing("HAUS")).IsEqualTo("Haus");
     }
 
     [Fact]
@@ -57,8 +57,8 @@ public class CasingPreferenceTrackerTests
     {
         var tracker = new CasingPreferenceTracker();
 
-        Assert.Equal("unknown", tracker.GetPreferredCasing("unknown"));
-        Assert.Equal("Unknown", tracker.GetPreferredCasing("Unknown"));
+        Check.That(tracker.GetPreferredCasing("unknown")).IsEqualTo("unknown");
+        Check.That(tracker.GetPreferredCasing("Unknown")).IsEqualTo("Unknown");
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class CasingPreferenceTrackerTests
     {
         var tracker = new CasingPreferenceTracker();
 
-        Assert.False(tracker.HasPreference("test"));
+        Check.That(tracker.HasPreference("test")).IsFalse();
     }
 
     [Fact]
@@ -76,9 +76,9 @@ public class CasingPreferenceTrackerTests
 
         tracker.RecordCasing("test");
 
-        Assert.True(tracker.HasPreference("test"));
-        Assert.True(tracker.HasPreference("Test"));
-        Assert.True(tracker.HasPreference("TEST"));
+        Check.That(tracker.HasPreference("test")).IsTrue();
+        Check.That(tracker.HasPreference("Test")).IsTrue();
+        Check.That(tracker.HasPreference("TEST")).IsTrue();
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class CasingPreferenceTrackerTests
         // All variants should be tracked under the same key
         var variants = tracker.GetVariants("HeLLo"); // Any casing should work
 
-        Assert.Equal(3, variants.Count);
+        Check.That(variants.Count).IsEqualTo(3);
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public class CasingPreferenceTrackerTests
 
         var variants = tracker.GetVariants("unknown");
 
-        Assert.Empty(variants);
+        Check.That(variants).IsEmpty();
     }
 
     [Fact]
@@ -126,8 +126,8 @@ public class CasingPreferenceTrackerTests
 
         tracker.LoadFromDictionary(data);
 
-        Assert.Equal("Hello", tracker.GetPreferredCasing("hello"));
-        Assert.Equal("World", tracker.GetPreferredCasing("world"));
+        Check.That(tracker.GetPreferredCasing("hello")).IsEqualTo("Hello");
+        Check.That(tracker.GetPreferredCasing("world")).IsEqualTo("World");
     }
 
     [Fact]
@@ -140,9 +140,9 @@ public class CasingPreferenceTrackerTests
 
         var preferences = tracker.GetAllPreferences();
 
-        Assert.Equal(2, preferences.Count);
-        Assert.Contains("hello", preferences.Keys);
-        Assert.Contains("world", preferences.Keys);
+        Check.That(preferences.Count).IsEqualTo(2);
+        Check.That(preferences.Keys).Contains("hello");
+        Check.That(preferences.Keys).Contains("world");
     }
 
     [Fact]
@@ -163,11 +163,11 @@ public class CasingPreferenceTrackerTests
         tracker.LoadFromDictionary(newData);
 
         // Old data should be gone
-        Assert.False(tracker.HasPreference("hello"));
-        Assert.False(tracker.HasPreference("world"));
+        Check.That(tracker.HasPreference("hello")).IsFalse();
+        Check.That(tracker.HasPreference("world")).IsFalse();
 
         // New data should be present
-        Assert.True(tracker.HasPreference("test"));
+        Check.That(tracker.HasPreference("test")).IsTrue();
     }
 
     [Theory]
@@ -188,7 +188,7 @@ public class CasingPreferenceTrackerTests
     {
         var tracker = new CasingPreferenceTracker();
 
-        Assert.Equal(input, tracker.GetPreferredCasing(input));
+        Check.That(tracker.GetPreferredCasing(input)).IsEqualTo(input);
     }
 
     [Fact]
@@ -208,8 +208,8 @@ public class CasingPreferenceTrackerTests
         tracker.LoadFromDictionary(dataWithNull);
 
         // Should only load the valid entry
-        Assert.True(tracker.HasPreference("word1"));
-        Assert.False(tracker.HasPreference("word2"));
-        Assert.False(tracker.HasPreference("word3"));
+        Check.That(tracker.HasPreference("word1")).IsTrue();
+        Check.That(tracker.HasPreference("word2")).IsFalse();
+        Check.That(tracker.HasPreference("word3")).IsFalse();
     }
 }

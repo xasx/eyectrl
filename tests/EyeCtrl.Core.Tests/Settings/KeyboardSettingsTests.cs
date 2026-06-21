@@ -9,10 +9,10 @@ public class KeyboardSettingsTests
     public void Defaults_MLSettings_HaveExpectedValues()
     {
         var settings = new KeyboardSettings();
-        Assert.True(settings.MLSuggestionsEnabled);
-        Assert.Equal("360M", settings.MLModelSize);
-        Assert.True(settings.ShowLMLoadingIndicator);
-        Assert.True(settings.PreferGPU);
+        Check.That(settings.MLSuggestionsEnabled).IsTrue();
+        Check.That(settings.MLModelSize).IsEqualTo("360M");
+        Check.That(settings.ShowLMLoadingIndicator).IsTrue();
+        Check.That(settings.PreferGPU).IsTrue();
     }
 
     [Theory]
@@ -24,16 +24,16 @@ public class KeyboardSettingsTests
     public void MLModelSize_AnyValue_Accepted(string value)
     {
         var settings = new KeyboardSettings { MLModelSize = value };
-        Assert.Equal(value, settings.MLModelSize);
+        Check.That(settings.MLModelSize).IsEqualTo(value);
         // Validation no longer restricts MLModelSize — custom model IDs must be accepted.
-        Assert.DoesNotContain(settings.Validate(), e => e.Contains("MLModelSize"));
+        Check.That(settings.Validate().Any(e => e.Contains("MLModelSize"))).IsFalse();
     }
 
     [Fact]
     public void CustomModels_DefaultsToEmptyList()
     {
         var settings = new KeyboardSettings();
-        Assert.NotNull(settings.CustomModels);
-        Assert.Empty(settings.CustomModels);
+        Check.That(settings.CustomModels).IsNotNull();
+        Check.That(settings.CustomModels).IsEmpty();
     }
 }

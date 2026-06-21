@@ -10,31 +10,31 @@ public class MathConstantsTests
     [Fact]
     public void DegreesToRadiansConversion_IsCorrect()
     {
-        Assert.Equal(Math.PI / 180.0, MathConstants.DegreesToRadians, 10);
+        Check.That(MathConstants.DegreesToRadians).IsCloseTo(Math.PI / 180.0, 1e-10);
     }
 
     [Fact]
     public void FullCircleDegrees_Is360()
     {
-        Assert.Equal(360.0, MathConstants.FullCircleDegrees);
+        Check.That(MathConstants.FullCircleDegrees).IsEqualTo(360.0);
     }
 
     [Fact]
     public void RightAngleDegrees_Is90()
     {
-        Assert.Equal(90.0, MathConstants.RightAngleDegrees);
+        Check.That(MathConstants.RightAngleDegrees).IsEqualTo(90.0);
     }
 
     [Fact]
     public void StraightAngleDegrees_Is180()
     {
-        Assert.Equal(180.0, MathConstants.StraightAngleDegrees);
+        Check.That(MathConstants.StraightAngleDegrees).IsEqualTo(180.0);
     }
 
     [Fact]
     public void MicrosecondsPerMillisecond_Is1000()
     {
-        Assert.Equal(1000L, MathConstants.MicrosecondsPerMillisecond);
+        Check.That(MathConstants.MicrosecondsPerMillisecond).IsEqualTo(1000L);
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class MathConstantsTests
     {
         // Test that a 90-degree angle converts to PI/2 radians
         var radians = MathConstants.RightAngleDegrees * MathConstants.DegreesToRadians;
-        Assert.Equal(Math.PI / 2, radians, 10);
+        Check.That(radians).IsCloseTo(Math.PI / 2, 1e-10);
     }
 
     [Fact]
@@ -50,6 +50,6 @@ public class MathConstantsTests
     {
         // Test that 360 degrees converts to 2*PI radians
         var radians = MathConstants.FullCircleDegrees * MathConstants.DegreesToRadians;
-        Assert.Equal(2 * Math.PI, radians, 10);
+        Check.That(radians).IsCloseTo(2 * Math.PI, 1e-10);
     }
 }

@@ -46,7 +46,7 @@ public class DwellDetectorThreadSafetyTests
         await Task.WhenAll(tasks);
 
         // Should not have any collection modified exceptions
-        Assert.Empty(exceptions);
+        Check.That(exceptions).IsEmpty();
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class DwellDetectorThreadSafetyTests
         await Task.WhenAll(tasks);
 
         // Should not have any collection modified exceptions
-        Assert.Empty(exceptions);
+        Check.That(exceptions).IsEmpty();
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public class DwellDetectorThreadSafetyTests
         }
 
         // Should not have any collection modified exceptions
-        Assert.Empty(exceptions);
+        Check.That(exceptions).IsEmpty();
     }
 
     [Fact]
@@ -239,7 +239,7 @@ public class DwellDetectorThreadSafetyTests
         await Task.WhenAll(tasks);
 
         // Should not have any exceptions
-        Assert.Empty(exceptions);
+        Check.That(exceptions).IsEmpty();
     }
 
     [Fact]
@@ -306,7 +306,7 @@ public class DwellDetectorThreadSafetyTests
         await Task.WhenAll(tasks);
 
         // Should not have any exceptions
-        Assert.Empty(exceptions);
+        Check.That(exceptions).IsEmpty();
     }
 
     [Fact]
@@ -367,6 +367,6 @@ public class DwellDetectorThreadSafetyTests
         await Task.WhenAll(tasks);
 
         // Should complete without exceptions
-        Assert.Empty(exceptions);
+        Check.That(exceptions).IsEmpty();
     }
 }

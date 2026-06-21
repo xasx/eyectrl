@@ -16,9 +16,9 @@ public class PhraseModelTests
 
         // Assert
         var phrases = model.GetPhrases("thank", 10);
-        Assert.Single(phrases);
-        Assert.Equal("thank you", phrases[0].phrase);
-        Assert.Equal(2, phrases[0].frequency);
+        Check.That(phrases).HasSize(1);
+        Check.That(phrases[0].phrase).IsEqualTo("thank you");
+        Check.That(phrases[0].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -35,11 +35,11 @@ public class PhraseModelTests
         var phrases2 = model.GetPhrases("how", 10);
         var phrases3 = model.GetPhrases("how are", 10);
 
-        Assert.Single(phrases2);
-        Assert.Equal("how are", phrases2[0].phrase);
+        Check.That(phrases2).HasSize(1);
+        Check.That(phrases2[0].phrase).IsEqualTo("how are");
 
-        Assert.Single(phrases3);
-        Assert.Equal("how are you", phrases3[0].phrase);
+        Check.That(phrases3).HasSize(1);
+        Check.That(phrases3[0].phrase).IsEqualTo("how are you");
     }
 
     [Fact]
@@ -54,8 +54,8 @@ public class PhraseModelTests
 
         // Assert
         var phrases = model.GetPhrases("looking forward to", 10);
-        Assert.Single(phrases);
-        Assert.Equal("looking forward to hearing", phrases[0].phrase);
+        Check.That(phrases).HasSize(1);
+        Check.That(phrases[0].phrase).IsEqualTo("looking forward to hearing");
     }
 
     [Fact]
@@ -73,9 +73,9 @@ public class PhraseModelTests
         var fromIAm = model.GetPhrases("I am", 10);
         var fromIAmLooking = model.GetPhrases("I am looking", 10);
 
-        Assert.Contains(fromI, p => p.phrase == "I am");
-        Assert.Contains(fromIAm, p => p.phrase == "I am looking");
-        Assert.Contains(fromIAmLooking, p => p.phrase == "I am looking forward");
+        Check.That(fromI).HasElementThatMatches(p => p.phrase == "I am");
+        Check.That(fromIAm).HasElementThatMatches(p => p.phrase == "I am looking");
+        Check.That(fromIAmLooking).HasElementThatMatches(p => p.phrase == "I am looking forward");
     }
 
     [Fact]
@@ -98,19 +98,19 @@ public class PhraseModelTests
         var phrases3 = model.GetPhrases("Thank", 10);
 
         // Only "thank" prefix has 2 occurrences
-        Assert.Single(phrases1);
-        Assert.Equal("thank you", phrases1[0].phrase);
-        Assert.Equal(2, phrases1[0].frequency);
+        Check.That(phrases1).HasSize(1);
+        Check.That(phrases1[0].phrase).IsEqualTo("thank you");
+        Check.That(phrases1[0].frequency).IsEqualTo(2);
 
         // Only "THANK" prefix has 2 occurrences
-        Assert.Single(phrases2);
-        Assert.Equal("THANK YOU", phrases2[0].phrase);
-        Assert.Equal(2, phrases2[0].frequency);
+        Check.That(phrases2).HasSize(1);
+        Check.That(phrases2[0].phrase).IsEqualTo("THANK YOU");
+        Check.That(phrases2[0].frequency).IsEqualTo(2);
 
         // Only "Thank" prefix has 2 occurrences
-        Assert.Single(phrases3);
-        Assert.Equal("Thank You", phrases3[0].phrase);
-        Assert.Equal(2, phrases3[0].frequency);
+        Check.That(phrases3).HasSize(1);
+        Check.That(phrases3[0].phrase).IsEqualTo("Thank You");
+        Check.That(phrases3[0].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public class PhraseModelTests
 
         // Assert
         var allPhrases = model.GetAllPhrases();
-        Assert.Empty(allPhrases);
+        Check.That(allPhrases).IsEmpty();
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class PhraseModelTests
 
         // Assert
         var allPhrases = model.GetAllPhrases();
-        Assert.Empty(allPhrases);
+        Check.That(allPhrases).IsEmpty();
     }
 
     [Fact]
@@ -153,11 +153,11 @@ public class PhraseModelTests
 
         // Assert - Should only store sub-phrases up to 7 words
         var phrases8 = model.GetPhrases("one two three four five six seven", 10);
-        Assert.Empty(phrases8); // No 8-word phrase stored
+        Check.That(phrases8).IsEmpty(); // No 8-word phrase stored
 
         var phrases7 = model.GetPhrases("one two three four five six", 10);
-        Assert.Single(phrases7);
-        Assert.Equal("one two three four five six seven", phrases7[0].phrase);
+        Check.That(phrases7).HasSize(1);
+        Check.That(phrases7[0].phrase).IsEqualTo("one two three four five six seven");
     }
 
     [Fact]
@@ -175,8 +175,8 @@ public class PhraseModelTests
         var highPhrases = model.GetPhrases("high", 10);
         var lowPhrases = model.GetPhrases("low", 10);
 
-        Assert.Single(highPhrases);
-        Assert.Empty(lowPhrases);
+        Check.That(highPhrases).HasSize(1);
+        Check.That(lowPhrases).IsEmpty();
     }
 
     [Fact]
@@ -194,11 +194,11 @@ public class PhraseModelTests
 
         // Assert
         var phrases = model.GetPhrases("very", 10);
-        Assert.Equal(2, phrases.Count);
-        Assert.Equal("very common", phrases[0].phrase);
-        Assert.Equal(5, phrases[0].frequency);
-        Assert.Equal("very rare", phrases[1].phrase);
-        Assert.Equal(3, phrases[1].frequency);
+        Check.That(phrases.Count).IsEqualTo(2);
+        Check.That(phrases[0].phrase).IsEqualTo("very common");
+        Check.That(phrases[0].frequency).IsEqualTo(5);
+        Check.That(phrases[1].phrase).IsEqualTo("very rare");
+        Check.That(phrases[1].frequency).IsEqualTo(3);
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public class PhraseModelTests
 
         // Assert
         var phrases = model.GetPhrases("test", maxCount: 3);
-        Assert.Equal(3, phrases.Count);
+        Check.That(phrases.Count).IsEqualTo(3);
     }
 
     [Fact]
@@ -231,7 +231,7 @@ public class PhraseModelTests
         var phrases = model.GetPhrases("unknown", 10);
 
         // Assert
-        Assert.Empty(phrases);
+        Check.That(phrases).IsEmpty();
     }
 
     [Fact]
@@ -246,7 +246,7 @@ public class PhraseModelTests
         var phrases = model.GetPhrases("", 10);
 
         // Assert
-        Assert.Empty(phrases);
+        Check.That(phrases).IsEmpty();
     }
 
     [Fact]
@@ -266,7 +266,7 @@ public class PhraseModelTests
 
         // Assert
         var phrases = newModel.GetPhrases("hello", 10);
-        Assert.Equal(2, phrases.Count);
+        Check.That(phrases.Count).IsEqualTo(2);
     }
 
     [Fact]
@@ -289,9 +289,9 @@ public class PhraseModelTests
         var oldPhrases = model.GetPhrases("old", 10);
         var newPhrases = model.GetPhrases("new", 10);
 
-        Assert.Empty(oldPhrases);
-        Assert.Single(newPhrases);
-        Assert.Equal("new data", newPhrases[0].phrase);
+        Check.That(oldPhrases).IsEmpty();
+        Check.That(newPhrases).HasSize(1);
+        Check.That(newPhrases[0].phrase).IsEqualTo("new data");
     }
 
     [Fact]
@@ -308,9 +308,9 @@ public class PhraseModelTests
         var allPhrases = model.GetAllPhrases();
 
         // Assert
-        Assert.Single(allPhrases);
-        Assert.True(allPhrases.ContainsKey("test"));
-        Assert.Equal(2, allPhrases["test"].Count);
+        Check.That(allPhrases).HasSize(1);
+        Check.That(allPhrases.ContainsKey("test")).IsTrue();
+        Check.That(allPhrases["test"].Count).IsEqualTo(2);
     }
 
     [Fact]
@@ -331,9 +331,9 @@ public class PhraseModelTests
         var fromAB = model.GetPhrases("a b", 10);
         var fromBC = model.GetPhrases("b c", 10);
 
-        Assert.Contains(fromA, p => p.phrase == "a b");
-        Assert.Contains(fromB, p => p.phrase == "b c");
-        Assert.Contains(fromAB, p => p.phrase == "a b c");
-        Assert.Contains(fromBC, p => p.phrase == "b c d");
+        Check.That(fromA).HasElementThatMatches(p => p.phrase == "a b");
+        Check.That(fromB).HasElementThatMatches(p => p.phrase == "b c");
+        Check.That(fromAB).HasElementThatMatches(p => p.phrase == "a b c");
+        Check.That(fromBC).HasElementThatMatches(p => p.phrase == "b c d");
     }
 }

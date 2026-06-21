@@ -26,9 +26,9 @@ public class PredictionOrchestratorTests
     {
         var orchestrator = CreateOrchestrator(words: new Dictionary<string, int> { ["hello"] = 100, ["help"] = 80 });
         var results = orchestrator.GetSuggestions("hel", context: null, maxCount: 5);
-        Assert.NotEmpty(results);
-        Assert.Contains(results, r => r.Word == "hello");
-        Assert.Contains(results, r => r.Type == PredictionType.ExactPrefix);
+        Check.That(results).Not.IsEmpty();
+        Check.That(results).HasElementThatMatches(r => r.Word == "hello");
+        Check.That(results).HasElementThatMatches(r => r.Type == PredictionType.ExactPrefix);
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public class PredictionOrchestratorTests
             trie: trie);
 
         var results = orchestrator.GetSuggestions("thank", context: null, maxCount: 5);
-        Assert.Contains(results, r => r.Type == PredictionType.SentenceCompletion && r.Word == "you very much");
+        Check.That(results).HasElementThatMatches(r => r.Type == PredictionType.SentenceCompletion && r.Word == "you very much");
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class PredictionOrchestratorTests
         var orchestrator = CreateOrchestrator(words, trie);
         var results = orchestrator.GetSuggestions("wo", context: "hello", maxCount: 5);
         var types = results.Select(r => r.Type).Distinct().ToList();
-        Assert.NotEmpty(types);
+        Check.That(types).Not.IsEmpty();
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public class PredictionOrchestratorTests
     {
         var orchestrator = CreateOrchestrator();
         var results = orchestrator.GetSuggestions("", context: null, maxCount: 5);
-        Assert.Empty(results);
+        Check.That(results).IsEmpty();
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class PredictionOrchestratorTests
         var orchestrator = CreateOrchestrator(words, trie);
         var results = orchestrator.GetSuggestions("hello", context: null, maxCount: 5);
         var helloResults = results.Where(r => r.Word.Equals("hello", StringComparison.OrdinalIgnoreCase)).ToList();
-        Assert.True(helloResults.Count <= 1);
+        Check.That(helloResults.Count <= 1).IsTrue();
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class PredictionOrchestratorTests
         var orchestrator = CreateOrchestrator();
         orchestrator.LearnWord("newtestword");
         var results = orchestrator.GetSuggestions("newtest", context: null, maxCount: 5);
-        Assert.Contains(results, r => r.Word == "newtestword");
+        Check.That(results).HasElementThatMatches(r => r.Word == "newtestword");
     }
 
     [Fact]
@@ -93,6 +93,6 @@ public class PredictionOrchestratorTests
         var orchestrator = CreateOrchestrator();
         orchestrator.LearnSequence(["hello", "world"]);
         var results = orchestrator.GetSuggestions("wo", context: "hello", maxCount: 5);
-        Assert.NotEmpty(results);
+        Check.That(results).Not.IsEmpty();
     }
 }

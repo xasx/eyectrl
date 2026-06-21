@@ -27,7 +27,7 @@ public class GazeEngineFilterRecreationTests
         provider.SimulateGaze(100, 200);
 
         // If we got here without error, the filter was successfully recreated
-        Assert.True(true);
+        Check.That(true).IsTrue();
     }
 
     [Fact]
@@ -45,12 +45,12 @@ public class GazeEngineFilterRecreationTests
         engine.CursorMoved += (pos, _) => lastMoved = pos;
 
         provider.SimulateGaze(500, 300);
-        Assert.Equal(500, lastMoved!.Value.X);
+        Check.That(lastMoved!.Value.X).IsEqualTo(500);
 
         settings.Cursor.MaxGapInterpolationMs = 300;
 
         provider.SimulateGazeInvalid(0, 0, 50_000);
-        Assert.Equal(500, lastMoved!.Value.X);
+        Check.That(lastMoved!.Value.X).IsEqualTo(500);
     }
 
     private class TestGazeProvider : IGazeProvider

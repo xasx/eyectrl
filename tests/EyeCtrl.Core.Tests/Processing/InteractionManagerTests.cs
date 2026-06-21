@@ -8,7 +8,7 @@ public class InteractionManagerTests
     public void InitialState_IsFreeLook()
     {
         var manager = new InteractionManager();
-        Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }
 
     [Fact]
@@ -16,7 +16,7 @@ public class InteractionManagerTests
     {
         var manager = new InteractionManager();
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
-        Assert.Equal(InteractionState.Fixation, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.Fixation);
     }
 
     [Fact]
@@ -25,7 +25,7 @@ public class InteractionManagerTests
         var manager = new InteractionManager();
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnFixationEnded();
-        Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class InteractionManagerTests
         var manager = new InteractionManager();
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ActionMenuVisible, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.ActionMenuVisible);
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public class InteractionManagerTests
         var manager = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ManualSelectionActive, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
     }
 
     [Fact]
@@ -58,9 +58,9 @@ public class InteractionManagerTests
         manager.OnActivationButtonDwelled();
         manager.OnActionSelected(InteractionAction.LeftClick);
 
-        Assert.Equal(InteractionAction.LeftClick, firedAction);
-        Assert.Equal(new PhysicalPoint(100, 100), firedPoint);
-        Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
+        Check.That(firedAction).IsEqualTo(InteractionAction.LeftClick);
+        Check.That(firedPoint).IsEqualTo(new PhysicalPoint(100, 100));
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class InteractionManagerTests
     {
         var manager = new InteractionManager();
         manager.TogglePause();
-        Assert.Equal(InteractionState.Paused, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.Paused);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class InteractionManagerTests
         var manager = new InteractionManager();
         manager.TogglePause();
         manager.TogglePause();
-        Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }
 
     [Fact]
@@ -90,15 +90,15 @@ public class InteractionManagerTests
 
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ManualSelectionActive, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
 
         manager.OnManualSelectionDwell(new PhysicalPoint(110, 110));
-        Assert.Equal(InteractionState.ManualSelectionActionMenuVisible, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.ManualSelectionActionMenuVisible);
 
         manager.OnActionSelected(InteractionAction.RightClick);
-        Assert.Equal(InteractionAction.RightClick, firedAction);
-        Assert.Equal(new PhysicalPoint(110, 110), firedPoint);
-        Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
+        Check.That(firedAction).IsEqualTo(InteractionAction.RightClick);
+        Check.That(firedPoint).IsEqualTo(new PhysicalPoint(110, 110));
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }
 
     [Fact]
@@ -111,11 +111,11 @@ public class InteractionManagerTests
 
         // First back: action menu → ManualSelection selection
         manager.OnManualSelectionBack();
-        Assert.Equal(InteractionState.ManualSelectionActive, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
 
         // Second back: ManualSelection selection → free look
         manager.OnManualSelectionBack();
-        Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }
 
     [Fact]
@@ -134,18 +134,18 @@ public class InteractionManagerTests
 
         im.OnFixationStarted(fixPoint);
         im.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ManualSelectionActive, im.CurrentState);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
 
         im.OnManualSelectionDwell(ManualSelectionPoint);
-        Assert.Equal(InteractionState.ManualSelectionActionMenuVisible, im.CurrentState);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActionMenuVisible);
 
         // Back from action menu → returns to ManualSelection, NOT FreeLook
         startManualSelectionFired = false; // reset to detect re-fire
         im.OnManualSelectionBack();
-        Assert.Equal(InteractionState.ManualSelectionActive, im.CurrentState);
-        Assert.True(hideActionMenuFired, "Should fire HideActionMenu");
-        Assert.True(startManualSelectionFired, "Should re-fire StartManualSelection to re-show ManualSelection overlay");
-        Assert.False(endManualSelectionFired, "Should NOT fire EndManualSelection");
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
+        Check.That(hideActionMenuFired).IsTrue();
+        Check.That(startManualSelectionFired).IsTrue();
+        Check.That(endManualSelectionFired).IsFalse();
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class InteractionManagerTests
         im.OnActivationButtonDwelled();
         im.OnManualSelectionDwell(new PhysicalPoint(110, 110));
 
-        Assert.Equal(new[] { "HideManualSelection", "ShowActionMenu" }, events.TakeLast(2));
+        Check.That(events.TakeLast(2)).IsEqualTo(new[] { "HideManualSelection", "ShowActionMenu" });
     }
 
     [Fact]
@@ -175,18 +175,18 @@ public class InteractionManagerTests
 
         im.OnFixationStarted(fixPoint);
         im.OnActivationButtonDwelled();
-        Assert.Equal(InteractionState.ManualSelectionActive, im.CurrentState);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
 
         im.OnManualSelectionBack(); // close from ManualSelection view → FreeLook
-        Assert.Equal(InteractionState.FreeLook, im.CurrentState);
-        Assert.True(endManualSelectionFired);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+        Check.That(endManualSelectionFired).IsTrue();
     }
 
     [Fact]
     public void DefaultSelectionMode_IsNone()
     {
         var manager = new InteractionManager();
-        Assert.Equal(SelectionMode.None, manager.SelectionMode);
+        Check.That(manager.SelectionMode).IsEqualTo(SelectionMode.None);
     }
 
     [Fact]
@@ -200,8 +200,8 @@ public class InteractionManagerTests
         manager.AutoSelectionTarget = new ControlInfo(new PhysicalRect(150, 150, 50, 50));
         manager.OnActivationButtonDwelled();
 
-        Assert.Equal(InteractionState.ActionMenuVisible, manager.CurrentState);
-        Assert.Equal(new PhysicalPoint(175, 175), menuPoint);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.ActionMenuVisible);
+        Check.That(menuPoint).IsEqualTo(new PhysicalPoint(175, 175));
     }
 
     [Fact]
@@ -215,8 +215,8 @@ public class InteractionManagerTests
         manager.AutoSelectionTarget = null;
         manager.OnActivationButtonDwelled();
 
-        Assert.Equal(InteractionState.ActionMenuVisible, manager.CurrentState);
-        Assert.Equal(new PhysicalPoint(100, 100), menuPoint);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.ActionMenuVisible);
+        Check.That(menuPoint).IsEqualTo(new PhysicalPoint(100, 100));
     }
 
     [Fact]
@@ -231,7 +231,7 @@ public class InteractionManagerTests
         manager.OnActivationButtonDwelled();
         manager.OnActionSelected(InteractionAction.LeftClick);
 
-        Assert.Equal(new PhysicalPoint(175, 175), firedPoint);
+        Check.That(firedPoint).IsEqualTo(new PhysicalPoint(175, 175));
     }
 
     [Fact]
@@ -246,7 +246,7 @@ public class InteractionManagerTests
         manager.OnActivationButtonDwelled();
         manager.OnActionSelected(InteractionAction.LeftClick);
 
-        Assert.Equal(new PhysicalPoint(100, 100), firedPoint);
+        Check.That(firedPoint).IsEqualTo(new PhysicalPoint(100, 100));
     }
 
     [Fact]
@@ -259,7 +259,7 @@ public class InteractionManagerTests
         manager.OnActivationButtonDwelled();
         manager.OnActionSelected(InteractionAction.LeftClick);
 
-        Assert.Equal(InteractionState.FreeLook, manager.CurrentState);
-        Assert.Null(manager.AutoSelectionTarget);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+        Check.That(manager.AutoSelectionTarget).IsNull();
     }
 }

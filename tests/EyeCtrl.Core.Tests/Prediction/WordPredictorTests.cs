@@ -1,7 +1,7 @@
 namespace EyeCtrl.Core.Tests.Prediction;
 
 using EyeCtrl.Core.Prediction;
-using NFluent;
+
 
 public class WordPredictorTests
 {

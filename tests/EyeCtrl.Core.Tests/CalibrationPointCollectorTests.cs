@@ -16,13 +16,13 @@ public class CalibrationPointCollectorTests
 
         var point = collector.End();
 
-        Assert.Equal(500, point.Target.X);
-        Assert.Equal(500, point.Target.Y);
-        Assert.Equal(3, point.SampleCount);
-        Assert.True(Math.Abs(point.MeanGaze.X - 516.67) < 0.1);
-        Assert.True(Math.Abs(point.MeanGaze.Y - 500.0) < 0.1);
-        Assert.True(point.StdDevX > 0);
-        Assert.True(point.StdDevY > 0);
+        Check.That(point.Target.X).IsEqualTo(500);
+        Check.That(point.Target.Y).IsEqualTo(500);
+        Check.That(point.SampleCount).IsEqualTo(3);
+        Check.That(Math.Abs(point.MeanGaze.X - 516.67) < 0.1).IsTrue();
+        Check.That(Math.Abs(point.MeanGaze.Y - 500.0) < 0.1).IsTrue();
+        Check.That(point.StdDevX > 0).IsTrue();
+        Check.That(point.StdDevY > 0).IsTrue();
     }
 
     [Fact]
@@ -39,9 +39,9 @@ public class CalibrationPointCollectorTests
 
         var point = collector.End();
 
-        Assert.Equal(2, point.SampleCount);
-        Assert.True(Math.Abs(point.MeanGaze.X - 100) < 10);
-        Assert.True(Math.Abs(point.MeanGaze.Y - 100) < 10);
+        Check.That(point.SampleCount).IsEqualTo(2);
+        Check.That(Math.Abs(point.MeanGaze.X - 100) < 10).IsTrue();
+        Check.That(Math.Abs(point.MeanGaze.Y - 100) < 10).IsTrue();
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class CalibrationPointCollectorTests
     {
         var collector = new CalibrationPointCollector(new PhysicalPoint(100, 100), settleWindowMs: 200);
         collector.AddRawSample(new PhysicalPoint(100, 100));
-        Assert.Throws<InvalidOperationException>(() => collector.End());
+        Check.ThatCode(() => collector.End()).Throws<InvalidOperationException>();
     }
 
     [Fact]
@@ -57,9 +57,9 @@ public class CalibrationPointCollectorTests
     {
         var collector = new CalibrationPointCollector(new PhysicalPoint(0, 0), settleWindowMs: 0);
         collector.AddRawSample(new PhysicalPoint(5, 5));
-        Assert.True(collector.IsCollecting);
+        Check.That(collector.IsCollecting).IsTrue();
         collector.End();
-        Assert.False(collector.IsCollecting);
+        Check.That(collector.IsCollecting).IsFalse();
     }
 
     [Fact]
@@ -70,6 +70,6 @@ public class CalibrationPointCollectorTests
             collector.AddRawSample(new PhysicalPoint(1, 1));
 
         var point = collector.End();
-        Assert.Equal(10, point.SampleCount);
+        Check.That(point.SampleCount).IsEqualTo(10);
     }
 }

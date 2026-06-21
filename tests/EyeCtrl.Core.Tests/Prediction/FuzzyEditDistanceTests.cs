@@ -10,7 +10,7 @@ public class FuzzyEditDistanceTests
     [Fact]
     public void Compute_IdenticalStrings_ReturnsZero()
     {
-        Assert.Equal(0.0, FuzzyEditDistance.Compute("the", "the", QwertyMap));
+        Check.That(FuzzyEditDistance.Compute("the", "the", QwertyMap)).IsEqualTo(0.0);
     }
 
     [Fact]
@@ -18,7 +18,7 @@ public class FuzzyEditDistanceTests
     {
         // 'r' is adjacent to 't' on QWERTY — substituting t→r costs 0.5
         var dist = FuzzyEditDistance.Compute("the", "rhe", QwertyMap);
-        Assert.Equal(0.5, dist, precision: 5);
+        Check.That(dist).IsCloseTo(0.5, 1e-5);
     }
 
     [Fact]
@@ -26,33 +26,33 @@ public class FuzzyEditDistanceTests
     {
         // 's' is not adjacent to 't'
         var dist = FuzzyEditDistance.Compute("the", "she", QwertyMap);
-        Assert.Equal(1.0, dist, precision: 5);
+        Check.That(dist).IsCloseTo(1.0, 1e-5);
     }
 
     [Fact]
     public void Compute_OneDeletion_ReturnsCostOne()
     {
         var dist = FuzzyEditDistance.Compute("have", "hav", QwertyMap);
-        Assert.Equal(1.0, dist, precision: 5);
+        Check.That(dist).IsCloseTo(1.0, 1e-5);
     }
 
     [Fact]
     public void Compute_OneInsertion_ReturnsCostOne()
     {
         var dist = FuzzyEditDistance.Compute("hav", "have", QwertyMap);
-        Assert.Equal(1.0, dist, precision: 5);
+        Check.That(dist).IsCloseTo(1.0, 1e-5);
     }
 
     [Fact]
     public void Compute_EmptyStrings_ReturnsZero()
     {
-        Assert.Equal(0.0, FuzzyEditDistance.Compute("", "", QwertyMap));
+        Check.That(FuzzyEditDistance.Compute("", "", QwertyMap)).IsEqualTo(0.0);
     }
 
     [Fact]
     public void Compute_EmptyVsWord_ReturnsWordLength()
     {
-        Assert.Equal(3.0, FuzzyEditDistance.Compute("", "the", QwertyMap), precision: 5);
+        Check.That(FuzzyEditDistance.Compute("", "the", QwertyMap)).IsCloseTo(3.0, 1E-05);
     }
 
     [Fact]
@@ -60,6 +60,6 @@ public class FuzzyEditDistanceTests
     {
         // t→r (0.5), e→e (0), n→m (0.5) = 1.0
         var dist = FuzzyEditDistance.Compute("ten", "rem", QwertyMap);
-        Assert.Equal(1.0, dist, precision: 5);
+        Check.That(dist).IsCloseTo(1.0, 1e-5);
     }
 }

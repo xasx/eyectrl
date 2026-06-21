@@ -10,9 +10,9 @@ public class BackdropSettingsTests
     public void Defaults_AreEnabledAcrylicWithOpacity()
     {
         var settings = new BackdropSettings();
-        Assert.True(settings.Enabled);
-        Assert.Equal(BackdropType.Acrylic, settings.Type);
-        Assert.Equal(0.3, settings.Opacity);
+        Check.That(settings.Enabled).IsTrue();
+        Check.That(settings.Type).IsEqualTo(BackdropType.Acrylic);
+        Check.That(settings.Opacity).IsEqualTo(0.3);
     }
 
     [Fact]
@@ -20,14 +20,14 @@ public class BackdropSettingsTests
     {
         var settings = new BackdropSettings { Opacity = 0.5 };
         var errors = settings.Validate();
-        Assert.Empty(errors);
+        Check.That(errors).IsEmpty();
     }
 
     [Fact]
     public void SetOpacity_OutOfRange_ThrowsArgumentOutOfRangeException()
     {
         var settings = new BackdropSettings();
-        Assert.Throws<ArgumentOutOfRangeException>(() => settings.Opacity = 0.05);
-        Assert.Throws<ArgumentOutOfRangeException>(() => settings.Opacity = 0.95);
+        Check.ThatCode(() => settings.Opacity = 0.05).Throws<ArgumentOutOfRangeException>();
+        Check.ThatCode(() => settings.Opacity = 0.95).Throws<ArgumentOutOfRangeException>();
     }
 }

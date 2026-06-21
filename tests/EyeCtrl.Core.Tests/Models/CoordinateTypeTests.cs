@@ -49,8 +49,8 @@ public class CoordinateTypeTests
         var physical = logical.ToPhysical();
 
         // Assert - At 96 DPI, logical == physical
-        Assert.Equal(100.0, physical.X, Epsilon);
-        Assert.Equal(200.0, physical.Y, Epsilon);
+        Check.That(physical.X).IsCloseTo(100.0, Epsilon);
+        Check.That(physical.Y).IsCloseTo(200.0, Epsilon);
     }
 
     /// <summary>
@@ -68,8 +68,8 @@ public class CoordinateTypeTests
         var physical = logical.ToPhysical();
 
         // Assert - Physical should be 1.25x larger
-        Assert.Equal(125.0, physical.X, Epsilon);
-        Assert.Equal(250.0, physical.Y, Epsilon);
+        Check.That(physical.X).IsCloseTo(125.0, Epsilon);
+        Check.That(physical.Y).IsCloseTo(250.0, Epsilon);
     }
 
     /// <summary>
@@ -87,8 +87,8 @@ public class CoordinateTypeTests
         var physical = logical.ToPhysical();
 
         // Assert - Physical should be 1.5x larger
-        Assert.Equal(150.0, physical.X, Epsilon);
-        Assert.Equal(300.0, physical.Y, Epsilon);
+        Check.That(physical.X).IsCloseTo(150.0, Epsilon);
+        Check.That(physical.Y).IsCloseTo(300.0, Epsilon);
     }
 
     #endregion
@@ -110,8 +110,8 @@ public class CoordinateTypeTests
         var logical = physical.ToLogical();
 
         // Assert - At 96 DPI, physical == logical
-        Assert.Equal(100.0, logical.X, Epsilon);
-        Assert.Equal(200.0, logical.Y, Epsilon);
+        Check.That(logical.X).IsCloseTo(100.0, Epsilon);
+        Check.That(logical.Y).IsCloseTo(200.0, Epsilon);
     }
 
     /// <summary>
@@ -129,8 +129,8 @@ public class CoordinateTypeTests
         var logical = physical.ToLogical();
 
         // Assert - Logical should be 1/1.25 = 0.8x smaller
-        Assert.Equal(100.0, logical.X, Epsilon);
-        Assert.Equal(200.0, logical.Y, Epsilon);
+        Check.That(logical.X).IsCloseTo(100.0, Epsilon);
+        Check.That(logical.Y).IsCloseTo(200.0, Epsilon);
     }
 
     #endregion
@@ -155,8 +155,8 @@ public class CoordinateTypeTests
         // Assert - Center of screen should be ~32768 (65535 / 2, rounded)
         // 960 / 1920 * 65535 = 32767.5 → rounds to 32768 (banker's rounding)
         // 540 / 1080 * 65535 = 32767.5 → rounds to 32768 (banker's rounding)
-        Assert.Equal(32768, normalized.X);
-        Assert.Equal(32768, normalized.Y);
+        Check.That(normalized.X).IsEqualTo(32768);
+        Check.That(normalized.Y).IsEqualTo(32768);
     }
 
     /// <summary>
@@ -177,8 +177,8 @@ public class CoordinateTypeTests
         // Assert - Should convert back to center of screen
         // 32767 / 65535 * 1920 = 959.98... ≈ 960
         // 32767 / 65535 * 1080 = 539.99... ≈ 540
-        Assert.Equal(960.0, physical.X, 1.0); // Allow ±1 pixel for rounding
-        Assert.Equal(540.0, physical.Y, 1.0);
+        Check.That(physical.X).IsCloseTo(960.0, 1.0);
+        Check.That(physical.Y).IsCloseTo(540.0, 1.0);
     }
 
     #endregion
@@ -201,8 +201,8 @@ public class CoordinateTypeTests
         var roundTrip = physical.ToLogical();
 
         // Assert - Should match original within epsilon
-        Assert.Equal(original.X, roundTrip.X, Epsilon);
-        Assert.Equal(original.Y, roundTrip.Y, Epsilon);
+        Check.That(original.X).IsCloseTo(roundTrip.X, Epsilon);
+        Check.That(original.Y).IsCloseTo(roundTrip.Y, Epsilon);
     }
 
     /// <summary>
@@ -223,8 +223,8 @@ public class CoordinateTypeTests
         // Assert - Integer rounding in ToNormalized limits precision to ~screenDim/65535.
         // For 1920x1080, the quantization step is about 0.015 physical pixels.
         const double roundTripTolerance = 0.02;
-        Assert.Equal(original.X, roundTrip.X, roundTripTolerance);
-        Assert.Equal(original.Y, roundTrip.Y, roundTripTolerance);
+        Check.That(original.X).IsCloseTo(roundTrip.X, roundTripTolerance);
+        Check.That(original.Y).IsCloseTo(roundTrip.Y, roundTripTolerance);
     }
 
     #endregion
@@ -243,10 +243,10 @@ public class CoordinateTypeTests
         var point2 = new LogicalPoint(100.0, 200.0);
 
         // Assert - Test value equality
-        Assert.Equal(point1, point2);
-        Assert.True(point1 == point2);
-        Assert.False(point1 != point2);
-        Assert.True(point1.Equals(point2));
+        Check.That(point1).IsEqualTo(point2);
+        Check.That(point1 == point2).IsTrue();
+        Check.That(point1 != point2).IsFalse();
+        Check.That(point1.Equals(point2)).IsTrue();
     }
 
     /// <summary>
@@ -261,10 +261,10 @@ public class CoordinateTypeTests
         var point2 = new PhysicalPoint(100.0, 200.0);
 
         // Assert - Test value equality
-        Assert.Equal(point1, point2);
-        Assert.True(point1 == point2);
-        Assert.False(point1 != point2);
-        Assert.True(point1.Equals(point2));
+        Check.That(point1).IsEqualTo(point2);
+        Check.That(point1 == point2).IsTrue();
+        Check.That(point1 != point2).IsFalse();
+        Check.That(point1.Equals(point2)).IsTrue();
     }
 
     /// <summary>
@@ -279,10 +279,10 @@ public class CoordinateTypeTests
         var point2 = new NormalizedPoint(32767, 32767);
 
         // Assert - Test value equality
-        Assert.Equal(point1, point2);
-        Assert.True(point1 == point2);
-        Assert.False(point1 != point2);
-        Assert.True(point1.Equals(point2));
+        Check.That(point1).IsEqualTo(point2);
+        Check.That(point1 == point2).IsTrue();
+        Check.That(point1 != point2).IsFalse();
+        Check.That(point1.Equals(point2)).IsTrue();
     }
 
     /// <summary>
@@ -296,9 +296,9 @@ public class CoordinateTypeTests
         var point2 = new LogicalPoint(100.0, 201.0);
 
         // Assert
-        Assert.NotEqual(point1, point2);
-        Assert.False(point1 == point2);
-        Assert.True(point1 != point2);
+        Check.That(point1).IsNotEqualTo(point2);
+        Check.That(point1 == point2).IsFalse();
+        Check.That(point1 != point2).IsTrue();
     }
 
     /// <summary>
@@ -312,9 +312,9 @@ public class CoordinateTypeTests
         var point2 = new PhysicalPoint(101.0, 200.0);
 
         // Assert
-        Assert.NotEqual(point1, point2);
-        Assert.False(point1 == point2);
-        Assert.True(point1 != point2);
+        Check.That(point1).IsNotEqualTo(point2);
+        Check.That(point1 == point2).IsFalse();
+        Check.That(point1 != point2).IsTrue();
     }
 
     /// <summary>
@@ -328,9 +328,9 @@ public class CoordinateTypeTests
         var point2 = new NormalizedPoint(32768, 32767);
 
         // Assert
-        Assert.NotEqual(point1, point2);
-        Assert.False(point1 == point2);
-        Assert.True(point1 != point2);
+        Check.That(point1).IsNotEqualTo(point2);
+        Check.That(point1 == point2).IsFalse();
+        Check.That(point1 != point2).IsTrue();
     }
 
     /// <summary>
@@ -345,7 +345,7 @@ public class CoordinateTypeTests
         var point2 = new LogicalPoint(100.0, 200.0);
 
         // Assert - Equal objects must have equal hash codes
-        Assert.Equal(point1.GetHashCode(), point2.GetHashCode());
+        Check.That(point1.GetHashCode()).IsEqualTo(point2.GetHashCode());
     }
 
     /// <summary>
@@ -359,7 +359,7 @@ public class CoordinateTypeTests
         var point2 = new PhysicalPoint(100.0, 200.0);
 
         // Assert
-        Assert.Equal(point1.GetHashCode(), point2.GetHashCode());
+        Check.That(point1.GetHashCode()).IsEqualTo(point2.GetHashCode());
     }
 
     /// <summary>
@@ -373,7 +373,7 @@ public class CoordinateTypeTests
         var point2 = new NormalizedPoint(32767, 32767);
 
         // Assert
-        Assert.Equal(point1.GetHashCode(), point2.GetHashCode());
+        Check.That(point1.GetHashCode()).IsEqualTo(point2.GetHashCode());
     }
 
     #endregion
@@ -395,8 +395,8 @@ public class CoordinateTypeTests
         var result = point1 + point2;
 
         // Assert
-        Assert.Equal(150.0, result.X, Epsilon);
-        Assert.Equal(275.0, result.Y, Epsilon);
+        Check.That(result.X).IsCloseTo(150.0, Epsilon);
+        Check.That(result.Y).IsCloseTo(275.0, Epsilon);
     }
 
     /// <summary>
@@ -413,8 +413,8 @@ public class CoordinateTypeTests
         var result = point1 + point2;
 
         // Assert
-        Assert.Equal(150.0, result.X, Epsilon);
-        Assert.Equal(275.0, result.Y, Epsilon);
+        Check.That(result.X).IsCloseTo(150.0, Epsilon);
+        Check.That(result.Y).IsCloseTo(275.0, Epsilon);
     }
 
     /// <summary>
@@ -432,8 +432,8 @@ public class CoordinateTypeTests
         var result = point1 - point2;
 
         // Assert
-        Assert.Equal(50.0, result.X, Epsilon);
-        Assert.Equal(125.0, result.Y, Epsilon);
+        Check.That(result.X).IsCloseTo(50.0, Epsilon);
+        Check.That(result.Y).IsCloseTo(125.0, Epsilon);
     }
 
     /// <summary>
@@ -450,8 +450,8 @@ public class CoordinateTypeTests
         var result = point1 - point2;
 
         // Assert
-        Assert.Equal(50.0, result.X, Epsilon);
-        Assert.Equal(125.0, result.Y, Epsilon);
+        Check.That(result.X).IsCloseTo(50.0, Epsilon);
+        Check.That(result.Y).IsCloseTo(125.0, Epsilon);
     }
 
     #endregion
@@ -473,8 +473,8 @@ public class CoordinateTypeTests
         var physical = zero.ToPhysical();
 
         // Assert
-        Assert.Equal(0.0, physical.X, Epsilon);
-        Assert.Equal(0.0, physical.Y, Epsilon);
+        Check.That(physical.X).IsCloseTo(0.0, Epsilon);
+        Check.That(physical.Y).IsCloseTo(0.0, Epsilon);
     }
 
     /// <summary>
@@ -492,8 +492,8 @@ public class CoordinateTypeTests
         var normalized = zero.ToNormalized(screenBounds);
 
         // Assert
-        Assert.Equal(0, normalized.X);
-        Assert.Equal(0, normalized.Y);
+        Check.That(normalized.X).IsEqualTo(0);
+        Check.That(normalized.Y).IsEqualTo(0);
     }
 
     /// <summary>
@@ -512,8 +512,8 @@ public class CoordinateTypeTests
         var physical = negative.ToPhysical();
 
         // Assert - Negative values should scale correctly
-        Assert.Equal(-150.0, physical.X, Epsilon);
-        Assert.Equal(-300.0, physical.Y, Epsilon);
+        Check.That(physical.X).IsCloseTo(-150.0, Epsilon);
+        Check.That(physical.Y).IsCloseTo(-300.0, Epsilon);
     }
 
     /// <summary>
@@ -530,8 +530,8 @@ public class CoordinateTypeTests
         var logical = negative.ToLogical();
 
         // Assert
-        Assert.Equal(-100.0, logical.X, Epsilon);
-        Assert.Equal(-200.0, logical.Y, Epsilon);
+        Check.That(logical.X).IsCloseTo(-100.0, Epsilon);
+        Check.That(logical.Y).IsCloseTo(-200.0, Epsilon);
     }
 
     /// <summary>
@@ -549,8 +549,8 @@ public class CoordinateTypeTests
         var normalized = large.ToNormalized(screenBounds);
 
         // Assert - Should map to maximum Win32 normalized value
-        Assert.Equal(65535, normalized.X);
-        Assert.Equal(65535, normalized.Y);
+        Check.That(normalized.X).IsEqualTo(65535);
+        Check.That(normalized.Y).IsEqualTo(65535);
     }
 
     #endregion
@@ -570,10 +570,10 @@ public class CoordinateTypeTests
         var physical = new PhysicalPoint(100.0, 200.0);
 
         // Assert - These should be different types
-        Assert.IsType<LogicalPoint>(logical);
-        Assert.IsType<PhysicalPoint>(physical);
-        Assert.IsNotType<PhysicalPoint>(logical);
-        Assert.IsNotType<LogicalPoint>(physical);
+        Check.That(logical).IsInstanceOf<LogicalPoint>();
+        Check.That(physical).IsInstanceOf<PhysicalPoint>();
+        Check.That(logical).IsNotInstanceOf<PhysicalPoint>();
+        Check.That(physical).IsNotInstanceOf<LogicalPoint>();
     }
 
     /// <summary>
@@ -591,8 +591,8 @@ public class CoordinateTypeTests
         var physical = logical.ToPhysical();
 
         // Assert - Conversion should produce different values at non-100% DPI
-        Assert.NotEqual(logical.X, physical.X);
-        Assert.NotEqual(logical.Y, physical.Y);
+        Check.That(logical.X).IsNotEqualTo(physical.X);
+        Check.That(logical.Y).IsNotEqualTo(physical.Y);
     }
 
     #endregion
@@ -613,8 +613,8 @@ public class CoordinateTypeTests
         var result = point.ToString();
 
         // Assert - Should contain coordinate values
-        Assert.Contains("123.45", result);
-        Assert.Contains("678.90", result);
+        Check.That(result).Contains("123.45");
+        Check.That(result).Contains("678.90");
     }
 
     /// <summary>
@@ -630,8 +630,8 @@ public class CoordinateTypeTests
         var result = point.ToString();
 
         // Assert
-        Assert.Contains("123.45", result);
-        Assert.Contains("678.90", result);
+        Check.That(result).Contains("123.45");
+        Check.That(result).Contains("678.90");
     }
 
     /// <summary>
@@ -647,7 +647,7 @@ public class CoordinateTypeTests
         var result = point.ToString();
 
         // Assert
-        Assert.Contains("32767", result);
+        Check.That(result).Contains("32767");
     }
 
     #endregion
@@ -665,8 +665,8 @@ public class CoordinateTypeTests
         var bounds = new ScreenBounds(1920, 1080);
 
         // Assert
-        Assert.Equal(1920, bounds.Width);
-        Assert.Equal(1080, bounds.Height);
+        Check.That(bounds.Width).IsEqualTo(1920);
+        Check.That(bounds.Height).IsEqualTo(1080);
     }
 
     /// <summary>
@@ -680,9 +680,9 @@ public class CoordinateTypeTests
         var bounds2 = new ScreenBounds(1920, 1080);
 
         // Assert
-        Assert.Equal(bounds1, bounds2);
-        Assert.True(bounds1 == bounds2);
-        Assert.False(bounds1 != bounds2);
+        Check.That(bounds1).IsEqualTo(bounds2);
+        Check.That(bounds1 == bounds2).IsTrue();
+        Check.That(bounds1 != bounds2).IsFalse();
     }
 
     /// <summary>
@@ -696,9 +696,9 @@ public class CoordinateTypeTests
         var bounds2 = new ScreenBounds(2560, 1440);
 
         // Assert
-        Assert.NotEqual(bounds1, bounds2);
-        Assert.False(bounds1 == bounds2);
-        Assert.True(bounds1 != bounds2);
+        Check.That(bounds1).IsNotEqualTo(bounds2);
+        Check.That(bounds1 == bounds2).IsFalse();
+        Check.That(bounds1 != bounds2).IsTrue();
     }
 
     #endregion

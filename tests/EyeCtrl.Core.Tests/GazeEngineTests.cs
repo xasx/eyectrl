@@ -49,7 +49,7 @@ public class GazeEngineTests
 
         provider.SimulateGaze(new GazePoint(500, 300, 0, true));
 
-        Assert.Contains(simulator.Actions, a => a.Action == "Move");
+        Check.That(simulator.Actions).HasElementThatMatches(a => a.Action == "Move");
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class GazeEngineTests
         engine.InteractionManager.OnActivationButtonDwelled();
         engine.InteractionManager.OnActionSelected(InteractionAction.LeftClick);
 
-        Assert.Equal(InteractionAction.LeftClick, firedAction);
+        Check.That(firedAction).IsEqualTo(InteractionAction.LeftClick);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class GazeEngineTests
 
         var engine = new GazeEngine(provider, simulator, settings);
 
-        Assert.False(engine.SuppressFixation);
+        Check.That(engine.SuppressFixation).IsFalse();
     }
 
     [Fact]
@@ -97,9 +97,9 @@ public class GazeEngineTests
         var engine = new GazeEngine(provider, simulator, settings);
 
         engine.SuppressFixation = true;
-        Assert.True(engine.SuppressFixation);
+        Check.That(engine.SuppressFixation).IsTrue();
 
         engine.SuppressFixation = false;
-        Assert.False(engine.SuppressFixation);
+        Check.That(engine.SuppressFixation).IsFalse();
     }
 }

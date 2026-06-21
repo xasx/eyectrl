@@ -18,8 +18,8 @@ public class AffineTransformTests
         var transform = AffineTransform.Fit(points);
 
         var result = transform.Apply(new PhysicalPoint(960, 540));
-        Assert.True(Math.Abs(result.X - 960) < 1.0);
-        Assert.True(Math.Abs(result.Y - 540) < 1.0);
+        Check.That(Math.Abs(result.X - 960) < 1.0).IsTrue();
+        Check.That(Math.Abs(result.Y - 540) < 1.0).IsTrue();
     }
 
     [Fact]
@@ -37,8 +37,8 @@ public class AffineTransformTests
         // Gaze at (970, 90): transform should map it near target (960, 110)
         // Calibration: TargetY = GazeY + 20, so 90 + 20 = 110
         var result = transform.Apply(new PhysicalPoint(970, 90));
-        Assert.True(Math.Abs(result.X - 960) < 1.5);
-        Assert.True(Math.Abs(result.Y - 110) < 1.5);
+        Check.That(Math.Abs(result.X - 960) < 1.5).IsTrue();
+        Check.That(Math.Abs(result.Y - 110) < 1.5).IsTrue();
     }
 
     [Fact]
@@ -58,8 +58,8 @@ public class AffineTransformTests
         t2.SetParameters(t1.GetParameters());
 
         var roundtripped = t2.Apply(new PhysicalPoint(500, 500));
-        Assert.Equal(original.X, roundtripped.X, 6);
-        Assert.Equal(original.Y, roundtripped.Y, 6);
+        Check.That(roundtripped.X).IsCloseTo(original.X, 1e-6);
+        Check.That(roundtripped.Y).IsCloseTo(original.Y, 1e-6);
     }
 
     [Fact]
@@ -71,6 +71,6 @@ public class AffineTransformTests
             new(new PhysicalPoint(1920, 1080), new PhysicalPoint(1920, 1080), 0, 0, 30),
         };
 
-        Assert.Throws<ArgumentException>(() => AffineTransform.Fit(tooFew));
+        Check.ThatCode(() => AffineTransform.Fit(tooFew)).Throws<ArgumentException>();
     }
 }

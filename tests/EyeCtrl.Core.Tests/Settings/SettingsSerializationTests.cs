@@ -34,20 +34,20 @@ public class SettingsSerializationTests
         var json = JsonSerializer.Serialize(original, JsonOptions);
         var deserialized = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
 
-        Assert.Equal(99, deserialized.Cursor.CircleSize);
-        Assert.Equal("#FF0000", deserialized.Cursor.CircleColor);
-        Assert.Equal(500, deserialized.Dwell.FixationDetectionMs);
-        Assert.True(deserialized.ManualSelection.Enabled);
-        Assert.Equal(3.0, deserialized.ManualSelection.MagnificationLevel);
-        Assert.Equal("AZERTY", deserialized.Keyboard.ActiveLayout);
-        Assert.False(deserialized.Keyboard.SmartCapitalizationEnabled);
-        Assert.False(deserialized.Keyboard.NextWordPredictionEnabled);
-        Assert.True(deserialized.Keyboard.ShowPredictionConfidence);
-        Assert.True(deserialized.Keyboard.ShowPredictionTypes);
-        Assert.True(deserialized.Keyboard.EmojiSuggestionsEnabled);
-        Assert.Equal(120, deserialized.Toolbar.Size);
-        Assert.Equal("Dark", deserialized.Theme.Mode);
-        Assert.True(deserialized.General.StartPaused);
+        Check.That(deserialized.Cursor.CircleSize).IsEqualTo(99);
+        Check.That(deserialized.Cursor.CircleColor).IsEqualTo("#FF0000");
+        Check.That(deserialized.Dwell.FixationDetectionMs).IsEqualTo(500);
+        Check.That(deserialized.ManualSelection.Enabled).IsTrue();
+        Check.That(deserialized.ManualSelection.MagnificationLevel).IsEqualTo(3.0);
+        Check.That(deserialized.Keyboard.ActiveLayout).IsEqualTo("AZERTY");
+        Check.That(deserialized.Keyboard.SmartCapitalizationEnabled).IsFalse();
+        Check.That(deserialized.Keyboard.NextWordPredictionEnabled).IsFalse();
+        Check.That(deserialized.Keyboard.ShowPredictionConfidence).IsTrue();
+        Check.That(deserialized.Keyboard.ShowPredictionTypes).IsTrue();
+        Check.That(deserialized.Keyboard.EmojiSuggestionsEnabled).IsTrue();
+        Check.That(deserialized.Toolbar.Size).IsEqualTo(120);
+        Check.That(deserialized.Theme.Mode).IsEqualTo("Dark");
+        Check.That(deserialized.General.StartPaused).IsTrue();
     }
 
     [Fact]
@@ -60,8 +60,8 @@ public class SettingsSerializationTests
         cursor.CircleSize = 100;
         cursor.CircleColor = "#FF0000";
 
-        Assert.Contains("CircleSize", changed);
-        Assert.Contains("CircleColor", changed);
+        Check.That(changed).Contains("CircleSize");
+        Check.That(changed).Contains("CircleColor");
     }
 
     [Fact]
@@ -74,7 +74,7 @@ public class SettingsSerializationTests
         var originalSize = cursor.CircleSize;
         cursor.CircleSize = originalSize;
 
-        Assert.DoesNotContain("CircleSize", changed);
+        Check.That(changed.Contains("CircleSize")).IsFalse();
     }
 
     [Fact]
@@ -98,15 +98,15 @@ public class SettingsSerializationTests
         """;
 
         var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
-        Assert.Equal(40, settings.Cursor.CircleSize);
-        Assert.Equal("#00FF00", settings.Cursor.CircleColor);
+        Check.That(settings.Cursor.CircleSize).IsEqualTo(40);
+        Check.That(settings.Cursor.CircleColor).IsEqualTo("#00FF00");
     }
 
     [Fact]
     public void CursorSettings_PositionIndicatorStyle_DefaultIsCrosshair()
     {
         var settings = new CursorSettings();
-        Assert.Equal(PositionIndicatorStyle.Crosshair, settings.PositionIndicatorStyle);
+        Check.That(settings.PositionIndicatorStyle).IsEqualTo(PositionIndicatorStyle.Crosshair);
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class SettingsSerializationTests
         var settings = new CursorSettings { PositionIndicatorStyle = PositionIndicatorStyle.Pin };
         var json = JsonSerializer.Serialize(settings);
         var deserialized = JsonSerializer.Deserialize<CursorSettings>(json)!;
-        Assert.Equal(PositionIndicatorStyle.Pin, deserialized.PositionIndicatorStyle);
+        Check.That(deserialized.PositionIndicatorStyle).IsEqualTo(PositionIndicatorStyle.Pin);
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public class SettingsSerializationTests
         var settings = new EyeCtrlSettings { ViewPosition = ViewPosition.AtGaze };
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         var deserialized = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
-        Assert.Equal(ViewPosition.AtGaze, deserialized.ViewPosition);
+        Check.That(deserialized.ViewPosition).IsEqualTo(ViewPosition.AtGaze);
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public class SettingsSerializationTests
         var json = JsonSerializer.Serialize(original, JsonOptions);
         var deserialized = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
 
-        Assert.Equal(ViewPosition.AtGaze, deserialized.ViewPosition);
+        Check.That(deserialized.ViewPosition).IsEqualTo(ViewPosition.AtGaze);
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class SettingsSerializationTests
         var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
 
         // Should default to AtCenter (the new shared default)
-        Assert.Equal(ViewPosition.AtCenter, settings.ViewPosition);
+        Check.That(settings.ViewPosition).IsEqualTo(ViewPosition.AtCenter);
     }
 
     [Fact]
@@ -168,10 +168,10 @@ public class SettingsSerializationTests
         var settings = new KeyboardSettings();
 
         // Phase 4 settings should have correct defaults
-        Assert.True(settings.NextWordPredictionEnabled);
-        Assert.False(settings.ShowPredictionConfidence);
-        Assert.False(settings.ShowPredictionTypes);
-        Assert.False(settings.EmojiSuggestionsEnabled);
+        Check.That(settings.NextWordPredictionEnabled).IsTrue();
+        Check.That(settings.ShowPredictionConfidence).IsFalse();
+        Check.That(settings.ShowPredictionTypes).IsFalse();
+        Check.That(settings.EmojiSuggestionsEnabled).IsFalse();
     }
 
     [Fact]
@@ -188,10 +188,10 @@ public class SettingsSerializationTests
         var json = JsonSerializer.Serialize(original, JsonOptions);
         var deserialized = JsonSerializer.Deserialize<KeyboardSettings>(json, JsonOptions)!;
 
-        Assert.False(deserialized.NextWordPredictionEnabled);
-        Assert.True(deserialized.ShowPredictionConfidence);
-        Assert.True(deserialized.ShowPredictionTypes);
-        Assert.True(deserialized.EmojiSuggestionsEnabled);
+        Check.That(deserialized.NextWordPredictionEnabled).IsFalse();
+        Check.That(deserialized.ShowPredictionConfidence).IsTrue();
+        Check.That(deserialized.ShowPredictionTypes).IsTrue();
+        Check.That(deserialized.EmojiSuggestionsEnabled).IsTrue();
     }
 
     [Fact]
@@ -211,10 +211,10 @@ public class SettingsSerializationTests
         var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
 
         // Should use defaults for missing Phase 4 properties
-        Assert.True(settings.Keyboard.NextWordPredictionEnabled);
-        Assert.False(settings.Keyboard.ShowPredictionConfidence);
-        Assert.False(settings.Keyboard.ShowPredictionTypes);
-        Assert.False(settings.Keyboard.EmojiSuggestionsEnabled);
+        Check.That(settings.Keyboard.NextWordPredictionEnabled).IsTrue();
+        Check.That(settings.Keyboard.ShowPredictionConfidence).IsFalse();
+        Check.That(settings.Keyboard.ShowPredictionTypes).IsFalse();
+        Check.That(settings.Keyboard.EmojiSuggestionsEnabled).IsFalse();
     }
 
     [Fact]
@@ -223,8 +223,8 @@ public class SettingsSerializationTests
         var settings = new KeyboardSettings();
 
         // Phase 8 settings should have correct defaults
-        Assert.True(settings.DecayEnabled);
-        Assert.Equal(30, settings.DecayHalfLifeDays);
+        Check.That(settings.DecayEnabled).IsTrue();
+        Check.That(settings.DecayHalfLifeDays).IsEqualTo(30);
     }
 
     [Fact]
@@ -239,8 +239,8 @@ public class SettingsSerializationTests
         var json = JsonSerializer.Serialize(original, JsonOptions);
         var deserialized = JsonSerializer.Deserialize<KeyboardSettings>(json, JsonOptions)!;
 
-        Assert.False(deserialized.DecayEnabled);
-        Assert.Equal(60, deserialized.DecayHalfLifeDays);
+        Check.That(deserialized.DecayEnabled).IsFalse();
+        Check.That(deserialized.DecayHalfLifeDays).IsEqualTo(60);
     }
 
     [Fact]
@@ -261,7 +261,7 @@ public class SettingsSerializationTests
         var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
 
         // Should use defaults for missing Phase 8 properties
-        Assert.True(settings.Keyboard.DecayEnabled);
-        Assert.Equal(30, settings.Keyboard.DecayHalfLifeDays);
+        Check.That(settings.Keyboard.DecayEnabled).IsTrue();
+        Check.That(settings.Keyboard.DecayHalfLifeDays).IsEqualTo(30);
     }
 }

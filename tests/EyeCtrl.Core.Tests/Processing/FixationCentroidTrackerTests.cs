@@ -12,7 +12,7 @@ public class FixationCentroidTrackerTests
     public void StableCentroid_BeforeTracking_IsNull()
     {
         var tracker = new FixationCentroidTracker(velocityThresholdPxPerSec: 100);
-        Assert.Null(tracker.StableCentroid);
+        Check.That(tracker.StableCentroid).IsNull();
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public class FixationCentroidTrackerTests
     {
         var tracker = new FixationCentroidTracker(velocityThresholdPxPerSec: 100);
         tracker.StartTracking();
-        Assert.Null(tracker.StableCentroid);
+        Check.That(tracker.StableCentroid).IsNull();
     }
 
     [Fact]
@@ -35,9 +35,9 @@ public class FixationCentroidTrackerTests
         tracker.Update(new PhysicalPoint(100, 200), Dt * 2);
 
         var centroid = tracker.StableCentroid;
-        Assert.NotNull(centroid);
-        Assert.Equal(100.33, centroid.Value.X, precision: 1);
-        Assert.Equal(200.33, centroid.Value.Y, precision: 1);
+        Check.That(centroid).IsNotNull();
+        Check.That(centroid.Value.X).IsCloseTo(100.33, 0.1);
+        Check.That(centroid.Value.Y).IsCloseTo(200.33, 0.1);
     }
 
     [Fact]
@@ -53,9 +53,9 @@ public class FixationCentroidTrackerTests
 
         // Only the first sample (velocity=0 <= threshold) contributes
         var centroid = tracker.StableCentroid;
-        Assert.NotNull(centroid);
-        Assert.Equal(100, centroid.Value.X);
-        Assert.Equal(200, centroid.Value.Y);
+        Check.That(centroid).IsNotNull();
+        Check.That(centroid.Value.X).IsEqualTo(100);
+        Check.That(centroid.Value.Y).IsEqualTo(200);
     }
 
     [Fact]
@@ -72,9 +72,9 @@ public class FixationCentroidTrackerTests
 
         // Mean of included: (100,100), (100,100), (103,103) -> (101, 101)
         var centroid = tracker.StableCentroid;
-        Assert.NotNull(centroid);
-        Assert.Equal(101, centroid.Value.X);
-        Assert.Equal(101, centroid.Value.Y);
+        Check.That(centroid).IsNotNull();
+        Check.That(centroid.Value.X).IsEqualTo(101);
+        Check.That(centroid.Value.Y).IsEqualTo(101);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class FixationCentroidTrackerTests
         tracker.StartTracking();
         tracker.Update(new PhysicalPoint(100, 200), 0);
         tracker.StopTracking();
-        Assert.Null(tracker.StableCentroid);
+        Check.That(tracker.StableCentroid).IsNull();
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public class FixationCentroidTrackerTests
         tracker.Update(new PhysicalPoint(300, 400), 0);
 
         var centroid = tracker.StableCentroid;
-        Assert.NotNull(centroid);
-        Assert.Equal(300, centroid.Value.X);
+        Check.That(centroid).IsNotNull();
+        Check.That(centroid.Value.X).IsEqualTo(300);
     }
 }

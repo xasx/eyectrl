@@ -9,7 +9,7 @@ public class AutoSelectionSettingsTests
     {
         var s = new AutoSelectionSettings();
         var errors = s.Validate();
-        Assert.Empty(errors);
+        Check.That(errors).IsEmpty();
     }
 
     [Fact]
@@ -17,15 +17,15 @@ public class AutoSelectionSettingsTests
     {
         var s = new AutoSelectionSettings { HighlightColor = "not-a-color" };
         var errors = s.Validate();
-        Assert.Single(errors);
-        Assert.Contains("HighlightColor", errors[0]);
+        Check.That(errors).HasSize(1);
+        Check.That(errors[0]).Contains("HighlightColor");
     }
 
     [Fact]
     public void HighlightThickness_OutOfRange_ReturnsError()
     {
         var s = new AutoSelectionSettings();
-        Assert.Throws<ArgumentOutOfRangeException>(() => s.HighlightThickness = 0);
+        Check.ThatCode(() => s.HighlightThickness = 0).Throws<ArgumentOutOfRangeException>();
     }
 
     [Fact]
@@ -33,13 +33,13 @@ public class AutoSelectionSettingsTests
     {
         var s = new AutoSelectionSettings { HighlightThickness = 10 };
         var errors = s.Validate();
-        Assert.Empty(errors);
+        Check.That(errors).IsEmpty();
     }
 
     [Fact]
     public void HighlightOpacity_OutOfRange_ReturnsError()
     {
         var s = new AutoSelectionSettings();
-        Assert.Throws<ArgumentOutOfRangeException>(() => s.HighlightOpacity = 0);
+        Check.ThatCode(() => s.HighlightOpacity = 0).Throws<ArgumentOutOfRangeException>();
     }
 }

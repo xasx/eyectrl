@@ -24,7 +24,7 @@ public class GapInterpolatorTests
     {
         var gi = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
         var (_, isInGap) = gi.Process(Valid(100, 200, 0));
-        Assert.False(isInGap);
+        Check.That(isInGap).IsFalse();
     }
 
     [Fact]
@@ -32,8 +32,8 @@ public class GapInterpolatorTests
     {
         var gi = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
         var (pos, _) = gi.Process(Valid(100, 200, 0));
-        Assert.Equal(100, pos.X);
-        Assert.Equal(200, pos.Y);
+        Check.That(pos.X).IsEqualTo(100);
+        Check.That(pos.Y).IsEqualTo(200);
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class GapInterpolatorTests
         var gi = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
         gi.Process(Valid(100, 200, 0));                 // establish last valid
         var (_, isInGap) = gi.Process(Invalid(0, 0, 50_000));  // 50ms < 150ms
-        Assert.True(isInGap);
+        Check.That(isInGap).IsTrue();
     }
 
     [Fact]
@@ -51,8 +51,8 @@ public class GapInterpolatorTests
         var gi = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
         gi.Process(Valid(100, 200, 0));
         var (pos, _) = gi.Process(Invalid(0, 0, 50_000));
-        Assert.Equal(100, pos.X);
-        Assert.Equal(200, pos.Y);
+        Check.That(pos.X).IsEqualTo(100);
+        Check.That(pos.Y).IsEqualTo(200);
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public class GapInterpolatorTests
         gi.Process(Valid(100, 200, 0));
         // 200ms >= 150ms -> long gap, treat as new sequence
         var (_, isInGap) = gi.Process(Invalid(0, 0, 200_000));
-        Assert.False(isInGap);
+        Check.That(isInGap).IsFalse();
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class GapInterpolatorTests
         gi.Process(Valid(100, 200, 0));
         gi.Process(Invalid(0, 0, 50_000));     // short gap
         var (_, isInGap) = gi.Process(Valid(105, 205, 100_000));  // resume
-        Assert.False(isInGap);
+        Check.That(isInGap).IsFalse();
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public class GapInterpolatorTests
         // No prior valid sample — can't be "in gap"
         var gi = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
         var (_, isInGap) = gi.Process(Invalid(0, 0, 0));
-        Assert.False(isInGap);
+        Check.That(isInGap).IsFalse();
     }
 
     [Fact]
@@ -94,9 +94,9 @@ public class GapInterpolatorTests
         replacement.CopyStateFrom(old);
 
         var (pos, isInGap) = replacement.Process(Invalid(0, 0, 1_050_000));
-        Assert.Equal(333, pos.X);
-        Assert.Equal(444, pos.Y);
-        Assert.True(isInGap);
+        Check.That(pos.X).IsEqualTo(333);
+        Check.That(pos.Y).IsEqualTo(444);
+        Check.That(isInGap).IsTrue();
     }
 
     [Fact]
@@ -109,9 +109,9 @@ public class GapInterpolatorTests
         replacement.CopyStateFrom(old);
 
         var (pos, isInGap) = replacement.Process(Invalid(0, 0, 50_000));
-        Assert.Equal(100, pos.X);
-        Assert.Equal(200, pos.Y);
-        Assert.True(isInGap);
+        Check.That(pos.X).IsEqualTo(100);
+        Check.That(pos.Y).IsEqualTo(200);
+        Check.That(isInGap).IsTrue();
     }
 
     [Fact]
@@ -124,8 +124,8 @@ public class GapInterpolatorTests
         replacement.CopyStateFrom(old);
 
         var (pos, isInGap) = replacement.Process(Invalid(0, 0, 200_000));
-        Assert.Equal(100, pos.X);
-        Assert.Equal(200, pos.Y);
-        Assert.False(isInGap);
+        Check.That(pos.X).IsEqualTo(100);
+        Check.That(pos.Y).IsEqualTo(200);
+        Check.That(isInGap).IsFalse();
     }
 }

@@ -13,9 +13,9 @@ public class SentenceCompletionIndexTests
 
         var results = index.GetCompletions("the hand is", maxCount: 5);
 
-        Assert.Single(results);
-        Assert.Equal("worth two in the bush", results[0].completion);
-        Assert.Equal(5, results[0].frequency);
+        Check.That(results).HasSize(1);
+        Check.That(results[0].completion).IsEqualTo("worth two in the bush");
+        Check.That(results[0].frequency).IsEqualTo(5);
     }
 
     [Fact]
@@ -27,9 +27,9 @@ public class SentenceCompletionIndexTests
 
         var results = index.GetCompletions("thank you", maxCount: 5);
 
-        Assert.Equal(2, results.Count);
-        Assert.Contains(results, r => r.completion == "very much");
-        Assert.Contains(results, r => r.completion == "for your help");
+        Check.That(results.Count).IsEqualTo(2);
+        Check.That(results).HasElementThatMatches(r => r.completion == "very much");
+        Check.That(results).HasElementThatMatches(r => r.completion == "for your help");
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public class SentenceCompletionIndexTests
 
         var results = index.GetCompletions("goodbye", maxCount: 5);
 
-        Assert.Empty(results);
+        Check.That(results).IsEmpty();
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public class SentenceCompletionIndexTests
 
         var results = index.GetCompletions("a b", maxCount: 2);
 
-        Assert.Equal(2, results.Count);
+        Check.That(results.Count).IsEqualTo(2);
     }
 
     [Fact]
@@ -66,10 +66,10 @@ public class SentenceCompletionIndexTests
 
         var results = index.GetCompletions("the quick", maxCount: 5);
 
-        Assert.Equal(3, results.Count);
-        Assert.Equal("red fox", results[0].completion);
-        Assert.Equal("blue fox", results[1].completion);
-        Assert.Equal("brown fox", results[2].completion);
+        Check.That(results.Count).IsEqualTo(3);
+        Check.That(results[0].completion).IsEqualTo("red fox");
+        Check.That(results[1].completion).IsEqualTo("blue fox");
+        Check.That(results[2].completion).IsEqualTo("brown fox");
     }
 
     [Fact]
@@ -87,14 +87,14 @@ public class SentenceCompletionIndexTests
         var loaded = SentenceCompletionIndex.Load(stream);
 
         var results = loaded.GetCompletions("thank you", maxCount: 5);
-        Assert.Equal(2, results.Count);
-        Assert.Equal("very much", results[0].completion);
-        Assert.Equal(10, results[0].frequency);
-        Assert.Equal("for your help", results[1].completion);
+        Check.That(results.Count).IsEqualTo(2);
+        Check.That(results[0].completion).IsEqualTo("very much");
+        Check.That(results[0].frequency).IsEqualTo(10);
+        Check.That(results[1].completion).IsEqualTo("for your help");
 
         results = loaded.GetCompletions("the quick", maxCount: 5);
-        Assert.Single(results);
-        Assert.Equal("brown fox", results[0].completion);
+        Check.That(results).HasSize(1);
+        Check.That(results[0].completion).IsEqualTo("brown fox");
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class SentenceCompletionIndexTests
 
         var loaded = SentenceCompletionIndex.Load(stream);
         var results = loaded.GetCompletions("anything", maxCount: 5);
-        Assert.Empty(results);
+        Check.That(results).IsEmpty();
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public class SentenceCompletionIndexTests
         }
         stream.Position = 0;
 
-        Assert.Throws<InvalidDataException>(() => SentenceCompletionIndex.Load(stream));
+        Check.ThatCode(() => SentenceCompletionIndex.Load(stream)).Throws<InvalidDataException>();
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public class SentenceCompletionIndexTests
         }
         stream.Position = 0;
 
-        Assert.Throws<InvalidDataException>(() => SentenceCompletionIndex.Load(stream));
+        Check.ThatCode(() => SentenceCompletionIndex.Load(stream)).Throws<InvalidDataException>();
     }
 
     [Fact]
@@ -146,8 +146,8 @@ public class SentenceCompletionIndexTests
         index.BoostCompletion("thank you very much");
 
         var results = index.GetCompletions("thank you", maxCount: 5);
-        Assert.Single(results);
-        Assert.Equal(6, results[0].frequency);
+        Check.That(results).HasSize(1);
+        Check.That(results[0].frequency).IsEqualTo(6);
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public class SentenceCompletionIndexTests
         index.DismissCompletion("thank you very much");
 
         var results = index.GetCompletions("thank you", maxCount: 5);
-        Assert.Single(results);
-        Assert.Equal(4, results[0].frequency);
+        Check.That(results).HasSize(1);
+        Check.That(results[0].frequency).IsEqualTo(4);
     }
 }

@@ -40,7 +40,7 @@ public class SettingsServiceResourceLeakTests : IDisposable
         await Task.Delay(1000, TestContext.Current.CancellationToken);
 
         // If we got here without exceptions, the test passes
-        Assert.True(true);
+        Check.That(true).IsTrue();
     }
 
     /// <summary>
@@ -71,7 +71,7 @@ public class SettingsServiceResourceLeakTests : IDisposable
 
         // Verify the final value was saved
         var loaded = _service.Load();
-        Assert.Equal(300, loaded.Dwell.FixationDetectionMs);
+        Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(300);
     }
 
     /// <summary>
@@ -98,8 +98,8 @@ public class SettingsServiceResourceLeakTests : IDisposable
 
         // The file should only have the second value (200), not the first (100)
         var loaded = _service.Load();
-        Assert.Equal(200, loaded.Dwell.FixationDetectionMs);
-        Assert.NotEqual(100, loaded.Dwell.FixationDetectionMs);
+        Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(200);
+        Check.That(loaded.Dwell.FixationDetectionMs).IsNotEqualTo(100);
     }
 
     public void Dispose()

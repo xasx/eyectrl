@@ -27,11 +27,11 @@ public class EmojiDataLoaderTests : IDisposable
 
         var data = EmojiDataLoader.Load(_tempFile);
 
-        Assert.Single(data.Categories);
-        Assert.Equal("smileys", data.Categories[0].Id);
-        Assert.Equal(3, data.Categories[0].Emojis.Count);
-        Assert.Equal(2, data.SkinToneBase.Count);
-        Assert.Contains("👋", data.SkinToneBase);
+        Check.That(data.Categories).HasSize(1);
+        Check.That(data.Categories[0].Id).IsEqualTo("smileys");
+        Check.That(data.Categories[0].Emojis.Count).IsEqualTo(3);
+        Check.That(data.SkinToneBase.Count).IsEqualTo(2);
+        Check.That(data.SkinToneBase).Contains("👋");
     }
 
     [Fact]
@@ -43,6 +43,6 @@ public class EmojiDataLoaderTests : IDisposable
 
         var data = EmojiDataLoader.Load(_tempFile);
 
-        Assert.Empty(data.SkinToneBase);
+        Check.That(data.SkinToneBase).IsEmpty();
     }
 }

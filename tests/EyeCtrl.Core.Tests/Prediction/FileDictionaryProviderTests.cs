@@ -30,8 +30,8 @@ public class FileDictionaryProviderTests : IDisposable
         var bigrams = _provider.LoadBigrams();
 
         // Assert
-        Assert.NotNull(bigrams);
-        Assert.Empty(bigrams);
+        Check.That(bigrams).IsNotNull();
+        Check.That(bigrams).IsEmpty();
     }
 
     [Fact]
@@ -50,12 +50,12 @@ public class FileDictionaryProviderTests : IDisposable
         var bigrams = _provider.LoadBigrams();
 
         // Assert
-        Assert.Equal(2, bigrams.Count);
-        Assert.Equal(2, bigrams["hello"].Count);
-        Assert.Equal(5, bigrams["hello"]["world"]);
-        Assert.Equal(3, bigrams["hello"]["there"]);
-        Assert.Single(bigrams["good"]);
-        Assert.Equal(2, bigrams["good"]["morning"]);
+        Check.That(bigrams.Count).IsEqualTo(2);
+        Check.That(bigrams["hello"].Count).IsEqualTo(2);
+        Check.That(bigrams["hello"]["world"]).IsEqualTo(5);
+        Check.That(bigrams["hello"]["there"]).IsEqualTo(3);
+        Check.That(bigrams["good"]).HasSize(1);
+        Check.That(bigrams["good"]["morning"]).IsEqualTo(2);
     }
 
     [Fact]
@@ -72,12 +72,12 @@ public class FileDictionaryProviderTests : IDisposable
 
         // Assert
         var path = Path.Combine(_testDir, "user_dictionary_en_bigrams.json");
-        Assert.True(File.Exists(path));
+        Check.That(File.Exists(path)).IsTrue();
         var json = File.ReadAllText(path);
         var loaded = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
-        Assert.NotNull(loaded);
-        Assert.Single(loaded);
-        Assert.Equal(10, loaded["test"]["data"]);
+        Check.That(loaded).IsNotNull();
+        Check.That(loaded).HasSize(1);
+        Check.That(loaded["test"]["data"]).IsEqualTo(10);
     }
 
     [Fact]
@@ -100,9 +100,9 @@ public class FileDictionaryProviderTests : IDisposable
 
         // Assert
         var loaded = _provider.LoadBigrams();
-        Assert.Single(loaded);
-        Assert.True(loaded.ContainsKey("new"));
-        Assert.False(loaded.ContainsKey("old"));
+        Check.That(loaded).HasSize(1);
+        Check.That(loaded.ContainsKey("new")).IsTrue();
+        Check.That(loaded.ContainsKey("old")).IsFalse();
     }
 
     [Fact]
@@ -112,8 +112,8 @@ public class FileDictionaryProviderTests : IDisposable
         var phrases = _provider.LoadPhrases();
 
         // Assert
-        Assert.NotNull(phrases);
-        Assert.Empty(phrases);
+        Check.That(phrases).IsNotNull();
+        Check.That(phrases).IsEmpty();
     }
 
     [Fact]
@@ -132,11 +132,11 @@ public class FileDictionaryProviderTests : IDisposable
         var phrases = _provider.LoadPhrases();
 
         // Assert
-        Assert.Equal(2, phrases.Count);
-        Assert.Single(phrases["looking"]);
-        Assert.Equal(10, phrases["looking"]["looking forward"]);
-        Assert.Single(phrases["looking forward"]);
-        Assert.Equal(8, phrases["looking forward"]["looking forward to"]);
+        Check.That(phrases.Count).IsEqualTo(2);
+        Check.That(phrases["looking"]).HasSize(1);
+        Check.That(phrases["looking"]["looking forward"]).IsEqualTo(10);
+        Check.That(phrases["looking forward"]).HasSize(1);
+        Check.That(phrases["looking forward"]["looking forward to"]).IsEqualTo(8);
     }
 
     [Fact]
@@ -153,12 +153,12 @@ public class FileDictionaryProviderTests : IDisposable
 
         // Assert
         var path = Path.Combine(_testDir, "user_dictionary_en_phrases.json");
-        Assert.True(File.Exists(path));
+        Check.That(File.Exists(path)).IsTrue();
         var json = File.ReadAllText(path);
         var loaded = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
-        Assert.NotNull(loaded);
-        Assert.Single(loaded);
-        Assert.Equal(15, loaded["thank"]["thank you"]);
+        Check.That(loaded).IsNotNull();
+        Check.That(loaded).HasSize(1);
+        Check.That(loaded["thank"]["thank you"]).IsEqualTo(15);
     }
 
     [Fact]
@@ -181,9 +181,9 @@ public class FileDictionaryProviderTests : IDisposable
 
         // Assert
         var loaded = _provider.LoadPhrases();
-        Assert.Single(loaded);
-        Assert.True(loaded.ContainsKey("new"));
-        Assert.False(loaded.ContainsKey("old"));
+        Check.That(loaded).HasSize(1);
+        Check.That(loaded.ContainsKey("new")).IsTrue();
+        Check.That(loaded.ContainsKey("old")).IsFalse();
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public class FileDictionaryProviderTests : IDisposable
 
             // Assert
             var path = Path.Combine(newTestDir, "user_dictionary_en_bigrams.json");
-            Assert.True(File.Exists(path));
+            Check.That(File.Exists(path)).IsTrue();
         }
         finally
         {
@@ -235,7 +235,7 @@ public class FileDictionaryProviderTests : IDisposable
 
             // Assert
             var path = Path.Combine(newTestDir, "user_dictionary_en_phrases.json");
-            Assert.True(File.Exists(path));
+            Check.That(File.Exists(path)).IsTrue();
         }
         finally
         {
@@ -265,13 +265,13 @@ public class FileDictionaryProviderTests : IDisposable
         var abbreviations = _provider.Abbreviations;
 
         // Assert
-        Assert.Equal(2, words.Count);
-        Assert.Equal(100, words["hello"]);
-        Assert.Equal(50, words["world"]);
-        Assert.Equal(3, abbreviations.Count);
-        Assert.Contains("dr.", abbreviations);
-        Assert.Contains("mr.", abbreviations);
-        Assert.Contains("ms.", abbreviations);
+        Check.That(words.Count).IsEqualTo(2);
+        Check.That(words["hello"]).IsEqualTo(100);
+        Check.That(words["world"]).IsEqualTo(50);
+        Check.That(abbreviations.Count).IsEqualTo(3);
+        Check.That(abbreviations).Contains("dr.");
+        Check.That(abbreviations).Contains("mr.");
+        Check.That(abbreviations).Contains("ms.");
     }
 
     [Fact]
@@ -286,10 +286,10 @@ public class FileDictionaryProviderTests : IDisposable
         var abbreviations = _provider.Abbreviations;
 
         // Assert - Should return empty dictionaries without throwing
-        Assert.NotNull(words);
-        Assert.Empty(words);
-        Assert.NotNull(abbreviations);
-        Assert.Empty(abbreviations);
+        Check.That(words).IsNotNull();
+        Check.That(words).IsEmpty();
+        Check.That(abbreviations).IsNotNull();
+        Check.That(abbreviations).IsEmpty();
     }
 
     [Fact]
@@ -309,10 +309,10 @@ public class FileDictionaryProviderTests : IDisposable
         var abbreviations = _provider.Abbreviations;
 
         // Assert
-        Assert.Single(words);
-        Assert.Equal(5, words["test"]);
-        Assert.NotNull(abbreviations);
-        Assert.Empty(abbreviations);
+        Check.That(words).HasSize(1);
+        Check.That(words["test"]).IsEqualTo(5);
+        Check.That(abbreviations).IsNotNull();
+        Check.That(abbreviations).IsEmpty();
     }
 
     [Fact]
@@ -332,9 +332,9 @@ public class FileDictionaryProviderTests : IDisposable
         var abbreviations = _provider.Abbreviations;
 
         // Assert
-        Assert.Single(words);
-        Assert.NotNull(abbreviations);
-        Assert.Empty(abbreviations);
+        Check.That(words).HasSize(1);
+        Check.That(abbreviations).IsNotNull();
+        Check.That(abbreviations).IsEmpty();
     }
 
     [Fact]
@@ -353,10 +353,9 @@ public class FileDictionaryProviderTests : IDisposable
         _provider.Load();
         var abbreviations = _provider.Abbreviations;
 
-        // Assert
-        Assert.Contains("dr.", abbreviations);
-        Assert.Contains("DR.", abbreviations);
-        Assert.Contains("Dr.", abbreviations);
+        // Assert - case-insensitive abbreviation matching is supported
+        Check.That(abbreviations).HasElementThatMatches(a => a.Equals("dr.", StringComparison.OrdinalIgnoreCase));
+        Check.That(abbreviations).HasElementThatMatches(a => a.Equals("DR.", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -366,8 +365,8 @@ public class FileDictionaryProviderTests : IDisposable
         var casingPreferences = _provider.LoadCasingPreferences();
 
         // Assert
-        Assert.NotNull(casingPreferences);
-        Assert.Empty(casingPreferences);
+        Check.That(casingPreferences).IsNotNull();
+        Check.That(casingPreferences).IsEmpty();
     }
 
     [Fact]
@@ -386,12 +385,12 @@ public class FileDictionaryProviderTests : IDisposable
         var casingPreferences = _provider.LoadCasingPreferences();
 
         // Assert
-        Assert.Equal(2, casingPreferences.Count);
-        Assert.Equal(2, casingPreferences["haus"].Count);
-        Assert.Equal(10, casingPreferences["haus"]["Haus"]);
-        Assert.Equal(1, casingPreferences["haus"]["haus"]);
-        Assert.Single(casingPreferences["hello"]);
-        Assert.Equal(5, casingPreferences["hello"]["Hello"]);
+        Check.That(casingPreferences.Count).IsEqualTo(2);
+        Check.That(casingPreferences["haus"].Count).IsEqualTo(2);
+        Check.That(casingPreferences["haus"]["Haus"]).IsEqualTo(10);
+        Check.That(casingPreferences["haus"]["haus"]).IsEqualTo(1);
+        Check.That(casingPreferences["hello"]).HasSize(1);
+        Check.That(casingPreferences["hello"]["Hello"]).IsEqualTo(5);
     }
 
     [Fact]
@@ -408,12 +407,12 @@ public class FileDictionaryProviderTests : IDisposable
 
         // Assert
         var path = Path.Combine(_testDir, "user_dictionary_en_casing.json");
-        Assert.True(File.Exists(path));
+        Check.That(File.Exists(path)).IsTrue();
         var json = File.ReadAllText(path);
         var loaded = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
-        Assert.NotNull(loaded);
-        Assert.Single(loaded);
-        Assert.Equal(7, loaded["word"]["Word"]);
+        Check.That(loaded).IsNotNull();
+        Check.That(loaded).HasSize(1);
+        Check.That(loaded["word"]["Word"]).IsEqualTo(7);
     }
 
     [Fact]
@@ -436,9 +435,9 @@ public class FileDictionaryProviderTests : IDisposable
 
         // Assert
         var loaded = _provider.LoadCasingPreferences();
-        Assert.Single(loaded);
-        Assert.True(loaded.ContainsKey("new"));
-        Assert.False(loaded.ContainsKey("old"));
+        Check.That(loaded).HasSize(1);
+        Check.That(loaded.ContainsKey("new")).IsTrue();
+        Check.That(loaded.ContainsKey("old")).IsFalse();
     }
 
     [Fact]
@@ -461,7 +460,7 @@ public class FileDictionaryProviderTests : IDisposable
 
             // Assert
             var path = Path.Combine(newTestDir, "user_dictionary_en_casing.json");
-            Assert.True(File.Exists(path));
+            Check.That(File.Exists(path)).IsTrue();
         }
         finally
         {
@@ -481,8 +480,8 @@ public class FileDictionaryProviderTests : IDisposable
         var casingPreferences = _provider.LoadCasingPreferences();
 
         // Assert - Should return empty dictionary without throwing
-        Assert.NotNull(casingPreferences);
-        Assert.Empty(casingPreferences);
+        Check.That(casingPreferences).IsNotNull();
+        Check.That(casingPreferences).IsEmpty();
     }
 
     [Fact]
@@ -498,7 +497,7 @@ public class FileDictionaryProviderTests : IDisposable
         var casingPreferences = _provider.LoadCasingPreferences();
 
         // Assert - Should return empty dictionary without throwing
-        Assert.NotNull(casingPreferences);
-        Assert.Empty(casingPreferences);
+        Check.That(casingPreferences).IsNotNull();
+        Check.That(casingPreferences).IsEmpty();
     }
 }

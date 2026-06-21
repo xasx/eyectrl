@@ -11,10 +11,10 @@ public class PredictionResultTests
         var result = new PredictionResult("hello", 100.0, PredictionType.ExactPrefix, 0.95);
 
         // Assert
-        Assert.Equal("hello", result.Word);
-        Assert.Equal(100.0, result.Score);
-        Assert.Equal(PredictionType.ExactPrefix, result.Type);
-        Assert.Equal(0.95, result.Confidence);
+        Check.That(result.Word).IsEqualTo("hello");
+        Check.That(result.Score).IsEqualTo(100.0);
+        Check.That(result.Type).IsEqualTo(PredictionType.ExactPrefix);
+        Check.That(result.Confidence).IsEqualTo(0.95);
     }
 
     [Fact]
@@ -24,7 +24,7 @@ public class PredictionResultTests
         var result = new PredictionResult("", 0.0, PredictionType.FuzzyMatch, 0.0);
 
         // Assert
-        Assert.Equal("", result.Word);
+        Check.That(result.Word).IsEqualTo("");
     }
 
     [Theory]
@@ -38,7 +38,7 @@ public class PredictionResultTests
         var result = new PredictionResult("test", 50.0, type, 0.5);
 
         // Assert
-        Assert.Equal(type, result.Type);
+        Check.That(result.Type).IsEqualTo(type);
     }
 
     [Theory]
@@ -51,7 +51,7 @@ public class PredictionResultTests
         var result = new PredictionResult("test", 50.0, PredictionType.ExactPrefix, confidence);
 
         // Assert
-        Assert.Equal(confidence, result.Confidence);
+        Check.That(result.Confidence).IsEqualTo(confidence);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class PredictionResultTests
         // The model doesn't enforce this constraint
         var result = new PredictionResult("test", 50.0, PredictionType.ExactPrefix, 1.5);
 
-        Assert.Equal(1.5, result.Confidence);
+        Check.That(result.Confidence).IsEqualTo(1.5);
     }
 
     [Fact]
@@ -72,27 +72,27 @@ public class PredictionResultTests
 
         // Act & Assert - Should not compile if we try to modify
         // result.Word = "modified"; // This should not compile with init
-        Assert.Equal("original", result.Word);
+        Check.That(result.Word).IsEqualTo("original");
     }
 
     [Fact]
     public void Constructor_SentenceCompletion_CreatesValidRecord()
     {
         var result = new PredictionResult("hand is worth two in the bush", 150.0, PredictionType.SentenceCompletion, 0.95);
-        Assert.Equal("hand is worth two in the bush", result.Word);
-        Assert.Equal(150.0, result.Score);
-        Assert.Equal(PredictionType.SentenceCompletion, result.Type);
-        Assert.Equal(0.95, result.Confidence);
+        Check.That(result.Word).IsEqualTo("hand is worth two in the bush");
+        Check.That(result.Score).IsEqualTo(150.0);
+        Check.That(result.Type).IsEqualTo(PredictionType.SentenceCompletion);
+        Check.That(result.Confidence).IsEqualTo(0.95);
     }
 
     [Fact]
     public void Constructor_LMSuggestion_CreatesValidRecord()
     {
         var result = new PredictionResult("bush", 80.0, PredictionType.LMSuggestion, 0.6);
-        Assert.Equal("bush", result.Word);
-        Assert.Equal(80.0, result.Score);
-        Assert.Equal(PredictionType.LMSuggestion, result.Type);
-        Assert.Equal(0.6, result.Confidence);
+        Check.That(result.Word).IsEqualTo("bush");
+        Check.That(result.Score).IsEqualTo(80.0);
+        Check.That(result.Type).IsEqualTo(PredictionType.LMSuggestion);
+        Check.That(result.Confidence).IsEqualTo(0.6);
     }
 
     [Theory]
@@ -110,6 +110,6 @@ public class PredictionResultTests
             PredictionType.LMSuggestion => "LMSuggestion",
             _ => "Unknown"
         };
-        Assert.NotEqual("Unknown", label);
+        Check.That("Unknown").IsNotEqualTo(label);
     }
 }

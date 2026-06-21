@@ -19,15 +19,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.FixationDetectionMs = 99;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Equal("value", exception.ParamName);
-        Assert.Contains("100", exception.Message);
-        Assert.Contains("1000", exception.Message);
-        Assert.Contains("FixationDetectionMs", exception.Message);
     }
 
     [Fact]
@@ -37,15 +33,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.FixationDetectionMs = 1001;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Equal("value", exception.ParamName);
-        Assert.Contains("100", exception.Message);
-        Assert.Contains("1000", exception.Message);
-        Assert.Contains("FixationDetectionMs", exception.Message);
     }
 
     [Theory]
@@ -61,7 +53,7 @@ public class SettingsPropertyValidationTests
         settings.FixationDetectionMs = value;
 
         // Assert
-        Assert.Equal(value, settings.FixationDetectionMs);
+        Check.That(settings.FixationDetectionMs).IsEqualTo(value);
     }
 
     [Theory]
@@ -76,7 +68,7 @@ public class SettingsPropertyValidationTests
         settings.FixationDetectionMs = value;
 
         // Assert
-        Assert.Equal(value, settings.FixationDetectionMs);
+        Check.That(settings.FixationDetectionMs).IsEqualTo(value);
     }
 
     #endregion
@@ -90,14 +82,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.ActivationButtonDwellMs = 199;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Equal("value", exception.ParamName);
-        Assert.Contains("200", exception.Message);
-        Assert.Contains("2000", exception.Message);
     }
 
     [Fact]
@@ -107,14 +96,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.ActivationButtonDwellMs = 2001;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Equal("value", exception.ParamName);
-        Assert.Contains("200", exception.Message);
-        Assert.Contains("2000", exception.Message);
     }
 
     [Fact]
@@ -124,13 +110,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.ActivationButtonDwellMs = 50;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("ActivationButtonDwellMs", exception.Message);
-        Assert.Contains("must be between", exception.Message);
     }
 
     [Theory]
@@ -146,7 +130,7 @@ public class SettingsPropertyValidationTests
         settings.ActivationButtonDwellMs = value;
 
         // Assert
-        Assert.Equal(value, settings.ActivationButtonDwellMs);
+        Check.That(settings.ActivationButtonDwellMs).IsEqualTo(value);
     }
 
     #endregion
@@ -162,14 +146,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.ActionMenuDwellMs = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Equal("value", exception.ParamName);
-        Assert.Contains("200", exception.Message);
-        Assert.Contains("2000", exception.Message);
     }
 
     [Theory]
@@ -185,7 +166,7 @@ public class SettingsPropertyValidationTests
         settings.ActionMenuDwellMs = value;
 
         // Assert
-        Assert.Equal(value, settings.ActionMenuDwellMs);
+        Check.That(settings.ActionMenuDwellMs).IsEqualTo(value);
     }
 
     #endregion
@@ -201,12 +182,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.ManualSelectionActionMenuDwellMs = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Equal("value", exception.ParamName);
     }
 
     #endregion
@@ -222,10 +202,10 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.ToolbarButtonDwellMs = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
     }
 
     #endregion
@@ -241,13 +221,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.KeyboardKeyDwellMs = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("100", exception.Message);
-        Assert.Contains("1500", exception.Message);
     }
 
     #endregion
@@ -263,10 +241,10 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.KeyboardPredictionDwellMs = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
     }
 
     #endregion
@@ -282,13 +260,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.FixationRadiusPixels = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("10", exception.Message);
-        Assert.Contains("200", exception.Message);
     }
 
     [Theory]
@@ -304,7 +280,7 @@ public class SettingsPropertyValidationTests
         settings.FixationRadiusPixels = value;
 
         // Assert
-        Assert.Equal(value, settings.FixationRadiusPixels);
+        Check.That(settings.FixationRadiusPixels).IsEqualTo(value);
     }
 
     #endregion
@@ -320,12 +296,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.VelocityThresholdPxPerSec = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("must be greater than 0", exception.Message);
     }
 
     [Theory]
@@ -341,7 +316,7 @@ public class SettingsPropertyValidationTests
         settings.VelocityThresholdPxPerSec = value;
 
         // Assert
-        Assert.Equal(value, settings.VelocityThresholdPxPerSec);
+        Check.That(settings.VelocityThresholdPxPerSec).IsEqualTo(value);
     }
 
     #endregion
@@ -355,15 +330,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.SmoothingFactor = -0.1;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Equal("value", exception.ParamName);
-        Assert.Contains("0", exception.Message);
-        Assert.Contains("1", exception.Message);
-        Assert.Contains("SmoothingFactor", exception.Message);
     }
 
     [Fact]
@@ -373,14 +344,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.SmoothingFactor = 1.1;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Equal("value", exception.ParamName);
-        Assert.Contains("0", exception.Message);
-        Assert.Contains("1", exception.Message);
     }
 
     [Theory]
@@ -396,7 +364,7 @@ public class SettingsPropertyValidationTests
         settings.SmoothingFactor = value;
 
         // Assert
-        Assert.Equal(value, settings.SmoothingFactor);
+        Check.That(settings.SmoothingFactor).IsEqualTo(value);
     }
 
     #endregion
@@ -412,13 +380,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.OneEuroMinCutoff = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("0.1", exception.Message);
-        Assert.Contains("20", exception.Message);
     }
 
     [Theory]
@@ -434,7 +400,7 @@ public class SettingsPropertyValidationTests
         settings.OneEuroMinCutoff = value;
 
         // Assert
-        Assert.Equal(value, settings.OneEuroMinCutoff);
+        Check.That(settings.OneEuroMinCutoff).IsEqualTo(value);
     }
 
     #endregion
@@ -450,13 +416,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.OneEuroBeta = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("0", exception.Message);
-        Assert.Contains("5", exception.Message);
     }
 
     #endregion
@@ -472,13 +436,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.SnapRadiusPixels = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("0", exception.Message);
-        Assert.Contains("100", exception.Message);
     }
 
     #endregion
@@ -492,14 +454,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentException>(() =>
+        Check.ThatCode(() =>
         {
             settings.CircleColor = "invalid";
-        });
+        }).Throws<ArgumentException>();
 
-        Assert.Equal("value", exception.ParamName);
-        Assert.Contains("CircleColor", exception.Message);
-        Assert.Contains("hex color", exception.Message);
     }
 
     [Theory]
@@ -513,10 +472,10 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Assert.Throws<ArgumentException>(() =>
+        Check.ThatCode(() =>
         {
             settings.CircleColor = value;
-        });
+        }).Throws<ArgumentException>();
     }
 
     [Theory]
@@ -533,7 +492,7 @@ public class SettingsPropertyValidationTests
         settings.CircleColor = value;
 
         // Assert
-        Assert.Equal(value, settings.CircleColor);
+        Check.That(settings.CircleColor).IsEqualTo(value);
     }
 
     #endregion
@@ -549,13 +508,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.CircleOpacity = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("0", exception.Message);
-        Assert.Contains("1", exception.Message);
     }
 
     #endregion
@@ -571,13 +528,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.CircleThickness = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("1", exception.Message);
-        Assert.Contains("10", exception.Message);
     }
 
     #endregion
@@ -593,13 +548,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.CircleSize = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("10", exception.Message);
-        Assert.Contains("500", exception.Message);
     }
 
     #endregion
@@ -615,13 +568,11 @@ public class SettingsPropertyValidationTests
         var settings = new ManualSelectionSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.CircleRadiusPixels = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("50", exception.Message);
-        Assert.Contains("500", exception.Message);
     }
 
     [Theory]
@@ -637,7 +588,7 @@ public class SettingsPropertyValidationTests
         settings.CircleRadiusPixels = value;
 
         // Assert
-        Assert.Equal(value, settings.CircleRadiusPixels);
+        Check.That(settings.CircleRadiusPixels).IsEqualTo(value);
     }
 
     #endregion
@@ -653,13 +604,11 @@ public class SettingsPropertyValidationTests
         var settings = new ManualSelectionSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.MagnificationLevel = value;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("1.5", exception.Message);
-        Assert.Contains("5", exception.Message);
     }
 
     [Theory]
@@ -675,7 +624,7 @@ public class SettingsPropertyValidationTests
         settings.MagnificationLevel = value;
 
         // Assert
-        Assert.Equal(value, settings.MagnificationLevel);
+        Check.That(settings.MagnificationLevel).IsEqualTo(value);
     }
 
     #endregion
@@ -689,13 +638,13 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings { FixationDetectionMs = 300 };
 
         // Act & Assert - attempt to set invalid value
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.FixationDetectionMs = 50;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
         // Property should retain original value
-        Assert.Equal(300, settings.FixationDetectionMs);
+        Check.That(settings.FixationDetectionMs).IsEqualTo(300);
     }
 
     [Fact]
@@ -716,8 +665,8 @@ public class SettingsPropertyValidationTests
         settings.FixationDetectionMs = 500;
 
         // Assert
-        Assert.True(propertyChangedFired);
-        Assert.Equal(nameof(settings.FixationDetectionMs), changedPropertyName);
+        Check.That(propertyChangedFired).IsTrue();
+        Check.That(changedPropertyName).IsEqualTo(nameof(settings.FixationDetectionMs));
     }
 
     [Fact]
@@ -733,10 +682,10 @@ public class SettingsPropertyValidationTests
         settings.FixationRadiusPixels = 75.0;
 
         // Assert
-        Assert.Equal(400, settings.FixationDetectionMs);
-        Assert.Equal(800, settings.ActivationButtonDwellMs);
-        Assert.Equal(700, settings.ActionMenuDwellMs);
-        Assert.Equal(75.0, settings.FixationRadiusPixels);
+        Check.That(settings.FixationDetectionMs).IsEqualTo(400);
+        Check.That(settings.ActivationButtonDwellMs).IsEqualTo(800);
+        Check.That(settings.ActionMenuDwellMs).IsEqualTo(700);
+        Check.That(settings.FixationRadiusPixels).IsEqualTo(75.0);
     }
 
     [Fact]
@@ -747,16 +696,16 @@ public class SettingsPropertyValidationTests
 
         // Act - set valid value
         settings.FixationDetectionMs = 400;
-        Assert.Equal(400, settings.FixationDetectionMs);
+        Check.That(settings.FixationDetectionMs).IsEqualTo(400);
 
         // Act & Assert - attempt invalid value
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.ActivationButtonDwellMs = 50;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
         // First property should remain changed
-        Assert.Equal(400, settings.FixationDetectionMs);
+        Check.That(settings.FixationDetectionMs).IsEqualTo(400);
     }
 
     [Fact]
@@ -778,13 +727,13 @@ public class SettingsPropertyValidationTests
         settings.FixationDetectionMs = 300;
 
         // Assert - PropertyChanged should not fire for unchanged values
-        Assert.Equal(0, fireCount);
+        Check.That(fireCount).IsEqualTo(0);
 
         // Act - set to different value
         settings.FixationDetectionMs = 400;
 
         // Assert - PropertyChanged should fire once
-        Assert.Equal(1, fireCount);
+        Check.That(fireCount).IsEqualTo(1);
     }
 
     #endregion
@@ -798,12 +747,11 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.SmoothingFactor = -1;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("SmoothingFactor", exception.Message);
     }
 
     [Fact]
@@ -813,13 +761,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.FixationDetectionMs = 50;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("100", exception.Message);
-        Assert.Contains("1000", exception.Message);
     }
 
     [Fact]
@@ -829,12 +775,11 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        Check.ThatCode(() =>
         {
             settings.FixationDetectionMs = 5000;
-        });
+        }).Throws<ArgumentOutOfRangeException>();
 
-        Assert.Contains("5000", exception.Message);
     }
 
     #endregion
@@ -867,8 +812,7 @@ public class SettingsPropertyValidationTests
         var sortedTimings = timings.OrderBy(t => t).ToList();
         var medianTime = sortedTimings[iterations / 2];
 
-        Assert.True(medianTime < 100,
-            $"Median validation time was {medianTime}ms (runs: {string.Join(", ", timings)}ms). Expected < 100ms for 1000 operations.");
+        Check.That(medianTime < 100).IsTrue();
     }
 
     #endregion

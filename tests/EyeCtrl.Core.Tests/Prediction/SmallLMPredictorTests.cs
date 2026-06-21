@@ -13,7 +13,7 @@ public class SmallLMPredictorTests
         try
         {
             var predictor = new SmallLMPredictor(tempDir, modelSize: "135M", preferGpu: false, NullLogger<SmallLMPredictor>.Instance, tokenizer: null);
-            Assert.False(predictor.IsAvailable);
+            Check.That(predictor.IsAvailable).IsFalse();
         }
         finally
         {
@@ -25,14 +25,14 @@ public class SmallLMPredictorTests
     public void Constructor_InvalidModelPath_IsNotAvailable()
     {
         var predictor = new SmallLMPredictor(@"C:\nonexistent\path", modelSize: "360M", preferGpu: false, NullLogger<SmallLMPredictor>.Instance, tokenizer: null);
-        Assert.False(predictor.IsAvailable);
+        Check.That(predictor.IsAvailable).IsFalse();
     }
 
     [Fact]
     public void Constructor_ModelSizeOff_IsNotAvailable()
     {
         var predictor = new SmallLMPredictor(@"C:\nonexistent", modelSize: "Off", preferGpu: false, NullLogger<SmallLMPredictor>.Instance, tokenizer: null);
-        Assert.False(predictor.IsAvailable);
+        Check.That(predictor.IsAvailable).IsFalse();
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public class SmallLMPredictorTests
             var predictor = new SmallLMPredictor(tempDir, modelSize: "135M", preferGpu: false, NullLogger<SmallLMPredictor>.Instance, tokenizer: null);
             predictor.Predict("hello world", "wo");
             var results = predictor.TryGetResults();
-            Assert.Null(results);
+            Check.That(results).IsNull();
         }
         finally
         {

@@ -9,22 +9,22 @@ public class ControlInfoTests
     {
         var rect = new PhysicalRect(10, 20, 100, 50);
         var info = new ControlInfo(rect);
-        Assert.Equal(60, info.CenterPoint.X); // 10 + 100/2
-        Assert.Equal(45, info.CenterPoint.Y); // 20 + 50/2
+        Check.That(info.CenterPoint.X).IsEqualTo(60);
+        Check.That(info.CenterPoint.Y).IsEqualTo(45);
     }
 
     [Fact]
     public void PhysicalRect_Center_ReturnsCorrectValues()
     {
         var rect = new PhysicalRect(0, 0, 200, 100);
-        Assert.Equal(100, rect.Center.X);
-        Assert.Equal(50, rect.Center.Y);
+        Check.That(rect.Center.X).IsEqualTo(100);
+        Check.That(rect.Center.Y).IsEqualTo(50);
     }
 
     [Fact]
     public void SelectionMode_Defaults()
     {
         // default(int) = 0 = None
-        Assert.Equal(SelectionMode.None, default(SelectionMode));
+        Check.That(default(SelectionMode)).IsEqualTo(SelectionMode.None);
     }
 }

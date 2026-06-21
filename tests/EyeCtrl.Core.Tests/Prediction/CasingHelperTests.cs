@@ -11,7 +11,7 @@ public class CasingHelperTests
     [InlineData("HTML", true)]
     public void IsAllCaps_AllUppercaseLetters_ReturnsTrue(string text, bool expected)
     {
-        Assert.Equal(expected, CasingHelper.IsAllCaps(text));
+        Check.That(CasingHelper.IsAllCaps(text)).IsEqualTo(expected);
     }
 
     [Theory]
@@ -24,7 +24,7 @@ public class CasingHelperTests
     [InlineData("123", false)]    // No letters
     public void IsAllCaps_NotAllCaps_ReturnsFalse(string text, bool expected)
     {
-        Assert.Equal(expected, CasingHelper.IsAllCaps(text));
+        Check.That(CasingHelper.IsAllCaps(text)).IsEqualTo(expected);
     }
 
     [Theory]
@@ -38,7 +38,7 @@ public class CasingHelperTests
     [InlineData("API")]
     public void IsKnownAcronym_CommonAcronyms_ReturnsTrue(string acronym)
     {
-        Assert.True(CasingHelper.IsKnownAcronym(acronym));
+        Check.That(CasingHelper.IsKnownAcronym(acronym)).IsTrue();
     }
 
     [Theory]
@@ -47,7 +47,7 @@ public class CasingHelperTests
     [InlineData("CUSTOM")]
     public void IsKnownAcronym_UnknownWords_ReturnsFalse(string word)
     {
-        Assert.False(CasingHelper.IsKnownAcronym(word));
+        Check.That(CasingHelper.IsKnownAcronym(word)).IsFalse();
     }
 
     [Theory]
@@ -56,7 +56,7 @@ public class CasingHelperTests
     [InlineData("TESTING", "Testing")]
     public void NormalizeAllCaps_RegularWords_ConvertToTitleCase(string input, string expected)
     {
-        Assert.Equal(expected, CasingHelper.NormalizeAllCaps(input));
+        Check.That(CasingHelper.NormalizeAllCaps(input)).IsEqualTo(expected);
     }
 
     [Theory]
@@ -67,7 +67,7 @@ public class CasingHelperTests
     [InlineData("API", "API")]
     public void NormalizeAllCaps_KnownAcronyms_RemainsUnchanged(string input, string expected)
     {
-        Assert.Equal(expected, CasingHelper.NormalizeAllCaps(input));
+        Check.That(CasingHelper.NormalizeAllCaps(input)).IsEqualTo(expected);
     }
 
     [Theory]
@@ -77,7 +77,7 @@ public class CasingHelperTests
     [InlineData("H", "H")]
     public void NormalizeAllCaps_NonAllCaps_RemainsUnchanged(string input, string expected)
     {
-        Assert.Equal(expected, CasingHelper.NormalizeAllCaps(input));
+        Check.That(CasingHelper.NormalizeAllCaps(input)).IsEqualTo(expected);
     }
 
     [Fact]
@@ -87,16 +87,16 @@ public class CasingHelperTests
         var customAcronym = $"TESTACR{Guid.NewGuid():N}";
 
         // Verify it's not known initially
-        Assert.False(CasingHelper.IsKnownAcronym(customAcronym));
+        Check.That(CasingHelper.IsKnownAcronym(customAcronym)).IsFalse();
 
         // Add it
         CasingHelper.AddAcronym(customAcronym);
 
         // Verify it's now known
-        Assert.True(CasingHelper.IsKnownAcronym(customAcronym));
+        Check.That(CasingHelper.IsKnownAcronym(customAcronym)).IsTrue();
 
         // Verify normalization preserves it
-        Assert.Equal(customAcronym, CasingHelper.NormalizeAllCaps(customAcronym));
+        Check.That(CasingHelper.NormalizeAllCaps(customAcronym)).IsEqualTo(customAcronym);
     }
 
     [Theory]
@@ -104,6 +104,6 @@ public class CasingHelperTests
     [InlineData(null)]
     public void NormalizeAllCaps_NullOrEmpty_ReturnsInput(string? input)
     {
-        Assert.Equal(input, CasingHelper.NormalizeAllCaps(input));
+        Check.That(CasingHelper.NormalizeAllCaps(input)).IsEqualTo(input);
     }
 }

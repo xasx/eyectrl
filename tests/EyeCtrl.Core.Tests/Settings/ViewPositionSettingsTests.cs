@@ -10,7 +10,7 @@ public class ViewPositionSettingsTests
     {
         var settings = new EyeCtrlSettings();
 
-        Assert.Equal(ViewPosition.AtCenter, settings.ViewPosition);
+        Check.That(settings.ViewPosition).IsEqualTo(ViewPosition.AtCenter);
     }
 
     [Fact]
@@ -21,7 +21,7 @@ public class ViewPositionSettingsTests
             ViewPosition = ViewPosition.AtGaze
         };
 
-        Assert.Equal(ViewPosition.AtGaze, settings.ViewPosition);
+        Check.That(settings.ViewPosition).IsEqualTo(ViewPosition.AtGaze);
     }
 
     [Fact]
@@ -37,6 +37,6 @@ public class ViewPositionSettingsTests
 
         settings.ViewPosition = ViewPosition.AtGaze;
 
-        Assert.True(propertyChanged);
+        Check.That(propertyChanged).IsTrue();
     }
 }

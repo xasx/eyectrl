@@ -10,8 +10,8 @@ public class DirectFilterTests
         var filter = new DirectFilter();
         var gaze = new GazePoint(100.0, 200.0, 0, true);
         var result = filter.Filter(gaze);
-        Assert.Equal(100.0, result.X);
-        Assert.Equal(200.0, result.Y);
+        Check.That(result.X).IsEqualTo(100.0);
+        Check.That(result.Y).IsEqualTo(200.0);
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public class DirectFilterTests
         var filter = new DirectFilter();
         filter.Filter(new GazePoint(100.0, 200.0, 0, true));
         var result = filter.Filter(new GazePoint(0, 0, 1, false));
-        Assert.Equal(100.0, result.X);
-        Assert.Equal(200.0, result.Y);
+        Check.That(result.X).IsEqualTo(100.0);
+        Check.That(result.Y).IsEqualTo(200.0);
     }
 }

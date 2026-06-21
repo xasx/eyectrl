@@ -10,27 +10,27 @@ public class PlatformConstantsTests
     [Fact]
     public void Win32AbsoluteCoordinateMax_Is65535()
     {
-        Assert.Equal(65535, PlatformConstants.Win32AbsoluteCoordinateMax);
+        Check.That(PlatformConstants.Win32AbsoluteCoordinateMax).IsEqualTo(65535);
     }
 
     [Fact]
     public void MouseWheelDelta_Is120()
     {
-        Assert.Equal(120, PlatformConstants.MouseWheelDelta);
+        Check.That(PlatformConstants.MouseWheelDelta).IsEqualTo(120);
     }
 
     [Fact]
     public void StandardDpiScale_Is96()
     {
-        Assert.Equal(96, PlatformConstants.StandardDpiScale);
+        Check.That(PlatformConstants.StandardDpiScale).IsEqualTo(96);
     }
 
     [Fact]
     public void AllConstants_HaveExpectedValues()
     {
         // Verify all constants are positive
-        Assert.True(PlatformConstants.Win32AbsoluteCoordinateMax > 0);
-        Assert.True(PlatformConstants.MouseWheelDelta > 0);
-        Assert.True(PlatformConstants.StandardDpiScale > 0);
+        Check.That(PlatformConstants.Win32AbsoluteCoordinateMax > 0).IsTrue();
+        Check.That(PlatformConstants.MouseWheelDelta > 0).IsTrue();
+        Check.That(PlatformConstants.StandardDpiScale > 0).IsTrue();
     }
 }

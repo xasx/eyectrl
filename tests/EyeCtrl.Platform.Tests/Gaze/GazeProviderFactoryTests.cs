@@ -14,7 +14,7 @@ public class GazeProviderFactoryTests
     public void Create_Mouse_ReturnsMouseGazeProvider()
     {
         var provider = _factory.Create(GazeProviderType.Mouse, 1920, 1080);
-        Assert.IsType<MouseGazeProvider>(provider);
+        Check.That(provider).IsInstanceOf<MouseGazeProvider>();
         provider.Dispose();
     }
 
@@ -23,7 +23,7 @@ public class GazeProviderFactoryTests
     {
         var provider = _factory.Create(GazeProviderType.Auto, 1920, 1080);
         var type = GazeProviderFactory.GetProviderType(provider);
-        Assert.True(type is GazeProviderType.StreamEngine or GazeProviderType.Mouse);
+        Check.That(type is GazeProviderType.StreamEngine or GazeProviderType.Mouse).IsTrue();
         provider.Dispose();
     }
 
@@ -35,23 +35,23 @@ public class GazeProviderFactoryTests
         var exception = Record.Exception(() =>
         {
             var provider = _factory.Create(GazeProviderType.StreamEngine, 1920, 1080);
-            Assert.Equal(GazeProviderType.StreamEngine, GazeProviderFactory.GetProviderType(provider));
+            Check.That(GazeProviderFactory.GetProviderType(provider)).IsEqualTo(GazeProviderType.StreamEngine);
             provider.Dispose();
         });
 
         if (exception is not null)
         {
             // Only "no device found" is acceptable here
-            Assert.IsType<InvalidOperationException>(exception);
-            Assert.Contains("No Tobii device found", exception.Message);
+            Check.That(exception).IsInstanceOf<InvalidOperationException>();
+            Check.That(exception.Message).Contains("No Tobii device found");
         }
     }
 #else
     [Fact]
     public void Create_StreamEngine_ThrowsPlatformNotSupported()
     {
-        Assert.Throws<PlatformNotSupportedException>(() =>
-            _factory.Create(GazeProviderType.StreamEngine, 1920, 1080));
+        Check.ThatCode(() =>
+            _factory.Create(GazeProviderType.StreamEngine, 1920, 1080)).Throws<PlatformNotSupportedException>();
     }
 #endif
 }

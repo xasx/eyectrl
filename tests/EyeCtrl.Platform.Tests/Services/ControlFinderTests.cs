@@ -18,7 +18,7 @@ public class ControlFinderTests
 
         var finder = new ControlFinder(NullLogger<ControlFinder>.Instance);
         var result = finder.FindTarget(new PhysicalPoint(-10000, -10000));
-        Assert.Null(result);
+        Check.That(result).IsNull();
     }
 
     [Fact]
@@ -30,6 +30,6 @@ public class ControlFinderTests
         var screenH = System.Windows.SystemParameters.PrimaryScreenHeight;
         var screenW = System.Windows.SystemParameters.PrimaryScreenWidth;
         var result = finder.FindTarget(new PhysicalPoint(screenW / 2, screenH - 5));
-        Assert.True(result == null || result.CenterPoint.X > 0);
+        Check.That(result == null || result.CenterPoint.X > 0).IsTrue();
     }
 }

@@ -15,10 +15,12 @@ public class MouseCoordinateMapperTests
         var mapper = new MouseCoordinateMapper();
         var point = new PhysicalPoint(double.NaN, double.NaN);
 
-        var exception = Assert.Throws<ArgumentException>(
-            () => mapper.NormalizeScreenCoordinate(point, 1920, 1080));
+        ArgumentException? exception = null;
+        try { mapper.NormalizeScreenCoordinate(point, 1920, 1080); }
+        catch (ArgumentException ex) { exception = ex; }
 
-        Assert.Equal("point", exception.ParamName);
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("point");
     }
 
     [Fact]
@@ -27,10 +29,12 @@ public class MouseCoordinateMapperTests
         var mapper = new MouseCoordinateMapper();
         var point = new PhysicalPoint(double.PositiveInfinity, double.NegativeInfinity);
 
-        var exception = Assert.Throws<ArgumentException>(
-            () => mapper.NormalizeScreenCoordinate(point, 1920, 1080));
+        ArgumentException? exception = null;
+        try { mapper.NormalizeScreenCoordinate(point, 1920, 1080); }
+        catch (ArgumentException ex) { exception = ex; }
 
-        Assert.Equal("point", exception.ParamName);
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("point");
     }
 
     [Fact]
@@ -39,14 +43,9 @@ public class MouseCoordinateMapperTests
         var mapper = new MouseCoordinateMapper();
         var point = new PhysicalPoint(100, 100);
 
-        Assert.Throws<InvalidOperationException>(
-            () => mapper.NormalizeScreenCoordinate(point, 0, 1080));
-
-        Assert.Throws<InvalidOperationException>(
-            () => mapper.NormalizeScreenCoordinate(point, 1920, 0));
-
-        Assert.Throws<InvalidOperationException>(
-            () => mapper.NormalizeScreenCoordinate(point, -1920, -1080));
+        Check.ThatCode(() => mapper.NormalizeScreenCoordinate(point, 0, 1080)).Throws<InvalidOperationException>();
+        Check.ThatCode(() => mapper.NormalizeScreenCoordinate(point, 1920, 0)).Throws<InvalidOperationException>();
+        Check.ThatCode(() => mapper.NormalizeScreenCoordinate(point, -1920, -1080)).Throws<InvalidOperationException>();
     }
 
     [Fact]
@@ -58,8 +57,8 @@ public class MouseCoordinateMapperTests
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, 1920, 1080);
 
         // Should be clamped to screen edge (65535)
-        Assert.Equal(65535, normalizedX);
-        Assert.Equal(65535, normalizedY);
+        Check.That(normalizedX).IsEqualTo(65535);
+        Check.That(normalizedY).IsEqualTo(65535);
     }
 
     [Fact]
@@ -71,8 +70,8 @@ public class MouseCoordinateMapperTests
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, 1920, 1080);
 
         // Should be clamped to 0
-        Assert.Equal(0, normalizedX);
-        Assert.Equal(0, normalizedY);
+        Check.That(normalizedX).IsEqualTo(0);
+        Check.That(normalizedY).IsEqualTo(0);
     }
 
     [Theory]
@@ -89,8 +88,8 @@ public class MouseCoordinateMapperTests
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, screenWidth, screenHeight);
 
         // Allow small rounding differences
-        Assert.InRange(normalizedX, expectedX - 1, expectedX + 1);
-        Assert.InRange(normalizedY, expectedY - 1, expectedY + 1);
+        Check.That(normalizedX >= expectedX - 1 && normalizedX <= expectedX + 1).IsTrue();
+        Check.That(normalizedY >= expectedY - 1 && normalizedY <= expectedY + 1).IsTrue();
     }
 
     [Fact]
@@ -104,8 +103,8 @@ public class MouseCoordinateMapperTests
 
         // Should be close to 65535 (but not exceed it); exact value depends on screen resolution.
         // For 1920x1080: x=round(1919/1920*65535)=65502, y=round(1079/1080*65535)=65474.
-        Assert.InRange(normalizedX, 65460, 65535);
-        Assert.InRange(normalizedY, 65460, 65535);
+        Check.That(normalizedX >= 65460 && normalizedX <= 65535).IsTrue();
+        Check.That(normalizedY >= 65460 && normalizedY <= 65535).IsTrue();
     }
 
     [Fact]
@@ -118,8 +117,8 @@ public class MouseCoordinateMapperTests
         var (normalizedX, normalizedY) = mapper.NormalizeScreenCoordinate(point, 1920, 1080);
 
         // Should be clamped to screen edge
-        Assert.Equal(65535, normalizedX);
-        Assert.Equal(65535, normalizedY);
+        Check.That(normalizedX).IsEqualTo(65535);
+        Check.That(normalizedY).IsEqualTo(65535);
     }
 
     [Theory]
@@ -138,9 +137,9 @@ public class MouseCoordinateMapperTests
         var bottomLeft = mapper.NormalizeScreenCoordinate(new PhysicalPoint(0, screenHeight), screenWidth, screenHeight);
         var bottomRight = mapper.NormalizeScreenCoordinate(new PhysicalPoint(screenWidth, screenHeight), screenWidth, screenHeight);
 
-        Assert.Equal((0, 0), topLeft);
-        Assert.Equal((65535, 0), topRight);
-        Assert.Equal((0, 65535), bottomLeft);
-        Assert.Equal((65535, 65535), bottomRight);
+        Check.That(topLeft).IsEqualTo((0, 0));
+        Check.That(topRight).IsEqualTo((65535, 0));
+        Check.That(bottomLeft).IsEqualTo((0, 65535));
+        Check.That(bottomRight).IsEqualTo((65535, 65535));
     }
 }

@@ -28,9 +28,9 @@ public class SettingsWindowViewModelTests
     {
         var vm = CreateViewModel();
 
-        Assert.NotNull(vm);
-        Assert.NotNull(vm.Settings);
-        Assert.Equal(9, vm.Settings.Tabs.Count);
+        Check.That(vm).IsNotNull();
+        Check.That(vm.Settings).IsNotNull();
+        Check.That(vm.Settings.Tabs).HasSize(9);
     }
 
     [Fact]
@@ -48,8 +48,8 @@ public class SettingsWindowViewModelTests
         }
 
         // ViewModel should update progress when it receives gaze messages
-        Assert.True(vm.TabProgress.ContainsKey("Cursor"));
-        Assert.True(vm.TabProgress["Cursor"] > 0);
+        Check.That(vm.TabProgress).ContainsKey("Cursor");
+        Check.That(vm.TabProgress["Cursor"] > 0).IsTrue();
     }
 
     [Fact]
@@ -67,8 +67,8 @@ public class SettingsWindowViewModelTests
         }
 
         // Should have some progress
-        Assert.True(vm.TabProgress.ContainsKey("Cursor"));
-        Assert.True(vm.TabProgress["Cursor"] > 0);
+        Check.That(vm.TabProgress).ContainsKey("Cursor");
+        Check.That(vm.TabProgress["Cursor"] > 0).IsTrue();
     }
 
     [Fact]
@@ -85,8 +85,8 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(100, 100), i * 33000));
         }
 
-        Assert.Equal("Dwell", vm.ActiveTabId);
-        Assert.Equal("Dwell", vm.Settings.CurrentTabName);
+        Check.That(vm.ActiveTabId).IsEqualTo("Dwell");
+        Check.That(vm.Settings.CurrentTabName).IsEqualTo("Dwell");
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(50, 50), i * 33000));
         }
 
-        Assert.True(closeSent);
+        Check.That(closeSent).IsTrue();
     }
 
     [Fact]
@@ -141,9 +141,9 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(200, 200), i * 33000));
         }
 
-        // Page should advance if there are multiple pages
-        if (vm.Settings.TotalPages > 1)
-            Assert.True(vm.Settings.CurrentPage > initialPage);
+            // Page should advance if there are multiple pages
+            if (vm.Settings.TotalPages > 1)
+                Check.That(vm.Settings.CurrentPage > initialPage).IsTrue();
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public class SettingsWindowViewModelTests
         if (vm.Settings.TotalPages > 1)
         {
             vm.Settings.NextPage();
-            Assert.Equal(1, vm.Settings.CurrentPage);
+            Check.That(vm.Settings.CurrentPage).IsEqualTo(1);
 
             vm.Register("pag_prev", DwellCategory.Pagination, 60, 600, () => { });
             vm.UpdatePosition("pag_prev", DwellCategory.Pagination, new PhysicalPoint(150, 150));
@@ -168,7 +168,7 @@ public class SettingsWindowViewModelTests
                     new PhysicalPoint(150, 150), i * 33000));
             }
 
-            Assert.Equal(0, vm.Settings.CurrentPage);
+            Check.That(vm.Settings.CurrentPage).IsEqualTo(0);
         }
     }
 
@@ -186,8 +186,8 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(200, 200), i * 33000));
         }
 
-        Assert.True(vm.PagProgress.ContainsKey("pag_next"));
-        Assert.True(vm.PagProgress["pag_next"] > 0);
+        Check.That(vm.PagProgress).ContainsKey("pag_next");
+        Check.That(vm.PagProgress["pag_next"] > 0).IsTrue();
     }
 
     #endregion
@@ -198,14 +198,14 @@ public class SettingsWindowViewModelTests
     public void ShowModal_DisplaysCorrectMessage()
     {
         var vm = CreateViewModel();
-        Assert.False(vm.IsModalVisible);
+        Check.That(vm.IsModalVisible).IsFalse();
 
         bool callbackCalled = false;
         vm.ShowModal("Confirm action?", () => callbackCalled = true);
 
-        Assert.True(vm.IsModalVisible);
-        Assert.Equal("Confirm action?", vm.ModalMessage);
-        Assert.False(callbackCalled); // Not called yet
+        Check.That(vm.IsModalVisible).IsTrue();
+        Check.That(vm.ModalMessage).IsEqualTo("Confirm action?");
+        Check.That(callbackCalled).IsFalse(); // Not called yet
     }
 
     [Fact]
@@ -217,8 +217,8 @@ public class SettingsWindowViewModelTests
 
         vm.SimulateActivated("modal_yes", DwellCategory.Modal);
 
-        Assert.True(confirmed);
-        Assert.False(vm.IsModalVisible); // Modal auto-closes
+        Check.That(confirmed).IsTrue();
+        Check.That(vm.IsModalVisible).IsFalse(); // Modal auto-closes
     }
 
     [Fact]
@@ -230,8 +230,8 @@ public class SettingsWindowViewModelTests
 
         vm.SimulateActivated("modal_no", DwellCategory.Modal);
 
-        Assert.False(confirmed); // Callback NOT invoked
-        Assert.False(vm.IsModalVisible); // Modal closed
+        Check.That(confirmed).IsFalse(); // Callback NOT invoked
+        Check.That(vm.IsModalVisible).IsFalse(); // Modal closed
     }
 
     [Fact]
@@ -239,12 +239,12 @@ public class SettingsWindowViewModelTests
     {
         var vm = CreateViewModel();
         vm.ShowModal("Test", () => { });
-        Assert.True(vm.IsModalVisible);
+        Check.That(vm.IsModalVisible).IsTrue();
 
         vm.HideModal();
 
-        Assert.False(vm.IsModalVisible);
-        Assert.Equal("", vm.ModalMessage);
+        Check.That(vm.IsModalVisible).IsFalse();
+        Check.That(vm.ModalMessage).IsEqualTo("");
     }
 
     [Fact]
@@ -266,8 +266,8 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(100, 100), i * 33000));
         }
 
-        Assert.True(vm.ModalProgress.ContainsKey("modal_yes"));
-        Assert.True(vm.ModalProgress["modal_yes"] > 0);
+        Check.That(vm.ModalProgress).ContainsKey("modal_yes");
+        Check.That(vm.ModalProgress["modal_yes"] > 0).IsTrue();
     }
 
     #endregion
@@ -283,7 +283,7 @@ public class SettingsWindowViewModelTests
         vm.Register("test_control", DwellCategory.Control, 50, 600, () => actionCalled = true);
         vm.SimulateActivated("test_control", DwellCategory.Control);
 
-        Assert.True(actionCalled);
+        Check.That(actionCalled).IsTrue();
     }
 
     [Fact]
@@ -302,7 +302,7 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(100, 100), i * 33000));
         }
 
-        Assert.Equal(1, counter);
+        Check.That(counter).IsEqualTo(1);
     }
 
     [Fact]
@@ -319,8 +319,8 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(150, 150), i * 33000));
         }
 
-        Assert.True(vm.ControlProgress.ContainsKey("test"));
-        Assert.True(vm.ControlProgress["test"] > 0);
+        Check.That(vm.ControlProgress).ContainsKey("test");
+        Check.That(vm.ControlProgress["test"] > 0).IsTrue();
     }
 
     [Fact]
@@ -343,8 +343,8 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(100, 100), i * 33000));
         }
 
-        Assert.Equal(1, counterA);
-        Assert.Equal(0, counterB);
+        Check.That(counterA).IsEqualTo(1);
+        Check.That(counterB).IsEqualTo(0);
 
         // Wait for cooldown to pass, then dwell on controlB
         // Cooldown is typically 300ms, so start at timestamp that's well past it
@@ -354,8 +354,8 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(200, 200), (i + 50) * 33000));
         }
 
-        Assert.Equal(1, counterA);
-        Assert.Equal(1, counterB);
+        Check.That(counterA).IsEqualTo(1);
+        Check.That(counterB).IsEqualTo(1);
     }
 
     [Fact]
@@ -367,7 +367,7 @@ public class SettingsWindowViewModelTests
         var exception = Record.Exception(() =>
             vm.SimulateActivated("unknown_control", DwellCategory.Control));
 
-        Assert.Null(exception);
+        Check.That(exception).IsNull();
     }
 
     [Fact]
@@ -389,13 +389,13 @@ public class SettingsWindowViewModelTests
         }
 
         // Verify we have progress
-        Assert.True(vm.ControlProgress.Count > 0);
+        Check.That(vm.ControlProgress.Count > 0).IsTrue();
 
         // Clear all control targets
         vm.ClearCategory(DwellCategory.Control);
 
         // Verify everything is cleared
-        Assert.Empty(vm.ControlProgress);
+        Check.That(vm.ControlProgress).IsEmpty();
 
         // Verify cleared actions don't execute
         vm.SimulateActivated("control1", DwellCategory.Control);
@@ -420,7 +420,7 @@ public class SettingsWindowViewModelTests
             _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), i * 33000));
 
         // Tab activation fires the registered action AND the tab-switch logic
-        Assert.True(actionFired);
+        Check.That(actionFired).IsTrue();
     }
 
     [Fact]
@@ -435,7 +435,7 @@ public class SettingsWindowViewModelTests
         for (int i = 0; i < 20; i++)
             _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(150, 150), i * 33000));
 
-        Assert.True(actionFired);
+        Check.That(actionFired).IsTrue();
     }
 
     [Fact]
@@ -451,7 +451,7 @@ public class SettingsWindowViewModelTests
             _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), i * 33000));
 
         double progress = vm.GetProgress("prog_ctrl", DwellCategory.Control);
-        Assert.True(progress > 0 && progress <= 1);
+        Check.That(progress > 0 && progress <= 1).IsTrue();
     }
 
     [Fact]
@@ -467,7 +467,7 @@ public class SettingsWindowViewModelTests
         for (int i = 0; i < 20; i++)
             _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), i * 33000));
 
-        Assert.False(actionFired);
+        Check.That(actionFired).IsFalse();
     }
 
     [Fact]
@@ -487,8 +487,8 @@ public class SettingsWindowViewModelTests
         for (int i = 0; i < 20; i++)
             _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), i * 33000));
 
-        Assert.False(aFired);
-        Assert.False(bFired);
+        Check.That(aFired).IsFalse();
+        Check.That(bFired).IsFalse();
     }
 
     [Fact]
@@ -500,7 +500,7 @@ public class SettingsWindowViewModelTests
         vm.Register("sim_ctrl", DwellCategory.Control, 50, 600, () => actionFired = true);
         vm.SimulateActivated("sim_ctrl", DwellCategory.Control);
 
-        Assert.True(actionFired);
+        Check.That(actionFired).IsTrue();
     }
 
     [Fact]
@@ -516,7 +516,7 @@ public class SettingsWindowViewModelTests
             _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(200, 200), i * 33000));
 
         double progress = vm.GetProgress("pag_next", DwellCategory.Pagination);
-        Assert.True(progress > 0);
+        Check.That(progress > 0).IsTrue();
     }
 
     #endregion

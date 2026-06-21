@@ -11,46 +11,45 @@ public class UIConstantsTests
     [Fact]
     public void ButtonRadius_IsDefinedAndPositive()
     {
-        Assert.True(UIConstants.ButtonRadius > 0);
-        Assert.Equal(50.0, UIConstants.ButtonRadius);
+        Check.That(UIConstants.ButtonRadius > 0).IsTrue();
+        Check.That(UIConstants.ButtonRadius).IsEqualTo(50.0);
     }
 
     [Fact]
     public void ActionMenuButtonOuterGap_IsDefinedAndPositive()
     {
-        Assert.True(UIConstants.ActionMenuButtonOuterGap > 0);
-        Assert.Equal(20.0, UIConstants.ActionMenuButtonOuterGap);
+        Check.That(UIConstants.ActionMenuButtonOuterGap > 0).IsTrue();
+        Check.That(UIConstants.ActionMenuButtonOuterGap).IsEqualTo(20.0);
     }
 
     [Fact]
     public void ManualSelectionSideButtonGap_IsDefinedAndPositive()
     {
-        Assert.True(UIConstants.ManualSelectionSideButtonGap > 0);
-        Assert.Equal(20.0, UIConstants.ManualSelectionSideButtonGap);
+        Check.That(UIConstants.ManualSelectionSideButtonGap > 0).IsTrue();
+        Check.That(UIConstants.ManualSelectionSideButtonGap).IsEqualTo(20.0);
     }
 
     [Fact]
     public void ManualSelectionSideButtonDwellMs_IsDefinedAndPositive()
     {
-        Assert.True(UIConstants.ManualSelectionSideButtonDwellMs > 0);
-        Assert.Equal(600, UIConstants.ManualSelectionSideButtonDwellMs);
+        Check.That(UIConstants.ManualSelectionSideButtonDwellMs > 0).IsTrue();
+        Check.That(UIConstants.ManualSelectionSideButtonDwellMs).IsEqualTo(600);
     }
 
     [Fact]
     public void ActivationButtonOffset_IsDefinedAndPositive()
     {
-        Assert.True(UIConstants.ActivationButtonOffset > 0);
-        Assert.Equal(55, UIConstants.ActivationButtonOffset);
+        Check.That(UIConstants.ActivationButtonOffset > 0).IsTrue();
+        Check.That(UIConstants.ActivationButtonOffset).IsEqualTo(55);
     }
 
     [Fact]
     public void AllConstants_ArePositive()
     {
-        // Verify all numeric constants are positive where appropriate
-        Assert.True(UIConstants.ButtonRadius > 0);
-        Assert.True(UIConstants.ActionMenuButtonOuterGap > 0);
-        Assert.True(UIConstants.ManualSelectionSideButtonGap > 0);
-        Assert.True(UIConstants.ManualSelectionSideButtonDwellMs > 0);
-        Assert.True(UIConstants.ActivationButtonOffset > 0);
+        Check.That(UIConstants.ButtonRadius > 0).IsTrue();
+        Check.That(UIConstants.ActionMenuButtonOuterGap > 0).IsTrue();
+        Check.That(UIConstants.ManualSelectionSideButtonGap > 0).IsTrue();
+        Check.That(UIConstants.ManualSelectionSideButtonDwellMs > 0).IsTrue();
+        Check.That(UIConstants.ActivationButtonOffset > 0).IsTrue();
     }
 }

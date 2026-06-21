@@ -18,7 +18,7 @@ public class ViewModelDisposableTests
         var messenger = new WeakReferenceMessenger();
         var vm = new CursorCircleViewModel(settings, messenger);
 
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -30,14 +30,14 @@ public class ViewModelDisposableTests
 
         // Verify VM receives messages before disposal
         messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 200), 0));
-        Assert.Equal(100, vm.Position.X);
+        Check.That(vm.Position.X).IsEqualTo(100);
 
         // Dispose the ViewModel
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
         messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(300, 400), 0));
-        Assert.Equal(100, vm.Position.X); // Position should not change
+        Check.That(vm.Position.X).IsEqualTo(100); // Position should not change
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class ViewModelDisposableTests
         var messenger = new WeakReferenceMessenger();
         var vm = new ActivationButtonViewModel(settings, messenger);
 
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -72,14 +72,14 @@ public class ViewModelDisposableTests
 
         // Verify VM receives messages before disposal
         messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(100, 200)));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         // Dispose the ViewModel
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
         messenger.Send(new HideActivationButtonMessage());
-        Assert.True(vm.IsVisible); // Should remain visible since message wasn't processed
+        Check.That(vm.IsVisible).IsTrue(); // Should remain visible since message wasn't processed
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public class ViewModelDisposableTests
         var messenger = new WeakReferenceMessenger();
         var vm = new ManualSelectionOverlayViewModel(settings, messenger);
 
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -114,14 +114,14 @@ public class ViewModelDisposableTests
         // Verify VM receives messages before disposal
         messenger.Send(new StartManualSelectionMessage(
             new PhysicalPoint(500, 500), 100, 2.0, new PhysicalPoint(500, 500)));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         // Dispose the ViewModel
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
         messenger.Send(new EndManualSelectionMessage());
-        Assert.True(vm.IsVisible); // Should remain visible since message wasn't processed
+        Check.That(vm.IsVisible).IsTrue(); // Should remain visible since message wasn't processed
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class ViewModelDisposableTests
         var messenger = new WeakReferenceMessenger();
         var vm = new ActionMenuViewModel(settings, messenger);
 
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -157,14 +157,14 @@ public class ViewModelDisposableTests
         var actions = new[] { InteractionAction.LeftClick, InteractionAction.RightClick };
         messenger.Send(new ShowActionMenuMessage(
             new PhysicalPoint(500, 500), actions, false, 800, new PhysicalPoint(500, 500), 0, 50));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         // Dispose the ViewModel
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
         messenger.Send(new HideActionMenuMessage());
-        Assert.True(vm.IsVisible); // Should remain visible since message wasn't processed
+        Check.That(vm.IsVisible).IsTrue(); // Should remain visible since message wasn't processed
     }
 
     [Fact]
@@ -186,7 +186,7 @@ public class ViewModelDisposableTests
         var messenger = new WeakReferenceMessenger();
         var vm = new ToolbarViewModel(settings, messenger);
 
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -198,14 +198,14 @@ public class ViewModelDisposableTests
 
         // Verify VM receives messages before disposal
         messenger.Send(new StateChangedMessage(InteractionState.Paused));
-        Assert.True(vm.IsPaused);
+        Check.That(vm.IsPaused).IsTrue();
 
         // Dispose the ViewModel
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
         messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
-        Assert.True(vm.IsPaused); // Should remain paused since message wasn't processed
+        Check.That(vm.IsPaused).IsTrue(); // Should remain paused since message wasn't processed
     }
 
     [Fact]
@@ -227,7 +227,7 @@ public class ViewModelDisposableTests
         var messenger = new WeakReferenceMessenger();
         var vm = new KeyboardViewModel(settings, messenger);
 
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -239,14 +239,14 @@ public class ViewModelDisposableTests
 
         // Verify VM receives messages before disposal
         messenger.Send(new ShowKeyboardMessage());
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         // Dispose the ViewModel
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
         messenger.Send(new HideKeyboardMessage());
-        Assert.True(vm.IsVisible); // Should remain visible since message wasn't processed
+        Check.That(vm.IsVisible).IsTrue(); // Should remain visible since message wasn't processed
     }
 
     [Fact]
@@ -267,7 +267,7 @@ public class ViewModelDisposableTests
         var messenger = new WeakReferenceMessenger();
         var vm = new ManualSelectionGazeIndicatorViewModel(messenger);
 
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -279,14 +279,14 @@ public class ViewModelDisposableTests
         // Verify VM receives messages before disposal
         messenger.Send(new StartManualSelectionMessage(
             new PhysicalPoint(500, 500), 100, 2.0, new PhysicalPoint(500, 500)));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         // Dispose the ViewModel
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
         messenger.Send(new EndManualSelectionMessage());
-        Assert.True(vm.IsVisible); // Should remain visible since message wasn't processed
+        Check.That(vm.IsVisible).IsTrue(); // Should remain visible since message wasn't processed
     }
 
     [Fact]
@@ -308,7 +308,7 @@ public class ViewModelDisposableTests
         var settingsService = new SettingsService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "settings.json"));
         var vm = new SettingsViewModel(settings, settingsService, messenger);
 
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -331,7 +331,7 @@ public class ViewModelDisposableTests
         var messenger = new WeakReferenceMessenger();
         var vm = new GlassBackdropViewModel(settings, messenger);
 
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -344,14 +344,14 @@ public class ViewModelDisposableTests
         // Verify VM receives messages before disposal
         var buttonCenter = new PhysicalPoint(1860, 40);
         messenger.Send(new ShowBackdropMessage(buttonCenter));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         // Dispose the ViewModel
         ((IDisposable)vm).Dispose();
 
         // After disposal, messages should not be processed
         messenger.Send(new HideBackdropMessage());
-        Assert.True(vm.IsVisible); // Should remain visible since message wasn't processed
+        Check.That(vm.IsVisible).IsTrue(); // Should remain visible since message wasn't processed
     }
 
     [Fact]
@@ -382,9 +382,9 @@ public class ViewModelDisposableTests
         ((IDisposable)vm3).Dispose();
 
         // All should be disposed without errors
-        Assert.IsAssignableFrom<IDisposable>(vm1);
-        Assert.IsAssignableFrom<IDisposable>(vm2);
-        Assert.IsAssignableFrom<IDisposable>(vm3);
+        Check.That(vm1 is IDisposable).IsTrue();
+        Check.That(vm2 is IDisposable).IsTrue();
+        Check.That(vm3 is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -396,8 +396,8 @@ public class ViewModelDisposableTests
         var toolbarVm = new ToolbarViewModel(settings, messenger);
 
         // Verify initial state - cursor should be visible by default
-        Assert.True(cursorVm.IsVisible);
-        Assert.False(toolbarVm.IsPaused);
+        Check.That(cursorVm.IsVisible).IsTrue();
+        Check.That(toolbarVm.IsPaused).IsFalse();
 
         // Dispose cursor VM but keep toolbar VM active
         ((IDisposable)cursorVm).Dispose();
@@ -406,8 +406,8 @@ public class ViewModelDisposableTests
         messenger.Send(new StateChangedMessage(InteractionState.Paused));
 
         // CursorVM should NOT respond (still visible), ToolbarVM SHOULD respond (now paused)
-        Assert.True(cursorVm.IsVisible); // Should remain visible since disposed
-        Assert.True(toolbarVm.IsPaused); // Should respond and be paused
+        Check.That(cursorVm.IsVisible).IsTrue(); // Should remain visible since disposed
+        Check.That(toolbarVm.IsPaused).IsTrue(); // Should respond and be paused
 
         // Clean up
         ((IDisposable)toolbarVm).Dispose();

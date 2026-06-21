@@ -6,7 +6,6 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
-using Xunit;
 
 public class GlassBackdropViewModelTests
 {
@@ -20,8 +19,8 @@ public class GlassBackdropViewModelTests
 
         messenger.Send(new ShowBackdropMessage(buttonCenter));
 
-        Assert.True(vm.IsVisible);
-        Assert.Equal(buttonCenter, vm.HideButtonCenter);
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.HideButtonCenter).IsEqualTo(buttonCenter);
     }
 
     [Fact]
@@ -34,7 +33,7 @@ public class GlassBackdropViewModelTests
 
         messenger.Send(new HideBackdropMessage());
 
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
     }
 
     [Fact]
@@ -54,14 +53,14 @@ public class GlassBackdropViewModelTests
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + dwellUs));
 
-        Assert.NotNull(received);
+        Check.That(received).IsNotNull();
     }
 
     [Fact]
     public void ImplementsIDisposable()
     {
         var vm = new GlassBackdropViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        Assert.IsAssignableFrom<IDisposable>(vm);
+        Check.That(vm is IDisposable).IsTrue();
     }
 
     [Fact]
@@ -70,7 +69,7 @@ public class GlassBackdropViewModelTests
         var vm = new GlassBackdropViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
         vm.Dispose();
         var ex = Record.Exception(() => vm.Dispose());
-        Assert.Null(ex);
+        Check.That(ex).IsNull();
     }
 
     [Fact]
@@ -83,7 +82,7 @@ public class GlassBackdropViewModelTests
         var ex = Record.Exception(() =>
             messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 1_000_000)));
 
-        Assert.Null(ex);
+        Check.That(ex).IsNull();
     }
 
     [Fact]
@@ -100,12 +99,12 @@ public class GlassBackdropViewModelTests
         long halfDwellUs = UIConstants.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + halfDwellUs));
-        Assert.True(vm.HideButtonProgress > 0);
+        Check.That(vm.HideButtonProgress > 0).IsTrue();
 
         // Move gaze away — progress should reset
         messenger.Send(new GazeCursorMovedMessage(farAway, now + halfDwellUs + 1));
 
-        Assert.Equal(0, vm.HideButtonProgress);
+        Check.That(vm.HideButtonProgress).IsEqualTo(0);
     }
 
     [Fact]
@@ -122,6 +121,6 @@ public class GlassBackdropViewModelTests
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + halfDwellUs));
 
-        Assert.True(vm.HideButtonProgress > 0.4 && vm.HideButtonProgress < 0.6);
+        Check.That(vm.HideButtonProgress > 0.4 && vm.HideButtonProgress < 0.6).IsTrue();
     }
 }

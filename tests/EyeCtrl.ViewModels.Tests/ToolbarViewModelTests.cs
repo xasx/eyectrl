@@ -14,7 +14,7 @@ public class ToolbarViewModelTests
     public void InitializesWith4Buttons()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        Assert.Equal(5, vm.Buttons.Count);
+        Check.That(vm.Buttons.Count).IsEqualTo(5);
     }
 
     [Fact]
@@ -28,21 +28,21 @@ public class ToolbarViewModelTests
         var pauseBtn = vm.Buttons.First(b => b.Id == "Pause");
         vm.SimulateButtonActivated("Pause");
 
-        Assert.True(received);
+        Check.That(received).IsTrue();
     }
 
     [Fact]
     public void UpdatesPausedState_OnStateChanged()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        Assert.False(vm.IsPaused);
+        Check.That(vm.IsPaused).IsFalse();
 
         _messenger.Send(new StateChangedMessage(InteractionState.Paused));
-        Assert.True(vm.IsPaused);
+        Check.That(vm.IsPaused).IsTrue();
 
         // Pause button symbol should change to play ▶
         var pauseBtn = vm.Buttons.First(b => b.Id == "Pause");
-        Assert.Equal("\u25B6", pauseBtn.Symbol);
+        Check.That(pauseBtn.Symbol).IsEqualTo("\u25B6");
     }
 
     [Fact]
@@ -54,8 +54,8 @@ public class ToolbarViewModelTests
 
         vm.SimulateButtonActivated("SelectionMode");
 
-        Assert.NotNull(received);
-        Assert.Equal(SelectionMode.ManualSelection, received);
+        Check.That(received).IsNotNull();
+        Check.That(received).IsEqualTo(SelectionMode.ManualSelection);
     }
 
     [Fact]
@@ -65,12 +65,12 @@ public class ToolbarViewModelTests
         var selectionButton = vm.Buttons.First(b => b.Id == "SelectionMode");
 
         _messenger.Send(new SelectionModeChangedMessage(SelectionMode.None));
-        Assert.Equal("\u25CB", selectionButton.Symbol);
+        Check.That(selectionButton.Symbol).IsEqualTo("\u25CB");
 
         _messenger.Send(new SelectionModeChangedMessage(SelectionMode.ManualSelection));
-        Assert.Equal("\u2295", selectionButton.Symbol);
+        Check.That(selectionButton.Symbol).IsEqualTo("\u2295");
 
         _messenger.Send(new SelectionModeChangedMessage(SelectionMode.AutoSelection));
-        Assert.Equal("\u25CE", selectionButton.Symbol);
+        Check.That(selectionButton.Symbol).IsEqualTo("\u25CE");
     }
 }

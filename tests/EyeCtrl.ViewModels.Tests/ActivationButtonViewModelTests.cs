@@ -14,13 +14,13 @@ public class ActivationButtonViewModelTests
     public void ShowsButton_OnShowMessage()
     {
         var vm = new ActivationButtonViewModel(_settings, _messenger);
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
 
         _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
 
-        Assert.True(vm.IsVisible);
-        Assert.Equal(500, vm.Position.X);
-        Assert.Equal(300, vm.Position.Y);
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(500);
+        Check.That(vm.Position.Y).IsEqualTo(300);
     }
 
     [Fact]
@@ -28,12 +28,12 @@ public class ActivationButtonViewModelTests
     {
         var vm = new ActivationButtonViewModel(_settings, _messenger);
         _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         _messenger.Send(new HideActivationButtonMessage());
 
-        Assert.False(vm.IsVisible);
-        Assert.Equal(0, vm.DwellProgress);
+        Check.That(vm.IsVisible).IsFalse();
+        Check.That(vm.DwellProgress).IsEqualTo(0);
     }
 
     [Fact]
@@ -50,8 +50,8 @@ public class ActivationButtonViewModelTests
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 0));
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 500_000)); // 500ms
 
-        Assert.True(vm.DwellProgress > 0.4);
-        Assert.True(vm.DwellProgress < 0.6);
+        Check.That(vm.DwellProgress > 0.4).IsTrue();
+        Check.That(vm.DwellProgress < 0.6).IsTrue();
     }
 
     [Fact]
@@ -68,6 +68,6 @@ public class ActivationButtonViewModelTests
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 0));
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 200_000)); // 200ms > 100ms dwell
 
-        Assert.True(activated);
+        Check.That(activated).IsTrue();
     }
 }

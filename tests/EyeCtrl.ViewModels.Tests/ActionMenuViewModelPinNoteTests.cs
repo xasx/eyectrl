@@ -4,7 +4,6 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
-using Xunit;
 
 public class ActionMenuViewModelPinNoteTests
 {
@@ -25,10 +24,10 @@ public class ActionMenuViewModelPinNoteTests
 
         vm.Receive(msg);
 
-        Assert.Single(vm.Items);
-        Assert.NotNull(vm.Items[0].Action);
-        Assert.Equal(InteractionAction.PinNote, vm.Items[0].Action!.Value);
-        Assert.NotEmpty(vm.Items[0].Symbol);
-        Assert.NotEqual("PinNote", vm.Items[0].Symbol);
+        Check.That(vm.Items).HasSize(1);
+        Check.That(vm.Items[0].Action).IsNotNull();
+        Check.That(vm.Items[0].Action!.Value).IsEqualTo(InteractionAction.PinNote);
+        Check.That(vm.Items[0].Symbol).Not.IsEmpty();
+        Check.That(vm.Items[0].Symbol).Not.Equals("PinNote");
     }
 }

@@ -15,7 +15,7 @@ public class SettingsViewModelTests
         var service = new SettingsService("test.json");
         var vm = new SettingsViewModel(settings, service, _messenger);
 
-        Assert.Equal(9, vm.Tabs.Count);
+        Check.That(vm.Tabs).HasSize(9);
     }
 
     [Fact]
@@ -27,7 +27,7 @@ public class SettingsViewModelTests
 
         vm.ShowTab("Cursor");
 
-        Assert.True(vm.CurrentPageItems.Count > 0);
+        Check.That(vm.CurrentPageItems.Count > 0).IsTrue();
     }
 
     [Fact]
@@ -42,8 +42,8 @@ public class SettingsViewModelTests
         vm.ResetAllSettings();
 
         var defaults = new EyeCtrlSettings();
-        Assert.Equal(defaults.Cursor.CircleSize, settings.Cursor.CircleSize);
-        Assert.Equal(defaults.Dwell.FixationDetectionMs, settings.Dwell.FixationDetectionMs);
+        Check.That(settings.Cursor.CircleSize).IsEqualTo(defaults.Cursor.CircleSize);
+        Check.That(settings.Dwell.FixationDetectionMs).IsEqualTo(defaults.Dwell.FixationDetectionMs);
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class SettingsViewModelTests
 
         // Most tabs fit on one page, but verify navigation works
         vm.ShowTab("Cursor");
-        Assert.True(vm.TotalPages >= 1);
-        Assert.Equal(0, vm.CurrentPage);
+        Check.That(vm.TotalPages >= 1).IsTrue();
+        Check.That(vm.CurrentPage).IsEqualTo(0);
     }
 }

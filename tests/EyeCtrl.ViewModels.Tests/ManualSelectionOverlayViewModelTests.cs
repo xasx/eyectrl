@@ -13,15 +13,15 @@ public class ManualSelectionOverlayViewModelTests
     public void ShowsManualSelection_OnStartManualSelectionMessage()
     {
         var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
 
         _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
 
-        Assert.True(vm.IsVisible);
-        Assert.Equal(500, vm.Center.X);
-        Assert.Equal(300, vm.Center.Y);
-        Assert.Equal(150, vm.Radius);
-        Assert.Equal(2.0, vm.Magnification);
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Center.X).IsEqualTo(500);
+        Check.That(vm.Center.Y).IsEqualTo(300);
+        Check.That(vm.Radius).IsEqualTo(150);
+        Check.That(vm.Magnification).IsEqualTo(2.0);
     }
 
     [Fact]
@@ -29,10 +29,10 @@ public class ManualSelectionOverlayViewModelTests
     {
         var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
         _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         _messenger.Send(new EndManualSelectionMessage());
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
     }
 
     [Fact]
@@ -46,10 +46,10 @@ public class ManualSelectionOverlayViewModelTests
         // Button X = 500 + 300 + 20 (gap) + 50 (button radius) = 870
         // Close Y = 500 - 50 - 10 = 440  (above center)
         // Recapture Y = 500 + 50 + 10 = 560  (below center)
-        Assert.True(vm.CloseButtonCenter.X > 500, "Close button should be to the right of ManualSelection center");
-        Assert.True(vm.RecaptureButtonCenter.X > 500, "Recapture button should be to the right");
-        Assert.True(vm.CloseButtonCenter.Y < 500, "Close button should be above center");
-        Assert.True(vm.RecaptureButtonCenter.Y > 500, "Recapture button should be below center");
+        Check.That(vm.CloseButtonCenter.X > 500).IsTrue();
+        Check.That(vm.RecaptureButtonCenter.X > 500).IsTrue();
+        Check.That(vm.CloseButtonCenter.Y < 500).IsTrue();
+        Check.That(vm.RecaptureButtonCenter.Y > 500).IsTrue();
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public class ManualSelectionOverlayViewModelTests
         for (int i = 0; i < 25; i++) // 25 x 33ms = 825ms > 600ms dwell
             _messenger.Send(new GazeCursorMovedMessage(closePos, i * 33000));
 
-        Assert.True(closeSent);
+        Check.That(closeSent).IsTrue();
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class ManualSelectionOverlayViewModelTests
         for (int i = 0; i < 25; i++)
             _messenger.Send(new GazeCursorMovedMessage(recapturePos, i * 33000));
 
-        Assert.True(recaptureSent);
+        Check.That(recaptureSent).IsTrue();
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public class ManualSelectionOverlayViewModelTests
         for (int i = 0; i < 25; i++)
             _messenger.Send(new GazeCursorMovedMessage(closePos, i * 33000));
 
-        Assert.False(closeSent);
+        Check.That(closeSent).IsFalse();
     }
 
     [Fact]
@@ -113,11 +113,11 @@ public class ManualSelectionOverlayViewModelTests
     {
         var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
         _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         _messenger.Send(new ManualSelectionHiddenMessage());
 
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
     }
 
     [Fact]
@@ -127,11 +127,11 @@ public class ManualSelectionOverlayViewModelTests
         var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);
         _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
         _messenger.Send(new ManualSelectionHiddenMessage());
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
 
         _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 300), 150, 2.0, new PhysicalPoint(500, 300)));
 
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
     }
 
     [Fact]
@@ -142,9 +142,9 @@ public class ManualSelectionOverlayViewModelTests
 
         _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(960, 540), 150, 2.0, gazePoint));
 
-        Assert.Equal(gazePoint, vm.GazePoint);
-        Assert.Equal(960, vm.Center.X); // Display center different from gaze
-        Assert.Equal(540, vm.Center.Y);
+        Check.That(vm.GazePoint).IsEqualTo(gazePoint);
+        Check.That(vm.Center.X).IsEqualTo(960); // Display center different from gaze
+        Check.That(vm.Center.Y).IsEqualTo(540);
     }
 
     [Fact]
@@ -155,8 +155,8 @@ public class ManualSelectionOverlayViewModelTests
 
         _messenger.Send(new StartManualSelectionMessage(center, 150, 2.0, center));
 
-        Assert.Equal(center, vm.GazePoint);
-        Assert.Equal(center, vm.Center);
+        Check.That(vm.GazePoint).IsEqualTo(center);
+        Check.That(vm.Center).IsEqualTo(center);
     }
 
     [Fact]
@@ -169,10 +169,10 @@ public class ManualSelectionOverlayViewModelTests
         _messenger.Send(new StartManualSelectionMessage(displayCenter, 150, 2.0, gazePoint));
 
         // Buttons should be positioned relative to display center (960, 540), not gaze (200, 100)
-        Assert.True(vm.CloseButtonCenter.X > 960, "Close button X should be right of display center");
-        Assert.True(vm.RecaptureButtonCenter.X > 960, "Recapture button X should be right of display center");
+        Check.That(vm.CloseButtonCenter.X > 960).IsTrue();
+        Check.That(vm.RecaptureButtonCenter.X > 960).IsTrue();
 
         // Not positioned relative to gaze point
-        Assert.False(vm.CloseButtonCenter.X < 300, "Buttons should not be near gaze point");
+        Check.That(vm.CloseButtonCenter.X < 300).IsFalse();
     }
 }

@@ -17,8 +17,8 @@ public class CursorCircleViewModelTests
 
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 200), 0));
 
-        Assert.Equal(100, vm.Position.X);
-        Assert.Equal(200, vm.Position.Y);
+        Check.That(vm.Position.X).IsEqualTo(100);
+        Check.That(vm.Position.Y).IsEqualTo(200);
     }
 
     [Fact]
@@ -30,9 +30,9 @@ public class CursorCircleViewModelTests
         settings.Cursor.CircleOpacity = 0.8;
         var vm = new CursorCircleViewModel(settings, _messenger);
 
-        Assert.Equal(50, vm.Size);
-        Assert.Equal("#FF0000", vm.CircleColor);
-        Assert.Equal(0.8, vm.Opacity);
+        Check.That(vm.Size).IsEqualTo(50);
+        Check.That(vm.CircleColor).IsEqualTo("#FF0000");
+        Check.That(vm.Opacity).IsEqualTo(0.8);
     }
 
     [Fact]
@@ -40,13 +40,13 @@ public class CursorCircleViewModelTests
     {
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         _messenger.Send(new StateChangedMessage(InteractionState.Paused));
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
 
         _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
     }
 
     [Theory]
@@ -61,7 +61,7 @@ public class CursorCircleViewModelTests
 
         messenger.Send(new StateChangedMessage(state));
 
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
     }
 
     [Fact]
@@ -72,10 +72,10 @@ public class CursorCircleViewModelTests
         var vm = new CursorCircleViewModel(settings, messenger);
 
         messenger.Send(new StateChangedMessage(InteractionState.ActionMenuVisible));
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
 
         messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
     }
 
     [Fact]
@@ -86,13 +86,13 @@ public class CursorCircleViewModelTests
         var vm = new CursorCircleViewModel(settings, messenger);
 
         messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         messenger.Send(new ExternalDwellActiveMessage(true));
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
 
         messenger.Send(new ExternalDwellActiveMessage(false));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
     }
 
     [Fact]
@@ -105,9 +105,9 @@ public class CursorCircleViewModelTests
 
         messenger.Send(new StateChangedMessage(InteractionState.Paused));
         messenger.Send(new ExternalDwellActiveMessage(true));
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
 
         messenger.Send(new ExternalDwellActiveMessage(false));
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
     }
 }

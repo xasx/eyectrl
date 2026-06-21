@@ -40,9 +40,9 @@ public class CalibrationViewModelTests
     {
         var vm = CreateVm();
         _messenger.Send(new CalibrationRequestedMessage());
-        Assert.Equal(CalibrationState.Collecting, vm.State);
-        Assert.Equal(3, vm.TotalTargets);
-        Assert.True(_calibrationService.IsSessionActive);
+        Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
+        Check.That(vm.TotalTargets).IsEqualTo(3);
+        Check.That(_calibrationService.IsSessionActive).IsTrue();
     }
 
     [Fact]
@@ -51,8 +51,8 @@ public class CalibrationViewModelTests
         var vm = CreateVm();
         _messenger.Send(new CalibrationRequestedMessage());
         vm.Cancel();
-        Assert.Equal(CalibrationState.Idle, vm.State);
-        Assert.False(_calibrationService.IsSessionActive);
+        Check.That(vm.State).IsEqualTo(CalibrationState.Idle);
+        Check.That(_calibrationService.IsSessionActive).IsFalse();
     }
 
     [Fact]
@@ -62,8 +62,8 @@ public class CalibrationViewModelTests
         _messenger.Send(new CalibrationRequestedMessage());
         var targetCount = vm.TotalTargets;
         _messenger.Send(new CalibrationRequestedMessage());
-        Assert.Equal(targetCount, vm.TotalTargets);
-        Assert.Equal(CalibrationState.Collecting, vm.State);
+        Check.That(vm.TotalTargets).IsEqualTo(targetCount);
+        Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
     }
 
     [Fact]
@@ -105,9 +105,9 @@ public class CalibrationViewModelTests
         stop.Cancel();
         try { await firing; } catch (OperationCanceledException) { }
 
-        Assert.NotNull(completion);
-        Assert.False(completion!.Success);
-        Assert.Null(completion.MeanErrorPixels);
-        Assert.Equal(CalibrationState.Failed, vm.State);
+        Check.That(completion).IsNotNull();
+        Check.That(completion!.Success).IsFalse();
+        Check.That(completion.MeanErrorPixels).IsNull();
+        Check.That(vm.State).IsEqualTo(CalibrationState.Failed);
     }
 }

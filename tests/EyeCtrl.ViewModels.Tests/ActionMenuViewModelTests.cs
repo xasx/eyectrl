@@ -23,9 +23,9 @@ public class ActionMenuViewModelTests
 
         _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 300), actions, false, 600, new PhysicalPoint(500, 300)));
 
-        Assert.True(vm.IsVisible);
-        Assert.Equal(3, vm.Items.Count);
-        Assert.False(vm.ShowBack);
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Items).HasSize(3);
+        Check.That(vm.ShowBack).IsFalse();
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class ActionMenuViewModelTests
 
         // 4 items at 90-degree intervals — verify positions are distinct and equidistant from center
         var positions = vm.Items.Select(i => i.Position).ToList();
-        Assert.Equal(4, positions.Distinct().Count());
+        Check.That(positions.Distinct().Count()).IsEqualTo(4);
     }
 
     [Fact]
@@ -55,8 +55,8 @@ public class ActionMenuViewModelTests
 
         _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 300), actions, true, 600, new PhysicalPoint(500, 300)));
 
-        Assert.True(vm.ShowBack);
-        Assert.Equal(2, vm.Items.Count); // 1 action + 1 back button
+        Check.That(vm.ShowBack).IsTrue();
+        Check.That(vm.Items).HasSize(2); // 1 action + 1 back button
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class ActionMenuViewModelTests
         _messenger.Send(new GazeCursorMovedMessage(itemPos, 0));
         _messenger.Send(new GazeCursorMovedMessage(itemPos, 200_000)); // 200ms > 100ms dwell
 
-        Assert.Equal(InteractionAction.LeftClick, selectedAction);
+        Check.That(selectedAction).IsEqualTo(InteractionAction.LeftClick);
     }
 
     [Fact]
@@ -84,10 +84,10 @@ public class ActionMenuViewModelTests
         var vm = new ActionMenuViewModel(_settings, _messenger);
         _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 300),
             new List<InteractionAction> { InteractionAction.LeftClick }, false, 600, new PhysicalPoint(500, 300)));
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
 
         _messenger.Send(new HideActionMenuMessage());
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public class ActionMenuViewModelTests
         _messenger.Send(new ShowActionMenuMessage(
             new PhysicalPoint(500, 500), actions, false, 600, new PhysicalPoint(500, 500), 0, 250));
 
-        Assert.Equal(195, vm.EffectiveRingRadius);
+        Check.That(vm.EffectiveRingRadius).IsEqualTo(195);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public class ActionMenuViewModelTests
         _messenger.Send(new ShowActionMenuMessage(
             new PhysicalPoint(500, 500), actions, false, 600, new PhysicalPoint(500, 500), 0, 100));
 
-        Assert.Equal(120, vm.EffectiveRingRadius);
+        Check.That(vm.EffectiveRingRadius).IsEqualTo(120);
     }
 
     [Fact]
@@ -133,8 +133,8 @@ public class ActionMenuViewModelTests
             ManualSelectionRadius = 150
         });
 
-        Assert.Equal(ManualSelectionCenter, vm.ManualSelectionCenter);
-        Assert.Equal(150, vm.ManualSelectionRadius);
+        Check.That(vm.ManualSelectionCenter).IsEqualTo(ManualSelectionCenter);
+        Check.That(vm.ManualSelectionRadius).IsEqualTo(150);
     }
 
     [Fact]
@@ -154,8 +154,8 @@ public class ActionMenuViewModelTests
 
         _messenger.Send(new HideActionMenuMessage());
 
-        Assert.Null(vm.ManualSelectionCenter);
-        Assert.Null(vm.ManualSelectionRadius);
+        Check.That(vm.ManualSelectionCenter).IsNull();
+        Check.That(vm.ManualSelectionRadius).IsNull();
     }
 
     [Fact]
@@ -172,8 +172,8 @@ public class ActionMenuViewModelTests
             DwellTimeMs: 600,
             GazePoint: gazePoint));
 
-        Assert.Equal(gazePoint, vm.GazePoint);
-        Assert.Equal(displayCenter, vm.Center);
+        Check.That(vm.GazePoint).IsEqualTo(gazePoint);
+        Check.That(vm.Center).IsEqualTo(displayCenter);
     }
 
     [Fact]
@@ -189,8 +189,8 @@ public class ActionMenuViewModelTests
             DwellTimeMs: 600,
             GazePoint: center));
 
-        Assert.Equal(center, vm.GazePoint);
-        Assert.Equal(center, vm.Center);
+        Check.That(vm.GazePoint).IsEqualTo(center);
+        Check.That(vm.Center).IsEqualTo(center);
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public class ActionMenuViewModelTests
 
         _messenger.Send(new HideActionMenuMessage());
 
-        Assert.Equal(new PhysicalPoint(0, 0), vm.GazePoint);
+        Check.That(vm.GazePoint).IsEqualTo(new PhysicalPoint(0, 0));
     }
 
     [Fact]
@@ -230,6 +230,6 @@ public class ActionMenuViewModelTests
             Math.Pow(item.Position.Y - displayCenter.Y, 2));
 
         // Should be at ring radius distance from display center
-        Assert.InRange(distance, 190, 200); // EffectiveRingRadius ~195 with default CircleSize
+        Check.That(distance >= 190 && distance <= 200).IsTrue(); // EffectiveRingRadius ~195 with default CircleSize
     }
 }

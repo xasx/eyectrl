@@ -15,10 +15,10 @@ public class KeyboardViewModelTests
     public void ShowsKeyboard_OnShowMessage()
     {
         var vm = new KeyboardViewModel(_settings, _messenger);
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
 
         _messenger.Send(new ShowKeyboardMessage());
-        Assert.True(vm.IsVisible);
+        Check.That(vm.IsVisible).IsTrue();
     }
 
     [Fact]
@@ -27,20 +27,20 @@ public class KeyboardViewModelTests
         var vm = new KeyboardViewModel(_settings, _messenger);
         _messenger.Send(new ShowKeyboardMessage());
         _messenger.Send(new HideKeyboardMessage());
-        Assert.False(vm.IsVisible);
+        Check.That(vm.IsVisible).IsFalse();
     }
 
     [Fact]
     public void ToggleModifier_AddsAndRemovesFromActiveModifiers()
     {
         var vm = CreateViewModel();
-        Assert.Empty(vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).IsEmpty();
 
         vm.ToggleModifier(ModifierKey.Ctrl);
-        Assert.Contains(ModifierKey.Ctrl, vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).Contains(ModifierKey.Ctrl);
 
         vm.ToggleModifier(ModifierKey.Ctrl);
-        Assert.DoesNotContain(ModifierKey.Ctrl, vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers.Contains(ModifierKey.Ctrl)).IsFalse();
     }
 
     [Fact]
@@ -50,18 +50,18 @@ public class KeyboardViewModelTests
 
         vm.ToggleModifier(ModifierKey.Ctrl);
         vm.ToggleModifier(ModifierKey.Shift);
-        Assert.Contains(ModifierKey.Ctrl, vm.ActiveModifiers);
-        Assert.Contains(ModifierKey.Shift, vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).Contains(ModifierKey.Ctrl);
+        Check.That(vm.ActiveModifiers).Contains(ModifierKey.Shift);
     }
 
     [Fact]
     public void IsShifted_TrueWhenShiftActive()
     {
         var vm = CreateViewModel();
-        Assert.False(vm.IsShifted);
+        Check.That(vm.IsShifted).IsFalse();
 
         vm.ToggleModifier(ModifierKey.Shift);
-        Assert.True(vm.IsShifted);
+        Check.That(vm.IsShifted).IsTrue();
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class KeyboardViewModelTests
     {
         var vm = CreateViewModel();
         vm.ToggleModifier(ModifierKey.CapsLock);
-        Assert.True(vm.IsShifted);
+        Check.That(vm.IsShifted).IsTrue();
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class KeyboardViewModelTests
 
         vm.ActivateKey("c", shiftOutput: "C");
 
-        Assert.Empty(vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
     [Fact]
@@ -96,8 +96,8 @@ public class KeyboardViewModelTests
 
         vm.ActivateKey("a", shiftOutput: "A");
 
-        Assert.Equal("A", sentKey);
-        Assert.Contains(ModifierKey.CapsLock, vm.ActiveModifiers);
+        Check.That(sentKey).IsEqualTo("A");
+        Check.That(vm.ActiveModifiers).Contains(ModifierKey.CapsLock);
     }
 
     [Fact]
@@ -110,8 +110,8 @@ public class KeyboardViewModelTests
 
         vm.ActivateKey("a", shiftOutput: "A");
 
-        Assert.Equal("A", sentKey);
-        Assert.DoesNotContain(ModifierKey.Shift, vm.ActiveModifiers);
+        Check.That(sentKey).IsEqualTo("A");
+        Check.That(vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsFalse();
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class KeyboardViewModelTests
 
         vm.HandleBackspace();
 
-        Assert.Empty(vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public class KeyboardViewModelTests
 
         vm.HandleEnter();
 
-        Assert.Empty(vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class KeyboardViewModelTests
 
         vm.HandleSpace();
 
-        Assert.Empty(vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class KeyboardViewModelTests
 
         vm.HandleTab();
 
-        Assert.Empty(vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public class KeyboardViewModelTests
         vm.ToggleModifier(ModifierKey.Ctrl);
         vm.SwitchSubLayout("numbers");
 
-        Assert.Contains(ModifierKey.Ctrl, vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).Contains(ModifierKey.Ctrl);
     }
 
     [Fact]
@@ -199,7 +199,7 @@ public class KeyboardViewModelTests
         // Gaze at (110, 105) — closest to key_0_0
         vm.ProcessKeyGaze(positions, new PhysicalPoint(110, 105), isGazeInsideWindow: true, timestampUs: 0);
 
-        Assert.Equal("key_0_0", vm.NearestKeyId);
+        Check.That(vm.NearestKeyId).IsEqualTo("key_0_0");
     }
 
     [Fact]
@@ -215,11 +215,11 @@ public class KeyboardViewModelTests
 
         // First frame: enter key
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
-        Assert.Equal(0.0, vm.NearestKeyProgress); // just entered, no progress yet
+        Check.That(vm.NearestKeyProgress).IsEqualTo(0.0); // just entered, no progress yet
 
         // Second frame: 250ms later = 50% progress
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 250_000);
-        Assert.Equal(0.5, vm.NearestKeyProgress, precision: 2);
+        Check.That(vm.NearestKeyProgress).IsCloseTo(0.5, 2);
     }
 
     [Fact]
@@ -239,7 +239,7 @@ public class KeyboardViewModelTests
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 500_000);
 
-        Assert.Equal("key_0_0", activatedKeyId);
+        Check.That(activatedKeyId).IsEqualTo("key_0_0");
     }
 
     [Fact]
@@ -260,15 +260,15 @@ public class KeyboardViewModelTests
         // Activate
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 500_000);
-        Assert.Equal(1, activationCount);
+        Check.That(activationCount).IsEqualTo(1);
 
         // During cooldown (100ms after activation, cooldown is 200ms)
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 600_000);
-        Assert.Null(vm.NearestKeyId); // reset during cooldown
+        Check.That(vm.NearestKeyId).IsNull(); // reset during cooldown
 
         // After cooldown (250ms after activation)
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 750_000);
-        Assert.Equal("key_0_0", vm.NearestKeyId); // tracking again
+        Check.That(vm.NearestKeyId).IsEqualTo("key_0_0"); // tracking again
     }
 
     [Fact]
@@ -283,11 +283,11 @@ public class KeyboardViewModelTests
         };
 
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
-        Assert.Equal("key_0_0", vm.NearestKeyId);
+        Check.That(vm.NearestKeyId).IsEqualTo("key_0_0");
 
         // Gaze moves outside window
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), isGazeInsideWindow: false, 100_000);
-        Assert.Null(vm.NearestKeyId);
+        Check.That(vm.NearestKeyId).IsNull();
     }
 
     // --- Text special key tests ---
@@ -302,8 +302,8 @@ public class KeyboardViewModelTests
         vm.CurrentInput = "hel";
         vm.HandleBackspace();
 
-        Assert.Equal("he", vm.CurrentInput);
-        Assert.Equal("\b", sentKey);
+        Check.That(vm.CurrentInput).IsEqualTo("he");
+        Check.That(sentKey).IsEqualTo("\b");
     }
 
     [Fact]
@@ -316,8 +316,8 @@ public class KeyboardViewModelTests
         vm.CurrentInput = "";
         vm.HandleBackspace();
 
-        Assert.Equal("", vm.CurrentInput);
-        Assert.Equal("\b", sentKey);
+        Check.That(vm.CurrentInput).IsEqualTo("");
+        Check.That(sentKey).IsEqualTo("\b");
     }
 
     [Fact]
@@ -330,8 +330,8 @@ public class KeyboardViewModelTests
         vm.CurrentInput = "hello";
         vm.HandleEnter();
 
-        Assert.Equal("", vm.CurrentInput);
-        Assert.Equal("\n", sentKey);
+        Check.That(vm.CurrentInput).IsEqualTo("");
+        Check.That(sentKey).IsEqualTo("\n");
     }
 
     [Fact]
@@ -344,8 +344,8 @@ public class KeyboardViewModelTests
         vm.CurrentInput = "hello";
         vm.HandleSpace();
 
-        Assert.Equal("", vm.CurrentInput);
-        Assert.Equal(" ", sentKey);
+        Check.That(vm.CurrentInput).IsEqualTo("");
+        Check.That(sentKey).IsEqualTo(" ");
     }
 
     [Fact]
@@ -357,7 +357,7 @@ public class KeyboardViewModelTests
 
         vm.HandleTab();
 
-        Assert.Equal("\t", sentKey);
+        Check.That(sentKey).IsEqualTo("\t");
     }
 
     // --- Key activation tests ---
@@ -371,8 +371,8 @@ public class KeyboardViewModelTests
 
         vm.ActivateKey("a", shiftOutput: null);
 
-        Assert.Equal("a", sentKey);
-        Assert.Equal("a", vm.CurrentInput);
+        Check.That(sentKey).IsEqualTo("a");
+        Check.That(vm.CurrentInput).IsEqualTo("a");
     }
 
     [Fact]
@@ -385,9 +385,9 @@ public class KeyboardViewModelTests
 
         vm.ActivateKey("a", shiftOutput: "A");
 
-        Assert.Equal("A", sentKey);
-        Assert.Equal("A", vm.CurrentInput);
-        Assert.False(vm.IsShifted); // one-shot cleared
+        Check.That(sentKey).IsEqualTo("A");
+        Check.That(vm.CurrentInput).IsEqualTo("A");
+        Check.That(vm.IsShifted).IsFalse(); // one-shot cleared
     }
 
     [Fact]
@@ -400,8 +400,8 @@ public class KeyboardViewModelTests
 
         vm.ActivateKey("1", shiftOutput: null);
 
-        Assert.Equal("1", sentKey);
-        Assert.False(vm.IsShifted); // one-shot: always cleared
+        Check.That(sentKey).IsEqualTo("1");
+        Check.That(vm.IsShifted).IsFalse(); // one-shot: always cleared
     }
 
     // --- System modifier tests (no text input pollution) ---
@@ -415,7 +415,7 @@ public class KeyboardViewModelTests
 
         vm.ActivateKey("c", shiftOutput: "C");
 
-        Assert.Equal("", vm.CurrentInput);
+        Check.That(vm.CurrentInput).IsEqualTo("");
     }
 
     [Fact]
@@ -428,7 +428,7 @@ public class KeyboardViewModelTests
 
         vm.HandleBackspace();
 
-        Assert.Equal("hel", vm.CurrentInput);
+        Check.That(vm.CurrentInput).IsEqualTo("hel");
     }
 
     [Fact]
@@ -441,7 +441,7 @@ public class KeyboardViewModelTests
 
         vm.HandleEnter();
 
-        Assert.Equal("hello", vm.CurrentInput);
+        Check.That(vm.CurrentInput).IsEqualTo("hello");
     }
 
     // --- Prediction tests ---
@@ -451,7 +451,7 @@ public class KeyboardViewModelTests
     {
         var vm = CreateViewModel();
         var suggestions = vm.GetSuggestions();
-        Assert.Empty(suggestions);
+        Check.That(suggestions).IsEmpty();
     }
 
     [Fact]
@@ -465,10 +465,10 @@ public class KeyboardViewModelTests
 
         vm.HandlePredictionSelected("hello");
 
-        Assert.Equal("", vm.CurrentInput);
-        Assert.NotNull(sentMsg);
-        Assert.Equal("hello", sentMsg!.Word);
-        Assert.Equal(3, sentMsg.DeleteCount);
+        Check.That(vm.CurrentInput).IsEqualTo("");
+        Check.That(sentMsg).IsNotNull();
+        Check.That(sentMsg!.Word).IsEqualTo("hello");
+        Check.That(sentMsg.DeleteCount).IsEqualTo(3);
     }
 
     // --- Special key tests (function and navigation keys) ---
@@ -482,9 +482,9 @@ public class KeyboardViewModelTests
 
         vm.HandleSpecialKey("F1");
 
-        Assert.NotNull(sentMsg);
-        Assert.Equal("F1", sentMsg!.KeyName);
-        Assert.Null(sentMsg.Modifiers);
+        Check.That(sentMsg).IsNotNull();
+        Check.That(sentMsg!.KeyName).IsEqualTo("F1");
+        Check.That(sentMsg.Modifiers).IsNull();
     }
 
     [Fact]
@@ -497,10 +497,10 @@ public class KeyboardViewModelTests
 
         vm.HandleSpecialKey("F5");
 
-        Assert.NotNull(sentMsg);
-        Assert.Equal("F5", sentMsg!.KeyName);
-        Assert.NotNull(sentMsg.Modifiers);
-        Assert.Contains(ModifierKey.Ctrl, sentMsg.Modifiers!);
+        Check.That(sentMsg).IsNotNull();
+        Check.That(sentMsg!.KeyName).IsEqualTo("F5");
+        Check.That(sentMsg.Modifiers).IsNotNull();
+        Check.That(sentMsg.Modifiers!).Contains(ModifierKey.Ctrl);
     }
 
     [Fact]
@@ -513,7 +513,7 @@ public class KeyboardViewModelTests
 
         vm.HandleSpecialKey("Escape");
 
-        Assert.Empty(vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
     [Fact]
@@ -526,8 +526,8 @@ public class KeyboardViewModelTests
 
         vm.HandleSpecialKey("Home");
 
-        Assert.Contains(ModifierKey.CapsLock, vm.ActiveModifiers);
-        Assert.DoesNotContain(ModifierKey.Ctrl, vm.ActiveModifiers);
+        Check.That(vm.ActiveModifiers).Contains(ModifierKey.CapsLock);
+        Check.That(vm.ActiveModifiers.Contains(ModifierKey.Ctrl)).IsFalse();
     }
 
     [Fact]
@@ -545,8 +545,8 @@ public class KeyboardViewModelTests
         var suggestions = vm.GetSuggestions();
 
         // Should capitalize at start (empty recent text)
-        Assert.Contains("Hello", suggestions);
-        Assert.DoesNotContain("hello", suggestions);
+        Check.That(suggestions).Contains("Hello");
+        Check.That(suggestions.Contains("hello")).IsFalse();
     }
 
     [Fact]
@@ -570,8 +570,8 @@ public class KeyboardViewModelTests
         var suggestions = vm.GetSuggestions();
 
         // Should capitalize after period
-        Assert.Contains("World", suggestions);
-        Assert.DoesNotContain("world", suggestions);
+        Check.That(suggestions).Contains("World");
+        Check.That(suggestions.Contains("world")).IsFalse();
     }
 
     [Fact]
@@ -593,8 +593,8 @@ public class KeyboardViewModelTests
         var suggestions = vm.GetSuggestions();
 
         // Should NOT capitalize in middle of sentence
-        Assert.Contains("world", suggestions);
-        Assert.DoesNotContain("World", suggestions);
+        Check.That(suggestions).Contains("world");
+        Check.That(suggestions.Contains("World")).IsFalse();
     }
 
     [Fact]
@@ -612,8 +612,8 @@ public class KeyboardViewModelTests
         var suggestions = vm.GetSuggestions();
 
         // Should NOT capitalize when disabled
-        Assert.Contains("hello", suggestions);
-        Assert.DoesNotContain("Hello", suggestions);
+        Check.That(suggestions).Contains("hello");
+        Check.That(suggestions.Contains("Hello")).IsFalse();
     }
 
     [Fact]
@@ -638,7 +638,7 @@ public class KeyboardViewModelTests
         vm.CurrentInput = "wo";
         var suggestions = vm.GetSuggestions();
 
-        Assert.Contains("World", suggestions);
+        Check.That(suggestions).Contains("World");
     }
 
     [Fact]
@@ -646,7 +646,7 @@ public class KeyboardViewModelTests
     {
         var vm = CreateViewModel();
         var results = vm.GetSuggestionsWithContext();
-        Assert.Empty(results);
+        Check.That(results).IsEmpty();
     }
 
     [Fact]
@@ -663,15 +663,11 @@ public class KeyboardViewModelTests
         vm.CurrentInput = "hel";
         var results = vm.GetSuggestionsWithContext();
 
-        Assert.NotEmpty(results);
-        Assert.All(results, r =>
-        {
-            Assert.NotNull(r.Word);
-            Assert.True(r.Score > 0);
-            Assert.True(r.Confidence >= 0);
-        });
+        Check.That(results).Not.IsEmpty();
+        Check.That(results).ContainsOnlyElementsThatMatch(r =>
+            r.Word != null && r.Score > 0 && r.Confidence >= 0);
         // Should have valid prediction types
-        Assert.Contains(results, r =>
+        Check.That(results).HasElementThatMatches(r =>
             r.Type == EyeCtrl.Core.Prediction.PredictionType.ExactPrefix ||
             r.Type == EyeCtrl.Core.Prediction.PredictionType.FuzzyMatch ||
             r.Type == EyeCtrl.Core.Prediction.PredictionType.NextWord ||
@@ -692,7 +688,7 @@ public class KeyboardViewModelTests
         var results = vm.GetSuggestionsWithContext();
 
         // Should have ExactPrefix type for exact matches
-        Assert.Contains(results, r => r.Type == EyeCtrl.Core.Prediction.PredictionType.ExactPrefix);
+        Check.That(results).HasElementThatMatches(r => r.Type == EyeCtrl.Core.Prediction.PredictionType.ExactPrefix);
     }
 
     [Fact]
@@ -719,7 +715,7 @@ public class KeyboardViewModelTests
         var results = vm.GetSuggestionsWithContext();
 
         // Should include "you" with NextWord type (may be capitalized due to context)
-        Assert.Contains(results, r => string.Equals(r.Word, "you", StringComparison.OrdinalIgnoreCase) && r.Type == EyeCtrl.Core.Prediction.PredictionType.NextWord);
+        Check.That(results).HasElementThatMatches(r => string.Equals(r.Word, "you", StringComparison.OrdinalIgnoreCase) && r.Type == EyeCtrl.Core.Prediction.PredictionType.NextWord);
     }
 
     [Fact]
@@ -743,8 +739,8 @@ public class KeyboardViewModelTests
         var results = vm.GetSuggestionsWithContext();
 
         // Should capitalize after period
-        Assert.Contains(results, r => r.Word == "World");
-        Assert.DoesNotContain(results, r => r.Word == "world");
+        Check.That(results).HasElementThatMatches(r => r.Word == "World");
+        Check.That(results.Any(r => r.Word == "world")).IsFalse();
     }
 
     private KeyboardViewModel CreateViewModel()

@@ -17,16 +17,16 @@ public class MagicNumberReplacementTests
         var circleSize = 100.0;
         var expectedRadius = circleSize / 2 + UIConstants.ButtonRadius + UIConstants.ActionMenuButtonOuterGap;
 
-        Assert.Equal(120.0, expectedRadius);
+        Check.That(expectedRadius).IsEqualTo(120.0);
     }
 
     [Fact]
     public void ManualSelectionSideButtonConfiguration_UsesNamedConstants()
     {
         // Verify ManualSelection side button constants are defined
-        Assert.Equal(50.0, UIConstants.ButtonRadius);
-        Assert.Equal(20.0, UIConstants.ManualSelectionSideButtonGap);
-        Assert.Equal(600, UIConstants.ManualSelectionSideButtonDwellMs);
+        Check.That(UIConstants.ButtonRadius).IsEqualTo(50.0);
+        Check.That(UIConstants.ManualSelectionSideButtonGap).IsEqualTo(20.0);
+        Check.That(UIConstants.ManualSelectionSideButtonDwellMs).IsEqualTo(600);
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public class MagicNumberReplacementTests
         var milliseconds = 500;
         var microseconds = milliseconds * MathConstants.MicrosecondsPerMillisecond;
 
-        Assert.Equal(500_000L, microseconds);
+        Check.That(microseconds).IsEqualTo(500_000L);
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class MagicNumberReplacementTests
         var degrees = MathConstants.RightAngleDegrees;
         var radians = degrees * MathConstants.DegreesToRadians;
 
-        Assert.Equal(Math.PI / 2, radians, 10);
+        Check.That(radians).IsCloseTo(Math.PI / 2, 10);
     }
 
     [Fact]
@@ -56,6 +56,6 @@ public class MagicNumberReplacementTests
         var degrees = MathConstants.FullCircleDegrees;
         var radians = degrees * MathConstants.DegreesToRadians;
 
-        Assert.Equal(2 * Math.PI, radians, 10);
+        Check.That(radians).IsCloseTo(2 * Math.PI, 10);
     }
 }

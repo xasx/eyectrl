@@ -30,8 +30,8 @@ public class KeyboardViewModelOrchestratorTests
 
         vm.GetType().GetProperty("CurrentInput")!.SetValue(vm, "hel");
         var suggestions = vm.GetSuggestionsWithContext();
-        Assert.NotEmpty(suggestions);
-        Assert.Contains(suggestions, r => r.Word == "hello");
+        Check.That(suggestions).Not.IsEmpty();
+        Check.That(suggestions).HasElementThatMatches(r => r.Word == "hello");
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class KeyboardViewModelOrchestratorTests
         using var vm = new KeyboardViewModel(settings, messenger);
         vm.SetOrchestrator(null);
         var suggestions = vm.GetSuggestionsWithContext();
-        Assert.Empty(suggestions);
+        Check.That(suggestions).IsEmpty();
     }
 
     [Fact]
@@ -60,6 +60,6 @@ public class KeyboardViewModelOrchestratorTests
         vm.GetType().GetProperty("CurrentInput")!.SetValue(vm, "hel");
         vm.HandlePredictionSelected("hello");
 
-        Assert.Equal("", vm.GetType().GetProperty("CurrentInput")!.GetValue(vm));
+        Check.That(vm.GetType().GetProperty("CurrentInput")!.GetValue(vm)).IsEqualTo("");
     }
 }

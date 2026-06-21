@@ -21,6 +21,37 @@ dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"        # UI tests (ne
 
 **No linter, formatter, or CI is configured.** There is no `.editorconfig`, no `Directory.Build.props`, and no GitHub Actions. The repo relies on `dotnet build` for compilation checks only.
 
+## Assertions
+
+Use **NFluent 3.1.0** (fluent assertion library) in tests. xUnit remains the test runner (`[Fact]`, discovery, execution).
+
+```csharp
+using NFluent;
+
+// Equality
+Check.That(actual).IsEqualTo(expected);
+
+// Collections
+Check.That(collection).HasSize(n);
+Check.That(collection).IsEmpty();
+Check.That(collection).Not.IsEmpty();
+Check.That(collection).HasElementThatMatches(predicate);
+Check.That(collection).ContainsOnlyElementsThatMatch(predicate);
+
+// Nullability
+Check.That(value).IsNotNull();
+
+// Booleans
+Check.That(condition).IsTrue();
+Check.That(condition).IsFalse();
+
+// Dictionaries
+Check.That(dict).ContainsKey(key);
+Check.That(dict).HasSize(n);
+```
+
+NFluent is scoped to `EyeCtrl.Core.Tests` for now. If adopted repo-wide, move the `<PackageReference Include="NFluent" Version="3.1.0" />` from `tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj` to `tests/Directory.Build.props`.
+
 ## Architecture
 
 Three-layer + ViewModels:
@@ -89,7 +120,7 @@ Serilog, initialized in `LoggingInitializer.Initialize()`. Logs to `%APPDATA%/Ey
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **eyectrl** (5746 symbols, 12865 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **eyectrl** (5788 symbols, 13001 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

@@ -1,7 +1,6 @@
 namespace EyeCtrl.Sdk.WinUI.Tests;
 
 using EyeCtrl.Sdk.WinUI;
-using Xunit;
 
 public class AdapterGroupTrackerTests
 {
@@ -9,7 +8,7 @@ public class AdapterGroupTrackerTests
     public void NewTracker_IsEmpty()
     {
         var t = new AdapterGroupTracker(() => { });
-        Assert.True(t.IsEmpty);
+        Check.That(t.IsEmpty).IsTrue();
     }
 
     [Fact]
@@ -17,7 +16,7 @@ public class AdapterGroupTrackerTests
     {
         var t = new AdapterGroupTracker(() => { });
         t.Add("a");
-        Assert.False(t.IsEmpty);
+        Check.That(t.IsEmpty).IsFalse();
     }
 
     [Fact]
@@ -27,8 +26,8 @@ public class AdapterGroupTrackerTests
         var t = new AdapterGroupTracker(() => called++);
         t.Add("a");
         t.Remove("a");
-        Assert.Equal(1, called);
-        Assert.True(t.IsEmpty);
+        Check.That(called).IsEqualTo(1);
+        Check.That(t.IsEmpty).IsTrue();
     }
 
     [Fact]
@@ -39,8 +38,8 @@ public class AdapterGroupTrackerTests
         t.Add("a");
         t.Add("b");
         t.Remove("a");
-        Assert.Equal(0, called);
-        Assert.False(t.IsEmpty);
+        Check.That(called).IsEqualTo(0);
+        Check.That(t.IsEmpty).IsFalse();
     }
 
     [Fact]
@@ -49,7 +48,7 @@ public class AdapterGroupTrackerTests
         var called = 0;
         var t = new AdapterGroupTracker(() => called++);
         t.Remove("x");
-        Assert.Equal(0, called);
+        Check.That(called).IsEqualTo(0);
     }
 
     [Fact]
@@ -59,10 +58,10 @@ public class AdapterGroupTrackerTests
         var t = new AdapterGroupTracker(() => called++);
         t.Add("a");
         t.Remove("a");
-        Assert.Equal(1, called);
+        Check.That(called).IsEqualTo(1);
         t.Add("b");
-        Assert.False(t.IsEmpty);
+        Check.That(t.IsEmpty).IsFalse();
         t.Remove("b");
-        Assert.Equal(2, called);
+        Check.That(called).IsEqualTo(2);
     }
 }

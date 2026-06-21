@@ -11,7 +11,7 @@ public class CalibrationServiceTests
     {
         var service = new CalibrationService();
         service.StartSession(5, new PhysicalPoint(1920, 1080));
-        var ex = Check.ThatCode(() => { service.StartSession(3, new PhysicalPoint(1920, 1080)); }).Throws<InvalidOperationException>();
+        Check.ThatCode(() => { service.StartSession(3, new PhysicalPoint(1920, 1080)); }).Throws<InvalidOperationException>();
     }
 
     [Fact]

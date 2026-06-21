@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Tests.Prediction;
 
 using EyeCtrl.Core.Prediction;
+using NFluent;
 
 public class BigramModelTests
 {
@@ -16,9 +17,9 @@ public class BigramModelTests
 
         // Assert
         var nextWords = model.GetNextWords("hello", 10);
-        Assert.Single(nextWords);
-        Assert.Equal("world", nextWords[0].word);
-        Assert.Equal(2, nextWords[0].frequency);
+        Check.That(nextWords).HasSize(1);
+        Check.That(nextWords[0].word).IsEqualTo("world");
+        Check.That(nextWords[0].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -34,9 +35,9 @@ public class BigramModelTests
 
         // Assert
         var nextWords = model.GetNextWords("thank", 10);
-        Assert.Single(nextWords);
-        Assert.Equal("you", nextWords[0].word);
-        Assert.Equal(3, nextWords[0].frequency);
+        Check.That(nextWords).HasSize(1);
+        Check.That(nextWords[0].word).IsEqualTo("you");
+        Check.That(nextWords[0].frequency).IsEqualTo(3);
     }
 
     [Fact]
@@ -56,15 +57,15 @@ public class BigramModelTests
 
         // Assert
         var nextWords = model.GetNextWords("can", 10);
-        Assert.Equal(3, nextWords.Count);
+        Check.That(nextWords).HasSize(3);
 
         // Should be ordered by frequency
-        Assert.Equal("you", nextWords[0].word);
-        Assert.Equal(3, nextWords[0].frequency);
-        Assert.Equal("be", nextWords[1].word);
-        Assert.Equal(2, nextWords[1].frequency);
-        Assert.Equal("do", nextWords[2].word);
-        Assert.Equal(2, nextWords[2].frequency);
+        Check.That(nextWords[0].word).IsEqualTo("you");
+        Check.That(nextWords[0].frequency).IsEqualTo(3);
+        Check.That(nextWords[1].word).IsEqualTo("be");
+        Check.That(nextWords[1].frequency).IsEqualTo(2);
+        Check.That(nextWords[2].word).IsEqualTo("do");
+        Check.That(nextWords[2].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -84,16 +85,16 @@ public class BigramModelTests
         var nextWords3 = model.GetNextWords("hello", 10);
 
         // Assert - Case-sensitive: "Hello" and "HELLO" are distinct keys
-        Assert.Single(nextWords1);
-        Assert.Equal("World", nextWords1[0].word);
-        Assert.Equal(2, nextWords1[0].frequency);
+        Check.That(nextWords1).HasSize(1);
+        Check.That(nextWords1[0].word).IsEqualTo("World");
+        Check.That(nextWords1[0].frequency).IsEqualTo(2);
 
-        Assert.Single(nextWords2);
-        Assert.Equal("WORLD", nextWords2[0].word);
-        Assert.Equal(2, nextWords2[0].frequency);
+        Check.That(nextWords2).HasSize(1);
+        Check.That(nextWords2[0].word).IsEqualTo("WORLD");
+        Check.That(nextWords2[0].frequency).IsEqualTo(2);
 
         // "hello" doesn't exist, should return empty
-        Assert.Empty(nextWords3);
+        Check.That(nextWords3).IsEmpty();
     }
 
     [Fact]
@@ -109,8 +110,8 @@ public class BigramModelTests
         var nextWords = model.GetNextWords("test", 10);
 
         // Assert
-        Assert.Single(nextWords);
-        Assert.Equal("high", nextWords[0].word);
+        Check.That(nextWords).HasSize(1);
+        Check.That(nextWords[0].word).IsEqualTo("high");
     }
 
     [Fact]
@@ -128,7 +129,7 @@ public class BigramModelTests
         var nextWords = model.GetNextWords("number", maxCount: 3);
 
         // Assert
-        Assert.Equal(3, nextWords.Count);
+        Check.That(nextWords).HasSize(3);
     }
 
     [Fact]
@@ -142,7 +143,7 @@ public class BigramModelTests
         var nextWords = model.GetNextWords("unknown", 10);
 
         // Assert
-        Assert.Empty(nextWords);
+        Check.That(nextWords).IsEmpty();
     }
 
     [Fact]
@@ -156,7 +157,7 @@ public class BigramModelTests
         var nextWords = model.GetNextWords("", 10);
 
         // Assert
-        Assert.Empty(nextWords);
+        Check.That(nextWords).IsEmpty();
     }
 
     [Fact]
@@ -170,7 +171,7 @@ public class BigramModelTests
         var nextWords = model.GetNextWords(null!, 10);
 
         // Assert
-        Assert.Empty(nextWords);
+        Check.That(nextWords).IsEmpty();
     }
 
     [Fact]
@@ -188,7 +189,7 @@ public class BigramModelTests
 
         // Assert
         var allBigrams = model.GetAllBigrams();
-        Assert.Empty(allBigrams);
+        Check.That(allBigrams).IsEmpty();
     }
 
     [Fact]
@@ -208,11 +209,11 @@ public class BigramModelTests
 
         // Assert
         var nextWords = newModel.GetNextWords("how", 10);
-        Assert.Equal(2, nextWords.Count);
-        Assert.Equal("are", nextWords[0].word);
-        Assert.Equal(2, nextWords[0].frequency);
-        Assert.Equal("do", nextWords[1].word);
-        Assert.Equal(2, nextWords[1].frequency);
+        Check.That(nextWords).HasSize(2);
+        Check.That(nextWords[0].word).IsEqualTo("are");
+        Check.That(nextWords[0].frequency).IsEqualTo(2);
+        Check.That(nextWords[1].word).IsEqualTo("do");
+        Check.That(nextWords[1].frequency).IsEqualTo(2);
     }
 
     [Fact]
@@ -234,10 +235,10 @@ public class BigramModelTests
         var oldWords = model.GetNextWords("old", 10);
         var newWords = model.GetNextWords("new", 10);
 
-        Assert.Empty(oldWords);
-        Assert.Single(newWords);
-        Assert.Equal("data", newWords[0].word);
-        Assert.Equal(5, newWords[0].frequency);
+        Check.That(oldWords).IsEmpty();
+        Check.That(newWords).HasSize(1);
+        Check.That(newWords[0].word).IsEqualTo("data");
+        Check.That(newWords[0].frequency).IsEqualTo(5);
     }
 
     [Fact]
@@ -252,10 +253,10 @@ public class BigramModelTests
         var bigrams = model.GetAllBigrams();
 
         // Assert
-        Assert.Single(bigrams);
-        Assert.True(bigrams.ContainsKey("word1"));
-        Assert.Equal(2, bigrams["word1"].Count);
-        Assert.Equal(1, bigrams["word1"]["word2"]);
-        Assert.Equal(1, bigrams["word1"]["word3"]);
+        Check.That(bigrams).HasSize(1);
+        Check.That(bigrams).ContainsKey("word1");
+        Check.That(bigrams["word1"]).HasSize(2);
+        Check.That(bigrams["word1"]["word2"]).IsEqualTo(1);
+        Check.That(bigrams["word1"]["word3"]).IsEqualTo(1);
     }
 }

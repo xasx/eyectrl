@@ -19,7 +19,7 @@ safety and cleanliness of the previous one:
 | 4. Core dependency audit | Keep MVVM in Core (document why); extract ONNX/Tokenizers into `EyeCtrl.LM` | Medium | Medium |
 
 The long pole is Phase 2.2 (726 XML doc comments in Core). Everything else is
-bounded and mechanical. Total estimate: ~21 commits across 2-3 focused days.
+bounded and mechanical. Total estimate: ~22 commits across 2-3 focused days.
 
 ## Motivation
 
@@ -33,7 +33,7 @@ incremental improvements, not corrections of structural problems:
   `<GenerateDocumentationFile>true</GenerateDocumentationFile>` is set
   intentionally), 58 are CS8602 nullable derefs (mostly in tests), plus a
   handful of CS8629/CS8604/xUnit1051.
-- **GitNexus index 16 commits behind HEAD** — `impact()` and
+- **GitNexus index 17 commits behind HEAD** — `impact()` and
   `detect_changes()` may miss recently-added symbols.
 - **`App.OnStartup` is ~150 lines** — readable but long; two helpers would
   improve clarity and fix PascalCase local-variable violations.
@@ -41,7 +41,8 @@ incremental improvements, not corrections of structural problems:
   are dragged into every Core consumer, including SDK-only consumers who never
   use the neural LM.
 - **Platform references all of `Microsoft.WindowsDesktop.App`** — broader than
-  needed; may be narrowed to `UseWPF` + `UseWindowsForms`.
+  needed; may be narrowed to `UseWPF` (Platform uses `System.Windows.Point`
+  and UI Automation, both WPF subset — no WinForms).
 
 ## Approach
 
@@ -72,7 +73,7 @@ One command, no design decisions:
 node .gitnexus/run.cjs analyze
 ```
 
-Refreshes the index from `ab00178a` (16 commits behind as of 2026-06-21) to
+Refreshes the index from `ab00178a` (17 commits behind as of 2026-06-21) to
 HEAD. Makes `impact()` and `detect_changes()` accurate for all subsequent
 phases. No code changes, no commit. Verify with `gitnexus status` (or the MCP
 `list_repos` tool) showing `commitsBehind: 0`.
@@ -103,7 +104,8 @@ degradation (documented in AGENTS.md). No special handling; the mouse-fallback
 path is what CI exercises.
 
 **Caching:** `actions/cache@v4` on `~/.nuget/packages` keyed on
-`**/*.csproj` hash. Modest speedup.
+`**/*.csproj` + `**/Directory.Build.props` + `global.json` hash. Modest
+speedup.
 
 **Out of scope (initially):**
 - Release/publish job (separate concern; can add later)
@@ -200,6 +202,18 @@ Each doc comment describes *what* the member does, *not* restating the name.
   `<GenerateDocumentationFile>`)
 - Not changing any code, only adding `///` comments
 
+**`[ObservableProperty]` generated properties:** Empirically verified that
+CommunityToolkit.Mvvm v8.4.0's source generator emits `[GeneratedCode]` on
+generated properties, which suppresses CS1591. Document the source field with
+`///` and the generated property inherits the doc. No special handling needed
+— CS1591 does not fire on generated properties.
+
+**Impact-analysis exception:** AGENTS.md requires `impact()` before editing
+any symbol. For documentation-only edits (adding `///` comments with no code
+change), running `impact()` per member across 726 warnings is not practical.
+This phase is exempt from the per-symbol `impact()` requirement. Run
+`detect_changes()` per commit as usual to confirm no code changed.
+
 **Commit strategy:** One commit per subdirectory (10 commits), each
 independently verifiable. Easier to review than one 726-comment megacommit.
 
@@ -222,26 +236,27 @@ Two independent refactors, both verified by CI (in place from Phase 1).
 This pulls in **all** of WindowsDesktop.App — WPF, WinForms, and everything
 between. Platform shouldn't need any of it: its job is Win32 P/Invoke
 (`SendInput`, `WindowFromPoint`), Tobii SDK interop, and `ControlFinder`
-(which uses `System.Windows.Forms` for `Screen.PrimaryScreen` and
-`VisualTreeHelper` for hit-testing).
+(which uses `System.Windows.Automation` for UI Automation hit-testing and
+`System.Windows.Point` for coordinates — both WPF types, no WinForms).
 
-**Investigation needed first:** Confirm exactly which `System.Windows.*`
-namespaces Platform references. From the architecture review: `ControlFinder`
-uses `VisualTreeHelper` (WPF) and `Screen` (WinForms). If both are truly
-required, narrowing the framework reference may not be feasible without
-restructuring `ControlFinder`.
+**Investigation needed first:** Confirm no other Platform file uses WinForms
+types. From the architecture review: `ControlFinder` uses
+`System.Windows.Automation.AutomationElement.FromPoint` and
+`System.Windows.Point` (`src/EyeCtrl.Platform/Services/ControlFinder.cs:3,41`).
+UI Automation ships with the WPF framework subset, so `UseWPF` alone should
+suffice.
 
 **Decision point — two options:**
 
 | Option | Change | Trade-off |
 |---|---|---|
-| **A. Replace with specific `PackageReference`s** | Drop `<FrameworkReference>`. Add `<UseWPF>true</UseWPF>` + `<UseWindowsForms>true</UseWindowsForms>` (these pull only the needed subsets). | Smaller dependency surface. Same compilation result. Low risk. |
+| **A. Replace with `UseWPF` only** | Drop `<FrameworkReference>`. Add `<UseWPF>true</UseWPF>` (pulls in WPF subset including `System.Windows.Point` + UI Automation types). | Smaller dependency surface. Same compilation result. Low risk. |
 | **B. Leave as-is** | No change. | The framework reference is broad but harmless at runtime — WindowsDesktop.App is present on any machine running the app. Narrowing is cosmetic, not functional. |
 
-**Recommendation:** Try Option A. If `UseWPF` + `UseWindowsForms` together
-still pull in everything (they may — both are subsets of
-WindowsDesktop.App), then revert to B and document why. Either way, this is a
-~1-line change with a build check.
+**Recommendation:** Try Option A. If `UseWPF` doesn't cover all Platform's
+needs (grep for `System.Windows.Forms` / `System.Drawing` in Platform first),
+then revert to B and document why. Either way, this is a ~1-line change with a
+build check.
 
 **Verification:** `dotnet build EyeCtrl.slnx` clean, `dotnet test --filter
 "Category!=UI"` green.
@@ -289,8 +304,9 @@ bootstrapping-only code.
 **Risk:** LOW-MEDIUM. Pure refactor, no behavior change. The risk is in the
 overlay-show *ordering* (e.g., `SetMode` must happen before
 `BindToViewModel`) — preserved verbatim by extracting as a block, not
-reordering. No `impact()` call needed (this is a single-call-site
-private-method extraction, not a symbol rename or signature change).
+reordering. Run `impact({target: "OnStartup", direction: "upstream"})` before
+editing per AGENTS.md (even though it's a single-call-site private-method
+extraction, the invariant applies).
 
 **Commit strategy:** Two commits — `3.1` (FrameworkReference, 1-line) then
 `3.2` (OnStartup extraction, ~80 lines moved). Each independently verifiable.
@@ -334,10 +350,21 @@ across Core's Settings model:
    to either reference it too (re-introducing the dependency) or use a
    reflection-based `PropertyChanged` subscription (worse).
 
-**Decision:** No change. Document the rationale in `ARCHITECTURE.md` so the
-question doesn't recur — add a note under "Architectural Invariants"
-clarifying that `CommunityToolkit.Mvvm`'s `ObservableObject` is used in Core
-for `INotifyPropertyChanged` and is distinct from UI-framework dependencies.
+**Decision:** No change. Document the rationale so the question doesn't recur
+— add a note clarifying that `CommunityToolkit.Mvvm`'s `ObservableObject` is
+used in Core for `INotifyPropertyChanged` and is distinct from UI-framework
+dependencies.
+
+**Where to document:** `ARCHITECTURE.md`'s header claims "Auto-generated from
+the GitNexus knowledge graph" but git history shows it is manually maintained
+(commits like `docs: refresh ARCHITECTURE.md with fresh knowledge-graph data`).
+No generator script exists in the repo. Manual edits are the norm and survive
+across commits. Add the MVVM invariant note to `ARCHITECTURE.md` §7
+"Architectural Invariants" — it will persist until the next manual refresh,
+at which point it should be re-added. (If a generator is later introduced,
+the invariant should be encoded in the generator's template, not just the
+output.) Cross-reference from `AGENTS.md` "Dependencies & Quirks" so it's
+discoverable from the dev-onboarding doc.
 
 **Risk:** None. No code change.
 
@@ -354,15 +381,29 @@ These are **heavy native dependencies** (~100MB+ of native binaries) pulled
 into every Core consumer — including the SDK layer's
 `EyeCtrl.Sdk.Abstractions` consumers who never use the LM.
 
-**What uses them:** Only 3 files in Core:
+**What uses them:** Only 2 files in Core directly use the ONNX/Tokenizer
+packages:
 - `SmallLMPredictor.cs` — the ONNX neural LM predictor
 - `LMTokenizer.cs` — the tokenizer wrapper
-- `ModelManifest.cs` / `ModelConstants.cs` — manifest shapes (no ONNX dep, but
-  LM-scoped)
 
-**Who uses *those*:** `PredictionOrchestrator.cs` references
-`SmallLMPredictor` conditionally (optional, skipped if no model present). No
-other Core type touches them.
+**What must stay in Core (circular-dependency guard):**
+`ModelConstants.cs` and `ModelManifest.cs` are referenced by
+`ModelDownloadService.cs` and `ModelRegistryService.cs` (both in Core) —
+moving them would create `Core → EyeCtrl.LM`. Specifically:
+- `ModelDownloadService.cs:45,57,93` references `ModelConstants.ModelFileNames`
+- `ModelRegistryService.cs:88` takes `ModelManifest` as a constructor param
+- `ModelRegistryService.cs:119` iterates `_bundledManifest.Models`
+- `ModelRegistryService.cs:188` references `ModelConstants.ModelFileNames`
+
+These model-catalog types manage file paths and download metadata, not ONNX
+runtime — they belong in Core. Only the ONNX/Tokenizer runtime code moves.
+
+**Where `SmallLMPredictor` is currently constructed:**
+`EventCoordinator.LoadKeyboard` (`src/EyeCtrl.App/Services/EventCoordinator.cs:876-906`)
+constructs `SmallLMPredictor` and `LMTokenizer` directly with `new`, passing
+model paths from `ModelRegistryService`. `AppBootstrapper` only wires the
+registry/download services — it does **not** register `SmallLMPredictor`. This
+matters for the DI seam design below.
 
 **Extraction design:**
 
@@ -370,87 +411,110 @@ other Core type touches them.
 src/EyeCtrl.LM/                  (new project, net10.0)
 ├── EyeCtrl.LM.csproj
 ├── SmallLMPredictor.cs          (moved from Core/Prediction/)
-├── LMTokenizer.cs               (moved from Core/Prediction/)
-├── ModelManifest.cs             (moved from Core/Prediction/)
-└── ModelConstants.cs            (moved from Core/Prediction/)
+└── LMTokenizer.cs               (moved from Core/Prediction/)
 ```
+
+`ModelManifest.cs`, `ModelConstants.cs`, `ModelRegistryEntry`,
+`ModelSource`, `ModelDownloadService`, `ModelRegistryService` all **stay in
+Core** — they're model-catalog/file-management types with no ONNX dependency.
 
 **Dependency direction:**
 - `EyeCtrl.LM` → `EyeCtrl.Core` (LM references Core for `PredictionResult`,
-  interfaces, settings)
-- `EyeCtrl.App` → `EyeCtrl.LM` (App wires `SmallLMPredictor` into
-  `PredictionOrchestrator` via DI)
+  `ModelConstants` for file-name lookup, settings)
+- `EyeCtrl.App` → `EyeCtrl.LM` (App constructs `SmallLMPredictor` in
+  `EventCoordinator.LoadKeyboard`)
 - `EyeCtrl.ViewModels` → (no change — doesn't touch LM directly)
 - `EyeCtrl.Platform` → (no change)
 
 **The seam — `PredictionOrchestrator` stays in Core:**
 
-`PredictionOrchestrator` currently instantiates/calls `SmallLMPredictor`
-directly. After extraction, it can't reference `EyeCtrl.LM` (that would create
-a circular dep). Two options:
+`PredictionOrchestrator` currently takes `SmallLMPredictor?` as a constructor
+parameter. After extraction, it can't reference `EyeCtrl.LM` (circular dep).
+Two options:
 
 | Option | Change | Trade-off |
 |---|---|---|
-| **A. Interface in Core, impl in LM** | Core defines `ISmallLMPredictor` (method: `PredictAsync(context) → List<PredictionResult>`). `SmallLMPredictor` moves to `EyeCtrl.LM` and implements it. `PredictionOrchestrator` depends on `ISmallLMPredictor` (nullable, optional). `AppBootstrapper` registers `SmallLMPredictor` → `ISmallLMPredictor` when a model is present. | Clean DI seam. Core has no ONNX dep. Orchestrator stays testable with a fake predictor (already the test pattern in this repo). **Recommended.** |
+| **A. Interface in Core, impl in LM, factory in App** | Core defines `ILanguageModelPredictor` (covers all methods `PredictionOrchestrator` currently calls on `SmallLMPredictor`). `SmallLMPredictor` moves to `EyeCtrl.LM` and implements it. `PredictionOrchestrator` depends on `ILanguageModelPredictor?` (nullable, optional). `EventCoordinator.LoadKeyboard` constructs `SmallLMPredictor` and passes it as `ILanguageModelPredictor` (construction stays where it is — only the static type changes). | Clean seam. Core has no ONNX dep. Minimal change to `EventCoordinator` (just the static type of the local). **Recommended.** |
 | **B. Move `PredictionOrchestrator` to LM too** | Orchestrator + all predictors move to `EyeCtrl.LM`. | Worse — the orchestrator is non-ML logic (bigram, phrase, sentence completion) and belongs in Core. Bloats LM, forces ViewModels to reference LM. |
 
 **Recommendation: Option A.** Core keeps the orchestrator and the non-ML
 predictors; `EyeCtrl.LM` is a leaf project with only the ONNX/Tokenizer code.
-This mirrors how the SDK layer (`Contracts`/`Abstractions`) already isolates
-concerns.
+The interface name `ILanguageModelPredictor` (not `ISmallLMPredictor`) is
+intentional — the interface lives in Core and shouldn't be named after a
+specific LM implementation.
+
+**Note on existing tests:** `PredictionOrchestratorTests` currently passes
+`lmPredictor: null` (`tests/EyeCtrl.Core.Tests/Prediction/PredictionOrchestratorTests.cs:21`)
+— it does **not** use a fake LM predictor. The interface change is still
+beneficial (tests *can* now inject a fake), but the spec doesn't claim fakes
+already exist. The `InMemoryDictProvider` fake at line 7 is for
+`IDictionaryProvider`, not the LM predictor.
 
 **What moves with the files:**
 - The 3 PackageReferences move from `Core.csproj` → `EyeCtrl.LM.csproj`
 - **Tests:** Create a new `tests/EyeCtrl.LM.Tests/` project following the
-repo's existing convention (one test project per source project:
-`Core.Tests`, `Platform.Tests`, `ViewModels.Tests`, `App.Tests`,
-`Sdk.Abstractions.Tests`, `Sdk.WinUI.Tests`). Move
-`SmallLMPredictorTests.cs`, `LMTokenizerTests.cs`, and
-`ModelManifestTests.cs` there. Tests that exercise the predictor through the
-`ISmallLMPredictor` interface from the orchestrator stay in
-`EyeCtrl.Core.Tests` (using a fake, per the no-mocking-library convention).
+  repo's existing convention (one test project per source project:
+  `Core.Tests`, `Platform.Tests`, `ViewModels.Tests`, `App.Tests`,
+  `Sdk.Abstractions.Tests`, `Sdk.WinUI.Tests`). Move
+  `SmallLMPredictorTests.cs` and `LMTokenizerTests.cs` there.
+  `ModelManifestTests.cs` stays in `EyeCtrl.Core.Tests` (the type stays in
+  Core). Tests that exercise the predictor through the
+  `ILanguageModelPredictor` interface from the orchestrator stay in
+  `EyeCtrl.Core.Tests`.
 - Benchmarks: `SmallLMPredictor`/`LMTokenizer` benchmarks in
   `benchmarks/EyeCtrl.Benchmarks/` add a project reference to `EyeCtrl.LM`
 
-**Solution file:** Add `EyeCtrl.LM` to `EyeCtrl.slnx` under `/src/`. Add test
-project under `/tests/` if created.
+**Solution file:** Add `EyeCtrl.LM` to `EyeCtrl.slnx` under `/src/`. Add
+`EyeCtrl.LM.Tests` under `/tests/`.
 
 **Verification:**
 - `dotnet build EyeCtrl.slnx` clean
-- `dotnet test` green (Core.Tests LM tests pass via the interface; LM.Tests
-  pass directly)
+- `dotnet test` green (Core.Tests pass with `ILanguageModelPredictor?` =
+  null as before; LM.Tests pass directly against `SmallLMPredictor`)
 - `dotnet run --project src/EyeCtrl.App -- --test-mode` — app launches,
   prediction still works (with and without a model present)
-- **The key check:** `dotnet publish src/EyeCtrl.App -c Release -r win-x64
-  --self-contained true -p:PublishSingleFile=true -o publish` — confirm the
-  ONNX native binaries are now in a separate LM dependency, not bundled into
-  Core's surface.
+- **The key check:** Inspect `src/EyeCtrl.Core/EyeCtrl.Core.csproj` to confirm
+  the 3 ONNX/Tokenizer `<PackageReference>` entries are gone. `dotnet publish
+  EyeCtrl.App` will still include LM natives because `App → EyeCtrl.LM` — that
+  is expected and correct. The goal is Core's dependency graph is clean, not
+  App's publish output.
 - Run `impact({target: "SmallLMPredictor", direction: "upstream"})` *before*
-  the move to confirm the caller list matches expectation, and
+  the move to confirm the caller list matches expectation
+  (`EventCoordinator.LoadKeyboard` and `PredictionOrchestrator` ctor). Run
   `detect_changes()` *after* to verify only the intended symbols/files were
   affected.
 
 **Risk:** MEDIUM. It's a project split with an interface insertion. The risk
-is in the `PredictionOrchestrator` → `ISmallLMPredictor` seam: the orchestrator
-currently may call multiple `SmallLMPredictor` methods; the interface must
-cover all of them. Mitigated by:
+is in the `PredictionOrchestrator` → `ILanguageModelPredictor` seam: the
+orchestrator currently may call multiple `SmallLMPredictor` methods; the
+interface must cover all of them. Use `context({name: "SmallLMPredictor"})`
+before the move to enumerate every public method `PredictionOrchestrator`
+calls. Mitigated by:
 - CI verifies build + unit tests on every commit
-- The existing `PredictionOrchestratorTests` already use fakes for predictors
-  (per AGENTS.md "no mocking library" convention) — the interface makes this
-  *easier*, not harder
-- `AppBootstrapper` is the single registration point
+- `EventCoordinator.LoadKeyboard` is the single construction site —
+  diffable in one commit
+- `PredictionOrchestratorTests` passing `null` means the no-LM code path is
+  already covered; adding a fake for the with-LM path is an optional
+  enhancement, not a requirement
 
 **Commit strategy:**
-1. Create `EyeCtrl.LM` project, move files, add interface — single commit,
-   build must stay green
-2. Update DI registration in `AppBootstrapper` — second commit
-3. Move tests — third commit
-4. Update `ARCHITECTURE.md` + `AGENTS.md` — fourth commit
+1. Add `ILanguageModelPredictor` interface to Core, change
+   `PredictionOrchestrator` to depend on it — single commit, build must stay
+   green (SmallLMPredictor still in Core, temporarily implements the
+   interface)
+2. Create `EyeCtrl.LM` project, move `SmallLMPredictor.cs` +
+   `LMTokenizer.cs`, move the 3 PackageReferences — second commit, build
+   green
+3. Update `EventCoordinator.LoadKeyboard` to reference
+   `ILanguageModelPredictor` (local variable static type only) — third commit
+4. Move tests + update `EyeCtrl.slnx` — fourth commit
+5. Update `ARCHITECTURE.md` + `AGENTS.md` — fifth commit
 
 **What this is NOT:**
 - Not changing `PredictionOrchestrator`'s behavior
-- Not changing the LM model download/registry services (those stay in Core —
-  they manage files, not ONNX)
+- Not moving `ModelManifest`, `ModelConstants`, `ModelRegistryEntry`,
+  `ModelSource`, `ModelDownloadService`, or `ModelRegistryService` (they stay
+  in Core — they manage files and catalog metadata, not ONNX runtime)
 - Not touching the benchmarks beyond adding a project reference
 
 ---
@@ -464,10 +528,10 @@ stale docs. Doc updates commit *with* the code change they describe.
 |---|---|---|
 | 1 (CI) | Add "CI" section: GitHub Actions runs build + non-UI tests on PR/push; UI tests run non-blocking. Note no linter/formatter configured. | `AGENTS.md`, `README.md` |
 | 2 (Warnings) | No doc change — internal cleanup | — |
-| 3.1 (FrameworkRef) | If narrowed: note `UseWPF`+`UseWindowsForms` instead of `FrameworkReference`. If not: document why it stays. | `AGENTS.md` "Dependencies & Quirks" |
+| 3.1 (FrameworkRef) | If narrowed: note `UseWPF` instead of `FrameworkReference`. If not: document why it stays. | `AGENTS.md` "Dependencies & Quirks" |
 | 3.2 (OnStartup) | No doc change — private refactor | — |
-| 4.1 (MVVM) | Add invariant: "`CommunityToolkit.Mvvm`'s `ObservableObject` is used in Core for `INotifyPropertyChanged`; this is a source-generator utility, not a UI-framework dependency." | `ARCHITECTURE.md` §7 |
-| 4.2 (LM extraction) | Add `EyeCtrl.LM` to project table, dependency diagram, directory structure. Note the `ISmallLMPredictor` seam and that Core is now free of ONNX/Tokenizer natives. | `ARCHITECTURE.md` §2, §6, §10; `README.md` project structure |
+| 4.1 (MVVM) | Add invariant: "`CommunityToolkit.Mvvm`'s `ObservableObject` is used in Core for `INotifyPropertyChanged`; this is a source-generator utility, not a UI-framework dependency." Note: `ARCHITECTURE.md` is manually maintained despite the "auto-generated" header — manual edits persist. | `ARCHITECTURE.md` §7; cross-ref from `AGENTS.md` |
+| 4.2 (LM extraction) | Add `EyeCtrl.LM` to project table, dependency diagram, directory structure. Note the `ILanguageModelPredictor` seam and that Core is now free of ONNX/Tokenizer natives. | `ARCHITECTURE.md` §2, §6, §10; `README.md` project structure |
 
 ## Verification Strategy — layered
 
@@ -476,21 +540,23 @@ stale docs. Doc updates commit *with* the code change they describe.
 | **Per-commit** | After every commit | `dotnet build EyeCtrl.slnx` clean (0 errors). Warnings must not increase from the previous commit's count. |
 | **Per-phase** | End of each phase | `dotnet test --filter "Category!=UI"` green. `node .gitnexus/run.cjs analyze` (Phase 1 only — then `detect_changes()` to confirm only intended scope was touched). |
 | **Pre-merge** | Before merging any phase's PR | Full `dotnet test` (including UI tests, non-blocking). Manual smoke: `dotnet run --project src/EyeCtrl.App -- --test-mode` launches and quits. |
-| **Phase 4 specific** | Before/after LM extraction | `impact({target: "SmallLMPredictor", direction: "upstream"})` before; `detect_changes()` after. Confirm no symbols outside `Prediction/SmallLMPredictor.cs`, `Prediction/LMTokenizer.cs`, `Prediction/ModelManifest.cs`, `Prediction/ModelConstants.cs`, `AppBootstrapper.cs`, and the new `EyeCtrl.LM` project are affected. |
+| **Phase 4 specific** | Before/after LM extraction | `impact({target: "SmallLMPredictor", direction: "upstream"})` before; `detect_changes()` after. Confirm no symbols outside `Prediction/SmallLMPredictor.cs`, `Prediction/LMTokenizer.cs`, `EventCoordinator.cs`, `Prediction/PredictionOrchestrator.cs` (interface insertion), and the new `EyeCtrl.LM` project are affected. |
 
 ## GitNexus usage throughout
 
 Per AGENTS.md / CLAUDE.md invariants:
 
-- **Before editing any symbol** in Phases 2-4: run
+- **Before editing any symbol** in Phases 3-4: run
   `impact({target: "symbolName", direction: "upstream"})` and report blast
-  radius. HIGH/CRITICAL risk → warn before proceeding.
+  radius. HIGH/CRITICAL risk → warn before proceeding. (Phase 2.2 XML-doc
+  edits are exempt — see "Impact-analysis exception" in §2.2.)
 - **Before every commit**: run `detect_changes()` to verify the diff only
   affects expected symbols/flows.
 - **For the LM extraction (Phase 4)**: use `rename` tool if any symbol renames
   are needed (don't find-and-replace). Use `context({name:
   "SmallLMPredictor"})` to confirm the full caller/callee graph before the
-  move.
+  move — this enumerates every public method that `PredictionOrchestrator`
+  calls, which defines the `ILanguageModelPredictor` interface surface.
 
 ## Out of scope
 
@@ -509,8 +575,8 @@ Per AGENTS.md / CLAUDE.md invariants:
 | 1: Foundation | Small | 1 (CI workflow only; index refresh is not a commit) | ~1 hour |
 | 2: Warnings | Large | ~14 (1 for nullable + ~10 for docs by subdirectory + 1-2 for test warnings) | The 726 XML docs dominate; ~1-2 days of focused work |
 | 3: Refactors | Small-medium | 2 | ~2-3 hours |
-| 4: LM extraction | Medium | 4 | ~4-6 hours including verification |
-| **Total** | — | ~21 | — |
+| 4: LM extraction | Medium | 5 | ~4-6 hours including verification |
+| **Total** | — | ~22 | — |
 
 The XML doc work (Phase 2.2) is the long pole. Everything else is bounded and
 mechanical.

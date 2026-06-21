@@ -22,9 +22,9 @@ public class KeyboardTests
         // Arrange — ensure keyboard starts closed
         await _fixture.EnsureKeyboardClosedAsync();
         var toolbar = _fixture.FindWindow("Toolbar_Window");
-        Assert.NotNull(toolbar);
+        Check.That(toolbar).IsNotNull();
         var kbBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Keyboard");
-        Assert.NotNull(kbBtn);
+        Check.That(kbBtn).IsNotNull();
 
         // Act — dwell on keyboard button
         await _fixture.SimulateDwellOn(kbBtn!);
@@ -32,8 +32,7 @@ public class KeyboardTests
         // Wait for keyboard window to appear in the UIA tree (retries until visible).
         var keyboard = await _fixture.WaitForWindowAsync(
             "Keyboard_Window", TimeSpan.FromSeconds(5));
-        Assert.True(keyboard.Properties.IsOffscreen.Value == false,
-            "Keyboard window should be visible");
+        Check.That(keyboard.Properties.IsOffscreen.Value).IsFalse();
 
         // Cleanup — toggle keyboard off
         toolbar = _fixture.FindWindow("Toolbar_Window");
@@ -54,15 +53,15 @@ public class KeyboardTests
         {
             var toolbar = _fixture.FindWindow("Toolbar_Window");
             var settingsBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Settings");
-            Assert.NotNull(settingsBtn);
+            Check.That(settingsBtn).IsNotNull();
             await _fixture.SimulateDwellOn(settingsBtn!);
             await Task.Delay(500, TestContext.Current.CancellationToken);
             settings = _fixture.FindWindow("Settings_Window");
         }
-        Assert.NotNull(settings);
+        Check.That(settings).IsNotNull();
 
         var keyboardTab = _fixture.FindElement(settings!, "Settings_Tab_Keyboard");
-        Assert.NotNull(keyboardTab);
+        Check.That(keyboardTab).IsNotNull();
         await _fixture.SimulateDwellOn(keyboardTab!);
         await Task.Delay(500, TestContext.Current.CancellationToken); // wait for tab content to rebuild
 
@@ -70,8 +69,8 @@ public class KeyboardTests
         settings = _fixture.FindWindow("Settings_Window");
         var toggle = await _fixture.WaitForElementAsync(settings!, "Settings_Toggle_k_sound");
         var enabledText = toggle.Properties.Name.Value;
-        Assert.Contains("Click Sound", enabledText);
-        Assert.StartsWith("\u2611", enabledText); // ☑ = enabled by default
+        Check.That(enabledText).Contains("Click Sound");
+        Check.That(enabledText.StartsWith("\u2611")).IsTrue(); // ☑ = enabled by default
 
         // Act — dwell to disable
         await _fixture.SimulateDwellOn(toggle);
@@ -80,7 +79,7 @@ public class KeyboardTests
         // Assert — toggle now shows disabled
         settings = _fixture.FindWindow("Settings_Window");
         toggle = _fixture.FindElement(settings!, "Settings_Toggle_k_sound")!;
-        Assert.StartsWith("\u2610", toggle.Properties.Name.Value); // ☐ = disabled
+        Check.That(toggle.Properties.Name.Value.StartsWith("\u2610")).IsTrue(); // ☐ = disabled
 
         // Cleanup — restore to enabled
         await _fixture.SimulateDwellOn(toggle);
@@ -95,9 +94,9 @@ public class KeyboardTests
         await _fixture.EnsureKeyboardClosedAsync();
         // Open keyboard
         var toolbar = _fixture.FindWindow("Toolbar_Window");
-        Assert.NotNull(toolbar);
+        Check.That(toolbar).IsNotNull();
         var kbBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Keyboard");
-        Assert.NotNull(kbBtn);
+        Check.That(kbBtn).IsNotNull();
         await _fixture.SimulateDwellOn(kbBtn!);
 
         // Wait for keyboard window to appear in the UIA tree.
@@ -105,7 +104,7 @@ public class KeyboardTests
             "Keyboard_Window", TimeSpan.FromSeconds(5));
 
         var keys = _fixture.FindElements(keyboard!, "Keyboard_Key_");
-        Assert.True(keys.Length > 0, "Keyboard should have at least one key");
+        Check.That(keys.Length > 0).IsTrue();
 
         // Cleanup — toggle keyboard off
         toolbar = _fixture.FindWindow("Toolbar_Window");

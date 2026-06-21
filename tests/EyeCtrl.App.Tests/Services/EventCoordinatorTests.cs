@@ -19,7 +19,7 @@ public class EventCoordinatorTests
         var coordinator = new EventCoordinator();
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => coordinator.Initialize(null!));
+        Check.ThatCode(() => coordinator.Initialize(null!)).Throws<ArgumentNullException>();
     }
 
     [Fact]
@@ -32,7 +32,7 @@ public class EventCoordinatorTests
         var predictor = coordinator.WordPredictor;
 
         // Assert
-        Assert.Null(predictor);
+        Check.That(predictor).IsNull();
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class EventCoordinatorTests
         var coordinator = new EventCoordinator();
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() =>
-            coordinator.LoadKeyboard(null!, null!, null!, null!));
+        Check.ThatCode(() =>
+            coordinator.LoadKeyboard(null!, null!, null!, null!)).Throws<ArgumentNullException>();
     }
 }

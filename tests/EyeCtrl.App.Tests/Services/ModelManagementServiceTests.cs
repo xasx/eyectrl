@@ -29,10 +29,10 @@ public class ModelManagementServiceTests
 
             var result = await mgmt.DownloadCustomModelAsync(CustomModelUrl, TestContext.Current.CancellationToken);
 
-            Assert.False(result.IsSuccess);
+            Check.That(result.IsSuccess).IsFalse();
             // The orphaned .onnx must be rolled back, mirroring the bundled path.
-            Assert.False(File.Exists(Path.Combine(tempDir, "repo.onnx")));
-            Assert.Empty(settings.Keyboard.CustomModels);
+            Check.That(File.Exists(Path.Combine(tempDir, "repo.onnx"))).IsFalse();
+            Check.That(settings.Keyboard.CustomModels).IsEmpty();
         }
         finally
         {
@@ -54,14 +54,15 @@ public class ModelManagementServiceTests
 
             var result = await mgmt.DownloadCustomModelAsync(CustomModelUrl, TestContext.Current.CancellationToken);
 
-            Assert.True(result.IsSuccess);
-            Assert.Equal("repo", result.ModelId);
+            Check.That(result.IsSuccess).IsTrue();
+            Check.That(result.ModelId).IsEqualTo("repo");
 
-            var custom = Assert.Single(settings.Keyboard.CustomModels);
-            Assert.Equal(2048, custom.SizeBytes);
-            Assert.Equal(CustomModelUrl, custom.Url);
-            Assert.True(File.Exists(Path.Combine(tempDir, "repo.onnx")));
-            Assert.True(File.Exists(Path.Combine(tempDir, "repo.tokenizer.json")));
+            Check.That(settings.Keyboard.CustomModels).HasSize(1);
+            var custom = settings.Keyboard.CustomModels[0];
+            Check.That(custom.SizeBytes).IsEqualTo(2048);
+            Check.That(custom.Url).IsEqualTo(CustomModelUrl);
+            Check.That(File.Exists(Path.Combine(tempDir, "repo.onnx"))).IsTrue();
+            Check.That(File.Exists(Path.Combine(tempDir, "repo.tokenizer.json"))).IsTrue();
         }
         finally
         {
@@ -98,8 +99,8 @@ public class ModelManagementServiceTests
                 "https://example.com/onnx/tokenizer.json", "",
                 TestContext.Current.CancellationToken);
 
-            Assert.False(result.IsSuccess);
-            Assert.False(File.Exists(Path.Combine(tempDir, "smollm2-135m.onnx")));
+            Check.That(result.IsSuccess).IsFalse();
+            Check.That(File.Exists(Path.Combine(tempDir, "smollm2-135m.onnx"))).IsFalse();
         }
         finally
         {
@@ -131,16 +132,16 @@ public class ModelManagementServiceTests
             var first = mgmt.DownloadCustomModelAsync(CustomModelUrl, TestContext.Current.CancellationToken);
             await modelStarted.Task;
 
-            Assert.True(mgmt.IsDownloading);
+            Check.That(mgmt.IsDownloading).IsTrue();
             var second = await mgmt.DownloadCustomModelAsync(
                 "https://huggingface.co/org/other/resolve/main/onnx/model.onnx",
                 TestContext.Current.CancellationToken);
-            Assert.True(second.IsBusy);
+            Check.That(second.IsBusy).IsTrue();
 
             allowFinish.TrySetResult();
             var firstResult = await first;
-            Assert.True(firstResult.IsSuccess);
-            Assert.False(mgmt.IsDownloading);
+            Check.That(firstResult.IsSuccess).IsTrue();
+            Check.That(mgmt.IsDownloading).IsFalse();
         }
         finally
         {
@@ -152,35 +153,35 @@ public class ModelManagementServiceTests
     public void DeriveModelName_HuggingFaceUrl_ReturnsRepoName()
     {
         var name = ModelManagementService.DeriveModelName(CustomModelUrl);
-        Assert.Equal("repo", name);
+        Check.That(name).IsEqualTo("repo");
     }
 
     [Fact]
     public void DeriveModelName_NestedPath_ReturnsLastSegmentBeforeResolve()
     {
         var name = ModelManagementService.DeriveModelName("https://huggingface.co/org/my-model-name/resolve/main/model.onnx");
-        Assert.Equal("my-model-name", name);
+        Check.That(name).IsEqualTo("my-model-name");
     }
 
     [Fact]
     public void DeriveModelName_NoResolveSegment_ReturnsLastSegment()
     {
         var name = ModelManagementService.DeriveModelName("https://example.com/models/foo");
-        Assert.Equal("foo", name);
+        Check.That(name).IsEqualTo("foo");
     }
 
     [Fact]
     public void DeriveModelName_RootPath_ReturnsFallback()
     {
         var name = ModelManagementService.DeriveModelName("https://example.com/");
-        Assert.Equal("CustomModel", name);
+        Check.That(name).IsEqualTo("CustomModel");
     }
 
     [Fact]
     public void DeriveModelName_InvalidUrl_ReturnsFallback()
     {
         var name = ModelManagementService.DeriveModelName("not a url");
-        Assert.Equal("CustomModel", name);
+        Check.That(name).IsEqualTo("CustomModel");
     }
 
     [Fact]
@@ -195,8 +196,8 @@ public class ModelManagementServiceTests
 
             mgmt.SetActiveModel("135M");
 
-            Assert.Equal("135M", settings.Keyboard.MLModelSize);
-            Assert.Equal("135M", registry.ActiveModelId);
+            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("135M");
+            Check.That(registry.ActiveModelId).IsEqualTo("135M");
         }
         finally
         {
@@ -215,8 +216,8 @@ public class ModelManagementServiceTests
 
             mgmt.SetActiveModel("Off");
 
-            Assert.Equal("Off", settings.Keyboard.MLModelSize);
-            Assert.Null(registry.ActiveModelId);
+            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("Off");
+            Check.That(registry.ActiveModelId).IsNull();
         }
         finally
         {
@@ -247,7 +248,7 @@ public class ModelManagementServiceTests
 
             mgmt.DeleteModel("135M");
 
-            Assert.True(registry.Registry.ContainsKey("135M"), "Bundled model should remain in registry");
+            Check.That(registry.Registry.ContainsKey("135M")).IsTrue();
         }
         finally
         {
@@ -267,12 +268,12 @@ public class ModelManagementServiceTests
             registry.AddCustomModel("Custom", "Custom", "https://example.com/model.onnx",
                 "", 0, "https://example.com/tokenizer.json", "", settings.Keyboard);
 
-            Assert.True(registry.Registry.ContainsKey("Custom"));
+            Check.That(registry.Registry.ContainsKey("Custom")).IsTrue();
 
             mgmt.DeleteModel("Custom");
 
-            Assert.False(registry.Registry.ContainsKey("Custom"));
-            Assert.Empty(settings.Keyboard.CustomModels);
+            Check.That(registry.Registry.ContainsKey("Custom")).IsFalse();
+            Check.That(settings.Keyboard.CustomModels).IsEmpty();
         }
         finally
         {

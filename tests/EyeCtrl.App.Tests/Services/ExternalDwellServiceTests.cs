@@ -86,7 +86,7 @@ public class ExternalDwellServiceTests
             // A gaze frame with no registered targets must NOT clear another owner's suppression.
             provider.Raise(new GazePoint(500, 500, 1_000, IsValid: true));
 
-            Assert.True(engine.SuppressFixation);
+            Check.That(engine.SuppressFixation).IsTrue();
         });
     }
 
@@ -105,9 +105,9 @@ public class ExternalDwellServiceTests
             var activated = RegisterToggleAndDwell(settings, provider).GetAwaiter().GetResult();
 
             // With the target retained across the disable/enable toggle, dwell still activates it.
-            Assert.NotNull(activated);
-            Assert.Contains("activated", activated);
-            Assert.Contains("\"id\":\"btn\"", activated);
+            Check.That(activated).IsNotNull();
+            Check.That(activated).Contains("activated");
+            Check.That(activated).Contains("\"id\":\"btn\"");
         });
     }
 

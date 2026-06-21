@@ -21,9 +21,8 @@ public class AppLaunchTests
     {
         var window = _fixture.FindWindow("CursorCircle_Window");
 
-        Assert.NotNull(window);
-        Assert.True(window!.Properties.IsOffscreen.Value == false,
-            "Cursor circle window should be visible on screen");
+        Check.That(window).IsNotNull();
+        Check.That(window!.Properties.IsOffscreen.Value).IsFalse();
     }
 
     [Fact]
@@ -31,27 +30,26 @@ public class AppLaunchTests
     {
         var window = _fixture.FindWindow("Toolbar_Window");
 
-        Assert.NotNull(window);
-        Assert.True(window!.Properties.IsOffscreen.Value == false,
-            "Toolbar window should be visible on screen");
+        Check.That(window).IsNotNull();
+        Check.That(window!.Properties.IsOffscreen.Value).IsFalse();
     }
 
     [Fact]
     public void Toolbar_HasFiveButtons()
     {
         var toolbar = _fixture.FindWindow("Toolbar_Window");
-        Assert.NotNull(toolbar);
+        Check.That(toolbar).IsNotNull();
 
         var buttons = _fixture.FindElements(toolbar!, "Toolbar_Button_");
 
-        Assert.Equal(5, buttons.Length);
+        Check.That(buttons.Length).IsEqualTo(5);
     }
 
     [Fact]
     public void Toolbar_ButtonsHaveCorrectIds()
     {
         var toolbar = _fixture.FindWindow("Toolbar_Window");
-        Assert.NotNull(toolbar);
+        Check.That(toolbar).IsNotNull();
 
         var expectedIds = new[]
         {
@@ -65,7 +63,7 @@ public class AppLaunchTests
         foreach (var id in expectedIds)
         {
             var button = _fixture.FindElement(toolbar!, id);
-            Assert.NotNull(button);
+            Check.That(button).IsNotNull();
         }
     }
 
@@ -73,9 +71,9 @@ public class AppLaunchTests
     public void CursorCircle_HasMainEllipse()
     {
         var cursorCircle = _fixture.FindWindow("CursorCircle_Window");
-        Assert.NotNull(cursorCircle);
+        Check.That(cursorCircle).IsNotNull();
 
         var ellipse = _fixture.FindElement(cursorCircle!, "CursorCircle_Ellipse_Main");
-        Assert.NotNull(ellipse);
+        Check.That(ellipse).IsNotNull();
     }
 }

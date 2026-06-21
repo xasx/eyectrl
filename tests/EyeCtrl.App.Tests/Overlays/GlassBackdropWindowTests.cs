@@ -12,6 +12,6 @@ public class GlassBackdropWindowTests
 
         var exception = Record.Exception(() => window.Hide());
 
-        Assert.Null(exception);
+        Check.That(exception).IsNull();
     }
 }

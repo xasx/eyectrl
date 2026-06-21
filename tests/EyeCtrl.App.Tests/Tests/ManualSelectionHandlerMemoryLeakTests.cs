@@ -40,7 +40,7 @@ public class ManualSelectionHandlerMemoryLeakTests
         // - Unsubscribe from FixationDetector events before creating new instance
         // - Ensure all handlers are cleaned up in a centralized cleanup method
 
-        Assert.True(true, "This test documents the event handler cleanup pattern");
+        Check.That(true).IsTrue();
     }
 
     /// <summary>
@@ -72,7 +72,7 @@ public class ManualSelectionHandlerMemoryLeakTests
         // So the implementation is actually correct for preventing handler accumulation.
         // The main improvement would be explicitly unsubscribing from FixationDetector events.
 
-        Assert.True(true, "Current implementation prevents handler accumulation via lines 292-295");
+        Check.That(true).IsTrue();
     }
 
     /// <summary>
@@ -105,7 +105,7 @@ public class ManualSelectionHandlerMemoryLeakTests
         //       currentManualSelectionFixation.FixationEnded -= ...
         //   }
 
-        Assert.True(true, "FixationDetector events are cleaned up via garbage collection");
+        Check.That(true).IsTrue();
     }
 
     /// <summary>
@@ -137,6 +137,6 @@ public class ManualSelectionHandlerMemoryLeakTests
         //
         // These changes would make the cleanup pattern more explicit and easier to maintain.
 
-        Assert.True(true, "Documentation of recommended improvements");
+        Check.That(true).IsTrue();
     }
 }

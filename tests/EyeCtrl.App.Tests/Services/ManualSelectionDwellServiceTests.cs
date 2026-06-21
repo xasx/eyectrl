@@ -96,7 +96,7 @@ public class ManualSelectionDwellServiceTests
         _interactionManager.OnActivationButtonDwelled();
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 500), 1000));
 
-        Assert.True(indicatorMessageReceived);
+        Check.That(indicatorMessageReceived).IsTrue();
         _messenger.Unregister<UpdateManualSelectionIndicatorPositionMessage>(this);
     }
 
@@ -124,8 +124,8 @@ public class ManualSelectionDwellServiceTests
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(510, 510), 200_000)); // 200ms
 
         // Assert - Position should update, but not progress (grace period active)
-        Assert.True(positionUpdates > 0, "Indicator position should be updated during grace period");
-        Assert.Equal(0, progressUpdates); // No progress updates during grace period
+        Check.That(positionUpdates > 0).IsTrue();
+        Check.That(progressUpdates).IsEqualTo(0); // No progress updates during grace period
 
         _messenger.Unregister<UpdateManualSelectionIndicatorPositionMessage>(this);
         _messenger.Unregister<UpdateManualSelectionIndicatorProgressMessage>(this);
@@ -155,7 +155,7 @@ public class ManualSelectionDwellServiceTests
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(800, 800), 500_000)); // 400ms after grace start, outside bounds
 
         // Assert - Reset message should be sent
-        Assert.True(resetMessageReceived, "Dwell should be reset when gaze moves outside bounds");
+        Check.That(resetMessageReceived).IsTrue();
 
         _messenger.Unregister<ResetManualSelectionIndicatorMessage>(this);
     }
@@ -187,7 +187,7 @@ public class ManualSelectionDwellServiceTests
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 600_000)); // Dwell advances → progress emitted
 
         // Assert
-        Assert.True(progressUpdateReceived, "Progress should be updated after grace period with valid gaze");
+        Check.That(progressUpdateReceived).IsTrue();
 
         _messenger.Unregister<UpdateManualSelectionIndicatorProgressMessage>(this);
     }
@@ -223,9 +223,9 @@ public class ManualSelectionDwellServiceTests
         }
 
         // Assert
-        Assert.NotNull(completionMessage);
-        Assert.Equal(dwellPoint.X, completionMessage.PrecisePoint.X, 2); // Allow small tolerance
-        Assert.Equal(dwellPoint.Y, completionMessage.PrecisePoint.Y, 2);
+        Check.That(completionMessage).IsNotNull();
+        Check.That(completionMessage.PrecisePoint.X).IsCloseTo(dwellPoint.X, 2); // Allow small tolerance
+        Check.That(completionMessage.PrecisePoint.Y).IsCloseTo(dwellPoint.Y, 2);
 
         _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
     }
@@ -248,7 +248,7 @@ public class ManualSelectionDwellServiceTests
 
         // Confirm service is active
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 100_000));
-        Assert.True(positionUpdateCount > 0, "Service should be active before ManualSelection ends");
+        Check.That(positionUpdateCount > 0).IsTrue();
 
         // Act - End ManualSelection
         _messenger.Send(new EndManualSelectionMessage());
@@ -260,7 +260,7 @@ public class ManualSelectionDwellServiceTests
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(510, 510), 200_000));
 
         // Assert - No more messages should be processed
-        Assert.Equal(0, positionUpdateCount);
+        Check.That(positionUpdateCount).IsEqualTo(0);
 
         _messenger.Unregister<UpdateManualSelectionIndicatorPositionMessage>(this);
     }
@@ -285,7 +285,7 @@ public class ManualSelectionDwellServiceTests
 
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 500), 100_000));
 
-        Assert.False(messageReceived, "Service should not process messages after disposal");
+        Check.That(messageReceived).IsFalse();
 
         _messenger.Unregister<UpdateManualSelectionIndicatorPositionMessage>(this);
     }
@@ -309,7 +309,7 @@ public class ManualSelectionDwellServiceTests
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 500), 100_000));
 
         // Assert - No messages should be sent when not in ManualSelection state
-        Assert.False(messageReceived, "Service should ignore gaze when not in ManualSelectionActive state");
+        Check.That(messageReceived).IsFalse();
 
         _messenger.Unregister<UpdateManualSelectionIndicatorPositionMessage>(this);
     }
@@ -337,15 +337,15 @@ public class ManualSelectionDwellServiceTests
         _messenger.Send(new GazeCursorMovedMessage(newGazePoint, 100_000));
 
         // Assert - The position message should contain the physical screen coordinates, not magnified
-        Assert.NotNull(positionMessage);
-        Assert.Equal(510, positionMessage.GazePoint.X, 2);
-        Assert.Equal(510, positionMessage.GazePoint.Y, 2);
+        Check.That(positionMessage).IsNotNull();
+        Check.That(positionMessage.GazePoint.X).IsCloseTo(510, 2);
+        Check.That(positionMessage.GazePoint.Y).IsCloseTo(510, 2);
 
         // The ViewModel should convert this to magnified coordinates
         // magnifiedX = ManualSelectionCenter.X + (gazePoint.X - originalCenter.X) * magnification
         // magnifiedX = 500 + (510 - 500) * 2.0 = 500 + 20 = 520
-        Assert.Equal(520, _indicatorVM.IndicatorX, 2);
-        Assert.Equal(520, _indicatorVM.IndicatorY, 2);
+        Check.That(_indicatorVM.IndicatorX).IsCloseTo(520, 2);
+        Check.That(_indicatorVM.IndicatorY).IsCloseTo(520, 2);
 
         _messenger.Unregister<UpdateManualSelectionIndicatorPositionMessage>(this);
     }

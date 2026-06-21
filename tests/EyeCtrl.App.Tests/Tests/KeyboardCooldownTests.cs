@@ -31,7 +31,7 @@ public class KeyboardCooldownTests
         long actualCooldownEnd = currentTimestamp + cooldownMicroseconds;
 
         // Verify the calculation is correct
-        Assert.Equal(expectedCooldownMicroseconds, cooldownMicroseconds);
-        Assert.Equal(expectedCooldownEnd, actualCooldownEnd);
+        Check.That(cooldownMicroseconds).IsEqualTo(expectedCooldownMicroseconds);
+        Check.That(actualCooldownEnd).IsEqualTo(expectedCooldownEnd);
     }
 }

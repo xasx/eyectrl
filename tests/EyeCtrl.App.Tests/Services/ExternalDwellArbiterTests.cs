@@ -19,10 +19,10 @@ public class ExternalDwellArbiterTests
         a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
 
         var inside = new PhysicalPoint(140, 120);
-        Assert.Null(a.Process(inside, 0).ActivatedId);
-        Assert.Null(a.Process(inside, 400 * Ms).ActivatedId);
+        Check.That(a.Process(inside, 0).ActivatedId).IsNull();
+        Check.That(a.Process(inside, 400 * Ms).ActivatedId).IsNull();
         var done = a.Process(inside, 800 * Ms);
-        Assert.Equal("btn", done.ActivatedId);
+        Check.That(done.ActivatedId).IsEqualTo("btn");
     }
 
     [Fact]
@@ -33,10 +33,10 @@ public class ExternalDwellArbiterTests
         var inside = new PhysicalPoint(140, 120);
         a.Process(inside, 0);
         var r = a.Process(inside, 400 * Ms);
-        Assert.Equal("btn", r.FeedbackId);
-        Assert.Equal(Btn, r.FeedbackRect);
-        Assert.True(r.Suppress);
-        Assert.InRange(r.Progress, 0.4, 0.6);
+        Check.That(r.FeedbackId).IsEqualTo("btn");
+        Check.That(r.FeedbackRect).IsEqualTo(Btn);
+        Check.That(r.Suppress).IsTrue();
+        Check.That(r.Progress >= 0.4 && r.Progress <= 0.6).IsTrue();
     }
 
     [Fact]
@@ -47,9 +47,9 @@ public class ExternalDwellArbiterTests
         var inside = new PhysicalPoint(140, 120);
         a.Process(inside, 0);
         var r = a.Process(inside, 5000 * Ms);
-        Assert.Null(r.ActivatedId);
-        Assert.Null(r.FeedbackId);
-        Assert.False(r.Suppress);
+        Check.That(r.ActivatedId).IsNull();
+        Check.That(r.FeedbackId).IsNull();
+        Check.That(r.Suppress).IsFalse();
     }
 
     [Fact]
@@ -58,8 +58,8 @@ public class ExternalDwellArbiterTests
         var a = MakeArbiter();
         a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
         var r = a.Process(new PhysicalPoint(1000, 1000), 100 * Ms);
-        Assert.Null(r.FeedbackId);
-        Assert.False(r.Suppress);
+        Check.That(r.FeedbackId).IsNull();
+        Check.That(r.Suppress).IsFalse();
     }
 
     [Fact]
@@ -69,10 +69,10 @@ public class ExternalDwellArbiterTests
         a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
         var inside = new PhysicalPoint(140, 120);
         a.Process(inside, 0);
-        Assert.Equal("btn", a.Process(inside, 800 * Ms).ActivatedId);
-        Assert.Null(a.Process(inside, 900 * Ms).FeedbackId);
+        Check.That(a.Process(inside, 800 * Ms).ActivatedId).IsEqualTo("btn");
+        Check.That(a.Process(inside, 900 * Ms).FeedbackId).IsNull();
         a.Process(inside, 1400 * Ms);
-        Assert.Equal("btn", a.Process(inside, 2200 * Ms).ActivatedId);
+        Check.That(a.Process(inside, 2200 * Ms).ActivatedId).IsEqualTo("btn");
     }
 
     [Fact]
@@ -82,8 +82,8 @@ public class ExternalDwellArbiterTests
         a.AddOrUpdate("btn", Btn, hwnd: 7, dwellMs: 800);
         a.Remove("btn");
         var r = a.Process(new PhysicalPoint(140, 120), 5000 * Ms);
-        Assert.Null(r.ActivatedId);
-        Assert.Null(r.FeedbackId);
+        Check.That(r.ActivatedId).IsNull();
+        Check.That(r.FeedbackId).IsNull();
     }
 
 }

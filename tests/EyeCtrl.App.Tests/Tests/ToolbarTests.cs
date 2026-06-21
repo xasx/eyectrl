@@ -22,17 +22,17 @@ public class ToolbarTests
         // Arrange — make sure we start in non-paused state
         await _fixture.EnsureAppUnpausedAsync();
         var cursorCircle = _fixture.FindWindow("CursorCircle_Window");
-        Assert.NotNull(cursorCircle);
+        Check.That(cursorCircle).IsNotNull();
 
         // Check initial state: cursor circle is visible
         var wasVisible = cursorCircle!.Properties.IsOffscreen.Value == false;
-        Assert.True(wasVisible, "Cursor circle should be visible initially");
+        Check.That(wasVisible).IsTrue();
 
         // Act — dwell on pause button
         var toolbar = _fixture.FindWindow("Toolbar_Window");
-        Assert.NotNull(toolbar);
+        Check.That(toolbar).IsNotNull();
         var pauseBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Pause");
-        Assert.NotNull(pauseBtn);
+        Check.That(pauseBtn).IsNotNull();
 
         await _fixture.SimulateDwellOn(pauseBtn!);
 
@@ -43,7 +43,7 @@ public class ToolbarTests
         // In paused state, the circle window is hidden (not visible)
         var isHidden = cursorCircle == null
             || cursorCircle.Properties.IsOffscreen.Value == true;
-        Assert.True(isHidden, "Cursor circle should be hidden after pause");
+        Check.That(isHidden).IsTrue();
 
         // Cleanup — dwell on pause again to unpause
         toolbar = _fixture.FindWindow("Toolbar_Window");
@@ -62,9 +62,9 @@ public class ToolbarTests
         // Arrange — ensure clean state then pause
         await _fixture.EnsureAppUnpausedAsync();
         var toolbar = _fixture.FindWindow("Toolbar_Window");
-        Assert.NotNull(toolbar);
+        Check.That(toolbar).IsNotNull();
         var pauseBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Pause");
-        Assert.NotNull(pauseBtn);
+        Check.That(pauseBtn).IsNotNull();
 
         await _fixture.SimulateDwellOn(pauseBtn!);
         await Task.Delay(200, TestContext.Current.CancellationToken);
@@ -72,7 +72,7 @@ public class ToolbarTests
         // Act — unpause
         toolbar = _fixture.FindWindow("Toolbar_Window");
         pauseBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Pause");
-        Assert.NotNull(pauseBtn);
+        Check.That(pauseBtn).IsNotNull();
 
         await _fixture.SimulateDwellOn(pauseBtn!);
 
@@ -81,8 +81,7 @@ public class ToolbarTests
         // Retry until the window is both found and actually visible.
         var cursorCircle = await _fixture.WaitForWindowVisibleAsync(
             "CursorCircle_Window", TimeSpan.FromSeconds(5));
-        Assert.True(cursorCircle.Properties.IsOffscreen.Value == false,
-            "Cursor circle should be visible after unpause");
+        Check.That(cursorCircle.Properties.IsOffscreen.Value).IsFalse();
 
         _fixture.MoveCursorAway();
         await Task.Delay(500, TestContext.Current.CancellationToken);

@@ -22,9 +22,9 @@ public class NoteManagerTests
 
         manager.CreateNoteAt(new PhysicalPoint(100, 200));
 
-        Assert.Single(manager.ActiveNotes);
-        Assert.Equal(100, manager.ActiveNotes[0].Position.X);
-        Assert.Equal(200, manager.ActiveNotes[0].Position.Y);
+        Check.That(manager.ActiveNotes).HasSize(1);
+        Check.That(manager.ActiveNotes[0].Position.X).IsEqualTo(100);
+        Check.That(manager.ActiveNotes[0].Position.Y).IsEqualTo(200);
     }
 
     [StaFact]
@@ -35,7 +35,7 @@ public class NoteManagerTests
 
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
 
-        Assert.Equal(NoteState.Edit, manager.ActiveNotes[0].State);
+        Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
     }
 
     [StaFact]
@@ -48,7 +48,7 @@ public class NoteManagerTests
 
         manager.RemoveNote(id);
 
-        Assert.Empty(manager.ActiveNotes);
+        Check.That(manager.ActiveNotes).IsEmpty();
     }
 
     [StaFact]
@@ -60,7 +60,7 @@ public class NoteManagerTests
         for (int i = 0; i < 8; i++)
             manager.CreateNoteAt(new PhysicalPoint(i * 50, 0));
 
-        Assert.True(manager.IsAtCapacity);
+        Check.That(manager.IsAtCapacity).IsTrue();
     }
 
     [StaFact]
@@ -73,7 +73,7 @@ public class NoteManagerTests
             manager.CreateNoteAt(new PhysicalPoint(i * 50, 0));
         manager.CreateNoteAt(new PhysicalPoint(999, 999));
 
-        Assert.Equal(8, manager.ActiveNotes.Count);
+        Check.That(manager.ActiveNotes).HasSize(8);
     }
 
     [StaFact]
@@ -87,7 +87,7 @@ public class NoteManagerTests
 
         manager.StartEdit(id);
 
-        Assert.Equal(NoteState.Edit, manager.ActiveNotes[0].State);
+        Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
     }
 
     [StaFact]
@@ -100,8 +100,8 @@ public class NoteManagerTests
 
         manager.FinishEdit(id, "hello world");
 
-        Assert.Equal("hello world", manager.ActiveNotes[0].Text);
-        Assert.Equal(NoteState.Display, manager.ActiveNotes[0].State);
+        Check.That(manager.ActiveNotes[0].Text).IsEqualTo("hello world");
+        Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
     }
 
     [StaFact]
@@ -115,7 +115,7 @@ public class NoteManagerTests
 
         manager.StartMove(id);
 
-        Assert.Equal(NoteState.Move, manager.ActiveNotes[0].State);
+        Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Move);
     }
 
     [StaFact]
@@ -130,9 +130,9 @@ public class NoteManagerTests
 
         manager.FinishMove(id, new PhysicalPoint(500, 600));
 
-        Assert.Equal(500, manager.ActiveNotes[0].Position.X);
-        Assert.Equal(600, manager.ActiveNotes[0].Position.Y);
-        Assert.Equal(NoteState.Display, manager.ActiveNotes[0].State);
+        Check.That(manager.ActiveNotes[0].Position.X).IsEqualTo(500);
+        Check.That(manager.ActiveNotes[0].Position.Y).IsEqualTo(600);
+        Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
     }
 
     [StaFact]
@@ -148,8 +148,8 @@ public class NoteManagerTests
         manager.OnGazeMoved(new PhysicalPoint(300, 400), 1000000);
         manager.FinishMove(id, new PhysicalPoint(300, 400));
 
-        Assert.Equal(300, manager.ActiveNotes[0].Position.X);
-        Assert.Equal(400, manager.ActiveNotes[0].Position.Y);
+        Check.That(manager.ActiveNotes[0].Position.X).IsEqualTo(300);
+        Check.That(manager.ActiveNotes[0].Position.Y).IsEqualTo(400);
     }
 
     [StaFact]
@@ -168,9 +168,9 @@ public class NoteManagerTests
         manager.FinishMove(id1, new PhysicalPoint(100, 0));
 
         // Both notes should be in Display state and have their targets
-        Assert.Equal(2, manager.ActiveNotes.Count);
-        Assert.Equal(NoteState.Display, manager.ActiveNotes[0].State);
-        Assert.Equal(NoteState.Display, manager.ActiveNotes[1].State);
+        Check.That(manager.ActiveNotes).HasSize(2);
+        Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+        Check.That(manager.ActiveNotes[1].State).IsEqualTo(NoteState.Display);
     }
 
     [StaFact]
@@ -188,8 +188,8 @@ public class NoteManagerTests
         manager.StartEdit(id);
         manager.FinishEdit(id, "changed");
 
-        Assert.Equal("changed", manager.ActiveNotes[0].Text);
-        Assert.Equal(NoteState.Display, manager.ActiveNotes[0].State);
+        Check.That(manager.ActiveNotes[0].Text).IsEqualTo("changed");
+        Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
     }
 
     [StaFact]
@@ -202,7 +202,7 @@ public class NoteManagerTests
 
         // Regression guard: the original code only called Show() inside the window's own Loaded
         // handler, which never fires, so the note was never displayed. The window must be visible.
-        Assert.True(manager.AllWindowsVisible);
+        Check.That(manager.AllWindowsVisible).IsTrue();
     }
 
     [StaFact]
@@ -232,6 +232,6 @@ public class NoteManagerTests
         for (long t = 0; t <= 800_000; t += 33_000)
             manager.OnGazeMoved(closeCenter, t);
 
-        Assert.Empty(manager.ActiveNotes);
+        Check.That(manager.ActiveNotes).IsEmpty();
     }
 }

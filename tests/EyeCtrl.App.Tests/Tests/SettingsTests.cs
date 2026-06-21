@@ -21,9 +21,9 @@ public class SettingsTests
     {
         // Arrange
         var toolbar = _fixture.FindWindow("Toolbar_Window");
-        Assert.NotNull(toolbar);
+        Check.That(toolbar).IsNotNull();
         var settingsBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Settings");
-        Assert.NotNull(settingsBtn);
+        Check.That(settingsBtn).IsNotNull();
 
         // Act — dwell on settings button
         await _fixture.SimulateDwellOn(settingsBtn!);
@@ -31,7 +31,7 @@ public class SettingsTests
 
         // Assert — settings window should appear
         var settings = _fixture.FindWindow("Settings_Window");
-        Assert.NotNull(settings);
+        Check.That(settings).IsNotNull();
 
         _fixture.MoveCursorAway();
     }
@@ -49,7 +49,7 @@ public class SettingsTests
             await Task.Delay(500, TestContext.Current.CancellationToken);
             settings = _fixture.FindWindow("Settings_Window");
         }
-        Assert.NotNull(settings);
+        Check.That(settings).IsNotNull();
 
         var expectedTabs = new[]
         {
@@ -66,7 +66,7 @@ public class SettingsTests
         foreach (var tabId in expectedTabs)
         {
             var tab = _fixture.FindElement(settings!, tabId);
-            Assert.NotNull(tab);
+            Check.That(tab).IsNotNull();
         }
 
         _fixture.MoveCursorAway();
@@ -84,10 +84,10 @@ public class SettingsTests
             await Task.Delay(500, TestContext.Current.CancellationToken);
             settings = _fixture.FindWindow("Settings_Window");
         }
-        Assert.NotNull(settings);
+        Check.That(settings).IsNotNull();
 
         var contentPanel = _fixture.FindElement(settings!, "Settings_Panel_Content");
-        Assert.NotNull(contentPanel);
+        Check.That(contentPanel).IsNotNull();
 
         _fixture.MoveCursorAway();
     }

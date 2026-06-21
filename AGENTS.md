@@ -19,15 +19,13 @@ dotnet test                                                       # all tests
 dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"        # UI tests (needs display)
 ```
 
-**No linter, formatter, or CI is configured.** There is no `.editorconfig`, no `Directory.Build.props`, and no GitHub Actions. The repo relies on `dotnet build` for compilation checks only.
+**No linter, formatter, or CI is configured.** There is no `.editorconfig` and no GitHub Actions. The repo relies on `dotnet build` for compilation checks only.
 
 ## Assertions
 
-Use **NFluent 3.1.0** (fluent assertion library) in tests. xUnit remains the test runner (`[Fact]`, discovery, execution).
+Use **NFluent 3.1.0** (fluent assertion library) in tests. xUnit remains the test runner (`[Fact]`, discovery, execution). NFluent is configured repo-wide in `tests/Directory.Build.props` with a global `<Using Include="NFluent" />`.
 
 ```csharp
-using NFluent;
-
 // Equality
 Check.That(actual).IsEqualTo(expected);
 
@@ -48,9 +46,28 @@ Check.That(condition).IsFalse();
 // Dictionaries
 Check.That(dict).ContainsKey(key);
 Check.That(dict).HasSize(n);
+
+// Exception type + details (use try/catch — NFluent's Throws<T> chain doesn't expose ParamName/Message cleanly)
+ArgumentException? ex = null;
+try { DoThing(badArg); }
+catch (ArgumentException e) { ex = e; }
+Check.That(ex).IsNotNull();
+Check.That(ex!.ParamName).IsEqualTo("badArg");
+
+// Floating-point: IsCloseTo uses ABSOLUTE DELTA, unlike xUnit's decimal-places
+Check.That(actual).IsCloseTo(Math.PI, 1e-10);  // ±1e-10 absolute
+// NOT:   IsCloseTo(Math.PI, 10) — that means ±10 (vacuous); xUnit's precision:N → use 1e-N
 ```
 
-NFluent is scoped to `EyeCtrl.Core.Tests` for now. If adopted repo-wide, move the `<PackageReference Include="NFluent" Version="3.1.0" />` from `tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj` to `tests/Directory.Build.props`.
+### Migration traps (xUnit → NFluent)
+
+| xUnit pattern | NFluent | Watch out |
+|---|---|---|
+| `Assert.Equal(expected, actual, N)` | `Check.That(actual).IsCloseTo(expected, 1e-N)` | xUnit precision = decimal places; NFluent = absolute delta |
+| `Assert.Throws<T>(...)` + property checks | try/catch + `Check.That(ex!.Prop).IsEqualTo(...)` | `Check.ThatCode().Throws<T>()` alone drops ParamName/Message |
+| `Assert.True(cond)` | `Check.That(cond).IsTrue()` | Prefer native checks (`Check.That(x).IsStrictlyLessThan(y)`) for better messages |
+| `Assert.Null(v)` | `Check.That(v).IsNull()` | |
+| `Assert.Same(a, b)` | `Check.That(b).IsSameReferenceAs(a)` | |
 
 ## Architecture
 

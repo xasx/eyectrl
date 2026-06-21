@@ -19,11 +19,15 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.FixationDetectionMs = 99;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.FixationDetectionMs = 99; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+        Check.That(ex.Message).Contains("100");
+        Check.That(ex.Message).Contains("1000");
+        Check.That(ex.Message).Contains("FixationDetectionMs");
     }
 
     [Fact]
@@ -33,11 +37,15 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.FixationDetectionMs = 1001;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.FixationDetectionMs = 1001; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+        Check.That(ex.Message).Contains("100");
+        Check.That(ex.Message).Contains("1000");
+        Check.That(ex.Message).Contains("FixationDetectionMs");
     }
 
     [Theory]
@@ -82,11 +90,14 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.ActivationButtonDwellMs = 199;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.ActivationButtonDwellMs = 199; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+        Check.That(ex.Message).Contains("200");
+        Check.That(ex.Message).Contains("2000");
     }
 
     [Fact]
@@ -96,11 +107,14 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.ActivationButtonDwellMs = 2001;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.ActivationButtonDwellMs = 2001; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+        Check.That(ex.Message).Contains("200");
+        Check.That(ex.Message).Contains("2000");
     }
 
     [Fact]
@@ -110,11 +124,13 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.ActivationButtonDwellMs = 50;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.ActivationButtonDwellMs = 50; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("ActivationButtonDwellMs");
+        Check.That(ex.Message).Contains("must be between");
     }
 
     [Theory]
@@ -146,11 +162,14 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.ActionMenuDwellMs = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.ActionMenuDwellMs = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+        Check.That(ex.Message).Contains("200");
+        Check.That(ex.Message).Contains("2000");
     }
 
     [Theory]
@@ -182,11 +201,12 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.ManualSelectionActionMenuDwellMs = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.ManualSelectionActionMenuDwellMs = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
     }
 
     #endregion
@@ -221,11 +241,13 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.KeyboardKeyDwellMs = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.KeyboardKeyDwellMs = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("100");
+        Check.That(ex.Message).Contains("1500");
     }
 
     #endregion
@@ -260,11 +282,13 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.FixationRadiusPixels = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.FixationRadiusPixels = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("10");
+        Check.That(ex.Message).Contains("200");
     }
 
     [Theory]
@@ -296,11 +320,12 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.VelocityThresholdPxPerSec = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.VelocityThresholdPxPerSec = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("must be greater than 0");
     }
 
     [Theory]
@@ -330,11 +355,15 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.SmoothingFactor = -0.1;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.SmoothingFactor = -0.1; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+        Check.That(ex.Message).Contains("0");
+        Check.That(ex.Message).Contains("1");
+        Check.That(ex.Message).Contains("SmoothingFactor");
     }
 
     [Fact]
@@ -344,11 +373,14 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.SmoothingFactor = 1.1;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.SmoothingFactor = 1.1; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+        Check.That(ex.Message).Contains("0");
+        Check.That(ex.Message).Contains("1");
     }
 
     [Theory]
@@ -380,11 +412,13 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.OneEuroMinCutoff = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.OneEuroMinCutoff = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("0.1");
+        Check.That(ex.Message).Contains("20");
     }
 
     [Theory]
@@ -416,11 +450,13 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.OneEuroBeta = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.OneEuroBeta = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("0");
+        Check.That(ex.Message).Contains("5");
     }
 
     #endregion
@@ -436,11 +472,13 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.SnapRadiusPixels = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.SnapRadiusPixels = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("0");
+        Check.That(ex.Message).Contains("100");
     }
 
     #endregion
@@ -454,11 +492,14 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.CircleColor = "invalid";
-        }).Throws<ArgumentException>();
+        ArgumentException? ex = null;
+        try { settings.CircleColor = "invalid"; }
+        catch (ArgumentException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+        Check.That(ex.Message).Contains("CircleColor");
+        Check.That(ex.Message).Contains("hex color");
     }
 
     [Theory]
@@ -508,11 +549,13 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.CircleOpacity = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.CircleOpacity = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("0");
+        Check.That(ex.Message).Contains("1");
     }
 
     #endregion
@@ -528,11 +571,13 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.CircleThickness = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.CircleThickness = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("1");
+        Check.That(ex.Message).Contains("10");
     }
 
     #endregion
@@ -548,11 +593,13 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.CircleSize = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.CircleSize = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("10");
+        Check.That(ex.Message).Contains("500");
     }
 
     #endregion
@@ -568,11 +615,13 @@ public class SettingsPropertyValidationTests
         var settings = new ManualSelectionSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.CircleRadiusPixels = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.CircleRadiusPixels = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("50");
+        Check.That(ex.Message).Contains("500");
     }
 
     [Theory]
@@ -604,11 +653,13 @@ public class SettingsPropertyValidationTests
         var settings = new ManualSelectionSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.MagnificationLevel = value;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.MagnificationLevel = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("1.5");
+        Check.That(ex.Message).Contains("5");
     }
 
     [Theory]
@@ -747,11 +798,12 @@ public class SettingsPropertyValidationTests
         var settings = new CursorSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.SmoothingFactor = -1;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.SmoothingFactor = -1; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("SmoothingFactor");
     }
 
     [Fact]
@@ -761,11 +813,13 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.FixationDetectionMs = 50;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.FixationDetectionMs = 50; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("100");
+        Check.That(ex.Message).Contains("1000");
     }
 
     [Fact]
@@ -775,11 +829,12 @@ public class SettingsPropertyValidationTests
         var settings = new DwellSettings();
 
         // Act & Assert
-        Check.ThatCode(() =>
-        {
-            settings.FixationDetectionMs = 5000;
-        }).Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.FixationDetectionMs = 5000; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex.Message).Contains("5000");
     }
 
     #endregion

@@ -46,7 +46,7 @@ public class MagicNumberReplacementTests
         var degrees = MathConstants.RightAngleDegrees;
         var radians = degrees * MathConstants.DegreesToRadians;
 
-        Check.That(radians).IsCloseTo(Math.PI / 2, 10);
+        Check.That(radians).IsCloseTo(Math.PI / 2, 1e-10);
     }
 
     [Fact]
@@ -56,6 +56,6 @@ public class MagicNumberReplacementTests
         var degrees = MathConstants.FullCircleDegrees;
         var radians = degrees * MathConstants.DegreesToRadians;
 
-        Check.That(radians).IsCloseTo(2 * Math.PI, 10);
+        Check.That(radians).IsCloseTo(2 * Math.PI, 1e-10);
     }
 }

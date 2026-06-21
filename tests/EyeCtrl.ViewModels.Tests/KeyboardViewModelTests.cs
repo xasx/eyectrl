@@ -219,7 +219,7 @@ public class KeyboardViewModelTests
 
         // Second frame: 250ms later = 50% progress
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 250_000);
-        Check.That(vm.NearestKeyProgress).IsCloseTo(0.5, 2);
+        Check.That(vm.NearestKeyProgress).IsCloseTo(0.5, 0.005);
     }
 
     [Fact]

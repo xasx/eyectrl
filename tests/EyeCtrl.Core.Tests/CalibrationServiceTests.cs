@@ -149,7 +149,12 @@ public class CalibrationServiceTests
         service.StartSession(3, screen);
         service.BeginTarget(0);
 
-        Check.ThatCode(() => service.BeginTarget(1)).Throws<InvalidOperationException>();
+        InvalidOperationException? ex = null;
+        try { service.BeginTarget(1); }
+        catch (InvalidOperationException e) { ex = e; }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.Message).IsEqualTo("A target is already being collected. Call EndTarget() first.");
     }
 
     [Fact]

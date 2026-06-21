@@ -13,9 +13,13 @@ public class FixationDetectorValidationTests
     [InlineData(-50)]
     public void Constructor_ZeroOrNegativeRadius_ThrowsArgumentOutOfRangeException(double radius)
     {
-        var exception = Check.ThatCode(
-            () => new FixationDetector(fixationRadiusPixels: radius, fixationTimeMs: 200));
-        exception.Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? exception = null;
+        try { new FixationDetector(fixationRadiusPixels: radius, fixationTimeMs: 200); }
+        catch (ArgumentOutOfRangeException ex) { exception = ex; }
+
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("fixationRadiusPixels");
+        Check.That(exception.ActualValue).IsEqualTo(radius);
     }
 
     [Theory]
@@ -24,25 +28,35 @@ public class FixationDetectorValidationTests
     [InlineData(-1000)]
     public void Constructor_ZeroOrNegativeTime_ThrowsArgumentOutOfRangeException(int timeMs)
     {
-        var exception2 = Check.ThatCode(
-            () => new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: timeMs));
-        exception2.Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? exception = null;
+        try { new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: timeMs); }
+        catch (ArgumentOutOfRangeException ex) { exception = ex; }
+
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("fixationTimeMs");
+        Check.That(exception.ActualValue).IsEqualTo(timeMs);
     }
 
     [Fact]
     public void Constructor_NaNRadius_ThrowsArgumentException()
     {
-        var exception3 = Check.ThatCode(
-            () => new FixationDetector(fixationRadiusPixels: double.NaN, fixationTimeMs: 200));
-        exception3.Throws<ArgumentException>();
+        ArgumentException? exception = null;
+        try { new FixationDetector(fixationRadiusPixels: double.NaN, fixationTimeMs: 200); }
+        catch (ArgumentException ex) { exception = ex; }
+
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("fixationRadiusPixels");
     }
 
     [Fact]
     public void Constructor_InfinityRadius_ThrowsArgumentException()
     {
-        var exception4 = Check.ThatCode(
-            () => new FixationDetector(fixationRadiusPixels: double.PositiveInfinity, fixationTimeMs: 200));
-        exception4.Throws<ArgumentException>();
+        ArgumentException? exception = null;
+        try { new FixationDetector(fixationRadiusPixels: double.PositiveInfinity, fixationTimeMs: 200); }
+        catch (ArgumentException ex) { exception = ex; }
+
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("fixationRadiusPixels");
     }
 
     [Fact]

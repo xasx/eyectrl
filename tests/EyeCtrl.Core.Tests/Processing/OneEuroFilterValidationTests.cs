@@ -14,9 +14,13 @@ public class OneEuroFilterValidationTests
     [InlineData(-5)]
     public void Constructor_ZeroOrNegativeMinCutoff_ThrowsArgumentOutOfRangeException(double minCutoff)
     {
-        var exception = Check.ThatCode(
-            () => new OneEuroFilter(minCutoff: minCutoff, beta: 0.5, dCutoff: 1.0));
-        exception.Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? exception = null;
+        try { new OneEuroFilter(minCutoff: minCutoff, beta: 0.5, dCutoff: 1.0); }
+        catch (ArgumentOutOfRangeException ex) { exception = ex; }
+
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("minCutoff");
+        Check.That(exception.ActualValue).IsEqualTo(minCutoff);
     }
 
     [Theory]
@@ -24,9 +28,13 @@ public class OneEuroFilterValidationTests
     [InlineData(-0.5)]
     public void Constructor_NegativeBeta_ThrowsArgumentOutOfRangeException(double beta)
     {
-        var exception = Check.ThatCode(
-            () => new OneEuroFilter(minCutoff: 5.0, beta: beta, dCutoff: 1.0));
-        exception.Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? exception = null;
+        try { new OneEuroFilter(minCutoff: 5.0, beta: beta, dCutoff: 1.0); }
+        catch (ArgumentOutOfRangeException ex) { exception = ex; }
+
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("beta");
+        Check.That(exception.ActualValue).IsEqualTo(beta);
     }
 
     [Theory]
@@ -34,9 +42,13 @@ public class OneEuroFilterValidationTests
     [InlineData(-1)]
     public void Constructor_ZeroOrNegativeDCutoff_ThrowsArgumentOutOfRangeException(double dCutoff)
     {
-        var exception = Check.ThatCode(
-            () => new OneEuroFilter(minCutoff: 5.0, beta: 0.5, dCutoff: dCutoff));
-        exception.Throws<ArgumentOutOfRangeException>();
+        ArgumentOutOfRangeException? exception = null;
+        try { new OneEuroFilter(minCutoff: 5.0, beta: 0.5, dCutoff: dCutoff); }
+        catch (ArgumentOutOfRangeException ex) { exception = ex; }
+
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("dCutoff");
+        Check.That(exception.ActualValue).IsEqualTo(dCutoff);
     }
 
     [Fact]

@@ -14,12 +14,12 @@ safety and cleanliness of the previous one:
 | Phase | Work | Risk | Effort |
 |---|---|---|---|
 | 1. Foundation | GitNexus index refresh + GitHub Actions CI | None / low | Small |
-| 2. Warning cleanup | ~80 nullable/test warnings, then 726 CS1591 XML docs in Core | Very low | Large |
+| 2. Warning cleanup | ~38 nullable/test warnings, then 337 CS1591 XML docs in Core | Very low | Large |
 | 3. Low-risk refactors | Narrow Platform's `FrameworkReference`; extract `App.OnStartup` helpers | Low–medium | Small–medium |
 | 4. Core dependency audit | Keep MVVM in Core (document why); extract ONNX/Tokenizers into `EyeCtrl.LM` | Medium | Medium |
 
-The long pole is Phase 2.2 (726 XML doc comments in Core). Everything else is
-bounded and mechanical. Total estimate: ~22 commits across 2-3 focused days.
+The long pole is Phase 2.2 (337 XML doc comments in Core). Everything else is
+bounded and mechanical. Total estimate: ~23 commits across ~1.5-2 focused days.
 
 ## Motivation
 
@@ -29,11 +29,12 @@ references, and disciplined defensive programming. The opportunities are
 incremental improvements, not corrections of structural problems:
 
 - **No CI** — regressions in Core could land untested. High ROI to fix.
-- **810 build warnings** — 726 are CS1591 (missing XML docs in Core, because
-  `<GenerateDocumentationFile>true</GenerateDocumentationFile>` is set
-  intentionally), 58 are CS8602 nullable derefs (mostly in tests), plus a
-  handful of CS8629/CS8604/xUnit1051.
-- **GitNexus index 17 commits behind HEAD** — `impact()` and
+- **~375 build warnings** (distinct — `dotnet build` prints each warning twice,
+  so a raw solution-build log shows ~810 lines) — 337 are CS1591 (missing XML
+  docs in Core, because `<GenerateDocumentationFile>true</GenerateDocumentationFile>`
+  is set intentionally), 28 are CS8602 nullable derefs (mostly in tests), plus
+  CS8629 (6), CS8604 (2), and xUnit1051 (2).
+- **GitNexus index 18 commits behind HEAD** — `impact()` and
   `detect_changes()` may miss recently-added symbols.
 - **`App.OnStartup` is ~150 lines** — readable but long; two helpers would
   improve clarity and fix PascalCase local-variable violations.
@@ -73,7 +74,7 @@ One command, no design decisions:
 node .gitnexus/run.cjs analyze
 ```
 
-Refreshes the index from `ab00178a` (17 commits behind as of 2026-06-21) to
+Refreshes the index from `ab00178a` (18 commits behind as of 2026-06-21) to
 HEAD. Makes `impact()` and `detect_changes()` accurate for all subsequent
 phases. No code changes, no commit. Verify with `gitnexus status` (or the MCP
 `list_repos` tool) showing `commitsBehind: 0`.
@@ -97,6 +98,15 @@ override needed.
 |---|---|---|---|
 | `build-and-test` | `dotnet build` + `dotnet test --filter "Category!=UI"` | Fast feedback (~30s). 100+ unit tests, no display needed. | Yes |
 | `ui-tests` | `dotnet test --filter "Category=UI"` | FlaUI tests against the WPF overlay windows. `windows-latest` runners have a desktop session. | No (`continue-on-error: true` initially — FlaUI in CI is notoriously flaky) |
+
+**Trait-coverage caveat:** `Category=UI` is currently applied to only the four
+FlaUI classes (`AppLaunchTests`, `KeyboardTests`, `SettingsTests`,
+`ToolbarTests`). The `[StaFact]` WPF tests (`GlassBackdropWindowTests`,
+`NoteManagerTests`) are untagged, so they run in the fast `build-and-test` job.
+The `Category!=UI` subset is the known headless-safe set and `windows-latest`
+has a desktop session, so this should pass — but confirm on the first CI run,
+and tag with `[Trait("Category","UI")]` any STA/WPF test that turns out to need
+the desktop.
 
 **Tobii SDK:** Not present in CI → Platform builds without `TOBII_AVAILABLE`
 → `TobiiStreamEngineProvider` excluded. This is the intended graceful
@@ -123,17 +133,17 @@ operation, not a commit.
 
 ## Phase 2: Warning Cleanup
 
-Two workstreams: the ~80 nullable/test warnings (mechanical), then the 726
+Two workstreams: the ~38 nullable/test warnings (mechanical), then the 337
 CS1591 XML doc warnings in Core (substantive).
 
-### 2.1 Nullable & test warnings (~80 total)
+### 2.1 Nullable & test warnings (~38 total)
 
 | Code | Count | Where | Fix pattern |
 |---|---:|---|---|
-| CS8602 | 58 | Mostly `EyeCtrl.Core.Tests` (`SettingsPropertyValidationTests`, `WordPredictorTests`, `FileDictionaryProviderTests`) + a few in `EyeCtrl.App.Tests/Services/ManualSelectionDwellServiceTests` | Add `!` (null-forgiving) after a `Check.That(x).IsNotNull()` guard, OR restructure to check-then-deref. Prefer `!` when the assertion already proves non-null. |
-| CS8629 | 16 | Mix of `EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs` (2) + tests | Cast to nullable value type explicitly: `value.Value` instead of implicit cast, or add `!` where the nullable is guarded. |
-| CS8604 | 4 | `WordPredictorTests` | Same as CS8602 — guard or `!`. |
-| xUnit1051 | 4 | `EyeCtrl.ViewModels.Tests/CalibrationViewModelTests` (lines 93, 104) | Pass `TestContext.Current.CancellationToken` to `Task.Delay` / async calls. |
+| CS8602 | 28 | Mostly `EyeCtrl.Core.Tests` (`SettingsPropertyValidationTests`, `WordPredictorTests`, `FileDictionaryProviderTests`) + a few in `EyeCtrl.App.Tests/Services/ManualSelectionDwellServiceTests` | Add `!` (null-forgiving) after a `Check.That(x).IsNotNull()` guard, OR restructure to check-then-deref. Prefer `!` when the assertion already proves non-null. |
+| CS8629 | 6 | Mix of `EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs` (2) + tests | Cast to nullable value type explicitly: `value.Value` instead of implicit cast, or add `!` where the nullable is guarded. |
+| CS8604 | 2 | `WordPredictorTests` | Same as CS8602 — guard or `!`. |
+| xUnit1051 | 2 | `EyeCtrl.ViewModels.Tests/CalibrationViewModelTests` (lines 93, 104) | Pass `TestContext.Current.CancellationToken` to `Task.Delay` / async calls. |
 
 **Conventions:**
 - **Tests:** After `Check.That(x).IsNotNull()`, dereference with `x!.Property`
@@ -148,18 +158,23 @@ behavior change. Run `dotnet test` after — same pass count.
 
 **Commit:** 1.
 
-### 2.2 CS1591 XML doc comments (726 in Core)
+### 2.2 CS1591 XML doc comments (337 in Core)
 
 **Scope:** Every `public` member (class, record, struct, interface, enum,
 delegate, method, property, event, field) in `src/EyeCtrl.Core/**/*.cs` that
 lacks a `///` doc comment.
 
-**Distribution by file (top contributors):**
-`ModelDownloadService.cs` (38), `ModelRegistryService.cs` (32),
-`CalibrationService.cs` (30), `IInputSimulator.cs` (28),
-`InteractionManager.cs` (28), `ModelRegistry.cs` (28),
-`InteractionAction.cs` (22), `CalibrationData.cs` (20), `NoteData.cs` (18),
-`KeyboardSettings.cs` (18), `ModelManifest.cs` (18)…
+> **Counting note:** the figures below are *distinct* members. `dotnet build`
+> prints each CS1591 twice, so a raw log double-counts (a Core-only build shows
+> 726 raw lines for these 337 members). Dedup before counting (e.g.
+> `... | Select-String "warning CS1591" | ForEach-Object { $_.Line } | Sort-Object -Unique`).
+
+**Distribution by file (top contributors, distinct):**
+`ModelDownloadService.cs` (19), `ModelRegistryService.cs` (16),
+`CalibrationService.cs` (15), `InteractionManager.cs` (14),
+`ModelRegistry.cs` (14), `IInputSimulator.cs` (14),
+`CalibrationData.cs` (10), `ModelManifest.cs` (9), `NoteData.cs` (9),
+`KeyboardSettings.cs` (9), `SmallLMPredictor.cs` (8)…
 
 **Documentation approach — per-member, not bulk:**
 
@@ -188,8 +203,9 @@ Each doc comment describes *what* the member does, *not* restating the name.
 10. `GazeEngine.cs` — central, already has some docs (extend)
 
 **Verification per batch:**
-- `dotnet build src/EyeCtrl.Core --no-incremental 2>&1 | Select-String "CS1591"`
-  — count should trend to 0 per file
+- `dotnet build src/EyeCtrl.Core --no-incremental 2>&1 | Select-String "warning CS1591" | ForEach-Object { $_.Line } | Sort-Object -Unique`
+  — count should trend to 0 per file (dedup with `Sort-Object -Unique`; raw
+  `dotnet build` output double-counts each warning)
 - No tests affected (docs don't change behavior)
 - Spot-check 5 random files per batch for doc quality (not just
   `<summary>name</summary>`)
@@ -210,12 +226,19 @@ generated properties, which suppresses CS1591. Document the source field with
 
 **Impact-analysis exception:** AGENTS.md requires `impact()` before editing
 any symbol. For documentation-only edits (adding `///` comments with no code
-change), running `impact()` per member across 726 warnings is not practical.
+change), running `impact()` per member across 337 members is not practical.
 This phase is exempt from the per-symbol `impact()` requirement. Run
 `detect_changes()` per commit as usual to confirm no code changed.
 
 **Commit strategy:** One commit per subdirectory (10 commits), each
-independently verifiable. Easier to review than one 726-comment megacommit.
+independently verifiable. Easier to review than one 337-comment megacommit.
+
+**Lock it in (ratchet):** once Core's CS1591 count reaches 0, scope-promote the
+rule so it can't regress — add `<WarningsAsErrors>CS1591</WarningsAsErrors>` to
+`EyeCtrl.Core.csproj` (equivalently `-warnaserror:CS1591`). The Phase-1 CI then
+fails the build if any new undocumented public member lands. Keep it scoped to
+CS1591 — a blanket `-warnaserror` would surface unrelated codes (per the repo's
+`build-warning-verification` convention). This is the final commit of Phase 2.2.
 
 **Risk:** VERY LOW. Pure additive documentation. Only risk is doc inaccuracy —
 mitigated by spot-checks.
@@ -276,7 +299,7 @@ keyboard → tray → show overlays → start gaze → external dwell.
 
 | Helper | Extracted from | Signature |
 |---|---|---|
-| `ResolveViewModels(IServiceProvider)` | Lines 124-133 (10 `GetRequiredService<T>` calls + `Configure`) | Returns a small record/tuple of the 10 VMs. Eliminates the 10 local variables and PascalCase-naming violations (`ManualSelectionVM`, `ManualSelectionIndicatorVM`) noted in the assessment. |
+| `ResolveViewModels(IServiceProvider, EyeCtrlSettings)` | Lines 124-133 (10 `GetRequiredService<T>` calls) + the `ManualSelectionIndicatorVM.Configure(settings)` call at line 142 | Returns a small record of the 10 VMs. Eliminates the 10 local variables and PascalCase-naming violations (`ManualSelectionVM`, `ManualSelectionIndicatorVM`) noted in the assessment. Note: `backdropVM` is among the 10 but is *not* part of the existing 9-VM `OverlayViewModels` record (line 146) — it's consumed later by `EventCoordinationContext`. |
 | `InitializeOverlays(IOverlayManager, OverlayViewModels, EyeCtrlSettings, string)` | Lines 145-147 + 159-160 + 186-190 (init, get refs, show, set mode, bind) | Encapsulates the overlay-show sequence. Returns the `(cursorCircle, toolbar)` refs needed later. |
 
 **What stays in `OnStartup`:** The orchestration order — splash, DPI, settings,
@@ -537,7 +560,7 @@ stale docs. Doc updates commit *with* the code change they describe.
 
 | Layer | When | What |
 |---|---|---|
-| **Per-commit** | After every commit | `dotnet build EyeCtrl.slnx` clean (0 errors). Warnings must not increase from the previous commit's count. |
+| **Per-commit** | After every commit | `dotnet build EyeCtrl.slnx` clean (0 errors). Warnings must not increase from the previous commit's count (measure *deduped* — raw `dotnet build` output double-counts each warning). |
 | **Per-phase** | End of each phase | `dotnet test --filter "Category!=UI"` green. `node .gitnexus/run.cjs analyze` (Phase 1 only — then `detect_changes()` to confirm only intended scope was touched). |
 | **Pre-merge** | Before merging any phase's PR | Full `dotnet test` (including UI tests, non-blocking). Manual smoke: `dotnet run --project src/EyeCtrl.App -- --test-mode` launches and quits. |
 | **Phase 4 specific** | Before/after LM extraction | `impact({target: "SmallLMPredictor", direction: "upstream"})` before; `detect_changes()` after. Confirm no symbols outside `Prediction/SmallLMPredictor.cs`, `Prediction/LMTokenizer.cs`, `EventCoordinator.cs`, `Prediction/PredictionOrchestrator.cs` (interface insertion), and the new `EyeCtrl.LM` project are affected. |
@@ -573,10 +596,10 @@ Per AGENTS.md / CLAUDE.md invariants:
 | Phase | Effort | Commits | Notes |
 |---|---|---|---|
 | 1: Foundation | Small | 1 (CI workflow only; index refresh is not a commit) | ~1 hour |
-| 2: Warnings | Large | ~14 (1 for nullable + ~10 for docs by subdirectory + 1-2 for test warnings) | The 726 XML docs dominate; ~1-2 days of focused work |
+| 2: Warnings | Large | ~15 (1 for nullable + ~10 for docs by subdirectory + 1 for the CS1591 ratchet + 1-2 for test warnings) | The 337 XML docs dominate; ~half a day to a day of focused work |
 | 3: Refactors | Small-medium | 2 | ~2-3 hours |
 | 4: LM extraction | Medium | 5 | ~4-6 hours including verification |
-| **Total** | — | ~22 | — |
+| **Total** | — | ~23 | — |
 
 The XML doc work (Phase 2.2) is the long pole. Everything else is bounded and
 mechanical.

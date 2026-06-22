@@ -129,8 +129,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("ActivationButtonDwellMs");
-        Check.That(ex.Message).Contains("must be between");
+        Check.That(ex!.Message).Contains("ActivationButtonDwellMs");
+        Check.That(ex!.Message).Contains("must be between");
     }
 
     [Theory]
@@ -246,8 +246,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("100");
-        Check.That(ex.Message).Contains("1500");
+        Check.That(ex!.Message).Contains("100");
+        Check.That(ex!.Message).Contains("1500");
     }
 
     #endregion
@@ -287,8 +287,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("10");
-        Check.That(ex.Message).Contains("200");
+        Check.That(ex!.Message).Contains("10");
+        Check.That(ex!.Message).Contains("200");
     }
 
     [Theory]
@@ -325,7 +325,7 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("must be greater than 0");
+        Check.That(ex!.Message).Contains("must be greater than 0");
     }
 
     [Theory]
@@ -417,8 +417,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("0.1");
-        Check.That(ex.Message).Contains("20");
+        Check.That(ex!.Message).Contains("0.1");
+        Check.That(ex!.Message).Contains("20");
     }
 
     [Theory]
@@ -455,8 +455,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("0");
-        Check.That(ex.Message).Contains("5");
+        Check.That(ex!.Message).Contains("0");
+        Check.That(ex!.Message).Contains("5");
     }
 
     #endregion
@@ -477,8 +477,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("0");
-        Check.That(ex.Message).Contains("100");
+        Check.That(ex!.Message).Contains("0");
+        Check.That(ex!.Message).Contains("100");
     }
 
     #endregion
@@ -554,8 +554,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("0");
-        Check.That(ex.Message).Contains("1");
+        Check.That(ex!.Message).Contains("0");
+        Check.That(ex!.Message).Contains("1");
     }
 
     #endregion
@@ -576,8 +576,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("1");
-        Check.That(ex.Message).Contains("10");
+        Check.That(ex!.Message).Contains("1");
+        Check.That(ex!.Message).Contains("10");
     }
 
     #endregion
@@ -598,8 +598,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("10");
-        Check.That(ex.Message).Contains("500");
+        Check.That(ex!.Message).Contains("10");
+        Check.That(ex!.Message).Contains("500");
     }
 
     #endregion
@@ -620,8 +620,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("50");
-        Check.That(ex.Message).Contains("500");
+        Check.That(ex!.Message).Contains("50");
+        Check.That(ex!.Message).Contains("500");
     }
 
     [Theory]
@@ -658,8 +658,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("1.5");
-        Check.That(ex.Message).Contains("5");
+        Check.That(ex!.Message).Contains("1.5");
+        Check.That(ex!.Message).Contains("5");
     }
 
     [Theory]
@@ -803,7 +803,7 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("SmoothingFactor");
+        Check.That(ex!.Message).Contains("SmoothingFactor");
     }
 
     [Fact]
@@ -818,8 +818,8 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("100");
-        Check.That(ex.Message).Contains("1000");
+        Check.That(ex!.Message).Contains("100");
+        Check.That(ex!.Message).Contains("1000");
     }
 
     [Fact]
@@ -834,7 +834,7 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex.Message).Contains("5000");
+        Check.That(ex!.Message).Contains("5000");
     }
 
     #endregion

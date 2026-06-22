@@ -24,8 +24,9 @@ public class SettingsServiceDebounceTests : IDisposable
         // Not saved yet immediately
         Check.That(File.Exists(_tempFile)).IsFalse();
 
-        // Wait for debounce (500ms + buffer)
-        await Task.Delay(800, TestContext.Current.CancellationToken);
+        // Wait for the debounced save (500ms debounce + file I/O) to land — poll instead of a
+        // fixed delay so a slow/loaded CI runner doesn't flake.
+        await WaitForFileAsync(TestContext.Current.CancellationToken);
 
         Check.That(File.Exists(_tempFile)).IsTrue();
         var loaded = _service.Load();
@@ -48,11 +49,19 @@ public class SettingsServiceDebounceTests : IDisposable
         settings.Dwell.FixationDetectionMs = 300;
         _service.SaveDebounced(settings);
 
-        // Wait for debounce
-        await Task.Delay(800, TestContext.Current.CancellationToken);
+        // Wait for the debounced save to land — poll instead of a fixed delay (see above).
+        await WaitForFileAsync(TestContext.Current.CancellationToken);
 
         var loaded = _service.Load();
         Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(300);
+    }
+
+    // Polls for the debounced save to produce the file (up to ~5s), returning as soon as it
+    // appears. Deterministic on slow CI runners, unlike a fixed Task.Delay.
+    private async Task WaitForFileAsync(CancellationToken ct)
+    {
+        for (var i = 0; i < 100 && !File.Exists(_tempFile); i++)
+            await Task.Delay(50, ct);
     }
 
     public void Dispose()

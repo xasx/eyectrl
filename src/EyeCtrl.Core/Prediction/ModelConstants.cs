@@ -1,7 +1,9 @@
 namespace EyeCtrl.Core.Prediction;
 
+/// <summary>Maps model size identifiers to their ONNX model file names.</summary>
 public static class ModelConstants
 {
+    /// <summary>Read-only mapping from model size keys (e.g., "360M") to ONNX file names.</summary>
     public static IReadOnlyDictionary<string, string> ModelFileNames => _modelFileNames;
 
     private static readonly IReadOnlyDictionary<string, string> _modelFileNames = new Dictionary<string, string>

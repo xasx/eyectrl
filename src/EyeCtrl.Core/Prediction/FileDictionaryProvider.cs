@@ -23,6 +23,7 @@ public class FileDictionaryProvider : IDictionaryProvider
     private readonly ILogger<FileDictionaryProvider>? _logger;
     private HashSet<string>? _abbreviations;
 
+    /// <summary>Full path to the per-language user dictionary JSON file.</summary>
     public string UserDictionaryPath => _userDictionaryPath;
 
     /// <summary>
@@ -30,6 +31,13 @@ public class FileDictionaryProvider : IDictionaryProvider
     /// </summary>
     public IReadOnlySet<string> Abbreviations => _abbreviations ?? [];
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FileDictionaryProvider"/> class.
+    /// </summary>
+    /// <param name="baseDictionaryPath">Path to the base (built-in) dictionary JSON file.</param>
+    /// <param name="appDataDir">Application data directory for user dictionary storage.</param>
+    /// <param name="languageCode">Two-letter ISO language code.</param>
+    /// <param name="logger">Optional logger for diagnostic messages.</param>
     public FileDictionaryProvider(string baseDictionaryPath, string appDataDir, string languageCode, ILogger<FileDictionaryProvider>? logger = null)
     {
         _baseDictionaryPath = baseDictionaryPath;
@@ -43,6 +51,7 @@ public class FileDictionaryProvider : IDictionaryProvider
             : combinedPath.Replace(Path.DirectorySeparatorChar, preferredSeparator);
     }
 
+    /// <inheritdoc />
     public Dictionary<string, int> Load()
     {
         var words = new Dictionary<string, int>();
@@ -108,6 +117,7 @@ public class FileDictionaryProvider : IDictionaryProvider
         return words;
     }
 
+    /// <inheritdoc />
     public void Save(Dictionary<string, int> words)
     {
         var directory = Path.GetDirectoryName(_userDictionaryPath);

@@ -1,5 +1,9 @@
 namespace EyeCtrl.Core.Prediction;
 
+/// <summary>
+/// Primary word prediction engine combining dictionary lookups, bigram context, phrase matching,
+/// fuzzy edit distance, casing preferences, and smart capitalization.
+/// </summary>
 public class WordPredictor
 {
     private readonly IDictionaryProvider _provider;
@@ -27,6 +31,12 @@ public class WordPredictor
     /// </summary>
     public IReadOnlySet<string> Abbreviations => _abbreviations;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="WordPredictor"/> class.
+    /// Loads the word dictionary, keyboard adjacency map, bigrams, phrases, and casing preferences.
+    /// </summary>
+    /// <param name="provider">Dictionary provider for loading and saving word data.</param>
+    /// <param name="layoutName">Keyboard layout name for fuzzy matching adjacency (default: QWERTY).</param>
     public WordPredictor(IDictionaryProvider provider, string layoutName = "QWERTY")
     {
         _provider = provider;
@@ -64,6 +74,16 @@ public class WordPredictor
         }
     }
 
+    /// <summary>
+    /// Returns ranked word predictions based on the typed prefix and optional context.
+    /// Combines exact prefix matches, next-word predictions, phrase completions,
+    /// and fuzzy (typo-tolerant) matches with scoring weights.
+    /// </summary>
+    /// <param name="prefix">The current word prefix being typed.</param>
+    /// <param name="context">The previous word for bigram context, or null if at start of sentence.</param>
+    /// <param name="maxCount">Maximum number of suggestions to return.</param>
+    /// <param name="fullText">Full text typed so far for smart capitalization decisions.</param>
+    /// <returns>A list of <see cref="PredictionResult"/> ranked by score descending.</returns>
     public List<PredictionResult> GetSuggestions(string prefix, string? context = null, int maxCount = 5, string? fullText = null)
     {
         // Use case-insensitive dictionary to prevent duplicate suggestions with different casing
@@ -268,6 +288,8 @@ public class WordPredictor
         return results;
     }
 
+    /// <summary>Learns a single word, normalizing ALL-CAPS and recording casing preferences.</summary>
+    /// <param name="word">The word to learn in its typed casing.</param>
     public void LearnWord(string word)
     {
         if (string.IsNullOrWhiteSpace(word))
@@ -292,6 +314,8 @@ public class WordPredictor
             _words[lower] = 1;
     }
 
+    /// <summary>Learns a sequence of words for bigram and phrase prediction.</summary>
+    /// <param name="words">The words in order as typed by the user.</param>
     public void LearnSequence(string[] words)
     {
         // Normalize ALL-CAPS words before learning (Phase 7.2)
@@ -320,6 +344,7 @@ public class WordPredictor
             _phrases.LearnPhrase(normalizedWords);
     }
 
+    /// <summary>Persists the learned word dictionary, bigrams, phrases, and casing preferences to disk.</summary>
     public void SaveUserDictionary()
     {
         _provider.Save(_words);

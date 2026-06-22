@@ -22,8 +22,11 @@ dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"        # UI tests (ne
 ## CI
 
 GitHub Actions runs on `push` to `main` and `pull_request` targeting `main`:
-- `build-and-test` — builds solution, runs `dotnet test --filter "Category!=UI"` (blocking)
-- `ui-tests` — runs FlaUI tests with `Category=UI` (non-blocking, `continue-on-error: true`)
+- `build-and-test` — builds the solution and runs `dotnet test --filter "Category!=UI"` (blocking)
+
+UI tests (`Category=UI`, FlaUI) are **not** run in CI — they need an interactive desktop
+session that the headless `windows-latest` runner doesn't provide. Run them locally with
+`dotnet test --filter "Category=UI"`.
 
 No linter, formatter, or code coverage configured.
 

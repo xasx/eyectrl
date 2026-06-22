@@ -110,6 +110,7 @@ SDK is .NET 10.0.102 (pinned in `global.json`).
 ## Dependencies & Quirks
 
 - **Tobii SDK** is conditionally referenced. The Platform csproj checks `C:\Program Files\Tobii\Tobii EyeX\` for DLLs at build time. If absent, `TOBII_AVAILABLE` is not defined and `TobiiStreamEngineProvider` is excluded. Override path with `-p:TobiiSdkPath="..."`.
+- **Platform uses `UseWPF` not `FrameworkReference`** — Platform only needs `System.Windows.Point` and `System.Windows.Automation` (WPF subset, no WinForms). Narrowed from the broader `Microsoft.WindowsDesktop.App`.
 - **Resource files** (JSON layouts, dictionaries, emojis, `click.wav`) use `<ExcludeFromSingleFile>true</ExcludeFromSingleFile>` — they must remain as loose files alongside the single-file exe.
 - **Benchmarks** live in `benchmarks/EyeCtrl.Benchmarks/` and use BenchmarkDotNet. Not part of the solution file (standalone project). See the Benchmarks section below for run instructions.
 - **Dictionary generation**: `tools/gen_dicts.py` generates word frequency dictionaries. Run manually when dictionaries need updating.

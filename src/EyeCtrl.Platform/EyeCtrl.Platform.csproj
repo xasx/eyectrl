@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>
@@ -38,7 +39,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
-    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
   </ItemGroup>
 
 </Project>

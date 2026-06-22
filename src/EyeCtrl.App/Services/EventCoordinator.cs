@@ -874,7 +874,7 @@ public class EventCoordinator : IEventCoordinator
             }
 
             // Create LM predictor if ML settings are enabled
-            SmallLMPredictor? lmPredictor = null;
+            ILanguageModelPredictor? lmPredictor = null;
             if (settings.Keyboard.MLSuggestionsEnabled && _modelRegistry != null)
             {
                 var modelsDir = Path.Combine(_appDataDir!, "models");

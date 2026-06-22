@@ -8,6 +8,7 @@
     <Project Path="src/EyeCtrl.Sdk.Abstractions/EyeCtrl.Sdk.Abstractions.csproj" />
     <Project Path="src/EyeCtrl.Sdk.Wpf/EyeCtrl.Sdk.Wpf.csproj" />
     <Project Path="src/EyeCtrl.Sdk.WinUI/EyeCtrl.Sdk.WinUI.csproj" />
+    <Project Path="src/EyeCtrl.LM/EyeCtrl.LM.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj" />

@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\EyeCtrl.Core\EyeCtrl.Core.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.LM\EyeCtrl.LM.csproj" />
   </ItemGroup>
 
 </Project>

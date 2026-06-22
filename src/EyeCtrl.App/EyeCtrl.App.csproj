@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EyeCtrl.Core\EyeCtrl.Core.csproj" />
+    <ProjectReference Include="..\EyeCtrl.LM\EyeCtrl.LM.csproj" />
     <ProjectReference Include="..\EyeCtrl.Platform\EyeCtrl.Platform.csproj" />
     <ProjectReference Include="..\EyeCtrl.ViewModels\EyeCtrl.ViewModels.csproj" />
     <ProjectReference Include="..\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />

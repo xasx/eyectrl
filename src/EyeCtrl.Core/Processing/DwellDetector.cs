@@ -15,21 +15,32 @@ public class DwellDetector
     private long _lastTimestamp;
     private long? _lastActivationTimestamp;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DwellDetector"/> class.
+    /// </summary>
+    /// <param name="cooldownMs">Cooldown period in milliseconds after an activation before another can trigger.</param>
     public DwellDetector(int cooldownMs = 0)
     {
         _cooldownMicroseconds = cooldownMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
+    /// <summary>Raised when a target's dwell time is met.</summary>
     public event Action<string>? TargetActivated;
+    /// <summary>Raised with the target's dwell progress (0.0–1.0) each update cycle.</summary>
     public event Action<string, double>? TargetProgress;
 
+    /// <summary>Sets the cooldown period between activations.</summary>
+    /// <param name="cooldownMs">Cooldown duration in milliseconds.</param>
     public void SetCooldown(int cooldownMs)
     {
         _cooldownMicroseconds = cooldownMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
+    /// <summary>Adds a target for dwell detection. Replaces any existing target with the same ID.</summary>
     public void AddTarget(DwellTarget target) => _targets[target.Id] = target;
+    /// <summary>Removes a target from dwell detection.</summary>
     public void RemoveTarget(string id) => _targets.TryRemove(id, out _);
+    /// <summary>Removes all targets from dwell detection.</summary>
     public void ClearTargets() => _targets.Clear();
 
     /// <summary>

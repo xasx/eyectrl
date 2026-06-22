@@ -16,11 +16,20 @@ public class FixationDetector
 
     /// <summary>Fired when fixation starts. Point is in physical screen pixels.</summary>
     public event Action<PhysicalPoint>? FixationStarted;
+    /// <summary>Fired when the current fixation ends (gaze moves outside the radius).</summary>
     public event Action? FixationEnded;
+    /// <summary>Whether the detector currently considers gaze to be fixating.</summary>
     public bool IsFixating => _isFixating;
     /// <summary>Current fixation point in physical screen pixels, if fixating.</summary>
     public PhysicalPoint? FixationPoint => _isFixating ? _fixationCenter : null;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FixationDetector"/> class.
+    /// </summary>
+    /// <param name="fixationRadiusPixels">Maximum distance in physical pixels from the fixation center for gaze to still be considered fixating.</param>
+    /// <param name="fixationTimeMs">Minimum time in milliseconds gaze must stay within the radius to trigger fixation.</param>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="fixationRadiusPixels"/> is not finite.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when parameters are non-positive.</exception>
     public FixationDetector(double fixationRadiusPixels, int fixationTimeMs)
     {
         if (!double.IsFinite(fixationRadiusPixels))
@@ -87,6 +96,7 @@ public class FixationDetector
         return Math.Min(1.0, (double)elapsed / _fixationTimeMicroseconds);
     }
 
+    /// <summary>Resets the detector to its initial state (no fixation active).</summary>
     public void Reset()
     {
         _fixationCenter = null;

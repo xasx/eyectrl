@@ -7,6 +7,7 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public class DwellTarget
 {
+    /// <summary>Unique identifier for this dwell target.</summary>
     public string Id { get; }
     /// <summary>Center position in physical screen pixels (used for nearest-target selection).</summary>
     public PhysicalPoint Center { get; set; }
@@ -18,6 +19,13 @@ public class DwellTarget
     /// <summary>Optional rectangular bounds. When set, HitTest uses rect containment; null ⇒ circle.</summary>
     public PhysicalRect? Bounds { get; set; }
 
+    /// <summary>
+    /// Initializes a new circular dwell target.
+    /// </summary>
+    /// <param name="id">Unique identifier for this target.</param>
+    /// <param name="center">Center position in physical screen pixels.</param>
+    /// <param name="radius">Hit-test radius in physical pixels.</param>
+    /// <param name="dwellTimeMs">Required dwell time in milliseconds.</param>
     public DwellTarget(string id, PhysicalPoint center, double radius, int dwellTimeMs)
     {
         Id = id;
@@ -27,6 +35,12 @@ public class DwellTarget
         Bounds = null;
     }
 
+    /// <summary>
+    /// Initializes a new rectangular dwell target.
+    /// </summary>
+    /// <param name="id">Unique identifier for this target.</param>
+    /// <param name="bounds">Rectangular bounds in physical screen pixels.</param>
+    /// <param name="dwellTimeMs">Required dwell time in milliseconds.</param>
     public DwellTarget(string id, PhysicalRect bounds, int dwellTimeMs)
     {
         Id = id;

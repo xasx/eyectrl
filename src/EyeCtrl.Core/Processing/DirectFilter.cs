@@ -10,6 +10,7 @@ public class DirectFilter : IGazeFilter
 {
     private PhysicalPoint _lastValid = new(0, 0);
 
+    /// <inheritdoc />
     public PhysicalPoint Filter(GazePoint rawGaze)
     {
         if (rawGaze.IsValid)
@@ -17,5 +18,6 @@ public class DirectFilter : IGazeFilter
         return _lastValid;
     }
 
+    /// <inheritdoc />
     public void Reset() => _lastValid = new(0, 0);
 }

@@ -1,5 +1,9 @@
 namespace EyeCtrl.Core.Prediction;
 
+/// <summary>
+/// Orchestrates word prediction by combining multiple sources: word predictor,
+/// sentence completion trie, and the ONNX language model. Merges and ranks results.
+/// </summary>
 public class PredictionOrchestrator : IDisposable
 {
     private readonly WordPredictor _wordPredictor;
@@ -9,6 +13,13 @@ public class PredictionOrchestrator : IDisposable
     private string? _lastLmPrefix;
     private string? _lastLmContext;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PredictionOrchestrator"/> class.
+    /// </summary>
+    /// <param name="wordPredictor">The core word prediction engine.</param>
+    /// <param name="sentenceIndex">Optional sentence completion trie index.</param>
+    /// <param name="lmPredictor">Optional ONNX language model predictor.</param>
+    /// <param name="mlEnabled">Whether ML-based suggestions are enabled.</param>
     public PredictionOrchestrator(
         WordPredictor wordPredictor,
         SentenceCompletionIndex? sentenceIndex = null,
@@ -21,6 +32,15 @@ public class PredictionOrchestrator : IDisposable
         _mlEnabled = mlEnabled;
     }
 
+    /// <summary>
+    /// Returns merged and ranked word predictions from all available sources.
+    /// Also triggers asynchronous LM inference when conventional sources produce low-confidence results.
+    /// </summary>
+    /// <param name="prefix">The current word prefix being typed.</param>
+    /// <param name="context">The previous word for bigram context, or null.</param>
+    /// <param name="maxCount">Maximum number of suggestions to return.</param>
+    /// <param name="fullText">Full text typed so far for smart capitalization.</param>
+    /// <returns>A ranked list of <see cref="PredictionResult"/> instances.</returns>
     public List<PredictionResult> GetSuggestions(string prefix, string? context, int maxCount, string? fullText = null)
     {
         if (maxCount <= 0) return [];
@@ -95,23 +115,30 @@ public class PredictionOrchestrator : IDisposable
         return avgConfidence < 0.5;
     }
 
+    /// <summary>Delegates to the underlying <see cref="WordPredictor"/> to learn a single word.</summary>
+    /// <param name="word">The word to learn.</param>
     public void LearnWord(string word)
     {
         _wordPredictor.LearnWord(word);
     }
 
+    /// <summary>Delegates to the underlying <see cref="WordPredictor"/> to learn a sequence of words.</summary>
+    /// <param name="words">The words in order as typed.</param>
     public void LearnSequence(string[] words)
     {
         _wordPredictor.LearnSequence(words);
     }
 
+    /// <summary>Delegates to the underlying <see cref="WordPredictor"/> to persist the learned dictionary.</summary>
     public void SaveUserDictionary()
     {
         _wordPredictor.SaveUserDictionary();
     }
 
+    /// <summary>The underlying word prediction engine.</summary>
     public WordPredictor WordPredictor => _wordPredictor;
 
+    /// <summary>Disposes the language model predictor if one was provided.</summary>
     public void Dispose()
     {
         _lmPredictor?.Dispose();

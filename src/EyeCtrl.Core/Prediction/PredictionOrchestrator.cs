@@ -8,7 +8,7 @@ public class PredictionOrchestrator : IDisposable
 {
     private readonly WordPredictor _wordPredictor;
     private readonly SentenceCompletionIndex? _sentenceIndex;
-    private readonly SmallLMPredictor? _lmPredictor;
+    private readonly ILanguageModelPredictor? _lmPredictor;
     private readonly bool _mlEnabled;
     private string? _lastLmPrefix;
     private string? _lastLmContext;
@@ -23,7 +23,7 @@ public class PredictionOrchestrator : IDisposable
     public PredictionOrchestrator(
         WordPredictor wordPredictor,
         SentenceCompletionIndex? sentenceIndex = null,
-        SmallLMPredictor? lmPredictor = null,
+        ILanguageModelPredictor? lmPredictor = null,
         bool mlEnabled = true)
     {
         _wordPredictor = wordPredictor;

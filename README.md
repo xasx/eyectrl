@@ -1,5 +1,7 @@
 # EyeCtrl
 
+[![CI](https://github.com/xasx/eyectrl/actions/workflows/ci.yml/badge.svg)](https://github.com/xasx/eyectrl/actions/workflows/ci.yml)
+
 Full PC control using eye tracking. Built for the Tobii Dynavox PCEye 5.
 
 EyeCtrl replaces mouse and keyboard with gaze-driven overlays — a cursor circle follows your eyes, dwell activates actions, and an on-screen keyboard lets you type. Everything is configurable and works on a single monitor.

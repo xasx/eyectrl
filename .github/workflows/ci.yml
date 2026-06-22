@@ -26,6 +26,27 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'global.json') }}
           restore-keys: nuget-${{ runner.os }}-
 
+      - name: Provision WinUI AppxPackage tooling at the path the build probes
+        shell: pwsh
+        run: |
+          # WindowsAppSDK's PRI target resolves its AppxPackage MSBuild task to a VS "Insiders"
+          # path that isn't installed on the runner (only VS Enterprise is), and env overrides
+          # (VSINSTALLDIR / VsInstallRoot) don't move it. So copy the real AppxPackage tooling
+          # to the exact path the build looks for.
+          $ErrorActionPreference = 'Stop'
+          $dll = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio' -Recurse -Filter 'Microsoft.Build.Packaging.Pri.Tasks.dll' -ErrorAction SilentlyContinue |
+                 Where-Object { $_.FullName -match 'v18\.0\\AppxPackage' } | Select-Object -First 1
+          if (-not $dll) { throw "Could not locate VS v18.0 AppxPackage tooling on the runner" }
+          $srcDir = Split-Path $dll.FullName
+          $dstDir = 'C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VisualStudio\v18.0\AppxPackage'
+          Write-Host "Mirroring $srcDir -> $dstDir"
+          New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+          Copy-Item -Path (Join-Path $srcDir '*') -Destination $dstDir -Recurse -Force
+          if (-not (Test-Path (Join-Path $dstDir 'Microsoft.Build.Packaging.Pri.Tasks.dll'))) {
+            throw "Failed to place PRI task DLL at $dstDir"
+          }
+          Write-Host "PRI task DLL present at $dstDir"
+
       - name: Build
         run: dotnet build EyeCtrl.slnx
 
@@ -51,6 +72,27 @@ jobs:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'global.json') }}
           restore-keys: nuget-${{ runner.os }}-
+
+      - name: Provision WinUI AppxPackage tooling at the path the build probes
+        shell: pwsh
+        run: |
+          # WindowsAppSDK's PRI target resolves its AppxPackage MSBuild task to a VS "Insiders"
+          # path that isn't installed on the runner (only VS Enterprise is), and env overrides
+          # (VSINSTALLDIR / VsInstallRoot) don't move it. So copy the real AppxPackage tooling
+          # to the exact path the build looks for.
+          $ErrorActionPreference = 'Stop'
+          $dll = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio' -Recurse -Filter 'Microsoft.Build.Packaging.Pri.Tasks.dll' -ErrorAction SilentlyContinue |
+                 Where-Object { $_.FullName -match 'v18\.0\\AppxPackage' } | Select-Object -First 1
+          if (-not $dll) { throw "Could not locate VS v18.0 AppxPackage tooling on the runner" }
+          $srcDir = Split-Path $dll.FullName
+          $dstDir = 'C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VisualStudio\v18.0\AppxPackage'
+          Write-Host "Mirroring $srcDir -> $dstDir"
+          New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+          Copy-Item -Path (Join-Path $srcDir '*') -Destination $dstDir -Recurse -Force
+          if (-not (Test-Path (Join-Path $dstDir 'Microsoft.Build.Packaging.Pri.Tasks.dll'))) {
+            throw "Failed to place PRI task DLL at $dstDir"
+          }
+          Write-Host "PRI task DLL present at $dstDir"
 
       - name: Build
         run: dotnet build EyeCtrl.slnx

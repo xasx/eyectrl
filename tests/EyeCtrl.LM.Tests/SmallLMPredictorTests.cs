@@ -1,4 +1,4 @@
-namespace EyeCtrl.Core.Tests.Prediction;
+namespace EyeCtrl.LM.Tests;
 
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.LM;

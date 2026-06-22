@@ -4,6 +4,10 @@ using System.Text.Json;
 using EyeCtrl.Core.Models;
 using Microsoft.Extensions.Logging;
 
+/// <summary>
+/// Manages calibration sessions: starts, collects samples per target, fits an affine transform,
+/// validates the fit, persists/loads calibration data, and applies the transform.
+/// </summary>
 public class CalibrationService
 {
     private readonly object _transformLock = new();
@@ -16,12 +20,18 @@ public class CalibrationService
     private int _currentTargetIndex;
     private PhysicalPoint _screenSize;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CalibrationService"/> class.
+    /// </summary>
+    /// <param name="logger">Optional logger for diagnostic messages.</param>
     public CalibrationService(ILogger<CalibrationService>? logger = null)
     {
         _logger = logger;
     }
 
+    /// <summary>The currently active calibration transform, or null if no calibration is applied.</summary>
     public ICalibrationTransform? CurrentTransform => _currentTransform;
+    /// <summary>Whether a calibration session is in progress.</summary>
     public bool IsSessionActive => _targetPositions != null;
 
     /// <summary>
@@ -30,6 +40,13 @@ public class CalibrationService
     /// </summary>
     public CalibrationData? CurrentData { get; private set; }
 
+    /// <summary>
+    /// Starts a new calibration session with the specified number of target points.
+    /// </summary>
+    /// <param name="pointCount">Number of calibration points (3–16).</param>
+    /// <param name="screenSize">Screen dimensions in physical pixels.</param>
+    /// <returns>The number of target positions in this session.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when a session is already in progress.</exception>
     public int StartSession(int pointCount, PhysicalPoint screenSize)
     {
         if (_targetPositions != null)
@@ -42,6 +59,10 @@ public class CalibrationService
         return _targetPositions.Count;
     }
 
+    /// <summary>Returns the target position for the given index in physical screen pixels.</summary>
+    /// <param name="index">Zero-based target index.</param>
+    /// <returns>Target position in physical screen pixels.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no session is in progress.</exception>
     public PhysicalPoint GetTargetPosition(int index)
     {
         if (_targetPositions == null)
@@ -49,6 +70,11 @@ public class CalibrationService
         return _targetPositions[index];
     }
 
+    /// <summary>Starts collecting gaze samples for the specified target.</summary>
+    /// <param name="index">Zero-based target index in the session's target list.</param>
+    /// <param name="settleWindowMs">Time in milliseconds to discard initial settling samples.</param>
+    /// <param name="maxSamples">Maximum number of samples to collect per target.</param>
+    /// <exception cref="InvalidOperationException">Thrown when a target is already being collected or no session is active.</exception>
     public void BeginTarget(int index, int settleWindowMs = 0, int maxSamples = int.MaxValue)
     {
         if (_currentCollector != null)
@@ -59,6 +85,8 @@ public class CalibrationService
         _currentCollector = new CalibrationPointCollector(target, settleWindowMs, maxSamples);
     }
 
+    /// <summary>Adds a raw gaze sample to the current target's collector. Non-finite or far-off-screen samples are silently dropped.</summary>
+    /// <param name="gaze">Raw gaze position in physical screen pixels.</param>
     public void AddRawSample(PhysicalPoint gaze)
     {
         // Drop implausible samples (non-finite / far off-screen) so a misbehaving sensor cannot
@@ -68,8 +96,14 @@ public class CalibrationService
         _currentCollector?.AddRawSample(gaze);
     }
 
+    /// <summary>Whether a target is currently being collected.</summary>
     public bool IsCollecting => _currentCollector?.IsCollecting ?? false;
 
+    /// <summary>
+    /// Ends collection for the current target and returns the computed <see cref="CalibrationPoint"/>.
+    /// </summary>
+    /// <returns>The <see cref="CalibrationPoint"/> with mean, standard deviation, and sample count.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no target is being collected or no samples were captured.</exception>
     public CalibrationPoint EndTarget()
     {
         if (_currentCollector == null)
@@ -80,6 +114,14 @@ public class CalibrationService
         return point;
     }
 
+    /// <summary>
+    /// Completes the calibration session by fitting a transform from all collected points,
+    /// validating the result, and activating the transform.
+    /// </summary>
+    /// <param name="screenSize">Screen dimensions in physical pixels.</param>
+    /// <param name="monitorDeviceName">Name of the monitor for calibration metadata.</param>
+    /// <returns>The <see cref="CalibrationData"/> with the fitted transform and metadata.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no session is in progress or the fit fails validation.</exception>
     public CalibrationData CompleteSession(PhysicalPoint screenSize, string monitorDeviceName)
     {
         if (_targetPositions == null)
@@ -129,6 +171,7 @@ public class CalibrationService
         return data;
     }
 
+    /// <summary>Cancels the current calibration session, discarding all collected data.</summary>
     public void CancelSession()
     {
         _targetPositions = null;
@@ -136,12 +179,20 @@ public class CalibrationService
         _currentCollector = null;
     }
 
+    /// <summary>Clears the current calibration transform and related data.</summary>
     public void Clear()
     {
         lock (_transformLock) { _currentTransform = null; }
         CurrentData = null;
     }
 
+    /// <summary>
+    /// Loads calibration data from a JSON file. Validates that the screen size and monitor
+    /// match before applying the transform. Silently ignores invalid or mismatched data.
+    /// </summary>
+    /// <param name="filePath">Full path to the calibration JSON file.</param>
+    /// <param name="currentScreenSize">Current screen dimensions in physical pixels.</param>
+    /// <param name="currentMonitorDeviceName">Current monitor name for matching against persisted data.</param>
     public void Load(string filePath, PhysicalPoint currentScreenSize, string currentMonitorDeviceName)
     {
         if (!File.Exists(filePath)) return;
@@ -193,6 +244,9 @@ public class CalibrationService
         }
     }
 
+    /// <summary>Persists calibration data to disk as JSON.</summary>
+    /// <param name="filePath">Full path for the output JSON file.</param>
+    /// <param name="data">The <see cref="CalibrationData"/> to persist.</param>
     public void Save(string filePath, CalibrationData data)
     {
         var json = JsonSerializer.Serialize(data, new JsonSerializerOptions

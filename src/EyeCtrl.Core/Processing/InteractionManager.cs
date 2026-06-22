@@ -7,6 +7,7 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public class InteractionManager
 {
+    /// <summary>Current state of the interaction state machine.</summary>
     public InteractionState CurrentState { get; private set; } = InteractionState.FreeLook;
     /// <summary>Active selection mode that drives the activation-button branch.</summary>
     public SelectionMode SelectionMode { get; set; } = SelectionMode.None;
@@ -151,6 +152,7 @@ public class InteractionManager
         }
     }
 
+    /// <summary>Dismisses the action menu and returns to free look state.</summary>
     public void OnActionMenuDismissed()
     {
         if (CurrentState == InteractionState.ActionMenuVisible)
@@ -160,6 +162,7 @@ public class InteractionManager
         }
     }
 
+    /// <summary>Toggles gaze tracking between paused and active states.</summary>
     public void TogglePause()
     {
         if (CurrentState == InteractionState.Paused)

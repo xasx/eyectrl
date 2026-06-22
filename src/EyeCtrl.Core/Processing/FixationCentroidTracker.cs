@@ -18,6 +18,10 @@ public sealed class FixationCentroidTracker
     private double _meanX;
     private double _meanY;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FixationCentroidTracker"/> class.
+    /// </summary>
+    /// <param name="velocityThresholdPxPerSec">Maximum velocity in pixels per second below which samples are included in the centroid calculation.</param>
     public FixationCentroidTracker(double velocityThresholdPxPerSec)
     {
         _velocityThresholdPxPerSec = velocityThresholdPxPerSec;
@@ -29,6 +33,7 @@ public sealed class FixationCentroidTracker
     public PhysicalPoint? StableCentroid =>
         _count > 0 ? new PhysicalPoint(_meanX, _meanY) : null;
 
+    /// <summary>Starts tracking the centroid from the current position, resetting accumulated data.</summary>
     public void StartTracking()
     {
         _isTracking = true;
@@ -38,6 +43,7 @@ public sealed class FixationCentroidTracker
         _meanY = 0;
     }
 
+    /// <summary>Stops tracking and resets accumulated centroid data.</summary>
     public void StopTracking()
     {
         _isTracking = false;

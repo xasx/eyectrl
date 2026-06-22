@@ -14,6 +14,11 @@ public sealed class GapInterpolator
     private PhysicalPoint _lastValidPosition = new(0, 0);
     private long _lastValidTimestamp = -1;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="GapInterpolator"/> class.
+    /// </summary>
+    /// <param name="filter">The gaze filter used to smooth valid samples.</param>
+    /// <param name="maxGapMs">Maximum gap duration in milliseconds before the sequence is considered broken.</param>
     public GapInterpolator(IGazeFilter filter, int maxGapMs)
     {
         _filter = filter;
@@ -51,17 +56,15 @@ public sealed class GapInterpolator
         return (_lastValidPosition, true);
     }
 
-    // Called on the UI thread during a settings change while the gaze thread may still be
-    // writing `other`'s fields in Process(). On x64 the 64-bit _lastValidTimestamp reads
-    // atomically; _lastValidPosition could read a sub-pixel torn value for a single frame,
-    // which the next valid sample immediately overwrites. We accept this rather than lock
-    // the hot gaze path (Process runs every sample) to guard a self-healing, sub-pixel glitch.
+    /// <summary>Copies internal state (last position and timestamp) from another interpolator without locking.</summary>
+    /// <param name="other">The source interpolator to copy state from.</param>
     public void CopyStateFrom(GapInterpolator other)
     {
         _lastValidPosition = other._lastValidPosition;
         _lastValidTimestamp = other._lastValidTimestamp;
     }
 
+    /// <summary>Resets the interpolator and its underlying filter to initial state.</summary>
     public void Reset()
     {
         _filter.Reset();

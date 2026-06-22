@@ -3,23 +3,39 @@ namespace EyeCtrl.Core.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using EyeCtrl.Core.Models;
 
+/// <summary>Root settings aggregate containing all application settings categories.</summary>
 public partial class EyeCtrlSettings : ObservableObject, IValidatable
 {
+    /// <summary>Cursor filtering and appearance settings.</summary>
     [ObservableProperty] private CursorSettings _cursor = new();
+    /// <summary>Dwell timing settings for click activation.</summary>
     [ObservableProperty] private DwellSettings _dwell = new();
+    /// <summary>Manual (zoom-to-point) selection settings.</summary>
     [ObservableProperty] private ManualSelectionSettings _ManualSelection = new();
+    /// <summary>Action menu visibility and order settings.</summary>
     [ObservableProperty] private ActionMenuSettings _actionMenu = new();
+    /// <summary>Keyboard layout and typing settings.</summary>
     [ObservableProperty] private KeyboardSettings _keyboard = new();
+    /// <summary>Toolbar appearance and dock settings.</summary>
     [ObservableProperty] private ToolbarSettings _toolbar = new();
+    /// <summary>Theme and overlay opacity settings.</summary>
     [ObservableProperty] private ThemeSettings _theme = new();
+    /// <summary>Backdrop material and opacity settings.</summary>
     [ObservableProperty] private BackdropSettings _backdrop = new();
+    /// <summary>Eye tracker calibration settings.</summary>
     [ObservableProperty] private CalibrationSettings _calibration = new();
+    /// <summary>General application behavior settings.</summary>
     [ObservableProperty] private GeneralSettings _general = new();
+    /// <summary>Default view position for overlays (at gaze or at screen center).</summary>
     [ObservableProperty] private ViewPosition _viewPosition = ViewPosition.AtCenter;
+    /// <summary>Gaze-based click targeting mode.</summary>
     [ObservableProperty] private SelectionMode _selectionMode = SelectionMode.None;
+    /// <summary>Automatic control selection (snap-to-control) settings.</summary>
     [ObservableProperty] private AutoSelectionSettings _autoSelection = new();
+    /// <summary>External (hardware-button) dwell activation settings.</summary>
     [ObservableProperty] private ExternalDwellSettings _externalDwell = new();
 
+    /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
         var errors = new List<string>();

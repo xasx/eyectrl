@@ -76,8 +76,8 @@ public class FileDictionaryProviderTests : IDisposable
         var json = File.ReadAllText(path);
         var loaded = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
         Check.That(loaded).IsNotNull();
-        Check.That(loaded).HasSize(1);
-        Check.That(loaded["test"]["data"]).IsEqualTo(10);
+        Check.That(loaded!).HasSize(1);
+        Check.That(loaded!["test"]["data"]).IsEqualTo(10);
     }
 
     [Fact]
@@ -157,8 +157,8 @@ public class FileDictionaryProviderTests : IDisposable
         var json = File.ReadAllText(path);
         var loaded = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
         Check.That(loaded).IsNotNull();
-        Check.That(loaded).HasSize(1);
-        Check.That(loaded["thank"]["thank you"]).IsEqualTo(15);
+        Check.That(loaded!).HasSize(1);
+        Check.That(loaded!["thank"]["thank you"]).IsEqualTo(15);
     }
 
     [Fact]
@@ -411,8 +411,8 @@ public class FileDictionaryProviderTests : IDisposable
         var json = File.ReadAllText(path);
         var loaded = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json);
         Check.That(loaded).IsNotNull();
-        Check.That(loaded).HasSize(1);
-        Check.That(loaded["word"]["Word"]).IsEqualTo(7);
+        Check.That(loaded!).HasSize(1);
+        Check.That(loaded!["word"]["Word"]).IsEqualTo(7);
     }
 
     [Fact]

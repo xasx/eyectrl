@@ -152,7 +152,7 @@ public class WordPredictorTests
         // Find "you" in results - it should be there with NextWord type
         var youResult = results.FirstOrDefault(r => r.Word == "you");
         Check.That(youResult).IsNotNull();
-        Check.That(youResult.Type).IsEqualTo(PredictionType.NextWord);
+        Check.That(youResult!.Type).IsEqualTo(PredictionType.NextWord);
     }
 
     [Fact]
@@ -205,7 +205,7 @@ public class WordPredictorTests
         var fuzzyResults = predictor.GetSuggestions("rhe", null, maxCount: 5);
         var theResult = fuzzyResults.FirstOrDefault(r => r.Word == "the");
         Check.That(theResult).IsNotNull();
-        Check.That(theResult.Type).IsEqualTo(PredictionType.FuzzyMatch);
+        Check.That(theResult!.Type).IsEqualTo(PredictionType.FuzzyMatch);
     }
 
     // Phase 2 Tests - Enhanced Context Awareness
@@ -233,7 +233,7 @@ public class WordPredictorTests
 
         // "you" should be first due to NextWord prediction boost
         Check.That(results[0].Word).IsEqualTo("you");
-        Check.That(youResult.Type).IsEqualTo(PredictionType.NextWord);
+        Check.That(youResult!.Type).IsEqualTo(PredictionType.NextWord);
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class WordPredictorTests
         Check.That(youIndexWithContext < youIndexWithoutContext).IsTrue();
 
         // With context, "you" should have a higher score due to BigramContextBoost multiplier
-        Check.That(youWithContext.Score > youWithoutContext.Score).IsTrue();
+        Check.That(youWithContext!.Score > youWithoutContext!.Score).IsTrue();
     }
 
     [Fact]
@@ -332,13 +332,13 @@ public class WordPredictorTests
         var exactResults = predictor.GetSuggestions("hel", null, maxCount: 5);
         var helloResult = exactResults.FirstOrDefault(r => r.Word == "hello");
         Check.That(helloResult).IsNotNull();
-        Check.That(helloResult.Confidence > 0 && helloResult.Confidence <= 1.0).IsTrue();
+        Check.That(helloResult!.Confidence > 0 && helloResult!.Confidence <= 1.0).IsTrue();
 
         // Check confidence for next-word prediction
         var nextWordResults = predictor.GetSuggestions("", "thank", maxCount: 5);
         var youResult = nextWordResults.FirstOrDefault(r => r.Word == "you");
         Check.That(youResult).IsNotNull();
-        Check.That(youResult.Confidence > 0 && youResult.Confidence <= 1.0).IsTrue();
+        Check.That(youResult!.Confidence > 0 && youResult!.Confidence <= 1.0).IsTrue();
     }
 
     [Fact]
@@ -517,8 +517,8 @@ public class WordPredictorTests
         Check.That(hausResult).IsNotNull();
         Check.That(handResult).IsNotNull();
 
-        var hausIndex = results.IndexOf(hausResult);
-        var handIndex = results.IndexOf(handResult);
+        var hausIndex = results.IndexOf(hausResult!);
+        var handIndex = results.IndexOf(handResult!);
 
         Check.That(hausIndex < handIndex).IsTrue();
     }
@@ -560,7 +560,7 @@ public class WordPredictorTests
         // Should suggest "Hello" with normalized title casing
         var helloResult = results.FirstOrDefault(r => r.Word.StartsWith("Hel", StringComparison.OrdinalIgnoreCase));
         Check.That(helloResult).IsNotNull();
-        Check.That(helloResult.Word).IsEqualTo("Hello");
+        Check.That(helloResult!.Word).IsEqualTo("Hello");
     }
 
     [Fact]
@@ -603,7 +603,7 @@ public class WordPredictorTests
         Check.That(hausResult).IsNotNull();
 
         // Should prefer the more frequently used casing "Haus" (10 times vs 1 time)
-        Check.That(hausResult.Word).IsEqualTo("Haus");
+        Check.That(hausResult!.Word).IsEqualTo("Haus");
     }
 
     [Fact]

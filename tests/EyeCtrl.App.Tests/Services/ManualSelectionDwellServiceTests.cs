@@ -224,8 +224,8 @@ public class ManualSelectionDwellServiceTests
 
         // Assert
         Check.That(completionMessage).IsNotNull();
-        Check.That(completionMessage.PrecisePoint.X).IsCloseTo(dwellPoint.X, 0.005); // Allow small tolerance
-        Check.That(completionMessage.PrecisePoint.Y).IsCloseTo(dwellPoint.Y, 0.005);
+        Check.That(completionMessage!.PrecisePoint.X).IsCloseTo(dwellPoint.X, 0.005); // Allow small tolerance
+        Check.That(completionMessage!.PrecisePoint.Y).IsCloseTo(dwellPoint.Y, 0.005);
 
         _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
     }
@@ -338,8 +338,8 @@ public class ManualSelectionDwellServiceTests
 
         // Assert - The position message should contain the physical screen coordinates, not magnified
         Check.That(positionMessage).IsNotNull();
-        Check.That(positionMessage.GazePoint.X).IsCloseTo(510, 0.005);
-        Check.That(positionMessage.GazePoint.Y).IsCloseTo(510, 0.005);
+        Check.That(positionMessage!.GazePoint.X).IsCloseTo(510, 0.005);
+        Check.That(positionMessage!.GazePoint.Y).IsCloseTo(510, 0.005);
     
         // The ViewModel should convert this to magnified coordinates
         // magnifiedX = ManualSelectionCenter.X + (gazePoint.X - originalCenter.X) * magnification

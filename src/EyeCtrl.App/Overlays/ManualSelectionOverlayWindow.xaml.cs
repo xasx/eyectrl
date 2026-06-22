@@ -48,7 +48,7 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow
         // Scaling ensures the captured area matches the DIP display window,
         // so visual magnification equals the configured magnification.
         var physicalRadius = (int)(radius * DpiHelper.ScaleX);
-        CaptureAndDisplay(_captureCenter.Value, physicalRadius);
+        CaptureAndDisplay(_captureCenter!.Value, physicalRadius);
     }
 
     private async void CaptureAndDisplay(PhysicalPoint center, int radius)
@@ -64,7 +64,7 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow
         // Width is in DIPs; derive the DIP radius, then scale to physical for capture
         var dipRadius = (int)(Width / _magnification / 2);
         var physicalRadius = (int)(dipRadius * DpiHelper.ScaleX);
-        CaptureAndDisplay(_captureCenter.Value, physicalRadius);
+        CaptureAndDisplay(_captureCenter!.Value, physicalRadius);
     }
 
     public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen)
@@ -77,8 +77,8 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow
         var offsetY = gazeOnScreen.Y - windowCenterY;
 
         // Scale back from magnified to original coordinates
-        var realX = _captureCenter.Value.X + offsetX / _magnification;
-        var realY = _captureCenter.Value.Y + offsetY / _magnification;
+        var realX = _captureCenter!.Value.X + offsetX / _magnification;
+        var realY = _captureCenter!.Value.Y + offsetY / _magnification;
 
         return new PhysicalPoint(realX, realY);
     }

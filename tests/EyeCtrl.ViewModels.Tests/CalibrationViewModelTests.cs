@@ -95,13 +95,13 @@ public class CalibrationViewModelTests
             while (!stop.IsCancellationRequested)
             {
                 _provider.FireGaze(new GazePoint(1, 1, 0, true));
-                await Task.Delay(2);
+                await Task.Delay(2, TestContext.Current.CancellationToken);
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         _messenger.Send(new CalibrationRequestedMessage());
 
-        await done.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await done.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         stop.Cancel();
         try { await firing; } catch (OperationCanceledException) { }
 

@@ -36,8 +36,8 @@ public class FixationCentroidTrackerTests
 
         var centroid = tracker.StableCentroid;
         Check.That(centroid).IsNotNull();
-        Check.That(centroid.Value.X).IsCloseTo(100.33, 0.1);
-        Check.That(centroid.Value.Y).IsCloseTo(200.33, 0.1);
+        Check.That(centroid!.Value.X).IsCloseTo(100.33, 0.1);
+        Check.That(centroid!.Value.Y).IsCloseTo(200.33, 0.1);
     }
 
     [Fact]
@@ -54,8 +54,8 @@ public class FixationCentroidTrackerTests
         // Only the first sample (velocity=0 <= threshold) contributes
         var centroid = tracker.StableCentroid;
         Check.That(centroid).IsNotNull();
-        Check.That(centroid.Value.X).IsEqualTo(100);
-        Check.That(centroid.Value.Y).IsEqualTo(200);
+        Check.That(centroid!.Value.X).IsEqualTo(100);
+        Check.That(centroid!.Value.Y).IsEqualTo(200);
     }
 
     [Fact]
@@ -73,8 +73,8 @@ public class FixationCentroidTrackerTests
         // Mean of included: (100,100), (100,100), (103,103) -> (101, 101)
         var centroid = tracker.StableCentroid;
         Check.That(centroid).IsNotNull();
-        Check.That(centroid.Value.X).IsEqualTo(101);
-        Check.That(centroid.Value.Y).IsEqualTo(101);
+        Check.That(centroid!.Value.X).IsEqualTo(101);
+        Check.That(centroid!.Value.Y).IsEqualTo(101);
     }
 
     [Fact]
@@ -100,6 +100,6 @@ public class FixationCentroidTrackerTests
 
         var centroid = tracker.StableCentroid;
         Check.That(centroid).IsNotNull();
-        Check.That(centroid.Value.X).IsEqualTo(300);
+        Check.That(centroid!.Value.X).IsEqualTo(300);
     }
 }

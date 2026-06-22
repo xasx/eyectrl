@@ -20,9 +20,11 @@ public class GazeEngine : IDisposable
     private readonly FixationDetector _fixationDetector;
     private readonly FixationCentroidTracker _centroidTracker;
 
+    /// <summary>Interaction state machine controlling fixation → activation → action flow.</summary>
     public InteractionManager InteractionManager { get; }
     private volatile bool _suppressFixation;
 
+    /// <summary>When true, fixation detection is suppressed (e.g., during overlay input or dwell cooldown).</summary>
     public bool SuppressFixation
     {
         get => _suppressFixation;
@@ -33,6 +35,14 @@ public class GazeEngine : IDisposable
     /// <summary>Fired when cursor moves with filtered position in physical screen pixels.</summary>
     public event Action<PhysicalPoint, long>? CursorMoved;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="GazeEngine"/> class.
+    /// Wires up the gaze provider, filter, fixation detector, centroid tracker, and interaction manager.
+    /// </summary>
+    /// <param name="gazeProvider">The gaze data source (Tobii, mouse, etc.).</param>
+    /// <param name="inputSimulator">Platform-level mouse/keyboard input simulator.</param>
+    /// <param name="settings">Application settings for filter, dwell, and selection configuration.</param>
+    /// <param name="calibrationService">Optional calibration service for gaze-to-screen coordinate mapping.</param>
     public GazeEngine(
         IGazeProvider gazeProvider,
         IInputSimulator inputSimulator,
@@ -79,11 +89,13 @@ public class GazeEngine : IDisposable
         _fixationDetector.FixationEnded += _centroidTracker.StopTracking;
     }
 
+    /// <summary>Starts the gaze data stream.</summary>
     public void Start()
     {
         _gazeProvider.Start();
     }
 
+    /// <summary>Stops the gaze data stream.</summary>
     public void Stop()
     {
         _gazeProvider.Stop();
@@ -117,6 +129,7 @@ public class GazeEngine : IDisposable
             _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
     }
 
+    /// <summary>Unsubscribes from the gaze provider and disposes it.</summary>
     public void Dispose()
     {
         _gazeProvider.GazePointReceived -= OnGazePoint;

@@ -93,8 +93,10 @@ src/
   EyeCtrl.Platform/    Win32 input simulation, Tobii SDK integration
   EyeCtrl.ViewModels/  MVVM layer (CommunityToolkit.Mvvm)
   EyeCtrl.App/         WPF overlays and application wiring
+  EyeCtrl.LM/          ONNX neural language model
 tests/
   EyeCtrl.Core.Tests/         Unit tests for Core (xUnit)
+  EyeCtrl.LM.Tests/           Unit tests for EyeCtrl.LM (xUnit)
   EyeCtrl.Platform.Tests/     Unit tests for Platform (xUnit)
   EyeCtrl.ViewModels.Tests/   Unit tests for ViewModels (xUnit)
   EyeCtrl.App.Tests/          Service tests + UI/E2E tests (xUnit, FlaUI)
@@ -115,6 +117,7 @@ Four-layer design (Core → Platform → ViewModels → App):
 - **Platform** — `GazeProviderFactory`, `TobiiStreamEngineProvider` (eye tracker), `MouseGazeProvider` (fallback), `InputSimulator` (SendInput for clicks/keystrokes). `unsafe` Win32 code.
 - **ViewModels** — MVVM layer using CommunityToolkit.Mvvm v8.4.0 with source generators and `WeakReferenceMessenger`.
 - **App** — WPF overlay windows (cursor circle, activation button, action menu, toolbar, keyboard, emoji grid, manual selection). `App.xaml.cs` is the central wiring hub for DI and overlay lifecycle; `EventCoordinator` coordinates dwell, zoom, and action-menu events.
+- **LM** — ONNX neural language model (`SmallLMPredictor`, `LMTokenizer`). Leaf project; accessed via `ILanguageModelPredictor` interface in Core.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full architecture diagram, execution flows, and functional areas.
 See [AGENTS.md](AGENTS.md) for development conventions and dependency quirks.

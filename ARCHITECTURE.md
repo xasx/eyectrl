@@ -78,7 +78,7 @@ EyeCtrl is a gaze control platform for Windows that turns an eye tracker (Tobii 
 
 ---
 
-## 2. The Eight Projects
+## 2. The Nine Projects
 
 | Project | Target | Role |
 |---|---|---|
@@ -86,6 +86,7 @@ EyeCtrl is a gaze control platform for Windows that turns an eye tracker (Tobii 
 | `EyeCtrl.Platform` | `net10.0-windows` | `unsafe` Win32 (`SendInput`), Tobii Stream Engine SDK (conditional, only when DLLs are present). |
 | `EyeCtrl.ViewModels` | `net10.0-windows` | MVVM with `CommunityToolkit.Mvvm` v8.4.0. `[ObservableProperty]` source generators, `WeakReferenceMessenger` for pub/sub. |
 | `EyeCtrl.App` | `net10.0-windows`, `WinExe`, `UseWPF`+`UseWindowsForms` | WPF entry point, DI wiring, overlay windows, settings UI, tray icon, **ExternalDwellService** (named-pipe server). |
+| `EyeCtrl.LM` | `net10.0` | ONNX neural language model predictor (`SmallLMPredictor`) and tokenizer (`LMTokenizer`). Depends on `EyeCtrl.Core`. |
 | `EyeCtrl.Contracts` | `net8.0` | Shared wire-format records (`WireMessage`, `SdkRect`). Zero dependencies. Used by both App (server) and SDK (client). |
 | `EyeCtrl.Sdk.Abstractions` | `net8.0` | Framework-agnostic SDK surface: `IDwellElementAdapter`, `DwellClient` (named-pipe client), `OutboundRectTracker`. |
 | `EyeCtrl.Sdk.Wpf` | `net8.0-windows` | WPF attached properties (`Dwell.Enabled`, `Dwell.Mode`). `WpfElementAdapter` bridges WPF elements to `IDwellElementAdapter`. |
@@ -287,7 +288,7 @@ KeyboardViewModel.ProcessKeyGaze(key)
   ├── PredictionOrchestrator.GetSuggestions(context)
   │     ├── WordPredictor.GetSuggestions() → n-gram + fuzzy
   │     ├── SentenceCompletionIndex.Search() → trie prefix
-  │     └── SmallLMPredictor.Predict() → neural LM
+  │     └── SmallLMPredictor.Predict() → neural LM (via ILanguageModelPredictor in EyeCtrl.LM)
   └── Display merged suggestions in prediction bar
 
 [Prediction dwell]
@@ -686,6 +687,9 @@ eyectrl/
 │   │   ├── Views/              # Settings window & other views
 │   │   ├── Controls/           # WPF custom controls (DwellControl)
 │   │   └── Assets/             # Resources, sounds, dictionaries
+│   ├── EyeCtrl.LM/              # ONNX neural LM (SmallLMPredictor, LMTokenizer)
+│   │   ├── SmallLMPredictor.cs  # ONNX inference via Microsoft.ML.OnnxRuntime
+│   │   └── LMTokenizer.cs       # Tokenizer wrapper via Tokenizers.DotNet
 │   ├── EyeCtrl.Contracts/      # Shared wire format (SDK ↔ App IPC)
 │   │   ├── WireMessages.cs     # Register/Update/Unregister/Activated records
 │   │   └── SdkRect.cs          # Physical-px rect for wire transport
@@ -704,6 +708,7 @@ eyectrl/
 │       └── EyeCtrlDwell.cs     # Explicit HWND fallback
 ├── tests/
 │   ├── EyeCtrl.Core.Tests/     # Unit tests for Core
+│   ├── EyeCtrl.LM.Tests/       # Tests for EyeCtrl.LM
 │   ├── EyeCtrl.Platform.Tests/ # Platform unit tests
 │   ├── EyeCtrl.ViewModels.Tests/ # ViewModel unit tests
 │   ├── EyeCtrl.App.Tests/     # App service tests + UI tests

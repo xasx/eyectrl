@@ -90,11 +90,17 @@ public class ModelDownloadService : IDisposable
         return Path.GetFileNameWithoutExtension(onnxFile) + ".tokenizer.json";
     }
 
+    /// <summary>Returns the full path to the tokenizer file for a given model size.</summary>
+    /// <param name="modelSize">Model size identifier (e.g., "360M").</param>
+    /// <returns>Full file path to the tokenizer JSON file.</returns>
     public string GetTokenizerPath(string modelSize)
     {
         return Path.Combine(_modelsDirectory, GetTokenizerFileName(modelSize));
     }
 
+    /// <summary>Derives the tokenizer download URL from a model download URL.</summary>
+    /// <param name="modelUrl">The model's download URL.</param>
+    /// <returns>The corresponding tokenizer download URL.</returns>
     public static string GetTokenizerUrl(string modelUrl)
     {
         if (string.IsNullOrWhiteSpace(modelUrl))
@@ -111,6 +117,9 @@ public class ModelDownloadService : IDisposable
         return tokenizerUrl;
     }
 
+    /// <summary>Returns the full path to the ONNX model file for a given model size.</summary>
+    /// <param name="modelSize">Model size identifier.</param>
+    /// <returns>Full file path to the ONNX model file.</returns>
     public string GetModelPath(string modelSize)
     {
         if (!ModelConstants.ModelFileNames.TryGetValue(modelSize, out var fileName))
@@ -118,6 +127,7 @@ public class ModelDownloadService : IDisposable
         return Path.Combine(_modelsDirectory, fileName);
     }
 
+    /// <summary>Cancels the currently active download operation.</summary>
     public void CancelDownload()
     {
         _downloadCts?.Cancel();
@@ -217,12 +227,20 @@ public class ModelDownloadService : IDisposable
         }
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (_ownsHttpClient)
             _httpClient?.Dispose();
     }
 
+    /// <summary>Downloads a tokenizer file from a URL for a known model size (uses standard naming).</summary>
+    /// <param name="modelSize">Model size identifier.</param>
+    /// <param name="url">Download URL.</param>
+    /// <param name="expectedSha256">Expected SHA-256 hash, or empty to skip verification.</param>
+    /// <param name="progress">Optional progress reporter.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True if the download succeeded and hash matched (or was skipped).</returns>
     public async Task<bool> DownloadTokenizerAsync(
         string modelSize,
         string url,
@@ -302,6 +320,13 @@ public class ModelDownloadService : IDisposable
         }
     }
 
+    /// <summary>Downloads a tokenizer with a custom output file name (for custom models).</summary>
+    /// <param name="modelId">Model identifier.</param>
+    /// <param name="outputFileName">Custom output file name to save as.</param>
+    /// <param name="url">Download URL.</param>
+    /// <param name="expectedSha256">Expected SHA-256 hash, or empty to skip.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True if successful.</returns>
     public async Task<bool> DownloadTokenizerAsync(
         string modelId,
         string outputFileName,

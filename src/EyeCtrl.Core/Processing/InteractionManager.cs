@@ -22,14 +22,23 @@ public class InteractionManager
     /// </summary>
     public ControlInfo? AutoSelectionTarget { get; set; }
 
+    /// <summary>Raised when the interaction state changes.</summary>
     public event Action<InteractionState>? StateChanged;
+    /// <summary>Raised when the user selects an action (click, scroll, etc.) at a specific point.</summary>
     public event Action<InteractionAction, PhysicalPoint>? ActionRequested;
+    /// <summary>Raised to show the activation button at a given point.</summary>
     public event Action<PhysicalPoint>? ShowActivationButton;
+    /// <summary>Raised to hide the activation button.</summary>
     public event Action? HideActivationButton;
+    /// <summary>Raised to show the action menu at a given point.</summary>
     public event Action<PhysicalPoint>? ShowActionMenu;
+    /// <summary>Raised to hide the action menu.</summary>
     public event Action? HideActionMenu;
+    /// <summary>Raised to start manual (zoom-to-point) selection at a given point.</summary>
     public event Action<PhysicalPoint>? StartManualSelection;
+    /// <summary>Raised to end manual selection.</summary>
     public event Action? EndManualSelection;
+    /// <summary>Raised to hide the manual selection overlay.</summary>
     public event Action? HideManualSelection;
 
     private void SetState(InteractionState newState)
@@ -50,6 +59,7 @@ public class InteractionManager
         ShowActivationButton?.Invoke(point);
     }
 
+    /// <summary>Called when the current fixation ends (gaze moves away from the fixation point).</summary>
     public void OnFixationEnded()
     {
         if (CurrentState == InteractionState.Fixation)
@@ -134,6 +144,7 @@ public class InteractionManager
         ResetToFreeLook();
     }
 
+    /// <summary>Navigates back from the action menu to manual selection, or closes manual selection to free look.</summary>
     public void OnManualSelectionBack()
     {
         if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)

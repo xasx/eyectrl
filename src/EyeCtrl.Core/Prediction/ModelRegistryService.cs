@@ -88,6 +88,14 @@ public class ModelRegistryService
         return $"{SanitizeFileName(entry.Id)}.tokenizer.json";
     }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ModelRegistryService"/> class,
+    /// scanning the models directory and building the registry from bundled and custom models.
+    /// </summary>
+    /// <param name="modelsDirectory">Directory containing model files.</param>
+    /// <param name="bundledManifest">The built-in model manifest.</param>
+    /// <param name="settings">Application settings (keyboard model size config).</param>
+    /// <param name="logger">Optional logger.</param>
     public ModelRegistryService(
         string modelsDirectory,
         ModelManifest bundledManifest,
@@ -169,6 +177,9 @@ public class ModelRegistryService
         }
     }
 
+    /// <summary>Returns the ONNX model file name for a given model ID.</summary>
+    /// <param name="modelId">Model identifier.</param>
+    /// <returns>The ONNX file name.</returns>
     public string GetModelFileName(string modelId)
     {
         if (_registry.TryGetValue(modelId, out var entry))
@@ -180,6 +191,9 @@ public class ModelRegistryService
         return $"{SanitizeFileName(modelId)}.onnx";
     }
 
+    /// <summary>Returns the tokenizer file name for a given model ID.</summary>
+    /// <param name="modelId">Model identifier.</param>
+    /// <returns>The tokenizer file name.</returns>
     public string GetTokenizerFileName(string modelId)
     {
         if (_registry.TryGetValue(modelId, out var entry))
@@ -198,21 +212,37 @@ public class ModelRegistryService
             : $"{modelId.ToLowerInvariant()}.onnx";
     }
 
+    /// <summary>Returns the full path to the ONNX model file for a given model ID.</summary>
+    /// <param name="modelId">Model identifier.</param>
     public string GetModelPath(string modelId)
     {
         return Path.Combine(_modelsDirectory, GetModelFileName(modelId));
     }
 
+    /// <summary>Returns the full path to the tokenizer file for a given model ID.</summary>
+    /// <param name="modelId">Model identifier.</param>
     public string GetTokenizerPath(string modelId)
     {
         return Path.Combine(_modelsDirectory, GetTokenizerFileName(modelId));
     }
 
+    /// <summary>Checks whether both model and tokenizer files exist on disk for a model ID.</summary>
+    /// <param name="modelId">Model identifier.</param>
+    /// <returns>True if both files exist.</returns>
     public bool IsModelDownloaded(string modelId)
     {
         return File.Exists(GetModelPath(modelId)) && File.Exists(GetTokenizerPath(modelId));
     }
 
+    /// <summary>Adds a custom model to the registry and persists it in keyboard settings.</summary>
+    /// <param name="id">Model identifier.</param>
+    /// <param name="displayName">Human-readable name.</param>
+    /// <param name="url">Download URL for the ONNX file.</param>
+    /// <param name="sha256">SHA-256 hash for integrity.</param>
+    /// <param name="sizeBytes">File size in bytes.</param>
+    /// <param name="tokenizerUrl">Download URL for the tokenizer.</param>
+    /// <param name="tokenizerSha256">SHA-256 hash for the tokenizer.</param>
+    /// <param name="keyboardSettings">Keyboard settings to update with the new model entry.</param>
     public void AddCustomModel(string id, string displayName, string url, string sha256,
         long sizeBytes, string tokenizerUrl, string tokenizerSha256, KeyboardSettings keyboardSettings)
     {
@@ -244,6 +274,9 @@ public class ModelRegistryService
         }
     }
 
+    /// <summary>Removes a custom model from the registry, keyboard settings, and deletes its files.</summary>
+    /// <param name="modelId">Model identifier.</param>
+    /// <param name="keyboardSettings">Keyboard settings to update.</param>
     public void RemoveCustomModel(string modelId, KeyboardSettings keyboardSettings)
     {
         lock (_lock)
@@ -263,6 +296,8 @@ public class ModelRegistryService
         }
     }
 
+    /// <summary>Deletes the model and tokenizer files for a model ID without removing it from the registry.</summary>
+    /// <param name="modelId">Model identifier.</param>
     public void DeleteModelFiles(string modelId)
     {
         lock (_lock)
@@ -277,6 +312,9 @@ public class ModelRegistryService
         }
     }
 
+    /// <summary>Sanitizes a string for use as a file name (alphanumeric, dots, dashes, underscores only).</summary>
+    /// <param name="name">Raw name to sanitize.</param>
+    /// <returns>A safe file name string.</returns>
     public static string SanitizeFileName(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return "custom_model";
@@ -314,6 +352,9 @@ public class ModelRegistryService
         return result;
     }
 
+    /// <summary>Resolves a unique file name within the models directory, appending a suffix if the name already exists.</summary>
+    /// <param name="sanitizedName">Pre-sanitized base name.</param>
+    /// <returns>A unique file name without extension.</returns>
     public string ResolveUniqueFileName(string sanitizedName)
     {
         var baseName = sanitizedName;

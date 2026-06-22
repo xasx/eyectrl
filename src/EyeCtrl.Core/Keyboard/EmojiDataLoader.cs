@@ -2,6 +2,7 @@ namespace EyeCtrl.Core.Keyboard;
 
 using System.Text.Json;
 
+/// <summary>Loads emoji data (categories and skin tone support) from a JSON file.</summary>
 public static class EmojiDataLoader
 {
     private static readonly JsonSerializerOptions Options = new()
@@ -10,6 +11,10 @@ public static class EmojiDataLoader
         PropertyNameCaseInsensitive = true
     };
 
+    /// <summary>Loads emoji data from a JSON file.</summary>
+    /// <param name="filePath">Path to the emoji data JSON file.</param>
+    /// <returns>The populated <see cref="EmojiData"/> instance.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the file is missing or deserialization fails.</exception>
     public static EmojiData Load(string filePath)
     {
         var json = File.ReadAllText(filePath);

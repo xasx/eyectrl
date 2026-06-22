@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Tests.Prediction;
 
 using EyeCtrl.Core.Prediction;
+using EyeCtrl.LM;
 using System.Text.Json;
 
 public class LMTokenizerTests : IDisposable

@@ -1,6 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Jobs;
 using EyeCtrl.Core.Prediction;
+using EyeCtrl.LM;
 
 namespace EyeCtrl.Benchmarks;
 

@@ -1,5 +1,6 @@
-namespace EyeCtrl.Core.Prediction;
+namespace EyeCtrl.LM;
 
+using EyeCtrl.Core.Prediction;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;

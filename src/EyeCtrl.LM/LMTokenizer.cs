@@ -1,4 +1,4 @@
-namespace EyeCtrl.Core.Prediction;
+namespace EyeCtrl.LM;
 
 using System.Text.Json;
 using Tokenizers.DotNet;

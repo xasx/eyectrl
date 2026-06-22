@@ -3,6 +3,7 @@ namespace EyeCtrl.Core.Calibration;
 using System.Collections.Concurrent;
 using EyeCtrl.Core.Models;
 
+/// <summary>Collects raw gaze samples for a single calibration target and computes the mean and standard deviation on completion.</summary>
 public class CalibrationPointCollector
 {
     private readonly PhysicalPoint _target;
@@ -13,10 +14,17 @@ public class CalibrationPointCollector
     private int _count;
     private volatile bool _ended;
 
+    /// <summary>Whether the collector is still accepting new samples.</summary>
     public bool IsCollecting => !_ended;
 
     private static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CalibrationPointCollector"/> class.
+    /// </summary>
+    /// <param name="target">The screen position of the calibration target in physical pixels.</param>
+    /// <param name="settleWindowMs">Time in milliseconds to discard initial samples while gaze settles on the target.</param>
+    /// <param name="maxSamples">Maximum number of valid samples to collect.</param>
     public CalibrationPointCollector(PhysicalPoint target, int settleWindowMs, int maxSamples = int.MaxValue)
     {
         _target = target;
@@ -25,6 +33,8 @@ public class CalibrationPointCollector
         _createdAt = NowMs();
     }
 
+    /// <summary>Adds a raw gaze sample for collection. Samples before the settle window expire are discarded.</summary>
+    /// <param name="gaze">Raw gaze position in physical screen pixels.</param>
     public void AddRawSample(PhysicalPoint gaze)
     {
         if (_ended) return;
@@ -37,6 +47,9 @@ public class CalibrationPointCollector
         Interlocked.Increment(ref _count);
     }
 
+    /// <summary>Ends collection and computes a <see cref="CalibrationPoint"/> with mean, standard deviation, and sample count.</summary>
+    /// <returns>A <see cref="CalibrationPoint"/> representing the collected data for this target.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no samples were collected after the settle window.</exception>
     public CalibrationPoint End()
     {
         _ended = true;

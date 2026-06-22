@@ -2,10 +2,19 @@ namespace EyeCtrl.Core.Calibration;
 
 using EyeCtrl.Core.Models;
 
+/// <summary>Generates screen positions for calibration targets, distributed across the screen with margins.</summary>
 public static class CalibrationTargetPositionHelper
 {
     private const double Margin = 0.2;
 
+    /// <summary>
+    /// Generates a list of calibration target positions in physical screen pixels,
+    /// ordered outermost-first for user-friendly scanning patterns.
+    /// </summary>
+    /// <param name="count">Number of calibration points (3–16).</param>
+    /// <param name="screenSize">Screen dimensions in physical pixels.</param>
+    /// <returns>Ordered list of target positions in physical screen pixels.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="count"/> is outside 3–16.</exception>
     public static IReadOnlyList<PhysicalPoint> GetPositions(int count, PhysicalPoint screenSize)
     {
         if (count < 3 || count > 16)

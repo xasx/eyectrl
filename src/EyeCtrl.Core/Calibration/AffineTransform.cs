@@ -2,12 +2,17 @@ namespace EyeCtrl.Core.Calibration;
 
 using EyeCtrl.Core.Models;
 
+/// <summary>
+/// Affine (6-parameter) calibration transform.
+/// Maps raw gaze coordinates to screen coordinates via x' = a*x + b*y + c, y' = d*x + e*y + f.
+/// </summary>
 public class AffineTransform : ICalibrationTransform
 {
     // x' = a*x + b*y + c,  y' = d*x + e*y + f
     private double _a = 1, _b = 0, _c = 0;
     private double _d = 0, _e = 1, _f = 0;
 
+    /// <inheritdoc />
     public PhysicalPoint Apply(PhysicalPoint rawGaze)
     {
         var x = _a * rawGaze.X + _b * rawGaze.Y + _c;
@@ -15,8 +20,10 @@ public class AffineTransform : ICalibrationTransform
         return new PhysicalPoint(x, y);
     }
 
+    /// <inheritdoc />
     public double[] GetParameters() => new[] { _a, _b, _c, _d, _e, _f };
 
+    /// <inheritdoc />
     public void SetParameters(double[] parameters)
     {
         if (parameters.Length != 6)
@@ -25,6 +32,14 @@ public class AffineTransform : ICalibrationTransform
         _d = parameters[3]; _e = parameters[4]; _f = parameters[5];
     }
 
+    /// <summary>
+    /// Fits a 6-parameter affine transform from calibration points using least-squares.
+    /// Solves Target = A * Gaze + B for each axis independently via normal equations and Gaussian elimination.
+    /// </summary>
+    /// <param name="points">At least 3 calibration points.</param>
+    /// <returns>A fitted <see cref="AffineTransform"/>.</returns>
+    /// <exception cref="ArgumentException">Thrown when fewer than 3 points are provided.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the fit produces non-finite or degenerate results.</exception>
     public static AffineTransform Fit(CalibrationPoint[] points)
     {
         if (points.Length < 3)

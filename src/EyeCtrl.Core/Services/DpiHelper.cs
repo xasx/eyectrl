@@ -27,11 +27,23 @@ public static class DpiHelper
 
     // --- Physical screen pixels → WPF DIPs ---
 
+    /// <summary>Converts a physical X coordinate to logical DIPs.</summary>
+    /// <param name="physicalX">X coordinate in physical screen pixels.</param>
+    /// <returns>X coordinate in WPF device-independent pixels.</returns>
     public static double PhysicalToLogicalX(double physicalX) => physicalX / ScaleX;
+    /// <summary>Converts a physical Y coordinate to logical DIPs.</summary>
+    /// <param name="physicalY">Y coordinate in physical screen pixels.</param>
+    /// <returns>Y coordinate in WPF device-independent pixels.</returns>
     public static double PhysicalToLogicalY(double physicalY) => physicalY / ScaleY;
 
     // --- WPF DIPs → Physical screen pixels ---
 
+    /// <summary>Converts a logical X coordinate to physical screen pixels.</summary>
+    /// <param name="logicalX">X coordinate in WPF device-independent pixels.</param>
+    /// <returns>X coordinate in physical screen pixels.</returns>
     public static double LogicalToPhysicalX(double logicalX) => logicalX * ScaleX;
+    /// <summary>Converts a logical Y coordinate to physical screen pixels.</summary>
+    /// <param name="logicalY">Y coordinate in WPF device-independent pixels.</param>
+    /// <returns>Y coordinate in physical screen pixels.</returns>
     public static double LogicalToPhysicalY(double logicalY) => logicalY * ScaleY;
 }

@@ -6,6 +6,10 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 using System.Collections.Concurrent;
 using System.Text;
 
+/// <summary>
+/// ONNX runtime-based small language model predictor for next-word suggestions.
+/// Uses a tokenizer to encode context and runs inference on a SmallLM ONNX model.
+/// </summary>
 public class SmallLMPredictor : IDisposable
 {
     private readonly string _modelsDirectory;
@@ -21,9 +25,21 @@ public class SmallLMPredictor : IDisposable
     private volatile int _inferenceCount;
     private ConcurrentBag<PredictionResult>? _pendingResults;
 
+    /// <summary>Whether the model was successfully loaded and is ready for inference.</summary>
     public bool IsAvailable { get; private set; }
+    /// <summary>Full path to the loaded ONNX model file, or null if not loaded.</summary>
     public string? SelectedModelPath { get; private set; }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SmallLMPredictor"/> class.
+    /// Loads the specified ONNX model and optional tokenizer.
+    /// </summary>
+    /// <param name="modelsDirectory">Directory containing model files.</param>
+    /// <param name="modelSize">Model size identifier (e.g., "360M"), or "Off" to disable.</param>
+    /// <param name="preferGpu">Whether to prefer GPU inference if available.</param>
+    /// <param name="logger">Optional logger.</param>
+    /// <param name="tokenizer">Optional pre-loaded tokenizer instance.</param>
+    /// <param name="modelPath">Optional explicit path to an ONNX model file instead of using the size-based lookup.</param>
     public SmallLMPredictor(string modelsDirectory, string? modelSize, bool preferGpu, ILogger<SmallLMPredictor>? logger = null, LMTokenizer? tokenizer = null, string? modelPath = null)
     {
         _modelsDirectory = modelsDirectory;

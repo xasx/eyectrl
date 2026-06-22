@@ -3,11 +3,18 @@ namespace EyeCtrl.Core.Prediction;
 using System.Text.Json;
 using Tokenizers.DotNet;
 
+/// <summary>Wraps a HuggingFace-style tokenizer for encoding/decoding text with the SmallLM.</summary>
 public class LMTokenizer : IDisposable
 {
     private readonly Tokenizer _tokenizer;
     private volatile bool _disposed;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="LMTokenizer"/> class from a tokenizer JSON file.
+    /// </summary>
+    /// <param name="tokenizerJsonPath">Path to the tokenizer.json file.</param>
+    /// <exception cref="FileNotFoundException">Thrown when the file does not exist.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the tokenizer fails to load or has no vocabulary.</exception>
     public LMTokenizer(string tokenizerJsonPath)
     {
         if (!File.Exists(tokenizerJsonPath))
@@ -39,6 +46,10 @@ public class LMTokenizer : IDisposable
         }
     }
 
+    /// <summary>Encodes a text string into token IDs.</summary>
+    /// <param name="text">The text to tokenize.</param>
+    /// <returns>Array of token IDs.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when the tokenizer has been disposed.</exception>
     public long[] Encode(string text)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -46,6 +57,10 @@ public class LMTokenizer : IDisposable
         return result.Select(id => (long)id).ToArray();
     }
 
+    /// <summary>Decodes token IDs back into a text string.</summary>
+    /// <param name="ids">Array of token IDs.</param>
+    /// <returns>The decoded text.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when the tokenizer has been disposed.</exception>
     public string Decode(long[] ids)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -53,10 +68,14 @@ public class LMTokenizer : IDisposable
         return _tokenizer.Decode(uintIds);
     }
 
+    /// <summary>Total number of tokens in the vocabulary.</summary>
     public int VocabSize { get; private set; }
+    /// <summary>Token ID for the beginning-of-sequence marker, or -1 if not set.</summary>
     public long BosTokenId { get; private set; } = -1;
+    /// <summary>Token ID for the end-of-sequence marker, or -1 if not set.</summary>
     public long EosTokenId { get; private set; } = -1;
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (_disposed) return;

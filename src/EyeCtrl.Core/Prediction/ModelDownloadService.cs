@@ -4,6 +4,10 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 
+/// <summary>
+/// Downloads ONNX model and tokenizer files with progress reporting.
+/// Handles SHA-256 integrity verification and cancellation.
+/// </summary>
 public class ModelDownloadService : IDisposable
 {
     private readonly string _modelsDirectory;
@@ -15,19 +19,33 @@ public class ModelDownloadService : IDisposable
     private CancellationTokenSource? _downloadCts;
     private readonly SemaphoreSlim _downloadSemaphore = new(1, 1);
 
+    /// <summary>Whether a download is currently in progress.</summary>
     public bool IsDownloading => _isDownloading;
 
+    /// <summary>Raised during downloads to report progress updates.</summary>
     public event Action<ModelDownloadProgress>? ProgressChanged;
 
+    /// <summary>Progress information for a model download operation.</summary>
     public class ModelDownloadProgress
     {
+        /// <summary>Model identifier being downloaded.</summary>
         public string ModelId { get; init; } = "";
+        /// <summary>Download progress as a fraction (0.0–1.0).</summary>
         public double Progress { get; init; }
+        /// <summary>Whether the download has completed successfully.</summary>
         public bool IsComplete { get; init; }
+        /// <summary>Whether the download was cancelled.</summary>
         public bool IsCancelled { get; init; }
+        /// <summary>Error message if the download failed.</summary>
         public string? Error { get; init; }
     }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ModelDownloadService"/> class.
+    /// </summary>
+    /// <param name="modelsDirectory">Directory where downloaded models are stored.</param>
+    /// <param name="httpClient">Optional HTTP client (creates its own if null).</param>
+    /// <param name="logger">Optional logger for diagnostic messages.</param>
     public ModelDownloadService(string modelsDirectory, HttpClient? httpClient = null, ILogger<ModelDownloadService>? logger = null)
     {
         _modelsDirectory = modelsDirectory;
@@ -39,6 +57,8 @@ public class ModelDownloadService : IDisposable
         Directory.CreateDirectory(_modelsDirectory);
     }
 
+    /// <summary>Returns the list of model size keys for which both model and tokenizer files exist on disk.</summary>
+    /// <returns>List of downloaded model size identifiers.</returns>
     public List<string> GetAvailableModels()
     {
         var available = new List<string>();
@@ -52,6 +72,9 @@ public class ModelDownloadService : IDisposable
         return available;
     }
 
+    /// <summary>Checks whether a specific model size has both ONNX and tokenizer files downloaded.</summary>
+    /// <param name="modelSize">Model size identifier (e.g., "360M").</param>
+    /// <returns>True if both files exist on disk.</returns>
     public bool IsModelDownloaded(string modelSize)
     {
         if (!ModelConstants.ModelFileNames.TryGetValue(modelSize, out var onnxFile)) return false;

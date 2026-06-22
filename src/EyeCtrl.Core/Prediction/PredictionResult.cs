@@ -30,6 +30,11 @@ public record PredictionResult
     /// </summary>
     public double Confidence { get; init; }
 
+    /// <summary>Initializes a new instance of the <see cref="PredictionResult"/> record.</summary>
+    /// <param name="word">The predicted word or phrase.</param>
+    /// <param name="score">Relevance score used for ranking.</param>
+    /// <param name="type">The prediction algorithm that produced this result.</param>
+    /// <param name="confidence">Confidence indicator for UI feedback.</param>
     public PredictionResult(string word, double score, PredictionType type, double confidence)
     {
         Word = word;

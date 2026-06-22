@@ -96,6 +96,9 @@ public static class KeyboardAdjacencyMap
         ['n'] = ['b','h','j','m'],
     };
 
+    /// <summary>Returns the adjacency map for the given keyboard layout name.</summary>
+    /// <param name="layoutName">Layout name: "QWERTY" (default), "QWERTZ", or "AZERTY".</param>
+    /// <returns>A dictionary mapping each character to its physically adjacent neighbours.</returns>
     public static Dictionary<char, HashSet<char>> For(string layoutName) =>
         layoutName.ToUpperInvariant() switch
         {
@@ -104,6 +107,11 @@ public static class KeyboardAdjacencyMap
             _        => Qwerty,
         };
 
+    /// <summary>Checks whether two characters are physically adjacent on the keyboard according to the given map.</summary>
+    /// <param name="map">An adjacency map from <see cref="For"/>.</param>
+    /// <param name="a">First character.</param>
+    /// <param name="b">Second character.</param>
+    /// <returns>True if <paramref name="a"/> has <paramref name="b"/> in its adjacency set.</returns>
     public static bool AreAdjacent(Dictionary<char, HashSet<char>> map, char a, char b) =>
         map.TryGetValue(a, out var neighbours) && neighbours.Contains(b);
 }

@@ -3,6 +3,10 @@ namespace EyeCtrl.Core.Prediction;
 using Microsoft.Extensions.Logging;
 using EyeCtrl.Core.Settings;
 
+/// <summary>
+/// Manages the registry of available language models (bundled and custom),
+/// tracking download status and the currently active model.
+/// </summary>
 public class ModelRegistryService
 {
     private readonly string _modelsDirectory;
@@ -13,11 +17,13 @@ public class ModelRegistryService
     private readonly object _lock = new();
     private string? _activeModelId;
 
+    /// <summary>Thread-safe snapshot of all registered model entries.</summary>
     public IReadOnlyDictionary<string, ModelRegistryEntry> Registry
     {
         get { lock (_lock) return new Dictionary<string, ModelRegistryEntry>(_registry, StringComparer.OrdinalIgnoreCase); }
     }
 
+    /// <summary>Gets or sets the currently active model ID. Setting deactivates all other models.</summary>
     public string? ActiveModelId
     {
         get => _activeModelId;
@@ -32,6 +38,7 @@ public class ModelRegistryService
         }
     }
 
+    /// <summary>All downloaded models except the currently active one.</summary>
     public IReadOnlyList<ModelRegistryEntry> DownloadedModels
     {
         get
@@ -44,6 +51,7 @@ public class ModelRegistryService
         }
     }
 
+    /// <summary>All downloaded models that can be selected (including the active one).</summary>
     public IReadOnlyList<ModelRegistryEntry> SelectableModels
     {
         get

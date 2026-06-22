@@ -2,6 +2,7 @@ using System.Text;
 
 namespace EyeCtrl.Core.Prediction;
 
+/// <summary>Trie-based index for sentence completion predictions, persisted in a binary format.</summary>
 public class SentenceCompletionIndex
 {
     private const int Magic = 0x54524945;
@@ -9,6 +10,9 @@ public class SentenceCompletionIndex
 
     private readonly TrieNode _root = new();
 
+    /// <summary>Inserts a sentence with a frequency weight into the trie for later completion queries.</summary>
+    /// <param name="sentence">The full sentence to index.</param>
+    /// <param name="frequency">Frequency weight for this sentence.</param>
     public void Insert(string sentence, int frequency)
     {
         if (string.IsNullOrWhiteSpace(sentence)) return;
@@ -38,6 +42,10 @@ public class SentenceCompletionIndex
         }
     }
 
+    /// <summary>Returns completion suggestions for a given prefix from the trie.</summary>
+    /// <param name="prefix">The partial sentence to complete.</param>
+    /// <param name="maxCount">Maximum number of completions to return.</param>
+    /// <returns>List of (completion, frequency) tuples ordered by descending frequency.</returns>
     public List<(string completion, int frequency)> GetCompletions(string prefix, int maxCount)
     {
         if (string.IsNullOrWhiteSpace(prefix)) return [];
@@ -60,6 +68,8 @@ public class SentenceCompletionIndex
             .ToList();
     }
 
+    /// <summary>Increases the frequency of an existing sentence completion to boost its ranking.</summary>
+    /// <param name="fullSentence">The full completed sentence to boost.</param>
     public void BoostCompletion(string fullSentence)
     {
         if (string.IsNullOrWhiteSpace(fullSentence)) return;
@@ -87,6 +97,8 @@ public class SentenceCompletionIndex
         }
     }
 
+    /// <summary>Decreases the frequency of a completion when the user dismissed it, reducing its future ranking.</summary>
+    /// <param name="fullSentence">The full completed sentence to demote.</param>
     public void DismissCompletion(string fullSentence)
     {
         if (string.IsNullOrWhiteSpace(fullSentence)) return;
@@ -114,6 +126,8 @@ public class SentenceCompletionIndex
         }
     }
 
+    /// <summary>Serializes the trie to a binary stream.</summary>
+    /// <param name="stream">The output stream (left open after writing).</param>
     public void Save(Stream stream)
     {
         using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
@@ -146,6 +160,10 @@ public class SentenceCompletionIndex
         }
     }
 
+    /// <summary>Deserializes a trie from a binary stream.</summary>
+    /// <param name="stream">The input stream.</param>
+    /// <returns>A new <see cref="SentenceCompletionIndex"/> populated from the stream.</returns>
+    /// <exception cref="InvalidDataException">Thrown when the stream has an invalid magic number or unsupported version.</exception>
     public static SentenceCompletionIndex Load(Stream stream)
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);

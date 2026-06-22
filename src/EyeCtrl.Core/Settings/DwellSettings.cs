@@ -2,17 +2,28 @@ namespace EyeCtrl.Core.Settings;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
+/// <summary>Dwell timing settings for gaze-based click activation.</summary>
 public partial class DwellSettings : ObservableObject, IValidatable
 {
+    /// <summary>Time in milliseconds to detect a fixation before dwell begins. Valid range: 100–1000.</summary>
     [ObservableProperty] private int _fixationDetectionMs = 300;
+    /// <summary>Dwell time in milliseconds for activation buttons. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _activationButtonDwellMs = 700;
+    /// <summary>Dwell time in milliseconds for action menu buttons. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _actionMenuDwellMs = 600;
+    /// <summary>Dwell time in milliseconds for manual selection action menu buttons. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _ManualSelectionActionMenuDwellMs = 600;
+    /// <summary>Dwell time in milliseconds for toolbar buttons. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _toolbarButtonDwellMs = 700;
+    /// <summary>Dwell time in milliseconds for keyboard keys. Valid range: 100–1500.</summary>
     [ObservableProperty] private int _keyboardKeyDwellMs = 450;
+    /// <summary>Dwell time in milliseconds for prediction suggestion buttons. Valid range: 100–1500.</summary>
     [ObservableProperty] private int _keyboardPredictionDwellMs = 500;
+    /// <summary>Radius in pixels within which gaze samples are considered a fixation. Valid range: 10–200.</summary>
     [ObservableProperty] private double _fixationRadiusPixels = 50;
+    /// <summary>Velocity threshold in pixels per second below which gaze is considered fixating.</summary>
     [ObservableProperty] private double _velocityThresholdPxPerSec = 100.0;
+    /// <summary>Cooldown period in milliseconds after a dwell activation before another can trigger. Valid range: 100–5000.</summary>
     [ObservableProperty] private int _dwellCooldownMs = 400;
 
     partial void OnFixationDetectionMsChanging(int value)
@@ -96,6 +107,7 @@ public partial class DwellSettings : ObservableObject, IValidatable
                 $"{nameof(VelocityThresholdPxPerSec)} must be greater than 0");
     }
 
+    /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
         return ValidationHelper.CollectErrors(

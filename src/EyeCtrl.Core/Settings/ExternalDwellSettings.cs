@@ -2,10 +2,14 @@ namespace EyeCtrl.Core.Settings;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
+/// <summary>Settings for external dwell (hardware-button-triggered) activation.</summary>
 public partial class ExternalDwellSettings : ObservableObject, IValidatable
 {
+    /// <summary>Whether external dwell activation is enabled.</summary>
     [ObservableProperty] private bool _enabled = true;
+    /// <summary>Default dwell duration in milliseconds for external activation. Valid range: 200–3000.</summary>
     [ObservableProperty] private int _defaultDwellMs = 800;
+    /// <summary>Cooldown period in milliseconds between external dwell activations. Valid range: 0–5000.</summary>
     [ObservableProperty] private int _cooldownMs = 400;
 
     partial void OnDefaultDwellMsChanging(int value)
@@ -22,6 +26,7 @@ public partial class ExternalDwellSettings : ObservableObject, IValidatable
                 $"{nameof(CooldownMs)} must be between 0 and 5000");
     }
 
+    /// <inheritdoc />
     public IReadOnlyList<string> Validate() => ValidationHelper.CollectErrors(
         ValidationHelper.ValidateRange(DefaultDwellMs, 200, 3000, nameof(DefaultDwellMs)),
         ValidationHelper.ValidateRange(CooldownMs, 0, 5000, nameof(CooldownMs)));

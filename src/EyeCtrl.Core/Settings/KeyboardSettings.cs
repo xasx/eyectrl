@@ -2,37 +2,55 @@ namespace EyeCtrl.Core.Settings;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
+/// <summary>Keyboard layout and typing behavior settings.</summary>
 public partial class KeyboardSettings : ObservableObject, IValidatable
 {
+    /// <summary>Active keyboard layout name (QWERTY, AZERTY, or QWERTZ).</summary>
     [ObservableProperty] private string _activeLayout = "QWERTY";
+    /// <summary>Multiplier applied to key sizes for accessibility. Valid range: 0.5–2.0.</summary>
     [ObservableProperty] private double _keySizeMultiplier = 1.0;
+    /// <summary>Whether word prediction suggestions are shown above the keyboard.</summary>
     [ObservableProperty] private bool _predictionEnabled = true;
+    /// <summary>Language pack identifier for dictionary loading.</summary>
     [ObservableProperty] private string _languagePack = "";
+    /// <summary>Edge of the screen where the keyboard is docked (Top or Bottom).</summary>
     [ObservableProperty] private string _screenEdge = "Bottom";
+    /// <summary>Emoji skin tone index (0 = none/default, 1–5 = Fitzpatrick scale).</summary>
     [ObservableProperty] private int _emojiSkinTone = 0;
+    /// <summary>Whether a click sound is played on each key activation.</summary>
     [ObservableProperty] private bool _clickSoundEnabled = true;
+    /// <summary>Whether automatic capitalization is applied based on context.</summary>
     [ObservableProperty] private bool _smartCapitalizationEnabled = true;
 
-    // Phase 4: Prediction UI & Configuration Settings
+    /// <summary>Whether next-word prediction after a completed word is enabled.</summary>
     [ObservableProperty] private bool _nextWordPredictionEnabled = true;
+    /// <summary>Whether to show confidence scores next to predictions.</summary>
     [ObservableProperty] private bool _showPredictionConfidence = false;
+    /// <summary>Whether to show prediction source labels (bigram, phrase, ML).</summary>
     [ObservableProperty] private bool _showPredictionTypes = false;
+    /// <summary>Whether emoji suggestions are shown in the prediction bar.</summary>
     [ObservableProperty] private bool _emojiSuggestionsEnabled = false;
 
-    // Phase 8: Decay Mechanism Settings
+    /// <summary>Whether decay-based frequency weighting is enabled for learned words.</summary>
     [ObservableProperty] private bool _decayEnabled = true;
+    /// <summary>Half-life in days for learned word frequency decay. Valid range: 1–365.</summary>
     [ObservableProperty] private int _decayHalfLifeDays = 30;
 
-    // ML Model Settings
+    /// <summary>Whether small language model (ML) suggestions are enabled.</summary>
     [ObservableProperty] private bool _mLSuggestionsEnabled = true;
+    /// <summary>Small language model size identifier (e.g., "360M").</summary>
     [ObservableProperty] private string _mLModelSize = "360M";
+    /// <summary>Whether to show a loading indicator while the ML model initializes.</summary>
     [ObservableProperty] private bool _showLMLoadingIndicator = true;
+    /// <summary>Whether to prefer GPU inference for the ML model.</summary>
     [ObservableProperty] private bool _preferGPU = true;
+    /// <summary>User-defined custom model entries for alternative ML models.</summary>
     [ObservableProperty] private List<CustomModelEntry> _customModels = [];
 
     private static readonly string[] ValidLayouts = { "QWERTY", "AZERTY", "QWERTZ" };
     private static readonly string[] ValidScreenEdges = { "Top", "Bottom" };
 
+    /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
         return ValidationHelper.CollectErrors(
@@ -44,13 +62,21 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     }
 }
 
+/// <summary>User-defined custom ML model entry for word prediction.</summary>
 public class CustomModelEntry
 {
+    /// <summary>Unique identifier for this custom model.</summary>
     public string Id { get; set; } = "";
+    /// <summary>Human-readable display name.</summary>
     public string DisplayName { get; set; } = "";
+    /// <summary>URL from which to download the model file.</summary>
     public string Url { get; set; } = "";
+    /// <summary>SHA-256 hash of the model file for integrity verification.</summary>
     public string Sha256 { get; set; } = "";
+    /// <summary>Size of the model file in bytes.</summary>
     public long SizeBytes { get; set; }
+    /// <summary>URL from which to download the tokenizer file.</summary>
     public string TokenizerUrl { get; set; } = "";
+    /// <summary>SHA-256 hash of the tokenizer file for integrity verification.</summary>
     public string TokenizerSha256 { get; set; } = "";
 }

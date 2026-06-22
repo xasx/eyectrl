@@ -4,6 +4,10 @@ using System.Text.Json.Serialization;
 using EyeCtrl.Core.Models;
 using Microsoft.Extensions.Logging;
 
+/// <summary>
+/// Service for persisting and loading application settings as JSON.
+/// Performs validation before saving and returns safe defaults on load failure.
+/// </summary>
 public class SettingsService
 {
     private readonly string _filePath;
@@ -19,12 +23,22 @@ public class SettingsService
     private readonly object _debounceLock = new();
     private const int DebounceMs = 500;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SettingsService"/> class.
+    /// </summary>
+    /// <param name="filePath">Full path to the settings JSON file.</param>
+    /// <param name="logger">Optional logger for diagnostic messages.</param>
     public SettingsService(string filePath, ILogger<SettingsService>? logger = null)
     {
         _filePath = filePath;
         _logger = logger;
     }
 
+    /// <summary>
+    /// Saves settings to disk after a debounce delay. Repeated calls within <see cref="DebounceMs"/>
+    /// cancel previous pending saves, ensuring only the latest state is written.
+    /// </summary>
+    /// <param name="settings">The settings object to persist.</param>
     public void SaveDebounced(EyeCtrlSettings settings)
     {
         CancellationToken token;
@@ -63,6 +77,11 @@ public class SettingsService
         });
     }
 
+    /// <summary>
+    /// Loads settings from disk. Returns defaults if the file does not exist, is malformed,
+    /// or contains validation errors.
+    /// </summary>
+    /// <returns>The loaded and validated <see cref="EyeCtrlSettings"/>, or a new default instance on failure.</returns>
     public EyeCtrlSettings Load()
     {
         if (!File.Exists(_filePath)) return new EyeCtrlSettings();
@@ -98,6 +117,11 @@ public class SettingsService
         }
     }
 
+    /// <summary>
+    /// Validates and immediately saves settings to disk. Throws if validation fails.
+    /// </summary>
+    /// <param name="settings">The settings object to persist.</param>
+    /// <exception cref="InvalidOperationException">Thrown when settings fail validation.</exception>
     public void Save(EyeCtrlSettings settings)
     {
         // Validate before saving

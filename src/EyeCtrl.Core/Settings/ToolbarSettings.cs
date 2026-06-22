@@ -2,14 +2,19 @@ namespace EyeCtrl.Core.Settings;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
+/// <summary>Toolbar appearance and docking settings.</summary>
 public partial class ToolbarSettings : ObservableObject, IValidatable
 {
+    /// <summary>Whether the toolbar is docked to a screen edge.</summary>
     [ObservableProperty] private bool _isDocked = true;
+    /// <summary>Screen edge where the toolbar is docked (Top, Bottom, Left, Right).</summary>
     [ObservableProperty] private string _dockedEdge = "Top";
+    /// <summary>Size of the toolbar in logical pixels. Valid range: 40–200.</summary>
     [ObservableProperty] private double _size = 80;
 
     private static readonly string[] ValidDockedEdges = { "Top", "Bottom", "Left", "Right" };
 
+    /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
         return ValidationHelper.CollectErrors(

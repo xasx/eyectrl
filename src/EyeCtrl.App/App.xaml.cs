@@ -120,17 +120,9 @@ public partial class App : Application
             Path.Combine(_appDataDir, "settings.json"));
         var im = gazeEngine.InteractionManager;
 
-        // Resolve ViewModels (triggers RegisterAll in constructors)
-        var cursorVM = _serviceProvider.GetRequiredService<CursorCircleViewModel>();
-        var activationVM = _serviceProvider.GetRequiredService<ActivationButtonViewModel>();
-        var ManualSelectionVM = _serviceProvider.GetRequiredService<ManualSelectionOverlayViewModel>();
-        var actionMenuVM = _serviceProvider.GetRequiredService<ActionMenuViewModel>();
-        var toolbarVM = _serviceProvider.GetRequiredService<ToolbarViewModel>();
-        var keyboardVM = _serviceProvider.GetRequiredService<KeyboardViewModel>();
-        var ManualSelectionIndicatorVM = _serviceProvider.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
-        var backdropVM = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
-        var calibrationVM = _serviceProvider.GetRequiredService<CalibrationViewModel>();
-        var targetHighlightVM = _serviceProvider.GetRequiredService<TargetHighlightOverlayViewModel>();
+        // ── Resolve ViewModels ──
+        var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
+             manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm) = ResolveViewModels(settings);
 
         // Resolve adapter (triggers Core event subscriptions)
         _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
@@ -138,13 +130,10 @@ public partial class App : Application
         // Resolve ManualSelectionDwellService (triggers message subscriptions)
         _ = _serviceProvider.GetRequiredService<ManualSelectionDwellService>();
 
-        // Configure ManualSelection indicator with settings
-        ManualSelectionIndicatorVM.Configure(settings);
-
         // ── Initialize overlay windows via OverlayManager ──
         var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-        var viewModels = new OverlayViewModels(cursorVM, activationVM, ManualSelectionVM, actionMenuVM, toolbarVM, keyboardVM, ManualSelectionIndicatorVM, calibrationVM, targetHighlightVM);
-        overlayManager.Initialize(viewModels, settings, activeProviderType);
+        var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm);
+        var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
 
         // Load calibration. Screen size must be in PHYSICAL pixels to match what
         // CompleteSession persists (logical DIPs here would discard calibration on any non-100% DPI).
@@ -155,17 +144,13 @@ public partial class App : Application
         var monitorName = System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "";
         _serviceProvider.GetRequiredService<CalibrationService>().Load(calibrationPath, screen, monitorName);
 
-        // Get references to overlay windows for event handlers
-        var cursorCircle = overlayManager.CursorCircle;
-        var toolbar = overlayManager.Toolbar;
-
         // ── Event Coordination ──
         // All PropertyChanged and message handlers are now managed by EventCoordinator
         _eventCoordinator = new EventCoordinator();
         var noteManager = _serviceProvider.GetRequiredService<INoteManager>();
         var coordinationContext = new EventCoordinationContext(
-            cursorVM, activationVM, ManualSelectionVM, ManualSelectionIndicatorVM, actionMenuVM, toolbarVM, keyboardVM, backdropVM,
-            overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, targetHighlightVM, inputSimulator,
+            cursorVm, activationVm, manualSelectionVm, manualSelectionIndicatorVm, actionMenuVm, toolbarVm, keyboardVm, backdropVm,
+            overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, targetHighlightVm, inputSimulator,
             _serviceProvider.GetRequiredService<CalibrationService>(),
             noteManager);
         _eventCoordinator.Initialize(coordinationContext);
@@ -181,13 +166,8 @@ public partial class App : Application
         // ── System tray ──
         _trayIconManager = new TrayIconManager(im, Dispatcher, () => Shutdown());
 
-        // ── Close splash and show persistent overlays ──
-        splash?.Close();
-        cursorCircle.Show();
-        toolbar.Show();
-        toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
-        toolbar.SetSelectionModeState(settings.SelectionMode);
-        toolbar.BindToViewModel();
+        // ── Close splash and show persistent overlays (last, after all wiring) ──
+        ShowOverlays(splash, cursorCircle, toolbar, settings);
 
         if (settings.General.StartPaused)
             im.TogglePause();
@@ -224,5 +204,57 @@ public partial class App : Application
 
         Log.CloseAndFlush();
         base.OnExit(e);
+    }
+
+    private (CursorCircleViewModel CursorVm,
+             ActivationButtonViewModel ActivationVm,
+             ManualSelectionOverlayViewModel ManualSelectionVm,
+             ActionMenuViewModel ActionMenuVm,
+             ToolbarViewModel ToolbarVm,
+             KeyboardViewModel KeyboardVm,
+             ManualSelectionGazeIndicatorViewModel ManualSelectionIndicatorVm,
+             GlassBackdropViewModel BackdropVm,
+             CalibrationViewModel CalibrationVm,
+             TargetHighlightOverlayViewModel TargetHighlightVm) ResolveViewModels(EyeCtrlSettings settings)
+    {
+        var cursorVm = _serviceProvider.GetRequiredService<CursorCircleViewModel>();
+        var activationVm = _serviceProvider.GetRequiredService<ActivationButtonViewModel>();
+        var manualSelectionVm = _serviceProvider.GetRequiredService<ManualSelectionOverlayViewModel>();
+        var actionMenuVm = _serviceProvider.GetRequiredService<ActionMenuViewModel>();
+        var toolbarVm = _serviceProvider.GetRequiredService<ToolbarViewModel>();
+        var keyboardVm = _serviceProvider.GetRequiredService<KeyboardViewModel>();
+        var manualSelectionIndicatorVm = _serviceProvider.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
+        var backdropVm = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
+        var calibrationVm = _serviceProvider.GetRequiredService<CalibrationViewModel>();
+        var targetHighlightVm = _serviceProvider.GetRequiredService<TargetHighlightOverlayViewModel>();
+
+        manualSelectionIndicatorVm.Configure(settings);
+
+        return (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm,
+                keyboardVm, manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm);
+    }
+
+    private (CursorCircleWindow CursorCircle, ToolbarWindow Toolbar) InitializeOverlays(
+        IOverlayManager overlayManager,
+        OverlayViewModels viewModels,
+        EyeCtrlSettings settings,
+        GazeProviderType providerType)
+    {
+        overlayManager.Initialize(viewModels, settings, providerType);
+        return (overlayManager.CursorCircle, overlayManager.Toolbar);
+    }
+
+    private static void ShowOverlays(
+        SplashWindow? splash,
+        CursorCircleWindow cursorCircle,
+        ToolbarWindow toolbar,
+        EyeCtrlSettings settings)
+    {
+        splash?.Close();
+        cursorCircle.Show();
+        toolbar.Show();
+        toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
+        toolbar.SetSelectionModeState(settings.SelectionMode);
+        toolbar.BindToViewModel();
     }
 }

@@ -16,6 +16,10 @@ internal class DictionaryData
     public List<string>? Abbreviations { get; set; }
 }
 
+/// <summary>
+/// File-based dictionary provider that loads a base dictionary plus a per-user learned dictionary.
+/// Also supports loading/saving bigrams, phrases, and casing preferences as extension data.
+/// </summary>
 public class FileDictionaryProvider : IDictionaryProvider
 {
     private readonly string _baseDictionaryPath;

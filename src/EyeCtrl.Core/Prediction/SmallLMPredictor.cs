@@ -126,6 +126,9 @@ public class SmallLMPredictor : IDisposable
         }
     }
 
+    /// <summary>Starts an asynchronous inference for next-word prediction based on context and optional prefix.</summary>
+    /// <param name="context">The preceding text for context.</param>
+    /// <param name="prefix">Optional prefix to filter predictions to.</param>
     public void Predict(string context, string? prefix = null)
     {
         if (_disposed || !IsAvailable || _session == null) return;
@@ -260,6 +263,8 @@ public class SmallLMPredictor : IDisposable
         return result;
     }
 
+    /// <summary>Attempts to retrieve pending inference results, returning null if none are available.</summary>
+    /// <returns>A list of <see cref="PredictionResult"/> or null.</returns>
     public IReadOnlyList<PredictionResult>? TryGetResults()
     {
         if (!IsAvailable) return null;
@@ -273,6 +278,7 @@ public class SmallLMPredictor : IDisposable
         }
     }
 
+    /// <summary>Cancels any pending inference operation.</summary>
     public void Cancel()
     {
         lock (_lock)
@@ -311,6 +317,7 @@ public class SmallLMPredictor : IDisposable
         return results;
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (_disposed) return;

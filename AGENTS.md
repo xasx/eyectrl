@@ -19,7 +19,13 @@ dotnet test                                                       # all tests
 dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"        # UI tests (needs display)
 ```
 
-**No linter, formatter, or CI is configured.** There is no `.editorconfig` and no GitHub Actions. The repo relies on `dotnet build` for compilation checks only.
+## CI
+
+GitHub Actions runs on `push` to `main` and `pull_request` targeting `main`:
+- `build-and-test` — builds solution, runs `dotnet test --filter "Category!=UI"` (blocking)
+- `ui-tests` — runs FlaUI tests with `Category=UI` (non-blocking, `continue-on-error: true`)
+
+No linter, formatter, or code coverage configured.
 
 ## Assertions
 

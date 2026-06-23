@@ -60,22 +60,7 @@ public partial class App : Application
             splash.Show();
         }
 
-        // ── DPI initialization ──
-        if (splash != null)
-        {
-            var source = PresentationSource.FromVisual(splash);
-            if (source?.CompositionTarget != null)
-            {
-                var m = source.CompositionTarget.TransformToDevice;
-                DpiHelper.Initialize(m.M11, m.M22);
-            }
-        }
-        if (IsTestMode)
-        {
-            var dpi = GetDpiForSystem();
-            var scale = dpi / (double)DpiStandardScale;
-            DpiHelper.Initialize(scale, scale);
-        }
+        InitializeDpi(splash);
 
         // ── Settings ──
         _appDataDir = Path.Combine(
@@ -256,5 +241,28 @@ public partial class App : Application
         toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
         toolbar.SetSelectionModeState(settings.SelectionMode);
         toolbar.BindToViewModel();
+    }
+
+    /// <summary>
+    /// Initializes <see cref="DpiHelper"/> from the splash window's composition target.
+    /// In test mode no splash is shown, so it falls back to the Win32 system DPI.
+    /// </summary>
+    private static void InitializeDpi(SplashWindow? splash)
+    {
+        if (splash != null)
+        {
+            var source = PresentationSource.FromVisual(splash);
+            if (source?.CompositionTarget != null)
+            {
+                var m = source.CompositionTarget.TransformToDevice;
+                DpiHelper.Initialize(m.M11, m.M22);
+            }
+        }
+        if (IsTestMode)
+        {
+            var dpi = GetDpiForSystem();
+            var scale = dpi / (double)DpiStandardScale;
+            DpiHelper.Initialize(scale, scale);
+        }
     }
 }

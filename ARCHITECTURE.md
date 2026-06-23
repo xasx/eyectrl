@@ -1,6 +1,6 @@
 # EyeCtrl Architecture
 
-> Auto-generated from the GitNexus knowledge graph: **eyectrl** (5746 symbols, 12865 relationships, 300 execution flows, 293 functional areas). Index dated 2026-06-18 (commit `5df4a426`).
+> Auto-generated from the GitNexus knowledge graph: **eyectrl** (5891 symbols, 13169 relationships, 300 execution flows, 293 functional areas). Index dated 2026-06-23 (commit `3be8635`).
 
 EyeCtrl is a gaze control platform for Windows that turns an eye tracker (Tobii Stream Engine, or a mouse fallback) into a cursor, dwell-click, on-screen keyboard, and word-prediction input system. The codebase is split into eight .NET projects with a strict dependency direction (`App → ViewModels → Core`, `App → Platform → Core`), plus a standalone SDK layer (`Contracts → Abstractions → Sdk.Wpf / Sdk.WinUI`) that enables third-party apps to add gaze-dwell via named-pipe IPC.
 
@@ -86,7 +86,7 @@ EyeCtrl is a gaze control platform for Windows that turns an eye tracker (Tobii 
 | `EyeCtrl.Platform` | `net10.0-windows` | `unsafe` Win32 (`SendInput`), Tobii Stream Engine SDK (conditional, only when DLLs are present). |
 | `EyeCtrl.ViewModels` | `net10.0-windows` | MVVM with `CommunityToolkit.Mvvm` v8.4.0. `[ObservableProperty]` source generators, `WeakReferenceMessenger` for pub/sub. |
 | `EyeCtrl.App` | `net10.0-windows`, `WinExe`, `UseWPF`+`UseWindowsForms` | WPF entry point, DI wiring, overlay windows, settings UI, tray icon, **ExternalDwellService** (named-pipe server). |
-| `EyeCtrl.LM` | `net10.0` | ONNX neural language model predictor (`SmallLMPredictor`) and tokenizer (`LMTokenizer`). Depends on `EyeCtrl.Core`. |
+| `EyeCtrl.LM` | `net10.0` | ONNX neural language model predictor (`SmallLMPredictor`) and tokenizer (`LMTokenizer`). Implements `ILanguageModelPredictor` from Core. |
 | `EyeCtrl.Contracts` | `net8.0` | Shared wire-format records (`WireMessage`, `SdkRect`). Zero dependencies. Used by both App (server) and SDK (client). |
 | `EyeCtrl.Sdk.Abstractions` | `net8.0` | Framework-agnostic SDK surface: `IDwellElementAdapter`, `DwellClient` (named-pipe client), `OutboundRectTracker`. |
 | `EyeCtrl.Sdk.Wpf` | `net8.0-windows` | WPF attached properties (`Dwell.Enabled`, `Dwell.Mode`). `WpfElementAdapter` bridges WPF elements to `IDwellElementAdapter`. |
@@ -114,7 +114,7 @@ Communities are auto-detected functional clusters. Numbers are total symbols acr
 | **Input** | 12 | 0.53 | `IInputSimulator` ↔ `Win32InputSimulator`, `MouseCoordinateMapper`, `MouseGazeProvider` (test-mode gaze source). |
 | **StreamEngineGazeTracker** | 11 | 1.0 | Tobii Stream Engine wrapper (`TOBII_AVAILABLE`-guarded). |
 | **SDK** | 45 | 0.90 | Named-pipe IPC layer: `Contracts` (wire messages), `Sdk.Abstractions` (`DwellClient`, `IDwellElementAdapter`), `Sdk.Wpf` (`Dwell` attached properties), `Sdk.WinUI` (`Dwell` attached properties + `AdapterGroupTracker`). |
-| **Tests** | 244 | — | xUnit 2.9; private nested fakes (no mocking library). Per-test class instantiation, no `IClassFixture`. |
+| **Tests** | 244 | — | xUnit 2.9 + NFluent 3.1.0 assertions. Private nested fakes (no mocking library). Per-test class instantiation, no `IClassFixture`. |
 
 ### Hub Symbols (most-referenced in the graph)
 
@@ -146,20 +146,24 @@ GitNexus traced 300 call-chain processes. The most important entry-to-terminal f
 ### 4.1 Application startup — `App.OnStartup`
 `src/EyeCtrl.App/App.xaml.cs:50`
 
-1. Show `SplashWindow` (skipped in `--test-mode`).
-2. Initialize `DpiHelper` from `CompositionTarget.TransformToDevice`.
-3. Load `EyeCtrlSettings` from `%APPDATA%/EyeCtrl/settings.json` via `SettingsService`.
-4. Initialize Serilog → `%APPDATA%/EyeCtrl/logs/eyectrl-.log` (rolling, 7-day retention).
-5. `AppBootstrapper.BuildServiceProvider(...)` constructs the DI graph.
-6. Resolve every ViewModel — their constructors register `IMessenger` handlers (`RegisterAll`).
-7. Resolve `GazeEngineAdapter` (subscribes to Core events) and `ManualSelectionDwellService` (subscribes to messages).
-8. `IOverlayManager.Initialize(viewModels, settings, providerType)` creates and configures all overlay windows.
-9. `CalibrationService.Load(calibrationPath, screenPx, monitorName)` — uses **physical** screen pixels.
-10. Construct `EventCoordinator`, hand it an `EventCoordinationContext` of all participants.
+`OnStartup` delegates to extracted helpers for each phase:
+
+1. **`InitializeDpi(splash)`** — sets `DpiHelper` from the splash window's `CompositionTarget.TransformToDevice`. In `--test-mode` (no splash), falls back to `GetDpiForSystem()` Win32 P/Invoke.
+2. **`InitializeSettingsAndLogging()`** — resolves `%APPDATA%/EyeCtrl/`, loads `EyeCtrlSettings` via `SettingsService.Load()` (migrates defaults), initializes Serilog → `eyectrl-.log` (rolling, 7-day retention), registers `AppDomain.UnhandledException` and `DispatcherUnhandledException` handlers. Returns `(settings, settingsFilePath)`.
+3. `AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode)` constructs the DI graph.
+4. Resolve services: `SettingsService`, `GazeEngine`, `IMessenger`, `IInputSimulator`, `IGazeProvider`. Determine `activeProviderType` via `GazeProviderFactory.GetProviderType`.
+5. **`ResolveViewModels(settings)`** — resolves all 10 ViewModels from DI, calls `manualSelectionIndicatorVm.Configure(settings)`, returns a 10-tuple.
+6. Resolve `GazeEngineAdapter` (subscribes to Core events) and `ManualSelectionDwellService` (subscribes to messages).
+7. **`InitializeOverlays(overlayManager, viewModels, settings, providerType)`** — calls `IOverlayManager.Initialize`, returns `(cursorCircle, toolbar)`.
+8. `CalibrationService.Load(calibrationPath, screenPx, monitorName)` — uses **physical** screen pixels.
+9. Construct `EventCoordinator`, hand it an `EventCoordinationContext` of all participants.
+10. `_eventCoordinator.SetModelServices(...)` exposes model registry/download/management for settings UI.
 11. `_eventCoordinator.LoadKeyboard(...)` populates the on-screen keyboard from the active layout.
-12. Start `TrayIconManager`, close splash, show `CursorCircle` + `Toolbar`.
-13. If `settings.General.StartPaused` → `InteractionManager.TogglePause()`.
-14. `gazeEngine.Start()` → `IGazeProvider.Start()` begins emitting samples.
+12. Start `TrayIconManager`.
+13. **`ShowOverlays(splash, cursorCircle, toolbar, settings)`** — closes splash, shows cursor + toolbar, applies docked/selection-mode state.
+14. If `settings.General.StartPaused` → `InteractionManager.TogglePause()`.
+15. `gazeEngine.Start()` → `IGazeProvider.Start()` begins emitting samples.
+16. `ExternalDwellService.Start()` opens the named-pipe server.
 
 **Graph-verified trace** (`OnStartup → ConnectApi`, 6 steps):
 
@@ -288,7 +292,7 @@ KeyboardViewModel.ProcessKeyGaze(key)
   ├── PredictionOrchestrator.GetSuggestions(context)
   │     ├── WordPredictor.GetSuggestions() → n-gram + fuzzy
   │     ├── SentenceCompletionIndex.Search() → trie prefix
-  │     └── SmallLMPredictor.Predict() → neural LM (via ILanguageModelPredictor in EyeCtrl.LM)
+  │     └── ILanguageModelPredictor.Predict() → neural LM (via EyeCtrl.LM.SmallLMPredictor)
   └── Display merged suggestions in prediction bar
 
 [Prediction dwell]
@@ -297,6 +301,8 @@ KeyboardViewModel.ProcessKeyGaze(key)
               ├── SendKeyPress(Backspace) × deleteCount
               └── SendText(word + " ")
 ```
+
+`SmallLMPredictor` lives in the `EyeCtrl.LM` project and implements `ILanguageModelPredictor` (defined in `EyeCtrl.Core`). Core never references `EyeCtrl.LM` directly — the App project wires the concrete `SmallLMPredictor` into `PredictionOrchestrator` at startup via the interface seam.
 
 ### 4.7 Manual Selection Flow
 `src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs`
@@ -349,9 +355,13 @@ The `BuildXxxPages` family (Cursor, Keyboard, Toolbar, Theme, Calibration, Gener
 
 1. User triggers calibration (toolbar dwell) → `CalibrationRequestedMessage` published.
 2. `CalibrationWindow` overlay opens; gaze samples are collected at known screen positions.
-3. `CompleteSession()` runs the per-monitor **Gaussian elimination** to solve the 2-D mapping.
-4. Result wrapped in a `Transform` and written to `%APPDATA%/EyeCtrl/calibration.json` by `CalibrationService.Save`.
-5. On next startup, `CalibrationService.Load` (step 9 of §4.1) restores it; the `CurrentTransform` is consulted on every `OnGazePoint`.
+3. `CompleteSession()` validates before fitting:
+   - `CalibrationValidator.HasSufficientGazeVariation(points)` — rejects if gaze barely moved (sensor not tracking).
+   - `AffineTransform.Fit(points)` — Gaussian elimination for 2-D mapping.
+   - `CalibrationValidator.IsTransformSane(transform, w, h)` — rejects degenerate fits that would map gaze off-screen.
+   - `CalibrationValidator.MaxResidualPixels` — rejects if residual error exceeds a fraction of the screen diagonal.
+4. Result wrapped in a `CalibrationData` and written to `%APPDATA%/EyeCtrl/calibration.json` by `CalibrationService.Save`.
+5. On next startup, `CalibrationService.Load` (step 8 of §4.1) restores it; the `CurrentTransform` is consulted on every `OnGazePoint`.
 
 ### 4.10 External Dwell IPC — `ExternalDwellService`
 `src/EyeCtrl.App/Services/ExternalDwellService.cs`
@@ -406,6 +416,7 @@ Dwell.Enabled="True"                           ExternalDwellService
 | **Hardware abstraction** | `IGazeProvider`; concrete: `TobiiStreamEngineProvider` (conditional) and `MouseGazeProvider` (test-mode fallback). Selected by `GazeProviderFactory` based on `settings.General.GazeProviderType`. |
 | **Resource files** | JSON layouts, dictionaries, emojis, `click.wav` use `<ExcludeFromSingleFile>true</ExcludeFromSingleFile>` — they ship alongside the single-file exe. |
 | **Named-pipe IPC** | `ExternalDwellService` (server, in App) ↔ `DwellClient` (client, in SDK). Byte-mode, newline-framed JSON via `eyectrl_dwell` pipe. Wire format lives in `EyeCtrl.Contracts` so the SDK never references Core. |
+| **CI** | GitHub Actions runs on `push` to `main` and `pull_request` targeting `main`. `build-and-test` job builds and runs `dotnet test --filter "Category!=UI"`. UI tests (FlaUI, `Category=UI`) are excluded — they need an interactive desktop. |
 
 ---
 
@@ -623,6 +634,7 @@ flowchart TB
 5. **No mocking library in tests.** Tests use private nested fakes (`FakeGazeProvider`, `FakeInputSimulator`). Thread-safety is verified with explicit `DwellDetectorThreadSafetyTests` rather than a concurrency testing framework.
 6. **Settings drive behaviour.** Almost every tunable (filter mode, dwell radius, calibration, provider type, model selection) lives in `EyeCtrlSettings` and is re-read on `PropertyChanged`; the engine rebuilds its filter chain live (see `GazeEngineFilterRecreationTests`).
 7. **CommunityToolkit.Mvvm in Core is a source-generator utility, not a UI dependency.** `ObservableObject` + `[ObservableProperty]` provide `INotifyPropertyChanged` for settings objects (13 classes, ~80 properties). `GazeEngine` subscribes to `CursorSettings.PropertyChanged` to rebuild the filter chain live. The library emits C# source only — no runtime UI dependency. This is distinct from the `WeakReferenceMessenger` used in ViewModels (which Core does *not* use).
+8. **LM is behind an interface seam.** `ILanguageModelPredictor` lives in `EyeCtrl.Core`; `SmallLMPredictor` + `LMTokenizer` live in `EyeCtrl.LM`. Core never references `EyeCtrl.LM` — the App project wires the concrete implementation at startup. This keeps Core free of ONNX native dependencies.
 
 ---
 
@@ -645,13 +657,14 @@ flowchart TB
 
 | Goal | Start here |
 |---|---|
-| Understand the runtime pipeline | `src/EyeCtrl.App/App.xaml.cs` → `src/EyeCtrl.App/Services/AppBootstrapper.cs` → `src/EyeCtrl.Core/GazeEngine.cs` |
+| Understand the runtime pipeline | `src/EyeCtrl.App/App.xaml.cs` (`OnStartup` → `InitializeDpi` → `InitializeSettingsAndLogging` → `AppBootstrapper.BuildServiceProvider`) → `src/EyeCtrl.Core/GazeEngine.cs` |
 | See how events flow to overlays | `src/EyeCtrl.App/Services/GazeEngineAdapter.cs` → `src/EyeCtrl.App/Services/EventCoordinator.cs` |
 | Tweak dwell / fixation | `src/EyeCtrl.Core/Processing/DwellDetector.cs` and `src/EyeCtrl.Core/Processing/FixationDetector.cs` |
 | Add a new gaze provider | Implement `IGazeProvider` in `EyeCtrl.Platform/Gaze` and register it in `GazeProviderFactory` |
 | Add a new keyboard layout | Drop a JSON layout into `Resources/KeyboardLayouts/`, extend the layout enum, no code change required to load |
 | Add a new settings tab | `SettingsWindow.xaml.cs` (`BuildXxxPages`) + a new sub-model in `EyeCtrlSettings` |
 | Improve word prediction | `src/EyeCtrl.Core/Prediction/PredictionOrchestrator.cs` orchestrates the existing models; new strategies plug in alongside `BigramModel`, `PhraseModel`, `SmallLMPredictor` |
+| Add a new LM backend | Implement `ILanguageModelPredictor` (in `EyeCtrl.Core/Prediction/`), wire it in `AppBootstrapper`. `SmallLMPredictor` in `EyeCtrl.LM` is the reference implementation. |
 | Add dwell to a WPF app | `src/EyeCtrl.Sdk.Wpf/Dwell.cs` — set `Dwell.Enabled="True"` on any `FrameworkElement` |
 | Add dwell to a WinUI 3 app | `src/EyeCtrl.Sdk.WinUI/Dwell.cs` — same attached-property API; see `samples/EyeCtrl.Sdk.WinUI.Sample/` |
 | Understand the IPC protocol | `src/EyeCtrl.Contracts/WireMessages.cs` (wire format) → `src/EyeCtrl.Sdk.Abstractions/DwellClient.cs` (client) → `src/EyeCtrl.App/Services/ExternalDwellService.cs` (server) |
@@ -730,9 +743,9 @@ eyectrl/
 |-------|-------|
 | Repository | `eyectrl` (`C:\Users\andre\source\repos\eyectrl`) |
 | Remote | https://github.com/xasx/eyectrl |
-| Indexed at | 2026-06-18T20:34:39Z |
-| Last indexed commit | `5df4a426` |
-| Symbols / relationships / flows | 5746 / 12865 / 300 |
+| Indexed at | 2026-06-23T21:24:53Z |
+| Last indexed commit | `3be8635` |
+| Symbols / relationships / flows | 5891 / 13169 / 300 |
 | Functional areas (communities) | 293 |
 | Embeddings | disabled (BM25 + structural only) |
 

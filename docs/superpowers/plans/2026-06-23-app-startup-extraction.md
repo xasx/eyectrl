@@ -18,6 +18,20 @@
 
 No other files are touched.
 
+## Before you start
+
+> **Branch first.** This plan commits once per task. If you're on `main`, create a working
+> branch before Task 1: `git switch -c refactor/app-startup-extraction`.
+
+> **Impact analysis (per `CLAUDE.md`).** `impact({target: "OnStartup", direction: "upstream"})`
+> returns **0 callers, 0 affected processes, LOW risk** — `OnStartup` is a WPF framework entry
+> point, so extracting private helpers from it cannot break any caller. Each task ends with
+> `detect_changes()` before its commit.
+
+> **Line numbers below refer to the original `App.xaml.cs`.** Task 1 removes ~15 lines, so by
+> Task 2 the settings block and `Log.Information` call have shifted up — match on the quoted
+> code, not the absolute numbers.
+
 ---
 
 ### Task 1: Extract `InitializeDpi` from `OnStartup`
@@ -96,7 +110,12 @@ Expected: 0 errors.
 Run: `dotnet test --filter "Category!=UI"`
 Expected: All pass (no behavior change).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Verify changed scope**
+
+Run `detect_changes()`. Expect only `App.OnStartup` (modified) and `App.InitializeDpi` (new) as
+changed symbols — anything else means the edit reached further than intended.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/EyeCtrl.App/App.xaml.cs
@@ -158,7 +177,7 @@ Add this method after the `InitializeDpi` method (before the class closing `}`):
 
 - [ ] **Step 2: Replace the settings+logging block in `OnStartup` with a method call**
 
-Replace lines 80-104 (from `// ── Settings ──` through the `DispatcherUnhandledException` handler closing brace) with:
+Replace the settings + logging block — lines 80-104 *in the original file* (from `// ── Settings ──` through the `DispatcherUnhandledException` handler closing brace) — with:
 
 ```csharp
         var (settings, settingsFilePath) = InitializeSettingsAndLogging();
@@ -177,7 +196,7 @@ The `OnStartup` method should now read (showing the replaced region):
 
 - [ ] **Step 3: Update the `Log.Information` call to use the local `settingsFilePath`**
 
-The existing `Log.Information` call at line 118-120 uses `Path.Combine(_appDataDir, "settings.json")`. Since we now have `settingsFilePath` as a local, replace:
+The existing `Log.Information` call (lines 118-120 *in the original*) uses `Path.Combine(_appDataDir, "settings.json")`. Since we now have `settingsFilePath` as a local, replace:
 
 ```csharp
         Log.Information("Startup: EyeCtrl v{Version}, provider={Provider}, settings={SettingsPath}",
@@ -204,7 +223,12 @@ Expected: 0 errors.
 Run: `dotnet test --filter "Category!=UI"`
 Expected: All pass (no behavior change).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Verify changed scope**
+
+Run `detect_changes()`. Expect only `App.OnStartup` (modified) and `App.InitializeSettingsAndLogging`
+(new) as changed symbols.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/EyeCtrl.App/App.xaml.cs
@@ -220,15 +244,20 @@ git commit -m "refactor: extract InitializeSettingsAndLogging from App.OnStartup
 - [ ] **Step 1: Run the app in test mode**
 
 Run: `dotnet run --project src/EyeCtrl.App -- --test-mode`
-Expected: App launches (mouse-as-gaze), overlays appear. Close the window to exit.
+Expected: app launches (mouse-as-gaze), overlays appear. The app uses
+`ShutdownMode="OnExplicitShutdown"` with a system-tray icon, so closing an overlay won't quit —
+exit via the tray's **Exit** item (or stop the `dotnet run` process).
 
 - [ ] **Step 2: Verify `OnStartup` reads as flat orchestration**
 
-Read `App.xaml.cs` and confirm `OnStartup` is a clean sequence of named calls with no inline blocks longer than ~5 lines. All rationale comments (PHYSICAL-pixels calibration, `triggers … subscriptions`) must be intact.
+Read `App.xaml.cs` and confirm the DPI and settings/logging blocks are now single named calls (`InitializeDpi(splash)` and `InitializeSettingsAndLogging()`). The event-coordination block (~16 lines, 10+ dependencies) stays inline **by design** — do not extract it. All rationale comments (PHYSICAL-pixels calibration, `triggers … subscriptions`) must be intact.
 
-- [ ] **Step 3: Run full test suite**
+- [ ] **Step 3: Run the headless-safe suite**
 
-Run: `dotnet test`
-Expected: All pass.
+Run: `dotnet test --filter "Category!=UI"`
+Expected: all pass (~926 passed, 1 skipped at last run). The ~13 `AppLaunchTests` (`Category=UI`)
+need a real desktop and fail headless — their CI job was dropped for that reason — so they're
+excluded here, not a regression signal. Run the unfiltered `dotnet test` only on a machine with
+an interactive desktop session.
 
 - [ ] **Step 4: No commit needed — this is verification only.**

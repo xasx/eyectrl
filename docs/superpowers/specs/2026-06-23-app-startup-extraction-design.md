@@ -14,20 +14,28 @@ Extract two blocks from `OnStartup` into private methods:
 | `InitializeDpi(SplashWindow?)` | 16 | DPI initialization (splash visual or Win32 fallback) |
 | `InitializeSettingsAndLogging()` | 25 | Settings load, Serilog init, exception handlers |
 
-`OnStartup` drops from ~130 lines to ~89 lines. File goes from 260 → ~219 lines.
+After extraction, `OnStartup` reads as a flat sequence of well-named calls.
 
 ## Motivation
 
-`App.xaml.cs` is at 260 lines. The architecture review target is <200 lines.
-The Phase 3.2 extraction (commit `45a1ea1`) extracted three helpers but the
-file is still above target. Two more blocks are self-contained candidates:
+`App.OnStartup` is a ~130-line method whose two-line-comment-sections obscure
+its orchestration flow. The Phase 3.2 extraction (commit `45a1ea1`) already
+extracted `ResolveViewModels`, `InitializeOverlays`, and `ShowOverlays`; two
+more blocks are self-contained candidates:
 
 1. **DPI initialization** (lines 63-78) — two branches with no shared state
 2. **Settings + logging** (lines 80-104) — returns results, no coupling to rest
 
-The remaining ~19 lines over target after this extraction are the event
-coordination block (16 lines), which depends on 10+ local variables and is
-not cleanly extractable without a large parameter object.
+Extracting these as named helpers makes `OnStartup` scan as a flat sequence of
+intent-revealing calls. **This is a readability refactor, not a file-size
+reduction** — the extracted bodies stay private methods on `App`, so the file
+size is essentially unchanged. The architecture review's <200-line target is
+not addressed by this change; reaching it would require extracting helpers to a
+separate file, which is out of scope here.
+
+The event coordination block (16 lines) is left in place — it depends on 10+
+local variables and is not cleanly extractable without a large parameter
+object.
 
 ## Approach
 
@@ -54,6 +62,10 @@ if (IsTestMode)
 
 **Extracted method:**
 ```csharp
+/// <summary>
+/// Initializes <see cref="DpiHelper"/> from the splash window's composition target.
+/// In test mode no splash is shown, so it falls back to the Win32 system DPI.
+/// </summary>
 private static void InitializeDpi(SplashWindow? splash)
 {
     if (splash != null)
@@ -111,17 +123,23 @@ DispatcherUnhandledException += (_, args) =>
 
 **Extracted method:**
 ```csharp
-private (EyeCtrlSettings Settings, string AppDataDir, string SettingsFilePath) InitializeSettingsAndLogging()
+/// <summary>
+/// Resolves the app data directory (stored in <see cref="_appDataDir"/>), loads settings
+/// while migrating newly-introduced defaults, initializes Serilog, and registers the global
+/// (AppDomain + dispatcher) exception handlers.
+/// </summary>
+private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging()
 {
-    var appDataDir = Path.Combine(
+    _appDataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
-    var settingsFilePath = Path.Combine(appDataDir, "settings.json");
+    var settingsFilePath = Path.Combine(_appDataDir, "settings.json");
     var tempSettingsService = new SettingsService(settingsFilePath);
     var settings = tempSettingsService.Load();
 
+    // Migrate settings for newly-introduced features
     settings.ActionMenu.EnsureDefaults();
 
-    var logsDir = Path.Combine(appDataDir, "logs");
+    var logsDir = Path.Combine(_appDataDir, "logs");
     LoggingInitializer.Initialize(logsDir);
 
     AppDomain.CurrentDomain.UnhandledException += (_, args) =>
@@ -136,18 +154,29 @@ private (EyeCtrlSettings Settings, string AppDataDir, string SettingsFilePath) I
         Log.Error(args.Exception, "Unhandled dispatcher exception");
     };
 
-    return (settings, appDataDir, settingsFilePath);
+    return (settings, settingsFilePath);
 }
 ```
 
 **Notes:**
 - NOT static — subscribes to `DispatcherUnhandledException` (instance event).
-- Returns the tuple so `OnStartup` can assign `_appDataDir` and pass settings/paths downstream.
+- Because it is already an instance method, it assigns the `_appDataDir` field directly
+  (as the original code does) and returns only `(settings, settingsFilePath)` — no need to
+  round-trip `appDataDir` back through `OnStartup`.
+- It does three things: load settings, init logging, and register the two global exception
+  handlers. The name omits the last, so the `<summary>` above documents it — a reader scanning
+  `OnStartup` then knows where exception wiring lives.
 - `EnsureDefaults()` migration stays inside — it's settings initialization, not orchestration.
+  Its `// Migrate settings for newly-introduced features` comment is carried into the method.
 
 ### Resulting `OnStartup`
 
-After extraction, `OnStartup` becomes ~89 lines of clean orchestration:
+After extraction, the DPI and settings/logging blocks collapse into two named
+calls. The method names replace the `// ── DPI initialization ──` and
+`// ── Settings ──` / `// ── Logging ──` section labels; **every other comment is
+preserved** — including the `triggers … subscriptions` notes on the discard lines
+and the PHYSICAL-pixels calibration rationale, which document non-obvious,
+bug-preventing behavior:
 
 ```csharp
 protected override void OnStartup(StartupEventArgs e)
@@ -155,6 +184,7 @@ protected override void OnStartup(StartupEventArgs e)
     base.OnStartup(e);
     IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
 
+    // ── Splash screen ──
     SplashWindow? splash = null;
     if (!IsTestMode)
     {
@@ -164,11 +194,12 @@ protected override void OnStartup(StartupEventArgs e)
 
     InitializeDpi(splash);
 
-    var (settings, appDataDir, settingsFilePath) = InitializeSettingsAndLogging();
-    _appDataDir = appDataDir;
+    var (settings, settingsFilePath) = InitializeSettingsAndLogging();
 
+    // ── Build DI container ──
     _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
 
+    // ── Resolve services ──
     var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
     var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
     var messenger = _serviceProvider.GetRequiredService<IMessenger>();
@@ -181,17 +212,23 @@ protected override void OnStartup(StartupEventArgs e)
         version, activeProviderType, settingsFilePath);
     var im = gazeEngine.InteractionManager;
 
+    // ── Resolve ViewModels ──
     var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
          manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm) = ResolveViewModels(settings);
 
+    // Resolve adapter (triggers Core event subscriptions)
     _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
+
+    // Resolve ManualSelectionDwellService (triggers message subscriptions)
     _ = _serviceProvider.GetRequiredService<ManualSelectionDwellService>();
 
+    // ── Initialize overlay windows via OverlayManager ──
     var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-    var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm,
-        toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm);
+    var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm);
     var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
 
+    // Load calibration. Screen size must be in PHYSICAL pixels to match what
+    // CompleteSession persists (logical DIPs here would discard calibration on any non-100% DPI).
     var calibrationPath = Path.Combine(_appDataDir, "calibration.json");
     var screen = new PhysicalPoint(
         SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
@@ -199,13 +236,15 @@ protected override void OnStartup(StartupEventArgs e)
     var monitorName = System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "";
     _serviceProvider.GetRequiredService<CalibrationService>().Load(calibrationPath, screen, monitorName);
 
+    // ── Event Coordination ──
+    // All PropertyChanged and message handlers are now managed by EventCoordinator
     _eventCoordinator = new EventCoordinator();
     var noteManager = _serviceProvider.GetRequiredService<INoteManager>();
     var coordinationContext = new EventCoordinationContext(
-        cursorVm, activationVm, manualSelectionVm, manualSelectionIndicatorVm, actionMenuVm, toolbarVm,
-        keyboardVm, backdropVm, overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService,
-        settings, targetHighlightVm, inputSimulator,
-        _serviceProvider.GetRequiredService<CalibrationService>(), noteManager);
+        cursorVm, activationVm, manualSelectionVm, manualSelectionIndicatorVm, actionMenuVm, toolbarVm, keyboardVm, backdropVm,
+        overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, targetHighlightVm, inputSimulator,
+        _serviceProvider.GetRequiredService<CalibrationService>(),
+        noteManager);
     _eventCoordinator.Initialize(coordinationContext);
 
     var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();
@@ -213,45 +252,74 @@ protected override void OnStartup(StartupEventArgs e)
     var modelManagement = _serviceProvider.GetRequiredService<ModelManagementService>();
     _eventCoordinator.SetModelServices(modelRegistry, modelDownload, modelManagement);
 
+    // Load keyboard using EventCoordinator
     _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
 
+    // ── System tray ──
     _trayIconManager = new TrayIconManager(im, Dispatcher, () => Shutdown());
+
+    // ── Close splash and show persistent overlays (last, after all wiring) ──
     ShowOverlays(splash, cursorCircle, toolbar, settings);
 
     if (settings.General.StartPaused)
         im.TogglePause();
 
     gazeEngine.Start();
+
+    // External dwell pipe server (cooperating-app control activation).
     _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
 }
 ```
 
-### File breakdown after extraction
-
-| Section | Lines |
-|---------|-------|
-| Usings + class declaration | 30 |
-| Fields + constants + IsTestMode + DllImport | 18 |
-| `OnStartup` | ~89 |
-| `OnExit` | 26 |
-| `ResolveViewModels` | 26 |
-| `InitializeOverlays` | 8 |
-| `ShowOverlays` | 12 |
-| `InitializeDpi` | 16 |
-| `InitializeSettingsAndLogging` | 25 |
-| Closing braces | 2 |
-| **Total** | **~219** |
+> **Note:** the startup log line now passes `settingsFilePath` (the local)
+> instead of `Path.Combine(_appDataDir, "settings.json")` — same value, one
+> fewer recomputation. Called out here for transparency even though the spec
+> otherwise preserves behavior.
 
 ## What this is NOT
 
 - Not extracting to a separate class — these are private helpers on `App`
-- Not changing any behavior or ordering
+- Not changing any behavior or ordering (aside from the log-line cleanup above)
+- Not removing any explanatory comments — only the two section labels for the extracted
+  blocks disappear (the method names replace them); the `triggers … subscriptions` and
+  PHYSICAL-pixels rationale comments stay put
+- Not a file-size reduction — the extracted bodies remain in `App.xaml.cs` as
+  private methods, so the file size is essentially unchanged
+- Not addressing the architecture review's <200-line target (would require
+  extracting to a separate file, out of scope)
 - Not touching `OnExit`, `ResolveViewModels`, `InitializeOverlays`, or `ShowOverlays`
 - Not extracting the event coordination block (16 lines, 10+ dependencies — not cleanly extractable)
 
 ## Verification
 
-1. `dotnet build EyeCtrl.slnx` — clean
-2. `dotnet test --filter "Category!=UI"` — all pass
-3. `dotnet run --project src/EyeCtrl.App -- --test-mode` — launches and quits
-4. Manual review: `OnStartup` reads as a flat sequence of well-named calls
+Follow the project's GitNexus conventions (`CLAUDE.md`) alongside the standard build/test gates:
+
+1. **Impact analysis** — `impact({target: "OnStartup", direction: "upstream"})`. Already run
+   against the current index: **0 callers, 0 affected processes, LOW risk.** `OnStartup` is a
+   WPF framework entry point, so extracting private helpers from it cannot break any caller —
+   the blast radius is confined to `App`.
+2. `dotnet build EyeCtrl.slnx` — clean.
+3. `dotnet test --filter "Category!=UI"` — all pass (the headless-safe subset; the ~13
+   environmental `AppLaunchTests` are excluded by category).
+4. `dotnet run --project src/EyeCtrl.App -- --test-mode` — launches and quits.
+5. **`detect_changes()`** before committing — expect only `App.OnStartup` (and the two new
+   private helpers) as changed symbols; anything else means the edit reached further than intended.
+6. Manual review: the DPI and settings/logging blocks are now two named calls and all
+   rationale comments are intact.
+
+> A trial extraction following this spec built cleanly and kept the headless suite green
+> (926 passed / 1 skipped / 0 failed), confirming the approach before it was reverted pending
+> sign-off on this design.
+
+## Revisions (post-review)
+
+- **Comments preserved.** The earlier "Resulting `OnStartup`" sketch silently dropped the
+  `triggers … subscriptions` and PHYSICAL-pixels rationale comments. Those are now kept; only
+  the two section labels for the extracted blocks go away.
+- **2-tuple instead of 3.** `InitializeSettingsAndLogging` is already an instance method, so it
+  assigns `_appDataDir` directly and returns `(settings, settingsFilePath)` rather than handing
+  `appDataDir` back through `OnStartup`.
+- **GitNexus gates added.** Verification now includes the mandated `impact` (result recorded)
+  and pre-commit `detect_changes` steps.
+- **Doc comments added** to both helpers; `InitializeSettingsAndLogging`'s `<summary>` records
+  that it also registers the global exception handlers — which the name alone omits.

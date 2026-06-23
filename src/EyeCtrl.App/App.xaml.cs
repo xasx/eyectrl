@@ -62,31 +62,7 @@ public partial class App : Application
 
         InitializeDpi(splash);
 
-        // ── Settings ──
-        _appDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
-        var settingsFilePath = Path.Combine(_appDataDir, "settings.json");
-        var tempSettingsService = new SettingsService(settingsFilePath);
-        var settings = tempSettingsService.Load();
-
-        // Migrate settings for newly-introduced features
-        settings.ActionMenu.EnsureDefaults();
-
-        // ── Logging ──
-        var logsDir = Path.Combine(_appDataDir, "logs");
-        LoggingInitializer.Initialize(logsDir);
-
-        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
-        {
-            Log.Fatal(args.ExceptionObject as Exception, "Unhandled exception (terminating={IsTerminating})",
-                args.IsTerminating);
-            Log.CloseAndFlush();
-        };
-
-        DispatcherUnhandledException += (_, args) =>
-        {
-            Log.Error(args.Exception, "Unhandled dispatcher exception");
-        };
+        var (settings, settingsFilePath) = InitializeSettingsAndLogging();
 
         // ── Build DI container ──
         _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
@@ -101,8 +77,7 @@ public partial class App : Application
         var version = System.Reflection.Assembly.GetExecutingAssembly()
             .GetName().Version?.ToString() ?? "unknown";
         Log.Information("Startup: EyeCtrl v{Version}, provider={Provider}, settings={SettingsPath}",
-            version, activeProviderType,
-            Path.Combine(_appDataDir, "settings.json"));
+            version, activeProviderType, settingsFilePath);
         var im = gazeEngine.InteractionManager;
 
         // ── Resolve ViewModels ──
@@ -264,5 +239,39 @@ public partial class App : Application
             var scale = dpi / (double)DpiStandardScale;
             DpiHelper.Initialize(scale, scale);
         }
+    }
+
+    /// <summary>
+    /// Resolves the app data directory (stored in <see cref="_appDataDir"/>), loads settings
+    /// while migrating newly-introduced defaults, initializes Serilog, and registers the global
+    /// (AppDomain + dispatcher) exception handlers.
+    /// </summary>
+    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging()
+    {
+        _appDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+        var settingsFilePath = Path.Combine(_appDataDir, "settings.json");
+        var tempSettingsService = new SettingsService(settingsFilePath);
+        var settings = tempSettingsService.Load();
+
+        // Migrate settings for newly-introduced features
+        settings.ActionMenu.EnsureDefaults();
+
+        var logsDir = Path.Combine(_appDataDir, "logs");
+        LoggingInitializer.Initialize(logsDir);
+
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            Log.Fatal(args.ExceptionObject as Exception, "Unhandled exception (terminating={IsTerminating})",
+                args.IsTerminating);
+            Log.CloseAndFlush();
+        };
+
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Log.Error(args.Exception, "Unhandled dispatcher exception");
+        };
+
+        return (settings, settingsFilePath);
     }
 }

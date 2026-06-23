@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Extract two self-contained startup blocks from `App.xaml.cs` into private helpers, reducing `OnStartup` from ~130 to ~89 lines and the file from 260 to ~219 lines.
+**Goal:** Extract two self-contained startup blocks from `App.xaml.cs` into private helpers, making `OnStartup` read as a flat sequence of intent-revealing calls. This is a readability refactor, not a file-size reduction — the extracted bodies stay as private methods on `App`.
 
-**Architecture:** Two private method extractions in `src/EyeCtrl.App/App.xaml.cs`. No behavior change, no new types, no test changes. `InitializeDpi` is static (only uses static members). `InitializeSettingsAndLogging` is an instance method (subscribes to `DispatcherUnhandledException`).
+**Architecture:** Two private method extractions in `src/EyeCtrl.App/App.xaml.cs`. No behavior change, no new types, no test changes. `InitializeDpi` is static (only uses static members). `InitializeSettingsAndLogging` is an instance method (subscribes to `DispatcherUnhandledException` and assigns `_appDataDir` directly).
 
 **Tech Stack:** .NET 10.0, WPF, Serilog.
 
@@ -30,6 +30,10 @@ No other files are touched.
 Add this method at line 260 (before the closing `}` of the class):
 
 ```csharp
+    /// <summary>
+    /// Initializes <see cref="DpiHelper"/> from the splash window's composition target.
+    /// In test mode no splash is shown, so it falls back to the Win32 system DPI.
+    /// </summary>
     private static void InitializeDpi(SplashWindow? splash)
     {
         if (splash != null)
@@ -111,17 +115,23 @@ git commit -m "refactor: extract InitializeDpi from App.OnStartup"
 Add this method after the `InitializeDpi` method (before the class closing `}`):
 
 ```csharp
-    private (EyeCtrlSettings Settings, string AppDataDir, string SettingsFilePath) InitializeSettingsAndLogging()
+    /// <summary>
+    /// Resolves the app data directory (stored in <see cref="_appDataDir"/>), loads settings
+    /// while migrating newly-introduced defaults, initializes Serilog, and registers the global
+    /// (AppDomain + dispatcher) exception handlers.
+    /// </summary>
+    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging()
     {
-        var appDataDir = Path.Combine(
+        _appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
-        var settingsFilePath = Path.Combine(appDataDir, "settings.json");
+        var settingsFilePath = Path.Combine(_appDataDir, "settings.json");
         var tempSettingsService = new SettingsService(settingsFilePath);
         var settings = tempSettingsService.Load();
 
+        // Migrate settings for newly-introduced features
         settings.ActionMenu.EnsureDefaults();
 
-        var logsDir = Path.Combine(appDataDir, "logs");
+        var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
@@ -136,17 +146,22 @@ Add this method after the `InitializeDpi` method (before the class closing `}`):
             Log.Error(args.Exception, "Unhandled dispatcher exception");
         };
 
-        return (settings, appDataDir, settingsFilePath);
+        return (settings, settingsFilePath);
     }
 ```
+
+**Notes:**
+- NOT static — subscribes to `DispatcherUnhandledException` (instance event).
+- Assigns `_appDataDir` directly (already an instance method), returns only `(settings, settingsFilePath)`.
+- The `<summary>` documents that it also registers exception handlers — which the name alone omits.
+- `EnsureDefaults()` migration stays inside with its comment carried over.
 
 - [ ] **Step 2: Replace the settings+logging block in `OnStartup` with a method call**
 
 Replace lines 80-104 (from `// ── Settings ──` through the `DispatcherUnhandledException` handler closing brace) with:
 
 ```csharp
-        var (settings, appDataDir, settingsFilePath) = InitializeSettingsAndLogging();
-        _appDataDir = appDataDir;
+        var (settings, settingsFilePath) = InitializeSettingsAndLogging();
 ```
 
 The `OnStartup` method should now read (showing the replaced region):
@@ -154,8 +169,7 @@ The `OnStartup` method should now read (showing the replaced region):
 ```csharp
         InitializeDpi(splash);
 
-        var (settings, appDataDir, settingsFilePath) = InitializeSettingsAndLogging();
-        _appDataDir = appDataDir;
+        var (settings, settingsFilePath) = InitializeSettingsAndLogging();
 
         // ── Build DI container ──
         _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
@@ -206,20 +220,15 @@ git commit -m "refactor: extract InitializeSettingsAndLogging from App.OnStartup
 - [ ] **Step 1: Run the app in test mode**
 
 Run: `dotnet run --project src/EyeCtrl.App -- --test-mode`
-Expected: App launches (mouse-as-gaze), overlays appear. Press Ctrl+C or close the window to exit.
+Expected: App launches (mouse-as-gaze), overlays appear. Close the window to exit.
 
-- [ ] **Step 2: Verify line count**
+- [ ] **Step 2: Verify `OnStartup` reads as flat orchestration**
 
-Run: `(Get-Content "src/EyeCtrl.App/App.xaml.cs").Count`
-Expected: ~219 lines (down from 260).
+Read `App.xaml.cs` and confirm `OnStartup` is a clean sequence of named calls with no inline blocks longer than ~5 lines. All rationale comments (PHYSICAL-pixels calibration, `triggers … subscriptions`) must be intact.
 
-- [ ] **Step 3: Verify `OnStartup` reads as flat orchestration**
-
-Read `App.xaml.cs` and confirm `OnStartup` is a clean sequence of named calls with no inline blocks longer than ~5 lines.
-
-- [ ] **Step 4: Run full test suite**
+- [ ] **Step 3: Run full test suite**
 
 Run: `dotnet test`
 Expected: All pass.
 
-- [ ] **Step 5: No commit needed — this is verification only.**
+- [ ] **Step 4: No commit needed — this is verification only.**

@@ -4,6 +4,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Core;
@@ -17,6 +18,8 @@ public partial class GlassBackdropWindow : OverlayWindow
     private const int AccentEnableAcrylicBlurBehind = 4;
     private const int DwmwaSystemBackdropType = 38;
     private const int DwmwaUseImmersiveDarkMode = 20;
+    private const int DwmsbtAcrylic = 4;
+    private const int Win11Build22H2 = 22621;
     private const double ProgressArcInset = 4;
     private const double ProgressArcThickness = 4;
     private const byte ButtonBackgroundAlpha = 200;
@@ -35,6 +38,28 @@ public partial class GlassBackdropWindow : OverlayWindow
     {
         InitializeComponent();
         IsClickThrough = true;
+        SourceInitialized += OnSourceInitialized;
+    }
+
+    private void OnSourceInitialized(object? sender, EventArgs e)
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var source = HwndSource.FromHwnd(hwnd);
+        source?.AddHook(WndProc);
+    }
+
+    private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int WM_NCHITTEST = 0x0084;
+        const int HTTRANSPARENT = -1;
+
+        if (msg == WM_NCHITTEST)
+        {
+            handled = true;
+            return new IntPtr(HTTRANSPARENT);
+        }
+
+        return IntPtr.Zero;
     }
 
     [DllImport("user32.dll")]
@@ -81,21 +106,23 @@ public partial class GlassBackdropWindow : OverlayWindow
 
         ClearContent();
 
+        // Phase 1: Native DWM backdrops (Win11 22H2+). Work best.
         if (settings.Type == BackdropType.Mica && TryApplyMica())
-        {
             return;
-        }
 
+        if (settings.Type == BackdropType.Acrylic && TryApplyAcrylicViaDwm())
+            return;
+
+        // Phase 2: Legacy SetWindowCompositionAttribute acrylic (Win10+)
+        ClearDwmBackdrop();
         if (settings.Type == BackdropType.Mica || settings.Type == BackdropType.Acrylic)
         {
             if (TryApplyAcrylic())
                 return;
-            ApplySolidDarken(settings.Opacity);
         }
-        else
-        {
-            ApplySolidDarken(settings.Opacity);
-        }
+
+        // Phase 3: Solid darken fallback
+        ApplySolidDarken(settings.Opacity);
     }
 
     private bool TryApplyAcrylic()
@@ -107,7 +134,7 @@ public partial class GlassBackdropWindow : OverlayWindow
             var accent = new AccentPolicy
             {
                 AccentState = AccentEnableAcrylicBlurBehind,
-                AccentFlags = 2,
+                AccentFlags = 0x20,
                 GradientColor = 0x01000000
             };
             data.SizeOfData = Marshal.SizeOf(accent);
@@ -144,6 +171,38 @@ public partial class GlassBackdropWindow : OverlayWindow
         catch
         {
             return false;
+        }
+    }
+
+    private bool TryApplyAcrylicViaDwm()
+    {
+        if (Environment.OSVersion.Version.Build < Win11Build22H2)
+            return false;
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            int darkMode = 1;
+            DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref darkMode, sizeof(int));
+            int backdropType = DwmsbtAcrylic;
+            int result = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
+            return result == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ClearDwmBackdrop()
+    {
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            int backdropType = 0;
+            DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
+        }
+        catch
+        {
         }
     }
 
@@ -250,6 +309,7 @@ public partial class GlassBackdropWindow : OverlayWindow
     private void ClearContent()
     {
         BackdropCanvas.Children.Clear();
+        ClearDwmBackdrop();
         _solidBackground = null;
         ClearButton();
     }

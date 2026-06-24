@@ -456,9 +456,9 @@ public class EventCoordinator : IEventCoordinator
             {
                 cursorCircle.Hide();
                 activationButton.HideImmediate();
+                ShowBackdropIfEnabled();
                 ManualSelectionOverlay.Show(_context.ManualSelectionVM.Center, _context.ManualSelectionVM.Radius, _context.ManualSelectionVM.Magnification, _context.ManualSelectionVM.GazePoint);
                 ManualSelectionIndicator.Show();
-                // ShowBackdropIfEnabled(); // disabled: glass backdrop blocks the screen — re-enable when fixed
             }
             else
             {
@@ -527,6 +527,7 @@ public class EventCoordinator : IEventCoordinator
                 cursorCircle.Hide();
                 activationButton.HideImmediate();
 
+                ShowBackdropIfEnabled();
                 actionMenu.Show(
                     _context.ActionMenuVM.Center,
                     _context.Settings.ActionMenu.VisibleActions,
@@ -539,7 +540,6 @@ public class EventCoordinator : IEventCoordinator
                     _context.ActionMenuVM.ManualSelectionCenter,
                     _context.ActionMenuVM.ManualSelectionRadius,
                     _context.ActionMenuVM.GazePoint);
-                // ShowBackdropIfEnabled(); // disabled: glass backdrop blocks the screen — re-enable when fixed
             }
             else
             {

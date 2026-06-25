@@ -52,90 +52,105 @@ public partial class App : Application
         base.OnStartup(e);
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
 
-        // ── Splash screen ──
         SplashWindow? splash = null;
-        if (!IsTestMode)
+        try
         {
-            splash = new SplashWindow();
-            splash.Show();
+            // ── Splash screen ──
+            if (!IsTestMode)
+            {
+                splash = new SplashWindow();
+                splash.Show();
+            }
+
+            InitializeDpi(splash);
+
+            var (settings, settingsFilePath) = InitializeSettingsAndLogging();
+
+            // ── Build DI container ──
+            _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
+
+            // ── Resolve services ──
+            var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
+            var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
+            var messenger = _serviceProvider.GetRequiredService<IMessenger>();
+            var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
+            var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
+            var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
+            var version = System.Reflection.Assembly.GetExecutingAssembly()
+                .GetName().Version?.ToString() ?? "unknown";
+            Log.Information("Startup: EyeCtrl v{Version}, provider={Provider}, settings={SettingsPath}",
+                version, activeProviderType, settingsFilePath);
+            var im = gazeEngine.InteractionManager;
+
+            // ── Resolve ViewModels ──
+            var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
+                 manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm) = ResolveViewModels(settings);
+
+            // Resolve adapter (triggers Core event subscriptions)
+            _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
+
+            // Resolve ManualSelectionDwellService (triggers message subscriptions)
+            _ = _serviceProvider.GetRequiredService<ManualSelectionDwellService>();
+
+            // ── Initialize overlay windows via OverlayManager ──
+            var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
+            var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm);
+            var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
+
+            // Load calibration. Screen size must be in PHYSICAL pixels to match what
+            // CompleteSession persists (logical DIPs here would discard calibration on any non-100% DPI).
+            var calibrationPath = Path.Combine(_appDataDir, "calibration.json");
+            var screen = new PhysicalPoint(
+                SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
+                SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
+            var monitorName = System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "";
+            _serviceProvider.GetRequiredService<CalibrationService>().Load(calibrationPath, screen, monitorName);
+
+            // ── Event Coordination ──
+            // All PropertyChanged and message handlers are now managed by EventCoordinator
+            _eventCoordinator = new EventCoordinator();
+            var noteManager = _serviceProvider.GetRequiredService<INoteManager>();
+            var coordinationContext = new EventCoordinationContext(
+                cursorVm, activationVm, manualSelectionVm, manualSelectionIndicatorVm, actionMenuVm, toolbarVm, keyboardVm, backdropVm,
+                overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, targetHighlightVm, inputSimulator,
+                _serviceProvider.GetRequiredService<CalibrationService>(),
+                noteManager);
+            _eventCoordinator.Initialize(coordinationContext);
+
+            var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();
+            var modelDownload = _serviceProvider.GetRequiredService<ModelDownloadService>();
+            var modelManagement = _serviceProvider.GetRequiredService<ModelManagementService>();
+            _eventCoordinator.SetModelServices(modelRegistry, modelDownload, modelManagement);
+
+            // Load keyboard using EventCoordinator
+            _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
+
+            // ── System tray ──
+            _trayIconManager = new TrayIconManager(im, Dispatcher, () => Shutdown());
+
+            // ── Close splash and show persistent overlays (last, after all wiring) ──
+            ShowOverlays(splash, cursorCircle, toolbar, settings);
+
+            if (settings.General.StartPaused)
+                im.TogglePause();
+
+            gazeEngine.Start();
+
+            // External dwell pipe server (cooperating-app control activation).
+            _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
         }
-
-        InitializeDpi(splash);
-
-        var (settings, settingsFilePath) = InitializeSettingsAndLogging();
-
-        // ── Build DI container ──
-        _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
-
-        // ── Resolve services ──
-        var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
-        var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
-        var messenger = _serviceProvider.GetRequiredService<IMessenger>();
-        var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
-        var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
-        var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
-        var version = System.Reflection.Assembly.GetExecutingAssembly()
-            .GetName().Version?.ToString() ?? "unknown";
-        Log.Information("Startup: EyeCtrl v{Version}, provider={Provider}, settings={SettingsPath}",
-            version, activeProviderType, settingsFilePath);
-        var im = gazeEngine.InteractionManager;
-
-        // ── Resolve ViewModels ──
-        var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
-             manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm) = ResolveViewModels(settings);
-
-        // Resolve adapter (triggers Core event subscriptions)
-        _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
-
-        // Resolve ManualSelectionDwellService (triggers message subscriptions)
-        _ = _serviceProvider.GetRequiredService<ManualSelectionDwellService>();
-
-        // ── Initialize overlay windows via OverlayManager ──
-        var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-        var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm);
-        var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
-
-        // Load calibration. Screen size must be in PHYSICAL pixels to match what
-        // CompleteSession persists (logical DIPs here would discard calibration on any non-100% DPI).
-        var calibrationPath = Path.Combine(_appDataDir, "calibration.json");
-        var screen = new PhysicalPoint(
-            SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
-            SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
-        var monitorName = System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "";
-        _serviceProvider.GetRequiredService<CalibrationService>().Load(calibrationPath, screen, monitorName);
-
-        // ── Event Coordination ──
-        // All PropertyChanged and message handlers are now managed by EventCoordinator
-        _eventCoordinator = new EventCoordinator();
-        var noteManager = _serviceProvider.GetRequiredService<INoteManager>();
-        var coordinationContext = new EventCoordinationContext(
-            cursorVm, activationVm, manualSelectionVm, manualSelectionIndicatorVm, actionMenuVm, toolbarVm, keyboardVm, backdropVm,
-            overlayManager, gazeEngine, im, messenger, Dispatcher, settingsService, settings, targetHighlightVm, inputSimulator,
-            _serviceProvider.GetRequiredService<CalibrationService>(),
-            noteManager);
-        _eventCoordinator.Initialize(coordinationContext);
-
-        var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();
-        var modelDownload = _serviceProvider.GetRequiredService<ModelDownloadService>();
-        var modelManagement = _serviceProvider.GetRequiredService<ModelManagementService>();
-        _eventCoordinator.SetModelServices(modelRegistry, modelDownload, modelManagement);
-
-        // Load keyboard using EventCoordinator
-        _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
-
-        // ── System tray ──
-        _trayIconManager = new TrayIconManager(im, Dispatcher, () => Shutdown());
-
-        // ── Close splash and show persistent overlays (last, after all wiring) ──
-        ShowOverlays(splash, cursorCircle, toolbar, settings);
-
-        if (settings.General.StartPaused)
-            im.TogglePause();
-
-        gazeEngine.Start();
-
-        // External dwell pipe server (cooperating-app control activation).
-        _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
+        catch (Exception ex)
+        {
+            splash?.Close();
+            Log.Fatal(ex, "Failed to start EyeCtrl");
+            Log.CloseAndFlush();
+            MessageBox.Show(
+                $"EyeCtrl failed to start:\n{ex.Message}",
+                "EyeCtrl — Startup Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Shutdown();
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

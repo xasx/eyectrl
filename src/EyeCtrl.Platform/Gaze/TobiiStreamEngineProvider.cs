@@ -31,8 +31,9 @@ public class TobiiStreamEngineProvider : IGazeProvider
     public bool IsConnected { get; private set; }
 
     /// <summary>
-    /// Creates a Tobii Stream Engine provider. Throws if the Stream Engine API
-    /// cannot be initialized or no device is found.
+    /// Creates a Tobii Stream Engine provider. Connection is attempted in
+    /// <see cref="Start"/> and retried automatically in the poll loop, so the
+    /// app never crashes at startup even when no Tobii device is present.
     /// </summary>
     public TobiiStreamEngineProvider(double screenWidth, double screenHeight,
         ILogger<TobiiStreamEngineProvider> logger)
@@ -40,14 +41,11 @@ public class TobiiStreamEngineProvider : IGazeProvider
         _screenWidth = screenWidth;
         _screenHeight = screenHeight;
         _logger = logger;
-
-        ConnectApi();
-        ConnectDevice();
     }
 
     public void Start()
     {
-        SubscribeGaze();
+        TryFullConnect();
 
         _running = true;
         _pollThread = new Thread(PollLoop)
@@ -73,32 +71,63 @@ public class TobiiStreamEngineProvider : IGazeProvider
         IsConnected = false;
     }
 
-    private void ConnectApi()
+    /// <summary>
+    /// Attempts the full connection chain: API → device → gaze subscription.
+    /// Safe to call at any time; no-ops stages that are already connected.
+    /// </summary>
+    private void TryFullConnect()
     {
-        tobii_error_t result = Interop.tobii_api_create(out _apiContext, null);
-        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
-            throw new InvalidOperationException(
-                $"Failed to create Tobii Stream Engine API: {result}");
+        if (!TryConnectApi()) return;
+        if (!TryConnectDevice()) return;
+        SubscribeGaze();
     }
 
-    private void ConnectDevice()
+    private bool TryConnectApi()
     {
-        tobii_error_t result = Interop.tobii_enumerate_local_device_urls(
+        if (_apiContext != IntPtr.Zero) return true;
+
+        var result = Interop.tobii_api_create(out _apiContext, null);
+        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
+        {
+            _logger.LogWarning("Failed to create Tobii Stream Engine API: {Result}", result);
+            _apiContext = IntPtr.Zero;
+            return false;
+        }
+        _logger.LogInformation("Tobii Stream Engine API initialized");
+        return true;
+    }
+
+    private bool TryConnectDevice()
+    {
+        if (_deviceContext != IntPtr.Zero) return true;
+        if (_apiContext == IntPtr.Zero) return false;
+
+        var result = Interop.tobii_enumerate_local_device_urls(
             _apiContext, out List<string> urls);
         if (result != tobii_error_t.TOBII_ERROR_NO_ERROR || urls.Count == 0)
-            throw new InvalidOperationException("No Tobii device found via Stream Engine");
+        {
+            _logger.LogWarning("No Tobii device found via Stream Engine");
+            return false;
+        }
 
         result = Interop.tobii_device_create(
             _apiContext, urls[0],
             Interop.tobii_field_of_use_t.TOBII_FIELD_OF_USE_STORE_OR_TRANSFER_FALSE,
             out _deviceContext);
         if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
-            throw new InvalidOperationException(
-                $"Failed to create Tobii device: {result}");
+        {
+            _logger.LogWarning("Failed to create Tobii device: {Result}", result);
+            _deviceContext = IntPtr.Zero;
+            return false;
+        }
+        _logger.LogInformation("Tobii device created: {Url}", urls[0]);
+        return true;
     }
 
     private void SubscribeGaze()
     {
+        if (_deviceContext == IntPtr.Zero) return;
+
         _gazeCallback = (ref tobii_gaze_point_t gazePoint, IntPtr userData) =>
         {
             if (gazePoint.validity == tobii_validity_t.TOBII_VALIDITY_VALID)
@@ -128,7 +157,14 @@ public class TobiiStreamEngineProvider : IGazeProvider
         {
             lock (_lock)
             {
-                if (_deviceContext == IntPtr.Zero) break;
+                if (_apiContext == IntPtr.Zero || _deviceContext == IntPtr.Zero)
+                {
+                    // Not connected — attempt full reconnect with backoff
+                    Thread.Sleep(backoffMs);
+                    backoffMs = Math.Min(backoffMs * 2, maxBackoffMs);
+                    TryFullConnect();
+                    continue;
+                }
 
                 tobii_error_t result = Interop.tobii_wait_for_callbacks(
                     new[] { _deviceContext });

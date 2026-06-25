@@ -29,22 +29,29 @@ public class GazeProviderFactoryTests
 
 #if TOBII_AVAILABLE
     [Fact]
-    public void Create_StreamEngine_SucceedsOrThrowsNoDevice()
+    public void Create_StreamEngine_DoesNotThrow_WhenNoDeviceConnected()
     {
-        // SDK DLLs are present, but hardware may not be connected
-        var exception = Record.Exception(() =>
-        {
-            var provider = _factory.Create(GazeProviderType.StreamEngine, 1920, 1080);
-            Check.That(GazeProviderFactory.GetProviderType(provider)).IsEqualTo(GazeProviderType.StreamEngine);
-            provider.Dispose();
-        });
+        // After the resilient-connection refactor, constructing a StreamEngine
+        // provider never throws — even with no hardware.  Start retries in the
+        // background poll loop.
+        var provider = _factory.Create(GazeProviderType.StreamEngine, 1920, 1080);
+        Check.That(provider).IsNotNull();
+        Check.That(GazeProviderFactory.GetProviderType(provider)).IsEqualTo(GazeProviderType.StreamEngine);
+        provider.Dispose();
+    }
 
-        if (exception is not null)
-        {
-            // Only "no device found" is acceptable here
-            Check.That(exception).IsInstanceOf<InvalidOperationException>();
-            Check.That(exception.Message).Contains("No Tobii device found");
-        }
+    [Fact]
+    public void Create_StreamEngine_StartDoesNotThrow_WhenNoDeviceConnected()
+    {
+        var provider = _factory.Create(GazeProviderType.StreamEngine, 1920, 1080);
+        Check.That(provider).IsNotNull();
+
+        // Start attempts connection and falls back to poll-loop retry — no throw
+        provider.Start();
+        Check.That(provider.IsConnected).IsFalse(); // hardware not present
+
+        provider.Stop();
+        provider.Dispose();
     }
 #else
     [Fact]
@@ -52,6 +59,16 @@ public class GazeProviderFactoryTests
     {
         Check.ThatCode(() =>
             _factory.Create(GazeProviderType.StreamEngine, 1920, 1080)).Throws<PlatformNotSupportedException>();
+    }
+
+    [Fact]
+    public void Create_InteractionLib_FallsBackToMouse()
+    {
+        // InteractionLib is obsolete — in non-TOBII builds the factory falls
+        // back to Auto, which falls back to Mouse.
+        var provider = _factory.Create(GazeProviderType.InteractionLib, 1920, 1080);
+        Check.That(GazeProviderFactory.GetProviderType(provider)).IsEqualTo(GazeProviderType.Mouse);
+        provider.Dispose();
     }
 #endif
 }

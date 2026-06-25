@@ -55,4 +55,8 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="EyeCtrl.App.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -1,7 +1,7 @@
 # Gaze Pipeline Benchmarks — Design Spec
 
 **Date:** 2026-06-25
-**Status:** Draft
+**Status:** Draft (revised after code review)
 
 ## Goal
 
@@ -29,47 +29,59 @@ as targets grow? (3) what does one full `OnGazePoint` actually cost, per filter 
   relevant.
 - **Recorded gaze replay** — synthetic generation only (see Input Model). No binary blobs in the
   repo, no capture step.
-- **Adding benchmarks to the main solution file or CI** — stays standalone per `AGENTS.md`. No
-  benchmark runs in CI (consistent with existing policy).
+- **Adding benchmarks to the main solution file or CI** — the benchmark **project** stays
+  standalone per `AGENTS.md`. The new generator **test** project runs in CI via an explicit step
+  (see Testability).
+- **`Filter_*_WithDropout` benchmarks** — see "Dropout scenario scoping" below. Filters never see
+  invalid samples in production; that path is covered at the `GapInterpolator` layer instead.
 
 ## Architecture
 
 ### File Layout
 
-All new benchmark files live in `benchmarks/EyeCtrl.Benchmarks/`, file-scoped namespace
+New benchmark files live in `benchmarks/EyeCtrl.Benchmarks/`, file-scoped namespace
 `EyeCtrl.Benchmarks`, matching the existing prediction benchmarks. One new test project for the
 generator's correctness checks.
 
 | File | Purpose |
 |------|---------|
 | `benchmarks/EyeCtrl.Benchmarks/GazeStreamGenerator.cs` | Deterministic, procedural generator of `GazePoint[]` streams (one method per scenario) |
-| `benchmarks/EyeCtrl.Benchmarks/GazePipelineBenchmarks.cs` | The benchmark class (22 benchmarks across 4 layers) |
+| `benchmarks/EyeCtrl.Benchmarks/GazeFilterBenchmarks.cs` | Filter micro-benchmarks (Layer 1) |
+| `benchmarks/EyeCtrl.Benchmarks/GazeDetectorBenchmarks.cs` | Detector micro-benchmarks (Layer 2) |
+| `benchmarks/EyeCtrl.Benchmarks/DwellDetectorBenchmarks.cs` | DwellDetector target-sweep (Layer 3) |
+| `benchmarks/EyeCtrl.Benchmarks/GazePipelineBenchmarks.cs` | End-to-end pipeline (Layer 4) |
 | `tests/EyeCtrl.Benchmarks.Tests/EyeCtrl.Benchmarks.Tests.csproj` | New test project (xUnit + NFluent) |
 | `tests/EyeCtrl.Benchmarks.Tests/GazeStreamGeneratorTests.cs` | Correctness checks for the generator |
 
 The benchmark project's `Program.cs` needs **no change** — it already uses
-`BenchmarkSwitcher.FromAssembly(...).Run(args)`, so the new `[Benchmark]`-decorated class is
+`BenchmarkSwitcher.FromAssembly(...).Run(args)`, so the new `[Benchmark]`-decorated classes are
 auto-discovered.
 
-### Three Benchmark Layers
+### Four Benchmark Classes (matching house style)
 
-| Layer | Question answered | Methods |
-|-------|-------------------|---------|
-| **Per-component micro** | Is each stage cheap & allocation-free per sample? | Filters (12), detectors (3) |
-| **DwellDetector stress** | Does the O(n) target scan stay bounded? | 1 method × 3 params |
-| **End-to-end pipeline** | What does one full `OnGazePoint` cost? | 4 |
+The existing convention is one focused class per concern (7 prediction classes). The suite splits
+into four classes — one per layer — rather than one mega-class. This matches the repo, keeps each
+class's `[GlobalSetup]`/`[IterationSetup]` homogeneous (a single untargeted setup can serve all
+methods in the class), and scopes `[Params]` to only the class that needs it.
 
-**Total: 22 benchmarks** in a single `GazePipelineBenchmarks` class.
+| Class | Layer | Question answered | Benchmarks |
+|-------|-------|-------------------|------------|
+| `GazeFilterBenchmarks` | 1 | Is each filter cheap & allocation-free per sample? | 9 |
+| `GazeDetectorBenchmarks` | 2 | Are detectors cheap & allocation-free per sample? | 3 |
+| `DwellDetectorBenchmarks` | 3 | Does the O(n) target scan stay bounded? | 3 (1 method × `[Params(5,20,50)]`) |
+| `GazePipelineBenchmarks` | 4 | What does one full `OnGazePoint` cost? | 4 |
 
-### Pipeline Assembly (end-to-end layer)
+**Total: 19 benchmarks across 4 classes.**
+
+### Pipeline Assembly (Layer 4)
 
 The end-to-end layer constructs a real `GazeEngine` wired to private nested fakes, mirroring the
-`FakeGazeProvider` / `FakeInputSimulator` pattern from `tests/EyeCtrl.Core.Tests/GazeEngineTests.cs`.
-This follows the repo's "no mocking library — use private nested fake classes" convention. The
-fakes record **nothing** during the timed loop (no `List.Add`, no allocation) to avoid
-contaminating allocation numbers. The provider's `GazePointReceived` event is raised synchronously
-once per sample inside the timed loop — no real threading, matching `GazeEngine`'s documented
-single-threaded contract.
+`FakeGazeProvider` / `FakeInputSimulator` pattern from
+`tests/EyeCtrl.Core.Tests/GazeEngineTests.cs`. This follows the repo's "no mocking library — use
+private nested fake classes" convention. The fakes record **nothing** during the timed loop (no
+`List.Add`, no allocation) to avoid contaminating allocation numbers. The provider's
+`GazePointReceived` event is raised synchronously once per sample inside the timed loop — no real
+threading, matching `GazeEngine`'s documented single-threaded contract.
 
 ### Shared Pattern (house style)
 
@@ -79,14 +91,14 @@ Follows the exact conventions of the existing benchmark files:
 [SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
 [RankColumn]
-public class GazePipelineBenchmarks
+public class GazeFilterBenchmarks
 {
     // Pre-computed in GlobalSetup; replayed per invocation.
     private GazePoint[] _fixationStream = null!;
     // ...
 
     [GlobalSetup]
-    public void Setup() { /* build streams + filter/detector instances */ }
+    public void Setup() { /* build streams + filter instances */ }
 
     [Benchmark]
     public PhysicalPoint Filter_OneEuro_Fixation()
@@ -96,7 +108,9 @@ public class GazePipelineBenchmarks
 }
 ```
 
-- `[SimpleJob(RuntimeMoniker.Net10_0)]` — targets .NET 10 (matches TFM).
+- `[SimpleJob(RuntimeMoniker.Net10_0)]` — targets .NET 10 (matches TFM). This is the correct house
+  style: 6 of 7 existing files use `Net10_0`; the lone `Net90` in `PredictionBenchmarks.cs:11` is
+  a stale outlier not worth touching here.
 - `[MemoryDiagnoser]` — measures GC allocations.
 - `[RankColumn]` — ranks benchmarks within the class.
 
@@ -104,10 +118,31 @@ public class GazePipelineBenchmarks
 
 Filter calls are sub-microsecond; BenchmarkDotNet's per-invocation overhead would dominate a
 single call. Each benchmark method replays a pre-built array of **1000 samples** per invocation
-and the reported `ns/op` is per-batch (per-1000-samples). The class XML doc states this explicitly.
-Allocation counts (`B/op`) are therefore "bytes per 1000 samples" — trivially convertible to
-per-sample by dividing by 1000. The final sample's result is returned from each method to defeat
-dead-code elimination.
+and the reported `ns/op` is per-batch (per-1000-samples). Each class's XML doc states this
+explicitly. Allocation counts (`B/op`) are therefore "bytes per 1000 samples" — trivially
+convertible to per-sample by dividing by 1000. The final sample's result is returned from each
+method to defeat dead-code elimination.
+
+`GazePoint` is a `record` (class), so the generator heap-allocates 1000 objects per stream in
+`GlobalSetup`. This is fine (setup is untimed) but worth noting: the input arrays are not struct
+arrays.
+
+### Per-iteration Setup — scoped to where it's needed
+
+BenchmarkDotNet runs many invocations per iteration on the same instance, and its docs discourage
+`[IterationSetup]` for microbenchmarks. With 1000-sample batches the init branch is 1/1000 of the
+work, so:
+
+- **Filters & detectors (Layers 1–2):** construct once in `[GlobalSetup]`, let state accumulate
+  across the batch. This is production-representative (a real filter accumulates state across
+  samples) and avoids needless per-iteration churn.
+- **Pipeline (Layer 4):** rebuild a **fresh** `FakeGazeProvider` + `GazeEngine` per iteration via
+  `[IterationSetup]`. Two reasons: (a) `InteractionManager` starts in `FreeLook`; after the
+  Fixation scenario triggers a state transition, `MoveCursor` stops being called — so iteration 2+
+  would measure a different path. (b) The `GazeEngine` constructor subscribes to the provider's
+  `GazePointReceived` event; reusing a provider across engine rebuilds stacks subscriptions,
+  leaking N engines' `OnGazePoint` per sample. A fresh provider+engine pair each iteration
+  avoids both. `[IterationCleanup]` disposes the prior engine.
 
 ## Input Model — `GazeStreamGenerator`
 
@@ -133,6 +168,7 @@ public static class GazeStreamGenerator
 {
     public const int SamplesPerBatch = 1000;
     public const long SamplePeriodMicros = 33_333;
+    public const int DefaultSeed = 42;
 
     public static GazePoint[] GenerateFixation(int seed = DefaultSeed);
     public static GazePoint[] GenerateSaccade(int seed = DefaultSeed);
@@ -146,6 +182,14 @@ public static class GazeStreamGenerator
 - Gaussian noise via Box–Muller transform (no extra NuGet dependency).
 - The class is `public static` so the test project can reference it directly (no
   `InternalsVisibleTo` needed).
+
+### Coordinate space note
+
+`GazePoint.X/Y` are documented as the tracker's native coordinate space (calibration maps
+native→pixels; that mapping is excluded here as a non-goal). The generator writes pixel-scale
+values (0–2000) into these fields directly. This is harmless for performance measurement — the
+filters and detectors do pure arithmetic on the doubles — but the streams should not be read as
+physically calibrated gaze.
 
 ### Scenario Definitions
 
@@ -161,7 +205,8 @@ public static class GazeStreamGenerator
 `GapInterpolator` behaves differently for short vs. long gaps: short gaps hold the last position
 (and suppress fixation), long gaps reset the filter. The default `MaxGapInterpolationMs` is
 **150 ms** (`CursorSettings._maxGapInterpolationMs = 150`). At 30 Hz (33 333 µs/sample) that is
-~4.5 samples, so the threshold in samples sits between 4 and 5.
+~4.5 samples, so the threshold in samples sits between 4 and 5. `GapInterpolator.Process` measures
+the gap from the *last valid* timestamp, so reset fires at the 5th consecutive invalid sample.
 
 The `GenerateWithDropout` stream inserts **two clustered gaps** to exercise both branches:
 
@@ -172,53 +217,71 @@ The `GenerateWithDropout` stream inserts **two clustered gaps** to exercise both
 
 Gaps are **clustered** (consecutive invalid samples), not uniformly scattered — that's what real
 blinks/tracking-loss look like. The generator places the short gap near the start and the long gap
-near the middle, with valid samples surrounding them.
+near the middle, with valid samples surrounding them. This stream also hits the `_lastValidTimestamp
+< 0` re-init branch after the reset.
 
 ### Why Deterministic Synthetic over Recorded Replay
 
-Every number is reproducible: a contributor running `--filter *GazePipeline*` on a different
-machine gets identical input streams. No binary blob, no capture step, no platform-specific path.
-The `seed` parameter exists so a motivated investigator can regenerate with different seeds, but
-the default is pinned at 42.
+Every number is reproducible: a contributor running `--filter *Gaze*` on a different machine gets
+identical input streams. No binary blob, no capture step, no platform-specific path. The `seed`
+parameter exists so a motivated investigator can regenerate with different seeds, but the default
+is pinned at 42.
 
 ## Benchmark Inventory
 
-### Layer 1 — Per-Component Filter Micro (12 benchmarks)
+### Layer 1 — `GazeFilterBenchmarks` (9 benchmarks)
 
-Filters: **Direct** (`DirectFilter`), **Smoothed** (`SmoothedFilter`, default factor 0.5),
-**OneEuro** (`OneEuroFilter`, default minCutoff 5.0 / beta 0.5). Built via direct construction at
-default settings (not via `GazeFilterFactory`, to keep each filter isolated and avoid settings
-plumbing).
+Filters: **Direct** (`DirectFilter`), **Smoothed** (`new SmoothedFilter(0.5)` — there is no
+parameterless ctor; 0.5 is the settings default passed explicitly), **OneEuro**
+(`new OneEuroFilter()` — default minCutoff 5.0 / beta 0.5). Built via direct construction at
+default settings, **not** via `GazeFilterFactory`, to keep each filter isolated and avoid settings
+plumbing.
 
-Scenarios: **Fixation**, **Saccade**, **NoisyFixation**, **WithDropout** (4) × 3 modes = 12.
+Scenarios: **Fixation**, **Saccade**, **NoisyFixation** (3) × 3 modes = 9.
 
 | Benchmark naming | Example |
 |------------------|---------|
-| `Filter_<Mode>_<Scenario>` | `Filter_OneEuro_NoisyFixation`, `Filter_Direct_WithDropout` |
+| `Filter_<Mode>_<Scenario>` | `Filter_OneEuro_NoisyFixation`, `Filter_Direct_Saccade` |
 
-For filters, the WithDropout scenario matters most — it exercises the invalid-sample branch
-(filter returns last-valid, no smoothing work). Filters carry state (last filtered position,
-velocity estimate) that accumulates across the batch — exactly as in production — so a fresh
-instance is **constructed** in `[IterationSetup]` for each measured iteration, ensuring every
-iteration starts from the same uninitialised state. Detectors likewise get fresh instances. The
-generator streams themselves are built once in `[GlobalSetup]` (they are immutable inputs).
+#### Dropout scenario scoping
 
-### Layer 2 — Per-Component Detector Micro (3 benchmarks)
+`Filter_*_WithDropout` is **deliberately excluded**. In production, `GazeFilterFactory.Create` is
+called only inside `GazeEngine`, both times feeding a `GapInterpolator`
+([GazeEngine.cs:58,67](src/EyeCtrl.Core/GazeEngine.cs:58)), and `GapInterpolator.Process` calls
+`_filter.Filter()` **only for valid samples** ([GapInterpolator.cs:33-35](src/EyeCtrl.Core/Processing/GapInterpolator.cs:33)).
+So a filter never receives an invalid sample on the real path — the `if (!rawGaze.IsValid &&
+_initialized) return _lastFiltered` early-return ([OneEuroFilter.cs:150](src/EyeCtrl.Core/Processing/OneEuroFilter.cs:150))
+is dead code in production. Invalid-sample handling is covered instead at the `GapInterpolator`
+layer (Layer 2), where it actually happens.
+
+### Layer 2 — `GazeDetectorBenchmarks` (3 benchmarks)
+
+Detectors take `PhysicalPoint`, not `GazePoint` (`FixationDetector.Update`,
+`FixationCentroidTracker.Update`, `DwellDetector.Update`). The generator emits `GazePoint[]`, so
+`[GlobalSetup]` pre-builds a parallel `PhysicalPoint[]` via projection
+(`new PhysicalPoint(g.X, g.Y)`) for each stream. This projection happens in setup (untimed).
 
 | Benchmark | Component | Scenario | Notes |
 |-----------|-----------|----------|-------|
-| `FixationDetector_Update` | `FixationDetector.Update` | Fixation | Fires `FixationStarted` mid-batch; leave event unsubscribed (no handler cost) |
+| `FixationDetector_Update` | `FixationDetector.Update` | Fixation | Fires `FixationStarted` mid-batch; event left unsubscribed (no handler cost) |
 | `CentroidTracker_Update` | `FixationCentroidTracker.Update` | Fixation | `StartTracking()` called in setup; accumulates via Welford |
-| `GapInterpolator_Process` | `GapInterpolator.Process` | WithDropout | Mixes valid/invalid; hits both hold and reset branches |
+| `GapInterpolator_Process` | `GapInterpolator.Process` | WithDropout | Mixes valid/invalid; hits both hold and reset branches — the only place invalid-sample handling is exercised |
 
-### Layer 3 — DwellDetector Stress (1 method × 3 params = 3 benchmarks)
+### Layer 3 — `DwellDetectorBenchmarks` (1 method × 3 params = 3 benchmarks)
 
-The one non-O(1) hot path: `DwellDetector.Update` scans every target each call. Confirms per-update
-cost scales ~linearly and stays well under a sample budget.
+The one non-O(1) hot path: `DwellDetector.Update` scans every target each call. `[Params]` is
+scoped to this class (not class-level on a shared class) so it expands only these 3 cases.
 
 ```csharp
-[Params(5, 20, 50)]
-public int TargetCount { get; set; }
+[SimpleJob(RuntimeMoniker.Net10_0)]
+[MemoryDiagnoser]
+[RankColumn]
+public class DwellDetectorBenchmarks
+{
+    [Params(5, 20, 50)]
+    public int TargetCount { get; set; }
+    // ...
+}
 ```
 
 Gaze sits inside the **nearest** target so the full hit-test loop runs and a target accumulates
@@ -226,7 +289,16 @@ dwell. `[GlobalSetup]` rebuilds the target set per `TargetCount`. Targets are ar
 spanning a plausible screen area, each with a hit radius, so the nearest-target selection logic
 exercises realistically.
 
-### Layer 4 — End-to-End Pipeline (4 benchmarks)
+#### Anticipated finding: DwellDetector is not allocation-free
+
+`Update` enumerates `_targets.Values` **twice** per call ([DwellDetector.cs:105,123](src/EyeCtrl.Core/Processing/DwellDetector.cs:105)),
+and `ConcurrentDictionary.Values` allocates a fresh snapshot collection each access. So
+`MemoryDiagnoser` **will** report nonzero `B/op` for a path that runs once per gaze sample in
+production (driven off `CursorMoved`). This is a genuine finding and an optimization target — the
+benchmark is expected to surface it, not be surprised by it. The risk table records this
+anticipation explicitly.
+
+### Layer 4 — `GazePipelineBenchmarks` (4 benchmarks)
 
 Real `GazeEngine` wired to `FakeGazeProvider`/`FakeInputSimulator`, per filter mode. The provider's
 `GazePointReceived` is raised synchronously once per sample inside the timed loop.
@@ -241,20 +313,39 @@ Real `GazeEngine` wired to `FakeGazeProvider`/`FakeInputSimulator`, per filter m
 The first three give the apples-to-apples per-mode cost on a representative scenario; the fourth
 is the worst-case (heaviest filter + heaviest jitter). Filter mode is set on `EyeCtrlSettings`
 before constructing the `GazeEngine`, so `GazeFilterFactory.Create` produces the right filter —
-this exercises the real production wiring path.
+this exercises the real production wiring path. Per "Per-iteration Setup" above, a fresh
+provider+engine pair is built each iteration via `[IterationSetup]` to avoid state leak and
+subscription stacking.
 
 ## Testability
 
-The benchmark project is `Exe`/`net10.0` and not part of the test runner, so generator correctness
-checks need their own home.
+The benchmark project is `Exe`/`net10.0` and deliberately **not** part of the solution
+(`AGENTS.md`: "Not part of the solution file"). Generator correctness checks therefore need their
+own home that doesn't erode that invariant.
 
 **Decision: new `tests/EyeCtrl.Benchmarks.Tests` project** (xUnit + NFluent via the shared
-`tests/Directory.Build.props`), referencing only `EyeCtrl.Benchmarks`. This keeps BenchmarkDotNet
-from bleeding transitively into the Core/Platform/ViewModels test suites.
+`tests/Directory.Build.props`, which auto-provides both to anything under `tests/`), referencing
+only `EyeCtrl.Benchmarks`. This keeps BenchmarkDotNet from bleeding transitively into the
+Core/Platform/ViewModels test suites.
 
 Rejected alternative: reference the benchmark project from `EyeCtrl.Core.Tests`. The generator is
 `public` so no `InternalsVisibleTo` would be needed, but it would pull BenchmarkDotNet in as a
 transitive dependency of the core unit-test project — surprising and ugly.
+
+### CI wiring — explicit step (not slnx)
+
+The new test project is **not** added to `EyeCtrl.slnx` (which would pull the benchmark project +
+BenchmarkDotNet into the slnx build graph via `ProjectReference`, eroding the standalone
+invariant). Instead, CI gets an explicit step in `.github/workflows/ci.yml` that builds and runs
+just this project:
+
+```yaml
+      - name: Run generator tests (benchmark correctness)
+        run: dotnet test tests/EyeCtrl.Benchmarks.Tests
+```
+
+Placed after the existing `Run unit tests` step. This honors "benchmarks are standalone" while
+still giving the drift guard automated coverage — the property the review flagged as missing.
 
 ### `GazeStreamGeneratorTests` Coverage
 
@@ -270,8 +361,8 @@ transitive dependency of the core unit-test project — surprising and ugly.
 ## Dependencies
 
 No new NuGet packages for the benchmark project. Existing `BenchmarkDotNet` 0.15.8 covers all
-needs. The new test project picks up xUnit + NFluent from the shared
-`tests/Directory.Build.props` (same as the other test projects).
+needs. The new test project picks up xUnit + NFluent from the shared `tests/Directory.Build.props`
+(same as the other test projects).
 
 ## Risk Assessment
 
@@ -279,10 +370,11 @@ needs. The new test project picks up xUnit + NFluent from the shared
 |------|-----------|
 | Synthetic streams don't reflect real tracker characteristics | Deterministic seed-based generation; documented as throughput baselines, not real-content accuracy. Quality characterization stays in unit tests. |
 | Sub-microsecond filter calls dominated by BD per-invocation overhead | Batch 1000 samples per invocation; report per-batch and document it. |
-| End-to-end pipeline measurement contaminated by fake allocations | Fakes record nothing during the timed loop (no `List.Add`); `GlobalSetup` does all allocation. |
-| Filter state leaks across iterations | `[IterationSetup]` resets/reconstructs filter and detector instances per iteration. |
-| DwellDetector target grid doesn't exercise nearest-target selection | Grid spans screen area with realistic radii; gaze placed inside nearest target. |
-| Generator drifts undetected (e.g., dropout gaps stop straddling the threshold) | `GazeStreamGeneratorTests` asserts gap clustering and length explicitly. |
+| End-to-end pipeline measurement contaminated by fake allocations | Fakes record nothing during the timed loop (no `List.Add`); `[GlobalSetup]`/`[IterationSetup]` do all allocation. |
+| Engine subscription stacking across iterations | `[IterationSetup]` builds a fresh `FakeGazeProvider` + `GazeEngine` per iteration; `[IterationCleanup]` disposes the prior engine. Old pair is GC'd with no subscribers. |
+| `InteractionManager` state leak biases iteration 2+ | Same fresh-engine-per-iteration approach; engine always starts in `FreeLook`. |
+| `DwellDetector.Update` allocates per call (`ConcurrentDictionary.Values` ×2) | Anticipated finding, not a surprise — benchmark surfaces it as an optimization target. Risk table records the expectation. |
+| Generator drifts undetected (e.g., dropout gaps stop straddling the threshold) | `GazeStreamGeneratorTests` asserts gap clustering and length explicitly; runs in CI via dedicated step. |
 
 ## Verification
 
@@ -296,17 +388,20 @@ dotnet build tests/EyeCtrl.Benchmarks.Tests
 # Generator correctness (fast, no display)
 dotnet test tests/EyeCtrl.Benchmarks.Tests
 
-# All gaze pipeline benchmarks
-dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *GazePipeline*
+# All gaze pipeline benchmarks (all 4 classes)
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze*
 
 # One layer at a time
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Filter_*
-dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *DwellDetector_*
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Detector_*
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Pipeline_*
 ```
 
 ## Documentation Update
 
-`AGENTS.md`'s Benchmarks section is updated: counts change from "7 classes, 28 benchmarks" to
-**"8 classes, 50 benchmarks"** (28 prediction + 22 gaze pipeline), and a one-line note is added
-that the new `GazePipelineBenchmarks` class covers the per-sample gaze processing path.
+`AGENTS.md`'s Benchmarks section ([AGENTS.md:132](AGENTS.md:132)) is updated: the covered-subjects
+list is extended to name the gaze pipeline components, and the count changes from
+"7 benchmark classes, 28 benchmarks total" to **"11 benchmark classes, 47 benchmarks total"**
+(28 prediction + 19 gaze pipeline). The "Not part of the solution file" line
+([AGENTS.md:121](AGENTS.md:121)) remains accurate: the benchmark project is still standalone; only
+the generator test project is referenced directly, by the dedicated CI step.

@@ -11,6 +11,11 @@ using System.Collections.Concurrent;
 public class DwellDetector
 {
     private readonly ConcurrentDictionary<string, DwellTarget> _targets = new();
+
+    // Copy-on-write snapshot of _targets for allocation-free, thread-safe enumeration on the
+    // per-sample Update hot path. Rebuilt on add/remove/clear; read locklessly via a volatile load.
+    // The array is never mutated in place, so concurrent mutation can never throw mid-enumeration.
+    private volatile DwellTarget[] _targetsSnapshot = Array.Empty<DwellTarget>();
     private long _cooldownMicroseconds;
     private long _lastTimestamp;
     private long? _lastActivationTimestamp;
@@ -37,11 +42,23 @@ public class DwellDetector
     }
 
     /// <summary>Adds a target for dwell detection. Replaces any existing target with the same ID.</summary>
-    public void AddTarget(DwellTarget target) => _targets[target.Id] = target;
+    public void AddTarget(DwellTarget target)
+    {
+        _targets[target.Id] = target;
+        _targetsSnapshot = _targets.Values.ToArray();
+    }
     /// <summary>Removes a target from dwell detection.</summary>
-    public void RemoveTarget(string id) => _targets.TryRemove(id, out _);
+    public void RemoveTarget(string id)
+    {
+        if (_targets.TryRemove(id, out _))
+            _targetsSnapshot = _targets.Values.ToArray();
+    }
     /// <summary>Removes all targets from dwell detection.</summary>
-    public void ClearTargets() => _targets.Clear();
+    public void ClearTargets()
+    {
+        _targets.Clear();
+        _targetsSnapshot = _targets.Values.ToArray();
+    }
 
     /// <summary>
     /// Resets accumulated dwell state on all targets without removing them.
@@ -51,8 +68,10 @@ public class DwellDetector
     /// </summary>
     public void ResetAllState()
     {
-        foreach (var t in _targets.Values)
+        var targets = _targetsSnapshot;
+        for (int i = 0; i < targets.Length; i++)
         {
+            var t = targets[i];
             if (t.IsGazeInside)
                 TargetProgress?.Invoke(t.Id, 0);
             t.IsGazeInside = false;
@@ -82,13 +101,18 @@ public class DwellDetector
     {
         _lastTimestamp = timestampMicroseconds;
 
+        // Read the copy-on-write snapshot once: a stable, immutable view for this call. Iterating it
+        // allocates nothing and never throws under concurrent add/remove (the array is never mutated).
+        var targets = _targetsSnapshot;
+
         // Cooldown: skip all dwell accumulation if within cooldown period
         if (_lastActivationTimestamp.HasValue &&
             (timestampMicroseconds - _lastActivationTimestamp.Value) < _cooldownMicroseconds)
         {
             // Reset all targets during cooldown (prevent partial accumulation)
-            foreach (var t in _targets.Values)
+            for (int i = 0; i < targets.Length; i++)
             {
+                var t = targets[i];
                 if (t.IsGazeInside)
                     TargetProgress?.Invoke(t.Id, 0);
                 t.IsGazeInside = false;
@@ -102,8 +126,9 @@ public class DwellDetector
         string? nearestId = null;
         double nearestDistSq = double.MaxValue;
 
-        foreach (var target in _targets.Values)
+        for (int i = 0; i < targets.Length; i++)
         {
+            var target = targets[i];
             if (target.HitTest(gazePoint))
             {
                 double dx = gazePoint.X - target.Center.X;
@@ -120,8 +145,9 @@ public class DwellDetector
         // ── Accumulate dwell on nearest only; reset all others ──
         string? activatedId = null;
 
-        foreach (var target in _targets.Values)
+        for (int i = 0; i < targets.Length; i++)
         {
+            var target = targets[i];
             bool isNearest = target.Id == nearestId;
 
             if (isNearest)

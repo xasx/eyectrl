@@ -1,6 +1,6 @@
 # EyeCtrl Architecture
 
-> Auto-generated from the GitNexus knowledge graph: **eyectrl** (5891 symbols, 13169 relationships, 300 execution flows, 293 functional areas). Index dated 2026-06-23 (commit `3be8635`).
+> Auto-generated from the GitNexus knowledge graph: **eyectrl** (6054 symbols, 13473 relationships, 300 execution flows, 311 functional areas). Index dated 2026-06-26 (commit `c9813fd`).
 
 EyeCtrl is a gaze control platform for Windows that turns an eye tracker (Tobii Stream Engine, or a mouse fallback) into a cursor, dwell-click, on-screen keyboard, and word-prediction input system. The codebase is split into eight .NET projects with a strict dependency direction (`App → ViewModels → Core`, `App → Platform → Core`), plus a standalone SDK layer (`Contracts → Abstractions → Sdk.Wpf / Sdk.WinUI`) that enables third-party apps to add gaze-dwell via named-pipe IPC.
 
@@ -743,10 +743,10 @@ eyectrl/
 |-------|-------|
 | Repository | `eyectrl` (`C:\Users\andre\source\repos\eyectrl`) |
 | Remote | https://github.com/xasx/eyectrl |
-| Indexed at | 2026-06-23T21:24:53Z |
-| Last indexed commit | `3be8635` |
-| Symbols / relationships / flows | 5891 / 13169 / 300 |
-| Functional areas (communities) | 293 |
+| Indexed at | 2026-06-26T23:30:31 |
+| Last indexed commit | `c9813fd` |
+| Symbols / relationships / flows | 6054 / 13473 / 300 |
+| Functional areas (communities) | 311 |
 | Embeddings | disabled (BM25 + structural only) |
 
 To refresh this document after code changes, re-index (`node .gitnexus/run.cjs analyze`) and regenerate. Check staleness with `gitnexus status`. The graph-verified step traces in §4 are derived from `STEP_IN_PROCESS` edges; the hub symbol table in §3 from `CALLS` edge aggregation; the cross-project import weights in §1 from `IMPORTS` edges.

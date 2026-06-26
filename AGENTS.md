@@ -118,7 +118,7 @@ SDK is .NET 10.0.102 (pinned in `global.json`).
 - **CommunityToolkit.Mvvm in Core** — `ObservableObject` is used solely for `INotifyPropertyChanged` on settings objects (source-generator utility). The `WeakReferenceMessenger` is NOT used in Core (only in ViewModels). This is documented as architectural invariant #7.
 - **EyeCtrl.LM** is a leaf project for ONNX/Tokenizer natives. Core is free of native ML dependencies — the `ILanguageModelPredictor` interface provides the seam. App references LM, constructs `SmallLMPredictor` in `EventCoordinator.LoadKeyboard`, and passes it to `PredictionOrchestrator` as `ILanguageModelPredictor`.
 - **Resource files** (JSON layouts, dictionaries, emojis, `click.wav`) use `<ExcludeFromSingleFile>true</ExcludeFromSingleFile>` — they must remain as loose files alongside the single-file exe.
-- **Benchmarks** live in `benchmarks/EyeCtrl.Benchmarks/` and use BenchmarkDotNet. Not part of the solution file (standalone project). See the Benchmarks section below for run instructions.
+- **Benchmarks** live in `benchmarks/EyeCtrl.Benchmarks/` and use BenchmarkDotNet. Not part of the solution file (standalone project). The generator correctness tests (`tests/EyeCtrl.Benchmarks.Tests`) are run in CI via a dedicated `dotnet test` step that references the benchmark project directly, without adding it to the solution. See the Benchmarks section below for run instructions.
 - **Dictionary generation**: `tools/gen_dicts.py` generates word frequency dictionaries. Run manually when dictionaries need updating.
 
 ## Benchmarks
@@ -127,9 +127,10 @@ SDK is .NET 10.0.102 (pinned in `global.json`).
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter * --job short   # all benchmarks
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Bigram*         # specific class
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *SmallLM*        # ML benchmarks (skips gracefully if no ONNX model)
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze*    # gaze pipeline benchmarks (4 classes: filters, detectors, DwellDetector, end-to-end)
 ```
 
-7 benchmark classes, 28 benchmarks total — covering WordPredictor, BigramModel, PhraseModel, SentenceCompletionIndex, FuzzyEditDistance, CapitalizationHelper, CasingHelper, PredictionOrchestrator, SmallLMPredictor, and LMTokenizer.
+11 benchmark classes, 47 benchmarks total — covering WordPredictor, BigramModel, PhraseModel, SentenceCompletionIndex, FuzzyEditDistance, CapitalizationHelper, CasingHelper, PredictionOrchestrator, SmallLMPredictor, LMTokenizer (prediction), and the gaze processing pipeline (DirectFilter, SmoothedFilter, OneEuroFilter, FixationDetector, FixationCentroidTracker, GapInterpolator, DwellDetector, end-to-end GazeEngine).
 
 SmallLM benchmarks require ONNX model + tokenizer files in `%APPDATA%/EyeCtrl/models` (overridable via `EYECTRL_MODEL_DIR` env var). The `Program.cs` pre-flight check excludes the class entirely if no model is present.
 

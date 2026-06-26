@@ -52,3 +52,6 @@ jobs:
 
       - name: Run unit tests
         run: dotnet test --filter "Category!=UI" --no-build
+
+      - name: Run generator tests (benchmark correctness)
+        run: dotnet test tests/EyeCtrl.Benchmarks.Tests

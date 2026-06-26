@@ -16,6 +16,7 @@ TestResults/
 ## Build artifacts
 *.DotSettings.user
 publish/
+BenchmarkDotNet.Artifacts/
 
 ## Worktrees
 .worktrees/

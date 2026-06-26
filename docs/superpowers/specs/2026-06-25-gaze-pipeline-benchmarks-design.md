@@ -48,7 +48,7 @@ generator's correctness checks.
 | `benchmarks/EyeCtrl.Benchmarks/GazeStreamGenerator.cs` | Deterministic, procedural generator of `GazePoint[]` streams (one method per scenario) |
 | `benchmarks/EyeCtrl.Benchmarks/GazeFilterBenchmarks.cs` | Filter micro-benchmarks (Layer 1) |
 | `benchmarks/EyeCtrl.Benchmarks/GazeDetectorBenchmarks.cs` | Detector micro-benchmarks (Layer 2) |
-| `benchmarks/EyeCtrl.Benchmarks/DwellDetectorBenchmarks.cs` | DwellDetector target-sweep (Layer 3) |
+| `benchmarks/EyeCtrl.Benchmarks/GazeDwellBenchmarks.cs` | DwellDetector target-sweep (Layer 3) |
 | `benchmarks/EyeCtrl.Benchmarks/GazePipelineBenchmarks.cs` | End-to-end pipeline (Layer 4) |
 | `tests/EyeCtrl.Benchmarks.Tests/EyeCtrl.Benchmarks.Tests.csproj` | New test project (xUnit + NFluent) |
 | `tests/EyeCtrl.Benchmarks.Tests/GazeStreamGeneratorTests.cs` | Correctness checks for the generator |
@@ -68,10 +68,12 @@ methods in the class), and scopes `[Params]` to only the class that needs it.
 |-------|-------|-------------------|------------|
 | `GazeFilterBenchmarks` | 1 | Is each filter cheap & allocation-free per sample? | 9 |
 | `GazeDetectorBenchmarks` | 2 | Are detectors cheap & allocation-free per sample? | 3 |
-| `DwellDetectorBenchmarks` | 3 | Does the O(n) target scan stay bounded? | 3 (1 method × `[Params(5,20,50)]`) |
+| `GazeDwellBenchmarks` | 3 | Does the O(n) target scan stay bounded? | 3 (1 method × `[Params(5,20,50)]`) |
 | `GazePipelineBenchmarks` | 4 | What does one full `OnGazePoint` cost? | 4 |
 
 **Total: 19 benchmarks across 4 classes.**
+
+All four class names share the `Gaze` token, so `--filter *Gaze*` selects the whole suite while `--filter *GazeFilter*` / `*GazeDetector*` / `*GazeDwell*` / `*GazePipeline*` select individual layers — matching the existing class-name filter convention (`*Bigram*`, `*SmallLM*`).
 
 ### Pipeline Assembly (Layer 4)
 
@@ -142,7 +144,12 @@ work, so:
   would measure a different path. (b) The `GazeEngine` constructor subscribes to the provider's
   `GazePointReceived` event; reusing a provider across engine rebuilds stacks subscriptions,
   leaking N engines' `OnGazePoint` per sample. A fresh provider+engine pair each iteration
-  avoids both. `[IterationCleanup]` disposes the prior engine.
+  avoids both. `[IterationCleanup]` disposes the prior engine. Note BD still runs many
+  invocations per iteration on that one engine: once the Fixation scenario triggers,
+  `InteractionManager` converges to `Fixation` and stays there (the engine drives no dwell), so the
+  reported number reflects steady-state-fixation cost rather than the `FreeLook`/`MoveCursor`
+  branch. That is the intended apples-to-apples basis — filter mode is the only variable across the
+  four pipeline benchmarks.
 
 ## Input Model — `GazeStreamGenerator`
 
@@ -267,7 +274,9 @@ Detectors take `PhysicalPoint`, not `GazePoint` (`FixationDetector.Update`,
 | `CentroidTracker_Update` | `FixationCentroidTracker.Update` | Fixation | `StartTracking()` called in setup; accumulates via Welford |
 | `GapInterpolator_Process` | `GapInterpolator.Process` | WithDropout | Mixes valid/invalid; hits both hold and reset branches — the only place invalid-sample handling is exercised |
 
-### Layer 3 — `DwellDetectorBenchmarks` (1 method × 3 params = 3 benchmarks)
+The benchmarked `GapInterpolator` wraps a `DirectFilter`, so Layer 2 measures gap/interpolation overhead in isolation — filter cost is already covered in Layer 1, and a heavier wrapped filter here would double-count it.
+
+### Layer 3 — `GazeDwellBenchmarks` (1 method × 3 params = 3 benchmarks)
 
 The one non-O(1) hot path: `DwellDetector.Update` scans every target each call. `[Params]` is
 scoped to this class (not class-level on a shared class) so it expands only these 3 cases.
@@ -276,7 +285,7 @@ scoped to this class (not class-level on a shared class) so it expands only thes
 [SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
 [RankColumn]
-public class DwellDetectorBenchmarks
+public class GazeDwellBenchmarks
 {
     [Params(5, 20, 50)]
     public int TargetCount { get; set; }
@@ -391,10 +400,11 @@ dotnet test tests/EyeCtrl.Benchmarks.Tests
 # All gaze pipeline benchmarks (all 4 classes)
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze*
 
-# One layer at a time
-dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Filter_*
-dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Detector_*
-dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Pipeline_*
+# One layer at a time (filter by class name, per the *Bigram*/*SmallLM* convention)
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *GazeFilter*      # Layer 1
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *GazeDetector*    # Layer 2
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *GazeDwell*       # Layer 3
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *GazePipeline*    # Layer 4
 ```
 
 ## Documentation Update

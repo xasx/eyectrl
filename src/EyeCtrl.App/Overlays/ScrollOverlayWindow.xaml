@@ -8,13 +8,8 @@
                         WindowStyle="None"
                         AllowsTransparency="True"
                         Background="Transparent"
-                        IsHitTestVisible="False"
-                        Width="{x:Static SystemParameters.PrimaryScreenWidth}"
-                        Height="{x:Static SystemParameters.PrimaryScreenHeight}"
-                        Left="0" Top="0">
-    <Canvas x:Name="OverlayCanvas"
-            Width="{x:Static SystemParameters.PrimaryScreenWidth}"
-            Height="{x:Static SystemParameters.PrimaryScreenHeight}">
+                        IsHitTestVisible="False">
+    <Canvas x:Name="OverlayCanvas">
         <Line x:Name="AnchorCrosshairH" Stroke="White" StrokeThickness="1" Opacity="0.5"/>
         <Line x:Name="AnchorCrosshairV" Stroke="White" StrokeThickness="1" Opacity="0.5"/>
 

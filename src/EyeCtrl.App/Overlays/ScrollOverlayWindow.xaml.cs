@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
 public partial class ScrollOverlayWindow : OverlayWindow
@@ -18,29 +19,41 @@ public partial class ScrollOverlayWindow : OverlayWindow
     {
         DataContext = vm;
 
+        var screen = System.Windows.Forms.Screen.PrimaryScreen!;
+        Left = screen.Bounds.X / DpiHelper.ScaleX;
+        Top = screen.Bounds.Y / DpiHelper.ScaleY;
+        Width = screen.Bounds.Width / DpiHelper.ScaleX;
+        Height = screen.Bounds.Height / DpiHelper.ScaleY;
+        OverlayCanvas.Width = Width;
+        OverlayCanvas.Height = Height;
+
         var anchor = vm.Anchor;
+        double anchorLogX = DpiHelper.PhysicalToLogicalX(anchor.X);
+        double anchorLogY = DpiHelper.PhysicalToLogicalY(anchor.Y);
 
-        AnchorCrosshairH.X1 = anchor.X - 15; AnchorCrosshairH.Y1 = anchor.Y;
-        AnchorCrosshairH.X2 = anchor.X + 15; AnchorCrosshairH.Y2 = anchor.Y;
-        AnchorCrosshairV.X1 = anchor.X; AnchorCrosshairV.Y1 = anchor.Y - 15;
-        AnchorCrosshairV.X2 = anchor.X; AnchorCrosshairV.Y2 = anchor.Y + 15;
+        AnchorCrosshairH.X1 = anchorLogX - 15; AnchorCrosshairH.Y1 = anchorLogY;
+        AnchorCrosshairH.X2 = anchorLogX + 15; AnchorCrosshairH.Y2 = anchorLogY;
+        AnchorCrosshairV.X1 = anchorLogX; AnchorCrosshairV.Y1 = anchorLogY - 15;
+        AnchorCrosshairV.X2 = anchorLogX; AnchorCrosshairV.Y2 = anchorLogY + 15;
 
-        Canvas.SetLeft(CursorCircle, anchor.X - 40);
-        Canvas.SetTop(CursorCircle, anchor.Y - 40);
-        Canvas.SetLeft(AnchorDot, anchor.X - 4);
-        Canvas.SetTop(AnchorDot, anchor.Y - 4);
-        Canvas.SetLeft(VelocityRing, anchor.X - 40);
-        Canvas.SetTop(VelocityRing, anchor.Y - 40);
+        Canvas.SetLeft(CursorCircle, anchorLogX - 40);
+        Canvas.SetTop(CursorCircle, anchorLogY - 40);
+        Canvas.SetLeft(AnchorDot, anchorLogX - 4);
+        Canvas.SetTop(AnchorDot, anchorLogY - 4);
+        Canvas.SetLeft(VelocityRing, anchorLogX - 40);
+        Canvas.SetTop(VelocityRing, anchorLogY - 40);
 
         var stopCenter = vm.StopButtonCenter;
-        Canvas.SetLeft(StopButton, stopCenter.X - 25);
-        Canvas.SetTop(StopButton, stopCenter.Y - 25);
-        Canvas.SetLeft(StopButtonProgressArc, stopCenter.X - 25);
-        Canvas.SetTop(StopButtonProgressArc, stopCenter.Y - 25);
-        Canvas.SetLeft(StopLabel, stopCenter.X - 12);
-        Canvas.SetTop(StopLabel, stopCenter.Y - 14);
+        double stopLogX = DpiHelper.PhysicalToLogicalX(stopCenter.X);
+        double stopLogY = DpiHelper.PhysicalToLogicalY(stopCenter.Y);
+        Canvas.SetLeft(StopButton, stopLogX - 25);
+        Canvas.SetTop(StopButton, stopLogY - 25);
+        Canvas.SetLeft(StopButtonProgressArc, stopLogX - 25);
+        Canvas.SetTop(StopButtonProgressArc, stopLogY - 25);
+        Canvas.SetLeft(StopLabel, stopLogX - 12);
+        Canvas.SetTop(StopLabel, stopLogY - 14);
 
-        Show();
+        base.Show();
         Topmost = true;
     }
 
@@ -49,9 +62,8 @@ public partial class ScrollOverlayWindow : OverlayWindow
     {
         double anchorX = Canvas.GetLeft(CursorCircle) + 40;
         double anchorY = Canvas.GetTop(CursorCircle) + 40;
-        double circleRadius = 40;
-        double dotX = anchorX + dotOffsetX * circleRadius * 0.6;
-        double dotY = anchorY + dotOffsetY * circleRadius * 0.6;
+        double dotX = anchorX + dotOffsetX * 24;
+        double dotY = anchorY + dotOffsetY * 24;
         Canvas.SetLeft(AnchorDot, dotX - 4);
         Canvas.SetTop(AnchorDot, dotY - 4);
 

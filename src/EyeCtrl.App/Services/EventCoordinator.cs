@@ -46,6 +46,10 @@ public class EventCoordinator : IEventCoordinator
     private ModelRegistryService? _modelRegistry;
     private ModelDownloadService? _downloadService;
     private ModelManagementService? _modelManagementService;
+    private ScrollOverlayViewModel? _scrollOverlayVm;
+    private ScrollOverlayWindow? _scrollOverlayWindow;
+    private ScrollWorker? _scrollWorker;
+    private bool _scrollModeActive;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -116,6 +120,8 @@ public class EventCoordinator : IEventCoordinator
         var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
         var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
         var keyboard = _context.OverlayManager.Keyboard;
+
+        im.StateChanged += OnInteractionStateChanged;
 
         // ManualSelectionDwellCompleted: Handle coordinate conversion
         _context.Messenger.Register<EventCoordinator, ManualSelectionDwellCompletedMessage>(this, (_, msg) =>
@@ -928,6 +934,84 @@ public class EventCoordinator : IEventCoordinator
 
     #endregion
 
+    private void OnInteractionStateChanged(InteractionState state)
+    {
+        if (state == InteractionState.ScrollMode)
+        {
+            OnScrollModeEntered();
+        }
+        else if (_scrollModeActive)
+        {
+            OnScrollModeExited();
+        }
+    }
+
+    private void OnScrollModeEntered()
+    {
+        if (_context == null) return;
+
+        var anchor = _context.InteractionManager.ScrollAnchor!.Value;
+
+        _context.InputSimulator.MoveCursor(anchor);
+
+        var bounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
+        var stopButtonCenter = new PhysicalPoint(
+            bounds.Width - DpiHelper.LogicalToPhysicalX(50),
+            bounds.Height / 2.0);
+
+        _scrollOverlayVm = new ScrollOverlayViewModel(_context.Settings.Scroll, _context.Messenger);
+        _scrollOverlayVm.EnterScrollMode(anchor, stopButtonCenter);
+        _scrollOverlayVm.ExitRequested += OnScrollExitRequested;
+
+        _scrollOverlayWindow = new ScrollOverlayWindow();
+        _scrollOverlayWindow.Show(_scrollOverlayVm);
+
+        _scrollWorker = new ScrollWorker(_context.InputSimulator);
+        _scrollWorker.Start(anchor);
+
+        _scrollOverlayVm.TargetVelocityChanged += OnScrollTargetVelocityChanged;
+        _scrollOverlayVm.FeedbackChanged += OnScrollFeedbackChanged;
+
+        _scrollModeActive = true;
+    }
+
+    private void OnScrollExitRequested() => _context?.InteractionManager.ExitScrollMode();
+
+    private void OnScrollTargetVelocityChanged(double vx, double vy)
+        => _scrollWorker?.UpdateTargetVelocity(vx, vy);
+
+    private void OnScrollFeedbackChanged()
+    {
+        if (_scrollOverlayWindow == null || _scrollOverlayVm == null) return;
+        _scrollOverlayWindow.UpdateFeedback(
+            _scrollOverlayVm.AnchorDotOffsetX,
+            _scrollOverlayVm.AnchorDotOffsetY,
+            _scrollOverlayVm.VelocityMagnitude,
+            _scrollOverlayVm.StopButtonProgress);
+    }
+
+    private void OnScrollModeExited()
+    {
+        _scrollWorker?.Stop();
+        _scrollWorker?.Dispose();
+        _scrollWorker = null;
+
+        if (_scrollOverlayVm != null)
+        {
+            _scrollOverlayVm.TargetVelocityChanged -= OnScrollTargetVelocityChanged;
+            _scrollOverlayVm.FeedbackChanged -= OnScrollFeedbackChanged;
+            _scrollOverlayVm.ExitRequested -= OnScrollExitRequested;
+            _scrollOverlayVm.ExitScrollMode();
+            _scrollOverlayVm.Dispose();
+            _scrollOverlayVm = null;
+        }
+
+        _scrollOverlayWindow?.Close();
+        _scrollOverlayWindow = null;
+
+        _scrollModeActive = false;
+    }
+
     public void Dispose()
     {
         if (_disposed || _context == null) return;
@@ -957,6 +1041,10 @@ public class EventCoordinator : IEventCoordinator
 
         // Unregister all message handlers
         _context.Messenger.UnregisterAll(this);
+
+        _context.InteractionManager.StateChanged -= OnInteractionStateChanged;
+
+        if (_scrollModeActive) OnScrollModeExited();
 
         _orchestrator?.WordPredictor.SaveUserDictionary();
         _orchestrator?.Dispose();

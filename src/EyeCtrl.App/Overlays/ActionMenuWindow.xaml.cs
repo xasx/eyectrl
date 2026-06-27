@@ -306,6 +306,7 @@ public partial class ActionMenuWindow : OverlayWindow
         InteractionAction.ScrollLeft => "\u25C0",    // ◀ Left triangle
         InteractionAction.ScrollRight => "\u25B6",   // ▶ Right triangle
         InteractionAction.PinNote => "\uD83D\uDCCC",     // 📌 Pushpin
+        InteractionAction.ScrollMode => "⇅",    // up/down arrows (gaze-joystick scroll)
         _ => action.ToString()
     };
 }

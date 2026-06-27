@@ -954,6 +954,10 @@ public class EventCoordinator : IEventCoordinator
 
         _context.InputSimulator.MoveCursor(anchor);
 
+        // Hide the gaze-following cursor circle so it doesn't compete with the scroll overlay's
+        // anchor-locked circle (the locked circle is the whole point of Option D — no feedback loop).
+        _context.OverlayManager.CursorCircle.Hide();
+
         var bounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
         var stopButtonCenter = new PhysicalPoint(
             bounds.Width - DpiHelper.LogicalToPhysicalX(50),
@@ -975,7 +979,11 @@ public class EventCoordinator : IEventCoordinator
         _scrollModeActive = true;
     }
 
-    private void OnScrollExitRequested() => _context?.InteractionManager.ExitScrollMode();
+    // Defer the exit off the current call stack: ExitRequested fires synchronously from inside
+    // ScrollOverlayViewModel.Receive (via the dwell detector), and tearing the VM down there would
+    // dispose it mid-Receive. BeginInvoke runs the teardown on a fresh dispatcher turn instead.
+    private void OnScrollExitRequested()
+        => _context?.Dispatcher.BeginInvoke(() => _context?.InteractionManager.ExitScrollMode());
 
     private void OnScrollTargetVelocityChanged(double vx, double vy)
         => _scrollWorker?.UpdateTargetVelocity(vx, vy);
@@ -1008,6 +1016,10 @@ public class EventCoordinator : IEventCoordinator
 
         _scrollOverlayWindow?.Close();
         _scrollOverlayWindow = null;
+
+        // Restore the gaze-following cursor circle (matches the calibration/settings restore pattern).
+        if (_context != null && _context.CursorVM.IsVisible)
+            _context.OverlayManager.CursorCircle.Show();
 
         _scrollModeActive = false;
     }

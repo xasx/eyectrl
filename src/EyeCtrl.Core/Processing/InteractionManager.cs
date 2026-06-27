@@ -21,6 +21,8 @@ public class InteractionManager
     /// and cleared in <see cref="ResetToFreeLook"/> to prevent stale reuse.
     /// </summary>
     public ControlInfo? AutoSelectionTarget { get; set; }
+    /// <summary>Anchor point for the active gaze-scroll session, or null when not scrolling.</summary>
+    public PhysicalPoint? ScrollAnchor { get; private set; }
 
     /// <summary>Raised when the interaction state changes.</summary>
     public event Action<InteractionState>? StateChanged;
@@ -136,6 +138,16 @@ public class InteractionManager
 
         if (targetPoint == null) return;
 
+        if (action == InteractionAction.ScrollMode)
+        {
+            HideActionMenu?.Invoke();
+            if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
+                EndManualSelection?.Invoke();
+            ScrollAnchor = targetPoint;
+            SetState(InteractionState.ScrollMode);
+            return;
+        }
+
         HideActionMenu?.Invoke();
         if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
             EndManualSelection?.Invoke();
@@ -190,11 +202,20 @@ public class InteractionManager
         }
     }
 
+    /// <summary>Exits gaze-scroll mode and returns to free look.</summary>
+    public void ExitScrollMode()
+    {
+        if (CurrentState != InteractionState.ScrollMode) return;
+        ScrollAnchor = null;
+        ResetToFreeLook();
+    }
+
     private void ResetToFreeLook()
     {
         FixationPoint = null;
         ManualSelectionDwellPoint = null;
         AutoSelectionTarget = null;
+        ScrollAnchor = null;
         SetState(InteractionState.FreeLook);
     }
 }

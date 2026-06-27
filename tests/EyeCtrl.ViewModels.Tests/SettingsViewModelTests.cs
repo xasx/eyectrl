@@ -9,13 +9,13 @@ public class SettingsViewModelTests
     private readonly WeakReferenceMessenger _messenger = new();
 
     [Fact]
-    public void Has7Tabs()
+    public void Has10Tabs()
     {
         var settings = new EyeCtrlSettings();
         var service = new SettingsService("test.json");
         var vm = new SettingsViewModel(settings, service, _messenger);
 
-        Check.That(vm.Tabs).HasSize(9);
+        Check.That(vm.Tabs).HasSize(10);
     }
 
     [Fact]

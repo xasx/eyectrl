@@ -34,6 +34,8 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private AutoSelectionSettings _autoSelection = new();
     /// <summary>External (hardware-button) dwell activation settings.</summary>
     [ObservableProperty] private ExternalDwellSettings _externalDwell = new();
+    /// <summary>Gaze-joystick scroll mode settings.</summary>
+    [ObservableProperty] private ScrollSettings _scroll = new();
 
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
@@ -100,6 +102,11 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
             errors.Add("ExternalDwell settings must not be null.");
         else
             errors.AddRange(ExternalDwell.Validate());
+
+        if (Scroll is null)
+            errors.Add("Scroll settings must not be null.");
+        else
+            errors.AddRange(Scroll.Validate());
 
         return errors;
     }

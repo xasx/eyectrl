@@ -21,6 +21,8 @@ public enum InteractionAction
     ScrollLeft,
     /// <summary>Scroll rightward.</summary>
     ScrollRight,
+    /// <summary>Enter gaze-driven scroll mode.</summary>
+    ScrollMode,
     /// <summary>Pin a draggable note at the gaze point.</summary>
     PinNote
 }

@@ -13,6 +13,8 @@ public enum InteractionState
     ManualSelectionActive,
     /// <summary>The action menu is displayed during manual selection mode.</summary>
     ManualSelectionActionMenuVisible,
+    /// <summary>Gaze-driven scroll mode: visual joystick with anchor point.</summary>
+    ScrollMode,
     /// <summary>Gaze tracking is paused (e.g., during calibration or idle timeout).</summary>
     Paused
 }

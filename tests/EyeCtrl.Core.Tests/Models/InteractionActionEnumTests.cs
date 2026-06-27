@@ -6,9 +6,9 @@ using Xunit;
 public class InteractionActionEnumTests
 {
     [Fact]
-    public void PinNote_HasValue_9()
+    public void PinNote_HasValue_10()
     {
-        Check.That((int)InteractionAction.PinNote).IsEqualTo(9);
+        Check.That((int)InteractionAction.PinNote).IsEqualTo(10);
     }
 
     [Fact]

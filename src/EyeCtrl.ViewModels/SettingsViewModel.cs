@@ -77,6 +77,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new SliderSettingViewModel("externalCooldown", "Cooldown (ms)", ed.CooldownMs, 0, 5000, 50, v => ed.CooldownMs = (int)v),
         }));
 
+        var s = _settings.Scroll;
+        Tabs.Add(new SettingsTabViewModel("Scroll", "\uD83D\uDDA5", new List<SettingItemViewModel>
+        {
+            new SliderSettingViewModel("scrollSensitivity", "Sensitivity", s.Sensitivity, 0.5, 2.0, 0.1, v => s.Sensitivity = v),
+        }));
+
         var highlightColor = new ColorSettingViewModel("highlightColor", "Highlight Color",
             _settings.AutoSelection.HighlightColor, v => _settings.AutoSelection.HighlightColor = v);
         var highlightThickness = new SliderSettingViewModel("highlightThickness", "Highlight Thickness",
@@ -201,6 +207,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         CopySettings(defaults.Calibration, _settings.Calibration);
         CopySettings(defaults.AutoSelection, _settings.AutoSelection);
         CopySettings(defaults.ExternalDwell, _settings.ExternalDwell);
+        CopySettings(defaults.Scroll, _settings.Scroll);
         _settings.SelectionMode = defaults.SelectionMode;
         _settings.ViewPosition = defaults.ViewPosition;
 

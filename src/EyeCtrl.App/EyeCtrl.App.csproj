@@ -6,6 +6,7 @@
     <ProjectReference Include="..\EyeCtrl.Platform\EyeCtrl.Platform.csproj" />
     <ProjectReference Include="..\EyeCtrl.ViewModels\EyeCtrl.ViewModels.csproj" />
     <ProjectReference Include="..\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
+    <ProjectReference Include="..\EyeCtrl.EyeCare\EyeCtrl.EyeCare.csproj" />
   </ItemGroup>
 
   <ItemGroup>

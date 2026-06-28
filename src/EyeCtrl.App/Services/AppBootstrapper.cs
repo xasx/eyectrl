@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using System.Windows.Threading;
+using EyeCtrl.App.Overlays;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Calibration;
@@ -18,6 +19,8 @@ using System.Windows.Forms;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.Platform.Services;
 using EyeCtrl.ViewModels;
+using EyeCtrl.EyeCare;
+using EyeCtrl.EyeCare.Exercises;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -186,6 +189,57 @@ public class AppBootstrapper
             dispatcher,
             sp.GetRequiredService<ILogger<OverlayManager>>()));
 
+        // Eye-care
+        services.AddSingleton(sp => new EyeCareBannerWindow(
+            sp.GetRequiredService<EyeCtrlSettings>().Dwell.ActivationButtonDwellMs));
+        services.AddSingleton<EyeCareExerciseWindow>();
+        services.AddSingleton<ExerciseRunner>(sp =>
+        {
+            var screen = new PhysicalPoint(
+                System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX / 2,
+                System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY / 2);
+            return new ExerciseRunner(BuildExercisePool(screen), seed: Environment.TickCount);
+        });
+        services.AddSingleton<IEyeCareHooks>(sp => new EyeCareHooks(
+            sp.GetRequiredService<IMessenger>(),
+            dispatcher,
+            sp.GetRequiredService<EyeCareBannerWindow>(),
+            sp.GetRequiredService<EyeCareExerciseWindow>(),
+            new PhysicalPoint(
+                System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX / 2,
+                System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY / 2),
+            sp.GetRequiredService<EyeCtrlSettings>().EyeCare.BannerAutoSnoozeSeconds));
+        services.AddSingleton<IEyeCareService, EyeCareService>(sp => new EyeCareService(
+            sp.GetRequiredService<EyeCtrlSettings>().EyeCare,
+            sp.GetRequiredService<ExerciseRunner>(),
+            sp.GetRequiredService<IEyeCareHooks>(),
+            new PhysicalPoint(
+                System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX / 2,
+                System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY / 2)));
+
         return services.BuildServiceProvider();
+    }
+
+    private static IExercise[] BuildExercisePool(PhysicalPoint center)
+    {
+        return new IExercise[]
+        {
+            new NearFarFocusExercise(center, new PhysicalPoint(center.X * 2 - 100, center.Y * 2 - 100), dwellMs: 3000, onTargetRadiusPixels: 60),
+            new SmoothPursuitExercise(center, radius: Math.Min(center.X, center.Y) * 0.6, periodMs: 4000, onTargetRadiusPixels: 80),
+            new Calibration202020Exercise(center, onTargetRadiusPixels: 40),
+            new SaccadeExercise(BuildSaccadeTargets(center), dwellPerTargetMs: 1500, onTargetRadiusPixels: 100),
+            new DirectionalSweepExercise(new PhysicalPoint(100, 100), new PhysicalPoint(center.X * 2 - 100, center.Y * 2 - 100), sweepDurationMs: 3000, onTargetRadiusPixels: 100),
+        };
+    }
+
+    private static PhysicalPoint[] BuildSaccadeTargets(PhysicalPoint center)
+    {
+        return new[]
+        {
+            new PhysicalPoint(center.X * 0.2, center.Y * 0.3),
+            new PhysicalPoint(center.X * 1.8, center.Y * 0.3),
+            new PhysicalPoint(center.X * 0.2, center.Y * 1.7),
+            new PhysicalPoint(center.X * 1.8, center.Y * 1.7),
+        };
     }
 }

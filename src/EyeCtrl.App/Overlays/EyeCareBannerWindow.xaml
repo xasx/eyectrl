@@ -1,0 +1,46 @@
+<local:OverlayWindow x:Class="EyeCtrl.App.Overlays.EyeCareBannerWindow"
+                     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                     xmlns:local="clr-namespace:EyeCtrl.App.Overlays"
+                     WindowStyle="None" AllowsTransparency="True"
+                     Topmost="True" ShowInTaskbar="False"
+                     Background="Transparent"
+                     Width="{x:Static SystemParameters.PrimaryScreenWidth}"
+                     Height="120"
+                     Left="0" Top="0">
+
+    <Grid>
+        <!-- Dim the work area below the banner (click-through) -->
+        <Rectangle x:Name="WorkDim" Fill="#73000000" Visibility="Collapsed"/>
+
+        <!-- Top banner strip -->
+        <Border VerticalAlignment="Top" Height="80" Background="#F0181830"
+                BorderBrush="#6c8cff" BorderThickness="0,0,0,1">
+            <Grid Margin="20,0">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Left">
+                    <TextBlock x:Name="MessageText" Text="👁 Time for an eye break"
+                               Foreground="White" FontSize="16" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="SubText" Text="You've been fixating for a while"
+                               Foreground="#FFAAAAAA" FontSize="11" Margin="0,2,0,0"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <!-- Two large dwell circles: Start (accept) and Snooze -->
+                    <Grid Margin="0,0,16,0" Width="64" Height="64">
+                        <Ellipse x:Name="SnoozeRing" Stroke="#888888" StrokeThickness="2" StrokeDashArray="3 3"/>
+                        <TextBlock Text="✕" Foreground="#FFAAAAAA" FontSize="22"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Text="snooze" Foreground="#FF777777" FontSize="9"
+                                   HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
+                    </Grid>
+                    <Grid Width="64" Height="64">
+                        <Ellipse x:Name="StartRing" Stroke="#FF6c8cff" StrokeThickness="2" StrokeDashArray="3 3"/>
+                        <TextBlock Text="▶" Foreground="#FF6c8cff" FontSize="22"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Text="start" Foreground="#FF6c8cff" FontSize="9"
+                                   HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</local:OverlayWindow>

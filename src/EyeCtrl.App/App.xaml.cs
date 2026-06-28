@@ -143,10 +143,17 @@ public partial class App : Application
             // Eye-care break reminder: subscribe to raw gaze samples for scheduler + fatigue monitor.
             // Resolving IEyeCareService constructs the singleton and its EyeCareHooks,
             // which registers for GazeCursorMovedMessage to feed gaze into overlays.
+            // Subscription lives for the process lifetime (eyeCare + gazeEngine are app-lifetime
+            // singletons), so no explicit unsubscribe is needed.
             var eyeCare = _serviceProvider.GetRequiredService<IEyeCareService>();
             gazeEngine.GazeSampled += sample =>
             {
-                eyeCare.OnGazeSample(sample, im.CurrentState == InteractionState.Paused);
+                // canInterrupt only in FreeLook — never surface a break over the action menu,
+                // keyboard, or manual-selection overlay (the break is held until FreeLook).
+                eyeCare.OnGazeSample(
+                    sample,
+                    isPaused: im.CurrentState == InteractionState.Paused,
+                    canInterrupt: im.CurrentState == InteractionState.FreeLook);
             };
         }
         catch (Exception ex)

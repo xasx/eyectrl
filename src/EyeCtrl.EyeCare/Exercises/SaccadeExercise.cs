@@ -60,4 +60,11 @@ public sealed class SaccadeExercise : ExerciseBase
     }
 
     public override ExerciseResult Complete() => BuildResult();
+
+    public override void Reset()
+    {
+        base.Reset();
+        _currentTargetStartUs = null;
+        _acquiredThisTarget = false;
+    }
 }

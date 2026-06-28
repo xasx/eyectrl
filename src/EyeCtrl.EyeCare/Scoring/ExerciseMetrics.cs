@@ -45,4 +45,11 @@ public class ExerciseMetrics
 
     /// <summary>Number of recorded gaze samples.</summary>
     public int SampleCount => _deltas.Count;
+
+    /// <summary>Clears all recorded samples so the metrics can be reused for a fresh run.</summary>
+    public void Reset()
+    {
+        _deltas.Clear();
+        _reactionTimesUs.Clear();
+    }
 }

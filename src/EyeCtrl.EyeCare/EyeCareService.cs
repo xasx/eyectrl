@@ -17,7 +17,10 @@ public sealed class EyeCareService : IEyeCareService
     private readonly ExerciseRunner _runner;
     private readonly IEyeCareHooks _hooks;
     private readonly PhysicalPoint _screenCenter;
-    private bool _busy; // true while banner/exercise/summary is on screen
+
+    // Touched from the gaze background thread and from async-void continuations (thread-pool).
+    // volatile gives the re-entrancy guard cross-thread visibility.
+    private volatile bool _busy; // true while banner/exercise/summary is on screen
 
     public EyeCareService(
         EyeCareSettings settings,
@@ -34,21 +37,32 @@ public sealed class EyeCareService : IEyeCareService
         _hooks = hooks;
         _screenCenter = screenCenter;
         _scheduler.BreakDue += OnBreakDue;
+        // Toggling eye-care off mid-session must immediately dismiss any visible overlay.
+        _settings.PropertyChanged += OnSettingsChanged;
     }
 
     /// <inheritdoc />
-    public void OnGazeSample(GazePoint sample, bool isPaused)
+    public void OnGazeSample(GazePoint sample, bool isPaused, bool canInterrupt = true)
     {
         if (!_settings.Enabled) return;
         _fatigueMonitor.OnSample(sample);
-        _scheduler.Update(sample, isPaused);
+        _scheduler.Update(sample, isPaused, canInterrupt);
 
-        // Escalation (gated): if fatigue crosses threshold before the cadence timer, fire early.
-        if (_settings.FatigueMonitorEnabled && !_busy && _fatigueMonitor.Score >= _settings.FatigueThreshold)
+        // Escalation (gated, off by default): if fatigue crosses the threshold, request an early
+        // break — but only when it is safe to interrupt (FreeLook) and no break is already running.
+        if (_settings.FatigueMonitorEnabled && !_busy && canInterrupt
+            && _fatigueMonitor.Score >= _settings.FatigueThreshold)
         {
-            // Fire only if we're also close enough to the interval that an early break is reasonable.
-            // (Keeps the heuristic from firing every few minutes.)
             OnBreakDue();
+        }
+    }
+
+    private void OnSettingsChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(EyeCareSettings.Enabled) && !_settings.Enabled)
+        {
+            _hooks.CancelActive();
+            Cancel();
         }
     }
 
@@ -75,6 +89,7 @@ public sealed class EyeCareService : IEyeCareService
             }
 
             var exercise = _runner.NextExercise();
+            exercise.Reset(); // exercises are reused singletons — clear prior-run samples/timestamps
             await _hooks.ShowExerciseAsync(
                 exercise.Name,
                 _settings.ExerciseDurationSeconds * 1_000_000L,

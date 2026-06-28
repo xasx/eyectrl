@@ -109,4 +109,44 @@ public class EyeCareSchedulerTests
 
         Check.That(fired).IsFalse();
     }
+
+    [Fact]
+    public void Snooze_RePromptsAfterSnoozeMinutes_NotFullIntervalAgain()
+    {
+        var scheduler = new EyeCareScheduler(Cfg); // interval 60s, snooze 60s
+        int fires = 0;
+        scheduler.BreakDue += () => fires++;
+
+        // Reach the interval → break #1.
+        for (long t = 0; t <= 60_000_000; t += 1_000_000)
+            scheduler.Update(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+        Check.That(fires).IsEqualTo(1);
+
+        scheduler.Snooze();
+
+        // Feed exactly SnoozeMinutes (60s) of active gaze → should re-prompt (#2).
+        // Buggy code set the clock to -snooze, requiring interval+snooze (120s) → would NOT fire.
+        for (long t = 61_000_000; t <= 121_000_000; t += 1_000_000)
+            scheduler.Update(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+
+        Check.That(fires).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void BreakDue_HeldUntilInterruptible()
+    {
+        var scheduler = new EyeCareScheduler(Cfg);
+        int fires = 0;
+        scheduler.BreakDue += () => fires++;
+
+        // Interval reached while a modal overlay is up (canInterrupt: false) → not shown yet,
+        // but active time still accrues (the user is actively using the app).
+        for (long t = 0; t <= 70_000_000; t += 1_000_000)
+            scheduler.Update(new GazePoint(500, 500, t, IsValid: true), isPaused: false, canInterrupt: false);
+        Check.That(fires).IsEqualTo(0);
+
+        // Back to FreeLook → the pending break fires.
+        scheduler.Update(new GazePoint(500, 500, 71_000_000, IsValid: true), isPaused: false, canInterrupt: true);
+        Check.That(fires).IsEqualTo(1);
+    }
 }

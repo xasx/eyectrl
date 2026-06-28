@@ -20,4 +20,9 @@ public interface IExercise
 
     /// <summary>Computes the final result from recorded samples. Called once at exercise end.</summary>
     ExerciseResult Complete();
+
+    /// <summary>Clears all per-run state so the instance can be reused for a fresh break.
+    /// Exercises are reused across breaks (singleton pool); without this, scores would
+    /// accumulate across runs and the duration clock would never restart.</summary>
+    void Reset();
 }

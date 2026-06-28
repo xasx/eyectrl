@@ -89,6 +89,7 @@ Three-layer + ViewModels:
 | `EyeCtrl.ViewModels` | MVVM layer | CommunityToolkit.Mvvm v8.4.0, `[ObservableProperty]` source generators, `WeakReferenceMessenger` |
 | `EyeCtrl.App` | WPF app entrypoint | `WinExe`, `net10.0-windows`, `UseWPF` + `UseWindowsForms`. App.xaml.cs is the central wiring hub (DI, overlay lifecycle) |
 | `EyeCtrl.LM` | ONNX LM | `net10.0` leaf project. `SmallLMPredictor` + `LMTokenizer`. References Core. |
+| `EyeCtrl.EyeCare` | Eye-care logic | `net10.0` leaf project. Scheduler, fatigue monitor, gaze exercises, scoring. References Core. |
 
 The solution file is `.slnx` format (new .NET solution format).
 SDK is .NET 10.0.102 (pinned in `global.json`).

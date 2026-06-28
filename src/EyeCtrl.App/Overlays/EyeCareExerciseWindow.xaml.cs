@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 
 public partial class EyeCareExerciseWindow : OverlayWindow
 {
@@ -48,8 +49,8 @@ public partial class EyeCareExerciseWindow : OverlayWindow
             if (elapsed >= _durationUs) { FinishRun(); return; }
 
             var target = getTargetAt(elapsed);
-            Canvas.SetLeft(TargetDot, target.X - TargetDot.Width / 2);
-            Canvas.SetTop(TargetDot, target.Y - TargetDot.Height / 2);
+            Canvas.SetLeft(TargetDot, DpiHelper.PhysicalToLogicalX(target.X) - TargetDot.Width / 2);
+            Canvas.SetTop(TargetDot, DpiHelper.PhysicalToLogicalY(target.Y) - TargetDot.Height / 2);
 
             var remain = Math.Max(0, _durationUs - elapsed);
             Countdown.Text = $"00:{(int)(remain / 1_000_000):D2} / 00:{(int)(_durationUs / 1_000_000):D2}";
@@ -64,8 +65,8 @@ public partial class EyeCareExerciseWindow : OverlayWindow
     /// domain — tracker vs wall — so we recompute elapsed here rather than trust the incoming µs.)</summary>
     public void OnGaze(PhysicalPoint gaze, long timestampUs)
     {
-        Canvas.SetLeft(GazeRing, gaze.X - GazeRing.Width / 2);
-        Canvas.SetTop(GazeRing, gaze.Y - GazeRing.Height / 2);
+        Canvas.SetLeft(GazeRing, DpiHelper.PhysicalToLogicalX(gaze.X) - GazeRing.Width / 2);
+        Canvas.SetTop(GazeRing, DpiHelper.PhysicalToLogicalY(gaze.Y) - GazeRing.Height / 2);
         if (_runTcs is { Task.IsCompleted: false })
             _recordGaze?.Invoke(gaze, NowMicroseconds() - _startUs);
     }
@@ -100,6 +101,15 @@ public partial class EyeCareExerciseWindow : OverlayWindow
         SummaryName.Text = $"{outcome.ExerciseName} complete";
         SummaryAccuracy.Text = $"{outcome.AccuracyPercent:0}%";
         SummarySteadiness.Text = $"{outcome.Steadiness0To5:0.0}";
+        if (outcome.ReactionTimeMs is { } rt)
+        {
+            SummaryReactionTime.Text = $"{rt:0}";
+            ReactionTimePanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ReactionTimePanel.Visibility = Visibility.Collapsed;
+        }
         SummaryEncourage.Text = outcome.EncouragementLine;
         SummaryCard.Visibility = Visibility.Visible;
 

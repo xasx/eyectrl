@@ -47,9 +47,13 @@
                         <TextBlock x:Name="SummaryAccuracy" Foreground="#FF6c8cff" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center"/>
                         <TextBlock Text="accuracy" Foreground="#FF888888" FontSize="9" HorizontalAlignment="Center"/>
                     </StackPanel>
-                    <StackPanel>
+                    <StackPanel Margin="0,0,18,0">
                         <TextBlock x:Name="SummarySteadiness" Foreground="#FF6c8cff" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center"/>
                         <TextBlock Text="steadiness" Foreground="#FF888888" FontSize="9" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel x:Name="ReactionTimePanel" Visibility="Collapsed">
+                        <TextBlock x:Name="SummaryReactionTime" Foreground="#FF6c8cff" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center"/>
+                        <TextBlock Text="reaction ms" Foreground="#FF888888" FontSize="9" HorizontalAlignment="Center"/>
                     </StackPanel>
                 </StackPanel>
                 <TextBlock x:Name="SummaryEncourage" Foreground="#FF888888" FontSize="9" HorizontalAlignment="Center"/>

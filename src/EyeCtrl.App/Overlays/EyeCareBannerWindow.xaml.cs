@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Threading;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 
 public partial class EyeCareBannerWindow : OverlayWindow
 {
@@ -28,10 +29,13 @@ public partial class EyeCareBannerWindow : OverlayWindow
     public Task<bool> ShowAsync(string message, PhysicalPoint screenCenter, int autoSnoozeSeconds)
     {
         MessageText.Text = $"👁 {message}";
-        // Position the two dwell circles at top-right, ~64px diameter, centered vertically in the 80px banner
-        var screenWidth = ActualWidth > 0 ? ActualWidth : SystemParameters.PrimaryScreenWidth;
-        _startCenter = new PhysicalPoint(screenWidth - 60, 40);
-        _snoozeCenter = new PhysicalPoint(screenWidth - 140, 40);
+        // Position the two dwell circles at top-right, ~64px diameter, centered vertically in the 80px banner.
+        // ActualWidth and SystemParameters.PrimaryScreenWidth are in DIPs; DwellTarget expects physical pixels.
+        var screenDipWidth = ActualWidth > 0 ? ActualWidth : SystemParameters.PrimaryScreenWidth;
+        var screenPhysWidth = DpiHelper.LogicalToPhysicalX(screenDipWidth);
+        var physTop = DpiHelper.LogicalToPhysicalY(40);
+        _startCenter = new PhysicalPoint(screenPhysWidth - 60, physTop);
+        _snoozeCenter = new PhysicalPoint(screenPhysWidth - 140, physTop);
 
         _dwell.ClearTargets();
         // DwellTarget ctor is (string id, PhysicalPoint center, double radius, int dwellTimeMs) — ms, not µs.

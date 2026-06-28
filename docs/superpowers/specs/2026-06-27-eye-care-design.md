@@ -74,7 +74,11 @@ src/EyeCtrl.EyeCare/                    (NEW — net10.0, references Core)
 src/EyeCtrl.Core/
 ├── Interfaces/IEyeCareHooks.cs         (NEW — abstraction so EyeCare can request UI
 │                                        without referencing WPF; the plugin seam host side)
-└── Settings/EyeCtrlSettings.cs         (MODIFIED — add EyeCare property + Validate branch)
+├── GazeEngine.cs                       (MODIFIED — expose a raw-sample event carrying
+│                                        validity; see "GazeEngine signal" below. The
+│                                        existing CursorMoved event is insufficient.)
+└── Settings/EyeCtrlSettings.cs         (MODIFIED — add EyeCare property + Validate branch;
+                                         also extend SettingsViewModel.ResetAllSettings())
 
 src/EyeCtrl.App/
 ├── Overlays/EyeCareBannerWindow.xaml(.cs)   (NEW — top-edge dwellable confirmation)
@@ -95,6 +99,29 @@ a future plugin implements the logic; the host App always supplies the WPF.
 
 The scheduler decides *when* to surface a break.
 
+### GazeEngine signal (required modification)
+
+The trigger model needs to know when the user is **actively gazing on-screen vs.
+looking away** — the active-session clock and natural-break suppression both depend on
+it. The existing `GazeEngine.CursorMoved` event **cannot** supply this: its signature is
+`Action<PhysicalPoint, long>` (position + timestamp, no validity), and it fires the
+*gap-interpolated* point — when the eyes are lost, `GapInterpolator` holds the last
+on-screen point, so a `CursorMoved` subscriber sees continuous on-screen motion and can
+detect neither "eyes lost" nor "gaze off-screen."
+
+`GazeEngine` therefore gains one **additive** event that carries the raw,
+pre-interpolation sample including its validity flag:
+
+```csharp
+// EyeCtrl.Core/GazeEngine.cs (NEW event, fired inside OnGazePoint before interpolation)
+public event Action<GazePoint>? GazeSampled;   // GazePoint = (X, Y, TimestampMicroseconds, IsValid)
+```
+
+This is a non-breaking addition (new event, raised alongside the existing `CursorMoved`).
+`EyeCareService` subscribes to `GazeSampled` for the active-session clock, away-suppression,
+and the `FatigueMonitor` heuristics below. `CursorMoved` is still used for the live gaze
+cursor in the exercise overlay (interpolated motion is desirable there).
+
 ### `EyeCareScheduler`
 
 - Maintains an **active-session clock** — accumulates time only while the user is
@@ -111,8 +138,10 @@ The scheduler decides *when* to surface a break.
 
 ### `FatigueMonitor` heuristic
 
-Consumes the same gaze stream `GazeEngine` already produces (`CursorMoved`, fixation
-events). Computes a rolling 0.0–1.0 score from cheap, defensible signals:
+Consumes the raw `GazeSampled` stream (above). Fixation/saccade structure is derived
+inside the monitor from the position samples — it does **not** depend on `GazeEngine`'s
+internal `FixationDetector` events, which are private and not exposed. Computes a rolling
+0.0–1.0 score from cheap, defensible signals:
 
 - **Sustained-fixation ratio** — % of recent samples inside a small radius (staring).
   High ratio ⇒ fatigue.
@@ -127,12 +156,13 @@ misbehaving heuristic never traps the user.
 ### Trigger flow
 
 ```
-GazeEngine events ─┬─► FatigueMonitor ─► (score)
-                   └─► EyeCareScheduler ─► OnBreakDue ─► EyeCareService
-                                                              │
-                          (user paused / away?) ◄── InteractionManager state
-                                                              │
-                                                  ─► IEyeCareHooks.ShowBanner()
+GazeEngine.GazeSampled ─┬─► FatigueMonitor ─► (score)
+ (raw point + IsValid)  └─► EyeCareScheduler ─► OnBreakDue ─► EyeCareService
+                                                                   │
+                          (user paused?) ◄── InteractionManager.CurrentState
+                          (looking away?) ◄── GazeSampled.IsValid run-length
+                                                                   │
+                                                       ─► IEyeCareHooks.ShowBanner()
 ```
 
 ### Invariants
@@ -163,8 +193,10 @@ Added to `EyeCtrlSettings.EyeCare`, validated in the existing `Validate()` chain
 ## Exercises (v1 set — five)
 
 Each is a moving target the gaze tracks; the runner **rotates** which exercise runs
-each break (round-robin, never the same twice in a row). Target speed and path
-amplitude adapt to screen size and `ExerciseDurationSeconds`.
+each break (round-robin, never the same twice in a row). Rotation state is **in-memory**
+(resets on app restart — persisting it across sessions is not worth the storage and adds
+nothing for a daily driver). Target speed and path amplitude adapt to screen size and
+`ExerciseDurationSeconds`.
 
 1. **Near-Far Focus** — alternate gaze between a large near dot and a small far dot;
    dwell each ~3s. Exercises accommodation. *Score: focus-hold steadiness.*
@@ -232,24 +264,33 @@ All three are `OverlayWindow` subclasses (same base as `CalibrationWindow`).
 
 | Unit | How tested | Key seam |
 |------|------------|----------|
-| `EyeCareScheduler` | Inject fake `IClock` + scripted `InteractionState`/`isLookingAway`. Assert break-due timing, suppression-on-natural-break, pause-freeze. | `Update(timestampUs)`, no `Task.Delay` |
-| `FatigueMonitor` | Feed recorded gaze sequences (staring vs. healthy). Assert score crosses threshold only on the staring sequence. | Pure function of gaze samples + timestamps |
+| `EyeCareScheduler` | Inject fake `IClock` + feed scripted `GazePoint` samples (`IsValid` runs = looking-away) and `InteractionState`. Assert break-due timing, suppression-on-natural-break, pause-freeze. | `Update(timestampUs)` fed from `GazeSampled`, no `Task.Delay` |
+| `FatigueMonitor` | Feed recorded `GazePoint` sequences (staring vs. healthy). Assert score crosses threshold only on the staring sequence. | Pure function of `GazeSampled` points + timestamps |
 | `ExerciseRunner` + each `IExercise` | Feed a recorded gaze path that tracks the target → assert accuracy ~100%. Offset path → lower score. Reaction-time tests feed timestamped acquire events. | `IExercise.GetTargetAt(tUs)` + `RecordGaze(point, tUs)` |
 | `Scoring` | Pure math — feed deltas, assert `ExerciseResult`. | No dependencies |
 
 New test project `tests/EyeCtrl.EyeCare.Tests/` mirrors `EyeCtrl.Core.Tests`
 conventions (`XxxTests`, `_`-separated PascalCase, NFluent, private nested fakes — no
 mocking libs). `EyeCtrl.EyeCare` declares `InternalsVisibleTo` to it (same as LM/Core).
+All domain logic lives here and runs headless — no display required.
+
+Any App-side test that drives the banner/exercise/summary windows must be tagged
+`Category=UI` (same as existing `App.Tests`), since those depend on a real window pump
+and fail in headless CI; the headless-safe run is `dotnet test --filter "Category!=UI"`.
 
 ### App-side wiring
 
 - `AppBootstrapper`: register `EyeCareService` (singleton), the WPF windows,
   `EyeCareHooks`.
-- `EventCoordinator`: subscribe `EyeCareService` to `GazeEngine.CursorMoved`; wire
-  `OnBreakDue → hooks.ShowBanner`, `banner.Accept → hooks.ShowExercise`,
+- `EventCoordinator`: subscribe `EyeCareService` to `GazeEngine.GazeSampled` (scheduler +
+  fatigue scoring); the exercise overlay separately taps `CursorMoved` for the live gaze
+  cursor. Wire `OnBreakDue → hooks.ShowBanner`, `banner.Accept → hooks.ShowExercise`,
   `exercise.Complete → hooks.ShowSummary`.
-- `EyeCareSettings` added to `EyeCtrlSettings.EyeCare` + the `Validate()` chain.
-- Settings UI: a new section in `SettingsWindow` for the `EyeCareSettings` knobs.
+- `EyeCareSettings` added to `EyeCtrlSettings.EyeCare` + the `Validate()` chain, **and**
+  enumerated in `SettingsViewModel.ResetAllSettings()` (project convention: both must list
+  every sub-setting).
+- Settings UI: a new section in `SettingsWindow` for the `EyeCareSettings` knobs. All knobs
+  map to existing `Slider`/`Toggle` `SettingItemViewModel` types — no new item type needed.
 
 ### Lifecycle invariants (must hold)
 

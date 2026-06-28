@@ -35,6 +35,11 @@ public class GazeEngine : IDisposable
     /// <summary>Fired when cursor moves with filtered position in physical screen pixels.</summary>
     public event Action<PhysicalPoint, long>? CursorMoved;
 
+    /// <summary>Fires the raw (pre-interpolation) gaze sample including its validity flag.
+    /// Used by eye-care scheduling/away-detection. CursorMoved fires the interpolated point;
+    /// this event fires the raw point so subscribers can detect eyes-lost / looking-away.</summary>
+    public event Action<GazePoint>? GazeSampled;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="GazeEngine"/> class.
     /// Wires up the gaze provider, filter, fixation detector, centroid tracker, and interaction manager.
@@ -103,6 +108,8 @@ public class GazeEngine : IDisposable
 
     private void OnGazePoint(GazePoint gaze)
     {
+        GazeSampled?.Invoke(gaze);
+
         var corrected = gaze;
         if (gaze.IsValid && _calibrationService?.CurrentTransform is { } t)
         {

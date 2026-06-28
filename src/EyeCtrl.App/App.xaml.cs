@@ -19,6 +19,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.EyeCare;
 using EyeCtrl.Platform.Gaze;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
@@ -138,6 +139,15 @@ public partial class App : Application
 
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
+
+            // Eye-care break reminder: subscribe to raw gaze samples for scheduler + fatigue monitor.
+            // Resolving IEyeCareService constructs the singleton and its EyeCareHooks,
+            // which registers for GazeCursorMovedMessage to feed gaze into overlays.
+            var eyeCare = _serviceProvider.GetRequiredService<IEyeCareService>();
+            gazeEngine.GazeSampled += sample =>
+            {
+                eyeCare.OnGazeSample(sample, im.CurrentState == InteractionState.Paused);
+            };
         }
         catch (Exception ex)
         {

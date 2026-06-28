@@ -13,6 +13,7 @@ public sealed class EyeCareHooks : IEyeCareHooks
 {
     private readonly Dispatcher _dispatcher;
     private readonly EyeCareBannerWindow _banner;
+    private readonly EyeCareExerciseWindow _exerciseWindow;
     private readonly PhysicalPoint _screenCenter;
     private readonly int _bannerAutoSnoozeSeconds;
 
@@ -23,11 +24,13 @@ public sealed class EyeCareHooks : IEyeCareHooks
         IMessenger messenger,
         Dispatcher dispatcher,
         EyeCareBannerWindow banner,
+        EyeCareExerciseWindow exerciseWindow,
         PhysicalPoint screenCenter,
         int bannerAutoSnoozeSeconds = 15)
     {
         _dispatcher = dispatcher;
         _banner = banner;
+        _exerciseWindow = exerciseWindow;
         _screenCenter = screenCenter;
         _bannerAutoSnoozeSeconds = bannerAutoSnoozeSeconds;
 
@@ -56,14 +59,17 @@ public sealed class EyeCareHooks : IEyeCareHooks
         string exerciseName, long durationMicroseconds,
         Func<long, PhysicalPoint> getTargetAt, Action<PhysicalPoint, long> recordGaze)
     {
-        // Filled in Task 17 (sets _gazeSink to the exercise window's OnGaze).
-        throw new NotImplementedException("Exercise window wired in Task 17");
+        return _dispatcher.InvokeAsync(async () =>
+        {
+            _gazeSink = _exerciseWindow.OnGaze;   // route live gaze into the exercise overlay
+            try { await _exerciseWindow.RunAsync(exerciseName, durationMicroseconds, getTargetAt, recordGaze); }
+            finally { _gazeSink = null; }
+        }).Task.Unwrap();
     }
 
     /// <inheritdoc />
     public Task ShowSummaryAsync(EyeCareExerciseOutcome outcome)
     {
-        // Filled in Task 18
-        throw new NotImplementedException("Summary wired in Task 18");
+        return _dispatcher.InvokeAsync(() => _exerciseWindow.ShowSummaryAsync(outcome)).Task.Unwrap();
     }
 }

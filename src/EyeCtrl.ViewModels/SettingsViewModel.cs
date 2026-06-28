@@ -152,6 +152,19 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
                 () => _messenger.Send(new CalibrationClearRequestedMessage())),
             new ReadOnlyLabelSettingItem("calStatus", "Last Calibration", "No calibration data"),
         }));
+
+        var ec = _settings.EyeCare;
+        Tabs.Add(new SettingsTabViewModel("Eye Care", "\U0001F441", new List<SettingItemViewModel>
+        {
+            new ToggleSettingViewModel("ecEnabled", "Enable eye-care breaks", ec.Enabled, v => ec.Enabled = v),
+            new SliderSettingViewModel("ecInterval", "Break interval (min)", ec.IntervalMinutes, 1, 120, 1, v => ec.IntervalMinutes = (int)v),
+            new SliderSettingViewModel("ecNatural", "Natural break threshold (s)", ec.NaturalBreakSeconds, 5, 600, 5, v => ec.NaturalBreakSeconds = (int)v),
+            new SliderSettingViewModel("ecDuration", "Exercise duration (s)", ec.ExerciseDurationSeconds, 10, 180, 5, v => ec.ExerciseDurationSeconds = (int)v),
+            new SliderSettingViewModel("ecAutoSnooze", "Banner auto-snooze (s)", ec.BannerAutoSnoozeSeconds, 5, 120, 5, v => ec.BannerAutoSnoozeSeconds = (int)v),
+            new SliderSettingViewModel("ecSnooze", "Snooze length (min)", ec.SnoozeMinutes, 1, 60, 1, v => ec.SnoozeMinutes = (int)v),
+            new ToggleSettingViewModel("ecFatigue", "Enable fatigue escalation (experimental)", ec.FatigueMonitorEnabled, v => ec.FatigueMonitorEnabled = v),
+            new SliderSettingViewModel("ecFatigueThreshold", "Fatigue threshold", ec.FatigueThreshold, 0.0, 1.0, 0.05, v => ec.FatigueThreshold = v),
+        }));
     }
 
     public void ShowTab(string tabName)

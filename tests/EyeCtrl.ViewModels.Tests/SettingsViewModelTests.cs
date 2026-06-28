@@ -47,6 +47,19 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public void ResetAllSettings_ResetsEyeCareToo()
+    {
+        var settings = new EyeCtrlSettings { EyeCare = { Enabled = true, IntervalMinutes = 99 } };
+        var service = new SettingsService("test.json");
+
+        var vm = new SettingsViewModel(settings, service, _messenger);
+        vm.ResetAllSettings();
+
+        Check.That(settings.EyeCare.Enabled).IsFalse();
+        Check.That(settings.EyeCare.IntervalMinutes).IsEqualTo(20);
+    }
+
+    [Fact]
     public void Pagination_Works()
     {
         var settings = new EyeCtrlSettings();

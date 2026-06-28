@@ -208,6 +208,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         CopySettings(defaults.AutoSelection, _settings.AutoSelection);
         CopySettings(defaults.ExternalDwell, _settings.ExternalDwell);
         CopySettings(defaults.Scroll, _settings.Scroll);
+        CopySettings(defaults.EyeCare, _settings.EyeCare);
         _settings.SelectionMode = defaults.SelectionMode;
         _settings.ViewPosition = defaults.ViewPosition;
 

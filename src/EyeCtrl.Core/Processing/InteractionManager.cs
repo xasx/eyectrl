@@ -186,11 +186,16 @@ public class InteractionManager
     }
 
     /// <summary>Toggles gaze tracking between paused and active states.</summary>
+    /// <remarks>Blocked during <see cref="InteractionState.ScrollMode"/> — use the stop button to exit scroll mode.</remarks>
     public void TogglePause()
     {
         if (CurrentState == InteractionState.Paused)
         {
             SetState(InteractionState.FreeLook);
+        }
+        else if (CurrentState == InteractionState.ScrollMode)
+        {
+            return;
         }
         else
         {

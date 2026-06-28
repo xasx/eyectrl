@@ -10,9 +10,19 @@ using EyeCtrl.ViewModels;
 
 public partial class ScrollOverlayWindow : OverlayWindow
 {
+    private readonly ArcSegment _stopArc = new()
+    {
+        Size = new Size(25, 25),
+        SweepDirection = SweepDirection.Clockwise
+    };
+    private readonly PathFigure _stopFigure = new() { StartPoint = new Point(25, 0) };
+    private readonly PathGeometry _stopGeometry = new();
+
     public ScrollOverlayWindow()
     {
         InitializeComponent();
+        _stopGeometry.Figures.Add(_stopFigure);
+        _stopFigure.Segments.Add(_stopArc);
     }
 
     public void Show(ScrollOverlayViewModel vm)
@@ -77,16 +87,9 @@ public partial class ScrollOverlayWindow : OverlayWindow
             double angleRad = (angleDeg - 90) * Math.PI / 180;
             double endX = 25 + 25 * Math.Cos(angleRad);
             double endY = 25 + 25 * Math.Sin(angleRad);
-            var arc = new ArcSegment
-            {
-                Point = new Point(endX, endY),
-                Size = new Size(25, 25),
-                SweepDirection = SweepDirection.Clockwise,
-                IsLargeArc = angleDeg > 180
-            };
-            var fig = new PathFigure { StartPoint = new Point(25, 0) };
-            fig.Segments.Add(arc);
-            StopButtonProgressArc.Data = new PathGeometry { Figures = { fig } };
+            _stopArc.Point = new Point(endX, endY);
+            _stopArc.IsLargeArc = angleDeg > 180;
+            StopButtonProgressArc.Data = _stopGeometry;
         }
         else
         {

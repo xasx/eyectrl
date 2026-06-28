@@ -76,4 +76,14 @@ public class InteractionManagerScrollModeTests
         Check.That(captured).IsNotNull();
         Check.That(captured!.Value).IsEqualTo(InteractionState.FreeLook);
     }
+
+    [Fact]
+    public void TogglePause_DoesNotAffectScrollMode()
+    {
+        var im = InActionMenu(out _);
+        im.OnActionSelected(InteractionAction.ScrollMode);
+        im.TogglePause();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ScrollMode);
+        Check.That(im.ScrollAnchor).IsNotNull();
+    }
 }

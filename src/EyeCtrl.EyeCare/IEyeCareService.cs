@@ -6,8 +6,10 @@ using EyeCtrl.Core.Models;
 /// relocates to Core for full plugin swappability — see Future Milestones in the spec.)</summary>
 public interface IEyeCareService
 {
-    /// <summary>Feeds one raw gaze sample + paused state. Drives scheduler + fatigue monitor.</summary>
-    void OnGazeSample(GazePoint sample, bool isPaused);
+    /// <summary>Feeds one raw gaze sample, the paused state, and whether the user can be
+    /// interrupted right now (true only in FreeLook — false while a modal overlay is active).
+    /// Drives the scheduler + fatigue monitor.</summary>
+    void OnGazeSample(GazePoint sample, bool isPaused, bool canInterrupt = true);
 
     /// <summary>Force-stops any in-flight break/banner (e.g. when Enabled toggled off).</summary>
     void Cancel();

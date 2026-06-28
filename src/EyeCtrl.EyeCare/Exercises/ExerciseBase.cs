@@ -16,9 +16,6 @@ public abstract class ExerciseBase : IExercise
     /// <inheritdoc />
     public abstract double OnTargetRadiusPixels { get; }
 
-    /// <summary>The configured exercise duration in microseconds.</summary>
-    protected long DurationMicroseconds { get; init; }
-
     /// <inheritdoc />
     public abstract PhysicalPoint GetTargetAt(long timestampMicroseconds);
 
@@ -52,4 +49,13 @@ public abstract class ExerciseBase : IExercise
 
     /// <inheritdoc />
     public abstract ExerciseResult Complete();
+
+    /// <inheritdoc />
+    /// <remarks>Override to also clear subclass state, calling <c>base.Reset()</c>.</remarks>
+    public virtual void Reset()
+    {
+        _metrics.Reset();
+        _firstTimestampUs = null;
+        _lastTimestampUs = null;
+    }
 }

@@ -72,4 +72,15 @@ public sealed class EyeCareHooks : IEyeCareHooks
     {
         return _dispatcher.InvokeAsync(() => _exerciseWindow.ShowSummaryAsync(outcome)).Task.Unwrap();
     }
+
+    /// <inheritdoc />
+    public void CancelActive()
+    {
+        _dispatcher.Invoke(() =>
+        {
+            _gazeSink = null;
+            _banner.Cancel();
+            _exerciseWindow.Cancel();
+        });
+    }
 }

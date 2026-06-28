@@ -52,6 +52,13 @@ public partial class EyeCareBannerWindow : OverlayWindow
     /// <summary>Feeds gaze to the dwell detector (called by EyeCareHooks from the gaze stream).</summary>
     public void OnGaze(PhysicalPoint gaze, long timestampUs) => _dwell.Update(gaze, timestampUs);
 
+    /// <summary>Force-dismisses the banner (e.g. eye-care toggled off). Resolves as not-accepted.
+    /// No-op when nothing is showing.</summary>
+    public void Cancel()
+    {
+        if (_tcs is not null) Resolve(false);
+    }
+
     private void OnTargetActivated(string id) => Resolve(id == "start");
 
     private void Resolve(bool accepted)

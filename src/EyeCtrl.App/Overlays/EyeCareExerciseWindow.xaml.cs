@@ -13,7 +13,6 @@ public partial class EyeCareExerciseWindow : OverlayWindow
     private DispatcherTimer? _frameTimer;
     private long _startUs;
     private long _durationUs;
-    private Func<long, PhysicalPoint>? _getTargetAt;  // ELAPSED µs → target position
     private Action<PhysicalPoint, long>? _recordGaze;  // (gaze point, ELAPSED µs)
 
     public EyeCareExerciseWindow()
@@ -34,7 +33,6 @@ public partial class EyeCareExerciseWindow : OverlayWindow
     public Task RunAsync(string exerciseName, long durationMicroseconds,
         Func<long, PhysicalPoint> getTargetAt, Action<PhysicalPoint, long> recordGaze)
     {
-        _getTargetAt = getTargetAt;
         _recordGaze = recordGaze;
         _durationUs = durationMicroseconds;
         _startUs = NowMicroseconds();
@@ -79,6 +77,20 @@ public partial class EyeCareExerciseWindow : OverlayWindow
         Stage.Visibility = Visibility.Collapsed;
         // Hand control back to EyeCareService, which scores (exercise.Complete) then calls ShowSummaryAsync.
         _runTcs?.TrySetResult(true);
+        _runTcs = null;
+    }
+
+    /// <summary>Force-aborts a running exercise / visible summary (e.g. eye-care toggled off).
+    /// No-op when nothing is showing.</summary>
+    public void Cancel()
+    {
+        _frameTimer?.Stop();
+        _frameTimer = null;
+        _recordGaze = null;
+        SummaryCard.Visibility = Visibility.Collapsed;
+        Stage.Visibility = Visibility.Collapsed;
+        Hide();
+        _runTcs?.TrySetResult(false);
         _runTcs = null;
     }
 

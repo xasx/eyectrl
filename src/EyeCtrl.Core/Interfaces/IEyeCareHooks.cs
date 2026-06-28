@@ -27,6 +27,10 @@ public interface IEyeCareHooks
 
     /// <summary>Shows the 3-second summary card with the two computed metrics.</summary>
     Task ShowSummaryAsync(EyeCareExerciseOutcome outcome);
+
+    /// <summary>Immediately dismisses any visible banner/exercise/summary overlay (e.g. when the
+    /// user toggles eye-care off mid-session). Safe to call when nothing is showing.</summary>
+    void CancelActive();
 }
 
 /// <summary>Primitive outcome of an exercise, for the summary card.

@@ -1,7 +1,7 @@
 # Eye Fatigue Countermeasure — Design Spec
 
 **Date:** 2026-06-27
-**Status:** Approved (brainstorm complete)
+**Status:** Implemented (see plan `docs/superpowers/plans/2026-06-27-eye-care.md`)
 **Type:** New feature
 
 ## Summary

@@ -36,6 +36,8 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private ExternalDwellSettings _externalDwell = new();
     /// <summary>Gaze-joystick scroll mode settings.</summary>
     [ObservableProperty] private ScrollSettings _scroll = new();
+    /// <summary>Eye-care break reminder and exercise settings.</summary>
+    [ObservableProperty] private EyeCareSettings _eyeCare = new();
 
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
@@ -107,6 +109,11 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
             errors.Add("Scroll settings must not be null.");
         else
             errors.AddRange(Scroll.Validate());
+
+        if (EyeCare is null)
+            errors.Add("EyeCare settings must not be null.");
+        else
+            errors.AddRange(EyeCare.Validate());
 
         return errors;
     }

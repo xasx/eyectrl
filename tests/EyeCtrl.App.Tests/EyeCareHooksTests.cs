@@ -1,7 +1,11 @@
 namespace EyeCtrl.App.Tests;
 
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Services;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Models;
+using EyeCtrl.ViewModels.Messages;
 
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
 public class EyeCareHooksTests
@@ -30,5 +34,59 @@ public class EyeCareHooksTests
         Check.That(window.SummarySteadiness.Text).IsEqualTo("4.3");
 
         window.Close();
+    }
+
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void GazeMessage_RoutedToExerciseWindow()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var banner = new EyeCareBannerWindow();
+        var exerciseWindow = new EyeCareExerciseWindow();
+        var hooks = new EyeCareHooks(
+            messenger,
+            System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            banner,
+            exerciseWindow,
+            new PhysicalPoint(960, 540));
+
+        exerciseWindow.Show();
+
+        // Start an exercise (this sets _gazeSink = exerciseWindow.OnGaze)
+        var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeAsync(async () =>
+        {
+            // Run a short exercise; we don't need to await completion — just start it
+            var runTask = hooks.ShowExerciseAsync("Test", 10_000_000,
+                _ => new PhysicalPoint(500, 500),
+                (_, _) => { });
+            // Pump one frame so the window is showing and _gazeSink is set
+            await System.Windows.Threading.Dispatcher.Yield();
+
+            // Send a gaze message via the messenger
+            messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(123, 456), 0));
+
+            // Pump another frame so the message handler fires
+            await System.Windows.Threading.Dispatcher.Yield();
+
+            // The GazeRing should have moved to the DPI-converted position
+            var dipX = EyeCtrl.Core.Services.DpiHelper.PhysicalToLogicalX(123) - exerciseWindow.GazeRing.Width / 2;
+            var dipY = EyeCtrl.Core.Services.DpiHelper.PhysicalToLogicalY(456) - exerciseWindow.GazeRing.Height / 2;
+
+            Check.That(System.Windows.Controls.Canvas.GetLeft(exerciseWindow.GazeRing)).IsCloseTo(dipX, 0.5);
+            Check.That(System.Windows.Controls.Canvas.GetTop(exerciseWindow.GazeRing)).IsCloseTo(dipY, 0.5);
+
+            exerciseWindow.Cancel();
+            tcs.TrySetResult(true);
+        });
+
+        // Pump dispatcher until the test logic completes
+        var pumpFrame = new System.Windows.Threading.DispatcherFrame();
+        tcs.Task.ContinueWith(_ => pumpFrame.Continue = false);
+        System.Windows.Threading.Dispatcher.PushFrame(pumpFrame);
+
+        exerciseWindow.Close();
+        banner.Close();
     }
 }

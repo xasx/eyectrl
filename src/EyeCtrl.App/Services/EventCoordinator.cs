@@ -800,8 +800,7 @@ public class EventCoordinator : IEventCoordinator
             case InteractionAction.LeftClick:    _context.InputSimulator.LeftClick(pt);        break;
             case InteractionAction.RightClick:   _context.InputSimulator.RightClick(pt);       break;
             case InteractionAction.DoubleClick:  _context.InputSimulator.DoubleClick(pt);      break;
-            case InteractionAction.DragStart:    _context.InputSimulator.MouseDown(pt);        break;
-            case InteractionAction.DragEnd:      _context.InputSimulator.MouseUp(pt);          break;
+
             case InteractionAction.ScrollUp:     _context.InputSimulator.Scroll(pt, 0, DefaultScrollAmount);    break;
             case InteractionAction.ScrollDown:   _context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);   break;
             case InteractionAction.ScrollLeft:   _context.InputSimulator.Scroll(pt, -DefaultScrollAmount, 0);   break;

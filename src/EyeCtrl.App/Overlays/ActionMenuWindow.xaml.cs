@@ -299,8 +299,7 @@ public partial class ActionMenuWindow : OverlayWindow
         InteractionAction.LeftClick => "\u261D",     // ☝ Index pointing up (tap/click)
         InteractionAction.RightClick => "\u2630",    // ☰ Trigram (context menu)
         InteractionAction.DoubleClick => "\u270C",   // ✌ Victory hand (two taps)
-        InteractionAction.DragStart => "\u270A",     // ✊ Raised fist (grab)
-        InteractionAction.DragEnd => "\u270B",       // ✋ Raised hand (release)
+        InteractionAction.Drag => "\u270A",          // ✊ Raised fist (grab)
         InteractionAction.ScrollUp => "\u25B2",      // ▲ Up triangle
         InteractionAction.ScrollDown => "\u25BC",    // ▼ Down triangle
         InteractionAction.ScrollLeft => "\u25C0",    // ◀ Left triangle

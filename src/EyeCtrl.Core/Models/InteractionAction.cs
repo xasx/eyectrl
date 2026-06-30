@@ -10,9 +10,7 @@ public enum InteractionAction
     /// <summary>Double-click at the current gaze point.</summary>
     DoubleClick,
     /// <summary>Press and hold the left mouse button to begin a drag operation.</summary>
-    DragStart,
-    /// <summary>Release the left mouse button to end a drag operation.</summary>
-    DragEnd,
+    Drag,
     /// <summary>Scroll upward (toward top of content).</summary>
     ScrollUp,
     /// <summary>Scroll downward (toward bottom of content).</summary>

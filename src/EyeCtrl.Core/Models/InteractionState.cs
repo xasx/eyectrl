@@ -15,6 +15,8 @@ public enum InteractionState
     ManualSelectionActionMenuVisible,
     /// <summary>Gaze-driven scroll mode: visual joystick with anchor point.</summary>
     ScrollMode,
+    /// <summary>A drag operation is in progress — cursor follows gaze with elastic trail.</summary>
+    Dragging,
     /// <summary>Gaze tracking is paused (e.g., during calibration or idle timeout).</summary>
     Paused
 }

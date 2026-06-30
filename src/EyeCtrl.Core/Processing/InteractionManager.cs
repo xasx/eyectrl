@@ -42,6 +42,8 @@ public class InteractionManager
     public event Action? EndManualSelection;
     /// <summary>Raised to hide the manual selection overlay.</summary>
     public event Action? HideManualSelection;
+    /// <summary>Fired when a Drag action is selected. Carries the resolved grab origin point.</summary>
+    public event Action<PhysicalPoint>? DragStarted;
 
     private void SetState(InteractionState newState)
     {
@@ -152,6 +154,13 @@ public class InteractionManager
         if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
             EndManualSelection?.Invoke();
 
+        if (action == InteractionAction.Drag)
+        {
+            SetState(InteractionState.Dragging);
+            DragStarted?.Invoke(targetPoint.Value);
+            return;
+        }
+
         ActionRequested?.Invoke(action, targetPoint.Value);
         ResetToFreeLook();
     }
@@ -212,6 +221,13 @@ public class InteractionManager
     {
         if (CurrentState != InteractionState.ScrollMode) return;
         ScrollAnchor = null;
+        ResetToFreeLook();
+    }
+
+    /// <summary>Ends the drag operation and returns to FreeLook.</summary>
+    public void CompleteDrag()
+    {
+        if (CurrentState != InteractionState.Dragging) return;
         ResetToFreeLook();
     }
 

@@ -262,4 +262,92 @@ public class InteractionManagerTests
         Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
         Check.That(manager.AutoSelectionTarget).IsNull();
     }
+
+    [Fact]
+    public void OnActionSelected_Drag_FromActionMenu_TransitionsToDragging()
+    {
+        var manager = new InteractionManager();
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.OnActivationButtonDwelled();
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.ActionMenuVisible);
+
+        manager.OnActionSelected(InteractionAction.Drag);
+
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.Dragging);
+    }
+
+    [Fact]
+    public void OnActionSelected_Drag_FromManualSelectionActionMenu_TransitionsToDragging()
+    {
+        var manager = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
+        bool endManualSelectionFired = false;
+        manager.EndManualSelection += () => endManualSelectionFired = true;
+
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.OnActivationButtonDwelled();
+        manager.OnManualSelectionDwell(new PhysicalPoint(110, 110));
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.ManualSelectionActionMenuVisible);
+
+        manager.OnActionSelected(InteractionAction.Drag);
+
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.Dragging);
+        Check.That(endManualSelectionFired).IsTrue();
+    }
+
+    [Fact]
+    public void OnActionSelected_Drag_DoesNotFireActionRequested()
+    {
+        var manager = new InteractionManager();
+        bool actionRequestedFired = false;
+        manager.ActionRequested += (_, _) => actionRequestedFired = true;
+
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.Drag);
+
+        Check.That(actionRequestedFired).IsFalse();
+    }
+
+    [Fact]
+    public void OnActionSelected_Drag_FiresDragStarted_WithResolvedOrigin()
+    {
+        var manager = new InteractionManager();
+        PhysicalPoint? dragOrigin = null;
+        manager.DragStarted += (origin) => dragOrigin = origin;
+
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.Drag);
+
+        Check.That(dragOrigin).IsEqualTo(new PhysicalPoint(100, 100));
+    }
+
+    [Fact]
+    public void OnActionSelected_Drag_AutoMode_ResolvesControlCenter()
+    {
+        var manager = new InteractionManager { SelectionMode = SelectionMode.AutoSelection };
+        PhysicalPoint? dragOrigin = null;
+        manager.DragStarted += (origin) => dragOrigin = origin;
+
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.AutoSelectionTarget = new ControlInfo(new PhysicalRect(150, 150, 50, 50));
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.Drag);
+
+        Check.That(dragOrigin).IsEqualTo(new PhysicalPoint(175, 175));
+    }
+
+    [Fact]
+    public void CompleteDrag_ReturnsToFreeLook()
+    {
+        var manager = new InteractionManager();
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.Drag);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.Dragging);
+
+        manager.CompleteDrag();
+
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
 }

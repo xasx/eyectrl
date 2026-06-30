@@ -16,5 +16,7 @@ public class DwellSettingsDefaultsTests
         Check.That(dwell.ToolbarButtonDwellMs).IsEqualTo(700);
         Check.That(dwell.KeyboardKeyDwellMs).IsEqualTo(450);
         Check.That(dwell.KeyboardPredictionDwellMs).IsEqualTo(500);
+        Check.That(dwell.DragReleaseButtonDwellMs).IsEqualTo(600);
+        Check.That(dwell.DragRightEdgeButtonDwellMs).IsEqualTo(600);
     }
 }

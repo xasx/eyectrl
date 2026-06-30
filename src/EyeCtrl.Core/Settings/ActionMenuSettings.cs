@@ -11,7 +11,7 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
     [ObservableProperty] private List<InteractionAction> _visibleActions = new()
     {
         InteractionAction.LeftClick, InteractionAction.RightClick,
-        InteractionAction.DoubleClick, InteractionAction.DragStart,
+        InteractionAction.DoubleClick, InteractionAction.Drag,
         InteractionAction.ScrollUp, InteractionAction.ScrollDown,
         InteractionAction.ScrollMode,
         InteractionAction.PinNote
@@ -33,7 +33,7 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
         var defaults = new[]
         {
             InteractionAction.LeftClick, InteractionAction.RightClick,
-            InteractionAction.DoubleClick, InteractionAction.DragStart,
+            InteractionAction.DoubleClick, InteractionAction.Drag,
             InteractionAction.ScrollUp, InteractionAction.ScrollDown,
             InteractionAction.ScrollMode,
             InteractionAction.PinNote

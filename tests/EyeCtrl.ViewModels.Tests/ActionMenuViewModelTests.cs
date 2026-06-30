@@ -37,7 +37,7 @@ public class ActionMenuViewModelTests
             InteractionAction.LeftClick,
             InteractionAction.RightClick,
             InteractionAction.DoubleClick,
-            InteractionAction.DragStart
+            InteractionAction.Drag
         };
 
         _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(0, 0), actions, false, 600, new PhysicalPoint(0, 0)));

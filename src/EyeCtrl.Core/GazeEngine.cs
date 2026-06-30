@@ -127,7 +127,7 @@ public class GazeEngine : IDisposable
         if (InteractionManager.CurrentState == InteractionState.Paused)
             return;
 
-        if (InteractionManager.CurrentState == InteractionState.FreeLook)
+        if (InteractionManager.CurrentState is InteractionState.FreeLook or InteractionState.Dragging)
         {
             _inputSimulator.MoveCursor(filtered);
         }

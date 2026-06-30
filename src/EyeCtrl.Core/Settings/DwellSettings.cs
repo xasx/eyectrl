@@ -25,6 +25,10 @@ public partial class DwellSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _velocityThresholdPxPerSec = 100.0;
     /// <summary>Cooldown period in milliseconds after a dwell activation before another can trigger. Valid range: 100–5000.</summary>
     [ObservableProperty] private int _dwellCooldownMs = 400;
+    /// <summary>Dwell time in milliseconds for the drag release button. Valid range: 200–2000.</summary>
+    [ObservableProperty] private int _dragReleaseButtonDwellMs = 600;
+    /// <summary>Dwell time in milliseconds for the drag right-edge button. Valid range: 200–2000.</summary>
+    [ObservableProperty] private int _dragRightEdgeButtonDwellMs = 600;
 
     partial void OnFixationDetectionMsChanging(int value)
     {
@@ -107,6 +111,20 @@ public partial class DwellSettings : ObservableObject, IValidatable
                 $"{nameof(VelocityThresholdPxPerSec)} must be greater than 0");
     }
 
+    partial void OnDragReleaseButtonDwellMsChanging(int value)
+    {
+        if (value < 200 || value > 2000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(DragReleaseButtonDwellMs)} must be between 200 and 2000");
+    }
+
+    partial void OnDragRightEdgeButtonDwellMsChanging(int value)
+    {
+        if (value < 200 || value > 2000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(DragRightEdgeButtonDwellMs)} must be between 200 and 2000");
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
@@ -118,7 +136,9 @@ public partial class DwellSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(ToolbarButtonDwellMs, 200, 2000, nameof(ToolbarButtonDwellMs)),
             ValidationHelper.ValidateRange(KeyboardKeyDwellMs, 100, 1500, nameof(KeyboardKeyDwellMs)),
             ValidationHelper.ValidateRange(KeyboardPredictionDwellMs, 100, 1500, nameof(KeyboardPredictionDwellMs)),
-            ValidationHelper.ValidateRange(FixationRadiusPixels, 10.0, 200.0, nameof(FixationRadiusPixels))
+            ValidationHelper.ValidateRange(FixationRadiusPixels, 10.0, 200.0, nameof(FixationRadiusPixels)),
+            ValidationHelper.ValidateRange(DragReleaseButtonDwellMs, 200, 2000, nameof(DragReleaseButtonDwellMs)),
+            ValidationHelper.ValidateRange(DragRightEdgeButtonDwellMs, 200, 2000, nameof(DragRightEdgeButtonDwellMs))
         );
     }
 }

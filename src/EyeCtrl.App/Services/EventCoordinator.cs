@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System;
 using System.ComponentModel;
 using System.IO;
+using System.Windows.Interop;
 using EyeCtrl.App;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
@@ -52,6 +53,7 @@ public class EventCoordinator : IEventCoordinator
     private bool _scrollModeActive;
     private DragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
+    private Action? _disposeEscapeHook;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -382,6 +384,21 @@ public class EventCoordinator : IEventCoordinator
             _context.Dispatcher.BeginInvoke(OnDragCancel));
         _context.Messenger.Register<EventCoordinator, DragDismissZoomMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(OnDragDismissZoom));
+
+        ComponentDispatcher.ThreadFilterMessage += OnThreadFilterMessage;
+        _disposeEscapeHook = () => ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
+    }
+
+    private void OnThreadFilterMessage(ref MSG msg, ref bool handled)
+    {
+        if (msg.message == 0x0100 && (int)msg.wParam == 0x1B) // WM_KEYDOWN, VK_ESCAPE
+        {
+            if (_context?.InteractionManager.CurrentState == InteractionState.Dragging)
+            {
+                _context.Messenger.Send(new DragCancelMessage());
+                handled = true;
+            }
+        }
     }
 
     private void OnDragStarted(PhysicalPoint grabOrigin)
@@ -1131,6 +1148,7 @@ public class EventCoordinator : IEventCoordinator
             _context.InteractionManager.DragStarted -= OnDragStarted;
             _context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
         }
+        _disposeEscapeHook?.Invoke();
         CloseDragOverlay();
 
         // Unregister all message handlers

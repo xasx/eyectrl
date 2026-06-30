@@ -346,6 +346,74 @@ public class SettingsPropertyValidationTests
 
     #endregion
 
+    #region DwellSettings - DragReleaseButtonDwellMs Validation
+
+    [Theory]
+    [InlineData(199)]
+    [InlineData(2001)]
+    public void DragReleaseButtonDwellMs_OutOfRange_ThrowsArgumentOutOfRange(int value)
+    {
+        var settings = new DwellSettings();
+
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.DragReleaseButtonDwellMs = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.Message).Contains("200");
+        Check.That(ex!.Message).Contains("2000");
+        Check.That(ex!.Message).Contains("DragReleaseButtonDwellMs");
+    }
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(600)]
+    [InlineData(2000)]
+    public void DragReleaseButtonDwellMs_ValidValue_AllowsChange(int value)
+    {
+        var settings = new DwellSettings();
+
+        settings.DragReleaseButtonDwellMs = value;
+
+        Check.That(settings.DragReleaseButtonDwellMs).IsEqualTo(value);
+    }
+
+    #endregion
+
+    #region DwellSettings - DragRightEdgeButtonDwellMs Validation
+
+    [Theory]
+    [InlineData(199)]
+    [InlineData(2001)]
+    public void DragRightEdgeButtonDwellMs_OutOfRange_ThrowsArgumentOutOfRange(int value)
+    {
+        var settings = new DwellSettings();
+
+        ArgumentOutOfRangeException? ex = null;
+        try { settings.DragRightEdgeButtonDwellMs = value; }
+        catch (ArgumentOutOfRangeException e) { ex = e; }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.Message).Contains("200");
+        Check.That(ex!.Message).Contains("2000");
+        Check.That(ex!.Message).Contains("DragRightEdgeButtonDwellMs");
+    }
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(600)]
+    [InlineData(2000)]
+    public void DragRightEdgeButtonDwellMs_ValidValue_AllowsChange(int value)
+    {
+        var settings = new DwellSettings();
+
+        settings.DragRightEdgeButtonDwellMs = value;
+
+        Check.That(settings.DragRightEdgeButtonDwellMs).IsEqualTo(value);
+    }
+
+    #endregion
+
     #region CursorSettings - SmoothingFactor Validation
 
     [Fact]

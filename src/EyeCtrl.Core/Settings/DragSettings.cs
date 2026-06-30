@@ -39,6 +39,7 @@ public partial class DragSettings : ObservableObject, IValidatable
         return ValidationHelper.CollectErrors(
             ValidationHelper.ValidateRange(SettleDwellMs, 200, 2000, nameof(SettleDwellMs)),
             ValidationHelper.ValidateRange(SettleRadiusPixels, 10, 200, nameof(SettleRadiusPixels)),
+            ValidationHelper.ValidateHexColor(TrailColor, nameof(TrailColor)),
             ValidationHelper.ValidateRange(TrailOpacity, 0.1, 1.0, nameof(TrailOpacity))
         );
     }

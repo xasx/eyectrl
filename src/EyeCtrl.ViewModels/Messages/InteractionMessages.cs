@@ -102,3 +102,16 @@ public record CalibrationCancelledMessage;
 public record CalibrationStateChangedMessage(CalibrationState State, double ProgressPercent);
 public record CalibrationTargetPositionMessage(PhysicalPoint Position, int TargetIndex, int TotalTargets);
 public record CalibrationClearRequestedMessage;
+
+// Drag trail messages
+/// <summary>Sent by InteractionManager (via EventCoordinator) to start a drag trail. Origin is the grab point in physical screen pixels.</summary>
+public record StartDragTrailMessage(PhysicalPoint GrabOrigin);
+
+/// <summary>Sent by DragTrailViewModel when the drag should complete (drop at current cursor position).</summary>
+public record DragDropMessage(PhysicalPoint DropPoint);
+
+/// <summary>Sent by DragTrailViewModel when the drag should be cancelled (MouseUp at origin).</summary>
+public record DragCancelMessage;
+
+/// <summary>Sent by DragTrailViewModel when zoom should be dismissed (back to free drag).</summary>
+public record DragDismissZoomMessage;

@@ -50,6 +50,8 @@ public class EventCoordinator : IEventCoordinator
     private ScrollOverlayWindow? _scrollOverlayWindow;
     private ScrollWorker? _scrollWorker;
     private bool _scrollModeActive;
+    private DragTrailOverlay? _dragTrailOverlay;
+    private PhysicalPoint _dragGrabOrigin;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -73,6 +75,7 @@ public class EventCoordinator : IEventCoordinator
         SetupMessageHandlers();
         SetupGazeRouting();
         SetupBackdrop();
+        SetupDragHandlers();
     }
 
     private void SetupPropertyChangedHandlers()
@@ -364,6 +367,78 @@ public class EventCoordinator : IEventCoordinator
         if (_context == null)
             return;
         _glassBackdrop = _context.OverlayManager.GlassBackdrop;
+    }
+
+    private void SetupDragHandlers()
+    {
+        if (_context == null) return;
+
+        _context.InteractionManager.DragStarted += OnDragStarted;
+        _context.DragTrailVM.PropertyChanged += OnDragTrailVMPropertyChanged;
+
+        _context.Messenger.Register<EventCoordinator, DragDropMessage>(this, (_, m) =>
+            _context.Dispatcher.BeginInvoke(() => OnDragDrop(m)));
+        _context.Messenger.Register<EventCoordinator, DragCancelMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(OnDragCancel));
+        _context.Messenger.Register<EventCoordinator, DragDismissZoomMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(OnDragDismissZoom));
+    }
+
+    private void OnDragStarted(PhysicalPoint grabOrigin)
+    {
+        if (_context == null) return;
+
+        _dragGrabOrigin = grabOrigin;
+        _context.InputSimulator.MouseDown(grabOrigin);
+
+        _dragTrailOverlay = new DragTrailOverlay();
+        _dragTrailOverlay.Show();
+
+        _context.Messenger.Send(new StartDragTrailMessage(grabOrigin));
+    }
+
+    private void OnDragDrop(DragDropMessage msg)
+    {
+        _context?.InputSimulator.MouseUp(msg.DropPoint);
+        _context?.InteractionManager.CompleteDrag();
+        CloseDragOverlay();
+    }
+
+    private void OnDragCancel()
+    {
+        _context?.InputSimulator.MouseUp(_dragGrabOrigin);
+        _context?.InteractionManager.CompleteDrag();
+        CloseDragOverlay();
+    }
+
+    private void OnDragDismissZoom()
+    {
+        if (_context?.OverlayManager.ManualSelectionOverlay.IsVisible == true)
+            _context.OverlayManager.ManualSelectionOverlay.Hide();
+    }
+
+    private void CloseDragOverlay()
+    {
+        _dragTrailOverlay?.Close();
+        _dragTrailOverlay = null;
+    }
+
+    private void OnDragTrailVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null || _dragTrailOverlay == null) return;
+        var vm = _context.DragTrailVM;
+
+        switch (e.PropertyName)
+        {
+            case nameof(DragTrailViewModel.CursorPosition):
+            case nameof(DragTrailViewModel.SettleProgress):
+            case nameof(DragTrailViewModel.ShowBack):
+            case nameof(DragTrailViewModel.ReleaseButtonCenter):
+                _dragTrailOverlay.Update(
+                    vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress,
+                    vm.ShowBack, vm.ReleaseButtonCenter, vm.CancelButtonCenter, vm.BackButtonCenter);
+                break;
+        }
     }
 
     private void ShowBackdropIfEnabled()
@@ -1049,6 +1124,14 @@ public class EventCoordinator : IEventCoordinator
             _settingsWindow.SettingsChanged -= OnSettingsChanged;
             _settingsWindow.Closed -= OnSettingsWindowClosed;
         }
+
+        // Unsubscribe from drag handlers
+        if (_context != null)
+        {
+            _context.InteractionManager.DragStarted -= OnDragStarted;
+            _context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
+        }
+        CloseDragOverlay();
 
         // Unregister all message handlers
         _context.Messenger.UnregisterAll(this);

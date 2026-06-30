@@ -58,6 +58,7 @@ public record EventCoordinationContext(
     ToolbarViewModel ToolbarVM,
     KeyboardViewModel KeyboardVM,
     GlassBackdropViewModel BackdropVM,
+    DragTrailViewModel DragTrailVM,
 
     // Overlay Windows
     IOverlayManager OverlayManager,

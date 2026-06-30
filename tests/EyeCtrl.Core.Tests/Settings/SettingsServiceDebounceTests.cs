@@ -66,6 +66,17 @@ public class SettingsServiceDebounceTests : IDisposable
 
     public void Dispose()
     {
-        if (File.Exists(_tempFile)) File.Delete(_tempFile);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                if (File.Exists(_tempFile)) File.Delete(_tempFile);
+                break;
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50);
+            }
+        }
     }
 }

@@ -1,4 +1,5 @@
 namespace EyeCtrl.Core.Settings;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EyeCtrl.Core.Models;
@@ -89,6 +90,7 @@ public class SettingsService
         try
         {
             var json = File.ReadAllText(_filePath);
+            json = MigrateDragActions(json);
             var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions) ?? new EyeCtrlSettings();
 
             // Migration: seed SelectionMode from deprecated ManualSelection.Enabled
@@ -136,5 +138,83 @@ public class SettingsService
         if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         File.WriteAllText(_filePath, json);
+    }
+
+    private static string MigrateDragActions(string json)
+    {
+        if (!json.Contains("\"dragStart\"", StringComparison.OrdinalIgnoreCase) &&
+            !json.Contains("\"dragEnd\"", StringComparison.OrdinalIgnoreCase))
+            return json;
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("actionMenu", out var actionMenu) ||
+            !actionMenu.TryGetProperty("visibleActions", out var visibleActions))
+            return json;
+
+        var actions = new List<string>();
+        bool modified = false;
+
+        foreach (var item in visibleActions.EnumerateArray())
+        {
+            var value = item.GetString()!;
+            if (value == "dragStart")
+            {
+                actions.Add("drag");
+                modified = true;
+            }
+            else if (value == "dragEnd")
+            {
+                modified = true;
+            }
+            else
+            {
+                actions.Add(value);
+            }
+        }
+
+        if (!modified)
+            return json;
+
+        if (!actions.Contains("drag"))
+            actions.Add("drag");
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var prop in root.EnumerateObject())
+            {
+                if (prop.Name == "actionMenu")
+                {
+                    writer.WritePropertyName("actionMenu");
+                    writer.WriteStartObject();
+                    foreach (var amProp in prop.Value.EnumerateObject())
+                    {
+                        if (amProp.Name == "visibleActions")
+                        {
+                            writer.WritePropertyName("visibleActions");
+                            writer.WriteStartArray();
+                            foreach (var a in actions)
+                                writer.WriteStringValue(a);
+                            writer.WriteEndArray();
+                        }
+                        else
+                        {
+                            amProp.WriteTo(writer);
+                        }
+                    }
+                    writer.WriteEndObject();
+                }
+                else
+                {
+                    prop.WriteTo(writer);
+                }
+            }
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
     }
 }

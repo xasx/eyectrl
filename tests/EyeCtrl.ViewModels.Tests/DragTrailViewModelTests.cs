@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -140,6 +141,8 @@ public class DragTrailViewModelTests
         var vm = CreateVm();
         _messenger.Send(new StartDragTrailMessage(new PhysicalPoint(100, 100)));
 
-        Check.That(vm.CancelButtonCenter.X).IsStrictlyGreaterThan(1800);
+        var screenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
+        var expectedX = screenW - DpiHelper.LogicalToPhysicalX(30);
+        Check.That(vm.CancelButtonCenter.X).IsEqualTo(expectedX);
     }
 }

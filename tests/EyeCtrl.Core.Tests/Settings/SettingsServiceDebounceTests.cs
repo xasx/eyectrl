@@ -49,10 +49,10 @@ public class SettingsServiceDebounceTests : IDisposable
         settings.Dwell.FixationDetectionMs = 300;
         _service.SaveDebounced(settings);
 
-        // Wait for the debounced save to land — poll instead of a fixed delay (see above).
-        await WaitForFileAsync(TestContext.Current.CancellationToken);
-
-        var loaded = _service.Load();
+        // Poll until the LAST debounced save (300) settles. Waiting only for the file to exist is
+        // not enough: on a thread-pool-starved CI runner an earlier, not-yet-cancelled save can
+        // write an intermediate value first, so we must wait for the final value.
+        var loaded = await WaitForValueAsync(300, TestContext.Current.CancellationToken);
         Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(300);
     }
 
@@ -62,6 +62,23 @@ public class SettingsServiceDebounceTests : IDisposable
     {
         for (var i = 0; i < 100 && !File.Exists(_tempFile); i++)
             await Task.Delay(50, ct);
+    }
+
+    // Polls until the persisted FixationDetectionMs reaches the expected final value (up to ~5s).
+    // Requires the file to exist so a default-valued Load() can't produce a false positive.
+    private async Task<EyeCtrlSettings> WaitForValueAsync(int expected, CancellationToken ct)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            if (File.Exists(_tempFile))
+            {
+                var loaded = _service.Load();
+                if (loaded.Dwell.FixationDetectionMs == expected)
+                    return loaded;
+            }
+            await Task.Delay(50, ct);
+        }
+        return _service.Load();
     }
 
     public void Dispose()

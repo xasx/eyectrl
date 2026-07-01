@@ -66,11 +66,9 @@ public class SettingsServiceResourceLeakTests : IDisposable
         settings.Dwell.FixationDetectionMs = 300;
         _service.SaveDebounced(settings);
 
-        // Wait for final save
-        await Task.Delay(800, TestContext.Current.CancellationToken);
-
-        // Verify the final value was saved
-        var loaded = _service.Load();
+        // Poll until the final save (300) settles rather than a fixed delay — a loaded CI runner
+        // may run the background debounce late.
+        var loaded = await WaitForValueAsync(300, TestContext.Current.CancellationToken);
         Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(300);
     }
 
@@ -93,17 +91,42 @@ public class SettingsServiceResourceLeakTests : IDisposable
         settings.Dwell.FixationDetectionMs = 200;
         _service.SaveDebounced(settings);
 
-        // Wait for the second save to complete
-        await Task.Delay(800, TestContext.Current.CancellationToken);
-
-        // The file should only have the second value (200), not the first (100)
-        var loaded = _service.Load();
+        // Poll until the final save (200) settles rather than a fixed delay. The last call (200)
+        // is never cancelled, so it will land; 100 must not be the final persisted value.
+        var loaded = await WaitForValueAsync(200, TestContext.Current.CancellationToken);
         Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(200);
-        Check.That(loaded.Dwell.FixationDetectionMs).IsNotEqualTo(100);
+    }
+
+    // Polls until the persisted FixationDetectionMs reaches the expected final value (up to ~5s).
+    // Requires the file to exist so a default-valued Load() can't produce a false positive.
+    private async Task<EyeCtrlSettings> WaitForValueAsync(int expected, CancellationToken ct)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            if (File.Exists(_tempFile))
+            {
+                var loaded = _service.Load();
+                if (loaded.Dwell.FixationDetectionMs == expected)
+                    return loaded;
+            }
+            await Task.Delay(50, ct);
+        }
+        return _service.Load();
     }
 
     public void Dispose()
     {
-        if (File.Exists(_tempFile)) File.Delete(_tempFile);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                if (File.Exists(_tempFile)) File.Delete(_tempFile);
+                break;
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50);
+            }
+        }
     }
 }

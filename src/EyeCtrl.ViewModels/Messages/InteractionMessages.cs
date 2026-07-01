@@ -104,8 +104,15 @@ public record CalibrationTargetPositionMessage(PhysicalPoint Position, int Targe
 public record CalibrationClearRequestedMessage;
 
 // Drag trail messages
-/// <summary>Sent by InteractionManager (via EventCoordinator) to start a drag trail. Origin is the grab point in physical screen pixels.</summary>
-public record StartDragTrailMessage(PhysicalPoint GrabOrigin);
+/// <summary>
+/// Sent by InteractionManager (via EventCoordinator) to start a drag trail. All points are in
+/// physical screen pixels. The right-edge cancel/back button centers are computed by the App layer
+/// (which owns screen geometry) and passed in so the ViewModel stays framework-agnostic.
+/// </summary>
+public record StartDragTrailMessage(
+    PhysicalPoint GrabOrigin,
+    PhysicalPoint CancelButtonCenter,
+    PhysicalPoint BackButtonCenter);
 
 /// <summary>Sent by DragTrailViewModel when the drag should complete (drop at current cursor position).</summary>
 public record DragDropMessage(PhysicalPoint DropPoint);

@@ -1,6 +1,5 @@
 namespace EyeCtrl.ViewModels;
 
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
@@ -67,7 +66,11 @@ public partial class DragTrailViewModel : ObservableObject,
         SettleProgress = 0;
         ShowBack = false;
 
-        UpdateButtonPositions(message.GrabOrigin);
+        // Right-edge cancel/back button centers are supplied by the App layer (screen geometry
+        // lives there); the release button follows the cursor.
+        CancelButtonCenter = message.CancelButtonCenter;
+        BackButtonCenter = message.BackButtonCenter;
+        UpdateReleaseButtonPosition(message.GrabOrigin);
         SetupDwellTargets();
     }
 
@@ -112,18 +115,6 @@ public partial class DragTrailViewModel : ObservableObject,
         SettleProgress = 0;
         if (DragState == DragSubState.Settling)
             DragState = DragSubState.FreeDrag;
-    }
-
-    private void UpdateButtonPositions(PhysicalPoint cursorPos)
-    {
-        var screenWidth = DpiHelper.LogicalToPhysicalX(SystemParameters.PrimaryScreenWidth);
-        var buttonX = screenWidth - DpiHelper.LogicalToPhysicalX(30);
-        var centerY = DpiHelper.LogicalToPhysicalY(SystemParameters.PrimaryScreenHeight / 2.0);
-
-        CancelButtonCenter = new PhysicalPoint(buttonX, centerY + DpiHelper.LogicalToPhysicalY(30));
-        BackButtonCenter = new PhysicalPoint(buttonX, centerY - DpiHelper.LogicalToPhysicalY(30));
-
-        UpdateReleaseButtonPosition(cursorPos);
     }
 
     private void UpdateReleaseButtonPosition(PhysicalPoint cursorPos)

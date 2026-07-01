@@ -90,8 +90,13 @@ public class SettingsService
         try
         {
             var json = File.ReadAllText(_filePath);
-            json = MigrateDragActions(json);
-            var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions) ?? new EyeCtrlSettings();
+            var migratedJson = MigrateDragActions(json);
+            if (!ReferenceEquals(json, migratedJson))
+            {
+                try { File.WriteAllText(_filePath, migratedJson); }
+                catch (Exception ex) { _logger?.LogWarning(ex, "Failed to persist migrated settings to {FilePath}", _filePath); }
+            }
+            var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(migratedJson, JsonOptions) ?? new EyeCtrlSettings();
 
             // Migration: seed SelectionMode from deprecated ManualSelection.Enabled
             if (settings.SelectionMode == SelectionMode.None && settings.ManualSelection.Enabled)
@@ -159,12 +164,12 @@ public class SettingsService
         foreach (var item in visibleActions.EnumerateArray())
         {
             var value = item.GetString()!;
-            if (value == "dragStart")
+            if (string.Equals(value, "dragStart", StringComparison.OrdinalIgnoreCase))
             {
                 actions.Add("drag");
                 modified = true;
             }
-            else if (value == "dragEnd")
+            else if (string.Equals(value, "dragEnd", StringComparison.OrdinalIgnoreCase))
             {
                 modified = true;
             }

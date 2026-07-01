@@ -350,4 +350,18 @@ public class InteractionManagerTests
 
         Check.That(manager.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }
+
+    [Fact]
+    public void TogglePause_DuringDragging_IsBlocked()
+    {
+        var manager = new InteractionManager();
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.Drag);
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.Dragging);
+
+        manager.TogglePause();
+
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.Dragging);
+    }
 }

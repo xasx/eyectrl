@@ -411,7 +411,21 @@ public class EventCoordinator : IEventCoordinator
         _dragTrailOverlay = new DragTrailOverlay();
         _dragTrailOverlay.Show();
 
-        _context.Messenger.Send(new StartDragTrailMessage(grabOrigin));
+        var (cancelCenter, backCenter) = ComputeDragEdgeButtonCenters();
+        _context.Messenger.Send(new StartDragTrailMessage(grabOrigin, cancelCenter, backCenter));
+    }
+
+    // The right-edge cancel/back buttons sit at a fixed X near the right screen edge, vertically
+    // centered. Screen geometry lives in the App layer, so it's computed here and passed into the
+    // ViewModel (which stays framework-agnostic) rather than the VM reading SystemParameters.
+    private static (PhysicalPoint cancel, PhysicalPoint back) ComputeDragEdgeButtonCenters()
+    {
+        var screenWidth = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
+        var buttonX = screenWidth - DpiHelper.LogicalToPhysicalX(30);
+        var centerY = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight / 2.0);
+        var cancel = new PhysicalPoint(buttonX, centerY + DpiHelper.LogicalToPhysicalY(30));
+        var back = new PhysicalPoint(buttonX, centerY - DpiHelper.LogicalToPhysicalY(30));
+        return (cancel, back);
     }
 
     private void OnDragDrop(DragDropMessage msg)

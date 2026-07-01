@@ -15,33 +15,69 @@ public class DragSettingsTests
     }
 
     [Fact]
-    public void SettleDwellMs_ClampsToRange()
+    public void SettleDwellMs_ThrowsOutOfRange_BelowMin()
     {
         var s = new DragSettings();
-        s.SettleDwellMs = 50;
-        Check.That(s.SettleDwellMs).IsEqualTo(200);
-        s.SettleDwellMs = 5000;
-        Check.That(s.SettleDwellMs).IsEqualTo(2000);
+        ArgumentException? ex = null;
+        try { s.SettleDwellMs = 50; }
+        catch (ArgumentException e) { ex = e; }
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
     }
 
     [Fact]
-    public void SettleRadiusPixels_ClampsToRange()
+    public void SettleDwellMs_ThrowsOutOfRange_AboveMax()
     {
         var s = new DragSettings();
-        s.SettleRadiusPixels = 2;
-        Check.That(s.SettleRadiusPixels).IsEqualTo(10);
-        s.SettleRadiusPixels = 500;
-        Check.That(s.SettleRadiusPixels).IsEqualTo(200);
+        ArgumentException? ex = null;
+        try { s.SettleDwellMs = 5000; }
+        catch (ArgumentException e) { ex = e; }
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
     }
 
     [Fact]
-    public void TrailOpacity_ClampsToRange()
+    public void SettleRadiusPixels_ThrowsOutOfRange_BelowMin()
     {
         var s = new DragSettings();
-        s.TrailOpacity = 0.0;
-        Check.That(s.TrailOpacity).IsEqualTo(0.1);
-        s.TrailOpacity = 2.0;
-        Check.That(s.TrailOpacity).IsEqualTo(1.0);
+        ArgumentException? ex = null;
+        try { s.SettleRadiusPixels = 2; }
+        catch (ArgumentException e) { ex = e; }
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+    }
+
+    [Fact]
+    public void SettleRadiusPixels_ThrowsOutOfRange_AboveMax()
+    {
+        var s = new DragSettings();
+        ArgumentException? ex = null;
+        try { s.SettleRadiusPixels = 500; }
+        catch (ArgumentException e) { ex = e; }
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+    }
+
+    [Fact]
+    public void TrailOpacity_ThrowsOutOfRange_BelowMin()
+    {
+        var s = new DragSettings();
+        ArgumentException? ex = null;
+        try { s.TrailOpacity = 0.0; }
+        catch (ArgumentException e) { ex = e; }
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
+    }
+
+    [Fact]
+    public void TrailOpacity_ThrowsOutOfRange_AboveMax()
+    {
+        var s = new DragSettings();
+        ArgumentException? ex = null;
+        try { s.TrailOpacity = 2.0; }
+        catch (ArgumentException e) { ex = e; }
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("value");
     }
 
     [Fact]

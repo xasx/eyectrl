@@ -79,4 +79,27 @@ public class SettingsServiceTests
         }
         finally { File.Delete(tempPath); }
     }
+
+    [Fact]
+    public void Load_MigratesDragStart_CaseInsensitive()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
+        try
+        {
+            var json = """
+            {
+                "actionMenu": {
+                    "visibleActions": ["leftClick", "DragStart", "scrollUp"]
+                }
+            }
+            """;
+            File.WriteAllText(tempPath, json);
+            var service = new SettingsService(tempPath);
+            var settings = service.Load();
+
+            Check.That(settings.ActionMenu.VisibleActions).Contains(InteractionAction.Drag);
+            Check.That(settings.ActionMenu.VisibleActions).HasSize(3);
+        }
+        finally { File.Delete(tempPath); }
+    }
 }

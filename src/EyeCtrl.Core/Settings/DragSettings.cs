@@ -9,28 +9,25 @@ public partial class DragSettings : ObservableObject, IValidatable
     [ObservableProperty] private string _trailColor = "#ff9800";
     [ObservableProperty] private double _trailOpacity = 0.7;
 
-    partial void OnSettleDwellMsChanged(int value)
+    partial void OnSettleDwellMsChanging(int value)
     {
-        if (value < 200)
-            SettleDwellMs = 200;
-        else if (value > 2000)
-            SettleDwellMs = 2000;
+        if (value < 200 || value > 2000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(SettleDwellMs)} must be between 200 and 2000");
     }
 
-    partial void OnSettleRadiusPixelsChanged(int value)
+    partial void OnSettleRadiusPixelsChanging(int value)
     {
-        if (value < 10)
-            SettleRadiusPixels = 10;
-        else if (value > 200)
-            SettleRadiusPixels = 200;
+        if (value < 10 || value > 200)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(SettleRadiusPixels)} must be between 10 and 200");
     }
 
-    partial void OnTrailOpacityChanged(double value)
+    partial void OnTrailOpacityChanging(double value)
     {
-        if (value < 0.1)
-            TrailOpacity = 0.1;
-        else if (value > 1.0)
-            TrailOpacity = 1.0;
+        if (value < 0.1 || value > 1.0)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(TrailOpacity)} must be between 0.1 and 1.0");
     }
 
     /// <inheritdoc />

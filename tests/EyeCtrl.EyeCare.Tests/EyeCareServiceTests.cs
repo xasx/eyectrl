@@ -11,7 +11,8 @@ public class EyeCareServiceTests
     private sealed class FakeHooks : IEyeCareHooks
     {
         public int CancelActiveCalls;
-        public Task<bool> ShowBannerAsync(string message) => Task.FromResult(false);
+        public int BannerCalls;
+        public Task<bool> ShowBannerAsync(string message) { BannerCalls++; return Task.FromResult(false); }
         public Task ShowExerciseAsync(string exerciseName, long durationMicroseconds,
             Func<long, PhysicalPoint> getTargetAt, Action<PhysicalPoint, long> recordGaze) => Task.CompletedTask;
         public Task ShowSummaryAsync(EyeCareExerciseOutcome outcome) => Task.CompletedTask;
@@ -43,6 +44,29 @@ public class EyeCareServiceTests
         settings.Enabled = false;
 
         Check.That(hooks.CancelActiveCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void DisabledGap_DoesNotTriggerBreak_OnReEnable()
+    {
+        var settings = new EyeCareSettings
+        {
+            Enabled = true, IntervalMinutes = 1, NaturalBreakSeconds = 30, SnoozeMinutes = 1
+        };
+        var hooks = new FakeHooks();
+        var svc = NewService(settings, hooks);
+
+        for (long t = 0; t <= 30_000_000; t += 1_000_000)
+            svc.OnGazeSample(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+
+        settings.Enabled = false;
+        for (long t = 31_000_000; t <= 1_530_000_000; t += 60_000_000)
+            svc.OnGazeSample(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+
+        settings.Enabled = true;
+        svc.OnGazeSample(new GazePoint(500, 500, 1_531_000_000, IsValid: true), isPaused: false);
+
+        Check.That(hooks.BannerCalls).IsEqualTo(0);
     }
 
     [Fact]

@@ -90,7 +90,7 @@ public partial class ScrollOverlayViewModel : ObservableObject,
 
         double dx = message.Position.X - _anchor.X;
         double dy = _anchor.Y - message.Position.Y;
-        double dist = Math.Sqrt(dx * dx + dy * dy);
+        double dist = message.Position.DistanceTo(_anchor);
         if (dist > 1.0)
         {
             AnchorDotOffsetX = Math.Clamp(dx / MaxOffsetPx, -1.0, 1.0);

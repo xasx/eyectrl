@@ -99,9 +99,7 @@ public partial class KeyboardViewModel : ObservableObject,
 
         foreach (var (id, center) in keyScreenPositions)
         {
-            double dx = gazePoint.X - center.X;
-            double dy = gazePoint.Y - center.Y;
-            double dist = dx * dx + dy * dy;
+            double dist = gazePoint.DistanceSquaredTo(center);
             if (dist < nearestDist)
             {
                 nearestDist = dist;

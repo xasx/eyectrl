@@ -18,6 +18,7 @@ public class SmallLMPredictor : ILanguageModelPredictor
     private readonly bool _preferGpu;
     private readonly ILogger<SmallLMPredictor>? _logger;
     private readonly LMTokenizer? _tokenizer;
+    private readonly bool _ownsTokenizer;
 
     private InferenceSession? _session;
     private readonly object _lock = new();
@@ -41,13 +42,14 @@ public class SmallLMPredictor : ILanguageModelPredictor
     /// <param name="logger">Optional logger.</param>
     /// <param name="tokenizer">Optional pre-loaded tokenizer instance.</param>
     /// <param name="modelPath">Optional explicit path to an ONNX model file instead of using the size-based lookup.</param>
-    public SmallLMPredictor(string modelsDirectory, string? modelSize, bool preferGpu, ILogger<SmallLMPredictor>? logger = null, LMTokenizer? tokenizer = null, string? modelPath = null)
+    public SmallLMPredictor(string modelsDirectory, string? modelSize, bool preferGpu, ILogger<SmallLMPredictor>? logger = null, LMTokenizer? tokenizer = null, string? modelPath = null, bool ownsTokenizer = true)
     {
         _modelsDirectory = modelsDirectory;
         _selectedModelSize = modelSize;
         _preferGpu = preferGpu;
         _logger = logger;
         _tokenizer = tokenizer;
+        _ownsTokenizer = tokenizer != null && ownsTokenizer;
 
         if (modelSize == "Off" || string.IsNullOrEmpty(modelSize))
         {
@@ -335,7 +337,7 @@ public class SmallLMPredictor : ILanguageModelPredictor
         {
             _session?.Dispose();
             _session = null;
-            _tokenizer?.Dispose();
+            if (_ownsTokenizer) _tokenizer?.Dispose();
             return;
         }
 
@@ -351,7 +353,7 @@ public class SmallLMPredictor : ILanguageModelPredictor
             {
                 _session?.Dispose();
                 _session = null;
-                _tokenizer?.Dispose();
+                if (_ownsTokenizer) _tokenizer?.Dispose();
             }
         });
     }

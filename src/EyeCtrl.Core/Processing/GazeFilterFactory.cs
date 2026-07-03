@@ -17,6 +17,7 @@ public static class GazeFilterFactory
         {
             GazeFilterMode.Direct => new DirectFilter(),
             GazeFilterMode.Smoothed => new SmoothedFilter(settings.SmoothingFactor),
+            // Intentionally identical to Smoothed — see GazeFilterMode.SmoothedWithSnapping docs.
             GazeFilterMode.SmoothedWithSnapping => new SmoothedFilter(settings.SmoothingFactor),
             GazeFilterMode.OneEuro => new OneEuroFilter(settings.OneEuroMinCutoff, settings.OneEuroBeta),
             _ => new OneEuroFilter(settings.OneEuroMinCutoff, settings.OneEuroBeta)

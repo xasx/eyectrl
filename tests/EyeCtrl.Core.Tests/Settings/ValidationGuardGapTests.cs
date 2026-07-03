@@ -1,9 +1,52 @@
 namespace EyeCtrl.Core.Tests.Settings;
 
+using System.Reflection;
 using EyeCtrl.Core.Settings;
 
 public class ValidationGuardGapTests
 {
+    // Inject an out-of-range value past the throwing setter guard, so Validate() itself can be
+    // exercised (the setter would otherwise reject the value before Validate() ever sees it).
+    private static void SetBackingField(object settings, string fieldName, object value)
+    {
+        var field = settings.GetType().GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance);
+        Check.That(field).IsNotNull();
+        field!.SetValue(settings, value);
+    }
+
+    [Fact]
+    public void VelocityThresholdPxPerSec_NotPositive_Throws()
+    {
+        Check.ThatCode(() => new DwellSettings().VelocityThresholdPxPerSec = 0)
+            .Throws<ArgumentOutOfRangeException>();
+        Check.ThatCode(() => new DwellSettings().VelocityThresholdPxPerSec = -5)
+            .Throws<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Validate_ReportsDwellCooldownMs_WhenOutOfRange()
+    {
+        var s = new DwellSettings();
+        SetBackingField(s, "_dwellCooldownMs", 50);
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(DwellSettings.DwellCooldownMs)));
+    }
+
+    [Fact]
+    public void Validate_ReportsVelocityThreshold_WhenNotPositive()
+    {
+        var s = new DwellSettings();
+        SetBackingField(s, "_velocityThresholdPxPerSec", 0.0);
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(DwellSettings.VelocityThresholdPxPerSec)));
+    }
+
+    [Fact]
+    public void Validate_ReportsMaxGapInterpolationMs_WhenOutOfRange()
+    {
+        var s = new CursorSettings();
+        SetBackingField(s, "_maxGapInterpolationMs", 501);
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(CursorSettings.MaxGapInterpolationMs)));
+    }
+
     [Fact]
     public void DwellCooldownMs_BelowRange_Throws()
     {

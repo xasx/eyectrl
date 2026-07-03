@@ -111,6 +111,13 @@ public partial class DwellSettings : ObservableObject, IValidatable
                 $"{nameof(VelocityThresholdPxPerSec)} must be greater than 0");
     }
 
+    partial void OnDwellCooldownMsChanging(int value)
+    {
+        if (value < 100 || value > 5000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(DwellCooldownMs)} must be between 100 and 5000");
+    }
+
     partial void OnDragReleaseButtonDwellMsChanging(int value)
     {
         if (value < 200 || value > 2000)
@@ -137,6 +144,10 @@ public partial class DwellSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(KeyboardKeyDwellMs, 100, 1500, nameof(KeyboardKeyDwellMs)),
             ValidationHelper.ValidateRange(KeyboardPredictionDwellMs, 100, 1500, nameof(KeyboardPredictionDwellMs)),
             ValidationHelper.ValidateRange(FixationRadiusPixels, 10.0, 200.0, nameof(FixationRadiusPixels)),
+            VelocityThresholdPxPerSec > 0
+                ? null
+                : $"{nameof(VelocityThresholdPxPerSec)} must be greater than 0, but was {VelocityThresholdPxPerSec}",
+            ValidationHelper.ValidateRange(DwellCooldownMs, 100, 5000, nameof(DwellCooldownMs)),
             ValidationHelper.ValidateRange(DragReleaseButtonDwellMs, 200, 2000, nameof(DragReleaseButtonDwellMs)),
             ValidationHelper.ValidateRange(DragRightEdgeButtonDwellMs, 200, 2000, nameof(DragRightEdgeButtonDwellMs))
         );

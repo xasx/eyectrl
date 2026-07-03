@@ -67,6 +67,13 @@ public partial class CursorSettings : ObservableObject, IValidatable
                 $"{nameof(SnapRadiusPixels)} must be between 0 and 100");
     }
 
+    partial void OnMaxGapInterpolationMsChanging(int value)
+    {
+        if (value < 0 || value > 500)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(MaxGapInterpolationMs)} must be between 0 and 500");
+    }
+
     partial void OnCircleColorChanging(string value)
     {
         if (string.IsNullOrEmpty(value) ||
@@ -113,6 +120,7 @@ public partial class CursorSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(OneEuroMinCutoff, 0.1, 20.0, nameof(OneEuroMinCutoff)),
             ValidationHelper.ValidateRange(OneEuroBeta, 0.0, 5.0, nameof(OneEuroBeta)),
             ValidationHelper.ValidateRange(SnapRadiusPixels, 0, 100, nameof(SnapRadiusPixels)),
+            ValidationHelper.ValidateRange(MaxGapInterpolationMs, 0, 500, nameof(MaxGapInterpolationMs)),
             ValidationHelper.ValidateHexColor(CircleColor, nameof(CircleColor)),
             ValidationHelper.ValidateRange(CircleOpacity, 0.0, 1.0, nameof(CircleOpacity)),
             ValidationHelper.ValidateRange(CircleThickness, 1.0, 10.0, nameof(CircleThickness)),

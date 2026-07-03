@@ -79,6 +79,7 @@ public class EventCoordinator : IEventCoordinator
         SetupGazeRouting();
         SetupBackdrop();
         SetupDragHandlers();
+        _context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
     }
 
     private void SetupPropertyChangedHandlers()
@@ -982,6 +983,14 @@ public class EventCoordinator : IEventCoordinator
         _keyboardSnapshot = KeyboardStackSnapshot.Capture(settings);
     }
 
+    private void OnEmojiSkinToneChanged(int tone)
+    {
+        if (_context == null) return;
+        _context.Settings.Keyboard.EmojiSkinTone = tone;
+        _context.SettingsService.SaveDebounced(_context.Settings);
+        _keyboardSnapshot = KeyboardStackSnapshot.Capture(_context.Settings);
+    }
+
     #endregion
 
     private void OnInteractionStateChanged(InteractionState state)
@@ -1112,6 +1121,8 @@ public class EventCoordinator : IEventCoordinator
 
         // Unregister all message handlers
         _context.Messenger.UnregisterAll(this);
+
+        _context.OverlayManager.Keyboard.SkinToneChanged -= OnEmojiSkinToneChanged;
 
         _context.InteractionManager.StateChanged -= OnInteractionStateChanged;
 

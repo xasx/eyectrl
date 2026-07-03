@@ -936,45 +936,7 @@ public partial class SettingsWindow : OverlayWindow
                 () => Add(new DwellButton(_viewModel, "g_resetall", "\u26A0 Reset ALL Settings",
                     () => ShowModal("Reset ALL settings to defaults?\nThis cannot be undone.", () =>
                     {
-                        var d = new EyeCtrlSettings();
-                        _settings.Cursor.FilterMode = d.Cursor.FilterMode;
-                        _settings.Cursor.SmoothingFactor = d.Cursor.SmoothingFactor;
-                        _settings.Cursor.SnapRadiusPixels = d.Cursor.SnapRadiusPixels;
-                        _settings.Cursor.CircleColor = d.Cursor.CircleColor;
-                        _settings.Cursor.CircleOpacity = d.Cursor.CircleOpacity;
-                        _settings.Cursor.CircleThickness = d.Cursor.CircleThickness;
-                        _settings.Cursor.CircleHighContrast = d.Cursor.CircleHighContrast;
-                        _settings.Dwell.FixationDetectionMs = d.Dwell.FixationDetectionMs;
-                        _settings.Dwell.ActivationButtonDwellMs = d.Dwell.ActivationButtonDwellMs;
-                        _settings.Dwell.ActionMenuDwellMs = d.Dwell.ActionMenuDwellMs;
-                        _settings.Dwell.ManualSelectionActionMenuDwellMs = d.Dwell.ManualSelectionActionMenuDwellMs;
-                        _settings.Dwell.ToolbarButtonDwellMs = d.Dwell.ToolbarButtonDwellMs;
-                        _settings.Dwell.KeyboardKeyDwellMs = d.Dwell.KeyboardKeyDwellMs;
-                        _settings.Dwell.KeyboardPredictionDwellMs = d.Dwell.KeyboardPredictionDwellMs;
-                        _settings.Dwell.FixationRadiusPixels = d.Dwell.FixationRadiusPixels;
-                        _settings.ManualSelection.Enabled = d.ManualSelection.Enabled;
-                        _settings.ManualSelection.CircleRadiusPixels = d.ManualSelection.CircleRadiusPixels;
-                        _settings.ManualSelection.MagnificationLevel = d.ManualSelection.MagnificationLevel;
-                        _settings.ManualSelection.ManualSelectionGracePeriodMs = d.ManualSelection.ManualSelectionGracePeriodMs;
-                        _settings.SelectionMode = d.SelectionMode;
-                        _settings.AutoSelection.HighlightColor = d.AutoSelection.HighlightColor;
-                        _settings.AutoSelection.HighlightThickness = d.AutoSelection.HighlightThickness;
-                        _settings.AutoSelection.HighlightOpacity = d.AutoSelection.HighlightOpacity;
-                        _settings.AutoSelection.FallbackToPixelOnNoControl = d.AutoSelection.FallbackToPixelOnNoControl;
-                        _settings.ViewPosition = d.ViewPosition;
-                        _settings.Keyboard.ActiveLayout = d.Keyboard.ActiveLayout;
-                        _settings.Keyboard.KeySizeMultiplier = d.Keyboard.KeySizeMultiplier;
-                        _settings.Keyboard.PredictionEnabled = d.Keyboard.PredictionEnabled;
-                        _settings.Keyboard.LanguagePack = "";
-                        _settings.Keyboard.ScreenEdge = d.Keyboard.ScreenEdge;
-                        _settings.Toolbar.IsDocked = d.Toolbar.IsDocked;
-                        _settings.Toolbar.DockedEdge = d.Toolbar.DockedEdge;
-                        _settings.Toolbar.Size = d.Toolbar.Size;
-                        _settings.Theme.Mode = d.Theme.Mode;
-                        _settings.Theme.OverlayOpacity = d.Theme.OverlayOpacity;
-                        _settings.Theme.HighContrast = d.Theme.HighContrast;
-                        _settings.General.StartOnBoot = d.General.StartOnBoot;
-                        _settings.General.StartPaused = d.General.StartPaused;
+                        _viewModel.Settings.ResetAllSettings();
                         ApplyAndSave();
                         RebuildContent();
                     }),

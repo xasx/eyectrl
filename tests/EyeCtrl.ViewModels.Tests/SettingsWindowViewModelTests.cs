@@ -30,7 +30,7 @@ public class SettingsWindowViewModelTests
 
         Check.That(vm).IsNotNull();
         Check.That(vm.Settings).IsNotNull();
-        Check.That(vm.Settings.Tabs).HasSize(11);
+        Check.That(vm.Settings.Tabs).HasSize(13);
     }
 
     [Fact]

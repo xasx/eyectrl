@@ -10,20 +10,14 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class ActionMenuViewModel : ObservableObject,
+public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
     IRecipient<ShowActionMenuMessage>,
-    IRecipient<HideActionMenuMessage>,
-    IRecipient<GazeCursorMovedMessage>,
-    IDisposable
+    IRecipient<HideActionMenuMessage>
 {
 
-    private readonly IMessenger _messenger;
-    private readonly DwellDetector _dwellDetector;
     private readonly Dictionary<string, ActionMenuItemViewModel> _itemLookup = new();
-    private bool _disposed;
 
     [ObservableProperty] private PhysicalPoint _center = new(0, 0);
-    [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private bool _showBack;
     [ObservableProperty] private double _effectiveRingRadius;
 
@@ -34,12 +28,8 @@ public partial class ActionMenuViewModel : ObservableObject,
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
     public ActionMenuViewModel(EyeCtrlSettings settings, IMessenger messenger)
+        : base(messenger, settings.Dwell.DwellCooldownMs)
     {
-        _messenger = messenger;
-        _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
-        _dwellDetector.TargetActivated += OnTargetActivated;
-        _dwellDetector.TargetProgress += OnTargetProgress;
-        messenger.RegisterAll(this);
     }
 
     public void Receive(ShowActionMenuMessage message)
@@ -50,7 +40,7 @@ public partial class ActionMenuViewModel : ObservableObject,
         GazePoint = message.GazePoint;
         ShowBack = message.ShowBack;
         Items.Clear();
-        _dwellDetector.ClearTargets();
+        DwellDetector.ClearTargets();
         _itemLookup.Clear();
 
         var allItems = new List<(string Id, InteractionAction? Action, string Symbol, bool IsBack)>();
@@ -76,7 +66,7 @@ public partial class ActionMenuViewModel : ObservableObject,
             Items.Add(itemVm);
             _itemLookup[id] = itemVm;
 
-            _dwellDetector.AddTarget(new DwellTarget(id, position, physicalButtonRadius, message.DwellTimeMs));
+            DwellDetector.AddTarget(new DwellTarget(id, position, physicalButtonRadius, message.DwellTimeMs));
         }
 
         IsVisible = true;
@@ -88,28 +78,22 @@ public partial class ActionMenuViewModel : ObservableObject,
         ManualSelectionCenter = null;
         ManualSelectionRadius = null;
         GazePoint = new(0, 0);
-        _dwellDetector.ClearTargets();
+        DwellDetector.ClearTargets();
         Items.Clear();
         _itemLookup.Clear();
     }
 
-    public void Receive(GazeCursorMovedMessage message)
-    {
-        if (IsVisible)
-            _dwellDetector.Update(message.Position, message.TimestampMicroseconds);
-    }
-
-    private void OnTargetActivated(string targetId)
+    protected override void OnTargetActivated(string targetId)
     {
         if (!_itemLookup.TryGetValue(targetId, out var item)) return;
 
         if (item.IsBackButton)
-            _messenger.Send(new BackSelectedMessage());
+            Messenger.Send(new BackSelectedMessage());
         else if (item.Action.HasValue)
-            _messenger.Send(new ActionSelectedMessage(item.Action.Value));
+            Messenger.Send(new ActionSelectedMessage(item.Action.Value));
     }
 
-    private void OnTargetProgress(string targetId, double progress)
+    protected override void OnTargetProgress(string targetId, double progress)
     {
         if (_itemLookup.TryGetValue(targetId, out var item))
             item.DwellProgress = progress;
@@ -128,15 +112,4 @@ public partial class ActionMenuViewModel : ObservableObject,
         InteractionAction.PinNote => "\uD83D\uDCCC",     // 📌 Pushpin
         _ => action.ToString()
     };
-
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-
-        _dwellDetector.TargetActivated -= OnTargetActivated;
-        _dwellDetector.TargetProgress -= OnTargetProgress;
-        _messenger.UnregisterAll(this);
-        _disposed = true;
-    }
 }

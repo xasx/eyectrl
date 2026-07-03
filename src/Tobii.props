@@ -1,0 +1,16 @@
+<Project>
+  <!-- Shared Tobii Stream Engine SDK probe. Imported by EyeCtrl.Platform and
+       EyeCtrl.Platform.Tests so TOBII_AVAILABLE is defined identically in both.
+       Override the install location via -p:TobiiSdkPath="...". -->
+  <PropertyGroup>
+    <TobiiSdkPath Condition="'$(TobiiSdkPath)' == ''">C:\Program Files\Tobii\Tobii EyeX\</TobiiSdkPath>
+    <TobiiSdkPath>$([MSBuild]::EnsureTrailingSlash($(TobiiSdkPath)))</TobiiSdkPath>
+    <TobiiManagedDll>$(TobiiSdkPath)Tobii.StreamEngine.Net.dll</TobiiManagedDll>
+    <TobiiNativeDll>$(TobiiSdkPath)tobii_stream_engine.dll</TobiiNativeDll>
+    <TobiiSdkAvailable Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)') And Exists('$(TobiiNativeDll)')">true</TobiiSdkAvailable>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TobiiSdkAvailable)' == 'true'">
+    <DefineConstants>$(DefineConstants);TOBII_AVAILABLE</DefineConstants>
+  </PropertyGroup>
+</Project>

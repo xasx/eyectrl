@@ -14,15 +14,7 @@
     <ProjectReference Include="..\..\src\EyeCtrl.Platform\EyeCtrl.Platform.csproj" />
   </ItemGroup>
 
-  <!-- Mirror TOBII_AVAILABLE from Platform project so tests can conditionally compile -->
-  <PropertyGroup>
-    <TobiiSdkPath Condition="'$(TobiiSdkPath)' == ''">C:\Program Files\Tobii\Tobii EyeX\</TobiiSdkPath>
-    <TobiiSdkPath>$([MSBuild]::EnsureTrailingSlash($(TobiiSdkPath)))</TobiiSdkPath>
-    <TobiiManagedDll>$(TobiiSdkPath)Tobii.StreamEngine.Net.dll</TobiiManagedDll>
-    <TobiiNativeDll>$(TobiiSdkPath)tobii_stream_engine.dll</TobiiNativeDll>
-  </PropertyGroup>
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)') And Exists('$(TobiiNativeDll)')">
-    <DefineConstants>$(DefineConstants);TOBII_AVAILABLE</DefineConstants>
-  </PropertyGroup>
+  <!-- Mirror TOBII_AVAILABLE from the Platform project via the shared probe. -->
+  <Import Project="..\..\src\Tobii.props" />
 
 </Project>

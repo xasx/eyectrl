@@ -13,16 +13,10 @@
     <ProjectReference Include="..\EyeCtrl.Core\EyeCtrl.Core.csproj" />
   </ItemGroup>
 
-  <!-- Tobii Stream Engine: only on Windows where the SDK is installed.
-       Override via -p:TobiiSdkPath="..." for custom install locations. -->
-  <PropertyGroup>
-    <TobiiSdkPath Condition="'$(TobiiSdkPath)' == ''">C:\Program Files\Tobii\Tobii EyeX\</TobiiSdkPath>
-    <TobiiSdkPath>$([MSBuild]::EnsureTrailingSlash($(TobiiSdkPath)))</TobiiSdkPath>
-    <TobiiManagedDll>$(TobiiSdkPath)Tobii.StreamEngine.Net.dll</TobiiManagedDll>
-    <TobiiNativeDll>$(TobiiSdkPath)tobii_stream_engine.dll</TobiiNativeDll>
-  </PropertyGroup>
+  <!-- Tobii Stream Engine: shared probe defines TobiiSdkAvailable + TOBII_AVAILABLE. -->
+  <Import Project="..\Tobii.props" />
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)') And Exists('$(TobiiNativeDll)')">
+  <ItemGroup Condition="'$(TobiiSdkAvailable)' == 'true'">
     <Reference Include="Tobii.StreamEngine.Net">
       <HintPath>$(TobiiManagedDll)</HintPath>
       <Private>true</Private>
@@ -32,10 +26,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
-
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)') And Exists('$(TobiiNativeDll)')">
-    <DefineConstants>$(DefineConstants);TOBII_AVAILABLE</DefineConstants>
-  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />

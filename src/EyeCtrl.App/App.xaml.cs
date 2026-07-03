@@ -84,6 +84,7 @@ public partial class App : Application
             var im = gazeEngine.InteractionManager;
 
             // ── Resolve ViewModels ──
+            // ── Resolve ViewModels ──
             var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
                  manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm) = ResolveViewModels(settings);
 
@@ -128,7 +129,7 @@ public partial class App : Application
             _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
 
             // ── System tray ──
-            _trayIconManager = new TrayIconManager(im, Dispatcher, () => Shutdown());
+            _trayIconManager = new TrayIconManager(im, Dispatcher, messenger, () => Shutdown());
 
             // ── Close splash and show persistent overlays (last, after all wiring) ──
             ShowOverlays(splash, cursorCircle, toolbar, settings);
@@ -210,21 +211,11 @@ public partial class App : Application
              CalibrationViewModel CalibrationVm,
              TargetHighlightOverlayViewModel TargetHighlightVm) ResolveViewModels(EyeCtrlSettings settings)
     {
-        var cursorVm = _serviceProvider.GetRequiredService<CursorCircleViewModel>();
-        var activationVm = _serviceProvider.GetRequiredService<ActivationButtonViewModel>();
-        var manualSelectionVm = _serviceProvider.GetRequiredService<ManualSelectionOverlayViewModel>();
-        var actionMenuVm = _serviceProvider.GetRequiredService<ActionMenuViewModel>();
-        var toolbarVm = _serviceProvider.GetRequiredService<ToolbarViewModel>();
-        var keyboardVm = _serviceProvider.GetRequiredService<KeyboardViewModel>();
-        var manualSelectionIndicatorVm = _serviceProvider.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
+        var vms = AppBootstrapper.ResolveViewModels(_serviceProvider, settings);
         var backdropVm = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
-        var calibrationVm = _serviceProvider.GetRequiredService<CalibrationViewModel>();
-        var targetHighlightVm = _serviceProvider.GetRequiredService<TargetHighlightOverlayViewModel>();
-
-        manualSelectionIndicatorVm.Configure(settings);
-
-        return (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm,
-                keyboardVm, manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm);
+        return (vms.CursorCircle, vms.ActivationButton, vms.ManualSelectionOverlay, vms.ActionMenu,
+                vms.Toolbar, vms.Keyboard, vms.ManualSelectionIndicator, backdropVm,
+                vms.Calibration, vms.TargetHighlight);
     }
 
     private (CursorCircleWindow CursorCircle, ToolbarWindow Toolbar) InitializeOverlays(

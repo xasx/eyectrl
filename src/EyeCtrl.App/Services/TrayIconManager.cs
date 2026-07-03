@@ -22,12 +22,14 @@ public class TrayIconManager : IDisposable
     private readonly Icon? _customIcon;
     private readonly Dispatcher _dispatcher;
     private readonly InteractionManager _interactionManager;
+    private readonly IMessenger _messenger;
     private bool _disposed;
 
-    public TrayIconManager(InteractionManager interactionManager, Dispatcher dispatcher, Action shutdownCallback)
+    public TrayIconManager(InteractionManager interactionManager, Dispatcher dispatcher, IMessenger messenger, Action shutdownCallback)
     {
         _dispatcher = dispatcher;
         _interactionManager = interactionManager;
+        _messenger = messenger;
 
         _pauseMenuItem = new ToolStripMenuItem("Pause");
         _pauseMenuItem.Click += (_, _) =>
@@ -38,7 +40,7 @@ public class TrayIconManager : IDisposable
 
         var settingsItem = new ToolStripMenuItem("Settings");
         settingsItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
-            WeakReferenceMessenger.Default.Send(new SettingsRequestedMessage()));
+            _messenger.Send(new SettingsRequestedMessage()));
 
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => dispatcher.BeginInvoke(shutdownCallback);
@@ -82,7 +84,7 @@ public class TrayIconManager : IDisposable
         };
 
         _trayIcon.DoubleClick += (_, _) => dispatcher.BeginInvoke(() =>
-            WeakReferenceMessenger.Default.Send(new SettingsRequestedMessage()));
+            _messenger.Send(new SettingsRequestedMessage()));
 
         interactionManager.StateChanged += OnStateChanged;
     }

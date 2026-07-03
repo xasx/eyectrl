@@ -52,9 +52,7 @@ public static class Dwell
 
     private static readonly ConcurrentDictionary<Dispatcher, ThreadGroup> _groups = new();
 
-    private static readonly DwellClient _client = new();
-    private static int _started;
-    private static long _idCounter;
+    private static readonly DwellHeadCore _core = new("wpf_");
 
     private sealed record DwellEntry(WpfElementAdapter Adapter,
                                      RoutedEventHandler Loaded, RoutedEventHandler Unloaded);
@@ -66,17 +64,12 @@ public static class Dwell
         else Unregister(el);
     }
 
-    private static void EnsureStarted()
-    {
-        if (Interlocked.Exchange(ref _started, 1) == 0) _client.Start();
-    }
-
     private static void Register(FrameworkElement el)
     {
-        EnsureStarted();
+        _core.EnsureStarted();
         if (el.GetValue(EntryProperty) is DwellEntry) return;
 
-        var id = $"wpf_{Interlocked.Increment(ref _idCounter)}";
+        var id = _core.NextId();
         var adapter = new WpfElementAdapter(id, el, GetMode(el));
         RoutedEventHandler loaded = (_, _) => OnLoaded(el, adapter);
         RoutedEventHandler unloaded = (_, _) => OnUnloaded(el, adapter);
@@ -101,7 +94,7 @@ public static class Dwell
         var group = _groups.GetOrAdd(el.Dispatcher, CreateGroup);
         group.Adapters[adapter.Id] = adapter;
         group.Tracker.Add(adapter.Id);
-        _client.RegisterAdapter(adapter);
+        _core.Client.RegisterAdapter(adapter);
     }
 
     private static void OnUnloaded(FrameworkElement el, WpfElementAdapter adapter)
@@ -111,7 +104,7 @@ public static class Dwell
             group.Adapters.TryRemove(adapter.Id, out _);
             group.Tracker.Remove(adapter.Id);
         }
-        _client.UnregisterAdapter(adapter.Id);
+        _core.Client.UnregisterAdapter(adapter.Id);
     }
 
     private static ThreadGroup CreateGroup(Dispatcher dispatcher)
@@ -132,7 +125,7 @@ public static class Dwell
         timer.Tick += (_, _) =>
         {
             foreach (var adapter in group.Adapters.Values)
-                _client.OnAdapterLayoutChanged(adapter.Id);
+                _core.Client.OnAdapterLayoutChanged(adapter.Id);
         };
         timer.Start();
         group.Timer = timer;

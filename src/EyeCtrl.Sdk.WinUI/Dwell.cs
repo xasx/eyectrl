@@ -39,9 +39,7 @@ public static class Dwell
     private static readonly DependencyProperty EntryProperty = DependencyProperty.RegisterAttached(
         "Entry", typeof(object), typeof(Dwell), new PropertyMetadata(null));
 
-    private static readonly DwellClient _client = new();
-    private static int _started;
-    private static long _idCounter;
+    private static readonly DwellHeadCore _core = new("winui_");
 
     // One refresh timer per UI thread. Its Tick runs on that dispatcher's thread, so reading
     // thread-affine layout (XamlRoot / TransformToVisual / ActualWidth) always happens on the
@@ -75,10 +73,10 @@ public static class Dwell
 
     private static void Register(FrameworkElement el)
     {
-        if (Interlocked.Exchange(ref _started, 1) == 0) _client.Start();
+        _core.EnsureStarted();
         if (el.GetValue(EntryProperty) is Entry) return;
 
-        var id = $"winui_{Interlocked.Increment(ref _idCounter)}";
+        var id = _core.NextId();
         var adapter = new WinUiElementAdapter(id, el, GetMode(el));
 
         RoutedEventHandler loaded = (_, _) => OnLoaded(el, adapter);
@@ -104,7 +102,7 @@ public static class Dwell
         var group = _groups.GetOrAdd(el.DispatcherQueue, CreateGroup);
         group.Adapters[adapter.Id] = adapter;
         group.Tracker.Add(adapter.Id);
-        _client.RegisterAdapter(adapter);
+        _core.Client.RegisterAdapter(adapter);
     }
 
     private static void OnUnloaded(FrameworkElement el, WinUiElementAdapter adapter)
@@ -114,7 +112,7 @@ public static class Dwell
             group.Adapters.TryRemove(adapter.Id, out _);
             group.Tracker.Remove(adapter.Id);
         }
-        _client.UnregisterAdapter(adapter.Id);
+        _core.Client.UnregisterAdapter(adapter.Id);
     }
 
     // Runs on the owning UI thread (GetOrAdd factory is invoked synchronously by OnLoaded, which
@@ -135,7 +133,7 @@ public static class Dwell
         timer.Tick += (_, _) =>
         {
             foreach (var adapter in group.Adapters.Values)
-                _client.OnAdapterLayoutChanged(adapter.Id);
+                _core.Client.OnAdapterLayoutChanged(adapter.Id);
         };
         timer.Start();
         group.Timer = timer;

@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.App.Controls;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
@@ -83,12 +84,7 @@ public partial class ScrollOverlayWindow : OverlayWindow
         if (stopProgress > 0)
         {
             StopButtonProgressArc.Visibility = Visibility.Visible;
-            double angleDeg = stopProgress * 360;
-            double angleRad = (angleDeg - 90) * Math.PI / 180;
-            double endX = 25 + 25 * Math.Cos(angleRad);
-            double endY = 25 + 25 * Math.Sin(angleRad);
-            _stopArc.Point = new Point(endX, endY);
-            _stopArc.IsLargeArc = angleDeg > 180;
+            DwellArcButton.UpdateArc(_stopArc, new Point(25, 25), 25, stopProgress);
             StopButtonProgressArc.Data = _stopGeometry;
         }
         else

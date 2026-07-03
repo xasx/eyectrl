@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using EyeCtrl.App.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
@@ -63,19 +64,13 @@ public partial class ActivationButtonWindow : OverlayWindow
     {
         progress = Math.Clamp(progress, 0, 1);
 
-        var angle = progress * MathConstants.FullCircleDegrees;
-        var radians = angle * MathConstants.DegreesToRadians;
-
-        var endX = ButtonCenter + ArcRadius * Math.Sin(radians);
-        var endY = ButtonCenter - ArcRadius * Math.Cos(radians);
-
-        ArcSegment.Point = new Point(endX, endY);
-        ArcSegment.IsLargeArc = angle > 180;
-
-        // Reset start point if progress is ~0
         if (progress < ProgressResetThreshold)
         {
             ArcSegment.Point = new Point(ButtonCenter, ButtonCenter - ArcRadius);
+            ArcSegment.IsLargeArc = false;
+            return;
         }
+
+        DwellArcButton.UpdateArc(ArcSegment, new Point(ButtonCenter, ButtonCenter), ArcRadius, progress);
     }
 }

@@ -12,7 +12,7 @@ public partial class DwellSettings : ObservableObject, IValidatable
     /// <summary>Dwell time in milliseconds for action menu buttons. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _actionMenuDwellMs = 600;
     /// <summary>Dwell time in milliseconds for manual selection action menu buttons. Valid range: 200–2000.</summary>
-    [ObservableProperty] private int _ManualSelectionActionMenuDwellMs = 600;
+    [ObservableProperty] private int _manualSelectionActionMenuDwellMs = 600;
     /// <summary>Dwell time in milliseconds for toolbar buttons. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _toolbarButtonDwellMs = 700;
     /// <summary>Dwell time in milliseconds for keyboard keys. Valid range: 100–1500.</summary>

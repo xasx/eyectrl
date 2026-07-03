@@ -73,7 +73,7 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
             new SliderSettingViewModel("fixationMs", "Fixation Detection (ms)", d.FixationDetectionMs, 100, 1000, 50, v => d.FixationDetectionMs = (int)v),
             new SliderSettingViewModel("activationMs", "Activation Button Dwell (ms)", d.ActivationButtonDwellMs, 200, 2000, 50, v => d.ActivationButtonDwellMs = (int)v),
             new SliderSettingViewModel("actionMenuMs", "Action Menu Dwell (ms)", d.ActionMenuDwellMs, 200, 2000, 50, v => d.ActionMenuDwellMs = (int)v),
-            new SliderSettingViewModel("ManualSelectionActionMs", "ManualSelection Action Menu Dwell (ms)", d.ManualSelectionActionMenuDwellMs, 200, 2000, 50, v => d.ManualSelectionActionMenuDwellMs = (int)v),
+            new SliderSettingViewModel("manualSelectionActionMs", "ManualSelection Action Menu Dwell (ms)", d.ManualSelectionActionMenuDwellMs, 200, 2000, 50, v => d.ManualSelectionActionMenuDwellMs = (int)v),
             new SliderSettingViewModel("toolbarMs", "Toolbar Button Dwell (ms)", d.ToolbarButtonDwellMs, 200, 2000, 50, v => d.ToolbarButtonDwellMs = (int)v),
             new SliderSettingViewModel("keyboardMs", "Keyboard Key Dwell (ms)", d.KeyboardKeyDwellMs, 100, 1500, 50, v => d.KeyboardKeyDwellMs = (int)v),
             new SliderSettingViewModel("predictionMs", "Prediction Dwell (ms)", d.KeyboardPredictionDwellMs, 100, 1500, 50, v => d.KeyboardPredictionDwellMs = (int)v),
@@ -118,7 +118,7 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
                     highlightColor.IsEnabled = highlightThickness.IsEnabled =
                         (_settings.SelectionMode == SelectionMode.AutoSelection);
                 }),
-            new SliderSettingViewModel("ManualSelectionRadius", "Circle Radius (px)",
+            new SliderSettingViewModel("manualSelectionRadius", "Circle Radius (px)",
                 z.CircleRadiusPixels, 50, 500, 10, v => z.CircleRadiusPixels = (int)v),
             new SliderSettingViewModel("magnification", "Magnification Level",
                 z.MagnificationLevel, 1.5, 5, 0.5, v => z.MagnificationLevel = v),

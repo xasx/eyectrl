@@ -11,7 +11,7 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     /// <summary>Dwell timing settings for click activation.</summary>
     [ObservableProperty] private DwellSettings _dwell = new();
     /// <summary>Manual (zoom-to-point) selection settings.</summary>
-    [ObservableProperty] private ManualSelectionSettings _ManualSelection = new();
+    [ObservableProperty] private ManualSelectionSettings _manualSelection = new();
     /// <summary>Action menu visibility and order settings.</summary>
     [ObservableProperty] private ActionMenuSettings _actionMenu = new();
     /// <summary>Keyboard layout and typing settings.</summary>

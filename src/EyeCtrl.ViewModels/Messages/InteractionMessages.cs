@@ -67,7 +67,7 @@ public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Poi
 /// <summary>
 /// Sent by ManualSelectionDwellService when user completes dwell within ManualSelection.
 /// Contains the precise on-screen physical point where the dwell occurred while the ManualSelection overlay is shown
-/// (that is, the point within the magnified overlay, not yet converted to the underlying real/unManualSelectioned screen coordinate).
+/// (that is, the point within the magnified overlay, not yet converted to the underlying real (unmagnified) screen coordinate).
 /// </summary>
 public record ManualSelectionDwellCompletedMessage(PhysicalPoint PrecisePoint);
 

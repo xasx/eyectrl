@@ -35,8 +35,8 @@ public partial class ManualSelectionGazeIndicatorViewModel : ObservableObject,
     [ObservableProperty] private double _fixationProgress;
 
     // ManualSelection geometry needed for coordinate mapping
-    private PhysicalPoint _ManualSelectionOriginalCenter = new(0, 0);  // Capture center (gaze point)
-    private PhysicalPoint _ManualSelectionWindowCenter = new(0, 0);    // Display center (may be screen center)
+    private PhysicalPoint _manualSelectionOriginalCenter = new(0, 0);  // Capture center (gaze point)
+    private PhysicalPoint _manualSelectionWindowCenter = new(0, 0);    // Display center (may be screen center)
     private double _magnification = 1.0;
 
     public double CenterDotDiameter { get; private set; }
@@ -65,12 +65,12 @@ public partial class ManualSelectionGazeIndicatorViewModel : ObservableObject,
 
     public void Receive(StartManualSelectionMessage message)
     {
-        // The capture center is the gaze point (what we're ManualSelectioning in on)
-        _ManualSelectionOriginalCenter = message.GazePoint;
+        // The capture center is the gaze point (what we're zooming in on)
+        _manualSelectionOriginalCenter = message.GazePoint;
         _magnification = message.Magnification;
 
         // The ManualSelection window center is where the overlay is displayed (gaze point in AtGaze mode, screen center in AtCenter mode)
-        _ManualSelectionWindowCenter = message.Center;
+        _manualSelectionWindowCenter = message.Center;
 
         OuterCircleDiameter = _outerCircleDiameterSetting;
         FixationProgress = 0.0;
@@ -114,8 +114,8 @@ public partial class ManualSelectionGazeIndicatorViewModel : ObservableObject,
     {
         // Convert screen gaze to magnified coordinates:
         // magnifiedPoint = ManualSelectionWindowCenter + (gazePoint - originalCenter) * magnification
-        var magX = _ManualSelectionWindowCenter.X + (gazeScreenPoint.X - _ManualSelectionOriginalCenter.X) * _magnification;
-        var magY = _ManualSelectionWindowCenter.Y + (gazeScreenPoint.Y - _ManualSelectionOriginalCenter.Y) * _magnification;
+        var magX = _manualSelectionWindowCenter.X + (gazeScreenPoint.X - _manualSelectionOriginalCenter.X) * _magnification;
+        var magY = _manualSelectionWindowCenter.Y + (gazeScreenPoint.Y - _manualSelectionOriginalCenter.Y) * _magnification;
 
         IndicatorX = magX;
         IndicatorY = magY;

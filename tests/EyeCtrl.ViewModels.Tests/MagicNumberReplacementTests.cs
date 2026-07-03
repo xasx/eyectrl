@@ -26,7 +26,7 @@ public class MagicNumberReplacementTests
         // Verify ManualSelection side button constants are defined
         Check.That(UIConstants.ButtonRadius).IsEqualTo(50.0);
         Check.That(UIConstants.ManualSelectionSideButtonGap).IsEqualTo(20.0);
-        Check.That(UIConstants.ManualSelectionSideButtonDwellMs).IsEqualTo(600);
+        Check.That(new EyeCtrl.Core.Settings.DwellSettings().ManualSelectionSideButtonDwellMs).IsEqualTo(600);
     }
 
     [Fact]

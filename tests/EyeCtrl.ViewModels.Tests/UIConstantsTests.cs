@@ -30,13 +30,6 @@ public class UIConstantsTests
     }
 
     [Fact]
-    public void ManualSelectionSideButtonDwellMs_IsDefinedAndPositive()
-    {
-        Check.That(UIConstants.ManualSelectionSideButtonDwellMs > 0).IsTrue();
-        Check.That(UIConstants.ManualSelectionSideButtonDwellMs).IsEqualTo(600);
-    }
-
-    [Fact]
     public void ActivationButtonOffset_IsDefinedAndPositive()
     {
         Check.That(UIConstants.ActivationButtonOffset > 0).IsTrue();
@@ -49,7 +42,6 @@ public class UIConstantsTests
         Check.That(UIConstants.ButtonRadius > 0).IsTrue();
         Check.That(UIConstants.ActionMenuButtonOuterGap > 0).IsTrue();
         Check.That(UIConstants.ManualSelectionSideButtonGap > 0).IsTrue();
-        Check.That(UIConstants.ManualSelectionSideButtonDwellMs > 0).IsTrue();
         Check.That(UIConstants.ActivationButtonOffset > 0).IsTrue();
     }
 }

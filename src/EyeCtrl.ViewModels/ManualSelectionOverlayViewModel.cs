@@ -19,6 +19,7 @@ public partial class ManualSelectionOverlayViewModel : ObservableObject,
     private const string RecaptureTargetId = "ManualSelection_recapture";
 
     private readonly IMessenger _messenger;
+    private readonly EyeCtrlSettings _settings;
     private readonly DwellDetector _dwellDetector;
     private bool _disposed;
 
@@ -35,6 +36,7 @@ public partial class ManualSelectionOverlayViewModel : ObservableObject,
 
     public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger)
     {
+        _settings = settings;
         _messenger = messenger;
         _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
         _dwellDetector.TargetActivated += OnTargetActivated;
@@ -68,9 +70,9 @@ public partial class ManualSelectionOverlayViewModel : ObservableObject,
         // Set up dwell targets
         _dwellDetector.ClearTargets();
         _dwellDetector.AddTarget(new DwellTarget(
-            CloseTargetId, CloseButtonCenter, physicalBtnRadius, UIConstants.ManualSelectionSideButtonDwellMs));
+            CloseTargetId, CloseButtonCenter, physicalBtnRadius, _settings.Dwell.ManualSelectionSideButtonDwellMs));
         _dwellDetector.AddTarget(new DwellTarget(
-            RecaptureTargetId, RecaptureButtonCenter, physicalBtnRadius, UIConstants.ManualSelectionSideButtonDwellMs));
+            RecaptureTargetId, RecaptureButtonCenter, physicalBtnRadius, _settings.Dwell.ManualSelectionSideButtonDwellMs));
 
         IsVisible = true;
     }

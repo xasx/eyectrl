@@ -36,6 +36,22 @@ public class ValidationGuardGapTests
     }
 
     [Fact]
+    public void ManualSelectionSideButtonDwellMs_HasDefault600_AndRangeGuard()
+    {
+        Check.That(new DwellSettings().ManualSelectionSideButtonDwellMs).IsEqualTo(600);
+        Check.ThatCode(() => new DwellSettings().ManualSelectionSideButtonDwellMs = 100)
+            .Throws<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void BackdropHideButtonDwellMs_HasDefault600_AndRangeGuard()
+    {
+        Check.That(new DwellSettings().BackdropHideButtonDwellMs).IsEqualTo(600);
+        Check.ThatCode(() => new DwellSettings().BackdropHideButtonDwellMs = 100)
+            .Throws<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public void Defaults_ValidateClean()
     {
         Check.That(new DwellSettings().Validate()).IsEmpty();

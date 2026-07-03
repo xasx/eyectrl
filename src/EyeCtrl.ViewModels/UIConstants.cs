@@ -26,19 +26,10 @@ public static class UIConstants
     public const double ManualSelectionSideButtonGap = 20.0;
 
     /// <summary>
-    /// Dwell time in milliseconds for ManualSelection side buttons (close and recapture).
-    /// User must gaze at these buttons for this duration to activate them.
-    /// </summary>
-    public const int ManualSelectionSideButtonDwellMs = 600;
-
-    /// <summary>
     /// Distance in logical pixels (DIPs) from the cursor circle edge to the center of the activation button.
     /// This determines how far the activation button appears from the cursor.
     /// </summary>
     public const int ActivationButtonOffset = 55;
-
-    /// <summary>Dwell time in milliseconds for the backdrop hide button.</summary>
-    public const int BackdropHideButtonDwellMs = 600;
 
     /// <summary>Distance from screen edges to the backdrop hide button center in logical pixels.</summary>
     public const double BackdropHideButtonOffset = 40.0;

@@ -31,6 +31,10 @@ public partial class DwellSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _dragRightEdgeButtonDwellMs = 600;
     /// <summary>Dwell time in milliseconds for the scroll stop button. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _scrollStopButtonDwellMs = 600;
+    /// <summary>Dwell time in milliseconds for manual selection side buttons (close, recapture). Valid range: 200–2000.</summary>
+    [ObservableProperty] private int _manualSelectionSideButtonDwellMs = 600;
+    /// <summary>Dwell time in milliseconds for the backdrop hide button. Valid range: 200–2000.</summary>
+    [ObservableProperty] private int _backdropHideButtonDwellMs = 600;
 
     partial void OnFixationDetectionMsChanging(int value)
     {
@@ -141,6 +145,20 @@ public partial class DwellSettings : ObservableObject, IValidatable
                 nameof(value), value, $"{nameof(ScrollStopButtonDwellMs)} must be between 200 and 2000");
     }
 
+    partial void OnManualSelectionSideButtonDwellMsChanging(int value)
+    {
+        if (value < 200 || value > 2000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(ManualSelectionSideButtonDwellMs)} must be between 200 and 2000");
+    }
+
+    partial void OnBackdropHideButtonDwellMsChanging(int value)
+    {
+        if (value < 200 || value > 2000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(BackdropHideButtonDwellMs)} must be between 200 and 2000");
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
@@ -159,7 +177,9 @@ public partial class DwellSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(DwellCooldownMs, 100, 5000, nameof(DwellCooldownMs)),
             ValidationHelper.ValidateRange(DragReleaseButtonDwellMs, 200, 2000, nameof(DragReleaseButtonDwellMs)),
             ValidationHelper.ValidateRange(DragRightEdgeButtonDwellMs, 200, 2000, nameof(DragRightEdgeButtonDwellMs)),
-            ValidationHelper.ValidateRange(ScrollStopButtonDwellMs, 200, 2000, nameof(ScrollStopButtonDwellMs))
+            ValidationHelper.ValidateRange(ScrollStopButtonDwellMs, 200, 2000, nameof(ScrollStopButtonDwellMs)),
+            ValidationHelper.ValidateRange(ManualSelectionSideButtonDwellMs, 200, 2000, nameof(ManualSelectionSideButtonDwellMs)),
+            ValidationHelper.ValidateRange(BackdropHideButtonDwellMs, 200, 2000, nameof(BackdropHideButtonDwellMs))
         );
     }
 }

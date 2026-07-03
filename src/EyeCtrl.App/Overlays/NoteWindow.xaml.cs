@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
+using EyeCtrl.App.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 
@@ -302,15 +303,19 @@ public class NoteWindow : OverlayWindow
             double cx = Canvas.GetLeft(ellipse) + ButtonRadius;
             double cy = Canvas.GetTop(ellipse) + ButtonRadius;
             double r = ButtonRadius - 2;
-            double sweep = progress * 360;
-            var fig = new PathFigure { StartPoint = new Point(cx + r * Math.Cos(startAngle * Math.PI / 180), cy + r * Math.Sin(startAngle * Math.PI / 180)) };
-            var seg = new ArcSegment
+
+            var arc = new ArcSegment
             {
-                Point = new Point(cx + r * Math.Cos((startAngle + sweep) * Math.PI / 180), cy + r * Math.Sin((startAngle + sweep) * Math.PI / 180)),
-                Size = new Size(r, r), SweepDirection = SweepDirection.Clockwise,
-                IsLargeArc = sweep > 180
+                Size = new Size(r, r),
+                SweepDirection = SweepDirection.Clockwise
             };
-            fig.Segments.Add(seg);
+            DwellArcButton.UpdateArc(arc, new Point(cx, cy), r, progress);
+
+            var fig = new PathFigure
+            {
+                StartPoint = new Point(cx + r * Math.Cos(startAngle * Math.PI / 180), cy + r * Math.Sin(startAngle * Math.PI / 180))
+            };
+            fig.Segments.Add(arc);
             arcPath.Data = new PathGeometry(new[] { fig });
         });
     }

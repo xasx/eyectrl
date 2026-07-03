@@ -9,8 +9,8 @@ using EyeCtrl.Core.Models;
 /// for reproducibility across machines and runs.
 /// </summary>
 /// <remarks>
-/// <see cref="GazePoint"/> is a record (class), so each stream heap-allocates 1000 objects in
-/// GlobalSetup (untimed). The generator writes pixel-scale values into GazePoint.X/Y (the tracker's
+/// <see cref="GazePoint"/> is a readonly record struct, so streams are flat value arrays
+/// allocated once in GlobalSetup (untimed). The generator writes pixel-scale values into GazePoint.X/Y (the tracker's
 /// documented native space; calibration mapping is excluded as a non-goal — see the design spec).
 /// </remarks>
 public static class GazeStreamGenerator

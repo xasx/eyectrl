@@ -48,10 +48,10 @@ public class GazeEngineSampledTests
         var raw = new GazePoint(100, 200, 5_000_000, IsValid: true);
         provider.SimulateGaze(raw);
 
-        Check.That(seen).IsNotNull();
-        Check.That(seen!.IsValid).IsTrue();
-        Check.That(seen!.X).IsEqualTo(100.0);
-        Check.That(seen!.Y).IsEqualTo(200.0);
+        Check.That(seen.HasValue).IsTrue();
+        Check.That(seen!.Value.IsValid).IsTrue();
+        Check.That(seen!.Value.X).IsEqualTo(100.0);
+        Check.That(seen!.Value.Y).IsEqualTo(200.0);
     }
 
     [Fact]

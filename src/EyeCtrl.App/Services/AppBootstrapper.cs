@@ -46,6 +46,7 @@ public class AppBootstrapper
         bool isTestMode)
     {
         var services = new ServiceCollection();
+        var appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
 
         // Logging
         services.AddLogging(builder => builder.AddSerilog(dispose: true));
@@ -80,9 +81,7 @@ public class AppBootstrapper
         services.AddSingleton<HttpClient>(_ => new HttpClient { Timeout = TimeSpan.FromMinutes(30) });
         services.AddSingleton(sp =>
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var modelsDir = Path.Combine(appData, "EyeCtrl", "models");
-            var settings = sp.GetRequiredService<EyeCtrlSettings>();
+            var modelsDir = Path.Combine(appDataDir, "models");
 
             var manifestPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "models.json");
             ModelManifest manifest;
@@ -111,9 +110,7 @@ public class AppBootstrapper
                 sp.GetRequiredService<ILogger<ModelRegistryService>>());
         });
         services.AddSingleton(sp => new ModelDownloadService(
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "EyeCtrl", "models"),
+            Path.Combine(appDataDir, "models"),
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<ILogger<ModelDownloadService>>()));
         services.AddSingleton<ModelManagementService>();
@@ -150,9 +147,7 @@ public class AppBootstrapper
                 System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
                 System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY),
             System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "",
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "EyeCtrl", "calibration.json")));
+            Path.Combine(appDataDir, "calibration.json")));
         services.AddSingleton<TargetHighlightOverlayViewModel>();
         services.AddSingleton<DragTrailViewModel>();
 
@@ -216,6 +211,23 @@ public class AppBootstrapper
             sp.GetRequiredService<IEyeCareHooks>()));
 
         return services.BuildServiceProvider();
+    }
+
+    public static OverlayViewModels ResolveViewModels(ServiceProvider sp, EyeCtrlSettings settings)
+    {
+        var manualSelectionIndicatorVm = sp.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
+        manualSelectionIndicatorVm.Configure(settings);
+
+        return new OverlayViewModels(
+            CursorCircle: sp.GetRequiredService<CursorCircleViewModel>(),
+            ActivationButton: sp.GetRequiredService<ActivationButtonViewModel>(),
+            ManualSelectionOverlay: sp.GetRequiredService<ManualSelectionOverlayViewModel>(),
+            ActionMenu: sp.GetRequiredService<ActionMenuViewModel>(),
+            Toolbar: sp.GetRequiredService<ToolbarViewModel>(),
+            Keyboard: sp.GetRequiredService<KeyboardViewModel>(),
+            ManualSelectionIndicator: manualSelectionIndicatorVm,
+            Calibration: sp.GetRequiredService<CalibrationViewModel>(),
+            TargetHighlight: sp.GetRequiredService<TargetHighlightOverlayViewModel>());
     }
 
     private static IExercise[] BuildExercisePool(PhysicalPoint center)

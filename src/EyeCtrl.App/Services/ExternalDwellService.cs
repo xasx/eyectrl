@@ -11,6 +11,7 @@ using EyeCtrl.App.Overlays;
 using EyeCtrl.Contracts;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging;
@@ -24,7 +25,10 @@ public sealed class ExternalDwellService : IDisposable
     private readonly Dispatcher _dispatcher;
     private readonly ILogger<ExternalDwellService> _logger;
     private readonly IMessenger _messenger;
-    private readonly ExternalDwellArbiter _arbiter;
+    private readonly Func<PhysicalPoint, long?> _rootWindowAtPoint;
+    private readonly DwellDetector _detector;
+    private readonly Dictionary<string, DwellTarget> _targetsById = new();
+    private readonly Dictionary<string, long> _hwndById = new();
     private readonly DwellFeedbackOverlay _feedback;
 
     private readonly object _stateLock = new();
@@ -34,6 +38,9 @@ public sealed class ExternalDwellService : IDisposable
     private string? _feedbackId;
     private PhysicalRect _feedbackRect;
     private bool _suppressing;
+    private string? _frameProgressId;
+    private double _frameProgress;
+    private string? _frameActivatedId;
     private CancellationTokenSource? _cts;
     private bool _disposed;
 
@@ -50,12 +57,19 @@ public sealed class ExternalDwellService : IDisposable
         _dispatcher = dispatcher;
         _logger = logger;
         _messenger = messenger;
-        _arbiter = new ExternalDwellArbiter(rootWindowAtPoint ?? RootWindowAtPointImpl, settings.CooldownMs);
+        _rootWindowAtPoint = rootWindowAtPoint ?? RootWindowAtPointImpl;
+        _detector = new DwellDetector(settings.CooldownMs);
+        _detector.TargetProgress += (id, p) =>
+        {
+            if (p > 0) { _frameProgressId = id; _frameProgress = p; }
+            else if (_frameProgressId == id) { _frameProgressId = null; _frameProgress = 0; }
+        };
+        _detector.TargetActivated += id => _frameActivatedId = id;
         _feedback = new DwellFeedbackOverlay();
         _settings.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ExternalDwellSettings.CooldownMs))
-                lock (_stateLock) _arbiter.SetCooldown(_settings.CooldownMs);
+                lock (_stateLock) _detector.SetCooldown(_settings.CooldownMs);
             // When disabled, OnCursorMoved's early-return releases suppression + hides feedback on
             // the next gaze frame (on the gaze thread, where those fields live). We intentionally do
             // NOT clear registered targets here: clearing would strand already-connected clients on
@@ -74,8 +88,6 @@ public sealed class ExternalDwellService : IDisposable
 
     private void OnCursorMoved(PhysicalPoint gaze, long timestampUs)
     {
-        // Don't run while disabled or while EyeCtrl is paused. If we were holding
-        // suppression/feedback, release it so we never strand SuppressFixation = true.
         if (!_settings.Enabled
             || _gazeEngine.InteractionManager.CurrentState == InteractionState.Paused)
         {
@@ -84,10 +96,33 @@ public sealed class ExternalDwellService : IDisposable
             return;
         }
 
-        ArbiterResult result;
-        lock (_stateLock) result = _arbiter.Process(gaze, timestampUs);
+        string? activatedId;
+        string? feedbackId = null;
+        PhysicalRect feedbackRect = default;
+        double progress = 0;
 
-        if (result.ActivatedId is { } activated)
+        lock (_stateLock)
+        {
+            long? root = _targetsById.Count == 0 ? null : _rootWindowAtPoint(gaze);
+
+            _frameProgressId = null;
+            _frameProgress = 0;
+            _frameActivatedId = null;
+
+            _detector.Update(gaze, timestampUs,
+                t => root is { } r && _hwndById.TryGetValue(t.Id, out var h) && h == r);
+
+            activatedId = _frameActivatedId;
+            if (activatedId == null && _frameProgressId is { } fid
+                && _targetsById.TryGetValue(fid, out var target) && target.Bounds is { } b)
+            {
+                feedbackId = fid;
+                feedbackRect = b;
+                progress = _frameProgress;
+            }
+        }
+
+        if (activatedId is { } activated)
         {
             SendActivated(activated);
             ReleaseSuppression();
@@ -95,10 +130,10 @@ public sealed class ExternalDwellService : IDisposable
             return;
         }
 
-        if (result.FeedbackId is { } fid)
+        if (feedbackId is { } fid2)
         {
             AcquireSuppression();
-            SetFeedback(fid, result.FeedbackRect!.Value, result.Progress);
+            SetFeedback(fid2, feedbackRect, progress);
         }
         else
         {
@@ -200,7 +235,9 @@ public sealed class ExternalDwellService : IDisposable
                 foreach (var id in conn.TargetIds)
                 {
                     _connByTarget.Remove(id);
-                    _arbiter.Remove(id);
+                    _targetsById.Remove(id);
+                    _hwndById.Remove(id);
+                    _detector.RemoveTarget(id);
                 }
             }
             conn.Dispose();
@@ -217,7 +254,11 @@ public sealed class ExternalDwellService : IDisposable
                     conn.Hwnd = r.Hwnd;
                     conn.TargetIds.Add(r.Id);
                     _connByTarget[r.Id] = conn;
-                    _arbiter.AddOrUpdate(r.Id, ToRect(r.Rect), r.Hwnd, _settings.DefaultDwellMs);
+                    _hwndById[r.Id] = r.Hwnd;
+                    var rect = ToRect(r.Rect);
+                    var target = new DwellTarget(r.Id, rect, _settings.DefaultDwellMs);
+                    _targetsById[r.Id] = target;
+                    _detector.AddTarget(target);
                 }
                 break;
 
@@ -225,7 +266,21 @@ public sealed class ExternalDwellService : IDisposable
                 lock (_stateLock)
                 {
                     if (conn.TargetIds.Contains(u.Id))
-                        _arbiter.AddOrUpdate(u.Id, ToRect(u.Rect), conn.Hwnd, _settings.DefaultDwellMs);
+                    {
+                        var rect = ToRect(u.Rect);
+                        if (_targetsById.TryGetValue(u.Id, out var existing))
+                        {
+                            existing.Bounds = rect;
+                            existing.Center = rect.Center;
+                        }
+                        else
+                        {
+                            var target = new DwellTarget(u.Id, rect, _settings.DefaultDwellMs);
+                            _targetsById[u.Id] = target;
+                            _hwndById[u.Id] = conn.Hwnd;
+                            _detector.AddTarget(target);
+                        }
+                    }
                 }
                 break;
 
@@ -234,7 +289,9 @@ public sealed class ExternalDwellService : IDisposable
                 {
                     conn.TargetIds.Remove(un.Id);
                     _connByTarget.Remove(un.Id);
-                    _arbiter.Remove(un.Id);
+                    _targetsById.Remove(un.Id);
+                    _hwndById.Remove(un.Id);
+                    _detector.RemoveTarget(un.Id);
                 }
                 break;
         }

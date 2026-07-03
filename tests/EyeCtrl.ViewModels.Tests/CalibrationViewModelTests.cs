@@ -66,6 +66,45 @@ public class CalibrationViewModelTests
         Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
     }
 
+    private sealed class CountingGazeProvider : IGazeProvider
+    {
+        private Action<GazePoint>? _handlers;
+        public int SubscriberCount { get; private set; }
+        public event Action<GazePoint>? GazePointReceived
+        {
+            add { _handlers += value; SubscriberCount++; }
+            remove { _handlers -= value; SubscriberCount--; }
+        }
+        public bool IsConnected => true;
+        public void Start() { }
+        public void Stop() { }
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task Cancel_WhileTargetHoldPending_StaleContinuationDoesNotUnsubscribeAgain()
+    {
+        var provider = new CountingGazeProvider();
+        var settings = new CalibrationSettings { PointCount = 3, TargetHoldMs = 200 };
+        var messenger = new WeakReferenceMessenger();
+        var service = new CalibrationService();
+
+        var vm = await Task.Run(() => new CalibrationViewModel(
+            settings, service, messenger, provider,
+            new PhysicalPoint(1920, 1080), "test-monitor"));
+
+        messenger.Send(new CalibrationRequestedMessage());
+        Check.That(provider.SubscriberCount).IsEqualTo(1);
+
+        vm.Cancel(); // unsubscribes; the 200ms hold continuation is still pending
+        Check.That(provider.SubscriberCount).IsEqualTo(0);
+
+        // Let the stale continuation fire. With the bug it unsubscribes again -> -1.
+        await Task.Delay(600, TestContext.Current.CancellationToken);
+
+        Check.That(provider.SubscriberCount).IsEqualTo(0);
+    }
+
     [Fact]
     public async Task FailedCalibration_SetsStateFailed_AndSendsFailedCompletion()
     {

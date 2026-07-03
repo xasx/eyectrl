@@ -23,6 +23,8 @@ public partial class CalibrationViewModel : ObservableObject,
     private readonly SynchronizationContext? _syncContext;
     private bool _disposed;
 
+    private int _sessionGeneration;
+
     [ObservableProperty] private CalibrationState _state = CalibrationState.Idle;
     [ObservableProperty] private int _currentTargetIndex;
     [ObservableProperty] private int _totalTargets;
@@ -69,6 +71,7 @@ public partial class CalibrationViewModel : ObservableObject,
 
     private void StartSession()
     {
+        _sessionGeneration++;
         TotalTargets = _calibrationService.StartSession(_settings.PointCount, _screenSize);
         CurrentTargetIndex = 0;
         ProgressPercent = 0;
@@ -99,14 +102,15 @@ public partial class CalibrationViewModel : ObservableObject,
 
         _gazeProvider.GazePointReceived += OnRawGaze;
         var holdMs = _settings.TargetHoldMs;
+        var generation = _sessionGeneration;
 
         Task.Delay(holdMs).ContinueWith(_ =>
         {
             if (_disposed) return;
-            _gazeProvider.GazePointReceived -= OnRawGaze;
             PostToSyncContext(() =>
             {
-                if (State != CalibrationState.Collecting) return;
+                if (generation != _sessionGeneration || State != CalibrationState.Collecting) return;
+                _gazeProvider.GazePointReceived -= OnRawGaze;
                 try
                 {
                     _calibrationService.EndTarget();
@@ -169,6 +173,7 @@ public partial class CalibrationViewModel : ObservableObject,
     public void Cancel()
     {
         if (State != CalibrationState.Collecting && State != CalibrationState.Training) return;
+        _sessionGeneration++;
         _gazeProvider.GazePointReceived -= OnRawGaze;
         _calibrationService.CancelSession();
         State = CalibrationState.Idle;

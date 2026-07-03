@@ -19,6 +19,7 @@ public class GazeEngine : IDisposable
     private readonly CalibrationService? _calibrationService;
     private volatile GapInterpolator _gapInterpolator;
     private readonly PropertyChangedEventHandler _cursorSettingsChangedHandler;
+    private readonly Action<PhysicalPoint> _startTrackingHandler;
     private readonly FixationDetector _fixationDetector;
     private readonly FixationCentroidTracker _centroidTracker;
 
@@ -90,10 +91,12 @@ public class GazeEngine : IDisposable
             SelectionMode = settings.SelectionMode
         };
 
+        _startTrackingHandler = _ => _centroidTracker.StartTracking();
+
         _gazeProvider.GazePointReceived += OnGazePoint;
         _fixationDetector.FixationStarted += InteractionManager.OnFixationStarted;
         _fixationDetector.FixationEnded += InteractionManager.OnFixationEnded;
-        _fixationDetector.FixationStarted += _ => _centroidTracker.StartTracking();
+        _fixationDetector.FixationStarted += _startTrackingHandler;
         _fixationDetector.FixationEnded += _centroidTracker.StopTracking;
     }
 
@@ -144,6 +147,10 @@ public class GazeEngine : IDisposable
     {
         _settings.Cursor.PropertyChanged -= _cursorSettingsChangedHandler;
         _gazeProvider.GazePointReceived -= OnGazePoint;
+        _fixationDetector.FixationStarted -= InteractionManager.OnFixationStarted;
+        _fixationDetector.FixationEnded -= InteractionManager.OnFixationEnded;
+        _fixationDetector.FixationStarted -= _startTrackingHandler;
+        _fixationDetector.FixationEnded -= _centroidTracker.StopTracking;
         _gazeProvider.Dispose();
         GC.SuppressFinalize(this);
     }

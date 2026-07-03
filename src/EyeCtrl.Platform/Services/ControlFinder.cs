@@ -3,6 +3,7 @@ namespace EyeCtrl.Platform.Services;
 using System.Windows.Automation;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Platform.Input;
 using Microsoft.Extensions.Logging;
 
 public class ControlFinder : IControlFinder
@@ -176,13 +177,13 @@ public class ControlFinder : IControlFinder
 
     private static ControlInfo? FallbackToWindow(System.Windows.Point point)
     {
-        var pt = new POINT { X = (int)point.X, Y = (int)point.Y };
+        var pt = new NativeMethods.POINT { X = (int)point.X, Y = (int)point.Y };
         var hwnd = WindowFromPoint(pt);
         if (hwnd == IntPtr.Zero) return null;
 
         if (!GetClientRect(hwnd, out var clientRect)) return null;
 
-        var topLeft = new POINT { X = 0, Y = 0 };
+        var topLeft = new NativeMethods.POINT { X = 0, Y = 0 };
         ClientToScreen(hwnd, ref topLeft);
 
         return new ControlInfo(new PhysicalRect(
@@ -190,22 +191,11 @@ public class ControlFinder : IControlFinder
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr WindowFromPoint(POINT Point);
+    private static extern IntPtr WindowFromPoint(NativeMethods.POINT Point);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+    private static extern bool GetClientRect(IntPtr hWnd, out NativeMethods.RECT lpRect);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
-
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct POINT { public int X, Y; }
-
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct RECT
-    {
-        public int Left, Top, Right, Bottom;
-        public int Width => Right - Left;
-        public int Height => Bottom - Top;
-    }
+    private static extern bool ClientToScreen(IntPtr hWnd, ref NativeMethods.POINT lpPoint);
 }

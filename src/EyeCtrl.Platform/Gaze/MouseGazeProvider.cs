@@ -4,16 +4,14 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using System.Runtime.InteropServices;
+using EyeCtrl.Platform.Input;
 using System.Threading;
 
 public partial class MouseGazeProvider : IGazeProvider, IDisposable
 {
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetCursorPos(out POINT lpPoint);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT { public int X; public int Y; }
+    private static partial bool GetCursorPos(out NativeMethods.POINT lpPoint);
 
     private Timer? _timer;
     private readonly int _intervalMs;

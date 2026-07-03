@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core;
 
+using System.ComponentModel;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
@@ -17,6 +18,7 @@ public class GazeEngine : IDisposable
     private readonly EyeCtrlSettings _settings;
     private readonly CalibrationService? _calibrationService;
     private volatile GapInterpolator _gapInterpolator;
+    private readonly PropertyChangedEventHandler _cursorSettingsChangedHandler;
     private readonly FixationDetector _fixationDetector;
     private readonly FixationCentroidTracker _centroidTracker;
 
@@ -63,7 +65,7 @@ public class GazeEngine : IDisposable
             GazeFilterFactory.Create(settings.Cursor),
             settings.Cursor.MaxGapInterpolationMs);
 
-        _settings.Cursor.PropertyChanged += (_, e) =>
+        _cursorSettingsChangedHandler = (_, e) =>
         {
             if (e.PropertyName is nameof(CursorSettings.FilterMode)
                                or nameof(CursorSettings.MaxGapInterpolationMs))
@@ -75,6 +77,7 @@ public class GazeEngine : IDisposable
                 _gapInterpolator = newInterpolator;
             }
         };
+        _settings.Cursor.PropertyChanged += _cursorSettingsChangedHandler;
 
         _fixationDetector = new FixationDetector(
             settings.Dwell.FixationRadiusPixels,
@@ -136,9 +139,10 @@ public class GazeEngine : IDisposable
             _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
     }
 
-    /// <summary>Unsubscribes from the gaze provider and disposes it.</summary>
+    /// <summary>Unsubscribes from the gaze provider and settings, and disposes the provider.</summary>
     public void Dispose()
     {
+        _settings.Cursor.PropertyChanged -= _cursorSettingsChangedHandler;
         _gazeProvider.GazePointReceived -= OnGazePoint;
         _gazeProvider.Dispose();
         GC.SuppressFinalize(this);

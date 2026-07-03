@@ -74,7 +74,47 @@ public static class CalibrationTargetPositionHelper
             }
         }
 
-        var selected = all.Take(count).ToList();
+        List<PhysicalPoint> selected;
+        if (count >= all.Count)
+        {
+            selected = new List<PhysicalPoint>(all);
+        }
+        else
+        {
+            selected = new List<PhysicalPoint>(count);
+            var seeds = new[]
+            {
+                new PhysicalPoint(minX, minY), new PhysicalPoint(maxX, minY),
+                new PhysicalPoint(minX, maxY), new PhysicalPoint(maxX, maxY),
+                new PhysicalPoint(cx, cy),
+            };
+            foreach (var seed in seeds)
+            {
+                if (selected.Count >= count) break;
+                PhysicalPoint nearest = default;
+                double nearestDist = double.MaxValue;
+                foreach (var p in all)
+                {
+                    if (selected.Contains(p)) continue;
+                    double d = DistSq(p, seed);
+                    if (d < nearestDist) { nearestDist = d; nearest = p; }
+                }
+                selected.Add(nearest);
+            }
+            while (selected.Count < count)
+            {
+                PhysicalPoint farthest = default;
+                double farthestDist = -1;
+                foreach (var p in all)
+                {
+                    if (selected.Contains(p)) continue;
+                    double d = double.MaxValue;
+                    foreach (var s in selected) d = Math.Min(d, DistSq(p, s));
+                    if (d > farthestDist) { farthestDist = d; farthest = p; }
+                }
+                selected.Add(farthest);
+            }
+        }
         selected.Sort((a, b) =>
         {
             var da = (a.X - cx) * (a.X - cx) + (a.Y - cy) * (a.Y - cy);
@@ -96,5 +136,11 @@ public static class CalibrationTargetPositionHelper
         }
 
         return ordered;
+    }
+
+    private static double DistSq(PhysicalPoint a, PhysicalPoint b)
+    {
+        double dx = a.X - b.X, dy = a.Y - b.Y;
+        return dx * dx + dy * dy;
     }
 }

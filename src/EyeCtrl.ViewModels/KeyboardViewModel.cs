@@ -10,14 +10,11 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 using System.Collections.Generic;
 
-public partial class KeyboardViewModel : ObservableObject,
+public partial class KeyboardViewModel : MessengerViewModelBase,
     IRecipient<ShowKeyboardMessage>,
-    IRecipient<HideKeyboardMessage>,
-    IDisposable
+    IRecipient<HideKeyboardMessage>
 {
     private readonly EyeCtrlSettings _settings;
-    private readonly IMessenger _messenger;
-    private bool _disposed;
 
     // Gaze tracking state
     private long _nearestKeyEnteredTimestamp;
@@ -47,10 +44,9 @@ public partial class KeyboardViewModel : ObservableObject,
     public event Action<string>? KeyDwellCompleted;
 
     public KeyboardViewModel(EyeCtrlSettings settings, IMessenger messenger)
+        : base(messenger)
     {
         _settings = settings;
-        _messenger = messenger;
-        messenger.RegisterAll(this);
     }
 
     public void Configure(int keyDwellMs, int cooldownMs)
@@ -187,7 +183,7 @@ public partial class KeyboardViewModel : ObservableObject,
             CurrentInput += actualOutput;
             _orchestrator?.LearnWord(actualOutput);
         }
-        _messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
+        Messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
@@ -200,7 +196,7 @@ public partial class KeyboardViewModel : ObservableObject,
             // User is deleting previously committed text, update _recentText
             _recentText = _recentText[..^1];
         }
-        _messenger.Send(new KeyActivatedMessage("\b", ModifiersSnapshot));
+        Messenger.Send(new KeyActivatedMessage("\b", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
@@ -212,7 +208,7 @@ public partial class KeyboardViewModel : ObservableObject,
             _previousWord = null;
             _recentText = ""; // Clear on new paragraph/line
         }
-        _messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
+        Messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
@@ -228,13 +224,13 @@ public partial class KeyboardViewModel : ObservableObject,
             }
             CurrentInput = "";
         }
-        _messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
+        Messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
     public void HandleTab()
     {
-        _messenger.Send(new KeyActivatedMessage("\t", ModifiersSnapshot));
+        Messenger.Send(new KeyActivatedMessage("\t", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
@@ -274,12 +270,12 @@ public partial class KeyboardViewModel : ObservableObject,
         CurrentInput = "";
         _previousWord = word;
         AppendRecentText(word);
-        _messenger.Send(new PredictionSelectedMessage(word, deleteCount));
+        Messenger.Send(new PredictionSelectedMessage(word, deleteCount));
     }
 
     public void HandleSpecialKey(string keyName)
     {
-        _messenger.Send(new SpecialKeyMessage(keyName, ModifiersSnapshot));
+        Messenger.Send(new SpecialKeyMessage(keyName, ModifiersSnapshot));
         ClearOneShotModifiers();
     }
 
@@ -293,11 +289,8 @@ public partial class KeyboardViewModel : ObservableObject,
             _recentText = _recentText[^100..];
     }
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed) return;
-        _messenger.UnregisterAll(this);
         _orchestrator?.Dispose();
-        _disposed = true;
     }
 }

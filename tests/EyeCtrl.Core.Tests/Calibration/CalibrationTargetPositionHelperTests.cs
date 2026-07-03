@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Tests.Calibration;
 
+using System.Linq;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
 
@@ -59,6 +60,41 @@ public class CalibrationTargetPositionHelperTests
                 Check.That(p.Y >= screen.Y * margin - 0.01).IsTrue();
                 Check.That(p.Y <= screen.Y * (1 - margin) + 0.01).IsTrue();
             }
+        }
+    }
+
+    [Fact]
+    public void GetPositions_5To16Points_AlwaysCoverAllFourScreenExtremes()
+    {
+        var screen = new PhysicalPoint(1920, 1080);
+        var minX = screen.X * 0.2; var maxX = screen.X * 0.8;
+        var minY = screen.Y * 0.2; var maxY = screen.Y * 0.8;
+
+        for (int count = 5; count <= 16; count++)
+        {
+            var positions = CalibrationTargetPositionHelper.GetPositions(count, screen);
+
+            Check.WithCustomMessage($"count={count}: top row (minY) missing")
+                .That(positions.Any(p => Math.Abs(p.Y - minY) < 1)).IsTrue();
+            Check.WithCustomMessage($"count={count}: bottom row (maxY) missing")
+                .That(positions.Any(p => Math.Abs(p.Y - maxY) < 1)).IsTrue();
+            Check.WithCustomMessage($"count={count}: left column (minX) missing")
+                .That(positions.Any(p => Math.Abs(p.X - minX) < 1)).IsTrue();
+            Check.WithCustomMessage($"count={count}: right column (maxX) missing")
+                .That(positions.Any(p => Math.Abs(p.X - maxX) < 1)).IsTrue();
+        }
+    }
+
+    [Fact]
+    public void GetPositions_IsDeterministic()
+    {
+        var screen = new PhysicalPoint(1920, 1080);
+        for (int count = 3; count <= 16; count++)
+        {
+            var a = CalibrationTargetPositionHelper.GetPositions(count, screen);
+            var b = CalibrationTargetPositionHelper.GetPositions(count, screen);
+            Check.WithCustomMessage($"count={count} not deterministic")
+                .That(a.SequenceEqual(b)).IsTrue();
         }
     }
 

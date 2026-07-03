@@ -1017,7 +1017,18 @@ public class EventCoordinator : IEventCoordinator
 
     public void Dispose()
     {
-        if (_disposed || _context == null) return;
+        if (_disposed) return;
+
+        // The prediction factory is field-initialized (never null) and its Dispose is idempotent;
+        // dispose it regardless of whether Initialize ran — a constructed-but-uninitialized
+        // coordinator (_context == null) must still release it rather than skip disposal.
+        _predictionFactory.Dispose();
+
+        if (_context == null)
+        {
+            _disposed = true;
+            return;
+        }
 
         // Unsubscribe from PropertyChanged events
         _context.CursorVM.PropertyChanged -= OnCursorVMPropertyChanged;
@@ -1054,8 +1065,6 @@ public class EventCoordinator : IEventCoordinator
         _context.OverlayManager.Keyboard.SkinToneChanged -= OnEmojiSkinToneChanged;
 
         _scrollModeController?.Dispose();
-
-        _predictionFactory.Dispose();
 
         _glassBackdrop?.Hide();
         _glassBackdrop = null;

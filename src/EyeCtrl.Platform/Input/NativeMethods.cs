@@ -71,4 +71,19 @@ internal static partial class NativeMethods
         public uint Time;
         public nint ExtraInfo;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RECT
+    {
+        public int Left, Top, Right, Bottom;
+        public readonly int Width => Right - Left;
+        public readonly int Height => Bottom - Top;
+    }
 }

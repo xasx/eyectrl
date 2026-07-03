@@ -146,6 +146,45 @@ public class ExternalDwellServiceTests
         await Task.Delay(100);
     }
 
+    [Fact]
+    public void RegisterWhileDisabled_ThenEnable_DwellActivates()
+    {
+        RunOnStaThread(() =>
+        {
+            var settings = new ExternalDwellSettings { Enabled = false, DefaultDwellMs = 800, CooldownMs = 0 };
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = new ExternalDwellService(settings, engine, Dispatcher.CurrentDispatcher,
+                NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => 7);
+            svc.Start();
+
+            var activated = RegisterDisabledThenEnableAndDwell(settings, provider).GetAwaiter().GetResult();
+            Check.That(activated).IsNotNull();
+            Check.That(activated).Contains("activated");
+        });
+    }
+
+    private static async Task<string?> RegisterDisabledThenEnableAndDwell(
+        ExternalDwellSettings settings, StubGazeProvider provider)
+    {
+        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+        await Task.Delay(200);
+
+        settings.Enabled = true;
+
+        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
+        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+
+        var read = r.ReadLineAsync();
+        return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
     private sealed class StubGazeProvider : IGazeProvider
     {
         public bool IsConnected => true;

@@ -64,9 +64,6 @@ public partial class SettingsWindow : OverlayWindow
     private readonly Dictionary<string, Border> _pagButtons = new();
     private readonly Dictionary<string, Border> _modalButtons = new();
 
-    private string _activeTab = "";
-    private int _currentPage;
-    private int _totalPages;
     private List<List<Action>> _pages = new();
     private readonly List<object> _activeItems = new(); // DwellControl | IDwellComposite
 
@@ -175,17 +172,9 @@ public partial class SettingsWindow : OverlayWindow
             switch (e.PropertyName)
             {
                 case nameof(SettingsViewModel.CurrentTabName):
-                    if (_viewModel.Settings.CurrentTabName != _activeTab)
-                    {
-                        _activeTab = _viewModel.Settings.CurrentTabName;
-                        foreach (var (id, border) in _tabButtons)
-                            border.Background = new SolidColorBrush(id == _activeTab ? TabActive : TabInactive);
-                        RebuildContent();
-                    }
+                    RebuildContent();
                     break;
                 case nameof(SettingsViewModel.CurrentPage):
-                    // Sync local page index with ViewModel and re-render content
-                    _currentPage = _viewModel.Settings.CurrentPage;
                     RenderCurrentPage();
                     RenderPagination();
                     break;
@@ -280,8 +269,8 @@ public partial class SettingsWindow : OverlayWindow
         ContentPanel.Children.Clear();
 
         _pages = BuildPages();
-        _totalPages = _pages.Count;
-        _currentPage = Math.Clamp(_currentPage, 0, Math.Max(0, _totalPages - 1));
+        _viewModel.Settings.TotalPages = _pages.Count;
+        _viewModel.Settings.CurrentPage = Math.Clamp(_viewModel.Settings.CurrentPage, 0, Math.Max(0, _viewModel.Settings.TotalPages - 1));
 
         RenderCurrentPage();
         RenderPagination();
@@ -293,9 +282,10 @@ public partial class SettingsWindow : OverlayWindow
         ContentPanel.Children.Clear();
         _activeItems.Clear();
 
-        if (_currentPage < _pages.Count)
+        var currentPage = _viewModel.Settings.CurrentPage;
+        if (currentPage < _pages.Count)
         {
-            foreach (var builder in _pages[_currentPage])
+            foreach (var builder in _pages[currentPage])
                 builder();
         }
     }
@@ -373,7 +363,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private List<List<Action>> BuildPages()
     {
-        return _pageBuilders.TryGetValue(_activeTab, out var pageBuilder)
+        return _pageBuilders.TryGetValue(_viewModel.Settings.CurrentTabName, out var pageBuilder)
             ? pageBuilder.Invoke()
             : new();
     }
@@ -1100,14 +1090,13 @@ public partial class SettingsWindow : OverlayWindow
         {
             if (id == "close")
             {
-                CloseButton.Background = new SolidColorBrush(
-                    Blend(CloseBase, Colors.White, progress * 0.5));
+                CloseButton.Background = ColorBlend.ToHighlightBrush(CloseBase, progress, 0.5);
                 continue;
             }
 
             if (_tabButtons.TryGetValue(id, out var border) && id != _viewModel.ActiveTabId)
             {
-                border.Background = new SolidColorBrush(Blend(TabInactive, TabActive, progress));
+                border.Background = new SolidColorBrush(ColorBlend.Blend(TabInactive, TabActive, progress));
             }
         }
     }
@@ -1118,7 +1107,7 @@ public partial class SettingsWindow : OverlayWindow
         {
             if (_pagButtons.TryGetValue(id, out var border))
             {
-                border.Background = new SolidColorBrush(Blend(BtnBase, Colors.White, progress * 0.4));
+                border.Background = ColorBlend.ToHighlightBrush(BtnBase, progress, 0.4);
             }
         }
     }
@@ -1130,7 +1119,7 @@ public partial class SettingsWindow : OverlayWindow
             if (_modalButtons.TryGetValue(id, out var border))
             {
                 var baseC = id == "modal_yes" ? ModalYes : ModalNo;
-                border.Background = new SolidColorBrush(Blend(baseC, Colors.White, progress * 0.5));
+                border.Background = ColorBlend.ToHighlightBrush(baseC, progress, 0.5);
             }
         }
     }
@@ -1168,16 +1157,6 @@ public partial class SettingsWindow : OverlayWindow
             ModalOverlay.Visibility = Visibility.Collapsed;
             _modalButtons.Clear();
         }
-    }
-
-    private static Color Blend(Color from, Color to, double t)
-    {
-        t = Math.Clamp(t, 0, 1);
-        return Color.FromArgb(
-            (byte)(from.A * (1 - t) + to.A * t),
-            (byte)(from.R * (1 - t) + to.R * t),
-            (byte)(from.G * (1 - t) + to.G * t),
-            (byte)(from.B * (1 - t) + to.B * t));
     }
 
     // ────── Modal confirmation ──────

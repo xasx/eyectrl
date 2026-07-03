@@ -644,6 +644,22 @@ public class WordPredictorTests
         // Should still suggest "Forward" even with different case
         Check.That(results).HasElementThatMatches(r => r.Word.Equals("Forward", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void GetSuggestions_FirstCharTypo_StillFuzzyMatches()
+    {
+        // 'r' and 't' are adjacent on QWERTY: "rhe" must still suggest "the".
+        // Guards the fuzzy pre-filter against over-eager filtering (e.g. a
+        // first-character compare would wrongly discard this).
+        var predictor = CreatePredictor(new()
+        {
+            { "the", 1000 }, { "world", 500 }
+        });
+
+        var results = predictor.GetSuggestions("rhe", null, maxCount: 5);
+
+        Check.That(results).HasElementThatMatches(r => r.Word == "the");
+    }
 }
 
 // Test helper

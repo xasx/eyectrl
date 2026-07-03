@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -27,6 +28,7 @@ public partial class ActionMenuWindow : OverlayWindow
     private const int PreviewCircleBorderThickness = 2; // Border thickness of preview circle
 
     private readonly Dictionary<string, DwellArcButton> _buttonVisuals = new();
+    private CancellationTokenSource? _captureCts;
 
     public ActionMenuWindow()
     {
@@ -68,55 +70,43 @@ public partial class ActionMenuWindow : OverlayWindow
         var indicatorPoint = gazePoint ?? center;
         if (zoomCenter != null && zoomRadius != null)
         {
-            // scale = logical-px / physical-px  →  offset = physical-px × (logical/physical) = logical-px
-            // Use captureRadius (already in physical px) so the result is in WPF logical canvas px.
             double scale = previewCircleSize / (2.0 * captureRadius);
             indicatorOffsetX = (center.X - zoomCenter.Value.X) * scale;
             indicatorOffsetY = (center.Y - zoomCenter.Value.Y) * scale;
-
-            // Clamp so indicator stays inside the preview circle (10 px margin)
-            double offsetMag = Math.Sqrt(indicatorOffsetX * indicatorOffsetX + indicatorOffsetY * indicatorOffsetY);
-            double maxOffset = previewCircleSize / 2 - IndicatorOffsetMargin;
-            if (offsetMag > maxOffset && offsetMag > 0)
-            {
-                indicatorOffsetX = indicatorOffsetX / offsetMag * maxOffset;
-                indicatorOffsetY = indicatorOffsetY / offsetMag * maxOffset;
-            }
+            (indicatorOffsetX, indicatorOffsetY) = ClampToScreen(indicatorOffsetX, indicatorOffsetY, previewCircleSize);
         }
         else if (gazePoint != null && gazePoint != center)
         {
-            // View is at center, gaze is elsewhere - show indicator offset
             double scale = previewCircleSize / (2.0 * captureRadius);
             indicatorOffsetX = (indicatorPoint.X - captureCenter.X) * scale;
             indicatorOffsetY = (indicatorPoint.Y - captureCenter.Y) * scale;
-
-            // Clamp so indicator stays inside the preview circle (10 px margin)
-            double offsetMag = Math.Sqrt(indicatorOffsetX * indicatorOffsetX + indicatorOffsetY * indicatorOffsetY);
-            double maxOffset = previewCircleSize / 2 - IndicatorOffsetMargin;
-            if (offsetMag > maxOffset && offsetMag > 0)
-            {
-                indicatorOffsetX = indicatorOffsetX / offsetMag * maxOffset;
-                indicatorOffsetY = indicatorOffsetY / offsetMag * maxOffset;
-            }
+            (indicatorOffsetX, indicatorOffsetY) = ClampToScreen(indicatorOffsetX, indicatorOffsetY, previewCircleSize);
         }
 
+        _captureCts?.Cancel();
+        _captureCts = new CancellationTokenSource();
+        var captureToken = _captureCts.Token;
         _ = Dispatcher.InvokeAsync(async () =>
         {
-            await Task.Delay(ScreenCaptureDelayMs);
-            var capturedImage = ScreenCaptureService.CaptureRegion(captureCenter, captureRadius);
-            if (capturedImage == null) return;
-
-            var previewEllipse = new Ellipse
+            try
             {
-                Width = captureCircleSize,
-                Height = captureCircleSize,
-                Fill = new ImageBrush(capturedImage) { Stretch = Stretch.Fill },
-                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(captureBorderColor)),
-                StrokeThickness = PreviewCircleBorderThickness
-            };
-            Canvas.SetLeft(previewEllipse, captureCanvasCenter.X - captureCircleSize / 2);
-            Canvas.SetTop(previewEllipse, captureCanvasCenter.Y - captureCircleSize / 2);
-            MenuCanvas.Children.Insert(0, previewEllipse); // Insert at back so buttons stay on top
+                await Task.Delay(ScreenCaptureDelayMs, captureToken);
+                var capturedImage = ScreenCaptureService.CaptureRegion(captureCenter, captureRadius);
+                if (capturedImage == null) return;
+
+                var previewEllipse = new Ellipse
+                {
+                    Width = captureCircleSize,
+                    Height = captureCircleSize,
+                    Fill = new ImageBrush(capturedImage) { Stretch = Stretch.Fill },
+                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(captureBorderColor)),
+                    StrokeThickness = PreviewCircleBorderThickness
+                };
+                Canvas.SetLeft(previewEllipse, captureCanvasCenter.X - captureCircleSize / 2);
+                Canvas.SetTop(previewEllipse, captureCanvasCenter.Y - captureCircleSize / 2);
+                MenuCanvas.Children.Insert(0, previewEllipse); // Insert at back so buttons stay on top
+            }
+            catch (TaskCanceledException) { }
         });
 
         // Position indicator at center of preview
@@ -203,5 +193,17 @@ public partial class ActionMenuWindow : OverlayWindow
     {
         if (_buttonVisuals.TryGetValue(targetId, out var btn))
             btn.UpdateProgress(progress);
+    }
+
+    private static (double x, double y) ClampToScreen(double offsetX, double offsetY, double circleSize)
+    {
+        var offsetMag = Math.Sqrt(offsetX * offsetX + offsetY * offsetY);
+        var maxOffset = circleSize / 2 - IndicatorOffsetMargin;
+        if (offsetMag > maxOffset && offsetMag > 0)
+        {
+            offsetX = offsetX / offsetMag * maxOffset;
+            offsetY = offsetY / offsetMag * maxOffset;
+        }
+        return (offsetX, offsetY);
     }
 }

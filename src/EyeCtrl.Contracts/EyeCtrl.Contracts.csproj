@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- net8.0 ON PURPOSE (rest of the solution is net10.0): this assembly ships to external
+         SDK consumers, and targeting the oldest supported LTS maximizes the apps that can
+         reference it. Do NOT "upgrade" this to match the solution TFM until .NET 8 LTS
+         end-of-life (Nov 2026), or sooner if the SDK-consumer-reach policy changes. -->
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

@@ -7,7 +7,13 @@ public enum GazeFilterMode
     Direct,
     /// <summary>Exponential moving average (EMA) smoothing — smooths jitter without snapping.</summary>
     Smoothed,
-    /// <summary>EMA smoothing with attraction toward the nearest interactive control.</summary>
+    /// <summary>
+    /// Historical alias of <see cref="Smoothed"/>. Filter-level control snapping was never
+    /// implemented — "snapping" in EyeCtrl is snap-to-control via Auto Selection
+    /// (SelectionMode.Auto + ControlFinder), which is independent of the gaze filter.
+    /// Kept because the value is persisted in settings JSON; removing it would break
+    /// existing settings files without a migration.
+    /// </summary>
     SmoothedWithSnapping,
     /// <summary>1€ filter — adaptive low-pass filter that reduces jitter while preserving responsiveness.</summary>
     OneEuro

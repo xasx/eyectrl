@@ -85,6 +85,28 @@ public readonly record struct PhysicalPoint(double X, double Y)
     }
 
     /// <summary>
+    /// Returns the squared Euclidean distance to <paramref name="other"/> in physical pixels².
+    /// Prefer this over <see cref="DistanceTo"/> on hot paths and for radius comparisons
+    /// (compare against radius²) — it avoids the square root.
+    /// </summary>
+    /// <param name="other">The other point.</param>
+    /// <returns>Squared distance in physical pixels².</returns>
+    public double DistanceSquaredTo(PhysicalPoint other)
+    {
+        double dx = X - other.X;
+        double dy = Y - other.Y;
+        return dx * dx + dy * dy;
+    }
+
+    /// <summary>Returns the Euclidean distance to <paramref name="other"/> in physical pixels.</summary>
+    /// <param name="other">The other point.</param>
+    /// <returns>Distance in physical pixels.</returns>
+    public double DistanceTo(PhysicalPoint other)
+    {
+        return Math.Sqrt(DistanceSquaredTo(other));
+    }
+
+    /// <summary>
     /// Returns a string representation of this physical point for debugging.
     /// </summary>
     /// <returns>A string in the format "PhysicalPoint(X, Y)".</returns>

@@ -41,6 +41,8 @@ public class EventCoordinator : IEventCoordinator
     private bool _disposed;
     private Action<PhysicalPoint, long>? _gazeMovedHandler;
     private readonly PredictionStackFactory _predictionFactory = new();
+    private KeyboardStackSnapshot? _keyboardSnapshot;
+    private ToolbarSnapshot? _toolbarSnapshot;
     private GlassBackdropWindow? _glassBackdrop;
     private string? _appDataDir;
     private ModelRegistryService? _modelRegistry;
@@ -729,12 +731,24 @@ public class EventCoordinator : IEventCoordinator
         if (_context == null) return;
 
         _context.OverlayManager.CursorCircle.UpdateAppearance(s.Cursor);
-        _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
-        _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
         _context.InteractionManager.SelectionMode = s.SelectionMode;
         _context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
         _context.Messenger.Send(new SelectionModeChangedMessage(s.SelectionMode));
-        LoadKeyboard(_context.OverlayManager.Keyboard, s, _context.InputSimulator, _context.SettingsService);
+
+        var toolbarSnapshot = ToolbarSnapshot.Capture(s);
+        if (_toolbarSnapshot != toolbarSnapshot)
+        {
+            _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
+            _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
+            _toolbarSnapshot = toolbarSnapshot;
+        }
+
+        var keyboardSnapshot = KeyboardStackSnapshot.Capture(s);
+        if (_keyboardSnapshot != keyboardSnapshot)
+        {
+            LoadKeyboard(_context.OverlayManager.Keyboard, s, _context.InputSimulator, _context.SettingsService);
+        }
+
         Log.Information("Settings saved");
     }
 
@@ -964,6 +978,8 @@ public class EventCoordinator : IEventCoordinator
 
         var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
         keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
+
+        _keyboardSnapshot = KeyboardStackSnapshot.Capture(settings);
     }
 
     #endregion

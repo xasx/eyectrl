@@ -48,10 +48,7 @@ public class EventCoordinator : IEventCoordinator
     private ModelRegistryService? _modelRegistry;
     private ModelDownloadService? _downloadService;
     private ModelManagementService? _modelManagementService;
-    private ScrollOverlayViewModel? _scrollOverlayVm;
-    private ScrollOverlayWindow? _scrollOverlayWindow;
-    private ScrollWorker? _scrollWorker;
-    private bool _scrollModeActive;
+    private ScrollModeController? _scrollModeController;
     private DragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
     private Action? _disposeEscapeHook;
@@ -73,6 +70,8 @@ public class EventCoordinator : IEventCoordinator
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+
+        _scrollModeController = new ScrollModeController(context);
 
         SetupPropertyChangedHandlers();
         SetupMessageHandlers();
@@ -127,8 +126,6 @@ public class EventCoordinator : IEventCoordinator
         var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
         var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
         var keyboard = _context.OverlayManager.Keyboard;
-
-        im.StateChanged += OnInteractionStateChanged;
 
         // ManualSelectionDwellCompleted: Handle coordinate conversion
         _context.Messenger.Register<EventCoordinator, ManualSelectionDwellCompletedMessage>(this, (_, msg) =>
@@ -446,8 +443,7 @@ public class EventCoordinator : IEventCoordinator
 
     private void OnDragDismissZoom()
     {
-        if (_context?.OverlayManager.ManualSelectionOverlay.IsVisible == true)
-            _context.OverlayManager.ManualSelectionOverlay.Hide();
+        _scrollModeController?.OnDismissZoom();
     }
 
     private void CloseDragOverlay()
@@ -993,96 +989,6 @@ public class EventCoordinator : IEventCoordinator
 
     #endregion
 
-    private void OnInteractionStateChanged(InteractionState state)
-    {
-        if (state == InteractionState.ScrollMode)
-        {
-            OnScrollModeEntered();
-        }
-        else if (_scrollModeActive)
-        {
-            OnScrollModeExited();
-        }
-    }
-
-    private void OnScrollModeEntered()
-    {
-        if (_context == null) return;
-
-        var anchor = _context.InteractionManager.ScrollAnchor!.Value;
-
-        _context.InputSimulator.MoveCursor(anchor);
-
-        // Hide the gaze-following cursor circle so it doesn't compete with the scroll overlay's
-        // anchor-locked circle (the locked circle is the whole point of Option D — no feedback loop).
-        _context.OverlayManager.CursorCircle.Hide();
-
-        var bounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
-        var stopButtonCenter = new PhysicalPoint(
-            bounds.Width - DpiHelper.LogicalToPhysicalX(50),
-            bounds.Height / 2.0);
-
-        _scrollOverlayVm = new ScrollOverlayViewModel(_context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell);
-        _scrollOverlayVm.EnterScrollMode(anchor, stopButtonCenter);
-        _scrollOverlayVm.ExitRequested += OnScrollExitRequested;
-
-        _scrollOverlayWindow = new ScrollOverlayWindow();
-        _scrollOverlayWindow.Show(_scrollOverlayVm);
-
-        _scrollWorker = new ScrollWorker(_context.InputSimulator);
-        _scrollWorker.Start(anchor);
-
-        _scrollOverlayVm.TargetVelocityChanged += OnScrollTargetVelocityChanged;
-        _scrollOverlayVm.FeedbackChanged += OnScrollFeedbackChanged;
-
-        _scrollModeActive = true;
-    }
-
-    // Defer the exit off the current call stack: ExitRequested fires synchronously from inside
-    // ScrollOverlayViewModel.Receive (via the dwell detector), and tearing the VM down there would
-    // dispose it mid-Receive. BeginInvoke runs the teardown on a fresh dispatcher turn instead.
-    private void OnScrollExitRequested()
-        => _context?.Dispatcher.BeginInvoke(() => _context?.InteractionManager.ExitScrollMode());
-
-    private void OnScrollTargetVelocityChanged(double vx, double vy)
-        => _scrollWorker?.UpdateTargetVelocity(vx, vy);
-
-    private void OnScrollFeedbackChanged()
-    {
-        if (_scrollOverlayWindow == null || _scrollOverlayVm == null) return;
-        _scrollOverlayWindow.UpdateFeedback(
-            _scrollOverlayVm.AnchorDotOffsetX,
-            _scrollOverlayVm.AnchorDotOffsetY,
-            _scrollOverlayVm.VelocityMagnitude,
-            _scrollOverlayVm.StopButtonProgress);
-    }
-
-    private void OnScrollModeExited()
-    {
-        _scrollWorker?.Stop();
-        _scrollWorker?.Dispose();
-        _scrollWorker = null;
-
-        if (_scrollOverlayVm != null)
-        {
-            _scrollOverlayVm.TargetVelocityChanged -= OnScrollTargetVelocityChanged;
-            _scrollOverlayVm.FeedbackChanged -= OnScrollFeedbackChanged;
-            _scrollOverlayVm.ExitRequested -= OnScrollExitRequested;
-            _scrollOverlayVm.ExitScrollMode();
-            _scrollOverlayVm.Dispose();
-            _scrollOverlayVm = null;
-        }
-
-        _scrollOverlayWindow?.Close();
-        _scrollOverlayWindow = null;
-
-        // Restore the gaze-following cursor circle (matches the calibration/settings restore pattern).
-        if (_context != null && _context.CursorVM.IsVisible)
-            _context.OverlayManager.CursorCircle.Show();
-
-        _scrollModeActive = false;
-    }
-
     public void Dispose()
     {
         if (_disposed || _context == null) return;
@@ -1124,9 +1030,7 @@ public class EventCoordinator : IEventCoordinator
 
         _context.OverlayManager.Keyboard.SkinToneChanged -= OnEmojiSkinToneChanged;
 
-        _context.InteractionManager.StateChanged -= OnInteractionStateChanged;
-
-        if (_scrollModeActive) OnScrollModeExited();
+        _scrollModeController?.Dispose();
 
         _predictionFactory.Dispose();
 

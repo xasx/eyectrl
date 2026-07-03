@@ -9,6 +9,7 @@ using EyeCtrl.ViewModels.Messages;
 public partial class ManualSelectionGazeIndicatorViewModel : ObservableObject,
     IRecipient<StartManualSelectionMessage>,
     IRecipient<EndManualSelectionMessage>,
+    IRecipient<ManualSelectionHiddenMessage>,
     IRecipient<UpdateManualSelectionIndicatorPositionMessage>,
     IRecipient<UpdateManualSelectionIndicatorProgressMessage>,
     IRecipient<ResetManualSelectionIndicatorMessage>,
@@ -77,6 +78,13 @@ public partial class ManualSelectionGazeIndicatorViewModel : ObservableObject,
     }
 
     public void Receive(EndManualSelectionMessage message)
+    {
+        IsVisible = false;
+        FixationProgress = 0.0;
+        OuterCircleDiameter = _outerCircleDiameterSetting;
+    }
+
+    public void Receive(ManualSelectionHiddenMessage message)
     {
         IsVisible = false;
         FixationProgress = 0.0;

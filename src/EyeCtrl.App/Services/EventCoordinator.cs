@@ -180,22 +180,7 @@ public class EventCoordinator : IEventCoordinator
 
         // Keyboard toggle
         _context.Messenger.Register<EventCoordinator, KeyboardToggledMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() =>
-            {
-                _keyboardVisible = !_keyboardVisible;
-                Log.Information("Keyboard {State}", _keyboardVisible ? "shown" : "hidden");
-                if (_keyboardVisible)
-                {
-                    keyboard.Show();
-                    _context.GazeEngine.SuppressFixation = true;
-                    im.OnFixationEnded();
-                }
-                else
-                {
-                    keyboard.Hide();
-                    _context.GazeEngine.SuppressFixation = false;
-                }
-            }));
+            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(!_keyboardVisible)));
 
         // Settings window
         _context.Messenger.Register<EventCoordinator, SettingsRequestedMessage>(this, (_, _) =>
@@ -294,8 +279,7 @@ public class EventCoordinator : IEventCoordinator
         _context.Messenger.Register<EventCoordinator, ShowKeyboardRequestMessage>(this, (_, msg) =>
         {
             if (_context?.OverlayManager.Keyboard == null) return;
-            _keyboardVisible = true;
-            _context.OverlayManager.Keyboard.Show();
+            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(true));
             Log.Debug("Keyboard shown for text input (target handle: {Handle})", msg.TargetHandle);
         });
 
@@ -303,8 +287,7 @@ public class EventCoordinator : IEventCoordinator
         _context.Messenger.Register<EventCoordinator, HideKeyboardRequestMessage>(this, (_, _) =>
         {
             if (_context?.OverlayManager.Keyboard == null) return;
-            _keyboardVisible = false;
-            _context.OverlayManager.Keyboard.Hide();
+            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false));
             Log.Debug("Keyboard hidden");
         });
 
@@ -977,6 +960,28 @@ public class EventCoordinator : IEventCoordinator
         keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
 
         _keyboardSnapshot = KeyboardStackSnapshot.Capture(settings);
+    }
+
+    private void SetKeyboardVisible(bool visible)
+    {
+        if (_context == null) return;
+
+        _keyboardVisible = visible;
+        Log.Information("Keyboard {State}", visible ? "shown" : "hidden");
+
+        if (visible)
+        {
+            _context.OverlayManager.Keyboard.Show();
+            _context.GazeEngine.SuppressFixation = true;
+            _context.InteractionManager.OnFixationEnded();
+            _context.Messenger.Send(new ShowKeyboardMessage());
+        }
+        else
+        {
+            _context.OverlayManager.Keyboard.Hide();
+            _context.GazeEngine.SuppressFixation = false;
+            _context.Messenger.Send(new HideKeyboardMessage());
+        }
     }
 
     private void OnEmojiSkinToneChanged(int tone)

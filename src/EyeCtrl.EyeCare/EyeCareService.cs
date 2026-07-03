@@ -16,7 +16,6 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
     private readonly FatigueMonitor _fatigueMonitor;
     private readonly ExerciseRunner _runner;
     private readonly IEyeCareHooks _hooks;
-    private readonly PhysicalPoint _screenCenter;
 
     // Touched from the gaze background thread and from async-void continuations (thread-pool).
     // volatile gives the re-entrancy guard cross-thread visibility.
@@ -26,7 +25,6 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
         EyeCareSettings settings,
         ExerciseRunner runner,
         IEyeCareHooks hooks,
-        PhysicalPoint screenCenter,
         double fixationRadiusPixels = 50,
         int fatigueWindowSeconds = 60)
     {
@@ -35,7 +33,6 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
         _fatigueMonitor = new FatigueMonitor(settings, fixationRadiusPixels, fatigueWindowSeconds);
         _runner = runner;
         _hooks = hooks;
-        _screenCenter = screenCenter;
         _scheduler.BreakDue += OnBreakDue;
         // Toggling eye-care off mid-session must immediately dismiss any visible overlay.
         _settings.PropertyChanged += OnSettingsChanged;

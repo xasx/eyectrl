@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
@@ -33,6 +34,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     private void BuildTabs()
     {
+        // INTENTIONALLY NOT EXPOSED in the settings UI (audit this list when adding settings):
+        //  - Cursor.MaxGapInterpolationMs, Cursor.PositionIndicatorStyle  (advanced tuning)
+        //  - ManualSelection.Enabled (driven by SelectionMode), ManualSelection.GazeIndicator* (visual tuning)
+        //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry)
+        //  - Calibration.TargetColor (visual tuning)
+        // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.
+
         var c = _settings.Cursor;
         var d = _settings.Dwell;
         var z = _settings.ManualSelection;
@@ -67,6 +75,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new SliderSettingViewModel("keyboardMs", "Keyboard Key Dwell (ms)", d.KeyboardKeyDwellMs, 100, 1500, 50, v => d.KeyboardKeyDwellMs = (int)v),
             new SliderSettingViewModel("predictionMs", "Prediction Dwell (ms)", d.KeyboardPredictionDwellMs, 100, 1500, 50, v => d.KeyboardPredictionDwellMs = (int)v),
             new SliderSettingViewModel("fixationRadius", "Fixation Radius (px)", d.FixationRadiusPixels, 10, 200, 5, v => d.FixationRadiusPixels = v),
+            new SliderSettingViewModel("velocityThreshold", "Velocity Threshold (px/s)", d.VelocityThresholdPxPerSec, 10, 1000, 10, v => d.VelocityThresholdPxPerSec = v),
+            new SliderSettingViewModel("dwellCooldownMs", "Dwell Cooldown (ms)", d.DwellCooldownMs, 100, 5000, 50, v => d.DwellCooldownMs = (int)v),
+            new SliderSettingViewModel("dragReleaseMs", "Drag Release Dwell (ms)", d.DragReleaseButtonDwellMs, 200, 2000, 50, v => d.DragReleaseButtonDwellMs = (int)v),
+            new SliderSettingViewModel("dragRightEdgeMs", "Drag Edge Button Dwell (ms)", d.DragRightEdgeButtonDwellMs, 200, 2000, 50, v => d.DragRightEdgeButtonDwellMs = (int)v),
         }));
 
         var ed = _settings.ExternalDwell;
@@ -127,6 +139,24 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new ToggleSettingViewModel("docked", "Docked", t.IsDocked, v => t.IsDocked = v),
             new ComboSettingViewModel("dockedEdge", "Docked Edge", t.DockedEdge, new[] { "Top", "Bottom", "Left", "Right" }, v => t.DockedEdge = v),
             new SliderSettingViewModel("toolbarSize", "Button Size", t.Size, 40, 200, 10, v => t.Size = v),
+        }));
+
+        var b = _settings.Backdrop;
+        Tabs.Add(new SettingsTabViewModel("Backdrop", "▣", new List<SettingItemViewModel>
+        {
+            new ToggleSettingViewModel("backdropEnabled", "Enabled", b.Enabled, v => b.Enabled = v),
+            new ComboSettingViewModel("backdropType", "Material", b.Type.ToString(),
+                Enum.GetNames<BackdropType>(), v => b.Type = Enum.Parse<BackdropType>(v)),
+            new SliderSettingViewModel("backdropOpacity", "Opacity", b.Opacity, 0.1, 0.9, 0.05, v => b.Opacity = v),
+        }));
+
+        var dr = _settings.Drag;
+        Tabs.Add(new SettingsTabViewModel("Drag", "✊", new List<SettingItemViewModel>
+        {
+            new SliderSettingViewModel("dragSettleMs", "Settle Dwell (ms)", dr.SettleDwellMs, 200, 2000, 50, v => dr.SettleDwellMs = (int)v),
+            new SliderSettingViewModel("dragSettleRadius", "Settle Radius (px)", dr.SettleRadiusPixels, 10, 200, 5, v => dr.SettleRadiusPixels = (int)v),
+            new ColorSettingViewModel("dragTrailColor", "Trail Color", dr.TrailColor, v => dr.TrailColor = v),
+            new SliderSettingViewModel("dragTrailOpacity", "Trail Opacity", dr.TrailOpacity, 0.1, 1.0, 0.1, v => dr.TrailOpacity = v),
         }));
 
         Tabs.Add(new SettingsTabViewModel("General", "\u2699", new List<SettingItemViewModel>

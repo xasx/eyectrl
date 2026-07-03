@@ -9,13 +9,36 @@ public class SettingsViewModelTests
     private readonly WeakReferenceMessenger _messenger = new();
 
     [Fact]
-    public void Has11Tabs()
+    public void Has13Tabs()
     {
         var settings = new EyeCtrlSettings();
         var service = new SettingsService("test.json");
         var vm = new SettingsViewModel(settings, service, _messenger);
 
-        Check.That(vm.Tabs).HasSize(11);
+        Check.That(vm.Tabs).HasSize(13);
+    }
+
+    [Fact]
+    public void BackdropAndDragTabs_Exist()
+    {
+        var settings = new EyeCtrlSettings();
+        var service = new SettingsService("test.json");
+        var vm = new SettingsViewModel(settings, service, _messenger);
+
+        Check.That(vm.Tabs.Find(t => t.Name == "Backdrop")).IsNotNull();
+        Check.That(vm.Tabs.Find(t => t.Name == "Drag")).IsNotNull();
+    }
+
+    [Fact]
+    public void DwellTab_ExposesCooldownVelocityAndDragDwells()
+    {
+        var settings = new EyeCtrlSettings();
+        var service = new SettingsService("test.json");
+        var vm = new SettingsViewModel(settings, service, _messenger);
+
+        var dwellTab = vm.Tabs.Find(t => t.Name == "Dwell")!;
+        var ids = dwellTab.Items.Select(i => i.Id).ToList();
+        Check.That(ids).Contains("velocityThreshold", "dwellCooldownMs", "dragReleaseMs", "dragRightEdgeMs");
     }
 
     [Fact]

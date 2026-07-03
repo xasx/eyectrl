@@ -132,4 +132,21 @@ public class SmallLMPredictorTests
     {
         Check.That(SmallLMPredictor.PostProcess("   ", prefix: null, avgProb: 0.5)).IsEmpty();
     }
+
+    [Fact]
+    public void Dispose_WithNoInflightInference_CompletesImmediately()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lm_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var predictor = new SmallLMPredictor(tempDir, modelSize: "135M", preferGpu: false,
+                NullLogger<SmallLMPredictor>.Instance, tokenizer: null);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            predictor.Dispose();
+            sw.Stop();
+            Check.That(sw.ElapsedMilliseconds).IsStrictlyLessThan(1000);
+        }
+        finally { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
+    }
 }

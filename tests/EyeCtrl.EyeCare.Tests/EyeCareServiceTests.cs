@@ -31,7 +31,7 @@ public class EyeCareServiceTests
     private static EyeCareService NewService(EyeCareSettings settings, FakeHooks hooks)
     {
         var runner = new ExerciseRunner(new IExercise[] { new StubExercise() }, seed: 1);
-        return new EyeCareService(settings, runner, hooks, new PhysicalPoint(0, 0));
+        return new EyeCareService(settings, runner, hooks);
     }
 
     [Fact]

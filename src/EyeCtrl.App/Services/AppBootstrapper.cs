@@ -213,10 +213,7 @@ public class AppBootstrapper
         services.AddSingleton<IEyeCareService, EyeCareService>(sp => new EyeCareService(
             sp.GetRequiredService<EyeCtrlSettings>().EyeCare,
             sp.GetRequiredService<ExerciseRunner>(),
-            sp.GetRequiredService<IEyeCareHooks>(),
-            new PhysicalPoint(
-                System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX / 2,
-                System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY / 2)));
+            sp.GetRequiredService<IEyeCareHooks>()));
 
         return services.BuildServiceProvider();
     }

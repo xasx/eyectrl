@@ -216,6 +216,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         CopySettings(defaults.Keyboard, _settings.Keyboard);
         CopySettings(defaults.Toolbar, _settings.Toolbar);
         CopySettings(defaults.Theme, _settings.Theme);
+        CopySettings(defaults.Backdrop, _settings.Backdrop);
         CopySettings(defaults.General, _settings.General);
         CopySettings(defaults.Calibration, _settings.Calibration);
         CopySettings(defaults.AutoSelection, _settings.AutoSelection);

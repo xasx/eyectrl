@@ -21,14 +21,14 @@ public class DragTrailViewModelTests
     private DragTrailViewModel CreateVm() => new(_settings, _messenger);
 
     [Fact]
-    public void StartDrag_SetsGrabOrigin_AndIsActive()
+    public void StartDrag_SetsGrabOrigin_AndIsDragActive()
     {
         var vm = CreateVm();
         var origin = new PhysicalPoint(500, 300);
 
         _messenger.Send(StartMsg(origin));
 
-        Check.That(vm.IsActive).IsTrue();
+        Check.That(vm.IsDragActive).IsTrue();
         Check.That(vm.GrabOrigin).IsEqualTo(origin);
         Check.That(vm.DragState).IsEqualTo(DragSubState.FreeDrag);
     }
@@ -75,7 +75,7 @@ public class DragTrailViewModelTests
         _messenger.Send(new GazeCursorMovedMessage(pos, 300_000));
 
         Check.That(dropMsg).IsNotNull();
-        Check.That(vm.IsActive).IsFalse();
+        Check.That(vm.IsDragActive).IsFalse();
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public class DragTrailViewModelTests
         _messenger.Send(new GazeCursorMovedMessage(cancelPos, 300_000));
 
         Check.That(cancelMsg).IsNotNull();
-        Check.That(vm.IsActive).IsFalse();
+        Check.That(vm.IsDragActive).IsFalse();
     }
 
     [Fact]

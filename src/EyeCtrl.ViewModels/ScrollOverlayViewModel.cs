@@ -1,6 +1,5 @@
 namespace EyeCtrl.ViewModels;
 
-using System;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
@@ -8,20 +7,15 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class ScrollOverlayViewModel : ObservableObject,
-    IRecipient<GazeCursorMovedMessage>,
-    IDisposable
+public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 {
     private const string StopButtonTargetId = "scroll-stop";
     private const double StopButtonRadiusPx = 30;
     private const double StopZoneRadiusPx = 50;
     private const double MaxOffsetPx = 200.0;
 
-    private readonly DwellDetector _dwellDetector;
-    private readonly IMessenger _messenger;
     private readonly ScrollSettings _scrollSettings;
     private readonly DwellSettings _dwellSettings;
-    private bool _disposed;
 
     private PhysicalPoint _anchor;
     private PhysicalPoint _stopButtonCenter;
@@ -31,7 +25,6 @@ public partial class ScrollOverlayViewModel : ObservableObject,
     [ObservableProperty] private double _scrollVelocityX;
     [ObservableProperty] private double _scrollVelocityY;
     [ObservableProperty] private double _stopButtonProgress;
-    [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private double _velocityMagnitude;
 
     public PhysicalPoint Anchor => _anchor;
@@ -42,15 +35,14 @@ public partial class ScrollOverlayViewModel : ObservableObject,
     public event Action? FeedbackChanged;
 
     public ScrollOverlayViewModel(IMessenger messenger, ScrollSettings scrollSettings, DwellSettings dwellSettings)
+        : base(messenger, dwellSettings.DwellCooldownMs)
     {
-        _messenger = messenger;
         _scrollSettings = scrollSettings;
         _dwellSettings = dwellSettings;
-        _dwellDetector = new DwellDetector(dwellSettings.DwellCooldownMs);
-        _dwellDetector.TargetActivated += _ => ExitRequested?.Invoke();
-        _dwellDetector.TargetProgress += (_, progress) => StopButtonProgress = progress;
-        messenger.RegisterAll(this);
     }
+
+    protected override void OnTargetActivated(string targetId) => ExitRequested?.Invoke();
+    protected override void OnTargetProgress(string targetId, double progress) => StopButtonProgress = progress;
 
     public void EnterScrollMode(PhysicalPoint anchor, PhysicalPoint stopButtonCenter)
     {
@@ -64,8 +56,8 @@ public partial class ScrollOverlayViewModel : ObservableObject,
         VelocityMagnitude = 0;
         StopButtonProgress = 0;
 
-        _dwellDetector.ClearTargets();
-        _dwellDetector.AddTarget(new DwellTarget(
+        DwellDetector.ClearTargets();
+        DwellDetector.AddTarget(new DwellTarget(
             StopButtonTargetId,
             _stopButtonCenter,
             StopButtonRadiusPx,
@@ -75,14 +67,14 @@ public partial class ScrollOverlayViewModel : ObservableObject,
     public void ExitScrollMode()
     {
         IsVisible = false;
-        _dwellDetector.ClearTargets();
+        DwellDetector.ClearTargets();
     }
 
-    public void Receive(GazeCursorMovedMessage message)
+    public override void Receive(GazeCursorMovedMessage message)
     {
         if (!IsVisible) return;
 
-        _dwellDetector.Update(message.Position, message.TimestampMicroseconds);
+        DwellDetector.Update(message.Position, message.TimestampMicroseconds);
 
         var (vx, vy) = ScrollEngine.ComputeVelocity(
             message.Position, _anchor, _scrollSettings.Sensitivity,
@@ -108,12 +100,5 @@ public partial class ScrollOverlayViewModel : ObservableObject,
 
         TargetVelocityChanged?.Invoke(vx, vy);
         FeedbackChanged?.Invoke();
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _messenger.UnregisterAll(this);
-        _disposed = true;
     }
 }

@@ -15,22 +15,17 @@ public enum DragSubState
     ZoomActive
 }
 
-public partial class DragTrailViewModel : ObservableObject,
-    IRecipient<StartDragTrailMessage>,
-    IRecipient<GazeCursorMovedMessage>,
-    IDisposable
+public partial class DragTrailViewModel : DwellOverlayViewModelBase,
+    IRecipient<StartDragTrailMessage>
 {
     private const string ReleaseTargetId = "Drag_release";
     private const string CancelTargetId = "Drag_cancel";
     private const string BackTargetId = "Drag_back";
 
-    private readonly IMessenger _messenger;
     private readonly EyeCtrlSettings _settings;
-    private readonly DwellDetector _dwellDetector;
     private readonly FixationDetector _settleDetector;
-    private bool _disposed;
 
-    [ObservableProperty] private bool _isActive;
+    [ObservableProperty] private bool _isDragActive;
     [ObservableProperty] private PhysicalPoint _grabOrigin;
     [ObservableProperty] private PhysicalPoint _cursorPosition;
     [ObservableProperty] private DragSubState _dragState = DragSubState.FreeDrag;
@@ -41,27 +36,22 @@ public partial class DragTrailViewModel : ObservableObject,
     [ObservableProperty] private PhysicalPoint _backButtonCenter;
 
     public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger)
+        : base(messenger, settings.Dwell.DwellCooldownMs)
     {
         _settings = settings;
-        _messenger = messenger;
-        _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
-        _dwellDetector.TargetActivated += OnTargetActivated;
-        _dwellDetector.TargetProgress += OnTargetProgress;
 
         _settleDetector = new FixationDetector(
             settings.Drag.SettleRadiusPixels,
             settings.Drag.SettleDwellMs);
         _settleDetector.FixationStarted += OnSettleStarted;
         _settleDetector.FixationEnded += OnSettleEnded;
-
-        messenger.RegisterAll(this);
     }
 
     public void Receive(StartDragTrailMessage message)
     {
         GrabOrigin = message.GrabOrigin;
         CursorPosition = message.GrabOrigin;
-        IsActive = true;
+        IsDragActive = true;
         DragState = DragSubState.FreeDrag;
         SettleProgress = 0;
         ShowBack = false;
@@ -74,12 +64,12 @@ public partial class DragTrailViewModel : ObservableObject,
         SetupDwellTargets();
     }
 
-    public void Receive(GazeCursorMovedMessage message)
+    public override void Receive(GazeCursorMovedMessage message)
     {
-        if (!IsActive) return;
+        if (!IsDragActive) return;
 
         CursorPosition = message.Position;
-        _dwellDetector.Update(message.Position, message.TimestampMicroseconds);
+        DwellDetector.Update(message.Position, message.TimestampMicroseconds);
 
         if (DragState == DragSubState.FreeDrag || DragState == DragSubState.Settling)
         {
@@ -93,7 +83,7 @@ public partial class DragTrailViewModel : ObservableObject,
         }
 
         UpdateReleaseButtonPosition(message.Position);
-        _dwellDetector.UpdateTargetCenter(ReleaseTargetId, ReleaseButtonCenter);
+        DwellDetector.UpdateTargetCenter(ReleaseTargetId, ReleaseButtonCenter);
     }
 
     private void OnSettleStarted(PhysicalPoint point)
@@ -130,25 +120,25 @@ public partial class DragTrailViewModel : ObservableObject,
 
     private void SetupDwellTargets(bool includeBack = false)
     {
-        _dwellDetector.ClearTargets();
+        DwellDetector.ClearTargets();
         var btnRadius = DpiHelper.LogicalToPhysicalX(UIConstants.DragButtonRadius);
 
-        _dwellDetector.AddTarget(new DwellTarget(
+        DwellDetector.AddTarget(new DwellTarget(
             ReleaseTargetId, ReleaseButtonCenter, btnRadius,
             _settings.Dwell.DragReleaseButtonDwellMs));
-        _dwellDetector.AddTarget(new DwellTarget(
+        DwellDetector.AddTarget(new DwellTarget(
             CancelTargetId, CancelButtonCenter, btnRadius,
             _settings.Dwell.DragRightEdgeButtonDwellMs));
 
         if (includeBack)
         {
-            _dwellDetector.AddTarget(new DwellTarget(
+            DwellDetector.AddTarget(new DwellTarget(
                 BackTargetId, BackButtonCenter, btnRadius,
                 _settings.Dwell.DragRightEdgeButtonDwellMs));
         }
     }
 
-    private void OnTargetActivated(string targetId)
+    protected override void OnTargetActivated(string targetId)
     {
         if (targetId == ReleaseTargetId)
             CompleteDrag(CursorPosition);
@@ -158,26 +148,26 @@ public partial class DragTrailViewModel : ObservableObject,
             DismissZoom();
     }
 
-    private void OnTargetProgress(string targetId, double progress)
+    protected override void OnTargetProgress(string targetId, double progress)
     {
     }
 
     private void CompleteDrag(PhysicalPoint dropPoint)
     {
-        IsActive = false;
+        IsDragActive = false;
         _settleDetector.Reset();
-        _dwellDetector.ClearTargets();
+        DwellDetector.ClearTargets();
         DragState = DragSubState.FreeDrag;
-        _messenger.Send(new DragDropMessage(dropPoint));
+        Messenger.Send(new DragDropMessage(dropPoint));
     }
 
     private void CancelDrag()
     {
-        IsActive = false;
+        IsDragActive = false;
         _settleDetector.Reset();
-        _dwellDetector.ClearTargets();
+        DwellDetector.ClearTargets();
         DragState = DragSubState.FreeDrag;
-        _messenger.Send(new DragCancelMessage());
+        Messenger.Send(new DragCancelMessage());
     }
 
     private void DismissZoom()
@@ -187,17 +177,13 @@ public partial class DragTrailViewModel : ObservableObject,
         SettleProgress = 0;
         _settleDetector.Reset();
         SetupDwellTargets();
-        _messenger.Send(new DragDismissZoomMessage());
+        Messenger.Send(new DragDismissZoomMessage());
     }
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed) return;
-        _dwellDetector.TargetActivated -= OnTargetActivated;
-        _dwellDetector.TargetProgress -= OnTargetProgress;
+        base.OnDispose();
         _settleDetector.FixationStarted -= OnSettleStarted;
         _settleDetector.FixationEnded -= OnSettleEnded;
-        _messenger.UnregisterAll(this);
-        _disposed = true;
     }
 }

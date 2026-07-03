@@ -73,4 +73,24 @@ public class ToolbarViewModelTests
         _messenger.Send(new SelectionModeChangedMessage(SelectionMode.AutoSelection));
         Check.That(selectionButton.Symbol).IsEqualTo("\u25CE");
     }
+
+    [Fact]
+    public void SelectionModeCycle_VisitsEveryEnumValueAndWraps()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+        var seen = new List<SelectionMode>();
+        messenger.Register<SelectionModeChangedMessage>(this, (_, m) =>
+        {
+            seen.Add(m.Mode);
+            vm.Receive(m);
+        });
+
+        int count = Enum.GetValues<SelectionMode>().Length;
+        for (int i = 0; i <= count; i++)
+            vm.SimulateButtonActivated("SelectionMode");
+
+        Check.That(seen.Distinct().Count()).IsEqualTo(count);
+        Check.That(seen[count]).IsEqualTo(seen[0]);
+    }
 }

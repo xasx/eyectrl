@@ -18,6 +18,7 @@ public partial class GlassBackdropViewModel : ObservableObject,
     private const string HideTargetId = "backdrop_hide";
 
     private readonly IMessenger _messenger;
+    private readonly EyeCtrlSettings _settings;
     private readonly DwellDetector _dwellDetector;
     private bool _disposed;
 
@@ -27,6 +28,7 @@ public partial class GlassBackdropViewModel : ObservableObject,
 
     public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger)
     {
+        _settings = settings;
         _messenger = messenger;
         _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
         _dwellDetector.TargetActivated += OnTargetActivated;
@@ -43,7 +45,7 @@ public partial class GlassBackdropViewModel : ObservableObject,
             HideTargetId,
             message.HideButtonCenter,
             DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius),
-            UIConstants.BackdropHideButtonDwellMs));
+            _settings.Dwell.BackdropHideButtonDwellMs));
         IsVisible = true;
     }
 

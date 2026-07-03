@@ -49,7 +49,7 @@ public class GlassBackdropViewModelTests
 
         // Simulate gaze inside hide button for full dwell duration
         long now = 1_000_000;
-        long dwellUs = UIConstants.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond;
+        long dwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond;
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + dwellUs));
 
@@ -96,7 +96,7 @@ public class GlassBackdropViewModelTests
         messenger.Send(new ShowBackdropMessage(buttonCenter));
 
         long now = 1_000_000;
-        long halfDwellUs = UIConstants.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
+        long halfDwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + halfDwellUs));
         Check.That(vm.HideButtonProgress > 0).IsTrue();
@@ -117,7 +117,7 @@ public class GlassBackdropViewModelTests
         messenger.Send(new ShowBackdropMessage(buttonCenter));
 
         long now = 1_000_000;
-        long halfDwellUs = UIConstants.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
+        long halfDwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
         messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + halfDwellUs));
 

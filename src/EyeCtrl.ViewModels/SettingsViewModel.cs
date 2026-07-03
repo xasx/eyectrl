@@ -83,6 +83,8 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
             new SliderSettingViewModel("dragReleaseMs", "Drag Release Dwell (ms)", d.DragReleaseButtonDwellMs, 200, 2000, 50, v => d.DragReleaseButtonDwellMs = (int)v),
             new SliderSettingViewModel("dragRightEdgeMs", "Drag Edge Button Dwell (ms)", d.DragRightEdgeButtonDwellMs, 200, 2000, 50, v => d.DragRightEdgeButtonDwellMs = (int)v),
             new SliderSettingViewModel("scrollStopMs", "Scroll Stop Button Dwell (ms)", d.ScrollStopButtonDwellMs, 200, 2000, 50, v => d.ScrollStopButtonDwellMs = (int)v),
+            new SliderSettingViewModel("manualSelSideMs", "Manual Selection Side Button Dwell (ms)", d.ManualSelectionSideButtonDwellMs, 200, 2000, 50, v => d.ManualSelectionSideButtonDwellMs = (int)v),
+            new SliderSettingViewModel("backdropHideMs", "Backdrop Hide Button Dwell (ms)", d.BackdropHideButtonDwellMs, 200, 2000, 50, v => d.BackdropHideButtonDwellMs = (int)v),
         }));
 
         var ed = _settings.ExternalDwell;

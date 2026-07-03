@@ -33,4 +33,7 @@ public static class UIConstants
 
     /// <summary>Distance from screen edges to the backdrop hide button center in logical pixels.</summary>
     public const double BackdropHideButtonOffset = 40.0;
+
+    public const double DragButtonRadius = 20.0;
+    public const double DragReleaseButtonOffset = 14.0;
 }

@@ -127,7 +127,7 @@ public class ModelDownloadService : IDisposable
         return Path.Combine(_modelsDirectory, fileName);
     }
 
-    /// <summary>Cancels the currently active download operation.</summary>
+    /// <summary>Cancels the currently active download operation (model or tokenizer).</summary>
     public void CancelDownload()
     {
         _downloadCts?.Cancel();
@@ -288,74 +288,25 @@ public class ModelDownloadService : IDisposable
         CancellationToken cancellationToken = default)
     {
         var fileName = GetTokenizerFileName(modelSize);
-        var outputPath = Path.Combine(_modelsDirectory, fileName);
-        var tempPath = outputPath + ".download";
-
-        if (!await _downloadSemaphore.WaitAsync(0, cancellationToken))
-        {
-            _logger?.LogWarning("Tokenizer download rejected: another download is already in progress");
-            return false;
-        }
-
-        _isDownloading = true;
-
-        _logger?.LogInformation("Downloading tokenizer {Size} from {Url} to {Path}", modelSize, url, outputPath);
+        _logger?.LogInformation("Downloading tokenizer {Size} from {Url} to {Path}",
+            modelSize, url, Path.Combine(_modelsDirectory, fileName));
 
         try
         {
-            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            var (outcome, _) = await DownloadFileCoreAsync(
+                fileName, url, expectedSha256,
+                onStarted: null,
+                onProgress: p => progress?.Report(p),
+                cancellationToken);
 
-            var totalBytes = response.Content.Headers.ContentLength ?? -1;
-            using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-
-            var buffer = new byte[8192];
-            long totalRead = 0;
-            int bytesRead;
-
-            using var sha256 = SHA256.Create();
-            using (var fileStream = File.Create(tempPath))
-            using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
-            {
-                while ((bytesRead = await cs.ReadAsync(buffer, cancellationToken)) > 0)
-                {
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-                    totalRead += bytesRead;
-                    if (totalBytes > 0)
-                        progress?.Report((double)totalRead / totalBytes);
-                }
-            }
-            var computedHash = Convert.ToHexStringLower(sha256.Hash!);
-
-            // Integrity check is opt-in: an empty expectedSha256 skips it (HTTPS transport trust). See DownloadModelAsync remarks.
-            if (!string.IsNullOrEmpty(expectedSha256) &&
-                !string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger?.LogError("Hash mismatch for tokenizer {Size}: expected {Expected}, got {Actual}", modelSize, expectedSha256, computedHash);
-                File.Delete(tempPath);
-                return false;
-            }
-
-            File.Move(tempPath, outputPath, overwrite: true);
-            _logger?.LogInformation("Tokenizer {Size} downloaded successfully ({Bytes} bytes)", modelSize, totalRead);
-            return true;
+            if (outcome == DownloadOutcome.Busy)
+                _logger?.LogWarning("Tokenizer download rejected: another download is already in progress");
+            return outcome == DownloadOutcome.Success;
         }
         catch (OperationCanceledException)
         {
             _logger?.LogInformation("Tokenizer download cancelled: {Size}", modelSize);
-            if (File.Exists(tempPath)) File.Delete(tempPath);
             throw;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Failed to download tokenizer {Size}", modelSize);
-            if (File.Exists(tempPath)) File.Delete(tempPath);
-            return false;
-        }
-        finally
-        {
-            _isDownloading = false;
-            _downloadSemaphore.Release();
         }
     }
 
@@ -373,66 +324,17 @@ public class ModelDownloadService : IDisposable
         string expectedSha256,
         CancellationToken cancellationToken = default)
     {
-        var outputPath = Path.Combine(_modelsDirectory, outputFileName);
-        var tempPath = outputPath + ".download";
+        _logger?.LogInformation("Downloading tokenizer {Id} from {Url} to {Path}",
+            modelId, url, Path.Combine(_modelsDirectory, outputFileName));
 
-        if (!await _downloadSemaphore.WaitAsync(0, cancellationToken))
-        {
+        var (outcome, _) = await DownloadFileCoreAsync(
+            outputFileName, url, expectedSha256,
+            onStarted: null,
+            onProgress: null,
+            cancellationToken);
+
+        if (outcome == DownloadOutcome.Busy)
             _logger?.LogWarning("Tokenizer download rejected: another download is already in progress");
-            return false;
-        }
-
-        _isDownloading = true;
-
-        _logger?.LogInformation("Downloading tokenizer {Id} from {Url} to {Path}", modelId, url, outputPath);
-
-        try
-        {
-            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-
-            var buffer = new byte[8192];
-            int bytesRead;
-
-            using var sha256 = System.Security.Cryptography.SHA256.Create();
-            using (var fileStream = File.Create(tempPath))
-            using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
-            {
-                while ((bytesRead = await cs.ReadAsync(buffer, cancellationToken)) > 0)
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-            }
-            var computedHash = Convert.ToHexStringLower(sha256.Hash!);
-
-            // Integrity check is opt-in: an empty expectedSha256 skips it (HTTPS transport trust). See DownloadModelAsync remarks.
-            if (!string.IsNullOrEmpty(expectedSha256) &&
-                !string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger?.LogError("Hash mismatch for tokenizer {Id}", modelId);
-                File.Delete(tempPath);
-                return false;
-            }
-
-            File.Move(tempPath, outputPath, overwrite: true);
-            _logger?.LogInformation("Tokenizer {Id} downloaded successfully", modelId);
-            return true;
-        }
-        catch (OperationCanceledException)
-        {
-            if (File.Exists(tempPath)) File.Delete(tempPath);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Failed to download tokenizer {Id}", modelId);
-            if (File.Exists(tempPath)) File.Delete(tempPath);
-            return false;
-        }
-        finally
-        {
-            _isDownloading = false;
-            _downloadSemaphore.Release();
-        }
+        return outcome == DownloadOutcome.Success;
     }
 }

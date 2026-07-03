@@ -500,4 +500,54 @@ public class FileDictionaryProviderTests : IDisposable
         Check.That(casingPreferences).IsNotNull();
         Check.That(casingPreferences).IsEmpty();
     }
+
+    [Fact]
+    public void LoadBigrams_FileLocked_ReturnsEmptyInsteadOfThrowing()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"dict_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var provider = new FileDictionaryProvider(
+                Path.Combine(tempDir, "base.json"), tempDir, "en");
+            var bigramsPath = Path.Combine(tempDir, "user_dictionary_en_bigrams.json");
+            File.WriteAllText(bigramsPath, """{"hello":{"world":1}}""");
+
+            using var fileLock = new FileStream(
+                bigramsPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+            Dictionary<string, Dictionary<string, int>>? result = null;
+            Check.ThatCode(() => result = provider.LoadBigrams()).DoesNotThrow();
+            Check.That(result).IsEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LoadPhrases_FileLocked_ReturnsEmptyInsteadOfThrowing()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"dict_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var provider = new FileDictionaryProvider(
+                Path.Combine(tempDir, "base.json"), tempDir, "en");
+            var phrasesPath = Path.Combine(tempDir, "user_dictionary_en_phrases.json");
+            File.WriteAllText(phrasesPath, """{"how are":{"how are you":1}}""");
+
+            using var fileLock = new FileStream(
+                phrasesPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+            Dictionary<string, Dictionary<string, int>>? result = null;
+            Check.ThatCode(() => result = provider.LoadPhrases()).DoesNotThrow();
+            Check.That(result).IsEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
 }

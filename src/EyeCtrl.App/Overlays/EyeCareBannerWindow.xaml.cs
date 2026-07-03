@@ -8,6 +8,11 @@ using EyeCtrl.Core.Services;
 
 public partial class EyeCareBannerWindow : OverlayWindow
 {
+    private const double StartCenterFromRightDip = 52;
+    private const double SnoozeCenterFromRightDip = 132;
+    private const double ButtonCenterFromTopDip = 40;
+    private const double HitRadiusDip = 40;
+
     private readonly DwellDetector _dwell;
     private readonly int _dwellMs;
     private PhysicalPoint _startCenter = new(0, 0);
@@ -25,6 +30,16 @@ public partial class EyeCareBannerWindow : OverlayWindow
         _dwell.TargetActivated += OnTargetActivated;
     }
 
+    public static (PhysicalPoint Start, PhysicalPoint Snooze, double Radius) ComputeDwellGeometry(
+        double screenDipWidth, double scaleX, double scaleY)
+    {
+        var screenPhysWidth = screenDipWidth * scaleX;
+        var physTop = ButtonCenterFromTopDip * scaleY;
+        var start = new PhysicalPoint(screenPhysWidth - StartCenterFromRightDip * scaleX, physTop);
+        var snooze = new PhysicalPoint(screenPhysWidth - SnoozeCenterFromRightDip * scaleX, physTop);
+        return (start, snooze, HitRadiusDip * scaleX);
+    }
+
     /// <summary>Shows the banner and resolves to true=accept, false=snooze/auto-dismiss.</summary>
     public Task<bool> ShowAsync(string message, PhysicalPoint screenCenter, int autoSnoozeSeconds)
     {
@@ -32,15 +47,13 @@ public partial class EyeCareBannerWindow : OverlayWindow
         // Position the two dwell circles at top-right, ~64px diameter, centered vertically in the 80px banner.
         // ActualWidth and SystemParameters.PrimaryScreenWidth are in DIPs; DwellTarget expects physical pixels.
         var screenDipWidth = ActualWidth > 0 ? ActualWidth : SystemParameters.PrimaryScreenWidth;
-        var screenPhysWidth = DpiHelper.LogicalToPhysicalX(screenDipWidth);
-        var physTop = DpiHelper.LogicalToPhysicalY(40);
-        _startCenter = new PhysicalPoint(screenPhysWidth - 60, physTop);
-        _snoozeCenter = new PhysicalPoint(screenPhysWidth - 140, physTop);
+        var geometry = ComputeDwellGeometry(screenDipWidth, DpiHelper.ScaleX, DpiHelper.ScaleY);
+        _startCenter = geometry.Start;
+        _snoozeCenter = geometry.Snooze;
 
         _dwell.ClearTargets();
-        // DwellTarget ctor is (string id, PhysicalPoint center, double radius, int dwellTimeMs) — ms, not µs.
-        _dwell.AddTarget(new DwellTarget("start", _startCenter, radius: 60, dwellTimeMs: _dwellMs));
-        _dwell.AddTarget(new DwellTarget("snooze", _snoozeCenter, radius: 60, dwellTimeMs: _dwellMs));
+        _dwell.AddTarget(new DwellTarget("start", _startCenter, geometry.Radius, dwellTimeMs: _dwellMs));
+        _dwell.AddTarget(new DwellTarget("snooze", _snoozeCenter, geometry.Radius, dwellTimeMs: _dwellMs));
 
         WorkDim.Visibility = Visibility.Visible;
         Show();

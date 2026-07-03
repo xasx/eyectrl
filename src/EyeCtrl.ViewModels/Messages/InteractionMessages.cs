@@ -38,8 +38,19 @@ public record StateChangedMessage(InteractionState NewState);
 /// </summary>
 public record StartManualSelectionMessage(PhysicalPoint Center, int Radius, double Magnification, PhysicalPoint GazePoint);
 
+/// <summary>
+/// Sent when a manual selection completes normally (an action was chosen or the user closed it).
+/// Overlays tear down their manual-selection visuals. Distinct from
+/// <see cref="ManualSelectionHiddenMessage"/>, which is the abnormal/forced-dismissal path
+/// (e.g. state machine leaves ManualSelection without user completion); both must hide
+/// the overlay, hence the intentionally identical handler bodies.
+/// </summary>
 public record EndManualSelectionMessage;
 
+/// <summary>
+/// Sent when the manual selection overlay is force-hidden without a completed selection.
+/// See <see cref="EndManualSelectionMessage"/> for the normal-completion counterpart.
+/// </summary>
 public record ManualSelectionHiddenMessage;
 
 public record ManualSelectionCloseMessage;

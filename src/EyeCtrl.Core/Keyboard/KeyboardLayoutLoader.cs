@@ -11,6 +11,12 @@ public static class KeyboardLayoutLoader
         PropertyNameCaseInsensitive = true
     };
 
+    private static readonly JsonSerializerOptions SaveOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
+
     /// <summary>Loads a keyboard layout from a JSON file.</summary>
     /// <param name="filePath">Path to the layout JSON file.</param>
     /// <returns>The deserialized <see cref="KeyboardLayout"/>.</returns>
@@ -27,11 +33,7 @@ public static class KeyboardLayoutLoader
     /// <param name="filePath">Output file path.</param>
     public static void Save(KeyboardLayout layout, string filePath)
     {
-        var json = JsonSerializer.Serialize(layout, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            WriteIndented = true
-        });
+        var json = JsonSerializer.Serialize(layout, SaveOptions);
         File.WriteAllText(filePath, json);
     }
 }

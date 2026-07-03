@@ -10,9 +10,19 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class CalibrationService
 {
-    private readonly object _transformLock = new();
+    // Volatile reference assignment is atomic; no lock needed for a single-field swap.
     private volatile ICalibrationTransform? _currentTransform;
     private readonly ILogger<CalibrationService>? _logger;
+
+    private static readonly JsonSerializerOptions s_readOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+    private static readonly JsonSerializerOptions s_writeOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
 
     private List<PhysicalPoint>? _targetPositions;
     private CalibrationPointCollector? _currentCollector;
@@ -163,7 +173,7 @@ public class CalibrationService
             throw new InvalidOperationException(
                 $"Calibration accuracy is too poor ({maxResidual:F0}px off target). Please recalibrate.");
 
-        lock (_transformLock) { _currentTransform = transform; }
+        _currentTransform = transform;
         CurrentData = data;
 
         _targetPositions = null;
@@ -182,7 +192,7 @@ public class CalibrationService
     /// <summary>Clears the current calibration transform and related data.</summary>
     public void Clear()
     {
-        lock (_transformLock) { _currentTransform = null; }
+        _currentTransform = null;
         CurrentData = null;
     }
 
@@ -200,10 +210,7 @@ public class CalibrationService
         try
         {
             var json = File.ReadAllText(filePath);
-            var data = JsonSerializer.Deserialize<CalibrationData>(json, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
+            var data = JsonSerializer.Deserialize<CalibrationData>(json, s_readOptions);
             if (data == null) return;
 
             if (data.ScreenWidth != (int)currentScreenSize.X ||
@@ -235,7 +242,7 @@ public class CalibrationService
                 return;
             }
 
-            lock (_transformLock) { _currentTransform = transform; }
+            _currentTransform = transform;
             CurrentData = data;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
@@ -249,11 +256,7 @@ public class CalibrationService
     /// <param name="data">The <see cref="CalibrationData"/> to persist.</param>
     public void Save(string filePath, CalibrationData data)
     {
-        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        });
+        var json = JsonSerializer.Serialize(data, s_writeOptions);
         var dir = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         File.WriteAllText(filePath, json);

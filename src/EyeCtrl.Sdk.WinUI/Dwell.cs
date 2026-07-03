@@ -77,7 +77,7 @@ public static class Dwell
         if (el.GetValue(EntryProperty) is Entry) return;
 
         var id = _core.NextId();
-        var adapter = new WinUiElementAdapter(id, el, GetMode(el));
+        var adapter = new WinUiElementAdapter(id, el);
 
         RoutedEventHandler loaded = (_, _) => OnLoaded(el, adapter);
         RoutedEventHandler unloaded = (_, _) => OnUnloaded(el, adapter);

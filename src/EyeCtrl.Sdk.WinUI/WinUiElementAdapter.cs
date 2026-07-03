@@ -16,13 +16,12 @@ internal sealed class WinUiElementAdapter : IDwellElementAdapter
     private long _hwndCache;
 
     public string Id { get; }
-    public DwellMode Mode { get; }
+    public DwellMode Mode => Dwell.GetMode(_element);
 
-    public WinUiElementAdapter(string id, FrameworkElement element, DwellMode mode)
+    public WinUiElementAdapter(string id, FrameworkElement element)
     {
         Id = id;
         _element = element;
-        Mode = mode;
     }
 
     public long WindowHandle => ResolveHwnd();

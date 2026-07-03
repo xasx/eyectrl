@@ -11,4 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="EyeCtrl.Sdk.Wpf.Tests" />
+  </ItemGroup>
 </Project>

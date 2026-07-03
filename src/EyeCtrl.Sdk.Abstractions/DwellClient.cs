@@ -21,7 +21,6 @@ public sealed class DwellClient : IDisposable
 
     private readonly ConcurrentDictionary<string, IDwellElementAdapter> _adapters = new();
     private readonly OutboundRectTracker _tracker = new();
-    private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly object _writeLock = new();
 
     // Outbound messages are queued and written by a single background consumer, so callers
@@ -116,7 +115,7 @@ public sealed class DwellClient : IDisposable
             if (line == null) break;
             try
             {
-                if (JsonSerializer.Deserialize<WireMessage>(line, _json) is ActivatedMessage a
+                if (JsonSerializer.Deserialize<WireMessage>(line, WireJson.Options) is ActivatedMessage a
                     && _adapters.TryGetValue(a.Id, out var adapter))
                 {
                     adapter.Activate();
@@ -145,7 +144,7 @@ public sealed class DwellClient : IDisposable
         {
             await foreach (var msg in _outbox.Reader.ReadAllAsync(token))
             {
-                var line = JsonSerializer.Serialize(msg, _json);
+                var line = JsonSerializer.Serialize(msg, WireJson.Options);
                 lock (_writeLock)
                 {
                     if (_writer is null) continue;   // disconnected; reconnect re-sends current state

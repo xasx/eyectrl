@@ -26,7 +26,6 @@ public sealed class ExternalDwellService : IDisposable
     private readonly IMessenger _messenger;
     private readonly ExternalDwellArbiter _arbiter;
     private readonly DwellFeedbackOverlay _feedback;
-    private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private readonly object _stateLock = new();
     private readonly List<PipeConnection> _connections = new();
@@ -187,7 +186,7 @@ public sealed class ExternalDwellService : IDisposable
             {
                 var line = await reader.ReadLineAsync(token);
                 if (line == null) break;
-                try { HandleMessage(JsonSerializer.Deserialize<WireMessage>(line, _json), conn); }
+                try { HandleMessage(JsonSerializer.Deserialize<WireMessage>(line, WireJson.Options), conn); }
                 catch (Exception ex) { _logger.LogWarning(ex, "bad pipe message: {Line}", line); }
             }
         }
@@ -246,7 +245,7 @@ public sealed class ExternalDwellService : IDisposable
         PipeConnection? conn;
         lock (_stateLock) _connByTarget.TryGetValue(id, out conn);
         if (conn is null) return;
-        var json = JsonSerializer.Serialize<WireMessage>(new ActivatedMessage { Id = id }, _json);
+        var json = JsonSerializer.Serialize<WireMessage>(new ActivatedMessage { Id = id }, WireJson.Options);
         _ = Task.Run(() => conn.Send(json));
     }
 

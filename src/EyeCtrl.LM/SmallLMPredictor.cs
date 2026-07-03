@@ -303,19 +303,18 @@ public class SmallLMPredictor : ILanguageModelPredictor
         return sb.ToString().Trim();
     }
 
-    private List<PredictionResult> PostProcess(string generatedText, string? prefix, double avgProb)
+    internal static List<PredictionResult> PostProcess(string generatedText, string? prefix, double avgProb)
     {
         var results = new List<PredictionResult>();
         if (string.IsNullOrWhiteSpace(generatedText)) return results;
 
         var words = generatedText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0) return results;
 
-        foreach (var word in words)
-        {
-            if (!string.IsNullOrEmpty(prefix) && !word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                continue;
-            results.Add(new PredictionResult(word, avgProb * 100.0, PredictionType.LMSuggestion, avgProb));
-        }
+        var word = words[0];
+        if (!string.IsNullOrEmpty(prefix) && !word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return results;
+        results.Add(new PredictionResult(word, avgProb * 100.0, PredictionType.LMSuggestion, avgProb));
 
         return results;
     }

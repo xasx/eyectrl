@@ -111,4 +111,25 @@ public class SmallLMPredictorTests
         }
         finally { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
     }
+
+    [Fact]
+    public void PostProcess_MultiWordGeneration_EmitsOnlyFirstWord()
+    {
+        var results = SmallLMPredictor.PostProcess("world peace now", prefix: null, avgProb: 0.5);
+        Check.That(results).HasSize(1);
+        Check.That(results[0].Word).IsEqualTo("world");
+    }
+
+    [Fact]
+    public void PostProcess_FirstWordNotMatchingPrefix_EmitsNothing()
+    {
+        var results = SmallLMPredictor.PostProcess("banana wonder world", prefix: "wo", avgProb: 0.5);
+        Check.That(results).IsEmpty();
+    }
+
+    [Fact]
+    public void PostProcess_WhitespaceOnly_EmitsNothing()
+    {
+        Check.That(SmallLMPredictor.PostProcess("   ", prefix: null, avgProb: 0.5)).IsEmpty();
+    }
 }

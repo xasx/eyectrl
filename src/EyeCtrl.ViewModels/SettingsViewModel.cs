@@ -244,21 +244,9 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
     public void ResetAllSettings()
     {
         var defaults = new EyeCtrlSettings();
-        CopySettings(defaults.Cursor, _settings.Cursor);
-        CopySettings(defaults.Dwell, _settings.Dwell);
-        CopySettings(defaults.ManualSelection, _settings.ManualSelection);
-        CopySettings(defaults.ActionMenu, _settings.ActionMenu);
-        CopySettings(defaults.Keyboard, _settings.Keyboard);
-        CopySettings(defaults.Toolbar, _settings.Toolbar);
-        CopySettings(defaults.Theme, _settings.Theme);
-        CopySettings(defaults.Backdrop, _settings.Backdrop);
-        CopySettings(defaults.General, _settings.General);
-        CopySettings(defaults.Calibration, _settings.Calibration);
-        CopySettings(defaults.AutoSelection, _settings.AutoSelection);
-        CopySettings(defaults.ExternalDwell, _settings.ExternalDwell);
-        CopySettings(defaults.Scroll, _settings.Scroll);
-        CopySettings(defaults.EyeCare, _settings.EyeCare);
-        CopySettings(defaults.Drag, _settings.Drag);
+        var defaultSubs = defaults.EnumerateSubSettings().ToDictionary(t => t.Name, t => t.Settings);
+        foreach (var (name, sub) in _settings.EnumerateSubSettings())
+            CopySettings(defaultSubs[name], sub);
         _settings.SelectionMode = defaults.SelectionMode;
         _settings.ViewPosition = defaults.ViewPosition;
 
@@ -269,9 +257,9 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
             ShowTab(CurrentTabName);
     }
 
-    private static void CopySettings<T>(T source, T target) where T : class
+    private static void CopySettings(object source, object target)
     {
-        foreach (var prop in typeof(T).GetProperties())
+        foreach (var prop in source.GetType().GetProperties())
         {
             if (prop.CanRead && prop.CanWrite)
                 prop.SetValue(target, prop.GetValue(source));

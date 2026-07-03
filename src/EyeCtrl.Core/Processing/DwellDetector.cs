@@ -64,7 +64,7 @@ public class DwellDetector
     /// Resets accumulated dwell state on all targets without removing them.
     /// Call this when switching input contexts (e.g. a modal dialog opening or closing)
     /// to prevent a stale <c>EnteredTimestamp</c> from causing a spurious immediate
-    /// activation when <see cref="Update"/> resumes after a pause.
+    /// activation when Update resumes after a pause.
     /// </summary>
     public void ResetAllState()
     {
@@ -98,6 +98,19 @@ public class DwellDetector
     /// <param name="gazePoint">Current gaze position in physical screen pixels</param>
     /// <param name="timestampMicroseconds">Timestamp in microseconds</param>
     public void Update(PhysicalPoint gazePoint, long timestampMicroseconds)
+        => Update(gazePoint, timestampMicroseconds, targetFilter: null);
+
+    /// <summary>
+    /// Updates the dwell detector with the current gaze position, timestamp, and an optional
+    /// per-call target filter. Targets excluded by the filter are never considered as nearest
+    /// candidate and cannot accumulate dwell.
+    /// </summary>
+    /// <param name="gazePoint">Current gaze position in physical screen pixels</param>
+    /// <param name="timestampMicroseconds">Timestamp in microseconds</param>
+    /// <param name="targetFilter">Optional filter: only targets for which this returns true are eligible.
+    /// A null filter means all targets are eligible (byte-for-byte identical to the 2-arg overload).</param>
+    public void Update(PhysicalPoint gazePoint, long timestampMicroseconds,
+        Func<DwellTarget, bool>? targetFilter)
     {
         _lastTimestamp = timestampMicroseconds;
 
@@ -129,6 +142,8 @@ public class DwellDetector
         for (int i = 0; i < targets.Length; i++)
         {
             var target = targets[i];
+            if (targetFilter != null && !targetFilter(target))
+                continue;
             if (target.HitTest(gazePoint))
             {
                 double dx = gazePoint.X - target.Center.X;

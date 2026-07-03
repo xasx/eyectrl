@@ -184,4 +184,76 @@ public class DwellDetectorTests
 
         Check.That(activations.Count).IsEqualTo(2);
     }
+
+    [Fact]
+    public void Update_WithFilter_ExcludedTargetNeverAccumulates()
+    {
+        var detector = new DwellDetector();
+        detector.AddTarget(new DwellTarget("blocked", new PhysicalPoint(100, 100), radius: 30, dwellTimeMs: 200));
+
+        bool activated = false;
+        detector.TargetActivated += _ => activated = true;
+
+        long time = 0;
+        for (int i = 0; i < 20; i++)
+        {
+            detector.Update(new PhysicalPoint(100, 100), time, targetFilter: _ => false);
+            time += 30_000;
+        }
+
+        Check.That(activated).IsFalse();
+        Check.That(detector.GetProgress("blocked")).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void Update_WithFilter_NearestEligibleWins_OverCloserIneligible()
+    {
+        var detector = new DwellDetector();
+        detector.AddTarget(new DwellTarget("near", new PhysicalPoint(100, 100), radius: 60, dwellTimeMs: 200));
+        detector.AddTarget(new DwellTarget("far", new PhysicalPoint(140, 100), radius: 60, dwellTimeMs: 200));
+
+        string? activatedId = null;
+        detector.TargetActivated += id => activatedId = id;
+
+        long time = 0;
+        for (int i = 0; i < 9; i++)
+        {
+            detector.Update(new PhysicalPoint(105, 100), time, targetFilter: t => t.Id == "far");
+            time += 30_000;
+        }
+
+        Check.That(activatedId).IsEqualTo("far");
+    }
+
+    [Fact]
+    public void Update_FilterFlipsMidDwell_ExcludedTargetStateResets()
+    {
+        var detector = new DwellDetector();
+        detector.AddTarget(new DwellTarget("t", new PhysicalPoint(100, 100), radius: 30, dwellTimeMs: 200));
+
+        bool activated = false;
+        detector.TargetActivated += _ => activated = true;
+
+        detector.Update(new PhysicalPoint(100, 100), 0);
+        detector.Update(new PhysicalPoint(100, 100), 150_000);
+        detector.Update(new PhysicalPoint(100, 100), 180_000, targetFilter: _ => false);
+        detector.Update(new PhysicalPoint(100, 100), 210_000);
+        detector.Update(new PhysicalPoint(100, 100), 240_000);
+
+        Check.That(activated).IsFalse();
+    }
+
+    [Fact]
+    public void Update_TwoArgOverload_StillActivates()
+    {
+        var detector = new DwellDetector();
+        detector.AddTarget(new DwellTarget("t", new PhysicalPoint(100, 100), radius: 30, dwellTimeMs: 200));
+        bool activated = false;
+        detector.TargetActivated += _ => activated = true;
+
+        detector.Update(new PhysicalPoint(100, 100), 0);
+        detector.Update(new PhysicalPoint(100, 100), 250_000);
+
+        Check.That(activated).IsTrue();
+    }
 }

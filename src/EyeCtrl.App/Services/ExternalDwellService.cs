@@ -211,7 +211,7 @@ public sealed class ExternalDwellService : IDisposable
     {
         switch (msg)
         {
-            case RegisterMessage r when _settings.Enabled:
+            case RegisterMessage r:
                 lock (_stateLock)
                 {
                     conn.Hwnd = r.Hwnd;

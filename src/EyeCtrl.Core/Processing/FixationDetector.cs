@@ -57,9 +57,7 @@ public class FixationDetector
             return;
         }
 
-        double distance = Math.Sqrt(
-            Math.Pow(currentPoint.X - _fixationCenter.Value.X, 2) +
-            Math.Pow(currentPoint.Y - _fixationCenter.Value.Y, 2));
+        double distance = currentPoint.DistanceTo(_fixationCenter.Value);
 
         if (distance <= _radiusPixels)
         {

@@ -32,17 +32,15 @@ public static class ScrollEngine
         PhysicalPoint? stopZoneCenter = null,
         double stopZoneRadiusPx = 50.0)
     {
-        if (stopZoneCenter.HasValue)
+        if (stopZoneCenter.HasValue &&
+            gaze.DistanceTo(stopZoneCenter.Value) <= stopZoneRadiusPx)
         {
-            double sx = gaze.X - stopZoneCenter.Value.X;
-            double sy = gaze.Y - stopZoneCenter.Value.Y;
-            if (Math.Sqrt(sx * sx + sy * sy) <= stopZoneRadiusPx)
-                return (0, 0);
+            return (0, 0);
         }
 
         double dx = gaze.X - anchor.X;
         double dy = anchor.Y - gaze.Y;
-        double distance = Math.Sqrt(dx * dx + dy * dy);
+        double distance = gaze.DistanceTo(anchor);
 
         if (distance <= DeadZoneRadiusPixels)
             return (0, 0);

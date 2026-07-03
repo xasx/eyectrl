@@ -71,9 +71,7 @@ public sealed class FixationCentroidTracker
 
         double dtSeconds = (timestampMicroseconds - _lastTimestamp) / 1_000_000.0;
         double speed = dtSeconds > 0
-            ? Math.Sqrt(
-                Math.Pow(point.X - _lastPoint.Value.X, 2) +
-                Math.Pow(point.Y - _lastPoint.Value.Y, 2)) / dtSeconds
+            ? point.DistanceTo(_lastPoint.Value) / dtSeconds
             : 0;
 
         if (speed <= _velocityThresholdPxPerSec)

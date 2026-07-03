@@ -28,9 +28,9 @@ public class ManualSelectionDwellService : IDisposable
 
     // State
     private DwellDetector? _dwellDetector;
-    private PhysicalPoint? _ManualSelectionCenter;
-    private double? _ManualSelectionRadius;
-    private long _ManualSelectionStartTimestamp;
+    private PhysicalPoint? _manualSelectionCenter;
+    private double? _manualSelectionRadius;
+    private long _manualSelectionStartTimestamp;
     private bool _gracePeriodActive;
     private bool _isActive;
 
@@ -57,11 +57,11 @@ public class ManualSelectionDwellService : IDisposable
     private void OnManualSelectionStarted(StartManualSelectionMessage message)
     {
         // Initialize state
-        _ManualSelectionCenter = message.Center;
-        _ManualSelectionRadius = message.Radius * DpiHelper.ScaleX; // Store physical pixel radius
+        _manualSelectionCenter = message.Center;
+        _manualSelectionRadius = message.Radius * DpiHelper.ScaleX; // Store physical pixel radius
         _isActive = true;
         _gracePeriodActive = false;
-        _ManualSelectionStartTimestamp = 0;
+        _manualSelectionStartTimestamp = 0;
 
         // Create DwellDetector with cooldown disabled (we handle grace period separately)
         _dwellDetector = new DwellDetector(cooldownMs: 0);
@@ -84,7 +84,7 @@ public class ManualSelectionDwellService : IDisposable
         _dwellDetector.AddTarget(target);
 
         _logger.LogDebug("ManualSelection dwell tracking started: center=({X}, {Y}), radius={Radius}",
-            _ManualSelectionCenter.Value.X, _ManualSelectionCenter.Value.Y, message.Radius);
+            _manualSelectionCenter.Value.X, _manualSelectionCenter.Value.Y, message.Radius);
     }
 
     private void OnManualSelectionEnded()
@@ -101,8 +101,8 @@ public class ManualSelectionDwellService : IDisposable
         // Reset state
         _isActive = false;
         _gracePeriodActive = false;
-        _ManualSelectionCenter = null;
-        _ManualSelectionRadius = null;
+        _manualSelectionCenter = null;
+        _manualSelectionRadius = null;
 
         _logger.LogDebug("ManualSelection dwell tracking stopped");
     }
@@ -127,12 +127,12 @@ public class ManualSelectionDwellService : IDisposable
         // 2. Handle grace period
         if (!_gracePeriodActive)
         {
-            _ManualSelectionStartTimestamp = ts;
+            _manualSelectionStartTimestamp = ts;
             _gracePeriodActive = true;
         }
 
         var gracePeriodUs = _settings.ManualSelection.ManualSelectionGracePeriodMs * MathConstants.MicrosecondsPerMillisecond;
-        if ((ts - _ManualSelectionStartTimestamp) < gracePeriodUs)
+        if ((ts - _manualSelectionStartTimestamp) < gracePeriodUs)
             return;
 
         // 3. Bounds check
@@ -183,7 +183,7 @@ public class ManualSelectionDwellService : IDisposable
                 // We don't have access to the exact point, but we can send a completion message
                 // The EventCoordinator will need to track the last known gaze position
                 // For now, use the ManualSelection center as fallback (this will be improved)
-                _messenger.Send(new ManualSelectionDwellCompletedMessage(_lastGazePoint ?? _ManualSelectionCenter!.Value));
+                _messenger.Send(new ManualSelectionDwellCompletedMessage(_lastGazePoint ?? _manualSelectionCenter!.Value));
             }
             catch (Exception ex)
             {
@@ -214,11 +214,11 @@ public class ManualSelectionDwellService : IDisposable
 
     private bool IsWithinManualSelectionBounds(PhysicalPoint gazePoint)
     {
-        if (_ManualSelectionCenter == null || _ManualSelectionRadius == null) return false;
+        if (_manualSelectionCenter == null || _manualSelectionRadius == null) return false;
 
-        var dx = gazePoint.X - _ManualSelectionCenter.Value.X;
-        var dy = gazePoint.Y - _ManualSelectionCenter.Value.Y;
-        return (dx * dx + dy * dy) <= (_ManualSelectionRadius.Value * _ManualSelectionRadius.Value);
+        var dx = gazePoint.X - _manualSelectionCenter.Value.X;
+        var dy = gazePoint.Y - _manualSelectionCenter.Value.Y;
+        return (dx * dx + dy * dy) <= (_manualSelectionRadius.Value * _manualSelectionRadius.Value);
     }
 
     private void ResetDwell()

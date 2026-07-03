@@ -1,6 +1,7 @@
 #if TOBII_AVAILABLE
 namespace EyeCtrl.Platform.Gaze;
 
+using System.Threading;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -22,6 +23,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
     private Thread? _pollThread;
     private volatile bool _running;
     private readonly object _lock = new();
+    private readonly ManualResetEventSlim _stopSignal = new(false);
     private string? _lastErrorMessage;
 
     // Must keep a reference to prevent GC from collecting the delegate
@@ -45,6 +47,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
 
     public void Start()
     {
+        _stopSignal.Reset();
         TryFullConnect();
 
         _running = true;
@@ -59,7 +62,8 @@ public class TobiiStreamEngineProvider : IGazeProvider
     public void Stop()
     {
         _running = false;
-        _pollThread?.Join(1000);
+        _stopSignal.Set();
+        _pollThread?.Join(2000);
         _pollThread = null;
 
         lock (_lock)
@@ -167,44 +171,55 @@ public class TobiiStreamEngineProvider : IGazeProvider
 
         while (_running)
         {
+            bool connected;
             lock (_lock)
             {
-                if (_apiContext == IntPtr.Zero || _deviceContext == IntPtr.Zero)
-                {
-                    // Not connected — attempt full reconnect with backoff
-                    Thread.Sleep(backoffMs);
-                    backoffMs = Math.Min(backoffMs * 2, maxBackoffMs);
-                    TryFullConnect();
-                    continue;
-                }
+                connected = _apiContext != IntPtr.Zero && _deviceContext != IntPtr.Zero;
+            }
 
+            if (!connected)
+            {
+                if (_stopSignal.Wait(backoffMs)) return;
+                backoffMs = Math.Min(backoffMs * 2, maxBackoffMs);
+                lock (_lock)
+                {
+                    if (_running) TryFullConnect();
+                }
+                continue;
+            }
+
+            bool hasError;
+            lock (_lock)
+            {
+                if (!_running) return;
                 tobii_error_t result = Interop.tobii_wait_for_callbacks(
                     new[] { _deviceContext });
-                bool hasError = IsError(result);
+                hasError = IsError(result);
 
                 if (!hasError)
                 {
                     result = Interop.tobii_device_process_callbacks(_deviceContext);
                     hasError = IsError(result);
                 }
+            }
 
-                if (hasError)
+            if (hasError)
+            {
+                IsConnected = false;
+                if (_stopSignal.Wait(backoffMs)) return;
+                backoffMs = Math.Min(backoffMs * 2, maxBackoffMs);
+                lock (_lock)
                 {
-                    IsConnected = false;
-                    Thread.Sleep(backoffMs);
-                    backoffMs = Math.Min(backoffMs * 2, maxBackoffMs);
-                    Interop.tobii_device_reconnect(_deviceContext);
+                    if (_running && _deviceContext != IntPtr.Zero)
+                        Interop.tobii_device_reconnect(_deviceContext);
                 }
-                else
-                {
-                    if (!IsConnected)
-                    {
-                        IsConnected = true;
-                        _lastErrorMessage = null;
-                        backoffMs = 500;
-                        _logger.LogInformation("Connected");
-                    }
-                }
+            }
+            else if (!IsConnected)
+            {
+                IsConnected = true;
+                _lastErrorMessage = null;
+                backoffMs = 500;
+                _logger.LogInformation("Connected");
             }
         }
     }
@@ -244,6 +259,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
     public void Dispose()
     {
         Stop();
+        _stopSignal.Dispose();
     }
 }
 #endif

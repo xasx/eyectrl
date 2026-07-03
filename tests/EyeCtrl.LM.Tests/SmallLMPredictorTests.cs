@@ -70,4 +70,45 @@ public class SmallLMPredictorTests
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public void Dispose_WithOwnsTokenizerFalse_LeavesInjectedTokenizerAlive()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lm_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var tokenizerPath = Path.Combine(tempDir, "tokenizer.json");
+            TestTokenizerJson.Write(tokenizerPath);
+            using var tokenizer = new LMTokenizer(tokenizerPath);
+
+            var predictor = new SmallLMPredictor(tempDir, modelSize: "135M", preferGpu: false,
+                NullLogger<SmallLMPredictor>.Instance, tokenizer: tokenizer, modelPath: null,
+                ownsTokenizer: false);
+            predictor.Dispose();
+
+            Check.ThatCode(() => tokenizer.Encode("hello")).DoesNotThrow();
+        }
+        finally { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public void Dispose_DefaultOwnership_DisposesInjectedTokenizer()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lm_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var tokenizerPath = Path.Combine(tempDir, "tokenizer.json");
+            TestTokenizerJson.Write(tokenizerPath);
+            var tokenizer = new LMTokenizer(tokenizerPath);
+
+            var predictor = new SmallLMPredictor(tempDir, modelSize: "135M", preferGpu: false,
+                NullLogger<SmallLMPredictor>.Instance, tokenizer: tokenizer);
+            predictor.Dispose();
+
+            Check.ThatCode(() => tokenizer.Encode("hello")).Throws<ObjectDisposedException>();
+        }
+        finally { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
+    }
 }

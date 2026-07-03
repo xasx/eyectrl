@@ -228,8 +228,8 @@ public class NoteWindow : OverlayWindow
         for (int i = 0; i < 3; i++)
         {
             var (suffix, symbol, color) = symbols[i];
-            double cx = LayoutConstants.NoteWindowWidth - ButtonPadding - ButtonRadius;
-            double cy = TitleBarHeight + ButtonPadding + ButtonRadius + i * (ButtonDiameter + ButtonGap);
+            // Window-relative logical center, shared with NoteManager's dwell-target placement.
+            var (cx, cy) = NoteLayout.ButtonCenter(i);
 
             var ellipse = new Ellipse
             {

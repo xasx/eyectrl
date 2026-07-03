@@ -22,8 +22,6 @@ public class GazeEngineAdapter : IDisposable
     private readonly ILogger<GazeEngineAdapter> _logger;
     private readonly IControlFinder _controlFinder;
 
-    public volatile bool HasGazeConsumers = true;
-
     public GazeEngineAdapter(
         GazeEngine gazeEngine,
         EyeCtrlSettings settings,
@@ -97,11 +95,8 @@ public class GazeEngineAdapter : IDisposable
         messenger.Send(new SelectionModeChangedMessage(_settings.SelectionMode));
     }
 
-    private void OnCursorMoved(PhysicalPoint point, long timestamp)
-    {
-        if (!HasGazeConsumers) return;
+    private void OnCursorMoved(PhysicalPoint point, long timestamp) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new GazeCursorMovedMessage(point, timestamp)));
-    }
 
     private void OnShowActivationButton(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new ShowActivationButtonMessage(point)));

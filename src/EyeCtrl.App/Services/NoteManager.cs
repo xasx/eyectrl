@@ -203,15 +203,17 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         double winLeftLogical = DpiHelper.PhysicalToLogicalX(note.Position.X) - LayoutConstants.NoteWindowWidth / 2;
         double winTopLogical = DpiHelper.PhysicalToLogicalY(note.Position.Y) - LayoutConstants.NoteAnchorOffsetY;
 
-        // Button centers in window-relative logical coords — must match NoteWindow.DrawButtons.
-        double cx = LayoutConstants.NoteWindowWidth - LayoutConstants.NoteButtonPadding - LayoutConstants.NoteButtonRadius;
-        double cy0 = LayoutConstants.NoteTitleBarHeight + LayoutConstants.NoteButtonPadding + LayoutConstants.NoteButtonRadius;
-        double step = 2 * LayoutConstants.NoteButtonRadius + LayoutConstants.NoteButtonGap;
         double radiusPhysical = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
 
-        PhysicalPoint ButtonCenter(int index) => new(
-            DpiHelper.LogicalToPhysicalX(winLeftLogical + cx),
-            DpiHelper.LogicalToPhysicalY(winTopLogical + cy0 + index * step));
+        // Button centers come from NoteLayout (window-relative logical coords), shared with
+        // NoteWindow.DrawButtons so the dwell targets can't drift from the drawn buttons.
+        PhysicalPoint ButtonCenter(int index)
+        {
+            var (lx, ly) = NoteLayout.ButtonCenter(index);
+            return new(
+                DpiHelper.LogicalToPhysicalX(winLeftLogical + lx),
+                DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
+        }
 
         _dwellDetector.AddTarget(new DwellTarget($"{noteId}:close", ButtonCenter(0), radiusPhysical, DwellTimeMs));
         if (!registerCloseOnly)

@@ -136,7 +136,6 @@ public class AppBootstrapper
         services.AddSingleton<ToolbarViewModel>();
         services.AddSingleton<KeyboardViewModel>();
         services.AddSingleton<ManualSelectionGazeIndicatorViewModel>();
-        services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<GlassBackdropViewModel>();
         services.AddSingleton(sp => new CalibrationViewModel(
             sp.GetRequiredService<EyeCtrlSettings>().Calibration,

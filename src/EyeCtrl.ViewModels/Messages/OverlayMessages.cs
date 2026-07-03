@@ -4,8 +4,5 @@ namespace EyeCtrl.ViewModels.Messages;
 public record ShowKeyboardMessage;
 public record HideKeyboardMessage;
 
-/// <summary>Sent when settings window should open.</summary>
-public record ShowSettingsMessage;
-
 /// <summary>Sent when settings window should close.</summary>
 public record CloseSettingsMessage;

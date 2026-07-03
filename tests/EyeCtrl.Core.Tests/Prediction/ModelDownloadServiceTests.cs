@@ -242,6 +242,73 @@ public class ModelDownloadServiceTests
         }
     }
 
+    private sealed class EndlessStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            Thread.Sleep(20);
+            Array.Clear(buffer, offset, count);
+            return count;
+        }
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            await Task.Delay(20, ct);
+            buffer.Span.Clear();
+            return buffer.Length;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task CancelDownload_CancelsTokenizerDownload()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        try
+        {
+            using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StreamContent(new EndlessStream())
+                }));
+            using var service = new ModelDownloadService(tempDir, client);
+
+            var task = service.DownloadTokenizerAsync("360M", "http://localhost/tokenizer.json", "");
+
+            var start = Environment.TickCount64;
+            while (!service.IsDownloading)
+            {
+                Check.That(Environment.TickCount64 - start).IsStrictlyLessThan(2000);
+                await Task.Delay(10);
+            }
+
+            service.CancelDownload();
+
+            var completed = await Task.WhenAny(task, Task.Delay(5000));
+            Check.That(completed).IsSameReferenceAs(task);
+
+            OperationCanceledException? oce = null;
+            try { await task; }
+            catch (OperationCanceledException ex) { oce = ex; }
+            Check.That(oce).IsNotNull();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
     [Fact]
     public async Task DownloadModelAsync_HashMismatch_ReturnsFalseAndCleansUp()
     {

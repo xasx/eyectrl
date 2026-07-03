@@ -15,7 +15,6 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
-using EyeCtrl.LM;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -41,7 +40,7 @@ public class EventCoordinator : IEventCoordinator
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
     private Action<PhysicalPoint, long>? _gazeMovedHandler;
-    private PredictionOrchestrator? _orchestrator;
+    private readonly PredictionStackFactory _predictionFactory = new();
     private GlassBackdropWindow? _glassBackdrop;
     private string? _appDataDir;
     private ModelRegistryService? _modelRegistry;
@@ -58,8 +57,8 @@ public class EventCoordinator : IEventCoordinator
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
     /// </summary>
-    public WordPredictor? WordPredictor => _orchestrator?.WordPredictor;
-    public PredictionOrchestrator? Orchestrator => _orchestrator;
+    public WordPredictor? WordPredictor => _predictionFactory.Current?.WordPredictor;
+    public PredictionOrchestrator? Orchestrator => _predictionFactory.Current;
 
     public void SetModelServices(ModelRegistryService modelRegistry, ModelDownloadService modelDownload, ModelManagementService modelManagement)
     {
@@ -950,85 +949,15 @@ public class EventCoordinator : IEventCoordinator
             keyboard.SetSkinTone(settings.Keyboard.EmojiSkinTone);
         }
 
-        if (settings.Keyboard.PredictionEnabled)
+        if (settings.Keyboard.PredictionEnabled && string.IsNullOrEmpty(settings.Keyboard.LanguagePack))
         {
-            if (string.IsNullOrEmpty(settings.Keyboard.LanguagePack))
-            {
-                settings.Keyboard.LanguagePack = LanguageDetector.Detect();
-                settingsService.SaveDebounced(settings);
-                Log.Information("Auto-detected language: {Lang}", settings.Keyboard.LanguagePack);
-            }
-
-            var langCode = settings.Keyboard.LanguagePack;
-            var dictPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "Resources", "Dictionaries", $"{langCode}.json");
-            var provider = new FileDictionaryProvider(dictPath, _appDataDir!, langCode);
-            var wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);
-            wordPredictor.ApplyDecay(settings.Keyboard.DecayEnabled, settings.Keyboard.DecayHalfLifeDays);
-
-            // Load sentence completion trie if available
-            SentenceCompletionIndex? trieIndex = null;
-            var triePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "Resources", "Completions", $"completions_{langCode}.bin");
-            if (File.Exists(triePath))
-            {
-                try
-                {
-                    using var trieStream = File.OpenRead(triePath);
-                    trieIndex = SentenceCompletionIndex.Load(trieStream);
-                    Log.Information("Loaded sentence completion trie: {Path}", triePath);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warning(ex, "Failed to load sentence completion trie from {Path}", triePath);
-                }
-            }
-
-            // Create LM predictor if ML settings are enabled
-            ILanguageModelPredictor? lmPredictor = null;
-            if (settings.Keyboard.MLSuggestionsEnabled && _modelRegistry != null)
-            {
-                var modelsDir = Path.Combine(_appDataDir!, "models");
-                var modelSize = settings.Keyboard.MLModelSize;
-
-                if (!string.IsNullOrEmpty(modelSize) && modelSize != "Off")
-                {
-                    LMTokenizer? tokenizer = null;
-                    var tokenizerPath = _modelRegistry.GetTokenizerPath(modelSize);
-
-                    try
-                    {
-                        if (File.Exists(tokenizerPath))
-                            tokenizer = new LMTokenizer(tokenizerPath);
-                        else
-                            Log.Warning("Tokenizer file not found at {Path}; LM suggestions disabled", tokenizerPath);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warning(ex, "Failed to load tokenizer from {Path}; LM suggestions disabled", tokenizerPath);
-                    }
-
-                    var modelPath = _modelRegistry.GetModelPath(modelSize);
-
-                    lmPredictor = new SmallLMPredictor(
-                        modelsDir,
-                        modelSize,
-                        settings.Keyboard.PreferGPU,
-                        tokenizer: tokenizer,
-                        modelPath: modelPath);
-                }
-            }
-
-            _orchestrator?.Dispose();
-            _orchestrator = new PredictionOrchestrator(wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled);
-            keyboard.SetOrchestrator(_orchestrator);
+            settings.Keyboard.LanguagePack = LanguageDetector.Detect();
+            settingsService.SaveDebounced(settings);
+            Log.Information("Auto-detected language: {Lang}", settings.Keyboard.LanguagePack);
         }
-        else
-        {
-            _orchestrator?.Dispose();
-            _orchestrator = null;
-            keyboard.SetOrchestrator(null);
-        }
+
+        var orchestrator = _predictionFactory.Rebuild(settings, AppDomain.CurrentDomain.BaseDirectory, _appDataDir!, _modelRegistry);
+        keyboard.SetOrchestrator(orchestrator);
 
         keyboard.SetScreenEdge(settings.Keyboard.ScreenEdge);
         keyboard.SetSettings(settings);
@@ -1172,9 +1101,7 @@ public class EventCoordinator : IEventCoordinator
 
         if (_scrollModeActive) OnScrollModeExited();
 
-        _orchestrator?.WordPredictor.SaveUserDictionary();
-        _orchestrator?.Dispose();
-        _orchestrator = null;
+        _predictionFactory.Dispose();
 
         _glassBackdrop?.Hide();
         _glassBackdrop = null;

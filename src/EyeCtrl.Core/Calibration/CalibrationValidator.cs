@@ -135,9 +135,7 @@ public static class CalibrationValidator
         foreach (var point in points)
         {
             var mapped = transform.Apply(point.MeanGaze);
-            double dx = mapped.X - point.Target.X;
-            double dy = mapped.Y - point.Target.Y;
-            double err = Math.Sqrt(dx * dx + dy * dy);
+            double err = mapped.DistanceTo(point.Target);
             if (err > max) max = err;
         }
         return max;

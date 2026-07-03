@@ -168,11 +168,10 @@ public class ControlFinder : IControlFinder
 
     private static double DistanceSquaredToRect(System.Windows.Point point, PhysicalRect rect)
     {
-        var clampedX = Math.Clamp(point.X, rect.X, rect.X + rect.Width);
-        var clampedY = Math.Clamp(point.Y, rect.Y, rect.Y + rect.Height);
-        var dx = point.X - clampedX;
-        var dy = point.Y - clampedY;
-        return (dx * dx) + (dy * dy);
+        var nearest = new PhysicalPoint(
+            Math.Clamp(point.X, rect.X, rect.X + rect.Width),
+            Math.Clamp(point.Y, rect.Y, rect.Y + rect.Height));
+        return new PhysicalPoint(point.X, point.Y).DistanceSquaredTo(nearest);
     }
 
     private static ControlInfo? FallbackToWindow(System.Windows.Point point)

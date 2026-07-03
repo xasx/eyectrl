@@ -61,8 +61,6 @@ public class DwellTarget
             return point.X >= r.X && point.X <= r.X + r.Width
                 && point.Y >= r.Y && point.Y <= r.Y + r.Height;
 
-        double dx = point.X - Center.X;
-        double dy = point.Y - Center.Y;
-        return (dx * dx + dy * dy) <= Radius * Radius;
+        return point.DistanceSquaredTo(Center) <= Radius * Radius;
     }
 }

@@ -9,7 +9,7 @@ using EyeCtrl.Core.Settings;
 /// <summary>Orchestrator: subscribes to gaze, owns scheduler + fatigue monitor, drives hooks.
 /// In v1 this is the single entry point; it is constructed by AppBootstrapper and fed by
 /// EventCoordinator wiring GazeEngine.GazeSampled → OnGazeSample.</summary>
-public sealed class EyeCareService : IEyeCareService
+public sealed class EyeCareService : IEyeCareService, IDisposable
 {
     private readonly EyeCareSettings _settings;
     private readonly EyeCareScheduler _scheduler;
@@ -71,6 +71,12 @@ public sealed class EyeCareService : IEyeCareService
     {
         _busy = false;
         _scheduler.OnBreakCompleted();
+    }
+
+    public void Dispose()
+    {
+        _settings.PropertyChanged -= OnSettingsChanged;
+        _scheduler.BreakDue -= OnBreakDue;
     }
 
     // async void is required (event-handler signature for EyeCareScheduler.BreakDue).

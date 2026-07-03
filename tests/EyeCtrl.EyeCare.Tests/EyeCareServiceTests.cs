@@ -70,6 +70,19 @@ public class EyeCareServiceTests
     }
 
     [Fact]
+    public void Dispose_UnsubscribesFromSettings()
+    {
+        var settings = new EyeCareSettings { Enabled = true };
+        var hooks = new FakeHooks();
+        var svc = NewService(settings, hooks);
+
+        svc.Dispose();
+        settings.Enabled = false;
+
+        Check.That(hooks.CancelActiveCalls).IsEqualTo(0);
+    }
+
+    [Fact]
     public void EnablingOrOtherChanges_DoNotCancel()
     {
         var settings = new EyeCareSettings { Enabled = false };

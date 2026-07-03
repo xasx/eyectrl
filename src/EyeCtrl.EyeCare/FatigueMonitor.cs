@@ -78,6 +78,8 @@ public sealed class FatigueMonitor
     public void Reset()
     {
         _samples.Clear();
+        _sumX = 0;
+        _sumY = 0;
         Score = 0.0;
     }
 }

@@ -73,6 +73,31 @@ public class FatigueMonitorTests
     }
 
     [Fact]
+    public void ScoreAfterReset_MatchesFreshMonitor()
+    {
+        // Reset() must clear the running centroid sums (_sumX/_sumY), not just the sample queue.
+        // If stale mass survives, the centroid is skewed and Score stays corrupted after a break.
+        var used = new FatigueMonitor(Cfg, fixationRadiusPixels: 50, windowSeconds: 5);
+        for (int i = 0; i < 100; i++)
+            used.OnSample(new GazePoint(1600, 950, i * 50_000L, IsValid: true)); // region A
+        used.Reset();
+
+        var rnd = new Random(3);
+        var regionB = Enumerable.Range(0, 100)
+            .Select(i => (x: 300.0 + rnd.Next(400), y: 300.0 + rnd.Next(400), ts: (200 + i) * 50_000L))
+            .ToList();
+
+        var fresh = new FatigueMonitor(Cfg, fixationRadiusPixels: 50, windowSeconds: 5);
+        foreach (var p in regionB)
+        {
+            used.OnSample(new GazePoint(p.x, p.y, p.ts, IsValid: true));
+            fresh.OnSample(new GazePoint(p.x, p.y, p.ts, IsValid: true));
+        }
+
+        Check.That(used.Score).IsCloseTo(fresh.Score, 1e-9);
+    }
+
+    [Fact]
     public void Disabled_NeverRaisesScore()
     {
         var cfg = new EyeCareSettings { FatigueMonitorEnabled = false };

@@ -67,6 +67,7 @@ public class EmojiGridManager
     }
 
     public event Action? ExitRequested;
+    public event Action<int>? SkinToneChanged;
     public RecentEmojiStore? RecentStore => _recentEmojiStore;
     public int SkinTone => _skinTone;
 
@@ -214,6 +215,7 @@ public class EmojiGridManager
             if (int.TryParse(action[12..], out var tone))
             {
                 _skinTone = Math.Clamp(tone, 0, 5);
+                SkinToneChanged?.Invoke(_skinTone);
                 BuildGrid();
             }
             return;

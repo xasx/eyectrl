@@ -81,6 +81,8 @@ public partial class KeyboardWindow : OverlayWindow
         _predictionDwellDetector.TargetProgress += OnPredictionProgress;
     }
 
+    public event Action<int>? SkinToneChanged;
+
     public void SetViewModel(KeyboardViewModel viewModel)
     {
         if (_viewModel != null)
@@ -104,6 +106,7 @@ public partial class KeyboardWindow : OverlayWindow
             _viewModel.IsEmojiMode = false;
             ExitEmojiMode();
         };
+        _emojiManager.SkinToneChanged += tone => SkinToneChanged?.Invoke(tone);
     }
 
     public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs, int cooldownMs)
@@ -141,8 +144,6 @@ public partial class KeyboardWindow : OverlayWindow
     public void SetSoundService(KeyboardSoundService svc) => _soundService = svc;
     public void SetSettings(EyeCtrlSettings settings) => _settings = settings;
     public void SetSkinTone(int skinTone) => _emojiManager?.SetSkinTone(skinTone);
-    public int GetSkinTone() => _emojiManager?.SkinTone ?? 0;
-    public RecentEmojiStore? GetRecentStore() => _emojiManager?.RecentStore;
 
     private void RepositionOnScreen()
     {

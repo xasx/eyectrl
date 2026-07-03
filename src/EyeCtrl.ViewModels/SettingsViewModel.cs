@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels;
 
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
@@ -8,13 +9,14 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class SettingsViewModel : ObservableObject, IDisposable
+public partial class SettingsViewModel : ObservableObject, IRecipient<CalibrationCompletedMessage>, IDisposable
 {
     private const int ItemsPerPage = 6;
 
     private readonly EyeCtrlSettings _settings;
     private readonly SettingsService _settingsService;
     private readonly IMessenger _messenger;
+    private ReadOnlyLabelSettingItem? _calStatusItem;
     private bool _disposed;
 
     [ObservableProperty] private int _currentPage;
@@ -29,6 +31,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _settings = settings;
         _settingsService = settingsService;
         _messenger = messenger;
+        _messenger.RegisterAll(this);
         BuildTabs();
     }
 
@@ -168,9 +171,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new ToggleSettingViewModel("themeHighContrast", "High Contrast", th.HighContrast, v => th.HighContrast = v),
         }));
 
-        // NOTE: item count here only drives pagination (ItemsPerPage = 6 \u2192 2 pages);
+        // NOTE: item count here only drives pagination (ItemsPerPage = 6 → 2 pages);
         // the actual interactive controls are built in SettingsWindow.BuildCalibrationPages.
-        Tabs.Add(new SettingsTabViewModel("Calibration", "\u2316", new List<SettingItemViewModel>
+        var calItems = new List<SettingItemViewModel>
         {
             new SliderSettingViewModel("calPointCount", "Point Count", cal.PointCount, 3, 16, 1, v => cal.PointCount = (int)v),
             new SliderSettingViewModel("calSamples", "Samples per Point", cal.SamplesPerPoint, 5, 100, 5, v => cal.SamplesPerPoint = (int)v),
@@ -180,8 +183,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
                 () => _messenger.Send(new CalibrationRequestedMessage())),
             new ActionButtonSettingItem("calClear", "Clear Calibration",
                 () => _messenger.Send(new CalibrationClearRequestedMessage())),
-            new ReadOnlyLabelSettingItem("calStatus", "Last Calibration", "No calibration data"),
-        }));
+        };
+        _calStatusItem = new ReadOnlyLabelSettingItem("calStatus", "Last Calibration", "No calibration data");
+        calItems.Add(_calStatusItem);
+        Tabs.Add(new SettingsTabViewModel("Calibration", "\u2316", calItems));
 
         var ec = _settings.EyeCare;
         Tabs.Add(new SettingsTabViewModel("Eye Care", "\U0001F441", new List<SettingItemViewModel>
@@ -279,13 +284,21 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _messenger.Send(new SettingsChangedMessage());
     }
 
+    public void Receive(CalibrationCompletedMessage message)
+    {
+        _calStatusItem!.DisplayText = message.Success
+            ? message.MeanErrorPixels is double px
+                ? $"Calibrated — mean error {px.ToString("F1", CultureInfo.InvariantCulture)} px"
+                : "Calibrated"
+            : "Calibration failed";
+    }
+
     public void Dispose()
     {
         if (_disposed)
             return;
 
-        // SettingsViewModel doesn't register message handlers, so no need to unregister
-        // However, we implement IDisposable for consistency and future-proofing
+        _messenger.UnregisterAll(this);
         _disposed = true;
     }
 }

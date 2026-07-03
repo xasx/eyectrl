@@ -108,4 +108,32 @@ public class SettingsViewModelTests
         Check.That(vm.TotalPages >= 1).IsTrue();
         Check.That(vm.CurrentPage).IsEqualTo(0);
     }
+
+    [Fact]
+    public void CalibrationCompleted_UpdatesCalStatusLabel()
+    {
+        var settings = new EyeCtrlSettings();
+        var service = new SettingsService("test.json");
+        var vm = new SettingsViewModel(settings, service, _messenger);
+
+        _messenger.Send(new CalibrationCompletedMessage(true, 12.34));
+
+        var calTab = vm.Tabs.Find(t => t.Name == "Calibration")!;
+        var status = (ReadOnlyLabelSettingItem)calTab.Items.First(i => i.Id == "calStatus");
+        Check.That(status.DisplayText).IsEqualTo("Calibrated — mean error 12.3 px");
+    }
+
+    [Fact]
+    public void CalibrationFailed_UpdatesCalStatusLabel()
+    {
+        var settings = new EyeCtrlSettings();
+        var service = new SettingsService("test.json");
+        var vm = new SettingsViewModel(settings, service, _messenger);
+
+        _messenger.Send(new CalibrationCompletedMessage(false, null));
+
+        var calTab = vm.Tabs.Find(t => t.Name == "Calibration")!;
+        var status = (ReadOnlyLabelSettingItem)calTab.Items.First(i => i.Id == "calStatus");
+        Check.That(status.DisplayText).IsEqualTo("Calibration failed");
+    }
 }

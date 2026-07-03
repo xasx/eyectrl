@@ -41,6 +41,38 @@ public class FatigueMonitorTests
     }
 
     [Fact]
+    public void SingleInvalidSample_DoesNotResetScore()
+    {
+        var monitor = new FatigueMonitor(Cfg, fixationRadiusPixels: 50, windowSeconds: 5);
+        for (int i = 0; i < 100; i++)
+            monitor.OnSample(new GazePoint(500, 500, i * 50_000L, IsValid: true));
+        var before = monitor.Score;
+        Check.That(before).IsStrictlyGreaterThan(0.0);
+
+        monitor.OnSample(new GazePoint(0, 0, 100 * 50_000L, IsValid: false));
+        Check.That(monitor.Score).IsEqualTo(before);
+    }
+
+    [Fact]
+    public void ScoreAfterEviction_MatchesFreshRecompute()
+    {
+        var a = new FatigueMonitor(Cfg, fixationRadiusPixels: 50, windowSeconds: 5);
+        var rnd = new Random(7);
+        var pts = Enumerable.Range(0, 300)
+            .Select(i => (x: 200.0 + rnd.Next(1200), y: 200.0 + rnd.Next(600), ts: i * 50_000L))
+            .ToList();
+        foreach (var p in pts)
+            a.OnSample(new GazePoint(p.x, p.y, p.ts, IsValid: true));
+
+        var cutoff = pts[^1].ts - 5_000_000L;
+        var b = new FatigueMonitor(Cfg, fixationRadiusPixels: 50, windowSeconds: 5);
+        foreach (var p in pts.Where(p => p.ts >= cutoff))
+            b.OnSample(new GazePoint(p.x, p.y, p.ts, IsValid: true));
+
+        Check.That(a.Score).IsCloseTo(b.Score, 1e-9);
+    }
+
+    [Fact]
     public void Disabled_NeverRaisesScore()
     {
         var cfg = new EyeCareSettings { FatigueMonitorEnabled = false };

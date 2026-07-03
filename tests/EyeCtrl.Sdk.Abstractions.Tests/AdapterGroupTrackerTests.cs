@@ -1,6 +1,6 @@
-namespace EyeCtrl.Sdk.WinUI.Tests;
+namespace EyeCtrl.Sdk.Abstractions.Tests;
 
-using EyeCtrl.Sdk.WinUI;
+using EyeCtrl.Sdk.Abstractions;
 
 public class AdapterGroupTrackerTests
 {

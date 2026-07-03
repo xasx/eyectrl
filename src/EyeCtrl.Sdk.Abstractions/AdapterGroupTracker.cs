@@ -1,4 +1,4 @@
-namespace EyeCtrl.Sdk.WinUI;
+namespace EyeCtrl.Sdk.Abstractions;
 
 using System.Collections.Concurrent;
 
@@ -7,7 +7,7 @@ using System.Collections.Concurrent;
 /// a single callback when the last id is removed. The caller wires the callback to whatever
 /// cleanup the group needs (stop the refresh timer, evict from the dispatcher-keyed registry).
 /// </summary>
-internal sealed class AdapterGroupTracker
+public sealed class AdapterGroupTracker
 {
     private readonly Action _onLastRemoved;
     private readonly ConcurrentDictionary<string, byte> _ids = new();

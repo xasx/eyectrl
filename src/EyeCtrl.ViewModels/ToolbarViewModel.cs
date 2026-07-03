@@ -9,18 +9,13 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class ToolbarViewModel : ObservableObject,
-    IRecipient<GazeCursorMovedMessage>,
+public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     IRecipient<StateChangedMessage>,
     IRecipient<CalibrationCompletedMessage>,
     IRecipient<CalibrationCancelledMessage>,
-    IRecipient<SelectionModeChangedMessage>,
-    IDisposable
+    IRecipient<SelectionModeChangedMessage>
 {
-    private readonly IMessenger _messenger;
-    private readonly DwellDetector _dwellDetector;
     private readonly Dictionary<string, ToolbarButtonViewModel> _buttonLookup = new();
-    private bool _disposed;
 
     [ObservableProperty] private bool _isPaused;
 
@@ -34,14 +29,12 @@ public partial class ToolbarViewModel : ObservableObject,
     /// </summary>
     public void UpdateButtonScreenPosition(string buttonId, PhysicalPoint screenCenter)
     {
-        _dwellDetector.UpdateTargetCenter(buttonId, screenCenter);
+        DwellDetector.UpdateTargetCenter(buttonId, screenCenter);
     }
 
     public ToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger)
+        : base(messenger, settings.Dwell.DwellCooldownMs)
     {
-        _messenger = messenger;
-        _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
-
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause", "\u23F8"),
@@ -56,20 +49,16 @@ public partial class ToolbarViewModel : ObservableObject,
             var btn = new ToolbarButtonViewModel(id, symbol);
             Buttons.Add(btn);
             _buttonLookup[id] = btn;
-            _dwellDetector.AddTarget(new DwellTarget(id,
+            DwellDetector.AddTarget(new DwellTarget(id,
                 new PhysicalPoint(0, 0),
                 DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2),
                 settings.Dwell.ToolbarButtonDwellMs));
         }
-
-        _dwellDetector.TargetActivated += OnTargetActivated;
-        _dwellDetector.TargetProgress += OnTargetProgress;
-        messenger.RegisterAll(this);
     }
 
-    public void Receive(GazeCursorMovedMessage message)
+    public override void Receive(GazeCursorMovedMessage message)
     {
-        _dwellDetector.Update(message.Position, message.TimestampMicroseconds);
+        DwellDetector.Update(message.Position, message.TimestampMicroseconds);
     }
 
     public void Receive(StateChangedMessage message)
@@ -101,38 +90,27 @@ public partial class ToolbarViewModel : ObservableObject,
     /// <summary>For testing: simulate a button activation without gaze dwell.</summary>
     public void SimulateButtonActivated(string buttonId) => OnTargetActivated(buttonId);
 
-    private void OnTargetActivated(string targetId)
+    protected override void OnTargetActivated(string targetId)
     {
         if (_buttonLookup.TryGetValue(targetId, out var btn))
             btn.DwellProgress = 0;
 
         switch (targetId)
         {
-            case "Pause": _messenger.Send(new PauseToggledMessage()); break;
+            case "Pause": Messenger.Send(new PauseToggledMessage()); break;
             case "SelectionMode":
                 var next = (SelectionMode)(((int)_currentSelectionMode + 1) % Enum.GetValues<SelectionMode>().Length);
-                _messenger.Send(new SelectionModeChangedMessage(next));
+                Messenger.Send(new SelectionModeChangedMessage(next));
                 break;
-            case "Keyboard": _messenger.Send(new KeyboardToggledMessage()); break;
-            case "Calibrate": _messenger.Send(new CalibrationRequestedMessage()); break;
-            case "Settings": _messenger.Send(new SettingsRequestedMessage()); break;
+            case "Keyboard": Messenger.Send(new KeyboardToggledMessage()); break;
+            case "Calibrate": Messenger.Send(new CalibrationRequestedMessage()); break;
+            case "Settings": Messenger.Send(new SettingsRequestedMessage()); break;
         }
     }
 
-    private void OnTargetProgress(string targetId, double progress)
+    protected override void OnTargetProgress(string targetId, double progress)
     {
         if (_buttonLookup.TryGetValue(targetId, out var btn))
             btn.DwellProgress = progress;
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-
-        _dwellDetector.TargetActivated -= OnTargetActivated;
-        _dwellDetector.TargetProgress -= OnTargetProgress;
-        _messenger.UnregisterAll(this);
-        _disposed = true;
     }
 }

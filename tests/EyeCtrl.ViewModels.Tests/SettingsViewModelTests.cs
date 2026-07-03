@@ -124,6 +124,37 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public void ResetAllSettings_CoversEveryEnumeratedSubSetting()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.CircleSize = 400;
+        settings.Dwell.FixationDetectionMs = 999;
+        settings.Backdrop.Opacity = 0.8;
+        settings.Drag.SettleDwellMs = 1500;
+        settings.Scroll.Sensitivity = 1.9;
+
+        var service = new SettingsService("test.json");
+        var vm = new SettingsViewModel(settings, service, _messenger);
+        vm.ResetAllSettings();
+
+        var defaults = new EyeCtrlSettings();
+        var defaultSubs = defaults.EnumerateSubSettings().ToDictionary(t => t.Name, t => t.Settings);
+
+        foreach (var (name, sub) in settings.EnumerateSubSettings())
+        {
+            var defaultSub = defaultSubs[name];
+            var comparableProps = sub.GetType().GetProperties()
+                .Where(p => p.CanRead && p.CanWrite &&
+                            (p.PropertyType.IsValueType || p.PropertyType == typeof(string)));
+            foreach (var prop in comparableProps)
+            {
+                Check.WithCustomMessage($"{name}.{prop.Name} was not reset")
+                    .That(prop.GetValue(sub)).IsEqualTo(prop.GetValue(defaultSub));
+            }
+        }
+    }
+
+    [Fact]
     public void CalibrationFailed_UpdatesCalStatusLabel()
     {
         var settings = new EyeCtrlSettings();

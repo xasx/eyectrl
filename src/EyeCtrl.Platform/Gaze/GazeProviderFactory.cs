@@ -3,6 +3,9 @@ namespace EyeCtrl.Platform.Gaze;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using Microsoft.Extensions.Logging;
+#if TOBII_AVAILABLE
+using Tobii.StreamEngine;
+#endif
 
 public class GazeProviderFactory
 {
@@ -54,20 +57,40 @@ public class GazeProviderFactory
     private IGazeProvider CreateAuto(double screenWidth, double screenHeight)
     {
 #if TOBII_AVAILABLE
-        try
+        if (TobiiDeviceIsPresent())
         {
             var provider = new TobiiStreamEngineProvider(screenWidth, screenHeight,
                 _loggerFactory.CreateLogger<TobiiStreamEngineProvider>());
             _logger.LogInformation("Using Tobii Stream Engine");
             return provider;
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("StreamEngine unavailable: {Message}", ex.Message);
-        }
+        _logger.LogWarning("No Tobii device found during probe");
 #endif
 
         _logger.LogInformation("Falling back to Mouse simulation");
         return new MouseGazeProvider();
     }
+
+#if TOBII_AVAILABLE
+    private bool TobiiDeviceIsPresent()
+    {
+        IntPtr api = IntPtr.Zero;
+        try
+        {
+            if (Interop.tobii_api_create(out api, null) != tobii_error_t.TOBII_ERROR_NO_ERROR)
+                return false;
+            var result = Interop.tobii_enumerate_local_device_urls(api, out List<string> urls);
+            return result == tobii_error_t.TOBII_ERROR_NO_ERROR && urls.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Tobii device probe failed: {Message}", ex.Message);
+            return false;
+        }
+        finally
+        {
+            if (api != IntPtr.Zero) Interop.tobii_api_destroy(api);
+        }
+    }
+#endif
 }

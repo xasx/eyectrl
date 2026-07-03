@@ -6,18 +6,14 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class ManualSelectionGazeIndicatorViewModel : ObservableObject,
+public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelBase,
     IRecipient<StartManualSelectionMessage>,
     IRecipient<EndManualSelectionMessage>,
     IRecipient<ManualSelectionHiddenMessage>,
     IRecipient<UpdateManualSelectionIndicatorPositionMessage>,
     IRecipient<UpdateManualSelectionIndicatorProgressMessage>,
-    IRecipient<ResetManualSelectionIndicatorMessage>,
-    IDisposable
+    IRecipient<ResetManualSelectionIndicatorMessage>
 {
-    private readonly IMessenger _messenger;
-    private bool _disposed;
-
     // Stable configuration value from settings (never changes after Configure)
     private double _outerCircleDiameterSetting;
 
@@ -45,9 +41,8 @@ public partial class ManualSelectionGazeIndicatorViewModel : ObservableObject,
     public int ResetAnimationMs { get; private set; }
 
     public ManualSelectionGazeIndicatorViewModel(IMessenger messenger)
+        : base(messenger)
     {
-        _messenger = messenger;
-        messenger.RegisterAll(this);
     }
 
     /// <summary>
@@ -150,12 +145,7 @@ public partial class ManualSelectionGazeIndicatorViewModel : ObservableObject,
         // We don't set OuterCircleDiameter here to avoid bypassing the animation.
     }
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed)
-            return;
-
-        _messenger.UnregisterAll(this);
-        _disposed = true;
     }
 }

@@ -18,14 +18,11 @@ using EyeCtrl.ViewModels.Messages;
 /// sub-classes and the view's legacy button helpers can register targets through a
 /// unified API without taking a dependency on this concrete type.
 /// </remarks>
-public partial class SettingsWindowViewModel : ObservableObject,
+public partial class SettingsWindowViewModel : MessengerViewModelBase,
     IRecipient<GazeCursorMovedMessage>,
-    IDwellRegistrar,
-    IDisposable
+    IDwellRegistrar
 {
     private readonly SettingsViewModel _settingsViewModel;
-    private readonly IMessenger _messenger;
-    private bool _disposed;
 
     // 4 DwellDetectors for different UI sections
     private readonly DwellDetector _tabDwell;
@@ -68,9 +65,9 @@ public partial class SettingsWindowViewModel : ObservableObject,
         SettingsViewModel settingsViewModel,
         IMessenger messenger,
         DwellSettings dwellSettings)
+        : base(messenger)
     {
         _settingsViewModel = settingsViewModel;
-        _messenger = messenger;
 
         // Initialize dwell detectors
         _tabDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
@@ -90,9 +87,6 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
         _modalDwell.TargetActivated += id => OnTargetActivated(id, DwellCategory.Modal);
         _modalDwell.TargetProgress += (id, p) => OnTargetProgress(id, p, DwellCategory.Modal);
-
-        // Register for gaze messages
-        messenger.RegisterAll(this);
     }
 
     /// <summary>
@@ -100,7 +94,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
     /// </summary>
     public void Receive(GazeCursorMovedMessage message)
     {
-        if (_disposed) return;
+        if (IsDisposed) return;
 
         if (IsModalVisible)
         {
@@ -184,7 +178,7 @@ public partial class SettingsWindowViewModel : ObservableObject,
             case DwellCategory.Tab:
                 if (id == "close")
                 {
-                    _messenger.Send(new CloseSettingsMessage());
+                    Messenger.Send(new CloseSettingsMessage());
                     return;
                 }
                 _settingsViewModel.ShowTab(id);
@@ -323,13 +317,8 @@ public partial class SettingsWindowViewModel : ObservableObject,
 
     #endregion
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed)
-            return;
-
-        _messenger.UnregisterAll(this);
         _settingsViewModel.Dispose();
-        _disposed = true;
     }
 }

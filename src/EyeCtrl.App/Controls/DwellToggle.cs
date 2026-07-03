@@ -83,8 +83,7 @@ public class DwellToggle : DwellControl
     protected override void ApplyProgress(double progress)
     {
         var baseColor = _get() ? OnColor : OffColor;
-        Root.Background = new SolidColorBrush(
-            ColorBlend.Blend(baseColor, Colors.White, progress * 0.5));
+        Root.Background = ColorBlend.ToHighlightBrush(baseColor, progress);
     }
 
     private void Toggle()

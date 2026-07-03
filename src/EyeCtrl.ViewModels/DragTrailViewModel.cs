@@ -122,9 +122,7 @@ public partial class DragTrailViewModel : ObservableObject,
         var offset = DpiHelper.LogicalToPhysicalX(UIConstants.DragReleaseButtonOffset);
         var btnRadius = DpiHelper.LogicalToPhysicalX(UIConstants.DragButtonRadius);
 
-        double dx = cursorPos.X - ReleaseButtonCenter.X;
-        double dy = cursorPos.Y - ReleaseButtonCenter.Y;
-        if (dx * dx + dy * dy <= btnRadius * btnRadius)
+        if (cursorPos.DistanceSquaredTo(ReleaseButtonCenter) <= btnRadius * btnRadius)
             return;
 
         ReleaseButtonCenter = new PhysicalPoint(cursorPos.X - offset, cursorPos.Y - offset);

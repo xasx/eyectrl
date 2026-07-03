@@ -155,11 +155,10 @@ public class OneEuroFilter : IGazeFilter
 
         if (!_initialized)
         {
-            // Initialize all filters with a default sample rate of 30 Hz
-            _xFilter = new LowPassFilter(Alpha(_minCutoff, 1.0 / 30), x);
-            _yFilter = new LowPassFilter(Alpha(_minCutoff, 1.0 / 30), y);
-            _dxFilter = new LowPassFilter(Alpha(_dCutoff, 1.0 / 30), 0);
-            _dyFilter = new LowPassFilter(Alpha(_dCutoff, 1.0 / 30), 0);
+            _xFilter = new LowPassFilter(x);
+            _yFilter = new LowPassFilter(y);
+            _dxFilter = new LowPassFilter(0);
+            _dyFilter = new LowPassFilter(0);
             _prevTimestamp = rawGaze.TimestampMicroseconds;
             _initialized = true;
             _lastFiltered = new PhysicalPoint(x, y);
@@ -257,11 +256,11 @@ public class OneEuroFilter : IGazeFilter
         public double Last { get; private set; }
 
         /// <summary>
-        /// Initializes a new low-pass filter with the given smoothing factor and initial value.
+        /// Initializes a new low-pass filter with the given initial value.
+        /// The smoothing factor is passed per-sample to <see cref="Filter"/>.
         /// </summary>
-        /// <param name="alpha">Initial smoothing factor (not used, alpha is passed per-sample).</param>
         /// <param name="initVal">Initial value for the filter state.</param>
-        public LowPassFilter(double alpha, double initVal)
+        public LowPassFilter(double initVal)
         {
             Last = initVal;
         }

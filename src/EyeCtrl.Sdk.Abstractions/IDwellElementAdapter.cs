@@ -22,7 +22,7 @@ public interface IDwellElementAdapter
     /// <summary>Stable id identifying this element to the dwell service.</summary>
     string Id { get; }
 
-    /// <summary>How activation is delivered (invoke vs focus).</summary>
+    /// <summary>How activation is delivered (invoke vs focus). Read live at activation time on the element's UI thread.</summary>
     DwellMode Mode { get; }
 
     /// <summary>Handle of the element's owning top-level window.</summary>

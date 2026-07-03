@@ -13,7 +13,7 @@ internal sealed class WpfElementAdapter : IDwellElementAdapter
     private long _hwndCache;
 
     public string Id { get; }
-    public DwellMode Mode { get; }
+    public DwellMode Mode => Dwell.GetMode(_element);
 
     public long WindowHandle
     {
@@ -26,11 +26,10 @@ internal sealed class WpfElementAdapter : IDwellElementAdapter
         }
     }
 
-    public WpfElementAdapter(string id, FrameworkElement element, DwellMode mode)
+    public WpfElementAdapter(string id, FrameworkElement element)
     {
         Id = id;
         _element = element;
-        Mode = mode;
     }
 
     public bool TryGetScreenRect(out SdkRect rect)

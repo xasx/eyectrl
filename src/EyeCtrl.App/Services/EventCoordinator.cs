@@ -1068,7 +1068,7 @@ public class EventCoordinator : IEventCoordinator
             bounds.Width - DpiHelper.LogicalToPhysicalX(50),
             bounds.Height / 2.0);
 
-        _scrollOverlayVm = new ScrollOverlayViewModel(_context.Settings.Scroll, _context.Messenger);
+        _scrollOverlayVm = new ScrollOverlayViewModel(_context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell);
         _scrollOverlayVm.EnterScrollMode(anchor, stopButtonCenter);
         _scrollOverlayVm.ExitRequested += OnScrollExitRequested;
 

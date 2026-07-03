@@ -283,38 +283,11 @@ public partial class KeyboardWindow : OverlayWindow
             return;
         }
 
-        // Modifier keys
-        if (lowerAction == "shift" || lowerAction == "modifier:shift")
+        // Modifier keys — use GetModifierFromAction to avoid duplicating the action→ModifierKey mapping
+        var modifier = GetModifierFromAction(action);
+        if (modifier != null)
         {
-            _viewModel.ToggleModifier(ModifierKey.Shift);
-            UpdateModifierVisuals();
-            return;
-        }
-
-        if (lowerAction == "modifier:ctrl")
-        {
-            _viewModel.ToggleModifier(ModifierKey.Ctrl);
-            UpdateModifierVisuals();
-            return;
-        }
-
-        if (lowerAction == "modifier:alt")
-        {
-            _viewModel.ToggleModifier(ModifierKey.Alt);
-            UpdateModifierVisuals();
-            return;
-        }
-
-        if (lowerAction == "modifier:win")
-        {
-            _viewModel.ToggleModifier(ModifierKey.Win);
-            UpdateModifierVisuals();
-            return;
-        }
-
-        if (lowerAction == "toggle:capslock")
-        {
-            _viewModel.ToggleModifier(ModifierKey.CapsLock);
+            _viewModel.ToggleModifier(modifier.Value);
             UpdateModifierVisuals();
             return;
         }

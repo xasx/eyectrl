@@ -133,6 +133,94 @@ public class ModelDownloadService : IDisposable
         _downloadCts?.Cancel();
     }
 
+    private enum DownloadOutcome { Success, Busy, HashMismatch, Failed }
+
+    /// <summary>
+    /// Shared download core used by all public download methods: single-flight
+    /// semaphore, temp-file streaming with incremental SHA-256 via CryptoStream,
+    /// optional hash verification, atomic move into place, temp-file cleanup.
+    /// Creates the linked <see cref="_downloadCts"/> so <see cref="CancelDownload"/>
+    /// works for every download type. Throws OperationCanceledException on cancel.
+    /// </summary>
+    private async Task<(DownloadOutcome Outcome, string? Error)> DownloadFileCoreAsync(
+        string outputFileName,
+        string url,
+        string expectedSha256,
+        Action? onStarted,
+        Action<double>? onProgress,
+        CancellationToken cancellationToken)
+    {
+        var outputPath = Path.Combine(_modelsDirectory, outputFileName);
+        var tempPath = outputPath + ".download";
+
+        if (!await _downloadSemaphore.WaitAsync(0, cancellationToken))
+            return (DownloadOutcome.Busy, "Another download is already in progress");
+
+        _isDownloading = true;
+        _downloadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var ct = _downloadCts.Token;
+
+        try
+        {
+            onStarted?.Invoke();
+
+            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+            response.EnsureSuccessStatusCode();
+
+            var totalBytes = response.Content.Headers.ContentLength ?? -1;
+            using var contentStream = await response.Content.ReadAsStreamAsync(ct);
+
+            var buffer = new byte[8192];
+            long totalRead = 0;
+            int bytesRead;
+
+            using var sha256 = SHA256.Create();
+            using (var fileStream = File.Create(tempPath))
+            using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
+            {
+                while ((bytesRead = await cs.ReadAsync(buffer, ct)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                    totalRead += bytesRead;
+                    if (totalBytes > 0)
+                        onProgress?.Invoke((double)totalRead / totalBytes);
+                }
+            }
+            var computedHash = Convert.ToHexStringLower(sha256.Hash!);
+
+            if (!string.IsNullOrEmpty(expectedSha256) &&
+                !string.Equals(computedHash, expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger?.LogError("Hash mismatch for {File}: expected {Expected}, got {Actual}",
+                    outputFileName, expectedSha256, computedHash);
+                File.Delete(tempPath);
+                return (DownloadOutcome.HashMismatch, "Hash mismatch");
+            }
+
+            File.Move(tempPath, outputPath, overwrite: true);
+            _logger?.LogInformation("{File} downloaded successfully ({Bytes} bytes)", outputFileName, totalRead);
+            return (DownloadOutcome.Success, null);
+        }
+        catch (OperationCanceledException)
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to download {File}", outputFileName);
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+            return (DownloadOutcome.Failed, ex.Message);
+        }
+        finally
+        {
+            _isDownloading = false;
+            _downloadCts?.Dispose();
+            _downloadCts = null;
+            _downloadSemaphore.Release();
+        }
+    }
+
     /// <summary>Downloads a model file to the models directory, verifying its SHA-256 when one is supplied.</summary>
     /// <remarks>
     /// Integrity policy: when <paramref name="expectedSha256"/> is empty the hash check is skipped by
@@ -148,82 +236,33 @@ public class ModelDownloadService : IDisposable
         string expectedSha256,
         CancellationToken cancellationToken = default)
     {
-        var outputPath = Path.Combine(_modelsDirectory, outputFileName);
-        var tempPath = outputPath + ".download";
-
-        if (!await _downloadSemaphore.WaitAsync(0, cancellationToken))
-        {
-            ProgressChanged?.Invoke(new ModelDownloadProgress { ModelId = modelId, Error = "Another download is already in progress" });
-            return false;
-        }
-
-        _isDownloading = true;
-        _downloadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
+        var progress = ProgressChanged;
         try
         {
-            var progress = ProgressChanged;
-            progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Progress = 0 });
+            var (outcome, error) = await DownloadFileCoreAsync(
+                outputFileName, url, expectedSha256,
+                onStarted: () => progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Progress = 0 }),
+                onProgress: p => progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Progress = p }),
+                cancellationToken);
 
-            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, _downloadCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            var totalBytes = response.Content.Headers.ContentLength ?? -1;
-            using var contentStream = await response.Content.ReadAsStreamAsync(_downloadCts.Token);
-
-            var buffer = new byte[8192];
-            long totalRead = 0;
-            int bytesRead;
-
-            using var sha256 = System.Security.Cryptography.SHA256.Create();
-            using (var fileStream = File.Create(tempPath))
-            using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
+            switch (outcome)
             {
-                while ((bytesRead = await cs.ReadAsync(buffer, _downloadCts.Token)) > 0)
-                {
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), _downloadCts.Token);
-                    totalRead += bytesRead;
-                    if (totalBytes > 0)
-                        progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Progress = (double)totalRead / totalBytes });
-                }
+                case DownloadOutcome.Success:
+                    progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Progress = 1.0, IsComplete = true });
+                    return true;
+                case DownloadOutcome.HashMismatch:
+                    progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, IsComplete = true, Error = error });
+                    return false;
+                default: // Busy, Failed
+                    progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Error = error });
+                    return false;
             }
-            var computedHash = Convert.ToHexStringLower(sha256.Hash!);
-
-            // Integrity check is opt-in: an empty expectedSha256 skips it (HTTPS transport trust). See remarks above.
-            if (!string.IsNullOrEmpty(expectedSha256) &&
-                !string.Equals(computedHash, expectedSha256, System.StringComparison.OrdinalIgnoreCase))
-            {
-                _logger?.LogError("Hash mismatch for model {Id}: expected {Expected}, got {Actual}", modelId, expectedSha256, computedHash);
-                File.Delete(tempPath);
-                progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, IsComplete = true, Error = "Hash mismatch" });
-                return false;
-            }
-
-            File.Move(tempPath, outputPath, overwrite: true);
-            _logger?.LogInformation("Model {Id} downloaded successfully ({Bytes} bytes)", modelId, totalRead);
-            progress?.Invoke(new ModelDownloadProgress { ModelId = modelId, Progress = 1.0, IsComplete = true });
-            return true;
         }
         catch (OperationCanceledException)
         {
             _logger?.LogInformation("Model download cancelled: {Id}", modelId);
-            if (File.Exists(tempPath)) File.Delete(tempPath);
             ProgressChanged?.Invoke(new ModelDownloadProgress { ModelId = modelId, IsCancelled = true });
             throw;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Failed to download model {Id}", modelId);
-            if (File.Exists(tempPath)) File.Delete(tempPath);
-            ProgressChanged?.Invoke(new ModelDownloadProgress { ModelId = modelId, Error = ex.Message });
-            return false;
-        }
-        finally
-        {
-            _isDownloading = false;
-            _downloadCts?.Dispose();
-            _downloadCts = null;
-            _downloadSemaphore.Release();
         }
     }
 

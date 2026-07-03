@@ -197,4 +197,80 @@ public class ModelDownloadServiceTests
         var result = ModelDownloadService.GetTokenizerUrl(url);
         Check.That(result).IsEqualTo("https://example.com/a/b/c/tokenizer.json");
     }
+
+    private sealed class StubHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> _responder;
+        public StubHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> responder)
+            => _responder = responder;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            => Task.FromResult(_responder(request, ct));
+    }
+
+    [Fact]
+    public async Task DownloadModelAsync_ValidPayloadAndHash_WritesFileAndReportsCompletion()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        try
+        {
+            var payload = System.Text.Encoding.UTF8.GetBytes("hello model payload");
+            var expectedSha = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(payload));
+            using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(payload)
+                }));
+            using var service = new ModelDownloadService(tempDir, client);
+            var events = new List<ModelDownloadService.ModelDownloadProgress>();
+            service.ProgressChanged += p => events.Add(p);
+
+            var ok = await service.DownloadModelAsync(
+                "custom-x", "custom-x.onnx", "http://localhost/model.onnx", expectedSha);
+
+            Check.That(ok).IsTrue();
+            Check.That(File.ReadAllBytes(Path.Combine(tempDir, "custom-x.onnx")))
+                .ContainsExactly(payload);
+            Check.That(File.Exists(Path.Combine(tempDir, "custom-x.onnx.download"))).IsFalse();
+            Check.That(events.Last().IsComplete).IsTrue();
+            Check.That(events.Last().Error).IsNull();
+            Check.That(events.First().Progress).IsEqualTo(0.0);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadModelAsync_HashMismatch_ReturnsFalseAndCleansUp()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        try
+        {
+            var payload = System.Text.Encoding.UTF8.GetBytes("hello model payload");
+            using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(payload)
+                }));
+            using var service = new ModelDownloadService(tempDir, client);
+            var events = new List<ModelDownloadService.ModelDownloadProgress>();
+            service.ProgressChanged += p => events.Add(p);
+
+            var ok = await service.DownloadModelAsync(
+                "custom-x", "custom-x.onnx", "http://localhost/model.onnx",
+                expectedSha256: "deadbeef");
+
+            Check.That(ok).IsFalse();
+            Check.That(File.Exists(Path.Combine(tempDir, "custom-x.onnx"))).IsFalse();
+            Check.That(File.Exists(Path.Combine(tempDir, "custom-x.onnx.download"))).IsFalse();
+            Check.That(events.Last().Error).IsEqualTo("Hash mismatch");
+            Check.That(events.Last().IsComplete).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
 }

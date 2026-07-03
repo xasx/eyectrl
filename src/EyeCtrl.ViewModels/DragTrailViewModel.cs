@@ -102,7 +102,7 @@ public partial class DragTrailViewModel : ObservableObject,
         {
             DragState = DragSubState.ZoomActive;
             ShowBack = true;
-            SetupDwellTargetsWithBack();
+            SetupDwellTargets(includeBack: true);
         }
         else
         {
@@ -119,8 +119,8 @@ public partial class DragTrailViewModel : ObservableObject,
 
     private void UpdateReleaseButtonPosition(PhysicalPoint cursorPos)
     {
-        var offset = DpiHelper.LogicalToPhysicalX(14);
-        var btnRadius = DpiHelper.LogicalToPhysicalX(20);
+        var offset = DpiHelper.LogicalToPhysicalX(UIConstants.DragReleaseButtonOffset);
+        var btnRadius = DpiHelper.LogicalToPhysicalX(UIConstants.DragButtonRadius);
 
         double dx = cursorPos.X - ReleaseButtonCenter.X;
         double dy = cursorPos.Y - ReleaseButtonCenter.Y;
@@ -130,10 +130,10 @@ public partial class DragTrailViewModel : ObservableObject,
         ReleaseButtonCenter = new PhysicalPoint(cursorPos.X - offset, cursorPos.Y - offset);
     }
 
-    private void SetupDwellTargets()
+    private void SetupDwellTargets(bool includeBack = false)
     {
         _dwellDetector.ClearTargets();
-        var btnRadius = DpiHelper.LogicalToPhysicalX(20);
+        var btnRadius = DpiHelper.LogicalToPhysicalX(UIConstants.DragButtonRadius);
 
         _dwellDetector.AddTarget(new DwellTarget(
             ReleaseTargetId, ReleaseButtonCenter, btnRadius,
@@ -141,22 +141,13 @@ public partial class DragTrailViewModel : ObservableObject,
         _dwellDetector.AddTarget(new DwellTarget(
             CancelTargetId, CancelButtonCenter, btnRadius,
             _settings.Dwell.DragRightEdgeButtonDwellMs));
-    }
 
-    private void SetupDwellTargetsWithBack()
-    {
-        _dwellDetector.ClearTargets();
-        var btnRadius = DpiHelper.LogicalToPhysicalX(20);
-
-        _dwellDetector.AddTarget(new DwellTarget(
-            ReleaseTargetId, ReleaseButtonCenter, btnRadius,
-            _settings.Dwell.DragReleaseButtonDwellMs));
-        _dwellDetector.AddTarget(new DwellTarget(
-            CancelTargetId, CancelButtonCenter, btnRadius,
-            _settings.Dwell.DragRightEdgeButtonDwellMs));
-        _dwellDetector.AddTarget(new DwellTarget(
-            BackTargetId, BackButtonCenter, btnRadius,
-            _settings.Dwell.DragRightEdgeButtonDwellMs));
+        if (includeBack)
+        {
+            _dwellDetector.AddTarget(new DwellTarget(
+                BackTargetId, BackButtonCenter, btnRadius,
+                _settings.Dwell.DragRightEdgeButtonDwellMs));
+        }
     }
 
     private void OnTargetActivated(string targetId)

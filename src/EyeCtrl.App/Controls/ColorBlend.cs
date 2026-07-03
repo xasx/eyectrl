@@ -3,7 +3,7 @@ namespace EyeCtrl.App.Controls;
 using System.Windows.Media;
 
 /// <summary>
-/// Provides linear colour interpolation between two <see cref="Color"/> values.
+/// Provides linear colour interpolation and dwell-highlight utilities.
 /// </summary>
 public static class ColorBlend
 {
@@ -11,12 +11,6 @@ public static class ColorBlend
     /// Returns a colour that is a linear interpolation between <paramref name="from"/>
     /// and <paramref name="to"/> at parameter <paramref name="t"/>.
     /// </summary>
-    /// <param name="from">The starting colour, returned when <paramref name="t"/> is 0.</param>
-    /// <param name="to">The ending colour, returned when <paramref name="t"/> is 1.</param>
-    /// <param name="t">
-    /// Interpolation factor. Values outside [0, 1] are clamped.
-    /// </param>
-    /// <returns>The interpolated <see cref="Color"/>.</returns>
     public static Color Blend(Color from, Color to, double t)
     {
         t = Math.Clamp(t, 0, 1);
@@ -25,5 +19,19 @@ public static class ColorBlend
             (byte)(from.R * (1 - t) + to.R * t),
             (byte)(from.G * (1 - t) + to.G * t),
             (byte)(from.B * (1 - t) + to.B * t));
+    }
+
+    /// <summary>
+    /// Returns a <see cref="SolidColorBrush"/> that blends <paramref name="baseColor"/>
+    /// toward white as dwell progress increases — the standard dwell-highlight overlay
+    /// pattern used by buttons, toggles, tabs, and pagination controls.
+    /// </summary>
+    /// <param name="baseColor">Resting background colour of the dwell target.</param>
+    /// <param name="progress">Dwell progress in [0, 1].</param>
+    /// <param name="factor">Blend factor applied to progress (default 0.5).</param>
+    public static SolidColorBrush ToHighlightBrush(Color baseColor, double progress, double factor = 0.5)
+    {
+        var t = Math.Clamp(progress * factor, 0, 1);
+        return new SolidColorBrush(Blend(baseColor, Colors.White, t));
     }
 }

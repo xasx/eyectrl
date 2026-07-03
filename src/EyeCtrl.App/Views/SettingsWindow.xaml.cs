@@ -574,6 +574,7 @@ public partial class SettingsWindow : OverlayWindow
                     () => ShowModal("Reset Action Menu settings to defaults?", () =>
                     {
                         var a = new ActionMenuSettings();
+                        _settings.ActionMenu.VisibleActions = new List<InteractionAction>(a.VisibleActions);
                         ApplyAndSave();
                         RebuildContent();
                     }),

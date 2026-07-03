@@ -8,7 +8,7 @@ using CommunityToolkit.Mvvm.Messaging;
 public class ScrollOverlayViewModelTests
 {
     private static ScrollOverlayViewModel NewVm() =>
-        new(new ScrollSettings(), new WeakReferenceMessenger());
+        new(new WeakReferenceMessenger(), new ScrollSettings(), new DwellSettings());
 
     private static readonly PhysicalPoint Anchor = new(1000, 800);
     private static readonly PhysicalPoint StopCenter = new(2000, 600);
@@ -68,5 +68,23 @@ public class ScrollOverlayViewModelTests
         vm.EnterScrollMode(Anchor, StopCenter);
         vm.ExitScrollMode();
         Check.That(vm.IsVisible).IsFalse();
+    }
+
+    [Fact]
+    public void StopButtonDwellTime_ComesFromSettings()
+    {
+        var dwell = new DwellSettings { ScrollStopButtonDwellMs = 2000 };
+        var vm = new ScrollOverlayViewModel(new WeakReferenceMessenger(), new ScrollSettings(), dwell);
+        bool exitCalled = false;
+        vm.ExitRequested += () => exitCalled = true;
+
+        vm.EnterScrollMode(Anchor, StopCenter);
+        var stopPos = vm.StopButtonCenter;
+        vm.Receive(new GazeCursorMovedMessage(stopPos, 0));
+        vm.Receive(new GazeCursorMovedMessage(stopPos, 1_000_000)); // 1000ms < 2000ms
+        Check.That(exitCalled).IsFalse();
+
+        vm.Receive(new GazeCursorMovedMessage(stopPos, 2_100_000)); // past 2000ms
+        Check.That(exitCalled).IsTrue();
     }
 }

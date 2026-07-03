@@ -13,7 +13,6 @@ public partial class ScrollOverlayViewModel : ObservableObject,
     IDisposable
 {
     private const string StopButtonTargetId = "scroll-stop";
-    private const int StopButtonDwellMs = 600;
     private const double StopButtonRadiusPx = 30;
     private const double StopZoneRadiusPx = 50;
     private const double MaxOffsetPx = 200.0;
@@ -21,6 +20,7 @@ public partial class ScrollOverlayViewModel : ObservableObject,
     private readonly DwellDetector _dwellDetector;
     private readonly IMessenger _messenger;
     private readonly ScrollSettings _scrollSettings;
+    private readonly DwellSettings _dwellSettings;
     private bool _disposed;
 
     private PhysicalPoint _anchor;
@@ -41,11 +41,12 @@ public partial class ScrollOverlayViewModel : ObservableObject,
     public event Action<double, double>? TargetVelocityChanged;
     public event Action? FeedbackChanged;
 
-    public ScrollOverlayViewModel(ScrollSettings scrollSettings, IMessenger messenger)
+    public ScrollOverlayViewModel(IMessenger messenger, ScrollSettings scrollSettings, DwellSettings dwellSettings)
     {
-        _scrollSettings = scrollSettings;
         _messenger = messenger;
-        _dwellDetector = new DwellDetector();
+        _scrollSettings = scrollSettings;
+        _dwellSettings = dwellSettings;
+        _dwellDetector = new DwellDetector(dwellSettings.DwellCooldownMs);
         _dwellDetector.TargetActivated += _ => ExitRequested?.Invoke();
         _dwellDetector.TargetProgress += (_, progress) => StopButtonProgress = progress;
         messenger.RegisterAll(this);
@@ -68,7 +69,7 @@ public partial class ScrollOverlayViewModel : ObservableObject,
             StopButtonTargetId,
             _stopButtonCenter,
             StopButtonRadiusPx,
-            StopButtonDwellMs));
+            _dwellSettings.ScrollStopButtonDwellMs));
     }
 
     public void ExitScrollMode()

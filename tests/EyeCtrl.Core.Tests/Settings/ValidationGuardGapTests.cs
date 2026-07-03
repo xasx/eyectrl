@@ -28,6 +28,14 @@ public class ValidationGuardGapTests
     }
 
     [Fact]
+    public void ScrollStopButtonDwellMs_HasDefault600_AndRangeGuard()
+    {
+        Check.That(new DwellSettings().ScrollStopButtonDwellMs).IsEqualTo(600);
+        Check.ThatCode(() => new DwellSettings().ScrollStopButtonDwellMs = 100)
+            .Throws<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public void Defaults_ValidateClean()
     {
         Check.That(new DwellSettings().Validate()).IsEmpty();

@@ -29,6 +29,8 @@ public partial class DwellSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _dragReleaseButtonDwellMs = 600;
     /// <summary>Dwell time in milliseconds for the drag right-edge button. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _dragRightEdgeButtonDwellMs = 600;
+    /// <summary>Dwell time in milliseconds for the scroll stop button. Valid range: 200–2000.</summary>
+    [ObservableProperty] private int _scrollStopButtonDwellMs = 600;
 
     partial void OnFixationDetectionMsChanging(int value)
     {
@@ -132,6 +134,13 @@ public partial class DwellSettings : ObservableObject, IValidatable
                 nameof(value), value, $"{nameof(DragRightEdgeButtonDwellMs)} must be between 200 and 2000");
     }
 
+    partial void OnScrollStopButtonDwellMsChanging(int value)
+    {
+        if (value < 200 || value > 2000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(ScrollStopButtonDwellMs)} must be between 200 and 2000");
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
@@ -149,7 +158,8 @@ public partial class DwellSettings : ObservableObject, IValidatable
                 : $"{nameof(VelocityThresholdPxPerSec)} must be greater than 0, but was {VelocityThresholdPxPerSec}",
             ValidationHelper.ValidateRange(DwellCooldownMs, 100, 5000, nameof(DwellCooldownMs)),
             ValidationHelper.ValidateRange(DragReleaseButtonDwellMs, 200, 2000, nameof(DragReleaseButtonDwellMs)),
-            ValidationHelper.ValidateRange(DragRightEdgeButtonDwellMs, 200, 2000, nameof(DragRightEdgeButtonDwellMs))
+            ValidationHelper.ValidateRange(DragRightEdgeButtonDwellMs, 200, 2000, nameof(DragRightEdgeButtonDwellMs)),
+            ValidationHelper.ValidateRange(ScrollStopButtonDwellMs, 200, 2000, nameof(ScrollStopButtonDwellMs))
         );
     }
 }

@@ -44,9 +44,9 @@ public sealed class EyeCareService : IEyeCareService
     /// <inheritdoc />
     public void OnGazeSample(GazePoint sample, bool isPaused, bool canInterrupt = true)
     {
+        _scheduler.Update(sample, isPaused, canInterrupt);
         if (!_settings.Enabled) return;
         _fatigueMonitor.OnSample(sample);
-        _scheduler.Update(sample, isPaused, canInterrupt);
 
         // Escalation (gated, off by default): if fatigue crosses the threshold, request an early
         // break — but only when it is safe to interrupt (FreeLook) and no break is already running.

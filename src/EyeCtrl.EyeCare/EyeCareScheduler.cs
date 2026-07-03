@@ -29,13 +29,8 @@ public sealed class EyeCareScheduler
     /// is open (the user is actively using the app); the break is merely held until FreeLook.</summary>
     public void Update(GazePoint sample, bool isPaused, bool canInterrupt = true)
     {
-        if (!_settings.Enabled) return;
-
-        // Advance the inter-sample baseline on EVERY call (valid, invalid, paused).
-        // Computing the step here — before any early return — means an away/paused gap
-        // moves the baseline forward instead of being added to the active total on the
-        // first sample after the gap (which would over-count away/paused time).
         var step = ComputeStepMicroseconds(sample.TimestampMicroseconds);
+        if (!_settings.Enabled) { _lastTimestampUs = null; return; }
 
         // ── Track looking-away runs for natural-break suppression ──
         if (!sample.IsValid)

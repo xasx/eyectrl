@@ -133,6 +133,30 @@ public class EyeCareSchedulerTests
     }
 
     [Fact]
+    public void DisabledGap_DoesNotCountAsActiveTime_OnReEnable()
+    {
+        var cfg = new EyeCareSettings
+        {
+            Enabled = true, IntervalMinutes = 1, NaturalBreakSeconds = 30, SnoozeMinutes = 1
+        };
+        var scheduler = new EyeCareScheduler(cfg);
+        bool fired = false;
+        scheduler.BreakDue += () => fired = true;
+
+        for (long t = 0; t <= 30_000_000; t += 1_000_000)
+            scheduler.Update(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+
+        cfg.Enabled = false;
+        for (long t = 31_000_000; t <= 1_530_000_000; t += 60_000_000)
+            scheduler.Update(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+
+        cfg.Enabled = true;
+        scheduler.Update(new GazePoint(500, 500, 1_531_000_000, IsValid: true), isPaused: false);
+
+        Check.That(fired).IsFalse();
+    }
+
+    [Fact]
     public void BreakDue_HeldUntilInterruptible()
     {
         var scheduler = new EyeCareScheduler(Cfg);

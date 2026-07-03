@@ -22,6 +22,7 @@ public class SmallLMPredictor : ILanguageModelPredictor
 
     private InferenceSession? _session;
     private readonly object _lock = new();
+    private readonly object _inferenceGate = new();
     private volatile bool _disposed;
     private CancellationTokenSource? _pendingCts;
     private volatile int _inferenceCount;
@@ -142,6 +143,7 @@ public class SmallLMPredictor : ILanguageModelPredictor
             _pendingCts?.Dispose();
             _pendingCts = new CancellationTokenSource();
             _pendingResults = new ConcurrentBag<PredictionResult>();
+            var bag = _pendingResults;
 
             var token = _pendingCts.Token;
             var session = _session;
@@ -162,7 +164,6 @@ public class SmallLMPredictor : ILanguageModelPredictor
                     foreach (var result in results)
                     {
                         if (token.IsCancellationRequested) break;
-                        var bag = _pendingResults;
                         if (bag == null) break;
                         bag.Add(result);
                     }
@@ -175,11 +176,15 @@ public class SmallLMPredictor : ILanguageModelPredictor
                 finally
                 {
                     Interlocked.Decrement(ref _inferenceCount);
+                    lock (_inferenceGate) Monitor.PulseAll(_inferenceGate);
                 }
             });
         }
     }
 
+    // TODO(perf): no KV cache — every generated token re-runs the model over the FULL
+    // sequence, making the maxNewTokens loop O(n^2). If the exported ONNX model gains
+    // past_key_values inputs/outputs, feed only the newest token per step.
     private List<PredictionResult> RunInference(InferenceSession session, string context, string? prefix)
     {
         var prompt = BuildPrompt(context, prefix);
@@ -326,10 +331,14 @@ public class SmallLMPredictor : ILanguageModelPredictor
         _disposed = true;
         Cancel();
 
-        var start = DateTime.UtcNow;
-        while (_inferenceCount > 0 && (DateTime.UtcNow - start) < TimeSpan.FromSeconds(5))
+        lock (_inferenceGate)
         {
-            Thread.Sleep(10);
+            var deadline = Environment.TickCount64 + 5000;
+            while (_inferenceCount > 0)
+            {
+                var remainingMs = deadline - Environment.TickCount64;
+                if (remainingMs <= 0 || !Monitor.Wait(_inferenceGate, (int)remainingMs)) break;
+            }
         }
 
         if (_inferenceCount == 0)
@@ -340,14 +349,13 @@ public class SmallLMPredictor : ILanguageModelPredictor
             return;
         }
 
-        _logger?.LogWarning("SmallLMPredictor dispose timed out while inference was still running; deferring session disposal");
+        _logger?.LogWarning("SmallLMPredictor dispose timed out; deferring session disposal");
         ThreadPool.QueueUserWorkItem(_ =>
         {
-            while (Interlocked.CompareExchange(ref _inferenceCount, 0, 0) > 0)
+            lock (_inferenceGate)
             {
-                Thread.Sleep(10);
+                while (_inferenceCount > 0) Monitor.Wait(_inferenceGate);
             }
-
             lock (_lock)
             {
                 _session?.Dispose();

@@ -5,6 +5,16 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using System.Runtime.InteropServices;
 
+/// <summary>
+/// Sends mouse/keyboard input via Win32 SendInput.
+/// <para>
+/// SINGLE-PRIMARY-MONITOR ASSUMPTION: absolute mouse coordinates are normalized against
+/// SM_CXSCREEN/SM_CYSCREEN, which describe the PRIMARY monitor only. On multi-monitor
+/// setups, gaze-driven cursor positioning is therefore only correct on the primary
+/// display (matching the eye tracker's single-screen calibration). Extending to
+/// multiple monitors would require MOUSEEVENTF_VIRTUALDESK + virtual-screen metrics.
+/// </para>
+/// </summary>
 public class Win32InputSimulator : IInputSimulator
 {
     private static int ScreenWidth => NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
@@ -229,13 +239,23 @@ public class Win32InputSimulator : IInputSimulator
         };
     }
 
+    private static readonly int s_inputSize = Marshal.SizeOf<NativeMethods.INPUT>();
+
+    // MoveCursor runs per gaze frame (30-60 Hz); a [ThreadStatic] one-element buffer
+    // makes the single-input path allocation-free. ThreadStatic (not a shared static)
+    // because clicks can be sent from the UI thread while gaze moves on the poll thread.
+    [ThreadStatic]
+    private static NativeMethods.INPUT[]? t_singleInput;
+
     private static void SendSingleInput(NativeMethods.INPUT input)
     {
-        NativeMethods.SendInput(1, [input], Marshal.SizeOf<NativeMethods.INPUT>());
+        var buffer = t_singleInput ??= new NativeMethods.INPUT[1];
+        buffer[0] = input;
+        NativeMethods.SendInput(1, buffer, s_inputSize);
     }
 
     private static void SendInputs(params NativeMethods.INPUT[] inputs)
     {
-        NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+        NativeMethods.SendInput((uint)inputs.Length, inputs, s_inputSize);
     }
 }

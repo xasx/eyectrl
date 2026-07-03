@@ -12,7 +12,7 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
     /// <summary>Magnification level within the zoom circle. Valid range: 1.5–5.0.</summary>
     [ObservableProperty] private double _magnificationLevel = 2.0;
     /// <summary>Grace period in milliseconds after entering manual selection before dwell activates. Valid range: 100–2000.</summary>
-    [ObservableProperty] private int _ManualSelectionGracePeriodMs = 500;
+    [ObservableProperty] private int _manualSelectionGracePeriodMs = 500;
 
     /// <summary>Outer diameter of the gaze indicator in logical pixels during manual selection.</summary>
     [ObservableProperty] private double _gazeIndicatorOuterDiameter = 30.0;

@@ -45,9 +45,11 @@ public sealed class DwellClient : IDisposable
     public void UnregisterAdapter(string id)
     {
         _adapters.TryRemove(id, out _);
-        WireMessage msg;
-        lock (_tracker) msg = _tracker.OnUnregister(id);
-        TrySend(msg);
+        lock (_tracker)
+        {
+            var msg = _tracker.OnUnregister(id);
+            TrySend(msg);
+        }
     }
 
     /// <summary>Re-reads and re-sends the adapter's rect (deduped); call when its layout may have changed.</summary>
@@ -56,13 +58,17 @@ public sealed class DwellClient : IDisposable
         if (_adapters.TryGetValue(id, out var adapter)) SendRect(adapter);
     }
 
-    /// <summary>Starts the background connect/read and send loops. Idempotent; safe to call once per process.</summary>
+    /// <summary>Starts the background connect/read and send loops. Idempotent and thread-safe.</summary>
     public void Start()
     {
-        if (_cts != null) return;
-        _cts = new CancellationTokenSource();
-        _ = RunAsync(_cts.Token);
-        _ = SendLoopAsync(_cts.Token);
+        var cts = new CancellationTokenSource();
+        if (Interlocked.CompareExchange(ref _cts, cts, null) != null)
+        {
+            cts.Dispose();
+            return;
+        }
+        _ = RunAsync(cts.Token);
+        _ = SendLoopAsync(cts.Token);
     }
 
     private async Task RunAsync(CancellationToken token)
@@ -123,9 +129,11 @@ public sealed class DwellClient : IDisposable
     private void SendRect(IDwellElementAdapter adapter)
     {
         if (!adapter.TryGetScreenRect(out var rect)) return;
-        WireMessage? msg;
-        lock (_tracker) msg = _tracker.OnRect(adapter.Id, rect, adapter.WindowHandle);
-        if (msg != null) TrySend(msg);
+        lock (_tracker)
+        {
+            var msg = _tracker.OnRect(adapter.Id, rect, adapter.WindowHandle);
+            if (msg != null) TrySend(msg);
+        }
     }
 
     // Non-blocking enqueue; the actual write happens on the SendLoop consumer.
@@ -156,6 +164,5 @@ public sealed class DwellClient : IDisposable
         _cts?.Cancel();
         lock (_writeLock) { _writer?.Dispose(); _writer = null; }
         _pipe?.Dispose();
-        _cts?.Dispose();
     }
 }

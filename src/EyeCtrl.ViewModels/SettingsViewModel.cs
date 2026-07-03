@@ -31,8 +31,11 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
         _settings = settings;
         _settingsService = settingsService;
         _messenger = messenger;
-        _messenger.RegisterAll(this);
+        // BuildTabs() must run before RegisterAll(this): it creates _calStatusItem, which the
+        // CalibrationCompletedMessage handler dereferences. Registering first would risk an NRE
+        // if a message arrived mid-construction.
         BuildTabs();
+        _messenger.RegisterAll(this);
     }
 
     private void BuildTabs()
@@ -277,7 +280,8 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
 
     public void Receive(CalibrationCompletedMessage message)
     {
-        _calStatusItem!.DisplayText = message.Success
+        if (_calStatusItem is null) return;
+        _calStatusItem.DisplayText = message.Success
             ? message.MeanErrorPixels is double px
                 ? $"Calibrated — mean error {px.ToString("F1", CultureInfo.InvariantCulture)} px"
                 : "Calibrated"

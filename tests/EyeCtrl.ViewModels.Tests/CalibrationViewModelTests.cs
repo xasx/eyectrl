@@ -106,6 +106,42 @@ public class CalibrationViewModelTests
     }
 
     [Fact]
+    public async Task CancelThenRestart_StaleContinuationDoesNotUnsubscribeNewSession()
+    {
+        // The exact user scenario behind the fix: Cancel then immediately restart while the old
+        // session's target-hold continuation is still pending. That stale continuation must NOT
+        // unsubscribe the NEW session's gaze handler (it's the same delegate instance). Session 1
+        // holds briefly; session 2 holds long, so only session 1's stale continuation fires in
+        // the observation window.
+        var provider = new CountingGazeProvider();
+        // TargetHoldMs is guarded to 200..3000: session 1 uses the floor, session 2 the ceiling.
+        var settings = new CalibrationSettings { PointCount = 3, TargetHoldMs = 200 };
+        var messenger = new WeakReferenceMessenger();
+        var service = new CalibrationService();
+
+        var vm = await Task.Run(() => new CalibrationViewModel(
+            settings, service, messenger, provider,
+            new PhysicalPoint(1920, 1080), "test-monitor"));
+
+        messenger.Send(new CalibrationRequestedMessage());   // session 1: subscribe (1), 200ms hold pending
+        Check.That(provider.SubscriberCount).IsEqualTo(1);
+
+        vm.Cancel();                                          // count 0, generation advances
+        settings.TargetHoldMs = 3000;                         // session 2 stays in hold past the window
+        messenger.Send(new CalibrationRequestedMessage());    // session 2: subscribe (1), 3000ms hold pending
+        Check.That(provider.SubscriberCount).IsEqualTo(1);
+
+        // Past session 1's 200ms hold (its stale continuation fires) but well short of session 2's
+        // 3000ms hold. With the bug, the stale continuation removes session 2's subscription -> 0.
+        await Task.Delay(700, TestContext.Current.CancellationToken);
+
+        Check.That(provider.SubscriberCount).IsEqualTo(1);    // session 2 still subscribed
+        Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
+
+        vm.Cancel(); // cleanup so the pending 5s continuation is a no-op
+    }
+
+    [Fact]
     public async Task FailedCalibration_SetsStateFailed_AndSendsFailedCompletion()
     {
         // A sensor stuck on a constant value makes every target's gaze identical, so

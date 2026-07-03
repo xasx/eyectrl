@@ -187,7 +187,7 @@ public partial class App : Application
 
             gazeEngine.Stop();
             settingsService.Save(settings);
-            _eventCoordinator?.WordPredictor?.SaveUserDictionary();
+            // (User dictionary is saved by EventCoordinator.Dispose above, via PredictionStackFactory.)
 
             var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
             adapter.Dispose();

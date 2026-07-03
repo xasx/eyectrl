@@ -35,8 +35,10 @@ public class EventCoordinator : IEventCoordinator
     private const int DefaultScrollAmount = 3;
 
     private EventCoordinationContext? _context;
-    private bool _keyboardVisible;
-    private bool _settingsOpen;
+    // volatile: read on the gaze thread by SetupGazeRouting's early-out, written on the UI thread.
+    private volatile bool _keyboardVisible;
+    private volatile bool _settingsOpen;
+    private volatile bool _toolbarInitialized;
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
     private Action<PhysicalPoint, long>? _gazeMovedHandler;
@@ -180,7 +182,7 @@ public class EventCoordinator : IEventCoordinator
 
         // Keyboard toggle
         _context.Messenger.Register<EventCoordinator, KeyboardToggledMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(!_keyboardVisible)));
+            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(!_keyboardVisible, manageSuppression: true)));
 
         // Settings window
         _context.Messenger.Register<EventCoordinator, SettingsRequestedMessage>(this, (_, _) =>
@@ -279,7 +281,7 @@ public class EventCoordinator : IEventCoordinator
         _context.Messenger.Register<EventCoordinator, ShowKeyboardRequestMessage>(this, (_, msg) =>
         {
             if (_context?.OverlayManager.Keyboard == null) return;
-            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(true));
+            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(true, manageSuppression: false));
             Log.Debug("Keyboard shown for text input (target handle: {Handle})", msg.TargetHandle);
         });
 
@@ -287,7 +289,7 @@ public class EventCoordinator : IEventCoordinator
         _context.Messenger.Register<EventCoordinator, HideKeyboardRequestMessage>(this, (_, _) =>
         {
             if (_context?.OverlayManager.Keyboard == null) return;
-            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false));
+            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false, manageSuppression: false));
             Log.Debug("Keyboard hidden");
         });
 
@@ -332,9 +334,19 @@ public class EventCoordinator : IEventCoordinator
         var keyboard = _context.OverlayManager.Keyboard;
 
         _gazeMovedHandler = (point, timestamp) =>
+        {
+            // Perf: skip the per-sample UI-thread dispatch when nothing consumes it. The toolbar
+            // only needs the first sample (to lazily init its target positions); after that its
+            // dwell is driven by GazeCursorMovedMessage on the messenger, not this route. The
+            // keyboard and settings window need gaze only while open. Flags are volatile and read
+            // on the gaze thread; a one-frame-stale read at worst delays a dispatch by a frame.
+            if (_toolbarInitialized && !_keyboardVisible && !_settingsOpen)
+                return;
+
             _context.Dispatcher.BeginInvoke(() =>
             {
                 toolbar.UpdateGaze(point, timestamp);
+                _toolbarInitialized = true;
 
                 if (_keyboardVisible && keyboard.IsVisible)
                     keyboard.UpdateGaze(point, timestamp);
@@ -342,6 +354,7 @@ public class EventCoordinator : IEventCoordinator
                 if (_settingsWindow?.IsVisible ?? false)
                     _settingsWindow.UpdateGaze(point, timestamp);
             });
+        };
 
         _context.GazeEngine.CursorMoved += _gazeMovedHandler;
     }
@@ -962,7 +975,11 @@ public class EventCoordinator : IEventCoordinator
         _keyboardSnapshot = KeyboardStackSnapshot.Capture(settings);
     }
 
-    private void SetKeyboardVisible(bool visible)
+    // manageSuppression: true for the toolbar toggle (deliberately pauses fixation while the
+    // keyboard is up); false for the text-field auto-show/hide request path, which must NOT touch
+    // SuppressFixation (it may be owned elsewhere, e.g. note editing, and typing shouldn't pause
+    // fixation for the rest of the app).
+    private void SetKeyboardVisible(bool visible, bool manageSuppression)
     {
         if (_context == null) return;
 
@@ -972,14 +989,18 @@ public class EventCoordinator : IEventCoordinator
         if (visible)
         {
             _context.OverlayManager.Keyboard.Show();
-            _context.GazeEngine.SuppressFixation = true;
-            _context.InteractionManager.OnFixationEnded();
+            if (manageSuppression)
+            {
+                _context.GazeEngine.SuppressFixation = true;
+                _context.InteractionManager.OnFixationEnded();
+            }
             _context.Messenger.Send(new ShowKeyboardMessage());
         }
         else
         {
             _context.OverlayManager.Keyboard.Hide();
-            _context.GazeEngine.SuppressFixation = false;
+            if (manageSuppression)
+                _context.GazeEngine.SuppressFixation = false;
             _context.Messenger.Send(new HideKeyboardMessage());
         }
     }
@@ -1021,12 +1042,9 @@ public class EventCoordinator : IEventCoordinator
             _settingsWindow.Closed -= OnSettingsWindowClosed;
         }
 
-        // Unsubscribe from drag handlers
-        if (_context != null)
-        {
-            _context.InteractionManager.DragStarted -= OnDragStarted;
-            _context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
-        }
+        // Unsubscribe from drag handlers (_context is non-null — guarded at the top of Dispose)
+        _context.InteractionManager.DragStarted -= OnDragStarted;
+        _context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
         _disposeEscapeHook?.Invoke();
         CloseDragOverlay();
 

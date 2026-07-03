@@ -91,7 +91,16 @@ public class PredictionStackFactory : IDisposable
     {
         if (_current != null)
         {
-            _current.WordPredictor.SaveUserDictionary();
+            // Save must not prevent disposal: a failed dictionary write should still let the old
+            // orchestrator (and its LM predictor) be disposed, otherwise a throwing save leaks it.
+            try
+            {
+                _current.WordPredictor.SaveUserDictionary();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to save user dictionary before prediction-stack rebuild");
+            }
             _current.Dispose();
             _current = null;
         }

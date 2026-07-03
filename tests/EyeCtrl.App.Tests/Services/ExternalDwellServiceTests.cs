@@ -17,6 +17,12 @@ using EyeCtrl.Core.Settings;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
+// These tests bind a real named pipe with a fixed name ("eyectrl_dwell", a production const), so
+// they must not run concurrently with each other or with any other pipe-using test collection.
+[CollectionDefinition("ExternalDwellPipe", DisableParallelization = true)]
+public sealed class ExternalDwellPipeCollection { }
+
+[Collection("ExternalDwellPipe")]
 public class ExternalDwellServiceTests
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -183,6 +189,140 @@ public class ExternalDwellServiceTests
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
+    // --- Behavior tests migrated from the deleted ExternalDwellArbiterTests (arbiter folded into
+    //     ExternalDwellService on a filtered DwellDetector in Phase B). ---
+
+    [Fact]
+    public void Gating_WrongRootWindow_NeverActivates()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            // Topmost window under the gaze (99) never matches the target's registered hwnd (7),
+            // so the target is gated out of dwell — it must never activate or acquire suppression.
+            using var svc = new ExternalDwellService(
+                new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
+                engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
+                new WeakReferenceMessenger(), _ => 99);
+            svc.Start();
+
+            var activated = RegisterAndDwell(provider).GetAwaiter().GetResult();
+
+            Check.That(activated).IsNull();
+            Check.That(engine.SuppressFixation).IsFalse();
+        });
+    }
+
+    [Fact]
+    public void Accumulating_SetsSuppression_ThenReleasesWhenGazeLeaves()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+
+            var (afterAccumulate, afterLeave) =
+                RegisterAccumulateThenLeave(engine, provider).GetAwaiter().GetResult();
+
+            Check.That(afterAccumulate).IsTrue();  // mid-dwell over a gated target suppresses fixation
+            Check.That(afterLeave).IsFalse();      // leaving the target releases our suppression
+        });
+    }
+
+    [Fact]
+    public void Cooldown_BlocksImmediateRetrigger()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = new ExternalDwellService(
+                new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 5000 },
+                engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
+                new WeakReferenceMessenger(), _ => 7);
+            svc.Start();
+
+            var (first, second) = RegisterActivateTwice(provider).GetAwaiter().GetResult();
+
+            Check.That(first).IsNotNull();          // first dwell activates
+            Check.That(first).Contains("activated");
+            Check.That(second).IsNull();            // second dwell within cooldown is blocked
+        });
+    }
+
+    // Registers a target (hwnd 7) and dwells fully over it, returning the activation line or null.
+    private static async Task<string?> RegisterAndDwell(StubGazeProvider provider)
+    {
+        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+        await Task.Delay(200);
+
+        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
+        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+
+        var read = r.ReadLineAsync();
+        return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
+    // Registers a target, accumulates dwell partway (captures suppression state), then moves the
+    // gaze off it (captures suppression state again). Keeps the pipe open so the target survives.
+    private static async Task<(bool afterAccumulate, bool afterLeave)> RegisterAccumulateThenLeave(
+        GazeEngine engine, StubGazeProvider provider)
+    {
+        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+        await Task.Delay(200);
+
+        // Enter (t=0) then accumulate (0.1s, well under the 0.8s dwell): feedback → suppression.
+        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
+        provider.Raise(new GazePoint(100, 100, 100_000, IsValid: true));
+        var afterAccumulate = engine.SuppressFixation;
+
+        // Gaze far outside the target: no feedback → suppression released.
+        provider.Raise(new GazePoint(9000, 9000, 200_000, IsValid: true));
+        var afterLeave = engine.SuppressFixation;
+
+        return (afterAccumulate, afterLeave);
+    }
+
+    // Activates the target once, then attempts a second dwell within the cooldown window.
+    private static async Task<(string? first, string? second)> RegisterActivateTwice(StubGazeProvider provider)
+    {
+        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+        await Task.Delay(200);
+
+        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
+        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        var read1 = r.ReadLineAsync();
+        var first = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
+
+        // Retrigger attempt at t=1.6s/2.4s — inside the 5s cooldown from the first activation.
+        provider.Raise(new GazePoint(100, 100, 1_600_000, IsValid: true));
+        provider.Raise(new GazePoint(100, 100, 2_400_000, IsValid: true));
+        var read2 = r.ReadLineAsync();
+        var second = await Task.WhenAny(read2, Task.Delay(1500)) == read2 ? await read2 : null;
+
+        return (first, second);
     }
 
     private sealed class StubGazeProvider : IGazeProvider

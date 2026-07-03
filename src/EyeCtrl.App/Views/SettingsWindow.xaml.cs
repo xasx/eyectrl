@@ -691,43 +691,6 @@ public partial class SettingsWindow : OverlayWindow
         ];
     }
 
-    private List<List<Action>> BuildThemePages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
-
-        return
-        [
-            [
-                () => Add(new DwellComboBox(_viewModel, "th_mode", "Theme Mode",
-                    ["System", "Light", "Dark"],
-                    () => _settings.Theme.Mode,
-                    v => { _settings.Theme.Mode = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "th_op", "Overlay Opacity",
-                    0.3, 1.0, 0.1, 1,
-                    () => _settings.Theme.OverlayOpacity,
-                    v => { _settings.Theme.OverlayOpacity = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellToggle(_viewModel, "th_hc", "High Contrast",
-                    () => _settings.Theme.HighContrast,
-                    v => { _settings.Theme.HighContrast = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellButton(_viewModel, "th_reset", "Reset Theme Settings",
-                    () => ShowModal("Reset Theme settings to defaults?", () =>
-                    {
-                        var th = new ThemeSettings();
-                        _settings.Theme.Mode = th.Mode;
-                        _settings.Theme.OverlayOpacity = th.OverlayOpacity;
-                        _settings.Theme.HighContrast = th.HighContrast;
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
-            ]
-        ];
-    }
-
     private List<List<Action>> BuildModelsPages()
     {
         var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);

@@ -6,15 +6,12 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class CursorCircleViewModel : ObservableObject,
+public partial class CursorCircleViewModel : MessengerViewModelBase,
     IRecipient<GazeCursorMovedMessage>,
     IRecipient<StateChangedMessage>,
-    IRecipient<ExternalDwellActiveMessage>,
-    IDisposable
+    IRecipient<ExternalDwellActiveMessage>
 {
     private readonly EyeCtrlSettings _settings;
-    private readonly IMessenger _messenger;
-    private bool _disposed;
 
     // Effective visibility = the interaction state allows a cursor AND no external-dwell target
     // is currently active. Two independent inputs are combined into the single IsVisible so there
@@ -31,10 +28,9 @@ public partial class CursorCircleViewModel : ObservableObject,
     public double Thickness => _settings.Cursor.CircleThickness;
 
     public CursorCircleViewModel(EyeCtrlSettings settings, IMessenger messenger)
+        : base(messenger)
     {
         _settings = settings;
-        _messenger = messenger;
-        messenger.RegisterAll(this);
     }
 
     public void Receive(GazeCursorMovedMessage message)
@@ -56,13 +52,4 @@ public partial class CursorCircleViewModel : ObservableObject,
     }
 
     private void UpdateVisibility() => IsVisible = _stateAllowsCursor && !_externalDwellActive;
-
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-
-        _messenger.UnregisterAll(this);
-        _disposed = true;
-    }
 }

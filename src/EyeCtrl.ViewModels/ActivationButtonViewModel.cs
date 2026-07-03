@@ -8,36 +8,21 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class ActivationButtonViewModel : ObservableObject,
+public partial class ActivationButtonViewModel : DwellOverlayViewModelBase,
     IRecipient<ShowActivationButtonMessage>,
-    IRecipient<HideActivationButtonMessage>,
-    IRecipient<GazeCursorMovedMessage>,
-    IDisposable
+    IRecipient<HideActivationButtonMessage>
 {
     private const string TargetId = "activate";
 
     private readonly EyeCtrlSettings _settings;
-    private readonly IMessenger _messenger;
-    private readonly DwellDetector _dwellDetector;
-    private bool _disposed;
 
     [ObservableProperty] private PhysicalPoint _position = new(0, 0);
     [ObservableProperty] private double _dwellProgress;
-    [ObservableProperty] private bool _isVisible;
 
     public ActivationButtonViewModel(EyeCtrlSettings settings, IMessenger messenger)
+        : base(messenger, settings.Dwell.DwellCooldownMs)
     {
         _settings = settings;
-        _messenger = messenger;
-        _dwellDetector = new DwellDetector(settings.Dwell.DwellCooldownMs);
-
-        _dwellDetector.TargetActivated += _ =>
-        {
-            _messenger.Send(new ActivationCompletedMessage());
-        };
-        _dwellDetector.TargetProgress += (_, progress) => DwellProgress = progress;
-
-        messenger.RegisterAll(this);
     }
 
     public void Receive(ShowActivationButtonMessage message)
@@ -45,8 +30,8 @@ public partial class ActivationButtonViewModel : ObservableObject,
         Position = message.Position;
         IsVisible = true;
         DwellProgress = 0;
-        _dwellDetector.ClearTargets();
-        _dwellDetector.AddTarget(new DwellTarget(TargetId,
+        DwellDetector.ClearTargets();
+        DwellDetector.AddTarget(new DwellTarget(TargetId,
             message.Position,
             DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius),
             _settings.Dwell.ActivationButtonDwellMs));
@@ -56,21 +41,12 @@ public partial class ActivationButtonViewModel : ObservableObject,
     {
         IsVisible = false;
         DwellProgress = 0;
-        _dwellDetector.ClearTargets();
+        DwellDetector.ClearTargets();
     }
 
-    public void Receive(GazeCursorMovedMessage message)
-    {
-        if (IsVisible)
-            _dwellDetector.Update(message.Position, message.TimestampMicroseconds);
-    }
+    protected override void OnTargetActivated(string targetId) =>
+        Messenger.Send(new ActivationCompletedMessage());
 
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-
-        _messenger.UnregisterAll(this);
-        _disposed = true;
-    }
+    protected override void OnTargetProgress(string targetId, double progress) =>
+        DwellProgress = progress;
 }

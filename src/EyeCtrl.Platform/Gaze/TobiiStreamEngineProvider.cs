@@ -24,6 +24,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
     private volatile bool _running;
     private readonly object _lock = new();
     private readonly ManualResetEventSlim _stopSignal = new(false);
+    private volatile bool _pollThreadExited = true;
     private string? _lastErrorMessage;
 
     // Must keep a reference to prevent GC from collecting the delegate
@@ -63,8 +64,12 @@ public class TobiiStreamEngineProvider : IGazeProvider
     {
         _running = false;
         _stopSignal.Set();
-        _pollThread?.Join(2000);
-        _pollThread = null;
+
+        // Retain the thread reference if the join times out so a later Dispose can re-join
+        // before disposing _stopSignal (the poll thread waits on it during backoff).
+        bool joined = _pollThread?.Join(2000) ?? true;
+        if (joined) _pollThread = null;
+        _pollThreadExited = joined;
 
         lock (_lock)
         {
@@ -259,7 +264,11 @@ public class TobiiStreamEngineProvider : IGazeProvider
     public void Dispose()
     {
         Stop();
-        _stopSignal.Dispose();
+        // Only dispose the stop signal once the poll thread has actually exited; otherwise a
+        // still-running poll thread could Wait() on a disposed handle (ObjectDisposedException).
+        // A leaked lightweight handle at shutdown is preferable to a background-thread throw.
+        if (_pollThreadExited)
+            _stopSignal.Dispose();
     }
 }
 #endif

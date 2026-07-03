@@ -46,18 +46,25 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
 
     private void OnTick(object? state)
     {
-        if (GetCursorPos(out var point))
-        {
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * MathConstants.MicrosecondsPerMillisecond;
-            GazePointReceived?.Invoke(new GazePoint(point.X, point.Y, timestamp, true));
-        }
-
         try
         {
-            _timer?.Change(_intervalMs, Timeout.Infinite);
+            if (GetCursorPos(out var point))
+            {
+                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * MathConstants.MicrosecondsPerMillisecond;
+                GazePointReceived?.Invoke(new GazePoint(point.X, point.Y, timestamp, true));
+            }
         }
-        catch (ObjectDisposedException)
+        finally
         {
+            // Always re-arm the one-shot timer, even if a subscriber threw, so a single
+            // faulty tick doesn't silently stop the provider forever.
+            try
+            {
+                _timer?.Change(_intervalMs, Timeout.Infinite);
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
     }
 

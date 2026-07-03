@@ -13,11 +13,11 @@ public class MouseGazeProviderTests
         provider.GazePointReceived += _ => Interlocked.Increment(ref count);
 
         provider.Start();
-        await Task.Delay(60);
+        await Task.Delay(60, TestContext.Current.CancellationToken);
         provider.Stop();
 
         int atStop = Volatile.Read(ref count);
-        await Task.Delay(120);
+        await Task.Delay(120, TestContext.Current.CancellationToken);
         Check.That(Volatile.Read(ref count)).IsEqualTo(atStop);
         Check.That(atStop).IsStrictlyGreaterThan(0);
         provider.Dispose();

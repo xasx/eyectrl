@@ -132,6 +132,39 @@ public class WordPredictorTests
         Check.That(results.Any(r => r.Word == "the")).IsFalse();
     }
 
+    // The fuzzy pre-filter skips the edit-distance DP when a candidate has > 3 positional
+    // case-insensitive mismatches. These two tests pin that cutoff to the DP threshold
+    // (MaxFuzzyDistance = 1.5, adjacent-key substitution = 0.5), guarding against a future
+    // tightening of the pre-filter that would silently drop still-matchable words.
+
+    [Fact]
+    public void GetSuggestions_ThreeAdjacentTypos_AtThreshold_StillSuggested()
+    {
+        // "awdd" vs "seed": a↔s, w↔e, d↔e are all QWERTY-adjacent (0.5 each) and pos 3 matches,
+        // so distance = 1.5 == MaxFuzzyDistance and mismatches = 3 (pre-filter must NOT skip it).
+        var predictor = CreatePredictor(new()
+        {
+            { "seed", 1000 }
+        });
+
+        var results = predictor.GetSuggestions("awdd", null, maxCount: 5);
+        Check.That(results).HasElementThatMatches(r => r.Word == "seed");
+    }
+
+    [Fact]
+    public void GetSuggestions_FourTypos_BeyondThreshold_NotSuggested()
+    {
+        // "awdf" vs "seed": 4 positional mismatches → even the cheapest (all-adjacent) alignment
+        // costs 2.0 > MaxFuzzyDistance, so the pre-filter cutoff agrees with the DP: dropped.
+        var predictor = CreatePredictor(new()
+        {
+            { "seed", 1000 }
+        });
+
+        var results = predictor.GetSuggestions("awdf", null, maxCount: 5);
+        Check.That(results.Any(r => r.Word == "seed")).IsFalse();
+    }
+
     [Fact]
     public void GetSuggestions_WithBigramContext_SuggestsNextWord()
     {

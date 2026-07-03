@@ -60,6 +60,20 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public void ResetAllSettings_ResetsBackdropToo()
+    {
+        var settings = new EyeCtrlSettings { Backdrop = { Opacity = 0.8, Enabled = false } };
+        var service = new SettingsService("test.json");
+
+        var vm = new SettingsViewModel(settings, service, _messenger);
+        vm.ResetAllSettings();
+
+        var defaults = new EyeCtrlSettings();
+        Check.That(settings.Backdrop.Opacity).IsEqualTo(defaults.Backdrop.Opacity);
+        Check.That(settings.Backdrop.Enabled).IsEqualTo(defaults.Backdrop.Enabled);
+    }
+
+    [Fact]
     public void Pagination_Works()
     {
         var settings = new EyeCtrlSettings();

@@ -130,15 +130,27 @@ public class TobiiStreamEngineProvider : IGazeProvider
 
         _gazeCallback = (ref tobii_gaze_point_t gazePoint, IntPtr userData) =>
         {
+            // Device timestamp: monotonic microseconds from the tracker clock (arbitrary
+            // epoch). The pipeline only ever consumes timestamp DIFFERENCES (OneEuroFilter
+            // dt, GapInterpolator gap length, fixation durations), so the epoch is
+            // irrelevant — but the previous wall-clock fabrication
+            // (UtcNow.ToUnixTimeMilliseconds() * 1000) had only 1 ms resolution, causing
+            // dt jitter/zero divisions in the OneEuroFilter at ~33 Hz.
             if (gazePoint.validity == tobii_validity_t.TOBII_VALIDITY_VALID)
             {
                 // Stream Engine gives normalized 0..1 coords; convert to screen pixels
-                var timestampUs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000;
                 GazePointReceived?.Invoke(new GazePoint(
                     _screenWidth * gazePoint.position.x,
                     _screenHeight * gazePoint.position.y,
-                    timestampUs,
+                    gazePoint.timestamp_us,
                     true));
+            }
+            else
+            {
+                // Forward invalid samples (eyes lost / blink) instead of dropping them.
+                // GapInterpolator blink handling and EyeCare away-detection both key off
+                // GazePoint.IsValid == false and never saw it from the real device before.
+                GazePointReceived?.Invoke(new GazePoint(0, 0, gazePoint.timestamp_us, false));
             }
         };
 

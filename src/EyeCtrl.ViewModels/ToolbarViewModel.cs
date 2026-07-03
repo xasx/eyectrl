@@ -110,7 +110,7 @@ public partial class ToolbarViewModel : ObservableObject,
         {
             case "Pause": _messenger.Send(new PauseToggledMessage()); break;
             case "SelectionMode":
-                var next = (SelectionMode)(((int)_currentSelectionMode + 1) % 3);
+                var next = (SelectionMode)(((int)_currentSelectionMode + 1) % Enum.GetValues<SelectionMode>().Length);
                 _messenger.Send(new SelectionModeChangedMessage(next));
                 break;
             case "Keyboard": _messenger.Send(new KeyboardToggledMessage()); break;

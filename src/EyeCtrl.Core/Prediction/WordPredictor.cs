@@ -166,9 +166,6 @@ public class WordPredictor
 
         if (shouldIncludeStandardMatching)
         {
-            // Precompute lowercase prefix once for fuzzy matching (performance optimization)
-            var lowerPrefix = prefix.ToLowerInvariant();
-
             foreach (var (word, frequency) in _words)
             {
                 if (word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -199,13 +196,30 @@ public class WordPredictor
                 if (string.IsNullOrEmpty(prefix))
                     continue;
 
-                // Compare prefix against the same-length prefix of the word, or full word if shorter
-                // Use case-insensitive comparison for fuzzy matching
+                // Cheap pre-filter before the O(m*n) DP (runs per dictionary word per
+                // keystroke). For same-length comparisons, any alignment within
+                // MaxFuzzyDistance (1.5) cannot use insert/delete (a pair costs 2.0),
+                // so distance >= 0.5 * positional case-insensitive mismatches;
+                // 4+ mismatches can never qualify. Sound for first-char typos too.
+                if (word.Length >= prefix.Length)
+                {
+                    int mismatches = 0;
+                    for (int i = 0; i < prefix.Length && mismatches <= 3; i++)
+                    {
+                        if (char.ToLowerInvariant(word[i]) != char.ToLowerInvariant(prefix[i]))
+                            mismatches++;
+                    }
+                    if (mismatches > 3) continue;
+                }
+
+                // Compare prefix against the same-length prefix of the word, or the full
+                // word if shorter. FuzzyEditDistance lowercases per-char internally, so
+                // no ToLowerInvariant() string allocations are needed here.
                 var wordPrefix = word.Length >= prefix.Length
                     ? word[..prefix.Length]
                     : word;
 
-                var dist = FuzzyEditDistance.Compute(lowerPrefix, wordPrefix.ToLowerInvariant(), _adjacencyMap);
+                var dist = FuzzyEditDistance.Compute(prefix, wordPrefix, _adjacencyMap);
                 if (dist > MaxFuzzyDistance) continue;
 
                 double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;

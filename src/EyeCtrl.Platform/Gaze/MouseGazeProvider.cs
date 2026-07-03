@@ -4,6 +4,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 public partial class MouseGazeProvider : IGazeProvider, IDisposable
 {
@@ -28,14 +29,21 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
     public void Start()
     {
         IsConnected = true;
-        _timer = new Timer(OnTick, null, 0, _intervalMs);
+        _timer = new Timer(OnTick, null, 0, Timeout.Infinite);
     }
 
     public void Stop()
     {
-        _timer?.Dispose();
+        var timer = _timer;
         _timer = null;
         IsConnected = false;
+
+        if (timer != null)
+        {
+            using var done = new ManualResetEvent(false);
+            if (timer.Dispose(done))
+                done.WaitOne(1000);
+        }
     }
 
     private void OnTick(object? state)
@@ -44,6 +52,14 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
         {
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * MathConstants.MicrosecondsPerMillisecond;
             GazePointReceived?.Invoke(new GazePoint(point.X, point.Y, timestamp, true));
+        }
+
+        try
+        {
+            _timer?.Change(_intervalMs, Timeout.Infinite);
+        }
+        catch (ObjectDisposedException)
+        {
         }
     }
 

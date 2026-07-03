@@ -4,7 +4,7 @@ using System.Text.Json;
 using Tokenizers.DotNet;
 
 /// <summary>Wraps a HuggingFace-style tokenizer for encoding/decoding text with the SmallLM.</summary>
-public class LMTokenizer : IDisposable
+public sealed class LMTokenizer : IDisposable
 {
     private readonly Tokenizer _tokenizer;
     private volatile bool _disposed;

@@ -11,7 +11,7 @@ using System.Text;
 /// ONNX runtime-based small language model predictor for next-word suggestions.
 /// Uses a tokenizer to encode context and runs inference on a SmallLM ONNX model.
 /// </summary>
-public class SmallLMPredictor : ILanguageModelPredictor
+public sealed class SmallLMPredictor : ILanguageModelPredictor
 {
     private readonly string _modelsDirectory;
     private readonly string? _selectedModelSize;

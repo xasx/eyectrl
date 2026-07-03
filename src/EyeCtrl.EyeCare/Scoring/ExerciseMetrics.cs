@@ -3,7 +3,7 @@ namespace EyeCtrl.EyeCare.Scoring;
 using EyeCtrl.Core.Models;
 
 /// <summary>Accumulates per-frame gaze-vs-target deltas, then computes an <see cref="ExerciseResult"/>.</summary>
-public class ExerciseMetrics
+public sealed class ExerciseMetrics
 {
     private readonly List<(double dx, double dy)> _deltas = new();
     private readonly List<long> _reactionTimesUs = new();

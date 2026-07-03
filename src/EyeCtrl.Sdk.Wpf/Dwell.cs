@@ -1,12 +1,12 @@
 namespace EyeCtrl.Sdk.Wpf;
 
-using System.Collections.Concurrent;
 using System.Windows;
 using EyeCtrl.Sdk.Abstractions;
 
 /// <summary>
 /// Attached properties enabling gaze dwell on a WPF FrameworkElement.
 /// A single process-wide DwellClient connects to EyeCtrl lazily on first use.
+/// The SDK holds no static strong reference to any element.
 /// </summary>
 public static class Dwell
 {
@@ -27,12 +27,16 @@ public static class Dwell
     /// <summary>Sets the value of the Dwell.Mode attached property.</summary>
     public static void SetMode(DependencyObject o, DwellMode v) => o.SetValue(ModeProperty, v);
 
+    private static readonly DependencyProperty EntryProperty = DependencyProperty.RegisterAttached(
+        "Entry", typeof(object), typeof(Dwell), new PropertyMetadata(null));
+
     private static readonly DwellClient _client = new();
-    private static readonly ConcurrentDictionary<FrameworkElement, DwellEntry> _byElement = new();
     private static int _started;
     private static long _idCounter;
 
-    private sealed record DwellEntry(WpfElementAdapter Adapter, EventHandler LayoutHandler);
+    private sealed record DwellEntry(WpfElementAdapter Adapter,
+                                     RoutedEventHandler Loaded, RoutedEventHandler Unloaded,
+                                     EventHandler LayoutHandler);
 
     private static void OnEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -49,16 +53,17 @@ public static class Dwell
     private static void Register(FrameworkElement el)
     {
         EnsureStarted();
-        if (_byElement.ContainsKey(el)) return;
+        if (el.GetValue(EntryProperty) is DwellEntry) return;
 
         var id = $"wpf_{Interlocked.Increment(ref _idCounter)}";
         var adapter = new WpfElementAdapter(id, el, GetMode(el));
         EventHandler layoutHandler = (_, _) => _client.OnAdapterLayoutChanged(adapter.Id);
-        var entry = new DwellEntry(adapter, layoutHandler);
-        _byElement[el] = entry;
+        RoutedEventHandler loaded = (_, _) => _client.RegisterAdapter(adapter);
+        RoutedEventHandler unloaded = (_, _) => _client.UnregisterAdapter(adapter.Id);
+        el.SetValue(EntryProperty, new DwellEntry(adapter, loaded, unloaded, layoutHandler));
 
-        el.Loaded += OnLoaded;
-        el.Unloaded += OnUnloaded;
+        el.Loaded += loaded;
+        el.Unloaded += unloaded;
         el.LayoutUpdated += layoutHandler;
 
         if (el.IsLoaded) _client.RegisterAdapter(adapter);
@@ -66,22 +71,11 @@ public static class Dwell
 
     private static void Unregister(FrameworkElement el)
     {
-        if (!_byElement.TryRemove(el, out var entry)) return;
-        el.Loaded -= OnLoaded;
-        el.Unloaded -= OnUnloaded;
+        if (el.GetValue(EntryProperty) is not DwellEntry entry) return;
+        el.ClearValue(EntryProperty);
+        el.Loaded -= entry.Loaded;
+        el.Unloaded -= entry.Unloaded;
         el.LayoutUpdated -= entry.LayoutHandler;
         _client.UnregisterAdapter(entry.Adapter.Id);
-    }
-
-    private static void OnLoaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement el && _byElement.TryGetValue(el, out var entry))
-            _client.RegisterAdapter(entry.Adapter);
-    }
-
-    private static void OnUnloaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement el && _byElement.TryGetValue(el, out var entry))
-            _client.UnregisterAdapter(entry.Adapter.Id);
     }
 }

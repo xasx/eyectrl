@@ -29,6 +29,7 @@ public class OverlayManager : IOverlayManager
     public GlassBackdropWindow GlassBackdrop { get; private set; } = null!;
     public CalibrationWindow Calibration { get; private set; } = null!;
     public TargetHighlightWindow TargetHighlight { get; private set; } = null!;
+    public EdgeButtonBarWindow EdgeButtonBar { get; private set; } = null!;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger)
     {
@@ -54,6 +55,7 @@ public class OverlayManager : IOverlayManager
         ManualSelectionIndicator = new ManualSelectionGazeIndicatorWindow();
         GlassBackdrop = new GlassBackdropWindow();
         TargetHighlight = new TargetHighlightWindow();
+        EdgeButtonBar = new EdgeButtonBarWindow();
 
         // Configure ManualSelection indicator
         ManualSelectionIndicator.Configure(
@@ -76,6 +78,9 @@ public class OverlayManager : IOverlayManager
 
         // Set DataContext for TargetHighlight
         TargetHighlight.DataContext = viewModels.TargetHighlight;
+
+        EdgeButtonBar.DataContext = viewModels.EdgeButtonBar;
+        viewModels.EdgeButtonBar.Buttons.CollectionChanged += (_, _) => EdgeButtonBar.SyncButtons();
 
         // Initialize overlays with their specific APIs
         CursorCircle.UpdateAppearance(settings.Cursor);

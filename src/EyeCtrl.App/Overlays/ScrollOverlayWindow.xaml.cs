@@ -5,25 +5,14 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using EyeCtrl.App.Controls;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
 public partial class ScrollOverlayWindow : OverlayWindow
 {
-    private readonly ArcSegment _stopArc = new()
-    {
-        Size = new Size(25, 25),
-        SweepDirection = SweepDirection.Clockwise
-    };
-    private readonly PathFigure _stopFigure = new() { StartPoint = new Point(25, 0) };
-    private readonly PathGeometry _stopGeometry = new();
-
     public ScrollOverlayWindow()
     {
         InitializeComponent();
-        _stopGeometry.Figures.Add(_stopFigure);
-        _stopFigure.Segments.Add(_stopArc);
     }
 
     public void Show(ScrollOverlayViewModel vm)
@@ -54,22 +43,11 @@ public partial class ScrollOverlayWindow : OverlayWindow
         Canvas.SetLeft(VelocityRing, anchorLogX - 40);
         Canvas.SetTop(VelocityRing, anchorLogY - 40);
 
-        var stopCenter = vm.StopButtonCenter;
-        double stopLogX = DpiHelper.PhysicalToLogicalX(stopCenter.X);
-        double stopLogY = DpiHelper.PhysicalToLogicalY(stopCenter.Y);
-        Canvas.SetLeft(StopButton, stopLogX - 25);
-        Canvas.SetTop(StopButton, stopLogY - 25);
-        Canvas.SetLeft(StopButtonProgressArc, stopLogX - 25);
-        Canvas.SetTop(StopButtonProgressArc, stopLogY - 25);
-        Canvas.SetLeft(StopLabel, stopLogX - 12);
-        Canvas.SetTop(StopLabel, stopLogY - 14);
-
         base.Show();
         Topmost = true;
     }
 
-    public void UpdateFeedback(double dotOffsetX, double dotOffsetY,
-        double velMagnitude, double stopProgress)
+    public void UpdateFeedback(double dotOffsetX, double dotOffsetY, double velMagnitude)
     {
         double anchorX = Canvas.GetLeft(CursorCircle) + 40;
         double anchorY = Canvas.GetTop(CursorCircle) + 40;
@@ -80,16 +58,5 @@ public partial class ScrollOverlayWindow : OverlayWindow
 
         double thickness = 2 + velMagnitude * 0.2;
         VelocityRing.StrokeThickness = Math.Min(thickness, 12);
-
-        if (stopProgress > 0)
-        {
-            StopButtonProgressArc.Visibility = Visibility.Visible;
-            DwellArcButton.UpdateArc(_stopArc, new Point(25, 25), 25, stopProgress);
-            StopButtonProgressArc.Data = _stopGeometry;
-        }
-        else
-        {
-            StopButtonProgressArc.Visibility = Visibility.Hidden;
-        }
     }
 }

@@ -10,13 +10,8 @@ public class DragTrailViewModelTests
     private readonly WeakReferenceMessenger _messenger = new();
     private readonly EyeCtrlSettings _settings = new();
 
-    // Right-edge button centers are computed by the App layer and passed in; tests supply fixed
-    // values and assert the ViewModel echoes them.
-    private static readonly PhysicalPoint TestCancelCenter = new(1890, 560);
-    private static readonly PhysicalPoint TestBackCenter = new(1890, 500);
-
     private static StartDragTrailMessage StartMsg(PhysicalPoint origin)
-        => new(origin, TestCancelCenter, TestBackCenter);
+        => new(origin);
 
     private DragTrailViewModel CreateVm() => new(_settings, _messenger);
 
@@ -97,24 +92,6 @@ public class DragTrailViewModelTests
     }
 
     [Fact]
-    public void CancelButton_DwellSendsDragCancel()
-    {
-        var vm = CreateVm();
-        _settings.Dwell.DragRightEdgeButtonDwellMs = 200;
-        _messenger.Send(StartMsg(new PhysicalPoint(100, 100)));
-
-        DragCancelMessage? cancelMsg = null;
-        _messenger.Register<DragCancelMessage>(_messenger, (_, msg) => cancelMsg = msg);
-
-        var cancelPos = vm.CancelButtonCenter;
-        _messenger.Send(new GazeCursorMovedMessage(cancelPos, 0));
-        _messenger.Send(new GazeCursorMovedMessage(cancelPos, 300_000));
-
-        Check.That(cancelMsg).IsNotNull();
-        Check.That(vm.IsDragActive).IsFalse();
-    }
-
-    [Fact]
     public void ReleaseButton_DwellSendsDragDrop()
     {
         _settings.Dwell.DragReleaseButtonDwellMs = 200;
@@ -143,14 +120,27 @@ public class DragTrailViewModelTests
     }
 
     [Fact]
-    public void StartDrag_EchoesEdgeButtonCenters()
+    public void Receive_DragCancelMessage_RunsCleanup()
     {
-        // The App layer computes the right-edge cancel/back centers and passes them in; the
-        // ViewModel stores them verbatim (it no longer reads screen geometry itself).
         var vm = CreateVm();
-        _messenger.Send(StartMsg(new PhysicalPoint(100, 100)));
+        vm.Receive(new StartDragTrailMessage(
+            new PhysicalPoint(100, 100)));
 
-        Check.That(vm.CancelButtonCenter).IsEqualTo(TestCancelCenter);
-        Check.That(vm.BackButtonCenter).IsEqualTo(TestBackCenter);
+        _messenger.Send(new DragCancelMessage());
+
+        Check.That(vm.IsDragActive).IsFalse();
+    }
+
+    [Fact]
+    public void Receive_DragDismissManualSelectionMessage_RunsCleanup()
+    {
+        var vm = CreateVm();
+        _settings.SelectionMode = SelectionMode.ManualSelection;
+        vm.Receive(new StartDragTrailMessage(
+            new PhysicalPoint(100, 100)));
+
+        _messenger.Send(new DragDismissManualSelectionMessage());
+
+        Check.That(vm.DragState).IsEqualTo(DragSubState.FreeDrag);
     }
 }

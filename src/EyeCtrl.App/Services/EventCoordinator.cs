@@ -378,8 +378,13 @@ public class EventCoordinator : IEventCoordinator
             _context.Dispatcher.BeginInvoke(() => OnDragDrop(m)));
         _context.Messenger.Register<EventCoordinator, DragCancelMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(OnDragCancel));
-        _context.Messenger.Register<EventCoordinator, DragDismissManualSelectionMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(OnDragDismissManualSelection));
+
+        // DragDismissManualSelectionMessage is intentionally NOT registered here. Only
+        // DragTrailViewModel reacts to it (transitions DragSubState back to FreeDrag). The
+        // previous EventCoordinator handler only invoked a defensive ManualSelection overlay
+        // hide inside ScrollModeController; that hide was a no-op because Dragging and
+        // ManualSelectionActive are mutually exclusive InteractionStates, so consuming the
+        // message here would just discard it without effect.
 
         ComponentDispatcher.ThreadFilterMessage += OnThreadFilterMessage;
         _disposeEscapeHook = () => ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
@@ -407,7 +412,7 @@ public class EventCoordinator : IEventCoordinator
         _dragTrailOverlay = new DragTrailOverlay();
         _dragTrailOverlay.Show();
 
-        var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical);
+        var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.DragButtonRadius);
         var cancelDef = new EdgeButtonDefinition(
             "Drag_cancel", "\u2715", _context.Settings.Dwell.DragRightEdgeButtonDwellMs,
             m => m.Send(new DragCancelMessage()),
@@ -431,11 +436,6 @@ public class EventCoordinator : IEventCoordinator
         _context?.InputSimulator.MouseUp(_dragGrabOrigin);
         _context?.InteractionManager.CompleteDrag();
         CloseDragOverlay();
-    }
-
-    private void OnDragDismissManualSelection()
-    {
-        _scrollModeController?.OnDismissManualSelection();
     }
 
     private void CloseDragOverlay()
@@ -615,7 +615,7 @@ public class EventCoordinator : IEventCoordinator
         {
             if (_context.ManualSelectionVM.IsVisible)
             {
-                var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical);
+                var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);
                 var dwell = _context.Settings.Dwell.ManualSelectionSideButtonDwellMs;
                 // Match the former side-button layout: full-size buttons (UIConstants.ButtonRadius)
                 // separated so their edges are ManualSelectionSideButtonGap apart, centred on the anchor.

@@ -84,9 +84,8 @@ public partial class App : Application
             var im = gazeEngine.InteractionManager;
 
             // ── Resolve ViewModels ──
-            // ── Resolve ViewModels ──
-             var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
-                  manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm, edgeButtonBarVm) = ResolveViewModels(settings);
+            var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
+                 manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm, edgeButtonBarVm) = ResolveViewModels(settings);
 
             // Resolve adapter (triggers Core event subscriptions)
             _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();

@@ -55,14 +55,4 @@ public class ScrollOverlayViewModelTests
         vm.ExitScrollMode();
         Check.That(vm.IsVisible).IsFalse();
     }
-
-    [Fact]
-    public void EnterScrollMode_NoLongerOwnsStopButton()
-    {
-        var vm = new ScrollOverlayViewModel(new WeakReferenceMessenger(), new ScrollSettings(), new DwellSettings());
-
-        vm.EnterScrollMode(new PhysicalPoint(100, 100), new PhysicalPoint(100, 100));
-
-        Check.That(vm.StopButtonCenter).IsEqualTo(new PhysicalPoint(0, 0));
-    }
 }

@@ -1,11 +1,9 @@
 namespace EyeCtrl.App.Services;
 
 using System;
-using System.Windows.Forms;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Services;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -17,6 +15,9 @@ using Serilog;
 /// </summary>
 public class ScrollModeController : IDisposable
 {
+    // Inset (logical px) from the right screen edge for the scroll stop button.
+    private const double ScrollStopInsetLogical = 50;
+
     private readonly EventCoordinationContext _context;
     private ScrollOverlayViewModel? _scrollOverlayVm;
     private ScrollOverlayWindow? _scrollOverlayWindow;
@@ -57,7 +58,7 @@ public class ScrollModeController : IDisposable
 
         _context.OverlayManager.CursorCircle.Hide();
 
-        var edgeAnchor = ComputeScrollEdgeAnchor();
+        var edgeAnchor = ScreenGeometry.RightEdgeAnchor(ScrollStopInsetLogical);
         var scrollStopDwell = _context.Settings.Dwell.ScrollStopButtonDwellMs;
         var stopDef = new EdgeButtonDefinition(
             "scroll-stop", "\u23F9", scrollStopDwell,
@@ -78,14 +79,6 @@ public class ScrollModeController : IDisposable
         _scrollOverlayVm.FeedbackChanged += OnScrollFeedbackChanged;
 
         _scrollModeActive = true;
-    }
-
-    private static PhysicalPoint ComputeScrollEdgeAnchor()
-    {
-        var bounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
-        return new PhysicalPoint(
-            bounds.Width - DpiHelper.LogicalToPhysicalX(50),
-            bounds.Height / 2.0);
     }
 
     private void OnScrollTargetVelocityChanged(double vx, double vy)

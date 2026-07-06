@@ -32,6 +32,29 @@ public class EdgeButtonBarViewModelTests
     }
 
     [Fact]
+    public void ShowButtons_PropagatesPerButtonRadiusToState()
+    {
+        var vm = CreateVm(out _);
+        var bigDef = new EdgeButtonDefinition(
+            "ManualSelection_close", "✕", 50, m => m.Send(new ManualSelectionCloseMessage()),
+            VerticalOffset: -60, RadiusLogical: 50);
+
+        vm.ShowButtons(new[] { bigDef }, new PhysicalPoint(1000, 500));
+
+        Check.That(vm.Buttons[0].RadiusLogical).IsEqualTo(50.0);
+    }
+
+    [Fact]
+    public void CancelDef_UsesDefaultDragRadius()
+    {
+        var vm = CreateVm(out _);
+
+        vm.ShowButtons(new[] { CancelDef() }, new PhysicalPoint(1000, 500));
+
+        Check.That(vm.Buttons[0].RadiusLogical).IsEqualTo(UIConstants.DragButtonRadius);
+    }
+
+    [Fact]
     public void Hide_ClearsButtonsAndVisibility()
     {
         var vm = CreateVm(out _);

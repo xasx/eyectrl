@@ -28,11 +28,6 @@ public interface IOverlayManager
     ManualSelectionOverlayWindow ManualSelectionOverlay { get; }
 
     /// <summary>
-    /// Gets the ManualSelection side buttons overlay window.
-    /// </summary>
-    ManualSelectionSideButtonWindow ManualSelectionSideButtons { get; }
-
-    /// <summary>
     /// Gets the action menu overlay window.
     /// </summary>
     ActionMenuWindow ActionMenu { get; }

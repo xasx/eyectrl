@@ -10,10 +10,12 @@ using EyeCtrl.ViewModels.Messages;
 public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 {
     private const double MaxOffsetPx = 200.0;
+    private const double StopZoneRadiusPx = 50;
 
     private readonly ScrollSettings _scrollSettings;
 
     private PhysicalPoint _anchor;
+    private PhysicalPoint _stopButtonCenter;
 
     [ObservableProperty] private double _anchorDotOffsetX;
     [ObservableProperty] private double _anchorDotOffsetY;
@@ -36,9 +38,10 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     protected override void OnTargetActivated(string targetId) { }
     protected override void OnTargetProgress(string targetId, double progress) { }
 
-    public void EnterScrollMode(PhysicalPoint anchor)
+    public void EnterScrollMode(PhysicalPoint anchor, PhysicalPoint stopButtonCenter)
     {
         _anchor = anchor;
+        _stopButtonCenter = stopButtonCenter;
         IsVisible = true;
         AnchorDotOffsetX = 0;
         AnchorDotOffsetY = 0;
@@ -62,7 +65,8 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         DwellDetector.Update(message.Position, message.TimestampMicroseconds);
 
         var (vx, vy) = ScrollEngine.ComputeVelocity(
-            message.Position, _anchor, _scrollSettings.Sensitivity);
+            message.Position, _anchor, _scrollSettings.Sensitivity,
+            _stopButtonCenter, StopZoneRadiusPx);
 
         double dx = message.Position.X - _anchor.X;
         double dy = _anchor.Y - message.Position.Y;

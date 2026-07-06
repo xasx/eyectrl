@@ -7,6 +7,7 @@ using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Input;
+using EyeCtrl.ViewModels;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -79,6 +80,16 @@ public class OverlayManager : IOverlayManager
 
         EdgeButtonBar.DataContext = viewModels.EdgeButtonBar;
         viewModels.EdgeButtonBar.Buttons.CollectionChanged += (_, _) => EdgeButtonBar.SyncButtons();
+        viewModels.EdgeButtonBar.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(EdgeButtonBarViewModel.IsVisible))
+            {
+                if (viewModels.EdgeButtonBar.IsVisible)
+                    EdgeButtonBar.Show();
+                else
+                    ((System.Windows.Window)EdgeButtonBar).Hide();
+            }
+        };
 
         // Initialize overlays with their specific APIs
         CursorCircle.UpdateAppearance(settings.Cursor);

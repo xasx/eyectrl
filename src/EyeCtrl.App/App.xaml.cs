@@ -85,8 +85,8 @@ public partial class App : Application
 
             // ── Resolve ViewModels ──
             // ── Resolve ViewModels ──
-            var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
-                 manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm) = ResolveViewModels(settings);
+             var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
+                  manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm, edgeButtonBarVm) = ResolveViewModels(settings);
 
             // Resolve adapter (triggers Core event subscriptions)
             _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
@@ -96,7 +96,7 @@ public partial class App : Application
 
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-            var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm);
+            var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm);
             var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
 
             // Load calibration. Screen size must be in PHYSICAL pixels to match what
@@ -209,13 +209,14 @@ public partial class App : Application
              ManualSelectionGazeIndicatorViewModel ManualSelectionIndicatorVm,
              GlassBackdropViewModel BackdropVm,
              CalibrationViewModel CalibrationVm,
-             TargetHighlightOverlayViewModel TargetHighlightVm) ResolveViewModels(EyeCtrlSettings settings)
+             TargetHighlightOverlayViewModel TargetHighlightVm,
+             EdgeButtonBarViewModel EdgeButtonBarVm) ResolveViewModels(EyeCtrlSettings settings)
     {
         var vms = AppBootstrapper.ResolveViewModels(_serviceProvider, settings);
         var backdropVm = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
         return (vms.CursorCircle, vms.ActivationButton, vms.ManualSelectionOverlay, vms.ActionMenu,
                 vms.Toolbar, vms.Keyboard, vms.ManualSelectionIndicator, backdropVm,
-                vms.Calibration, vms.TargetHighlight);
+                vms.Calibration, vms.TargetHighlight, vms.EdgeButtonBar);
     }
 
     private (CursorCircleWindow CursorCircle, ToolbarWindow Toolbar) InitializeOverlays(

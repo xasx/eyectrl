@@ -67,6 +67,9 @@ public interface IOverlayManager
     /// </summary>
     TargetHighlightWindow TargetHighlight { get; }
 
+    /// <summary>Gets the context-driven right-edge button bar window.</summary>
+    EdgeButtonBarWindow EdgeButtonBar { get; }
+
     /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
     /// </summary>
@@ -88,4 +91,5 @@ public record OverlayViewModels(
     KeyboardViewModel Keyboard,
     ManualSelectionGazeIndicatorViewModel ManualSelectionIndicator,
     CalibrationViewModel Calibration,
-    TargetHighlightOverlayViewModel TargetHighlight);
+    TargetHighlightOverlayViewModel TargetHighlight,
+    EdgeButtonBarViewModel EdgeButtonBar);

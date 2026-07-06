@@ -133,3 +133,6 @@ public record DragCancelMessage;
 
 /// <summary>Sent by DragTrailViewModel when zoom should be dismissed (back to free drag).</summary>
 public record DragDismissZoomMessage;
+
+/// <summary>Sent when the user dwells on the scroll stop button (edge bar) to exit scroll mode.</summary>
+public record ExitScrollModeMessage;

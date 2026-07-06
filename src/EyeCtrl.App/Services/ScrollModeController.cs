@@ -15,8 +15,25 @@ using Serilog;
 /// </summary>
 public class ScrollModeController : IDisposable
 {
-    // Inset (logical px) from the right screen edge for the scroll stop button.
+    // Inset (logical px) from the right screen edge for the scroll stop button center.
+    // The bar additionally reserves button radius + margin on the right so the button
+    // never extends past the desktop edge.
     private const double ScrollStopInsetLogical = 50;
+
+    /// <summary>
+    /// Builds the scroll-stop <see cref="EdgeButtonDefinition"/> used at the start of scroll mode.
+    /// Always emits <see cref="UIConstants.ButtonRadius"/> so the visual + hit-target match the
+    /// pre-unified-bar 50x50 ellipse. Static and internal so a regression test pins the radius.
+    /// </summary>
+    internal static EdgeButtonDefinition CreateScrollStopButtonDefinition(
+        IMessenger messenger, int dwellMs, double verticalOffset)
+        => new(
+            Id: "scroll-stop",
+            Symbol: "\u23F9",
+            DwellMs: dwellMs,
+            Activate: m => m.Send(new ExitScrollModeMessage()),
+            VerticalOffset: verticalOffset,
+            RadiusLogical: UIConstants.ButtonRadius);
 
     private readonly EventCoordinationContext _context;
     private ScrollOverlayViewModel? _scrollOverlayVm;
@@ -42,12 +59,6 @@ public class ScrollModeController : IDisposable
             ExitScrollMode();
     }
 
-    public void OnDismissManualSelection()
-    {
-        if (_context?.OverlayManager.ManualSelectionOverlay.IsVisible == true)
-            _context.OverlayManager.ManualSelectionOverlay.Hide();
-    }
-
     private void EnterScrollMode()
     {
         if (_context == null) return;
@@ -58,12 +69,9 @@ public class ScrollModeController : IDisposable
 
         _context.OverlayManager.CursorCircle.Hide();
 
-        var edgeAnchor = ScreenGeometry.RightEdgeAnchor(ScrollStopInsetLogical);
+        var edgeAnchor = ScreenGeometry.RightEdgeAnchor(ScrollStopInsetLogical, UIConstants.ButtonRadius);
         var scrollStopDwell = _context.Settings.Dwell.ScrollStopButtonDwellMs;
-        var stopDef = new EdgeButtonDefinition(
-            "scroll-stop", "\u23F9", scrollStopDwell,
-            m => m.Send(new ExitScrollModeMessage()),
-            VerticalOffset: 0);
+        var stopDef = CreateScrollStopButtonDefinition(_context.Messenger, scrollStopDwell, verticalOffset: 0);
         _context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { stopDef }, edgeAnchor);
 
         _scrollOverlayVm = new ScrollOverlayViewModel(_context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell);

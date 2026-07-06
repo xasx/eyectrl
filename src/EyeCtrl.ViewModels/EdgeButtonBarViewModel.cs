@@ -20,6 +20,16 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
 
     public ObservableCollection<EdgeButtonState> Buttons { get; } = new();
 
+    /// <summary>
+    /// Raised once per logical mutation of the visible button set (<see cref="ShowButtons"/>,
+    /// <see cref="AddButton"/>, <see cref="RemoveButton"/>, <see cref="Hide"/>). Consumers
+    /// (e.g. the WPF overlay) should rebuild against this signal instead of subscribing to
+    /// <see cref="Buttons"/>' <c>CollectionChanged</c>, which fires per-Add/Remove and would
+    /// cause an O(N) rebuild inside a single <c>ShowButtons</c> call (one rebuild per added
+    /// button, each clearing + recreating the canvas).
+    /// </summary>
+    public event Action? ButtonSetChanged;
+
     public EdgeButtonBarViewModel(EyeCtrlSettings settings, IMessenger messenger)
         : base(messenger, settings.Dwell.DwellCooldownMs)
     {
@@ -38,6 +48,7 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
             AddTarget(def);
 
         IsVisible = true;
+        ButtonSetChanged?.Invoke();
     }
 
     /// <summary>
@@ -48,6 +59,7 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
     public void AddButton(EdgeButtonDefinition definition)
     {
         AddTarget(definition);
+        ButtonSetChanged?.Invoke();
     }
 
     public void RemoveButton(string id)
@@ -57,6 +69,7 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
         DwellDetector.RemoveTarget(id);
         var state = Buttons.FirstOrDefault(s => s.Id == id);
         if (state is not null) Buttons.Remove(state);
+        ButtonSetChanged?.Invoke();
     }
 
     public void Hide()
@@ -66,6 +79,7 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
         _seedCenters.Clear();
         Buttons.Clear();
         IsVisible = false;
+        ButtonSetChanged?.Invoke();
     }
 
     protected override void OnTargetActivated(string targetId)

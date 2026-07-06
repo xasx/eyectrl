@@ -79,7 +79,7 @@ public class OverlayManager : IOverlayManager
         TargetHighlight.DataContext = viewModels.TargetHighlight;
 
         EdgeButtonBar.DataContext = viewModels.EdgeButtonBar;
-        viewModels.EdgeButtonBar.Buttons.CollectionChanged += (_, _) => EdgeButtonBar.SyncButtons();
+        viewModels.EdgeButtonBar.ButtonSetChanged += () => EdgeButtonBar.SyncButtons();
         viewModels.EdgeButtonBar.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(EdgeButtonBarViewModel.IsVisible))

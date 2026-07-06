@@ -41,7 +41,7 @@ public class ScrollModeController : IDisposable
             ExitScrollMode();
     }
 
-    public void OnDismissZoom()
+    public void OnDismissManualSelection()
     {
         if (_context?.OverlayManager.ManualSelectionOverlay.IsVisible == true)
             _context.OverlayManager.ManualSelectionOverlay.Hide();

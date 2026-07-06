@@ -12,7 +12,7 @@ public enum DragSubState
 {
     FreeDrag,
     Settling,
-    ZoomActive
+    ManualSelectionActive
 }
 
 public partial class DragTrailViewModel : DwellOverlayViewModelBase,
@@ -90,7 +90,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     {
         if (_settings.SelectionMode == SelectionMode.ManualSelection)
         {
-            DragState = DragSubState.ZoomActive;
+            DragState = DragSubState.ManualSelectionActive;
             ShowBack = true;
             SetupDwellTargets(includeBack: true);
         }
@@ -145,7 +145,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         else if (targetId == CancelTargetId)
             CancelDrag();
         else if (targetId == BackTargetId)
-            DismissZoom();
+            DismissManualSelection();
     }
 
     protected override void OnTargetProgress(string targetId, double progress)
@@ -170,14 +170,14 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         Messenger.Send(new DragCancelMessage());
     }
 
-    private void DismissZoom()
+    private void DismissManualSelection()
     {
         DragState = DragSubState.FreeDrag;
         ShowBack = false;
         SettleProgress = 0;
         _settleDetector.Reset();
         SetupDwellTargets();
-        Messenger.Send(new DragDismissZoomMessage());
+        Messenger.Send(new DragDismissManualSelectionMessage());
     }
 
     protected override void OnDispose()

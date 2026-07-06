@@ -377,8 +377,8 @@ public class EventCoordinator : IEventCoordinator
             _context.Dispatcher.BeginInvoke(() => OnDragDrop(m)));
         _context.Messenger.Register<EventCoordinator, DragCancelMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(OnDragCancel));
-        _context.Messenger.Register<EventCoordinator, DragDismissZoomMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(OnDragDismissZoom));
+        _context.Messenger.Register<EventCoordinator, DragDismissManualSelectionMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(OnDragDismissManualSelection));
 
         ComponentDispatcher.ThreadFilterMessage += OnThreadFilterMessage;
         _disposeEscapeHook = () => ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
@@ -437,9 +437,9 @@ public class EventCoordinator : IEventCoordinator
         CloseDragOverlay();
     }
 
-    private void OnDragDismissZoom()
+    private void OnDragDismissManualSelection()
     {
-        _scrollModeController?.OnDismissZoom();
+        _scrollModeController?.OnDismissManualSelection();
     }
 
     private void CloseDragOverlay()

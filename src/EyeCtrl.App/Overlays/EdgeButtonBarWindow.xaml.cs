@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.ComponentModel;
 using System.Windows;
 using EyeCtrl.App.Controls;
 using EyeCtrl.Core.Models;
@@ -9,9 +10,9 @@ using EyeCtrl.ViewModels;
 public partial class EdgeButtonBarWindow : OverlayWindow
 {
     private const double ButtonMargin = 10;
-    private const double ButtonRadiusLogical = 20;
 
     private readonly Dictionary<string, DwellArcButton> _buttons = new();
+    private readonly List<(EdgeButtonState State, PropertyChangedEventHandler Handler)> _progressSubs = new();
     private double _originX, _originY;
 
     public EdgeButtonBarWindow()
@@ -40,6 +41,13 @@ public partial class EdgeButtonBarWindow : OverlayWindow
     /// </summary>
     public void SyncButtons()
     {
+        // Detach the previous rebuild's progress handlers before clearing, so surviving
+        // EdgeButtonState instances (e.g. Drag_cancel while Drag_back is added/removed) don't
+        // accumulate duplicate subscriptions across successive SyncButtons calls.
+        foreach (var (state, handler) in _progressSubs)
+            state.PropertyChanged -= handler;
+        _progressSubs.Clear();
+
         ButtonCanvas.Children.Clear();
         _buttons.Clear();
 
@@ -54,28 +62,36 @@ public partial class EdgeButtonBarWindow : OverlayWindow
 
         if (logical.Count == 0) return;
 
-        double minX = logical.Values.Min(p => p.X), maxX = logical.Values.Max(p => p.X);
-        double minY = logical.Values.Min(p => p.Y), maxY = logical.Values.Max(p => p.Y);
-        var r = ButtonRadiusLogical + ButtonMargin;
-        _originX = minX - r; _originY = minY - r;
+        // Bounding box from each button's own radius (radii differ per context).
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var state in vm.Buttons)
+        {
+            var c = logical[state.Id];
+            var ext = state.RadiusLogical + ButtonMargin;
+            minX = Math.Min(minX, c.X - ext); maxX = Math.Max(maxX, c.X + ext);
+            minY = Math.Min(minY, c.Y - ext); maxY = Math.Max(maxY, c.Y + ext);
+        }
+        _originX = minX; _originY = minY;
         Left = _originX; Top = _originY;
-        Width = (maxX - minX) + 2 * r; Height = (maxY - minY) + 2 * r;
+        Width = maxX - minX; Height = maxY - minY;
 
         foreach (var state in vm.Buttons)
         {
             var c = logical[state.Id];
             var btn = DwellArcButton.Create(
-                new Point(c.X - _originX, c.Y - _originY), ButtonRadiusLogical, state.Symbol);
+                new Point(c.X - _originX, c.Y - _originY), state.RadiusLogical, state.Symbol);
             btn.UpdateProgress(state.DwellProgress);
             btn.AddTo(ButtonCanvas);
             _buttons[state.Id] = btn;
 
-            state.PropertyChanged += (_, e) =>
+            PropertyChangedEventHandler handler = (_, e) =>
             {
                 if (e.PropertyName == nameof(EdgeButtonState.DwellProgress)
                     && _buttons.TryGetValue(state.Id, out var b))
                     b.UpdateProgress(state.DwellProgress);
             };
+            state.PropertyChanged += handler;
+            _progressSubs.Add((state, handler));
         }
     }
 }

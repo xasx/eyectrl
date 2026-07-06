@@ -33,6 +33,8 @@ public class EventCoordinator : IEventCoordinator
     private const int TabVirtualKeyCode = 0x09;
     private const ushort SpaceVirtualKeyCode = 0x20;
     private const int DefaultScrollAmount = 3;
+    // Inset (logical px) from the right screen edge for drag/manual-selection edge buttons.
+    private const double RightEdgeInsetLogical = 30;
 
     private EventCoordinationContext? _context;
     // volatile: read on the gaze thread by SetupGazeRouting's early-out, written on the UI thread.
@@ -90,7 +92,6 @@ public class EventCoordinator : IEventCoordinator
         var cursorCircle = _context.OverlayManager.CursorCircle;
         var activationButton = _context.OverlayManager.ActivationButton;
         var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
-        var edgeButtonBar = _context.OverlayManager.EdgeButtonBar;
         var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
         var actionMenu = _context.OverlayManager.ActionMenu;
         var toolbar = _context.OverlayManager.Toolbar;
@@ -406,7 +407,7 @@ public class EventCoordinator : IEventCoordinator
         _dragTrailOverlay = new DragTrailOverlay();
         _dragTrailOverlay.Show();
 
-        var anchor = ComputeDragEdgeAnchor();
+        var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical);
         var cancelDef = new EdgeButtonDefinition(
             "Drag_cancel", "\u2715", _context.Settings.Dwell.DragRightEdgeButtonDwellMs,
             m => m.Send(new DragCancelMessage()),
@@ -414,13 +415,6 @@ public class EventCoordinator : IEventCoordinator
         _context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { cancelDef }, anchor);
 
         _context.Messenger.Send(new StartDragTrailMessage(grabOrigin));
-    }
-
-    private static PhysicalPoint ComputeDragEdgeAnchor()
-    {
-        var w = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
-        var h = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
-        return new PhysicalPoint(w - DpiHelper.LogicalToPhysicalX(30), h / 2.0);
     }
 
     private void OnDragDrop(DragDropMessage msg)
@@ -621,15 +615,20 @@ public class EventCoordinator : IEventCoordinator
         {
             if (_context.ManualSelectionVM.IsVisible)
             {
-                var anchor = ComputeManualSelectionEdgeAnchor();
+                var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical);
                 var dwell = _context.Settings.Dwell.ManualSelectionSideButtonDwellMs;
-                var gapPhysical = DpiHelper.LogicalToPhysicalX(UIConstants.ManualSelectionSideButtonGap);
+                // Match the former side-button layout: full-size buttons (UIConstants.ButtonRadius)
+                // separated so their edges are ManualSelectionSideButtonGap apart, centred on the anchor.
+                var radius = UIConstants.ButtonRadius;
+                var offset = DpiHelper.LogicalToPhysicalY(radius + UIConstants.ManualSelectionSideButtonGap / 2);
                 var defs = new[]
                 {
                     new EdgeButtonDefinition("ManualSelection_close", "\u2715", dwell,
-                        m => m.Send(new ManualSelectionCloseMessage()), VerticalOffset: -gapPhysical),
+                        m => m.Send(new ManualSelectionCloseMessage()), VerticalOffset: -offset,
+                        RadiusLogical: radius),
                     new EdgeButtonDefinition("ManualSelection_recapture", "\u21BB", dwell,
-                        m => m.Send(new ManualSelectionRecaptureMessage()), VerticalOffset: gapPhysical),
+                        m => m.Send(new ManualSelectionRecaptureMessage()), VerticalOffset: offset,
+                        RadiusLogical: radius),
                 };
                 _context.OverlayManager.EdgeButtonBar.ShowButtons(defs, anchor);
             }
@@ -638,13 +637,6 @@ public class EventCoordinator : IEventCoordinator
                 _context.OverlayManager.EdgeButtonBar.Hide();
             }
         }
-    }
-
-    private static PhysicalPoint ComputeManualSelectionEdgeAnchor()
-    {
-        var w = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
-        var h = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
-        return new PhysicalPoint(w - DpiHelper.LogicalToPhysicalX(30), h / 2.0);
     }
 
     private void OnActionMenuVMPropertyChanged(object? sender, PropertyChangedEventArgs e)

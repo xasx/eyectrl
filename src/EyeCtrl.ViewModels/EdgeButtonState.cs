@@ -11,11 +11,15 @@ public partial class EdgeButtonState : ObservableObject
     public string Id { get; }
     public string Symbol { get; }
 
+    /// <summary>Button radius in logical (DIP) pixels — used by the View to size the DwellArcButton.</summary>
+    public double RadiusLogical { get; }
+
     [ObservableProperty] private double _dwellProgress;
 
-    public EdgeButtonState(string id, string symbol)
+    public EdgeButtonState(string id, string symbol, double radiusLogical)
     {
         Id = id;
         Symbol = symbol;
+        RadiusLogical = radiusLogical;
     }
 }

@@ -29,6 +29,7 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
     {
         _edgeAnchor = edgeAnchor;
         DwellDetector.ClearTargets();
+        DwellDetector.ResetCooldown(); // fresh context: don't inherit a prior activation's cooldown
         _definitions.Clear();
         _seedCenters.Clear();
         Buttons.Clear();
@@ -85,13 +86,9 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
         _definitions[def.Id] = def;
         var center = _edgeAnchor + new PhysicalPoint(0, def.VerticalOffset);
         _seedCenters[def.Id] = center;
-        DwellDetector.AddTarget(new DwellTarget(def.Id, center, ButtonRadiusPhysical(), def.DwellMs));
-        Buttons.Add(new EdgeButtonState(def.Id, def.Symbol));
-    }
-
-    private static double ButtonRadiusPhysical()
-    {
-        return DpiHelper.LogicalToPhysicalX(UIConstants.DragButtonRadius);
+        var radiusPhysical = DpiHelper.LogicalToPhysicalX(def.RadiusLogical);
+        DwellDetector.AddTarget(new DwellTarget(def.Id, center, radiusPhysical, def.DwellMs));
+        Buttons.Add(new EdgeButtonState(def.Id, def.Symbol, def.RadiusLogical));
     }
 
     // ---- test hooks (used only by EdgeButtonBarViewModelTests) ----

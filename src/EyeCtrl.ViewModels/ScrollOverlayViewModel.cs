@@ -24,7 +24,6 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     [ObservableProperty] private double _velocityMagnitude;
 
     public PhysicalPoint Anchor => _anchor;
-    public PhysicalPoint StopButtonCenter => default;
 
     public event Action<double, double>? TargetVelocityChanged;
     public event Action? FeedbackChanged;
@@ -35,6 +34,8 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         _scrollSettings = scrollSettings;
     }
 
+    // Required by DwellOverlayViewModelBase but intentionally inert: the scroll stop dwell now
+    // lives on the shared EdgeButtonBarViewModel, so this VM owns no dwell targets.
     protected override void OnTargetActivated(string targetId) { }
     protected override void OnTargetProgress(string targetId, double progress) { }
 
@@ -48,21 +49,16 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         ScrollVelocityX = 0;
         ScrollVelocityY = 0;
         VelocityMagnitude = 0;
-
-        DwellDetector.ClearTargets();
     }
 
     public void ExitScrollMode()
     {
         IsVisible = false;
-        DwellDetector.ClearTargets();
     }
 
     public override void Receive(GazeCursorMovedMessage message)
     {
         if (!IsVisible) return;
-
-        DwellDetector.Update(message.Position, message.TimestampMicroseconds);
 
         var (vx, vy) = ScrollEngine.ComputeVelocity(
             message.Position, _anchor, _scrollSettings.Sensitivity,

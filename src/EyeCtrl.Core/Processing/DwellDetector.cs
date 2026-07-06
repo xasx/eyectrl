@@ -61,6 +61,13 @@ public class DwellDetector
     }
 
     /// <summary>
+    /// Clears the post-activation cooldown so the next <see cref="Update"/> can accumulate dwell
+    /// immediately. Use when repurposing a shared detector for a new interaction context that must
+    /// not inherit the previous context's cooldown (e.g. the unified edge-button bar).
+    /// </summary>
+    public void ResetCooldown() => _lastActivationTimestamp = null;
+
+    /// <summary>
     /// Resets accumulated dwell state on all targets without removing them.
     /// Call this when switching input contexts (e.g. a modal dialog opening or closing)
     /// to prevent a stale <c>EnteredTimestamp</c> from causing a spurious immediate

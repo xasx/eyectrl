@@ -36,15 +36,6 @@ public class ManualSelectionOverlayViewModelTests
     }
 
     [Fact]
-    public void Receive_StartManualSelection_NoLongerComputesSideButtonCenters()
-    {
-        var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        vm.Receive(new StartManualSelectionMessage(new PhysicalPoint(960, 540), 150, 2.0, new PhysicalPoint(960, 540)));
-
-        Check.That(vm.CloseButtonCenter).IsEqualTo(default(PhysicalPoint));
-    }
-
-    [Fact]
     public void HidesManualSelection_OnManualSelectionHiddenMessage()
     {
         var vm = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), _messenger);

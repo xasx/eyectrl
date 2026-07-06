@@ -3,7 +3,6 @@ namespace EyeCtrl.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -16,9 +15,6 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
     [ObservableProperty] private int _radius;
     [ObservableProperty] private double _magnification;
     [ObservableProperty] private PhysicalPoint _gazePoint = new(0, 0);
-
-    public PhysicalPoint CloseButtonCenter => default;
-    public PhysicalPoint RecaptureButtonCenter => default;
 
     public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger)
         : base(messenger, settings.Dwell.DwellCooldownMs)
@@ -38,15 +34,15 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
     public void Receive(EndManualSelectionMessage message)
     {
         IsVisible = false;
-        DwellDetector.ClearTargets();
     }
 
     public void Receive(ManualSelectionHiddenMessage message)
     {
         IsVisible = false;
-        DwellDetector.ClearTargets();
     }
 
+    // Required by DwellOverlayViewModelBase but intentionally inert: the close/recapture dwell now
+    // lives on the shared EdgeButtonBarViewModel, so this VM owns no dwell targets.
     protected override void OnTargetActivated(string targetId) { }
     protected override void OnTargetProgress(string targetId, double progress) { }
 }

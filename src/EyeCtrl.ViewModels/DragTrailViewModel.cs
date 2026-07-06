@@ -16,11 +16,11 @@ public enum DragSubState
 }
 
 public partial class DragTrailViewModel : DwellOverlayViewModelBase,
-    IRecipient<StartDragTrailMessage>
+    IRecipient<StartDragTrailMessage>,
+    IRecipient<DragCancelMessage>,
+    IRecipient<DragDismissManualSelectionMessage>
 {
     private const string ReleaseTargetId = "Drag_release";
-    private const string CancelTargetId = "Drag_cancel";
-    private const string BackTargetId = "Drag_back";
 
     private readonly EyeCtrlSettings _settings;
     private readonly FixationDetector _settleDetector;
@@ -32,8 +32,6 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     [ObservableProperty] private double _settleProgress;
     [ObservableProperty] private bool _showBack;
     [ObservableProperty] private PhysicalPoint _releaseButtonCenter;
-    [ObservableProperty] private PhysicalPoint _cancelButtonCenter;
-    [ObservableProperty] private PhysicalPoint _backButtonCenter;
 
     public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger)
         : base(messenger, settings.Dwell.DwellCooldownMs)
@@ -56,11 +54,24 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         SettleProgress = 0;
         ShowBack = false;
 
-        // Right-edge cancel/back button centers are supplied by the App layer (screen geometry
-        // lives there); the release button follows the cursor.
-        CancelButtonCenter = message.CancelButtonCenter;
-        BackButtonCenter = message.BackButtonCenter;
         UpdateReleaseButtonPosition(message.GrabOrigin);
+        SetupDwellTargets();
+    }
+
+    public void Receive(DragCancelMessage _)
+    {
+        IsDragActive = false;
+        _settleDetector.Reset();
+        DwellDetector.ClearTargets();
+        DragState = DragSubState.FreeDrag;
+    }
+
+    public void Receive(DragDismissManualSelectionMessage _)
+    {
+        DragState = DragSubState.FreeDrag;
+        ShowBack = false;
+        SettleProgress = 0;
+        _settleDetector.Reset();
         SetupDwellTargets();
     }
 
@@ -92,7 +103,6 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         {
             DragState = DragSubState.ManualSelectionActive;
             ShowBack = true;
-            SetupDwellTargets(includeBack: true);
         }
         else
         {
@@ -118,34 +128,19 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         ReleaseButtonCenter = new PhysicalPoint(cursorPos.X - offset, cursorPos.Y - offset);
     }
 
-    private void SetupDwellTargets(bool includeBack = false)
+    private void SetupDwellTargets()
     {
         DwellDetector.ClearTargets();
         var btnRadius = DpiHelper.LogicalToPhysicalX(UIConstants.DragButtonRadius);
-
         DwellDetector.AddTarget(new DwellTarget(
             ReleaseTargetId, ReleaseButtonCenter, btnRadius,
             _settings.Dwell.DragReleaseButtonDwellMs));
-        DwellDetector.AddTarget(new DwellTarget(
-            CancelTargetId, CancelButtonCenter, btnRadius,
-            _settings.Dwell.DragRightEdgeButtonDwellMs));
-
-        if (includeBack)
-        {
-            DwellDetector.AddTarget(new DwellTarget(
-                BackTargetId, BackButtonCenter, btnRadius,
-                _settings.Dwell.DragRightEdgeButtonDwellMs));
-        }
     }
 
     protected override void OnTargetActivated(string targetId)
     {
         if (targetId == ReleaseTargetId)
             CompleteDrag(CursorPosition);
-        else if (targetId == CancelTargetId)
-            CancelDrag();
-        else if (targetId == BackTargetId)
-            DismissManualSelection();
     }
 
     protected override void OnTargetProgress(string targetId, double progress)
@@ -159,25 +154,6 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         DwellDetector.ClearTargets();
         DragState = DragSubState.FreeDrag;
         Messenger.Send(new DragDropMessage(dropPoint));
-    }
-
-    private void CancelDrag()
-    {
-        IsDragActive = false;
-        _settleDetector.Reset();
-        DwellDetector.ClearTargets();
-        DragState = DragSubState.FreeDrag;
-        Messenger.Send(new DragCancelMessage());
-    }
-
-    private void DismissManualSelection()
-    {
-        DragState = DragSubState.FreeDrag;
-        ShowBack = false;
-        SettleProgress = 0;
-        _settleDetector.Reset();
-        SetupDwellTargets();
-        Messenger.Send(new DragDismissManualSelectionMessage());
     }
 
     protected override void OnDispose()

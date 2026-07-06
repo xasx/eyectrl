@@ -13,10 +13,6 @@ public partial class DragTrailOverlay : OverlayWindow
     private readonly Ellipse _settleRing;
     private readonly TextBlock _grabIcon;
     private readonly TextBlock _releaseIcon;
-    private readonly TextBlock _cancelIcon;
-    private readonly TextBlock _backIcon;
-    private readonly Ellipse _cancelBg;
-    private readonly Ellipse _backBg;
     private readonly Ellipse _releaseBg;
 
     public DragTrailOverlay()
@@ -44,24 +40,16 @@ public partial class DragTrailOverlay : OverlayWindow
 
         _grabIcon = CreateIcon("\u270A", "#ff9800");
         _releaseIcon = CreateIcon("\u270B", "#4caf50");
-        _cancelIcon = CreateIcon("\u2715", "#f44336");
-        _backIcon = CreateIcon("\u21A9", "#4fc3f7");
 
         _releaseBg = CreateButtonBg("#1a3a1a", "#4caf50");
-        _cancelBg = CreateButtonBg("#3a1a1a", "#f44336");
-        _backBg = CreateButtonBg("#1a2a3a", "#4fc3f7");
 
         TrailCanvas.Children.Add(_releaseBg);
         TrailCanvas.Children.Add(_releaseIcon);
-        TrailCanvas.Children.Add(_cancelBg);
-        TrailCanvas.Children.Add(_cancelIcon);
-        TrailCanvas.Children.Add(_backBg);
-        TrailCanvas.Children.Add(_backIcon);
         TrailCanvas.Children.Add(_grabIcon);
     }
 
     public void Update(PhysicalPoint grabOrigin, PhysicalPoint cursorPos, double settleProgress,
-        bool showBack, PhysicalPoint releasePos, PhysicalPoint cancelPos, PhysicalPoint backPos)
+        PhysicalPoint releasePos)
     {
         var originLogical = new Point(DpiHelper.PhysicalToLogicalX(grabOrigin.X), DpiHelper.PhysicalToLogicalY(grabOrigin.Y));
         var cursorLogical = new Point(DpiHelper.PhysicalToLogicalX(cursorPos.X), DpiHelper.PhysicalToLogicalY(cursorPos.Y));
@@ -76,17 +64,6 @@ public partial class DragTrailOverlay : OverlayWindow
 
         var releaseLogical = new Point(DpiHelper.PhysicalToLogicalX(releasePos.X), DpiHelper.PhysicalToLogicalY(releasePos.Y));
         PositionButton(_releaseBg, _releaseIcon, releaseLogical);
-
-        var cancelLogical = new Point(DpiHelper.PhysicalToLogicalX(cancelPos.X), DpiHelper.PhysicalToLogicalY(cancelPos.Y));
-        PositionButton(_cancelBg, _cancelIcon, cancelLogical);
-
-        _backBg.Visibility = showBack ? Visibility.Visible : Visibility.Collapsed;
-        _backIcon.Visibility = showBack ? Visibility.Visible : Visibility.Collapsed;
-        if (showBack)
-        {
-            var backLogical = new Point(DpiHelper.PhysicalToLogicalX(backPos.X), DpiHelper.PhysicalToLogicalY(backPos.Y));
-            PositionButton(_backBg, _backIcon, backLogical);
-        }
 
         if (settleProgress > 0)
         {
@@ -109,8 +86,6 @@ public partial class DragTrailOverlay : OverlayWindow
         _trailLine.X1 = 0; _trailLine.Y1 = 0;
         _trailLine.X2 = 0; _trailLine.Y2 = 0;
         _settleRing.Visibility = Visibility.Collapsed;
-        _backBg.Visibility = Visibility.Collapsed;
-        _backIcon.Visibility = Visibility.Collapsed;
     }
 
     private static TextBlock CreateIcon(string glyph, string color)

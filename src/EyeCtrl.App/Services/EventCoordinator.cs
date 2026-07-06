@@ -406,25 +406,26 @@ public class EventCoordinator : IEventCoordinator
         _dragTrailOverlay = new DragTrailOverlay();
         _dragTrailOverlay.Show();
 
-        var (cancelCenter, backCenter) = ComputeDragEdgeButtonCenters();
-        _context.Messenger.Send(new StartDragTrailMessage(grabOrigin, cancelCenter, backCenter));
+        var anchor = ComputeDragEdgeAnchor();
+        var cancelDef = new EdgeButtonDefinition(
+            "Drag_cancel", "\u2715", _context.Settings.Dwell.DragRightEdgeButtonDwellMs,
+            m => m.Send(new DragCancelMessage()),
+            VerticalOffset: DpiHelper.LogicalToPhysicalY(30));
+        _context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { cancelDef }, anchor);
+
+        _context.Messenger.Send(new StartDragTrailMessage(grabOrigin));
     }
 
-    // The right-edge cancel/back buttons sit at a fixed X near the right screen edge, vertically
-    // centered. Screen geometry lives in the App layer, so it's computed here and passed into the
-    // ViewModel (which stays framework-agnostic) rather than the VM reading SystemParameters.
-    private static (PhysicalPoint cancel, PhysicalPoint back) ComputeDragEdgeButtonCenters()
+    private static PhysicalPoint ComputeDragEdgeAnchor()
     {
-        var screenWidth = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
-        var buttonX = screenWidth - DpiHelper.LogicalToPhysicalX(30);
-        var centerY = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight / 2.0);
-        var cancel = new PhysicalPoint(buttonX, centerY + DpiHelper.LogicalToPhysicalY(30));
-        var back = new PhysicalPoint(buttonX, centerY - DpiHelper.LogicalToPhysicalY(30));
-        return (cancel, back);
+        var w = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
+        var h = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
+        return new PhysicalPoint(w - DpiHelper.LogicalToPhysicalX(30), h / 2.0);
     }
 
     private void OnDragDrop(DragDropMessage msg)
     {
+        _context?.OverlayManager.EdgeButtonBar.Hide();
         _context?.InputSimulator.MouseUp(msg.DropPoint);
         _context?.InteractionManager.CompleteDrag();
         CloseDragOverlay();
@@ -432,6 +433,7 @@ public class EventCoordinator : IEventCoordinator
 
     private void OnDragCancel()
     {
+        _context?.OverlayManager.EdgeButtonBar.Hide();
         _context?.InputSimulator.MouseUp(_dragGrabOrigin);
         _context?.InteractionManager.CompleteDrag();
         CloseDragOverlay();
@@ -457,11 +459,26 @@ public class EventCoordinator : IEventCoordinator
         {
             case nameof(DragTrailViewModel.CursorPosition):
             case nameof(DragTrailViewModel.SettleProgress):
-            case nameof(DragTrailViewModel.ShowBack):
             case nameof(DragTrailViewModel.ReleaseButtonCenter):
                 _dragTrailOverlay.Update(
-                    vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress,
-                    vm.ShowBack, vm.ReleaseButtonCenter, vm.CancelButtonCenter, vm.BackButtonCenter);
+                    vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress, vm.ReleaseButtonCenter);
+                break;
+            case nameof(DragTrailViewModel.ShowBack):
+                var bar = _context.OverlayManager.EdgeButtonBar;
+                if (_context.DragTrailVM.ShowBack)
+                {
+                    var backDef = new EdgeButtonDefinition(
+                        "Drag_back", "\u21A9", _context.Settings.Dwell.DragRightEdgeButtonDwellMs,
+                        m => m.Send(new DragDismissManualSelectionMessage()),
+                        VerticalOffset: -DpiHelper.LogicalToPhysicalY(30));
+                    bar.AddButton(backDef);
+                }
+                else
+                {
+                    bar.RemoveButton("Drag_back");
+                }
+                _dragTrailOverlay.Update(
+                    vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress, vm.ReleaseButtonCenter);
                 break;
         }
     }

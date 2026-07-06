@@ -2,11 +2,13 @@ namespace EyeCtrl.App.Services;
 
 using System;
 using System.Windows.Forms;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using Serilog;
 
 /// <summary>
@@ -27,6 +29,8 @@ public class ScrollModeController : IDisposable
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _context.InteractionManager.StateChanged += OnInteractionStateChanged;
+        _context.Messenger.Register<ScrollModeController, ExitScrollModeMessage>(this, (_, _) =>
+            _context.Dispatcher.BeginInvoke(() => ExitScrollMode()));
     }
 
     private void OnInteractionStateChanged(InteractionState state)
@@ -53,14 +57,16 @@ public class ScrollModeController : IDisposable
 
         _context.OverlayManager.CursorCircle.Hide();
 
-        var bounds = Screen.PrimaryScreen!.Bounds;
-        var stopButtonCenter = new PhysicalPoint(
-            bounds.Width - DpiHelper.LogicalToPhysicalX(50),
-            bounds.Height / 2.0);
+        var edgeAnchor = ComputeScrollEdgeAnchor();
+        var scrollStopDwell = _context.Settings.Dwell.ScrollStopButtonDwellMs;
+        var stopDef = new EdgeButtonDefinition(
+            "scroll-stop", "\u23F9", scrollStopDwell,
+            m => m.Send(new ExitScrollModeMessage()),
+            VerticalOffset: 0);
+        _context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { stopDef }, edgeAnchor);
 
         _scrollOverlayVm = new ScrollOverlayViewModel(_context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell);
-        _scrollOverlayVm.EnterScrollMode(anchor, stopButtonCenter);
-        _scrollOverlayVm.ExitRequested += OnScrollExitRequested;
+        _scrollOverlayVm.EnterScrollMode(anchor);
 
         _scrollOverlayWindow = new ScrollOverlayWindow();
         _scrollOverlayWindow.Show(_scrollOverlayVm);
@@ -74,8 +80,13 @@ public class ScrollModeController : IDisposable
         _scrollModeActive = true;
     }
 
-    private void OnScrollExitRequested()
-        => _context?.Dispatcher.BeginInvoke(() => _context?.InteractionManager.ExitScrollMode());
+    private static PhysicalPoint ComputeScrollEdgeAnchor()
+    {
+        var bounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
+        return new PhysicalPoint(
+            bounds.Width - DpiHelper.LogicalToPhysicalX(50),
+            bounds.Height / 2.0);
+    }
 
     private void OnScrollTargetVelocityChanged(double vx, double vy)
         => _scrollWorker?.UpdateTargetVelocity(vx, vy);
@@ -86,12 +97,13 @@ public class ScrollModeController : IDisposable
         _scrollOverlayWindow.UpdateFeedback(
             _scrollOverlayVm.AnchorDotOffsetX,
             _scrollOverlayVm.AnchorDotOffsetY,
-            _scrollOverlayVm.VelocityMagnitude,
-            _scrollOverlayVm.StopButtonProgress);
+            _scrollOverlayVm.VelocityMagnitude);
     }
 
     private void ExitScrollMode()
     {
+        _context.OverlayManager.EdgeButtonBar.Hide();
+
         _scrollWorker?.Stop();
         _scrollWorker?.Dispose();
         _scrollWorker = null;
@@ -100,7 +112,6 @@ public class ScrollModeController : IDisposable
         {
             _scrollOverlayVm.TargetVelocityChanged -= OnScrollTargetVelocityChanged;
             _scrollOverlayVm.FeedbackChanged -= OnScrollFeedbackChanged;
-            _scrollOverlayVm.ExitRequested -= OnScrollExitRequested;
             _scrollOverlayVm.ExitScrollMode();
             _scrollOverlayVm.Dispose();
             _scrollOverlayVm = null;

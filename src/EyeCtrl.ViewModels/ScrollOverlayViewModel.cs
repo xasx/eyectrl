@@ -9,28 +9,21 @@ using EyeCtrl.ViewModels.Messages;
 
 public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 {
-    private const string StopButtonTargetId = "scroll-stop";
-    private const double StopButtonRadiusPx = 30;
-    private const double StopZoneRadiusPx = 50;
     private const double MaxOffsetPx = 200.0;
 
     private readonly ScrollSettings _scrollSettings;
-    private readonly DwellSettings _dwellSettings;
 
     private PhysicalPoint _anchor;
-    private PhysicalPoint _stopButtonCenter;
 
     [ObservableProperty] private double _anchorDotOffsetX;
     [ObservableProperty] private double _anchorDotOffsetY;
     [ObservableProperty] private double _scrollVelocityX;
     [ObservableProperty] private double _scrollVelocityY;
-    [ObservableProperty] private double _stopButtonProgress;
     [ObservableProperty] private double _velocityMagnitude;
 
     public PhysicalPoint Anchor => _anchor;
-    public PhysicalPoint StopButtonCenter => _stopButtonCenter;
+    public PhysicalPoint StopButtonCenter => default;
 
-    public event Action? ExitRequested;
     public event Action<double, double>? TargetVelocityChanged;
     public event Action? FeedbackChanged;
 
@@ -38,30 +31,22 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         : base(messenger, dwellSettings.DwellCooldownMs)
     {
         _scrollSettings = scrollSettings;
-        _dwellSettings = dwellSettings;
     }
 
-    protected override void OnTargetActivated(string targetId) => ExitRequested?.Invoke();
-    protected override void OnTargetProgress(string targetId, double progress) => StopButtonProgress = progress;
+    protected override void OnTargetActivated(string targetId) { }
+    protected override void OnTargetProgress(string targetId, double progress) { }
 
-    public void EnterScrollMode(PhysicalPoint anchor, PhysicalPoint stopButtonCenter)
+    public void EnterScrollMode(PhysicalPoint anchor)
     {
         _anchor = anchor;
-        _stopButtonCenter = stopButtonCenter;
         IsVisible = true;
         AnchorDotOffsetX = 0;
         AnchorDotOffsetY = 0;
         ScrollVelocityX = 0;
         ScrollVelocityY = 0;
         VelocityMagnitude = 0;
-        StopButtonProgress = 0;
 
         DwellDetector.ClearTargets();
-        DwellDetector.AddTarget(new DwellTarget(
-            StopButtonTargetId,
-            _stopButtonCenter,
-            StopButtonRadiusPx,
-            _dwellSettings.ScrollStopButtonDwellMs));
     }
 
     public void ExitScrollMode()
@@ -77,8 +62,7 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         DwellDetector.Update(message.Position, message.TimestampMicroseconds);
 
         var (vx, vy) = ScrollEngine.ComputeVelocity(
-            message.Position, _anchor, _scrollSettings.Sensitivity,
-            _stopButtonCenter, StopZoneRadiusPx);
+            message.Position, _anchor, _scrollSettings.Sensitivity);
 
         double dx = message.Position.X - _anchor.X;
         double dy = _anchor.Y - message.Position.Y;

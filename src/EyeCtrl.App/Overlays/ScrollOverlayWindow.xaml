@@ -17,11 +17,5 @@
                  Width="80" Height="80" Opacity="0.7"/>
         <Ellipse x:Name="AnchorDot" Fill="White" Width="8" Height="8" Opacity="0.9"/>
         <Ellipse x:Name="VelocityRing" Stroke="#4af" StrokeThickness="2" Width="80" Height="80" Opacity="0.8"/>
-
-        <Ellipse x:Name="StopButton" Fill="#c00" Width="50" Height="50" Opacity="0.7"/>
-        <Path x:Name="StopButtonProgressArc" Stroke="#fff" StrokeThickness="4"
-              Width="50" Height="50" Opacity="0.9"/>
-        <TextBlock x:Name="StopLabel" Text="⏹" Foreground="White"
-                   FontSize="24" TextAlignment="Center" VerticalAlignment="Center"/>
     </Canvas>
 </overlays:OverlayWindow>

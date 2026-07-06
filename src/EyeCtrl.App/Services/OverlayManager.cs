@@ -21,7 +21,6 @@ public class OverlayManager : IOverlayManager
     public CursorCircleWindow CursorCircle { get; private set; } = null!;
     public ActivationButtonWindow ActivationButton { get; private set; } = null!;
     public ManualSelectionOverlayWindow ManualSelectionOverlay { get; private set; } = null!;
-    public ManualSelectionSideButtonWindow ManualSelectionSideButtons { get; private set; } = null!;
     public ActionMenuWindow ActionMenu { get; private set; } = null!;
     public ToolbarWindow Toolbar { get; private set; } = null!;
     public KeyboardWindow Keyboard { get; private set; } = null!;
@@ -48,7 +47,6 @@ public class OverlayManager : IOverlayManager
         CursorCircle = new CursorCircleWindow();
         ActivationButton = new ActivationButtonWindow();
         ManualSelectionOverlay = new ManualSelectionOverlayWindow();
-        ManualSelectionSideButtons = new ManualSelectionSideButtonWindow();
         ActionMenu = new ActionMenuWindow();
         Toolbar = new ToolbarWindow();
         Keyboard = new KeyboardWindow();

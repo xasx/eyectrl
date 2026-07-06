@@ -90,7 +90,7 @@ public class EventCoordinator : IEventCoordinator
         var cursorCircle = _context.OverlayManager.CursorCircle;
         var activationButton = _context.OverlayManager.ActivationButton;
         var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
-        var ManualSelectionSideButtons = _context.OverlayManager.ManualSelectionSideButtons;
+        var edgeButtonBar = _context.OverlayManager.EdgeButtonBar;
         var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
         var actionMenu = _context.OverlayManager.ActionMenu;
         var toolbar = _context.OverlayManager.Toolbar;
@@ -107,8 +107,8 @@ public class EventCoordinator : IEventCoordinator
         // ManualSelectionGazeIndicator: VM property changes -> window updates
         _context.ManualSelectionIndicatorVM.PropertyChanged += OnManualSelectionIndicatorVMPropertyChanged;
 
-        // ManualSelectionSideButtons: VM -> show/hide/progress
-        _context.ManualSelectionVM.PropertyChanged += OnManualSelectionSideButtonsPropertyChanged;
+        // ManualSelection: VM visibility -> edge bar show/hide
+        _context.ManualSelectionVM.PropertyChanged += OnManualSelectionVisibilityChanged;
 
         // ActionMenu: VM -> show/hide
         _context.ActionMenuVM.PropertyChanged += OnActionMenuVMPropertyChanged;
@@ -596,26 +596,38 @@ public class EventCoordinator : IEventCoordinator
         }
     }
 
-    private void OnManualSelectionSideButtonsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnManualSelectionVisibilityChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_context == null) return;
 
-        var ManualSelectionSideButtons = _context.OverlayManager.ManualSelectionSideButtons;
-        switch (e.PropertyName)
+        if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.IsVisible))
         {
-            case nameof(ManualSelectionOverlayViewModel.IsVisible):
-                if (_context.ManualSelectionVM.IsVisible)
-                    ManualSelectionSideButtons.ShowAt(_context.ManualSelectionVM.CloseButtonCenter, _context.ManualSelectionVM.RecaptureButtonCenter);
-                else
-                    ManualSelectionSideButtons.Hide();
-                break;
-            case nameof(ManualSelectionOverlayViewModel.CloseButtonProgress):
-                ManualSelectionSideButtons.UpdateProgress("ManualSelection_close", _context.ManualSelectionVM.CloseButtonProgress);
-                break;
-            case nameof(ManualSelectionOverlayViewModel.RecaptureButtonProgress):
-                ManualSelectionSideButtons.UpdateProgress("ManualSelection_recapture", _context.ManualSelectionVM.RecaptureButtonProgress);
-                break;
+            if (_context.ManualSelectionVM.IsVisible)
+            {
+                var anchor = ComputeManualSelectionEdgeAnchor();
+                var dwell = _context.Settings.Dwell.ManualSelectionSideButtonDwellMs;
+                var gapPhysical = DpiHelper.LogicalToPhysicalX(UIConstants.ManualSelectionSideButtonGap);
+                var defs = new[]
+                {
+                    new EdgeButtonDefinition("ManualSelection_close", "\u2715", dwell,
+                        m => m.Send(new ManualSelectionCloseMessage()), VerticalOffset: -gapPhysical),
+                    new EdgeButtonDefinition("ManualSelection_recapture", "\u21BB", dwell,
+                        m => m.Send(new ManualSelectionRecaptureMessage()), VerticalOffset: gapPhysical),
+                };
+                _context.OverlayManager.EdgeButtonBar.ShowButtons(defs, anchor);
+            }
+            else
+            {
+                _context.OverlayManager.EdgeButtonBar.Hide();
+            }
         }
+    }
+
+    private static PhysicalPoint ComputeManualSelectionEdgeAnchor()
+    {
+        var w = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
+        var h = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
+        return new PhysicalPoint(w - DpiHelper.LogicalToPhysicalX(30), h / 2.0);
     }
 
     private void OnActionMenuVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -1034,7 +1046,7 @@ public class EventCoordinator : IEventCoordinator
         _context.CursorVM.PropertyChanged -= OnCursorVMPropertyChanged;
         _context.ActivationVM.PropertyChanged -= OnActivationVMPropertyChanged;
         _context.ManualSelectionVM.PropertyChanged -= OnManualSelectionVMPropertyChanged;
-        _context.ManualSelectionVM.PropertyChanged -= OnManualSelectionSideButtonsPropertyChanged;
+        _context.ManualSelectionVM.PropertyChanged -= OnManualSelectionVisibilityChanged;
         _context.ManualSelectionIndicatorVM.PropertyChanged -= OnManualSelectionIndicatorVMPropertyChanged;
         _context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
         _context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;

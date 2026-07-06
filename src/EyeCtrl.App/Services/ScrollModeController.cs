@@ -30,7 +30,7 @@ public class ScrollModeController : IDisposable
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _context.InteractionManager.StateChanged += OnInteractionStateChanged;
         _context.Messenger.Register<ScrollModeController, ExitScrollModeMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() => ExitScrollMode()));
+            _context.Dispatcher.BeginInvoke(() => _context.InteractionManager.ExitScrollMode()));
     }
 
     private void OnInteractionStateChanged(InteractionState state)
@@ -66,7 +66,7 @@ public class ScrollModeController : IDisposable
         _context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { stopDef }, edgeAnchor);
 
         _scrollOverlayVm = new ScrollOverlayViewModel(_context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell);
-        _scrollOverlayVm.EnterScrollMode(anchor);
+        _scrollOverlayVm.EnterScrollMode(anchor, edgeAnchor);
 
         _scrollOverlayWindow = new ScrollOverlayWindow();
         _scrollOverlayWindow.Show(_scrollOverlayVm);

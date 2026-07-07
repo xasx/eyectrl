@@ -5,6 +5,8 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.EyeCare;
+using EyeCtrl.EyeCare.Exercises;
 
 namespace EyeCtrl.Benchmarks;
 
@@ -32,6 +34,15 @@ public class GazePipelineBenchmarks
     private GazePoint[] _fixation = null!;
     private GazePoint[] _noisyFixation = null!;
 
+    private const int EyeCareWindowSeconds = 60;
+    private const int SamplesPerSec = 30;
+    private const int SteadyTail = 1000;
+    private const int PrefillSamples = EyeCareWindowSeconds * SamplesPerSec + 2;   // 1802
+
+    private GazePoint[] _fixationTimed = null!;
+    private GazePoint[] _fixationPrefill = null!;
+    private EyeCareService _service = null!;
+
     // Built fresh per iteration by the targeted IterationSetup methods below — never reused across
     // iterations, so each measured run starts in FreeLook with no stacked event subscriptions.
     private FakeGazeProvider _provider = null!;
@@ -42,6 +53,11 @@ public class GazePipelineBenchmarks
     {
         _fixation = GazeStreamGenerator.GenerateFixation();
         _noisyFixation = GazeStreamGenerator.GenerateNoisyFixation();
+
+        // One continuous stream for the eye-care variants: prefix pre-fed, tail timed.
+        var fixationLong = GazeStreamGenerator.GenerateFixation(length: PrefillSamples + SteadyTail);
+        _fixationPrefill = fixationLong[..PrefillSamples];
+        _fixationTimed = fixationLong[PrefillSamples..];
     }
 
     [IterationSetup(Target = nameof(Pipeline_Direct_Fixation))]
@@ -56,8 +72,19 @@ public class GazePipelineBenchmarks
     [IterationSetup(Target = nameof(Pipeline_OneEuro_NoisyFixation))]
     public void SetupOneEuroNoisyFixation() => Rebuild(GazeFilterMode.OneEuro);
 
+    [IterationSetup(Target = nameof(Pipeline_OneEuro_Fixation_WithEyeCare_Disabled))]
+    public void SetupEyeCareDisabled() => RebuildWithEyeCare(BuildDisabledSettings());
+
+    [IterationSetup(Target = nameof(Pipeline_OneEuro_Fixation_WithEyeCare_Enabled_NoFatigue))]
+    public void SetupEyeCareNoFatigue() => RebuildWithEyeCare(BuildEnabledNoFatigueSettings());
+
     [IterationCleanup]
-    public void IterationCleanup() => _engine.Dispose();
+    public void IterationCleanup()
+    {
+        _engine.Dispose();
+        _service?.Dispose();
+        _service = null!;
+    }
 
     [Benchmark]
     public void Pipeline_Direct_Fixation() => Replay(_fixation);
@@ -70,6 +97,12 @@ public class GazePipelineBenchmarks
 
     [Benchmark]
     public void Pipeline_OneEuro_NoisyFixation() => Replay(_noisyFixation);
+
+    [Benchmark]
+    public void Pipeline_OneEuro_Fixation_WithEyeCare_Disabled() => Replay(_fixationTimed);
+
+    [Benchmark]
+    public void Pipeline_OneEuro_Fixation_WithEyeCare_Enabled_NoFatigue() => Replay(_fixationTimed);
 
     private void Replay(GazePoint[] stream)
     {
@@ -86,6 +119,37 @@ public class GazePipelineBenchmarks
         settings.Cursor.FilterMode = mode;
         _engine = new GazeEngine(_provider, new FakeInputSimulator(), settings);
         _engine.Start();
+    }
+
+    private void RebuildWithEyeCare(EyeCtrlSettings settings)
+    {
+        _provider = new FakeGazeProvider();
+        settings.Cursor.FilterMode = GazeFilterMode.OneEuro;
+        _engine = new GazeEngine(_provider, new FakeInputSimulator(), settings);
+        _service = new EyeCareService(
+            settings.EyeCare,
+            new ExerciseRunner(EyeCareBenchmarkFakes.ExercisePool, seed: 0),
+            EyeCareBenchmarkFakes.Hooks);
+        _engine.GazeSampled += sample =>
+            _service.OnGazeSample(sample, isPaused: false, canInterrupt: false);
+        _engine.Start();
+        for (int i = 0; i < _fixationPrefill.Length; i++)
+            _provider.SimulateGaze(_fixationPrefill[i]);
+    }
+
+    private static EyeCtrlSettings BuildDisabledSettings()
+    {
+        var s = new EyeCtrlSettings();
+        s.EyeCare.Enabled = false;
+        return s;
+    }
+
+    private static EyeCtrlSettings BuildEnabledNoFatigueSettings()
+    {
+        var s = new EyeCtrlSettings();
+        s.EyeCare.Enabled = true;
+        s.EyeCare.FatigueMonitorEnabled = false;
+        return s;
     }
 
     private sealed class FakeGazeProvider : IGazeProvider

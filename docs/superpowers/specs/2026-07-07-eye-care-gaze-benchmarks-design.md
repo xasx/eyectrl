@@ -9,7 +9,7 @@
 The gaze pipeline gained a new per-sample subscriber when eye care landed:
 `GazeEngine.GazeSampled` → `EyeCareService.OnGazeSample` → `EyeCareScheduler.Update`
 (always) + `FatigueMonitor.OnSample` (when enabled) — wired in
-[`App.xaml.cs:151-159`](src/EyeCtrl.App/App.xaml.cs:151). The existing 4-layer gaze
+[`App.xaml.cs:149-158`](src/EyeCtrl.App/App.xaml.cs:149). The existing 4-layer gaze
 benchmark suite (filter → detector → dwell → pipeline, added in
 [`2026-06-25-gaze-pipeline-benchmarks-design.md`](2026-06-25-gaze-pipeline-benchmarks-design.md))
 has **zero coverage** of this path: `GazePipelineBenchmarks` builds a bare `GazeEngine`
@@ -39,9 +39,11 @@ subscriber add to one full `OnGazePoint`, in each of the three production config
   (see "Escalation suppression").
 - **Modifying `GazePipelineBenchmarks`'s existing 4 methods** — those stay as the
   eye-care-off baseline. New methods are additive.
-- **New gaze-stream scenarios** — reuses the existing `GenerateFixation` /
-  `GenerateSaccade` / `GenerateNoisyFixation` from `GazeStreamGenerator`, which are
-  already CI-asserted in `tests/EyeCtrl.Benchmarks.Tests/GazeStreamGeneratorTests.cs`.
+- **New gaze-stream scenarios** — reuses the existing fixation / saccade / noisy-fixation
+  *trajectories* from `GazeStreamGenerator`. The only generator change is adding a `length`
+  parameter (defaulted to `SamplesPerBatch`) so Layer 5 can request streams longer than
+  1000 samples on a continuous timestamp axis; see "Per-batch sizing". No new trajectory
+  shapes, no new noise model.
 
 ## Architecture
 
@@ -51,8 +53,10 @@ subscriber add to one full `OnGazePoint`, in each of the three production config
 |------|--------|---------|
 | `benchmarks/EyeCtrl.Benchmarks/FatigueMonitorBenchmarks.cs` | NEW | Layer 5 — O(window) fatigue scan, params-scaled (`[Params(10,30,60)]`) |
 | `benchmarks/EyeCtrl.Benchmarks/FatigueMonitorSteadyStateBenchmarks.cs` | NEW | Layer 5 — fixed-60s baseline (separate class; no `[Params]`) |
+| `benchmarks/EyeCtrl.Benchmarks/GazeStreamGenerator.cs` | MODIFIED | Add `length` parameter (defaulted) to the 3 trajectory methods; default leaves all existing call sites unchanged |
 | `benchmarks/EyeCtrl.Benchmarks/GazePipelineBenchmarks.cs` | MODIFIED | Layer 4 — adds 3 eye-care-wired methods + fakes |
 | `benchmarks/EyeCtrl.Benchmarks/EyeCtrl.Benchmarks.csproj` | MODIFIED | Add `ProjectReference` to `EyeCtrl.EyeCare` |
+| `tests/EyeCtrl.Benchmarks.Tests/GazeStreamGeneratorTests.cs` | MODIFIED | Assert non-default `length` returns exact count + continuous timestamps |
 | `AGENTS.md` | MODIFIED | Benchmarks section: covered-subjects list + class/benchmark counts |
 
 No change to `Program.cs` (auto-discovery via `BenchmarkSwitcher.FromAssembly`).
@@ -105,23 +109,44 @@ The shared `GazeStreamGenerator.SamplesPerBatch = 1000` is too short for the def
 eviction, no full-window re-scan), not the steady-state O(window) cost that is the
 point of the layer.
 
-`FatigueMonitorBenchmarks` therefore generates its **own** sized streams locally rather
-than reusing the shared `SamplesPerBatch` constant:
+Layer 5 therefore needs streams longer than 1000 samples — up to ~2800 (pre-fill 1801 +
+1000-sample tail) for the 60 s case. The existing `GenerateFixation/Saccade/NoisyFixation`
+methods take only a `seed` and are hard-locked to `SamplesPerBatch`. To get a longer
+continuous stream without duplicating the generator logic, **add a `length` parameter**
+to each existing method:
+
+```csharp
+public static GazePoint[] GenerateFixation(int seed = DefaultSeed, int length = SamplesPerBatch);
+public static GazePoint[] GenerateSaccade(int seed = DefaultSeed, int length = SamplesPerBatch);
+public static GazePoint[] GenerateNoisyFixation(int seed = DefaultSeed, int length = SamplesPerBatch);
+```
+
+The default keeps every existing call site unchanged (Layers 1–4, `GazeStreamGeneratorTests`).
+Timestamps remain `i * SamplePeriodMicros` for `i ∈ [0, length)`, so a longer stream is a
+**single continuous timestamp axis** — not a concatenation of two independent calls.
+
+**Timestamp continuity is the load-bearing invariant.** `FatigueMonitor.OnSample` evicts
+via `while ( Peek().ts < currentTs - windowMicros )`. Two independent `GenerateFixation()`
+calls each start timestamps at 0; feeding the second as the "tail" would make `cutoff` go
+negative, evict nothing, and silently grow the window during the timed loop — measuring
+exactly the growth-phase cost the layer exists to avoid. The numbers still come out; they
+are just wrong. The single continuous stream is what makes pre-fill + tail correct.
 
 ```
-SamplesToFill  = WindowSeconds * 30Hz + 1     // enough to first trigger eviction
-SteadyTail     = 1000                          // the timed replay length
+SamplesToFill  = WindowSeconds * 30 + 2     // ≥ one past the first evicting sample
+SteadyTail     = 1000                        // the timed replay length
 ```
+
+> The `+2` (not `+1`): at 33 333 µs/sample, 30·N samples span slightly *under* N seconds,
+> so the first sample whose timestamp falls outside a 60 s window is the 1802nd, not the
+> 1801st. `+2` clears that bar with margin. This is harmless either way — the timed tail
+> evicts on every sample regardless — but the comment is now accurate.
 
 The `[GlobalSetup]` (untimed) pre-feeds `SamplesToFill` samples into the monitor so the
 window is full and eviction is active, **then** the `[Benchmark]` method replays only the
 `SteadyTail` (1000-sample) suffix. Reported `ns/op` is therefore steady-state per-1000
 samples, directly comparable to Layers 1–4 (which all report per-1000-samples). B/op is
 likewise per-1000-samples steady-state.
-
-For `Win10`/`Win30` (300/900 samples to fill) the pre-fill is shorter than 1000; for
-`Win60` (1800 to fill) it is longer. Either way the timed portion is a fixed 1000
-samples of steady-state behavior.
 
 ### Params-scaled (the O(window) characterization)
 
@@ -147,7 +172,7 @@ fresh `FatigueMonitor` pre-filled for that window size.
 
 A **separate class** (no `[Params]`) holding 3 benchmarks at the fixed default window
 (60 s): `Fatigue_Fixation`, `Fatigue_Saccade`, `Fatigue_NoisyFixation`. Same per-batch
-sizing as the params class (`SamplesToFill = 60 * 30 + 1`, `SteadyTail = 1000`),
+sizing as the params class (`SamplesToFill = 60 * 30 + 2`, `SteadyTail = 1000`),
 hard-coded via a `private const int WindowSeconds = 60`.
 
 ```csharp
@@ -189,7 +214,7 @@ place to look.
 ## Layer 4 extension — `GazePipelineBenchmarks` (integration)
 
 Adds 3 methods that wire a real `EyeCareService` into `GazeEngine.GazeSampled`,
-mirroring the production wiring in [`App.xaml.cs:151-159`](src/EyeCtrl.App/App.xaml.cs:151).
+mirroring the production wiring in [`App.xaml.cs:149-158`](src/EyeCtrl.App/App.xaml.cs:149).
 All three use OneEuro + Fixation (the representative scenario already used by the existing
 `Pipeline_OneEuro_Fixation`) so the only variable is the eye-care configuration — a clean
 before/after.
@@ -198,10 +223,25 @@ before/after.
 |---------------|-------------------|------------------|
 | `Pipeline_OneEuro_Fixation_WithEyeCare_Disabled` | `Enabled = false` (today's shipping default) | The subscriber's existence tax: `scheduler.Update` + early-return before fatigue |
 | `Pipeline_OneEuro_Fixation_WithEyeCare_Enabled_NoFatigue` | `Enabled = true`, `FatigueMonitorEnabled = false` (v1 promoted-on default) | + the `FatigueMonitorEnabled` early-return |
-| `Pipeline_OneEuro_Fixation_WithEyeCare_WithFatigue` | `Enabled = true`, `FatigueMonitorEnabled = true`, `FatigueThreshold = 2.0` | + full O(window) fatigue scan |
+| `Pipeline_OneEuro_Fixation_WithEyeCare_WithFatigue` | `Enabled = true`, `FatigueMonitorEnabled = true` (defaults otherwise) | + full O(window) fatigue scan |
 
-Subtraction (`WithFatigue − Disabled`) gives the eye-care subscriber's marginal
-per-sample cost on the fully-wired pipeline.
+All three pass the same lambda args — see "Lambda arguments" below. Subtraction
+(`WithFatigue − Disabled`) gives the eye-care subscriber's marginal per-sample cost on
+the fully-wired pipeline.
+
+### Lambda arguments (load-bearing for escalation suppression)
+
+The benchmark lambda mirrors the production wiring (`App.xaml.cs:149-158`) but with
+fixed arguments so the measured path is deterministic across all three variants:
+
+```csharp
+engine.GazeSampled += sample =>
+    _eyeCareService.OnGazeSample(sample, isPaused: false, canInterrupt: false);
+```
+
+- **`isPaused: false`** — keeps active time accruing in `EyeCareScheduler.Update`
+  (matches the production non-paused steady state; `true` would skip the accrual branch).
+- **`canInterrupt: false`** — the escalation-suppression knob. See the next section.
 
 ### Fresh-build-per-iteration (extends the existing pattern)
 
@@ -212,9 +252,15 @@ the provider's event and reusing a provider would stack subscriptions. The new m
 add the same pattern for the eye-care pair. Each targeted setup builds a fresh
 `FakeGazeProvider` + `GazeEngine` + `EyeCareService`, **calls `_engine.Start()`**
 (mirroring the existing `Rebuild()` at `GazePipelineBenchmarks.cs:88` — required so the
-engine's pipeline is live), subscribes the service to `engine.GazeSampled` via the same
-lambda adapter `App.xaml.cs` uses, then `[IterationCleanup]` disposes both engine and
-service.
+engine's pipeline is live), subscribes the service to `engine.GazeSampled` via the
+lambda above, then `[IterationCleanup]` disposes both engine and service.
+
+**Cleanup null-guard:** the existing `[IterationCleanup]` is untargeted and runs for
+*every* benchmark in the class, including the 4 original methods that build no service.
+So the cleanup must null-guard `_service` (`_service?.Dispose()`) — or the original 4
+benchmarks NRE on cleanup. `_engine` is already non-null for every method so it needs no
+guard, but `_service` is null for the original 4 and non-null only for the 3 eye-care
+variants.
 
 **Note on the `GazeSampled` subscription:** `EyeCareService.Dispose()` only unsubscribes
 from `_settings.PropertyChanged` and `_scheduler.BreakDue` — it does **not** unsubscribe
@@ -245,7 +291,7 @@ A minimal `IExercise[] { new FakeExercise() }` is passed to `new ExerciseRunner(
 `FatigueMonitor.Score` on the Fixation stream is ≈ 1.0 (fixationRatio ≈ 1.0; boxArea is
 tiny so shrinkScore ≈ 1.0; combined and clamped → ≈1.0). The default `FatigueThreshold`
 is 0.75, so on a Fixation stream the escalation guard in `EyeCareService.OnGazeSample`
-is true after the first few samples.
+would be true after the first few samples — *if* `canInterrupt` were true.
 
 In production that is correct behavior — it fires the break flow. But the break flow
 (`OnBreakDue` → async-void → `ShowBannerAsync` → exercise → summary) is **not a
@@ -254,10 +300,22 @@ during the timed loop would (a) contaminate the measurement with one-shot UI-hoo
 and (b) set `_busy = true` mid-batch, silently changing the code path measured by every
 later sample in the batch.
 
-The `WithFatigue` variant therefore sets `FatigueThreshold = 2.0` (unreachable: Score is
-`Math.Clamp`-ed to [0,1]). This isolates the **per-sample fatigue scoring** — the actual
-hot path — from the break flow, which has no business being benchmarked here. Documented
-inline in the class XML doc.
+**Suppression mechanism: `canInterrupt: false`** in the benchmark lambda (see "Lambda
+arguments"). This is preferable to an out-of-range setting because:
+
+1. **It stays inside the validated range.** `EyeCareSettings.Validate()` enforces
+   `FatigueThreshold ∈ [0.0, 1.0]`; setting `2.0` is stored as-is (there is no clamping
+   `OnChanging` guard) and only "works" because the benchmark never calls `Validate()`.
+   `canInterrupt: false` needs no invalid value.
+2. **It suppresses escalation without touching the hot path.** The escalation guard is
+   `FatigueMonitorEnabled && !_busy && canInterrupt && Score >= threshold`
+   (`EyeCareService.OnGazeSample`). `_fatigueMonitor.OnSample` — the actual O(window)
+   path under measurement — runs on the line *before* the guard. So `canInterrupt: false`
+   keeps the guard false while the full fatigue scan still executes every sample.
+
+This mirrors production semantics: `canInterrupt: true` only in `FreeLook`
+(`App.xaml.cs:149-158`); the benchmark measures the "overlay up / not FreeLook" path,
+which is the steady state the break flow waits out. Documented inline in the class XML doc.
 
 The `Disabled` and `Enabled_NoFatigue` variants need no mitigation: the escalation guard
 is gated on `FatigueMonitorEnabled && Score >= threshold`, and either `Enabled=false`
@@ -267,25 +325,28 @@ guard false.
 
 ## Testability / CI
 
-**Decision: no new test file.** The prior gaze-pipeline-benchmarks spec added
-`tests/EyeCtrl.Benchmarks.Tests/GazeStreamGeneratorTests.cs` to guard the generator's
-correctness. This spec adds **no new generator code** — it reuses the existing,
-already-CI-asserted streams (`GenerateFixation`/`Saccade`/`NoisyFixation`). The
-Layer 5 per-batch sizing is local arithmetic (`WindowSeconds * 30 + 1`), not a new
-public generator surface that could drift.
+**Decision: extend the existing generator test, no new test file.** This spec adds a
+`length` parameter to `GazeStreamGenerator.GenerateFixation/Saccade/NoisyFixation`
+(see "Per-batch sizing"). That is new public generator surface, so the drift guard the
+prior spec established in `tests/EyeCtrl.Benchmarks.Tests/GazeStreamGeneratorTests.cs`
+must cover it. Concretely, the existing tests already call every generator with the
+default `length`, so the regression guard is: add assertions that a non-default `length`
+returns exactly `length` points and that its timestamps are continuous
+(`points[i].TimestampMicroseconds == i * SamplePeriodMicros` for `i ∈ [0, length)`).
 
-The only new testable surface would be asserting the fakes construct and the benchmark
+This is exactly the invariant Layer 5 depends on (see "Timestamp continuity is the
+load-bearing invariant"). A future change that broke continuity — e.g. refactoring the
+generator to restart timestamps — would fail this test instead of silently making Layer 5
+measure the wrong thing.
+
+The only other testable surface would be asserting the fakes construct and the benchmark
 fields are non-null after `[GlobalSetup]` — low value, and BenchmarkDotNet's own pilot
-run already fails fast with a clear `InitException` on a null setup. The maintenance
-cost of a dedicated test file outweighs the benefit.
+run already fails fast with a clear `InitException` on a null setup.
 
 CI workflow: **no change.** The existing `dotnet test tests/EyeCtrl.Benchmarks.Tests`
-step still passes (no new project, no new tests). The new benchmark classes are picked
-up by the existing `--filter *Gaze*` and a new `--filter *Fatigue*` selects Layer 5.
-
-Rejected alternative considered and declined: assert the per-batch sizing math
-(`SamplesToFill ≥ WindowSeconds * 30`) in a unit test. This tests arithmetic the
-compiler already validates; declined as performative.
+step picks up the new assertions (same file, same project). The new benchmark classes
+are picked up by the existing `--filter *Gaze*` and a new `--filter *Fatigue*` selects
+Layer 5.
 
 ## Dependencies
 
@@ -308,13 +369,15 @@ introduced — the benchmark project stays `net10.0` console-clean.
 
 | Risk | Mitigation |
 |------|-----------|
-| Escalation fires mid-batch on Fixation, contaminating `WithFatigue` | `FatigueThreshold = 2.0` (unreachable; Score clamped to [0,1]); documented inline |
-| 1000-sample batch under-fills the 60s window, measuring growth not steady-state | Per-batch sizing in the fatigue class: `[GlobalSetup]` pre-fills, `[Benchmark]` replays a 1000-sample steady-state tail |
-| `EyeCareService` constructor requires non-empty `ExerciseRunner` pool | Single-element `FakeExercise` pool; never invoked (escalation suppressed) |
+| Escalation fires mid-batch on Fixation, contaminating `WithFatigue` | `canInterrupt: false` in the benchmark lambda — the escalation guard requires it, but `_fatigueMonitor.OnSample` (the measured path) runs before the guard, so the full scan still executes every sample. Stays in the validated settings range (no out-of-range `FatigueThreshold`). |
+| 1000-sample batch under-fills the 60s window, measuring growth not steady-state | New `length` generator parameter; `[GlobalSetup]` pre-fills on a continuous timestamp axis, `[Benchmark]` replays a 1000-sample steady-state tail |
+| Timestamp discontinuity silently makes Layer 5 measure growth not steady-state | Single continuous stream (not two `GenerateFixation()` calls); continuity asserted in `GazeStreamGeneratorTests` (see Testability) |
+| `EyeCareService` constructor requires non-empty `ExerciseRunner` pool | Single-element `FakeExercise` pool; never invoked (escalation suppressed via `canInterrupt: false`) |
+| Shared `[IterationCleanup]` NREs on the 4 original benchmarks (no service built) | Null-guard `_service?.Dispose()`; documented in "Fresh-build-per-iteration" |
 | Subscription stacking across iterations | Targeted `[IterationSetup]` builds fresh provider+engine+service each iteration; `[IterationCleanup]` disposes both engine and service. Note: `EyeCareService.Dispose()` does not unsubscribe the `engine.GazeSampled` lambda, but engine+service are co-lifetime per iteration (GC'd together) so the reference cannot stack — see "Fresh-build-per-iteration" |
 | `EyeCareSettings.PropertyChanged` handler leak across iterations | `EyeCareService.Dispose()` unsubscribes; called from `[IterationCleanup]` |
 | `FatigueMonitor` allocates unexpectedly in steady state | Anticipated finding, not a surprise — if `MemoryDiagnoser` reports nonzero B/op, the `foreach` re-scan loop is the first place to look. Benchmark exists to confirm the expectation. |
-| Generator drift undetected | N/A — no new generator code; existing `GazeStreamGeneratorTests` still covers all reused streams |
+| Generator `length` parameter drifts (e.g. continuity broken by a refactor) | `GazeStreamGeneratorTests` extended to assert non-default `length` returns exact count + continuous timestamps |
 
 ## Verification
 
@@ -324,7 +387,7 @@ After implementation:
 # Build (must compile 0 errors; confirms EyeCtrl.EyeCare reference resolves)
 dotnet build benchmarks/EyeCtrl.Benchmarks
 
-# Existing generator tests still pass (no new test file added)
+# Generator tests including the new length/continuity assertions
 dotnet test tests/EyeCtrl.Benchmarks.Tests
 
 # New fatigue micro-layer (Layer 5)

@@ -1,8 +1,6 @@
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Jobs;
 using EyeCtrl.Core;
-using EyeCtrl.Core.Interfaces;
-using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.EyeCare;
@@ -11,20 +9,26 @@ using EyeCtrl.EyeCare.Exercises;
 namespace EyeCtrl.Benchmarks;
 
 /// <summary>
-/// Layer 4 — end-to-end pipeline benchmarks. A real GazeEngine wired to private nested fakes
-/// (mirroring tests/EyeCtrl.Core.Tests/GazeEngineTests.cs). The provider's GazePointReceived is
-/// raised synchronously once per sample inside the timed loop.
+/// Layer 4 — end-to-end pipeline benchmarks. A real GazeEngine wired to shared fakes in
+/// EyeCareBenchmarkFakes (mirroring tests/EyeCtrl.Core.Tests/GazeEngineTests.cs). The provider's
+/// GazePointReceived is raised synchronously once per sample inside the timed loop.
 /// </summary>
 /// <remarks>
 /// PER-ITERATION REBUILD: each benchmark gets a fresh provider+engine pair via a targeted
 /// [IterationSetup], for two reasons: (a) InteractionManager starts in FreeLook and leaves it once
 /// the Fixation scenario triggers, so reusing an engine would bias later iterations; (b) the
 /// GazeEngine constructor subscribes to the provider's GazePointReceived event, so reusing a
-/// provider across engines would stack subscriptions. [IterationCleanup] disposes the engine.
+/// provider across engines would stack subscriptions. [IterationCleanup] disposes the engine and
+/// the null-guarded service (the 4 originals build no service, so the `?.`/reset is a safe no-op
+/// for them).
 /// (BenchmarkDotNet runs many invocations per iteration on the one engine, so after fixation
 /// triggers the state converges to Fixation and stays there — the engine drives no dwell — so the
-/// reported number is steady-state-fixation cost. That is the intended apples-to-apples basis:
-/// filter mode is the only variable across the four benchmarks.)
+/// reported number is steady-state-fixation cost. That is the intended apples-to-apples basis for
+/// the four original benchmarks, where filter mode is the only variable.) The two eye-care-wired
+/// variants (WithEyeCare_Disabled, WithEyeCare_Enabled_NoFatigue) measure the subscriber's
+/// marginal cost at different early-return points, replaying _fixationTimed (continuous with the
+/// pre-fill) rather than _fixation. See GazePipelineWithFatigueBenchmarks for the third eye-care
+/// variant, which needs its own class due to the multi-invocation growth flaw.
 /// </remarks>
 [SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
@@ -34,10 +38,10 @@ public class GazePipelineBenchmarks
     private GazePoint[] _fixation = null!;
     private GazePoint[] _noisyFixation = null!;
 
-    private const int EyeCareWindowSeconds = 60;
+    private const int WindowSeconds = 60;
     private const int SamplesPerSec = 30;
     private const int SteadyTail = 1000;
-    private const int PrefillSamples = EyeCareWindowSeconds * SamplesPerSec + 2;   // 1802
+    private const int PrefillSamples = WindowSeconds * SamplesPerSec + 2;   // 1802
 
     private GazePoint[] _fixationTimed = null!;
     private GazePoint[] _fixationPrefill = null!;
@@ -45,7 +49,7 @@ public class GazePipelineBenchmarks
 
     // Built fresh per iteration by the targeted IterationSetup methods below — never reused across
     // iterations, so each measured run starts in FreeLook with no stacked event subscriptions.
-    private FakeGazeProvider _provider = null!;
+    private EyeCareBenchmarkFakes.FakeGazeProvider _provider = null!;
     private GazeEngine _engine = null!;
 
     [GlobalSetup]
@@ -82,6 +86,8 @@ public class GazePipelineBenchmarks
     public void IterationCleanup()
     {
         _engine.Dispose();
+        // Untargeted cleanup also runs for the 4 original benchmarks (which build no service),
+        // so the ?. and null-reset keep this a safe no-op for them.
         _service?.Dispose();
         _service = null!;
     }
@@ -114,18 +120,18 @@ public class GazePipelineBenchmarks
     // _provider in its constructor, so SimulateGaze on _provider drives exactly this engine.
     private void Rebuild(GazeFilterMode mode)
     {
-        _provider = new FakeGazeProvider();
+        _provider = new EyeCareBenchmarkFakes.FakeGazeProvider();
         var settings = new EyeCtrlSettings();           // SelectionMode defaults to None
         settings.Cursor.FilterMode = mode;
-        _engine = new GazeEngine(_provider, new FakeInputSimulator(), settings);
+        _engine = new GazeEngine(_provider, new EyeCareBenchmarkFakes.FakeInputSimulator(), settings);
         _engine.Start();
     }
 
     private void RebuildWithEyeCare(EyeCtrlSettings settings)
     {
-        _provider = new FakeGazeProvider();
+        _provider = new EyeCareBenchmarkFakes.FakeGazeProvider();
         settings.Cursor.FilterMode = GazeFilterMode.OneEuro;
-        _engine = new GazeEngine(_provider, new FakeInputSimulator(), settings);
+        _engine = new GazeEngine(_provider, new EyeCareBenchmarkFakes.FakeInputSimulator(), settings);
         _service = new EyeCareService(
             settings.EyeCare,
             new ExerciseRunner(EyeCareBenchmarkFakes.ExercisePool, seed: 0),
@@ -150,32 +156,5 @@ public class GazePipelineBenchmarks
         s.EyeCare.Enabled = true;
         s.EyeCare.FatigueMonitorEnabled = false;
         return s;
-    }
-
-    private sealed class FakeGazeProvider : IGazeProvider
-    {
-        public event Action<GazePoint>? GazePointReceived;
-        public bool IsConnected { get; private set; }
-        public void Start() => IsConnected = true;
-        public void Stop() => IsConnected = false;
-        public void Dispose() => Stop();
-        public void SimulateGaze(GazePoint point) => GazePointReceived?.Invoke(point);
-    }
-
-    private sealed class FakeInputSimulator : IInputSimulator
-    {
-        // Records nothing during the timed loop — avoids contaminating allocation numbers.
-        public void MoveCursor(PhysicalPoint p) { }
-        public void LeftClick(PhysicalPoint p) { }
-        public void RightClick(PhysicalPoint p) { }
-        public void DoubleClick(PhysicalPoint p) { }
-        public void MouseDown(PhysicalPoint p) { }
-        public void MouseUp(PhysicalPoint p) { }
-        public void Scroll(PhysicalPoint p, int dx, int dy) { }
-        public void SendKeyPress(ushort vk) { }
-        public void SendKeyDown(ushort vk) { }
-        public void SendKeyUp(ushort vk) { }
-        public void SendText(string text) { }
-        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode) { }
     }
 }

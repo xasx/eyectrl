@@ -1,18 +1,51 @@
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.EyeCare.Exercises;
 using EyeCtrl.EyeCare.Scoring;
 
 namespace EyeCtrl.Benchmarks;
 
-/// <summary>Shared fakes for the eye-care-wired pipeline benchmarks. Both
-/// GazePipelineBenchmarks (Disabled/NoFatigue) and GazePipelineWithFatigueBenchmarks
-/// construct an EyeCareService, which requires these. Neither is ever invoked during a
-/// timed loop — escalation is suppressed via canInterrupt:false, so OnBreakDue never fires.</summary>
+/// <summary>Shared fakes for the gaze-pipeline benchmarks. GazePipelineBenchmarks (the 4
+/// originals + Disabled/NoFatigue) and GazePipelineWithFatigueBenchmarks both construct a
+/// GazeEngine from <see cref="FakeGazeProvider"/>/<see cref="FakeInputSimulator"/>; the
+/// eye-care-wired variants additionally construct an EyeCareService, which requires Hooks
+/// and ExercisePool. Neither Hooks nor ExercisePool is ever invoked during a timed loop —
+/// escalation is suppressed via canInterrupt:false, so OnBreakDue never fires.</summary>
 internal static class EyeCareBenchmarkFakes
 {
     public static IEyeCareHooks Hooks { get; } = new FakeEyeCareHooks();
     public static IExercise[] ExercisePool { get; } = new IExercise[] { new FakeExercise() };
+
+    /// <summary>Provider whose <see cref="SimulateGaze"/> raises
+    /// <see cref="GazePointReceived"/> synchronously once per sample, driving the GazeEngine
+    /// that subscribed in its constructor. Callers instantiate fresh per iteration.</summary>
+    public sealed class FakeGazeProvider : IGazeProvider
+    {
+        public event Action<GazePoint>? GazePointReceived;
+        public bool IsConnected { get; private set; }
+        public void Start() => IsConnected = true;
+        public void Stop() => IsConnected = false;
+        public void Dispose() => Stop();
+        public void SimulateGaze(GazePoint point) => GazePointReceived?.Invoke(point);
+    }
+
+    /// <summary>Records nothing during the timed loop — avoids contaminating allocation numbers.</summary>
+    public sealed class FakeInputSimulator : IInputSimulator
+    {
+        public void MoveCursor(PhysicalPoint p) { }
+        public void LeftClick(PhysicalPoint p) { }
+        public void RightClick(PhysicalPoint p) { }
+        public void DoubleClick(PhysicalPoint p) { }
+        public void MouseDown(PhysicalPoint p) { }
+        public void MouseUp(PhysicalPoint p) { }
+        public void Scroll(PhysicalPoint p, int dx, int dy) { }
+        public void SendKeyPress(ushort vk) { }
+        public void SendKeyDown(ushort vk) { }
+        public void SendKeyUp(ushort vk) { }
+        public void SendText(string text) { }
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode) { }
+    }
 
     private sealed class FakeEyeCareHooks : IEyeCareHooks
     {

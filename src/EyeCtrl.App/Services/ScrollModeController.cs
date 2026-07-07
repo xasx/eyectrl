@@ -26,7 +26,7 @@ public class ScrollModeController : IDisposable
     /// pre-unified-bar 50x50 ellipse. Static and internal so a regression test pins the radius.
     /// </summary>
     internal static EdgeButtonDefinition CreateScrollStopButtonDefinition(
-        IMessenger messenger, int dwellMs, double verticalOffset)
+        int dwellMs, double verticalOffset)
         => new(
             Id: "scroll-stop",
             Symbol: "\u23F9",
@@ -71,7 +71,7 @@ public class ScrollModeController : IDisposable
 
         var edgeAnchor = ScreenGeometry.RightEdgeAnchor(ScrollStopInsetLogical, UIConstants.ButtonRadius);
         var scrollStopDwell = _context.Settings.Dwell.ScrollStopButtonDwellMs;
-        var stopDef = CreateScrollStopButtonDefinition(_context.Messenger, scrollStopDwell, verticalOffset: 0);
+        var stopDef = CreateScrollStopButtonDefinition(scrollStopDwell, verticalOffset: 0);
         _context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { stopDef }, edgeAnchor);
 
         _scrollOverlayVm = new ScrollOverlayViewModel(_context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell);

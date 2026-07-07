@@ -3,13 +3,15 @@ namespace EyeCtrl.App.Overlays;
 using System.ComponentModel;
 using System.Windows;
 using EyeCtrl.App.Controls;
+using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
 public partial class EdgeButtonBarWindow : OverlayWindow
 {
-    private const double ButtonMargin = 10;
+    // Shared with ScreenGeometry's right-edge anchor so the window's border lines up on screen.
+    private const double ButtonMargin = ScreenGeometry.EdgeButtonWindowMarginLogical;
 
     private readonly Dictionary<string, DwellArcButton> _buttons = new();
     private readonly List<(EdgeButtonState State, PropertyChangedEventHandler Handler)> _progressSubs = new();

@@ -11,10 +11,13 @@ using EyeCtrl.Core.Services;
 internal static class ScreenGeometry
 {
     /// <summary>
-    /// Logical-px margin applied on top of the rightmost button's radius. Sized so the
-    /// button's right edge never clips past the WPF <c>OverlayWindow</c>'s 0-px border.
+    /// Logical-px margin the edge-button bar reserves around each button between the button
+    /// circle and the overlay window border. Single source of truth: the right-edge anchor
+    /// reserves this so the window never clips past the desktop, and
+    /// <c>EdgeButtonBarWindow.ButtonMargin</c> uses the same value to size the window — the two
+    /// must stay equal for the right edge to line up.
     /// </summary>
-    private const double RightEdgeWindowMarginLogical = 10;
+    internal const double EdgeButtonWindowMarginLogical = 10;
 
     /// <summary>
     /// Anchor at the right screen edge in physical pixels. The returned centre is offset
@@ -25,7 +28,7 @@ internal static class ScreenGeometry
     public static PhysicalPoint RightEdgeAnchor(
         double logicalInset,
         double logicalRadius,
-        double logicalWindowMargin = RightEdgeWindowMarginLogical)
+        double logicalWindowMargin = EdgeButtonWindowMarginLogical)
         => RightEdgeAnchor(
             logicalInset, logicalRadius, logicalWindowMargin,
             SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);

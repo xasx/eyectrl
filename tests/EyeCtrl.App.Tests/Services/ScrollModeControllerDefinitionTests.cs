@@ -16,7 +16,7 @@ public class ScrollModeControllerDefinitionTests
     public void CreateScrollStopButtonDefinition_UsesFullButtonRadius()
     {
         var def = ScrollModeController.CreateScrollStopButtonDefinition(
-            messenger: null!, dwellMs: 600, verticalOffset: 0);
+            dwellMs: 600, verticalOffset: 0);
 
         Check.That(def.Id).IsEqualTo("scroll-stop");
         Check.That(def.RadiusLogical).IsEqualTo(UIConstants.ButtonRadius);
@@ -28,7 +28,7 @@ public class ScrollModeControllerDefinitionTests
     public void CreateScrollStopButtonDefinition_AppliesVerticalOffset()
     {
         var def = ScrollModeController.CreateScrollStopButtonDefinition(
-            messenger: null!, dwellMs: 600, verticalOffset: 50.0);
+            dwellMs: 600, verticalOffset: 50.0);
 
         Check.That(def.VerticalOffset).IsEqualTo(50.0);
     }

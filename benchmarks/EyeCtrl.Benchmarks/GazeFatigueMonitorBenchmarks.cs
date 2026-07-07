@@ -80,14 +80,17 @@ public class GazeFatigueMonitorBenchmarks
     }
 
     // Fresh monitor + pre-fill EVERY iteration — invocationCount:1 means each iteration is one
-    // timed replay, so this runs once per measured op. Untimed by BDN.
-    [IterationSetup]
-    public void IterationSetup()
-    {
-        _fatigueFixation = BuildPrefilled(_fixationFull, _samplesToFill);
-        _fatigueSaccade = BuildPrefilled(_saccadeFull, _samplesToFill);
-        _fatigueNoisyFixation = BuildPrefilled(_noisyFixationFull, _samplesToFill);
-    }
+    // timed replay, so this runs once per measured op. Untimed by BDN. TARGETED per benchmark so
+    // only the needed monitor is built (building all 3 per iteration created GC pressure that,
+    // with invocationCount:1's high iteration count, distorted the small per-sample costs).
+    [IterationSetup(Target = nameof(Fatigue_Fixation_Win))]
+    public void SetupFixation() => _fatigueFixation = BuildPrefilled(_fixationFull, _samplesToFill);
+
+    [IterationSetup(Target = nameof(Fatigue_Saccade_Win))]
+    public void SetupSaccade() => _fatigueSaccade = BuildPrefilled(_saccadeFull, _samplesToFill);
+
+    [IterationSetup(Target = nameof(Fatigue_NoisyFixation_Win))]
+    public void SetupNoisyFixation() => _fatigueNoisyFixation = BuildPrefilled(_noisyFixationFull, _samplesToFill);
 
     [Benchmark]
     public void Fatigue_Fixation_Win() => Replay(_fixation, _fatigueFixation);

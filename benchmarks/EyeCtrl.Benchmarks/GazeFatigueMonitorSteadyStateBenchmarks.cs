@@ -62,13 +62,14 @@ public class GazeFatigueMonitorSteadyStateBenchmarks
         _noisyFixation = noi[^SteadyTail..];
     }
 
-    [IterationSetup]
-    public void IterationSetup()
-    {
-        _fatigueFixation = BuildPrefilled(_fixationFull, _samplesToFill);
-        _fatigueSaccade = BuildPrefilled(_saccadeFull, _samplesToFill);
-        _fatigueNoisyFixation = BuildPrefilled(_noisyFixationFull, _samplesToFill);
-    }
+    [IterationSetup(Target = nameof(Fatigue_Fixation))]
+    public void SetupFixation() => _fatigueFixation = BuildPrefilled(_fixationFull, _samplesToFill);
+
+    [IterationSetup(Target = nameof(Fatigue_Saccade))]
+    public void SetupSaccade() => _fatigueSaccade = BuildPrefilled(_saccadeFull, _samplesToFill);
+
+    [IterationSetup(Target = nameof(Fatigue_NoisyFixation))]
+    public void SetupNoisyFixation() => _fatigueNoisyFixation = BuildPrefilled(_noisyFixationFull, _samplesToFill);
 
     [Benchmark]
     public void Fatigue_Fixation() => Replay(_fixation, _fatigueFixation);

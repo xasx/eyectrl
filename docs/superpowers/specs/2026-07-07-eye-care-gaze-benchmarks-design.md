@@ -263,6 +263,9 @@ targets a **single** method, so each new pipeline benchmark gets its own targete
 that delegates to a shared helper:
 
 ```csharp
+// Built once in GlobalSetup from a single continuous GenerateFixation(length: 1802 + 1000):
+// _fixationPrefill = first 1802 samples; _fixationTimed = trailing 1000 (timestamps continue).
+
 private void RebuildWithEyeCare(EyeCareSettings eyeCareSettings)
 {
     _provider = new FakeGazeProvider();
@@ -273,28 +276,49 @@ private void RebuildWithEyeCare(EyeCareSettings eyeCareSettings)
     _engine.GazeSampled += sample =>
         _service.OnGazeSample(sample, isPaused: false, canInterrupt: false);
     _engine.Start();
+    // Pre-fill the fatigue window on the SAME continuous timestamp axis the timed batch continues.
+    for (int i = 0; i < _fixationPrefill.Length; i++)
+        _provider.SimulateGaze(_fixationPrefill[i]);
 }
 
-[IterationSetup(Target = nameof(Pipeline_OneEuro_Fixation_WithEyeCare_Disabled))]
-public void SetupEyeCareDisabled() => RebuildWithEyeCare(DisabledSettings());
-
-[IterationSetup(Target = nameof(Pipeline_OneEuro_Fixation_WithEyeCare_Enabled_NoFatigue))]
-public void SetupEyeCareNoFatigue() => RebuildWithEyeCare(EnabledNoFatigueSettings());
-
-[IterationSetup(Target = nameof(Pipeline_OneEuro_Fixation_WithEyeCare_WithFatigue))]
-public void SetupEyeCareWithFatigue() => RebuildWithEyeCare(WithFatigueSettings());
+[Benchmark]
+public void Pipeline_OneEuro_Fixation_WithEyeCare_WithFatigue() => Replay(_fixationTimed);
 ```
 
-**Fatigue window pre-fill (apples-to-apples with Layer 5).** The timed batch is 1000
-samples (~33 s at 30 Hz), but `FatigueMonitor`'s window is 60 s. Without pre-fill the
-`WithFatigue` benchmark would measure the window-growth phase (`O(0)→O(1000)`) rather
-than steady-state `O(1800)` — not the same regime Layer 5 measures. The
-`RebuildWithEyeCare` helper therefore pre-feeds ~60 s (1802 samples) of the Fixation
+Each new benchmark gets its own targeted `[IterationSetup(Target = ...)]` calling
+`RebuildWithEyeCare(...)` with the appropriate settings. The timed bodies replay
+`_fixationTimed` (not the shared `_fixation` the original 4 methods use).
+
+**Fatigue window pre-fill + timestamp continuity (apples-to-apples with Layer 5).** The
+timed batch is 1000 samples (~33 s at 30 Hz), but `FatigueMonitor`'s window is 60 s.
+Without pre-fill the `WithFatigue` benchmark would measure the window-growth phase
+(`O(0)→O(1000)`) rather than steady-state `O(1800)` — not the same regime Layer 5
+measures. `RebuildWithEyeCare` therefore pre-feeds ~60 s (1802 samples) of the Fixation
 stream into the engine via `_provider.SimulateGaze` **before** returning, so the timed
 batch opens on a full, evicting window. This also pre-warms `InteractionManager` past
 its `FreeLook → Fixation` transition, which is the intended steady state for the
 integration measurement. (The `Disabled`/`Enabled_NoFatigue` variants pre-fill too, for
 symmetry — the cost is identical since their fatigue path early-returns.)
+
+**The timed batch MUST continue the pre-fill's timestamp axis** — same load-bearing
+invariant as Layer 5. `GazeEngine.OnGazePoint` fires `GazeSampled?.Invoke(gaze)` with the
+raw input `GazePoint` carrying its original timestamp (line 117; the calibration transform
+that follows only rewrites X/Y). So `FatigueMonitor` sees exactly the input stream's
+timestamps, and its eviction (`Peek().ts < currentTs - windowMicros`) depends on them being
+monotonic. If the timed method replayed the shared `_fixation` (timestamps restarting at
+0), the first timed sample would make `cutoff` go negative, eviction would immediately
+stop, and the window would grow 1801→2801 across the timed loop — silently measuring the
+growth-phase regime the pre-fill was meant to eliminate. It still produces numbers; they
+are just ~30% inflated and not comparable to Layer 5.
+
+The fix mirrors Layer 5's approach: **one continuous stream, prefix pre-fed, suffix timed.**
+`[GlobalSetup]` builds a single long Fixation stream
+(`GenerateFixation(length: 1802 + 1000)`), stored as `_fixationPrefill` (the 1802-sample
+prefix) and `_fixationTimed` (the trailing 1000-sample slice, timestamps continuing from
+`1802 * SamplePeriodMicros`). `RebuildWithEyeCare` replays `_fixationPrefill`; the
+`WithFatigue` timed method replays `_fixationTimed`. The `Disabled`/`Enabled_NoFatigue`
+variants may replay either slice (their fatigue path early-returns so the regime is
+irrelevant), but for symmetry they replay `_fixationTimed` too.
 
 **Cleanup null-guard:** the existing `[IterationCleanup]` is untargeted and runs for
 *every* benchmark in the class, including the 4 original methods that build no service.
@@ -414,6 +438,7 @@ introduced — the benchmark project stays `net10.0` console-clean.
 | Escalation fires mid-batch on Fixation, contaminating `WithFatigue` | `canInterrupt: false` in the benchmark lambda — the escalation guard requires it, but `_fatigueMonitor.OnSample` (the measured path) runs before the guard, so the full scan still executes every sample. Stays in the validated settings range (no out-of-range `FatigueThreshold`). |
 | 1000-sample batch under-fills the 60s window, measuring growth not steady-state | **Layer 5:** new `length` generator parameter; `[GlobalSetup]` pre-fills on a continuous timestamp axis, `[Benchmark]` replays a 1000-sample steady-state tail. **Layer 4:** `RebuildWithEyeCare` pre-feeds ~60 s of samples through the engine before the timed batch, so the integration measurement opens on a full, evicting window (apples-to-apples with Layer 5). |
 | Timestamp discontinuity silently makes Layer 5 measure growth not steady-state | Single continuous stream (not two `GenerateFixation()` calls); continuity asserted in `GazeStreamGeneratorTests` (see Testability) |
+| Layer 4 pre-fill + shared `_fixation` timed batch = discontinuous axis (window grows 1801→2801, ~30% inflation) | `RebuildWithEyeCare` pre-feeds `_fixationPrefill`; timed methods replay `_fixationTimed` (the trailing slice of the *same* continuous stream), so the timed batch continues the pre-fill's monotonic timestamps. `GazeSampled` carries the raw timestamp (`GazeEngine.OnGazePoint` line 117), so this is the same `FatigueMonitor` eviction invariant as Layer 5. See "Fresh-build-per-iteration". |
 | `EyeCareService` constructor requires non-empty `ExerciseRunner` pool | Single-element `FakeExercise` pool; never invoked (escalation suppressed via `canInterrupt: false`) |
 | Shared `[IterationCleanup]` NREs on the 4 original benchmarks (no service built) | Null-guard `_service?.Dispose()`; documented in "Fresh-build-per-iteration" |
 | Subscription stacking across iterations | Targeted `[IterationSetup]` builds fresh provider+engine+service each iteration; `[IterationCleanup]` disposes both engine and service. Note: `EyeCareService.Dispose()` does not unsubscribe the `engine.GazeSampled` lambda, but engine+service are co-lifetime per iteration (GC'd together) so the reference cannot stack — see "Fresh-build-per-iteration" |

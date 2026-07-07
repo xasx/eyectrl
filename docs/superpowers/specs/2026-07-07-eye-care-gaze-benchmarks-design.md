@@ -169,9 +169,13 @@ public class GazeFatigueMonitorBenchmarks
 }
 ```
 
-× 3 scenarios = **9 benchmarks**: `Fatigue_<Scenario>_Win<N>s` — e.g.
-`Fatigue_Fixation_Win60s`, `Fatigue_NoisyFixation_Win30s`. Each replayed through a
-fresh `FatigueMonitor` pre-filled for that window size.
+× 3 scenarios = **9 benchmarks**: `Fatigue_<Scenario>_Win` (e.g. `Fatigue_Fixation_Win`,
+`Fatigue_NoisyFixation_Win`). BenchmarkDotNet does not interpolate `[Params]` values into
+the benchmark display name, so the `WindowSeconds` value (10/30/60) appears in its own
+column — mirroring how `GazeDwellBenchmarks.Update` relies on the `TargetCount` column
+rather than embedding the value in the method name. The `Win` suffix qualifies these from
+the steady-state class's `Fatigue_<Scenario>` names. Each replayed through a fresh
+`FatigueMonitor` pre-filled for that window size.
 
 ### Steady-state single-window — `GazeFatigueMonitorSteadyStateBenchmarks`
 

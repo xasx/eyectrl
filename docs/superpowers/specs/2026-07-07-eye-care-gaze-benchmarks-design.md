@@ -51,8 +51,8 @@ subscriber add to one full `OnGazePoint`, in each of the three production config
 
 | File | Status | Purpose |
 |------|--------|---------|
-| `benchmarks/EyeCtrl.Benchmarks/FatigueMonitorBenchmarks.cs` | NEW | Layer 5 — O(window) fatigue scan, params-scaled (`[Params(10,30,60)]`) |
-| `benchmarks/EyeCtrl.Benchmarks/FatigueMonitorSteadyStateBenchmarks.cs` | NEW | Layer 5 — fixed-60s baseline (separate class; no `[Params]`) |
+| `benchmarks/EyeCtrl.Benchmarks/GazeFatigueMonitorBenchmarks.cs` | NEW | Layer 5 — O(window) fatigue scan, params-scaled (`[Params(10,30,60)]`) |
+| `benchmarks/EyeCtrl.Benchmarks/GazeFatigueMonitorSteadyStateBenchmarks.cs` | NEW | Layer 5 — fixed-60s baseline (separate class; no `[Params]`) |
 | `benchmarks/EyeCtrl.Benchmarks/GazeStreamGenerator.cs` | MODIFIED | Add `length` parameter (defaulted) to the 3 trajectory methods; default leaves all existing call sites unchanged |
 | `benchmarks/EyeCtrl.Benchmarks/GazePipelineBenchmarks.cs` | MODIFIED | Layer 4 — adds 3 eye-care-wired methods + fakes |
 | `benchmarks/EyeCtrl.Benchmarks/EyeCtrl.Benchmarks.csproj` | MODIFIED | Add `ProjectReference` to `EyeCtrl.EyeCare` |
@@ -71,8 +71,8 @@ framework-clean.
 
 | Class | Layer | Question answered | New benchmarks |
 |-------|-------|-------------------|----------------|
-| `FatigueMonitorBenchmarks` | 5 | Does the O(window) fatigue scan stay bounded as the window grows? | 9 |
-| `FatigueMonitorSteadyStateBenchmarks` | 5 | Per-scenario baseline at the default 60 s window | 3 |
+| `GazeFatigueMonitorBenchmarks` | 5 | Does the O(window) fatigue scan stay bounded as the window grows? | 9 |
+| `GazeFatigueMonitorSteadyStateBenchmarks` | 5 | Per-scenario baseline at the default 60 s window | 3 |
 | `GazePipelineBenchmarks` (extended) | 4 | What does the eye-care subscriber add to one full `OnGazePoint`? | 3 |
 
 **Total: 15 new benchmarks (9 + 3 + 3).** Existing 47 → **62 benchmarks across 13 classes**
@@ -85,9 +85,14 @@ framework-clean.
 > fixed-window methods in the params class would make each run 3× with identical numbers
 > and different param labels. See "Steady-state single-window" below.
 
-All three classes share the `Gaze` token for the existing `--filter *Gaze*` suite
-selector; the new micro-layer is selectable via `--filter *Fatigue*`, mirroring the
-`*Bigram*` / `*SmallLM*` / `*GazeDwell*` class-name convention.
+All new classes carry the `Gaze` token so the existing `--filter *Gaze*` suite selector
+picks them up alongside `GazeFilterBenchmarks` / `GazeDetectorBenchmarks` /
+`GazeDwellBenchmarks` / `GazePipelineBenchmarks`. The fatigue micro-layer is
+additionally selectable via `--filter *GazeFatigue*`, and the pipeline-with-eye-care
+methods via `--filter *WithEyeCare*`. (Naming the fatigue classes `GazeFatigueMonitor*`
+rather than `FatigueMonitor*` is what keeps them inside the `*Gaze*` glob — BenchmarkDotNet
+matches the filter against the class-qualified benchmark name, so a class without `Gaze`
+in its name would be silently dropped from the suite run.)
 
 ## Layer 5 — Fatigue monitor micro-benchmarks (two classes)
 
@@ -98,8 +103,8 @@ the existing `GenerateFixation` / `GenerateSaccade` / `GenerateNoisyFixation` st
 
 Layer 5 is split across **two classes** because BenchmarkDotNet applies `[Params]` to
 every `[Benchmark]` in a class. The params-scaled sweep lives in
-`FatigueMonitorBenchmarks`; the fixed-60 s baseline lives in a separate
-`FatigueMonitorSteadyStateBenchmarks` without `[Params]`.
+`GazeFatigueMonitorBenchmarks`; the fixed-60 s baseline lives in a separate
+`GazeFatigueMonitorSteadyStateBenchmarks` without `[Params]`.
 
 ### Per-batch sizing (steady-state correctness)
 
@@ -156,7 +161,7 @@ Mirrors Layer 3's `[Params(5,20,50)]` target-count sweep:
 [SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
 [RankColumn]
-public class FatigueMonitorBenchmarks
+public class GazeFatigueMonitorBenchmarks
 {
     [Params(10, 30, 60)]   // seconds → ~300 / 900 / 1800 samples in-window at 30 Hz
     public int WindowSeconds { get; set; }
@@ -168,7 +173,7 @@ public class FatigueMonitorBenchmarks
 `Fatigue_Fixation_Win60s`, `Fatigue_NoisyFixation_Win30s`. Each replayed through a
 fresh `FatigueMonitor` pre-filled for that window size.
 
-### Steady-state single-window — `FatigueMonitorSteadyStateBenchmarks`
+### Steady-state single-window — `GazeFatigueMonitorSteadyStateBenchmarks`
 
 A **separate class** (no `[Params]`) holding 3 benchmarks at the fixed default window
 (60 s): `Fatigue_Fixation`, `Fatigue_Saccade`, `Fatigue_NoisyFixation`. Same per-batch
@@ -179,7 +184,7 @@ hard-coded via a `private const int WindowSeconds = 60`.
 [SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
 [RankColumn]
-public class FatigueMonitorSteadyStateBenchmarks
+public class GazeFatigueMonitorSteadyStateBenchmarks
 {
     private const int WindowSeconds = 60;
     // Fatigue_Fixation, Fatigue_Saccade, Fatigue_NoisyFixation
@@ -215,7 +220,9 @@ place to look.
 
 Adds 3 methods that wire a real `EyeCareService` into `GazeEngine.GazeSampled`,
 mirroring the production wiring in [`App.xaml.cs:149-158`](src/EyeCtrl.App/App.xaml.cs:149).
-All three use OneEuro + Fixation (the representative scenario already used by the existing
+The file gains `using EyeCtrl.EyeCare;` and `using EyeCtrl.EyeCare.Exercises;` (for
+`EyeCareService` / `ExerciseRunner`). All three use OneEuro + Fixation (the representative
+scenario already used by the existing
 `Pipeline_OneEuro_Fixation`) so the only variable is the eye-care configuration — a clean
 before/after.
 
@@ -225,9 +232,10 @@ before/after.
 | `Pipeline_OneEuro_Fixation_WithEyeCare_Enabled_NoFatigue` | `Enabled = true`, `FatigueMonitorEnabled = false` (v1 promoted-on default) | + the `FatigueMonitorEnabled` early-return |
 | `Pipeline_OneEuro_Fixation_WithEyeCare_WithFatigue` | `Enabled = true`, `FatigueMonitorEnabled = true` (defaults otherwise) | + full O(window) fatigue scan |
 
-All three pass the same lambda args — see "Lambda arguments" below. Subtraction
-(`WithFatigue − Disabled`) gives the eye-care subscriber's marginal per-sample cost on
-the fully-wired pipeline.
+All three pass the same lambda args — see "Lambda arguments" below. Read the three as a
+ladder: `Disabled` → `Enabled_NoFatigue` → `WithFatigue`. The subtraction that isolates
+the O(window) scan is **`WithFatigue − Enabled_NoFatigue`** (the `Disabled` baseline
+conflates the scan with the no-fatigue early-return path — see Verification).
 
 ### Lambda arguments (load-bearing for escalation suppression)
 
@@ -246,14 +254,47 @@ engine.GazeSampled += sample =>
 ### Fresh-build-per-iteration (extends the existing pattern)
 
 The existing class already rebuilds a fresh `FakeGazeProvider` + `GazeEngine` per
-iteration via targeted `[IterationSetup]` methods, because (a) `InteractionManager`
-starts in `FreeLook` and converges to `Fixation`, and (b) the constructor subscribes to
-the provider's event and reusing a provider would stack subscriptions. The new methods
-add the same pattern for the eye-care pair. Each targeted setup builds a fresh
-`FakeGazeProvider` + `GazeEngine` + `EyeCareService`, **calls `_engine.Start()`**
-(mirroring the existing `Rebuild()` at `GazePipelineBenchmarks.cs:88` — required so the
-engine's pipeline is live), subscribes the service to `engine.GazeSampled` via the
-lambda above, then `[IterationCleanup]` disposes both engine and service.
+iteration via targeted `[IterationSetup]` methods (one per benchmark — see
+`GazePipelineBenchmarks.SetupDirect`/`SetupSmoothed`/`SetupOneEuroFixation`/
+`SetupOneEuroNoisyFixation`), because (a) `InteractionManager` starts in `FreeLook` and
+converges to `Fixation`, and (b) the constructor subscribes to the provider's event and
+reusing a provider would stack subscriptions. BenchmarkDotNet's `[IterationSetup(Target = ...)]`
+targets a **single** method, so each new pipeline benchmark gets its own targeted setup
+that delegates to a shared helper:
+
+```csharp
+private void RebuildWithEyeCare(EyeCareSettings eyeCareSettings)
+{
+    _provider = new FakeGazeProvider();
+    var settings = new EyeCtrlSettings();
+    settings.Cursor.FilterMode = GazeFilterMode.OneEuro;
+    _engine = new GazeEngine(_provider, new FakeInputSimulator(), settings);
+    _service = new EyeCareService(eyeCareSettings, BuildExerciseRunner(), new FakeEyeCareHooks());
+    _engine.GazeSampled += sample =>
+        _service.OnGazeSample(sample, isPaused: false, canInterrupt: false);
+    _engine.Start();
+}
+
+[IterationSetup(Target = nameof(Pipeline_OneEuro_Fixation_WithEyeCare_Disabled))]
+public void SetupEyeCareDisabled() => RebuildWithEyeCare(DisabledSettings());
+
+[IterationSetup(Target = nameof(Pipeline_OneEuro_Fixation_WithEyeCare_Enabled_NoFatigue))]
+public void SetupEyeCareNoFatigue() => RebuildWithEyeCare(EnabledNoFatigueSettings());
+
+[IterationSetup(Target = nameof(Pipeline_OneEuro_Fixation_WithEyeCare_WithFatigue))]
+public void SetupEyeCareWithFatigue() => RebuildWithEyeCare(WithFatigueSettings());
+```
+
+**Fatigue window pre-fill (apples-to-apples with Layer 5).** The timed batch is 1000
+samples (~33 s at 30 Hz), but `FatigueMonitor`'s window is 60 s. Without pre-fill the
+`WithFatigue` benchmark would measure the window-growth phase (`O(0)→O(1000)`) rather
+than steady-state `O(1800)` — not the same regime Layer 5 measures. The
+`RebuildWithEyeCare` helper therefore pre-feeds ~60 s (1802 samples) of the Fixation
+stream into the engine via `_provider.SimulateGaze` **before** returning, so the timed
+batch opens on a full, evicting window. This also pre-warms `InteractionManager` past
+its `FreeLook → Fixation` transition, which is the intended steady state for the
+integration measurement. (The `Disabled`/`Enabled_NoFatigue` variants pre-fill too, for
+symmetry — the cost is identical since their fatigue path early-returns.)
 
 **Cleanup null-guard:** the existing `[IterationCleanup]` is untargeted and runs for
 *every* benchmark in the class, including the 4 original methods that build no service.
@@ -345,8 +386,8 @@ run already fails fast with a clear `InitException` on a null setup.
 
 CI workflow: **no change.** The existing `dotnet test tests/EyeCtrl.Benchmarks.Tests`
 step picks up the new assertions (same file, same project). The new benchmark classes
-are picked up by the existing `--filter *Gaze*` and a new `--filter *Fatigue*` selects
-Layer 5.
+carry the `Gaze` token and are picked up by the existing `--filter *Gaze*`;
+`--filter *GazeFatigue*` selects Layer 5.
 
 ## Dependencies
 
@@ -362,15 +403,16 @@ introduced — the benchmark project stays `net10.0` console-clean.
   integration".
 - The class count changes from **"11 benchmark classes, 47 benchmarks total"** to
   **"13 benchmark classes, 62 benchmarks total"**.
-- The `--filter *Gaze*` example still selects the whole gaze suite; a new
-  `--filter *Fatigue*` example is added alongside the existing per-layer filters.
+- The `--filter *Gaze*` example still selects the whole gaze suite (now including the
+  two `GazeFatigueMonitor*` classes); a `--filter *GazeFatigue*` example is added
+  alongside the existing per-layer filters.
 
 ## Risk Assessment
 
 | Risk | Mitigation |
 |------|-----------|
 | Escalation fires mid-batch on Fixation, contaminating `WithFatigue` | `canInterrupt: false` in the benchmark lambda — the escalation guard requires it, but `_fatigueMonitor.OnSample` (the measured path) runs before the guard, so the full scan still executes every sample. Stays in the validated settings range (no out-of-range `FatigueThreshold`). |
-| 1000-sample batch under-fills the 60s window, measuring growth not steady-state | New `length` generator parameter; `[GlobalSetup]` pre-fills on a continuous timestamp axis, `[Benchmark]` replays a 1000-sample steady-state tail |
+| 1000-sample batch under-fills the 60s window, measuring growth not steady-state | **Layer 5:** new `length` generator parameter; `[GlobalSetup]` pre-fills on a continuous timestamp axis, `[Benchmark]` replays a 1000-sample steady-state tail. **Layer 4:** `RebuildWithEyeCare` pre-feeds ~60 s of samples through the engine before the timed batch, so the integration measurement opens on a full, evicting window (apples-to-apples with Layer 5). |
 | Timestamp discontinuity silently makes Layer 5 measure growth not steady-state | Single continuous stream (not two `GenerateFixation()` calls); continuity asserted in `GazeStreamGeneratorTests` (see Testability) |
 | `EyeCareService` constructor requires non-empty `ExerciseRunner` pool | Single-element `FakeExercise` pool; never invoked (escalation suppressed via `canInterrupt: false`) |
 | Shared `[IterationCleanup]` NREs on the 4 original benchmarks (no service built) | Null-guard `_service?.Dispose()`; documented in "Fresh-build-per-iteration" |
@@ -391,7 +433,7 @@ dotnet build benchmarks/EyeCtrl.Benchmarks
 dotnet test tests/EyeCtrl.Benchmarks.Tests
 
 # New fatigue micro-layer (Layer 5)
-dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Fatigue*
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *GazeFatigue*
 
 # Full gaze suite including the new pipeline-with-eye-care methods
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze*
@@ -408,10 +450,20 @@ The check-the-results step: after a Release run, inspect
 2. Layer 5 `B/op` is ≈0 across all configurations (the allocation-free-steady-state claim).
 3. `Pipeline_OneEuro_Fixation_WithEyeCare_Disabled` is within noise of the existing
    `Pipeline_OneEuro_Fixation` (the subscriber's existence tax is small).
-4. `Pipeline_..._WithFatigue − Pipeline_..._Disabled` is in the **same order of magnitude**
-   as a Layer 5 `Fatigue_Fixation` per-sample cost — not numerically equal. The
-   integration path adds `GazeSampled` event dispatch and `EyeCareService.OnGazeSample`
-   method-dispatch overhead the micro-benchmark doesn't, so expect the difference to be a
-   few ns higher than the isolated fatigue scan. The claim is only that the fatigue scan
-   *dominates* the integration cost; if the subtraction is an order of magnitude off,
-   something unexpected is on the path.
+4. Compare the three pipeline numbers as a ladder, not a single subtraction:
+
+   - `Disabled` — scheduler-only tax (baseline).
+   - `Enabled_NoFatigue` — `Disabled` + the `FatigueMonitor.OnSample` early-return
+     (`if (!_settings.FatigueMonitorEnabled) { Score = 0.0; return; }`). Should be within
+     a few ns of `Disabled`.
+   - `WithFatigue` — `Enabled_NoFatigue` + the full O(window) scan.
+
+   The subtraction that isolates the scan is **`WithFatigue − Enabled_NoFatigue`**, *not*
+   `WithFatigue − Disabled` (the latter conflates the scan with the early-return cost).
+   That isolated delta should be in the **same order of magnitude** as a Layer 5
+   `Fatigue_Fixation` per-sample cost — not numerically equal. The integration path adds
+   `GazeSampled` event dispatch and `EyeCareService.OnGazeSample` method-dispatch overhead
+   the micro-benchmark doesn't, so expect the pipeline delta to be a few ns higher than
+   the isolated fatigue scan. The claim is only that the fatigue scan *dominates* the
+   integration cost; if the subtraction is an order of magnitude off, something unexpected
+   is on the path.

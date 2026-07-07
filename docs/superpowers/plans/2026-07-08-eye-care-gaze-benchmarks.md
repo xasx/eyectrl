@@ -300,6 +300,14 @@ public class GazeFatigueMonitorBenchmarks
     [Benchmark]
     public void Fatigue_NoisyFixation_Win() => Replay(_noisyFixation, _fatigueNoisyFixation);
 
+    // Naming note: the spec sketches `Fatigue_Fixation_Win60s` etc., but BenchmarkDotNet does
+    // NOT interpolate [Params] values into the benchmark display name — [Benchmark(name)]
+    // takes a static string. The actual output format is a "Method" column (`Fatigue_Fixation_Win`)
+    // plus a separate "WindowSeconds" column (10/30/60), exactly mirroring how
+    // GazeDwellBenchmarks.Update relies on the TargetCount column. The `Win` suffix is a
+    // qualifier distinguishing these from the steady-state class's Fatigue_Fixation/Saccade/
+    // NoisyFixation; the WindowSeconds param column carries the actual value.
+
     private static void Replay(GazePoint[] stream, FatigueMonitor monitor)
     {
         for (int i = 0; i < stream.Length; i++)
@@ -603,12 +611,17 @@ with:
     [IterationCleanup]
     public void IterationCleanup()
     {
-        _service?.Dispose();
         _engine.Dispose();
+        _service?.Dispose();
         _service = null!;
     }
 ```
 
+Engine first, then service — matches the spec's stated cleanup order (engine dispose, then
+service dispose, then both dropped). Safe either way in practice (neither `Dispose` touches
+the other), but the order is preserved as a documented invariant: if a future change ever
+reused the engine across iterations, disposing the service first could leave the engine's
+`GazeSampled` lambda pointing at a disposed service during the window before engine dispose.
 Setting `_service = null!` after dispose ensures a clean state for the next iteration's setup.
 
 - [ ] **Step 6: Add the two new fakes**
@@ -731,7 +744,19 @@ Expected: **ALL PASS** — 18 tests (9 original + 9 new from Task 1).
 - [ ] **Step 3: Run the full gaze benchmark suite (Release, short job for speed)**
 
 Run: `dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze* --job short`
-Expected: **All 6 gaze classes run without throwing.** Total benchmark count in the output should reconcile: GazeFilterBenchmarks (9) + GazeDetectorBenchmarks (3) + GazeDwellBenchmarks (3 params-expanded) + GazePipelineBenchmarks (7: 4 original + 3 new) + GazeFatigueMonitorBenchmarks (9 params-expanded) + GazeFatigueMonitorSteadyStateBenchmarks (3) = **34 expanded benchmark cases** across the 6 gaze classes.
+Expected: **All 6 gaze classes run without throwing.** Total benchmark count in the output should reconcile to **34 expanded benchmark cases** across the 6 gaze classes:
+
+| Class | Methods | Params | Expanded |
+|-------|---------|--------|----------|
+| GazeFilterBenchmarks | 9 | — | 9 |
+| GazeDetectorBenchmarks | 3 | — | 3 |
+| GazeDwellBenchmarks | 1 | `[Params(5,20,50)]` | 3 |
+| GazePipelineBenchmarks | 7 (4 original + 3 new) | — | 7 |
+| GazeFatigueMonitorBenchmarks | 3 | `[Params(10,30,60)]` | 9 |
+| GazeFatigueMonitorSteadyStateBenchmarks | 3 | — | 3 |
+| **Total** | | | **34** |
+
+(`GazeDwellBenchmarks` is 1 method × 3 param values = 3, not 15 — the single `Update` method is expanded once per `TargetCount`.)
 
 - [ ] **Step 4: Inspect results against the spec's verification checklist**
 

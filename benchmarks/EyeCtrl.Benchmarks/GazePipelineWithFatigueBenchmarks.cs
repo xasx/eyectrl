@@ -1,8 +1,6 @@
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Jobs;
 using EyeCtrl.Core;
-using EyeCtrl.Core.Interfaces;
-using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.EyeCare;
@@ -36,7 +34,7 @@ public class GazePipelineWithFatigueBenchmarks
     private GazePoint[] _fixationTimed = null!;
     private GazePoint[] _fixationPrefill = null!;
 
-    private FakeGazeProvider _provider = null!;
+    private EyeCareBenchmarkFakes.FakeGazeProvider _provider = null!;
     private GazeEngine _engine = null!;
     private EyeCareService _service = null!;
 
@@ -69,12 +67,12 @@ public class GazePipelineWithFatigueBenchmarks
 
     private void RebuildWithEyeCare()
     {
-        _provider = new FakeGazeProvider();
+        _provider = new EyeCareBenchmarkFakes.FakeGazeProvider();
         var settings = new EyeCtrlSettings();
         settings.Cursor.FilterMode = GazeFilterMode.OneEuro;
         settings.EyeCare.Enabled = true;
         settings.EyeCare.FatigueMonitorEnabled = true;
-        _engine = new GazeEngine(_provider, new FakeInputSimulator(), settings);
+        _engine = new GazeEngine(_provider, new EyeCareBenchmarkFakes.FakeInputSimulator(), settings);
         _service = new EyeCareService(
             settings.EyeCare,
             new ExerciseRunner(EyeCareBenchmarkFakes.ExercisePool, seed: 0),
@@ -84,31 +82,5 @@ public class GazePipelineWithFatigueBenchmarks
         _engine.Start();
         for (int i = 0; i < _fixationPrefill.Length; i++)
             _provider.SimulateGaze(_fixationPrefill[i]);
-    }
-
-    private sealed class FakeGazeProvider : IGazeProvider
-    {
-        public event Action<GazePoint>? GazePointReceived;
-        public bool IsConnected { get; private set; }
-        public void Start() => IsConnected = true;
-        public void Stop() => IsConnected = false;
-        public void Dispose() => Stop();
-        public void SimulateGaze(GazePoint point) => GazePointReceived?.Invoke(point);
-    }
-
-    private sealed class FakeInputSimulator : IInputSimulator
-    {
-        public void MoveCursor(PhysicalPoint p) { }
-        public void LeftClick(PhysicalPoint p) { }
-        public void RightClick(PhysicalPoint p) { }
-        public void DoubleClick(PhysicalPoint p) { }
-        public void MouseDown(PhysicalPoint p) { }
-        public void MouseUp(PhysicalPoint p) { }
-        public void Scroll(PhysicalPoint p, int dx, int dy) { }
-        public void SendKeyPress(ushort vk) { }
-        public void SendKeyDown(ushort vk) { }
-        public void SendKeyUp(ushort vk) { }
-        public void SendText(string text) { }
-        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode) { }
     }
 }

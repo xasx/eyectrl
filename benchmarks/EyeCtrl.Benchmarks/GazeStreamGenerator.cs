@@ -30,11 +30,11 @@ public static class GazeStreamGenerator
     /// and ±1.5 px Gaussian noise. 100% valid. Exercises steady-state smoothing and OneEuro's
     /// low-velocity branch.
     /// </summary>
-    public static GazePoint[] GenerateFixation(int seed = DefaultSeed)
+    public static GazePoint[] GenerateFixation(int seed = DefaultSeed, int length = SamplesPerBatch)
     {
         var rng = new Random(seed);
-        var points = new GazePoint[SamplesPerBatch];
-        for (int i = 0; i < SamplesPerBatch; i++)
+        var points = new GazePoint[length];
+        for (int i = 0; i < length; i++)
         {
             long t = i * SamplePeriodMicros;
             double phase = 2 * Math.PI * 0.3 * (t / 1_000_000.0); // ~0.3 Hz over elapsed seconds
@@ -49,11 +49,11 @@ public static class GazeStreamGenerator
     /// Saccade: 5 point-to-point jumps across the screen, each held briefly, with ±0.5 px noise.
     /// 100% valid. Exercises the high-velocity filter branch and FixationDetector reset churn.
     /// </summary>
-    public static GazePoint[] GenerateSaccade(int seed = DefaultSeed)
+    public static GazePoint[] GenerateSaccade(int seed = DefaultSeed, int length = SamplesPerBatch)
     {
         var rng = new Random(seed);
-        var points = new GazePoint[SamplesPerBatch];
-        // 5 targets, evenly dividing the 1000-sample batch into 5 segments of 200.
+        var points = new GazePoint[length];
+        // 5 targets, dividing the batch into 5 proportional segments.
         double[][] targets =
         {
             new[] { 960.0, 540.0 },
@@ -62,8 +62,8 @@ public static class GazeStreamGenerator
             new[] { 400.0, 800.0 },
             new[] { 1200.0, 700.0 },
         };
-        int segmentLen = SamplesPerBatch / targets.Length;
-        for (int i = 0; i < SamplesPerBatch; i++)
+        int segmentLen = length / targets.Length;
+        for (int i = 0; i < length; i++)
         {
             long t = i * SamplePeriodMicros;
             int seg = Math.Min(i / segmentLen, targets.Length - 1);
@@ -78,11 +78,11 @@ public static class GazeStreamGenerator
     /// NoisyFixation: held at (960, 540), near-stationary, with heavy ±15 px Gaussian jitter.
     /// 100% valid. The aggressive jitter case filters exist to tame.
     /// </summary>
-    public static GazePoint[] GenerateNoisyFixation(int seed = DefaultSeed)
+    public static GazePoint[] GenerateNoisyFixation(int seed = DefaultSeed, int length = SamplesPerBatch)
     {
         var rng = new Random(seed);
-        var points = new GazePoint[SamplesPerBatch];
-        for (int i = 0; i < SamplesPerBatch; i++)
+        var points = new GazePoint[length];
+        for (int i = 0; i < length; i++)
         {
             long t = i * SamplePeriodMicros;
             double dx = Gaussian(rng) * 15.0;

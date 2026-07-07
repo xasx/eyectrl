@@ -113,11 +113,50 @@ public class GazeStreamGeneratorTests
         }
     }
 
-    private static GazePoint[] Generate(string scenario, int seed = 42) => scenario switch
+    [Theory]
+    [InlineData("Fixation", 2500)]
+    [InlineData("Saccade", 2500)]
+    [InlineData("NoisyFixation", 2500)]
+    public void Generate_WithExplicitLength_ReturnsExactCount(string scenario, int length)
     {
-        "Fixation" => GazeStreamGenerator.GenerateFixation(seed),
-        "Saccade" => GazeStreamGenerator.GenerateSaccade(seed),
-        "NoisyFixation" => GazeStreamGenerator.GenerateNoisyFixation(seed),
+        var points = Generate(scenario, length: length);
+        Check.That(points).HasSize(length);
+    }
+
+    [Theory]
+    [InlineData("Fixation", 2500)]
+    [InlineData("Saccade", 2500)]
+    [InlineData("NoisyFixation", 2500)]
+    public void Generate_WithExplicitLength_HasContinuousTimestamps(string scenario, int length)
+    {
+        var points = Generate(scenario, length: length);
+        for (int i = 0; i < points.Length; i++)
+        {
+            Check.That(points[i].TimestampMicroseconds).IsEqualTo(i * GazeStreamGenerator.SamplePeriodMicros);
+        }
+    }
+
+    [Theory]
+    [InlineData("Fixation")]
+    [InlineData("Saccade")]
+    [InlineData("NoisyFixation")]
+    public void Generate_DefaultLength_StillSamplesPerBatch(string scenario)
+    {
+        var points = Generate(scenario);
+        Check.That(points).HasSize(GazeStreamGenerator.SamplesPerBatch);
+    }
+
+    private static GazePoint[] Generate(string scenario, int seed = 42, int? length = null) => scenario switch
+    {
+        "Fixation" => length is null
+            ? GazeStreamGenerator.GenerateFixation(seed)
+            : GazeStreamGenerator.GenerateFixation(seed, length.Value),
+        "Saccade" => length is null
+            ? GazeStreamGenerator.GenerateSaccade(seed)
+            : GazeStreamGenerator.GenerateSaccade(seed, length.Value),
+        "NoisyFixation" => length is null
+            ? GazeStreamGenerator.GenerateNoisyFixation(seed)
+            : GazeStreamGenerator.GenerateNoisyFixation(seed, length.Value),
         "WithDropout" => GazeStreamGenerator.GenerateWithDropout(seed),
         _ => throw new ArgumentException($"Unknown scenario: {scenario}", nameof(scenario)),
     };

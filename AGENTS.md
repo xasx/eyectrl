@@ -128,10 +128,12 @@ SDK is .NET 10.0.102 (pinned in `global.json`).
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter * --job short   # all benchmarks
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Bigram*         # specific class
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *SmallLM*        # ML benchmarks (skips gracefully if no ONNX model)
-dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze*    # gaze pipeline benchmarks (4 classes: filters, detectors, DwellDetector, end-to-end)
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze*               # all gaze benchmarks (7 classes: filters, detectors, DwellDetector, GazeEngine + WithFatigue, FatigueMonitor params + steady-state)
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *GazeFatigue*        # fatigue monitor micro-benchmarks only
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *WithEyeCare*         # eye-care-wired pipeline integration only
 ```
 
-11 benchmark classes, 47 benchmarks total — covering WordPredictor, BigramModel, PhraseModel, SentenceCompletionIndex, FuzzyEditDistance, CapitalizationHelper, CasingHelper, PredictionOrchestrator, SmallLMPredictor, LMTokenizer (prediction), and the gaze processing pipeline (DirectFilter, SmoothedFilter, OneEuroFilter, FixationDetector, FixationCentroidTracker, GapInterpolator, DwellDetector, end-to-end GazeEngine).
+14 benchmark classes, 62 benchmarks total — covering WordPredictor, BigramModel, PhraseModel, SentenceCompletionIndex, FuzzyEditDistance, CapitalizationHelper, CasingHelper, PredictionOrchestrator, SmallLMPredictor, LMTokenizer (prediction), the gaze processing pipeline (DirectFilter, SmoothedFilter, OneEuroFilter, FixationDetector, FixationCentroidTracker, GapInterpolator, DwellDetector, end-to-end GazeEngine), and the eye-care gaze subscriber (FatigueMonitor O(window) scan, EyeCareService pipeline integration).
 
 SmallLM benchmarks require ONNX model + tokenizer files in `%APPDATA%/EyeCtrl/models` (overridable via `EYECTRL_MODEL_DIR` env var). The `Program.cs` pre-flight check excludes the class entirely if no model is present.
 

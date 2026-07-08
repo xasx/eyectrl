@@ -13,9 +13,8 @@ namespace EyeCtrl.Benchmarks;
 /// identical numbers and different param labels.
 /// </summary>
 /// <remarks>
-/// Same per-iteration pre-fill + invocationCount:1 discipline as GazeFatigueMonitorBenchmarks
-/// (see that class's remarks for why both are required — BDN's multi-invocation model would
-/// otherwise grow the window unboundedly under fixed-ts replay).
+/// Same cursor-advance + large-batch discipline as GazeFatigueMonitorBenchmarks (see that
+/// class's remarks for why a plain replay can't surface the sub-µs per-sample O(window) cost).
 /// </remarks>
 [SimpleJob(RuntimeMoniker.Net10_0, invocationCount: 1)]
 [MemoryDiagnoser]
@@ -24,74 +23,85 @@ public class GazeFatigueMonitorSteadyStateBenchmarks
 {
     private const int WindowSeconds = 60;
     private const int SamplesPerSec = 30;
-    private const int SteadyTail = 1000;
+    private const int SamplesPerBatch = 100_000;
 
-    // Immutable streams — built once, reused across iterations.
     private GazePoint[] _fixation = null!;
     private GazePoint[] _saccade = null!;
     private GazePoint[] _noisyFixation = null!;
+    private int _winSamples;
 
-    // Full continuous streams + prefix length, stashed for IterationSetup.
-    private GazePoint[] _fixationFull = null!;
-    private GazePoint[] _saccadeFull = null!;
-    private GazePoint[] _noisyFixationFull = null!;
-    private int _samplesToFill;
-
-    // Fresh per iteration.
     private FatigueMonitor _fatigueFixation = null!;
     private FatigueMonitor _fatigueSaccade = null!;
     private FatigueMonitor _fatigueNoisyFixation = null!;
+    private int _cursorFixation;
+    private int _cursorSaccade;
+    private int _cursorNoisyFixation;
 
     [GlobalSetup]
     public void Setup()
     {
-        int samplesToFill = WindowSeconds * SamplesPerSec + 2;   // +2: 33333µs/sample → 30·N < Ns
-        int total = samplesToFill + SteadyTail;
+        _winSamples = WindowSeconds * SamplesPerSec + 2;   // +2: 33333µs/sample → 30·N < Ns
+        int total = _winSamples + SamplesPerBatch + 16;
 
-        var fix = GazeStreamGenerator.GenerateFixation(length: total);
-        var sac = GazeStreamGenerator.GenerateSaccade(length: total);
-        var noi = GazeStreamGenerator.GenerateNoisyFixation(length: total);
-
-        _fixationFull = fix;
-        _saccadeFull = sac;
-        _noisyFixationFull = noi;
-        _samplesToFill = samplesToFill;
-
-        _fixation = fix[^SteadyTail..];
-        _saccade = sac[^SteadyTail..];
-        _noisyFixation = noi[^SteadyTail..];
+        _fixation = GazeStreamGenerator.GenerateFixation(length: total);
+        _saccade = GazeStreamGenerator.GenerateSaccade(length: total);
+        _noisyFixation = GazeStreamGenerator.GenerateNoisyFixation(length: total);
     }
 
     [IterationSetup(Target = nameof(Fatigue_Fixation))]
-    public void SetupFixation() => _fatigueFixation = BuildPrefilled(_fixationFull, _samplesToFill);
-
-    [IterationSetup(Target = nameof(Fatigue_Saccade))]
-    public void SetupSaccade() => _fatigueSaccade = BuildPrefilled(_saccadeFull, _samplesToFill);
-
-    [IterationSetup(Target = nameof(Fatigue_NoisyFixation))]
-    public void SetupNoisyFixation() => _fatigueNoisyFixation = BuildPrefilled(_noisyFixationFull, _samplesToFill);
-
-    [Benchmark]
-    public void Fatigue_Fixation() => Replay(_fixation, _fatigueFixation);
-
-    [Benchmark]
-    public void Fatigue_Saccade() => Replay(_saccade, _fatigueSaccade);
-
-    [Benchmark]
-    public void Fatigue_NoisyFixation() => Replay(_noisyFixation, _fatigueNoisyFixation);
-
-    private static void Replay(GazePoint[] stream, FatigueMonitor monitor)
+    public void SetupFixation()
     {
-        for (int i = 0; i < stream.Length; i++)
-            monitor.OnSample(stream[i]);
+        _fatigueFixation = BuildPrefilled(_fixation);
+        _cursorFixation = _winSamples;
     }
 
-    private static FatigueMonitor BuildPrefilled(GazePoint[] full, int samplesToFill)
+    [IterationSetup(Target = nameof(Fatigue_Saccade))]
+    public void SetupSaccade()
+    {
+        _fatigueSaccade = BuildPrefilled(_saccade);
+        _cursorSaccade = _winSamples;
+    }
+
+    [IterationSetup(Target = nameof(Fatigue_NoisyFixation))]
+    public void SetupNoisyFixation()
+    {
+        _fatigueNoisyFixation = BuildPrefilled(_noisyFixation);
+        _cursorNoisyFixation = _winSamples;
+    }
+
+    [Benchmark]
+    public void Fatigue_Fixation()
+    {
+        var mon = _fatigueFixation;
+        var s = _fixation;
+        for (int k = 0; k < SamplesPerBatch; k++)
+            mon.OnSample(s[_cursorFixation++]);
+    }
+
+    [Benchmark]
+    public void Fatigue_Saccade()
+    {
+        var mon = _fatigueSaccade;
+        var s = _saccade;
+        for (int k = 0; k < SamplesPerBatch; k++)
+            mon.OnSample(s[_cursorSaccade++]);
+    }
+
+    [Benchmark]
+    public void Fatigue_NoisyFixation()
+    {
+        var mon = _fatigueNoisyFixation;
+        var s = _noisyFixation;
+        for (int k = 0; k < SamplesPerBatch; k++)
+            mon.OnSample(s[_cursorNoisyFixation++]);
+    }
+
+    private FatigueMonitor BuildPrefilled(GazePoint[] stream)
     {
         var settings = new EyeCareSettings { Enabled = true, FatigueMonitorEnabled = true };
         var monitor = new FatigueMonitor(settings, fixationRadiusPixels: 50, WindowSeconds);
-        for (int i = 0; i < samplesToFill; i++)
-            monitor.OnSample(full[i]);
+        for (int i = 0; i < _winSamples; i++)
+            monitor.OnSample(stream[i]);
         return monitor;
     }
 }

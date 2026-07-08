@@ -13,23 +13,25 @@ namespace EyeCtrl.Benchmarks;
 /// (GazeDwellBenchmarks) [Params(5,20,50)] target-count sweep.
 /// </summary>
 /// <remarks>
-/// PER-ITERATION PRE-FILL + invocationCount:1 (BOTH REQUIRED). BenchmarkDotNet runs a
-/// [Benchmark] method many invocations per iteration on the SAME instance. FatigueMonitor
-/// evicts via Peek().ts &lt; currentTs - windowMicros. If the method replays a fixed-ts array
-/// against a persistent monitor, invocation 2+ jumps currentTs BACKWARD, cutoff goes below
-/// the queue front, nothing evicts, and the window grows ~1000/invocation — producing
-/// non-reproducible numbers, runaway O(queue) cost, and Queue&lt;T&gt; backing-array doublings
-/// (non-zero B/op). The fix: build + pre-fill a FRESH monitor per iteration in
-/// [IterationSetup], and pin invocationCount:1 so each iteration times exactly ONE clean
-/// 1000-sample monotonic replay over a full, evicting window. (GazeDwellBenchmarks avoids
-/// this because DwellDetector's per-sample work is O(targets) over a FIXED set — non-monotonic
-/// timestamps don't grow the work. FatigueMonitor's work is O(queue), and the queue is what
-/// breaks under replay.)
+/// CURSOR-ADVANCE + LARGE BATCH (why a plain replay doesn't work). FatigueMonitor.OnSample is
+/// cheap (~400 ns/sample at a 300-sample window, ~1.8 us at 1800). Two constraints are in tension:
 ///
-/// TIMESTAMP CONTINUITY (load-bearing): the pre-fill and timed tail are slices of ONE
-/// continuous GenerateFixation(length: ...) stream. Two independent calls (timestamps
-/// restarting at 0) would make cutoff go negative, evict nothing, and silently measure the
-/// growth phase.
+/// (1) BDN's per-iteration overhead (~2 ms pilot/JIT/GC) dwarfs a small batch, so the O(window)
+/// signal vanishes — empirically the scaling even inverts. The batch must be large enough (here
+/// 100 000 samples → ~40–180 ms/iteration) to clear BDN's minimum-iteration-time threshold.
+///
+/// (2) FatigueMonitor evicts via Peek().ts &lt; currentTs - windowMicros. A fixed-ts replay against
+/// a persistent monitor makes iteration 2+ (currentTs jumping backward) evict nothing and grow
+/// the window unboundedly. invocationCount:1 alone prevents multi-invocation stacking but a
+/// single large batch still replays the same timestamps each iteration.
+///
+/// The cursor-advance design resolves both: the [Benchmark] method advances a CURSOR through one
+/// long monotonic stream (no replay), so timestamps always increase, the window stays bounded
+/// (verified: queue holds exactly winSamples), and the 100 000-sample batch is large enough to
+/// measure. [IterationSetup] rebuilds + pre-fills the monitor and resets the cursor so each
+/// iteration opens on a full, evicting window. Reported ns/op is per-100000-samples; divide by
+/// SamplesPerBatch for per-sample. (GazeDwellBenchmarks avoids this entirely because
+/// DwellDetector's per-sample work is O(targets) over a FIXED set — replay doesn't grow the work.)
 /// </remarks>
 [SimpleJob(RuntimeMoniker.Net10_0, invocationCount: 1)]
 [MemoryDiagnoser]
@@ -37,82 +39,93 @@ namespace EyeCtrl.Benchmarks;
 public class GazeFatigueMonitorBenchmarks
 {
     private const int SamplesPerSec = 30;
-    private const int SteadyTail = 1000;
+    private const int SamplesPerBatch = 100_000;   // large enough to clear BDN's ~100ms threshold
 
-    [Params(10, 30, 60)]
+    [Params(10, 30, 60)]   // seconds → ~300 / 900 / 1800 samples in-window at 30 Hz
     public int WindowSeconds { get; set; }
 
-    // Immutable streams — built once, reused across iterations (never mutated by OnSample).
+    // One long monotonic stream per scenario; cursor advances through it per iteration.
     private GazePoint[] _fixation = null!;
     private GazePoint[] _saccade = null!;
     private GazePoint[] _noisyFixation = null!;
+    private int _winSamples;
 
-    // Full continuous streams + prefix length, stashed for IterationSetup to rebuild monitors.
-    private GazePoint[] _fixationFull = null!;
-    private GazePoint[] _saccadeFull = null!;
-    private GazePoint[] _noisyFixationFull = null!;
-    private int _samplesToFill;
-
-    // Fresh per iteration — see the class remarks.
+    // Fresh per iteration — rebuilt + pre-filled so each iteration opens on a full, evicting
+    // window and the cursor restarts at winSamples.
     private FatigueMonitor _fatigueFixation = null!;
     private FatigueMonitor _fatigueSaccade = null!;
     private FatigueMonitor _fatigueNoisyFixation = null!;
+    private int _cursorFixation;
+    private int _cursorSaccade;
+    private int _cursorNoisyFixation;
 
-    // Streams only — cheap, immutable, safe to build once per [Params] value.
     [GlobalSetup]
     public void Setup()
     {
-        int samplesToFill = WindowSeconds * SamplesPerSec + 2;
-        int total = samplesToFill + SteadyTail;
+        _winSamples = WindowSeconds * SamplesPerSec + 2;   // +2: 33333µs/sample → 30·N < Ns
+        int total = _winSamples + SamplesPerBatch + 16;
 
-        var fix = GazeStreamGenerator.GenerateFixation(length: total);
-        var sac = GazeStreamGenerator.GenerateSaccade(length: total);
-        var noi = GazeStreamGenerator.GenerateNoisyFixation(length: total);
-
-        _fixationFull = fix;
-        _saccadeFull = sac;
-        _noisyFixationFull = noi;
-        _samplesToFill = samplesToFill;
-
-        _fixation = fix[^SteadyTail..];
-        _saccade = sac[^SteadyTail..];
-        _noisyFixation = noi[^SteadyTail..];
+        _fixation = GazeStreamGenerator.GenerateFixation(length: total);
+        _saccade = GazeStreamGenerator.GenerateSaccade(length: total);
+        _noisyFixation = GazeStreamGenerator.GenerateNoisyFixation(length: total);
     }
 
-    // Fresh monitor + pre-fill EVERY iteration — invocationCount:1 means each iteration is one
-    // timed replay, so this runs once per measured op. Untimed by BDN. TARGETED per benchmark so
-    // only the needed monitor is built (building all 3 per iteration created GC pressure that,
-    // with invocationCount:1's high iteration count, distorted the small per-sample costs).
     [IterationSetup(Target = nameof(Fatigue_Fixation_Win))]
-    public void SetupFixation() => _fatigueFixation = BuildPrefilled(_fixationFull, _samplesToFill);
+    public void SetupFixation()
+    {
+        _fatigueFixation = BuildPrefilled(_fixation);
+        _cursorFixation = _winSamples;
+    }
 
     [IterationSetup(Target = nameof(Fatigue_Saccade_Win))]
-    public void SetupSaccade() => _fatigueSaccade = BuildPrefilled(_saccadeFull, _samplesToFill);
-
-    [IterationSetup(Target = nameof(Fatigue_NoisyFixation_Win))]
-    public void SetupNoisyFixation() => _fatigueNoisyFixation = BuildPrefilled(_noisyFixationFull, _samplesToFill);
-
-    [Benchmark]
-    public void Fatigue_Fixation_Win() => Replay(_fixation, _fatigueFixation);
-
-    [Benchmark]
-    public void Fatigue_Saccade_Win() => Replay(_saccade, _fatigueSaccade);
-
-    [Benchmark]
-    public void Fatigue_NoisyFixation_Win() => Replay(_noisyFixation, _fatigueNoisyFixation);
-
-    private static void Replay(GazePoint[] stream, FatigueMonitor monitor)
+    public void SetupSaccade()
     {
-        for (int i = 0; i < stream.Length; i++)
-            monitor.OnSample(stream[i]);
+        _fatigueSaccade = BuildPrefilled(_saccade);
+        _cursorSaccade = _winSamples;
     }
 
-    private FatigueMonitor BuildPrefilled(GazePoint[] full, int samplesToFill)
+    [IterationSetup(Target = nameof(Fatigue_NoisyFixation_Win))]
+    public void SetupNoisyFixation()
+    {
+        _fatigueNoisyFixation = BuildPrefilled(_noisyFixation);
+        _cursorNoisyFixation = _winSamples;
+    }
+
+    // Advances the cursor through SamplesPerBatch samples — no replay, so timestamps stay
+    // monotonic and the window stays bounded. ns/op is per-SamplesPerBatch; /SamplesPerBatch = per-sample.
+    [Benchmark]
+    public void Fatigue_Fixation_Win()
+    {
+        var mon = _fatigueFixation;
+        var s = _fixation;
+        for (int k = 0; k < SamplesPerBatch; k++)
+            mon.OnSample(s[_cursorFixation++]);
+    }
+
+    [Benchmark]
+    public void Fatigue_Saccade_Win()
+    {
+        var mon = _fatigueSaccade;
+        var s = _saccade;
+        for (int k = 0; k < SamplesPerBatch; k++)
+            mon.OnSample(s[_cursorSaccade++]);
+    }
+
+    [Benchmark]
+    public void Fatigue_NoisyFixation_Win()
+    {
+        var mon = _fatigueNoisyFixation;
+        var s = _noisyFixation;
+        for (int k = 0; k < SamplesPerBatch; k++)
+            mon.OnSample(s[_cursorNoisyFixation++]);
+    }
+
+    private FatigueMonitor BuildPrefilled(GazePoint[] stream)
     {
         var settings = new EyeCareSettings { Enabled = true, FatigueMonitorEnabled = true };
         var monitor = new FatigueMonitor(settings, fixationRadiusPixels: 50, WindowSeconds);
-        for (int i = 0; i < samplesToFill; i++)
-            monitor.OnSample(full[i]);
+        for (int i = 0; i < _winSamples; i++)
+            monitor.OnSample(stream[i]);
         return monitor;
     }
 }

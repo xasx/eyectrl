@@ -193,7 +193,7 @@ and the queue is what breaks under replay.)
 Mirrors Layer 3's `[Params(5,20,50)]` target-count sweep:
 
 ```csharp
-[SimpleJob(RuntimeMoniker.Net10_0)]
+[SimpleJob(RuntimeMoniker.Net10_0, invocationCount: 1)]
 [MemoryDiagnoser]
 [RankColumn]
 public class GazeFatigueMonitorBenchmarks
@@ -209,24 +209,25 @@ public class GazeFatigueMonitorBenchmarks
 the benchmark display name, so the `WindowSeconds` value (10/30/60) appears in its own
 column — mirroring how `GazeDwellBenchmarks.Update` relies on the `TargetCount` column
 rather than embedding the value in the method name. The `Win` suffix qualifies these from
-the steady-state class's `Fatigue_<Scenario>` names. Each replayed through a fresh
-`FatigueMonitor` pre-filled for that window size.
+the steady-state class's `Fatigue_<Scenario>` names. Each cursor-advances through a fresh
+pre-filled `FatigueMonitor` (see "Cursor-advance design" above).
 
 ### Steady-state single-window — `GazeFatigueMonitorSteadyStateBenchmarks`
 
 A **separate class** (no `[Params]`) holding 3 benchmarks at the fixed default window
-(60 s): `Fatigue_Fixation`, `Fatigue_Saccade`, `Fatigue_NoisyFixation`. Same per-batch
-sizing as the params class (`SamplesToFill = 60 * 30 + 2`, `SteadyTail = 1000`),
+(60 s): `Fatigue_Fixation`, `Fatigue_Saccade`, `Fatigue_NoisyFixation`. Same cursor-advance
+discipline as the params class (`WinSamples = 60 * 30 + 2`, `SamplesPerBatch = 100_000`),
 hard-coded via a `private const int WindowSeconds = 60`.
 
 ```csharp
-[SimpleJob(RuntimeMoniker.Net10_0)]
+[SimpleJob(RuntimeMoniker.Net10_0, invocationCount: 1)]
 [MemoryDiagnoser]
 [RankColumn]
 public class GazeFatigueMonitorSteadyStateBenchmarks
 {
     private const int WindowSeconds = 60;
-    // Fatigue_Fixation, Fatigue_Saccade, Fatigue_NoisyFixation
+    private const int SamplesPerBatch = 100_000;
+    // Fatigue_Fixation, Fatigue_Saccade, Fatigue_NoisyFixation (cursor-advance, see above)
 }
 ```
 
@@ -310,26 +311,28 @@ targets a **single** method, so each new pipeline benchmark gets its own targete
 that delegates to a shared helper:
 
 ```csharp
-// Built once in GlobalSetup from a single continuous GenerateFixation(length: 1802 + 1000):
-// _fixationPrefill = first 1802 samples; _fixationTimed = trailing 1000 (timestamps continue).
-
-private void RebuildWithEyeCare(EyeCareSettings eyeCareSettings)
+// GazePipelineBenchmarks (Disabled/NoFatigue — replay is safe, they early-return before the queue):
+private void RebuildWithEyeCare(EyeCtrlSettings settings)
 {
-    _provider = new FakeGazeProvider();
-    var settings = new EyeCtrlSettings();
+    _provider = new EyeCareBenchmarkFakes.FakeGazeProvider();
     settings.Cursor.FilterMode = GazeFilterMode.OneEuro;
-    _engine = new GazeEngine(_provider, new FakeInputSimulator(), settings);
-    _service = new EyeCareService(eyeCareSettings, BuildExerciseRunner(), new FakeEyeCareHooks());
-    _engine.GazeSampled += sample =>
-        _service.OnGazeSample(sample, isPaused: false, canInterrupt: false);
+    _engine = new GazeEngine(_provider, new EyeCareBenchmarkFakes.FakeInputSimulator(), settings);
+    _service = new EyeCareService(settings.EyeCare,
+        new ExerciseRunner(EyeCareBenchmarkFakes.ExercisePool, seed: 0), EyeCareBenchmarkFakes.Hooks);
+    _engine.GazeSampled += sample => _service.OnGazeSample(sample, isPaused: false, canInterrupt: false);
     _engine.Start();
-    // Pre-fill the fatigue window on the SAME continuous timestamp axis the timed batch continues.
-    for (int i = 0; i < _fixationPrefill.Length; i++)
-        _provider.SimulateGaze(_fixationPrefill[i]);
+    for (int i = 0; i < _fixationPrefill.Length; i++) _provider.SimulateGaze(_fixationPrefill[i]);
 }
+// Disabled/NoFatigue replay the 1000-sample _fixationTimed (continuous with the pre-fill).
 
+// GazePipelineWithFatigueBenchmarks (WithFatigue — cursor-advance, its own class, invocationCount:1):
 [Benchmark]
-public void Pipeline_OneEuro_Fixation_WithEyeCare_WithFatigue() => Replay(_fixationTimed);
+public void Pipeline_OneEuro_Fixation_WithEyeCare_WithFatigue()
+{
+    var provider = _provider; var fixation = _fixation;
+    for (int k = 0; k < SamplesPerBatch; k++) provider.SimulateGaze(fixation[_cursor++]);
+}
+// SamplesPerBatch = 100_000; cursor starts at PrefillSamples (1802), reset per iteration.
 ```
 
 Each new benchmark gets its own targeted `[IterationSetup(Target = ...)]` calling
@@ -358,14 +361,19 @@ stop, and the window would grow 1801→2801 across the timed loop — silently m
 growth-phase regime the pre-fill was meant to eliminate. It still produces numbers; they
 are just ~30% inflated and not comparable to Layer 5.
 
-The fix mirrors Layer 5's approach: **one continuous stream, prefix pre-fed, suffix timed.**
-`[GlobalSetup]` builds a single long Fixation stream
-(`GenerateFixation(length: 1802 + 1000)`), stored as `_fixationPrefill` (the 1802-sample
-prefix) and `_fixationTimed` (the trailing 1000-sample slice, timestamps continuing from
-`1802 * SamplePeriodMicros`). `RebuildWithEyeCare` replays `_fixationPrefill`; the
-`WithFatigue` timed method replays `_fixationTimed`. The `Disabled`/`Enabled_NoFatigue`
-variants may replay either slice (their fatigue path early-returns so the regime is
-irrelevant), but for symmetry they replay `_fixationTimed` too.
+The fix mirrors Layer 5's approach. **`GazePipelineBenchmarks`** (holding `Disabled` /
+`Enabled_NoFatigue`, which early-return before the queue so replay is safe): `[GlobalSetup]`
+builds a single long Fixation stream (`GenerateFixation(length: 1802 + 1000)`), stored as
+`_fixationPrefill` (the 1802-sample prefix) and `_fixationTimed` (the trailing 1000-sample
+slice, timestamps continuing from `1802 * SamplePeriodMicros`). `RebuildWithEyeCare` pre-feeds
+`_fixationPrefill`; the two timed methods replay `_fixationTimed`.
+
+**`GazePipelineWithFatigueBenchmarks`** (the `WithFatigue` variant, in its own class with
+`invocationCount: 1`): uses the same cursor-advance + 100 000-sample batch discipline as
+Layer 5 — the `[Benchmark]` method advances a cursor through one long monotonic stream
+(`GenerateFixation(length: 1802 + 100_000)`), pre-filled in `[IterationSetup]`. This keeps
+the `FatigueMonitor` window bounded (timestamps monotonic) while the large batch clears BDN's
+threshold. See "Cursor-advance design" above.
 
 **Cleanup null-guard:** the existing `[IterationCleanup]` is untargeted and runs for
 *every* benchmark in the class, including the 4 original methods that build no service.
@@ -486,7 +494,7 @@ introduced — the benchmark project stays `net10.0` console-clean.
 | Replay can't surface sub-µs O(window) scaling (BDN per-iteration overhead dwarfs the work) | Cursor-advance design: the `[Benchmark]` method advances through one long monotonic stream (no replay), 100 000-sample batch clears BDN's threshold. Validated 395→1350→2590 ns/sample. See "Cursor-advance design". |
 | FatigueMonitor window grows under fixed-ts replay (queue never evicts when timestamps jump backward) | Cursor-advance keeps timestamps monotonic; window stays bounded (queue holds exactly `WinSamples`). `[IterationSetup]` rebuilds + resets the cursor per iteration. `Disabled`/`Enabled_NoFatigue` are exempt (early-return before the queue). |
 | Timestamp discontinuity silently makes Layer 5 measure growth not steady-state | Single continuous stream (not two `GenerateFixation()` calls); continuity asserted in `GazeStreamGeneratorTests` (see Testability) |
-| Layer 4 pre-fill + shared `_fixation` timed batch = discontinuous axis (window grows 1801→2801, ~30% inflation) | `RebuildWithEyeCare` pre-feeds `_fixationPrefill`; timed methods replay `_fixationTimed` (the trailing slice of the *same* continuous stream), so the timed batch continues the pre-fill's monotonic timestamps. `GazeSampled` carries the raw timestamp (`GazeEngine.OnGazePoint` line 117), so this is the same `FatigueMonitor` eviction invariant as Layer 5. See "Fresh-build-per-iteration". |
+| Layer 4 pre-fill + shared `_fixation` timed batch = discontinuous axis (window grows 1801→2801, ~30% inflation) | `GazePipelineBenchmarks` pre-feeds `_fixationPrefill` then replays the continuous `_fixationTimed` slice. `GazePipelineWithFatigueBenchmarks` uses cursor-advance (no replay). `GazeSampled` carries the raw timestamp (`GazeEngine.OnGazePoint` line 117), so this is the same `FatigueMonitor` eviction invariant as Layer 5. See "Fresh-build-per-iteration". |
 | `EyeCareService` constructor requires non-empty `ExerciseRunner` pool | Single-element `FakeExercise` pool; never invoked (escalation suppressed via `canInterrupt: false`) |
 | Shared `[IterationCleanup]` NREs on the 4 original benchmarks (no service built) | Null-guard `_service?.Dispose()`; documented in "Fresh-build-per-iteration" |
 | Subscription stacking across iterations | Targeted `[IterationSetup]` builds fresh provider+engine+service each iteration; `[IterationCleanup]` disposes both engine and service. Note: `EyeCareService.Dispose()` does not unsubscribe the `engine.GazeSampled` lambda, but engine+service are co-lifetime per iteration (GC'd together) so the reference cannot stack — see "Fresh-build-per-iteration" |

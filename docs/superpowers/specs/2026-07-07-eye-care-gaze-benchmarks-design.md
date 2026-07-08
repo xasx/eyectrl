@@ -130,11 +130,10 @@ The shared `GazeStreamGenerator.SamplesPerBatch = 1000` is too short for the def
 eviction, no full-window re-scan), not the steady-state O(window) cost that is the
 point of the layer.
 
-Layer 5 therefore needs streams longer than 1000 samples — up to ~2800 (pre-fill 1801 +
-1000-sample tail) for the 60 s case. The existing `GenerateFixation/Saccade/NoisyFixation`
-methods take only a `seed` and are hard-locked to `SamplesPerBatch`. To get a longer
-continuous stream without duplicating the generator logic, **add a `length` parameter**
-to each existing method:
+Layer 5 therefore needs streams longer than 1000 samples. The existing
+`GenerateFixation/Saccade/NoisyFixation` methods take only a `seed` and are hard-locked to
+`SamplesPerBatch`. To get a longer continuous stream without duplicating the generator logic,
+**add a `length` parameter** to each existing method:
 
 ```csharp
 public static GazePoint[] GenerateFixation(int seed = DefaultSeed, int length = SamplesPerBatch);
@@ -146,38 +145,48 @@ The default keeps every existing call site unchanged (Layers 1–4, `GazeStreamG
 Timestamps remain `i * SamplePeriodMicros` for `i ∈ [0, length)`, so a longer stream is a
 **single continuous timestamp axis** — not a concatenation of two independent calls.
 
-**Timestamp continuity is the load-bearing invariant.** `FatigueMonitor.OnSample` evicts
-via `while ( Peek().ts < currentTs - windowMicros )`. Two independent `GenerateFixation()`
-calls each start timestamps at 0; feeding the second as the "tail" would make `cutoff` go
-negative, evict nothing, and silently grow the window during the timed loop — measuring
-exactly the growth-phase cost the layer exists to avoid. The numbers still come out; they
-are just wrong. The single continuous stream is what makes pre-fill + tail correct.
-
 ```
-SamplesToFill  = WindowSeconds * 30 + 2     // ≥ one past the first evicting sample
-SteadyTail     = 1000                        // the timed replay length
+WinSamples      = WindowSeconds * 30 + 2     // ≥ one past the first evicting sample
+SamplesPerBatch = 100_000                    // the timed batch length (cursor-advance)
 ```
 
 > The `+2` (not `+1`): at 33 333 µs/sample, 30·N samples span slightly *under* N seconds,
 > so the first sample whose timestamp falls outside a 60 s window is the 1802nd, not the
-> 1801st. `+2` clears that bar with margin. This is harmless either way — the timed tail
-> evicts on every sample regardless — but the comment is now accurate.
+> 1801st. `+2` clears that bar with margin.
 
-The streams are built once in `[GlobalSetup]` (immutable, reused across iterations); the
-`FatigueMonitor` is constructed + pre-filled `SamplesToFill` samples in `[IterationSetup]`
-(untimed), so the window is full and eviction is active, **then** the `[Benchmark]` method
-replays only the `SteadyTail` (1000-sample) suffix. Both classes pin
-`[SimpleJob(RuntimeMoniker.Net10_0, invocationCount: 1)]` so each iteration times exactly
-**one** clean replay. This is critical: BenchmarkDotNet's default multi-invocation model
-would replay the fixed-timestamp array against the persistent monitor many times per
-iteration, and since `FatigueMonitor.OnSample` evicts via `Peek().ts < currentTs - window`,
-invocation 2+ (currentTs jumping backward) would evict nothing and grow the window
-~1000/invocation — producing non-reproducible numbers, runaway O(queue) cost, and non-zero
-B/op from `Queue<T>` backing-array doublings. (`GazeDwellBenchmarks` avoids this because
-`DwellDetector`'s per-sample work is O(targets) over a fixed set; `FatigueMonitor`'s is
-O(queue), and the queue is what breaks.) Reported `ns/op` is steady-state per-1000-samples,
-directly comparable to Layers 1–4 (which all report per-1000-samples). B/op is likewise
-per-1000-samples steady-state.
+### Cursor-advance design (why not replay)
+
+An earlier revision of this spec used `invocationCount: 1` + a 1000-sample fixed-ts replay.
+**That design does not work** and was replaced after the verification gate surfaced it.
+Two constraints are in tension:
+
+1. **`FatigueMonitor.OnSample` is cheap** (~400 ns/sample at a 300-sample window, ~1.8 µs at
+   1800). A 1000-sample replay is ~0.4–1.8 ms of real work, but BDN's per-iteration overhead
+   (~2 ms pilot/JIT/GC) is of the same order. The O(window) signal is buried in fixed
+   overhead — empirically the reported scaling even *inverts* (Win10 faster than Win60).
+2. **`FatigueMonitor` evicts via timestamp** (`Peek().ts < currentTs - windowMicros`). A
+   fixed-ts replay against a persistent monitor makes iteration 2+ (currentTs jumping
+   backward) evict nothing and grow the window unboundedly.
+
+`invocationCount: 1` solves (2) for multi-invocation stacking but a single 1000-sample batch
+is too small to solve (1). And `[IterationSetup]` (needed to reset state) *forces*
+`UnrollFactor=1` / `InvocationCount=1` anyway, so multi-invocation amortization is unavailable
+as long as `[IterationSetup]` is present.
+
+**The cursor-advance design resolves both.** The `[Benchmark]` method advances a **cursor**
+through one long monotonic stream (no replay), so timestamps always increase and the window
+stays bounded (verified: queue holds exactly `WinSamples`). `[IterationSetup]` rebuilds +
+pre-fills the monitor and resets the cursor to `WinSamples`. The batch is **100 000 samples**
+(~40–260 ms/iteration depending on window), large enough to clear BDN's minimum-iteration-time
+threshold so the per-sample cost becomes measurable.
+
+Reported `ns/op` is per-100 000 samples; divide by `SamplesPerBatch` for per-sample. Validated:
+Fixation scenario scales **395 → 1350 → 2590 ns/sample** across Win10/30/60 (ratio 1:3.4:6.6,
+matching the queue-size ratio 1:3:6), with tight error bars.
+
+(`GazeDwellBenchmarks` avoids this entirely because `DwellDetector`'s per-sample work is
+O(targets) over a fixed set — replay doesn't grow the work. `FatigueMonitor`'s is O(queue),
+and the queue is what breaks under replay.)
 
 ### Params-scaled (the O(window) characterization)
 
@@ -474,8 +483,8 @@ introduced — the benchmark project stays `net10.0` console-clean.
 | Risk | Mitigation |
 |------|-----------|
 | Escalation fires mid-batch on Fixation, contaminating `WithFatigue` | `canInterrupt: false` in the benchmark lambda — the escalation guard requires it, but `_fatigueMonitor.OnSample` (the measured path) runs before the guard, so the full scan still executes every sample. Stays in the validated settings range (no out-of-range `FatigueThreshold`). |
-| 1000-sample batch under-fills the 60s window, measuring growth not steady-state | **Layer 5:** new `length` generator parameter; `[IterationSetup]` pre-fills on a continuous timestamp axis, `[Benchmark]` replays a 1000-sample steady-state tail. **Layer 4:** `RebuildWithEyeCare` pre-feeds ~60 s of samples through the engine before the timed batch. |
-| BDN multi-invocation replay grows the FatigueMonitor window unboundedly (the queue never evicts when timestamps jump backward) | `invocationCount: 1` on both Layer 5 classes AND `GazePipelineWithFatigueBenchmarks`; monitors rebuilt per-iteration in `[IterationSetup]`. `Disabled`/`Enabled_NoFatigue` are exempt (early-return before the queue). See "Per-batch sizing" + File Layout. |
+| Replay can't surface sub-µs O(window) scaling (BDN per-iteration overhead dwarfs the work) | Cursor-advance design: the `[Benchmark]` method advances through one long monotonic stream (no replay), 100 000-sample batch clears BDN's threshold. Validated 395→1350→2590 ns/sample. See "Cursor-advance design". |
+| FatigueMonitor window grows under fixed-ts replay (queue never evicts when timestamps jump backward) | Cursor-advance keeps timestamps monotonic; window stays bounded (queue holds exactly `WinSamples`). `[IterationSetup]` rebuilds + resets the cursor per iteration. `Disabled`/`Enabled_NoFatigue` are exempt (early-return before the queue). |
 | Timestamp discontinuity silently makes Layer 5 measure growth not steady-state | Single continuous stream (not two `GenerateFixation()` calls); continuity asserted in `GazeStreamGeneratorTests` (see Testability) |
 | Layer 4 pre-fill + shared `_fixation` timed batch = discontinuous axis (window grows 1801→2801, ~30% inflation) | `RebuildWithEyeCare` pre-feeds `_fixationPrefill`; timed methods replay `_fixationTimed` (the trailing slice of the *same* continuous stream), so the timed batch continues the pre-fill's monotonic timestamps. `GazeSampled` carries the raw timestamp (`GazeEngine.OnGazePoint` line 117), so this is the same `FatigueMonitor` eviction invariant as Layer 5. See "Fresh-build-per-iteration". |
 | `EyeCareService` constructor requires non-empty `ExerciseRunner` pool | Single-element `FakeExercise` pool; never invoked (escalation suppressed via `canInterrupt: false`) |
@@ -508,10 +517,15 @@ dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *WithE
 
 The check-the-results step: after a Release run, inspect
 `BenchmarkDotNet.Artifacts/results/` for the new classes. Confirm:
-1. Layer 5 params-sweep `ns/op` grows roughly linearly with `WindowSeconds` (the O(window)
-   claim). The steady-state class (fixed 60 s) is a separate single-number baseline, not
-   part of this linearity check.
-2. Layer 5 `B/op` is ≈0 across all configurations (the allocation-free-steady-state claim).
+1. Layer 5 params-sweep per-sample cost (mean ÷ `SamplesPerBatch` = 100 000) grows roughly
+   linearly with `WindowSeconds` (the O(window) claim). Validated baseline: ~395 / 1350 /
+   2590 ns/sample across Win10/30/60 on the Fixation scenario. The steady-state class (fixed
+   60 s) is a separate single-number baseline (~2.6 µs/sample), not part of this linearity
+   check.
+2. Layer 5 `B/op` is small (the steady-state allocation claim — `Queue<(long,double,double)>`
+   of value tuples, struct enumerator). Non-zero values come from the per-iteration monitor
+   rebuild + BDN's own bookkeeping, not from the hot path; if `B/op` scales with `WindowSeconds`,
+   suspect the queue is still growing (a cursor-advance regression).
 3. `Pipeline_OneEuro_Fixation_WithEyeCare_Disabled` is within noise of the existing
    `Pipeline_OneEuro_Fixation` (the subscriber's existence tax is small).
 4. Compare the three pipeline numbers as a ladder, not a single subtraction:

@@ -1,7 +1,7 @@
 # Toolbar Auto-Hide on Gaze
 
 **Date:** 2026-07-09
-**Status:** Draft
+**Status:** Validated (summon assumption verified on PCEye 5)
 **Author:** EyeCtrl Team
 
 ## Problem
@@ -60,11 +60,9 @@ The controller runs a per-sample state machine with two states. All inputs are c
 
   Only the docked edge summons. Looking past any other edge does nothing. `margin` (default `50` physical px) is a dead-band so a sample resting at the bezel does not flake. **Invalid samples never count as off-screen** — this avoids blink false-positives (the explicit design choice).
 
-  > **⚠ Critical assumption — must be empirically confirmed before implementation.** This summon path works *only if* the Tobii Stream Engine emits **valid** samples with out-of-range normalized coordinates (so `_screenWidth * x` lands past the edge) when the user looks beyond the bezel. In practice, when the eyes move past the screen edge the tracker often *loses the eyes and marks the sample invalid* rather than extrapolating past 1.0 — and the provider then sends `GazePoint(0,0,…,IsValid:false)` (`TobiiStreamEngineProvider.cs:148-163`), which this design explicitly excludes. If that is what happens on the target device, the off-screen-valid summon **never fires**, and since the only exit from `HIDDEN` is summon, the user is stranded (worst case: paused + hidden + no resume button + can't summon).
+  > **✅ Verified on hardware (2026-07-09, PCEye 5).** The directional off-screen summon predicate is confirmed to work: the Tobii Stream Engine emits **valid** samples with out-of-range coordinates past **all four edges** (top/bottom/left/right) when the user looks beyond the bezel. Verified via the standalone `samples/OffScreenGazeProbe` diagnostic, which classifies raw `GazeSampled` samples against physical screen bounds and showed all four edge cells turning green (valid + off-screen) during deliberate edge-looking. The earlier concern that the tracker might mark such samples invalid rather than extrapolating past 1.0 does **not** occur on this device. No fallback predicate (edge-band-inside or invalid-run) is needed.
   >
-  > **Action required before building the state machine:** capture raw `GazeSampled` values on the actual hardware (PCEye 5) while deliberately looking past each edge, and confirm `IsValid==true` samples with out-of-range coords arrive. The implementation plan includes a throwaway logging probe for this. **If the assumption does not hold**, the summon signal must be redesigned — candidate fallbacks: (a) a valid sample dwelling in an edge *band just inside* the screen (e.g. `X < margin` for a top-docked toolbar), or (b) a run of invalid samples immediately following a valid sample near the edge. The `isOffScreen` definition above is written so only this one predicate needs to change.
-  >
-  > **Stranding guardrail (regardless of assumption outcome):** a tray-menu "Show toolbar" item is added (`TrayIconManager` builds its menu inline; current items are Pause / Settings / Exit) so the user always has a hardware-independent way to re-show a hidden toolbar. This is described in Wiring.
+  > **Stranding guardrail (kept regardless):** a tray-menu "Show toolbar" item is added (`TrayIconManager` builds its menu inline; current items are Pause / Settings / Exit) so the user always has a hardware-independent way to re-show a hidden toolbar. Even though the summon gesture is verified, the fallback is retained as defense against tuning drift or a different device. Described in Wiring.
 
 - `isOnToolbar` — `gaze.IsValid && toolbarRect.Contains(gaze.X, gaze.Y)`, using the cached toolbar rectangle in **physical pixels**. Note WPF exposes `Toolbar.Left/Top/ActualWidth/ActualHeight` in device-independent (logical) units while `GazePoint` coordinates are physical pixels; the cached rect is built by converting the logical rect via the existing `DpiHelper` (e.g. `DpiHelper.LogicalToPhysicalX/Y`) so both sides of the comparison are physical pixels. Stored as a `PhysicalRect`. **`PhysicalRect` currently has no `Contains` method** (`PhysicalRect.cs` is a `readonly record struct` with only `CenterX/CenterY/Center`); the implementation adds `bool Contains(double x, double y)` to `PhysicalRect` (Core) as part of this work. (The invalid-exclusion rule also defuses the `GazePoint(0,0,…,false)` sentinel — because invalid samples are skipped before any hit-test, that sentinel can never masquerade as "gaze at the top-left corner.")
 
@@ -175,6 +173,6 @@ No UI tests are required — the state machine is pure logic and the edge-bar wi
 
 ## Open questions
 
-1. **[BLOCKING] Does the Tobii Stream Engine emit valid samples past the screen edge?** This is the load-bearing assumption of the off-screen summon gesture (see the "Critical assumption" callout in Design → State machine). It cannot be settled on paper — it requires capturing raw `GazeSampled` output on the actual PCEye 5 while looking beyond each edge. The implementation plan's first step is a throwaway logging probe to answer this. The summon-predicate is isolated so that, if the answer is no, only `isOffScreen` needs to change (edge-band-inside or invalid-run fallback). The tray "Show toolbar" fallback is built regardless, so a negative answer never bricks access. All other design decisions (trigger semantics, idle definition, defaults/scope, hide rendering, pause interaction, pause-indicator form, directional summon) are resolved.
+1. **~~[BLOCKING] Does the Tobii Stream Engine emit valid samples past the screen edge?~~ — RESOLVED 2026-07-09.** Yes, on all four edges, verified via `samples/OffScreenGazeProbe` on the PCEye 5. The off-screen summon predicate stands as designed; no fallback needed. See the "✅ Verified on hardware" callout in Design → State machine.
 
-2. **[TUNING, post-hardware] `HIDE_DELAY` feel.** 5s of "gaze not on toolbar" is aggressive in eye-tracker mode (hides during normal active use). Confirm the feel during hardware validation; the value is a `const` and is a localized change.
+2. **[TUNING, post-hardware] `HIDE_DELAY` feel.** 5s of "gaze not on toolbar" is aggressive in eye-tracker mode (hides during normal active use). Confirm the feel during real use; the value is a `const` and is a localized change.

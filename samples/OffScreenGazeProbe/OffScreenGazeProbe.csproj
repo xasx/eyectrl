@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\EyeCtrl.Core\EyeCtrl.Core.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Platform\EyeCtrl.Platform.csproj" />
+  </ItemGroup>
+
+  <!-- Tobii Stream Engine: requires the SDK to be installed.
+       This probe hard-fails without it. Override path via -p:TobiiSdkPath="..."
+       Same conditional pattern as StreamEngineGazeTracker.csproj. -->
+  <PropertyGroup>
+    <TobiiSdkPath Condition="'$(TobiiSdkPath)' == ''">C:\Program Files\Tobii\Tobii EyeX\</TobiiSdkPath>
+    <TobiiSdkPath>$([MSBuild]::EnsureTrailingSlash($(TobiiSdkPath)))</TobiiSdkPath>
+    <TobiiManagedDll>$(TobiiSdkPath)Tobii.StreamEngine.Net.dll</TobiiManagedDll>
+    <TobiiNativeDll>$(TobiiSdkPath)tobii_stream_engine.dll</TobiiNativeDll>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And Exists('$(TobiiManagedDll)') And Exists('$(TobiiNativeDll)')">
+    <Reference Include="Tobii.StreamEngine.Net">
+      <HintPath>$(TobiiManagedDll)</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Content Include="$(TobiiNativeDll)">
+      <Link>tobii_stream_engine.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Name="ErrorWhenNoTobiiSdk" BeforeTargets="CoreCompile"
+          Condition="!$([MSBuild]::IsOSPlatform('Windows')) Or !Exists('$(TobiiManagedDll)') Or !Exists('$(TobiiNativeDll)')">
+    <Error Text="Tobii StreamEngine SDK not found at '$(TobiiSdkPath)'. Install the Tobii EyeX driver or set -p:TobiiSdkPath=&quot;path/to/sdk&quot;" />
+  </Target>
+
+</Project>

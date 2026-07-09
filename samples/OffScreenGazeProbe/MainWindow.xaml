@@ -1,0 +1,75 @@
+<Window x:Class="OffScreenGazeProbe.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Off-Screen Gaze Probe"
+        Height="520" Width="560"
+        Background="#1a1a2e"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header / instructions -->
+        <TextBlock Grid.Row="0" Foreground="#9aa0b4" FontSize="14" TextWrapping="Wrap" Margin="0,0,0,16">
+            Look past each screen edge in turn (top, bottom, left, right) and watch the verdict.
+            Goal: find out whether VALID gaze samples arrive with coordinates beyond the bezel.
+        </TextBlock>
+
+        <!-- Verdict banner -->
+        <Border Grid.Row="1" Background="#2a2a44" CornerRadius="8" Padding="16,10" Margin="0,0,0,16">
+            <TextBlock x:Name="VerdictText" Foreground="#ffffff" FontSize="20" FontWeight="SemiBold"
+                       Text="Waiting for gaze..."/>
+        </Border>
+
+        <!-- Raw sample readout -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="Raw: " Foreground="#9aa0b4" FontSize="14"/>
+            <TextBlock x:Name="RawText" Foreground="#e6e6f0" FontSize="14" FontFamily="Consolas"/>
+        </StackPanel>
+
+        <!-- Edge grid -->
+        <Grid Grid.Row="3" Margin="0,0,0,16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border x:Name="TopEdge"    Grid.Row="0" Grid.Column="1" Background="#33334d" CornerRadius="6" Padding="10" Margin="4">
+                <TextBlock x:Name="TopEdgeText"    Text="TOP"    Foreground="#9aa0b4" FontSize="13" TextAlignment="Center"/>
+            </Border>
+            <Border x:Name="LeftEdge"   Grid.Row="1" Grid.Column="0" Background="#33334d" CornerRadius="6" Padding="10" Margin="4">
+                <TextBlock x:Name="LeftEdgeText"   Text="LEFT"   Foreground="#9aa0b4" FontSize="13" TextAlignment="Center"/>
+            </Border>
+            <Border x:Name="CenterCell" Grid.Row="1" Grid.Column="1" Background="#33334d" CornerRadius="6" Padding="10" Margin="4">
+                <TextBlock x:Name="CenterText"     Text="on-screen" Foreground="#6ec6ff" FontSize="13" TextAlignment="Center"/>
+            </Border>
+            <Border x:Name="RightEdge"  Grid.Row="1" Grid.Column="2" Background="#33334d" CornerRadius="6" Padding="10" Margin="4">
+                <TextBlock x:Name="RightEdgeText"  Text="RIGHT"  Foreground="#9aa0b4" FontSize="13" TextAlignment="Center"/>
+            </Border>
+            <Border x:Name="BottomEdge" Grid.Row="2" Grid.Column="1" Background="#33334d" CornerRadius="6" Padding="10" Margin="4">
+                <TextBlock x:Name="BottomEdgeText" Text="BOTTOM" Foreground="#9aa0b4" FontSize="13" TextAlignment="Center"/>
+            </Border>
+        </Grid>
+
+        <!-- Cumulative counters -->
+        <TextBlock Grid.Row="4" x:Name="CountersText" Foreground="#9aa0b4" FontSize="13" FontFamily="Consolas" TextWrapping="Wrap"/>
+
+        <!-- Legend -->
+        <TextBlock Grid.Row="5" Foreground="#6a6f85" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Bottom">
+            Legend — green = valid off-screen (summon works on this edge),
+            orange = valid near-edge (50px band inside), gray = invalid.
+        </TextBlock>
+    </Grid>
+</Window>

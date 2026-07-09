@@ -222,7 +222,6 @@ Create `src/EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml`:
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:overlay="clr-namespace:EyeCtrl.App.Overlays"
         Title="PauseIndicator"
-        SizeToContent="WidthAndHeight"
         Topmost="True"
         ShowInTaskbar="False"
         IsClickThrough="True"
@@ -265,11 +264,13 @@ public partial class PauseIndicatorWindow : OverlayWindow
     /// </summary>
     public void SetEdge(string edge)
     {
+        // SystemParameters.WorkArea excludes the taskbar but its Left/Top may be non-zero (taskbar
+        // on top/left). We position at WorkArea origin — acceptable for v1 (the toolbar itself uses
+        // the same approximation in ToolbarWindow.SetMode). A non-primary monitor would also need
+        // handling; out of scope here (spec Non-Goal: single primary display).
         var screen = SystemParameters.WorkArea;
-        // Force a measure so ActualWidth/ActualHeight are valid.
-        Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        Arrange(new Rect(0, 0, DesiredSize.Width, DesiredSize.Height));
 
+        // No SizeToContent (removed from XAML) — explicit Width/Height below take effect directly.
         switch (edge.ToLowerInvariant())
         {
             case "top":
@@ -623,6 +624,49 @@ public class ToolbarAutoHideControllerTests
         Check.That(vis.ShowCalls).IsEqualTo(0);
     }
 
+    // ── Non-zero-epoch regression tests ──
+    // Real trackers emit monotonic µs with an arbitrary large epoch (e.g. 1_000_000_000_000),
+    // NOT t=0. These guard against the "0 means unseeded" sentinel bug that caused instant-hide
+    // at launch: with a large epoch, E - 0 >= 5_000_000 is true on the first off-toolbar sample.
+    // The controller now uses long.MinValue as its unseeded sentinel, so the first off-toolbar
+    // sample SEEDS the anchor rather than instantly satisfying the delay.
+
+    [Fact]
+    public void DoesNotInstantlyHide_OnLargeEpoch_FirstOffToolbarSample()
+    {
+        const long Epoch = 1_000_000_000_000L; // realistic arbitrary epoch
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+
+        // First off-toolbar sample at a large epoch — must NOT hide immediately.
+        sut.Feed(CreateSample(960, 500, valid: true), Epoch);
+        Check.That(vis.HideCalls).IsEqualTo(0);
+
+        // ...and still not 1ms later.
+        sut.Feed(CreateSample(960, 500, valid: true), Epoch + 1_000);
+        Check.That(vis.HideCalls).IsEqualTo(0);
+
+        // Only after the full 5s of sustained off-toolbar gaze.
+        sut.Feed(CreateSample(960, 500, valid: true), Epoch + 5_001_000);
+        Check.That(vis.HideCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Summons_OnLargeEpoch_WhenGazePastEdge()
+    {
+        const long Epoch = 2_000_000_000_000L;
+        var sut = NewController(); // Top
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.HideForTest(vis);
+
+        sut.Feed(CreateSample(960, -100, valid: true), Epoch);
+        sut.Feed(CreateSample(960, -100, valid: true), Epoch + 401_000);
+
+        Check.That(vis.ShowCalls).IsEqualTo(1);
+    }
+
     // ── Blink does not reset the hide countdown ──
 
     [Fact]
@@ -794,13 +838,20 @@ public sealed class ToolbarAutoHideController
     // ── Runtime state ──
     // _suspended / _paused / _enabled are written on the UI thread (SetSuspended / SetPaused /
     // UpdateEnabled) and read in Feed() (gaze thread) → marked volatile, mirroring EventCoordinator's
-    // _keyboardVisible / _settingsOpen. _runStartUs is written by SetSuspended(false) on the UI
-    // thread and by Feed on the gaze thread → also volatile. _visibility is written once by Attach()
-    // before the GazeSampled subscription begins (happens-before guarantee), so it need not be
-    // volatile; marking it would be purely defensive.
+    // _keyboardVisible / _settingsOpen. The two anchor fields below are written by UI-thread resets
+    // (SetSuspended/UpdateEnabled/ResetToVisible) and by Feed on the gaze thread → also volatile.
+    // _visibility is written once by Attach() before the GazeSampled subscription begins
+    // (happens-before guarantee), so it need not be volatile; marking it would be purely defensive.
+    //
+    // Sentinel discipline: long.MinValue means "unseeded / not counting". Do NOT use 0 — real
+    // tracker timestamps carry an arbitrary large epoch (TobiiStreamEngineProvider monotonic µs),
+    // and the tests start at t=0, so 0 is a legitimate value that must not be overloaded with
+    // "no active run" semantics (that bug caused both test failures and instant-hide-at-launch).
     private enum State { Visible, Hidden }
+    private const long Unseeded = long.MinValue;
     private State _state = State.Visible;
-    private volatile long _runStartUs;  // start of the current condition run (hide or summon)
+    private volatile long _hideAnchorUs = Unseeded;   // Visible: timestamp of the start of the current off-toolbar run (or last on-toolbar sample)
+    private volatile long _summonRunUs = Unseeded;     // Hidden:  start of the current sustained past-edge run
     private volatile bool _suspended;
     private volatile bool _paused;
 
@@ -843,12 +894,13 @@ public sealed class ToolbarAutoHideController
             if (_state == State.Hidden && _enabled)
                 _visibility?.ForceShow();
             _state = State.Visible;
-            _runStartUs = 0;
+            _hideAnchorUs = Unseeded;  // unsuspend starts a fresh hide countdown
+            _summonRunUs = Unseeded;
         }
         else
         {
             // Just unsuspended: reset the hide countdown so it doesn't instantly hide.
-            _runStartUs = 0;
+            _hideAnchorUs = Unseeded;
         }
     }
 
@@ -871,7 +923,8 @@ public sealed class ToolbarAutoHideController
         {
             _visibility.ForceShow();
             _state = State.Visible;
-            _runStartUs = 0;
+            _hideAnchorUs = Unseeded;
+            _summonRunUs = Unseeded;
         }
     }
 
@@ -893,33 +946,42 @@ public sealed class ToolbarAutoHideController
             case State.Visible:
                 if (sample.IsValid && _toolbarRect.Contains(sample.X, sample.Y))
                 {
-                    _runStartUs = timestampUs; // gaze on toolbar — reset hide countdown
+                    // Gaze on toolbar — anchor to "now" so the hide countdown measures time since
+                    // the LAST on-toolbar sample (a later off-toolbar run resumes the count from here).
+                    _hideAnchorUs = timestampUs;
                 }
                 else if (!sample.IsValid)
                 {
                     // Blink: ignored, does NOT reset the hide countdown (per spec).
                 }
-                else if (timestampUs - _runStartUs >= _hideDelayUs)
+                else
                 {
-                    _state = State.Hidden;
-                    _visibility.HideToolbar(_paused);
+                    // Off-toolbar run. Seed the anchor on the first such sample, then measure elapsed.
+                    if (_hideAnchorUs == Unseeded) _hideAnchorUs = timestampUs;
+                    if (timestampUs - _hideAnchorUs >= _hideDelayUs)
+                    {
+                        _state = State.Hidden;
+                        _summonRunUs = Unseeded;
+                        _visibility.HideToolbar(_paused);
+                    }
                 }
                 break;
 
             case State.Hidden:
                 if (IsPastDockedEdge(sample))
                 {
-                    if (_runStartUs == 0) _runStartUs = timestampUs;
-                    if (timestampUs - _runStartUs >= _summonDelayUs)
+                    if (_summonRunUs == Unseeded) _summonRunUs = timestampUs;
+                    if (timestampUs - _summonRunUs >= _summonDelayUs)
                     {
                         _state = State.Visible;
-                        _runStartUs = timestampUs;
+                        _summonRunUs = Unseeded;
+                        _hideAnchorUs = timestampUs; // start the post-summon hide countdown fresh
                         _visibility.ShowToolbar();
                     }
                 }
                 else
                 {
-                    _runStartUs = 0; // condition broken — reset summon countdown
+                    _summonRunUs = Unseeded; // condition broken — reset summon countdown
                 }
                 break;
         }
@@ -1045,6 +1107,7 @@ In `src/EyeCtrl.App/Services/EventCoordinator.cs`:
 ```csharp
     private ToolbarAutoHideController? _toolbarAutoHide;
     private ToolbarVisibilityAdapter? _toolbarVisibility;
+    private Action<GazePoint>? _autoHideGazeHandler; // held so Dispose can unsubscribe (the lambda captures the controller local, not this field)
 ```
 
 (b) In `Initialize(...)`, after the `SetupGazeRouting();` call (the last line of the method body, before the closing brace), add the controller construction + subscription:
@@ -1064,7 +1127,16 @@ In `src/EyeCtrl.App/Services/EventCoordinator.cs`:
         // Note: EventCoordinator.cs has `using EyeCtrl.Core;` but not `using EyeCtrl.Core.Enums;`.
         // The fully-qualified `Core.Enums.GazeProviderType` resolves via the nested namespace; for
         // cleanliness you may add `using EyeCtrl.Core.Enums;` and drop the prefix here and in Step 4.
-        bool enabled = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse && s.IsDocked;
+        // Two distinct gates:
+        //  - providerIsRealTracker (immutable for the process): whether the subscription is wired at all.
+        //    Mouse/test mode never subscribes → zero overhead, no auto-hide ever.
+        //  - enabled (mutable via UpdateEnabled when IsDocked is toggled at runtime): the per-sample
+        //    Feed() guard (Feed early-returns when !_enabled). Subscribe under any real tracker even
+        //    if the toolbar starts FLOATING — otherwise a runtime dock-toggle couldn't re-enable
+        //    auto-hide (the subscription would never exist). Feed's guard makes an unsubscribed
+        //    floating toolbar a cheap no-op.
+        bool providerIsRealTracker = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse;
+        bool enabled = providerIsRealTracker && s.IsDocked;
 
         // Cache the toolbar rect in physical px from the live window.
         var toolbarRect = CaptureToolbarRect();
@@ -1086,9 +1158,15 @@ In `src/EyeCtrl.App/Services/EventCoordinator.cs`:
         _toolbarAutoHide = controller;
         _toolbarVisibility = vis;
 
-        if (enabled)
+        // Subscribe under any real tracker (NOT gated on `enabled`/IsDocked) so a runtime dock-toggle
+        // can activate auto-hide. Feed() early-returns when !_enabled, so samples are a cheap no-op
+        // while the toolbar is floating or the feature otherwise disabled.
+        if (providerIsRealTracker)
         {
-            _context.GazeEngine.GazeSampled += sample => controller.Feed(sample, sample.TimestampMicroseconds);
+            // Store the handler in a field so Dispose can -= it. (The lambda captures the `controller`
+            // local; nulling _toolbarAutoHide alone would NOT unsubscribe it.)
+            _autoHideGazeHandler = sample => controller.Feed(sample, sample.TimestampMicroseconds);
+            _context.GazeEngine.GazeSampled += _autoHideGazeHandler;
         }
     }
 
@@ -1133,7 +1211,7 @@ And in `OnSettingsWindowClosed` where `_settingsOpen = false;` (line ~774) add a
         _toolbarAutoHide?.SetSuspended(false);
 ```
 
-(d) Suspend during calibration: `CalibrationService` has **no session-start/end event** — it exposes only the polling property `IsSessionActive` (`_targetPositions != null`, set in `StartSession`/`CompleteSession`/`CancelSession`). There is no clean subscription hook. The controller's `Feed` method (Task 6) therefore checks calibration indirectly: pass a `Func<bool>? CalibrationActive` to the controller constructor and short-circuit `Feed` when it returns true. Add this to the constructor signature in Task 6 (the test `NewController` helper passes `null`), and in `SetupToolbarAutoHide` pass `() => _context!.CalibrationService.IsSessionActive`. Update Task 6's constructor + the `Feed` guard:
+(d) Suspend during calibration. Note: `CalibrationStateChangedMessage(CalibrationState State, ...)` DOES exist (`InteractionMessages.cs:113`) and is already handled in `EventCoordinator` at line 298 — so a message-based `SetSuspended(true/false)` on `Collecting`/`Training` vs `Idle`/`Complete` would be the most consistent wiring (mirroring the keyboard/settings suspend approach). However, this plan uses a simpler **polling** gate instead: pass a `Func<bool>? CalibrationActive` to the controller constructor (in `SetupToolbarAutoHide`: `() => _context.CalibrationService.IsSessionActive`) and short-circuit `Feed` when it returns true. Rationale: the poll is trivially unit-testable (a test passes `() => true`), needs no extra message wiring, and `Feed` already runs per-sample so the check is zero-added-latency. Add `Func<bool>? calibrationActive = null` to the Task 6 constructor signature and the `Feed` guard (already done in Tasks 6/7):
 
 ```csharp
     // In the constructor, add:
@@ -1182,10 +1260,14 @@ Where `_dispatcherBeginInvokeRefreshRect` is a small helper that enqueues a rect
 In `Dispose()` (line ~1039), as the first cleanup action inside the `if (_disposed) return;` guard's body (after the `_predictionFactory.Dispose()` call, before the `_context == null` early-return), add:
 
 ```csharp
-        // Controller holds a GazeSampled subscription; nothing else to dispose, but null the
-        // references so the delegate capture becomes inert. (The controller + GazeEngine are both
-        // app-lifetime singletons — same pattern as the eye-care subscription in App.xaml.cs —
-        // so no explicit GazeSampled unsubscribe is needed.)
+        // Unsubscribe the auto-hide gaze handler. The handler was stored in a field (Step 2) because
+        // it captures the controller local — nulling _toolbarAutoHide would NOT unsubscribe it.
+        // (Both are app-lifetime singletons in practice, so this is belt-and-suspenders at shutdown,
+        // but a stored handler is the only correct way to detach if the controller ever needs to be
+        // rebuilt or torn down before process exit.)
+        if (_autoHideGazeHandler != null && _context != null)
+            _context.GazeEngine.GazeSampled -= _autoHideGazeHandler;
+        _autoHideGazeHandler = null;
         _toolbarAutoHide = null;
         _toolbarVisibility = null;
 ```
@@ -1318,7 +1400,8 @@ And add the `ResetToVisible` method to `ToolbarAutoHideController`:
     public void ResetToVisible()
     {
         _state = State.Visible;
-        _runStartUs = 0;
+        _hideAnchorUs = Unseeded;
+        _summonRunUs = Unseeded;
     }
 ```
 

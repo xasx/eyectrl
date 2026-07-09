@@ -21,10 +21,12 @@ namespace EyeCtrl.Benchmarks;
 /// provider across engines would stack subscriptions. [IterationCleanup] disposes the engine and
 /// the null-guarded service (the 4 originals build no service, so the `?.`/reset is a safe no-op
 /// for them).
-/// (BenchmarkDotNet runs many invocations per iteration on the one engine, so after fixation
-/// triggers the state converges to Fixation and stays there — the engine drives no dwell — so the
-/// reported number is steady-state-fixation cost. That is the intended apples-to-apples basis for
-/// the four original benchmarks, where filter mode is the only variable.) The two eye-care-wired
+/// (Because [IterationSetup] is present, BenchmarkDotNet pins InvocationCount=1 — one invocation
+/// per iteration — so each measured op is a single full replay of the stream through a fresh engine
+/// that starts in FreeLook. The reported number is therefore the cost of one whole-stream replay,
+/// including the initial FreeLook->Fixation transition, not a post-convergence steady-state figure.
+/// It is still an apples-to-apples basis for the four original benchmarks, where filter mode is the
+/// only variable.) The two eye-care-wired
 /// variants (WithEyeCare_Disabled, WithEyeCare_Enabled_NoFatigue) measure the subscriber's
 /// marginal cost at different early-return points, replaying _fixationTimed (continuous with the
 /// pre-fill) rather than _fixation. See GazePipelineWithFatigueBenchmarks for the third eye-care

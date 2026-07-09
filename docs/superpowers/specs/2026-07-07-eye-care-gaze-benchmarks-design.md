@@ -546,10 +546,18 @@ The check-the-results step: after a Release run, inspect
 
    The subtraction that isolates the scan is **`WithFatigue − Enabled_NoFatigue`**, *not*
    `WithFatigue − Disabled` (the latter conflates the scan with the early-return cost).
-   That isolated delta should be in the **same order of magnitude** as a Layer 5
-   `Fatigue_Fixation` per-sample cost — not numerically equal. The integration path adds
-   `GazeSampled` event dispatch and `EyeCareService.OnGazeSample` method-dispatch overhead
-   the micro-benchmark doesn't, so expect the pipeline delta to be a few ns higher than
-   the isolated fatigue scan. The claim is only that the fatigue scan *dominates* the
-   integration cost; if the subtraction is an order of magnitude off, something unexpected
-   is on the path.
+   **Normalize first:** `Disabled`/`Enabled_NoFatigue` live in `GazePipelineBenchmarks` and
+   report per-1000-samples; `WithFatigue` lives in `GazePipelineWithFatigueBenchmarks` and
+   reports per-100000-samples. Divide each by its batch size before subtracting.
+
+   That isolated per-sample delta should be in the **same order of magnitude** as a Layer 5
+   `Fatigue_Fixation` per-sample cost — not numerically equal, and *not necessarily higher*.
+   The integration path adds `GazeSampled` event dispatch and `EyeCareService.OnGazeSample`
+   method-dispatch overhead the micro-benchmark doesn't, which pushes it up; but the Layer 5
+   micro-benchmarks run at `invocationCount:1` over a single 100000-sample batch and are
+   noisy (observed StdDev ~8%, median > mean from occasional GC/thermal-inflated iterations),
+   so in practice the integration delta can land either side of the isolated scan — a run
+   where it reads somewhat *below* the isolated number is expected variance, not a defect.
+   The only firm claim is that the fatigue scan *dominates* the integration cost; if the
+   subtraction is an order of magnitude off, something unexpected is on the path. (If tighter
+   cross-layer agreement is wanted, raise the Layer 5 iteration count to shrink the variance.)

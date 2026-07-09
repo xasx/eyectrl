@@ -709,11 +709,27 @@ public class ToolbarAutoHideControllerTests
         Check.That(vis.HideCalls).IsEqualTo(0);
     }
 
+    // ── Calibration suspension ──
+
+    [Fact]
+    public void CalibrationActive_DoesNotHide()
+    {
+        var sut = NewController(calibrationActive: () => true);
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+
+        sut.Feed(CreateSample(960, 500, valid: true), 0);
+        sut.Feed(CreateSample(960, 500, valid: true), 10_000_000); // 10s, well past HIDE_DELAY
+
+        Check.That(vis.HideCalls).IsEqualTo(0);
+    }
+
     // ── helpers ──
 
-    private static ToolbarAutoHideController NewController(bool enabled = true, string edge = Edge)
+    private static ToolbarAutoHideController NewController(bool enabled = true, string edge = Edge,
+        Func<bool>? calibrationActive = null)
         => new(enabled, edge, ScreenW, ScreenH, ToolbarRect,
-               hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50);
+               hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50, calibrationActive);
 
     private static GazePoint CreateSample(double x, double y, bool valid)
         => new(x, y, 0, valid);
@@ -773,14 +789,20 @@ public sealed class ToolbarAutoHideController
     private readonly double _screenH;
     private PhysicalRect _toolbarRect;
     private string _edge; // "Top"/"Bottom"/"Left"/"Right" — settable (changes on DockedEdge edit)
-    private readonly bool _enabled;
+    private bool _enabled; // mutable: re-evaluated when IsDocked changes at runtime
 
-    // ── Runtime state (gaze-thread) ──
+    // ── Runtime state ──
+    // _suspended / _paused / _enabled are written on the UI thread (SetSuspended / SetPaused /
+    // UpdateEnabled) and read in Feed() (gaze thread) → marked volatile, mirroring EventCoordinator's
+    // _keyboardVisible / _settingsOpen. _runStartUs is written by SetSuspended(false) on the UI
+    // thread and by Feed on the gaze thread → also volatile. _visibility is written once by Attach()
+    // before the GazeSampled subscription begins (happens-before guarantee), so it need not be
+    // volatile; marking it would be purely defensive.
     private enum State { Visible, Hidden }
     private State _state = State.Visible;
-    private long _runStartUs;          // start of the current condition run (hide or summon)
-    private bool _suspended;
-    private bool _paused;
+    private volatile long _runStartUs;  // start of the current condition run (hide or summon)
+    private volatile bool _suspended;
+    private volatile bool _paused;
 
     // ── Output seam ──
     private IToolbarVisibility? _visibility;
@@ -835,6 +857,23 @@ public sealed class ToolbarAutoHideController
 
     /// <summary>Refreshes the active docked edge (call when DockedEdge changes in settings).</summary>
     public void UpdateEdge(string edge) => _edge = edge;
+
+    /// <summary>
+    /// Re-evaluates enablement (call when IsDocked changes at runtime). If transitioning to
+    /// disabled, force-shows the toolbar and resets to Visible so a now-floating toolbar doesn't
+    /// auto-hide. Idempotent on no-op transitions.
+    /// </summary>
+    public void UpdateEnabled(bool enabled)
+    {
+        if (enabled == _enabled) return;
+        _enabled = enabled;
+        if (!enabled && _visibility != null)
+        {
+            _visibility.ForceShow();
+            _state = State.Visible;
+            _runStartUs = 0;
+        }
+    }
 
     // ── The pure decision (gaze thread) ──
 
@@ -905,7 +944,6 @@ public sealed class ToolbarAutoHideController
     // (InternalsVisibleTo is not declared from EyeCtrl.App; these are public test hooks instead.
     //  Acceptable for a controller whose entire purpose is testable state transitions.)
 
-    public void SetPausedForTest(bool paused) => _paused = paused;
     public void HideForTest(IToolbarVisibility vis)
     {
         _state = State.Hidden;
@@ -919,7 +957,7 @@ public sealed class ToolbarAutoHideController
 
 - [ ] **Step 4: Reconcile test API vs implementation**
 
-The tests call `SetPaused`, `SetSuspended`, `HideForTest`. The implementation has `SetPaused`, `SetSuspended`, `HideForTest`. The tests reference `SetPaused` (not `SetPausedForTest`) — so the **public test hook is `SetPaused`**. Remove the duplicate `SetPausedForTest` from the implementation (it was offered as an alternative; keep `SetPaused` which the tests use). The constructor also takes an optional `Func<bool>? calibrationActive` (Task 7 passes a live `IsSessionActive` check; the test helper `NewController` omits it, relying on the `null` default). Confirm the test's `NewController` constructor args match: `(bool enabled, string edge, double screenW, double screenH, PhysicalRect toolbarRect, int hideDelayMs, int summonDelayMs, double offScreenMarginPx)` plus the optional `calibrationActive`.
+The tests call `SetPaused`, `SetSuspended`, `HideForTest` — all present as public test hooks in the implementation (Step 3). There is no separate `SetPausedForTest`; `SetPaused` is the single setter, used by both tests and the live pause wiring in Task 7. The constructor takes an optional `Func<bool>? calibrationActive` (Task 7 passes a live `IsSessionActive` check; the test helper `NewController` defaults it to `null`). Confirm the test's `NewController` constructor args match: `(bool enabled, string edge, double screenW, double screenH, PhysicalRect toolbarRect, int hideDelayMs, int summonDelayMs, double offScreenMarginPx, Func<bool>? calibrationActive = null)`.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -1023,6 +1061,9 @@ In `src/EyeCtrl.App/Services/EventCoordinator.cs`:
         if (_context == null) return;
 
         var s = _context.Settings.Toolbar;
+        // Note: EventCoordinator.cs has `using EyeCtrl.Core;` but not `using EyeCtrl.Core.Enums;`.
+        // The fully-qualified `Core.Enums.GazeProviderType` resolves via the nested namespace; for
+        // cleanliness you may add `using EyeCtrl.Core.Enums;` and drop the prefix here and in Step 4.
         bool enabled = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse && s.IsDocked;
 
         // Cache the toolbar rect in physical px from the live window.
@@ -1065,16 +1106,14 @@ In `src/EyeCtrl.App/Services/EventCoordinator.cs`:
 
 - [ ] **Step 3: Feed pause + suspend changes**
 
-(a) Pause: find `OnStateChanged`-style handling. Subscribe the controller to pause via the existing `StateChangedMessage` handler. In `SetupMessageHandlers()` add (or extend the existing `StateChangedMessage` registration):
+(a) Pause: the existing `StateChangedMessage` registration is in `SetupMessageHandlers()` — search the file for `StateChangedMessage` to find it. The message type lives in `EyeCtrl.ViewModels.Messages` (verified `InteractionMessages.cs:33`: `public record StateChangedMessage(InteractionState NewState)`), and `EventCoordinator.cs` already imports that namespace, so reference it unqualified. **Extend the existing registration** rather than adding a duplicate — add the `SetPaused` call into the existing handler body:
 
 ```csharp
-        _context.Messenger.Register<Core.Messages.StateChangedMessage>(this, (_, msg) =>
-        {
-            _toolbarAutoHide?.SetPaused(msg.NewState == Core.InteractionState.Paused);
-        });
+        // Inside the existing StateChangedMessage handler body, add:
+        _toolbarAutoHide?.SetPaused(msg.NewState == InteractionState.Paused);
 ```
 
-(If `StateChangedMessage` is already registered elsewhere, add the `SetPaused` call to that existing handler rather than double-registering. Search `StateChangedMessage` in the file to find it.)
+(Do NOT add a second `Messenger.Register<StateChangedMessage>` — that would double-fire. The existing registration is the wiring point.)
 
 (b) Suspend on keyboard: in `SetKeyboardVisible(bool visible, bool manageSuppression)` (line ~1003), at the top of the method add:
 
@@ -1108,15 +1147,20 @@ And in `OnSettingsWindowClosed` where `_settingsOpen = false;` (line ~774) add a
 
 This keeps calibration suspension out of the messy subscription path and testable (a test can pass `() => true` to exercise the calibration-suspended branch).
 
-- [ ] **Step 4: Refresh geometry on settings change**
+- [ ] **Step 4: Refresh geometry + re-evaluate enablement on settings change**
 
 In `OnSettingsChanged(EyeCtrlSettings s)` (line ~743), inside the `if (_toolbarSnapshot != toolbarSnapshot)` block (after the existing `Toolbar.Initialize`/`SetMode` calls), add:
 
 ```csharp
+            // Re-evaluate enablement (IsDocked may have flipped to false → disable + force-show).
+            bool nowEnabled = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse && s.Toolbar.IsDocked;
+            _toolbarAutoHide?.UpdateEnabled(nowEnabled);
             _toolbarAutoHide?.UpdateEdge(s.Toolbar.DockedEdge);
             _toolbarVisibility?.PositionIndicator(s.Toolbar.DockedEdge);
             _dispatcherBeginInvokeRefreshRect();
 ```
+
+`UpdateEnabled` (defined in Task 6) handles the false-transition by force-showing the toolbar and resetting the controller to `Visible`, so a floating toolbar never auto-hides (spec Non-Goal #3, Edge case #8).
 
 Where `_dispatcherBeginInvokeRefreshRect` is a small helper that enqueues a rect refresh after the toolbar re-layout completes:
 
@@ -1135,15 +1179,18 @@ Where `_dispatcherBeginInvokeRefreshRect` is a small helper that enqueues a rect
 
 - [ ] **Step 5: Dispose the controller**
 
-In `Dispose()` (line ~1039), before the existing cleanup, add:
+In `Dispose()` (line ~1039), as the first cleanup action inside the `if (_disposed) return;` guard's body (after the `_predictionFactory.Dispose()` call, before the `_context == null` early-return), add:
 
 ```csharp
-        // Controller holds a GazeSampled subscription; nothing else to dispose, but null it.
+        // Controller holds a GazeSampled subscription; nothing else to dispose, but null the
+        // references so the delegate capture becomes inert. (The controller + GazeEngine are both
+        // app-lifetime singletons — same pattern as the eye-care subscription in App.xaml.cs —
+        // so no explicit GazeSampled unsubscribe is needed.)
         _toolbarAutoHide = null;
         _toolbarVisibility = null;
 ```
 
-(The `GazeSampled` subscription is a delegate capture over the controller; once the controller is unreferenced and the GazeEngine is disposed, the subscription is inert. No explicit unsubscribe is needed because the controller + GazeEngine are both app-lifetime singletons — same pattern as the eye-care subscription in App.xaml.cs.)
+Placing it with the other early disposals (not stranded before the guard) keeps the cleanup ordering coherent with the existing method.
 
 - [ ] **Step 6: Build to verify it compiles**
 
@@ -1314,6 +1361,8 @@ Manually verify (on the PCEye 5):
 4. Open Settings while hidden → toolbar force-shows (suspend). Close Settings → auto-hide resumes.
 5. Right-click the tray icon → "Show toolbar" appears → click it → toolbar shows.
 6. Look past a NON-docked edge → no summon (e.g. looking left doesn't summon a bottom-docked toolbar).
+7. **Pause indicator:** while paused and hidden, confirm the thin edge bar is visible along the docked edge; summon (look past the edge) and confirm the bar disappears as the toolbar reappears; resume pause and the bar should not reappear while the toolbar is visible.
+8. **Floating toolbar (Non-Goal #3):** in Settings, toggle "Docked" off. The toolbar floats to top-center and must stay permanently visible (no auto-hide, no tray "Show toolbar" item). Toggle it back on; auto-hide resumes.
 
 - [ ] **Step 3: Delete the probe sample**
 
@@ -1349,4 +1398,4 @@ git merge --no-ff feature/toolbar-auto-hide   # or open a PR instead
 - **Threading:** The controller's `Feed` runs on the gaze thread (it's the `GazeSampled` handler). It reads only its own fields + the injected `PhysicalRect` (a value type). The only cross-thread hop is inside `ToolbarVisibilityAdapter`, which marshals to the dispatcher. Do NOT read WPF window properties from `Feed`.
 - **NFluent float:** `Check.That(x).IsCloseTo(y, 1e-6)` is absolute delta — don't use it like xUnit's precision:N.
 - **State enum:** the controller's `State` is `public` (tests assert via `StateName`). Keep it that way.
-- **The `_paused` setter the tests use is `SetPaused`** (not `SetPausedForTest`); pick one and delete the other from the controller to avoid ambiguity. The tests in Task 6 call `SetPaused`, so keep that.
+- **Pause setter:** tests use `SetPaused`; that's the only pause setter (no `SetPausedForTest`).

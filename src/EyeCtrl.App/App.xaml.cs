@@ -45,6 +45,15 @@ public partial class App : Application
     /// </summary>
     public static bool IsTestMode { get; private set; }
 
+    /// <summary>
+    /// When true, each raw <see cref="Core.GazeEngine.GazeSampled"/> point is logged with its
+    /// validity and an on/off-screen classification per screen edge. This is a THROWAWAY probe
+    /// to validate the off-screen-valid-coordinate assumption behind the toolbar auto-hide
+    /// summon gesture (see docs/superpowers/specs/2026-07-09-toolbar-auto-hide-design.md).
+    /// Activated by launching with --log-gaze. Remove once the assumption is settled.
+    /// </summary>
+    public static bool LogGaze { get; private set; }
+
     [DllImport("user32.dll")]
     private static extern uint GetDpiForSystem();
 
@@ -52,6 +61,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
+        LogGaze = e.Args.Contains("--log-gaze", StringComparer.OrdinalIgnoreCase);
 
         SplashWindow? splash = null;
         try
@@ -156,6 +166,55 @@ public partial class App : Application
                     isPaused: im.CurrentState == InteractionState.Paused,
                     canInterrupt: im.CurrentState == InteractionState.FreeLook);
             };
+
+            // THROWAWAY PROBE (--log-gaze): classify each raw sample against the physical screen
+            // bounds to settle whether the Tobii Stream Engine emits VALID coordinates past the
+            // edges (the assumption behind the toolbar auto-hide summon gesture). Logs to Serilog
+            // and the console. Remove this block once the assumption is confirmed/denied.
+            // See docs/superpowers/specs/2026-07-09-toolbar-auto-hide-design.md (Open question #1).
+            if (LogGaze)
+            {
+                var screenW = screen.X;
+                var screenH = screen.Y;
+                const double margin = 50.0; // matches the spec's OffScreenMarginPx dead-band
+                Log.Information(
+                    "GAZE-PROBE: screen={W}x{H}px (physical), off-screen margin={Margin}px",
+                    screenW, screenH, margin);
+                gazeEngine.GazeSampled += sample =>
+                {
+                    if (!sample.IsValid)
+                    {
+                        Log.Information("GAZE-PROBE: INVALID t={T}", sample.TimestampMicroseconds);
+                        return;
+                    }
+
+                    // Classify which edges (if any) the valid sample lies past.
+                    var pastTop = sample.Y < -margin;
+                    var pastBottom = sample.Y > screenH + margin;
+                    var pastLeft = sample.X < -margin;
+                    var pastRight = sample.X > screenW + margin;
+                    var offScreen = pastTop || pastBottom || pastLeft || pastRight;
+                    var classification = offScreen
+                        ? $"OFF-SCREEN[{(pastTop ? "T" : "")}{(pastBottom ? "B" : "")}{(pastLeft ? "L" : "")}{(pastRight ? "R" : "")}]"
+                        : "on-screen";
+
+                    // Mark samples just inside the edge band too, in case the fallback summon
+                    // predicate (edge-band-inside) is needed instead.
+                    var nearEdgeBand = 50.0;
+                    var nearTop = sample.Y >= 0 && sample.Y < nearEdgeBand;
+                    var nearBottom = sample.Y <= screenH && sample.Y > screenH - nearEdgeBand;
+                    var nearLeft = sample.X >= 0 && sample.X < nearEdgeBand;
+                    var nearRight = sample.X <= screenW && sample.X > screenW - nearEdgeBand;
+                    var near = nearTop || nearBottom || nearLeft || nearRight;
+                    var nearTag = near
+                        ? $" NEAR[{(nearTop ? "T" : "")}{(nearBottom ? "B" : "")}{(nearLeft ? "L" : "")}{(nearRight ? "R" : "")}]"
+                        : "";
+
+                    Log.Information(
+                        "GAZE-PROBE: VALID t={T} x={X:F1} y={Y:F1} {Class}{Near}",
+                        sample.TimestampMicroseconds, sample.X, sample.Y, classification, nearTag);
+                };
+            }
         }
         catch (Exception ex)
         {

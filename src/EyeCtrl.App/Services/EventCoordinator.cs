@@ -73,6 +73,18 @@ public class EventCoordinator : IEventCoordinator
         _modelManagementService = modelManagement;
     }
 
+    /// <summary>Tray fallback: force-show the toolbar regardless of auto-hide state.</summary>
+    public void ForceShowToolbar()
+    {
+        if (_context == null) return;
+        _context.Dispatcher.BeginInvoke(() =>
+        {
+            _toolbarVisibility?.ForceShow();
+            // Also flip the controller into Visible so it doesn't immediately re-hide.
+            _toolbarAutoHide?.ResetToVisible();
+        });
+    }
+
     public void Initialize(EventCoordinationContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));

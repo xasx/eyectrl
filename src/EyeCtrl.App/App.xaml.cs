@@ -135,7 +135,13 @@ public partial class App : Application
             _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
 
             // ── System tray ──
-            _trayIconManager = new TrayIconManager(im, Dispatcher, messenger, () => Shutdown());
+            bool autoHideActive = ActiveProviderType != Core.Enums.GazeProviderType.Mouse && settings.Toolbar.IsDocked;
+            _trayIconManager = new TrayIconManager(
+                im, Dispatcher, messenger,
+                shutdownCallback: () => Shutdown(),
+                showToolbarCallback: autoHideActive
+                    ? () => _eventCoordinator?.ForceShowToolbar()
+                    : null);
 
             // ── Close splash and show persistent overlays (last, after all wiring) ──
             ShowOverlays(splash, cursorCircle, toolbar, settings);

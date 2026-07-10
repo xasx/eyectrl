@@ -225,6 +225,17 @@ public sealed class ToolbarAutoHideController
         vis.HideToolbar(_paused);
     }
 
+    /// <summary>
+    /// Test/tray-fallback hook: force the state machine to Visible and reset both run anchors,
+    /// so the toolbar doesn't immediately re-hide after being force-shown.
+    /// </summary>
+    public void ResetToVisible()
+    {
+        _state = State.Visible;
+        Volatile.Write(ref _hideAnchorUs, Unseeded);
+        Volatile.Write(ref _summonRunUs, Unseeded);
+    }
+
     // Expose state name for any future assertion diagnostics.
     public string StateName => _state.ToString();
 }

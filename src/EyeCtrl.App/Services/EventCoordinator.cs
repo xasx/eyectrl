@@ -53,6 +53,9 @@ public class EventCoordinator : IEventCoordinator
     private ModelDownloadService? _downloadService;
     private ModelManagementService? _modelManagementService;
     private ScrollModeController? _scrollModeController;
+    private ToolbarAutoHideController? _toolbarAutoHide;
+    private ToolbarVisibilityAdapter? _toolbarVisibility;
+    private Action<EyeCtrl.Core.Models.GazePoint>? _autoHideGazeHandler; // held so Dispose can unsubscribe (the lambda captures the controller local, not this field)
     private DragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
     private Action? _disposeEscapeHook;
@@ -80,6 +83,7 @@ public class EventCoordinator : IEventCoordinator
         SetupPropertyChangedHandlers();
         SetupMessageHandlers();
         SetupGazeRouting();
+        SetupToolbarAutoHide();
         SetupBackdrop();
         SetupDragHandlers();
         _context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
@@ -325,6 +329,11 @@ public class EventCoordinator : IEventCoordinator
                         break;
                 }
             }));
+
+        // InteractionManager state change: mirror Paused into the toolbar auto-hide controller.
+        // This is EventCoordinator's only StateChangedMessage registration (no prior one to extend).
+        _context.Messenger.Register<EventCoordinator, StateChangedMessage>(this, (_, msg) =>
+            _toolbarAutoHide?.SetPaused(msg.NewState == InteractionState.Paused));
     }
 
     private void SetupGazeRouting()
@@ -358,6 +367,65 @@ public class EventCoordinator : IEventCoordinator
         };
 
         _context.GazeEngine.CursorMoved += _gazeMovedHandler;
+    }
+
+    private void SetupToolbarAutoHide()
+    {
+        if (_context == null) return;
+
+        var s = _context.Settings.Toolbar;
+        // Two distinct gates:
+        //  - providerIsRealTracker (immutable for the process): whether the subscription is wired at all.
+        //    Mouse/test mode never subscribes → zero overhead, no auto-hide ever.
+        //  - enabled (mutable via UpdateEnabled when IsDocked is toggled at runtime): the per-sample
+        //    Feed() guard (Feed early-returns when !_enabled). Subscribe under any real tracker even
+        //    if the toolbar starts FLOATING — otherwise a runtime dock-toggle couldn't re-enable
+        //    auto-hide (the subscription would never exist). Feed's guard makes an unsubscribed
+        //    floating toolbar a cheap no-op.
+        bool providerIsRealTracker = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse;
+        bool enabled = providerIsRealTracker && s.IsDocked;
+
+        // Cache the toolbar rect in physical px from the live window.
+        var toolbarRect = CaptureToolbarRect();
+
+        var controller = new ToolbarAutoHideController(
+            enabled: enabled,
+            edge: s.DockedEdge,
+            screenW: System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
+            screenH: System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY,
+            toolbarRect: toolbarRect,
+            hideDelayMs: 5000,
+            summonDelayMs: 400,
+            offScreenMarginPx: 50,
+            calibrationActive: () => _context.CalibrationService.IsSessionActive);
+
+        var vis = new ToolbarVisibilityAdapter(_context.OverlayManager, _context.Dispatcher);
+        controller.Attach(vis);
+
+        _toolbarAutoHide = controller;
+        _toolbarVisibility = vis;
+
+        // Subscribe under any real tracker (NOT gated on `enabled`/IsDocked) so a runtime dock-toggle
+        // can activate auto-hide. Feed() early-returns when !_enabled, so samples are a cheap no-op
+        // while the toolbar is floating or the feature otherwise disabled.
+        if (providerIsRealTracker)
+        {
+            // Store the handler in a field so Dispose can -= it. (The lambda captures the `controller`
+            // local; nulling _toolbarAutoHide alone would NOT unsubscribe it.)
+            _autoHideGazeHandler = sample => controller.Feed(sample, sample.TimestampMicroseconds);
+            _context.GazeEngine.GazeSampled += _autoHideGazeHandler;
+        }
+    }
+
+    private PhysicalRect CaptureToolbarRect()
+    {
+        var t = _context!.OverlayManager.Toolbar;
+        // Convert logical window bounds (WPF DIPs) to physical px.
+        double x = DpiHelper.LogicalToPhysicalX(t.Left);
+        double y = DpiHelper.LogicalToPhysicalY(t.Top);
+        double w = DpiHelper.LogicalToPhysicalX(t.ActualWidth);
+        double h = DpiHelper.LogicalToPhysicalY(t.ActualHeight);
+        return new PhysicalRect(x, y, w, h);
     }
 
     private void SetupBackdrop()
@@ -703,6 +771,7 @@ public class EventCoordinator : IEventCoordinator
         if (_context == null || _settingsWindow != null) return;
 
         _settingsOpen = true;
+        _toolbarAutoHide?.SetSuspended(true);
         _context.OverlayManager.CursorCircle.Hide();
 
         try
@@ -734,6 +803,9 @@ public class EventCoordinator : IEventCoordinator
         catch
         {
             _settingsOpen = false;
+            // Window construction threw before Show() — OnSettingsWindowClosed will never fire, so
+            // undo the suspend we set alongside _settingsOpen = true above.
+            _toolbarAutoHide?.SetSuspended(false);
             if (_context.CursorVM.IsVisible)
                 _context.OverlayManager.CursorCircle.Show();
             throw;
@@ -754,6 +826,15 @@ public class EventCoordinator : IEventCoordinator
         {
             _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
             _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
+
+            // Re-evaluate enablement (IsDocked may have flipped to false → disable + force-show),
+            // refresh the cached edge, and reposition the pause indicator along the new edge.
+            bool nowEnabled = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse && s.Toolbar.IsDocked;
+            _toolbarAutoHide?.UpdateEnabled(nowEnabled);
+            _toolbarAutoHide?.UpdateEdge(s.Toolbar.DockedEdge);
+            _toolbarVisibility?.PositionIndicator(s.Toolbar.DockedEdge);
+            RefreshToolbarRect();
+
             _toolbarSnapshot = toolbarSnapshot;
         }
 
@@ -766,12 +847,22 @@ public class EventCoordinator : IEventCoordinator
         Log.Information("Settings saved");
     }
 
+    private void RefreshToolbarRect()
+    {
+        if (_context == null || _toolbarAutoHide == null) return;
+        _context.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            _toolbarAutoHide.UpdateToolbarRect(CaptureToolbarRect());
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
     private void OnSettingsWindowClosed(object? sender, EventArgs e)
     {
         if (_context == null) return;
 
         _settingsWindow = null;
         _settingsOpen = false;
+        _toolbarAutoHide?.SetSuspended(false);
         if (_context.CursorVM.IsVisible)
             _context.OverlayManager.CursorCircle.Show();
     }
@@ -1004,6 +1095,7 @@ public class EventCoordinator : IEventCoordinator
     {
         if (_context == null) return;
 
+        _toolbarAutoHide?.SetSuspended(visible);
         _keyboardVisible = visible;
         Log.Information("Keyboard {State}", visible ? "shown" : "hidden");
 
@@ -1044,6 +1136,15 @@ public class EventCoordinator : IEventCoordinator
         // dispose it regardless of whether Initialize ran — a constructed-but-uninitialized
         // coordinator (_context == null) must still release it rather than skip disposal.
         _predictionFactory.Dispose();
+
+        // Unsubscribe the auto-hide gaze handler. The handler was stored in a field (in
+        // SetupToolbarAutoHide) because it captures the controller local — nulling
+        // _toolbarAutoHide would NOT unsubscribe it.
+        if (_autoHideGazeHandler != null && _context != null)
+            _context.GazeEngine.GazeSampled -= _autoHideGazeHandler;
+        _autoHideGazeHandler = null;
+        _toolbarAutoHide = null;
+        _toolbarVisibility = null;
 
         if (_context == null)
         {

@@ -23,6 +23,7 @@ public sealed class ToolbarAutoHideController
     private readonly double _screenH;
     private PhysicalRect _toolbarRect;
     private string _edge; // "Top"/"Bottom"/"Left"/"Right" — settable (changes on DockedEdge edit)
+    private string _edgeKey; // lower-cased _edge, normalized once so IsPastDockedEdge doesn't allocate per sample
     private bool _enabled; // mutable: re-evaluated when IsDocked changes at runtime
 
     // ── Runtime state ──
@@ -34,6 +35,11 @@ public sealed class ToolbarAutoHideController
     // which provides the same acquire/release semantics the comment intended.
     // _visibility is written once by Attach() before the GazeSampled subscription begins
     // (happens-before guarantee), so it need not be volatile; marking it would be purely defensive.
+    //
+    // _toolbarRect, _edge, and _edgeKey are written on the UI thread (UpdateToolbarRect/UpdateEdge)
+    // and read on the gaze thread; they're not marked volatile. A torn read of the 32-byte rect or a
+    // stale edge would at worst cause a one-sample-stale decision (acceptable — the same one-frame-stale
+    // rationale EventCoordinator uses for its _keyboardVisible/_settingsOpen flags).
     //
     // Sentinel discipline: long.MinValue means "unseeded / not counting". Do NOT use 0 — real
     // tracker timestamps carry an arbitrary large epoch (TobiiStreamEngineProvider monotonic µs),
@@ -56,6 +62,7 @@ public sealed class ToolbarAutoHideController
     {
         _enabled = enabled;
         _edge = edge;
+        _edgeKey = edge.ToLowerInvariant();
         _screenW = screenW;
         _screenH = screenH;
         _toolbarRect = toolbarRect;
@@ -100,7 +107,11 @@ public sealed class ToolbarAutoHideController
     public void UpdateToolbarRect(PhysicalRect rect) => _toolbarRect = rect;
 
     /// <summary>Refreshes the active docked edge (call when DockedEdge changes in settings).</summary>
-    public void UpdateEdge(string edge) => _edge = edge;
+    public void UpdateEdge(string edge)
+    {
+        _edge = edge;
+        _edgeKey = edge.ToLowerInvariant();
+    }
 
     /// <summary>
     /// Re-evaluates enablement (call when IsDocked changes at runtime). If transitioning to
@@ -194,13 +205,13 @@ public sealed class ToolbarAutoHideController
     private bool IsPastDockedEdge(GazePoint s)
     {
         if (!s.IsValid) return false; // invalid samples never summon (per spec)
-        return _edge.ToLowerInvariant() switch
+        return _edgeKey switch
         {
             "top"    => s.Y < -_offScreenMarginPx,
             "bottom" => s.Y > _screenH + _offScreenMarginPx,
             "left"   => s.X < -_offScreenMarginPx,
             "right"  => s.X > _screenW + _offScreenMarginPx,
-            _        => s.Y < -_offScreenMarginPx,
+            _        => false, // unknown/malformed edge never summons (defensive)
         };
     }
 

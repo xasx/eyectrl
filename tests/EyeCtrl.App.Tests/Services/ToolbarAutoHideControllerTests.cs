@@ -12,7 +12,6 @@ public class ToolbarAutoHideControllerTests
     private const double ScreenH = 1080;
     private static readonly PhysicalRect ToolbarRect = new(810, 0, 300, 50); // top edge
     private const string Edge = "Top";
-    private const long TicksPerMs = 1000; // GazePoint.TimestampMicroseconds
 
     // ── Enablement ──
 

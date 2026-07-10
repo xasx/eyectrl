@@ -427,6 +427,13 @@ public class EventCoordinator : IEventCoordinator
             _autoHideGazeHandler = sample => controller.Feed(sample, sample.TimestampMicroseconds);
             _context.GazeEngine.GazeSampled += _autoHideGazeHandler;
         }
+
+        // CaptureToolbarRect() above ran during Initialize, BEFORE ShowOverlays shows + lays out the
+        // toolbar (App.OnStartup order: Initialize → ShowOverlays → gazeEngine.Start). At that point
+        // ActualWidth/ActualHeight are 0 (the toolbar is SizeToContent and unmeasured). Enqueue a
+        // deferred re-capture at Loaded priority so the controller's hit-test rect is correct by the
+        // time the first gaze sample arrives. (Spec Edge case #7: wait one layout pass before caching.)
+        RefreshToolbarRect();
     }
 
     private PhysicalRect CaptureToolbarRect()

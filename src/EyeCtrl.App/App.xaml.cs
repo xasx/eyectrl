@@ -45,6 +45,12 @@ public partial class App : Application
     /// </summary>
     public static bool IsTestMode { get; private set; }
 
+    /// <summary>
+    /// The resolved gaze provider type for this run (Auto resolves to the concrete type at startup).
+    /// Used to gate eye-tracker-only features (e.g. toolbar auto-hide). Set in OnStartup.
+    /// </summary>
+    public static GazeProviderType ActiveProviderType { get; private set; }
+
     [DllImport("user32.dll")]
     private static extern uint GetDpiForSystem();
 
@@ -77,6 +83,7 @@ public partial class App : Application
             var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
             var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
             var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
+            ActiveProviderType = activeProviderType;
             var version = System.Reflection.Assembly.GetExecutingAssembly()
                 .GetName().Version?.ToString() ?? "unknown";
             Log.Information("Startup: EyeCtrl v{Version}, provider={Provider}, settings={SettingsPath}",

@@ -24,6 +24,7 @@ public class OverlayManager : IOverlayManager
     public ManualSelectionOverlayWindow ManualSelectionOverlay { get; private set; } = null!;
     public ActionMenuWindow ActionMenu { get; private set; } = null!;
     public ToolbarWindow Toolbar { get; private set; } = null!;
+    public PauseIndicatorWindow PauseIndicator { get; private set; } = null!;
     public KeyboardWindow Keyboard { get; private set; } = null!;
     public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator { get; private set; } = null!;
     public GlassBackdropWindow GlassBackdrop { get; private set; } = null!;
@@ -55,6 +56,7 @@ public class OverlayManager : IOverlayManager
         GlassBackdrop = new GlassBackdropWindow();
         TargetHighlight = new TargetHighlightWindow();
         EdgeButtonBar = new EdgeButtonBarWindow();
+        PauseIndicator = new PauseIndicatorWindow();
 
         // Configure ManualSelection indicator
         ManualSelectionIndicator.Configure(

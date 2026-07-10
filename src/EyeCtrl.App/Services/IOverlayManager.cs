@@ -37,6 +37,9 @@ public interface IOverlayManager
     /// </summary>
     ToolbarWindow Toolbar { get; }
 
+    /// <summary>Thin edge-bar pause indicator; shown when toolbar is hidden + paused.</summary>
+    PauseIndicatorWindow PauseIndicator { get; }
+
     /// <summary>
     /// Gets the keyboard overlay window.
     /// </summary>

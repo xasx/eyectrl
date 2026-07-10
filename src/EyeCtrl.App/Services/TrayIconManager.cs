@@ -19,13 +19,15 @@ public class TrayIconManager : IDisposable
 {
     private readonly NotifyIcon _trayIcon;
     private readonly ToolStripMenuItem _pauseMenuItem;
+    private readonly ToolStripMenuItem? _showToolbarMenuItem;
     private readonly Icon? _customIcon;
     private readonly Dispatcher _dispatcher;
     private readonly InteractionManager _interactionManager;
     private readonly IMessenger _messenger;
     private bool _disposed;
 
-    public TrayIconManager(InteractionManager interactionManager, Dispatcher dispatcher, IMessenger messenger, Action shutdownCallback)
+    public TrayIconManager(InteractionManager interactionManager, Dispatcher dispatcher, IMessenger messenger,
+        Action shutdownCallback, Action? showToolbarCallback = null)
     {
         _dispatcher = dispatcher;
         _interactionManager = interactionManager;
@@ -48,7 +50,17 @@ public class TrayIconManager : IDisposable
         var menu = new ContextMenuStrip();
         menu.Items.Add(_pauseMenuItem);
         menu.Items.Add(settingsItem);
-        menu.Items.Add(new ToolStripSeparator());
+        if (showToolbarCallback != null)
+        {
+            _showToolbarMenuItem = new ToolStripMenuItem("Show toolbar");
+            _showToolbarMenuItem.Click += (_, _) => dispatcher.BeginInvoke(showToolbarCallback);
+            menu.Items.Add(_showToolbarMenuItem);
+            menu.Items.Add(new ToolStripSeparator());
+        }
+        else
+        {
+            menu.Items.Add(new ToolStripSeparator());
+        }
         menu.Items.Add(exitItem);
 
         // Load custom icon from embedded resource

@@ -1,0 +1,219 @@
+namespace EyeCtrl.App.Services;
+
+using System.Threading;
+using EyeCtrl.Core.Models;
+
+/// <summary>
+/// Auto-hides the docked toolbar when gaze isn't on it, and summons it back by looking past the
+/// docked screen edge. Runs a two-state hysteresis machine on the gaze thread against cached
+/// geometry; dispatches visibility changes to the UI thread only on transitions.
+///
+/// See docs/superpowers/specs/2026-07-09-toolbar-auto-hide-design.md.
+/// </summary>
+public sealed class ToolbarAutoHideController
+{
+    // ── Tunables (defaults from the spec) ──
+    private readonly long _hideDelayUs;     // run of "gaze off toolbar" before hiding
+    private readonly long _summonDelayUs;   // run of "gaze past docked edge" before summoning
+    private readonly double _offScreenMarginPx;
+    private readonly Func<bool>? _calibrationActive;
+
+    // ── Geometry (cached, physical px) ──
+    private readonly double _screenW;
+    private readonly double _screenH;
+    private PhysicalRect _toolbarRect;
+    private string _edge; // "Top"/"Bottom"/"Left"/"Right" — settable (changes on DockedEdge edit)
+    private bool _enabled; // mutable: re-evaluated when IsDocked changes at runtime
+
+    // ── Runtime state ──
+    // _suspended / _paused / _enabled are written on the UI thread (SetSuspended / SetPaused /
+    // UpdateEnabled) and read in Feed() (gaze thread) → marked volatile, mirroring EventCoordinator's
+    // _keyboardVisible / _settingsOpen. The two anchor fields below are written by UI-thread resets
+    // (SetSuspended/UpdateEnabled) and by Feed on the gaze thread; long is wider than 32 bits so C#
+    // forbids `volatile long` (CS0677) — accesses go through Volatile.Read/Volatile.Write instead,
+    // which provides the same acquire/release semantics the comment intended.
+    // _visibility is written once by Attach() before the GazeSampled subscription begins
+    // (happens-before guarantee), so it need not be volatile; marking it would be purely defensive.
+    //
+    // Sentinel discipline: long.MinValue means "unseeded / not counting". Do NOT use 0 — real
+    // tracker timestamps carry an arbitrary large epoch (TobiiStreamEngineProvider monotonic µs),
+    // and the tests start at t=0, so 0 is a legitimate value that must not be overloaded with
+    // "no active run" semantics (that bug caused both test failures and instant-hide-at-launch).
+    public enum State { Visible, Hidden }
+    private const long Unseeded = long.MinValue;
+    private State _state = State.Visible;
+    private long _hideAnchorUs = Unseeded;   // Visible: timestamp of the start of the current off-toolbar run (or last on-toolbar sample)
+    private long _summonRunUs = Unseeded;     // Hidden:  start of the current sustained past-edge run
+    private volatile bool _suspended;
+    private volatile bool _paused;
+
+    // ── Output seam ──
+    private IToolbarVisibility? _visibility;
+
+    public ToolbarAutoHideController(bool enabled, string edge, double screenW, double screenH,
+        PhysicalRect toolbarRect, int hideDelayMs, int summonDelayMs, double offScreenMarginPx,
+        Func<bool>? calibrationActive = null)
+    {
+        _enabled = enabled;
+        _edge = edge;
+        _screenW = screenW;
+        _screenH = screenH;
+        _toolbarRect = toolbarRect;
+        _hideDelayUs = hideDelayMs * 1000L;
+        _summonDelayUs = summonDelayMs * 1000L;
+        _offScreenMarginPx = offScreenMarginPx;
+        _calibrationActive = calibrationActive;
+    }
+
+    /// <summary>Binds the output seam. Real wiring passes an OverlayManager adapter; tests pass a fake.</summary>
+    public void Attach(IToolbarVisibility visibility)
+    {
+        _visibility = visibility;
+        visibility.PositionIndicator(_edge);
+    }
+
+    // ── Configuration setters (called from EventCoordinator on the UI thread) ──
+
+    public void SetPaused(bool paused) => _paused = paused;
+
+    public void SetSuspended(bool suspended)
+    {
+        if (suspended == _suspended) return;
+        _suspended = suspended;
+        if (suspended)
+        {
+            // Recover from hidden so the user isn't stranded while a modal is up.
+            if (_state == State.Hidden && _enabled)
+                _visibility?.ForceShow();
+            _state = State.Visible;
+            Volatile.Write(ref _hideAnchorUs, Unseeded);  // unsuspend starts a fresh hide countdown
+            Volatile.Write(ref _summonRunUs, Unseeded);
+        }
+        else
+        {
+            // Just unsuspended: reset the hide countdown so it doesn't instantly hide.
+            Volatile.Write(ref _hideAnchorUs, Unseeded);
+        }
+    }
+
+    /// <summary>Refreshes the cached toolbar rect (call on the UI thread after layout/dock changes).</summary>
+    public void UpdateToolbarRect(PhysicalRect rect) => _toolbarRect = rect;
+
+    /// <summary>Refreshes the active docked edge (call when DockedEdge changes in settings).</summary>
+    public void UpdateEdge(string edge) => _edge = edge;
+
+    /// <summary>
+    /// Re-evaluates enablement (call when IsDocked changes at runtime). If transitioning to
+    /// disabled, force-shows the toolbar and resets to Visible so a now-floating toolbar doesn't
+    /// auto-hide. Idempotent on no-op transitions.
+    /// </summary>
+    public void UpdateEnabled(bool enabled)
+    {
+        if (enabled == _enabled) return;
+        _enabled = enabled;
+        if (!enabled && _visibility != null)
+        {
+            _visibility.ForceShow();
+            _state = State.Visible;
+            Volatile.Write(ref _hideAnchorUs, Unseeded);
+            Volatile.Write(ref _summonRunUs, Unseeded);
+        }
+    }
+
+    // ── The pure decision (gaze thread) ──
+
+    /// <summary>
+    /// Feeds one raw gaze sample and applies any state transition. Returns the resulting state.
+    /// Pure with respect to external effects — only touches <see cref="_visibility"/> on transitions.
+    /// </summary>
+    public State Feed(GazePoint sample, long timestampUs)
+    {
+        if (!_enabled || _suspended || _visibility == null)
+            return _state;
+        if (_calibrationActive?.Invoke() == true)
+            return _state; // suspended during calibration
+
+        switch (_state)
+        {
+            case State.Visible:
+                if (sample.IsValid && _toolbarRect.Contains(sample.X, sample.Y))
+                {
+                    // Gaze on toolbar — anchor to "now" so the hide countdown measures time since
+                    // the LAST on-toolbar sample (a later off-toolbar run resumes the count from here).
+                    Volatile.Write(ref _hideAnchorUs, timestampUs);
+                }
+                else if (!sample.IsValid)
+                {
+                    // Blink: ignored, does NOT reset the hide countdown (per spec).
+                }
+                else
+                {
+                    // Off-toolbar run. Seed the anchor on the first such sample, then measure elapsed.
+                    var anchor = Volatile.Read(ref _hideAnchorUs);
+                    if (anchor == Unseeded)
+                    {
+                        anchor = timestampUs;
+                        Volatile.Write(ref _hideAnchorUs, anchor);
+                    }
+                    if (timestampUs - anchor >= _hideDelayUs)
+                    {
+                        _state = State.Hidden;
+                        Volatile.Write(ref _summonRunUs, Unseeded);
+                        _visibility.HideToolbar(_paused);
+                    }
+                }
+                break;
+
+            case State.Hidden:
+                if (IsPastDockedEdge(sample))
+                {
+                    var runStart = Volatile.Read(ref _summonRunUs);
+                    if (runStart == Unseeded)
+                    {
+                        runStart = timestampUs;
+                        Volatile.Write(ref _summonRunUs, runStart);
+                    }
+                    if (timestampUs - runStart >= _summonDelayUs)
+                    {
+                        _state = State.Visible;
+                        Volatile.Write(ref _summonRunUs, Unseeded);
+                        Volatile.Write(ref _hideAnchorUs, timestampUs); // start the post-summon hide countdown fresh
+                        _visibility.ShowToolbar();
+                    }
+                }
+                else
+                {
+                    Volatile.Write(ref _summonRunUs, Unseeded); // condition broken — reset summon countdown
+                }
+                break;
+        }
+
+        return _state;
+    }
+
+    private bool IsPastDockedEdge(GazePoint s)
+    {
+        if (!s.IsValid) return false; // invalid samples never summon (per spec)
+        return _edge.ToLowerInvariant() switch
+        {
+            "top"    => s.Y < -_offScreenMarginPx,
+            "bottom" => s.Y > _screenH + _offScreenMarginPx,
+            "left"   => s.X < -_offScreenMarginPx,
+            "right"  => s.X > _screenW + _offScreenMarginPx,
+            _        => s.Y < -_offScreenMarginPx,
+        };
+    }
+
+    // ── Test-only helpers (used by ToolbarAutoHideControllerTests) ──
+    // (InternalsVisibleTo is not declared from EyeCtrl.App; these are public test hooks instead.
+    //  Acceptable for a controller whose entire purpose is testable state transitions.)
+
+    public void HideForTest(IToolbarVisibility vis)
+    {
+        _state = State.Hidden;
+        vis.HideToolbar(_paused);
+    }
+
+    // Expose state name for any future assertion diagnostics.
+    public string StateName => _state.ToString();
+}

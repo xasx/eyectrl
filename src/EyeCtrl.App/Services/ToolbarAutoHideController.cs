@@ -81,7 +81,16 @@ public sealed class ToolbarAutoHideController
 
     // ── Configuration setters (called from EventCoordinator on the UI thread) ──
 
-    public void SetPaused(bool paused) => _paused = paused;
+    public void SetPaused(bool paused)
+    {
+        _paused = paused;
+        // If the toolbar is already HIDDEN, no hide/show transition will fire to update the edge
+        // bar — so react to the pause change here. Re-asserting HideToolbar keeps the toolbar hidden
+        // (a no-op) while toggling the indicator: pause-while-hidden shows the bar, resume hides it.
+        // Without this the user can be paused + hidden + no feedback (spec Goal #4 violation).
+        if (_state == State.Hidden && _enabled && !_suspended)
+            _visibility?.HideToolbar(paused);
+    }
 
     public void SetSuspended(bool suspended)
     {

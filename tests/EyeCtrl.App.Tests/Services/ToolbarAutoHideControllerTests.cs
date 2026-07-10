@@ -261,6 +261,46 @@ public class ToolbarAutoHideControllerTests
     }
 
     [Fact]
+    public void Pause_WhileHidden_ShowsIndicator()
+    {
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.HideForTest(vis);            // hidden while NOT paused → no indicator
+        Check.That(vis.LastHidePaused).IsFalse();
+
+        sut.SetPaused(true);             // pause AFTER hiding — must show the edge bar
+        Check.That(vis.HideCalls).IsEqualTo(2);   // HideForTest + the re-assert
+        Check.That(vis.LastHidePaused).IsTrue();
+    }
+
+    [Fact]
+    public void Resume_WhileHidden_HidesIndicator()
+    {
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.SetPaused(true);
+        sut.HideForTest(vis);            // hidden while paused → indicator up
+        Check.That(vis.LastHidePaused).IsTrue();
+
+        sut.SetPaused(false);            // resume while still hidden — must hide the edge bar
+        Check.That(vis.LastHidePaused).IsFalse();
+    }
+
+    [Fact]
+    public void Pause_WhileVisible_DoesNotTouchVisibility()
+    {
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);                 // starts VISIBLE
+
+        sut.SetPaused(true);             // pausing while visible must not hide anything
+        Check.That(vis.HideCalls).IsEqualTo(0);
+        Check.That(vis.ShowCalls).IsEqualTo(0);
+    }
+
+    [Fact]
     public void SummonWhilePaused_HidesIndicator()
     {
         var sut = NewController(); // Top

@@ -9,5 +9,5 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent">
-    <Border x:Name="Bar" Background="#C0204060" Height="8" Width="200"/>
+    <Border Background="#C0204060" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 </overlay:OverlayWindow>

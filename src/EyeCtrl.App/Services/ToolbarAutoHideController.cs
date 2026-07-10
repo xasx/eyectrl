@@ -24,12 +24,12 @@ public sealed class ToolbarAutoHideController
     private PhysicalRect _toolbarRect;
     private string _edge; // "Top"/"Bottom"/"Left"/"Right" — settable (changes on DockedEdge edit)
     private string _edgeKey; // lower-cased _edge, normalized once so IsPastDockedEdge doesn't allocate per sample
-    private bool _enabled; // mutable: re-evaluated when IsDocked changes at runtime
+    private volatile bool _enabled; // mutable: re-evaluated when IsDocked changes at runtime
 
     // ── Runtime state ──
-    // _suspended / _paused / _enabled are written on the UI thread (SetSuspended / SetPaused /
-    // UpdateEnabled) and read in Feed() (gaze thread) → marked volatile, mirroring EventCoordinator's
-    // _keyboardVisible / _settingsOpen. The two anchor fields below are written by UI-thread resets
+    // _suspended / _paused / _enabled / _state are written on the UI thread (SetSuspended / SetPaused /
+    // UpdateEnabled / ResetToVisible) and read in Feed() (gaze thread) → marked volatile, mirroring
+    // EventCoordinator's _keyboardVisible / _settingsOpen. The two anchor fields below are written by UI-thread resets
     // (SetSuspended/UpdateEnabled) and by Feed on the gaze thread; long is wider than 32 bits so C#
     // forbids `volatile long` (CS0677) — accesses go through Volatile.Read/Volatile.Write instead,
     // which provides the same acquire/release semantics the comment intended.
@@ -47,7 +47,7 @@ public sealed class ToolbarAutoHideController
     // "no active run" semantics (that bug caused both test failures and instant-hide-at-launch).
     public enum State { Visible, Hidden }
     private const long Unseeded = long.MinValue;
-    private State _state = State.Visible;
+    private volatile State _state = State.Visible;
     private long _hideAnchorUs = Unseeded;   // Visible: timestamp of the start of the current off-toolbar run (or last on-toolbar sample)
     private long _summonRunUs = Unseeded;     // Hidden:  start of the current sustained past-edge run
     private volatile bool _suspended;

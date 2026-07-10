@@ -30,6 +30,24 @@ public class ToolbarAutoHideControllerTests
         Check.That(vis.ShowCalls).IsEqualTo(0);
     }
 
+    [Fact]
+    public void UpdateEnabled_ToFalse_ForceShowsAndResetsToVisible()
+    {
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.HideForTest(vis);
+
+        sut.UpdateEnabled(false);
+
+        Check.That(vis.ForceShowCalls).IsEqualTo(1);
+
+        // Feed after disable — must not hide.
+        sut.Feed(CreateSample(960, 500, valid: true), 0);
+        sut.Feed(CreateSample(960, 500, valid: true), 10_000_000);
+        Check.That(vis.HideCalls).IsEqualTo(1); // only the initial HideForTest
+    }
+
     // ── HIDE transition ──
 
     [Fact]

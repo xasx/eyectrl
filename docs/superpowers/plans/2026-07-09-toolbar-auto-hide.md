@@ -228,11 +228,11 @@ Create `src/EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml`:
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent">
-    <Border x:Name="Bar" Background="#C0204060" Height="8" Width="200"/>
+    <Border Background="#C0204060" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 </overlay:OverlayWindow>
 ```
 
-`IsClickThrough="True"` keeps the `OverlayWindow` default (`OverlayWindow.OnSourceInitialized` → `SetOverlayInteraction(clickThrough:true, focusable:false)`), so the bar is a passive indicator that never steals input.
+`IsClickThrough="True"` keeps the `OverlayWindow` default (`OverlayWindow.OnSourceInitialized` → `SetOverlayInteraction(clickThrough:true, focusable:false)`), so the bar is a passive indicator that never steals input. The `Bar` Border stretches to fill the window — `SetEdge` (below) sizes the window explicitly (full screen width/height on one axis, `BarThicknessLogical` on the other), and with `SizeToContent` deliberately absent the child must stretch or it would clip/render as a fixed stub. (Do NOT put fixed `Width`/`Height` on the Border or an `x:Name` — the code-behind doesn't reference it.)
 
 - [ ] **Step 2: Write the code-behind**
 

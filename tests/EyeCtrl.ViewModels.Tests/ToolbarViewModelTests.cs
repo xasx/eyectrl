@@ -11,10 +11,10 @@ public class ToolbarViewModelTests
     private readonly EyeCtrlSettings _settings = new();
 
     [Fact]
-    public void InitializesWith4Buttons()
+    public void InitializesWith6Buttons()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        Check.That(vm.Buttons.Count).IsEqualTo(5);
+        Check.That(vm.Buttons.Count).IsEqualTo(6);
     }
 
     [Fact]

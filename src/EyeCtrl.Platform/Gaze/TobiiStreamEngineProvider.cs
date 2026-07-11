@@ -2,6 +2,7 @@
 namespace EyeCtrl.Platform.Gaze;
 
 using System.Threading;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -29,9 +30,42 @@ public class TobiiStreamEngineProvider : IGazeProvider
 
     // Must keep a reference to prevent GC from collecting the delegate
     private tobii_gaze_point_callback_t? _gazeCallback;
+    private tobii_eye_position_normalized_callback_t? _eyePositionCallback;
+    private tobii_head_pose_callback_t? _headPoseCallback;
+    private tobii_user_presence_callback_t? _presenceCallback;
+
+    // Track-status cache: written by three independent stream callbacks (each may
+    // fire on the Tobii callback thread at its own cadence), read by the UI's
+    // DispatcherTimer poll. _statusLock serializes the partial-update reads/writes
+    // so one callback never clobbers fields owned by another.
+    private readonly object _statusLock = new();
+    private TrackStatusSample _latestStatus;
+    private bool _hasStatus;
 
     public event Action<GazePoint>? GazePointReceived;
     public bool IsConnected { get; private set; }
+
+    /// <summary>
+    /// The Tobii Stream Engine supplies all three optional track-status streams
+    /// (normalized eye position, head pose, user presence).
+    /// </summary>
+    public GazeProviderCapabilities Capabilities =>
+        GazeProviderCapabilities.EyePosition |
+        GazeProviderCapabilities.HeadPose |
+        GazeProviderCapabilities.UserPresence;
+
+    /// <summary>
+    /// Thread-safe read of the latest track-status sample assembled from the three
+    /// stream callbacks. Returns false until at least one callback has fired.
+    /// </summary>
+    public bool TryGetLatestStatus(out TrackStatusSample sample)
+    {
+        lock (_statusLock)
+        {
+            sample = _latestStatus;
+            return _hasStatus;
+        }
+    }
 
     /// <summary>
     /// Creates a Tobii Stream Engine provider. Connection is attempted in
@@ -167,6 +201,75 @@ public class TobiiStreamEngineProvider : IGazeProvider
             _deviceContext, _gazeCallback, IntPtr.Zero);
         if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
             _logger.LogWarning("Gaze subscription failed: {Error}", result);
+
+        // --- Track-status streams (eye position / head pose / user presence) ---
+        // Each callback does a PARTIAL update of the shared cache, copying out the
+        // previous sample under the lock, overwriting only its own fields, and
+        // writing back — so concurrent callbacks never clobber each other's data.
+        // left/right_validity is per-eye (not per-coordinate) in this wrapper, so a
+        // single validity check flattens to the EyeSample.IsValid bool.
+
+        _eyePositionCallback = (ref tobii_eye_position_normalized_t eyePosition, IntPtr userData) =>
+        {
+            var left = new EyeSample(
+                eyePosition.left.x, eyePosition.left.y, eyePosition.left.z,
+                eyePosition.left_validity == tobii_validity_t.TOBII_VALIDITY_VALID);
+            var right = new EyeSample(
+                eyePosition.right.x, eyePosition.right.y, eyePosition.right.z,
+                eyePosition.right_validity == tobii_validity_t.TOBII_VALIDITY_VALID);
+            lock (_statusLock)
+            {
+                _latestStatus = _latestStatus with
+                {
+                    Left = left,
+                    Right = right,
+                    TimestampMicroseconds = eyePosition.timestamp_us
+                };
+                _hasStatus = true;
+            }
+        };
+
+        _headPoseCallback = (ref tobii_head_pose_t headPose, IntPtr userData) =>
+        {
+            // position_xyz.z is the head's distance from the tracker in mm
+            // (positive, increases as the user moves away).
+            double distanceMm = headPose.position_xyz.z;
+            bool distanceValid = headPose.position_validity == tobii_validity_t.TOBII_VALIDITY_VALID;
+            lock (_statusLock)
+            {
+                _latestStatus = _latestStatus with
+                {
+                    HeadDistanceMm = distanceMm,
+                    HeadDistanceValid = distanceValid
+                };
+                _hasStatus = true;
+            }
+        };
+
+        _presenceCallback = (tobii_user_presence_status_t status, long timestampUs, IntPtr userData) =>
+        {
+            bool present = status == tobii_user_presence_status_t.TOBII_USER_PRESENCE_STATUS_PRESENT;
+            lock (_statusLock)
+            {
+                _latestStatus = _latestStatus with { UserPresent = present };
+                _hasStatus = true;
+            }
+        };
+
+        result = Interop.tobii_eye_position_normalized_subscribe(
+            _deviceContext, _eyePositionCallback, IntPtr.Zero);
+        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
+            _logger.LogWarning("Eye position subscription failed: {Error}", result);
+
+        result = Interop.tobii_head_pose_subscribe(
+            _deviceContext, _headPoseCallback, IntPtr.Zero);
+        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
+            _logger.LogWarning("Head pose subscription failed: {Error}", result);
+
+        result = Interop.tobii_user_presence_subscribe(
+            _deviceContext, _presenceCallback, IntPtr.Zero);
+        if (result != tobii_error_t.TOBII_ERROR_NO_ERROR)
+            _logger.LogWarning("User presence subscription failed: {Error}", result);
     }
 
     private void PollLoop()
@@ -247,8 +350,19 @@ public class TobiiStreamEngineProvider : IGazeProvider
         if (_deviceContext != IntPtr.Zero)
         {
             Interop.tobii_gaze_point_unsubscribe(_deviceContext);
+            Interop.tobii_eye_position_normalized_unsubscribe(_deviceContext);
+            Interop.tobii_head_pose_unsubscribe(_deviceContext);
+            Interop.tobii_user_presence_unsubscribe(_deviceContext);
             Interop.tobii_device_destroy(_deviceContext);
             _deviceContext = IntPtr.Zero;
+        }
+
+        // Drop any cached status from the destroyed device so stale eye/head/presence
+        // data isn't reported after disconnect/reconnect.
+        lock (_statusLock)
+        {
+            _latestStatus = default;
+            _hasStatus = false;
         }
     }
 

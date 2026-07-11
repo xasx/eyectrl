@@ -1,0 +1,27 @@
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.TrackStatusWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" IsClickThrough="True" ResizeMode="NoResize"
+        Width="160" Height="110">
+    <Border Background="#80000000" CornerRadius="8" Padding="8">
+        <StackPanel>
+            <TextBlock Text="Track Status" Foreground="White" FontSize="10" FontWeight="Bold" Margin="0,0,0,4"/>
+            <!-- Track box with eye dots -->
+            <Canvas Width="60" Height="40" HorizontalAlignment="Left" Margin="0,0,8,0">
+                <Border Width="60" Height="40" BorderBrush="White" BorderThickness="1" Background="#20FFFFFF"/>
+                <Ellipse x:Name="LeftEyeDot" Width="6" Height="6" Fill="LimeGreen"/>
+                <Ellipse x:Name="RightEyeDot" Width="6" Height="6" Fill="LimeGreen"/>
+            </Canvas>
+            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <TextBlock Text="Distance: " Foreground="White" FontSize="10"/>
+                <TextBlock x:Name="DistanceText" Text="—" Foreground="White" FontSize="10"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Quality: " Foreground="White" FontSize="10"/>
+                <TextBlock x:Name="QualityText" Text="Unknown" Foreground="Yellow" FontSize="10"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</overlays:OverlayWindow>

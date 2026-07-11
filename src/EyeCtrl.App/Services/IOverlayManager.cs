@@ -68,6 +68,9 @@ public interface IOverlayManager
     /// <summary>Gets the context-driven right-edge button bar window.</summary>
     EdgeButtonBarWindow EdgeButtonBar { get; }
 
+    /// <summary>Gets the track status overlay window (eye position, distance, presence).</summary>
+    TrackStatusWindow TrackStatus { get; }
+
     /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
     /// </summary>
@@ -90,4 +93,5 @@ public record OverlayViewModels(
     ManualSelectionGazeIndicatorViewModel ManualSelectionIndicator,
     CalibrationViewModel Calibration,
     TargetHighlightOverlayViewModel TargetHighlight,
-    EdgeButtonBarViewModel EdgeButtonBar);
+    EdgeButtonBarViewModel EdgeButtonBar,
+    TrackStatusViewModel TrackStatus);

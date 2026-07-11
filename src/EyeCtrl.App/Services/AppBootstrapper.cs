@@ -153,6 +153,7 @@ public class AppBootstrapper
         services.AddSingleton<TargetHighlightOverlayViewModel>();
         services.AddSingleton<DragTrailViewModel>();
         services.AddSingleton<EdgeButtonBarViewModel>();
+        services.AddSingleton<TrackStatusViewModel>();
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(
@@ -231,7 +232,8 @@ public class AppBootstrapper
             ManualSelectionIndicator: manualSelectionIndicatorVm,
             Calibration: sp.GetRequiredService<CalibrationViewModel>(),
             TargetHighlight: sp.GetRequiredService<TargetHighlightOverlayViewModel>(),
-            EdgeButtonBar: sp.GetRequiredService<EdgeButtonBarViewModel>());
+            EdgeButtonBar: sp.GetRequiredService<EdgeButtonBarViewModel>(),
+            TrackStatus: sp.GetRequiredService<TrackStatusViewModel>());
     }
 
     private static IExercise[] BuildExercisePool(PhysicalPoint center)

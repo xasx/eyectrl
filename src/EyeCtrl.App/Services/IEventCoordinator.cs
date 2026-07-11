@@ -77,4 +77,5 @@ public record EventCoordinationContext(
     // Dependencies
     IInputSimulator InputSimulator,
     CalibrationService CalibrationService,
-    INoteManager NoteManager);
+    INoteManager NoteManager,
+    TrackStatusViewModel TrackStatusVM);

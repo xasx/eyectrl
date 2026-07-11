@@ -31,6 +31,7 @@ public class OverlayManager : IOverlayManager
     public CalibrationWindow Calibration { get; private set; } = null!;
     public TargetHighlightWindow TargetHighlight { get; private set; } = null!;
     public EdgeButtonBarWindow EdgeButtonBar { get; private set; } = null!;
+    public TrackStatusWindow TrackStatus { get; private set; } = null!;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger)
     {
@@ -97,6 +98,11 @@ public class OverlayManager : IOverlayManager
         CursorCircle.UpdateAppearance(settings.Cursor);
         Toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
         Toolbar.SetProviderIndicator(providerType);
+
+        // Track status overlay (click-through, top-right). Capability-gated inside the VM.
+        TrackStatus = new TrackStatusWindow();
+        TrackStatus.PositionTopRight();
+        TrackStatus.Configure(viewModels.TrackStatus);
 
         _logger.LogInformation("Overlay windows initialized successfully");
     }

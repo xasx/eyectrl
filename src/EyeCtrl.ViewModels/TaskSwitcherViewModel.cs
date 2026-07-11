@@ -50,45 +50,24 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
 
     private void ShowOverlay()
     {
-        // Repopulate tiles + dwell targets from the live window list.
+        // Repopulate tiles from the live window list. Dwell targets are NOT created here:
+        // the View computes each tile's real screen center after layout and calls
+        // UpdateTilePosition(), which creates the target at its true position. Creating all
+        // targets up front at a shared (0,0) placeholder would let gaze accumulate dwell on
+        // the overlapping origin targets during the layout gap (the old (0,0) race).
         Tiles.Clear();
         DwellDetector.ClearTargets();
 
-        var windows = _windowManager.EnumerateOpenWindows();
-        // M2 note: reuses ToolbarButtonDwellMs (700ms default). Task-switcher tiles are larger
-        // (200x120) than toolbar buttons (~50px), so 700ms feels easier to hit — intentional
-        // for a fullscreen picker. If user testing finds it too sensitive, add a dedicated
-        // TaskSwitcherTileDwellMs field to DwellSettings (range 200–2000, default ~900).
-        var dwellMs = _settings.Dwell.ToolbarButtonDwellMs;
-
-        for (int i = 0; i < windows.Count; i++)
+        foreach (var window in _windowManager.EnumerateOpenWindows())
         {
-            var window = windows[i];
-            // H3 fix: all tiles start at (0,0) placeholder. IsVisible is NOT set here —
-            // the View calls UpdateTilePositions() then ActivateAfterLayout() once layout
-            // is done, so the DwellDetector never processes targets at the overlapping
-            // (0,0) origin.
-            var position = new PhysicalPoint(0, 0);
-            var tile = new TaskSwitcherTileViewModel(window.Hwnd, window.Title, window.ProcessId, window.ProcessName, position);
-            Tiles.Add(tile);
-
-            DwellDetector.AddTarget(new DwellTarget(
-                window.Hwnd.ToString(),
-                position,
-                DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius),
-                dwellMs));
+            Tiles.Add(new TaskSwitcherTileViewModel(
+                window.Hwnd, window.Title, window.ProcessId, window.ProcessName,
+                new PhysicalPoint(0, 0)));
         }
 
-        // IsVisible is set by ActivateAfterLayout() — NOT here — to avoid the (0,0) race.
-    }
-
-    /// <summary>
-    /// Called by the View after <c>UpdateTilePositions</c> has set real screen positions
-    /// on all dwell targets. Activates the overlay (sets IsVisible) so dwell processing
-    /// begins only when targets are correctly positioned, not at the (0,0) placeholder.
-    /// </summary>
-    public void ActivateAfterLayout()
-    {
+        // Flip IsVisible so the EventCoordinator shows the fullscreen window. This is the
+        // show trigger — the coordinator watches IsVisible. Dwell processing is harmless
+        // until targets exist (UpdateTilePosition creates them once layout completes).
         IsVisible = true;
     }
 
@@ -120,13 +99,24 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
             tile.DwellProgress = progress;
     }
 
-    /// <summary>Called by the View after layout to set a tile's real screen center for dwell hit-testing.</summary>
+    /// <summary>
+    /// Called by the View once a tile's container is laid out, with the tile's real screen
+    /// center. Creates (or repositions — <see cref="DwellDetector.AddTarget"/> replaces by id)
+    /// the dwell target here so the detector only ever hit-tests correctly-positioned targets.
+    /// Reuses <c>ToolbarButtonDwellMs</c> (700 ms default): tiles are large (200x120) so it
+    /// feels easy to hit, which is intentional for a fullscreen picker. If user testing finds
+    /// it too sensitive, add a dedicated TaskSwitcherTileDwellMs field to DwellSettings.
+    /// </summary>
     public void UpdateTilePosition(IntPtr hwnd, PhysicalPoint screenCenter)
     {
-        // Keep the tile's Position property in sync (used by the View / diagnostics).
         var tile = Tiles.FirstOrDefault(t => t.Hwnd == hwnd);
         if (tile != null)
             tile.Position = screenCenter;
-        DwellDetector.UpdateTargetCenter(hwnd.ToString(), screenCenter);
+
+        DwellDetector.AddTarget(new DwellTarget(
+            hwnd.ToString(),
+            screenCenter,
+            DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius),
+            _settings.Dwell.ToolbarButtonDwellMs));
     }
 }

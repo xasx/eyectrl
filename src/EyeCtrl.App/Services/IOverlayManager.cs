@@ -71,6 +71,9 @@ public interface IOverlayManager
     /// <summary>Gets the track status overlay window (eye position, distance, presence).</summary>
     TrackStatusWindow TrackStatus { get; }
 
+    /// <summary>Gets the fullscreen Task Switcher overlay window.</summary>
+    TaskSwitcherWindow TaskSwitcher { get; }
+
     /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
     /// </summary>
@@ -94,4 +97,5 @@ public record OverlayViewModels(
     CalibrationViewModel Calibration,
     TargetHighlightOverlayViewModel TargetHighlight,
     EdgeButtonBarViewModel EdgeButtonBar,
-    TrackStatusViewModel TrackStatus);
+    TrackStatusViewModel TrackStatus,
+    TaskSwitcherViewModel TaskSwitcher);

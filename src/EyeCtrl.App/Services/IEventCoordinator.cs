@@ -78,4 +78,6 @@ public record EventCoordinationContext(
     IInputSimulator InputSimulator,
     CalibrationService CalibrationService,
     INoteManager NoteManager,
-    TrackStatusViewModel TrackStatusVM);
+    TrackStatusViewModel TrackStatusVM,
+    TaskSwitcherViewModel TaskSwitcherVM,
+    IWindowManager WindowManager);

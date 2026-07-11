@@ -132,3 +132,11 @@ public record DragDismissManualSelectionMessage;
 
 /// <summary>Sent when the user dwells on the scroll stop button (edge bar) to exit scroll mode.</summary>
 public record ExitScrollModeMessage;
+
+// Task Switcher messages
+/// <summary>Sent by the toolbar Task Switcher button to toggle the overlay.</summary>
+public record TaskSwitcherToggledMessage;
+
+/// <summary>Sent by a Task Switcher tile when the user selects a window.</summary>
+/// <param name="Hwnd">Handle of the window to bring to front.</param>
+public record TaskSwitcherSelectionMessage(IntPtr Hwnd);

@@ -126,10 +126,17 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool AllowSetForegroundWindow(uint dwProcessId);
 
+    // Returns S_OK (0) on success and writes the attribute into pvAttribute.
+    [LibraryImport("dwmapi.dll")]
+    internal static partial int DwmGetWindowAttribute(IntPtr hWnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
     // Constants
 
     internal const int GWL_EXSTYLE = -20;
     internal const uint GW_OWNER = 4;
     internal const int WS_EX_TOOLWINDOW = 0x00000080;
     internal const uint ASFW_ANY = 0xFFFFFFFF;
+    // DWMWA_CLOAKED: nonzero when DWM has cloaked the window (e.g. suspended UWP apps,
+    // ApplicationFrameWindow ghosts) — visible + top-level to EnumWindows but not really shown.
+    internal const int DWMWA_CLOAKED = 14;
 }

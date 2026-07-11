@@ -37,13 +37,21 @@ public class Win32WindowManager : IWindowManager
             if (NativeMethods.GetWindow(hWnd, NativeMethods.GW_OWNER) != IntPtr.Zero)
                 return true;
 
-            // Get title — use char[] buffer (not StringBuilder; [LibraryImport] doesn't support it)
+            // Exclude cloaked windows: suspended UWP apps and ApplicationFrameWindow "ghosts"
+            // pass IsWindowVisible but are not actually shown. Only trust the result on S_OK.
+            if (NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DWMWA_CLOAKED,
+                    out int cloaked, sizeof(int)) == 0 && cloaked != 0)
+                return true;
+
+            // Get title — use char[] buffer (not StringBuilder; [LibraryImport] doesn't support it).
+            // Use GetWindowText's return (chars actually copied), not GetWindowTextLength, so a
+            // title that shrank between the two calls doesn't leave trailing '\0's in the string.
             var length = NativeMethods.GetWindowTextLength(hWnd);
             if (length == 0)
                 return true;
             var buffer = new char[length + 1];
-            NativeMethods.GetWindowText(hWnd, buffer, buffer.Length);
-            var title = new string(buffer, 0, length);
+            int copied = NativeMethods.GetWindowText(hWnd, buffer, buffer.Length);
+            var title = new string(buffer, 0, copied);
             if (string.IsNullOrWhiteSpace(title))
                 return true;
 

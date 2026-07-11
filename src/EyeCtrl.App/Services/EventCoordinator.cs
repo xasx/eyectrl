@@ -106,6 +106,36 @@ public class EventCoordinator : IEventCoordinator
             if (e.PropertyName == nameof(_context.Settings.TrackStatus.Enabled))
                 _context.Dispatcher.BeginInvoke(UpdateTrackStatusVisibility);
         };
+
+        // Task Switcher: the VM receives TaskSwitcherToggledMessage itself (via IRecipient +
+        // ObservableRecipient auto-register) and toggles its own IsVisible + tiles. The
+        // coordinator only watches IsVisible to show/hide the fullscreen window, and handles
+        // TaskSwitcherSelectionMessage to bring the chosen window to front.
+        _context.TaskSwitcherVM.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(_context.TaskSwitcherVM.IsVisible))
+            {
+                _context.Dispatcher.BeginInvoke(() =>
+                {
+                    if (_context.TaskSwitcherVM.IsVisible)
+                        _context.OverlayManager.TaskSwitcher.ShowFullScreen();
+                    else
+                        _context.OverlayManager.TaskSwitcher.HideOverlay();
+                });
+            }
+        };
+        _context.Messenger.Register<EventCoordinator, TaskSwitcherSelectionMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() => HandleTaskSwitcherSelection(msg)));
+    }
+
+    private void HandleTaskSwitcherSelection(TaskSwitcherSelectionMessage msg)
+    {
+        if (_context == null) return;
+        _context.WindowManager.BringToFront(msg.Hwnd);
+        // HideOverlay is public on the VM so the coordinator can dismiss after a selection
+        // (in addition to the toggle path inside Receive).
+        _context.TaskSwitcherVM.HideOverlay();
+        _context.OverlayManager.TaskSwitcher.HideOverlay();
     }
 
     private void UpdateTrackStatusVisibility()

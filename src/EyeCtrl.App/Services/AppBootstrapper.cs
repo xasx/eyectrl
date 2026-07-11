@@ -64,6 +64,9 @@ public class AppBootstrapper
         // Platform services
         services.AddSingleton<IMouseCoordinateMapper, MouseCoordinateMapper>();
         services.AddSingleton<IInputSimulator, Win32InputSimulator>();
+
+        // Startup registration
+        services.AddSingleton<IStartupRegistrar, WindowsStartupRegistrar>();
         services.AddSingleton<IGazeProvider>(sp =>
         {
             if (isTestMode)

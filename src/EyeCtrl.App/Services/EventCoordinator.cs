@@ -99,6 +99,23 @@ public class EventCoordinator : IEventCoordinator
         SetupBackdrop();
         SetupDragHandlers();
         _context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
+
+        UpdateTrackStatusVisibility();
+        _context.Settings.TrackStatus.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(_context.Settings.TrackStatus.Enabled))
+                _context.Dispatcher.BeginInvoke(UpdateTrackStatusVisibility);
+        };
+    }
+
+    private void UpdateTrackStatusVisibility()
+    {
+        if (_context == null) return;
+        var trackStatusWindow = _context.OverlayManager.TrackStatus;
+        if (_context.Settings.TrackStatus.Enabled)
+            trackStatusWindow.StartTracking();
+        else
+            trackStatusWindow.StopTracking();
     }
 
     private void SetupPropertyChangedHandlers()

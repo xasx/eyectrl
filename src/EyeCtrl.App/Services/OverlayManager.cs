@@ -18,6 +18,7 @@ public class OverlayManager : IOverlayManager
 {
     private readonly ILogger<OverlayManager> _logger;
     private readonly Dispatcher _dispatcher;
+    private readonly IAppIconProvider _iconProvider;
 
     public CursorCircleWindow CursorCircle { get; private set; } = null!;
     public ActivationButtonWindow ActivationButton { get; private set; } = null!;
@@ -32,11 +33,13 @@ public class OverlayManager : IOverlayManager
     public TargetHighlightWindow TargetHighlight { get; private set; } = null!;
     public EdgeButtonBarWindow EdgeButtonBar { get; private set; } = null!;
     public TrackStatusWindow TrackStatus { get; private set; } = null!;
+    public TaskSwitcherWindow TaskSwitcher { get; private set; } = null!;
 
-    public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger)
+    public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider)
     {
         _dispatcher = dispatcher;
         _logger = logger;
+        _iconProvider = iconProvider;
     }
 
     /// <summary>
@@ -103,6 +106,10 @@ public class OverlayManager : IOverlayManager
         TrackStatus = new TrackStatusWindow();
         TrackStatus.PositionTopRight();
         TrackStatus.Configure(viewModels.TrackStatus);
+
+        // Task Switcher overlay (fullscreen, not click-through). Icons resolved by the View.
+        TaskSwitcher = new TaskSwitcherWindow();
+        TaskSwitcher.Configure(viewModels.TaskSwitcher, _iconProvider);
 
         _logger.LogInformation("Overlay windows initialized successfully");
     }

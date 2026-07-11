@@ -67,6 +67,10 @@ public class AppBootstrapper
 
         // Startup registration
         services.AddSingleton<IStartupRegistrar, WindowsStartupRegistrar>();
+
+        // Window management (Task Switcher)
+        services.AddSingleton<IWindowManager, Win32WindowManager>();
+        services.AddSingleton<IAppIconProvider, Win32AppIconProvider>();
         services.AddSingleton<IGazeProvider>(sp =>
         {
             if (isTestMode)
@@ -154,6 +158,7 @@ public class AppBootstrapper
         services.AddSingleton<DragTrailViewModel>();
         services.AddSingleton<EdgeButtonBarViewModel>();
         services.AddSingleton<TrackStatusViewModel>();
+        services.AddSingleton<TaskSwitcherViewModel>();
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(
@@ -187,7 +192,8 @@ public class AppBootstrapper
         // OverlayManager (manages all overlay window lifecycle)
         services.AddSingleton<IOverlayManager>(sp => new OverlayManager(
             dispatcher,
-            sp.GetRequiredService<ILogger<OverlayManager>>()));
+            sp.GetRequiredService<ILogger<OverlayManager>>(),
+            sp.GetRequiredService<IAppIconProvider>()));
 
         // Eye-care
         services.AddSingleton(sp => new EyeCareBannerWindow(
@@ -233,7 +239,8 @@ public class AppBootstrapper
             Calibration: sp.GetRequiredService<CalibrationViewModel>(),
             TargetHighlight: sp.GetRequiredService<TargetHighlightOverlayViewModel>(),
             EdgeButtonBar: sp.GetRequiredService<EdgeButtonBarViewModel>(),
-            TrackStatus: sp.GetRequiredService<TrackStatusViewModel>());
+            TrackStatus: sp.GetRequiredService<TrackStatusViewModel>(),
+            TaskSwitcher: sp.GetRequiredService<TaskSwitcherViewModel>());
     }
 
     private static IExercise[] BuildExercisePool(PhysicalPoint center)

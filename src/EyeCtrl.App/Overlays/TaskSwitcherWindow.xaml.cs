@@ -35,8 +35,9 @@ public partial class TaskSwitcherWindow : OverlayWindow
 
     /// <summary>
     /// Resolves icons for each tile, covers the primary screen, then — after layout —
-    /// updates tile positions and activates the VM. Activation (IsVisible=true) happens
-    /// only after positions are real, not at the (0,0) placeholder (H3 fix).
+    /// pushes each tile's real screen center into the VM, which creates the dwell target
+    /// there. The VM has already set IsVisible (that is what triggered this call); creating
+    /// targets only post-layout keeps them off the (0,0) placeholder during the layout gap.
     /// </summary>
     public void ShowFullScreen()
     {
@@ -54,13 +55,8 @@ public partial class TaskSwitcherWindow : OverlayWindow
         Top = 0;
         Show();
 
-        // After layout, update tile positions for dwell hit-testing, THEN activate the VM
-        // (H3 fix: IsVisible is set only after positions are real, not at the (0,0) placeholder).
-        Dispatcher.BeginInvoke(() =>
-        {
-            UpdateTilePositions();
-            _viewModel?.ActivateAfterLayout();
-        }, DispatcherPriority.Loaded);
+        // After layout, push real tile positions into the VM (which creates the dwell targets).
+        Dispatcher.BeginInvoke(UpdateTilePositions, DispatcherPriority.Loaded);
     }
 
     /// <summary>

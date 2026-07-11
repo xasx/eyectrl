@@ -86,4 +86,50 @@ internal static partial class NativeMethods
         public readonly int Width => Right - Left;
         public readonly int Height => Bottom - Top;
     }
+
+    // Window enumeration
+
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int GetWindowTextLength(IntPtr hWnd);
+
+    // [LibraryImport] does not support StringBuilder (SYSLIB1051). Use [Out] char[].
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int GetWindowText(IntPtr hWnd, [Out] char[] lpString, int nMaxCount);
+
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindowVisible(IntPtr hWnd);
+
+    [LibraryImport("user32.dll")]
+    internal static partial IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+    [LibraryImport("user32.dll")]
+    internal static partial int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    // Window activation
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetForegroundWindow(IntPtr hWnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool AllowSetForegroundWindow(uint dwProcessId);
+
+    // Constants
+
+    internal const int GWL_EXSTYLE = -20;
+    internal const uint GW_OWNER = 4;
+    internal const int WS_EX_TOOLWINDOW = 0x00000080;
+    internal const uint ASFW_ANY = 0xFFFFFFFF;
 }

@@ -877,6 +877,10 @@ public partial class SettingsWindow : OverlayWindow
                     () => _settings.General.StartPaused,
                     v => { _settings.General.StartPaused = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
+                () => Add(new DwellToggle(_viewModel, "g_track", "Show Track Status",
+                    () => _settings.TrackStatus.Enabled,
+                    v => { _settings.TrackStatus.Enabled = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
                 () => Add(new DwellButton(_viewModel, "g_reset", "Reset General Settings",
                     () => ShowModal("Reset General settings to defaults?", () =>
                     {

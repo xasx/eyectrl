@@ -82,6 +82,20 @@ public partial class App : Application
             var messenger = _serviceProvider.GetRequiredService<IMessenger>();
             var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
             var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
+
+            // Reconcile auto-launch registration with the persisted setting.
+            // Idempotent: overwrites with current Environment.ProcessPath if enabled,
+            // removes stale entry if disabled. Handles exe moving between versions/installs.
+            var startupRegistrar = _serviceProvider.GetRequiredService<IStartupRegistrar>();
+            startupRegistrar.SetStartOnBoot(settings.General.StartOnBoot);
+
+            // Live-toggle: if the user changes StartOnBoot in settings, apply immediately.
+            settings.General.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(settings.General.StartOnBoot))
+                    startupRegistrar.SetStartOnBoot(settings.General.StartOnBoot);
+            };
+
             var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
             ActiveProviderType = activeProviderType;
             var version = System.Reflection.Assembly.GetExecutingAssembly()

@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.ViewModels;
 
@@ -58,46 +59,52 @@ public partial class TrackStatusWindow : OverlayWindow
     {
         if (_viewModel == null) return;
 
-        // Position eye dots in the track box canvas (0..1 → canvas coords)
-        if (e.PropertyName is nameof(_viewModel.LeftEyeX) or nameof(_viewModel.LeftEyeY))
+        // React to validity changes too, not just X/Y: when an eye goes invalid (e.g. the
+        // "no signal" clear on disconnect) while its coordinates are unchanged, [ObservableProperty]
+        // suppresses the X/Y notification, so keying only on X/Y would leave a stale dot on screen.
+        switch (e.PropertyName)
         {
-            if (_viewModel.LeftEyeValid)
-            {
-                Canvas.SetLeft(LeftEyeDot, _viewModel.LeftEyeX * 54);
-                Canvas.SetTop(LeftEyeDot, _viewModel.LeftEyeY * 34);
-                LeftEyeDot.Fill = Brushes.LimeGreen;
-                LeftEyeDot.Visibility = Visibility.Visible;
-            }
-            else
-                LeftEyeDot.Visibility = Visibility.Collapsed;
+            case nameof(_viewModel.LeftEyeX):
+            case nameof(_viewModel.LeftEyeY):
+            case nameof(_viewModel.LeftEyeValid):
+                UpdateEyeDot(LeftEyeDot, _viewModel.LeftEyeValid, _viewModel.LeftEyeX, _viewModel.LeftEyeY);
+                break;
+            case nameof(_viewModel.RightEyeX):
+            case nameof(_viewModel.RightEyeY):
+            case nameof(_viewModel.RightEyeValid):
+                UpdateEyeDot(RightEyeDot, _viewModel.RightEyeValid, _viewModel.RightEyeX, _viewModel.RightEyeY);
+                break;
+            case nameof(_viewModel.HeadDistanceMm):
+            case nameof(_viewModel.HeadDistanceValid):
+                DistanceText.Text = _viewModel.HeadDistanceValid
+                    ? $"{_viewModel.HeadDistanceMm:F0} mm"
+                    : "—";
+                break;
+            case nameof(_viewModel.DistanceQuality):
+                QualityText.Text = _viewModel.DistanceQuality;
+                QualityText.Foreground = _viewModel.DistanceQuality switch
+                {
+                    "Good" => Brushes.LimeGreen,
+                    "Fair" => Brushes.Orange,
+                    "Poor" => Brushes.Red,
+                    _ => Brushes.Gray
+                };
+                break;
         }
-        if (e.PropertyName is nameof(_viewModel.RightEyeX) or nameof(_viewModel.RightEyeY))
+    }
+
+    /// <summary>Positions an eye dot in the track-box canvas (0..1 → canvas coords), or hides it when invalid.</summary>
+    private static void UpdateEyeDot(Ellipse dot, bool valid, double normalizedX, double normalizedY)
+    {
+        if (!valid)
         {
-            if (_viewModel.RightEyeValid)
-            {
-                Canvas.SetLeft(RightEyeDot, _viewModel.RightEyeX * 54);
-                Canvas.SetTop(RightEyeDot, _viewModel.RightEyeY * 34);
-                RightEyeDot.Fill = Brushes.LimeGreen;
-                RightEyeDot.Visibility = Visibility.Visible;
-            }
-            else
-                RightEyeDot.Visibility = Visibility.Collapsed;
+            dot.Visibility = Visibility.Collapsed;
+            return;
         }
-        if (e.PropertyName == nameof(_viewModel.HeadDistanceMm))
-            DistanceText.Text = _viewModel.HeadDistanceValid
-                ? $"{_viewModel.HeadDistanceMm:F0} mm"
-                : "—";
-        if (e.PropertyName == nameof(_viewModel.DistanceQuality))
-        {
-            QualityText.Text = _viewModel.DistanceQuality;
-            QualityText.Foreground = _viewModel.DistanceQuality switch
-            {
-                "Good" => Brushes.LimeGreen,
-                "Fair" => Brushes.Orange,
-                "Poor" => Brushes.Red,
-                _ => Brushes.Gray
-            };
-        }
+        Canvas.SetLeft(dot, normalizedX * 54);
+        Canvas.SetTop(dot, normalizedY * 34);
+        dot.Fill = Brushes.LimeGreen;
+        dot.Visibility = Visibility.Visible;
     }
 
     /// <summary>Positions the window at the top-right corner of the working area.</summary>

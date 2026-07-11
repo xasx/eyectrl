@@ -63,17 +63,49 @@ public class TrackStatusViewModelTests
         Check.That(vm.UserPresent).IsTrue();
     }
 
+    [Fact]
+    public void PollLatest_WhenSampleBecomesUnavailable_ClearsToNoSignal()
+    {
+        var provider = new FakeTrackStatusProvider
+        {
+            Caps = GazeProviderCapabilities.EyePosition | GazeProviderCapabilities.HeadPose,
+            Sample = new TrackStatusSample(
+                Left: new EyeSample(0.3, 0.4, 0.5, true),
+                Right: new EyeSample(0.7, 0.4, 0.5, true),
+                HeadDistanceMm: 600, HeadDistanceValid: true,
+                UserPresent: true, TimestampMicroseconds: 1000)
+        };
+        using var vm = new TrackStatusViewModel(provider);
+
+        // A valid sample populates the display...
+        vm.PollLatest();
+        Check.That(vm.LeftEyeValid).IsTrue();
+        Check.That(vm.DistanceQuality).IsEqualTo("Good");
+
+        // ...then the tracker stops providing data (e.g. disconnect). The display must clear
+        // to a no-signal state, not freeze on the last-known (misleadingly "live") values.
+        provider.HasData = false;
+        vm.PollLatest();
+
+        Check.That(vm.LeftEyeValid).IsFalse();
+        Check.That(vm.RightEyeValid).IsFalse();
+        Check.That(vm.HeadDistanceValid).IsFalse();
+        Check.That(vm.UserPresent).IsFalse();
+        Check.That(vm.DistanceQuality).IsEqualTo("Unknown");
+    }
+
     private sealed class FakeTrackStatusProvider : IGazeProvider
     {
         public GazeProviderCapabilities Caps { get; set; } = GazeProviderCapabilities.None;
         public TrackStatusSample Sample { get; set; }
+        public bool HasData { get; set; } = true;
         public GazeProviderCapabilities Capabilities => Caps;
         public bool IsConnected => true;
         public event Action<GazePoint>? GazePointReceived;
         public bool TryGetLatestStatus(out TrackStatusSample sample)
         {
             sample = Sample;
-            return Caps != GazeProviderCapabilities.None;
+            return HasData && Caps != GazeProviderCapabilities.None;
         }
         public void Start() { }
         public void Stop() { }

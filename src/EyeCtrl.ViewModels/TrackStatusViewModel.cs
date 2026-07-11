@@ -50,13 +50,31 @@ public partial class TrackStatusViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Called by the window's DispatcherTimer (~15 Hz). Reads the latest cached
-    /// sample from the provider (thread-safe) and updates observable properties.
+    /// Called by the window's DispatcherTimer (~15 Hz). Reads the latest cached sample from
+    /// the provider (thread-safe) and updates observable properties. When the provider has no
+    /// fresh sample — e.g. the tracker disconnected (the Tobii provider drops its cache on
+    /// device teardown) — the display is cleared to a "no signal" state rather than frozen on
+    /// the last-known values, which would read as live data.
     /// </summary>
     public void PollLatest()
     {
         if (_gazeProvider.TryGetLatestStatus(out var sample))
             UpdateFromSample(sample);
+        else
+            ClearSignal();
+    }
+
+    /// <summary>
+    /// Resets the displayed data to a "no signal" state: eyes invalid (dots hidden),
+    /// distance unknown, user away. Leaves the raw X/Y untouched since the dots are hidden.
+    /// </summary>
+    private void ClearSignal()
+    {
+        LeftEyeValid = false;
+        RightEyeValid = false;
+        HeadDistanceValid = false;
+        UserPresent = false;
+        DistanceQuality = "Unknown";
     }
 
     private void UpdateFromSample(TrackStatusSample sample)

@@ -251,7 +251,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
             bool present = status == tobii_user_presence_status_t.TOBII_USER_PRESENCE_STATUS_PRESENT;
             lock (_statusLock)
             {
-                _latestStatus = _latestStatus with { UserPresent = present };
+                _latestStatus = _latestStatus with { UserPresent = present, TimestampMicroseconds = timestampUs };
                 _hasStatus = true;
             }
         };

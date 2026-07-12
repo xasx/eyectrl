@@ -134,7 +134,6 @@ public class EventCoordinator : IEventCoordinator
         _context.WindowManager.BringToFront(msg.Hwnd);
         // HideOverlay is public on the VM so the coordinator can dismiss after a selection
         // (in addition to the toggle path inside Receive).
-        _context.TaskSwitcherVM.HideOverlay();
         _context.OverlayManager.TaskSwitcher.HideOverlay();
     }
 

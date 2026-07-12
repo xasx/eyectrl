@@ -47,6 +47,7 @@ public partial class TrackStatusViewModel : ObservableObject, IDisposable
     public void Stop()
     {
         IsVisible = false;
+        ClearSignal();
     }
 
     /// <summary>

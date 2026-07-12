@@ -101,7 +101,9 @@ public class TrackStatusViewModelTests
         public bool HasData { get; set; } = true;
         public GazeProviderCapabilities Capabilities => Caps;
         public bool IsConnected => true;
+#pragma warning disable CS0067
         public event Action<GazePoint>? GazePointReceived;
+#pragma warning restore CS0067
         public bool TryGetLatestStatus(out TrackStatusSample sample)
         {
             sample = Sample;

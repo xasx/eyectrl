@@ -42,6 +42,8 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private DragSettings _drag = new();
     /// <summary>Track status overlay box settings.</summary>
     [ObservableProperty] private TrackStatusSettings _trackStatus = new();
+    /// <summary>Quick-actions toolbar settings.</summary>
+    [ObservableProperty] private QuickActionsSettings _quickActions = new();
 
     /// <summary>
     /// Enumerates every sub-settings object with its property name. Single source of truth
@@ -67,6 +69,7 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
         yield return (nameof(EyeCare), EyeCare);
         yield return (nameof(Drag), Drag);
         yield return (nameof(TrackStatus), TrackStatus);
+        yield return (nameof(QuickActions), QuickActions);
     }
 
     /// <inheritdoc />

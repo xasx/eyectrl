@@ -3,7 +3,7 @@ namespace EyeCtrl.Core.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 /// <summary>Quick Actions toolbar appearance and summoning settings.</summary>
-public sealed partial class QuickActionsSettings : ObservableObject, IValidatable
+public partial class QuickActionsSettings : ObservableObject, IValidatable
 {
     /// <summary>Whether the Quick Actions toolbar is enabled.</summary>
     [ObservableProperty] private bool _enabled = true;

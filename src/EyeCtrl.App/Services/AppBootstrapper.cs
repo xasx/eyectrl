@@ -71,6 +71,13 @@ public class AppBootstrapper
         // Window management (Task Switcher)
         services.AddSingleton<IWindowManager, Win32WindowManager>();
         services.AddSingleton<IAppIconProvider, Win32AppIconProvider>();
+
+        // Quick Actions
+        services.AddSingleton<IQuickActionsStore>(sp =>
+        {
+            var path = Path.Combine(appDataDir, "actions.json");
+            return new QuickActionsStore(path);
+        });
         services.AddSingleton<IGazeProvider>(sp =>
         {
             if (isTestMode)

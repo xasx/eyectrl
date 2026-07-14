@@ -78,6 +78,7 @@ public class AppBootstrapper
             var path = Path.Combine(appDataDir, "actions.json");
             return new QuickActionsStore(path);
         });
+        services.AddSingleton<IWindowsAppLauncher, WindowsAppLauncher>();
         services.AddSingleton<IGazeProvider>(sp =>
         {
             if (isTestMode)

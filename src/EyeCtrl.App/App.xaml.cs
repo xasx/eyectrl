@@ -144,7 +144,8 @@ public partial class App : Application
                 taskSwitcherVm,
                 _serviceProvider.GetRequiredService<IWindowManager>(),
                 quickActionsGridVm,
-                _serviceProvider.GetRequiredService<IQuickActionsStore>());
+                _serviceProvider.GetRequiredService<IQuickActionsStore>(),
+                _serviceProvider.GetRequiredService<IWindowsAppLauncher>());
             _eventCoordinator.Initialize(coordinationContext);
 
             var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();

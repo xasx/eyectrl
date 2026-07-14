@@ -82,4 +82,5 @@ public record EventCoordinationContext(
     TaskSwitcherViewModel TaskSwitcherVM,
     IWindowManager WindowManager,
     QuickActionsGridViewModel QuickActionsGridVM,
-    IQuickActionsStore QuickActionsStore);
+    IQuickActionsStore QuickActionsStore,
+    IWindowsAppLauncher WindowsAppLauncher);

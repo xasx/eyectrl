@@ -41,6 +41,13 @@ public sealed class QuickActionsSummonController
     private long _runStartUs = Unseeded;
     private long _dismissStartUs = Unseeded;
     private volatile bool _suspended;
+    // Tracks HOW the current Summoned session began. true = hot-edge dwell (the controller
+    // summoned it, so the gaze-away dismiss timer applies). false = opened via toolbar button /
+    // close-button toggling / any VM-driven show (EnterSummoned path) — these stay open until
+    // explicitly dismissed, so the gaze-away timer is NOT armed. Blink/calibration suppression
+    // still dismisses either way. Written on the UI thread (EnterSummoned/SummonRequested handler)
+    // and read on the gaze thread (Feed) → volatile.
+    private volatile bool _summonOpened;
 
     /// <summary>Current state of the machine (thread-safe read).</summary>
     public SummonState State => (SummonState)Volatile.Read(ref _state);
@@ -115,6 +122,7 @@ public sealed class QuickActionsSummonController
                     Volatile.Write(ref _state, (int)SummonState.Summoned);
                     Volatile.Write(ref _runStartUs, Unseeded);
                     Volatile.Write(ref _dismissStartUs, Unseeded);
+                    _summonOpened = true;   // hot-edge summon → gaze-away dismiss timer applies
                     SummonRequested?.Invoke();
                 }
             }
@@ -132,8 +140,11 @@ public sealed class QuickActionsSummonController
                 return;
             }
 
-            // If gaze is inside screen (not past edge), start dismiss timer
-            if (!pastEdge)
+            // If gaze is inside screen (not past edge), start dismiss timer — but ONLY for
+            // hot-edge-summoned sessions. Grids opened via the toolbar button (_summonOpened=false)
+            // stay until explicitly closed; otherwise the grid would vanish after DismissTimeoutMs
+            // of normal on-screen gaze, breaking the button path.
+            if (!pastEdge && _summonOpened)
             {
                 var dismissStart = Volatile.Read(ref _dismissStartUs);
                 if (dismissStart == Unseeded)
@@ -187,13 +198,16 @@ public sealed class QuickActionsSummonController
 
     /// <summary>
     /// Explicit-state hook: force the machine to Summoned without firing
-    /// <see cref="SummonRequested"/> (the coordinator calls this after it already showed the grid).
+    /// <see cref="SummonRequested"/> (the coordinator calls this after it already showed the grid,
+    /// e.g. via the toolbar button). Marks the session as NOT hot-edge-summoned, so the gaze-away
+    /// dismiss timer is not armed — the grid stays until explicitly dismissed.
     /// </summary>
     public void EnterSummoned()
     {
         Volatile.Write(ref _state, (int)SummonState.Summoned);
         Volatile.Write(ref _runStartUs, Unseeded);
         Volatile.Write(ref _dismissStartUs, Unseeded);
+        _summonOpened = false;   // VM-driven show (toolbar button / close-toggle) → no auto-dismiss
     }
 
     /// <summary>

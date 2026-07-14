@@ -100,6 +100,33 @@ public class QuickActionsSummonControllerTests
     }
 
     [Fact]
+    public void EnterSummoned_DoesNotAutoDismiss_AfterTimeout()
+    {
+        // Regression guard: a grid opened via the toolbar button (EnterSummoned path, NOT a
+        // hot-edge summon) must NOT auto-dismiss after DismissTimeoutMs of normal on-screen gaze.
+        // Only hot-edge-summoned sessions apply the gaze-away dismiss timer.
+        var c = CreateController(edge: "Left", screenW: 1920, summonMs: 400, dismissMs: 5000);
+        int dismissals = 0;
+        c.DismissRequested += () => dismissals++;
+
+        // Simulate the toolbar-button path: VM shows the grid, coordinator calls EnterSummoned.
+        c.EnterSummoned();
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+
+        // Gaze on-screen (not past edge) well past the dismiss timeout → must NOT dismiss.
+        c.Feed(Pt(100, 540, 0), timestampUs: 0);
+        c.Feed(Pt(100, 540, 10_000_000), timestampUs: 10_000_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+        Check.That(dismissals).IsEqualTo(0);
+
+        // Blink (invalid sample) still dismisses an EnterSummoned session — suppression applies
+        // regardless of open-source, so calibration/blinks always tear down the grid.
+        c.Feed(Pt(100, 540, 11_000_000, valid: false), timestampUs: 11_000_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
+        Check.That(dismissals).IsEqualTo(1);
+    }
+
+    [Fact]
     public void Feed_BlinkDuringSummonRun_ResetsRun()
     {
         var c = CreateController(edge: "Left", summonMs: 400);

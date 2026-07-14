@@ -1,8 +1,14 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using System;
-using Xunit;
+using System.ComponentModel;
+using System.Reflection;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using Xunit;
 
 /// <summary>
 /// Tests for EventCoordinator.
@@ -67,4 +73,195 @@ public class EventCoordinatorTests
         Check.ThatCode(() =>
             coordinator.LoadKeyboard(null!, null!, null!, null!)).Throws<ArgumentNullException>();
     }
+
+    [Fact]
+    public void ExecuteKeyboardShortcut_CharacterRequiringShift_MergesRequiredModifier()
+    {
+        var coordinator = new EventCoordinator();
+        var input = new FakeInputSimulator();
+        SetContext(coordinator, new EventCoordinationContext(
+            CursorVM: null!,
+            ActivationVM: null!,
+            ManualSelectionVM: null!,
+            ManualSelectionIndicatorVM: null!,
+            ActionMenuVM: null!,
+            ToolbarVM: null!,
+            KeyboardVM: null!,
+            BackdropVM: null!,
+            DragTrailVM: null!,
+            OverlayManager: null!,
+            GazeEngine: null!,
+            InteractionManager: null!,
+            Messenger: null!,
+            Dispatcher: null!,
+            SettingsService: null!,
+            Settings: null!,
+            TargetHighlightVM: null!,
+            InputSimulator: input,
+            CalibrationService: null!,
+            NoteManager: null!,
+            TrackStatusVM: null!,
+            TaskSwitcherVM: null!,
+            WindowManager: null!,
+            QuickActionsGridVM: null!,
+            QuickActionsStore: null!,
+            WindowsAppLauncher: null!));
+
+        ExecuteKeyboardShortcut(coordinator, "Ctrl+!");
+
+        Check.That(input.LastModifiedKeyPress).IsNotNull();
+        Check.That(input.LastModifiedKeyPress!.VirtualKeyCode).IsEqualTo((ushort)0x31);
+        Check.That(input.LastModifiedKeyPress.Modifiers).Contains(ModifierKey.Ctrl);
+        Check.That(input.LastModifiedKeyPress.Modifiers).Contains(ModifierKey.Shift);
+    }
+
+    [Fact]
+    public void QuickActionsEnabledSetting_SuspendsAndResumesSummonController()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.QuickActions.Enabled = false;
+        var coordinator = new EventCoordinator();
+        var controller = new QuickActionsSummonController("left", 1920, 1080, 400, 5000);
+        controller.SetSuspended(true);
+
+        SetContext(coordinator, new EventCoordinationContext(
+            CursorVM: null!,
+            ActivationVM: null!,
+            ManualSelectionVM: null!,
+            ManualSelectionIndicatorVM: null!,
+            ActionMenuVM: null!,
+            ToolbarVM: null!,
+            KeyboardVM: null!,
+            BackdropVM: null!,
+            DragTrailVM: null!,
+            OverlayManager: null!,
+            GazeEngine: null!,
+            InteractionManager: null!,
+            Messenger: null!,
+            Dispatcher: null!,
+            SettingsService: null!,
+            Settings: settings,
+            TargetHighlightVM: null!,
+            InputSimulator: null!,
+            CalibrationService: null!,
+            NoteManager: null!,
+            TrackStatusVM: null!,
+            TaskSwitcherVM: null!,
+            WindowManager: null!,
+            QuickActionsGridVM: null!,
+            QuickActionsStore: null!,
+            WindowsAppLauncher: null!));
+        SetField(coordinator, "_quickActionsSummon", controller);
+
+        InvokeSetupQuickActionsSummon(coordinator);
+        Check.That(GetQuickActionsSuspended(controller)).IsTrue();
+
+        settings.QuickActions.Enabled = true;
+        InvokeQuickActionsSettingsHandler(coordinator, nameof(QuickActionsSettings.Enabled));
+        Check.That(GetQuickActionsSuspended(controller)).IsFalse();
+    }
+
+    private static void SetContext(EventCoordinator coordinator, EventCoordinationContext context)
+    {
+        typeof(EventCoordinator)
+            .GetField("_context", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(coordinator, context);
+    }
+
+    private static void SetField(EventCoordinator coordinator, string fieldName, object? value)
+    {
+        typeof(EventCoordinator)
+            .GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(coordinator, value);
+    }
+
+    private static void InvokeSetupQuickActionsSummon(EventCoordinator coordinator)
+    {
+        typeof(EventCoordinator)
+            .GetMethod("SetupQuickActionsSummon", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(coordinator, null);
+    }
+
+    private static void InvokeQuickActionsSettingsHandler(EventCoordinator coordinator, string propertyName)
+    {
+        var handler = (PropertyChangedEventHandler?)typeof(EventCoordinator)
+            .GetField("_quickActionsSettingsHandler", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(coordinator);
+        handler?.Invoke(coordinator, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private static bool GetQuickActionsSuspended(QuickActionsSummonController controller)
+    {
+        return (bool)typeof(QuickActionsSummonController)
+            .GetField("_suspended", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(controller)!;
+    }
+
+    private static void ExecuteKeyboardShortcut(EventCoordinator coordinator, string chord)
+    {
+        typeof(EventCoordinator)
+            .GetMethod("ExecuteKeyboardShortcut", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(coordinator, new object[] { chord });
+    }
+
+    private sealed class FakeInputSimulator : IInputSimulator
+    {
+        public ModifiedKeyPress? LastModifiedKeyPress { get; private set; }
+
+        public void MoveCursor(PhysicalPoint point)
+        {
+        }
+
+        public void LeftClick(PhysicalPoint point)
+        {
+        }
+
+        public void RightClick(PhysicalPoint point)
+        {
+        }
+
+        public void DoubleClick(PhysicalPoint point)
+        {
+        }
+
+        public void MouseDown(PhysicalPoint point)
+        {
+        }
+
+        public void MouseUp(PhysicalPoint point)
+        {
+        }
+
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY)
+        {
+        }
+
+        public void SendKeyPress(ushort virtualKeyCode)
+        {
+        }
+
+        public void SendKeyDown(ushort virtualKeyCode)
+        {
+        }
+
+        public void SendKeyUp(ushort virtualKeyCode)
+        {
+        }
+
+        public void SendText(string text)
+        {
+        }
+
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode)
+        {
+            LastModifiedKeyPress = new ModifiedKeyPress(modifiers, virtualKeyCode, IsExtendedKey: false);
+        }
+
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey)
+        {
+            LastModifiedKeyPress = new ModifiedKeyPress(modifiers, virtualKeyCode, isExtendedKey);
+        }
+    }
+
+    private sealed record ModifiedKeyPress(IReadOnlySet<ModifierKey> Modifiers, ushort VirtualKeyCode, bool IsExtendedKey);
 }

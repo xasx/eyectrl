@@ -74,6 +74,9 @@ public interface IOverlayManager
     /// <summary>Gets the fullscreen Task Switcher overlay window.</summary>
     TaskSwitcherWindow TaskSwitcher { get; }
 
+    /// <summary>Gets the quick-actions grid overlay window.</summary>
+    QuickActionsGridWindow QuickActionsGrid { get; }
+
     /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
     /// </summary>
@@ -98,4 +101,5 @@ public record OverlayViewModels(
     TargetHighlightOverlayViewModel TargetHighlight,
     EdgeButtonBarViewModel EdgeButtonBar,
     TrackStatusViewModel TrackStatus,
-    TaskSwitcherViewModel TaskSwitcher);
+    TaskSwitcherViewModel TaskSwitcher,
+    QuickActionsGridViewModel QuickActionsGrid);

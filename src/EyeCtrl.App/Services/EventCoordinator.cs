@@ -143,12 +143,106 @@ public class EventCoordinator : IEventCoordinator
     }
 
     /// <summary>
-    /// Executes the user-selected Quick Action. Placeholder body — real dispatch logic is
-    /// implemented in Checkpoint C (Task C1).
+    /// Executes the user-selected Quick Action, dispatching by <see cref="QuickActionType"/>.
+    /// Errors are caught and logged so a failing action never tears down the gaze thread.
     /// </summary>
     private void ExecuteQuickAction(QuickAction action)
     {
-        // Placeholder — implemented in Checkpoint C (Task C1)
+        if (_context == null) return;
+        try
+        {
+            switch (action.Type)
+            {
+                case QuickActionType.KeyboardShortcut:
+                    ExecuteKeyboardShortcut(action.Payload);
+                    break;
+                case QuickActionType.CannedText:
+                    _context.InputSimulator.SendText(action.Payload);
+                    break;
+                case QuickActionType.LaunchExe:
+                    System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo(action.Payload) { UseShellExecute = true });
+                    break;
+                case QuickActionType.LaunchWindowsApp:
+                    _context.WindowsAppLauncher.ActivateApplication(action.Payload);
+                    break;
+                case QuickActionType.LaunchUrl:
+                    System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo(action.Payload) { UseShellExecute = true });
+                    break;
+                case QuickActionType.MediaControl:
+                    ExecuteMediaControl(action.Payload);
+                    break;
+                default:
+                    Log.Warning("Unknown QuickActionType: {Type}", action.Type);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "QuickAction execution failed: {Type} '{Label}'", action.Type, action.Label);
+        }
+    }
+
+    /// <summary>
+    /// Parses a keyboard chord (e.g. "Ctrl+Shift+Enter") and sends it as a modified key press.
+    /// Single-character keys are resolved via <see cref="Win32InputSimulator.CharToVirtualKey"/>;
+    /// named keys (e.g. "Enter", "F5", "Left") via <see cref="KeyNameMapper.TryMap"/>.
+    /// </summary>
+    private void ExecuteKeyboardShortcut(string chord)
+    {
+        var parts = chord.Split('+');
+        var mods = new HashSet<ModifierKey>();
+        string key = parts[^1].Trim();   // trim whitespace so "Ctrl + C" works (modifiers are trimmed below)
+
+        for (int i = 0; i < parts.Length - 1; i++)
+        {
+            var mod = parts[i].Trim() switch
+            {
+                "Ctrl" => (ModifierKey?)ModifierKey.Ctrl,
+                "Shift" => ModifierKey.Shift,
+                "Alt" => ModifierKey.Alt,
+                "Win" => ModifierKey.Win,
+                _ => null   // unknown modifier → drop
+            };
+            if (mod.HasValue) mods.Add(mod.Value);
+        }
+
+        ushort vk = 0;
+        bool isExtended = false;
+        if (key.Length == 1)
+        {
+            var ch = char.IsLetter(key[0]) ? char.ToLowerInvariant(key[0]) : key[0];
+            (vk, _) = Win32InputSimulator.CharToVirtualKey(ch);
+        }
+
+        if (vk == 0 && KeyNameMapper.TryMap(key, out var mappedVk, out var mappedExtended))
+        {
+            vk = mappedVk;
+            isExtended = mappedExtended;
+        }
+
+        if (vk != 0)
+            _context.InputSimulator.SendModifiedKeyPress(mods, vk, isExtendedKey: isExtended);
+        else
+            Log.Warning("QuickAction: could not map keyboard chord '{Chord}'", chord);
+    }
+
+    /// <summary>
+    /// Sends a media-transport virtual-key press for the given command name.
+    /// Media keys are extended keys (KEYEVENTF_EXTENDEDKEY).
+    /// </summary>
+    private void ExecuteMediaControl(string command)
+    {
+        ushort vk = command switch
+        {
+            "PlayPause" => 0xB3, "Stop" => 0xB2,
+            "NextTrack" => 0xB0, "PreviousTrack" => 0xB1,
+            "VolumeUp" => 0xAF, "VolumeDown" => 0xAE, "VolumeMute" => 0xAD,
+            _ => 0
+        };
+        if (vk != 0)
+            _context.InputSimulator.SendKeyPress(vk, isExtendedKey: true);
     }
 
     private void UpdateTrackStatusVisibility()

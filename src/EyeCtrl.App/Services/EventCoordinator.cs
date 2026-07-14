@@ -1501,6 +1501,9 @@ public class EventCoordinator : IEventCoordinator
         if (_quickActionsGazeHandler != null && _context != null)
             _context.GazeEngine.GazeSampled -= _quickActionsGazeHandler;
         _quickActionsGazeHandler = null;
+        if (_quickActionsSettingsHandler != null && _context != null)
+            _context.Settings.QuickActions.PropertyChanged -= _quickActionsSettingsHandler;
+        _quickActionsSettingsHandler = null;
         _quickActionsSummon = null;
 
         if (_context == null)

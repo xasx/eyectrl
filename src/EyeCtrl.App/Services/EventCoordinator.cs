@@ -1042,8 +1042,12 @@ public class EventCoordinator : IEventCoordinator
                 _context.SettingsService,
                 _context.Messenger);
 
+            var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
+                _context.QuickActionsStore, _context.Settings, _context.Messenger);
+
             var settingsWindowVM = new SettingsWindowViewModel(
                 settingsVM,
+                quickActionsEditor,
                 _context.Messenger,
                 _context.Settings.Dwell);
 

@@ -168,6 +168,7 @@ public class AppBootstrapper
         services.AddSingleton<TrackStatusViewModel>();
         services.AddSingleton<TaskSwitcherViewModel>();
         services.AddSingleton<QuickActionsGridViewModel>();
+        services.AddSingleton<SettingsQuickActionsEditorViewModel>();
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(

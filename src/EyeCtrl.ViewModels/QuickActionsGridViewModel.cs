@@ -31,6 +31,14 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
     public int RowCount => Tiles.Count == 0 ? 0 : (int)Math.Ceiling((double)Tiles.Count / _settings.QuickActions.GridColumns);
     public string SummonEdge => _settings.QuickActions.SummonEdge;
 
+    /// <summary>
+    /// The edge the grid should anchor to when shown. Set by EventCoordinator to the RESOLVED
+    /// edge (ComputeActualSummonEdge flips it when it collides with the toolbar's dock), so the
+    /// grid renders where the user actually summoned it rather than at the raw configured edge.
+    /// Falls back to the configured edge until the coordinator sets it.
+    /// </summary>
+    public string EffectiveSummonEdge { get; set; } = string.Empty;
+
     /// <summary>Reserved dwell-target id for the grid's close button (not a QuickAction).</summary>
     public const string CloseTargetId = "__qa_close__";
     [ObservableProperty] private double _closeDwellProgress;

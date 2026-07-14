@@ -613,12 +613,21 @@ public class EventCoordinator : IEventCoordinator
         // Gaze-thread → UI-thread marshal: both events hop through the dispatcher
         // before touching the VM (mirrors ToolbarAutoHideController's visibility adapter).
         var gridVM = _context.QuickActionsGridVM;
+        // Keep the VM's effective edge in sync with the resolved edge (the controller watches the
+        // resolved edge via ComputeActualSummonEdge; the grid window must anchor there too, or it
+        // renders at the raw configured edge which may differ when it collides with the toolbar dock).
+        void UpdateEffectiveEdge()
+        {
+            gridVM.EffectiveSummonEdge = ComputeActualSummonEdge(_context.Settings.QuickActions.SummonEdge);
+        }
+        UpdateEffectiveEdge();
         controller.SummonRequested += () =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 // Toolbar button / mouse-mode may have already shown it; only show when hidden.
                 if (!gridVM.IsVisible)
                 {
+                    UpdateEffectiveEdge();   // edge may have changed since last show
                     gridVM.Receive(new QuickActionsToggledMessage()); // → Reload + show
                     controller.EnterSummoned();                       // keep controller in sync
                 }
@@ -645,8 +654,17 @@ public class EventCoordinator : IEventCoordinator
         {
             if (e.PropertyName == nameof(ToolbarSettings.DockedEdge))
             {
-                var newEdge = ComputeActualSummonEdge(_context.Settings.QuickActions.SummonEdge);
-                _quickActionsSummon?.UpdateEdge(newEdge);
+                UpdateEffectiveEdge();
+                _quickActionsSummon?.UpdateEdge(gridVM.EffectiveSummonEdge);
+            }
+        };
+        // Also re-resolve when the user changes their own summon edge in settings.
+        _context.Settings.QuickActions.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(QuickActionsSettings.SummonEdge))
+            {
+                UpdateEffectiveEdge();
+                _quickActionsSummon?.UpdateEdge(gridVM.EffectiveSummonEdge);
             }
         };
 

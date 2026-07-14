@@ -41,7 +41,11 @@ public partial class QuickActionsGridWindow : OverlayWindow
             if (e.PropertyName != nameof(QuickActionsGridViewModel.IsVisible)) return;
             if (vm.IsVisible)
             {
-                PositionOnEdge(vm.SummonEdge);
+                // Use the resolved edge (EffectiveSummonEdge) so the grid anchors where the user
+                // actually summoned it — ComputeActualSummonEdge may flip the configured edge when
+                // it collides with the toolbar dock. Fall back to the configured edge if unset.
+                var edge = string.IsNullOrEmpty(vm.EffectiveSummonEdge) ? vm.SummonEdge : vm.EffectiveSummonEdge;
+                PositionOnEdge(edge);
                 Show();
                 // Arm a one-shot sync: LayoutUpdated fires after the tiles get real positions.
                 _pendingTileSync = true;

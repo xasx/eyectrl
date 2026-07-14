@@ -22,7 +22,7 @@ public class SettingsWindowViewModelTests
     {
         var settingsVM = new SettingsViewModel(_settings, _settingsService, _messenger);
         var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
-            new FakeQuickActionsStore(), _settings, _messenger);
+            new FakeQuickActionsStore());
         return new SettingsWindowViewModel(settingsVM, quickActionsEditor, _messenger, _settings.Dwell);
     }
 

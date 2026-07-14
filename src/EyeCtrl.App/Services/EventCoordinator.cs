@@ -58,6 +58,7 @@ public class EventCoordinator : IEventCoordinator
     private Action<EyeCtrl.Core.Models.GazePoint>? _autoHideGazeHandler; // held so Dispose can unsubscribe (the lambda captures the controller local, not this field)
     private QuickActionsSummonController? _quickActionsSummon;
     private Action<GazePoint>? _quickActionsGazeHandler;   // GazePoint packs X/Y/ts/IsValid
+    private PropertyChangedEventHandler? _quickActionsSettingsHandler;
     private DragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
     private Action? _disposeEscapeHook;
@@ -211,10 +212,11 @@ public class EventCoordinator : IEventCoordinator
 
         ushort vk = 0;
         bool isExtended = false;
+        IReadOnlyList<ModifierKey> requiredModifiers = Array.Empty<ModifierKey>();
         if (key.Length == 1)
         {
             var ch = char.IsLetter(key[0]) ? char.ToLowerInvariant(key[0]) : key[0];
-            (vk, _) = Win32InputSimulator.CharToVirtualKey(ch);
+            (vk, requiredModifiers) = Win32InputSimulator.CharToVirtualKey(ch);
         }
 
         if (vk == 0 && KeyNameMapper.TryMap(key, out var mappedVk, out var mappedExtended))
@@ -224,9 +226,23 @@ public class EventCoordinator : IEventCoordinator
         }
 
         if (vk != 0)
-            _context.InputSimulator.SendModifiedKeyPress(mods, vk, isExtendedKey: isExtended);
+        {
+            if (requiredModifiers.Count == 0)
+            {
+                _context.InputSimulator.SendModifiedKeyPress(mods, vk, isExtendedKey: isExtended);
+                return;
+            }
+
+            var merged = new HashSet<ModifierKey>(mods);
+            foreach (var requiredModifier in requiredModifiers)
+                merged.Add(requiredModifier);
+
+            _context.InputSimulator.SendModifiedKeyPress(merged, vk, isExtendedKey: isExtended);
+        }
         else
+        {
             Log.Warning("QuickAction: could not map keyboard chord '{Chord}'", chord);
+        }
     }
 
     /// <summary>
@@ -592,9 +608,54 @@ public class EventCoordinator : IEventCoordinator
         RefreshToolbarRect();
     }
 
+    private void UpdateQuickActionsEffectiveEdge()
+    {
+        if (_context == null) return;
+        _context.QuickActionsGridVM.EffectiveSummonEdge = ComputeActualSummonEdge(_context.Settings.QuickActions.SummonEdge);
+    }
+
+    private void AttachQuickActionsSettingsHandler()
+    {
+        if (_quickActionsSettingsHandler != null || _context == null) return;
+
+        _quickActionsSettingsHandler = (_, e) =>
+        {
+            if (_context == null) return;
+
+            if (e.PropertyName == nameof(QuickActionsSettings.Enabled))
+            {
+                if (_context.Settings.QuickActions.Enabled)
+                {
+                    if (_quickActionsSummon == null)
+                        SetupQuickActionsSummon();
+                    else
+                        _quickActionsSummon.SetSuspended(false);
+                }
+                else
+                {
+                    _quickActionsSummon?.SetSuspended(true);
+                }
+                return;
+            }
+
+            if (_quickActionsSummon == null || e.PropertyName != nameof(QuickActionsSettings.SummonEdge)) return;
+            UpdateQuickActionsEffectiveEdge();
+            _quickActionsSummon.UpdateEdge(_context.QuickActionsGridVM.EffectiveSummonEdge);
+        };
+        _context.Settings.QuickActions.PropertyChanged += _quickActionsSettingsHandler;
+    }
+
     private void SetupQuickActionsSummon()
     {
         var s = _context!.Settings.QuickActions;
+        AttachQuickActionsSettingsHandler();
+
+        if (_quickActionsSummon != null)
+        {
+            _quickActionsSummon.SetSuspended(!s.Enabled);
+            return;
+        }
+
         if (!s.Enabled) return;
 
         // Hot-edge summon is a gaze gesture — disabled in mouse mode (the OS clamps the cursor to
@@ -623,18 +684,14 @@ public class EventCoordinator : IEventCoordinator
         // Keep the VM's effective edge in sync with the resolved edge (the controller watches the
         // resolved edge via ComputeActualSummonEdge; the grid window must anchor there too, or it
         // renders at the raw configured edge which may differ when it collides with the toolbar dock).
-        void UpdateEffectiveEdge()
-        {
-            gridVM.EffectiveSummonEdge = ComputeActualSummonEdge(_context.Settings.QuickActions.SummonEdge);
-        }
-        UpdateEffectiveEdge();
+        UpdateQuickActionsEffectiveEdge();
         controller.SummonRequested += () =>
             _context.Dispatcher.BeginInvoke(() =>
             {
                 // Toolbar button / mouse-mode may have already shown it; only show when hidden.
                 if (!gridVM.IsVisible)
                 {
-                    UpdateEffectiveEdge();   // edge may have changed since last show
+                    UpdateQuickActionsEffectiveEdge();   // edge may have changed since last show
                     gridVM.Receive(new QuickActionsToggledMessage()); // → Reload + show
                     // Do NOT call EnterSummoned here: Feed already set the controller to Summoned
                     // with the gaze-away dismiss timer armed (_summonOpened=true). EnterSummoned
@@ -663,16 +720,7 @@ public class EventCoordinator : IEventCoordinator
         {
             if (e.PropertyName == nameof(ToolbarSettings.DockedEdge))
             {
-                UpdateEffectiveEdge();
-                _quickActionsSummon?.UpdateEdge(gridVM.EffectiveSummonEdge);
-            }
-        };
-        // Also re-resolve when the user changes their own summon edge in settings.
-        _context.Settings.QuickActions.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(QuickActionsSettings.SummonEdge))
-            {
-                UpdateEffectiveEdge();
+                UpdateQuickActionsEffectiveEdge();
                 _quickActionsSummon?.UpdateEdge(gridVM.EffectiveSummonEdge);
             }
         };
@@ -1081,7 +1129,7 @@ public class EventCoordinator : IEventCoordinator
                 _context.Messenger);
 
             var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
-                _context.QuickActionsStore, _context.Settings, _context.Messenger);
+                _context.QuickActionsStore);
 
             var settingsWindowVM = new SettingsWindowViewModel(
                 settingsVM,

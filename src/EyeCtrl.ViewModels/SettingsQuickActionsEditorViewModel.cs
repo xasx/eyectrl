@@ -18,8 +18,6 @@ using EyeCtrl.Core.Settings;
 public partial class SettingsQuickActionsEditorViewModel : ObservableObject
 {
     private readonly IQuickActionsStore _store;
-    private readonly EyeCtrlSettings _settings;
-    private readonly IMessenger _messenger;
 
     /// <summary>Visibility flag for the deferred action-card editor surface.</summary>
     [ObservableProperty] private bool _isVisible;
@@ -27,14 +25,9 @@ public partial class SettingsQuickActionsEditorViewModel : ObservableObject
     /// <summary>All stored actions (enabled and disabled) for the editor grid.</summary>
     public ObservableCollection<QuickAction> Actions { get; } = new();
 
-    public SettingsQuickActionsEditorViewModel(
-        IQuickActionsStore store,
-        EyeCtrlSettings settings,
-        IMessenger messenger)
+    public SettingsQuickActionsEditorViewModel(IQuickActionsStore store)
     {
         _store = store;
-        _settings = settings;
-        _messenger = messenger;
     }
 
     /// <summary>Reloads every action from the store into <see cref="Actions"/>.</summary>

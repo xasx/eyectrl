@@ -65,6 +65,8 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
             HideOverlay();
             return;
         }
+        if (!_settings.QuickActions.Enabled) return;
+
         Reload();
         IsVisible = true;
     }

@@ -17,7 +17,9 @@ public sealed class WindowsAppLauncher : IWindowsAppLauncher
     public void ActivateApplication(string aumid)
     {
         var mgr = (IApplicationActivationManager)new ApplicationActivationManager();
-        mgr.ActivateApplication(aumid, null, ACTIVATEOPTIONS.AO_NONE, out _);
+        var hr = mgr.ActivateApplication(aumid, null, ACTIVATEOPTIONS.AO_NONE, out _);
+        if (hr < 0)
+            Marshal.ThrowExceptionForHR(hr);
     }
 
     [ComImport, Guid("2e941141-7f97-4756-ba1d-9decde894a3d"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

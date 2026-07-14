@@ -33,7 +33,7 @@ public static class KeyNameMapper
             "arrowright" or "right" => (true, 0x27),
             "arrowup" or "up" => (true, 0x26),
             "arrowdown" or "down" => (true, 0x28),
-            "printscreen" or "prtsc" => (true, 0x2A),
+            "printscreen" or "prtsc" => (false, 0x2C),
             "f1" => (false, 0x70),  "f2" => (false, 0x71),  "f3" => (false, 0x72),
             "f4" => (false, 0x73),  "f5" => (false, 0x74),  "f6" => (false, 0x75),
             "f7" => (false, 0x76),  "f8" => (false, 0x77),  "f9" => (false, 0x78),

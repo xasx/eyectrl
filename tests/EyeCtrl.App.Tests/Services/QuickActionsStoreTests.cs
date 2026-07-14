@@ -47,6 +47,51 @@ public class QuickActionsStoreTests : IDisposable
     }
 
     [Fact]
+    public void LoadAll_MissingAndDuplicateIds_AreNormalized()
+    {
+        File.WriteAllText(_tempFile, """
+            {
+              "Actions": [
+                { "Label": "A" },
+                { "Id": "duplicate", "Label": "B" },
+                { "Id": "duplicate", "Label": "C" }
+              ]
+            }
+            """);
+        var store = CreateStore();
+
+        var loaded = store.LoadAll();
+
+        Check.That(loaded).HasSize(3);
+        Check.That(loaded.All(a => !string.IsNullOrWhiteSpace(a.Id))).IsTrue();
+        Check.That(loaded.Select(a => a.Id).Distinct()).HasSize(3);
+        Check.That(loaded[1].Label).IsEqualTo("B");
+        Check.That(loaded[2].Label).IsEqualTo("C");
+    }
+
+    [Fact]
+    public void Save_NormalizesMissingAndDuplicateIds()
+    {
+        var store = CreateStore();
+        var actions = new List<QuickAction>
+        {
+            new() { Id = string.Empty, Label = "A" },
+            new() { Id = "duplicate", Label = "B" },
+            new() { Id = "duplicate", Label = "C" }
+        };
+
+        store.Save(actions);
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(_tempFile));
+        var ids = document.RootElement.GetProperty("Actions")
+            .EnumerateArray()
+            .Select(a => a.GetProperty("Id").GetString())
+            .ToList();
+
+        Check.That(ids.All(id => !string.IsNullOrWhiteSpace(id))).IsTrue();
+        Check.That(ids.Distinct()).HasSize(3);
+    }
+
+    [Fact]
     public void FindById_ExistingId_ReturnsAction()
     {
         var store = CreateStore();

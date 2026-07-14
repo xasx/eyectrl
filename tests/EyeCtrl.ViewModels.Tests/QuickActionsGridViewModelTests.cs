@@ -70,6 +70,24 @@ public class QuickActionsGridViewModelTests
     }
 
     [Fact]
+    public void Receive_ToggleWhenDisabled_DoesNotShowOverlay()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        settings.QuickActions.Enabled = false;
+        var store = new FakeQuickActionsStore(new List<QuickAction>
+        {
+            new() { Label = "Copy", Type = QuickActionType.KeyboardShortcut, Payload = "Ctrl+C", Enabled = true }
+        });
+        var vm = new QuickActionsGridViewModel(store, settings, messenger);
+
+        messenger.Send(new QuickActionsToggledMessage());
+
+        Check.That(vm.IsVisible).IsFalse();
+        Check.That(vm.Tiles).IsEmpty();
+    }
+
+    [Fact]
     public void Reload_OnlyIncludesEnabledActions()
     {
         var messenger = new WeakReferenceMessenger();

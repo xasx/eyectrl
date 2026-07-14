@@ -39,7 +39,8 @@ public class QuickActionsStore : IQuickActionsStore
             if (!File.Exists(_filePath)) return Array.Empty<QuickAction>();
             var json = File.ReadAllText(_filePath);
             var wrapper = JsonSerializer.Deserialize<ActionsWrapper>(json, JsonOptions);
-            return (IReadOnlyList<QuickAction>?)wrapper?.Actions ?? Array.Empty<QuickAction>();
+            IReadOnlyList<QuickAction> actions = wrapper?.Actions ?? (IReadOnlyList<QuickAction>)Array.Empty<QuickAction>();
+            return NormalizeActions(actions);
         }
         catch
         {
@@ -52,9 +53,34 @@ public class QuickActionsStore : IQuickActionsStore
     {
         var dir = Path.GetDirectoryName(_filePath);
         if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
-        var wrapper = new ActionsWrapper(actions.ToList());
+        var wrapper = new ActionsWrapper(NormalizeActions(actions).ToList());
         var json = JsonSerializer.Serialize(wrapper, JsonOptions);
         File.WriteAllText(_filePath, json);
+    }
+
+    private static IReadOnlyList<QuickAction> NormalizeActions(IReadOnlyList<QuickAction> actions)
+    {
+        var usedIds = new HashSet<string>(StringComparer.Ordinal);
+        return actions
+            .Where(a => a != null)
+            .Select(a => WithUniqueId(a!, usedIds))
+            .ToList();
+    }
+
+    private static QuickAction WithUniqueId(QuickAction action, HashSet<string> usedIds)
+    {
+        var id = string.IsNullOrWhiteSpace(action.Id) ? Guid.NewGuid().ToString() : action.Id;
+        while (!usedIds.Add(id))
+            id = Guid.NewGuid().ToString();
+
+        return action.Id == id ? action : new QuickAction
+        {
+            Id = id,
+            Type = action.Type,
+            Label = action.Label,
+            Payload = action.Payload,
+            Enabled = action.Enabled
+        };
     }
 
     /// <inheritdoc />

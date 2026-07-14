@@ -31,8 +31,6 @@ public class KeyNameMapperTests
     [InlineData("PageUp", 0x21)]
     [InlineData("pgup", 0x21)]
     [InlineData("pagedown", 0x22)]
-    [InlineData("PrintScreen", 0x2A)]
-    [InlineData("prtsc", 0x2A)]
     [InlineData("Insert", 0x2D)]
     [InlineData("Home", 0x24)]
     [InlineData("End", 0x23)]
@@ -46,6 +44,16 @@ public class KeyNameMapperTests
         Check.That(ok).IsTrue();
         Check.That(vk).IsEqualTo(expectedVk);
         Check.That(isExtended).IsTrue();
+    }
+
+    [Fact]
+    public void PrintScreen_MapsToSnapshotWithoutExtendedFlag()
+    {
+        var ok = KeyNameMapper.TryMap("PrintScreen", out var vk, out var isExtended);
+
+        Check.That(ok).IsTrue();
+        Check.That(vk).IsEqualTo((ushort)0x2C);
+        Check.That(isExtended).IsFalse();
     }
 
     [Theory]

@@ -20,7 +20,7 @@
 - `src/EyeCtrl.Core/Models/QuickActionPresets.cs` — keyboard + media preset tables.
 - `src/EyeCtrl.Platform/Services/Win32InstalledAppProvider.cs` — Shell `AppsFolder` COM enumerator (STA + Lazy).
 - `tests/EyeCtrl.Platform.Tests/Services/Win32InstalledAppProviderTests.cs`
-- `tests/EyeCtrl.Core.Tests/Models/QuickActionPresetsTests.cs`
+- `tests/EyeCtrl.Platform.Tests/Models/QuickActionPresetsTests.cs` (in Platform.Tests, not Core.Tests — the keyboard-VK test needs Windows-only `Win32InputSimulator`)
 - `tests/EyeCtrl.ViewModels.Tests/SettingsQuickActionsEditorViewModelTests.cs`
 
 **Modified files**
@@ -340,7 +340,9 @@ Then, after the service provider is built and the coordinator is initialized (an
     }
 ```
 
-Then append `new FakeInstalledAppProvider()` as the final argument to every `new EventCoordinationContext(...)` in the file (search for `new EventCoordinationContext(`). Add `using EyeCtrl.Core.Models;` if not already imported.
+Every existing `new EventCoordinationContext(...)` in this file uses **named** arguments (`CursorVM: null!, … WindowsAppLauncher: null!`), so append the provider as a trailing **named** argument — `InstalledAppProvider: new FakeInstalledAppProvider()` — to every one of them (search for `new EventCoordinationContext(`). A positional argument can't follow named ones, so the named form is required. No new usings are needed: `using EyeCtrl.Core.Models;` (for `InstalledApp`) is already at line 9 and `using EyeCtrl.Core.Interfaces;` (for `IInstalledAppProvider`) at line 7.
+
+> Note: `App.xaml.cs` builds its context **positionally** (Step 3), so there the append is positional; the test file builds it with **named** args, so here it must be named. Keep both in sync with the record's new trailing `InstalledAppProvider` parameter.
 
 - [ ] **Step 5: Build and run the full test suite (headless-safe subset)**
 
@@ -362,15 +364,15 @@ git commit -m "feat(quick-actions): register + thread IInstalledAppProvider thro
 
 **Files:**
 - Create: `src/EyeCtrl.Core/Models/QuickActionPresets.cs`
-- Test: `tests/EyeCtrl.Core.Tests/Models/QuickActionPresetsTests.cs`
+- Test: `tests/EyeCtrl.Platform.Tests/Models/QuickActionPresetsTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-The keyboard test mirrors `ExecuteKeyboardShortcut`'s resolution order: single-char keys via `Win32InputSimulator.CharToVirtualKey(lowercased)`, then `KeyNameMapper.TryMap`. `Win+D/E/L` are single-char and resolve through `CharToVirtualKey`.
+The keyboard test mirrors `ExecuteKeyboardShortcut`'s resolution order: single-char keys via `Win32InputSimulator.CharToVirtualKey(lowercased)`, then `KeyNameMapper.TryMap`. `Win+D/E/L` are single-char and resolve through `CharToVirtualKey`. The file lives in **`EyeCtrl.Platform.Tests`** (see the "why" note under Step 2).
 
 ```csharp
-// tests/EyeCtrl.Core.Tests/Models/QuickActionPresetsTests.cs
-namespace EyeCtrl.Core.Tests.Models;
+// tests/EyeCtrl.Platform.Tests/Models/QuickActionPresetsTests.cs
+namespace EyeCtrl.Platform.Tests.Models;
 
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -389,10 +391,13 @@ public class QuickActionPresetsTests
     [Fact]
     public void EveryKeyboardPreset_TerminalKey_ResolvesToNonZeroVk()
     {
+        // Resolve each preset's terminal key the same way ExecuteKeyboardShortcut does (single
+        // char via CharToVirtualKey, else KeyNameMapper). Accumulate any that fail so the empty-
+        // list assertion names them — the suite does not use NFluent's per-item .As(...).
+        var unresolved = new List<string>();
         foreach (var (label, chord) in QuickActionPresets.KeyboardShortcuts)
         {
-            var parts = chord.Split('+');
-            var key = parts[^1].Trim();
+            var key = chord.Split('+')[^1].Trim();
 
             ushort vk = 0;
             if (key.Length == 1)
@@ -403,8 +408,11 @@ public class QuickActionPresetsTests
             if (vk == 0 && KeyNameMapper.TryMap(key, out var mappedVk, out _))
                 vk = mappedVk;
 
-            Check.That(vk).As($"preset '{label}' chord '{chord}'").IsNotEqualTo((ushort)0);
+            if (vk == 0)
+                unresolved.Add($"{label} ('{chord}')");
         }
+
+        Check.That(unresolved).IsEmpty();
     }
 
     [Fact]
@@ -421,10 +429,10 @@ public class QuickActionPresetsTests
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~QuickActionPresetsTests"`
+Run: `dotnet test tests/EyeCtrl.Platform.Tests --filter "FullyQualifiedName~QuickActionPresetsTests"`
 Expected: FAIL — `QuickActionPresets` does not exist.
 
-> Note: `EyeCtrl.Core.Tests` already references `EyeCtrl.Platform` (existing tests use `Win32InputSimulator.CharToVirtualKey`). If the reference is missing, add it to the test csproj — check with `grep -n "EyeCtrl.Platform" tests/EyeCtrl.Core.Tests/*.csproj` before assuming.
+> **Why this test lives in `EyeCtrl.Platform.Tests`, not `EyeCtrl.Core.Tests`:** it calls `Win32InputSimulator.CharToVirtualKey`, which is Windows-only Platform code. `EyeCtrl.Core.Tests` targets `net10.0` and references only `EyeCtrl.Core`; it *cannot* reference `EyeCtrl.Platform` (which targets `net10.0-windows`), so "just add the reference" is not an option — the TFMs are incompatible. `EyeCtrl.Platform.Tests` (`net10.0-windows`) already references Platform and sees Core types transitively (`QuickActionPresets`, `KeyNameMapper`), so it hosts the whole preset test with **no csproj change**. Verified signatures: `Win32InputSimulator.CharToVirtualKey(char) → (ushort VirtualKeyCode, IReadOnlyList<ModifierKey> RequiredModifiers)` and `KeyNameMapper.TryMap(string keyName, out ushort vk, out bool isExtended)`.
 
 - [ ] **Step 3: Write the presets**
 
@@ -475,13 +483,13 @@ public static class QuickActionPresets
 
 - [ ] **Step 4: Run tests**
 
-Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~QuickActionPresetsTests"`
+Run: `dotnet test tests/EyeCtrl.Platform.Tests --filter "FullyQualifiedName~QuickActionPresetsTests"`
 Expected: 3 tests PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/EyeCtrl.Core/Models/QuickActionPresets.cs tests/EyeCtrl.Core.Tests/Models/QuickActionPresetsTests.cs
+git add src/EyeCtrl.Core/Models/QuickActionPresets.cs tests/EyeCtrl.Platform.Tests/Models/QuickActionPresetsTests.cs
 git commit -m "feat(quick-actions): add QuickActionPresets + chord/command validation tests"
 ```
 
@@ -496,13 +504,15 @@ Verifies every `QuickActionPresets.MediaControls` command is actually handled by
 
 - [ ] **Step 1: Extend the fake input simulator to record plain key presses**
 
-In `EventCoordinatorTests.FakeInputSimulator`, add a recorded field and set it in the `SendKeyPress(ushort, bool)` overload (media presses use the extended-key overload). Add near `LastModifiedKeyPress`:
+`ExecuteMediaControl` calls the **two-arg** `SendKeyPress(vk, isExtendedKey: true)`. On `IInputSimulator` that two-arg form is a **default interface method** that forwards to the parameterless `SendKeyPress(ushort)` (see `IInputSimulator.cs:53`). `FakeInputSimulator` currently overrides only the parameterless overload (empty body, line 239) and therefore *inherits* the default two-arg method — so unless it adds an explicit two-arg method, the media call resolves to the default → empty parameterless override → `LastKeyPress` never gets set and the test can never pass. A public two-arg method on the class becomes the interface implementation and takes precedence over the default.
+
+In `EventCoordinatorTests.FakeInputSimulator`, add a recorded field near `LastModifiedKeyPress`:
 
 ```csharp
         public (ushort Vk, bool Extended)? LastKeyPress { get; private set; }
 ```
 
-And change the `SendKeyPress(ushort virtualKeyCode, bool isExtendedKey)` method body from empty to:
+Then **add** this new method — there is no existing `SendKeyPress(ushort, bool)` on the fake to edit; it must be added:
 
 ```csharp
         public void SendKeyPress(ushort virtualKeyCode, bool isExtendedKey)
@@ -511,16 +521,17 @@ And change the `SendKeyPress(ushort virtualKeyCode, bool isExtendedKey)` method 
         }
 ```
 
-(Leave the parameterless `SendKeyPress(ushort)` as-is.)
+(Leave the parameterless `SendKeyPress(ushort)` as-is — empty.)
 
 - [ ] **Step 2: Write the failing test**
 
-Add this test method, mirroring the existing reflection-based invocation used by `ExecuteKeyboardShortcut` tests (there is already a private `InvokeExecuteKeyboardShortcut` helper and a `SetContext` helper — reuse the same pattern):
+The existing keyboard test invokes private methods through a reflection helper named `ExecuteKeyboardShortcut(EventCoordinator, string)` (see `EventCoordinatorTests.cs:200`) alongside a `SetContext(EventCoordinator, EventCoordinationContext)` helper — mirror that same reflection pattern to invoke the private `ExecuteMediaControl(string)`. Accumulate any preset that fails to dispatch so the empty-list assertion names it (the suite does **not** use NFluent's `.As(...)` — a repo-wide grep for `.As(` in `tests/` returns zero hits):
 
 ```csharp
     [Fact]
     public void ExecuteMediaControl_EveryPreset_ProducesAnExtendedKeyPress()
     {
+        var failures = new List<string>();
         foreach (var (label, command) in EyeCtrl.Core.Models.QuickActionPresets.MediaControls)
         {
             var coordinator = new EventCoordinator();
@@ -531,14 +542,15 @@ Add this test method, mirroring the existing reflection-based invocation used by
                 .GetMethod("ExecuteMediaControl", BindingFlags.NonPublic | BindingFlags.Instance)!
                 .Invoke(coordinator, new object[] { command });
 
-            Check.That(input.LastKeyPress).As($"media preset '{label}' ({command})").IsNotNull();
-            Check.That(input.LastKeyPress!.Value.Vk).As($"media preset '{label}'").IsNotEqualTo((ushort)0);
-            Check.That(input.LastKeyPress.Value.Extended).IsTrue();
+            if (input.LastKeyPress is not { } kp || kp.Vk == 0 || !kp.Extended)
+                failures.Add($"{label} ({command})");
         }
+
+        Check.That(failures).IsEmpty();
     }
 ```
 
-If the file does not already have a `MakeContext(IInputSimulator)` helper, extract one from the existing keyboard test's `new EventCoordinationContext(...)` block so both tests share it (it must include the `FakeInstalledAppProvider` trailing arg from Task 3). Keep `SetContext` as-is.
+There is **no** `MakeContext` helper in the file today — the keyboard and enabled-setting tests each build their `new EventCoordinationContext(...)` inline (named args). Extract a `private static EventCoordinationContext MakeContext(IInputSimulator input)` that sets `InputSimulator: input`, every other member to `null!`, and `InstalledAppProvider: new FakeInstalledAppProvider()` (the fake added in Task 3), then have both the keyboard test and this media test call it. Leave the enabled-setting test's inline construction alone — it needs `Settings:` set to a real `EyeCtrlSettings` — and keep `SetContext` as-is.
 
 - [ ] **Step 3: Run tests**
 
@@ -758,7 +770,7 @@ public partial class SettingsQuickActionsEditorViewModel : ObservableObject
 }
 ```
 
-(Note: removed `AddAction(QuickActionType)`, `UpdateAction(...)`, the unused `IsVisible` observable property, and the `CommunityToolkit.Mvvm.Messaging` using — none have callers.)
+(Note: the current ctor is **already single-parameter** — `SettingsQuickActionsEditorViewModel(IQuickActionsStore store)` — so this rewrite only *adds* the `IInstalledAppProvider appProvider` parameter; there is no `IMessenger` parameter or `_messenger` field to remove (an earlier exploration that reported a 3-param ctor was looking at a stale version). The rewrite also drops `AddAction(QuickActionType)`, `UpdateAction(...)`, the unused `IsVisible` observable property, and the now-unused `using CommunityToolkit.Mvvm.Messaging;` — all verified to have no callers. The only constructors of this VM are the one production site `EventCoordinator.ShowSettingsWindow` (updated in Step 4) and the two test sites, `SettingsQuickActionsEditorViewModelTests` (Step 1) and `SettingsWindowViewModelTests` (Step 6).)
 
 - [ ] **Step 4: Update `ShowSettingsWindow` to pass the provider + call `Load()`**
 

@@ -43,9 +43,9 @@ enum QaView { List, PickType, PickShortcut, PickMedia, PickApp }
 private QaView _qaView = QaView.List;
 ```
 
-`BuildQuickActionsPages()` switches on `_qaView` and delegates to a per-view builder. A dwell that changes the view sets `_qaView` and calls `RebuildContent()` **directly** — this does not touch `CurrentTabName`, so drill navigation (List → PickType → PickShortcut) is preserved.
+`BuildQuickActionsPages()` switches on `_qaView` and delegates to a per-view builder. A dwell that changes the view sets `_qaView`, resets `CurrentPage = 0`, then calls `RebuildContent()` **directly** — it does not touch `CurrentTabName`, so drill navigation (List → PickType → PickShortcut) is preserved. Resetting `CurrentPage` on every view transition makes each view open at its **first** page, so a picker never inherits a stale page index from the previous view's pagination (e.g. drilling from action page 3 into PickApp would otherwise render a clamped/empty first frame). This reset lives in the transition handler next to the `_qaView` assignment — **never** inside `BuildQuickActionsPages` (that would fight the `pag_prev`/`pag_next` controls).
 
-**The reset to `List` must happen on tab change, in `OnSettingsViewModelPropertyChanged`'s `case nameof(SettingsViewModel.CurrentTabName)` branch (`SettingsWindow.xaml.cs:175`), before `RebuildContent()` — NOT at the top of `BuildQuickActionsPages`** (that would defeat drill navigation, snapping every rebuild back to List). That branch fires whenever the active tab changes, including re-entering Quick Actions, so the user never returns to a stale picker.
+**The reset to `List` (also `CurrentPage = 0`) on tab change lives in `OnSettingsViewModelPropertyChanged`'s `case nameof(SettingsViewModel.CurrentTabName)` branch, before `RebuildContent()` — NOT at the top of `BuildQuickActionsPages`** (that would defeat drill navigation, snapping every rebuild back to List). That branch fires whenever the active tab changes, including re-entering Quick Actions, so the user never returns to a stale picker.
 
 | View | Content (all big `DwellButton`s / dwell controls) |
 |------|---------------------------------------------------|
@@ -55,7 +55,7 @@ private QaView _qaView = QaView.List;
 | `PickMedia` | Seven buttons (one per transport command); plus **Back**. |
 | `PickApp` | One button per installed app, paginated across as many pages as needed; plus **Back**. |
 
-Dwelling a preset / media / app button creates the action, saves, sets `_qaView = List`, and rebuilds. Dwelling a type / Back button only swaps the view. Delete dwells a `DwellButton` that calls the existing `ShowModal(message, onYes)` (Yes/No dwell buttons) before removing. Delete is the **first multi-row use of `ShowModal`**, so the implementation relies on its existing modal dwell isolation (`DwellCategory.Modal` targets active while the page's `Control` targets are suppressed) to prevent the user from dwelling a row button "through" the confirm.
+Dwelling a preset / media / app button creates the action, saves, sets `_qaView = List` (with `CurrentPage = 0`), and rebuilds. Dwelling a type / Back button only swaps the view. Delete dwells a `DwellButton` that calls the existing `ShowModal(message, onYes)` (Yes/No dwell buttons) before removing. `ShowModal` is **already** used for per-row destructive confirms elsewhere (e.g. the Models tab's per-model *Delete* / *Download* rows in `BuildModelsPages`), so its modal dwell isolation (`DwellCategory.Modal` targets active while the page's `Control` targets are suppressed) is already proven for this kind of multi-row use — the editor just reuses it.
 
 Long lists (shortcuts ≈ 2 pages, apps N pages) reuse the existing pagination — the editor never renders a scroll region or a popup.
 
@@ -95,7 +95,12 @@ public interface IInstalledAppProvider
 
 This is chosen over WinRT `PackageManager.FindPackagesForUser` because the Platform project targets plain `net10.0-windows` (no Windows SDK platform version), so WinRT projections are unavailable without a TFM change; the Shell COM route works on the current TFM and matches the existing Win32/COM style (`Win32WindowManager`).
 
-**Caching / threading.** `Win32InstalledAppProvider` is a process **singleton that caches the enumeration** on first `GetInstalledApps()` (thread-safe lazy init). This matters because `EventCoordinator.ShowSettingsWindow` reconstructs the editor VM on every open — caching on the *VM* would re-walk `AppsFolder` on each settings open, a synchronous Shell-COM walk of potentially hundreds of ms on the STA UI thread. Caching in the singleton makes it once-per-process. To avoid a hitch the first time the user drills into PickApp, the provider is **pre-warmed on a background thread at startup** (fire-and-forget after the DI container is built; the lazy init is thread-safe, so a concurrent first `GetInstalledApps()` just blocks on the same enumeration).
+**Caching / threading.** `Win32InstalledAppProvider` is a process **singleton that caches the enumeration** via a thread-safe `Lazy<IReadOnlyList<InstalledApp>>`. This matters because `EventCoordinator.ShowSettingsWindow` reconstructs the editor VM on every open — caching on the *VM* would re-walk `AppsFolder` each open; caching in the singleton makes it once-per-process. Two requirements:
+
+- **Apartment (STA).** Shell `AppsFolder` COM (`IShellItem`/`IEnumShellItems`) must run in a single-threaded apartment. Thread-pool threads (`Task.Run`) are MTA, so the walk runs on a **dedicated STA worker thread** created inside the provider (`ApartmentState.STA`, run the walk, join, cache). `GetInstalledApps()` is therefore safe to call from any apartment (the STA UI thread or a background/MTA prewarm) — it only triggers/returns the cached lazy value.
+- **Failure isolation.** The `Lazy` value factory wraps the walk in try/catch and **returns an empty list on any failure** (headless/minimal shell, COM error). It must not let the exception escape — a default `Lazy` caches and re-throws on every subsequent access, which would break PickApp for the whole process.
+
+To avoid a first-drill hitch, the provider is **pre-warmed** by triggering `GetInstalledApps()` fire-and-forget after the DI container is built (spinning up the STA worker early); the thread-safe lazy means a concurrent first real call just blocks on the same enumeration.
 
 `IInstalledAppProvider` is registered in `AppBootstrapper` (singleton) and threaded to the editor VM through `EventCoordinationContext` (the editor VM is manually constructed in `EventCoordinator.ShowSettingsWindow`).
 
@@ -110,7 +115,9 @@ public void AddApp(InstalledApp app);                        // Type=LaunchWindo
 public IReadOnlyList<InstalledApp> InstalledApps => _provider.GetInstalledApps(); // provider-cached
 ```
 
-Each `Add*` constructs a `QuickAction` (its `Id` auto-generates), appends it, and calls `Save()`.
+Each `Add*` constructs a `QuickAction` (its `Id` auto-generates), appends it to `Actions`, and calls `Save()` — so subsequent List rebuilds read the up-to-date in-memory `Actions` without re-reading disk.
+
+**`Load()` timing.** `EventCoordinator.ShowSettingsWindow` calls `editor.Load()` exactly once, immediately after constructing the editor VM (which happens on every settings-open). That populates `Actions` before the List view first renders — **without it the List shows zero rows.** No per-view reload is needed: `Add*` / `ToggleEnabled` / `DeleteAction` mutate `Actions` in place and persist, and the running grid re-reads the store on its next summon.
 
 **On `QuickAction.Id`:** the model carries a 5th member `Id` (`Guid` string) that `ToggleEnabled` / `DeleteAction` / `IQuickActionsStore.FindById` key on and that the runtime tiles already use as their dwell-target id. The `Add*` factories don't set it (auto-generated); the List view's per-row toggle/delete buttons carry it (see the `List` view note). "`QuickAction` is unchanged" is **relative to this branch** — the model was introduced by the toolbar feature this branch builds on; it does not exist on `main`.
 
@@ -148,21 +155,23 @@ The editor and the runtime grid are decoupled through the JSON store; no direct 
 | `src/EyeCtrl.App/Services/AppBootstrapper.cs` | Register `IInstalledAppProvider → Win32InstalledAppProvider` (singleton) + fire-and-forget background pre-warm; **remove the orphaned `AddSingleton<SettingsQuickActionsEditorViewModel>()`** (dead — `ShowSettingsWindow` `new`s its own instance) |
 | `src/EyeCtrl.App/Services/IEventCoordinator.cs` | Append `IInstalledAppProvider InstalledAppProvider` to `EventCoordinationContext` |
 | `src/EyeCtrl.App/App.xaml.cs` | Pass the provider into the context (append at end) |
-| `src/EyeCtrl.App/Services/EventCoordinator.cs` | Pass `_context.InstalledAppProvider` into the `new SettingsQuickActionsEditorViewModel(...)` in `ShowSettingsWindow` |
-| `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` | `_qaView` state + rewrite `BuildQuickActionsPages` into per-view builders; delete-confirm via `ShowModal`; reset `_qaView` on tab switch |
+| `src/EyeCtrl.App/Services/EventCoordinator.cs` | In `ShowSettingsWindow`: pass `_context.InstalledAppProvider` into `new SettingsQuickActionsEditorViewModel(...)` **and call `editor.Load()` once right after** |
+| `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` | `_qaView` state + rewrite `BuildQuickActionsPages` into per-view builders; delete-confirm via `ShowModal`; reset `_qaView` **+ `CurrentPage = 0`** on every view transition and on tab change (in `OnSettingsViewModelPropertyChanged`) |
 | `tests/EyeCtrl.ViewModels.Tests/SettingsWindowViewModelTests.cs` | Fake `IInstalledAppProvider` for the editor VM ctor |
+| `tests/EyeCtrl.App.Tests/Services/EventCoordinatorTests.cs` | Add the media-preset dispatch test (each `QuickActionPresets` media command → `ExecuteMediaControl` key press); extends the existing fake-input harness |
 
 ## Testing
 
 - **`SettingsQuickActionsEditorViewModelTests`** (fake store + fake app provider): `AddKeyboardShortcut` → one `KeyboardShortcut` action with the chord + label; `AddMediaControl` → `MediaControl` with the command; `AddApp` → `LaunchWindowsApp` with the AUMID and app name; `ToggleEnabled`/`DeleteAction` mutate and persist; `Load` reflects the store (including disabled actions).
-- **`QuickActionPresetsTests`**: for every keyboard preset, resolve the terminal key **in the same order `ExecuteKeyboardShortcut` uses** — single-character keys via `Win32InputSimulator.CharToVirtualKey(char.ToLowerInvariant(c))`, then (only if that yields 0) multi-character keys via `KeyNameMapper.TryMap(key, out var vk, out _)` (two `out` params) — and assert a non-zero VK. Guards against a preset that silently can't fire. Note `Win+D` / `Win+E` / `Win+L` have single-char terminal keys, so they resolve through `CharToVirtualKey` (→ `VkKeyScanW`), **not** `KeyNameMapper` — a test that exercised only `KeyNameMapper.TryMap` would mis-validate them.
-- **`Win32InstalledAppProviderTests`**: smoke — `GetInstalledApps()` returns a non-empty list on a normal Windows box and every entry has a non-empty `DisplayName` and an AUMID containing `!`. Marked so it degrades gracefully in headless CI if the shell namespace is unavailable.
+- **`QuickActionPresetsTests`** (Core): for every **keyboard** preset, resolve the terminal key **in the same order `ExecuteKeyboardShortcut` uses** — single-character keys via `Win32InputSimulator.CharToVirtualKey(char.ToLowerInvariant(c))`, then (only if that yields 0) multi-character keys via `KeyNameMapper.TryMap(key, out var vk, out _)` (two `out` params) — and assert a non-zero VK. Note `Win+D` / `Win+E` / `Win+L` have single-char terminal keys, so they resolve through `CharToVirtualKey` (→ `VkKeyScanW`), **not** `KeyNameMapper` — a test that exercised only `KeyNameMapper.TryMap` would mis-validate them. (Media commands are validated App-side — next bullet — since `ExecuteMediaControl` is private to `EventCoordinator`.)
+- **`EventCoordinatorTests` (media presets)**: drive **every** `QuickActionPresets` media command through `ExecuteMediaControl` (reusing the existing fake-input harness) and assert each produces a key press — i.e. no preset command falls through the executor's `switch` to a silent no-op.
+- **`Win32InstalledAppProviderTests`**: smoke — `GetInstalledApps()` **never throws**, and **every returned entry** has a non-empty `DisplayName` and an AUMID containing `!`. An **empty result is a pass** (CI / minimal Windows images may have no packaged apps or an unavailable shell namespace); the test asserts shape-if-present, not non-emptiness.
 - No new test framework or pattern — xUnit + NFluent + private nested fakes, matching the toolbar work.
 
 ## Risks
 
 - **Shell `AppsFolder` COM interop** — moderate boilerplate (`IShellItem`/`IShellItem2`/`IEnumShellItems`/`PROPERTYKEY`), but a well-documented, stable surface; matches existing Platform COM. Risk: medium. Mitigation: filter to packaged AUMIDs for reliable activation; wrap enumeration in try/catch returning an empty list.
-- **`SettingsWindow` view state** — adds statefulness to a tab. Mitigation: single `_qaView` field reset on tab switch; each view is a pure builder of dwell controls, so the drift-guard is just "reset on leave."
+- **`SettingsWindow` view state** — adds statefulness to a tab. Mitigation: single `_qaView` field, reset (with `CurrentPage = 0`) on tab change and on every view transition; each view is a pure builder of dwell controls. The reset never lives inside `BuildQuickActionsPages`.
 - **Win-key preset chords** (`Win+D/E/L`) — historically flaky via `SendInput`; inherited caveat, verified at test time on hardware.
 - **App-list size** — many packaged apps → many pages. Acceptable (pagination exists); sorted by name to keep paging predictable.
 

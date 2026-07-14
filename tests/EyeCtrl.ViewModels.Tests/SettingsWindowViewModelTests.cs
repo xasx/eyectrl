@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -20,7 +21,26 @@ public class SettingsWindowViewModelTests
     private SettingsWindowViewModel CreateViewModel()
     {
         var settingsVM = new SettingsViewModel(_settings, _settingsService, _messenger);
-        return new SettingsWindowViewModel(settingsVM, _messenger, _settings.Dwell);
+        var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
+            new FakeQuickActionsStore(), _settings, _messenger);
+        return new SettingsWindowViewModel(settingsVM, quickActionsEditor, _messenger, _settings.Dwell);
+    }
+
+    /// <summary>
+    /// Minimal in-memory <see cref="IQuickActionsStore"/> for the SettingsWindowViewModel
+    /// fixture (the concrete store lives in EyeCtrl.App, which the test project does not reference).
+    /// </summary>
+    private sealed class FakeQuickActionsStore : IQuickActionsStore
+    {
+        private readonly List<QuickAction> _actions = new();
+
+        public IReadOnlyList<QuickAction> LoadAll() => _actions;
+        public void Save(IReadOnlyList<QuickAction> actions)
+        {
+            _actions.Clear();
+            _actions.AddRange(actions);
+        }
+        public QuickAction? FindById(string id) => _actions.FirstOrDefault(a => a.Id == id);
     }
 
     [Fact]

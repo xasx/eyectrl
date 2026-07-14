@@ -104,7 +104,8 @@ public partial class SettingsWindow : OverlayWindow
             ("Models",    "⬡", "Models",      BuildModelsPages),
             ("Toolbar",  "▣", "Toolbar",     BuildToolbarPages),
             ("Calibration", "⌖", "Calibration", BuildCalibrationPages),
-            ("General",  "⚙", "General",     BuildGeneralPages)
+            ("General",  "⚙", "General",     BuildGeneralPages),
+            ("QuickActions", "⚡", "Quick Actions", BuildQuickActionsPages)
         ];
 
         // Build dictionary for O(1) page builder lookup
@@ -899,6 +900,38 @@ public partial class SettingsWindow : OverlayWindow
                         RebuildContent();
                     }),
                     ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+            ]
+        ];
+    }
+
+    private List<List<Action>> BuildQuickActionsPages()
+    {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+        var qa = _settings.QuickActions;
+
+        return
+        [
+            [
+                () => Add(new DwellToggle(_viewModel, "qa_enabled", "Enable Quick Actions",
+                    () => qa.Enabled, v => { qa.Enabled = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellComboBox(_viewModel, "qa_edge", "Summon Edge",
+                    new[] { "Left", "Right", "Top", "Bottom" },
+                    () => qa.SummonEdge, v => { qa.SummonEdge = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "qa_summon", "Summon Threshold (ms)",
+                    200, 2000, 50, 0,
+                    () => qa.SummonThresholdMs, v => { qa.SummonThresholdMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "qa_dismiss", "Dismiss Timeout (ms)",
+                    1000, 15000, 500, 0,
+                    () => qa.DismissTimeoutMs, v => { qa.DismissTimeoutMs = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
+                () => Add(new DwellSlider(_viewModel, "qa_columns", "Grid Columns",
+                    2, 5, 1, 0,
+                    () => qa.GridColumns, v => { qa.GridColumns = (int)v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
             ]
         ];
     }

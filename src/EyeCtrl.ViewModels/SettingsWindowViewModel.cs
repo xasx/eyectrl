@@ -56,18 +56,26 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     public SettingsViewModel Settings => _settingsViewModel;
 
     /// <summary>
+    /// Editor ViewModel for the Quick Actions tab (drives the deferred action-card UI).
+    /// </summary>
+    public SettingsQuickActionsEditorViewModel QuickActionsEditor { get; }
+
+    /// <summary>
     /// Initialises the ViewModel and wires up the four dwell detectors.
     /// </summary>
     /// <param name="settingsViewModel">The underlying settings data ViewModel.</param>
+    /// <param name="quickActionsEditor">Editor ViewModel for the Quick Actions tab.</param>
     /// <param name="messenger">Messenger used to send and receive application-wide messages.</param>
     /// <param name="dwellSettings">Dwell configuration (cooldown, dwell times, etc.).</param>
     public SettingsWindowViewModel(
         SettingsViewModel settingsViewModel,
+        SettingsQuickActionsEditorViewModel quickActionsEditor,
         IMessenger messenger,
         DwellSettings dwellSettings)
         : base(messenger)
     {
         _settingsViewModel = settingsViewModel;
+        QuickActionsEditor = quickActionsEditor;
 
         // Initialize dwell detectors
         _tabDwell = new DwellDetector(dwellSettings.DwellCooldownMs);

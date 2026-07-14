@@ -56,6 +56,8 @@ public class EventCoordinator : IEventCoordinator
     private ToolbarAutoHideController? _toolbarAutoHide;
     private ToolbarVisibilityAdapter? _toolbarVisibility;
     private Action<EyeCtrl.Core.Models.GazePoint>? _autoHideGazeHandler; // held so Dispose can unsubscribe (the lambda captures the controller local, not this field)
+    private QuickActionsSummonController? _quickActionsSummon;
+    private Action<GazePoint>? _quickActionsGazeHandler;   // GazePoint packs X/Y/ts/IsValid
     private DragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
     private Action? _disposeEscapeHook;
@@ -96,6 +98,7 @@ public class EventCoordinator : IEventCoordinator
         SetupMessageHandlers();
         SetupGazeRouting();
         SetupToolbarAutoHide();
+        SetupQuickActionsSummon();
         SetupBackdrop();
         SetupDragHandlers();
         _context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
@@ -126,6 +129,8 @@ public class EventCoordinator : IEventCoordinator
         };
         _context.Messenger.Register<EventCoordinator, TaskSwitcherSelectionMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() => HandleTaskSwitcherSelection(msg)));
+        _context.Messenger.Register<EventCoordinator, QuickActionSelectionMessage>(this, (_, msg) =>
+            _context.Dispatcher.BeginInvoke(() => ExecuteQuickAction(msg.Action)));
     }
 
     private void HandleTaskSwitcherSelection(TaskSwitcherSelectionMessage msg)
@@ -135,6 +140,15 @@ public class EventCoordinator : IEventCoordinator
         // HideOverlay is public on the VM so the coordinator can dismiss after a selection
         // (in addition to the toggle path inside Receive).
         _context.OverlayManager.TaskSwitcher.HideOverlay();
+    }
+
+    /// <summary>
+    /// Executes the user-selected Quick Action. Placeholder body — real dispatch logic is
+    /// implemented in Checkpoint C (Task C1).
+    /// </summary>
+    private void ExecuteQuickAction(QuickAction action)
+    {
+        // Placeholder — implemented in Checkpoint C (Task C1)
     }
 
     private void UpdateTrackStatusVisibility()
@@ -480,6 +494,92 @@ public class EventCoordinator : IEventCoordinator
         // deferred re-capture at Loaded priority so the controller's hit-test rect is correct by the
         // time the first gaze sample arrives. (Spec Edge case #7: wait one layout pass before caching.)
         RefreshToolbarRect();
+    }
+
+    private void SetupQuickActionsSummon()
+    {
+        var s = _context!.Settings.QuickActions;
+        if (!s.Enabled) return;
+
+        // Resolve actual summon edge (avoid conflict with main toolbar)
+        var actualEdge = ComputeActualSummonEdge(s.SummonEdge);
+
+        // Match the toolbar's screen-size source (EventCoordinator.cs:452): WPF SystemParameters
+        // are logical DIPs, so ×ScaleX/×ScaleY yields physical px. Do NOT use WinForms
+        // Screen.Bounds — it is ALREADY physical under PerMonitorV2, so ×ScaleX double-scales
+        // (would break Right/Bottom summon edges on scaled displays; the default "Left" hides it).
+        var controller = new QuickActionsSummonController(
+            actualEdge,
+            System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
+            System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY,
+            s.SummonThresholdMs,
+            s.DismissTimeoutMs,
+            calibrationActive: () => _context.CalibrationService.IsSessionActive);
+
+        // Gaze-thread → UI-thread marshal: both events hop through the dispatcher
+        // before touching the VM (mirrors ToolbarAutoHideController's visibility adapter).
+        var gridVM = _context.QuickActionsGridVM;
+        controller.SummonRequested += () =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                // Toolbar button / mouse-mode may have already shown it; only show when hidden.
+                if (!gridVM.IsVisible)
+                {
+                    gridVM.Receive(new QuickActionsToggledMessage()); // → Reload + show
+                    controller.EnterSummoned();                       // keep controller in sync
+                }
+            });
+        controller.DismissRequested += () =>
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                if (gridVM.IsVisible)
+                {
+                    gridVM.HideOverlay();      // hide WITHOUT round-tripping through Receive/toggle
+                    controller.ResetToIdle();  // explicit-state hook (no re-entrant DismissRequested)
+                }
+            });
+
+        // Feed takes a GazePoint (validity packed inside) — no unwrap/rewrap.
+        _quickActionsGazeHandler = sample =>
+            controller.Feed(sample, sample.TimestampMicroseconds);
+        _context.GazeEngine.GazeSampled += _quickActionsGazeHandler;
+
+        _quickActionsSummon = controller;
+
+        // React to toolbar edge changes — re-evaluate conflict (not just pass-through)
+        _context.Settings.Toolbar.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ToolbarSettings.DockedEdge))
+            {
+                var newEdge = ComputeActualSummonEdge(_context.Settings.QuickActions.SummonEdge);
+                _quickActionsSummon?.UpdateEdge(newEdge);
+            }
+        };
+
+        // H1 fix — bidirectional controller↔VM sync. Subscribe to grid VM IsVisible so that
+        // toolbar-button shows (which set IsVisible=true without going through the controller)
+        // and any other VM-driven show/hide keep the controller honest.
+        gridVM.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(QuickActionsGridViewModel.IsVisible)) return;
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                if (gridVM.IsVisible) controller.EnterSummoned();
+                else controller.ResetToIdle();
+            });
+        };
+    }
+
+    private string ComputeActualSummonEdge(string configuredEdge)
+    {
+        if (configuredEdge == _context!.Settings.Toolbar.DockedEdge)
+            return configuredEdge switch
+            {
+                "Left" => "Right", "Right" => "Left",
+                "Top" => "Bottom", "Bottom" => "Top",
+                _ => "Left"
+            };
+        return configuredEdge;
     }
 
     private PhysicalRect CaptureToolbarRect()
@@ -837,6 +937,7 @@ public class EventCoordinator : IEventCoordinator
 
         _settingsOpen = true;
         _toolbarAutoHide?.SetSuspended(true);
+        _quickActionsSummon?.SetSuspended(true);
         _context.OverlayManager.CursorCircle.Hide();
 
         try
@@ -871,6 +972,7 @@ public class EventCoordinator : IEventCoordinator
             // Window construction threw before Show() — OnSettingsWindowClosed will never fire, so
             // undo the suspend we set alongside _settingsOpen = true above.
             _toolbarAutoHide?.SetSuspended(false);
+            _quickActionsSummon?.SetSuspended(false);
             if (_context.CursorVM.IsVisible)
                 _context.OverlayManager.CursorCircle.Show();
             throw;
@@ -928,6 +1030,7 @@ public class EventCoordinator : IEventCoordinator
         _settingsWindow = null;
         _settingsOpen = false;
         _toolbarAutoHide?.SetSuspended(false);
+        _quickActionsSummon?.SetSuspended(false);
         if (_context.CursorVM.IsVisible)
             _context.OverlayManager.CursorCircle.Show();
     }
@@ -1161,6 +1264,7 @@ public class EventCoordinator : IEventCoordinator
         if (_context == null) return;
 
         _toolbarAutoHide?.SetSuspended(visible);
+        _quickActionsSummon?.SetSuspended(visible);
         _keyboardVisible = visible;
         Log.Information("Keyboard {State}", visible ? "shown" : "hidden");
 
@@ -1210,6 +1314,10 @@ public class EventCoordinator : IEventCoordinator
         _autoHideGazeHandler = null;
         _toolbarAutoHide = null;
         _toolbarVisibility = null;
+        if (_quickActionsGazeHandler != null && _context != null)
+            _context.GazeEngine.GazeSampled -= _quickActionsGazeHandler;
+        _quickActionsGazeHandler = null;
+        _quickActionsSummon = null;
 
         if (_context == null)
         {

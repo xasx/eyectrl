@@ -43,6 +43,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             ("Calibrate", "\u2316"),
             ("Settings", "\u2699"),
             ("TaskSwitcher", "\uD83E\uDE9F"),  // 🪟 (surrogate pair, same as PinNote's non-BMP pattern)
+            ("QuickActions", "\u26A1"),  // ⚡
         };
 
         foreach (var (id, symbol) in buttons)
@@ -107,6 +108,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             case "Calibrate": Messenger.Send(new CalibrationRequestedMessage()); break;
             case "Settings": Messenger.Send(new SettingsRequestedMessage()); break;
             case "TaskSwitcher": Messenger.Send(new TaskSwitcherToggledMessage()); break;
+            case "QuickActions": Messenger.Send(new QuickActionsToggledMessage()); break;
         }
     }
 

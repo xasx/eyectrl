@@ -1,0 +1,70 @@
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.QuickActionsGridWindow"
+                        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+                        xmlns:vm="clr-namespace:EyeCtrl.ViewModels;assembly=EyeCtrl.ViewModels"
+                        Width="400" Height="600"
+                        WindowStyle="None" AllowsTransparency="True"
+                        Background="Transparent" Topmost="True"
+                        ShowInTaskbar="False">
+    <Grid>
+        <Border x:Name="RootBorder" Background="#1A1A2E" CornerRadius="8"
+                BorderBrush="#334" BorderThickness="1" Opacity="0.95">
+            <Grid Margin="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <!-- Close button — a gaze dwell target (registered + positioned in code-behind).
+                     NOT a WPF Button: gaze produces no mouse clicks, and there is no
+                     DwellButtonStyle resource in this app. Dwell progress binds to CloseDwellProgress. -->
+                <Border x:Name="CloseButton" Grid.Row="0"
+                        Width="44" Height="44" HorizontalAlignment="Right"
+                        CornerRadius="22" Background="#2A2A3E"
+                        BorderBrush="#445" BorderThickness="1">
+                    <Grid>
+                        <TextBlock Text="&#x2715;" FontSize="20" Foreground="#FFEAA7"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <ProgressBar Minimum="0" Maximum="1"
+                                     Value="{Binding CloseDwellProgress}"
+                                     Height="4" VerticalAlignment="Bottom"
+                                     Background="Transparent" Foreground="#FFEAA7"
+                                     BorderThickness="0"/>
+                    </Grid>
+                </Border>
+                <!-- Action tiles -->
+                <ItemsControl x:Name="TilesControl" Grid.Row="1" Margin="0,8,0,0">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <!-- Rows omitted (defaults to 0 = auto-compute from Columns + item count).
+                                 RowCount raises no PropertyChanged, so binding it would go stale on Reload. -->
+                            <UniformGrid Columns="{Binding GridColumns, FallbackValue=3}"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:QuickActionTileViewModel}">
+                            <Border x:Name="TileBorder" Width="120" Height="120"
+                                    CornerRadius="6" Background="#2A2A3E"
+                                    BorderBrush="#445" BorderThickness="1"
+                                    Margin="4">
+                                <Grid>
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                        <!-- Icon per action type (bound via converter or code-behind) -->
+                                        <TextBlock Text="{Binding Icon}"
+                                                   FontSize="28" HorizontalAlignment="Center"
+                                                   Foreground="#FFEAA7" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding Action.Label}"
+                                                   FontSize="14" Foreground="#FFEAA7"
+                                                   TextWrapping="Wrap" TextAlignment="Center"
+                                                   Margin="6"/>
+                                    </StackPanel>
+                                    <!-- Dwell progress arc added/modified in code-behind -->
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+        </Border>
+    </Grid>
+</overlays:OverlayWindow>

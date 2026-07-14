@@ -80,4 +80,6 @@ public record EventCoordinationContext(
     INoteManager NoteManager,
     TrackStatusViewModel TrackStatusVM,
     TaskSwitcherViewModel TaskSwitcherVM,
-    IWindowManager WindowManager);
+    IWindowManager WindowManager,
+    QuickActionsGridViewModel QuickActionsGridVM,
+    IQuickActionsStore QuickActionsStore);

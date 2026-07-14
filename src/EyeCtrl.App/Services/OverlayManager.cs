@@ -34,6 +34,7 @@ public class OverlayManager : IOverlayManager
     public EdgeButtonBarWindow EdgeButtonBar { get; private set; } = null!;
     public TrackStatusWindow TrackStatus { get; private set; } = null!;
     public TaskSwitcherWindow TaskSwitcher { get; private set; } = null!;
+    public QuickActionsGridWindow QuickActionsGrid { get; private set; } = null!;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider)
     {
@@ -110,6 +111,10 @@ public class OverlayManager : IOverlayManager
         // Task Switcher overlay (fullscreen, not click-through). Icons resolved by the View.
         TaskSwitcher = new TaskSwitcherWindow();
         TaskSwitcher.Configure(viewModels.TaskSwitcher, _iconProvider);
+
+        // Quick Actions grid overlay (fullscreen). Takes only the VM, no icon provider.
+        QuickActionsGrid = new QuickActionsGridWindow();
+        QuickActionsGrid.Configure(viewModels.QuickActionsGrid);
 
         _logger.LogInformation("Overlay windows initialized successfully");
     }

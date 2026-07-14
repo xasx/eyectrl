@@ -166,6 +166,7 @@ public class AppBootstrapper
         services.AddSingleton<EdgeButtonBarViewModel>();
         services.AddSingleton<TrackStatusViewModel>();
         services.AddSingleton<TaskSwitcherViewModel>();
+        services.AddSingleton<QuickActionsGridViewModel>();
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(
@@ -247,7 +248,8 @@ public class AppBootstrapper
             TargetHighlight: sp.GetRequiredService<TargetHighlightOverlayViewModel>(),
             EdgeButtonBar: sp.GetRequiredService<EdgeButtonBarViewModel>(),
             TrackStatus: sp.GetRequiredService<TrackStatusViewModel>(),
-            TaskSwitcher: sp.GetRequiredService<TaskSwitcherViewModel>());
+            TaskSwitcher: sp.GetRequiredService<TaskSwitcherViewModel>(),
+            QuickActionsGrid: sp.GetRequiredService<QuickActionsGridViewModel>());
     }
 
     private static IExercise[] BuildExercisePool(PhysicalPoint center)

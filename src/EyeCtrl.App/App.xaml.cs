@@ -106,7 +106,8 @@ public partial class App : Application
 
             // ── Resolve ViewModels ──
             var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
-                 manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm) = ResolveViewModels(settings);
+                 manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm,
+                 quickActionsGridVm) = ResolveViewModels(settings);
 
             // Resolve adapter (triggers Core event subscriptions)
             _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
@@ -116,7 +117,8 @@ public partial class App : Application
 
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-            var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm);
+            var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm,
+                quickActionsGridVm);
             var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
 
             // Load calibration. Screen size must be in PHYSICAL pixels to match what
@@ -140,7 +142,9 @@ public partial class App : Application
                 noteManager,
                 trackStatusVm,
                 taskSwitcherVm,
-                _serviceProvider.GetRequiredService<IWindowManager>());
+                _serviceProvider.GetRequiredService<IWindowManager>(),
+                quickActionsGridVm,
+                _serviceProvider.GetRequiredService<IQuickActionsStore>());
             _eventCoordinator.Initialize(coordinationContext);
 
             var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();
@@ -241,13 +245,15 @@ public partial class App : Application
              TargetHighlightOverlayViewModel TargetHighlightVm,
              EdgeButtonBarViewModel EdgeButtonBarVm,
              TrackStatusViewModel TrackStatusVm,
-             TaskSwitcherViewModel TaskSwitcherVm) ResolveViewModels(EyeCtrlSettings settings)
+             TaskSwitcherViewModel TaskSwitcherVm,
+             QuickActionsGridViewModel QuickActionsGridVm) ResolveViewModels(EyeCtrlSettings settings)
     {
         var vms = AppBootstrapper.ResolveViewModels(_serviceProvider, settings);
         var backdropVm = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
         return (vms.CursorCircle, vms.ActivationButton, vms.ManualSelectionOverlay, vms.ActionMenu,
                 vms.Toolbar, vms.Keyboard, vms.ManualSelectionIndicator, backdropVm,
-                vms.Calibration, vms.TargetHighlight, vms.EdgeButtonBar, vms.TrackStatus, vms.TaskSwitcher);
+                vms.Calibration, vms.TargetHighlight, vms.EdgeButtonBar, vms.TrackStatus, vms.TaskSwitcher,
+                vms.QuickActionsGrid);
     }
 
     private (CursorCircleWindow CursorCircle, ToolbarWindow Toolbar) InitializeOverlays(

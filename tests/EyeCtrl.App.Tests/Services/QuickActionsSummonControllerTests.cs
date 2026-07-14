@@ -119,11 +119,10 @@ public class QuickActionsSummonControllerTests
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
         Check.That(dismissals).IsEqualTo(0);
 
-        // Blink (invalid sample) still dismisses an EnterSummoned session — suppression applies
-        // regardless of open-source, so calibration/blinks always tear down the grid.
+        // A blink does NOT dismiss (ignored like ToolbarAutoHideController); the grid stays open.
         c.Feed(Pt(100, 540, 11_000_000, valid: false), timestampUs: 11_000_000);
-        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
-        Check.That(dismissals).IsEqualTo(1);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+        Check.That(dismissals).IsEqualTo(0);
     }
 
     [Fact]
@@ -219,8 +218,11 @@ public class QuickActionsSummonControllerTests
     }
 
     [Fact]
-    public void Feed_BlinkWhileSummoned_Dismisses()
+    public void Feed_BlinkWhileSummoned_DoesNotDismiss()
     {
+        // A blink (involuntary and frequent for eye-tracker users) must NOT close the grid, or it
+        // would vanish mid-use and abort an in-progress tile dwell. Matches ToolbarAutoHideController,
+        // which ignores blinks. Only calibration / suspension / gaze-away timeout / activation dismiss.
         var c = CreateController(edge: "Left", summonMs: 400, dismissMs: 5000);
         int dismissals = 0;
         c.DismissRequested += () => dismissals++;
@@ -230,8 +232,53 @@ public class QuickActionsSummonControllerTests
         c.Feed(Pt(-10, 540, 500_000), timestampUs: 500_000);
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
 
-        // Blink (invalid sample) while summoned → immediate dismiss
+        // Blink (invalid sample) while summoned → ignored; stays Summoned
         c.Feed(Pt(-10, 540, 600_000, valid: false), timestampUs: 600_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+        Check.That(dismissals).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void Feed_CalibrationWhileSummoned_Dismisses()
+    {
+        bool calibrating = false;
+        var c = CreateController(edge: "Left", summonMs: 400, dismissMs: 5000,
+            calibrationActive: () => calibrating);
+        int dismissals = 0;
+        c.DismissRequested += () => dismissals++;
+
+        // Summon first
+        c.Feed(Pt(-10, 540, 0), timestampUs: 0);
+        c.Feed(Pt(-10, 540, 500_000), timestampUs: 500_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+
+        // Calibration starts → next sample tears the grid down (suppression, unlike a blink).
+        calibrating = true;
+        c.Feed(Pt(100, 540, 600_000), timestampUs: 600_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
+        Check.That(dismissals).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Feed_BlinkDuringDismissCountdown_DoesNotResetTimer()
+    {
+        // A blink partway through the gaze-away countdown must not reset it — the grid should still
+        // dismiss on schedule (blink samples are ignored, timer frozen, not restarted).
+        var c = CreateController(edge: "Left", summonMs: 400, dismissMs: 5000);
+        int dismissals = 0;
+        c.DismissRequested += () => dismissals++;
+
+        // Hot-edge summon
+        c.Feed(Pt(-10, 540, 0), timestampUs: 0);
+        c.Feed(Pt(-10, 540, 500_000), timestampUs: 500_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+
+        // Gaze on-screen starts the dismiss countdown at t=600ms
+        c.Feed(Pt(100, 540, 600_000), timestampUs: 600_000);
+        // Blink partway through — must NOT reset the countdown
+        c.Feed(Pt(100, 540, 3_000_000, valid: false), timestampUs: 3_000_000);
+        // >5s after the countdown started → dismisses
+        c.Feed(Pt(100, 540, 5_700_000), timestampUs: 5_700_000);
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
         Check.That(dismissals).IsEqualTo(1);
     }

@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Overlays;
 
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
@@ -15,8 +16,6 @@ using EyeCtrl.ViewModels;
 public partial class QuickActionsGridWindow : OverlayWindow
 {
     private QuickActionsGridViewModel? _vm;
-    // H2 fix: guard so LayoutUpdated syncs tile positions once per show, not every layout pass.
-    private bool _pendingTileSync;
 
     /// <summary>Creates the window and applies non-click-through, non-focusable overlay flags.</summary>
     public QuickActionsGridWindow()
@@ -45,27 +44,20 @@ public partial class QuickActionsGridWindow : OverlayWindow
                 // actually summoned it — ComputeActualSummonEdge may flip the configured edge when
                 // it collides with the toolbar dock. Fall back to the configured edge if unset.
                 var edge = string.IsNullOrEmpty(vm.EffectiveSummonEdge) ? vm.SummonEdge : vm.EffectiveSummonEdge;
+                ResizeToContent();   // size to columns×rows so no tile is clipped or pushed off-window
                 PositionOnEdge(edge);
                 Show();
-                // Arm a one-shot sync: LayoutUpdated fires after the tiles get real positions.
-                _pendingTileSync = true;
+                // Push real tile centres into the VM once layout completes. DispatcherPriority.Loaded
+                // fires after arrange (containers have real sizes/positions) — the same one-shot
+                // pattern as TaskSwitcherWindow. A permanent LayoutUpdated handler was both chattier
+                // (fires every layout pass for the window's life) and could run before the first arrange.
+                Dispatcher.BeginInvoke(new Action(SyncTilePositions), DispatcherPriority.Loaded);
             }
             else
             {
                 Hide();
             }
         };
-
-        // SyncTilePositions MUST run after layout so containers have real screen coords.
-        // Without it, Reload() created zero dwell targets and the grid was non-dwellable.
-        TilesControl.LayoutUpdated += OnTilesLayoutUpdated;
-    }
-
-    private void OnTilesLayoutUpdated(object? sender, EventArgs e)
-    {
-        if (!_pendingTileSync) return;
-        _pendingTileSync = false;
-        SyncTilePositions();
     }
 
     /// <summary>
@@ -98,6 +90,27 @@ public partial class QuickActionsGridWindow : OverlayWindow
                 Top = workArea.Height - gridH;
                 break;
         }
+    }
+
+    /// <summary>
+    /// Sizes the window to fit every tile — columns from the VM, rows computed — plus the
+    /// close-button row, clamped to the work area. Gaze users can't scroll, so all tiles must be
+    /// visible; the previous fixed 400×600 clipped 3+ column grids and pushed extra rows off-window.
+    /// </summary>
+    private void ResizeToContent()
+    {
+        if (_vm == null) return;
+
+        const double cell = 128;      // 120 tile + 4+4 tile margin
+        const double outerPad = 24;   // outer Grid Margin (12 per side)
+        const double closeRow = 52;   // 44 close button + spacing
+
+        int cols = Math.Max(1, _vm.GridColumns);
+        int rows = _vm.Tiles.Count == 0 ? 0 : (int)Math.Ceiling((double)_vm.Tiles.Count / cols);
+
+        var wa = SystemParameters.WorkArea; // logical DIPs
+        Width = Math.Min(cols * cell + outerPad, wa.Width);
+        Height = Math.Min(rows * cell + closeRow + outerPad, wa.Height);
     }
 
     /// <summary>

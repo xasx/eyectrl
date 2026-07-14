@@ -191,6 +191,7 @@ public class EventCoordinator : IEventCoordinator
     /// </summary>
     private void ExecuteKeyboardShortcut(string chord)
     {
+        if (_context == null) return;
         var parts = chord.Split('+');
         var mods = new HashSet<ModifierKey>();
         string key = parts[^1].Trim();   // trim whitespace so "Ctrl + C" works (modifiers are trimmed below)
@@ -234,6 +235,7 @@ public class EventCoordinator : IEventCoordinator
     /// </summary>
     private void ExecuteMediaControl(string command)
     {
+        if (_context == null) return;
         ushort vk = command switch
         {
             "PlayPause" => 0xB3, "Stop" => 0xB2,
@@ -595,6 +597,11 @@ public class EventCoordinator : IEventCoordinator
         var s = _context!.Settings.QuickActions;
         if (!s.Enabled) return;
 
+        // Hot-edge summon is a gaze gesture — disabled in mouse mode (the OS clamps the cursor to
+        // the screen so it can't go "past" an edge, and on multi-monitor a Right/Bottom edge could
+        // misfire on cursor travel). The toolbar QuickActions button remains the mouse-mode path.
+        if (EyeCtrl.App.App.ActiveProviderType == Core.Enums.GazeProviderType.Mouse) return;
+
         // Resolve actual summon edge (avoid conflict with main toolbar)
         var actualEdge = ComputeActualSummonEdge(s.SummonEdge);
 
@@ -629,7 +636,9 @@ public class EventCoordinator : IEventCoordinator
                 {
                     UpdateEffectiveEdge();   // edge may have changed since last show
                     gridVM.Receive(new QuickActionsToggledMessage()); // → Reload + show
-                    controller.EnterSummoned();                       // keep controller in sync
+                    // Do NOT call EnterSummoned here: Feed already set the controller to Summoned
+                    // with the gaze-away dismiss timer armed (_summonOpened=true). EnterSummoned
+                    // would clear that flag and disable auto-dismiss for hot-edge summons.
                 }
             });
         controller.DismissRequested += () =>
@@ -676,8 +685,19 @@ public class EventCoordinator : IEventCoordinator
             if (e.PropertyName != nameof(QuickActionsGridViewModel.IsVisible)) return;
             _context.Dispatcher.BeginInvoke(() =>
             {
-                if (gridVM.IsVisible) controller.EnterSummoned();
-                else controller.ResetToIdle();
+                if (gridVM.IsVisible)
+                {
+                    // Only mark VM-driven shows (toolbar button, etc.), which leave the controller
+                    // Idle. A hot-edge summon already set it to Summoned WITH the dismiss timer
+                    // armed; calling EnterSummoned again would clear _summonOpened and kill
+                    // auto-dismiss. So sync only when the controller didn't initiate the show.
+                    if (controller.State == QuickActionsSummonController.SummonState.Idle)
+                        controller.EnterSummoned();
+                }
+                else
+                {
+                    controller.ResetToIdle();
+                }
             });
         };
     }

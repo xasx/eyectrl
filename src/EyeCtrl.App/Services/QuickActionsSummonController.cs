@@ -104,7 +104,8 @@ public sealed class QuickActionsSummonController
         if (_suspended) return;
 
         var pastEdge = IsPastEdge(sample);
-        var shouldSuppress = (_calibrationActive?.Invoke() ?? false) || !sample.IsValid;
+        var calibrationActive = _calibrationActive?.Invoke() ?? false;
+        var shouldSuppress = calibrationActive || !sample.IsValid;
 
         if (State == SummonState.Idle)
         {
@@ -133,12 +134,18 @@ public sealed class QuickActionsSummonController
         }
         else // Summoned
         {
-            if (shouldSuppress)
+            // Calibration starting tears the grid down. A blink (invalid sample) is IGNORED — it
+            // must NOT dismiss (mirrors ToolbarAutoHideController's blink handling), or normal
+            // involuntary blinks would close the grid and abort an in-progress tile dwell. Returning
+            // without touching the dismiss anchor also freezes the timer, so a blink mid gaze-away
+            // doesn't reset the countdown.
+            if (calibrationActive)
             {
-                // Blink or calibration start while summoned → dismiss.
                 ResetToIdleCore(notify: true);
                 return;
             }
+            if (!sample.IsValid)
+                return;
 
             // If gaze is inside screen (not past edge), start dismiss timer — but ONLY for
             // hot-edge-summoned sessions. Grids opened via the toolbar button (_summonOpened=false)

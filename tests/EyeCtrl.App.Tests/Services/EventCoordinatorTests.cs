@@ -105,7 +105,8 @@ public class EventCoordinatorTests
             WindowManager: null!,
             QuickActionsGridVM: null!,
             QuickActionsStore: null!,
-            WindowsAppLauncher: null!));
+            WindowsAppLauncher: null!,
+            InstalledAppProvider: new FakeInstalledAppProvider()));
 
         ExecuteKeyboardShortcut(coordinator, "Ctrl+!");
 
@@ -150,7 +151,8 @@ public class EventCoordinatorTests
             WindowManager: null!,
             QuickActionsGridVM: null!,
             QuickActionsStore: null!,
-            WindowsAppLauncher: null!));
+            WindowsAppLauncher: null!,
+            InstalledAppProvider: new FakeInstalledAppProvider()));
         SetField(coordinator, "_quickActionsSummon", controller);
 
         InvokeSetupQuickActionsSummon(coordinator);
@@ -264,4 +266,9 @@ public class EventCoordinatorTests
     }
 
     private sealed record ModifiedKeyPress(IReadOnlySet<ModifierKey> Modifiers, ushort VirtualKeyCode, bool IsExtendedKey);
+
+    private sealed class FakeInstalledAppProvider : IInstalledAppProvider
+    {
+        public IReadOnlyList<InstalledApp> GetInstalledApps() => Array.Empty<InstalledApp>();
+    }
 }

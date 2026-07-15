@@ -79,6 +79,7 @@ public class AppBootstrapper
             return new QuickActionsStore(path);
         });
         services.AddSingleton<IWindowsAppLauncher, WindowsAppLauncher>();
+        services.AddSingleton<IInstalledAppProvider, Win32InstalledAppProvider>();
         services.AddSingleton<IGazeProvider>(sp =>
         {
             if (isTestMode)

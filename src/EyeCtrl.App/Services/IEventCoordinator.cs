@@ -83,4 +83,5 @@ public record EventCoordinationContext(
     IWindowManager WindowManager,
     QuickActionsGridViewModel QuickActionsGridVM,
     IQuickActionsStore QuickActionsStore,
-    IWindowsAppLauncher WindowsAppLauncher);
+    IWindowsAppLauncher WindowsAppLauncher,
+    IInstalledAppProvider InstalledAppProvider);

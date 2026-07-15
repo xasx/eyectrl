@@ -67,6 +67,22 @@ public partial class SettingsWindow : OverlayWindow
     private List<List<Action>> _pages = new();
     private readonly List<object> _activeItems = new(); // DwellControl | IDwellComposite
 
+    private enum QaView { List, PickType, PickShortcut, PickMedia, PickApp }
+    private QaView _qaView = QaView.List;
+
+    // Switch the Quick Actions sub-view and rebuild. RebuildContent() rebuilds _pages for the new
+    // view and clamps CurrentPage into range, so we do NOT set CurrentPage here: setting it would
+    // fire PropertyChanged → RenderCurrentPage() against the OLD view's _pages (a stale render)
+    // before the rebuild runs. Every picker is entered from a page-0 context (Add-action lives only
+    // on List page 0; the type picker is a single page), so pickers still open at the top; only the
+    // return-to-List transition may land on an action row rather than the config page — which is
+    // fine. Never reset CurrentPage inside BuildQuickActionsPages either — it fights pag_prev/next.
+    private void GoToQaView(QaView view)
+    {
+        _qaView = view;
+        RebuildContent();
+    }
+
     public event Action<EyeCtrlSettings>? SettingsChanged;
 
     private readonly (string Id, string Icon, string Label, Func<List<List<Action>>> PageBuilder)[] _tabDefs;
@@ -173,6 +189,7 @@ public partial class SettingsWindow : OverlayWindow
             switch (e.PropertyName)
             {
                 case nameof(SettingsViewModel.CurrentTabName):
+                    _qaView = QaView.List;
                     RebuildContent();
                     break;
                 case nameof(SettingsViewModel.CurrentPage):
@@ -904,36 +921,163 @@ public partial class SettingsWindow : OverlayWindow
         ];
     }
 
-    private List<List<Action>> BuildQuickActionsPages()
+    private const int QaActionsPerPage = 4;      // action rows per List page (pages 2+)
+    private const int QaPresetsPerPage = 6;      // preset/app buttons per picker page
+
+    private static string QaTypeGlyph(QuickActionType t) => t switch
+    {
+        QuickActionType.KeyboardShortcut => "⌨",       // ⌨
+        QuickActionType.CannedText => "T",
+        QuickActionType.LaunchExe => "⊞",              // ⊞
+        QuickActionType.LaunchWindowsApp => "▦",       // BMP launch-app glyph (grid tiles use 🪟 separately)
+        QuickActionType.LaunchUrl => "@",
+        QuickActionType.MediaControl => "♫",           // ♫
+        _ => "⚡",                                      // ⚡
+    };
+
+    private List<List<Action>> BuildQuickActionsPages() => _qaView switch
+    {
+        QaView.PickType => BuildQaTypePickerPages(),
+        QaView.PickShortcut => BuildQaShortcutPages(),
+        QaView.PickMedia => BuildQaMediaPages(),
+        QaView.PickApp => BuildQaAppPages(),
+        _ => BuildQaListPages(),
+    };
+
+    private List<List<Action>> BuildQaListPages()
     {
         var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
         var cat = DwellCategory.Control;
         var qa = _settings.QuickActions;
+        var editor = _viewModel.QuickActionsEditor;
 
-        return
-        [
-            [
-                () => Add(new DwellToggle(_viewModel, "qa_enabled", "Enable Quick Actions",
-                    () => qa.Enabled, v => { qa.Enabled = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellComboBox(_viewModel, "qa_edge", "Summon Edge",
-                    new[] { "Left", "Right", "Top", "Bottom" },
-                    () => qa.SummonEdge, v => { qa.SummonEdge = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "qa_summon", "Summon Threshold (ms)",
-                    200, 2000, 50, 0,
-                    () => qa.SummonThresholdMs, v => { qa.SummonThresholdMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "qa_dismiss", "Dismiss Timeout (ms)",
-                    1000, 15000, 500, 0,
-                    () => qa.DismissTimeoutMs, v => { qa.DismissTimeoutMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "qa_columns", "Grid Columns",
-                    2, 5, 1, 0,
-                    () => qa.GridColumns, v => { qa.GridColumns = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-            ]
-        ];
+        var pages = new List<List<Action>>();
+
+        // Page 1 (pinned): config controls + "Add action".
+        pages.Add(new List<Action>
+        {
+            () => Add(new DwellToggle(_viewModel, "qa_enabled", "Enable Quick Actions",
+                () => qa.Enabled, v => { qa.Enabled = v; ApplyAndSave(); }, cat, r, _dwellMs)),
+            () => Add(new DwellComboBox(_viewModel, "qa_edge", "Summon Edge",
+                new[] { "Left", "Right", "Top", "Bottom" },
+                () => qa.SummonEdge, v => { qa.SummonEdge = v; ApplyAndSave(); }, cat, r, _dwellMs)),
+            () => Add(new DwellSlider(_viewModel, "qa_summon", "Summon Threshold (ms)",
+                200, 2000, 50, 0,
+                () => qa.SummonThresholdMs, v => { qa.SummonThresholdMs = (int)v; ApplyAndSave(); }, cat, r, _dwellMs)),
+            () => Add(new DwellSlider(_viewModel, "qa_dismiss", "Dismiss Timeout (ms)",
+                1000, 15000, 500, 0,
+                () => qa.DismissTimeoutMs, v => { qa.DismissTimeoutMs = (int)v; ApplyAndSave(); }, cat, r, _dwellMs)),
+            () => Add(new DwellSlider(_viewModel, "qa_columns", "Grid Columns",
+                2, 5, 1, 0,
+                () => qa.GridColumns, v => { qa.GridColumns = (int)v; ApplyAndSave(); }, cat, r, _dwellMs)),
+            () => Add(new DwellButton(_viewModel, "qa_add", "＋  Add action",
+                () => GoToQaView(QaView.PickType), BtnBase, cat, r, _dwellMs, width: 360, height: 80)),
+        });
+
+        // Pages 2+: one row per action (enable toggle + delete), chunked.
+        var actions = editor.Actions.ToList();
+        for (int i = 0; i < actions.Count; i += QaActionsPerPage)
+        {
+            var chunk = actions.Skip(i).Take(QaActionsPerPage).ToList();
+            var page = new List<Action>();
+            foreach (var action in chunk)
+            {
+                var a = action; // capture per iteration
+                var caption = $"{QaTypeGlyph(a.Type)}  {a.Label}";
+                page.Add(() => Add(new DwellToggle(_viewModel, "qa_en_" + a.Id, caption,
+                    () => a.Enabled, _ => { editor.ToggleEnabled(a.Id); }, cat, r, _dwellMs)));
+                page.Add(() => Add(new DwellButton(_viewModel, "qa_del_" + a.Id, "✕  Delete",
+                    () => ShowModal($"Delete \"{a.Label}\"?", () => { editor.DeleteAction(a.Id); RebuildContent(); }),
+                    DeleteBase, cat, r, _dwellMs, width: 360, height: 70)));
+            }
+            pages.Add(page);
+        }
+
+        return pages;
+    }
+
+    private List<Action> QaBackButton(int page) => new()
+    {
+        () => Add(new DwellButton(_viewModel, "qa_back_" + page, "←  Back",
+            () => GoToQaView(QaView.List), BtnBase,
+            DwellCategory.Control, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs,
+            width: 360, height: 70)),
+    };
+
+    private List<List<Action>> BuildQaTypePickerPages()
+    {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+
+        var page = QaBackButton(0);
+        page.Add(() => Add(new DwellButton(_viewModel, "qa_type_kbd", "⌨  Keyboard Shortcut",
+            () => GoToQaView(QaView.PickShortcut), BtnBase, cat, r, _dwellMs, width: 420, height: 90)));
+        page.Add(() => Add(new DwellButton(_viewModel, "qa_type_media", "♫  Media Control",
+            () => GoToQaView(QaView.PickMedia), BtnBase, cat, r, _dwellMs, width: 420, height: 90)));
+        page.Add(() => Add(new DwellButton(_viewModel, "qa_type_app", "▦  Launch App",
+            () => GoToQaView(QaView.PickApp), BtnBase, cat, r, _dwellMs, width: 420, height: 90)));
+        return new List<List<Action>> { page };
+    }
+
+    private List<List<Action>> BuildQaShortcutPages()
+    {
+        var editor = _viewModel.QuickActionsEditor;
+
+        return ChunkPickerPages(QuickActionPresets.KeyboardShortcuts.Count, "qa_ks", i =>
+        {
+            var (label, chord) = QuickActionPresets.KeyboardShortcuts[i];
+            return (label, () => { editor.AddKeyboardShortcut(label, chord); GoToQaView(QaView.List); });
+        });
+    }
+
+    private List<List<Action>> BuildQaMediaPages()
+    {
+        var editor = _viewModel.QuickActionsEditor;
+
+        return ChunkPickerPages(QuickActionPresets.MediaControls.Count, "qa_md", i =>
+        {
+            var (label, command) = QuickActionPresets.MediaControls[i];
+            return (label, () => { editor.AddMediaControl(label, command); GoToQaView(QaView.List); });
+        });
+    }
+
+    private List<List<Action>> BuildQaAppPages()
+    {
+        var editor = _viewModel.QuickActionsEditor;
+        var apps = editor.InstalledApps;
+        if (apps.Count == 0)
+        {
+            var empty = QaBackButton(0);
+            empty.Insert(0, () => Add(new DwellLabel("No installed apps found.")));
+            return new List<List<Action>> { empty };
+        }
+        return ChunkPickerPages(apps.Count, "qa_app", i =>
+        {
+            var app = apps[i];
+            return (app.DisplayName, () => { editor.AddApp(app); GoToQaView(QaView.List); });
+        });
+    }
+
+    // Builds paginated picker pages of big dwell buttons; every page starts with a Back button.
+    private List<List<Action>> ChunkPickerPages(int count, string idPrefix, Func<int, (string Label, Action OnPick)> itemAt)
+    {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+        var pages = new List<List<Action>>();
+
+        for (int start = 0, page = 0; start < count; start += QaPresetsPerPage, page++)
+        {
+            var actions = QaBackButton(page);
+            for (int i = start; i < Math.Min(start + QaPresetsPerPage, count); i++)
+            {
+                var (label, onPick) = itemAt(i);
+                var id = $"{idPrefix}_{i}";
+                actions.Add(() => Add(new DwellButton(_viewModel, id, label, onPick,
+                    BtnBase, cat, r, _dwellMs, width: 460, height: 80)));
+            }
+            pages.Add(actions);
+        }
+        return pages;
     }
 
     private List<List<Action>> BuildCalibrationPages()

@@ -2,32 +2,28 @@ namespace EyeCtrl.ViewModels;
 
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Settings;
 
 /// <summary>
-/// Editor ViewModel for the Quick Actions settings tab. Loads the full set of
-/// <see cref="QuickAction"/> entries (including disabled ones) from the store and
-/// provides CRUD operations used by the action-card UI. The tab's first page (config
-/// controls) binds directly to <see cref="EyeCtrlSettings.QuickActions"/>; this VM
-/// drives the deferred Page-2 card editor and is kept construction-wired even when
-/// the card UI is not yet rendered.
+/// Editor ViewModel for the Quick Actions settings tab. Loads every <see cref="QuickAction"/>
+/// (including disabled) from the store and provides gaze-authorable create + manage operations.
 /// </summary>
 public partial class SettingsQuickActionsEditorViewModel : ObservableObject
 {
     private readonly IQuickActionsStore _store;
+    private readonly IInstalledAppProvider _appProvider;
 
-    /// <summary>Visibility flag for the deferred action-card editor surface.</summary>
-    [ObservableProperty] private bool _isVisible;
-
-    /// <summary>All stored actions (enabled and disabled) for the editor grid.</summary>
+    /// <summary>All stored actions (enabled and disabled) for the editor list.</summary>
     public ObservableCollection<QuickAction> Actions { get; } = new();
 
-    public SettingsQuickActionsEditorViewModel(IQuickActionsStore store)
+    /// <summary>Installed apps for the "Launch App" picker (provider-cached).</summary>
+    public IReadOnlyList<InstalledApp> InstalledApps => _appProvider.GetInstalledApps();
+
+    public SettingsQuickActionsEditorViewModel(IQuickActionsStore store, IInstalledAppProvider appProvider)
     {
         _store = store;
+        _appProvider = appProvider;
     }
 
     /// <summary>Reloads every action from the store into <see cref="Actions"/>.</summary>
@@ -41,11 +37,21 @@ public partial class SettingsQuickActionsEditorViewModel : ObservableObject
     /// <summary>Persists the current <see cref="Actions"/> collection.</summary>
     public void Save() => _store.Save(Actions.ToList());
 
-    /// <summary>Appends a new action of the given type with a default label and saves.</summary>
-    public void AddAction(QuickActionType type)
+    /// <summary>Adds a keyboard-shortcut action (payload is the chord string) and saves.</summary>
+    public void AddKeyboardShortcut(string label, string chord)
+        => Add(QuickActionType.KeyboardShortcut, label, chord);
+
+    /// <summary>Adds a media-control action (payload is the command string) and saves.</summary>
+    public void AddMediaControl(string label, string command)
+        => Add(QuickActionType.MediaControl, label, command);
+
+    /// <summary>Adds a launch-Windows-app action (payload is the AUMID; label is the app name) and saves.</summary>
+    public void AddApp(InstalledApp app)
+        => Add(QuickActionType.LaunchWindowsApp, app.DisplayName, app.Aumid);
+
+    private void Add(QuickActionType type, string label, string payload)
     {
-        var action = new QuickAction { Type = type, Label = $"New {type}" };
-        Actions.Add(action);
+        Actions.Add(new QuickAction { Type = type, Label = label, Payload = payload });
         Save();
     }
 
@@ -69,18 +75,5 @@ public partial class SettingsQuickActionsEditorViewModel : ObservableObject
             action.Enabled = !action.Enabled;
             Save();
         }
-    }
-
-    /// <summary>
-    /// Patch-style update for the action with the given id: only non-null arguments are applied.
-    /// </summary>
-    public void UpdateAction(string id, string? label, string? payload, QuickActionType? type)
-    {
-        var action = Actions.FirstOrDefault(a => a.Id == id);
-        if (action == null) return;
-        if (label != null) action.Label = label;
-        if (payload != null) action.Payload = payload;
-        if (type.HasValue) action.Type = type.Value;
-        Save();
     }
 }

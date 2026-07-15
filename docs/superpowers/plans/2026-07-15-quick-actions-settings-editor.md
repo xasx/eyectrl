@@ -830,24 +830,27 @@ Near the other private state fields (after `private List<List<Action>> _pages = 
     private enum QaView { List, PickType, PickShortcut, PickMedia, PickApp }
     private QaView _qaView = QaView.List;
 
-    // Every Quick Actions view transition starts the view at its first page, then rebuilds.
-    // Never reset CurrentPage inside BuildQuickActionsPages — it would fight pag_prev/pag_next.
+    // Switch the Quick Actions sub-view and rebuild. RebuildContent() rebuilds _pages for the new
+    // view and clamps CurrentPage into range, so we do NOT set CurrentPage here: setting it would
+    // fire PropertyChanged → RenderCurrentPage() against the OLD view's _pages (a stale render)
+    // before the rebuild runs. Every picker is entered from a page-0 context (Add-action lives only
+    // on List page 0; the type picker is a single page), so pickers still open at the top; only the
+    // return-to-List transition may land on an action row rather than the config page — which is
+    // fine. Never reset CurrentPage inside BuildQuickActionsPages either — it fights pag_prev/next.
     private void GoToQaView(QaView view)
     {
         _qaView = view;
-        _viewModel.Settings.CurrentPage = 0;
         RebuildContent();
     }
 ```
 
 - [ ] **Step 2: Reset the view on tab change**
 
-In `OnSettingsViewModelPropertyChanged`, change the `CurrentTabName` case so leaving/entering any tab resets the Quick Actions view to `List` (this fires on every tab switch, including re-entering Quick Actions):
+In `OnSettingsViewModelPropertyChanged`, change the `CurrentTabName` case so leaving/entering any tab resets the Quick Actions view to `List` (this fires on every tab switch, including re-entering Quick Actions). Add only the `_qaView` reset — keep the original clamp-only paging by leaving `RebuildContent()` to manage `CurrentPage`. Do **not** set `CurrentPage = 0` here: it would render the *outgoing* tab's stale `_pages` (rebuild hasn't run yet) and would also change the existing cross-tab behavior for every other tab:
 
 ```csharp
                 case nameof(SettingsViewModel.CurrentTabName):
                     _qaView = QaView.List;
-                    _viewModel.Settings.CurrentPage = 0;
                     RebuildContent();
                     break;
 ```
@@ -907,7 +910,7 @@ Replace the entire current `BuildQuickActionsPages()` method with the following.
                 2, 5, 1, 0,
                 () => qa.GridColumns, v => { qa.GridColumns = (int)v; ApplyAndSave(); }, cat, r, _dwellMs)),
             () => Add(new DwellButton(_viewModel, "qa_add", "＋  Add action",
-                () => GoToQaView(QaView.PickType), ModalYes, cat, r, _dwellMs, width: 360, height: 80)),
+                () => GoToQaView(QaView.PickType), BtnBase, cat, r, _dwellMs, width: 360, height: 80)),
         });
 
         // Pages 2+: one row per action (enable toggle + delete), chunked.
@@ -935,7 +938,7 @@ Replace the entire current `BuildQuickActionsPages()` method with the following.
     private List<Action> QaBackButton(int page) => new()
     {
         () => Add(new DwellButton(_viewModel, "qa_back_" + page, "←  Back",
-            () => GoToQaView(QaView.List), ResetBase,
+            () => GoToQaView(QaView.List), BtnBase,
             DwellCategory.Control, DpiHelper.LogicalToPhysicalX(ControlBtnRadius), _dwellMs,
             width: 360, height: 70)),
     };
@@ -957,8 +960,6 @@ Replace the entire current `BuildQuickActionsPages()` method with the following.
 
     private List<List<Action>> BuildQaShortcutPages()
     {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
         var editor = _viewModel.QuickActionsEditor;
 
         return ChunkPickerPages(QuickActionPresets.KeyboardShortcuts.Count, "qa_ks", i =>
@@ -970,8 +971,6 @@ Replace the entire current `BuildQuickActionsPages()` method with the following.
 
     private List<List<Action>> BuildQaMediaPages()
     {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
         var editor = _viewModel.QuickActionsEditor;
 
         return ChunkPickerPages(QuickActionPresets.MediaControls.Count, "qa_md", i =>

@@ -79,34 +79,7 @@ public class EventCoordinatorTests
     {
         var coordinator = new EventCoordinator();
         var input = new FakeInputSimulator();
-        SetContext(coordinator, new EventCoordinationContext(
-            CursorVM: null!,
-            ActivationVM: null!,
-            ManualSelectionVM: null!,
-            ManualSelectionIndicatorVM: null!,
-            ActionMenuVM: null!,
-            ToolbarVM: null!,
-            KeyboardVM: null!,
-            BackdropVM: null!,
-            DragTrailVM: null!,
-            OverlayManager: null!,
-            GazeEngine: null!,
-            InteractionManager: null!,
-            Messenger: null!,
-            Dispatcher: null!,
-            SettingsService: null!,
-            Settings: null!,
-            TargetHighlightVM: null!,
-            InputSimulator: input,
-            CalibrationService: null!,
-            NoteManager: null!,
-            TrackStatusVM: null!,
-            TaskSwitcherVM: null!,
-            WindowManager: null!,
-            QuickActionsGridVM: null!,
-            QuickActionsStore: null!,
-            WindowsAppLauncher: null!,
-            InstalledAppProvider: new FakeInstalledAppProvider()));
+        SetContext(coordinator, MakeContext(input));
 
         ExecuteKeyboardShortcut(coordinator, "Ctrl+!");
 
@@ -114,6 +87,27 @@ public class EventCoordinatorTests
         Check.That(input.LastModifiedKeyPress!.VirtualKeyCode).IsEqualTo((ushort)0x31);
         Check.That(input.LastModifiedKeyPress.Modifiers).Contains(ModifierKey.Ctrl);
         Check.That(input.LastModifiedKeyPress.Modifiers).Contains(ModifierKey.Shift);
+    }
+
+    [Fact]
+    public void ExecuteMediaControl_EveryPreset_ProducesAnExtendedKeyPress()
+    {
+        var failures = new List<string>();
+        foreach (var (label, command) in EyeCtrl.Core.Models.QuickActionPresets.MediaControls)
+        {
+            var coordinator = new EventCoordinator();
+            var input = new FakeInputSimulator();
+            SetContext(coordinator, MakeContext(input));
+
+            typeof(EventCoordinator)
+                .GetMethod("ExecuteMediaControl", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .Invoke(coordinator, new object[] { command });
+
+            if (input.LastKeyPress is not { } kp || kp.Vk == 0 || !kp.Extended)
+                failures.Add($"{label} ({command})");
+        }
+
+        Check.That(failures).IsEmpty();
     }
 
     [Fact]
@@ -163,6 +157,38 @@ public class EventCoordinatorTests
         Check.That(GetQuickActionsSuspended(controller)).IsFalse();
     }
 
+    private static EventCoordinationContext MakeContext(IInputSimulator input)
+    {
+        return new EventCoordinationContext(
+            CursorVM: null!,
+            ActivationVM: null!,
+            ManualSelectionVM: null!,
+            ManualSelectionIndicatorVM: null!,
+            ActionMenuVM: null!,
+            ToolbarVM: null!,
+            KeyboardVM: null!,
+            BackdropVM: null!,
+            DragTrailVM: null!,
+            OverlayManager: null!,
+            GazeEngine: null!,
+            InteractionManager: null!,
+            Messenger: null!,
+            Dispatcher: null!,
+            SettingsService: null!,
+            Settings: null!,
+            TargetHighlightVM: null!,
+            InputSimulator: input,
+            CalibrationService: null!,
+            NoteManager: null!,
+            TrackStatusVM: null!,
+            TaskSwitcherVM: null!,
+            WindowManager: null!,
+            QuickActionsGridVM: null!,
+            QuickActionsStore: null!,
+            WindowsAppLauncher: null!,
+            InstalledAppProvider: new FakeInstalledAppProvider());
+    }
+
     private static void SetContext(EventCoordinator coordinator, EventCoordinationContext context)
     {
         typeof(EventCoordinator)
@@ -210,6 +236,8 @@ public class EventCoordinatorTests
     {
         public ModifiedKeyPress? LastModifiedKeyPress { get; private set; }
 
+        public (ushort Vk, bool Extended)? LastKeyPress { get; private set; }
+
         public void MoveCursor(PhysicalPoint point)
         {
         }
@@ -240,6 +268,11 @@ public class EventCoordinatorTests
 
         public void SendKeyPress(ushort virtualKeyCode)
         {
+        }
+
+        public void SendKeyPress(ushort virtualKeyCode, bool isExtendedKey)
+        {
+            LastKeyPress = (virtualKeyCode, isExtendedKey);
         }
 
         public void SendKeyDown(ushort virtualKeyCode)

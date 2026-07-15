@@ -22,7 +22,7 @@ public class SettingsWindowViewModelTests
     {
         var settingsVM = new SettingsViewModel(_settings, _settingsService, _messenger);
         var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
-            new FakeQuickActionsStore());
+            new FakeQuickActionsStore(), new FakeInstalledAppProvider());
         return new SettingsWindowViewModel(settingsVM, quickActionsEditor, _messenger, _settings.Dwell);
     }
 
@@ -41,6 +41,12 @@ public class SettingsWindowViewModelTests
             _actions.AddRange(actions);
         }
         public QuickAction? FindById(string id) => _actions.FirstOrDefault(a => a.Id == id);
+    }
+
+    /// <summary>Minimal <see cref="IInstalledAppProvider"/> fixture for the settings window VM tests.</summary>
+    private sealed class FakeInstalledAppProvider : IInstalledAppProvider
+    {
+        public IReadOnlyList<InstalledApp> GetInstalledApps() => Array.Empty<InstalledApp>();
     }
 
     [Fact]

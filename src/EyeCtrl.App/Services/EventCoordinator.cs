@@ -1129,7 +1129,8 @@ public class EventCoordinator : IEventCoordinator
                 _context.Messenger);
 
             var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
-                _context.QuickActionsStore);
+                _context.QuickActionsStore, _context.InstalledAppProvider);
+            quickActionsEditor.Load();
 
             var settingsWindowVM = new SettingsWindowViewModel(
                 settingsVM,

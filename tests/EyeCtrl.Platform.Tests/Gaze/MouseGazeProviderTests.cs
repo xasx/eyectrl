@@ -10,7 +10,13 @@ public class MouseGazeProviderTests
     {
         var provider = new MouseGazeProvider(pollIntervalMs: 5);
         int count = 0;
-        var firstEvent = new TaskCompletionSource();
+        // RunContinuationsAsynchronously is REQUIRED: TrySetResult below is called from inside the
+        // provider's timer callback (via GazePointReceived). Without it, this method's await
+        // continuation — Stop()/Dispose() — would run synchronously on that timer thread, re-entering
+        // Stop() from within the tick it is trying to wait out. That disposes Stop()'s ManualResetEvent
+        // before the tick completes, and the timer then signals a disposed handle → a background
+        // ObjectDisposedException that crashes the test host.
+        var firstEvent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         provider.GazePointReceived += _ =>
         {
             Interlocked.Increment(ref count);

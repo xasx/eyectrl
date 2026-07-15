@@ -145,8 +145,14 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<IWindowManager>(),
                 quickActionsGridVm,
                 _serviceProvider.GetRequiredService<IQuickActionsStore>(),
-                _serviceProvider.GetRequiredService<IWindowsAppLauncher>());
+                _serviceProvider.GetRequiredService<IWindowsAppLauncher>(),
+                _serviceProvider.GetRequiredService<IInstalledAppProvider>());
             _eventCoordinator.Initialize(coordinationContext);
+
+            // Warm the installed-app cache off the UI thread (the provider walks Shell AppsFolder
+            // on its own STA worker; this just triggers the one-time enumeration early).
+            System.Threading.Tasks.Task.Run(
+                () => _serviceProvider.GetRequiredService<IInstalledAppProvider>().GetInstalledApps());
 
             var modelRegistry = _serviceProvider.GetRequiredService<ModelRegistryService>();
             var modelDownload = _serviceProvider.GetRequiredService<ModelDownloadService>();

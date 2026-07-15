@@ -70,7 +70,7 @@ And a critical safety guarantee:
 │  │  • hang detect (HB timeout)│  ─── launch ──▶ │ + Mutex   │ │
 │  │  • crash-loop escalation   │                 │ + Xcptn   │ │
 │  │  • fallback AT launch      │                 │   handlers│ │
-│  │  • own dwell UI (Core+Plat)│                 └──────────┘ │
+│  │  • own dwell UI (Core+Plat+Ctrl)│             └──────────┘ │
 │  └────────────────────────────┘                              │
 │          │ on crash-loop                                     │
 │          ▼                                                   │
@@ -78,9 +78,15 @@ And a critical safety guarantee:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### New project
+### New projects
 
-`src/EyeCtrl.Supervisor` — `net10.0-windows`, `OutputType=WinExe` (no console window), `UseWPF` (for its setup/dialog windows and `DwellButton` controls). **No** `UseWindowsForms` except for a `NotifyIcon` tray (matching `TrayIconManager` in the app). References `EyeCtrl.Core` and `EyeCtrl.Platform` directly — reuses `DwellDetector`, `OneEuroFilter`, `GazeProviderFactory`, `TobiiStreamEngineProvider`, `MouseGazeProvider` verbatim.
+Two new projects, because the supervisor's mandatory dwell UI depends on WPF controls that currently live in the wrong place.
+
+**`src/EyeCtrl.Controls`** (new, prerequisite) — `net10.0-windows`, `UseWPF`, class library. ⚠ The dwell WPF controls the supervisor must reuse — `DwellButton`, `DwellControl`, `DwellArcButton`, `DwellSlider`, `DwellComboBox`, `DwellToggle`, `DwellLabel`, `ColorBlend`, `IDwellComposite` — all currently live in [`src/EyeCtrl.App/Controls/`](src/EyeCtrl.App/Controls/) (namespace `EyeCtrl.App.Controls`). `EyeCtrl.Core` and `EyeCtrl.Platform` contain **zero** `.xaml` and zero dwell controls — only the framework-agnostic dwell *logic* (`DwellDetector`, `DwellTarget`, `IDwellRegistrar` in `EyeCtrl.Core.Processing`). A supervisor referencing only Core+Platform **cannot** get a `DwellButton` under the current project graph. The fix: move these control files into `EyeCtrl.Controls` (namespace `EyeCtrl.Controls`), referencing `EyeCtrl.Core` (their only non-WPF dependency is `EyeCtrl.Core.Processing`). The controls are code-built C# (no `.xaml`), so this is a file move + namespace change. Both `EyeCtrl.App` and `EyeCtrl.Supervisor` then reference `EyeCtrl.Controls`.
+
+**`src/EyeCtrl.Supervisor`** (new) — `net10.0-windows`, `OutputType=WinExe` (no console window), `UseWPF` (for its setup/dialog windows and the dwell controls). **No** `UseWindowsForms` except for a `NotifyIcon` tray (matching `TrayIconManager` in the app). References **`EyeCtrl.Core`** (`DwellDetector`, `OneEuroFilter`, `GazePoint`), **`EyeCtrl.Platform`** (`GazeProviderFactory`, `TobiiStreamEngineProvider`, `MouseGazeProvider`, and the Win32 P/Invoke seam for pipe client identity / pipe ACLs / process queries), and **`EyeCtrl.Controls`** (`DwellButton` et al.). Reuses gaze/dwell logic verbatim.
+
+Both new projects are added to `EyeCtrl.slnx`.
 
 ### Two run modes
 
@@ -117,9 +123,9 @@ The live-toggle `PropertyChanged` handler at [App.xaml.cs:93](src/EyeCtrl.App/Ap
 
 ### Four in-app changes to `EyeCtrl.App`
 
-1. **Heartbeat emitter** — a `DispatcherTimer` (UI thread) that writes the heartbeat payload to the supervisor pipe every ~3s while the app is running. **Must be Dispatcher-driven, not a background `Timer`** — see Heartbeat Liveness below.
+1. **Heartbeat emitter** — a `DispatcherTimer` (UI thread) **stamps** the heartbeat payload into a slot every ~3s; a **bounded async writer** sends it over the pipe with connect/write timeouts. The Dispatcher must never perform synchronous pipe I/O (a stalled server/full buffer would freeze the UI thread — see Heartbeat Liveness).
 2. **Single-instance Mutex** — `Local\EyeCtrl.App.Singleton` acquired on startup; if held, exit immediately. Prevents the supervisor's respawn + a stray double-click from running two instances. (`Local\` not `Global\` — multi-user/RDP is a non-goal, and `Local\` avoids cross-session collisions under fast-user-switching without needing `SeCreateGlobalPrivilege`.) Handle `AbandonedMutexException` on the supervisor's respawn path: a force-killed process leaves an abandoned mutex, which must be treated as acquired.
-3. **Clean-shutdown signal** — the app sets a `shuttingDown: true` flag in its final heartbeat (and/or signals via the pipe) before intentional exit, so the supervisor distinguishes a user/caregiver "Exit" from a crash and does **not** respawn. See Clean-Exit Protocol below.
+3. **Clean-shutdown signal** — the app sends a final heartbeat with `"shuttingDown": true` before an intentional exit (wired into the `OnExit` path at [App.xaml.cs:229](src/EyeCtrl.App/App.xaml.cs:229) and `OnSessionEnding`), so the supervisor distinguishes a user/caregiver "Exit" from a crash and does **not** respawn. This is an authenticated message (see Clean-Exit Protocol + Process Binding) — the supervisor does **not** infer a clean exit from a mere pipe close.
 4. **Exception-handler fixes** — register `TaskScheduler.UnobservedTaskException`; decide `DispatcherUnhandledException` behavior deliberately (log + flush + let crash, so the supervisor's respawn owns recovery rather than the app limping on). The existing `AppDomain.CurrentDomain.UnhandledException` handler at [App.xaml.cs:332](src/EyeCtrl.App/App.xaml.cs:332) is retained as-is.
 
 ## Design
@@ -184,7 +190,7 @@ The supervisor runs one state machine per supervised app instance:
 - **Counter reset — no infinite-restart hole.** A restart that survives **longer than the crash window (default 120s)** in SUPERVISING resets the strike counter (transient crash → genuinely recovered). The earlier "30s clean → reset" rule is **removed**: it reopened the infinite-restart hole the spec explicitly rejected (an app surviving ~31–60s then crashing would reset every cycle and never escalate). 120s is the bar because that is, by definition, longer than the window — if the app ran cleanly for a full window, the previous strikes have aged out anyway, so the reset is equivalent to "let the window expire naturally." The explicit reset is retained only to make the intent legible and to cover the case where the window slides while the app is mid-run.
 - **Hang vs crash:** heartbeat timeout with process still alive → **force-kill** (`Process.Kill(entireProcessTree: true)`) before relaunch. Counts as one strike.
 - **Gaze-stream death:** heartbeat reports `isConnected == true` but `now - lastFrameUtc > hangThreshold` → treated as a recoverable failure → force-kill → RECOVERING, counts as one strike. (`isConnected == false` alone is a *soft* signal: the app's own reconnect loop owns it — no kill.) See Gaze-stream-death detection for why `lastFrameUtc`, not valid-gaze time.
-- **Clean exit** (`shuttingDown: true`, or pipe close with no preceding failure) → **IDLE_WATCH**, no respawn. A user/caregiver tray-Exit is honored. `OnSessionEnding` (logoff / Windows shutdown) also sets `shuttingDown: true`.
+- **Clean exit is authenticated, not inferred** (see Clean-Exit Protocol): only an explicit `shuttingDown: true` from a bound client, followed by process exit within the deadline (default 5s), → **IDLE_WATCH**, no respawn. A user/caregiver tray-Exit is honored. `OnSessionEnding` (logoff / Windows shutdown) also sends `shuttingDown: true`. **Any unannounced disconnect (pipe close with no prior `shuttingDown: true`) is a crash signal → RECOVERING** — a crashing process closes its pipe too.
 - **FALLEN_BACK is terminal for the session.** No automatic return path. Rationale: re-introducing the app would re-introduce tracker contention with the fallback AT. Next logon = clean slate (IDLE_WATCH → LAUNCHING). The FALLEN_BACK dialog does offer a dwell-clickable "Retry EyeCtrl once" — an explicit user action, not automatic — so a stranded user has a one-shot way back without a caregiver.
 
 ### Components
@@ -195,7 +201,12 @@ The supervisor is intentionally small: six components, each one job.
 
 Goal #2 is "detect a frozen UI thread / deadlock." A heartbeat emitted by a background `System.Threading.Timer` **cannot** prove this — the timer thread keeps firing while the UI thread is deadlocked, so the heartbeat stays fresh and the hang is invisible.
 
-The heartbeat must therefore be **produced on (or gated by) the Dispatcher**. The app already uses `DispatcherTimer` for track-status polling, so the pattern is established. Concretely: a `DispatcherTimer` ticks every ~3s on the UI thread and writes the heartbeat. If the UI thread is frozen, the timer stops ticking → `lastHeartbeatUtc` goes stale → supervisor detects the hang. (A background-thread pipe *writer* may still be used to avoid blocking the Dispatcher on IPC, but the *payload it sends* must be freshly stamped on the UI thread each cycle — e.g. the background writer pulls a timestamp that the Dispatcher updates, and only sends if the timestamp advanced. The simplest correct design is: `DispatcherTimer` does both the stamp and the write; pipe writes are fast enough for a 3s cadence.)
+The heartbeat's *freshness* must therefore be **produced on the Dispatcher** — but the Dispatcher must **never** perform the pipe I/O itself. Synchronous pipe writes from the UI thread are a hazard: a stalled server, a full pipe buffer, or a slow reconnect would block the Dispatcher, creating exactly the hang the watchdog then kills. The two concerns are split:
+
+- **Liveness stamp (Dispatcher-owned).** A `DispatcherTimer` ticks every ~3s on the UI thread and builds the heartbeat payload into a single mutable slot (`volatile` / `Interlocked`-swapped reference), stamping it with `DateTime.UtcNow`. If the UI thread is frozen, the stamp stops advancing → the supervisor sees a stale `lastHeartbeatUtc` → hang detected. This is the *only* thing the timer does on the UI thread.
+- **Bounded async writer (background).** A dedicated writer thread/task reads the current payload slot and sends it over the pipe with **connect + write timeouts** (e.g. 2s each). It keeps only the **single most-recent payload** (a new stamp overwrites a pending one — a stuck write never blocks a fresher heartbeat). On any I/O error, timeout, or full buffer, it drops that send and waits for the next stamp cycle; it **never throws onto the Dispatcher** and never blocks waiting for the server.
+
+Net effect: the Dispatcher proves liveness by stamping; the writer proves delivery best-effort with bounded latency. A frozen UI thread stops the stamps regardless of the writer; a stalled pipe stops delivery without freezing the UI.
 
 #### Gaze-stream-death detection — frame arrival, not gaze validity
 
@@ -211,24 +222,31 @@ Therefore the heartbeat field — call it `lastFrameUtc`, **not** `lastGazeSampl
 
 Without a clean-shutdown signal, the supervisor treats every process exit as a crash and respawns — so a user or caregiver who deliberately closes EyeCtrl (tray Exit, etc.) gets it immediately relaunched. That defeats the ability to ever stop the app in supervised mode.
 
-**Protocol:** the app sends a final heartbeat with `shuttingDown: true` before an intentional exit (wired into the existing tray-Exit `Shutdown()` path at [App.xaml.cs](src/EyeCtrl.App/App.xaml.cs) — the `shutdownCallback` in `TrayIconManager`). The supervisor, on receiving `shuttingDown: true` (or on pipe-close with no preceding heartbeat failure), records an intentional exit and returns to **IDLE_WATCH** (a new state: supervision enabled, app not running, no relaunch). The supervisor only leaves IDLE_WATCH to relaunch on logon (next session) or via an explicit "Launch EyeCtrl now" dwell action from its own tray/dialog.
+**Protocol — authenticated clean exit only.** ⚠ A crashing process also closes its pipe. Treating "pipe close without a prior failure" as a clean exit is **wrong**: it would route the primary crash path into IDLE_WATCH and the app would never restart. **Only an explicit `shuttingDown: true` heartbeat message suppresses recovery**, and even then only if the process actually exits within a short deadline:
 
-`OnSessionEnding` (logoff / Windows shutdown) should also set `shuttingDown: true` — a system logoff is intentional, not a crash, and the supervisor must not fight it. (This is one of the Problem gaps the supervisor design should close.)
+1. The app sends a final heartbeat with `"shuttingDown": true` before an intentional exit — wired into the existing tray-Exit `Shutdown()` path at [App.xaml.cs:229](src/EyeCtrl.App/App.xaml.cs:229) (the `OnExit` save/teardown) and the `shutdownCallback` in `TrayIconManager`.
+2. The supervisor, on receiving an **authenticated** `shuttingDown: true` (see Process Binding — the message must come from the verified supervised process, not an untrusted sender), enters a **CLEAN_EXIT_PENDING** window with a deadline (default 5s).
+3. If the supervised process exits within the deadline → **intentional exit** → IDLE_WATCH (supervision enabled, app not running, no relaunch). The supervisor only leaves IDLE_WATCH to relaunch on logon (next session) or via an explicit "Launch EyeCtrl now" dwell action from its own tray/dialog.
+4. If the process does **not** exit within the deadline despite claiming `shuttingDown: true` → it's lying or stuck mid-shutdown → treat as unhealthy → RECOVERING (force-kill if still alive after grace). A clean-exit claim that doesn't actually exit is a failure signal, not a pardon.
 
-IDLE_WATCH supersedes the earlier implication that FALLEN_BACK is the only terminal-ish state. The full state list is now: LAUNCHING, SUPERVISING, RECOVERING, FALLEN_BACK, IDLE_WATCH.
+**Any unannounced disconnect — pipe close with no prior `shuttingDown: true` — remains a crash/unhealthy signal → RECOVERING.** There is no "silent clean exit."
+
+`OnSessionEnding` (logoff / Windows shutdown) should also send `shuttingDown: true` — a system logoff is intentional, not a crash, and the supervisor must not fight it. (This is one of the Problem gaps the supervisor design should close.)
+
+The full state list is now: LAUNCHING, SUPERVISING, RECOVERING, FALLEN_BACK, IDLE_WATCH, plus the transient **CLEAN_EXIT_PENDING** sub-state (a timed bridge from SUPERVISING → IDLE_WATCH, falling through to RECOVERING on timeout).
 
 #### 1. Gaze subsystem (independent dwell)
 
-- References `EyeCtrl.Core` (`DwellDetector`, `OneEuroFilter`, `GazePoint`) and `EyeCtrl.Platform` gaze providers.
+- References `EyeCtrl.Core` (`DwellDetector`, `OneEuroFilter`, `GazePoint`), `EyeCtrl.Platform` gaze providers, and `EyeCtrl.Controls` (the extracted dwell WPF controls — see New projects).
 - **Runs only while a supervisor window is visible** — starts gaze when the first window opens, stops when the last one closes. No 24/7 tracker hold during healthy operation.
-- Dwell-only: a `DwellButton` WPF control (large hit area, dwell progress-ring animation) used everywhere in supervisor UI. No zoom, no keyboard, no overlays.
+- Dwell-only: the `DwellButton` WPF control (large hit area, dwell progress-ring animation) — sourced from `EyeCtrl.Controls`, **not** re-implemented. Used everywhere in supervisor UI. No zoom, no keyboard, no overlays.
 - **Tracker sharing:** supervisor and app may subscribe to the Tobii device concurrently (Stream Engine supports multiple subscribers); no mutual-exclusion rule. The supervisor simply doesn't hold the device when it has no UI on screen. **⚠ This assumption needs a spike.** "Stream Engine supports multiple subscribers" is asserted without evidence; each process creates its own `tobii_api_create` + `tobii_device_create` context over the same device URL. The implementation plan must verify that two processes can `tobii_device_create` + `tobii_gaze_point_subscribe` to the same device simultaneously without one failing with `TOBII_ERROR_INSUFFICIENT_LICENSE` or similar. **If the spike fails, the design degrades to the mutual-exclusion alternative** (supervisor acquires gaze only when its UI is visible *and* the app is not running) — which is already close to the gating rule above and would simply also coordinate with the app's process state. The "Retry EyeCtrl once" path (fallback AT + relaunched app both wanting the device) is the case most affected and should be the focus of the spike.
 
 #### 2. IPC — the heartbeat pipe
 
 - Named pipe **`eyectrl_watch`** — distinct from the existing `eyectrl_dwell` pipe (no overload, no semantic collision).
 - **Supervisor = pipe server** (owns the endpoint, single instance, `NamedPipeServerStream`). **App = client** (`NamedPipeClientStream`).
-- App writes a small JSON heartbeat every ~3s, stamped on the UI thread (see Heartbeat Liveness):
+- App writes a small JSON heartbeat every ~3s. The **payload is stamped on the UI thread**, but **sent by a bounded async writer** with connect/write timeouts — see Heartbeat Liveness. The Dispatcher never waits for IPC.
 
   ```json
   {
@@ -240,18 +258,30 @@ IDLE_WATCH supersedes the earlier implication that FALLEN_BACK is the only termi
   }
   ```
 
-  `lastFrameUtc` is updated on **every** `GazePointReceived` callback (valid or invalid — see Gaze-stream-death detection). `shuttingDown` is the clean-exit flag (see Clean-Exit Protocol).
+  `lastFrameUtc` is updated on **every** `GazePointReceived` callback (valid or invalid — see Gaze-stream-death detection). `shuttingDown` is the clean-exit flag (see Clean-Exit Protocol — **authenticated**, not inferable from a pipe close).
 
-- Supervisor tracks `lastHeartbeatUtc`. If `now - lastHeartbeat > hangThreshold (20s)` and the process is alive → **hang** → force-kill → RECOVERING.
+#### Process Binding — trust nothing the pipe says until verified
+
+⚠ The JSON `pid` field is **untrusted**, and process-name discovery alone (`Process.GetProcessesByName("EyeCtrl.App")`) can confuse a stale or unrelated process with the one the supervisor launched. The supervisor must **bind** to the exact supervised process before trusting its heartbeats:
+
+- **OS-level client identity.** `NamedPipeServerStream` exposes the connecting client's PID via `GetNamedPipeClientProcessId` (Win32, P/Invoke in Platform). The supervisor reads the *kernel-reported* client PID, not the JSON field.
+- **Full identity check on connect.** For the client PID, verify: (a) same Windows session as the supervisor (`Process.GetProcessIdSessionId`); (b) same user; (c) **executable path** matches the supervised app exe path the supervisor launched (via the Process handle / `QueryFullProcessImageName`); (d) **process creation time** matches the handle captured at `LaunchApp()` — guards against PID reuse where a crashed process's PID is recycled by an unrelated one. Only after all four pass does the supervisor treat the connection as "the supervised app" and record its `Process` handle + PID for monitoring.
+- **Restrictive pipe ACL.** The server pipe is created with a security descriptor allowing access **only to the current user's SID** (deny NETWORK and other users) — so a different-user / cross-session / remote process cannot impersonate the app or inject heartbeats. This uses the existing Win32 P/Invoke seam in Platform.
+- **Monitor the bound handle, not a name.** `IsProcessAlive()` checks the recorded `Process` handle (registered for `Exited`, or polled via `HasExited`), not a name lookup. The Mutex (component 6) remains the dedup guard for launch, but supervision tracks the specific instance.
+- **Untrusted JSON fields.** The JSON `pid`/`startedAtUtc` are used only as cross-checks against the kernel-bound identity; a mismatch is a warning, not authoritative. Only `lastFrameUtc`, `isConnected`, `shuttingDown` carry behavioral meaning, and only after the connection has passed identity binding.
+
+#### Heartbeat-freshness + gaze rules
+
+- Supervisor tracks `lastHeartbeatUtc` (from bound client only). If `now - lastHeartbeat > hangThreshold (20s)` and the process is alive → **hang** → force-kill → RECOVERING.
 - Gaze-stream death: `lastFrameUtc` stale beyond `hangThreshold` **while `isConnected == true`** → force-kill → RECOVERING. (`isConnected == false` alone is a *soft* signal: log + tray, no kill — the app's reconnect loop owns it.)
-- Clean exit: heartbeat with `shuttingDown: true`, or the pipe closing with no preceding heartbeat failure, → supervisor treats the exit as intentional, **does not respawn**, and returns to idle watch.
+- **Clean exit is authenticated, not inferred** (see Clean-Exit Protocol): only `shuttingDown: true` from a bound client, followed by exit within the deadline, → IDLE_WATCH. **Any unannounced disconnect (pipe close with no prior `shuttingDown: true`) remains a crash signal → RECOVERING.**
 - Pipe write failure (client gone) + process exit + no clean-exit signal → crash path → RECOVERING.
 - **Both sides tolerate the other being absent:** the supervisor's pipe server simply has no connections when the app isn't running (standalone mode, or app not yet started); the app's heartbeat emitter must no-op/retry quietly when no server exists (standalone mode) — it must not throw or spam logs.
 
 #### 3. Process controller
 
-- `LaunchApp()` — starts the app exe, records the `Process` handle, enters LAUNCHING.
-- `IsProcessAlive()` — `Process.GetProcessesByName` + handle validity. The Mutex (component 6) is the real dedup guard.
+- `LaunchApp()` — starts the app exe, records the `Process` handle (and its creation time, for binding — see Process Binding), enters LAUNCHING.
+- `IsProcessAlive()` — checks the **recorded `Process` handle** (registered for `Exited` / polled via `HasExited`), **not** a name lookup. The Mutex (component 6) is the dedup guard for *launch*; supervision tracks the specific bound instance. See Process Binding for why name discovery is unsafe.
 - `ForceKill()` — `Process.Kill(entireProcessTree: true)` for hang recovery.
 - **Backoff:** immediate → 5s → 15s → 60s across consecutive RECOVERING cycles, capped at 60s. Resets to immediate only after the app survives a full crash window (default 120s) in SUPERVISING — see Crash window for why a shorter reset reopens the infinite-restart hole.
 
@@ -341,12 +371,17 @@ public class SupervisionSettings
 
 Both processes read this file. The supervisor uses **`FileSystemWatcher`** to reload when the file changes, so the two config surfaces (app settings window, supervisor setup window) stay in sync. Single source of truth.
 
-⚠ **Atomic writes + single-writer discipline required.** Two processes writing one `settings.json` is a corruption vector — a force-kill mid-write, or two writers overlapping, can leave a truncated file. This class of corruption is already known to be severe in this codebase (a bad `calibration.json` silently breaks *all* dwell). Both the app's `SettingsService` and the supervisor's settings writer must:
-1. **Write atomically:** serialize to `settings.json.tmp`, then `File.Move(tmp, final, overwrite: true)` (atomic on NTFS for same-volume renames). A crash mid-write leaves either the old file intact or the complete new file — never a partial.
-2. **Hold a cross-process `FileStream` with `FileShare.None`** (or a named `Mutex` such as `Local\EyeCtrl.Settings.Writer`) for the duration of the write, so the two processes never overlap a write.
-3. **Tolerate read of a partially-written file:** the existing `SettingsService.Load` validation path should treat a parse failure as "use defaults + log," not crash.
+⚠ **Lost updates, not just corruption.** A write mutex + atomic rename (below) prevent file *corruption*, but they do **not** prevent **lost updates**: both processes hold full in-memory snapshots of the entire settings object, and the app writes the whole object on exit ([App.xaml.cs:229](src/EyeCtrl.App/App.xaml.cs:229), `settingsService.Save(settings)`). So if the supervisor enables supervision (`Supervision.Enabled = true`) and the app then saves its stale snapshot (`Supervision.Enabled = false`) on its next exit, the supervisor's change is silently overwritten — leaving the Run key cleared and supervision disabled. A write mutex makes that overwrite *clean*, which is worse: it happens silently with no error.
 
-The heartbeat pipe is **one-way (app → supervisor)**; it does not carry config-sync notifications. The earlier "notified via the heartbeat pipe" wording is dropped — `FileSystemWatcher` is the sole sync mechanism.
+This requires a **single-writer or transactional read-modify-write** discipline, not just mutual exclusion. The design uses:
+
+1. **Single owner for `SupervisionSettings` writes.** Only the supervisor writes `SupervisionSettings`. The app reads `Supervision.Enabled` (for the Run-key reconciliation and to decide whether to emit heartbeats) but **must never persist a `SupervisionSettings` snapshot** — its `SettingsService.Save` must omit the `Supervision` section (or re-read-then-preserve-it: load the on-disk `Supervision` block immediately before serializing and pass it through unmodified). This closes the clobber path directly: the app cannot overwrite what it never owns. Generalized to a rule: **each section of `settings.json` has exactly one writer process**; the app owns the UX sections, the supervisor owns the `Supervision` section.
+2. **Transactional read-modify-write for any writer** (defense-in-depth, in case a future feature needs cross-process writes to the same section): under the writer mutex, *re-read* the current on-disk file, apply only the section being changed to that fresh copy, then atomic-rename. Never serialize a full in-memory snapshot that may be stale.
+3. **Atomic writes:** serialize to `settings.json.tmp`, then `File.Move(tmp, final, overwrite: true)` (atomic on NTFS for same-volume renames). A crash mid-write leaves either the old file intact or the complete new file — never a partial.
+4. **Cross-process write mutex:** `Local\EyeCtrl.Settings.Writer` held for the read-modify-write window, so two writers never overlap. (Atomic rename already prevents corruption; the mutex additionally serializes the read-modify-write so the loser's re-read sees the winner's change.)
+5. **Tolerate read of a partially-written file:** the existing `SettingsService.Load` validation path treats a parse failure as "use defaults + log," not crash. This class of corruption is already known to be severe here (a bad `calibration.json` silently breaks *all* dwell).
+
+The heartbeat pipe is **one-way (app → supervisor)**; it does not carry config-sync notifications. `FileSystemWatcher` is the sole sync mechanism.
 
 ### Logging
 
@@ -356,22 +391,27 @@ Serilog, same initialization pattern as the app (`LoggingInitializer.Initialize(
 
 | Failure | Behavior |
 |---|---|
-| App crashes (process exit, no clean-exit flag) | Crash path → RECOVERING → backoff → relaunch. |
+| App crashes (process exit, **no** prior `shuttingDown: true`) | Crash path → RECOVERING → backoff → relaunch. A crash also closes the pipe — that close is **not** treated as a clean exit. |
 | App hung (HB timeout, process alive) | Force-kill → RECOVERING → relaunch. |
 | Gaze stream dead (`lastFrameUtc` stale while `isConnected == true`) | Force-kill → RECOVERING → relaunch. |
 | Gaze stream soft-lost (`isConnected == false`) | Soft signal only: log + tray. The app's own reconnect loop owns recovery; no kill. |
-| App exits cleanly (`shuttingDown: true`, incl. logoff/shutdown) | IDLE_WATCH — no respawn. |
+| App exits cleanly (authenticated `shuttingDown: true` + exit within 5s deadline; incl. logoff/shutdown) | IDLE_WATCH — no respawn. |
+| `shuttingDown: true` sent but process does **not** exit within deadline | Stuck mid-shutdown → unhealthy → RECOVERING (force-kill if still alive). A clean-exit claim that doesn't actually exit is a failure signal. |
+| Unannounced pipe disconnect (no prior `shuttingDown: true`) | Crash/unhealthy signal → RECOVERING. There is no "silent clean exit." |
+| Unverified/spoofing pipe client (wrong session/user/exe-path/creation-time) | Heartbeats ignored; connection dropped. See Process Binding. |
 | Crash loop (restarts in window > `maxRetries`) | Launch fallback AT → FALLEN_BACK → terminal this session. |
 | Fallback AT not installed (none found) | Log error; show FALLEN_BACK dialog anyway (user can still "Retry EyeCtrl once"). Windows Eye Control is the intended last resort — see Open Questions for the launch-mechanism spike. |
 | Supervisor itself crashes | Scheduled Task native "restart on failure" relaunches it (up to 3×). |
 | Supervisor itself hangs | **Residual risk — not automatically covered.** Task Scheduler's "restart on failure" only fires on *exit*, not hang. The supervisor is intentionally small (single supervision loop, no UI thread during headless operation) to minimize hang probability, but it has no self-hang detection. Acceptable for v1; a future watcher-of-the-watcher (e.g. a second scheduled task that kills+restarts the supervisor if its own heartbeat file goes stale) is noted in Out of Scope. |
 | Heartbeat pipe error (transient) | Supervisor pipe server tolerates connect/disconnect/reconnect; a missing client is normal (app not started / standalone mode). |
+| Heartbeat pipe write stalls (full buffer / slow server) | Bounded async writer drops the stalled send after its timeout; the Dispatcher is never blocked. Next stamp cycle sends a fresh payload. |
 | Heartbeat pipe server missing (standalone mode) | App heartbeat emitter no-ops/retries quietly — must not throw or spam logs. |
 | Tobii init fails in supervisor gaze subsystem | Falls back to `MouseGazeProvider` via `GazeProviderFactory` (same Auto logic as the app). Supervisor dwell still works for testing; in production this means the user has no tracker and the fallback AT is the real recourse. |
 | Concurrent Tobii subscription (supervisor + app both open) | Permitted by design — see Open Questions spike. Degrades to mutual-exclusion if the spike fails. |
 | Sleep / resume (`PowerModeChanged`) | The supervisor does not specially handle sleep; on resume, a wedged post-resume app state is caught by the normal heartbeat-timeout / frame-arrival path → RECOVERING. The app should additionally handle `PowerModeChanged` to reset its gaze provider cleanly (separate app-side hardening, not blocking for the supervisor). |
 | Scheduled Task missing/corrupted | Setup window "Enable supervision" re-installs it idempotently. |
 | `settings.json` corruption | Atomic write (temp+rename) prevents partial writes; parse failure on load → use defaults + log, not crash. |
+| `settings.json` lost update (app clobbers supervisor's `Supervision` section) | Prevented by single-writer ownership: the app never persists `SupervisionSettings`; the supervisor is the sole writer of that section. Transactional read-modify-write under the writer mutex is defense-in-depth. |
 
 ## Testing
 
@@ -381,14 +421,16 @@ Follows repo conventions: **xUnit v3 (3.2.2)** + NFluent 3.1.0, no mocking libra
 - **CrashWindow unit tests**: sliding-window counter; `ShouldEscalate()` boundary — assert it returns `false` at exactly `maxRetries` restarts in window (those are permitted) and `true` at `maxRetries + 1` (escalates); assert expiry of old timestamps; assert the worked-example sequence (3 strikes permitted, 4th escalates).
 - **Fallback AT launcher unit tests**: fake registry/path probes returning installed/not-installed; verify first-found-is-launched ordering. Windows Eye Control launch mechanism is spike-gated (see Open Questions) — the test covers the ordering/probe logic, the actual launch vector is validated separately.
 - **Heartbeat serialization tests**: round-trip the JSON payload; verify `lastFrameUtc` (any sample, valid or invalid) feeds gaze-stream-death detection, and that valid-only gating would *not* trip on look-away. Include a regression test: invalid samples (`GazePoint(0,0,ts,false)`) arriving every 33ms must keep `lastFrameUtc` fresh.
-- **Clean-exit protocol tests**: `shuttingDown: true` → supervisor enters IDLE_WATCH, does not relaunch; pipe close with no preceding failure → IDLE_WATCH.
+- **Clean-exit protocol tests**: authenticated `shuttingDown: true` + process exit within deadline → IDLE_WATCH, no relaunch; `shuttingDown: true` but process does **not** exit within deadline → RECOVERING (stuck mid-shutdown); **unannounced pipe close (no prior `shuttingDown: true`) → RECOVERING, not IDLE_WATCH** (regression test: a crash also closes the pipe); `shuttingDown: true` from an unbound/unverified client → ignored (not a clean exit).
+- **Process-binding tests**: kernel client PID from `GetNamedPipeClientProcessId` is matched against the launched `Process` handle; reject mismatched session/user/exe-path/creation-time; a spoofing client (different exe path, or PID-reuse with wrong creation time) is rejected and its heartbeats ignored; the JSON `pid` field alone is never trusted.
 - **In-app changes** (`EyeCtrl.App.Tests` / `EyeCtrl.Core.Tests`):
   - `Local\` mutex acquisition: second instance exits; `AbandonedMutexException` on respawn is treated as acquired.
-  - Heartbeat emitter: writes expected JSON on the expected pipe name, on the Dispatcher; **no-ops quietly when no pipe server exists** (standalone mode) — must not throw or log-spam.
+  - Heartbeat emitter: Dispatcher stamps payload; bounded async writer sends expected JSON on the expected pipe name with timeouts; **no-ops quietly when no pipe server exists** (standalone mode) — must not throw or log-spam, and the Dispatcher must never block on I/O.
   - **Reconciliation logic in `App.OnStartup`** (not in `WindowsStartupRegistrar`): supervised mode → `SetStartOnBoot(false)` regardless of `StartOnBoot`; standalone → `SetStartOnBoot(settings.General.StartOnBoot)` as today.
-- **Settings atomic-write tests**: concurrent-write protection (cross-process `Mutex` or `FileShare.None`); temp+rename leaves old file intact on simulated mid-write crash; parse-failure → defaults.
+- **Settings tests**: atomic write (temp+rename leaves old file intact on simulated mid-write crash; parse-failure → defaults); **lost-update regression test** — app `Save` under supervised mode does **not** persist a `Supervision` section that could clobber a concurrent supervisor write (app re-reads/preserves or omits it); transactional read-modify-write under the writer mutex sees a concurrent writer's change.
+- **`EyeCtrl.Controls` extraction test**: `DwellButton` dwell-firing behavior is unchanged after the move (the App's existing dwell-control tests continue to pass against the moved types); `EyeCtrl.Controls` references only `EyeCtrl.Core` + WPF (no App/ViewModels/LM/EyeCare dependencies).
 - **Integration / UI tests** (`Category=UI`, not in CI): the crash-recovery dialog renders, `DwellButton` fires on dwell, "Retry EyeCtrl once" relaunches.
-- **Add `EyeCtrl.Supervisor` to `EyeCtrl.slnx`** and a `tests/Directory.Build.props`-covered test project.
+- **Add `EyeCtrl.Controls` and `EyeCtrl.Supervisor` to `EyeCtrl.slnx`**, plus a `tests/Directory.Build.props`-covered `EyeCtrl.Supervisor.Tests` project.
 
 ## Alternatives Considered
 

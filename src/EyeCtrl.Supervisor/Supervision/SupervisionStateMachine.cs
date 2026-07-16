@@ -10,12 +10,17 @@ public sealed class SupervisionStateMachine
     private readonly int _windowResetSeconds;
     private readonly List<SupervisorCommand> _commands = new();
     private DateTime? _supervisingSince;
+    private DateTime? _launchingSince;
 
     public SupervisorState State { get; private set; } = SupervisorState.IdleWatch; // spec entry state
     public IReadOnlyList<SupervisorCommand> Commands => _commands;
     public DateTime? LastHeartbeatUtc { get; private set; }
     public int ConsecutiveFailures { get; private set; }
     public TimeSpan NextBackoffDelay => _backoff.DelayFor(ConsecutiveFailures + 1);
+    /// <summary>When the current Supervising stretch began (drives the SurvivedWindow clock). Null when not Supervising.</summary>
+    public DateTime? SupervisingSince => _supervisingSince;
+    /// <summary>When the current Launching stretch began (drives the startup-grace clock). Null when not Launching.</summary>
+    public DateTime? LaunchingSince => _launchingSince;
 
     public SupervisionStateMachine(int maxRetries, int windowSeconds, int hangThresholdSeconds,
         int startupGraceSeconds, int windowResetSeconds)
@@ -31,6 +36,7 @@ public sealed class SupervisionStateMachine
         {
             case LaunchRequest when State == SupervisorState.IdleWatch:
                 State = SupervisorState.Launching;
+                _launchingSince = DateTime.UtcNow;
                 _commands.Add(SupervisorCommand.LaunchApp);
                 break;
 
@@ -89,6 +95,21 @@ public sealed class SupervisionStateMachine
                 GoRecovering(input.At, forceKill: false); // unannounced exit / startup crash
                 break;
 
+            case StartupGraceElapsed when State == SupervisorState.Launching:
+                // Spec failure mode #2: app launched but never sent a heartbeat within the 60s
+                // startup grace (e.g. UI thread deadlocked during DI/Tobii init, process still
+                // alive). Force-kill + recover. Counts as one strike.
+                GoRecovering(input.At, forceKill: true);
+                break;
+
+            case ProcessExited when State == SupervisorState.FallenBack:
+                // "Retry EyeCtrl (once)" re-showed the dialog but the retried app crashed again.
+                // Spec line 350: "If it crashes again, the dialog reappears." Re-escalate so
+                // OnFallenBack fires again (the retry path leaves state in FallenBack).
+                // Detach the current command list and signal a re-show via a fresh escalation.
+                _commands.Add(SupervisorCommand.LaunchFallbackAt);
+                break;
+
             case DeadlineElapsed when State == SupervisorState.CleanExitPending:
                 GoRecovering(input.At, forceKill: true); // claimed shutdown but didn't exit
                 break;
@@ -111,5 +132,6 @@ public sealed class SupervisionStateMachine
             _commands.Add(SupervisorCommand.LaunchApp);
         }
         _supervisingSince = null;
+        _launchingSince = null;
     }
 }

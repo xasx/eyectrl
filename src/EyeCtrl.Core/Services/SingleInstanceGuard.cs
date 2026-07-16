@@ -1,7 +1,8 @@
-namespace EyeCtrl.App.Services;
+namespace EyeCtrl.Core.Services;
 
 using System.Threading;
 
+/// <summary>Named-mutex single-instance guard: the second process to call <see cref="TryAcquire"/> fails.</summary>
 public sealed class SingleInstanceGuard : IDisposable
 {
     /// <summary>Default production mutex name. Injectable for tests (per-test isolation).</summary>
@@ -10,7 +11,10 @@ public sealed class SingleInstanceGuard : IDisposable
     private Mutex? _mutex;
     private bool _owned;
 
+    /// <summary>Creates a guard for the default production mutex (<see cref="DefaultMutexName"/>).</summary>
     public SingleInstanceGuard() : this(DefaultMutexName) { }
+
+    /// <summary>Creates a guard for a named mutex (injectable for per-test isolation).</summary>
     public SingleInstanceGuard(string mutexName) { _mutexName = mutexName; }
 
     /// <summary>True if this instance acquired the mutex (legitimate to run).</summary>
@@ -35,6 +39,7 @@ public sealed class SingleInstanceGuard : IDisposable
         }
     }
 
+    /// <summary>Releases the mutex if held and disposes it.</summary>
     public void Dispose()
     {
         if (_mutex == null) return;

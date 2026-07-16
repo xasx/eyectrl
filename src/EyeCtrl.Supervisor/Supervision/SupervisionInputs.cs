@@ -12,3 +12,4 @@ public sealed record ProcessExited(DateTime At) : SupervisionInput(At);
 public sealed record CleanExitRequested(DateTime At, bool ClientVerified) : SupervisionInput(At);
 public sealed record DeadlineElapsed(DateTime At) : SupervisionInput(At);
 public sealed record SurvivedWindow(DateTime At) : SupervisionInput(At);    // survived a full crash window -> reset
+public sealed record StartupGraceElapsed(DateTime At) : SupervisionInput(At); // 60s in LAUNCHING with no heartbeat -> RECOVERING (spec failure mode #2)

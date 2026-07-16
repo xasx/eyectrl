@@ -19,6 +19,12 @@ public sealed class ClientIdentityBinder
     {
         _expectedExePath = expectedExePath;
         _expectedCreation = expectedCreationTimeUtc;
+        // I2: capture the supervisor's own session id to enforce the spec's "same Windows session"
+        // identity check (Process Binding item a). Without this, a same-user process in a different
+        // session (fast-user-switching / RDP to the same account) would pass the per-user ACL.
+        if (!ProcessIdentity.ProcessIdToSessionId((uint)Environment.ProcessId, out var ownSession))
+            ownSession = 0; // fall back to 0; a real client session id is never 0, so this fails closed
+        _ownSessionId = ownSession;
     }
 
     /// <summary>
@@ -38,6 +44,8 @@ public sealed class ClientIdentityBinder
         {
             if (!ProcessIdentity.GetNamedPipeClientProcessId(pipe, out uint pid) || pid == 0) return null;
             if (!ProcessIdentity.ProcessIdToSessionId(pid, out uint session)) return null;
+            // I2: enforce same-session (spec "same Windows session as the supervisor").
+            if (session != _ownSessionId) return null;
 
             using var ph = ProcessIdentity.OpenProcess(ProcessIdentity.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
             if (ph.IsInvalid) return null;
@@ -64,4 +72,5 @@ public sealed class ClientIdentityBinder
 
     private readonly string _expectedExePath;
     private readonly DateTime? _expectedCreation;
+    private readonly uint _ownSessionId;
 }

@@ -74,11 +74,11 @@ internal sealed class SupervisorApp : Application
     private EyeCtrlSettings _settings = null!;
     private string _appExePath = null!;
 
-    // Pipe server is constructed LAZILY on the first LaunchApp command — see EnsurePipeStarted.
-    // Chicken-and-egg: HeartbeatPipeServer needs a ClientIdentityBinder, and the binder needs the
-    // app's exe path + the launched process's creation time, neither of which is known until
-    // ProcessController.Launch() has run. Starting the pipe only after the first launch is safe
-    // because no app is running to send heartbeats before then.
+    // Pipe server is constructed EAGERLY at startup in adoption mode (exe-path-only binding) — see
+    // EnsurePipeStartedAdoption / Initialize. This lets a manually-launched app (supervised +
+    // StartOnBoot-off) connect and be adopted before any supervisor launch. EnsurePipeStarted is
+    // now a no-op (kept for call-site compatibility). See its remarks for the strict-vs-adoption
+    // tradeoff (we use adoption-mode binding for both manual-launch and supervisor-launched apps).
     private HeartbeatPipeServer? _pipe;
     private DateTime? _cleanExitRequestedAt;
 
@@ -134,6 +134,15 @@ internal sealed class SupervisorApp : Application
         _tickTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TickInterval };
         _tickTimer.Tick += (_, _) => OnClockTick();
         _tickTimer.Start();
+
+        // 3c. Start the heartbeat pipe EAGERLY in adoption mode (exe-path-only binding). This lets a
+        // manually-launched app (supervised + StartOnBoot-off, where the supervisor stays in
+        // IdleWatch waiting to adopt) connect and be adopted. When the supervisor later launches the
+        // app itself, the same pipe covers that case too — adoption-mode binding (exe-path +
+        // same-session + per-user pipe ACL) is sufficient authentication, so EnsurePipeStarted is a
+        // no-op (see its remarks for the strict-mode tradeoff). Previously the pipe started only
+        // after the first LaunchApp, which meant a manual launch had nothing to connect to.
+        EnsurePipeStartedAdoption();
 
         // 4. Initial behavior at startup. If supervision is enabled AND the user wants the app at
         // logon, the supervisor owns the launch (LaunchRequest -> Launching -> LaunchApp). If
@@ -238,6 +247,16 @@ internal sealed class SupervisorApp : Application
             //    the very first verified heartbeat adopts it into Supervising.
             if (_sm.State == SupervisorState.IdleWatch)
             {
+                // Adopt the manually-launched app: bind its PID into ProcessController so exit-detection
+                // and ForceKill work for it (not just for supervisor-launched apps). id is non-null here
+                // (unbound heartbeats were dropped at the top of the handler); id.Pid is uint, cast to
+                // int for Process.GetProcessById. WireProcessExited reads _pc.BoundProcess which Adopt
+                // just populated.
+                if (_pc.Adopt((int)id.Pid))
+                {
+                    WireProcessExited();
+                    Log.Information("Adopted manually-launched app (pid={Pid}, exe={Exe}).", id.Pid, id.ExePath);
+                }
                 HandleInput(new AdoptRequest(now));
             }
             HandleInput(new HeartbeatReceived(now));
@@ -345,25 +364,42 @@ internal sealed class SupervisorApp : Application
     }
 
     /// <summary>
-    /// Constructs and starts the <see cref="HeartbeatPipeServer"/> on the first launch, using the
-    /// <see cref="ProcessController"/>'s captured exe path + creation time to build the
-    /// <see cref="ClientIdentityBinder"/>. Idempotent.
+    /// No-op now that the pipe starts eagerly in adoption mode (see <see cref="EnsurePipeStartedAdoption"/>
+    /// / Initialize). Kept as an idempotent call site for <see cref="LaunchApp"/> and the FallenBack
+    /// retry path so they don't need to care which startup mode is active.
     /// </summary>
+    /// <remarks>
+    /// <para><b>Strict-vs-adoption tradeoff.</b> Previously the pipe was constructed here, after the
+    /// first launch, with a strict <see cref="ClientIdentityBinder"/> bound to the launched process's
+    /// creation time (PID-reuse protection). Now the pipe starts eagerly at supervisor startup in
+    /// adoption mode (exe-path-only binding) so a manually-launched app can connect. Adoption-mode
+    /// binding still enforces exe-path + same-session + the per-user pipe ACL, which is strong
+    /// authentication; the only thing lost versus strict mode is the creation-time PID-reuse check.
+    /// Reconstructing the pipe with a strict binder on launch would drop any in-flight connection,
+    /// so the eager adoption-mode pipe deliberately covers BOTH the supervisor-launched and
+    /// manual-launch cases. If strict creation-time checking is later required for
+    /// supervisor-launched apps, add an UpgradeBinderToStrict that swaps the binder (accepting the
+    /// connection-drop cost).</para>
+    /// </remarks>
     private void EnsurePipeStarted()
     {
-        if (_pipe != null) return;
-        if (string.IsNullOrEmpty(_pc.ExePath) || !_pc.StartTimeUtc.HasValue)
-        {
-            Log.Warning("EnsurePipeStarted: ProcessController has no exe/creation-time yet; deferring.");
-            return;
-        }
+        // Pipe is already running from Initialize (adoption mode). Nothing to do.
+    }
 
-        var binder = new ClientIdentityBinder(_pc.ExePath!, _pc.StartTimeUtc!.Value);
+    /// <summary>
+    /// Constructs and starts the <see cref="HeartbeatPipeServer"/> in ADOPTION mode (exe-path-only
+    /// binding via <see cref="ClientIdentityBinder.ForAdoption"/>), so a manually-launched app
+    /// (supervised + StartOnBoot-off) can connect and be adopted before any supervisor launch.
+    /// Idempotent.
+    /// </summary>
+    private void EnsurePipeStartedAdoption()
+    {
+        if (_pipe != null) return;
+        var binder = ClientIdentityBinder.ForAdoption(_appExePath);
         _pipe = new HeartbeatPipeServer(binder);
         _pipe.HeartbeatReceived += OnHeartbeatReceived;
         _pipe.Start();
-        Log.Information("Heartbeat pipe started (binder bound to {Exe} @ {Start}).",
-            _pc.ExePath, _pc.StartTimeUtc);
+        Log.Information("Heartbeat pipe started in adoption mode (exe-path-only binding for {AppExePath}).", _appExePath);
     }
 
     /// <summary>Wires the bound process's Exited event so a crash/exit feeds ProcessExited.</summary>

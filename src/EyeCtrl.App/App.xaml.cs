@@ -258,6 +258,17 @@ public partial class App : Application
         }
     }
 
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        // C3: a Windows logoff/shutdown is an INTENTIONAL exit, not a crash. Signal the supervisor's
+        // authenticated clean-shutdown (shuttingDown:true) BEFORE the session ends so it does not
+        // treat the logoff as a crash and fight it with a relaunch. Do NOT cancel the session.
+        // (Spec lines 128, 235, 426: OnSessionEnding also sends shuttingDown:true.)
+        Log.Information("Session ending (reason={Reason}); signalling clean shutdown to supervisor.", e.ReasonSessionEnding);
+        _heartbeatPublisher?.SignalShuttingDown();
+        base.OnSessionEnding(e);
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Information("Shutdown");

@@ -2,7 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.Threading;
 using System.Threading.Tasks;
-using EyeCtrl.App.Services;
+using EyeCtrl.Core.Services;
 
 public class SingleInstanceGuardTests
 {

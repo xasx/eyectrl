@@ -13,11 +13,13 @@ public sealed class ProcessController
 
     public void Launch(string exePath, bool paused)
     {
+        ReleasePrevious(); // M2: dispose the prior Process handle (OS handle) before overwriting.
         ExePath = exePath;
         var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
         if (paused) psi.ArgumentList.Add("--paused");
         _process = Process.Start(psi);
-        StartTimeUtc = _process?.StartTime.ToUniversalTime();
+        try { StartTimeUtc = _process?.StartTime.ToUniversalTime(); }
+        catch (Exception) { StartTimeUtc = null; } // M1: StartTime throws if the process already exited.
     }
 
     /// <summary>
@@ -35,11 +37,13 @@ public sealed class ProcessController
     /// </remarks>
     public bool Adopt(int pid)
     {
+        ReleasePrevious();
         try
         {
             _process = Process.GetProcessById(pid);
             ExePath = _process.MainModule?.FileName;
-            StartTimeUtc = _process.StartTime.ToUniversalTime();
+            try { StartTimeUtc = _process.StartTime.ToUniversalTime(); }
+            catch (Exception) { StartTimeUtc = null; }
             return true;
         }
         catch
@@ -55,5 +59,12 @@ public sealed class ProcessController
     {
         if (_process is { HasExited: false })
             _process.Kill(entireProcessTree: true);
+    }
+
+    /// <summary>Disposes the previously-bound Process (releases its OS handle) before a relaunch/adopt.</summary>
+    private void ReleasePrevious()
+    {
+        try { _process?.Dispose(); } catch { }
+        _process = null;
     }
 }

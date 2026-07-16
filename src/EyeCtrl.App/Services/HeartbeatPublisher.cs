@@ -30,6 +30,15 @@ public sealed class HeartbeatPublisher : IDisposable
     private const string PipeName = "eyectrl_watch";
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
 
+    // I1: camelCase JSON to match every other emitter in the codebase AND the supervisor's deserializer.
+    // Load-bearing: without this, the record serializes PascalCase ({"LastFrameUtc":...}); the server
+    // happens to tolerate it via PropertyNameCaseInsensitive, but if that leniency were ever tightened,
+    // LastFrameUtc would deserialize to DateTime.MinValue -> false GazeStreamDead -> crash loop.
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     private readonly int _pid = Environment.ProcessId;
     private readonly DateTime _startedAtUtc = DateTime.UtcNow;
 
@@ -123,7 +132,7 @@ public sealed class HeartbeatPublisher : IDisposable
             return;
         }
         await connectTask; // observe exceptions if connect threw
-        var json = JsonSerializer.Serialize(payload) + "\n";
+        var json = JsonSerializer.Serialize(payload, JsonOptions) + "\n";
         await client.WriteAsync(Encoding.UTF8.GetBytes(json), token);
     }
 

@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Supervisor.Fallback;
 using EyeCtrl.Supervisor.Ipc;
@@ -14,9 +15,23 @@ using Serilog;
 
 internal static class Program
 {
+    /// <summary>Single-instance guard name. Two supervisor processes would both open the heartbeat
+    /// pipe and both try to launch/adopt the app — exactly the double-launch race this prevents.</summary>
+    private const string SupervisorMutexName = @"Local\EyeCtrl.Supervisor.Singleton";
+
     [STAThread]
     private static int Main(string[] args)
     {
+        // C4: only one supervisor per session. A stray double-launch (or the Scheduled Task firing
+        // while one is already running) exits fast here. AbandonedMutexException (a prior holder
+        // was force-killed) is treated as acquired — same pattern as EyeCtrl.App's SingleInstanceGuard.
+        using var guard = new SingleInstanceGuard(SupervisorMutexName);
+        if (!guard.TryAcquire())
+        {
+            System.Console.Error.WriteLine("Another EyeCtrl supervisor is already running. Exiting.");
+            return 0;
+        }
+
         var app = new SupervisorApp();
         app.Initialize();
         return app.Run();
@@ -82,13 +97,12 @@ internal sealed class SupervisorApp : Application
     private HeartbeatPipeServer? _pipe;
     private DateTime? _cleanExitRequestedAt;
 
-    // Clock-tick: drives HeartbeatStale / SurvivedWindow / DeadlineElapsed detection.
-    private DispatcherTimer? _tickTimer;
+    // C2: a deferred recovery relaunch — stamped when LaunchApp command fires, executed by
+    // PeriodicCheckPendingRelaunch once NextBackoffDelay elapses. Null when no relaunch pending.
+    private DateTime? _pendingLaunchAt;
 
-    // Tracks the start of the current Supervising stretch for the SurvivedWindow clock reset.
-    // Mirrors the state machine's private supervisingSince — duplicated here because the machine
-    // doesn't expose it. Stamped on the transition INTO Supervising, cleared when leaving it.
-    private DateTime? _supervisingSince;
+    // Clock-tick: drives HeartbeatStale / SurvivedWindow / DeadlineElapsed / StartupGrace detection.
+    private DispatcherTimer? _tickTimer;
 
     // Guards against reentrancy if a pipe event fires while a tick is draining on the dispatcher.
     private readonly object _loopLock = new();
@@ -193,20 +207,13 @@ internal sealed class SupervisorApp : Application
                 _cleanExitRequestedAt = null;
             }
 
-            // SurvivedWindow clock: stamp the start of each Supervising stretch (entry into
-            // Supervising — whether via AdoptRequest, first HeartbeatReceived after launch, or
-            // SurvivedWindow reset which re-arms the next window). Cleared when leaving Supervising.
-            if (_sm.State == SupervisorState.Supervising && prevState != SupervisorState.Supervising)
-            {
-                _supervisingSince = input.At;
-            }
-            else if (_sm.State != SupervisorState.Supervising)
-            {
-                _supervisingSince = null;
-            }
+            // SurvivedWindow clock is now driven off the machine's own SupervisingSince (it re-arms
+            // on SurvivedWindow input), so no local tracking is needed here.
 
-            // FALLEN_BACK handling: when the machine escalates, run the fallback launcher + dialog.
-            if (_sm.State == SupervisorState.FallenBack && prevState != SupervisorState.FallenBack)
+            // FALLEN_BACK handling: when the machine escalates OR re-escalates (a "Retry once" app
+            // crashed again — the FallenBack ProcessExited case re-emits LaunchFallbackAt), run the
+            // fallback launcher + dialog. OnFallenBack is idempotent for a re-show.
+            if (_sm.State == SupervisorState.FallenBack && _sm.Commands.Contains(SupervisorCommand.LaunchFallbackAt))
             {
                 OnFallenBack();
             }
@@ -271,16 +278,43 @@ internal sealed class SupervisorApp : Application
         }));
     }
 
-    /// <summary>Periodic clock-tick: stale-heartbeat, survived-window reset, clean-exit deadline.</summary>
+    /// <summary>Periodic clock-tick: startup-grace, stale-heartbeat, survived-window reset, clean-exit deadline.</summary>
     private void OnClockTick()
     {
-        // The three checks below each call HandleInput (which takes _loopLock), so the tick itself
+        // The checks below each call HandleInput (which takes _loopLock), so the tick itself
         // does not need to lock — there is no shared mutable access here beyond reading _sm state,
         // and the tick already runs on the UI thread alongside all other HandleInput callers.
         var now = DateTime.UtcNow;
+        PeriodicCheckStartupGrace(now);
         PeriodicCheckStale(now);
         PeriodicCheckSurvivedWindow(now);
         PeriodicCheckCleanExitDeadline(now);
+        PeriodicCheckPendingRelaunch(now);
+    }
+
+    /// <summary>C1: startup grace — app launched but no heartbeat within StartupGraceSeconds -> recover (spec failure mode #2).</summary>
+    private void PeriodicCheckStartupGrace(DateTime now)
+    {
+        if (_sm.State == SupervisorState.Launching && _sm.LaunchingSince.HasValue &&
+            (now - _sm.LaunchingSince.Value).TotalSeconds > _settings.Supervision.StartupGraceSeconds)
+        {
+            Log.Warning("Startup grace ({Grace}s) elapsed in LAUNCHING with no heartbeat; recovering.", _settings.Supervision.StartupGraceSeconds);
+            HandleInput(new StartupGraceElapsed(now));
+        }
+    }
+
+    /// <summary>C2: apply backoff before a recovery relaunch — defer LaunchApp until NextBackoffDelay elapses.</summary>
+    private void PeriodicCheckPendingRelaunch(DateTime now)
+    {
+        // A recovery relaunch (GoRecovering -> LaunchApp command) is NOT executed immediately in
+        // DrainCommands; instead it's deferred here until the backoff delay elapses, so a tight
+        // crash loop doesn't hammer the app/process table and the spec's worked-example timing holds.
+        // The initial logon launch (LaunchRequest from IdleWatch) has ConsecutiveFailures==0 -> delay 0.
+        if (_pendingLaunchAt.HasValue && now >= _pendingLaunchAt.Value)
+        {
+            _pendingLaunchAt = null;
+            DoLaunchApp();
+        }
     }
 
     private void PeriodicCheckStale(DateTime now)
@@ -296,12 +330,12 @@ internal sealed class SupervisorApp : Application
     private void PeriodicCheckSurvivedWindow(DateTime now)
     {
         // SurvivedWindow reset is driven entirely by the state machine (it resets the crash
-        // window + counter on a SurvivedWindow input). We emit the input after the app has been
-        // continuously Supervising for longer than the crash window. The machine does not expose
-        // its private supervisingSince, so this is tracked locally (stamped in HandleInput when the
-        // state enters Supervising).
-        if (_sm.State == SupervisorState.Supervising && _supervisingSince.HasValue &&
-            (now - _supervisingSince.Value).TotalSeconds > _settings.Supervision.CrashWindowSeconds)
+        // window + counter on a SurvivedWindow input, AND re-arms SupervisingSince to input.At so
+        // this check doesn't re-fire every tick). We emit the input after the app has been
+        // continuously Supervising for longer than the crash window, reading the machine's own
+        // SupervisingSince (single source of truth — no duplicated local field).
+        if (_sm.State == SupervisorState.Supervising && _sm.SupervisingSince.HasValue &&
+            (now - _sm.SupervisingSince.Value).TotalSeconds > _settings.Supervision.CrashWindowSeconds)
         {
             HandleInput(new SurvivedWindow(now));
         }
@@ -327,7 +361,14 @@ internal sealed class SupervisorApp : Application
             switch (cmd)
             {
                 case SupervisorCommand.LaunchApp:
-                    LaunchApp();
+                    // C2: backoff — defer the relaunch until NextBackoffDelay elapses (checked in
+                    // PeriodicCheckPendingRelaunch). The initial logon launch has ConsecutiveFailures==0
+                    // -> delay 0, so it still happens on the next tick (~immediate). Recovery relaunches
+                    // after N failures are spread per the 0/5/15/60s curve (spec worked example).
+                    var delay = _sm.NextBackoffDelay;
+                    _pendingLaunchAt = DateTime.UtcNow + delay;
+                    Log.Information("LaunchApp scheduled in {Delay:F1}s (consecutiveFailures={Failures}).",
+                        delay.TotalSeconds, _sm.ConsecutiveFailures);
                     break;
                 case SupervisorCommand.ForceKill:
                     Log.Information("ForceKill command: killing supervised process.");
@@ -346,20 +387,19 @@ internal sealed class SupervisorApp : Application
         }
     }
 
-    /// <summary>Launches the app (not paused by default) and starts the heartbeat pipe if needed.</summary>
-    private void LaunchApp()
+    /// <summary>Performs the actual app launch (not paused by default) and wires exit detection. Called by PeriodicCheckPendingRelaunch after the backoff delay.</summary>
+    private void DoLaunchApp()
     {
-        Log.Information("LaunchApp command: starting {AppExePath}.", _appExePath);
+        Log.Information("LaunchApp: starting {AppExePath}.", _appExePath);
         _pc.Launch(_appExePath, paused: false);
 
-        // _supervisingSince is tracked via the Supervising state transition in HandleInput (the
-        // machine flips Launching -> Supervising on the first heartbeat, not at process start).
+        // _supervisingSince / _launchingSince are tracked via the state transitions in HandleInput
+        // (Launching is stamped when LaunchRequest flips state; Supervising when the first heartbeat arrives).
 
         // Wire the process-exit callback so an unannounced exit feeds ProcessExited into the loop.
         WireProcessExited();
 
-        // Chicken-and-egg resolution: now that ProcessController has the exe path + creation time,
-        // construct + start the pipe server with a ClientIdentityBinder built from those values.
+        // Pipe starts eagerly in adoption mode at supervisor startup (see EnsurePipeStartedAdoption).
         EnsurePipeStarted();
     }
 

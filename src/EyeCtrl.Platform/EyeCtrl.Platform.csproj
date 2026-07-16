@@ -31,4 +31,9 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
   </ItemGroup>
 
+  <!-- ProcessIdentity (Win32 P/Invokes) is internal; Supervisor's ClientIdentityBinder consumes it. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="EyeCtrl.Supervisor" />
+  </ItemGroup>
+
 </Project>

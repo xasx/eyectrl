@@ -40,14 +40,14 @@
 
 **New files (Platform):**
 - `src/EyeCtrl.Platform/Interop/ProcessIdentity.cs` — P/Invokes + helpers for `GetNamedPipeClientProcessId`, `QueryFullProcessImageName`, `ProcessIdToSessionId`.
-- `src/EyeCtrl.Platform/Interop/NamedPipeAcl.cs` — pipe security-descriptor builder (current-user SID only).
+- `src/EyeCtrl.Platform/Interop/NamedPipeSecurityBuilder.cs` — pipe security-descriptor builder (current-user SID only).
 
 **New files (App):**
 - `src/EyeCtrl.App/Services/HeartbeatPublisher.cs` — Dispatcher stamp + bounded async pipe writer.
 - `src/EyeCtrl.App/Services/SingleInstanceGuard.cs` — `Local\` mutex.
 
 **New files (Supervisor):**
-- `src/EyeCtrl.Supervisor/Models/HeartbeatPayload.cs` — the JSON heartbeat record.
+- `src/EyeCtrl.Core/Models/HeartbeatPayload.cs` — the JSON heartbeat record (shared: App emits, Supervisor reads; both reference Core).
 - `src/EyeCtrl.Supervisor/Supervision/SupervisorState.cs` — enum.
 - `src/EyeCtrl.Supervisor/Supervision/CrashWindow.cs` — sliding strike counter.
 - `src/EyeCtrl.Supervisor/Supervision/SupervisionStateMachine.cs` — the brain.
@@ -550,28 +550,46 @@ Create `tests/EyeCtrl.App.Tests/Services/SingleInstanceGuardTests.cs`:
 ```csharp
 namespace EyeCtrl.App.Tests.Services;
 
+using System.Threading;
+using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 
 public class SingleInstanceGuardTests
 {
-    [Fact]
-    public void TryAcquire_SecondInstance_Fails()
-    {
-        using var first = new SingleInstanceGuard();
-        Check.That(first.TryAcquire()).IsTrue();
+    // NOTE: a named Mutex is thread-reentrant — the owning thread can acquire it again.
+    // So "two guards on the same test thread both return true" is expected OS behavior,
+    // NOT a bug. To test real contention we must acquire the second guard from a
+    // DIFFERENT thread. Each test uses a unique mutex name so tests don't interfere.
+    private static string UniqueName() => @"Local\EyeCtrl.App.Test." + Guid.NewGuid();
 
-        using var second = new SingleInstanceGuard();
-        Check.That(second.TryAcquire()).IsFalse();
+    [Fact]
+    public async Task TryAcquire_SecondThread_Fails_WhenFirstHoldsIt()
+    {
+        var name = UniqueName();
+        var first = new SingleInstanceGuard(name);
+        Check.That(first.TryAcquire()).IsTrue();
+        try
+        {
+            // A second guard on a separate thread must fail to acquire.
+            bool secondResult = await Task.Run(() =>
+            {
+                using var second = new SingleInstanceGuard(name);
+                return second.TryAcquire();
+            });
+            Check.That(secondResult).IsFalse();
+        }
+        finally { first.Dispose(); }
     }
 
     [Fact]
     public void TryAcquire_AfterDispose_SucceedsAgain()
     {
-        var first = new SingleInstanceGuard();
+        var name = UniqueName();
+        var first = new SingleInstanceGuard(name);
         Check.That(first.TryAcquire()).IsTrue();
         first.Dispose();
 
-        using var second = new SingleInstanceGuard();
+        using var second = new SingleInstanceGuard(name);
         Check.That(second.TryAcquire()).IsTrue();
     }
 }
@@ -593,22 +611,29 @@ using System.Threading;
 
 public sealed class SingleInstanceGuard : IDisposable
 {
-    private const string MutexName = @"Local\EyeCtrl.App.Singleton";
+    /// <summary>Default production mutex name. Injectable for tests (per-test isolation).</summary>
+    public const string DefaultMutexName = @"Local\EyeCtrl.App.Singleton";
+    private readonly string _mutexName;
     private Mutex? _mutex;
     private bool _owned;
+
+    public SingleInstanceGuard() : this(DefaultMutexName) { }
+    public SingleInstanceGuard(string mutexName) { _mutexName = mutexName; }
 
     /// <summary>True if this instance acquired the mutex (legitimate to run).</summary>
     public bool TryAcquire()
     {
-        _mutex = new Mutex(initiallyOwned: true, name: MutexName, createdNew: out _owned);
+        // createdNew==true means no prior owner existed anywhere — we got it cleanly.
+        _mutex = new Mutex(initiallyOwned: true, name: _mutexName, createdNew: out _owned);
         if (_owned) return true;
-        // Held by another instance. Also covers AbandonedMutexException from a
-        // force-killed prior holder — treat as acquired (spec, in-app change #2).
+
+        // Already owned by some process. A zero-timeout wait returns true only if we
+        // can take it now (e.g. it was released); false if still held. AbandonedMutex
+        // means a prior holder was force-killed — treat as acquired (spec, in-app #2).
         try
         {
-            _mutex.WaitOne(0);
-            _owned = true;
-            return true;
+            _owned = _mutex.WaitOne(0); // RETURN the result — do not discard it.
+            return _owned;
         }
         catch (AbandonedMutexException)
         {
@@ -751,7 +776,7 @@ Standalone reconciles StartOnBoot as before."
 
 - [ ] **Step 1: Write failing test for the payload-stamping behavior**
 
-Create `tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs`. We test the stamping in isolation using a fake clock and a capture callback (the pipe send is async/best-effort):
+Create `tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs`. We test the stamping in isolation; construct with `supervised: false` so no pipe-writer task spins up. `LastFrameUtc` is driven by `OnGazeSample()` (the gaze-thread seam), and the test reads it back through the stamped payload:
 
 ```csharp
 namespace EyeCtrl.App.Tests.Services;
@@ -761,26 +786,30 @@ using EyeCtrl.App.Services;
 public class HeartbeatPublisherTests
 {
     [Fact]
-    public void Stamp_RecordsCurrentState()
+    public void Stamp_ReflectsLastGazeSample()
     {
-        var pub = new HeartbeatPublisher(send: _ => { });
-        pub.Stamp(isConnected: true, isPaused: false, lastFrameUtc: new DateTime(2026,7,16,10,0,0,DateTimeKind.Utc));
+        var pub = new HeartbeatPublisher(supervised: false);
+        pub.OnGazeSample(); // gaze thread would call this per sample
+        pub.Stamp(isConnected: true, isPaused: false);
         var snapshot = pub.CurrentPayload;
         Check.That(snapshot.IsConnected).IsTrue();
         Check.That(snapshot.IsPaused).IsFalse();
-        Check.That(snapshot.LastFrameUtc).IsEqualTo(new DateTime(2026,7,16,10,0,0,DateTimeKind.Utc));
         Check.That(snapshot.ShuttingDown).IsFalse();
+        // LastFrameUtc should be ~now (OnGazeSample just stamped UtcNow). Allow slack.
+        Check.That(snapshot.LastFrameUtc).IsCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
     }
 
     [Fact]
-    public void Stamp_ShuttingDown_SetsFlag()
+    public void SignalShuttingDown_StampsFinalPayload()
     {
-        var pub = new HeartbeatPublisher(send: _ => { });
+        var pub = new HeartbeatPublisher(supervised: false);
         pub.SignalShuttingDown();
         Check.That(pub.CurrentPayload.ShuttingDown).IsTrue();
     }
 }
 ```
+
+(`CurrentPayload` is a read-only accessor exposing the last `_pending` stamp; implement it on the class for testability.)
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -809,65 +838,101 @@ Then `HeartbeatPublisher`:
 ```csharp
 namespace EyeCtrl.App.Services;
 
-using System.Diagnostics;
+using System.IO.Pipes;
 using System.Text.Json;
-using System.Threading.Channels;
+using System.Threading;
+using System.Threading.Tasks;
 using EyeCtrl.Core.Models;
 
 public sealed class HeartbeatPublisher : IDisposable
 {
     private const string PipeName = "eyectrl_watch";
-    private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
 
-    private readonly Action<string> _send; // test seam; production writes to the pipe
     private readonly int _pid = Environment.ProcessId;
     private readonly DateTime _startedAtUtc = DateTime.UtcNow;
 
-    private HeartbeatPayload _current; // volatile-ish; stamped on the Dispatcher
+    // Single-slot writer: the newest stamp overwrites any unsent one. One long-lived
+    // writer task drains the slot — no per-stamp Task.Run, no thread-pool starvation.
+    // Cross-thread access (gaze thread writes lastFrameTicks, Dispatcher reads/writes)
+    // uses Interlocked on a long (ticks), never a plain DateTime field.
+    private long _lastFrameTicks = DateTime.UtcNow.Ticks;
+    private HeartbeatPayload? _pending;          // next payload to send
+    private readonly SemaphoreSlim _sendSignal = new(0, 1);
     private volatile bool _shuttingDown;
+    private readonly CancellationTokenSource _cts = new();
+    private Task? _writerLoop;
 
-    public HeartbeatPublisher(Action<string> send)
+    public HeartbeatPublisher(bool supervised)
     {
-        _send = send;
-        _current = new HeartbeatPayload(_pid, _startedAtUtc, false, false, DateTime.UtcNow, false);
+        // In standalone mode (default) there is no server — don't even spin up a writer
+        // that would block on Connect forever. Gated on Supervision.Enabled.
+        if (supervised) StartWriter();
     }
 
-    public HeartbeatPayload CurrentPayload => _current;
+    /// <summary>Last stamped payload (testability + diagnostics). Null until first Stamp.</summary>
+    public HeartbeatPayload? CurrentPayload => _pending;
 
-    /// <summary>Called on the UI thread (DispatcherTimer) every ~3s. Never blocks on IPC.</summary>
-    public void Stamp(bool isConnected, bool isPaused, DateTime lastFrameUtc)
+    /// <summary>Called on the GAZE thread (GazeEngine.GazeSampled) on every sample, valid or invalid.</summary>
+    public void OnGazeSample() => Interlocked.Exchange(ref _lastFrameTicks, DateTime.UtcNow.Ticks);
+
+    /// <summary>Called on the UI thread (DispatcherTimer) every ~3s. Stamps; never blocks on IPC.</summary>
+    public void Stamp(bool isConnected, bool isPaused)
     {
-        _current = new HeartbeatPayload(_pid, _startedAtUtc, isConnected, isPaused, lastFrameUtc, _shuttingDown);
-        // Fire the async send best-effort. The bounded writer drops a stalled send.
-        _ = SendAsync(_current);
+        var lastFrame = new DateTime(Interlocked.Read(ref _lastFrameTicks), DateTimeKind.Utc);
+        _pending = new HeartbeatPayload(_pid, _startedAtUtc, isConnected, isPaused, lastFrame, _shuttingDown);
+        _sendSignal.Release(); // wake the single writer; if one is pending, the slot just refreshes
     }
 
     public void SignalShuttingDown()
     {
         _shuttingDown = true;
-        var final = _current with { ShuttingDown = true };
-        _current = final;
-        _ = SendAsync(final);
+        Stamp(isConnected: false, isPaused: false); // ensure a final shuttingDown:true payload is queued
     }
 
-    private async Task SendAsync(HeartbeatPayload payload)
+    private void StartWriter() => _writerLoop = Task.Run(WriterLoopAsync);
+
+    private async Task WriterLoopAsync()
     {
-        try
+        while (!_cts.IsCancellationRequested)
         {
-            var json = JsonSerializer.Serialize(payload);
-            await Task.Run(() => _send(json)).WaitAsync(SendTimeout);
-        }
-        catch
-        {
-            // No server (standalone), full buffer, or timeout — drop this send, never throw on the Dispatcher.
+            await _sendSignal.WaitAsync(_cts.Token); // block until a stamp arrives (or shutdown)
+            var payload = _pending;
+            _pending = null;
+            if (payload == null) continue;
+            try { await SendOneAsync(payload, _cts.Token); }
+            catch { /* drop this send — never throw, never block the Dispatcher */ }
         }
     }
 
-    public void Dispose() { /* timer disposed by owner */ }
+    private static async Task SendOneAsync(HeartbeatPayload payload, CancellationToken token)
+    {
+        await using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.Asynchronous);
+        // CANCELLABLE connect with a real timeout — a missing server (standalone) does NOT
+        // block a thread-pool thread forever. WaitAsync(cancel) bounds it to ConnectTimeout.
+        var connectTask = client.ConnectAsync(token);
+        var timeoutTask = Task.Delay(ConnectTimeout, token);
+        if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
+            return; // server absent or slow — drop this heartbeat
+        await connectTask; // observe exceptions if connect threw
+        var json = JsonSerializer.Serialize(payload) + "\n";
+        await client.WriteAsync(System.Text.Encoding.UTF8.GetBytes(json), token);
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        try { _writerLoop?.Wait(TimeSpan.FromSeconds(3)); } catch { }
+        _sendSignal.Dispose();
+        _cts.Dispose();
+    }
 }
 ```
 
-(The production `_send` action, wired in App.xaml.cs, opens a `NamedPipeClientStream` to `eyectrl_watch` and writes the JSON + newline, swallowing connection failures. The test seam keeps this unit-testable.)
+⚠ **Three design points this fixes vs. the earlier sketch:**
+1. **No per-stamp `Task.Run`.** A single long-lived writer drains a one-slot queue (`_pending`); the newest stamp overwrites an unsent one. No thread-pool starvation.
+2. **Cancellable `ConnectAsync`.** A missing server (the *default* standalone config, `Supervision.Enabled == false`) no longer blocks a thread-pool thread forever — `Task.WhenAny(connect, Task.Delay(2s))` bounds it, and `StartWriter` is gated on `supervised` so standalone never spins a writer at all.
+3. **Cross-thread correctness.** `lastFrameTicks` is a `long` swapped via `Interlocked`; no plain `DateTime` field read/write across gaze/Dispatcher threads.
 
 - [ ] **Step 4: Run tests, verify pass**
 
@@ -877,10 +942,11 @@ Expected: PASS.
 - [ ] **Step 5: Wire into App**
 
 In `src/EyeCtrl.App/App.xaml.cs`, after the gaze engine and overlays are up:
-- Construct the `HeartbeatPublisher` (passing the real pipe-writing send action).
-- Subscribe to `gazeEngine.GazeSampled` to update a `lastFrameUtc` field (`DateTime.UtcNow` per sample — fires on the gaze thread; the field is read by the Dispatcher stamp).
-- Start a `DispatcherTimer` with ~3s interval whose tick calls `publisher.Stamp(provider.IsConnected, im.CurrentState == InteractionState.Paused, lastFrameUtc)`.
-- In `OnExit`, call `publisher.SignalShuttingDown()` before teardown (this is the clean-shutdown signal — see Task 9).
+- Construct the `HeartbeatPublisher` gated on `settings.Supervision.Enabled`:
+  `var publisher = new HeartbeatPublisher(supervised: settings.Supervision.Enabled);`
+- Subscribe to `gazeEngine.GazeSampled` (fires per raw sample on the gaze thread, before the pause gate at `GazeEngine.cs:117`): `gazeEngine.GazeSampled += _ => publisher.OnGazeSample();`
+- Start a `DispatcherTimer` with ~3s interval whose tick calls `publisher.Stamp(provider.IsConnected, im.CurrentState == InteractionState.Paused)` (no `lastFrameUtc` arg — the publisher sources it from its own `OnGazeSample` stamp).
+- In `OnExit`, call `publisher.SignalShuttingDown()` **before** disposing services (this is the authenticated clean-shutdown signal — see Task 9; the supervisor needs it within the 5s deadline).
 
 - [ ] **Step 6: Commit**
 
@@ -1219,6 +1285,131 @@ git add -A
 git commit -m "feat(supervisor): BackoffPolicy 0/5/15/60s capped curve"
 ```
 
+### Task 12b: `HeartbeatFreshnessEvaluator` (gaze-stream-death detection)
+
+**Files:**
+- Create: `src/EyeCtrl.Supervisor/Supervision/HeartbeatFreshnessEvaluator.cs`
+- Create: `tests/EyeCtrl.Supervisor.Tests/Supervision/HeartbeatFreshnessEvaluatorTests.cs`
+
+**Context (spec, "Gaze-stream-death detection" — the single most safety-critical section):** This logic was implicit in Task 13's `GazeStreamDead` input but **nothing computed it**. It must be pure, owned, and tested in isolation — getting it wrong force-kills the app when the user merely looks away. The rule: a heartbeat is gaze-dead iff `now - lastFrameUtc > hangThreshold` **while `isConnected == true`**. `lastFrameUtc` is updated on *every* sample (valid or invalid), so look-away (which still produces invalid frames) does NOT trip it. `isConnected == false` is a *soft* signal (no kill) — the app's reconnect loop owns it.
+
+- [ ] **Step 1: Write failing tests**
+
+Create `tests/EyeCtrl.Supervisor.Tests/Supervision/HeartbeatFreshnessEvaluatorTests.cs`:
+
+```csharp
+namespace EyeCtrl.Supervisor.Tests.Supervision;
+
+using EyeCtrl.Supervisor.Supervision;
+
+public class HeartbeatFreshnessEvaluatorTests
+{
+    private static readonly DateTime Now = new(2026, 7, 16, 10, 0, 0, DateTimeKind.Utc);
+    private const int HangSeconds = 20;
+
+    [Fact]
+    public void NotDead_FreshFramesAndConnected()
+    {
+        var e = new HeartbeatFreshnessEvaluator(HangSeconds);
+        Check.That(e.IsGazeStreamDead(Now, lastFrameUtc: Now, isConnected: true)).IsFalse();
+    }
+
+    [Fact]
+    public void Dead_StaleFramesWhileConnected()
+    {
+        var e = new HeartbeatFreshnessEvaluator(HangSeconds);
+        // 21s gap > 20s threshold, still connected -> wedged poll loop.
+        Check.That(e.IsGazeStreamDead(Now, lastFrameUtc: Now.AddSeconds(-21), isConnected: true)).IsTrue();
+    }
+
+    [Fact]
+    public void NotDead_StaleFramesButDisconnected_SoftSignalOnly()
+    {
+        var e = new HeartbeatFreshnessEvaluator(HangSeconds);
+        // Even a long gap is NOT a hard kill when disconnected — app's reconnect loop owns it.
+        Check.That(e.IsGazeStreamDead(Now, lastFrameUtc: Now.AddSeconds(-60), isConnected: false)).IsFalse();
+    }
+
+    [Fact]
+    public void Regression_LookAway_StillProducesFrames_NotDead()
+    {
+        // The Tobii provider forwards INVALID samples as GazePoint(0,0,ts,false) so
+        // frame arrival continues while the user looks away / blinks. Those invalid
+        // samples still advance lastFrameUtc. Simulate frames arriving every 33ms:
+        var e = new HeartbeatFreshnessEvaluator(HangSeconds);
+        var lastFrame = Now.AddMilliseconds(-33); // recent invalid-sample frame
+        Check.That(e.IsGazeStreamDead(Now, lastFrameUtc: lastFrame, isConnected: true)).IsFalse();
+    }
+
+    [Fact]
+    public void HeartbeatFreshness_UsesDeliveryTime_NotStampTime()
+    {
+        // The supervisor's lastHeartbeatUtc is pipe-RECEIPT time (delivery), not the
+        // app's stamp time. A sustained pure delivery stall is indistinguishable from a
+        // frozen UI here — but IsGazeStreamDead keys off the heartbeat's lastFrameUtc
+        // field (which the app stamps on the Dispatcher), so it reflects app liveness.
+        var e = new HeartbeatFreshnessEvaluator(HangSeconds);
+        // lastFrameUtc fresh even if delivery was slow -> not dead.
+        Check.That(e.IsGazeStreamDead(Now, lastFrameUtc: Now, isConnected: true)).IsFalse();
+    }
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `dotnet test tests/EyeCtrl.Supervisor.Tests --filter "FullyQualifiedName~HeartbeatFreshnessEvaluatorTests"`
+Expected: FAIL — type missing.
+
+- [ ] **Step 3: Implement**
+
+Create `src/EyeCtrl.Supervisor/Supervision/HeartbeatFreshnessEvaluator.cs`:
+
+```csharp
+namespace EyeCtrl.Supervisor.Supervision;
+
+using System;
+
+public sealed class HeartbeatFreshnessEvaluator
+{
+    private readonly int _hangThresholdSeconds;
+
+    public HeartbeatFreshnessEvaluator(int hangThresholdSeconds)
+    {
+        _hangThresholdSeconds = hangThresholdSeconds;
+    }
+
+    /// <summary>
+    /// True only when the SDK has STOPPED delivering frames while still reporting connected.
+    /// Keys off frame ARRIVAL (valid or invalid samples both advance lastFrameUtc), so a
+    /// user looking away — which still produces invalid GazePoint(0,0,ts,false) frames —
+    /// does NOT trip this. A disconnected tracker is a soft signal (handled by the app's
+    /// own reconnect loop) and never returns true here.
+    /// </summary>
+    public bool IsGazeStreamDead(DateTime nowUtc, DateTime lastFrameUtc, bool isConnected)
+    {
+        if (!isConnected) return false; // soft signal — not our kill to make
+        return (nowUtc - lastFrameUtc).TotalSeconds > _hangThresholdSeconds;
+    }
+}
+```
+
+- [ ] **Step 4: Run tests, verify pass**
+
+Run: `dotnet test tests/EyeCtrl.Supervisor.Tests --filter "FullyQualifiedName~HeartbeatFreshnessEvaluatorTests"`
+Expected: PASS. The Task 20 supervision loop calls `IsGazeStreamDead` per received heartbeat and, when true, feeds `new GazeStreamDead(nowUtc)` into the state machine.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A
+git commit -m "feat(supervisor): HeartbeatFreshnessEvaluator (gaze-stream-death)
+
+Pure evaluator: dead iff now-lastFrameUtc > threshold WHILE connected.
+Keys off frame arrival (valid or invalid) so look-away doesn't force-kill.
+Disconnected is soft (app's reconnect loop owns it). Regression test for
+the invalid-sample-still-produces-frames property (spec's #1 safety case)."
+```
+
 ### Task 13: `SupervisionStateMachine`
 
 **Files:**
@@ -1242,43 +1433,94 @@ public class SupervisionStateMachineTests
 {
     private static readonly DateTime T0 = new(2026, 7, 16, 10, 0, 0, DateTimeKind.Utc);
 
+    // Spec: IDLE_WATCH is the entry state, not Launching — so supervised + StartOnBoot-off
+    // stays idle instead of launching. Only a LaunchRequest (logon+StartOnBoot, or tray
+    // "Launch EyeCtrl now") or an AdoptRequest (manually-launched app's first heartbeat)
+    // leaves idle.
+    [Fact]
+    public void StartsIn_IdleWatch()
+    {
+        var sm = NewMachine();
+        Check.That(sm.State).IsEqualTo(SupervisorState.IdleWatch);
+    }
+
+    [Fact]
+    public void LaunchRequest_FromIdle_GoesLaunching_CommandsLaunchApp()
+    {
+        var sm = NewMachine();
+        sm.Handle(new LaunchRequest(T0));
+        Check.That(sm.State).IsEqualTo(SupervisorState.Launching);
+        Check.That(sm.Commands).Contains(SupervisorCommand.LaunchApp);
+    }
+
     [Fact]
     public void Launching_FirstHeartbeat_GoesSupervising()
     {
         var sm = NewMachine();
-        sm.Handle(new HeartbeatReceived(T0), T0);
+        sm.Handle(new LaunchRequest(T0));
+        sm.Handle(new HeartbeatReceived(T0.AddSeconds(10)));
         Check.That(sm.State).IsEqualTo(SupervisorState.Supervising);
     }
 
     [Fact]
-    public void Supervising_HeartbeatStaleProcessAlive_CommandsForceKillThenRecovering()
+    public void AdoptRequest_FromIdle_GoesSupervising_NoLaunchCommand()
+    {
+        // Manual-launch adopt path: app we didn't launch sends a heartbeat.
+        var sm = NewMachine();
+        sm.Handle(new AdoptRequest(T0));
+        Check.That(sm.State).IsEqualTo(SupervisorState.Supervising);
+        Check.That(sm.Commands).Not.Contains(SupervisorCommand.LaunchApp);
+    }
+
+    [Fact]
+    public void Supervising_HeartbeatStale_GoesRecovering_CommandsForceKill()
     {
         var sm = NewMachine();
-        sm.Handle(new HeartbeatReceived(T0), T0);
-        sm.Handle(new HeartbeatStale(T0.AddSeconds(21)), T0.AddSeconds(21));
+        sm.Handle(new LaunchRequest(T0));
+        sm.Handle(new HeartbeatReceived(T0.AddSeconds(1)));
+        sm.Handle(new HeartbeatStale(T0.AddSeconds(22)));
         Check.That(sm.State).IsEqualTo(SupervisorState.Recovering);
         Check.That(sm.Commands).Contains(SupervisorCommand.ForceKill);
     }
 
     [Fact]
-    public void Recovering_CrashLoopExceeded_GoesFallenBack()
+    public void CrashLoop_BeyondMaxRetries_GoesFallenBack()
     {
         var sm = NewMachine(maxRetries: 3, windowSeconds: 120);
-        for (int i = 0; i <= 4; i++)
-        {
-            sm.Handle(new ProcessExited(T0.AddSeconds(i)), T0.AddSeconds(i)); // strike
-        }
+        sm.Handle(new LaunchRequest(T0));
+        for (int i = 1; i <= 4; i++)
+            sm.Handle(new ProcessExited(T0.AddSeconds(i))); // strikes 1..4 (> maxRetries 3 -> escalate)
         Check.That(sm.State).IsEqualTo(SupervisorState.FallenBack);
         Check.That(sm.Commands).Contains(SupervisorCommand.LaunchFallbackAt);
+    }
+
+    [Fact]
+    public void SurvivedWindow_ResetsStrikeAndBackoffCounters()
+    {
+        // Spec reset rule (no infinite-restart hole): surviving a FULL crash window (120s)
+        // in Supervising resets both the strike counter and the backoff counter.
+        var sm = NewMachine(maxRetries: 3, windowSeconds: 120);
+        sm.Handle(new LaunchRequest(T0));
+        sm.Handle(new ProcessExited(T0.AddSeconds(1)));   // strike 1, backoff -> 5s
+        Check.That(sm.NextBackoffDelay).IsEqualTo(TimeSpan.FromSeconds(5));
+        sm.Handle(new LaunchRequest(T0.AddSeconds(10)));
+        sm.Handle(new HeartbeatReceived(T0.AddSeconds(11)));
+        // Now survive > 120s cleanly:
+        sm.Handle(new SurvivedWindow(T0.AddSeconds(200)));
+        Check.That(sm.NextBackoffDelay).IsEqualTo(TimeSpan.Zero); // backoff reset to immediate
+        // And a subsequent single crash should not escalate (strikes reset):
+        sm.Handle(new ProcessExited(T0.AddSeconds(201)));
+        Check.That(sm.State).IsEqualTo(SupervisorState.Recovering);
     }
 
     [Fact]
     public void CleanExit_AuthenticatedWithinDeadline_GoesIdleWatch_NoRelaunch()
     {
         var sm = NewMachine();
-        sm.Handle(new HeartbeatReceived(T0), T0);
-        sm.Handle(new CleanExitRequested(T0.AddSeconds(5)), T0.AddSeconds(5));   // authenticated signal
-        sm.Handle(new ProcessExited(T0.AddSeconds(6)), T0.AddSeconds(6));         // exits within 5s deadline
+        sm.Handle(new LaunchRequest(T0));
+        sm.Handle(new HeartbeatReceived(T0.AddSeconds(1)));
+        sm.Handle(new CleanExitRequested(T0.AddSeconds(5)));
+        sm.Handle(new ProcessExited(T0.AddSeconds(6))); // exits within deadline
         Check.That(sm.State).IsEqualTo(SupervisorState.IdleWatch);
         Check.That(sm.Commands).Not.Contains(SupervisorCommand.LaunchApp);
     }
@@ -1287,9 +1529,10 @@ public class SupervisionStateMachineTests
     public void CleanExit_NotExitedWithinDeadline_GoesRecovering()
     {
         var sm = NewMachine();
-        sm.Handle(new HeartbeatReceived(T0), T0);
-        sm.Handle(new CleanExitRequested(T0.AddSeconds(5)), T0.AddSeconds(5));
-        sm.Handle(new DeadlineElapsed(T0.AddSeconds(11)), T0.AddSeconds(11)); // > 5s, still alive
+        sm.Handle(new LaunchRequest(T0));
+        sm.Handle(new HeartbeatReceived(T0.AddSeconds(1)));
+        sm.Handle(new CleanExitRequested(T0.AddSeconds(5)));
+        sm.Handle(new DeadlineElapsed(T0.AddSeconds(11))); // > 5s, still alive
         Check.That(sm.State).IsEqualTo(SupervisorState.Recovering);
     }
 
@@ -1297,37 +1540,16 @@ public class SupervisionStateMachineTests
     public void UnannouncedProcessExit_GoesRecovering_NotIdle()
     {
         var sm = NewMachine();
-        sm.Handle(new HeartbeatReceived(T0), T0);
-        sm.Handle(new ProcessExited(T0.AddSeconds(5)), T0.AddSeconds(5)); // no CleanExitRequested
+        sm.Handle(new LaunchRequest(T0));
+        sm.Handle(new HeartbeatReceived(T0.AddSeconds(1)));
+        sm.Handle(new ProcessExited(T0.AddSeconds(5))); // no CleanExitRequested
         Check.That(sm.State).IsEqualTo(SupervisorState.Recovering);
     }
 
     private static SupervisionStateMachine NewMachine(int maxRetries = 3, int windowSeconds = 120)
-        => new(maxRetries, windowSeconds, hangThresholdSeconds: 20, startupGraceSeconds: 60);
-
-    private sealed class SupervisionStateMachine
-    {
-        public SupervisorState State = SupervisorState.Launching;
-        public List<SupervisorCommand> Commands = new();
-        private readonly CrashWindow _crash;
-        private readonly int _hangThreshold;
-        private readonly int _startupGrace;
-        private DateTime? _lastHeartbeat;
-        private DateTime? _launchTime;
-        private DateTime? _cleanExitRequestedAt;
-
-        public SupervisionStateMachine(int maxRetries, int windowSeconds, int hangThresholdSeconds, int startupGraceSeconds)
-        {
-            _crash = new CrashWindow(maxRetries, windowSeconds);
-            _hangThreshold = hangThresholdSeconds;
-            _startupGrace = startupGraceSeconds;
-        }
-        // ... Handle(...) implemented in Step 3
-    }
+        => new(maxRetries, windowSeconds, hangThresholdSeconds: 20, startupGraceSeconds: 60, windowResetSeconds: windowSeconds);
 }
 ```
-
-(The test defines the machine inline so Step 1 compiles as a failing test focusing on `State`/`Commands`/`Handle`. In Step 3 you extract the real machine into `SupervisionStateMachine.cs` and reference it. Adjust the test to use the real type once it exists — **do not keep the inline sketch**; delete it and reference the production `SupervisionStateMachine`.)
 
 **JSON casing note:** `HeartbeatPayload` uses PascalCase properties (`IsPaused`, `LastFrameUtc`) per C# convention; the spec's JSON shows camelCase (`isPaused`, `lastFrameUtc`). `SettingsService`'s `JsonNamingPolicy.CamelCase` serializes/deserializes symmetrically, so no hand-alignment of casing is needed — but the supervisor's `HeartbeatPipeServer` must deserialize with the **same camelCase policy** (construct matching `JsonSerializerOptions`) or the app's heartbeat fields will deserialize as default/zero. Match the options in Task 15.
 
@@ -1359,16 +1581,22 @@ namespace EyeCtrl.Supervisor.Supervision;
 using System;
 
 public abstract record SupervisionInput(DateTime At);
+public sealed record LaunchRequest(DateTime At) : SupervisionInput(At);     // logon+StartOnBoot / tray "Launch now"
+public sealed record AdoptRequest(DateTime At) : SupervisionInput(At);      // manual-launch first heartbeat
 public sealed record HeartbeatReceived(DateTime At) : SupervisionInput(At);
 public sealed record HeartbeatStale(DateTime At) : SupervisionInput(At);
 public sealed record GazeStreamDead(DateTime At) : SupervisionInput(At);
 public sealed record ProcessExited(DateTime At) : SupervisionInput(At);
 public sealed record CleanExitRequested(DateTime At) : SupervisionInput(At);
 public sealed record DeadlineElapsed(DateTime At) : SupervisionInput(At);
-public sealed record AdoptRequest(DateTime At) : SupervisionInput(At); // manual-launch adopt path
+public sealed record SurvivedWindow(DateTime At) : SupervisionInput(At);    // survived a full crash window -> reset
 ```
 
-Create `src/EyeCtrl.Supervisor/Supervision/SupervisionStateMachine.cs`. Implement the transitions described in the spec's state diagram + rules:
+Create `src/EyeCtrl.Supervisor/Supervision/SupervisionStateMachine.cs`. ⚠ **Spec-fidelity points addressed vs. the earlier sketch:**
+- Entry state is **`IdleWatch`**, not `Launching` (spec state diagram line 141).
+- `IdleWatch → Launching` via `LaunchRequest`; `IdleWatch → Supervising` via `AdoptRequest`.
+- Tracks `consecutiveFailures`, exposes `NextBackoffDelay` via `BackoffPolicy`, and **calls `_crash.Reset()` + resets backoff on `SurvivedWindow`** (spec reset rule, line 191/289/295 — the earlier sketch never reset anything).
+- `Handle(input)` is single-arg (the input carries `.At`); no 2-arg overload.
 
 ```csharp
 namespace EyeCtrl.Supervisor.Supervision;
@@ -1379,19 +1607,22 @@ using System.Collections.Generic;
 public sealed class SupervisionStateMachine
 {
     private readonly CrashWindow _crash;
-    private readonly int _hangThresholdSeconds;
-    private readonly int _startupGraceSeconds;
+    private readonly BackoffPolicy _backoff = new();
+    private readonly int _windowResetSeconds;
     private readonly List<SupervisorCommand> _commands = new();
+    private DateTime? _supervisingSince;
 
-    public SupervisorState State { get; private set; } = SupervisorState.Launching;
+    public SupervisorState State { get; private set; } = SupervisorState.IdleWatch; // spec entry state
     public IReadOnlyList<SupervisorCommand> Commands => _commands;
     public DateTime? LastHeartbeatUtc { get; private set; }
+    public int ConsecutiveFailures { get; private set; }
+    public TimeSpan NextBackoffDelay => _backoff.DelayFor(ConsecutiveFailures + 1);
 
-    public SupervisionStateMachine(int maxRetries, int windowSeconds, int hangThresholdSeconds, int startupGraceSeconds)
+    public SupervisionStateMachine(int maxRetries, int windowSeconds, int hangThresholdSeconds,
+        int startupGraceSeconds, int windowResetSeconds)
     {
         _crash = new CrashWindow(maxRetries, windowSeconds);
-        _hangThresholdSeconds = hangThresholdSeconds;
-        _startupGraceSeconds = startupGraceSeconds;
+        _windowResetSeconds = windowResetSeconds;
     }
 
     public void Handle(SupervisionInput input)
@@ -1399,20 +1630,34 @@ public sealed class SupervisionStateMachine
         _commands.Clear();
         switch (input)
         {
-            case HeartbeatReceived hb when State is SupervisorState.Launching or SupervisorState.Supervising or SupervisorState.CleanExitPending:
-                LastHeartbeatUtc = hb.At;
-                if (State == SupervisorState.Launching) State = SupervisorState.Supervising;
+            case LaunchRequest when State == SupervisorState.IdleWatch:
+                State = SupervisorState.Launching;
+                _commands.Add(SupervisorCommand.LaunchApp);
                 break;
 
             case AdoptRequest when State == SupervisorState.IdleWatch:
-                // Manually-launched app's first heartbeat — adopt directly into Supervising.
                 State = SupervisorState.Supervising;
+                _supervisingSince = input.At;
+                break;
+
+            case HeartbeatReceived when State == SupervisorState.Launching:
+                LastHeartbeatUtc = input.At;
+                State = SupervisorState.Supervising;
+                _supervisingSince = input.At;
+                break;
+
+            case HeartbeatReceived when State is SupervisorState.Supervising or SupervisorState.CleanExitPending:
+                LastHeartbeatUtc = input.At;
+                break;
+
+            case SurvivedWindow when State == SupervisorState.Supervising:
+                // Spec reset rule: surviving a full crash window resets BOTH counters.
+                _crash.Reset();
+                ConsecutiveFailures = 0;
+                _supervisingSince = input.At;
                 break;
 
             case HeartbeatStale when State == SupervisorState.Supervising:
-                GoRecovering(hb.At: input.At, forceKill: true);
-                break;
-
             case GazeStreamDead when State == SupervisorState.Supervising:
                 GoRecovering(input.At, forceKill: true);
                 break;
@@ -1423,23 +1668,23 @@ public sealed class SupervisionStateMachine
                 break;
 
             case ProcessExited when State == SupervisorState.CleanExitPending:
-                State = SupervisorState.IdleWatch; // exited within deadline (authenticated)
+                State = SupervisorState.IdleWatch; // authenticated clean exit within deadline
+                _supervisingSince = null;
                 break;
 
             case ProcessExited when State is SupervisorState.Supervising or SupervisorState.Recovering or SupervisorState.Launching:
-                // Unannounced exit (or startup crash) = failure.
-                GoRecovering(input.At, forceKill: false);
+                GoRecovering(input.At, forceKill: false); // unannounced exit / startup crash
                 break;
 
             case DeadlineElapsed when State == SupervisorState.CleanExitPending:
-                // Claimed shutdown but didn't exit — treat as unhealthy.
-                GoRecovering(input.At, forceKill: true);
+                GoRecovering(input.At, forceKill: true); // claimed shutdown but didn't exit
                 break;
         }
     }
 
     private void GoRecovering(DateTime at, bool forceKill)
     {
+        ConsecutiveFailures++;
         _crash.RecordStrike(at);
         if (_crash.ShouldEscalate(at))
         {
@@ -1452,11 +1697,12 @@ public sealed class SupervisionStateMachine
             if (forceKill) _commands.Add(SupervisorCommand.ForceKill);
             _commands.Add(SupervisorCommand.LaunchApp);
         }
+        _supervisingSince = null;
     }
 }
 ```
 
-(Refine the `switch` arms against the test cases; the `HeartbeatStale hb` binding name in the guard is illustrative — use `input.At`.)
+(The Task 20 supervision loop: after each successful launch → first heartbeat, record `_supervisingSince`; a periodic clock tick that sees `State == Supervising && now - supervisingSince > windowResetSeconds` emits `new SurvivedWindow(now)` to drive the reset.)
 
 - [ ] **Step 4: Run tests, verify pass**
 
@@ -1564,32 +1810,49 @@ git commit -m "feat(supervisor): HeartbeatPipeServer (eyectrl_watch, async, mult
 
 - [ ] **Step 1: Add the P/Invokes**
 
-Create `src/EyeCtrl.Platform/Interop/ProcessIdentity.cs` using the `[LibraryImport]` style of `NativeMethods.cs`:
+Create `src/EyeCtrl.Platform/Interop/ProcessIdentity.cs` using the `[LibraryImport]` style of `NativeMethods.cs`. ⚠ **Three correctness points** verified against `NativeMethods.cs:102-111`:
+- `[LibraryImport]` does **not** support `StringBuilder` (SYSLIB1051) — that file documents it. Buffer-return params must be `[Out] char[]`.
+- Every `bool`-returning P/Invoke in the file carries `[return: MarshalAs(UnmanagedType.Bool)]` — add it to all three here (`GetNamedPipeClientProcessId`, `ProcessIdToSessionId`, `QueryFullProcessImageName`).
+- `dwFlags` is a plain `DWORD` (`uint`) — do **not** put `[MarshalAs(UnmanagedType.Bool)]` on it (that was wrong).
 
 ```csharp
 namespace EyeCtrl.Platform.Interop;
 
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 internal static partial class ProcessIdentity
 {
     [LibraryImport("kernel32.dll", SetLastError = true)]
-    internal static partial bool GetNamedPipeClientProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint clientProcessId);
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetNamedPipeClientProcessId(SafePipeHandle pipe, out uint clientProcessId);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ProcessIdToSessionId(uint processId, out uint sessionId);
 
+    // [Out] char[] — NOT StringBuilder (SYSLIB1051). See NativeMethods.cs:102.
     [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool QueryFullProcessImageName(IntPtr hProcess, [MarshalAs(UnmanagedType.Bool)] uint flags,
-        System.Text.StringBuilder lpExeName, ref uint lpdwSize);
+    internal static partial bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags,
+        [Out] char[] lpExeName, ref uint lpdwSize);
 }
 ```
 
 - [ ] **Step 2: Create the pipe ACL builder**
 
-Create `src/EyeCtrl.Platform/Interop/NamedPipeSecurityBuilder.cs` returning a security descriptor / `NamedPipeServerStream` ACL that grants access only to the current user's SID (deny NETWORK/other users). Use `System.IO.Pipes.AccessControl` (`PipeSecurity` + `PipeAccessRule`). This keeps cross-user/session spoofers off the pipe.
+Create `src/EyeCtrl.Platform/Interop/NamedPipeSecurityBuilder.cs` returning a `PipeSecurity` that grants access only to the current user's SID (deny NETWORK/other users). ⚠ **Do not copy the `ExternalDwellService` pipe-construction template verbatim here** — that template creates a plain `NamedPipeServerStream` with *no* `PipeSecurity`. A per-user ACL requires `NamedPipeServerStreamAcl.Create(...)` (from the `System.IO.Pipes.AccessControl` assembly), not the plain constructor:
+
+```csharp
+// NamedPipeSecurityBuilder returns a PipeSecurity (current-user ReadWrite, no NETWORK).
+// The pipe server must construct with:
+var server = NamedPipeServerStreamAcl.Create(
+    HeartbeatPipeServer.PipeName, PipeDirection.InOut,
+    NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte,
+    PipeOptions.Asynchronous, 0, 0, securityBuilder.BuildCurrentUserOnly());
+```
+
+This keeps cross-user/session/remote spoofers off the pipe (spec, Process Binding).
 
 - [ ] **Step 3: Implement `ClientIdentityBinder`**
 
@@ -1805,11 +2068,14 @@ git commit -m "feat(supervisor): entry point, logging, lifecycle wiring (supervi
 - Single-instance mutex → Task 6 ✓
 - Conditional SetStartOnBoot (#1 blocking) → Task 7 ✓
 - State machine + crash window + backoff → Tasks 11–13 ✓
+- **Gaze-stream-death detection (spec's #1 safety case) → Task 12b `HeartbeatFreshnessEvaluator`** ✓ (extracted + tested, not buried in the loop)
+- **Counter reset on survived-window (spec reset rule) → Task 13 `SurvivedWindow` input + `_crash.Reset()` + backoff reset** ✓
+- **IDLE_WATCH entry state + launch/adopt transitions → Task 13** ✓ (matches spec state diagram, not the old `Launching` default)
 - Paused-retry handoff → Task 18 ✓
 - Fallback AT + spikes → Tasks 17, S1 ✓
 - Supervisor UI/tray → Tasks 19–20 ✓
 - Tobii multi-subscriber spike → Task S2 ✓
 
-**2. Placeholder scan:** The state-machine `switch` arms and the `SupervisorApp` wiring are sketched at the structural level (full async-loop + clock wiring is integration work not reducible to a pre-written unit test); flagged inline as such. All unit-testable components (CrashWindow, BackoffPolicy, state machine, fallback launcher, settings, mutex, heartbeat stamp) have complete tests + implementations. Spike outcomes are explicitly tasked rather than guessed.
+**2. Placeholder scan:** The `SupervisorApp` async-loop wiring (Task 20) remains sketched at the structural level — genuine integration work (clock ticks, `SurvivedWindow` emission, dialog hosting) not reducible to a pre-written unit test; flagged inline. All pure/safety-critical logic that *was* previously buried there is now extracted and tested: `HeartbeatFreshnessEvaluator` (Task 12b), `SurvivedWindow` reset (Task 13), `SupervisionStateMachine` transitions (Task 13), `CrashWindow`, `BackoffPolicy`, fallback launcher, settings, mutex, heartbeat stamp.
 
-**3. Type consistency:** `HeartbeatPayload` is defined once (Core.Models) and referenced by both app and supervisor. `SupervisorCommand`/`SupervisorState` defined in Task 13, used in Task 18. `SettingsWriter` (Task 4) used by both app DI and supervisor. `FallbackCandidate` (Task 17) matches the test's constructor. `ProcessController.Launch(exePath, paused)` (Task 14) matches the `--paused` usage in Task 18.
+**3. Type consistency:** `HeartbeatPayload` is defined once (Core.Models, per File Structure) and referenced by both app and supervisor. `SupervisorCommand`/`SupervisorState` defined in Task 13, used in Task 18. `SettingsWriter` (Task 4) used by both app DI and supervisor. `FallbackCandidate` (Task 17) matches the test's constructor. `ProcessController.Launch(exePath, paused)` (Task 14) matches the `--paused` usage in Task 18. `SupervisionInput` subtypes (`LaunchRequest`, `AdoptRequest`, `SurvivedWindow`, ...) defined in Task 13's inputs file and used consistently across the Task 13 tests/impl. `Handle(SupervisionInput)` is single-arg throughout (the input carries `.At`); no stale 2-arg calls remain.

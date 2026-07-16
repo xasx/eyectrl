@@ -5,6 +5,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Services;
@@ -39,6 +40,7 @@ public partial class App : Application
     private TrayIconManager _trayIconManager = null!;
     private EventCoordinator _eventCoordinator = null!;
     private SingleInstanceGuard? _singleInstance;
+    private HeartbeatPublisher? _heartbeatPublisher;
     private string _appDataDir = null!;
 
     /// <summary>
@@ -206,6 +208,23 @@ public partial class App : Application
 
             gazeEngine.Start();
 
+            // ── Heartbeat liveness (supervisor watchdog) ──
+            // A DispatcherTimer stamps a HeartbeatPayload on the UI thread every ~3s. A bounded
+            // async writer sends it over the `eyectrl_watch` named pipe to the supervisor. The
+            // Dispatcher NEVER blocks on IPC — Stamp() only refreshes an in-memory slot. No-ops
+            // (no writer task, no timer) in standalone mode (Supervision.Enabled == false).
+            // lastFrameUtc is fed by every raw gaze sample (valid or invalid), so a wedged poll
+            // loop that stops delivering frames is detectable.
+            _heartbeatPublisher = new HeartbeatPublisher(supervised: settings.Supervision.Enabled);
+            gazeEngine.GazeSampled += _ => _heartbeatPublisher.OnGazeSample();
+            if (settings.Supervision.Enabled)
+            {
+                var heartbeatTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+                heartbeatTimer.Tick += (_, _) =>
+                    _heartbeatPublisher.Stamp(gazeProvider.IsConnected, im.CurrentState == InteractionState.Paused);
+                heartbeatTimer.Start();
+            }
+
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
 
@@ -243,6 +262,11 @@ public partial class App : Application
     {
         Log.Information("Shutdown");
 
+        // Stamp the final shuttingDown:true payload BEFORE tearing down services — the supervisor
+        // needs this authenticated clean-shutdown signal within its 5s deadline to distinguish a
+        // graceful exit (no restart) from a crash. Cancels the writer loop and drains it (bounded).
+        _heartbeatPublisher?.SignalShuttingDown();
+
         _trayIconManager?.Dispose();
         _eventCoordinator?.Dispose();
         _singleInstance?.Dispose();
@@ -263,6 +287,8 @@ public partial class App : Application
             _serviceProvider.GetRequiredService<ExternalDwellService>().Dispose();
             _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ManualSelectionDwellService
         }
+
+        _heartbeatPublisher?.Dispose();
 
         Log.CloseAndFlush();
         base.OnExit(e);

@@ -390,9 +390,22 @@ public partial class App : Application
             Log.CloseAndFlush();
         };
 
+        // Deliberately do NOT set args.Handled = true. We log + let the process
+        // crash so the supervisor's respawn owns recovery, rather than the app
+        // limping on in a corrupt state.
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Unhandled dispatcher exception");
+        };
+
+        // Safety net for fire-and-forget async work (notably the heartbeat writer
+        // added by the supervisor integration): an unobserved task fault must not
+        // crash the process. Log it, then mark observed to suppress the
+        // UnobservedTaskException-to-process-crash escalation.
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Log.Error(args.Exception, "Unobserved task exception (observed set to true to prevent crash)");
+            args.SetObserved();
         };
 
         return (settings, settingsFilePath);

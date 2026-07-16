@@ -13,6 +13,7 @@ public class SettingsTests
 
     public SettingsTests(AppFixture fixture)
     {
+        AppFixture.SkipIfDisabled();
         _fixture = fixture;
     }
 

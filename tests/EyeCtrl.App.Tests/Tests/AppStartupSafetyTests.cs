@@ -14,6 +14,7 @@ public class AppStartupSafetyTests
 
     public AppStartupSafetyTests(AppFixture fixture)
     {
+        AppFixture.SkipIfDisabled();
         _fixture = fixture;
     }
 

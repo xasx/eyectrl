@@ -34,8 +34,29 @@ public class AppFixture : IAsyncLifetime
     public int DefaultDwellMs => 800;
     public int DwellMarginMs => 300;
 
+    /// <summary>
+    /// Whether the app-launching UI tests are allowed to run. They are OPT-IN because they launch
+    /// the real app and drive the OS cursor via <see cref="SetCursorPos"/>, which seizes control
+    /// from a user operating the machine by eye-tracking. Enable with the environment variable
+    /// <c>EYECTRL_UI_TESTS=1</c>. Combined with the <c>Category=UI</c> trait, a plain
+    /// <c>dotnet test</c> neither launches the app nor moves the cursor.
+    /// </summary>
+    public static bool UiTestsEnabled =>
+        Environment.GetEnvironmentVariable("EYECTRL_UI_TESTS") is "1" or "true" or "TRUE";
+
+    /// <summary>Skips the current UI test (cleanly, no app launch) unless UI tests are opted in.</summary>
+    public static void SkipIfDisabled()
+    {
+        if (!UiTestsEnabled)
+            Assert.Skip("UI tests are opt-in: set EYECTRL_UI_TESTS=1 to run them. They launch the app and control the cursor, so they are excluded by default (also tagged Category=UI).");
+    }
+
     public async ValueTask InitializeAsync()
     {
+        // Do not launch the app or touch the cursor unless UI tests are explicitly enabled.
+        if (!UiTestsEnabled)
+            return;
+
         _automation = new UIA3Automation();
 
         // Find the app binary — build it first to ensure it's current
@@ -61,8 +82,9 @@ public class AppFixture : IAsyncLifetime
             Arguments = "--test-mode"
         });
 
-        // Wait for the toolbar window to appear (the last overlay shown at startup)
-        await WaitForWindowAsync("Toolbar_Window", TimeSpan.FromSeconds(15));
+        // Wait for the toolbar window to appear (the last overlay shown at startup).
+        // Kept short so an environment that can't show the window fails fast instead of idling.
+        await WaitForWindowAsync("Toolbar_Window", TimeSpan.FromSeconds(6));
 
         // Give WPF time to complete layout passes and register UIA AutomationPeers for
         // child elements. WPF registers peers asynchronously after Window.Show() returns,

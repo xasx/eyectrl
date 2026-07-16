@@ -430,13 +430,54 @@ public enum SettingsWriter
 
 Modify `src/EyeCtrl.Core/Services/SettingsService.cs`:
 - Add a field `private readonly SettingsWriter _writer;` and a new constructor overload `public SettingsService(string filePath, SettingsWriter writer, ILogger<SettingsService>? logger = null)` that stores `_writer`. Keep the existing 2-arg constructor delegating with `SettingsWriter.App` (the historical behavior — the app is the only existing writer today).
-- In `Save(EyeCtrlSettings settings)`: before serializing, **re-read the on-disk file** under the cross-process mutex (`Local\EyeCtrl.Settings.Writer`) and, for any section the caller does **not** own, take that section's value from disk instead of from the in-memory snapshot. For the App writer, that means: `merged.Supervision = onDisk.Supervision` (preserve whatever the supervisor wrote). Then atomic-write (temp + `File.Move(overwrite:true)`).
-- Add the atomic write + mutex if not already present (it is not — `Save` currently writes directly). Wrap the read-merge-write in:
-  ```csharp
-  using var mutex = new Mutex(false, @"Local\EyeCtrl.Settings.Writer");
-  try { mutex.WaitOne(); /* read-merge-write */ }
-  finally { mutex.ReleaseMutex(); }
-  ```
+- In `Save(EyeCtrlSettings settings)`: re-read on disk under the cross-process mutex, merge (preserve sections the caller doesn't own), and atomic-write. The merge is the bug-prone part — here is the concrete skeleton (extend the per-section preserve list as new owned sections are added):
+
+```csharp
+public void Save(EyeCtrlSettings settings)
+{
+    // Runtime enforcement of single-writer ownership (spec, "Lost updates"):
+    // catch an accidental app-side change to the Supervision section at dev time.
+    // (The App writer must NEVER persist Supervision — the supervisor owns it.)
+    if (_writer == SettingsWriter.App)
+    {
+        System.Diagnostics.Debug.Assert(
+            !settings.Supervision.Enabled || _lastLoadedSupervisionEnabled == settings.Supervision.Enabled,
+            "App process attempted to persist a Supervision change it does not own.");
+    }
+
+    using var mutex = new Mutex(false, @"Local\EyeCtrl.Settings.Writer");
+    bool owned = false;
+    try
+    {
+        mutex.WaitOne(); owned = true;
+
+        // Re-read the freshest on-disk state under the lock.
+        var onDisk = Load(); // current file, or defaults if missing/corrupt
+
+        // Merge: take the caller's owned sections, preserve the rest from disk.
+        var merged = settings;
+        if (_writer == SettingsWriter.App)
+        {
+            // App owns everything EXCEPT Supervision — preserve the supervisor's value.
+            merged = settings with { Supervision = onDisk.Supervision };
+        }
+        else // SettingsWriter.Supervisor — owns ONLY Supervision, preserves everything else.
+        {
+            merged = onDisk with { Supervision = settings.Supervision };
+        }
+
+        // Atomic write: temp file + rename.
+        Directory.CreateDirectory(Path.GetDirectoryName(_filePath)!);
+        var tmp = _filePath + ".tmp";
+        var json = JsonSerializer.Serialize(merged, JsonOptions);
+        File.WriteAllText(tmp, json);
+        File.Move(tmp, _filePath, overwrite: true);
+    }
+    finally { if (owned) mutex.ReleaseMutex(); }
+}
+```
+
+(`_lastLoadedSupervisionEnabled` is captured during `Load()` so the assert distinguishes "app is merely *reporting* the on-disk value it loaded" from "app is *changing* it." If your `EyeCtrlSettings` doesn't support `with`, clone field-by-field — the principle is: the App writer's serialized `Supervision` must equal what was on disk, never a mutated copy.)
 
 - [ ] **Step 5: Register the app writer in DI**
 
@@ -1519,7 +1560,7 @@ public class SupervisionStateMachineTests
         var sm = NewMachine();
         sm.Handle(new LaunchRequest(T0));
         sm.Handle(new HeartbeatReceived(T0.AddSeconds(1)));
-        sm.Handle(new CleanExitRequested(T0.AddSeconds(5)));
+        sm.Handle(new CleanExitRequested(T0.AddSeconds(5), ClientVerified: true));
         sm.Handle(new ProcessExited(T0.AddSeconds(6))); // exits within deadline
         Check.That(sm.State).IsEqualTo(SupervisorState.IdleWatch);
         Check.That(sm.Commands).Not.Contains(SupervisorCommand.LaunchApp);
@@ -1531,9 +1572,23 @@ public class SupervisionStateMachineTests
         var sm = NewMachine();
         sm.Handle(new LaunchRequest(T0));
         sm.Handle(new HeartbeatReceived(T0.AddSeconds(1)));
-        sm.Handle(new CleanExitRequested(T0.AddSeconds(5)));
+        sm.Handle(new CleanExitRequested(T0.AddSeconds(5), ClientVerified: true));
         sm.Handle(new DeadlineElapsed(T0.AddSeconds(11))); // > 5s, still alive
         Check.That(sm.State).IsEqualTo(SupervisorState.Recovering);
+    }
+
+    [Fact]
+    public void CleanExit_UnverifiedClient_Ignored_DoesNotSuppressRecovery()
+    {
+        // Spec line 228: an unverified/unbound sender's shuttingDown:true must NOT
+        // suppress crash recovery. HeartbeatPipeServer only sets ClientVerified after
+        // ClientIdentityBinder succeeds. An unverified request leaves us Supervising.
+        var sm = NewMachine();
+        sm.Handle(new LaunchRequest(T0));
+        sm.Handle(new HeartbeatReceived(T0.AddSeconds(1)));
+        sm.Handle(new CleanExitRequested(T0.AddSeconds(5), ClientVerified: false));
+        Check.That(sm.State).IsEqualTo(SupervisorState.Supervising); // unchanged
+        Check.That(sm.Commands).Not.Contains(SupervisorCommand.NotifyCleanExit);
     }
 
     [Fact]
@@ -1587,7 +1642,7 @@ public sealed record HeartbeatReceived(DateTime At) : SupervisionInput(At);
 public sealed record HeartbeatStale(DateTime At) : SupervisionInput(At);
 public sealed record GazeStreamDead(DateTime At) : SupervisionInput(At);
 public sealed record ProcessExited(DateTime At) : SupervisionInput(At);
-public sealed record CleanExitRequested(DateTime At) : SupervisionInput(At);
+public sealed record CleanExitRequested(DateTime At, bool ClientVerified) : SupervisionInput(At);
 public sealed record DeadlineElapsed(DateTime At) : SupervisionInput(At);
 public sealed record SurvivedWindow(DateTime At) : SupervisionInput(At);    // survived a full crash window -> reset
 ```
@@ -1662,9 +1717,18 @@ public sealed class SupervisionStateMachine
                 GoRecovering(input.At, forceKill: true);
                 break;
 
-            case CleanExitRequested when State == SupervisorState.Supervising:
-                State = SupervisorState.CleanExitPending;
-                _commands.Add(SupervisorCommand.NotifyCleanExit);
+            case CleanExitRequested ce when State == SupervisorState.Supervising:
+                // Spec line 228: the shuttingDown signal "must come from the verified
+                // supervised process, not an untrusted sender." HeartbeatPipeServer sets
+                // ClientVerified=true ONLY after ClientIdentityBinder (Task 16) succeeded.
+                // An unverified/unbound client sending shuttingDown:true is IGNORED — it
+                // must not suppress crash recovery (a spoofer could otherwise hold the
+                // supervisor idle). Fall through to default (no transition) if unverified.
+                if (ce.ClientVerified)
+                {
+                    State = SupervisorState.CleanExitPending;
+                    _commands.Add(SupervisorCommand.NotifyCleanExit);
+                }
                 break;
 
             case ProcessExited when State == SupervisorState.CleanExitPending:
@@ -1728,7 +1792,29 @@ stays a failure. IDLE_WATCH adopt path for manually-launched app."
 
 - [ ] **Step 1: Implement**
 
-Create `src/EyeCtrl.Supervisor/Supervision/ProcessController.cs`. Uses the recorded `Process` handle (not name discovery — spec, Process Binding), with `StartInfo.Arguments` set to `--paused` when a paused-retry is requested:
+Create `src/EyeCtrl.Supervisor/Supervision/ProcessController.cs`. Uses the recorded `Process` handle (not name discovery — spec, Process Binding), with `StartInfo.Arguments` set to `--paused` when a paused-retry is requested. `StartTimeUtc` is captured immediately after launch — it is the *expected* creation time that `ClientIdentityBinder` (Task 16) compares against the *live* client PID's creation time (read via `OpenProcess`+`GetProcessTimes`); a mismatch means the launched PID was recycled and the binder rejects the connection:
+
+```csharp
+namespace EyeCtrl.Supervisor.Supervision;
+
+using System.Diagnostics;
+
+public sealed class ProcessController
+{
+    private Process? _process;
+    public Process? BoundProcess => _process;
+    /// <summary>Captured at launch; the EXPECTED creation time the ClientIdentityBinder checks against.</summary>
+    public DateTime? StartTimeUtc { get; private set; }
+    public string? ExePath { get; private set; }
+
+    public void Launch(string exePath, bool paused)
+    {
+        ExePath = exePath;
+        var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
+        if (paused) psi.ArgumentList.Add("--paused");
+        _process = Process.Start(psi);
+        StartTimeUtc = _process?.StartTime.ToUniversalTime();
+    }
 
 ```csharp
 namespace EyeCtrl.Supervisor.Supervision;
@@ -1836,27 +1922,110 @@ internal static partial class ProcessIdentity
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags,
         [Out] char[] lpExeName, ref uint lpdwSize);
+
+    // Creation-time check: the supervisor must open the client PID's handle and read its
+    // CreationTime via GetProcessTimes, NOT rely on a StartTime it stored at launch — a
+    // crashed PID can be reused by an unrelated process with the same numeric PID.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct FileTime { public uint LowDateTime; public uint HighDateTime; }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetProcessTimes(IntPtr hProcess,
+        out FileTime creation, out FileTime exit, out FileTime kernel, out FileTime user);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    internal static partial SafeProcessHandle OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint pid);
+    internal const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 }
 ```
 
 - [ ] **Step 2: Create the pipe ACL builder**
 
-Create `src/EyeCtrl.Platform/Interop/NamedPipeSecurityBuilder.cs` returning a `PipeSecurity` that grants access only to the current user's SID (deny NETWORK/other users). ⚠ **Do not copy the `ExternalDwellService` pipe-construction template verbatim here** — that template creates a plain `NamedPipeServerStream` with *no* `PipeSecurity`. A per-user ACL requires `NamedPipeServerStreamAcl.Create(...)` (from the `System.IO.Pipes.AccessControl` assembly), not the plain constructor:
+Create `src/EyeCtrl.Platform/Interop/NamedPipeSecurityBuilder.cs`. ⚠ **Do not copy the `ExternalDwellService` pipe-construction template verbatim here** — that template creates a plain `NamedPipeServerStream` with *no* `PipeSecurity`. A per-user ACL requires `NamedPipeServerStreamAcl.Create(...)` (from the `System.IO.Pipes.AccessControl` assembly), not the plain constructor. Skeleton:
 
 ```csharp
-// NamedPipeSecurityBuilder returns a PipeSecurity (current-user ReadWrite, no NETWORK).
-// The pipe server must construct with:
-var server = NamedPipeServerStreamAcl.Create(
-    HeartbeatPipeServer.PipeName, PipeDirection.InOut,
-    NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte,
-    PipeOptions.Asynchronous, 0, 0, securityBuilder.BuildCurrentUserOnly());
+namespace EyeCtrl.Platform.Interop;
+
+using System.IO.Pipes;
+using System.IO.Pipes.AccessControl;
+using System.Security.Principal;
+
+public sealed class NamedPipeSecurityBuilder
+{
+    /// <summary>A PipeSecurity granting ReadWrite to the current user only (no NETWORK, no other users).</summary>
+    public PipeSecurity BuildCurrentUserOnly()
+    {
+        var sid = WindowsIdentity.GetCurrent().User
+            ?? throw new InvalidOperationException("Could not resolve current user SID.");
+        var security = new PipeSecurity();
+        // Current user: full read/write. Everyone else (incl. NETWORK): implicitly denied
+        // because no allow rule exists for them.
+        security.AddAccessRule(new PipeAccessRule(sid, PipeAccessRights.ReadWrite, AccessControlType.Allow));
+        return security;
+    }
+}
+
+// HeartbeatPipeServer constructs the server with:
+//   var server = NamedPipeServerStreamAcl.Create(
+//       PipeName, PipeDirection.InOut, MaxAllowedServerInstances, PipeTransmissionMode.Byte,
+//       PipeOptions.Asynchronous, 0, 0, new NamedPipeSecurityBuilder().BuildCurrentUserOnly());
 ```
 
 This keeps cross-user/session/remote spoofers off the pipe (spec, Process Binding).
 
 - [ ] **Step 3: Implement `ClientIdentityBinder`**
 
-Create `src/EyeCtrl.Supervisor/Ipc/ClientIdentityBinder.cs`. Given a `SafePipeHandle` and the expected app exe path + the `ProcessController`'s recorded start time, return a bound identity (PID, session, user, exe path, creation time) or null if any check fails. Treat any P/Invoke failure as "unbound" (ignore heartbeats, do not crash the server).
+Create `src/EyeCtrl.Supervisor/Ipc/ClientIdentityBinder.cs`. Given a `SafePipeHandle` and the expected app exe path + the launched process's **creation time**, return a bound identity (PID, session, user, exe path, creation time) or null if any check fails. **Every P/Invoke failure path returns null ("unbound")** — the server then ignores that client's heartbeats; it never crashes. The creation-time check requires opening the client PID and calling `GetProcessTimes` (Step 1), NOT comparing to a `StartTime` stored at launch — a crashed PID can be recycled:
+
+```csharp
+namespace EyeCtrl.Supervisor.Ipc;
+
+using System;
+using EyeCtrl.Platform.Interop;
+using Microsoft.Win32.SafeHandles;
+
+public sealed record ClientIdentity(uint Pid, uint SessionId, string ExePath, DateTime CreationTimeUtc);
+
+public sealed class ClientIdentityBinder
+{
+    /// <summary>Expected app exe path and the launched process's creation time (from OpenProcess+GetProcessTimes at launch).</summary>
+    public ClientIdentityBinder(string expectedExePath, DateTime expectedCreationTimeUtc)
+    { _expectedExePath = expectedExePath; _expectedCreation = expectedCreationTimeUtc; }
+
+    /// <summary>null = unbound (ignore heartbeats). Any P/Invoke failure -> null, never throws.</summary>
+    public ClientIdentity? Resolve(SafePipeHandle pipe)
+    {
+        try
+        {
+            if (!ProcessIdentity.GetNamedPipeClientProcessId(pipe, out uint pid) || pid == 0) return null;
+            if (!ProcessIdentity.ProcessIdToSessionId(pid, out uint session)) return null;
+
+            using var ph = ProcessIdentity.OpenProcess(ProcessIdentity.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (ph.IsInvalid) return null;
+
+            // Exe path:
+            var buf = new char[1024]; uint size = (uint)buf.Length;
+            if (!ProcessIdentity.QueryFullProcessImageName(ph.DangerousGetHandle(), 0, buf, ref size)) return null;
+            string exe = new string(buf, 0, (int)size);
+            if (!string.Equals(exe, _expectedExePath, StringComparison.OrdinalIgnoreCase)) return null;
+
+            // Creation time (PID-reuse guard): compare to the launched process's creation time.
+            if (!ProcessIdentity.GetProcessTimes(ph.DangerousGetHandle(), out var c, out _, out _, out _)) return null;
+            var creation = DateTime.FromFileTimeUtc(((long)c.HighDateTime << 32) | c.LowDateTime);
+            if (Math.Abs((creation - _expectedCreation).TotalSeconds) > 2) return null;
+
+            return new ClientIdentity(pid, session, exe, creation);
+        }
+        catch { return null; } // unbound on any failure — never crash the pipe server
+    }
+
+    private readonly string _expectedExePath;
+    private readonly DateTime _expectedCreation;
+}
+```
+
+(Re-verify on every reconnect: call `Resolve` again; if the returned creation time no longer matches `_expectedCreation`, the PID was reused — drop the prior binding.)
 
 - [ ] **Step 4: Build + any unit-testable parts**
 
@@ -2020,7 +2189,35 @@ Create `src/EyeCtrl.Supervisor/SupervisorLoggingInitializer.cs` modeled on `Logg
 
 - [ ] **Step 2: Wire `SupervisorApp`**
 
-In `Program.cs`/`SupervisorApp`: initialize logging; construct the state machine, `ProcessController`, `HeartbeatPipeServer`, `ClientIdentityBinder`, `FallbackAtLauncher`, tray; run the supervision loop on a timer (evaluate state-machine inputs from the pipe + a clock). Detect clean-exit deadlines; show the FALLEN_BACK dialog on `FallenBack`.
+In `Program.cs`/`SupervisorApp`: initialize logging; construct the state machine, `ProcessController`, `HeartbeatPipeServer` (built with the per-user ACL from `NamedPipeSecurityBuilder`), `ClientIdentityBinder`, `HeartbeatFreshnessEvaluator`, `FallbackAtLauncher`, tray; then run the supervision loop. The loop is the *only* place that bridges the pure components (Task 12b/13) with live I/O — be explicit about every input source:
+
+```csharp
+// Per received heartbeat (HeartbeatPipeServer.HeartbeatReceived event):
+//   1. Resolve client identity: var id = _binder.Resolve(pipe); if (id == null) return; // ignore unbound
+//   2. Freshness: if (_freshness.IsGazeStreamDead(now, hb.LastFrameUtc, hb.IsConnected))
+//                  sm.Handle(new GazeStreamDead(now));
+//   3. Heartbeat: sm.Handle(new HeartbeatReceived(now));
+//   4. Clean exit: if (hb.ShuttingDown) sm.Handle(new CleanExitRequested(now, ClientVerified: id != null));
+//      (ClientVerified is true ONLY because the binder resolved — the gate is in the state machine.)
+//
+// Periodic clock tick (every ~1s):
+//   - Heartbeat stale: if (sm.LastHeartbeatUtc.HasValue && now - sm.LastHeartbeatUtc > hangThreshold)
+//                        sm.Handle(new HeartbeatStale(now));
+//   - Survived window:  if (sm.State == Supervising && supervisingSince.HasValue
+//                          && now - supervisingSince > windowResetSeconds)
+//                        sm.Handle(new SurvivedWindow(now));   // drives the counter reset
+//   - Clean-exit deadline: if (sm.State == CleanExitPending && now - cleanExitRequestedAt > 5s)
+//                        sm.Handle(new DeadlineElapsed(now));
+//
+// Process exit (ProcessController.BoundProcess.Exited):
+//   sm.Handle(new ProcessExited(now));
+//
+// Command drain: foreach (cmd in sm.Commands) { switch (cmd) { case LaunchApp: _pc.Launch(exe, paused:false); ... } }
+//   Track supervisingSince = now on the first HeartbeatReceived after a LaunchApp.
+//   Show FALLEN_BACK dialog when sm.State becomes FallenBack; run FallbackAtLauncher.
+```
+
+This is integration wiring (timers, event subscriptions, dialog hosting) — not unit-testable as a whole — but each pure decision it delegates to (freshness, reset, clean-exit gating, binding) is unit-tested in Tasks 12b/13/16. Keep the loop a thin adapter: no logic here, only input→Handle and Commands→action dispatch.
 
 - [ ] **Step 3: Build + manual smoke test**
 
@@ -2061,7 +2258,7 @@ git commit -m "feat(supervisor): entry point, logging, lifecycle wiring (supervi
 **1. Spec coverage:**
 - Controls extraction (finding #5) → Tasks 1–2 ✓
 - Single-writer / lost-update (finding #2) → Task 4 ✓
-- Clean-exit authenticated (#1) → Task 13 (CleanExitRequested + deadline) ✓
+- Clean-exit authenticated (#1) → Task 13 (CleanExitRequested + deadline) ✓ — **now `ClientVerified`-gated**: only a bound client's `shuttingDown:true` suppresses recovery (spec line 228); unverified request ignored, with a regression test
 - Dispatcher-stamped heartbeat (#3) → Task 8 ✓
 - Process binding (#4) → Task 16 ✓
 - `--paused` arg → Task 5 ✓

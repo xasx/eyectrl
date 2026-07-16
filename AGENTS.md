@@ -105,7 +105,7 @@ SDK is .NET 10.0.102 (pinned in `global.json`).
 
 ## Testing Conventions
 
-- xUnit 2.9.x. Global using `Xunit` set in csproj.
+- xUnit **v3 (3.2.2)** via `xunit.v3` — test projects are stand-alone executables (`<OutputType>Exe</OutputType>`). Global usings `Xunit` + `NFluent` are set in `tests/Directory.Build.props` (not per-csproj). UI/STA tests use `[StaFact]`.
 - **No mocking library** — use private nested fake classes (e.g., `FakeGazeProvider`, `FakeInputSimulator`)
 - Test classes are named `XxxTests` with underscore-separated PascalCase names (`ProcessGaze_MovesCursor`)
 - Test namespaces mirror the source namespace (e.g., `EyeCtrl.Core.Tests.Processing`)
@@ -154,7 +154,7 @@ Serilog, initialized in `LoggingInitializer.Initialize()`. Logs to `%APPDATA%/Ey
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **eyectrl** (7792 symbols, 17680 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **eyectrl** (7795 symbols, 17681 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

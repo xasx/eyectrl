@@ -20,6 +20,7 @@ public partial class ActivationButtonWindow : OverlayWindow
     public ActivationButtonWindow()
     {
         InitializeComponent();
+        ExcludeFromScreenCapture = true; // keep out of the magnifier/preview capture
         Opacity = 0;
     }
 

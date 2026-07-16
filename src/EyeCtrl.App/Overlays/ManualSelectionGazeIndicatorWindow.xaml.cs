@@ -12,6 +12,7 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow
     public ManualSelectionGazeIndicatorWindow()
     {
         IsClickThrough = true;
+        ExcludeFromScreenCapture = true; // don't bake the indicator into the magnified image
         InitializeComponent();
     }
 

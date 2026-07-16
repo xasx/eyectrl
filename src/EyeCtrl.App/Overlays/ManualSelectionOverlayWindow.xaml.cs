@@ -17,6 +17,7 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow
     public ManualSelectionOverlayWindow()
     {
         IsClickThrough = true;
+        ExcludeFromScreenCapture = true; // the magnifier must not capture itself
         InitializeComponent();
     }
 

@@ -3,7 +3,7 @@ namespace EyeCtrl.App.Tests.Controls;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using EyeCtrl.App.Controls;
+using EyeCtrl.Controls;
 
 public class DwellArcButtonTests
 {

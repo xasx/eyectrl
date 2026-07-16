@@ -3,7 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using EyeCtrl.App.Controls;
+using EyeCtrl.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;

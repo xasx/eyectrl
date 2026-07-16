@@ -44,6 +44,13 @@ public partial class App : Application
     private string _appDataDir = null!;
 
     /// <summary>
+    /// Tracks whether the gaze provider has been started. <see cref="IGazeProvider.Start"/> is NOT
+    /// idempotent against a running provider, so this guards the StateChanged-driven start/stop
+    /// toggles (and the deferred start when launched --paused). Set true on first resume.
+    /// </summary>
+    private bool _gazeStarted;
+
+    /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
     /// Activated by launching with --test-mode CLI argument.
     /// </summary>
@@ -206,7 +213,14 @@ public partial class App : Application
             if (settings.General.StartPaused || IsPausedLaunch)
                 im.TogglePause();
 
-            gazeEngine.Start();
+            // When launched --paused (supervisor paused-retry handoff), do NOT open the gaze device yet.
+            // The Tobii device is exclusive (spike S2): a paused EyeCtrl holding it would block the
+            // fallback AT (TD Control). The provider is started on first resume (see StateChanged below).
+            if (im.CurrentState != InteractionState.Paused)
+            {
+                gazeEngine.Start();
+                _gazeStarted = true;
+            }
 
             // ── Heartbeat liveness (supervisor watchdog) ──
             // A DispatcherTimer stamps a HeartbeatPayload on the UI thread every ~3s. A bounded
@@ -243,6 +257,28 @@ public partial class App : Application
                     isPaused: im.CurrentState == InteractionState.Paused,
                     canInterrupt: im.CurrentState == InteractionState.FreeLook);
             };
+
+            // Paused-retry handoff (spike S2): when supervised, the Tobii device is exclusive.
+            // Keep the gaze provider stopped while Paused so the fallback AT (or a coexisting app)
+            // can own the device; start it on resume. Start is one-shot (not idempotent), so guard
+            // it with _gazeStarted. Subsequent pause/resume toggles stop/restart the provider so the
+            // device is released while paused (not just SendInput-gated).
+            im.StateChanged += state =>
+            {
+                if (state == InteractionState.Paused)
+                {
+                    if (_gazeStarted)
+                    {
+                        gazeEngine.Stop();
+                        _gazeStarted = false;
+                    }
+                }
+                else if (!_gazeStarted)
+                {
+                    gazeEngine.Start();
+                    _gazeStarted = true;
+                }
+            };
         }
         catch (Exception ex)
         {
@@ -277,6 +313,9 @@ public partial class App : Application
             var settings = _serviceProvider.GetRequiredService<EyeCtrlSettings>();
             var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
 
+            // Stop is a no-op when the provider was never started (e.g. --paused launch that
+            // never resumed): Tobii's Stop guards on null _pollThread and IntPtr.Zero contexts;
+            // Mouse's Stop guards on a null timer. So no _gazeStarted guard is needed here.
             gazeEngine.Stop();
             settingsService.Save(settings);
             // (User dictionary is saved by EventCoordinator.Dispose above, via PredictionStackFactory.)

@@ -11,6 +11,7 @@
     <Project Path="src/EyeCtrl.Sdk.WinUI/EyeCtrl.Sdk.WinUI.csproj" />
     <Project Path="src/EyeCtrl.LM/EyeCtrl.LM.csproj" />
     <Project Path="src/EyeCtrl.EyeCare/EyeCtrl.EyeCare.csproj" />
+    <Project Path="src/EyeCtrl.Supervisor/EyeCtrl.Supervisor.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj" />
@@ -23,5 +24,6 @@
     <Project Path="tests/EyeCtrl.Sdk.WinUI.Tests/EyeCtrl.Sdk.WinUI.Tests.csproj" />
     <Project Path="tests/EyeCtrl.LM.Tests/EyeCtrl.LM.Tests.csproj" />
     <Project Path="tests/EyeCtrl.EyeCare.Tests/EyeCtrl.EyeCare.Tests.csproj" />
+    <Project Path="tests/EyeCtrl.Supervisor.Tests/EyeCtrl.Supervisor.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,7 +1,10 @@
 namespace EyeCtrl.Core.Settings;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Threading;
 using EyeCtrl.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -9,16 +12,28 @@ using Microsoft.Extensions.Logging;
 /// Service for persisting and loading application settings as JSON.
 /// Performs validation before saving and returns safe defaults on load failure.
 /// </summary>
+/// <remarks>
+/// Single-writer ownership (spec, "Lost updates, not just corruption"): each instance is constructed
+/// with a <see cref="SettingsWriter"/> identifying the owning process. <see cref="Save"/> re-reads
+/// the file on disk under a cross-process mutex and preserves any section the caller doesn't own,
+/// then atomic-writes via temp+rename. This prevents the App process from clobbering the Supervisor's
+/// <see cref="SupervisionSettings"/> (and vice versa) when both share one settings file.
+/// </remarks>
 public class SettingsService
 {
     private readonly string _filePath;
     private readonly ILogger<SettingsService>? _logger;
+    private readonly SettingsWriter _writer;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
+
+    /// <summary>JSON property name (camelCase) of the Supervision section — the only section
+    /// whose ownership is split across writers today.</summary>
+    private const string SupervisionSectionName = "supervision";
 
     private CancellationTokenSource? _debounceCts;
     private readonly object _debounceLock = new();
@@ -29,9 +44,23 @@ public class SettingsService
     /// </summary>
     /// <param name="filePath">Full path to the settings JSON file.</param>
     /// <param name="logger">Optional logger for diagnostic messages.</param>
+    /// <remarks>Equivalent to passing <see cref="SettingsWriter.App"/>: the app is the only
+    /// existing writer today, so the historical default preserves backward compatibility.</remarks>
     public SettingsService(string filePath, ILogger<SettingsService>? logger = null)
+        : this(filePath, SettingsWriter.App, logger)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance with an explicit writer identity for single-writer ownership.
+    /// </summary>
+    /// <param name="filePath">Full path to the settings JSON file.</param>
+    /// <param name="writer">Which process owns this instance — controls which sections <see cref="Save"/> may persist.</param>
+    /// <param name="logger">Optional logger for diagnostic messages.</param>
+    public SettingsService(string filePath, SettingsWriter writer, ILogger<SettingsService>? logger = null)
     {
         _filePath = filePath;
+        _writer = writer;
         _logger = logger;
     }
 
@@ -129,9 +158,15 @@ public class SettingsService
     /// </summary>
     /// <param name="settings">The settings object to persist.</param>
     /// <exception cref="InvalidOperationException">Thrown when settings fail validation.</exception>
+    /// <remarks>
+    /// Single-writer ownership is enforced here: the file is re-read on disk under a cross-process
+    /// mutex and sections the caller doesn't own are preserved, so a stale in-memory snapshot can
+    /// never overwrite another process's section (spec, "Lost updates"). The write is atomic
+    /// (temp file + rename) so a reader never sees a partially-written file.
+    /// </remarks>
     public void Save(EyeCtrlSettings settings)
     {
-        // Validate before saving
+        // Validate before saving (preserved from pre-ownership behavior).
         var validationErrors = settings.Validate();
         if (validationErrors.Count > 0)
         {
@@ -139,10 +174,67 @@ public class SettingsService
                 $"Cannot save invalid settings. Errors:\n{string.Join("\n", validationErrors)}");
         }
 
-        var directory = Path.GetDirectoryName(_filePath);
-        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-        var json = JsonSerializer.Serialize(settings, JsonOptions);
-        File.WriteAllText(_filePath, json);
+        // Cross-process mutual exclusion so the read-merge-write sequence is atomic across writers.
+        using var mutex = new Mutex(false, @"Local\EyeCtrl.Settings.Writer");
+        bool owned = false;
+        try
+        {
+            mutex.WaitOne();
+            owned = true;
+
+            var onDisk = File.Exists(_filePath) ? Load() : new EyeCtrlSettings();
+
+            // Dev-time guard: catch an accidental app-side change to a section it doesn't own.
+            // Compares against the value just re-read from disk under the mutex (authoritative).
+            if (_writer == SettingsWriter.App)
+            {
+                Debug.Assert(
+                    settings.Supervision.Enabled == onDisk.Supervision.Enabled,
+                    "App process attempted to persist a Supervision change it does not own.");
+            }
+
+            var mergedJson = MergeForWriter(settings, onDisk);
+
+            var directory = Path.GetDirectoryName(_filePath);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            var tmp = _filePath + ".tmp";
+            File.WriteAllText(tmp, mergedJson);
+            File.Move(tmp, _filePath, overwrite: true);
+        }
+        finally
+        {
+            if (owned) mutex.ReleaseMutex();
+        }
+    }
+
+    /// <summary>
+    /// Produces the JSON to persist after applying single-writer ownership. The caller-owned
+    /// section comes from <paramref name="settings"/>; every other section is preserved from
+    /// <paramref name="onDisk"/>. Implemented at the JSON-node level so it generalizes to any
+    /// future owned section without hand-copying <see cref="EyeCtrlSettings"/>'s many properties
+    /// (<see cref="EyeCtrlSettings"/> is a class, not a record, so a <c>with</c> expression is
+    /// unavailable).
+    /// </summary>
+    private string MergeForWriter(EyeCtrlSettings settings, EyeCtrlSettings onDisk)
+    {
+        var incoming = JsonSerializer.SerializeToNode(settings, JsonOptions)!.AsObject();
+        var baseline = JsonSerializer.SerializeToNode(onDisk, JsonOptions)!.AsObject();
+
+        JsonObject merged;
+        if (_writer == SettingsWriter.Supervisor)
+        {
+            // Supervisor owns ONLY Supervision: start from disk, overlay the incoming Supervision.
+            merged = baseline;
+            merged[SupervisionSectionName] = incoming[SupervisionSectionName]?.DeepClone();
+        }
+        else
+        {
+            // App owns everything EXCEPT Supervision: start from incoming, overlay disk's Supervision.
+            merged = incoming;
+            merged[SupervisionSectionName] = baseline[SupervisionSectionName]?.DeepClone();
+        }
+
+        return merged.ToJsonString(JsonOptions);
     }
 
     private static string MigrateDragActions(string json)

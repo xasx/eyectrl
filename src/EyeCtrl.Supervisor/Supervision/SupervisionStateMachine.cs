@@ -16,7 +16,7 @@ public sealed class SupervisionStateMachine
     public IReadOnlyList<SupervisorCommand> Commands => _commands;
     public DateTime? LastHeartbeatUtc { get; private set; }
     public int ConsecutiveFailures { get; private set; }
-    public TimeSpan NextBackoffDelay => _backoff.DelayFor(ConsecutiveFailures + 1);
+    public TimeSpan NextBackoffDelay => _backoff.DelayFor(ConsecutiveFailures);
     /// <summary>When the current Supervising stretch began (drives the SurvivedWindow clock). Null when not Supervising.</summary>
     public DateTime? SupervisingSince => _supervisingSince;
     /// <summary>When the current Launching stretch began (drives the startup-grace clock). Null when not Launching.</summary>

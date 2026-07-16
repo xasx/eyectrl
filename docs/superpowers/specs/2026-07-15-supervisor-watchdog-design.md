@@ -328,7 +328,13 @@ The setup window owns these controls:
 | **Hang threshold** *(Advanced)* | Heartbeat timeout (default 20s). |
 | **Diagnostics** | "View supervisor log," "Test fallback launch," "Launch EyeCtrl now." |
 
-All buttons in supervisor windows are `DwellButton`s — operable by gaze. This is non-negotiable: the crash-recovery dialog is shown precisely when the app (the user's usual dwell surface) is broken.
+All buttons in supervisor windows are `DwellButton`s from `EyeCtrl.Controls`.
+
+**v1 posture — click-operated, not gaze-dwell (revised from the original "non-negotiable" stance):** the v1 supervisor wires these controls to a `NoopDwellRegistrar`, so activation is via **mouse click**, not gaze-dwell. This is acceptable for v1 because:
+- The **FALLEN_BACK crash-recovery dialog** is shown *after* a fallback AT (e.g. TD Control) has already been launched and is driving the OS cursor — so the user operates the dialog's buttons via the fallback AT's cursor control. The fallback AT is the dwell surface at that moment, not the supervisor.
+- The **setup window** (`--setup`) is typically run once by a caregiver with a mouse; it is not a runtime gaze surface.
+
+The supervisor does NOT run its own gaze+dwell loop in v1 (the spec's component 1 "Gaze subsystem" is deferred). A tracked follow-up would build that subsystem (run gaze only while a supervisor window is visible, wire a real `IDwellRegistrar`) to make the setup window fully eye-operable independent of a fallback AT — useful for a user who has no caregiver present and no fallback AT running. Until then, the code comment in `NoopDwellRegistrar.cs` and this section agree: click-only is the v1 posture.
 
 ### Crash-recovery dialog (FALLEN_BACK UI)
 

@@ -17,6 +17,11 @@ using EyeCtrl.Core.Processing;
 /// supervisor's UI homogeneous and leaves the door open to a future supervisor-side
 /// dwell provider without changing the XAML. <see cref="GetProgress"/> always reports 0,
 /// so no dwell feedback animation runs; activation is instantaneous on click.
+/// <para><b>v1 posture (click-only):</b> this is the documented v1 behavior — see the spec's
+/// "Supervisor UI" section ("v1 posture — click-operated, not gaze-dwell"). The original
+/// "gaze-operable is non-negotiable" stance was revised: the FALLEN_BACK dialog is operated via
+/// the already-running fallback AT's cursor, and the setup window is a one-time caregiver action.
+/// A tracked follow-up would build the spec's component-1 gaze subsystem for full eye operation.</para>
 /// </remarks>
 internal sealed class NoopDwellRegistrar : IDwellRegistrar
 {

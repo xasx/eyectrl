@@ -13,6 +13,7 @@ public class AppLaunchTests
 
     public AppLaunchTests(AppFixture fixture)
     {
+        AppFixture.SkipIfDisabled();
         _fixture = fixture;
     }
 

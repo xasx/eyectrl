@@ -13,6 +13,7 @@ public class ToolbarTests
 
     public ToolbarTests(AppFixture fixture)
     {
+        AppFixture.SkipIfDisabled();
         _fixture = fixture;
     }
 

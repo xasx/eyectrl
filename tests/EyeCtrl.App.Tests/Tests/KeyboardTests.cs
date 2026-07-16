@@ -13,6 +13,7 @@ public class KeyboardTests
 
     public KeyboardTests(AppFixture fixture)
     {
+        AppFixture.SkipIfDisabled();
         _fixture = fixture;
     }
 

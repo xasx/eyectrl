@@ -1,0 +1,43 @@
+<Window x:Class="EyeCtrl.Supervisor.UI.FallenBackDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="EyeCtrl Supervisor"
+        Width="640"
+        Height="320"
+        WindowStartupLocation="CenterScreen"
+        Topmost="True"
+        ShowInTaskbar="True"
+        ResizeMode="NoResize"
+        WindowStyle="SingleBorderWindow"
+        Background="#1E1E1E">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="EyeCtrl couldn't stay running"
+                   Foreground="#F4D03F"
+                   FontSize="30"
+                   FontWeight="Bold"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,12" />
+
+        <TextBlock Grid.Row="1"
+                   Text="A fallback eye-control app has been launched. Use it (or a mouse) to choose an option below."
+                   Foreground="White"
+                   FontSize="18"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,16" />
+
+        <!-- DwellButtons are added from code-behind; they can't be declared in XAML
+             because their constructor requires an IDwellRegistrar. -->
+        <StackPanel x:Name="ButtonHost"
+                    Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center" />
+    </Grid>
+</Window>

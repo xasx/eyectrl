@@ -10,6 +10,7 @@ using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Services;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Startup;
 using EyeCtrl.App.Views;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Enums;
@@ -106,16 +107,20 @@ public partial class App : Application
             var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
 
             // Reconcile auto-launch registration with the persisted setting.
-            // Idempotent: overwrites with current Environment.ProcessPath if enabled,
-            // removes stale entry if disabled. Handles exe moving between versions/installs.
+            // In supervised mode the supervisor owns launch-at-logon (Scheduled Task), so the
+            // app never self-registers the HKCU Run key — doing so would cause a double-launch
+            // at next logon. `supervised` is captured once at launch: live-toggling supervision
+            // mode isn't supported (it requires install/uninstall of the Scheduled Task, the
+            // supervisor's job). The PropertyChanged handler only re-reacts to StartOnBoot changes.
             var startupRegistrar = _serviceProvider.GetRequiredService<IStartupRegistrar>();
-            startupRegistrar.SetStartOnBoot(settings.General.StartOnBoot);
+            var supervised = settings.Supervision.Enabled;
+            startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(supervised, settings.General.StartOnBoot));
 
             // Live-toggle: if the user changes StartOnBoot in settings, apply immediately.
             settings.General.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(settings.General.StartOnBoot))
-                    startupRegistrar.SetStartOnBoot(settings.General.StartOnBoot);
+                    startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(supervised, settings.General.StartOnBoot));
             };
 
             var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);

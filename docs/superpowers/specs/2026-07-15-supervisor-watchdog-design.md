@@ -253,12 +253,13 @@ The full state list is now: LAUNCHING, SUPERVISING, RECOVERING, FALLEN_BACK, IDL
     "pid": 12345,
     "startedAtUtc": "2026-07-15T10:00:00Z",
     "isConnected": true,
+    "isPaused": false,
     "lastFrameUtc": "2026-07-15T10:05:12.3Z",
     "shuttingDown": false
   }
   ```
 
-  `lastFrameUtc` is updated on **every** `GazePointReceived` callback (valid or invalid — see Gaze-stream-death detection). `shuttingDown` is the clean-exit flag (see Clean-Exit Protocol — **authenticated**, not inferable from a pipe close).
+  `lastFrameUtc` is updated on **every** `GazePointReceived` callback (valid or invalid — see Gaze-stream-death detection). `isPaused` reports the app's interaction state (used by the paused-retry handoff — a paused app is healthy-but-inert and must NOT be killed for "no cursor movement"). `shuttingDown` is the clean-exit flag (see Clean-Exit Protocol — **authenticated**, not inferable from a pipe close).
 
 #### Process Binding — trust nothing the pipe says until verified
 
@@ -344,9 +345,33 @@ When the supervisor enters FALLEN_BACK it shows a non-modal, topmost, large dwel
 └─────────────────────────────────────────────────────┘
 ```
 
-- The fallback AT is already running and provides OS cursor control; the user can also use the supervisor's own dwell to click these buttons.
-- "Retry EyeCtrl (once)" is a one-shot manual restart (not a return to automatic retry). If it crashes again, the dialog reappears.
+- The fallback AT is already running and provides OS cursor control; the user uses it (or the supervisor's own dwell) to click these buttons.
+- "Retry EyeCtrl (once)" is a one-shot manual restart (not a return to automatic retry). It relaunches EyeCtrl **paused** — see Paused-retry handoff below — so the relaunch does not fight the fallback AT for the cursor. If it crashes again, the dialog reappears.
 - "Dismiss" closes the dialog; the supervisor stays resident, supervision paused for the session.
+
+#### Paused-retry handoff — avoiding the cursor conflict
+
+⚠ **Two eye-control apps cannot run unpaused concurrently.** EyeCtrl's `InputSimulator` drives the system cursor via `SendInput` on (nearly) every gaze sample (`GazeEngine.cs:138` → `Win32InputSimulator.cs:30-34`). If the supervisor simply relaunches EyeCtrl while TD Control (or any fallback AT) is actively controlling the cursor, EyeCtrl's aggressive cursor movement dominates and the fallback AT — the very tool the user just used to click "Retry" — loses control. A naive retry creates a cursor fight, not a handoff.
+
+The fix uses EyeCtrl's existing Pause machinery, which makes a paused instance **inert w.r.t. the OS cursor**:
+
+- **Paused = zero SendInput cursor moves.** `GazeEngine.OnGazePoint` returns early at `GazeEngine.cs:133-134` (`if (CurrentState == Paused) return;`) *before* `_inputSimulator.MoveCursor()`. Zero `SendInput` calls for cursor movement. A paused EyeCtrl consumes gaze samples (pipeline + cosmetic overlay still run) but emits no OS input. It coexists with TD Control.
+- **EyeCtrl can already launch paused** — `GeneralSettings.StartPaused` is persisted to `settings.json` and honored at startup (`App.xaml.cs:181-182`, `if (settings.General.StartPaused) im.TogglePause();`). **No new launch arg is needed**; the supervisor sets `StartPaused = true` (owning that write under the single-writer rule — see Shared configuration) before relaunching, then restores it to its prior value on clean handoff.
+- **A non-gaze resume path exists** — the tray "Resume" menu item (`TrayIconManager.cs:36-41`), clickable by an attendant or by TD Control driving the system cursor onto it.
+
+**Handoff sequence when the user clicks "Retry EyeCtrl (once)":**
+
+1. Supervisor ensures `StartPaused = true` in shared settings, then relaunches EyeCtrl (LAUNCHING).
+2. EyeCtrl starts **paused** — it proves healthy (heartbeat + gaze frames arrive) without moving the cursor. The fallback AT keeps working uninterrupted.
+3. Supervisor surfaces a dwell-enabled confirmation in its dialog: *"EyeCtrl is running in the background (paused). When ready, resume it from its tray menu to take over — this will end the fallback app's cursor control."* The user performs the actual takeover explicitly, using TD Control to click EyeCtrl's tray "Resume".
+4. On resume (which the supervisor detects via the heartbeat's `isPaused` flipping `true → false`), the supervisor can optionally offer to close the fallback AT (configuration; default: leave it running and let the user close it, since closing it requires eye control the user is mid-handoff away from).
+
+**Two coexistence subtleties to handle at implementation:**
+
+- **Cosmetic cursor circle.** Even paused, EyeCtrl's `CursorMoved` event keeps firing (`GazeEngine.cs:127-129`, deliberately, so toolbar-dwell unpause works), which renders the cosmetic cursor-circle overlay. This draws on EyeCtrl's own transparent windows, not the system cursor, so it doesn't move TD Control's cursor — but it visually overlaps it. If the handoff is jarring, hide the cursor-circle overlay while paused (a small paused-state change to the overlay VMs), independent of the SendInput gate.
+- **Tobii stream ownership (hardware level).** The cursor conflict you raised is the `SendInput` level, solved by pause. A *separate* question is whether TD Control and a (paused, gaze-reading) EyeCtrl can both hold the Tobii device concurrently — that is Open Question #2 (multi-subscriber spike). If the spike fails, the supervisor should additionally **stop EyeCtrl's gaze provider while paused-pending-handoff** (release the device, re-acquire on resume), so a paused-retry EyeCtrl holds *neither* the cursor nor the tracker until the user commits to the handoff.
+
+This also means the simple crash/respawn path (LAUNCHING → SUPERVISING, no fallback AT involved) is unaffected: no fallback AT is running, so EyeCtrl launches **unpaused** as normal. Paused-relaunch applies *only* to the FALLEN_BACK → "Retry EyeCtrl (once)" flow.
 
 ### Shared configuration
 
@@ -402,6 +427,8 @@ Serilog, same initialization pattern as the app (`LoggingInitializer.Initialize(
 | Unannounced pipe disconnect (no prior `shuttingDown: true`) | Crash/unhealthy signal → RECOVERING. There is no "silent clean exit." |
 | Unverified/spoofing pipe client (wrong session/user/exe-path/creation-time) | Heartbeats ignored; connection dropped. See Process Binding. |
 | Crash loop (restarts in window > `maxRetries`) | Launch fallback AT → FALLEN_BACK → terminal this session. |
+| "Retry EyeCtrl (once)" from FALLEN_BACK dialog | Relaunch EyeCtrl **paused** (`StartPaused = true`) so it doesn't fight the fallback AT for the cursor. Prove healthy (HB + frames) without SendInput; user takes over explicitly via tray "Resume". See Paused-retry handoff. |
+| App reports `isPaused == true` | Healthy-but-inert. Do NOT kill for "no cursor movement" or "no dwell" — pause gates SendInput, not the gaze stream (`lastFrameUtc` stays fresh). Resume is an explicit user action, not a recovery trigger. |
 | Fallback AT not installed (none found) | Log error; show FALLEN_BACK dialog anyway (user can still "Retry EyeCtrl once"). Windows Eye Control is the intended last resort — see Open Questions for the launch-mechanism spike. |
 | Supervisor itself crashes | Scheduled Task native "restart on failure" relaunches it (up to 3×). |
 | Supervisor itself hangs | **Residual risk — not automatically covered.** Task Scheduler's "restart on failure" only fires on *exit*, not hang. The supervisor is intentionally small (single supervision loop, no UI thread during headless operation) to minimize hang probability, but it has no self-hang detection. Acceptable for v1; a future watcher-of-the-watcher (e.g. a second scheduled task that kills+restarts the supervisor if its own heartbeat file goes stale) is noted in Out of Scope. |
@@ -425,6 +452,8 @@ Follows repo conventions: **xUnit v3 (3.2.2)** + NFluent 3.1.0, no mocking libra
 - **Heartbeat serialization tests**: round-trip the JSON payload; verify `lastFrameUtc` (any sample, valid or invalid) feeds gaze-stream-death detection, and that valid-only gating would *not* trip on look-away. Include a regression test: invalid samples (`GazePoint(0,0,ts,false)`) arriving every 33ms must keep `lastFrameUtc` fresh.
 - **Clean-exit protocol tests**: authenticated `shuttingDown: true` + process exit within deadline → IDLE_WATCH, no relaunch; `shuttingDown: true` but process does **not** exit within deadline → RECOVERING (stuck mid-shutdown); **unannounced pipe close (no prior `shuttingDown: true`) → RECOVERING, not IDLE_WATCH** (regression test: a crash also closes the pipe); `shuttingDown: true` from an unbound/unverified client → ignored (not a clean exit).
 - **Process-binding tests**: kernel client PID from `GetNamedPipeClientProcessId` is matched against the launched `Process` handle; reject mismatched session/user/exe-path/creation-time; a spoofing client (different exe path, or PID-reuse with wrong creation time) is rejected and its heartbeats ignored; the JSON `pid` field alone is never trusted.
+- **Paused-retry handoff tests**: "Retry EyeCtrl (once)" from FALLEN_BACK sets `StartPaused = true` and relaunches; the relaunched app is treated as healthy while `isPaused == true` and frames flow (no false kill for "no cursor movement"); a paused app that *stops* sending frames (`lastFrameUtc` stale) is still killed (pause gates SendInput, not the gaze stream); on detected resume (`isPaused → false`) the supervisor does not itself kill the fallback AT unless configured to.
+- **`isPaused` no-false-kill regression test**: an app reporting `isPaused == true` with fresh `lastFrameUtc` must remain in SUPERVISING — pause is a healthy state, not a hang.
 - **In-app changes** (`EyeCtrl.App.Tests` / `EyeCtrl.Core.Tests`):
   - `Local\` mutex acquisition: second instance exits; `AbandonedMutexException` on respawn is treated as acquired.
   - Heartbeat emitter: Dispatcher stamps payload; bounded async writer sends expected JSON on the expected pipe name with timeouts; **no-ops quietly when no pipe server exists** (standalone mode) — must not throw or log-spam, and the Dispatcher must never block on I/O.

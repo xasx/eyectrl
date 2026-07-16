@@ -1,0 +1,108 @@
+<Window x:Class="EyeCtrl.Supervisor.UI.SupervisorSetupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="EyeCtrl Supervisor - Setup"
+        Width="560"
+        Height="640"
+        WindowStartupLocation="CenterScreen"
+        Background="#252526">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel x:Name="RootPanel"
+                    Margin="20"
+                    Orientation="Vertical">
+            <TextBlock Text="EyeCtrl Supervisor"
+                       Foreground="#F4D03F"
+                       FontSize="26"
+                       FontWeight="Bold"
+                       Margin="0,0,0,4" />
+            <TextBlock Text="Watchdog that keeps EyeCtrl running and falls back to another eye-control app if it crashes."
+                       Foreground="#9CDCFE"
+                       FontSize="13"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,16" />
+
+            <!-- Dwell-driven controls are injected from code-behind into these named hosts. -->
+            <StackPanel x:Name="ToggleHost" Orientation="Vertical" Margin="0,0,0,8" />
+
+            <TextBlock Text="Fallback assistive-technology priority"
+                       Foreground="White"
+                       FontSize="18"
+                       FontWeight="SemiBold"
+                       Margin="0,8,0,4" />
+            <TextBlock Text="When EyeCtrl crashes repeatedly, the supervisor launches the first installed app in this list."
+                       Foreground="#9CDCFE"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,6" />
+            <ItemsControl x:Name="FallbackList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="#2D2D30"
+                                CornerRadius="4"
+                                Padding="12,6"
+                                Margin="0,2">
+                            <TextBlock Foreground="White"
+                                       FontSize="14"
+                                       Text="{Binding}" />
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="(Reordering is out of scope for this build; the default order above is shown.)"
+                       Foreground="#6A6A6A"
+                       FontSize="11"
+                       FontStyle="Italic"
+                       Margin="0,4,0,16" />
+
+            <Expander Header="Advanced"
+                      Foreground="White"
+                      FontSize="16"
+                      Margin="0,0,0,8">
+                <StackPanel x:Name="AdvancedHost" Orientation="Vertical" Margin="0,8,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Max retries:  "
+                                   Foreground="White"
+                                   FontSize="14"
+                                   VerticalAlignment="Center" />
+                        <TextBox x:Name="MaxRetriesBox"
+                                 Width="80"
+                                 FontSize="14"
+                                 Padding="4" />
+                        <TextBlock Text="(1-20)"
+                                   Foreground="#6A6A6A"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0,0,0" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Hang threshold (s):  "
+                                   Foreground="White"
+                                   FontSize="14"
+                                   VerticalAlignment="Center" />
+                        <TextBox x:Name="HangThresholdBox"
+                                 Width="80"
+                                 FontSize="14"
+                                 Padding="4" />
+                        <TextBlock Text="(5-300)"
+                                   Foreground="#6A6A6A"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
+
+            <TextBlock Text="Diagnostics"
+                       Foreground="White"
+                       FontSize="18"
+                       FontWeight="SemiBold"
+                       Margin="0,12,0,4" />
+            <StackPanel x:Name="DiagnosticsHost" Orientation="Vertical" />
+            <TextBlock x:Name="StatusLabel"
+                       Foreground="#9CDCFE"
+                       FontSize="13"
+                       TextWrapping="Wrap"
+                       Margin="0,8,0,16" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>

@@ -37,6 +37,7 @@ public partial class App : Application
     private ServiceProvider _serviceProvider = null!;
     private TrayIconManager _trayIconManager = null!;
     private EventCoordinator _eventCoordinator = null!;
+    private SingleInstanceGuard? _singleInstance;
     private string _appDataDir = null!;
 
     /// <summary>
@@ -67,6 +68,18 @@ public partial class App : Application
         base.OnStartup(e);
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
         IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
+
+        // Single-instance guard: a second instance exits fast. The supervisor's respawn
+        // is legitimate, but a stray double-click/race must not launch two instances
+        // fighting over the same gaze device, settings file, and dwell pipe.
+        // Local\ (not Global\): multi-user/RDP is a non-goal; avoids cross-session collisions.
+        _singleInstance = new SingleInstanceGuard();
+        if (!_singleInstance.TryAcquire())
+        {
+            // Another instance is already running (likely the supervisor's legitimate one).
+            Shutdown();
+            return;
+        }
 
         SplashWindow? splash = null;
         try
@@ -227,6 +240,7 @@ public partial class App : Application
 
         _trayIconManager?.Dispose();
         _eventCoordinator?.Dispose();
+        _singleInstance?.Dispose();
 
         if (_serviceProvider != null)
         {

@@ -46,6 +46,14 @@ public partial class App : Application
     public static bool IsTestMode { get; private set; }
 
     /// <summary>
+    /// When true, the app starts in a paused state regardless of the persisted
+    /// <c>StartPaused</c> setting. Activated by launching with the --paused CLI
+    /// argument — used by the supervisor's paused-retry handoff so a retried
+    /// instance is inert (no SendInput) without mutating the user's setting.
+    /// </summary>
+    public static bool IsPausedLaunch { get; private set; }
+
+    /// <summary>
     /// The resolved gaze provider type for this run (Auto resolves to the concrete type at startup).
     /// Used to gate eye-tracker-only features (e.g. toolbar auto-hide). Set in OnStartup.
     /// </summary>
@@ -58,6 +66,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
+        IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
 
         SplashWindow? splash = null;
         try
@@ -174,7 +183,7 @@ public partial class App : Application
             // ── Close splash and show persistent overlays (last, after all wiring) ──
             ShowOverlays(splash, cursorCircle, toolbar, settings);
 
-            if (settings.General.StartPaused)
+            if (settings.General.StartPaused || IsPausedLaunch)
                 im.TogglePause();
 
             gazeEngine.Start();

@@ -14,6 +14,7 @@ public partial class CursorCircleWindow : OverlayWindow
     public CursorCircleWindow()
     {
         IsClickThrough = true;
+        ExcludeFromScreenCapture = true; // keep the cursor circle out of the magnifier/preview capture
         InitializeComponent();
     }
 

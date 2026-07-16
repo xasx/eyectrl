@@ -17,12 +17,34 @@ public class OverlayWindow : Window
     [DllImport("user32.dll")]
     private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint dwAffinity);
+
+    private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+
     public bool IsClickThrough { get; init; }
+
+    /// <summary>
+    /// When true, this window is excluded from screen capture via WDA_EXCLUDEFROMCAPTURE. The
+    /// ManualSelection magnifier and action-menu preview grab the screen with GDI CopyFromScreen;
+    /// any overlay composited over the captured region (glass backdrop, magnifier, gaze indicator,
+    /// cursor circle, activation button, action menu) would otherwise be baked into that capture —
+    /// e.g. the dark backdrop showing instead of the real content. Excluded windows stay fully
+    /// visible to the user; only screen capture (and screen recordings) skip them.
+    /// </summary>
+    public bool ExcludeFromScreenCapture { get; init; }
 
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
         SetOverlayInteraction(clickThrough: IsClickThrough, focusable: false);
+
+        if (ExcludeFromScreenCapture)
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd != IntPtr.Zero)
+                SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        }
     }
 
     /// <summary>

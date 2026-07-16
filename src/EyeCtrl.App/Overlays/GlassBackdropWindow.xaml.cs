@@ -29,6 +29,7 @@ public partial class GlassBackdropWindow : OverlayWindow
     {
         InitializeComponent();
         IsClickThrough = true;
+        ExcludeFromScreenCapture = true; // the dimmed backdrop must not be captured as the magnifier content
         SourceInitialized += OnSourceInitialized;
     }
 

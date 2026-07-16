@@ -16,8 +16,6 @@ using EyeCtrl.ViewModels;
 public partial class ActionMenuWindow : OverlayWindow
 {
     // UI Layout Constants
-    private const double ButtonRadius = 50; // Radius of action menu buttons in pixels
-    private const int WindowSizeMargin = 20; // Extra margin around buttons for window sizing
     private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
     private const double IndicatorOffsetMargin = 10; // Margin to keep indicator inside preview circle
     private const double IndicatorSizeRatio = 0.15; // Indicator size as ratio of preview circle size
@@ -33,6 +31,7 @@ public partial class ActionMenuWindow : OverlayWindow
     public ActionMenuWindow()
     {
         InitializeComponent();
+        ExcludeFromScreenCapture = true; // the action-menu preview must not capture the menu itself
     }
 
     public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null, int? zoomRadius = null, PhysicalPoint? gazePoint = null)
@@ -43,7 +42,7 @@ public partial class ActionMenuWindow : OverlayWindow
         var vm = DataContext as ActionMenuViewModel;
 
         // Size window to fit buttons at the given ring radius
-        var windowSize = (ringRadius + ButtonRadius) * 2 + WindowSizeMargin;
+        var windowSize = ActionMenuGeometry.WindowSize(ringRadius);
         Width = windowSize;
         Height = windowSize;
 
@@ -169,9 +168,11 @@ public partial class ActionMenuWindow : OverlayWindow
         {
             foreach (var itemVm in vm.Items)
             {
-                var dipX = DpiHelper.PhysicalToLogicalX(itemVm.Position.X);
-                var dipY = DpiHelper.PhysicalToLogicalY(itemVm.Position.Y);
-                var btn = DwellArcButton.Create(new Point(dipX, dipY), ButtonRadius, itemVm.Symbol);
+                // itemVm.Position is an ABSOLUTE physical-screen point (menu center + ring offset);
+                // MenuCanvas is window-relative, so convert via ActionMenuGeometry (see its remarks
+                // for the 894ea34 off-canvas regression this guards against).
+                var canvasPoint = ActionMenuGeometry.ButtonCanvasCenter(itemVm.Position, center, canvasCenter);
+                var btn = DwellArcButton.Create(canvasPoint, ActionMenuGeometry.ButtonRadius, itemVm.Symbol);
                 btn.AddTo(MenuCanvas);
                 _buttonVisuals[itemVm.Id] = btn;
 

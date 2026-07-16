@@ -74,8 +74,8 @@ public class SupervisionStateMachineTests
         // in Supervising resets both the strike counter and the backoff counter.
         var sm = NewMachine(maxRetries: 3, windowSeconds: 120);
         sm.Handle(new LaunchRequest(T0));
-        sm.Handle(new ProcessExited(T0.AddSeconds(1)));   // strike 1, backoff -> 5s
-        Check.That(sm.NextBackoffDelay).IsEqualTo(TimeSpan.FromSeconds(5));
+        sm.Handle(new ProcessExited(T0.AddSeconds(1)));   // strike 1, backoff -> immediate (DelayFor(1)=Curve[0])
+        Check.That(sm.NextBackoffDelay).IsEqualTo(TimeSpan.Zero); // strike 1 relaunch is immediate (spec worked example)
         sm.Handle(new LaunchRequest(T0.AddSeconds(10)));
         sm.Handle(new HeartbeatReceived(T0.AddSeconds(11)));
         // Now survive > 120s cleanly:
@@ -131,6 +131,45 @@ public class SupervisionStateMachineTests
         sm.Handle(new CleanExitRequested(T0.AddSeconds(5), ClientVerified: false));
         Check.That(sm.State).IsEqualTo(SupervisorState.Supervising); // unchanged
         Check.That(sm.Commands).Not.Contains(SupervisorCommand.NotifyCleanExit);
+    }
+
+    [Fact]
+    public void Backoff_IsImmediateAfterStrike1_Then5s_15s_60s()
+    {
+        // F3 regression: the spec worked example has strike 1 -> IMMEDIATE relaunch (curve[0]),
+        // strike 2 -> 5s, strike 3 -> 15s, strike 4+ -> 60s. NextBackoffDelay = DelayFor(ConsecutiveFailures).
+        var sm = NewMachine(maxRetries: 3, windowSeconds: 120);
+        sm.Handle(new LaunchRequest(T0));
+        // 0 strikes -> immediate (DelayFor(0) guards idx<0 -> Zero)
+        Check.That(sm.NextBackoffDelay).IsEqualTo(TimeSpan.Zero);
+        sm.Handle(new ProcessExited(T0.AddSeconds(1))); // strike 1
+        Check.That(sm.NextBackoffDelay).IsEqualTo(TimeSpan.Zero); // strike 1 relaunch is IMMEDIATE (spec)
+        sm.Handle(new ProcessExited(T0.AddSeconds(2))); // strike 2
+        Check.That(sm.NextBackoffDelay).IsEqualTo(TimeSpan.FromSeconds(5));
+        sm.Handle(new ProcessExited(T0.AddSeconds(3))); // strike 3
+        Check.That(sm.NextBackoffDelay).IsEqualTo(TimeSpan.FromSeconds(15));
+        sm.Handle(new ProcessExited(T0.AddSeconds(4))); // strike 4 -> escalate, but delay still computed
+        Check.That(sm.NextBackoffDelay).IsEqualTo(TimeSpan.FromSeconds(60));
+    }
+
+    [Fact]
+    public void GazeStreamDead_FromSupervising_GoesRecovering_NotRevivedBySameHeartbeat()
+    {
+        // F4 regression: a single dead heartbeat must NOT both kill AND revive. The orchestrator
+        // (Program.OnHeartbeatReceived) returns after GazeStreamDead; this test pins the machine-side
+        // half — that once Recovering, a HeartbeatReceived (the would-be "same payload") flips to
+        // Supervising only if it is a GENUINE fresh first-beat after relaunch, not a continuation.
+        // The machine's contract: GazeStreamDead from Supervising -> GoRecovering (strike). A subsequent
+        // HeartbeatReceived in Recovering DOES promote to Supervising (the relaunched app's first beat) —
+        // but the orchestrator must not feed the SAME payload. This asserts the machine's half is correct
+        // and documents the orchestrator's responsibility (the return-after-GazeStreamDead).
+        var sm = NewMachine();
+        sm.Handle(new LaunchRequest(T0));
+        sm.Handle(new HeartbeatReceived(T0.AddSeconds(1))); // -> Supervising
+        sm.Handle(new GazeStreamDead(T0.AddSeconds(30)));   // -> Recovering (strike 1), ForceKill commanded
+        Check.That(sm.State).IsEqualTo(SupervisorState.Recovering);
+        Check.That(sm.Commands).Contains(SupervisorCommand.ForceKill);
+        Check.That(sm.ConsecutiveFailures).IsEqualTo(1); // exactly one strike for one incident
     }
 
     private static SupervisionStateMachine NewMachine(int maxRetries = 3, int windowSeconds = 120)

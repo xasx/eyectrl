@@ -245,9 +245,14 @@ internal sealed class SupervisorApp : Application
             // 1. Freshness: gaze stream dead (connected but no frames for hangThreshold) -> recover.
             //    A disconnected tracker is a soft signal handled by the app's own reconnect loop
             //    and never trips this (HeartbeatFreshnessEvaluator returns false when !isConnected).
+            //    F4: if dead, GoRecovering has fired — STOP. Do not fall through to process this same
+            //    payload as a HeartbeatReceived, which would flip Recovering->Supervising (the machine
+            //    accepts a first heartbeat in Recovering) and immediately "revive" the app we just
+            //    decided to kill. The next genuine heartbeat from the relaunched app is a fresh payload.
             if (_freshness.IsGazeStreamDead(now, hb.LastFrameUtc, hb.IsConnected))
             {
                 HandleInput(new GazeStreamDead(now));
+                return;
             }
 
             // 2. Heartbeat. For a manual launch (app started without the supervisor launching it),
@@ -453,6 +458,15 @@ internal sealed class SupervisorApp : Application
             // Exited fires on a background thread — marshal to UI before touching the state machine.
             Dispatcher.BeginInvoke(new Action(() =>
             {
+                // F1: a supervisor-initiated ForceKill already booked a strike via GoRecovering (hang /
+                // gaze-death / startup-grace recovery). The Exited event from OUR kill is the expected
+                // consequence, NOT an independent crash — feeding ProcessExited here would double-count
+                // the incident and halve the crash budget. Suppress it. (KillInitiated clears on relaunch.)
+                if (_pc.KillInitiated)
+                {
+                    Log.Information("Bound process exited after supervisor-initiated kill (pid={Pid}); not counting as a separate crash.", proc.Id);
+                    return;
+                }
                 Log.Information("Bound process exited (pid={Pid}).", proc.Id);
                 HandleInput(new ProcessExited(DateTime.UtcNow));
             }));

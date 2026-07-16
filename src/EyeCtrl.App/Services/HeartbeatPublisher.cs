@@ -88,13 +88,23 @@ public sealed class HeartbeatPublisher : IDisposable
     }
 
     /// <summary>
-    /// Stamps a final <c>shuttingDown:true</c> payload (the authenticated clean-shutdown signal the
-    /// supervisor reads inside its 5s deadline). Call BEFORE disposing other services in OnExit.
+    /// Stamps and FLUSHES a final <c>shuttingDown:true</c> payload (the authenticated clean-shutdown
+    /// signal the supervisor reads inside its 5s deadline). Call BEFORE disposing other services in
+    /// OnExit/OnSessionEnding, and BEFORE Dispose (which cancels the writer loop). F2: this performs
+    /// a SYNCHRONOUS bounded send (not via the async loop) so that a subsequent Dispose/CTS-cancel
+    /// cannot abort the final payload mid-flight. If not supervised (no server), this is a bounded no-op.
     /// </summary>
     public void SignalShuttingDown()
     {
         _shuttingDown = true;
-        Stamp(isConnected: false, isPaused: false); // ensure a final shuttingDown:true payload is queued
+        var lastFrame = new DateTime(Interlocked.Read(ref _lastFrameTicks), DateTimeKind.Utc);
+        var final = new HeartbeatPayload(_pid, _startedAtUtc, false, false, lastFrame, ShuttingDown: true);
+        _pending = final;
+        // Synchronous bounded flush — a fresh CancellationTokenSource (NOT _cts) so Dispose's cancel
+        // can't race it. If the send can't complete in 2s (no server / slow server), give up; the
+        // supervisor's heartbeat-stale path will then treat it as a crash, which is the safe default.
+        try { SendOneAsync(final, CancellationToken.None).Wait(TimeSpan.FromSeconds(2)); }
+        catch { /* best-effort — never block OnExit on the final send */ }
     }
 
     private void StartWriter() => _writerLoop = Task.Run(WriterLoopAsync);

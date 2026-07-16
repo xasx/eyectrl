@@ -11,9 +11,19 @@ public sealed class ProcessController
     public DateTime? StartTimeUtc { get; private set; }
     public string? ExePath { get; private set; }
 
+    /// <summary>
+    /// True when the supervisor itself initiated the most recent <see cref="ForceKill"/>. The Exited-event
+    /// handler checks this to avoid double-counting: a supervisor-initiated kill is the EXPECTED consequence
+    /// of a hang/gaze-death/startup-grace recovery that ALREADY booked a strike via GoRecovering. Feeding a
+    /// second ProcessExited for it would count the same incident twice and halve the crash budget.
+    /// Cleared on the next Launch/Adopt.
+    /// </summary>
+    public bool KillInitiated { get; private set; }
+
     public void Launch(string exePath, bool paused)
     {
         ReleasePrevious(); // M2: dispose the prior Process handle (OS handle) before overwriting.
+        KillInitiated = false;
         ExePath = exePath;
         var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
         if (paused) psi.ArgumentList.Add("--paused");
@@ -38,6 +48,7 @@ public sealed class ProcessController
     public bool Adopt(int pid)
     {
         ReleasePrevious();
+        KillInitiated = false;
         try
         {
             _process = Process.GetProcessById(pid);
@@ -58,7 +69,10 @@ public sealed class ProcessController
     public void ForceKill()
     {
         if (_process is { HasExited: false })
+        {
+            KillInitiated = true; // suppress the Exited-event double-count (see KillInitiated docs)
             _process.Kill(entireProcessTree: true);
+        }
     }
 
     /// <summary>Disposes the previously-bound Process (releases its OS handle) before a relaunch/adopt.</summary>

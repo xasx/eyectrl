@@ -6,7 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
-using EyeCtrl.App.Controls;
+using EyeCtrl.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 

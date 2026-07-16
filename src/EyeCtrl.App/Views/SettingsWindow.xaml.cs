@@ -10,7 +10,7 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
-using EyeCtrl.App.Controls;
+using EyeCtrl.Controls;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.ViewModels;

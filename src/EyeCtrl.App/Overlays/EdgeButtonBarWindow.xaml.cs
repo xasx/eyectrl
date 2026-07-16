@@ -2,7 +2,7 @@ namespace EyeCtrl.App.Overlays;
 
 using System.ComponentModel;
 using System.Windows;
-using EyeCtrl.App.Controls;
+using EyeCtrl.Controls;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;

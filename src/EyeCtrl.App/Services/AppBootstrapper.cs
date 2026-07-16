@@ -59,6 +59,7 @@ public class AppBootstrapper
         services.AddSingleton(settings);
         services.AddSingleton(sp => new SettingsService(
             settingsFilePath,
+            SettingsWriter.App,
             sp.GetRequiredService<ILogger<SettingsService>>()));
 
         // Platform services

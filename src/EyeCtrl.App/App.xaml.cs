@@ -320,7 +320,7 @@ public partial class App : Application
         _appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
         var settingsFilePath = Path.Combine(_appDataDir, "settings.json");
-        var tempSettingsService = new SettingsService(settingsFilePath);
+        var tempSettingsService = new SettingsService(settingsFilePath, SettingsWriter.App);
         var settings = tempSettingsService.Load();
 
         // Migrate settings for newly-introduced features

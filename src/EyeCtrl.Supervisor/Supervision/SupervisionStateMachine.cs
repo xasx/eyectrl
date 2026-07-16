@@ -39,6 +39,11 @@ public sealed class SupervisionStateMachine
                 _supervisingSince = input.At;
                 break;
 
+            // NOTE: isPaused in the heartbeat is intentionally NOT consulted by this state machine.
+            // Pause gates the app's SendInput (cursor movement), not its gaze stream — a paused app
+            // still delivers frames and heartbeats. Liveness is driven by HeartbeatFreshnessEvaluator
+            // (on lastFrameUtc), not by isPaused. See spec "Paused-retry handoff" + "Gaze-stream-death".
+
             // First heartbeat after a launch (Launching) OR after a recovery relaunch
             // (Recovering — GoRecovering already commanded LaunchApp; the relaunched
             // process's first heartbeat means it is alive -> Supervising).

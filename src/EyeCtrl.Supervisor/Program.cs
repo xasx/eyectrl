@@ -1,24 +1,486 @@
 namespace EyeCtrl.Supervisor;
 
 using System;
+using System.IO;
 using System.Windows;
+using System.Windows.Threading;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.Supervisor.Fallback;
+using EyeCtrl.Supervisor.Ipc;
+using EyeCtrl.Supervisor.Supervision;
+using EyeCtrl.Supervisor.UI;
+using Serilog;
 
 internal static class Program
 {
     [STAThread]
     private static int Main(string[] args)
     {
-        // SupervisorLoggingInitializer.Initialize(...) wired in Task 20.
         var app = new SupervisorApp();
         app.Initialize();
         return app.Run();
     }
 }
 
+/// <summary>
+/// The supervisor's WPF <see cref="Application"/>: a thin integration shell that wires the
+/// state machine (<see cref="SupervisionStateMachine"/>), process controller
+/// (<see cref="ProcessController"/>), heartbeat pipe server (<see cref="HeartbeatPipeServer"/>),
+/// freshness evaluator (<see cref="HeartbeatFreshnessEvaluator"/>), fallback-AT launcher
+/// (<see cref="FallbackAtLauncher"/>), tray icon and recovery dialog into a running watchdog.
+/// </summary>
+/// <remarks>
+/// <para><b>This class is integration wiring, not unit-tested as a whole.</b> Every pure decision
+/// it delegates to (freshness, reset, clean-exit gating, identity binding) is already covered by
+/// the tests in Tasks 12b/13/16. The supervision loop here is a thin adapter: it feeds inputs
+/// (pipe events + a clock tick) into <see cref="SupervisionStateMachine.Handle"/> and dispatches
+/// the emitted <see cref="SupervisionStateMachine.Commands"/> to launch / kill / fallback actions.</para>
+/// <para><b>Threading model.</b> All state-machine contact is serialized on the UI
+/// (<see cref="Dispatcher"/>) thread. The <see cref="HeartbeatPipeServer.HeartbeatReceived"/>
+/// event fires on background pipe threads, so the handler marshals back to the dispatcher before
+/// touching the state machine or any UI. The <see cref="DispatcherTimer"/> tick is already on the
+/// UI thread. A <see cref="Process.Exited"/>-style callback on the bound process is likewise
+/// marshaled to the UI thread.</para>
+/// </remarks>
 internal sealed class SupervisorApp : Application
 {
+    /// <summary>
+    /// Clean-exit grace: once the app signals <c>ShuttingDown</c> the supervisor waits this long
+    /// for the process to actually exit before treating it as a hung shutdown (DeadlineElapsed).
+    /// See spec "Clean exit" + the Task 20 pseudocode ("if sm.State == CleanExitPending && now -
+    /// cleanExitRequestedAt > 5s -> DeadlineElapsed").
+    /// </summary>
+    private const int CleanExitDeadlineSeconds = 5;
+
+    /// <summary>
+    /// Clock-tick interval for the periodic supervision checks (heartbeat staleness, survived-window
+    /// reset, clean-exit deadline). ~1s per the Task 20 plan.
+    /// </summary>
+    private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(1);
+
+    // TODO(installer): the supervisor needs to know where EyeCtrl.App.exe lives to launch it.
+    // There is no installer yet (separate workstream — spec "Out-of-Scope: installer authoring").
+    // For now: prefer the EYECTRL_APP_EXE env var, else assume the app exe sits next to the
+    // supervisor exe in the same install directory. The installer will supply the real path.
+    private const string AppExeEnvVar = "EYECTRL_APP_EXE";
+
+    // Dependency-injected supervision state (all constructed in Initialize()).
+    private SupervisionStateMachine _sm = null!;
+    private ProcessController _pc = null!;
+    private HeartbeatFreshnessEvaluator _freshness = null!;
+    private SupervisorTrayIcon _tray = null!;
+    private SettingsService _settingsService = null!;
+    private EyeCtrlSettings _settings = null!;
+    private string _appExePath = null!;
+
+    // Pipe server is constructed LAZILY on the first LaunchApp command — see EnsurePipeStarted.
+    // Chicken-and-egg: HeartbeatPipeServer needs a ClientIdentityBinder, and the binder needs the
+    // app's exe path + the launched process's creation time, neither of which is known until
+    // ProcessController.Launch() has run. Starting the pipe only after the first launch is safe
+    // because no app is running to send heartbeats before then.
+    private HeartbeatPipeServer? _pipe;
+    private DateTime? _cleanExitRequestedAt;
+
+    // Clock-tick: drives HeartbeatStale / SurvivedWindow / DeadlineElapsed detection.
+    private DispatcherTimer? _tickTimer;
+
+    // Tracks the start of the current Supervising stretch for the SurvivedWindow clock reset.
+    // Mirrors the state machine's private supervisingSince — duplicated here because the machine
+    // doesn't expose it. Stamped on the transition INTO Supervising, cleared when leaving it.
+    private DateTime? _supervisingSince;
+
+    // Guards against reentrancy if a pipe event fires while a tick is draining on the dispatcher.
+    private readonly object _loopLock = new();
+
     public void Initialize()
     {
-        // Wired in later tasks (state machine, pipe server, tray, supervision loop).
+        var appDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "EyeCtrl");
+        var logsDir = Path.Combine(appDataDir, "logs");
+        var settingsPath = Path.Combine(appDataDir, "settings.json");
+
+        // 1. Logging — supervisor-.log (distinct from the app's eyectrl-.log).
+        SupervisorLoggingInitializer.Initialize(logsDir);
+        Log.Information("Supervisor starting up.");
+
+        // 2. Settings — supervisor owns ONLY the Supervision section (SettingsWriter.Supervisor).
+        _settingsService = new SettingsService(settingsPath, SettingsWriter.Supervisor);
+        _settings = _settingsService.Load();
+
+        // Resolve the app exe path (env override > sibling-of-supervisor-exe default).
+        _appExePath = ResolveAppExePath();
+        Log.Information("App exe path resolved to {AppExePath}.", _appExePath);
+
+        // 3. Construct the supervision components.
+        var sup = _settings.Supervision;
+        _sm = new SupervisionStateMachine(
+            maxRetries: sup.MaxRetries,
+            windowSeconds: sup.CrashWindowSeconds,
+            hangThresholdSeconds: sup.HangThresholdSeconds,
+            startupGraceSeconds: sup.StartupGraceSeconds,
+            windowResetSeconds: sup.CrashWindowSeconds);
+        _pc = new ProcessController();
+        _freshness = new HeartbeatFreshnessEvaluator(sup.HangThresholdSeconds);
+
+        // 3a. Tray icon — settings/launch/exit callbacks wired to the loop below.
+        _tray = new SupervisorTrayIcon(
+            openSettings: OpenSettings,
+            launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
+            exit: Shutdown);
+
+        // 3b. Periodic clock tick — runs on the UI thread; drives stale/window/deadline checks.
+        _tickTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TickInterval };
+        _tickTimer.Tick += (_, _) => OnClockTick();
+        _tickTimer.Start();
+
+        // 4. Initial behavior at startup. If supervision is enabled AND the user wants the app at
+        // logon, the supervisor owns the launch (LaunchRequest -> Launching -> LaunchApp). If
+        // supervision is on but StartOnBoot is off, stay in IdleWatch and wait to adopt a
+        // manually-launched app via its first heartbeat. If supervision is disabled, the process
+        // stays running but idle (spec: "always runs at logon to watch the app even when
+        // StartOnBoot is off").
+        if (sup.Enabled && _settings.General.StartOnBoot)
+        {
+            Log.Information("Supervision enabled + StartOnBoot: emitting initial LaunchRequest.");
+            HandleInput(new LaunchRequest(DateTime.UtcNow));
+        }
+        else
+        {
+            Log.Information("Supervision enabled={Enabled}, StartOnBoot={StartOnBoot}; staying in IdleWatch.",
+                sup.Enabled, _settings.General.StartOnBoot);
+        }
+    }
+
+    /// <summary>The WPF message pump — blocks until <see cref="Application.Shutdown"/> is called.</summary>
+    public new int Run() => base.Run();
+
+    // ---- Input handling (all serialized on the UI thread) -------------------------------
+
+    /// <summary>
+    /// Single entry point for every supervision input: feeds <paramref name="input"/> into the
+    /// state machine and immediately drains the emitted commands. Callers are responsible for
+    /// marshaling onto the UI thread first (pipe events arrive on background threads).
+    /// </summary>
+    private void HandleInput(SupervisionInput input)
+    {
+        // All access to the state machine + ProcessController + dialog is funneled through here.
+        // The lock guards the rare case of a background-delivered pipe event racing a dispatcher
+        // tick (both end up on the UI thread, but the lock makes the invariant explicit).
+        lock (_loopLock)
+        {
+            var prevState = _sm.State;
+            _sm.Handle(input);
+            DrainCommands();
+
+            // Clean-exit bookkeeping: stamp the deadline when the machine enters CleanExitPending.
+            if (_sm.State == SupervisorState.CleanExitPending && prevState != SupervisorState.CleanExitPending)
+            {
+                _cleanExitRequestedAt = DateTime.UtcNow;
+            }
+            else if (_sm.State != SupervisorState.CleanExitPending)
+            {
+                _cleanExitRequestedAt = null;
+            }
+
+            // SurvivedWindow clock: stamp the start of each Supervising stretch (entry into
+            // Supervising — whether via AdoptRequest, first HeartbeatReceived after launch, or
+            // SurvivedWindow reset which re-arms the next window). Cleared when leaving Supervising.
+            if (_sm.State == SupervisorState.Supervising && prevState != SupervisorState.Supervising)
+            {
+                _supervisingSince = input.At;
+            }
+            else if (_sm.State != SupervisorState.Supervising)
+            {
+                _supervisingSince = null;
+            }
+
+            // FALLEN_BACK handling: when the machine escalates, run the fallback launcher + dialog.
+            if (_sm.State == SupervisorState.FallenBack && prevState != SupervisorState.FallenBack)
+            {
+                OnFallenBack();
+            }
+
+            UpdateTrayStatus();
+        }
+    }
+
+    /// <summary>
+    /// Heartbeat-pipe event handler. Fires on a background pipe thread; marshals to the UI thread
+    /// before touching the state machine. Drops unbound heartbeats (binder returned null identity)
+    /// per the authenticated-shutdown rule.
+    /// </summary>
+    private void OnHeartbeatReceived(HeartbeatPayload hb, ClientIdentity? id)
+    {
+        // Marshal to the UI thread — the state machine is not thread-safe and the dialog/tray are
+        // UI objects. BeginInvoke avoids blocking the pipe reader; the work is non-blocking.
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (id == null)
+            {
+                // Unverified client: ignore entirely (must not suppress crash recovery, must not
+                // drive the state machine). See spec "Clean exit must come from the verified process."
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+
+            // 1. Freshness: gaze stream dead (connected but no frames for hangThreshold) -> recover.
+            //    A disconnected tracker is a soft signal handled by the app's own reconnect loop
+            //    and never trips this (HeartbeatFreshnessEvaluator returns false when !isConnected).
+            if (_freshness.IsGazeStreamDead(now, hb.LastFrameUtc, hb.IsConnected))
+            {
+                HandleInput(new GazeStreamDead(now));
+            }
+
+            // 2. Heartbeat. For a manual launch (app started without the supervisor launching it),
+            //    the very first verified heartbeat adopts it into Supervising.
+            if (_sm.State == SupervisorState.IdleWatch)
+            {
+                HandleInput(new AdoptRequest(now));
+            }
+            HandleInput(new HeartbeatReceived(now));
+
+            // 3. Clean exit: the app's final ShuttingDown payload. ClientVerified == (id != null),
+            //    which is true here (we dropped unbound above); the flag is threaded through for
+            //    the state machine's authenticated-shutdown check.
+            if (hb.ShuttingDown)
+            {
+                HandleInput(new CleanExitRequested(now, ClientVerified: id != null));
+            }
+        }));
+    }
+
+    /// <summary>Periodic clock-tick: stale-heartbeat, survived-window reset, clean-exit deadline.</summary>
+    private void OnClockTick()
+    {
+        // The three checks below each call HandleInput (which takes _loopLock), so the tick itself
+        // does not need to lock — there is no shared mutable access here beyond reading _sm state,
+        // and the tick already runs on the UI thread alongside all other HandleInput callers.
+        var now = DateTime.UtcNow;
+        PeriodicCheckStale(now);
+        PeriodicCheckSurvivedWindow(now);
+        PeriodicCheckCleanExitDeadline(now);
+    }
+
+    private void PeriodicCheckStale(DateTime now)
+    {
+        if (_sm.LastHeartbeatUtc.HasValue &&
+            (now - _sm.LastHeartbeatUtc.Value).TotalSeconds > _settings.Supervision.HangThresholdSeconds &&
+            _sm.State == SupervisorState.Supervising)
+        {
+            HandleInput(new HeartbeatStale(now));
+        }
+    }
+
+    private void PeriodicCheckSurvivedWindow(DateTime now)
+    {
+        // SurvivedWindow reset is driven entirely by the state machine (it resets the crash
+        // window + counter on a SurvivedWindow input). We emit the input after the app has been
+        // continuously Supervising for longer than the crash window. The machine does not expose
+        // its private supervisingSince, so this is tracked locally (stamped in HandleInput when the
+        // state enters Supervising).
+        if (_sm.State == SupervisorState.Supervising && _supervisingSince.HasValue &&
+            (now - _supervisingSince.Value).TotalSeconds > _settings.Supervision.CrashWindowSeconds)
+        {
+            HandleInput(new SurvivedWindow(now));
+        }
+    }
+
+    private void PeriodicCheckCleanExitDeadline(DateTime now)
+    {
+        if (_sm.State == SupervisorState.CleanExitPending &&
+            _cleanExitRequestedAt.HasValue &&
+            (now - _cleanExitRequestedAt.Value).TotalSeconds > CleanExitDeadlineSeconds)
+        {
+            HandleInput(new DeadlineElapsed(now));
+        }
+    }
+
+    // ---- Command drain -----------------------------------------------------------------
+
+    /// <summary>Dispatches every command the last Handle() emitted to its side-effecting action.</summary>
+    private void DrainCommands()
+    {
+        foreach (var cmd in _sm.Commands)
+        {
+            switch (cmd)
+            {
+                case SupervisorCommand.LaunchApp:
+                    LaunchApp();
+                    break;
+                case SupervisorCommand.ForceKill:
+                    Log.Information("ForceKill command: killing supervised process.");
+                    _pc.ForceKill();
+                    break;
+                case SupervisorCommand.LaunchFallbackAt:
+                    // Handled by OnFallenBack (driven off the state transition, not the command,
+                    // so the dialog is shown exactly once per entry into FallenBack).
+                    break;
+                case SupervisorCommand.NotifyCleanExit:
+                    Log.Information("NotifyCleanExit: app signalled authenticated clean shutdown.");
+                    break;
+                case SupervisorCommand.None:
+                    break;
+            }
+        }
+    }
+
+    /// <summary>Launches the app (not paused by default) and starts the heartbeat pipe if needed.</summary>
+    private void LaunchApp()
+    {
+        Log.Information("LaunchApp command: starting {AppExePath}.", _appExePath);
+        _pc.Launch(_appExePath, paused: false);
+
+        // _supervisingSince is tracked via the Supervising state transition in HandleInput (the
+        // machine flips Launching -> Supervising on the first heartbeat, not at process start).
+
+        // Wire the process-exit callback so an unannounced exit feeds ProcessExited into the loop.
+        WireProcessExited();
+
+        // Chicken-and-egg resolution: now that ProcessController has the exe path + creation time,
+        // construct + start the pipe server with a ClientIdentityBinder built from those values.
+        EnsurePipeStarted();
+    }
+
+    /// <summary>
+    /// Constructs and starts the <see cref="HeartbeatPipeServer"/> on the first launch, using the
+    /// <see cref="ProcessController"/>'s captured exe path + creation time to build the
+    /// <see cref="ClientIdentityBinder"/>. Idempotent.
+    /// </summary>
+    private void EnsurePipeStarted()
+    {
+        if (_pipe != null) return;
+        if (string.IsNullOrEmpty(_pc.ExePath) || !_pc.StartTimeUtc.HasValue)
+        {
+            Log.Warning("EnsurePipeStarted: ProcessController has no exe/creation-time yet; deferring.");
+            return;
+        }
+
+        var binder = new ClientIdentityBinder(_pc.ExePath!, _pc.StartTimeUtc!.Value);
+        _pipe = new HeartbeatPipeServer(binder);
+        _pipe.HeartbeatReceived += OnHeartbeatReceived;
+        _pipe.Start();
+        Log.Information("Heartbeat pipe started (binder bound to {Exe} @ {Start}).",
+            _pc.ExePath, _pc.StartTimeUtc);
+    }
+
+    /// <summary>Wires the bound process's Exited event so a crash/exit feeds ProcessExited.</summary>
+    private void WireProcessExited()
+    {
+        var proc = _pc.BoundProcess;
+        if (proc == null) return;
+        proc.EnableRaisingEvents = true;
+        proc.Exited += (_, _) =>
+        {
+            // Exited fires on a background thread — marshal to UI before touching the state machine.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                Log.Information("Bound process exited (pid={Pid}).", proc.Id);
+                HandleInput(new ProcessExited(DateTime.UtcNow));
+            }));
+        };
+    }
+
+    // ---- FALLEN_BACK handling ----------------------------------------------------------
+
+    /// <summary>
+    /// Runs the fallback-AT launcher (so the user keeps eye control) and shows the non-modal
+    /// <see cref="FallenBackDialog"/>. Wired to the state machine's transition into FallenBack.
+    /// </summary>
+    private void OnFallenBack()
+    {
+        Log.Warning("State -> FallenBack: launching fallback AT and showing recovery dialog.");
+
+        // Goal #5 "never strand the user": launch a fallback AT immediately.
+        var candidates = FallbackAtLauncher.BuildDefaultCandidates();
+        var launched = FallbackAtLauncher.LaunchFirstInstalled(candidates);
+        Log.Information("Fallback AT launched: {Launched}", launched?.Id ?? "(none installed)");
+
+        // Show the recovery dialog (non-modal + topmost — see FallenBackDialog remarks).
+        var dialog = new FallenBackDialog();
+        dialog.RetryRequested += () =>
+        {
+            // Paused-retry handoff: relaunch with --paused so the retried instance is inert
+            // (no SendInput) until the user is ready, without mutating the persisted setting.
+            // The machine stays in FallenBack (this is a one-shot manual reprieve, not a state
+            // transition); the dialog is closed and the user interacts with the relaunched app.
+            Log.Information("FallenBack dialog Retry: relaunching app with --paused.");
+            dialog.Close();
+            _pc.Launch(_appExePath, paused: true);
+            WireProcessExited();
+            EnsurePipeStarted();
+        };
+        dialog.Dismissed += () =>
+        {
+            Log.Information("FallenBack dialog Dismissed: staying idle with fallback AT.");
+        };
+        dialog.Show();
+    }
+
+    // ---- Tray + setup window -----------------------------------------------------------
+
+    private void OpenSettings()
+    {
+        var window = new SupervisorSetupWindow(
+            settings: _settings,
+            settingsService: _settingsService,
+            saveChanges: _ =>
+            {
+                // The setup window persists the Supervision section itself (SettingsWriter.Supervisor).
+                // React here to changes that affect the running loop — none require a live restart
+                // today (MaxRetries/HangThreshold are read each tick; Enabled toggles take effect on
+                // the next transition). StartOnBoot lives in GeneralSettings (App-owned) and is NOT
+                // persisted by the supervisor.
+                Log.Information("Supervisor settings saved; refreshing loop in-memory state.");
+            },
+            launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
+            statusText: $"Supervisor state: {_sm.State}");
+        window.Show();
+    }
+
+    private void UpdateTrayStatus()
+    {
+        var text = _sm.State switch
+        {
+            SupervisorState.IdleWatch => "EyeCtrl Supervisor: idle",
+            SupervisorState.Launching => "EyeCtrl Supervisor: launching",
+            SupervisorState.Supervising => "EyeCtrl Supervisor: watching",
+            SupervisorState.Recovering => "EyeCtrl Supervisor: recovering",
+            SupervisorState.CleanExitPending => "EyeCtrl Supervisor: clean exit pending",
+            SupervisorState.FallenBack => "EyeCtrl Supervisor: FALLEN BACK (fallback AT running)",
+            _ => "EyeCtrl Supervisor"
+        };
+        _tray.SetStatusText(text);
+    }
+
+    // ---- App-exe path resolution -------------------------------------------------------
+
+    /// <summary>
+    /// Resolves the EyeCtrl.App.exe path. Env var <see cref="AppExeEnvVar"/> wins; otherwise assume
+    /// the app exe sits next to the supervisor exe in the same install directory. TODO(installer):
+    /// the installer will supply the canonical path.
+    /// </summary>
+    private static string ResolveAppExePath()
+    {
+        var env = Environment.GetEnvironmentVariable(AppExeEnvVar);
+        if (!string.IsNullOrWhiteSpace(env) && File.Exists(env))
+        {
+            return Path.GetFullPath(env);
+        }
+
+        // Default: sibling of the supervisor exe — EyeCtrl.App.exe next to EyeCtrl.Supervisor.exe.
+        var supervisorDir = AppContext.BaseDirectory;
+        return Path.GetFullPath(Path.Combine(supervisorDir, "EyeCtrl.App.exe"));
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        Log.Information("Supervisor exiting.");
+        _tickTimer?.Stop();
+        _pipe?.Dispose();
+        _tray?.Dispose();
+        base.OnExit(e);
     }
 }

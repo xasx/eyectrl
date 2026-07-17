@@ -111,7 +111,8 @@ public sealed class SupervisionStateMachine
                 // "Retry EyeCtrl (once)" re-showed the dialog but the retried app crashed again.
                 // Spec line 350: "If it crashes again, the dialog reappears." Re-escalate so
                 // OnFallenBack fires again (the retry path leaves state in FallenBack).
-                // Detach the current command list and signal a re-show via a fresh escalation.
+                ConsecutiveFailures++;
+                _crash.RecordStrike(input.At);
                 _commands.Add(SupervisorCommand.LaunchFallbackAt);
                 break;
 

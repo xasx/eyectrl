@@ -479,6 +479,13 @@ internal sealed class SupervisorApp : Application
                 HandleInput(new ProcessExited(DateTime.UtcNow));
             }));
         };
+        // Race guard: if the process already exited between Adopt()/Launch() and EnableRaisingEvents,
+        // the Exited event won't fire. Check now and feed ProcessExited immediately.
+        if (proc.HasExited)
+        {
+            Log.Information("Bound process already exited at wire time (pid={Pid}); feeding ProcessExited.", proc.Id);
+            HandleInput(new ProcessExited(DateTime.UtcNow));
+        }
     }
 
     // ---- FALLEN_BACK handling ----------------------------------------------------------

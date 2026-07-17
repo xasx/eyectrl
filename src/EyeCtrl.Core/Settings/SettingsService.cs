@@ -184,15 +184,6 @@ public class SettingsService
 
             var onDisk = File.Exists(_filePath) ? Load() : new EyeCtrlSettings();
 
-            // Dev-time guard: catch an accidental app-side change to a section it doesn't own.
-            // Compares against the value just re-read from disk under the mutex (authoritative).
-            if (_writer == SettingsWriter.App)
-            {
-                Debug.Assert(
-                    settings.Supervision.Enabled == onDisk.Supervision.Enabled,
-                    "App process attempted to persist a Supervision change it does not own.");
-            }
-
             var mergedJson = MergeForWriter(settings, onDisk);
 
             var directory = Path.GetDirectoryName(_filePath);

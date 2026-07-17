@@ -30,46 +30,60 @@ public static class FallbackAtLauncher
     }
 
     /// <summary>
-    /// Default ordered candidates, highest priority first:
-    /// 1. TD Control — verified registry layout (Spike S1, resolved on the target machine).
-    /// 2. Snap Core First (same Tobii Dynavox publisher convention, best-effort probe).
-    /// 3. Windows built-in Eye Control — no reliable programmatic launch vector (Spike S1);
-    ///    falls back to opening the Settings page as a documented manual step.
+    /// Builds candidates in the caller's configured priority order (the user's
+    /// <c>SupervisionSettings.FallbackAtOrder</c>). Unknown ids are skipped, so a stale or
+    /// mistyped settings entry is ignored rather than throwing. Presence in the list = enabled;
+    /// order = priority.
     /// </summary>
-    public static IEnumerable<FallbackCandidate> BuildDefaultCandidates()
+    public static IEnumerable<FallbackCandidate> BuildCandidates(IEnumerable<string> order)
+    {
+        foreach (var id in order)
+        {
+            var candidate = CreateCandidate(id);
+            if (candidate != null) yield return candidate;
+        }
+    }
+
+    /// <summary>The default ordered candidates (TD Control → Snap Core First → Windows Eye Control).</summary>
+    public static IEnumerable<FallbackCandidate> BuildDefaultCandidates() =>
+        BuildCandidates(new[] { "TDControl", "SnapCoreFirst", "WindowsEyeControl" });
+
+    /// <summary>Maps a fallback-AT id to its install-probe + launch action, or null for an unknown id.</summary>
+    private static FallbackCandidate? CreateCandidate(string id) => id switch
     {
         // Spike S1 (resolved): TD Control is installed as "Computer Control" under WOW6432Node
-        // (it's a 32-bit MSI). The registry value names are ApplicationPath and LauncherPath
-        // (NOT a guessed "Path"). LauncherPath is the proper entry — the Launcher bootstraps
-        // the full app; ApplicationPath is the inner exe. Confirmed on the dev machine:
+        // (it's a 32-bit MSI). Value names are ApplicationPath and LauncherPath (NOT a guessed
+        // "Path"). LauncherPath is the proper entry — the Launcher bootstraps the full app.
         //   HKLM\SOFTWARE\WOW6432Node\Tobii Dynavox\Computer Control
-        //     LauncherPath    = C:\Program Files (x86)\Tobii Dynavox\Computer Control\Tdx.ComputerControl.Launcher.exe
+        //     LauncherPath    = ...\Tdx.ComputerControl.Launcher.exe
         //     ApplicationPath = ...\Tdx.ComputerControl.exe
-        yield return new FallbackCandidate(
+        "TDControl" => new FallbackCandidate(
             id: "TDControl",
             isInstalled: () => GetRegistryValue(TdControlKey, LauncherValue) is not null,
             launch: () => LaunchExe(GetRegistryValue(TdControlKey, LauncherValue)
-                                    ?? GetRegistryValue(TdControlKey, ApplicationValue)));
+                                    ?? GetRegistryValue(TdControlKey, ApplicationValue))),
 
         // Best-effort: same Tobii Dynavox publisher, likely the same MSI layout (value names
         // unverified — adjust if a Snap Core First install is available to probe).
-        yield return new FallbackCandidate(
+        "SnapCoreFirst" => new FallbackCandidate(
             id: "SnapCoreFirst",
-            isInstalled: () => Registry.LocalMachine.OpenSubKey(SnapCoreFirstKey) != null,
-            launch: () => LaunchFromRegistry(SnapCoreFirstKey));
+            isInstalled: () => SubKeyExists(SnapCoreFirstKey),
+            launch: () => LaunchFromRegistry(SnapCoreFirstKey)),
 
         // Spike S1 (resolved): Windows Eye Control has NO reliable programmatic launch vector.
-        //   - ms-settings:easeofaccess-eyecontrol only OPENS the Settings page (does not toggle/launch the overlay).
+        //   - ms-settings:easeofaccess-eyecontrol only OPENS the Settings page (does not toggle the overlay).
         //   - The GazeInput UWP API (Windows.Devices.Input.Preview) CONSUMES gaze; it does not toggle the OS feature.
         //   - ms-cortana:eyecontrol is unreliable on Win11 (Cortana deprecated/removed).
         // As a last-resort "never strand the user" affordance, open the Settings page so an
-        // attendant can enable Eye Control manually. Goal #5's guarantee otherwise rests on a
-        // Tobii AT being installed (TD Control above is the realistic case on a Tobii machine).
-        yield return new FallbackCandidate(
+        // attendant can enable Eye Control manually. Goal #5's automatic guarantee otherwise rests
+        // on a Tobii AT being installed (TD Control above is the realistic case on a Tobii machine).
+        "WindowsEyeControl" => new FallbackCandidate(
             id: "WindowsEyeControl",
             isInstalled: () => true, // the Settings page always exists on Win10 1709+/Win11
-            launch: () => Process.Start(new ProcessStartInfo("ms-settings:easeofaccess-eyecontrol") { UseShellExecute = true }));
-    }
+            launch: () => Process.Start(new ProcessStartInfo("ms-settings:easeofaccess-eyecontrol") { UseShellExecute = true })),
+
+        _ => null // unknown id — skip it (defensive: settings may contain a stale/typo'd entry)
+    };
 
     // --- Registry key/value constants (verified via Spike S1) ---
     private const string TdControlKey = @"SOFTWARE\WOW6432Node\Tobii Dynavox\Computer Control";
@@ -81,6 +95,14 @@ public static class FallbackAtLauncher
     {
         using var key = Registry.LocalMachine.OpenSubKey(keyPath);
         return key?.GetValue(valueName) as string;
+    }
+
+    /// <summary>True if the registry sub-key exists. Disposes the opened key handle (the previous
+    /// <c>OpenSubKey(...) != null</c> probe leaked it on every FALLEN_BACK probe).</summary>
+    private static bool SubKeyExists(string keyPath)
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(keyPath);
+        return key != null;
     }
 
     /// <summary>Best-effort launch of an exe path read from the registry; no-op if absent/stale.</summary>

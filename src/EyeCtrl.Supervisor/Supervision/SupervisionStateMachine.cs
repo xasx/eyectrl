@@ -34,6 +34,13 @@ public sealed class SupervisionStateMachine
         _crash = new CrashWindow(maxRetries, windowSeconds);
     }
 
+    /// <summary>
+    /// Applies a live change to the crash-window policy (e.g. after the user edits MaxRetries /
+    /// CrashWindowSeconds in the supervisor setup window). Does not reset accumulated strikes — only
+    /// the escalation limits going forward. Called on the same (UI) thread as <see cref="Handle"/>.
+    /// </summary>
+    public void UpdatePolicy(int maxRetries, int windowSeconds) => _crash.UpdateLimits(maxRetries, windowSeconds);
+
     public void Handle(SupervisionInput input)
     {
         _commands.Clear();

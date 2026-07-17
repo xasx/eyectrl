@@ -5,11 +5,22 @@ using System.Collections.Generic;
 
 public sealed class CrashWindow
 {
-    private readonly int _maxRetries;
-    private readonly int _windowSeconds;
+    private int _maxRetries;
+    private int _windowSeconds;
     private readonly List<DateTime> _strikes = new();
 
     public CrashWindow(int maxRetries, int windowSeconds)
+    {
+        _maxRetries = maxRetries;
+        _windowSeconds = windowSeconds;
+    }
+
+    /// <summary>
+    /// Applies a live change to the escalation limits (e.g. from the supervisor setup window) without
+    /// a restart. Accumulated strikes are left untouched — only the escalation threshold and window
+    /// used by <see cref="ShouldEscalate"/> going forward change.
+    /// </summary>
+    public void UpdateLimits(int maxRetries, int windowSeconds)
     {
         _maxRetries = maxRetries;
         _windowSeconds = windowSeconds;

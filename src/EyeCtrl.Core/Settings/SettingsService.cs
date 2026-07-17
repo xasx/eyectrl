@@ -182,9 +182,17 @@ public class SettingsService
             mutex.WaitOne();
             owned = true;
 
-            var onDisk = File.Exists(_filePath) ? Load() : new EyeCtrlSettings();
+            // Read the on-disk state RAW (not via Load()) for section preservation. Load() returns
+            // all-defaults when the file fails validation, which would let this writer silently reset
+            // a section it doesn't own but must preserve (spec, "Lost updates"). See MergeForWriter.
+            string? onDiskRaw = null;
+            if (File.Exists(_filePath))
+            {
+                try { onDiskRaw = File.ReadAllText(_filePath); }
+                catch { onDiskRaw = null; } // unreadable -> treat as absent (can't preserve)
+            }
 
-            var mergedJson = MergeForWriter(settings, onDisk);
+            var mergedJson = MergeForWriter(settings, onDiskRaw);
 
             var directory = Path.GetDirectoryName(_filePath);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
@@ -206,26 +214,38 @@ public class SettingsService
     /// (<see cref="EyeCtrlSettings"/> is a class, not a record, so a <c>with</c> expression is
     /// unavailable).
     /// </summary>
-    private string MergeForWriter(EyeCtrlSettings settings, EyeCtrlSettings onDisk)
+    private string MergeForWriter(EyeCtrlSettings settings, string? onDiskRaw)
     {
         var incoming = JsonSerializer.SerializeToNode(settings, JsonOptions)!.AsObject();
-        var baseline = JsonSerializer.SerializeToNode(onDisk, JsonOptions)!.AsObject();
 
-        JsonObject merged;
+        // Preserve the not-owned section(s) from the RAW on-disk JSON — NOT from a validating Load(),
+        // which substitutes all-defaults when any section fails validation and would silently reset a
+        // section this writer must preserve. Parse defensively: a missing/corrupt file means we can't
+        // preserve, and fall back to the incoming snapshot (or defaults).
+        JsonObject? baseline = null;
+        if (!string.IsNullOrWhiteSpace(onDiskRaw))
+        {
+            try { baseline = JsonNode.Parse(onDiskRaw) as JsonObject; }
+            catch { baseline = null; }
+        }
+
         if (_writer == SettingsWriter.Supervisor)
         {
-            // Supervisor owns ONLY Supervision: start from disk, overlay the incoming Supervision.
-            merged = baseline;
+            // Supervisor owns ONLY Supervision: start from the raw on-disk object so every App-owned
+            // section is preserved verbatim (even values this schema no longer understands), then
+            // overlay the incoming Supervision.
+            var merged = baseline ?? JsonSerializer.SerializeToNode(new EyeCtrlSettings(), JsonOptions)!.AsObject();
             merged[SupervisionSectionName] = incoming[SupervisionSectionName]?.DeepClone();
-        }
-        else
-        {
-            // App owns everything EXCEPT Supervision: start from incoming, overlay disk's Supervision.
-            merged = incoming;
-            merged[SupervisionSectionName] = baseline[SupervisionSectionName]?.DeepClone();
+            return merged.ToJsonString(JsonOptions);
         }
 
-        return merged.ToJsonString(JsonOptions);
+        // App owns everything EXCEPT Supervision: start from the incoming (valid) snapshot, then
+        // overlay the raw on-disk Supervision so the supervisor's section survives even when the file
+        // as a whole failed validation. If disk had no Supervision section, keep the incoming default.
+        var onDiskSupervision = baseline?[SupervisionSectionName];
+        if (onDiskSupervision != null)
+            incoming[SupervisionSectionName] = onDiskSupervision.DeepClone();
+        return incoming.ToJsonString(JsonOptions);
     }
 
     private static string MigrateDragActions(string json)

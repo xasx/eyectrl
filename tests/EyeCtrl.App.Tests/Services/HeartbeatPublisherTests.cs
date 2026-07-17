@@ -80,7 +80,8 @@ public class HeartbeatPublisherTests
 
         var completed = await Task.WhenAny(received.Task, Task.Delay(TimeSpan.FromSeconds(5)));
         Check.That(completed == received.Task).IsTrue(); // payload delivered
-        Check.That(received.Task.Result).Contains("shuttingDown", "true");
+        var line = await received.Task;                  // completed above; await avoids a blocking .Result
+        Check.That(line).Contains("shuttingDown", "true");
     }
 
     /// <summary>

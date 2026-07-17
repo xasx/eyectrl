@@ -208,8 +208,8 @@ public class SettingsService
 
     /// <summary>
     /// Produces the JSON to persist after applying single-writer ownership. The caller-owned
-    /// section comes from <paramref name="settings"/>; every other section is preserved from
-    /// <paramref name="onDisk"/>. Implemented at the JSON-node level so it generalizes to any
+    /// section comes from <paramref name="settings"/>; every other section is preserved from the
+    /// raw on-disk JSON in <paramref name="onDiskRaw"/>. Implemented at the JSON-node level so it generalizes to any
     /// future owned section without hand-copying <see cref="EyeCtrlSettings"/>'s many properties
     /// (<see cref="EyeCtrlSettings"/> is a class, not a record, so a <c>with</c> expression is
     /// unavailable).

@@ -54,6 +54,33 @@ public class SettingsServiceWriterOwnershipTests
     }
 
     [Fact]
+    public void AppWriter_PreservesSupervision_EvenWhenOnDiskFileFailsValidation()
+    {
+        // Regression: Save re-read the on-disk state via Load(), which returns ALL DEFAULTS when the
+        // file fails validation. So an App writer would silently reset a supervisor-owned Supervision
+        // value it must preserve. Preservation must read the RAW on-disk section, not a re-validated
+        // (defaulted) load.
+        var path = TempPath();
+        try
+        {
+            // Raw on-disk file: the supervisor persisted Enabled=true, but the file ALSO has an
+            // out-of-range value (maxRetries=0, below the 1..20 range) so Load() fails validation and
+            // returns defaults (Enabled=false). Written raw to simulate a hand-edited / older file.
+            File.WriteAllText(path, "{\"supervision\":{\"enabled\":true,\"maxRetries\":0}}");
+
+            // App saves its own (valid) snapshot — Supervision.Enabled defaults to false.
+            var app = new SettingsService(path, SettingsWriter.App);
+            app.Save(new EyeCtrlSettings());
+
+            // Read the persisted file RAW (a validating Load would re-default it) and assert the
+            // supervisor's Enabled=true survived — the app must not clobber a section it doesn't own.
+            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!;
+            Check.That(node["supervision"]!["enabled"]!.GetValue<bool>()).IsTrue();
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void SupervisorWriter_DoesNotPersist_AppSections()
     {
         // Symmetric guarantee: the Supervisor writer must not clobber an App-owned section.

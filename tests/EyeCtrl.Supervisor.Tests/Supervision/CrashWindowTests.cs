@@ -40,4 +40,16 @@ public class CrashWindowTests
         w.Reset();
         Check.That(w.ShouldEscalate(Base)).IsFalse();
     }
+
+    [Fact]
+    public void UpdateLimits_AppliesNewMaxRetries_GoingForward()
+    {
+        // A live settings edit (supervisor setup window) must change escalation without a restart.
+        var w = new CrashWindow(maxRetries: 3, windowSeconds: 120);
+        w.UpdateLimits(maxRetries: 1, windowSeconds: 120);
+        w.RecordStrike(Base);
+        Check.That(w.ShouldEscalate(Base)).IsFalse();          // 1 strike == maxRetries(1), permitted
+        w.RecordStrike(Base.AddSeconds(1));
+        Check.That(w.ShouldEscalate(Base.AddSeconds(1))).IsTrue(); // 2 strikes > 1 -> escalate
+    }
 }

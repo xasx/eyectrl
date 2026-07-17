@@ -118,8 +118,11 @@ public sealed class HeartbeatPublisher : IDisposable
             try { await _sendSignal.WaitAsync(_cts.Token); }
             catch (OperationCanceledException) { break; }
 
-            var payload = _pending;
-            _pending = null;
+            // Atomic grab-and-clear: a Stamp that lands between reading _pending and nulling it would
+            // otherwise be silently dropped (its payload overwritten with null). Interlocked.Exchange
+            // takes the current payload and clears the slot in one step, so a concurrent Stamp either
+            // is captured now or remains for the next iteration.
+            var payload = Interlocked.Exchange(ref _pending, null);
             if (payload == null) continue;
             try { await SendOneAsync(payload, _cts.Token); }
             catch { /* drop this send — never throw, never block the Dispatcher */ }
@@ -133,7 +136,13 @@ public sealed class HeartbeatPublisher : IDisposable
         // block a thread-pool thread forever. WhenAny(connect, delay) bounds it to ConnectTimeout.
         var connectTask = client.ConnectAsync(token);
         var timeoutTask = Task.Delay(ConnectTimeout, token);
-        if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
+        // ConfigureAwait(false) on every await: SignalShuttingDown blocks on this task with .Wait()
+        // from the WPF dispatcher thread (OnExit/OnSessionEnding), which has a SynchronizationContext.
+        // Without this, the post-await continuations would be posted back to that blocked thread and
+        // strand — the send never completes, .Wait() burns its full 2s timeout (a stall on every
+        // exit), and on a real dispatcher the strand can precede the write and drop delivery. Running
+        // continuations on the thread pool keeps the send independent of the caller's context.
+        if (await Task.WhenAny(connectTask, timeoutTask).ConfigureAwait(false) == timeoutTask)
         {
             // Server absent or slow — drop this heartbeat. Observe the abandoned connect task's
             // Exception (it may fault later with IOException/TimeoutException) so it never surfaces
@@ -141,9 +150,9 @@ public sealed class HeartbeatPublisher : IDisposable
             _ = connectTask.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
             return;
         }
-        await connectTask; // observe exceptions if connect threw
+        await connectTask.ConfigureAwait(false); // observe exceptions if connect threw
         var json = JsonSerializer.Serialize(payload, JsonOptions) + "\n";
-        await client.WriteAsync(Encoding.UTF8.GetBytes(json), token);
+        await client.WriteAsync(Encoding.UTF8.GetBytes(json), token).ConfigureAwait(false);
     }
 
     /// <summary>

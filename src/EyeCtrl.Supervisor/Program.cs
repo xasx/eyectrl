@@ -101,6 +101,11 @@ internal sealed class SupervisorApp : Application
     // PeriodicCheckPendingRelaunch once NextBackoffDelay elapses. Null when no relaunch pending.
     private DateTime? _pendingLaunchAt;
 
+    // True once a fallback AT has been launched this session — guards against re-launching it (or
+    // re-opening the Eye Control Settings page) on a FALLEN_BACK re-escalation. Reset never happens:
+    // FALLEN_BACK is terminal for the session; next logon is a clean slate.
+    private bool _fallbackAtLaunched;
+
     // Clock-tick: drives HeartbeatStale / SurvivedWindow / DeadlineElapsed / StartupGrace detection.
     private DispatcherTimer? _tickTimer;
 
@@ -498,10 +503,21 @@ internal sealed class SupervisorApp : Application
     {
         Log.Warning("State -> FallenBack: launching fallback AT and showing recovery dialog.");
 
-        // Goal #5 "never strand the user": launch a fallback AT immediately.
-        var candidates = FallbackAtLauncher.BuildDefaultCandidates();
-        var launched = FallbackAtLauncher.LaunchFirstInstalled(candidates);
-        Log.Information("Fallback AT launched: {Launched}", launched?.Id ?? "(none installed)");
+        // Goal #5 "never strand the user": launch a fallback AT — but only ONCE per session. A
+        // re-escalation (a "Retry once" app that crashed again) must not spawn a second AT instance
+        // or re-open the Settings page; the AT launched on the first escalation is still running.
+        // Order honors the user's configured SupervisionSettings.FallbackAtOrder (not a hard-coded list).
+        if (!_fallbackAtLaunched)
+        {
+            var candidates = FallbackAtLauncher.BuildCandidates(_settings.Supervision.FallbackAtOrder);
+            var launched = FallbackAtLauncher.LaunchFirstInstalled(candidates);
+            _fallbackAtLaunched = launched != null;
+            Log.Information("Fallback AT launched: {Launched}", launched?.Id ?? "(none installed)");
+        }
+        else
+        {
+            Log.Information("Fallback AT already launched this session; re-showing recovery dialog only.");
+        }
 
         // Show the recovery dialog (non-modal + topmost — see FallenBackDialog remarks).
         var dialog = new FallenBackDialog();
@@ -538,11 +554,19 @@ internal sealed class SupervisorApp : Application
             saveChanges: _ =>
             {
                 // The setup window persists the Supervision section itself (SettingsWriter.Supervisor).
-                // React here to changes that affect the running loop — none require a live restart
-                // today (MaxRetries/HangThreshold are read each tick; Enabled toggles take effect on
-                // the next transition). StartOnBoot lives in GeneralSettings (App-owned) and is NOT
-                // persisted by the supervisor.
-                Log.Information("Supervisor settings saved; refreshing loop in-memory state.");
+                // Apply the live-editable policy immediately so an edit takes effect without a restart:
+                //  - MaxRetries / CrashWindowSeconds are baked into the state machine's CrashWindow at
+                //    construction, so push them in via UpdatePolicy (previously ignored until restart);
+                //  - HangThresholdSeconds is baked into the freshness evaluator, so rebuild it (the
+                //    stale-heartbeat check already reads it live each tick).
+                // Enabled toggles take effect on the next transition/logon. StartOnBoot lives in
+                // GeneralSettings (App-owned) and is NOT persisted by the supervisor.
+                var s = _settings.Supervision;
+                _sm.UpdatePolicy(s.MaxRetries, s.CrashWindowSeconds);
+                _freshness = new HeartbeatFreshnessEvaluator(s.HangThresholdSeconds);
+                Log.Information(
+                    "Supervisor settings saved; applied MaxRetries={Max}, CrashWindow={Win}s, HangThreshold={Hang}s.",
+                    s.MaxRetries, s.CrashWindowSeconds, s.HangThresholdSeconds);
             },
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
             statusText: $"Supervisor state: {_sm.State}");

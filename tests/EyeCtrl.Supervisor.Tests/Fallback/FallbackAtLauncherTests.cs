@@ -72,6 +72,29 @@ public class FallbackAtLauncherTests
         Check.That(FallbackAtLauncher.LaunchFirstInstalled(candidates)).IsNull();
     }
 
+    [Fact]
+    public void BuildCandidates_HonorsConfiguredOrder()
+    {
+        // The user's configured FallbackAtOrder must drive priority — not a hard-coded order.
+        var ids = FallbackAtLauncher.BuildCandidates(new[] { "WindowsEyeControl", "TDControl" })
+            .Select(c => c.Id).ToList();
+        Check.That(ids).ContainsExactly("WindowsEyeControl", "TDControl");
+    }
+
+    [Fact]
+    public void BuildCandidates_SkipsUnknownIds()
+    {
+        var ids = FallbackAtLauncher.BuildCandidates(new[] { "TDControl", "Nonsense", "SnapCoreFirst" })
+            .Select(c => c.Id).ToList();
+        Check.That(ids).ContainsExactly("TDControl", "SnapCoreFirst");
+    }
+
+    [Fact]
+    public void BuildCandidates_EmptyOrder_YieldsNothing()
+    {
+        Check.That(FallbackAtLauncher.BuildCandidates(Array.Empty<string>())).IsEmpty();
+    }
+
     private static FallbackCandidate Fake(string id, bool installed) =>
         new(id, isInstalled: () => installed, launch: () => { });
 }

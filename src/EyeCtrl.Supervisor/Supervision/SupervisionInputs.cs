@@ -13,3 +13,4 @@ public sealed record CleanExitRequested(DateTime At, bool ClientVerified) : Supe
 public sealed record DeadlineElapsed(DateTime At) : SupervisionInput(At);
 public sealed record SurvivedWindow(DateTime At) : SupervisionInput(At);    // survived a full crash window -> reset
 public sealed record StartupGraceElapsed(DateTime At) : SupervisionInput(At); // 60s in LAUNCHING with no heartbeat -> RECOVERING (spec failure mode #2)
+public sealed record FallenBackRetry(DateTime At) : SupervisionInput(At);    // user clicked "Retry EyeCtrl once" in the FALLEN_BACK dialog -> IdleWatch (re-adopt)

@@ -173,5 +173,5 @@ public class SupervisionStateMachineTests
     }
 
     private static SupervisionStateMachine NewMachine(int maxRetries = 3, int windowSeconds = 120)
-        => new(maxRetries, windowSeconds, hangThresholdSeconds: 20, startupGraceSeconds: 60, windowResetSeconds: windowSeconds);
+        => new(maxRetries, windowSeconds);
 }

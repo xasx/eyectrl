@@ -7,7 +7,6 @@ public sealed class SupervisionStateMachine
 {
     private readonly CrashWindow _crash;
     private readonly BackoffPolicy _backoff = new();
-    private readonly int _windowResetSeconds;
     private readonly List<SupervisorCommand> _commands = new();
     private DateTime? _supervisingSince;
     private DateTime? _launchingSince;
@@ -22,11 +21,17 @@ public sealed class SupervisionStateMachine
     /// <summary>When the current Launching stretch began (drives the startup-grace clock). Null when not Launching.</summary>
     public DateTime? LaunchingSince => _launchingSince;
 
-    public SupervisionStateMachine(int maxRetries, int windowSeconds, int hangThresholdSeconds,
-        int startupGraceSeconds, int windowResetSeconds)
+    /// <param name="maxRetries">Max restart attempts within the crash window (escalate on the next).</param>
+    /// <param name="windowSeconds">The sliding crash-window length (seconds) over which strikes are counted.</param>
+    /// <remarks>
+    /// hangThresholdSeconds, startupGraceSeconds, and the windowReset interval are NOT machine state — the
+    /// orchestrator (Program.cs) enforces them directly via its clock tick (PeriodicCheckStale /
+    /// PeriodicCheckStartupGrace / PeriodicCheckSurvivedWindow) reading SettingsService. They were removed
+    /// from this constructor to avoid implying the machine enforces them.
+    /// </remarks>
+    public SupervisionStateMachine(int maxRetries, int windowSeconds)
     {
         _crash = new CrashWindow(maxRetries, windowSeconds);
-        _windowResetSeconds = windowResetSeconds;
     }
 
     public void Handle(SupervisionInput input)
@@ -108,6 +113,15 @@ public sealed class SupervisionStateMachine
                 // OnFallenBack fires again (the retry path leaves state in FallenBack).
                 // Detach the current command list and signal a re-show via a fresh escalation.
                 _commands.Add(SupervisorCommand.LaunchFallbackAt);
+                break;
+
+            case FallenBackRetry when State == SupervisorState.FallenBack:
+                // User clicked "Retry EyeCtrl once": the retried app was launched with --paused, now
+                // return to IdleWatch so its first verified heartbeat ADOPTS it into Supervising
+                // (FallenBack has no HeartbeatReceived case). Resets the surviving-window + launch timers.
+                State = SupervisorState.IdleWatch;
+                _supervisingSince = null;
+                _launchingSince = null;
                 break;
 
             case DeadlineElapsed when State == SupervisorState.CleanExitPending:

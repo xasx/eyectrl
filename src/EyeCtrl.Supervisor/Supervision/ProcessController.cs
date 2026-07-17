@@ -7,7 +7,13 @@ public sealed class ProcessController
 {
     private Process? _process;
     public Process? BoundProcess => _process;
-    /// <summary>Captured at launch; the EXPECTED creation time the ClientIdentityBinder checks against.</summary>
+    /// <summary>
+    /// Captured at launch. RESERVED for a future strict-mode <see cref="Ipc.ClientIdentityBinder"/>
+    /// upgrade (PID-reuse protection via creation-time comparison). The v1 pipe runs in adoption mode
+    /// (exe-path + same-session + per-user ACL only), so this is currently captured-but-unread; it is
+    /// retained so an <c>UpgradeBinderToStrict</c> can consume it without changing ProcessController's
+    /// surface. See the spec's "Binding durability" + the adoption-mode tradeoff remarks on EnsurePipeStarted.
+    /// </summary>
     public DateTime? StartTimeUtc { get; private set; }
     public string? ExePath { get; private set; }
 
@@ -68,11 +74,14 @@ public sealed class ProcessController
 
     public void ForceKill()
     {
+        // Set BEFORE the HasExited check: recovery is an INTENT, not "did the kill actually execute."
+        // If the process exits on its own between stale-detection and this call, HasExited is already
+        // true and the kill is skipped — but the late Process.Exited (marshaled via BeginInvoke, so it
+        // runs after this synchronous block) would otherwise double-count. KillInitiated covers that:
+        // any Exited for the instance we're recovering from is the same incident, not a new crash.
+        KillInitiated = true;
         if (_process is { HasExited: false })
-        {
-            KillInitiated = true; // suppress the Exited-event double-count (see KillInitiated docs)
             _process.Kill(entireProcessTree: true);
-        }
     }
 
     /// <summary>Disposes the previously-bound Process (releases its OS handle) before a relaunch/adopt.</summary>

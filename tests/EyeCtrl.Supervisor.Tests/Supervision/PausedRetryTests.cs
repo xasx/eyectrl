@@ -11,7 +11,7 @@ public class PausedRetryTests
     {
         // A paused app (isPaused=true) still sends heartbeats with fresh lastFrameUtc
         // (pause gates SendInput, not the gaze stream). It must NOT be considered hung.
-        var sm = new SupervisionStateMachine(3, 120, 20, 60, 120);
+        var sm = new SupervisionStateMachine(3, 120);
         sm.Handle(new LaunchRequest(T0));
         sm.Handle(new HeartbeatReceived(T0.AddSeconds(1))); // -> Supervising
         // Repeated fresh heartbeats (paused or not) keep it Supervising — no HeartbeatStale input fires.
@@ -28,7 +28,7 @@ public class PausedRetryTests
         // pause gates SendInput, not the gaze stream. The supervisor's HeartbeatStale/GazeStreamDead
         // inputs (driven by HeartbeatFreshnessEvaluator on the heartbeat's lastFrameUtc, NOT on isPaused)
         // still fire for a paused app with stale frames.
-        var sm = new SupervisionStateMachine(3, 120, 20, 60, 120);
+        var sm = new SupervisionStateMachine(3, 120);
         sm.Handle(new LaunchRequest(T0));
         sm.Handle(new HeartbeatReceived(T0.AddSeconds(1)));
         sm.Handle(new GazeStreamDead(T0.AddSeconds(30))); // frames stale while connected

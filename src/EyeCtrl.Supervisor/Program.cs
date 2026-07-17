@@ -131,10 +131,9 @@ internal sealed class SupervisorApp : Application
         var sup = _settings.Supervision;
         _sm = new SupervisionStateMachine(
             maxRetries: sup.MaxRetries,
-            windowSeconds: sup.CrashWindowSeconds,
-            hangThresholdSeconds: sup.HangThresholdSeconds,
-            startupGraceSeconds: sup.StartupGraceSeconds,
-            windowResetSeconds: sup.CrashWindowSeconds);
+            windowSeconds: sup.CrashWindowSeconds);
+        // hangThresholdSeconds / startupGraceSeconds are read directly from settings in the clock-tick
+        // checks (PeriodicCheckStale / PeriodicCheckStartupGrace).
         _pc = new ProcessController();
         _freshness = new HeartbeatFreshnessEvaluator(sup.HangThresholdSeconds);
 
@@ -395,17 +394,26 @@ internal sealed class SupervisorApp : Application
     /// <summary>Performs the actual app launch (not paused by default) and wires exit detection. Called by PeriodicCheckPendingRelaunch after the backoff delay.</summary>
     private void DoLaunchApp()
     {
-        Log.Information("LaunchApp: starting {AppExePath}.", _appExePath);
-        _pc.Launch(_appExePath, paused: false);
-
-        // _supervisingSince / _launchingSince are tracked via the state transitions in HandleInput
-        // (Launching is stamped when LaunchRequest flips state; Supervising when the first heartbeat arrives).
-
-        // Wire the process-exit callback so an unannounced exit feeds ProcessExited into the loop.
-        WireProcessExited();
-
-        // Pipe starts eagerly in adoption mode at supervisor startup (see EnsurePipeStartedAdoption).
-        EnsurePipeStarted();
+        // This runs on the dispatcher (via PeriodicCheckPendingRelaunch). An unhandled exception here
+        // (e.g. Process.Start throwing because the app exe is missing — the installer-less default) would
+        // surface as a DispatcherUnhandledException and tear down the supervisor itself. Guard it: on
+        // launch failure, log and leave the state machine in its current (Launching/Recovering) state;
+        // the next clock tick's startup-grace / stale checks drive recovery without killing the supervisor.
+        try
+        {
+            Log.Information("LaunchApp: starting {AppExePath}.", _appExePath);
+            _pc.Launch(_appExePath, paused: false);
+            WireProcessExited(); // exit callback so an unannounced exit feeds ProcessExited.
+            EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
+        }
+        catch (Exception ex)
+        {
+            // Launch failed (app exe missing or Process.Start threw). Leave the state machine in its
+            // current state — the next clock tick's startup-grace / stale checks drive recovery without
+            // killing the supervisor. _pc has no bound process here (Launch threw before assigning it),
+            // so no Exited event can double-count.
+            Log.Error(ex, "LaunchApp failed (app exe missing or Process.Start threw); leaving state for recovery.");
+        }
     }
 
     /// <summary>
@@ -492,15 +500,19 @@ internal sealed class SupervisorApp : Application
         var dialog = new FallenBackDialog();
         dialog.RetryRequested += () =>
         {
-            // Paused-retry handoff: relaunch with --paused so the retried instance is inert
-            // (no SendInput) until the user is ready, without mutating the persisted setting.
-            // The machine stays in FallenBack (this is a one-shot manual reprieve, not a state
-            // transition); the dialog is closed and the user interacts with the relaunched app.
-            Log.Information("FallenBack dialog Retry: relaunching app with --paused.");
+            // Paused-retry handoff: relaunch with --paused so the retried instance is inert (no
+            // SendInput) until the user is ready, without mutating the persisted setting. Transition
+            // the machine to IdleWatch so the retried app's first heartbeat can ADOPT it back into
+            // Supervising (otherwise it stays FallenBack, which has no HeartbeatReceived case, so the
+            // retried app would be unsupervised — no crash recovery, no clean-exit detection).
+            Log.Information("FallenBack dialog Retry: relaunching app with --paused and returning to IdleWatch.");
             dialog.Close();
             _pc.Launch(_appExePath, paused: true);
             WireProcessExited();
             EnsurePipeStarted();
+            // Re-arm IdleWatch so the next verified heartbeat adopts the retried instance. Feeding an
+            // explicit input (rather than poking State) keeps the transition through the machine's API.
+            HandleInput(new FallenBackRetry(DateTime.UtcNow));
         };
         dialog.Dismissed += () =>
         {

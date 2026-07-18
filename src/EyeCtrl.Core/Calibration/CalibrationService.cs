@@ -167,6 +167,12 @@ public class CalibrationService
             throw new InvalidOperationException(
                 "Calibration produced an unusable transform — gaze would map off-screen. Please recalibrate.");
 
+        // Also reject a fit that stays on-screen but is far from identity (flips/amplifies gaze): it would
+        // pass IsTransformSane yet break fixation. See CalibrationValidator.IsNearIdentity.
+        if (!CalibrationValidator.IsNearIdentity(transform, screenSize.X, screenSize.Y))
+            throw new InvalidOperationException(
+                "Calibration produced a distorted transform (gaze would be flipped or amplified). Please recalibrate.");
+
         double diagonal = Math.Sqrt(screenSize.X * screenSize.X + screenSize.Y * screenSize.Y);
         double maxResidual = CalibrationValidator.MaxResidualPixels(transform, points);
         if (maxResidual > diagonal * CalibrationValidator.MaxResidualScreenFraction)
@@ -238,6 +244,19 @@ public class CalibrationService
             {
                 _logger?.LogWarning(
                     "Calibration data from {FilePath} maps gaze off-screen (degenerate transform); ignoring",
+                    filePath);
+                return;
+            }
+
+            // Defense in depth: also reject a transform that stays on-screen but is far from identity
+            // (axis flip / gross scale / large offset). Such a fit passes IsTransformSane yet distorts and
+            // amplifies gaze enough to break fixation. EyeCtrl calibration fine-tunes already-screen-space
+            // gaze, so a valid transform is near-identity; ignoring a degenerate one leaves the pipeline on
+            // raw (tracker-calibrated) gaze rather than poisoning every gaze point.
+            if (!CalibrationValidator.IsNearIdentity(transform, currentScreenSize.X, currentScreenSize.Y))
+            {
+                _logger?.LogWarning(
+                    "Calibration data from {FilePath} deviates too far from identity (degenerate fit); ignoring",
                     filePath);
                 return;
             }

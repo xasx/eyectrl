@@ -987,8 +987,12 @@ public class EventCoordinator : IEventCoordinator
                 cursorCircle.Hide();
                 activationButton.HideImmediate();
                 ShowBackdropIfEnabled();
-                ManualSelectionOverlay.Show(_context.ManualSelectionVM.Center, _context.ManualSelectionVM.Radius, _context.ManualSelectionVM.Magnification, _context.ManualSelectionVM.GazePoint);
+                ManualSelectionOverlay.Show(_context.ManualSelectionVM.Center, _context.ManualSelectionVM.Radius, _context.ManualSelectionVM.Magnification, _context.ManualSelectionVM.GazePoint, _context.ManualSelectionVM.Recapture);
                 ManualSelectionIndicator.Show();
+                // Keep the gaze dot above the opaque magnifier: the Show() above is a no-op if the
+                // indicator's own VM already showed it before the magnifier, leaving it hidden
+                // underneath. Force it back to the top of the top-most band.
+                ManualSelectionIndicator.RaiseToTop();
             }
             else
             {

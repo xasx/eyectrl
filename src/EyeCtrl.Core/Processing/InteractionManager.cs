@@ -36,8 +36,11 @@ public class InteractionManager
     public event Action<PhysicalPoint>? ShowActionMenu;
     /// <summary>Raised to hide the action menu.</summary>
     public event Action? HideActionMenu;
-    /// <summary>Raised to start manual (zoom-to-point) selection at a given point.</summary>
+    /// <summary>Raised to start manual (zoom-to-point) selection at a given point (captures a fresh screenshot).</summary>
     public event Action<PhysicalPoint>? StartManualSelection;
+    /// <summary>Raised to re-show the manual-selection view when navigating BACK from the action menu,
+    /// reusing the existing screenshot instead of re-capturing (the screen is dimmed by the backdrop).</summary>
+    public event Action<PhysicalPoint>? RestoreManualSelectionView;
     /// <summary>Raised to end manual selection.</summary>
     public event Action? EndManualSelection;
     /// <summary>Raised to hide the manual selection overlay.</summary>
@@ -170,11 +173,12 @@ public class InteractionManager
     {
         if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
         {
-            // Back from action view → return to ManualSelection selection
+            // Back from action view → return to ManualSelection selection. Reuse the existing
+            // capture (do NOT re-capture — the backdrop is up, and the shot is unchanged).
             HideActionMenu?.Invoke();
             ManualSelectionDwellPoint = null;
             SetState(InteractionState.ManualSelectionActive);
-            StartManualSelection?.Invoke(FixationPoint!.Value);
+            RestoreManualSelectionView?.Invoke(FixationPoint!.Value);
         }
         else if (CurrentState == InteractionState.ManualSelectionActive)
         {

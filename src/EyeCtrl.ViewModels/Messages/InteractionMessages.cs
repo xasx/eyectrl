@@ -36,7 +36,7 @@ public record StateChangedMessage(InteractionState NewState);
 /// Sent to start ManualSelection mode.
 /// Center and GazePoint are in physical screen pixels.
 /// </summary>
-public record StartManualSelectionMessage(PhysicalPoint Center, int Radius, double Magnification, PhysicalPoint GazePoint);
+public record StartManualSelectionMessage(PhysicalPoint Center, int Radius, double Magnification, PhysicalPoint GazePoint, bool Recapture = true);
 
 /// <summary>
 /// Sent when a manual selection completes normally (an action was chosen or the user closed it).

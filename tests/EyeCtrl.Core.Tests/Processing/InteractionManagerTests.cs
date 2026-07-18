@@ -127,8 +127,10 @@ public class InteractionManagerTests
         bool startManualSelectionFired = false;
         bool hideActionMenuFired = false;
         bool endManualSelectionFired = false;
+        PhysicalPoint? restoredAt = null;
 
         im.StartManualSelection += _ => startManualSelectionFired = true;
+        im.RestoreManualSelectionView += p => restoredAt = p;
         im.HideActionMenu += () => hideActionMenuFired = true;
         im.EndManualSelection += () => endManualSelectionFired = true;
 
@@ -139,12 +141,15 @@ public class InteractionManagerTests
         im.OnManualSelectionDwell(ManualSelectionPoint);
         Check.That(im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActionMenuVisible);
 
-        // Back from action menu → returns to ManualSelection, NOT FreeLook
-        startManualSelectionFired = false; // reset to detect re-fire
+        // Back from action menu → returns to ManualSelection, NOT FreeLook.
+        // It must RESTORE the existing view (reuse the screenshot), NOT re-start a fresh
+        // capture: StartManualSelection must stay silent, RestoreManualSelectionView fires.
+        startManualSelectionFired = false; // reset to detect an unwanted re-fire
         im.OnManualSelectionBack();
         Check.That(im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
         Check.That(hideActionMenuFired).IsTrue();
-        Check.That(startManualSelectionFired).IsTrue();
+        Check.That(startManualSelectionFired).IsFalse();
+        Check.That(restoredAt).IsEqualTo(fixPoint);
         Check.That(endManualSelectionFired).IsFalse();
     }
 

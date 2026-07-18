@@ -13,6 +13,15 @@ public class CalibrationValidatorTests
         -59.27218454102549, 3683.7487218623305, -2847.0947780201545
     };
 
+    // The exact parameters persisted to calibration.json on 2026-07-14. Unlike DegenerateParams, these
+    // stay within the generous 1.5x-screen bound (so IsTransformSane accepts them) but flip X and amplify
+    // gaze — mapping screen centre ~3150px away — which breaks fixation. IsNearIdentity is the guard for it.
+    private static readonly double[] JitterAmplifyingParams =
+    {
+        -1.4792189234724626, -1.3271156575795569, 3201.4014928696142,
+        -0.3181342085970778, 0.5928388160665401, 1170.8048259684977
+    };
+
     private static AffineTransform FromParams(double[] p)
     {
         var t = new AffineTransform();
@@ -59,6 +68,50 @@ public class CalibrationValidatorTests
         var identity = new AffineTransform();
 
         Check.That(CalibrationValidator.IsTransformSane(identity, 0, 2400)).IsFalse();
+    }
+
+    [Fact]
+    public void IsTransformSane_ReturnsTrue_ForJitterAmplifyingTransform_WhichIsWhyIsNearIdentityExists()
+    {
+        // Documents the gap: the 2026-07-14 transform maps every screen reference point within the generous
+        // 1.5x-screen bound, so IsTransformSane alone cannot catch it — it loaded and broke fixation in prod.
+        var t = FromParams(JitterAmplifyingParams);
+
+        Check.That(CalibrationValidator.IsTransformSane(t, 3840, 2400)).IsTrue();
+    }
+
+    [Fact]
+    public void IsNearIdentity_ReturnsTrue_ForIdentity()
+    {
+        var identity = new AffineTransform(); // defaults to identity
+
+        Check.That(CalibrationValidator.IsNearIdentity(identity, 3840, 2400)).IsTrue();
+    }
+
+    [Fact]
+    public void IsNearIdentity_ReturnsTrue_ForReasonableCorrection()
+    {
+        // The same realistic correction IsTransformSane accepts: modest scale + translation.
+        var t = FromParams(new[] { 1.05, 0.02, 40.0, -0.01, 0.98, -25.0 });
+
+        Check.That(CalibrationValidator.IsNearIdentity(t, 3840, 2400)).IsTrue();
+    }
+
+    [Fact]
+    public void IsNearIdentity_ReturnsFalse_ForJitterAmplifyingTransform()
+    {
+        // The 2026-07-14 file: on-screen (passes IsTransformSane) but far from identity — must be rejected.
+        var t = FromParams(JitterAmplifyingParams);
+
+        Check.That(CalibrationValidator.IsNearIdentity(t, 3840, 2400)).IsFalse();
+    }
+
+    [Fact]
+    public void IsNearIdentity_ReturnsFalse_ForNonPositiveScreen()
+    {
+        var identity = new AffineTransform();
+
+        Check.That(CalibrationValidator.IsNearIdentity(identity, 0, 2400)).IsFalse();
     }
 
     [Fact]

@@ -20,6 +20,16 @@ public static class CalibrationValidator
     public const double MaxOffScreenFactor = 1.5;
 
     /// <summary>
+    /// A valid calibration fine-tunes gaze that already arrives in screen pixels (the provider delivers
+    /// tracker-calibrated coordinates), so it must stay close to identity. Reject any transform that
+    /// displaces a screen reference point by more than this fraction of the screen diagonal: that is a
+    /// degenerate fit (axis flip, gross scale/shear, or large offset) which maps to plausible-but-wrong
+    /// locations and amplifies gaze jitter until fixation cannot hold — not a real correction. A realistic
+    /// correction displaces reference points by well under 10% of the diagonal.
+    /// </summary>
+    public const double MaxIdentityDisplacementScreenFraction = 0.25;
+
+    /// <summary>
     /// The largest post-transform residual must stay within this fraction of the screen diagonal
     /// for a calibration to be accepted. Generous, so only clearly-bad fits are rejected.
     /// </summary>
@@ -65,6 +75,41 @@ public static class CalibrationValidator
             if (!double.IsFinite(p.X) || !double.IsFinite(p.Y)) return false;
             if (p.X < -marginX || p.X > screenWidth + marginX) return false;
             if (p.Y < -marginY || p.Y > screenHeight + marginY) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="transform"/> behaves like a small correction: it maps each of the
+    /// screen's four corners and centre to within <see cref="MaxIdentityDisplacementScreenFraction"/> of the
+    /// screen diagonal from where that point already sits. Rejects axis flips and gross scale/shear/offset
+    /// that map points to plausible-but-wrong locations — the failure mode <see cref="IsTransformSane"/>'s
+    /// generous on-screen bound lets through (e.g. a transform that flips X and shifts the centre a third of
+    /// the screen, amplifying gaze jitter until fixation cannot hold). Returns false for a non-positive
+    /// screen size or any reference point that maps to a non-finite coordinate.
+    /// </summary>
+    public static bool IsNearIdentity(ICalibrationTransform transform, double screenWidth, double screenHeight)
+    {
+        if (!(screenWidth > 0) || !(screenHeight > 0)) return false;
+
+        double maxDisplacement =
+            Math.Sqrt(screenWidth * screenWidth + screenHeight * screenHeight)
+            * MaxIdentityDisplacementScreenFraction;
+
+        var references = new[]
+        {
+            new PhysicalPoint(0, 0),
+            new PhysicalPoint(screenWidth, 0),
+            new PhysicalPoint(0, screenHeight),
+            new PhysicalPoint(screenWidth, screenHeight),
+            new PhysicalPoint(screenWidth / 2, screenHeight / 2),
+        };
+
+        foreach (var reference in references)
+        {
+            var p = transform.Apply(reference);
+            if (!double.IsFinite(p.X) || !double.IsFinite(p.Y)) return false;
+            if (p.DistanceTo(reference) > maxDisplacement) return false;
         }
         return true;
     }

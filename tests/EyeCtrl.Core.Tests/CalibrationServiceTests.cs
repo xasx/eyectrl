@@ -250,6 +250,33 @@ public class CalibrationServiceTests
     }
 
     [Fact]
+    public void Load_IgnoresJitterAmplifyingTransform()
+    {
+        // The exact params persisted on 2026-07-14: they stay on-screen (so the older IsTransformSane guard
+        // accepts them) but flip and amplify gaze, breaking fixation in production. Load must ignore them and
+        // leave the pipeline on raw (tracker-calibrated) gaze.
+        var logger = new FakeLogger<CalibrationService>();
+        var service = new CalibrationService(logger);
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path,
+                "{\"transformParams\":[-1.4792189234724626,-1.3271156575795569,3201.4014928696142," +
+                "-0.3181342085970778,0.5928388160665401,1170.8048259684977]," +
+                "\"screenWidth\":3840,\"screenHeight\":2400,\"monitorDeviceName\":\"DISPLAY1\"}");
+
+            service.Load(path, new PhysicalPoint(3840, 2400), "DISPLAY1");
+
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(logger.LoggedCount > 0).IsTrue();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AddRawSample_DropsImplausibleSamples()
     {
         var service = new CalibrationService();

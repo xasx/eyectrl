@@ -37,4 +37,23 @@ public class ManualSelectionGazeIndicatorViewModelTests
         Check.That(vm.IsVisible).IsFalse();
         Check.That(vm.FixationProgress).IsEqualTo(0.0);
     }
+
+    [Fact]
+    public void UpdateGazePosition_PlacesDotAtRawGaze_NotOffsetByOriginalFixationAndZoom()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ManualSelectionGazeIndicatorViewModel(messenger);
+        vm.Configure(new EyeCtrlSettings());
+
+        // Circle shown at screen centre; user originally fixated far away (300,200); 2x zoom.
+        // The old mapping flung the dot to centre + (gaze - origin) * 2 (off the circle); the dot
+        // must instead sit exactly under the current gaze — the screen point the dwell will select.
+        messenger.Send(new StartManualSelectionMessage(
+            new PhysicalPoint(960, 540), 150, 2.0, new PhysicalPoint(300, 200)));
+
+        vm.UpdateGazePosition(new PhysicalPoint(1000, 560));
+
+        Check.That(vm.IndicatorX).IsEqualTo(1000d);
+        Check.That(vm.IndicatorY).IsEqualTo(560d);
+    }
 }

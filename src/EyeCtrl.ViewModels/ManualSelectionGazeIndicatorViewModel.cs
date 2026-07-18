@@ -30,11 +30,6 @@ public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelB
     // Fixation progress 0.0 → 1.0 (raw, before easing)
     [ObservableProperty] private double _fixationProgress;
 
-    // ManualSelection geometry needed for coordinate mapping
-    private PhysicalPoint _manualSelectionOriginalCenter = new(0, 0);  // Capture center (gaze point)
-    private PhysicalPoint _manualSelectionWindowCenter = new(0, 0);    // Display center (may be screen center)
-    private double _magnification = 1.0;
-
     public double CenterDotDiameter { get; private set; }
     public double StrokeThickness { get; private set; }
     public double Opacity { get; private set; }
@@ -60,13 +55,6 @@ public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelB
 
     public void Receive(StartManualSelectionMessage message)
     {
-        // The capture center is the gaze point (what we're zooming in on)
-        _manualSelectionOriginalCenter = message.GazePoint;
-        _magnification = message.Magnification;
-
-        // The ManualSelection window center is where the overlay is displayed (gaze point in AtGaze mode, screen center in AtCenter mode)
-        _manualSelectionWindowCenter = message.Center;
-
         OuterCircleDiameter = _outerCircleDiameterSetting;
         FixationProgress = 0.0;
         IsVisible = true;
@@ -102,18 +90,15 @@ public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelB
     }
 
     /// <summary>
-    /// Called from App.xaml.cs with the current gaze screen point.
-    /// Converts to magnified coordinates and updates position.
+    /// Positions the indicator at the raw gaze point — exactly where the user is looking inside the
+    /// already-zoomed manual-selection circle, which is the screen point the dwell will select.
+    /// (Previously it was offset from the ORIGINAL fixation by the zoom factor, so as the eyes moved
+    /// to the centred circle the dot drifted off it, leaving no usable "where am I aiming" marker.)
     /// </summary>
     public void UpdateGazePosition(PhysicalPoint gazeScreenPoint)
     {
-        // Convert screen gaze to magnified coordinates:
-        // magnifiedPoint = ManualSelectionWindowCenter + (gazePoint - originalCenter) * magnification
-        var magX = _manualSelectionWindowCenter.X + (gazeScreenPoint.X - _manualSelectionOriginalCenter.X) * _magnification;
-        var magY = _manualSelectionWindowCenter.Y + (gazeScreenPoint.Y - _manualSelectionOriginalCenter.Y) * _magnification;
-
-        IndicatorX = magX;
-        IndicatorY = magY;
+        IndicatorX = gazeScreenPoint.X;
+        IndicatorY = gazeScreenPoint.Y;
     }
 
     /// <summary>

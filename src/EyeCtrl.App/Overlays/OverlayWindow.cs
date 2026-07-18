@@ -20,7 +20,14 @@ public class OverlayWindow : Window
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint dwAffinity);
 
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
     private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+    private static readonly IntPtr HWND_TOPMOST = new(-1);
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOACTIVATE = 0x0010;
 
     public bool IsClickThrough { get; init; }
 
@@ -45,6 +52,19 @@ public class OverlayWindow : Window
             if (hwnd != IntPtr.Zero)
                 SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
         }
+    }
+
+    /// <summary>
+    /// Re-inserts this window at the top of the top-most Z-order band without moving, resizing, or
+    /// activating it. Keeps an overlay above sibling top-most overlays shown after it — e.g. the
+    /// manual-selection gaze indicator, which must draw above the opaque magnifier even though its
+    /// own ViewModel may have shown it first (a second Show() is a no-op that would not re-raise it).
+    /// </summary>
+    public void RaiseToTop()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     /// <summary>

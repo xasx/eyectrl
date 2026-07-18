@@ -16,6 +16,10 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
     [ObservableProperty] private double _magnification;
     [ObservableProperty] private PhysicalPoint _gazePoint = new(0, 0);
 
+    /// <summary>Whether the next show should capture a fresh screenshot (true) or reuse the existing
+    /// one (false, e.g. navigating back from the action menu). Set before <see cref="IsVisible"/>.</summary>
+    public bool Recapture { get; private set; } = true;
+
     public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger)
         : base(messenger, settings.Dwell.DwellCooldownMs)
     {
@@ -27,6 +31,7 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
         Radius = message.Radius;
         Magnification = message.Magnification;
         GazePoint = message.GazePoint;
+        Recapture = message.Recapture; // set before IsVisible so the show handler reads the right value
 
         IsVisible = true;
     }

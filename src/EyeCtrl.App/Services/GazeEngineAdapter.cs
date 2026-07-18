@@ -45,6 +45,7 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.ShowActionMenu += OnShowActionMenu;
         _interactionManager.HideActionMenu += OnHideActionMenu;
         _interactionManager.StartManualSelection += OnStartManualSelection;
+        _interactionManager.RestoreManualSelectionView += OnRestoreManualSelectionView;
         _interactionManager.EndManualSelection += OnEndManualSelection;
         _interactionManager.HideManualSelection += OnHideManualSelection;
         _interactionManager.StateChanged += OnStateChanged;
@@ -153,7 +154,11 @@ public class GazeEngineAdapter : IDisposable
     private void OnHideActionMenu() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new HideActionMenuMessage()));
 
-    private void OnStartManualSelection(PhysicalPoint point) =>
+    // Fresh entry: capture a new screenshot. Back from the action menu: reuse the existing one.
+    private void OnStartManualSelection(PhysicalPoint point) => SendStartManualSelection(point, recapture: true);
+    private void OnRestoreManualSelectionView(PhysicalPoint point) => SendStartManualSelection(point, recapture: false);
+
+    private void SendStartManualSelection(PhysicalPoint point, bool recapture) =>
         _dispatcher.BeginInvoke(() =>
         {
             // Get screen dimensions in physical pixels
@@ -171,7 +176,8 @@ public class GazeEngineAdapter : IDisposable
                 displayPoint,
                 _settings.ManualSelection.CircleRadiusPixels,
                 _settings.ManualSelection.MagnificationLevel,
-                point  // GazePoint - always pass the original gaze point for capture
+                point,  // GazePoint - always pass the original gaze point for capture
+                recapture
             ));
         });
 
@@ -222,6 +228,7 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.ShowActionMenu -= OnShowActionMenu;
         _interactionManager.HideActionMenu -= OnHideActionMenu;
         _interactionManager.StartManualSelection -= OnStartManualSelection;
+        _interactionManager.RestoreManualSelectionView -= OnRestoreManualSelectionView;
         _interactionManager.EndManualSelection -= OnEndManualSelection;
         _interactionManager.HideManualSelection -= OnHideManualSelection;
         _interactionManager.StateChanged -= OnStateChanged;

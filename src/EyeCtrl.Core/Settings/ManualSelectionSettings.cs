@@ -15,7 +15,7 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _manualSelectionGracePeriodMs = 500;
 
     /// <summary>Outer diameter of the gaze indicator in logical pixels during manual selection.</summary>
-    [ObservableProperty] private double _gazeIndicatorOuterDiameter = 30.0;
+    [ObservableProperty] private double _gazeIndicatorOuterDiameter = 60.0;
     /// <summary>Diameter of the center dot in the gaze indicator in logical pixels.</summary>
     [ObservableProperty] private double _gazeIndicatorCenterDotDiameter = 10.0;
     /// <summary>Stroke thickness of the gaze indicator in logical pixels.</summary>

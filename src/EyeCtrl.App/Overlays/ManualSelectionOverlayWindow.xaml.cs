@@ -21,13 +21,13 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void Show(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null)
+    public void Show(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null, bool recapture = true)
     {
-        UpdateCenter(center, radius, magnification, gazePoint);
+        UpdateCenter(center, radius, magnification, gazePoint, recapture);
         Show();
     }
 
-    public void UpdateCenter(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null)
+    public void UpdateCenter(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null, bool recapture = true)
     {
         // Only update _captureCenter if gazePoint is explicitly provided
         // This preserves the capture center when realigning the display position
@@ -48,8 +48,13 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow
         // radius is in DIPs; CopyFromScreen needs physical pixels.
         // Scaling ensures the captured area matches the DIP display window,
         // so visual magnification equals the configured magnification.
-        var physicalRadius = (int)(radius * DpiHelper.ScaleX);
-        CaptureAndDisplay(_captureCenter!.Value, physicalRadius);
+        // Skip the capture when reusing an existing shot (e.g. back from the action menu): re-capturing
+        // there is wasteful and would grab the dimmed backdrop that is up during that transition.
+        if (recapture || ManualSelectionBrush.ImageSource == null)
+        {
+            var physicalRadius = (int)(radius * DpiHelper.ScaleX);
+            CaptureAndDisplay(_captureCenter!.Value, physicalRadius);
+        }
     }
 
     private async void CaptureAndDisplay(PhysicalPoint center, int radius)

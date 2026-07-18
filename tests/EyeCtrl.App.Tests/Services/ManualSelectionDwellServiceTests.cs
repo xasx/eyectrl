@@ -326,7 +326,7 @@ public class ManualSelectionDwellServiceTests
         _interactionManager.OnFixationStarted(gazePoint);
         _interactionManager.OnActivationButtonDwelled();
 
-        // The ViewModel should convert gaze coordinates to magnified space
+        // Configure the indicator VM so it can position the dot at the gaze point.
         _indicatorVM.Configure(_settings);
 
         UpdateManualSelectionIndicatorPositionMessage? positionMessage = null;
@@ -341,11 +341,12 @@ public class ManualSelectionDwellServiceTests
         Check.That(positionMessage!.GazePoint.X).IsCloseTo(510, 0.005);
         Check.That(positionMessage!.GazePoint.Y).IsCloseTo(510, 0.005);
     
-        // The ViewModel should convert this to magnified coordinates
-        // magnifiedX = ManualSelectionCenter.X + (gazePoint.X - originalCenter.X) * magnification
-        // magnifiedX = 500 + (510 - 500) * 2.0 = 500 + 20 = 520
-        Check.That(_indicatorVM.IndicatorX).IsCloseTo(520, 0.005);
-        Check.That(_indicatorVM.IndicatorY).IsCloseTo(520, 0.005);
+        // The indicator is drawn at the RAW gaze point — where the user is looking inside the already-
+        // zoomed circle, which is the exact screen point the dwell selects. It is NOT offset by the
+        // magnification (that older mapping drifted the dot off the gaze), so it equals the physical
+        // screen coordinate, matching this test's name.
+        Check.That(_indicatorVM.IndicatorX).IsCloseTo(510, 0.005);
+        Check.That(_indicatorVM.IndicatorY).IsCloseTo(510, 0.005);
 
         _messenger.Unregister<UpdateManualSelectionIndicatorPositionMessage>(this);
     }

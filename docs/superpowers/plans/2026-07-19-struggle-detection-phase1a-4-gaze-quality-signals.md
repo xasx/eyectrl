@@ -248,6 +248,24 @@ public class FixationCentroidTrackerJitterTests
         t.StartTracking(); // new fixation resets accumulation
         Check.That(t.SpeedStdDev).IsEqualTo(0.0);
     }
+
+    [Fact]
+    public void StopTracking_LatchesLastCompletedJitter_ThenResetsLive()
+    {
+        var t = new FixationCentroidTracker(velocityThresholdPxPerSec: 100_000);
+        t.StartTracking();
+        t.Update(new PhysicalPoint(0, 0), 0);
+        t.Update(new PhysicalPoint(1, 0), 100_000);
+        t.Update(new PhysicalPoint(6, 0), 200_000);
+        t.Update(new PhysicalPoint(7, 0), 300_000);
+        double live = t.SpeedStdDev;
+        Check.That(live > 0).IsTrue();
+
+        t.StopTracking(); // fixation end: latch the completed jitter, reset the live accumulator
+
+        Check.That(t.LastCompletedSpeedStdDev).IsEqualTo(live);
+        Check.That(t.SpeedStdDev).IsEqualTo(0.0);
+    }
 }
 ```
 
@@ -291,11 +309,28 @@ Add the public property (after `StableCentroid`):
     /// </summary>
     public double SpeedStdDev =>
         _speedCount > 1 ? Math.Sqrt(_speedM2 / (_speedCount - 1)) : 0.0;
+
+    /// <summary>
+    /// Gaze-speed standard deviation of the most recently *completed* fixation, latched at
+    /// <see cref="StopTracking"/> (fixation end) before the live accumulator resets. Persists
+    /// between fixations, so a windowed reader sees the last completed fixation's jitter rather
+    /// than a mid-fixation fragment or a between-fixations zero (design §6.2 — "emitted at fixation end").
+    /// </summary>
+    public double LastCompletedSpeedStdDev { get; private set; }
 ```
 
-In both `StartTracking` and `StopTracking`, reset the new fields alongside the existing ones — add these three lines to each method's body:
+In `StartTracking`, reset the live accumulator — add these three lines to its body:
 
 ```csharp
+        _speedCount = 0;
+        _speedMean = 0;
+        _speedM2 = 0;
+```
+
+In `StopTracking`, **latch the completed jitter before resetting** (`StopTracking` is wired to `FixationEnded`, so this captures the per-fixation statistic at fixation end — design §6.2). Add:
+
+```csharp
+        LastCompletedSpeedStdDev = SpeedStdDev;
         _speedCount = 0;
         _speedMean = 0;
         _speedM2 = 0;
@@ -322,10 +357,15 @@ to:
             : 0;
 
         // Welford accumulation of per-sample speed for the jitter statistic.
-        _speedCount++;
-        double speedDelta = speed - _speedMean;
-        _speedMean += speedDelta / _speedCount;
-        _speedM2 += speedDelta * (speed - _speedMean);
+        // Skip degenerate dt (duplicate / out-of-order timestamps → phantom zero speed) so it
+        // doesn't deflate the variance.
+        if (dtSeconds > 0)
+        {
+            _speedCount++;
+            double speedDelta = speed - _speedMean;
+            _speedMean += speedDelta / _speedCount;
+            _speedM2 += speedDelta * (speed - _speedMean);
+        }
 
         if (speed <= _velocityThresholdPxPerSec)
             Include(point);
@@ -336,8 +376,9 @@ to:
 In `src/EyeCtrl.Core/GazeEngine.cs`, add after the `StableCentroid` property:
 
 ```csharp
-    /// <summary>Gaze-speed standard deviation (px/s) during the current fixation — a jitter/shakiness proxy.</summary>
-    public double FixationJitter => _centroidTracker.SpeedStdDev;
+    /// <summary>Gaze-speed standard deviation (px/s) of the last *completed* fixation — a jitter/shakiness
+    /// proxy latched at fixation end (design §6.2). Persists between fixations.</summary>
+    public double LastFixationJitter => _centroidTracker.LastCompletedSpeedStdDev;
 ```
 
 - [ ] **Step 5: Run tests + confirm no regressions**
@@ -431,8 +472,6 @@ public class GazeQualityAggregatorTests
     }
 }
 ```
-
-(If `GazePoint`'s members aren't settable via object-initializer, construct it with whatever its shape requires — check `src/EyeCtrl.Core/Models/GazePoint.cs`. The test only needs `X`, `Y`, `IsValid`, `TimestampMicroseconds`.)
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -657,7 +696,10 @@ In `src/EyeCtrl.App/App.xaml.cs`, immediately after the eye-care subscription (t
             // until the StruggleMonitor (Phase 1b) consumes them — zero behaviour change today.
             var gazeQuality = _serviceProvider.GetRequiredService<GazeQualityAggregator>();
             gazeEngine.GazeSampled += sample =>
-                gazeQuality.OnSample(sample, gazeEngine.FixationJitter, eyeCare.FatigueScore);
+                // LastFixationJitter = the last *completed* fixation's jitter (latched at fixation
+                // end); FatigueScore is fresh (eye-care's handler ran first this event). Both are
+                // read on the gaze thread, same as this handler.
+                gazeQuality.OnSample(sample, gazeEngine.LastFixationJitter, eyeCare.FatigueScore);
 ```
 
 (Add `using EyeCtrl.Core.Adaptation;` to `App.xaml.cs` if not present.)
@@ -681,11 +723,13 @@ git commit -m "feat(adaptation): wire gaze-quality aggregator to the gaze stream
 
 ## Self-Review
 
-**Spec coverage:** §6.2 poor-tracking (`InvalidFraction`), shaky/jitter (`JitterStdDev` from `FixationCentroidTracker`, R3 fix — velocity was previously discarded), fatigue (reused `FatigueMonitor.Score`, not reimplemented). §9/§9.1: aggregation is O(1) per sample on the gaze thread; only ~2 Hz summaries cross the dispatcher (via `DispatcherTelemetrySink`); monotonic guard on summaries in `BufferingTelemetrySink`. §11: `ReportGazeQuality` no-throw (buffer makes no external calls; dispatcher wrapper try/catch). Deferred: off-screen fraction (needs screen bounds); effective-settings (1a-⑤).
+**Spec coverage:** §6.2 poor-tracking (`InvalidFraction`); shaky/jitter (`JitterStdDev` = the last *completed* fixation's gaze-speed std-dev, **latched at fixation end** in `FixationCentroidTracker.StopTracking` per §6.2's "emitted at fixation end", surfaced by `GazeEngine.LastFixationJitter` — the R3 fix, since velocity was previously discarded; not a live mid-window snapshot, which would read 0 between fixations); fatigue (reused `FatigueMonitor.Score`, not reimplemented). §9/§9.1: aggregation is O(1) per sample on the gaze thread; only ~2 Hz summaries cross the dispatcher (via `DispatcherTelemetrySink`); monotonic guard on summaries in `BufferingTelemetrySink`; the Welford accumulation skips degenerate `dt ≤ 0` samples. §11: `ReportGazeQuality` no-throw (buffer makes no external calls; dispatcher wrapper try/catch). Deferred: off-screen fraction (needs screen bounds); effective-settings (1a-⑤).
+
+**Note for 1b (L2):** jitter is measured on the *filtered* gaze stream (`_centroidTracker` is fed filtered points), so smoothing suppresses measured jitter — and "more smoothing" is itself a 1b adaptation response, a mild feedback path. Design R3 accepted this location; 1b's monitor should calibrate jitter thresholds accordingly (a later refinement could derive jitter from raw/calibrated gaze). Jitter read at the aggregator is also inherently one fixation behind (latched at the *previous* fixation's end) — intended, since a completed statistic is more meaningful than a mid-fixation fragment.
 
 **Placeholder scan:** none. The one conditional note (Task 3 `GazePoint` construction) points the implementer at the real file for the exact initializer shape — the field set needed is explicit.
 
-**Type consistency:** `GazeQualitySummary`'s 5 positional args are constructed identically in the aggregator, the sink tests, and `BufferingTelemetrySink`. `IGazeQualitySink.ReportGazeQuality(in GazeQualitySummary)` is implemented by `BufferingTelemetrySink` and `DispatcherTelemetrySink`. `GazeEngine.FixationJitter` → `FixationCentroidTracker.SpeedStdDev`. `IEyeCareService.FatigueScore` → `EyeCareService._fatigueMonitor.Score`. `GazeQualityAggregator(IGazeQualitySink, int)` matches the DI factory.
+**Type consistency:** `GazeQualitySummary`'s 5 positional args are constructed identically in the aggregator, the sink tests, and `BufferingTelemetrySink`. `IGazeQualitySink.ReportGazeQuality(in GazeQualitySummary)` is implemented by `BufferingTelemetrySink` and `DispatcherTelemetrySink`. `GazeEngine.LastFixationJitter` → `FixationCentroidTracker.LastCompletedSpeedStdDev` (latched at `StopTracking`). `IEyeCareService.FatigueScore` → `EyeCareService._fatigueMonitor.Score`. `GazeQualityAggregator(IGazeQualitySink, int)` matches the DI factory.
 
 **Zero behaviour change:** `FixationCentroidTracker` centroid math untouched (only new fields/property added; reset extended); `GazeEngine.FixationJitter` is read-only; the aggregator only buffers; `DispatcherTelemetrySink`'s `innerQuality` is optional (1a-② tests unaffected). Nothing consumes summaries until 1b.
 

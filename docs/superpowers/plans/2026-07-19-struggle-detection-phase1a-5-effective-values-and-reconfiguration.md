@@ -124,6 +124,21 @@ and add the enumeration entry at the end of `EnumerateSubSettings()` (after the 
         yield return (nameof(Adaptation), Adaptation);
 ```
 
+Finally, update the hardcoded count in `tests/EyeCtrl.Core.Tests/Settings/EyeCtrlSettingsEnumerationTests.cs` — the enumeration now yields **19**. Rename the method and bump the assertion:
+
+```csharp
+    [Fact]
+    public void EnumerateSubSettings_Yields19Entries_AllValidatable()
+    {
+        var subs = new EyeCtrlSettings().EnumerateSubSettings().ToList();
+
+        Check.That(subs).HasSize(19);
+        Check.That(subs.All(t => t.Settings is IValidatable)).IsTrue();
+    }
+```
+
+(The reflection-based `_CoversEveryValidatableProperty` and `Validate_DefaultInstance_HasNoErrors` tests already pass with the addition — only this hardcoded count needs bumping.)
+
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AdaptationSettingsTests"`
@@ -132,12 +147,12 @@ Expected: PASS (2 tests).
 - [ ] **Step 5: Run the enumeration drift-guard**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~EyeCtrlSettingsEnumerationTests"`
-Expected: PASS — the drift-guard requires every sub-settings property to be enumerated; the new `yield return` satisfies it. (If it fails, the property was added without the `yield return`, or vice-versa.)
+Expected: PASS (all 3 tests) — the count test now asserts 19, and the reflection-based coverage test confirms the property is enumerated. (Coverage-test failure ⇒ property added without the `yield return` or vice-versa; count-test failure ⇒ the `HasSize` wasn't bumped to 19.)
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/EyeCtrl.Core/Settings/AdaptationSettings.cs src/EyeCtrl.Core/Settings/AdaptationPosture.cs src/EyeCtrl.Core/Settings/EyeCtrlSettings.cs tests/EyeCtrl.Core.Tests/Settings/AdaptationSettingsTests.cs
+git add src/EyeCtrl.Core/Settings/AdaptationSettings.cs src/EyeCtrl.Core/Settings/AdaptationPosture.cs src/EyeCtrl.Core/Settings/EyeCtrlSettings.cs tests/EyeCtrl.Core.Tests/Settings/AdaptationSettingsTests.cs tests/EyeCtrl.Core.Tests/Settings/EyeCtrlSettingsEnumerationTests.cs
 git commit -m "feat(adaptation): add AdaptationSettings gate (opt-in) + enumeration registration"
 ```
 
@@ -170,11 +185,13 @@ public class EffectiveValueTests
     }
 
     [Fact]
-    public void ZeroDelta_ReturnsBaseline_EvenWhenBaselineSitsOutsideBands()
+    public void ZeroDelta_ReturnsBaseline_EvenWhenBaselineIsOutsideTheValidatedRange()
     {
-        // Baseline far above the (delta) bands; zero delta must still return it exactly.
-        double v = EffectiveValue.Compute(1950, 0, 0, Forgiving, Tightening, validMin: 200, validMax: 2000);
-        Check.That(v).IsEqualTo(1950.0);
+        // A legacy/hand-edited baseline ABOVE validMax. With zero delta the value model must return
+        // it exactly — the validated-range clamp only engages when delta != 0 (design §5). This is
+        // the invariant that keeps "adaptation idle == the user's baseline" true even for bad settings.
+        double v = EffectiveValue.Compute(2500, 0, 0, Forgiving, Tightening, validMin: 200, validMax: 2000);
+        Check.That(v).IsEqualTo(2500.0);
     }
 
     [Fact]
@@ -237,7 +254,8 @@ public static class EffectiveValue
     /// <param name="tighteningBand">Inclusive (Min, Max) the tightening delta is clamped to.</param>
     /// <param name="validMin">Lower bound of the setting's validated range.</param>
     /// <param name="validMax">Upper bound of the setting's validated range.</param>
-    /// <returns><c>clamp(baseline + clamp(forgiving) + clamp(tightening), [validMin, validMax])</c>.</returns>
+    /// <returns>The exact <paramref name="baseline"/> when the clamped delta is zero; otherwise
+    /// <c>clamp(baseline + clampedForgiving + clampedTightening, [validMin, validMax])</c>.</returns>
     public static double Compute(
         double baseline,
         double forgivingDelta,
@@ -249,7 +267,11 @@ public static class EffectiveValue
     {
         double forgiving = Math.Clamp(forgivingDelta, forgivingBand.Min, forgivingBand.Max);
         double tightening = Math.Clamp(tighteningDelta, tighteningBand.Min, tighteningBand.Max);
-        return Math.Clamp(baseline + forgiving + tightening, validMin, validMax);
+        double delta = forgiving + tightening;
+        // §5: the validated-range clamp engages only when delta != 0, so a zero delta always returns
+        // the exact baseline — even a legacy/hand-edited baseline sitting outside the range.
+        if (delta == 0) return baseline;
+        return Math.Clamp(baseline + delta, validMin, validMax);
     }
 }
 ```
@@ -408,40 +430,50 @@ Create `tests/EyeCtrl.Core.Tests/Processing/GapInterpolatorWarmStartTests.cs`:
 ```csharp
 namespace EyeCtrl.Core.Tests.Processing;
 
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 
 public class GapInterpolatorWarmStartTests
 {
-    private static GapInterpolator Fresh() => new(new OneEuroFilter(), maxGapMs: 150);
-
-    [Fact]
-    public void WarmStart_SmoothsFirstSample_InsteadOfColdSnappingToRaw()
+    // Covers both filter kinds the GazeEngine rebuild can produce (design R1: both return the seed
+    // unchanged on first call). A cold rebuild emits the raw sample; a warm-started rebuild smooths
+    // from the carried-over seed — below the raw, and never past the seed (bounded one-sample lag).
+    private static void AssertWarmStartSmoothsFirstSample(Func<IGazeFilter> makeFilter)
     {
         // Establish a filtered position near (500,500) on the "old" interpolator.
-        var old = Fresh();
+        var old = new GapInterpolator(makeFilter(), maxGapMs: 150);
         long t = 0;
         for (int i = 0; i < 10; i++) { old.Process(new GazePoint(500, 500, t, true)); t += 33_000; }
 
-        // Rebuild WITH warm-start, then feed a noisy sample at x=600.
-        var warm = Fresh();
+        // Rebuild WITH warm-start, then feed a sample at x=600.
+        var warm = new GapInterpolator(makeFilter(), maxGapMs: 150);
         warm.CopyStateFrom(old);
         warm.WarmStartFromCurrentState();
         double warmX = warm.Process(new GazePoint(600, 500, t, true)).Position.X;
 
         // Rebuild WITHOUT warm-start (cold filter): first Process returns the raw sample.
-        var cold = Fresh();
+        var cold = new GapInterpolator(makeFilter(), maxGapMs: 150);
         cold.CopyStateFrom(old);
         double coldX = cold.Process(new GazePoint(600, 500, t, true)).Position.X;
 
-        Check.That(coldX).IsEqualTo(600.0);        // cold filter emits the raw point (the jump)
-        Check.That(warmX < 600.0).IsTrue();         // warm-started filter smooths from the seed
+        Check.That(coldX).IsEqualTo(600.0);   // cold: emits the raw point (the jump)
+        Check.That(warmX < 600.0).IsTrue();    // warm: smoothed below the raw...
+        Check.That(warmX >= 500.0).IsTrue();   // ...and no overshoot past the seed (bounded lag)
     }
+
+    [Fact]
+    public void WarmStart_SmoothsFirstSample_OneEuro()
+        => AssertWarmStartSmoothsFirstSample(() => new OneEuroFilter());
+
+    [Fact]
+    public void WarmStart_SmoothsFirstSample_Ema()
+        => AssertWarmStartSmoothsFirstSample(() => new SmoothedFilter(0.5));
 
     [Fact]
     public void WarmStart_IsNoOp_WithNoPriorState()
     {
-        var i = Fresh();
+        var i = new GapInterpolator(new OneEuroFilter(), maxGapMs: 150);
         i.WarmStartFromCurrentState(); // no established position yet → must not throw
     }
 }
@@ -512,7 +544,7 @@ to (add the three smoothing params + warm-start):
 - [ ] **Step 5: Run + confirm no regressions**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~GapInterpolatorWarmStartTests"`
-Expected: PASS (2 tests).
+Expected: PASS (3 tests — One-Euro + EMA warm-start, plus the no-prior-state no-op).
 Run: `dotnet test tests/EyeCtrl.Core.Tests`
 Expected: PASS (full Core suite — `GapInterpolator`/`GazeEngine` existing tests unaffected; the rebuild now also warm-starts, which only removes the cold first sample).
 
@@ -528,7 +560,7 @@ git commit -m "feat(adaptation): warm-start filter on reconfiguration; extend tr
 ## Self-Review
 
 **Spec coverage (Phase-1a substrate completion):**
-- §5 value model — `EffectiveValue`: sub-band composition, tightening not swallowed (C1), final clamp to validated range, **zero delta ⇒ exact baseline** (the exit invariant, incl. out-of-band baseline). ✓
+- §5 value model — `EffectiveValue`: sub-band composition, tightening not swallowed (C1), **delta-gated** clamp to the validated range so **zero delta ⇒ exact baseline even for an out-of-*range* (legacy/hand-edited) baseline** — the locked exit invariant. ✓
 - §5/§8 `AdaptationSettings.Enabled` gate — the master switch exists and defaults off; Phase 1b's controller yields zero deltas when off, and `EffectiveValue` guarantees zero deltas → baseline. ✓
 - §5 live-update primitives — `UpdateTargetDwellTime`/`UpdateTargetGeometry` (state-preserving, C4), warm-started filter rebuild (R1) extended to the smoothing params. ✓
 - Registration convention — `AdaptationSettings` added as an `[ObservableProperty]` **and** yielded from `EnumerateSubSettings()`; the drift-guard test enforces both. ✓

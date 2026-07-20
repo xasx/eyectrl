@@ -346,6 +346,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
@@ -419,6 +420,28 @@ public class OverlayTelemetryWiringTests
         foreach (var name in subclasses)
             Check.That(expected.ContainsKey(name)).IsTrue();
     }
+
+    [Fact]
+    public void ActivationButtonViewModel_EmitsOutcome_TaggedActivationButtonContext()
+    {
+        // A real subclass, end-to-end: proves the wired context literal is correct. The drift guard
+        // above only checks that every subclass has *an* entry, not that its `: base(...)` literal
+        // matches — this closes that gap for one representative surface (L3).
+        var sink = new RecordingSink();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationButtonDwellMs = 200;
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ActivationButtonViewModel(settings, messenger, sink);
+
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        Check.That(vm.IsVisible).IsTrue();
+        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 0));
+        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 200_000));
+
+        Check.That(sink.Outcomes).Not.IsEmpty();
+        Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Activated);
+        Check.That(sink.Outcomes[0].Context).IsEqualTo(DwellContext.ActivationButton);
+    }
 }
 ```
 
@@ -458,18 +481,18 @@ The defaulted `(Other, null)` keeps the deferred `ScrollOverlayViewModel` (and a
 
 - [ ] **Step 4: Wire the 9 DI-registered subclasses**
 
-Each edit appends `IStruggleTelemetrySink sink` to the constructor (MEDI auto-resolves it by type — position is irrelevant) and adds `, DwellContext.<X>, sink` to the `: base(...)` call. Add `using EyeCtrl.Core.Adaptation;` to each file. Apply all nine exactly:
+Each edit appends an **optional** `IStruggleTelemetrySink? sink = null` to the constructor and adds `, DwellContext.<X>, sink` to the `: base(...)` call. Add `using EyeCtrl.Core.Adaptation;` to each file. **The parameter must be optional:** ~65 existing test call sites across 12 files construct these view-models directly (e.g. `new ActionMenuViewModel(settings, messenger)`); a *required* parameter would break the solution build. MEDI still injects the real sink in production — it resolves a registered service even when the parameter has a default value (the default is only a fallback when the service is unregistered). Apply all nine exactly:
 
 **ActionMenuViewModel.cs** →
 ```csharp
-public ActionMenuViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink sink)
+public ActionMenuViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
     : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ActionMenu, sink)
 {
 }
 ```
 **ActivationButtonViewModel.cs** →
 ```csharp
-public ActivationButtonViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink sink)
+public ActivationButtonViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
     : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ActivationButton, sink)
 {
     _settings = settings;
@@ -477,7 +500,7 @@ public ActivationButtonViewModel(EyeCtrlSettings settings, IMessenger messenger,
 ```
 **DragTrailViewModel.cs** →
 ```csharp
-public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink sink)
+public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
     : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.DragTrail, sink)
 {
     _settings = settings;
@@ -491,14 +514,14 @@ public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger, IStrug
 ```
 **EdgeButtonBarViewModel.cs** →
 ```csharp
-public EdgeButtonBarViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink sink)
+public EdgeButtonBarViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
     : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.EdgeButtonBar, sink)
 {
 }
 ```
 **GlassBackdropViewModel.cs** →
 ```csharp
-public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink sink)
+public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
     : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Backdrop, sink)
 {
     _settings = settings;
@@ -506,7 +529,7 @@ public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger, IS
 ```
 **ManualSelectionOverlayViewModel.cs** →
 ```csharp
-public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink sink)
+public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
     : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ManualSelection, sink)
 {
 }
@@ -517,7 +540,7 @@ public QuickActionsGridViewModel(
     IQuickActionsStore store,
     EyeCtrlSettings settings,
     IMessenger messenger,
-    IStruggleTelemetrySink sink)
+    IStruggleTelemetrySink? sink = null)
     : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.QuickActions, sink)
 {
     _store = store;
@@ -531,17 +554,17 @@ public TaskSwitcherViewModel(
     IWindowManager windowManager,
     EyeCtrlSettings settings,
     IMessenger messenger,
-    IStruggleTelemetrySink sink)
+    IStruggleTelemetrySink? sink = null)
     : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.TaskSwitcher, sink)
 {
     _windowManager = windowManager;
     _messenger = messenger;
-    _settings = settings;
+    _settings = settings;  // H2 fix: assigned
 }
 ```
 **ToolbarViewModel.cs** → change only the signature line and the `: base(...)` line; leave the constructor body (the button/target setup) exactly as-is:
 ```csharp
-public ToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink sink)
+public ToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
     : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink)
 {
     // ... existing body unchanged ...
@@ -555,8 +578,10 @@ Expected: PASS (2 tests).
 - [ ] **Step 6: Full build + headless suites (confirm DI resolves and nothing regressed)**
 
 Run: `dotnet build EyeCtrl.slnx`
-Expected: builds — the 9 subclasses' new `IStruggleTelemetrySink` param resolves from the Task 2 registration; `ScrollOverlayViewModel` still compiles via the defaulted base params.
-Run: `dotnet test tests/EyeCtrl.Core.Tests tests/EyeCtrl.ViewModels.Tests`
+Expected: builds — the 9 subclasses' optional `IStruggleTelemetrySink? sink` resolves from the Task 2 registration in production, and the ~65 existing direct test constructions compile unchanged (default `null`); `ScrollOverlayViewModel` still compiles via the defaulted base params.
+Run: `dotnet test tests/EyeCtrl.Core.Tests`
+Run: `dotnet test tests/EyeCtrl.ViewModels.Tests`
+(Two separate invocations — the pinned SDK's classic VSTest-mode `dotnet test` accepts only one project/solution path; passing two errors with MSB1008.)
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
 Expected: PASS (headless subsets green).
 
@@ -574,7 +599,7 @@ git commit -m "feat(adaptation): report DwellOutcomes from the 9 DI overlay view
 **Spec coverage (this slice):**
 - §9 serialized channel + monotonic guard — `DispatcherTelemetrySink` (serialize onto dispatcher) + `BufferingTelemetrySink` (drop out-of-order). ✓
 - §11 no-throw on the gaze path — `DispatcherTelemetrySink.Forward` try/catch; `BufferingTelemetrySink.Report` makes no external calls. ✓
-- §4 shared sink across surfaces + per-context tagging — base-class threading + 9 subclass contexts; drift guard locks coverage. ✓
+- §4 shared sink across surfaces + per-context tagging — base-class threading + 9 subclass contexts; the `ActivationButtonViewModel` emission test verifies one real wired context literal end-to-end, and the drift guard locks name coverage (a new subclass with no context decision fails the build). ✓
 - §9.1 zero behaviour change — the sink only buffers; overlays' interaction logic is untouched; base params default so the deferred subclass is unchanged. ✓
 - **Deferred (documented, not gaps):** factory/manual surfaces (`ScrollOverlay`, `ExternalDwellService`, `ManualSelectionDwellService`, `EyeCareBannerWindow`, `EmojiGridManager`, `KeyboardWindow` prediction), `KeyboardViewModel` net-new key emission, gaze-quality signals + fatigue, effective-settings → plans 1a-③ / 1a-④. The drift-guard test already lists `ScrollOverlayViewModel`'s intended context so it stays green until that wiring lands.
 
@@ -585,5 +610,6 @@ git commit -m "feat(adaptation): report DwellOutcomes from the 9 DI overlay view
 **Verified facts this plan relies on (from source):** MEDI, all `AddSingleton`; the 9 listed subclasses are `AddSingleton<T>()` type-registrations (auto-inject the new param); `ScrollOverlayViewModel` is *not* in DI (manual `new` in `ScrollModeController.cs:77`) hence deferred; `dispatcher` and `ILogger<T>` are available in `AppBootstrapper.BuildServiceProvider`. Subclass constructor signatures are reproduced verbatim from source.
 
 **Implementer notes:**
+- **Backward compatibility (C1):** the sink params are optional (`= null`), so the ~65 existing direct VM constructions across 12 test files compile unchanged and stay un-instrumented (correct — none of them assert outcomes). MEDI still injects the registered sink in production; a default value is only a fallback used when the service is unregistered.
+- **C1 trade-off:** because the params are optional, a *missing* Task 2 registration does not fail resolution — MEDI silently passes `null` and production runs uninstrumented. The registration is the point of the slice, so confirm it exists (e.g. resolve `IStruggleTelemetrySink` from the built provider in a smoke check); `DispatcherTelemetrySinkTests` and the overlay emission test guard the sink itself but not that it was registered.
 - `EyeCtrl.App.Tests` runs the delegate-seam sink test headlessly (plain `[Fact]`, no WPF) — keep it out of the `Category=UI` set.
-- If `dotnet build` reports an unresolved `IStruggleTelemetrySink` for any subclass, the Task 2 DI registration was skipped or ordered after use — it must be registered before `BuildServiceProvider()` returns (order within the method does not matter for singletons, but the registration must exist).

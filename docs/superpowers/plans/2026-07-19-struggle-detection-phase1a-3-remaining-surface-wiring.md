@@ -2,24 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Complete the `DwellOutcome` fan-in so **every** dwell surface reports into the telemetry sink: the `KeyboardViewModel` nearest-key tracker (net-new emission logic), the `ScrollOverlayViewModel`, the two dwell services, the eye-care banner, and the manual-`new` keyboard/emoji overlays — all with **zero behaviour change** (the sink still only buffers).
+**Goal:** Complete the `DwellOutcome` fan-in so **every dwell surface that actually accumulates dwell** reports into the telemetry sink: the `KeyboardViewModel` nearest-key tracker (net-new emission logic), the two dwell services, the eye-care banner, and the manual-`new` keyboard-prediction and emoji overlays — all with **zero behaviour change** (the sink still only buffers).
 
-**Architecture:** Reuses the sink and `DwellContext` from 1a-①/②. Surfaces that own a `Core.DwellDetector` just pass `(context, sink)` to it. The keyboard's *own* nearest-key accumulator (not a `DwellDetector`) gets net-new, sink-gated emission mirroring `DwellDetector`'s semantics. Wiring paths differ per surface (DI auto-inject / factory lambda / manual `new` / the `EventCoordinationContext` record), all verified against source.
+**Architecture:** Reuses the sink and `DwellContext` from 1a-①/②. Surfaces that own a live `Core.DwellDetector` just pass `(context, sink)` to it. The keyboard's *own* nearest-key accumulator (not a `DwellDetector`) gets net-new, sink-gated emission mirroring `DwellDetector`'s semantics. Wiring paths differ per surface (DI auto-inject / factory lambda / manual `new`), all verified against source.
 
 **Tech Stack:** C# / .NET 10; `EyeCtrl.ViewModels`, `EyeCtrl.App`; xUnit v3 + NFluent.
 
 **Depends on:** 1a-① (contracts + `DwellDetector(context, sink)`), 1a-② (`IStruggleTelemetrySink` registered in DI; base overlay wiring). **Core enforces CS1591.**
 
-**Scope boundary:** gaze-quality signals (jitter / tracking / fatigue push) → plan 1a-④; effective-settings layer → plan 1a-⑤. This plan finishes the *dwell-outcome* fan-in only.
+**`DwellContext.Scroll` is intentionally NOT wired here.** `ScrollOverlayViewModel` is a base overlay subclass but is **inert** — it overrides `Receive(GazeCursorMovedMessage)` without ever calling `DwellDetector.Update` (`ScrollOverlayViewModel.cs:59-87`), because the scroll-stop dwell lives on the shared `EdgeButtonBarViewModel` (`ScrollOverlayViewModel.cs:37-38`). Its detector never accumulates, so wiring a sink into it would tag a context that can never fire. Scroll-stop struggle is therefore reported under `DwellContext.EdgeButtonBar` (wired in 1a-②). `DwellContext.Scroll` stays a **reserved-but-silent** enum value; the 1a-② drift-guard's `ScrollOverlayViewModel → Scroll` entry documents that reservation, and the VM keeps the base ctor's default `(Other, null)` — harmless, since it never emits. (See Self-Review.)
 
-**Testability note (read first):** only `KeyboardViewModel` (Task 1) is cleanly unit-testable headlessly — its `ProcessKeyGaze` is a pure public method. The other surfaces are App-layer services/`Window`s whose emission flows through a `Core.DwellDetector` **already proven** by 1a-①'s `DwellDetectorTelemetryTests`; those tasks are verified by `dotnet build` + the correct `DwellContext` literal (confirmed by review), not by new per-surface WPF tests. This is called out honestly per task.
+**Scope boundary:** gaze-quality signals (jitter / tracking / fatigue push) → plan 1a-④; effective-settings layer → plan 1a-⑤.
+
+**Testability note (read first):** only `KeyboardViewModel` (Task 1) is cleanly unit-testable headlessly — its `ProcessKeyGaze` is a pure public method. The other surfaces are App-layer services/`Window`s whose emission flows through a `Core.DwellDetector` **already proven** by 1a-①'s `DwellDetectorTelemetryTests`; those tasks are verified by `dotnet build` + the correct `DwellContext` literal (confirmed by review), not by new per-surface WPF tests.
 
 ---
 
 ## File Structure
 
-**Modify (ViewModels):** `KeyboardViewModel.cs` (net-new emission), `ScrollOverlayViewModel.cs` (context/sink).
-**Modify (App):** `AppBootstrapper.cs` (3 factory lambdas + OverlayManager lambda), `IEventCoordinator.cs` (record param), `App.xaml.cs` (supply sink), `ScrollModeController.cs` (pass sink), `Services/ExternalDwellService.cs`, `Services/ManualSelectionDwellService.cs`, `Overlays/EyeCareBannerWindow.xaml.cs`, `Services/OverlayManager.cs`, `Overlays/KeyboardWindow.xaml.cs`, `Overlays/EmojiGridManager.cs`.
+**Modify (ViewModels):** `KeyboardViewModel.cs` (net-new emission).
+**Modify (App):** `AppBootstrapper.cs` (3 service/banner factory lambdas + the OverlayManager lambda), `Services/ExternalDwellService.cs`, `Services/ManualSelectionDwellService.cs`, `Overlays/EyeCareBannerWindow.xaml.cs`, `Services/OverlayManager.cs`, `Overlays/KeyboardWindow.xaml.cs`, `Overlays/EmojiGridManager.cs`.
 **Test (create):** `tests/EyeCtrl.ViewModels.Tests/Adaptation/KeyboardTelemetryTests.cs`.
 
 All sink params are **optional (`= null`)** so existing direct constructions in tests compile unchanged and MEDI still injects the registered sink (per 1a-②'s C1 rationale).
@@ -263,6 +265,8 @@ Replace the whole `ProcessKeyGaze` method with the version below (three sink-gat
 
     // Reports an abandonment of the CURRENT NearestKeyId (still set at the call point) if it had
     // accumulated at least the threshold. No-op when there is no sink or no in-progress key.
+    // The gazePoint fallback for the center is unreachable in practice — key ids are stable within
+    // a layout, so keyScreenPositions always contains NearestKeyId here — but keeps this total.
     private void EmitAbandonIfNeeded(Dictionary<string, PhysicalPoint> keyScreenPositions,
         PhysicalPoint gazePoint, long timestampUs, AbandonReason reason)
     {
@@ -280,6 +284,7 @@ Replace the whole `ProcessKeyGaze` method with the version below (three sink-gat
         PhysicalPoint gazePoint, string keyId, long timestampUs)
     {
         if (_sink is null) return;
+        // gazePoint fallback is unreachable in practice (keyId just matched a dictionary entry).
         var center = keyScreenPositions.TryGetValue(keyId, out var c) ? c : gazePoint;
         _sink.Report(new DwellOutcome(
             timestampUs, DwellContext.Keyboard, keyId,
@@ -306,100 +311,7 @@ git commit -m "feat(adaptation): emit gaze-driven keyboard key outcomes (sink-ga
 
 ---
 
-## Task 2: `ScrollOverlayViewModel` via the `EventCoordinationContext` record
-
-`ScrollOverlayViewModel` is a base overlay subclass but is **not** in DI — `ScrollModeController` `new`s it, and the controller only has an `EventCoordinationContext`. So the sink is threaded through that record.
-
-**Files:** `src/EyeCtrl.ViewModels/ScrollOverlayViewModel.cs`, `src/EyeCtrl.App/Services/IEventCoordinator.cs`, `src/EyeCtrl.App/App.xaml.cs`, `src/EyeCtrl.App/Services/ScrollModeController.cs`
-
-- [ ] **Step 1: Wire the ViewModel**
-
-In `src/EyeCtrl.ViewModels/ScrollOverlayViewModel.cs` add `using EyeCtrl.Core.Adaptation;` and change:
-
-```csharp
-    public ScrollOverlayViewModel(IMessenger messenger, ScrollSettings scrollSettings, DwellSettings dwellSettings)
-        : base(messenger, dwellSettings.DwellCooldownMs)
-    {
-        _scrollSettings = scrollSettings;
-    }
-```
-
-to:
-
-```csharp
-    public ScrollOverlayViewModel(IMessenger messenger, ScrollSettings scrollSettings, DwellSettings dwellSettings,
-        IStruggleTelemetrySink? sink = null)
-        : base(messenger, dwellSettings.DwellCooldownMs, DwellContext.Scroll, sink)
-    {
-        _scrollSettings = scrollSettings;
-    }
-```
-
-- [ ] **Step 2: Add a defaulted sink parameter to the context record**
-
-In `src/EyeCtrl.App/Services/IEventCoordinator.cs`, add `using EyeCtrl.Core.Adaptation;` and append a **last, defaulted** positional parameter to the `EventCoordinationContext` record so existing constructions stay valid. Change the final parameter line:
-
-```csharp
-    IWindowsAppLauncher WindowsAppLauncher,
-    IInstalledAppProvider InstalledAppProvider);
-```
-
-to:
-
-```csharp
-    IWindowsAppLauncher WindowsAppLauncher,
-    IInstalledAppProvider InstalledAppProvider,
-    IStruggleTelemetrySink? StruggleTelemetrySink = null);
-```
-
-- [ ] **Step 3: Supply the real sink at the construction site**
-
-In `src/EyeCtrl.App/App.xaml.cs`, the context is built at lines 167-179. Append the resolved sink as the final argument. Change the closing argument line:
-
-```csharp
-                _serviceProvider.GetRequiredService<IWindowsAppLauncher>(),
-                _serviceProvider.GetRequiredService<IInstalledAppProvider>());
-```
-
-to:
-
-```csharp
-                _serviceProvider.GetRequiredService<IWindowsAppLauncher>(),
-                _serviceProvider.GetRequiredService<IInstalledAppProvider>(),
-                _serviceProvider.GetRequiredService<IStruggleTelemetrySink>());
-```
-
-- [ ] **Step 4: Pass it when constructing the ViewModel**
-
-In `src/EyeCtrl.App/Services/ScrollModeController.cs`, change line 77:
-
-```csharp
-        _scrollOverlayVm = new ScrollOverlayViewModel(_context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell);
-```
-
-to:
-
-```csharp
-        _scrollOverlayVm = new ScrollOverlayViewModel(_context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell,
-            _context.StruggleTelemetrySink);
-```
-
-- [ ] **Step 5: Build + verify context correctness**
-
-Run: `dotnet build EyeCtrl.slnx`
-Expected: builds. The record's defaulted param keeps any other `new EventCoordinationContext(...)` sites compiling; `App.xaml.cs` now supplies the real sink.
-Verification: `ScrollOverlayViewModel`'s `DwellContext.Scroll` is already the intended value asserted by 1a-②'s drift-guard map, and its base-class threading is proven by 1a-②'s `ProbeOverlayViewModel` test. No new runtime test (its show flow needs the App host); the literal is confirmed by review.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/EyeCtrl.ViewModels/ScrollOverlayViewModel.cs src/EyeCtrl.App/Services/IEventCoordinator.cs src/EyeCtrl.App/App.xaml.cs src/EyeCtrl.App/Services/ScrollModeController.cs
-git commit -m "feat(adaptation): report scroll-overlay dwell outcomes via context sink"
-```
-
----
-
-## Task 3: Factory-registered services + eye-care banner
+## Task 2: Factory-registered services + eye-care banner
 
 Each owns a `Core.DwellDetector`; give it `(context, sink)` and pass the sink through the AppBootstrapper factory lambda.
 
@@ -451,7 +363,7 @@ to:
 
 In `src/EyeCtrl.App/Services/AppBootstrapper.cs`, add the sink to each factory lambda.
 
-ExternalDwellService (lines 192-197) — append the argument:
+ExternalDwellService (lines 192-197) — append by name (its ctor has an optional `Func<...>? rootWindowAtPoint = null` before `sink`):
 ```csharp
         services.AddSingleton(sp => new ExternalDwellService(
             sp.GetRequiredService<EyeCtrlSettings>().ExternalDwell,
@@ -461,9 +373,8 @@ ExternalDwellService (lines 192-197) — append the argument:
             sp.GetRequiredService<IMessenger>(),
             sink: sp.GetRequiredService<IStruggleTelemetrySink>()));
 ```
-(`ExternalDwellService`'s ctor has a `Func<...>? rootWindowAtPoint = null` before the new `sink`; pass `sink` by name so it binds past the skipped optional.)
 
-ManualSelectionDwellService (lines 184-189) — append:
+ManualSelectionDwellService (lines 184-189) — append positionally (sink is the last ctor param):
 ```csharp
         services.AddSingleton(sp => new ManualSelectionDwellService(
             sp.GetRequiredService<IMessenger>(),
@@ -495,15 +406,15 @@ git commit -m "feat(adaptation): report dwell outcomes from external/manual-sele
 
 ---
 
-## Task 4: Manual-`new` overlay chain (OverlayManager → KeyboardWindow → EmojiGridManager)
+## Task 3: Manual-`new` overlay chain (OverlayManager → KeyboardWindow → EmojiGridManager)
 
 These aren't in DI: `OverlayManager` (factory lambda) `new`s `KeyboardWindow`, which `new`s `EmojiGridManager`. Thread the sink down the chain. Both detectors use target-typed `new()` field initializers, which must move into constructors to receive the sink.
 
 **Files:** `Services/AppBootstrapper.cs`, `Services/OverlayManager.cs`, `Overlays/KeyboardWindow.xaml.cs`, `Overlays/EmojiGridManager.cs`
 
-- [ ] **Step 1: OverlayManager takes the sink and passes it to KeyboardWindow**
+- [ ] **Step 1: OverlayManager takes the sink (optional) and passes it to KeyboardWindow**
 
-In `src/EyeCtrl.App/Services/OverlayManager.cs` add `using EyeCtrl.Core.Adaptation;`, add a field `private readonly IStruggleTelemetrySink _sink;`, append `IStruggleTelemetrySink sink` to the constructor and assign it, then change line 59:
+In `src/EyeCtrl.App/Services/OverlayManager.cs` add `using EyeCtrl.Core.Adaptation;`, add a field `private readonly IStruggleTelemetrySink? _sink;`, append **optional** `IStruggleTelemetrySink? sink = null` to the constructor and assign it (optional for uniformity with every other sink param — its sole construction is the AppBootstrapper factory below), then change line 59:
 
 ```csharp
         Keyboard = new KeyboardWindow();
@@ -625,18 +536,20 @@ git commit -m "feat(adaptation): report dwell outcomes from keyboard-prediction 
 
 ## Self-Review
 
-**Spec coverage (completes the §4/§6 fan-in):** every dwell surface now reports — the 9 DI overlays (1a-②), plus `KeyboardViewModel` keys (Task 1), `ScrollOverlay` (Task 2), external/manual-selection/eye-care (Task 3), keyboard-prediction + emoji (Task 4). `SettingsWindowViewModel`'s 4 detectors remain intentionally un-instrumented (design §2 non-goal — the remedy surface). Gaze-quality signals + effective-settings are 1a-④/1a-⑤.
+**Spec coverage (completes the §4/§6 fan-in for surfaces that actually dwell):** every *accumulating* dwell surface now reports — the 9 DI overlays (1a-②), plus `KeyboardViewModel` keys (Task 1), external/manual-selection/eye-care (Task 2), keyboard-prediction + emoji (Task 3). Two surfaces are deliberately excluded and documented, not gaps:
+- `SettingsWindowViewModel`'s 4 detectors — the remedy surface (design §2 non-goal).
+- `ScrollOverlayViewModel` — **inert** (owns no live detector; overrides `Receive` without `DwellDetector.Update`). Scroll-stop dwell is on `EdgeButtonBarViewModel` → already reported as `DwellContext.EdgeButtonBar` (1a-②). `DwellContext.Scroll` is therefore **reserved-but-silent**; 1b's per-context scoring must not expect Scroll evidence — scroll-stop struggle scores against `EdgeButtonBar`. This is the accepted per-detector granularity from design §4 (a shared bar conflates its hosted logical surfaces). The 1a-② drift-guard's `ScrollOverlayViewModel → Scroll` entry documents the reservation; the VM keeps the base default `(Other, null)` and never emits.
 
-**Keyboard emission fidelity:** mirrors `DwellDetector` — Activated on completion; Abandoned/NearestChanged on key switch ≥ threshold; Abandoned/GazeLeft on leaving the key area ≥ threshold; **no** emission during post-activation cooldown (verified by `Cooldown_AfterActivation_NeverEmitsAbandoned`). Reason derivation uses the still-current `NearestKeyId`/`_nearestKeyEnteredTimestamp` at each call point (before reassignment), so progress is the old key's. Zero behaviour change when `_sink` is null.
+Gaze-quality signals + effective-settings are 1a-④/1a-⑤.
+
+**Keyboard emission fidelity:** mirrors `DwellDetector` — Activated on completion; Abandoned/NearestChanged on key switch ≥ threshold; Abandoned/GazeLeft on leaving the key area ≥ threshold; **no** emission during post-activation cooldown (verified by `Cooldown_AfterActivation_NeverEmitsAbandoned`). Reason derivation uses the still-current `NearestKeyId`/`_nearestKeyEnteredTimestamp` at each call point (before reassignment). Zero behaviour change when `_sink` is null.
 
 **Placeholder scan:** none — every step has full code/edits and exact commands.
 
-**Type consistency:** all emissions construct `DwellOutcome` with the 10 positional args (`..., TargetRadius: 0, TargetBounds: null` for keyboard keys, which have no circle/rect geometry); `DwellContext` literals per surface match the 1a-② drift-guard map (`Scroll`, `ExternalDwell`, `ManualSelection`, `EyeCare`, `KeyboardPrediction`, `Emoji`, `Keyboard`). Every sink param is `IStruggleTelemetrySink? = null` (optional), consistent with 1a-②.
+**Type consistency:** all emissions construct `DwellOutcome` with the 10 positional args (`..., TargetRadius: 0, TargetBounds: null` for keyboard keys, which have no circle/rect geometry); `DwellContext` literals per surface match the 1a-② drift-guard map (`ExternalDwell`, `ManualSelection`, `EyeCare`, `KeyboardPrediction`, `Emoji`, `Keyboard`). **Every** sink param is now `IStruggleTelemetrySink? = null` (optional), including `OverlayManager` — uniform with 1a-②'s C1 policy.
 
-**Verified facts relied on (from source):** `KeyboardViewModel` `AddSingleton<KeyboardViewModel>()` (auto-injects); `Configure`/`ProcessKeyGaze` call sites confirmed; `ScrollModeController` reaches deps only via `EventCoordinationContext` (a record with no `IServiceProvider`), constructed at `App.xaml.cs:167`; `OverlayManager`, `ExternalDwellService`, `ManualSelectionDwellService`, `EyeCareBannerWindow` are all **factory** registrations (hand-edited, not auto-injected); `KeyboardWindow`/`EmojiGridManager` constructed once each (`OverlayManager.cs:59`, `KeyboardWindow.xaml.cs:98`).
+**Verified facts relied on (from source):** `KeyboardViewModel` `AddSingleton<KeyboardViewModel>()` (auto-injects the optional sink); `Configure`/`ProcessKeyGaze` call sites confirmed; `ScrollOverlayViewModel` is inert (`:59-87`, `:37-38`); `OverlayManager`, `ExternalDwellService`, `ManualSelectionDwellService`, `EyeCareBannerWindow` are all **factory** registrations (hand-edited); `KeyboardWindow`/`EmojiGridManager` constructed once each (`OverlayManager.cs:59`, `KeyboardWindow.xaml.cs:98`); moving both detector field-initializers into constructors is NRE-safe (no usage during `InitializeComponent()`).
 
-**Honest testability limits:** only Task 1 gains new unit tests (keyboard `ProcessKeyGaze` is pure). Tasks 2-4 are App-layer wiring verified by `dotnet build` + the already-proven `DwellDetector`/base-overlay emission tests + review of the (obvious) `DwellContext` literal per surface — no fabricated WPF tests. A future end-to-end pass (or 1b's StruggleMonitor consuming real outcomes) will exercise these surfaces live.
+**Honest testability limits:** only Task 1 gains new unit tests (keyboard `ProcessKeyGaze` is pure). Tasks 2-3 are App-layer wiring verified by `dotnet build` + the already-proven `DwellDetector` emission tests + review of the (obvious) `DwellContext` literal per surface — no fabricated WPF tests.
 
-**Implementer notes:**
-- `ExternalDwellService`'s ctor has an optional `Func<PhysicalPoint,long?>? rootWindowAtPoint = null` positioned before the new `sink`; the factory passes `sink:` by name so it binds correctly past the skipped optional.
-- The `EventCoordinationContext` sink param is defaulted (`= null`) so any other construction site (e.g. a test building the record) keeps compiling; only `App.xaml.cs` supplies the real sink. If a test asserts scroll telemetry later, it must pass a sink into the record.
+**Follow-up note for 1b (L2):** keyboard outcomes carry `TargetRadius: 0` / `TargetBounds: null` because `ProcessKeyGaze` receives only key centers. A real key size exists one layer up (`KeyboardWindow._keySize`, already used for prediction-target radii). If 1b's aiming-mode scoring normalizes miss distance by target size, plumb key size into `KeyboardViewModel.Configure` then — out of scope here.

@@ -138,22 +138,25 @@ Append to `StruggleSignalsTests` (add the shared `AbandonNM` helper — also use
     [Fact]
     public void Aiming_RectAndActivationsExcluded_OnlyCircularAbandonsCount()
     {
-        // 4 circular abandons at ratio 0.5 (→ score 0) + 1 activation + 1 rect abandon with a huge
-        // near-miss. This DISCRIMINATES: were the rect (radius 0) included, |NearMiss|/0 = +Infinity would
-        // drive the mean and clamp the score to 1.0; were the activation counted, the gate count would
-        // shift. Asserting score 0 with the gate exactly met proves both are excluded.
+        // 4 circular abandons at ratio 0.5 → mean 0.5 → score 0. Two poison entries that must be ignored,
+        // each chosen so INCLUSION would change the score (so asserting 0.0 discriminates BOTH exclusions):
+        //   • an ACTIVATION carrying a large near-miss (150 px ÷ radius 30 = ratio 5) → if counted, mean
+        //     rises to (2.0 + 5.0)/5 = 1.4 → score ≈ 0.27. Excluded by the Kind guard.
+        //   • a RECT abandon (radius 0) → if counted, |NearMiss| ÷ 0 = +∞ drives the mean → score 1.0.
+        //     Excluded by the radius > 0 guard.
         var window = new List<DwellOutcome>
         {
             AbandonNM(0, DwellContext.ActionMenu, 30, 15, 0),
             AbandonNM(1 * Sec, DwellContext.ActionMenu, 30, 15, 0),
             AbandonNM(2 * Sec, DwellContext.ActionMenu, 30, 15, 0),
             AbandonNM(3 * Sec, DwellContext.ActionMenu, 30, 15, 0),
-            Activate(4 * Sec),
-            AbandonNM(5 * Sec, DwellContext.ActionMenu, radius: 0, nmX: 500, nmY: 0), // rect → ignored
+            new DwellOutcome(4 * Sec, DwellContext.ActionMenu, "act", OutcomeKind.Activated,
+                AbandonReason.None, 1.0, new PhysicalPoint(150, 0), new PhysicalPoint(0, 0), 30, null),
+            AbandonNM(5 * Sec, DwellContext.ActionMenu, radius: 0, nmX: 500, nmY: 0),
         };
         var s = StruggleSignals.ScoreAiming(window);
         Check.That(s.Score).IsEqualTo(0.0);
-        Check.That(s.GatePassed).IsTrue();
+        Check.That(s.GatePassed).IsTrue(); // exactly 4 circular abandons meet the gate
     }
 
     [Fact]
@@ -333,7 +336,7 @@ Append to `StruggleSignalsTests` (reuses `AbandonNM` from Task 1):
             window.Add(AbandonNM(i * Sec, DwellContext.ActionMenu, 30, 100, 0));
             window.Add(AbandonNM(i * Sec, DwellContext.Keyboard, 30, 100, 0));
         }
-        Check.That(StruggleSignals.ScoreDrift(window).Score).IsEqualTo(1.0);
+        Check.That(StruggleSignals.ScoreDrift(window).Score).IsCloseTo(1.0, 1e-9);
     }
 
     [Fact]
@@ -410,6 +413,10 @@ In `src/EyeCtrl.Core/Adaptation/StruggleSignals.cs`, add this method inside the 
                 vectors.Add((mx, my, mag));
         }
 
+        // Confidence = evidence volume (qualifying-context count); GatePassed = coherence achieved. These
+        // are DECOUPLED here (unlike the 1b-③a scorers where the gate tracks confidence): a fully-confident
+        // "not drift" — Confidence 1.0 with GatePassed false — is a valid, intended outcome (two biased
+        // contexts that simply don't align). §13.2's gate is "the §13.1 gate itself" (coherence), not volume.
         double confidence = Math.Clamp((double)vectors.Count / minCoherentContexts, 0.0, 1.0);
         if (vectors.Count < minCoherentContexts)
             return new SignalScore(0.0, confidence, false);

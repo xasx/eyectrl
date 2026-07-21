@@ -12,6 +12,8 @@
 
 **Depends on:** **Phase 1a fully implemented** — specifically 1a-⑤'s `EffectiveValue.Compute(...)` (`src/EyeCtrl.Core/Adaptation/EffectiveValue.cs`) and `AdaptationSettings` (`Enabled` default false, `Posture`; registered via `EyeCtrlSettings.EnumerateSubSettings()`). This plan is written against the **post-1a** source.
 
+**Executor pre-flight (do this FIRST — 1a is not yet in the tree):** confirm these three Phase-1a signatures against the *merged* 1a source before writing any code, because this plan assumes them and a shape mismatch breaks Tasks 1 and 3 silently — (1) `EffectiveValue.Compute(double baseline, double forgivingDelta, double tighteningDelta, (double Min, double Max) forgivingBand, (double Min, double Max) tighteningBand, double validMin, double validMax)`; (2) `AdaptationSettings.Enabled` (settable `bool`, default `false`) reachable as `EyeCtrlSettings.Adaptation`; (3) `DwellContext` (enum incl. `Other`). If 1a shipped any differently (e.g. a named struct instead of the band tuples, or a different parameter order), adjust Task 1's provider + tests to match before proceeding.
+
 **⚠️ Core enforces XML docs as build errors:** `src/EyeCtrl.Core/EyeCtrl.Core.csproj` sets `<GenerateDocumentationFile>true</GenerateDocumentationFile>` + `<WarningsAsErrors>CS1591</WarningsAsErrors>`. Every public member below — **including every enum member** — is documented. Do not strip the doc comments.
 
 ---
@@ -124,6 +126,26 @@ public class EffectiveSettingsProviderTests
         p.ClearMomentaryDeltas();
         Check.That(changed).IsEqualTo(2);
     }
+
+    [Fact]
+    public void FixationRadius_EffectiveStaysWithinDwellSettingsValidatedRange()
+    {
+        // Drift guard: KnobPolicy hardcodes the fixation-radius validated range (10–200), duplicating
+        // DwellSettings.FixationRadiusPixels's guard. Use that setter as the ORACLE — if KnobPolicy's
+        // ValidMax ever drifts above the settings guard, assigning the effective value back throws and
+        // this fails. No magic number in the assertion (Phase 1b-② removes the duplication).
+        var settings = new EyeCtrlSettings();
+        settings.Adaptation.Enabled = true;
+        var p = new EffectiveSettingsProvider(settings.Adaptation);
+        settings.Dwell.FixationRadiusPixels = 200; // top of the validated range
+        p.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, forgiving: 10_000, tightening: 0);
+        double eff = p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, settings.Dwell.FixationRadiusPixels);
+
+        bool threw = false;
+        try { settings.Dwell.FixationRadiusPixels = eff; }
+        catch (ArgumentOutOfRangeException) { threw = true; }
+        Check.That(threw).IsFalse();
+    }
 }
 ```
 
@@ -170,14 +192,19 @@ using EyeCtrl.Core.Settings;
 /// consumer reads. When adaptation is disabled or no delta is stored, <see cref="Effective"/> returns
 /// the exact baseline — the locked "disabled ⇒ effective == baseline" invariant (design §8.3).
 /// Not thread-safe for concurrent writes: deltas are set on the serialized controller/dispatcher
-/// thread and read via <see cref="Effective"/> on consumer threads (design §9).
+/// thread. In this slice the only reader (<c>GazeEngine.RebuildFixationDetector</c>) runs on that same
+/// thread; cross-thread reads via <see cref="Effective"/> from consumer (ViewModel) threads arrive with
+/// the later routing slices (design §9).
 /// </summary>
 public sealed class EffectiveSettingsProvider
 {
-    // §13.1 fixed safety envelope, as fractions of baseline + the setting's validated range. These
-    // are internal constants in this slice; Phase 1b-② migrates them into user-configurable
-    // AdaptationSettings. Only knobs with a delta reach this table (see Effective), and every knob
-    // that can receive a delta has an entry here.
+    // §13.1 fixed safety envelope, as fractions of baseline + the setting's validated range. These are
+    // internal constants in this slice; Phase 1b-② migrates them into user-configurable AdaptationSettings
+    // (which validates the bands inside the base range, removing the duplication).
+    // ⚠️ ValidMin/ValidMax here DUPLICATE DwellSettings.FixationRadiusPixels's guard (10–200); the Task-1
+    // drift-guard test uses that setter as the oracle so a divergence fails the build. A knob reaches this
+    // table only when it has a stored delta (see Effective), which falls back to baseline for any knob
+    // without a policy entry.
     private readonly record struct KnobPolicy(
         double ForgivingFracMin, double ForgivingFracMax,
         double TighteningFracMin, double TighteningFracMax,
@@ -217,7 +244,8 @@ public sealed class EffectiveSettingsProvider
         if (!_deltas.TryGetValue((knob, context), out var d) || (d.Forgiving == 0 && d.Tightening == 0))
             return baseline;
 
-        var p = Policies[knob];
+        if (!Policies.TryGetValue(knob, out var p))
+            return baseline; // defensive (design §11): a delta for a knob without a policy falls back to baseline
         return EffectiveValue.Compute(
             baseline, d.Forgiving, d.Tightening,
             (p.ForgivingFracMin * baseline, p.ForgivingFracMax * baseline),
@@ -254,7 +282,7 @@ public sealed class EffectiveSettingsProvider
 - [ ] **Step 5: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~EffectiveSettingsProviderTests"`
-Expected: PASS (6 tests). If any `CS1591` error appears, a doc comment was dropped — restore it.
+Expected: PASS (7 tests). If any `CS1591` error appears, a doc comment was dropped — restore it.
 
 - [ ] **Step 6: Commit**
 
@@ -334,39 +362,13 @@ Create `tests/EyeCtrl.Core.Tests/GazeEngineFixationRebuildTests.cs`:
 namespace EyeCtrl.Core.Tests;
 
 using EyeCtrl.Core.Adaptation;
-using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Core.Tests.Flow; // reuse ScriptedGazeProvider + RecordingInputSimulator (internal, same assembly)
 
 public class GazeEngineFixationRebuildTests
 {
-    private sealed class PushGazeProvider : IGazeProvider
-    {
-        public event Action<GazePoint>? GazePointReceived;
-        public bool IsConnected => true;
-        public void Start() { }
-        public void Stop() { }
-        public void Dispose() { }
-        public void Push(double x, double y, long ts) => GazePointReceived?.Invoke(new GazePoint(x, y, ts, true));
-    }
-
-    private sealed class NoopInput : IInputSimulator
-    {
-        public void MoveCursor(PhysicalPoint point) { }
-        public void LeftClick(PhysicalPoint point) { }
-        public void RightClick(PhysicalPoint point) { }
-        public void DoubleClick(PhysicalPoint point) { }
-        public void MouseDown(PhysicalPoint point) { }
-        public void MouseUp(PhysicalPoint point) { }
-        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { }
-        public void SendKeyPress(ushort virtualKeyCode) { }
-        public void SendKeyDown(ushort virtualKeyCode) { }
-        public void SendKeyUp(ushort virtualKeyCode) { }
-        public void SendText(string text) { }
-        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode) { }
-    }
-
     private static EyeCtrlSettings Settings(double radius, int detectMs)
     {
         var s = new EyeCtrlSettings();
@@ -377,15 +379,16 @@ public class GazeEngineFixationRebuildTests
     }
 
     // Alternates gaze between (cx,cy) and (cx+spanPx, cy) every 33 ms for durationMs. The maximum
-    // distance from the first point is exactly spanPx, so the cluster is ONE fixation iff the
-    // detector radius >= spanPx; with radius < spanPx the center keeps resetting and never fixates.
-    private static void DriveJitter(PushGazeProvider p, double cx, double cy, double spanPx, int durationMs, ref long ts)
+    // distance from the first point is exactly spanPx, so the cluster is ONE fixation iff the detector
+    // radius >= spanPx; with radius < spanPx the center keeps resetting and never fixates. spanPx: 0
+    // holds gaze still — a guaranteed fixation for any positive radius.
+    private static void DriveJitter(ScriptedGazeProvider p, double cx, double cy, double spanPx, int durationMs, ref long ts)
     {
         bool far = false;
         for (int elapsed = 0; elapsed < durationMs; elapsed += 33)
         {
             ts += 33_000;
-            p.Push(far ? cx + spanPx : cx, cy, ts);
+            p.Push(new GazePoint(far ? cx + spanPx : cx, cy, ts, true));
             far = !far;
         }
     }
@@ -395,8 +398,8 @@ public class GazeEngineFixationRebuildTests
     {
         // Latent-bug fix: GazeEngine previously subscribed only to CursorSettings, so this edit was ignored.
         var s = Settings(radius: 20, detectMs: 150);
-        var provider = new PushGazeProvider();
-        using var engine = new GazeEngine(provider, new NoopInput(), s);
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
         long ts = 0;
 
         DriveJitter(provider, 500, 500, spanPx: 40, durationMs: 300, ref ts); // radius 20 < 40 → no fixation
@@ -412,9 +415,9 @@ public class GazeEngineFixationRebuildTests
     {
         var s = Settings(radius: 30, detectMs: 150);
         s.Adaptation.Enabled = true;
-        var provider = new PushGazeProvider();
+        var provider = new ScriptedGazeProvider();
         var effective = new EffectiveSettingsProvider(s.Adaptation);
-        using var engine = new GazeEngine(provider, new NoopInput(), s, effectiveSettings: effective);
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s, effectiveSettings: effective);
         long ts = 0;
 
         DriveJitter(provider, 500, 500, spanPx: 40, durationMs: 300, ref ts); // baseline 30 < 40 → no fixation
@@ -431,14 +434,35 @@ public class GazeEngineFixationRebuildTests
     {
         // Exit invariant: disabled ⇒ effective == baseline, so the delta is inert.
         var s = Settings(radius: 30, detectMs: 150); // Adaptation.Enabled defaults false
-        var provider = new PushGazeProvider();
+        var provider = new ScriptedGazeProvider();
         var effective = new EffectiveSettingsProvider(s.Adaptation);
-        using var engine = new GazeEngine(provider, new NoopInput(), s, effectiveSettings: effective);
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s, effectiveSettings: effective);
         long ts = 0;
 
         effective.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, forgiving: 100, tightening: 0);
         DriveJitter(provider, 500, 500, spanPx: 40, durationMs: 300, ref ts);
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    [Fact]
+    public void RebuildMidFixation_EndsCleanly_SoNextFixationRetriggers()
+    {
+        // Review round-1 (reviewer F2): a rebuild while CurrentState == Fixation must NOT strand the state
+        // machine — unwiring the old detector fires no FixationEnded, and a fresh FixationStarted no-ops
+        // unless in FreeLook, so RebuildFixationDetector ends the in-progress fixation cleanly.
+        var s = Settings(radius: 60, detectMs: 150);
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        long ts = 0;
+
+        DriveJitter(provider, 500, 500, spanPx: 0, durationMs: 300, ref ts); // hold still → fixation
+        Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
+
+        s.Dwell.FixationRadiusPixels = 80; // rebuild mid-fixation → clean end → FreeLook
+        Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+
+        DriveJitter(provider, 700, 700, spanPx: 0, durationMs: 300, ref ts); // fresh fixation re-triggers
+        Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
     }
 }
 ```
@@ -446,7 +470,7 @@ public class GazeEngineFixationRebuildTests
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~GazeEngineFixationRebuildTests"`
-Expected: FAIL — `ManualToleranceWidening_*` fails (state stays `FreeLook` because the edit is ignored today), and the `effectiveSettings:` constructor argument does not exist (compile error).
+Expected: FAIL to **compile** — the `effectiveSettings:` constructor argument does not exist yet (added in Step 4). Once it compiles, `ManualToleranceWidening_*` and `RebuildMidFixation_*` are the behaviours Steps 3–6 turn green (today the `DwellSettings` edit is ignored, and a mid-fixation rebuild would strand the state machine).
 
 - [ ] **Step 3: Make `_fixationDetector` rebuildable and add the provider + fields**
 
@@ -586,15 +610,26 @@ In `src/EyeCtrl.Core/GazeEngine.cs`, add these private methods (e.g. immediately
 
     // Rebuilds the detector with the current effective radius + baseline detection time (FixationDetectionMs
     // is not an adaptation knob). Invoked on the settings/dispatcher thread; the volatile publish makes the
-    // swap visible to the gaze thread, which reads a fully-wired detector (old or new). An in-progress
-    // fixation is reset by the rebuild — acceptable for an infrequent, forgiving tolerance change (design §5).
+    // swap visible to the gaze thread, which reads a fully-wired detector (old or new). The fresh detector
+    // starts cold, so any in-progress fixation is dropped; since the state machine only honours a new
+    // FixationStarted from FreeLook (InteractionManager.OnFixationStarted no-ops otherwise), we END an
+    // in-progress fixation cleanly here — mirroring the FixationEnded fan-out from WireFixation — so the
+    // activation button never strands and the fresh detector's next fixation re-triggers (review round-1 F2).
     private void RebuildFixationDetector()
     {
         var fresh = new FixationDetector(EffectiveFixationRadius(), _settings.Dwell.FixationDetectionMs);
         WireFixation(fresh);
         var old = _fixationDetector;
+        bool wasFixating = old.IsFixating;
         _fixationDetector = fresh;
         UnwireFixation(old);
+        if (wasFixating)
+        {
+            // Old is now unwired; replicate its FixationEnded handlers so the state machine returns to
+            // FreeLook and the centroid tracker stops. OnFixationEnded is guarded (no-op unless in Fixation).
+            InteractionManager.OnFixationEnded();
+            _centroidTracker.StopTracking();
+        }
     }
 ```
 
@@ -629,7 +664,7 @@ to:
 - [ ] **Step 7: Run the new tests**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~GazeEngineFixationRebuildTests"`
-Expected: PASS (3 tests).
+Expected: PASS (4 tests).
 
 - [ ] **Step 8: Run the existing GazeEngine + fixation suites to confirm zero regressions**
 
@@ -662,6 +697,7 @@ git commit -m "feat(adaptation): route fixation tolerance through the effective-
 - §8.3 zero delta / disabled ⇒ exact baseline — `Effective` short-circuits; `AdaptationDelta_HasNoEffect_WhenDisabled` (the exit invariant, locked). ✓
 - §8.4 sub-bands strictly inside validated ranges — band fractions clamp, then the validated-range clamp (10–200) via `EffectiveValue.Compute`; `Enabled_ForgivingDelta_NeverExceedsValidatedMax`. ✓
 - §13.1 fixed envelope — bands are posture-independent constants here (migrated to `AdaptationSettings` in 1b-②). ✓
+- Rebuild does not strand the interaction state machine — a mid-fixation rebuild ends the in-progress fixation cleanly (mirrors the `FixationEnded` fan-out) so the activation button never lingers and the fresh detector re-triggers (`RebuildMidFixation_*`; review round-1 F2). And `Effective` falls back to baseline for any knob without a `KnobPolicy` entry, so no exception can reach the gaze/settings path (§11; review round-1 F3). ✓
 
 **Placeholder scan:** none — every step has full code and exact commands.
 
@@ -674,6 +710,6 @@ git commit -m "feat(adaptation): route fixation tolerance through the effective-
 - `GazeEngine` DI registration at `AppBootstrapper.cs:142-146`; `EyeCtrlSettings.Adaptation` sub-setting (1a-⑤).
 - Jitter geometry: alternating `(cx,cy)`/`(cx+span,cy)` gives max-distance-from-first `== span`, so fixation occurs iff radius `>= span` (baseline 20/30 `< 40 <=` widened 120 / effective 45).
 
-**Honest testability limits:** the provider is fully unit-tested. The `GazeEngine` rebuild is verified end-to-end through the interaction state machine (integration-style, matching the existing `GazeEngine*Tests` pattern) rather than by inspecting the private detector. Task 2 (DI) is build- + App.Tests-verified.
+**Honest testability limits:** the provider is fully unit-tested (7 tests, incl. the range drift-guard). The `GazeEngine` rebuild is verified end-to-end (4 tests) through the interaction state machine (integration-style) rather than by inspecting the private detector, **reusing `ScriptedGazeProvider`/`RecordingInputSimulator` from `EyeCtrl.Core.Tests.Flow`** (no new hand-rolled fakes — avoids fake-drift as `IGazeProvider`/`IInputSimulator` evolve; review round-1). Task 2 (DI) is build- + App.Tests-verified.
 
 **Deferred (documented above, not gaps):** dwell-time routing (~20 sites), smoothing routing, cursor/overlay-size + geometry routing, and migrating the band constants into configurable `AdaptationSettings` — each assigned to a named later 1b slice.

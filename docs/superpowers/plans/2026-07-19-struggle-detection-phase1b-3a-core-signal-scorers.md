@@ -21,7 +21,7 @@
 
 If any differ (renamed field, different `OutcomeKind` members, etc.), adjust the scorers/tests to match before proceeding.
 
-**⚠️ Core enforces XML docs as build errors:** `src/EyeCtrl.Core/EyeCtrl.Core.csproj` sets `<GenerateDocumentationFile>true</GenerateDocumentationFile>` + `<WarningsAsErrors>CS1591</WarningsAsErrors>`. Every public member below — **including every enum member, every positional record-struct `<param>`, and every public method's `<param>`/`<returns>`** — is documented. `EyeCtrl.Core` has `ImplicitUsings=enable`, so `System` (`Math`, `Array`), `System.Collections.Generic` (`IReadOnlyList`, `List`), and `System.Linq` are in scope without explicit `using`s; the scorers reference only same-namespace (`EyeCtrl.Core.Adaptation`) types, so **no extra `using` is required in the production files**. Do not strip the doc comments.
+**⚠️ Core enforces XML docs as build errors:** `src/EyeCtrl.Core/EyeCtrl.Core.csproj` sets `<GenerateDocumentationFile>true</GenerateDocumentationFile>` + `<WarningsAsErrors>CS1591</WarningsAsErrors>`. Every public member below — **including every enum member, every positional record-struct `<param>`, and every public method's `<param>`/`<returns>`** — is documented. `EyeCtrl.Core` has `ImplicitUsings=enable`, so `System` (`Math`, `Array`, `Func`), `System.Collections.Generic` (`IReadOnlyList`, `List`), and `System.Linq` are in scope without explicit `using`s; the type files reference only same-namespace (`EyeCtrl.Core.Adaptation`) types (no extra `using` needed), and `StruggleSignals.cs` adds only `using System.Diagnostics;` for its `[Conditional("DEBUG")]` ordering tripwire (`Debug.Assert`). Do not strip the doc comments.
 
 ---
 
@@ -220,7 +220,10 @@ namespace EyeCtrl.Core.Adaptation;
 public sealed class StruggleAssessment
 {
     /// <summary>Initializes a new assessment.</summary>
-    /// <param name="modes">The per-mode assessments for this tick (at most one entry per <see cref="FailureMode"/>).</param>
+    /// <param name="modes">The per-mode assessments for this tick (at most one entry per
+    /// <see cref="FailureMode"/>). Stored by reference (no defensive copy): the monitor (1b-③b) passes a
+    /// freshly-built list it neither retains nor mutates, and <see cref="FailureModeAssessment"/> is an
+    /// immutable value type, so callers cannot observe or cause mutation.</param>
     /// <param name="aggregateLevel">Aggregate struggle level in [0, 1] (drives cue intensity / logging).</param>
     public StruggleAssessment(IReadOnlyList<FailureModeAssessment> modes, double aggregateLevel)
     {
@@ -410,8 +413,8 @@ public class StruggleSignalsTests
     public void Abandonment_FollowingSameContextAbandon_AlsoCountsAsRetry()
     {
         // A retry is ANY strictly-later same-context outcome — a re-attempt that ALSO fails
-        // (abandon → abandon) is still effort evidence (a deliberate reading of §13.2's "reactivate";
-        // see ScoreAbandonment docs). Pins that the follow-up need not be an activation.
+        // (abandon → abandon) is still effort evidence (§13.2's "re-engage" definition; see
+        // ScoreAbandonment docs). Pins that the follow-up need not be an activation.
         // base = (0.6 + 0.6)/4 = 0.30; #0's follow-up (#1, same ctx, 1 s) → 1 retry; term = 0.5*(1/4)
         // = 0.125; score = 0.425. (A literal "must reactivate" reading would give 0.30.)
         var window = new List<DwellOutcome>
@@ -539,12 +542,19 @@ Expected: FAIL to **compile** — `StruggleSignals` does not exist.
 ```csharp
 namespace EyeCtrl.Core.Adaptation;
 
+using System.Diagnostics;
+
 /// <summary>
 /// Pure, stateless scorers for the core struggle signals (design §13.2). Each maps an
-/// <b>already time-windowed</b> slice of telemetry (oldest-first, as the sink snapshots it) to a
-/// <see cref="SignalScore"/>. The <c>StruggleMonitor</c> (plan 1b-③b) owns the evidence-window
-/// filtering, session resets, and classification and simply calls these; keeping them pure makes them
-/// fully headless-testable over synthetic sequences.
+/// <b>already time-windowed</b> slice of telemetry to a <see cref="SignalScore"/>. The
+/// <c>StruggleMonitor</c> (plan 1b-③b) owns the evidence-window filtering, session resets, and
+/// classification and simply calls these; keeping them pure makes them fully headless-testable over
+/// synthetic sequences.
+///
+/// The window MUST be oldest-first with non-decreasing timestamps — guaranteed in production by
+/// <c>BufferingTelemetrySink</c>'s monotonic guard (plan 1a-②/1a-④). The abandonment/accidental
+/// early-<c>break</c> pruning and the poor-tracking span gate depend on it; DEBUG builds assert it via
+/// <c>AssertOrdered</c> (compiled out entirely in release).
 ///
 /// All numeric thresholds are optional parameters whose defaults are the §13.2 <b>starting values</b>,
 /// tunable in review. The jitter/tracking px thresholds in particular are <b>uncalibrated guesses</b>
@@ -560,8 +570,9 @@ public static class StruggleSignals
     /// Σ(progress of high-progress abandons) ÷ attempts + retryBoost × (retries ÷ attempts), clamped
     /// to [0, 1]. "Attempts" is every outcome in the window (each activation or abandonment is one).
     /// A "retry" is ANY strictly-later same-context outcome within <paramref name="retryWindowMicroseconds"/>
-    /// — activation OR abandonment: a re-attempt that also fails is still effort evidence. This is a
-    /// deliberate reading of §13.2's "reactivate" (a re-engagement, not necessarily a success); tunable.
+    /// — activation OR abandonment: a re-attempt that also fails is still effort evidence. This matches
+    /// §13.2's "re-engage" definition (clarified in 1b-③a review round 2 from the earlier "reactivate"
+    /// wording, which read as activation-only); tunable.
     /// </summary>
     /// <param name="window">Dwell outcomes in the evidence window, oldest first.</param>
     /// <param name="minAttempts">Confidence gate: minimum outcomes before the controller may act. Default 4.</param>
@@ -576,6 +587,7 @@ public static class StruggleSignals
         double retryBoost = 0.5,
         long retryWindowMicroseconds = 3_000_000)
     {
+        AssertOrdered(window, static o => o.TimestampMicroseconds);
         int attempts = window.Count;
         if (attempts == 0)
             return SignalScore.None;
@@ -637,6 +649,7 @@ public static class StruggleSignals
         double radiusFloorPx = 40.0,
         string? backspaceTargetId = null)
     {
+        AssertOrdered(window, static o => o.TimestampMicroseconds);
         int activations = 0;
         for (int i = 0; i < window.Count; i++)
             if (window[i].Kind == OutcomeKind.Activated)
@@ -662,6 +675,9 @@ public static class StruggleSignals
                     continue;
 
                 DwellOutcome n = window[j];
+                // Intentional asymmetry (§13.1): re-approach accepts ANY follow-up kind ("activation
+                // or ≥-threshold abandonment", §13.1:472-473), whereas Backspace corroboration requires
+                // an actual Backspace *activation* (§13.1:474). Do not unify the Kind handling.
                 bool reapproach = n.Context == a.Context
                     && n.TargetCenter.DistanceSquaredTo(a.TargetCenter) <= radiusSq;
                 bool backspace = backspaceTargetId is not null
@@ -680,6 +696,19 @@ public static class StruggleSignals
         double score = Math.Clamp((double)reversals / activations, 0.0, 1.0);
         double confidence = Math.Clamp((double)activations / minActivations, 0.0, 1.0);
         return new SignalScore(score, confidence, activations >= minActivations);
+    }
+
+    // Dev-time tripwire for the oldest-first / non-decreasing precondition (see the class summary). The
+    // early-break pruning (Abandonment/Accidental) and the poor-tracking span gate silently mis-score an
+    // out-of-order window, so assert ordering in DEBUG. [Conditional("DEBUG")] removes the call — and its
+    // lambda argument — entirely in release, so there is zero release / hot-path cost.
+    [Conditional("DEBUG")]
+    private static void AssertOrdered<T>(IReadOnlyList<T> window, Func<T, long> timestamp)
+    {
+        for (int i = 1; i < window.Count; i++)
+            Debug.Assert(
+                timestamp(window[i]) >= timestamp(window[i - 1]),
+                "StruggleSignals requires an oldest-first, non-decreasing-timestamp window.");
     }
 }
 ```
@@ -882,6 +911,7 @@ In `src/EyeCtrl.Core/Adaptation/StruggleSignals.cs`, add these members inside th
         double lowInvalidFraction = 0.1,
         double highInvalidFraction = 0.5)
     {
+        AssertOrdered(window, static s => s.TimestampMicroseconds);
         int count = window.Count;
         if (count == 0)
             return SignalScore.None;
@@ -936,7 +966,7 @@ git commit -m "feat(adaptation): add jitter + poor-tracking signal scorers"
 **Spec coverage (this slice of Phase 1b-③):**
 - §13.2 decomposition "1b-③a = `StruggleAssessment` + failure-mode/signal types + the four core signal scorers (Abandonment, Jitter, Poor-tracking, Accidental) as pure, testable functions over the evidence window" — Task 1 (`SignalScore`, `FailureMode`, `FailureModeAssessment`, `StruggleAssessment`) + Task 2 (Abandonment, Accidental) + Task 3 (Jitter, Poor-tracking). ✓
 - §13.2 Abandonment "Σ(progress of high-progress abandons) ÷ total attempts", gate "≥ ~4 attempts" — `ScoreAbandonment` (`minAttempts=4`); high-progress threshold 0.5 discriminates near-complete abandons (detector emits abandons ≥ 0.3 per 1a-①) from barely-started ones. ✓
-- §13.2 design call "slow/effortful folded into abandonment as a retry term" — `retryBoost × (retries ÷ attempts)`; retry = a strictly-later same-context outcome within 3 s. Deliberately reads §13.2's "reactivate" as re-engagement (activation **or** abandonment — a re-attempt that also fails is still effort evidence; documented + pinned by `Abandonment_FollowingSameContextAbandon_AlsoCountsAsRetry`, review round 1); `true time-to-activate not derivable` noted (DwellOutcome has no enter timestamp). ✓
+- §13.2 design call "slow/effortful folded into abandonment as a retry term" — `retryBoost × (retries ÷ attempts)`; retry = a strictly-later same-context outcome within 3 s (activation **or** abandonment — matches §13.2's "re-engage" definition, clarified in review round 2 from the earlier activation-implying "reactivate"; pinned by `Abandonment_FollowingSameContextAbandon_AlsoCountsAsRetry`); `true time-to-activate not derivable` noted (DwellOutcome has no enter timestamp). ✓
 - §13.2 Jitter "linear ramp between low/high px/s thresholds", gate "≥ ~3 summaries"; "uncalibrated starting guesses" flagged — `ScoreJitter` (mean `JitterStdDev`, ramp [50, 400] documented UNCALIBRATED, `minSummaries=3`). ✓
 - §13.2 Poor-tracking "linear ramp ~0.1 → ~0.5", "**time-based** (≥ ~2 s), fires with 0 interactions (§6.3)" — `ScorePoorTracking` (sample-weighted mean `InvalidFraction`, ramp [0.1, 0.5], time-span gate `minSpanMicroseconds=2 000 000`; `TimeBasedGate_FiresWithZeroInteractions` proves interaction-independence). ✓
 - §13.2/§13.1 Accidental "re-approach (another outcome ≤ 1.5 s within 2× radius, same context) OR keyboard key→Backspace", score "reversals ÷ activations", gate "≥ ~3 activations" — `ScoreAccidental` (W=1.5 s, R=2× radius with a 40 px floor for rect/radius-0 targets, same-context; opt-in `backspaceTargetId` corroboration; `minActivations=3`). ✓
@@ -954,6 +984,8 @@ git commit -m "feat(adaptation): add jitter + poor-tracking signal scorers"
 - `tests/Directory.Build.props` globally imports `Xunit` + `NFluent`; `EyeCtrl.Core.Tests.csproj` has `ImplicitUsings=enable` — so the test files add only `EyeCtrl.Core.Adaptation` (+ `EyeCtrl.Core.Models` for `PhysicalPoint`). NFluent's approximate-double check is `IsCloseTo(expected, delta)` (used across the suite, e.g. `MagicNumberReplacementTests.cs:49`).
 - The 1a contracts (`DwellOutcome`, `OutcomeKind`, `AbandonReason`, `DwellContext`, `GazeQualitySummary`) are consumed as defined in plans 1a-① / 1a-④ — this plan is written against post-1a source with the pre-flight above.
 
-**Honest testability limits:** every type and scorer is a pure, framework-agnostic Core function, fully headless-unit-tested (29 tests across the two files) over synthetic sequences — no display, sink, clock, or threading dependency. Boundary behaviour (empty → `None`, below-gate score-still-computed, ramp low/mid/high, sample-count weighting, radius floor, context/time-window exclusions, backspace opt-in) is asserted directly. What is **not** exercised here (correctly, per the scope boundary): the monitor's window filtering / session reset / monotonic-guard / classification (all 1b-③b), and end-to-end assessment production from a live sink (1b-③b + 1b-④). The numeric thresholds are §13.2 **starting values** (jitter/tracking px thresholds explicitly uncalibrated) — the tests assert the *structure* (monotonic ramps, gating, boundaries), not that any absolute number is field-calibrated.
+**Performance (design §9/§9.1):** the scorers run at the controller tick (a few Hz, on the dispatcher), **not** on the gaze hot path, so the explicit LINQ-free loops are for clarity, not necessity. `ScoreAbandonment`/`ScoreAccidental` are O(n²) in window size (a nested scan with an early `break` once the retry/re-approach sub-window is exceeded); bounded by the 60 s evidence window (n ≈ tens of outcomes) that is a few thousand comparisons per tick — negligible, and unrelated to §9.1's per-**sample** O(1)/zero-alloc *gaze-path* budget (which governs 1a's aggregation, not this tick). `ScoreJitter`/`ScorePoorTracking` are single O(n) passes. The `AssertOrdered` tripwire is `[Conditional("DEBUG")]`, so it adds zero release cost.
+
+**Honest testability limits:** every type and scorer is a pure, framework-agnostic Core function, fully headless-unit-tested (29 tests across the two files) over synthetic sequences — no display, sink, clock, or threading dependency. Boundary behaviour (empty → `None`, below-gate score-still-computed, ramp low/mid/high, sample-count weighting, radius floor, context/time-window exclusions, backspace opt-in) is asserted directly. What is **not** exercised here (correctly, per the scope boundary): the monitor's window filtering / session reset / monotonic-guard / classification (all 1b-③b), and end-to-end assessment production from a live sink (1b-③b + 1b-④). The numeric thresholds are §13.2 **starting values** (jitter/tracking px thresholds explicitly uncalibrated) — the tests assert the *structure* (monotonic ramps, gating, boundaries), not that any absolute number is field-calibrated. The `AssertOrdered` DEBUG tripwire (F2, review round 2) is deliberately **not** unit-tested — asserting `Debug.Assert` firing is environment-dependent and brittle; it is a development aid, and the ordering precondition is contractually guaranteed by `BufferingTelemetrySink`'s monotonic guard (1a-②/1a-④).
 
 **Deferred (documented above, not gaps):** the `StruggleMonitor` + the Aiming/Drift/Fatigue scorers (1b-③b); the `AdaptationController` consuming the assessment (1b-④); promoting detection thresholds to `AdaptationSettings` (later tuning pass).

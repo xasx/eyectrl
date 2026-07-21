@@ -12,7 +12,7 @@
 
 **Depends on:** **Phase 1a implemented** — 1a-⑤'s `AdaptationSettings` (`Enabled` bool default false, `Posture` `AdaptationPosture` default `Conservative`, `Validate()` returning empty) and `AdaptationPosture` (`Conservative`/`Balanced`/`Responsive`). Builds on the **post-1a** source. (No dependency on 1b-①.)
 
-**Executor pre-flight (do this FIRST):** confirm against the *merged* 1a source: `AdaptationSettings` is `partial class : ObservableObject, IValidatable` with `[ObservableProperty] private bool _enabled;` + `[ObservableProperty] private AdaptationPosture _posture = AdaptationPosture.Conservative;` and a `Validate()`; `EyeCtrlSettingsEnumerationTests` asserts the post-1a count (**19**, since 1a-⑤ bumped it from 18). If the shape differs, adjust Task 1 accordingly.
+**Executor pre-flight (do this FIRST — MANDATORY, the single biggest failure mode):** confirm against the *merged* 1a source: `AdaptationSettings` is `partial class : ObservableObject, IValidatable` with `[ObservableProperty] private bool _enabled;` + `[ObservableProperty] private AdaptationPosture _posture = AdaptationPosture.Conservative;` and a `Validate()`; `EyeCtrlSettingsEnumerationTests` asserts the post-1a count (**19**, since 1a-⑤ bumped it from 18); and the two existing tests `Defaults_AreOptInAndConservative` / `EyeCtrlSettings_EnumeratesAdaptation` exist under those names. **Task 1 Step 3 *replaces the class body***, so if 1a named those fields differently (e.g. `_masterEnabled`) or typed `Posture` differently, blindly replacing would silently DROP 1a's members — preserve `_enabled`/`_posture` exactly (adapting to whatever 1a actually merged) and append (not overwrite) the existing tests. If any of this differs, adjust before proceeding.
 
 **⚠️ Core enforces XML docs as build errors:** `EyeCtrl.Core.csproj` sets `<GenerateDocumentationFile>true</GenerateDocumentationFile>` + `<WarningsAsErrors>CS1591</WarningsAsErrors>`. Every public member — **including every `[ObservableProperty]` field's `<summary>` (copied to the generated property), every enum/record-struct positional `<param>`** — is documented below. Do not strip the doc comments.
 
@@ -162,7 +162,11 @@ public partial class AdaptationSettings : ObservableObject, IValidatable
     /// <summary>Maximum looser (larger) fixation-radius deviation as a fraction of baseline (§13.1). Default 0.50.</summary>
     [ObservableProperty] private double _toleranceLooserMaxFraction = 0.50;
 
-    /// <summary>Maximum "more smoothing" shift of the active filter parameter as a fraction of baseline. Default 0.50 (starting value).</summary>
+    /// <summary>Maximum "more smoothing" shift of the active filter parameter as a fraction of baseline.
+    /// Default 0.50 — PROVISIONAL: §13.1 gives no smoothing percentage, and fraction-of-baseline is a
+    /// filter-dependent unit (One-Euro <c>OneEuroMinCutoff</c> Hz vs EMA <c>SmoothingFactor</c>, both
+    /// DECREASED for more smoothing). 1b-④ (the first consumer) must revisit whether a fraction or an
+    /// absolute per-filter delta is the right model before relying on this number.</summary>
     [ObservableProperty] private double _smoothingMoreMaxFraction = 0.50;
 
     /// <summary>Maximum larger target-geometry deviation as a fraction of baseline (§13.1). Default 0.50.</summary>
@@ -268,6 +272,18 @@ public class PosturePresetsTests
         Check.That(PosturePresets.For(AdaptationPosture.Balanced).RecoverStepFraction)
             .IsEqualTo(PosturePresets.For(AdaptationPosture.Responsive).RecoverStepFraction);
     }
+
+    [Fact]
+    public void For_HandlesEveryDefinedPosture()
+    {
+        // Drift guard: a new AdaptationPosture without a PosturePresets arm makes For throw for it,
+        // failing this loop and forcing the arm to be added alongside the enum member.
+        foreach (var posture in Enum.GetValues<AdaptationPosture>())
+        {
+            var tuning = PosturePresets.For(posture);
+            Check.That(tuning.SustainSeconds > 0).IsTrue();
+        }
+    }
 }
 ```
 
@@ -311,12 +327,15 @@ public static class PosturePresets
     /// <summary>Returns the controller tuning for the given posture.</summary>
     /// <param name="posture">The adaptation posture.</param>
     /// <returns>The posture's <see cref="PostureTuning"/>.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="posture"/> has no preset —
+    /// surfaces enum drift loudly rather than silently mis-tuning. The drift-guard test catches an
+    /// unhandled member at test time; at runtime the controller's §11 catch degrades to no-adaptation.</exception>
     public static PostureTuning For(AdaptationPosture posture) => posture switch
     {
         AdaptationPosture.Conservative => new PostureTuning(0.50, 3, 0.10, 0.25, 0.05),
         AdaptationPosture.Balanced => new PostureTuning(0.40, 2, 0.15, 0.20, 0.05),
         AdaptationPosture.Responsive => new PostureTuning(0.30, 1, 0.20, 0.15, 0.05),
-        _ => new PostureTuning(0.50, 3, 0.10, 0.25, 0.05), // unknown → Conservative (safest)
+        _ => throw new ArgumentOutOfRangeException(nameof(posture), posture, "Unhandled AdaptationPosture — add a PosturePresets arm."),
     };
 }
 ```
@@ -324,7 +343,7 @@ public static class PosturePresets
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~PosturePresetsTests"`
-Expected: PASS (4 tests). No `CS1591`.
+Expected: PASS (5 tests). No `CS1591`.
 
 - [ ] **Step 5: Full Core suite + commit**
 
@@ -357,6 +376,6 @@ git commit -m "feat(adaptation): add PosturePresets eagerness table (Conservativ
 - `AdaptationSettings`/`AdaptationPosture` shape from 1a-⑤ (`Enabled` bool, `Posture` default `Conservative`, `Validate()`); the settings validation pattern (`[ObservableProperty]` + `OnXChanging` guard + `Validate()` via `ValidationHelper`) mirrors `DwellSettings.cs`/`CursorSettings.cs`.
 - CommunityToolkit copies each `[ObservableProperty]` field's `<summary>` to the generated public property, satisfying CS1591 (as the existing settings classes do).
 
-**Honest testability limits:** fully headless-unit-tested Core data + validation. `Check.ThatCode(...).Throws<ArgumentOutOfRangeException>()` verifies the setter guards; the `Validate()` collected-report path is exercised via the default-valid assertion (a deliberately-invalid instance can't be constructed through the guarded setter, which is the intended runtime protection). No consumers yet — the controller (1b-④) exercises the band bounds + presets end-to-end.
+**Honest testability limits:** fully headless-unit-tested Core data + validation. `Check.ThatCode(...).Throws<ArgumentOutOfRangeException>()` verifies the setter guards; the `Validate()` collected-report path is exercised via the default-valid assertion (a deliberately-invalid instance can't be constructed through the guarded setter, which is the intended runtime protection). The guard-**and**-`Validate()` duplication is the **established convention** — `DwellSettings.cs`/`CursorSettings.cs` both throw in `OnXChanging` *and* re-check the same ranges in `Validate()` — so it matches precedent, not cargo-cult; `Validate()` is the non-throwing safety net for any load path that sets fields without the guard. `AdaptationSettings` is JSON-deserialized by `SettingsService` (System.Text.Json), which binds via the public **setters**, so the guards fire on load too — execution should confirm there's no `[JsonConstructor]`/field-binding path that bypasses them (if one exists, `Validate()` becomes load-bearing and needs a real failure test via that path). No consumers yet — the controller (1b-④) exercises the band bounds + presets end-to-end.
 
 **Deferred (documented above, not gaps):** consuming the bounds/presets (1b-④ controller, which also unifies the `EffectiveSettingsProvider` band source with these settings); `ResetLearnedBaseline` (Phase 2); status label (1b-⑤); Settings-window UI; base-range centralization.

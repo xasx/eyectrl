@@ -1,7 +1,7 @@
 # Struggle Detection & Self-Adaptation — Design
 
 - **Date:** 2026-07-19
-- **Status:** **Approved (2026-07-19)** after three review rounds — all findings (R1–R5, C1–C5, N1–N3, M1–M4) verified against source and incorporated. Ready as input to the Phase 1a implementation plan.
+- **Status:** **Approved (2026-07-19)** after three review rounds — all findings (R1–R5, C1–C5, N1–N3, M1–M4) verified against source and incorporated. Ready as input to the Phase 1a implementation plan. **Phase-1b brainstorming (2026-07-21)** resolved the §14 open items needed for Phase 1b — see **§13.1**.
 - **Topic:** Detect when the user is struggling to interact and automatically adapt EyeCtrl's own settings — conservatively, visibly, and reversibly — to help.
 
 ## 1. Summary & Motivation
@@ -437,16 +437,72 @@ toolbar override + `AdaptationSettings` + sensitive-context suppression. Learned
 
 Each phase gets its own implementation plan, reviewed before the next.
 
+## 13.1 Phase 1b — Resolved Parameters (brainstorming 2026-07-21)
+
+The §14 open items needed for Phase 1b are resolved here. Numbers are **starting values, tunable in
+review**, and **every sub-band sits strictly inside its `*Settings` validated range** (Safety Invariant §8.4).
+
+**Sensitive-context detection (resolves §14 C5; Safety Invariant §8.10).** A new Core interface
+`ISensitiveContextDetector` (`bool IsSensitiveActive { get; }` + start/stop), implemented in
+`EyeCtrl.Platform` via **UI Automation** — reusing the existing `System.Windows.Automation` dependency
+and the defensive patterns already in `ControlFinder` (own-process exclusion, COM `try`/`catch`). It
+subscribes to UIA focus-changed events; on each focus change to a non-EyeCtrl element it reads the focused
+element's `IsPassword` (and `ControlType`) and caches a single boolean. The feedback gate reads that cached
+bool in O(1) — nothing runs on the gaze hot path. It gates **only the visible/loggable feedback** — the
+on-screen cue, the caregiver toast (Phase 3), and verbose log entries (a coarse
+`adaptation suppressed (sensitive)` marker is logged instead); **the adaptation itself still runs silently.**
+Best-effort: on UIA failure/unavailability it reports *not sensitive* (a false negative shows only a subtle
+cue; the credential is never exposed), with `AdaptationSettings.SuppressInSensitiveContexts` (default true)
+and `ShowCue` as backstops. Exact UIA API surface (`AutomationElement.FocusedElement`, `IsPassword`
+property, `Automation.AddAutomationFocusChangedEventHandler`) verified at plan time.
+
+**Accidental-activation reversal (resolves §14; drives the only tightening move; Safety Invariant §8.2).**
+Primary signal — a **re-approach heuristic** on the `DwellOutcome` stream: an `Activated` outcome at center
+P₀ in context C, followed within window **W (default 1.5 s)** by another dwell outcome (activation or
+≥-threshold abandonment) in the **same context** whose center lies within radius **R (default 2× the
+activated target's radius, with an absolute floor)** of P₀. Corroborating signal — in `Keyboard` context, a
+key activation immediately followed by a **Backspace** activation within W. Both feed one
+accidental-activation score; the bounded longer-dwell response engages only when that score sustains past
+its confidence gate. Semantic Back/undo on action-menu / edge-bar / manual-selection is **deferred**
+(heterogeneous target identities; and it assumes the user can reach Back *while* struggling).
+
+**Posture presets — eagerness only, fixed safety envelope (resolves §14; Safety Invariants §8.4/§8.8).**
+`AdaptationPosture` scales *how eagerly/fast* adaptation moves, never *how far*:
+
+| Param | Conservative | Balanced | Responsive |
+|---|---|---|---|
+| RelaxThreshold | 0.50 | 0.40 | 0.30 |
+| SustainSeconds | 3 | 2 | 1 |
+| RelaxStepFraction | 0.10 | 0.15 | 0.20 |
+| RecoverThreshold | 0.25 | 0.20 | 0.15 |
+| RecoverStepFraction | 0.05 | 0.05 | 0.05 |
+
+The **per-knob sub-band widths are fixed** (identical across postures), so the maximum deviation from
+baseline is invariant and posture changes only the approach speed. Starting widths (each then clamped to the
+knob's validated range): dwell **shorter** −40 % of baseline (hard floor e.g. ≥ 200 ms); dwell **longer**
+*(accidental-activation only)* +50 %; fixation radius **looser** +50 %; smoothing **more** = a bounded shift
+of the *active filter parameter only* (One-Euro `OneEuroMinCutoff` down / EMA `SmoothingFactor` up — mode
+never switched); target geometry **bigger** +50 % of the ring/hit radius with the coupled visible size (§8.9).
+
+**Session boundary & evidence (resolves §14; §6.3).** Momentary struggle evidence has a **60 s rolling
+max-age** and resets to a fresh session on: app start, resume from an explicit toolbar/tray **Pause**, or a
+**gaze-idle gap > 120 s**. (The Phase-2 learned layer persists across these — only momentary evidence
+resets.) **Drift** is classified only when a `NearMiss` bias is directionally coherent (within ≈ ±30°)
+across **≥ 2 distinct contexts** with **≥ 5 qualifying abandons each**; a bias confined to a single context
+is treated as UI geometry, not calibration slip, and never triggers a calibration report (§6.2/C2).
+
 ## 14. Open Questions / Future Work
 
-- Default weights/thresholds/sub-band widths per posture — tuned in Phase 1b.
-- Reversal-signal definition for accidental activation: Back/undo assumes the user can reach Back while
-  struggling; the **re-approach heuristic** is more robust but needs an explicit "just-left region"
-  definition (radius + time window). Finalized in Phase 1b.
-- Session-boundary definition (pause-duration threshold that counts as a new session).
-- Cross-context drift thresholds for distinguishing calibration slip from per-surface UI offset (C2).
-- Sensitive-context detection mechanism (UI-automation password/secure-field detection) and exactly
-  which surfaces it gates (C5).
+- Default weights/thresholds/sub-band widths per posture — **Resolved for Phase 1b (§13.1):** eagerness-only
+  posture presets over a **fixed** per-knob safety envelope. Numbers remain tunable in review.
+- Reversal-signal definition for accidental activation — **Resolved for Phase 1b (§13.1):** re-approach
+  heuristic (W ≈ 1.5 s, R ≈ 2× radius, same context) + keyboard-Backspace corroboration; semantic Back/undo deferred.
+- Session-boundary definition — **Resolved for Phase 1b (§13.1):** app start + resume-from-Pause +
+  gaze-idle > 120 s; 60 s rolling evidence max-age.
+- Cross-context drift thresholds — **Resolved for Phase 1b (§13.1):** coherent `NearMiss` bias (≈ ±30°)
+  across ≥ 2 contexts with ≥ 5 abandons each.
+- Sensitive-context detection mechanism (C5) — **Resolved for Phase 1b (§13.1):** UIA focus-driven
+  `ISensitiveContextDetector`, gating feedback (cue/toast/verbose-log) only, adaptation still runs.
 - Phase 3 supervisor relay: `SettingsService` has a single-writer mutex with only `SupervisionSettings`
   marked cross-writer; if the supervisor must *write* adaptation state, the `SupervisionSectionName`
   constant + merge logic need extending. Alert payload/channel format also open.

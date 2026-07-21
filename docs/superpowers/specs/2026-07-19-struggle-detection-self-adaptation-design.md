@@ -107,7 +107,11 @@ flowchart TD
 `DwellOverlayViewModelBase` covers 10 surfaces at once; the non-base owners are wired individually.
 The **exhaustive surface inventory + context assignment is a Phase 1a deliverable**, guarded by a
 test analogous to `EyeCtrlSettingsEnumerationTests` (every `DwellDetector`-owning surface must
-declare a context; Settings is explicitly excluded).
+declare a context; Settings is explicitly excluded). `Scroll` is **reserved but not emitted** in
+Phase 1a: `ScrollOverlayViewModel` is inert (it overrides `Receive` without ever calling
+`DwellDetector.Update`), and the scroll-stop dwell lives on the shared `EdgeButtonBar` — so scroll-stop
+struggle is reported under `EdgeButtonBar`, and 1b per-context scoring must not expect `Scroll` evidence.
+The enum value is kept for a future dedicated scroll detector.
 
 **New components** (`EyeCtrl.Core.Adaptation`): `IStruggleTelemetrySink`, `DwellContext`,
 `DwellOutcome` (§6.1), `StruggleMonitor`, `AdaptationController`, `EffectiveSettingsProvider`,
@@ -310,8 +314,10 @@ Size/timing changes preserve in-progress dwell state (via the state-preserving u
   one serialized channel (the UI dispatcher), so `StruggleMonitor` stays single-threaded, matching
   `DwellDetector`'s documented contract (its internal `ConcurrentDictionary`/copy-on-write hardening is
   orthogonal — the monitor relies on the contract, not internal concurrency).
-- The monitor guards against out-of-order/duplicate timestamps (monotonic clamp/drop), since marshaling
-  can reorder near-simultaneous events.
+- The telemetry sink enforces monotonic ordering — it **drops any outcome older than the last accepted**,
+  since marshaling can reorder near-simultaneous events; **equal timestamps are retained** as legitimate
+  distinct outcomes (coarse clock resolution / concurrent surfaces). The `StruggleMonitor` (Phase 1b)
+  consumes this already-ordered, non-decreasing stream.
 - Per-sample hot-path work stays allocation-free.
 
 ### 9.1 Performance & resource budgets
@@ -373,7 +379,7 @@ not regress it.
 ## 11. Robustness / Error Handling
 
 - Corrupt/out-of-band `adaptation-state.json` → validated (CalibrationService.Load-style), ignored, reset.
-- Out-of-order/duplicate telemetry timestamps → monotonic guard (§9).
+- Out-of-order telemetry timestamps → dropped by the sink's monotonic guard; equal timestamps retained (§9).
 - No exceptions on the gaze hot path; adaptation failures degrade to "no adaptation." Log/toast failures
   are swallowed.
 
@@ -413,8 +419,12 @@ Headless, xUnit v3 + NFluent, synthetic timestamped signal sequences (reuses the
 `UpdateTargetDwellTime`/`UpdateTargetGeometry`; **exhaustive surface inventory** and context wiring
 (base class covers 10; individual wiring for keyboard keys, keyboard prediction, emoji, notes, services,
 banner; Settings excluded), guarded by an enumeration test; `FixationCentroidTracker` jitter statistic;
-gaze-thread aggregation of tracking/jitter + serialized channel; `EffectiveSettingsProvider` + extended
-`FixationDetector`/filter/geometry reconfiguration with the **cold-filter fix (R1)**. Exit criterion:
+gaze-thread aggregation of tracking/jitter + serialized channel; the **stateless `EffectiveValue`
+calculator** (sub-band arithmetic; zero-delta ⇒ exact-baseline exit invariant) + **warm-started filter
+reconfiguration (the cold-filter fix, R1)**. (The **stateful `EffectiveSettingsProvider`** + routing
+consumers to read effective values, and the **`FixationDetector` tolerance-rebuild**, are deferred to
+Phase 1b — every delta is 0 in 1a, so both would be no-ops until a controller exists; see the 1a-⑤
+scope boundary.) Exit criterion:
 effective == baseline everywhere (tested). This is the safe, testable foundation the reviews showed is required.
 
 **Phase 1b — Momentary adaptation.** `StruggleMonitor` (scoring + failure-mode classification) +

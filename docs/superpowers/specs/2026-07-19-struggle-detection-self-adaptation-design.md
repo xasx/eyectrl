@@ -146,7 +146,8 @@ effective(knob,ctx)  = clamp(baseline + forgiving + tightening, validatedRange(k
   validated-range clamp only engages when `delta ≠ 0`, so it never disturbs the baseline.
 - **Typed per-knob transforms** (1st-round Finding 6): each knob defines its own safe direction and
   units — dwell ms, fixation radius px, One-Euro `OneEuroMinCutoff` (down = more smoothing) / EMA
-  `SmoothingFactor` (up = more smoothing), target geometry px. There is no single scalar "relaxation."
+  `SmoothingFactor` (**down** = more smoothing — verified against `SmoothedFilter.cs`), target geometry px.
+  There is no single scalar "relaxation."
 
 **Knobs routed through the provider:** dwell durations; tolerance (`FixationRadiusPixels`,
 `FixationDetectionMs`); smoothing (the active filter's parameter only — mode is never auto-switched);
@@ -440,7 +441,12 @@ Each phase gets its own implementation plan, reviewed before the next.
 ## 13.1 Phase 1b — Resolved Parameters (brainstorming 2026-07-21)
 
 The §14 open items needed for Phase 1b are resolved here. Numbers are **starting values, tunable in
-review**, and **every sub-band sits strictly inside its `*Settings` validated range** (Safety Invariant §8.4).
+review**. Each sub-band sits **strictly inside the knob's bound** (Safety Invariant §8.4): for dwell,
+tolerance, and smoothing that bound is the knob's existing `*Settings` validated range; the
+**target-geometry knob has no pre-existing validated range** — its ring radius is derived at runtime from
+`CircleSize` + `UIConstants` constants (`ActionMenuViewModel.cs:52`) and keyboard keys have no hit-slop
+setting today — so its safety bound is a **feature-introduced bound defined in `AdaptationSettings`** that
+Phase 1b adds and validates before §8.4 is testable for geometry.
 
 **Sensitive-context detection (resolves §14 C5; Safety Invariant §8.10).** A new Core interface
 `ISensitiveContextDetector` (`bool IsSensitiveActive { get; }` + start/stop), implemented in
@@ -448,12 +454,17 @@ review**, and **every sub-band sits strictly inside its `*Settings` validated ra
 and the defensive patterns already in `ControlFinder` (own-process exclusion, COM `try`/`catch`). It
 subscribes to UIA focus-changed events; on each focus change to a non-EyeCtrl element it reads the focused
 element's `IsPassword` (and `ControlType`) and caches a single boolean. The feedback gate reads that cached
-bool in O(1) — nothing runs on the gaze hot path. It gates **only the visible/loggable feedback** — the
+bool in O(1) — nothing runs on the gaze hot path. The focus-changed callback fires on a UIA (RPC) thread —
+not the UI thread — so the cached bool is published thread-safely (`Volatile.Write`/`Interlocked`) and the
+subscription is explicitly disposed on shutdown (UIA event hooks otherwise leak). It gates **only the
+visible/loggable feedback** — the
 on-screen cue, the caregiver toast (Phase 3), and verbose log entries (a coarse
 `adaptation suppressed (sensitive)` marker is logged instead); **the adaptation itself still runs silently.**
 Best-effort: on UIA failure/unavailability it reports *not sensitive* (a false negative shows only a subtle
 cue; the credential is never exposed), with `AdaptationSettings.SuppressInSensitiveContexts` (default true)
-and `ShowCue` as backstops. Exact UIA API surface (`AutomationElement.FocusedElement`, `IsPassword`
+and `ShowCue` as backstops. These specific UIA calls are **net-new** — today's `ControlFinder` uses only
+`AutomationElement.FromPoint` + `TreeWalker.ControlViewWalker`, so the reuse is of the defensive-COM
+*pattern*, not copy-paste. Exact UIA API surface (`AutomationElement.FocusedElement`, `IsPassword`
 property, `Automation.AddAutomationFocusChangedEventHandler`) verified at plan time.
 
 **Accidental-activation reversal (resolves §14; drives the only tightening move; Safety Invariant §8.2).**
@@ -464,7 +475,10 @@ activated target's radius, with an absolute floor)** of P₀. Corroborating sign
 key activation immediately followed by a **Backspace** activation within W. Both feed one
 accidental-activation score; the bounded longer-dwell response engages only when that score sustains past
 its confidence gate. Semantic Back/undo on action-menu / edge-bar / manual-selection is **deferred**
-(heterogeneous target identities; and it assumes the user can reach Back *while* struggling).
+(heterogeneous target identities; and it assumes the user can reach Back *while* struggling). Both signals
+**depend on the Phase-1a `DwellOutcome` enrichment** (per-outcome timestamp/center/radius plus the net-new
+abandonment emission) and cannot be built until 1a lands — today `DwellDetector.TargetActivated` raises only
+a string id and there is no abandonment event.
 
 **Posture presets — eagerness only, fixed safety envelope (resolves §14; Safety Invariants §8.4/§8.8).**
 `AdaptationPosture` scales *how eagerly/fast* adaptation moves, never *how far*:
@@ -477,12 +491,20 @@ its confidence gate. Semantic Back/undo on action-menu / edge-bar / manual-selec
 | RecoverThreshold | 0.25 | 0.20 | 0.15 |
 | RecoverStepFraction | 0.05 | 0.05 | 0.05 |
 
+(`RecoverStepFraction` is intentionally posture-independent — recovery is uniformly gentle regardless of how
+eagerly adaptation engaged.)
+
 The **per-knob sub-band widths are fixed** (identical across postures), so the maximum deviation from
-baseline is invariant and posture changes only the approach speed. Starting widths (each then clamped to the
-knob's validated range): dwell **shorter** −40 % of baseline (hard floor e.g. ≥ 200 ms); dwell **longer**
-*(accidental-activation only)* +50 %; fixation radius **looser** +50 %; smoothing **more** = a bounded shift
-of the *active filter parameter only* (One-Euro `OneEuroMinCutoff` down / EMA `SmoothingFactor` up — mode
-never switched); target geometry **bigger** +50 % of the ring/hit radius with the coupled visible size (§8.9).
+baseline is invariant and posture changes only the approach speed. Starting widths (each clamped to the
+knob's bound): dwell **shorter** −40 % of baseline, then clamped to the knob's validated minimum (a stricter
+feature floor may apply — e.g. keeping keyboard keys usably slow even though `KeyboardKeyDwellMs` validates
+down to 100 ms); dwell **longer** *(accidental-activation only)* +50 %; fixation radius **looser** +50 %;
+smoothing **more** = a bounded shift of the *active filter parameter only*, **decreasing** it for both
+filters (One-Euro `OneEuroMinCutoff` down, EMA `SmoothingFactor` down — verified against
+`SmoothedFilter.cs:36`/`OneEuroFilter.cs`; mode never switched. NB: `CursorSettings.cs`'s `SmoothingFactor`
+summary comment is **inverted** vs. its implementation — a code-doc bug 1b reconciles, keying adaptation off
+actual filter behaviour); target geometry **bigger** +50 % of the (runtime-derived) ring/hit radius, coupled
+atomically with the visible size (§8.9), bounded by the feature-introduced geometry bound above.
 
 **Session boundary & evidence (resolves §14; §6.3).** Momentary struggle evidence has a **60 s rolling
 max-age** and resets to a fresh session on: app start, resume from an explicit toolbar/tray **Pause**, or a

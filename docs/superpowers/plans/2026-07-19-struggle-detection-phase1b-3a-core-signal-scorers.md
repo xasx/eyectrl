@@ -406,6 +406,24 @@ public class StruggleSignalsTests
         Check.That(StruggleSignals.ScoreAbandonment(window).Score).IsCloseTo(0.15, 1e-9);
     }
 
+    [Fact]
+    public void Abandonment_FollowingSameContextAbandon_AlsoCountsAsRetry()
+    {
+        // A retry is ANY strictly-later same-context outcome — a re-attempt that ALSO fails
+        // (abandon → abandon) is still effort evidence (a deliberate reading of §13.2's "reactivate";
+        // see ScoreAbandonment docs). Pins that the follow-up need not be an activation.
+        // base = (0.6 + 0.6)/4 = 0.30; #0's follow-up (#1, same ctx, 1 s) → 1 retry; term = 0.5*(1/4)
+        // = 0.125; score = 0.425. (A literal "must reactivate" reading would give 0.30.)
+        var window = new List<DwellOutcome>
+        {
+            Abandon(0, 0.6, ctx: DwellContext.ActionMenu),
+            Abandon(1 * Sec, 0.6, ctx: DwellContext.ActionMenu),
+            Activate(10 * Sec, ctx: DwellContext.Toolbar),
+            Activate(20 * Sec, ctx: DwellContext.Toolbar),
+        };
+        Check.That(StruggleSignals.ScoreAbandonment(window).Score).IsCloseTo(0.425, 1e-9);
+    }
+
     // ---- Accidental activation ----
 
     [Fact]
@@ -541,6 +559,9 @@ public static class StruggleSignals
     /// <see cref="DwellOutcome"/>, which has no dwell-enter timestamp). Score =
     /// Σ(progress of high-progress abandons) ÷ attempts + retryBoost × (retries ÷ attempts), clamped
     /// to [0, 1]. "Attempts" is every outcome in the window (each activation or abandonment is one).
+    /// A "retry" is ANY strictly-later same-context outcome within <paramref name="retryWindowMicroseconds"/>
+    /// — activation OR abandonment: a re-attempt that also fails is still effort evidence. This is a
+    /// deliberate reading of §13.2's "reactivate" (a re-engagement, not necessarily a success); tunable.
     /// </summary>
     /// <param name="window">Dwell outcomes in the evidence window, oldest first.</param>
     /// <param name="minAttempts">Confidence gate: minimum outcomes before the controller may act. Default 4.</param>
@@ -666,7 +687,7 @@ public static class StruggleSignals
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~StruggleSignalsTests"`
-Expected: PASS (14 tests — 7 abandonment + 7 accidental). No `CS1591`.
+Expected: PASS (15 tests — 8 abandonment + 7 accidental). No `CS1591`.
 
 - [ ] **Step 5: Commit**
 
@@ -894,7 +915,7 @@ In `src/EyeCtrl.Core/Adaptation/StruggleSignals.cs`, add these members inside th
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~StruggleSignalsTests"`
-Expected: PASS (24 tests — 14 from Task 2 + 10 gaze-quality). No `CS1591`.
+Expected: PASS (25 tests — 15 from Task 2 + 10 gaze-quality). No `CS1591`.
 
 - [ ] **Step 5: Full Core suite (confirm zero regressions)**
 
@@ -915,7 +936,7 @@ git commit -m "feat(adaptation): add jitter + poor-tracking signal scorers"
 **Spec coverage (this slice of Phase 1b-③):**
 - §13.2 decomposition "1b-③a = `StruggleAssessment` + failure-mode/signal types + the four core signal scorers (Abandonment, Jitter, Poor-tracking, Accidental) as pure, testable functions over the evidence window" — Task 1 (`SignalScore`, `FailureMode`, `FailureModeAssessment`, `StruggleAssessment`) + Task 2 (Abandonment, Accidental) + Task 3 (Jitter, Poor-tracking). ✓
 - §13.2 Abandonment "Σ(progress of high-progress abandons) ÷ total attempts", gate "≥ ~4 attempts" — `ScoreAbandonment` (`minAttempts=4`); high-progress threshold 0.5 discriminates near-complete abandons (detector emits abandons ≥ 0.3 per 1a-①) from barely-started ones. ✓
-- §13.2 design call "slow/effortful folded into abandonment as a retry term" — `retryBoost × (retries ÷ attempts)`; retry = a strictly-later same-context outcome within 3 s; `true time-to-activate not derivable` noted (DwellOutcome has no enter timestamp). ✓
+- §13.2 design call "slow/effortful folded into abandonment as a retry term" — `retryBoost × (retries ÷ attempts)`; retry = a strictly-later same-context outcome within 3 s. Deliberately reads §13.2's "reactivate" as re-engagement (activation **or** abandonment — a re-attempt that also fails is still effort evidence; documented + pinned by `Abandonment_FollowingSameContextAbandon_AlsoCountsAsRetry`, review round 1); `true time-to-activate not derivable` noted (DwellOutcome has no enter timestamp). ✓
 - §13.2 Jitter "linear ramp between low/high px/s thresholds", gate "≥ ~3 summaries"; "uncalibrated starting guesses" flagged — `ScoreJitter` (mean `JitterStdDev`, ramp [50, 400] documented UNCALIBRATED, `minSummaries=3`). ✓
 - §13.2 Poor-tracking "linear ramp ~0.1 → ~0.5", "**time-based** (≥ ~2 s), fires with 0 interactions (§6.3)" — `ScorePoorTracking` (sample-weighted mean `InvalidFraction`, ramp [0.1, 0.5], time-span gate `minSpanMicroseconds=2 000 000`; `TimeBasedGate_FiresWithZeroInteractions` proves interaction-independence). ✓
 - §13.2/§13.1 Accidental "re-approach (another outcome ≤ 1.5 s within 2× radius, same context) OR keyboard key→Backspace", score "reversals ÷ activations", gate "≥ ~3 activations" — `ScoreAccidental` (W=1.5 s, R=2× radius with a 40 px floor for rect/radius-0 targets, same-context; opt-in `backspaceTargetId` corroboration; `minActivations=3`). ✓
@@ -933,6 +954,6 @@ git commit -m "feat(adaptation): add jitter + poor-tracking signal scorers"
 - `tests/Directory.Build.props` globally imports `Xunit` + `NFluent`; `EyeCtrl.Core.Tests.csproj` has `ImplicitUsings=enable` — so the test files add only `EyeCtrl.Core.Adaptation` (+ `EyeCtrl.Core.Models` for `PhysicalPoint`). NFluent's approximate-double check is `IsCloseTo(expected, delta)` (used across the suite, e.g. `MagicNumberReplacementTests.cs:49`).
 - The 1a contracts (`DwellOutcome`, `OutcomeKind`, `AbandonReason`, `DwellContext`, `GazeQualitySummary`) are consumed as defined in plans 1a-① / 1a-④ — this plan is written against post-1a source with the pre-flight above.
 
-**Honest testability limits:** every type and scorer is a pure, framework-agnostic Core function, fully headless-unit-tested (28 tests across the two files) over synthetic sequences — no display, sink, clock, or threading dependency. Boundary behaviour (empty → `None`, below-gate score-still-computed, ramp low/mid/high, sample-count weighting, radius floor, context/time-window exclusions, backspace opt-in) is asserted directly. What is **not** exercised here (correctly, per the scope boundary): the monitor's window filtering / session reset / monotonic-guard / classification (all 1b-③b), and end-to-end assessment production from a live sink (1b-③b + 1b-④). The numeric thresholds are §13.2 **starting values** (jitter/tracking px thresholds explicitly uncalibrated) — the tests assert the *structure* (monotonic ramps, gating, boundaries), not that any absolute number is field-calibrated.
+**Honest testability limits:** every type and scorer is a pure, framework-agnostic Core function, fully headless-unit-tested (29 tests across the two files) over synthetic sequences — no display, sink, clock, or threading dependency. Boundary behaviour (empty → `None`, below-gate score-still-computed, ramp low/mid/high, sample-count weighting, radius floor, context/time-window exclusions, backspace opt-in) is asserted directly. What is **not** exercised here (correctly, per the scope boundary): the monitor's window filtering / session reset / monotonic-guard / classification (all 1b-③b), and end-to-end assessment production from a live sink (1b-③b + 1b-④). The numeric thresholds are §13.2 **starting values** (jitter/tracking px thresholds explicitly uncalibrated) — the tests assert the *structure* (monotonic ramps, gating, boundaries), not that any absolute number is field-calibrated.
 
 **Deferred (documented above, not gaps):** the `StruggleMonitor` + the Aiming/Drift/Fatigue scorers (1b-③b); the `AdaptationController` consuming the assessment (1b-④); promoting detection thresholds to `AdaptationSettings` (later tuning pass).

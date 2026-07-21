@@ -1,7 +1,7 @@
 # Struggle Detection & Self-Adaptation — Design
 
 - **Date:** 2026-07-19
-- **Status:** **Approved (2026-07-19)** after three review rounds — all findings (R1–R5, C1–C5, N1–N3, M1–M4) verified against source and incorporated. Ready as input to the Phase 1a implementation plan. **Phase-1b brainstorming (2026-07-21)** resolved the §14 open items needed for Phase 1b — see **§13.1**.
+- **Status:** **Approved (2026-07-19)** after three review rounds — all findings (R1–R5, C1–C5, N1–N3, M1–M4) verified against source and incorporated. Ready as input to the Phase 1a implementation plan. **Phase-1b brainstorming (2026-07-21)** resolved the §14 open items needed for Phase 1b (see **§13.1**) and the 1b-③ `StruggleMonitor` scoring design (see **§13.2**).
 - **Topic:** Detect when the user is struggling to interact and automatically adapt EyeCtrl's own settings — conservatively, visibly, and reversibly — to help.
 
 ## 1. Summary & Motivation
@@ -512,6 +512,65 @@ max-age** and resets to a fresh session on: app start, resume from an explicit t
 resets.) **Drift** is classified only when a `NearMiss` bias is directionally coherent (within ≈ ±30°)
 across **≥ 2 distinct contexts** with **≥ 5 qualifying abandons each**; a bias confined to a single context
 is treated as UI geometry, not calibration slip, and never triggers a calibration report (§6.2/C2).
+
+## 13.2 Phase 1b-③ — StruggleMonitor Scoring Design (approved 2026-07-21)
+
+Detection design consumed by the Phase-1b controller. All numeric thresholds are **starting values,
+tuned in review / Phase 1b** (§14); the *structure* is fixed here.
+
+**Architecture.** `StruggleMonitor` (Core, `EyeCtrl.Core.Adaptation`) **reads** the existing 1a
+`BufferingTelemetrySink` (reusing its bounded ring + monotonic guard — no DI rewiring, no wasted 1a
+work) rather than reimplementing a sink. `Assess(nowMicroseconds) → StruggleAssessment`, called per
+controller tick on the dispatcher thread (single-threaded, §9). Evidence = the sink snapshot filtered
+to `[max(sessionStart, now − 60 s), now]`. `ResetSession(now)` (invoked by the coordinator on app-start
+/ resume-from-Pause) + auto-reset on a gaze-idle gap > 120 s inferred from timestamp gaps (§13.1) — no
+buffer mutation, the monitor just ignores evidence before the boundary. Monotonic timestamp guard (§9).
+
+**Signals** — each yields a `score ∈ [0,1]` + a `confidence ∈ [0,1]`; the controller acts on a
+signal's failure-mode only when that signal's confidence gate is met (§6.3 — no single mixed gate):
+
+| Signal | Input (in-window) | Proposed score | Confidence gate |
+|---|---|---|---|
+| Abandonment | `Abandoned` outcomes + `ProgressAtEnd` (+ retries) | Σ(progress of high-progress abandons) ÷ total attempts | ≥ ~4 attempts |
+| Jitter | `GazeQualitySummary.JitterStdDev` (px/s) | linear ramp between low/high px/s thresholds | ≥ ~3 summaries |
+| Poor tracking | `GazeQualitySummary.InvalidFraction` | linear ramp ~0.1 → ~0.5 | **time-based** (≥ ~2 s of summaries) — fires with 0 interactions (§6.3) |
+| Accidental activation | activation→reversal: re-approach (another outcome ≤ 1.5 s within 2× radius, same context) OR keyboard key→Backspace | reversals ÷ activations | ≥ ~3 activations |
+| Aiming | mean(\|NearMiss\| ÷ `TargetRadius`) on abandons | linear ramp above ~1.0 | ≥ ~4 abandons |
+| Drift | per-context mean `NearMiss` vectors; coherent (±30°) across ≥ 2 contexts, ≥ 5 abandons each (§13.1) | coherence × magnitude | the §13.1 gate itself |
+| Fatigue | `GazeQualitySummary.FatigueScore` | pass-through amplifier | opt-in (`EyeCareSettings.FatigueMonitorEnabled`) |
+
+**Design calls (approved 2026-07-21):**
+- **"Slow/effortful" (§6.2) is folded into the Abandonment/sustain-failure signal as a retry term**,
+  not a standalone signal — §7.1 has no distinct "slow" response mode, and `DwellOutcome` carries no
+  dwell-enter timestamp (true time-to-activate isn't derivable), but *retries* (abandon-then-reactivate
+  in the same context) are, and carry the same "make it easier" meaning.
+- **Jitter/tracking px-thresholds are uncalibrated starting guesses** — jitter is measured on the
+  *filtered* gaze stream (1a-④), so absolute px/s needs real-data tuning; flagged, not authoritative.
+
+**Failure-mode classification → response (§7.1):**
+- **sustain-failure** ← Abandonment (high-progress) + Jitter (+ retries) → shorter dwell + looser tolerance + more smoothing.
+- **accidental-activation** ← Accidental → longer dwell (the one quarantined tightening; bounded, escapable).
+- **aiming** ← Aiming → enlarge target geometry (+ coupled visible size, §8.9).
+- **drift** ← Drift → looser tolerance + **report only** (calibration NEVER auto-touched, §8.5).
+- **poor-tracking** ← PoorTracking → more smoothing + enlarge geometry + caregiver alert if sustained; never tighten.
+
+Multiple modes may be active; the controller (1b-④) applies the union of *forgiving* responses, while
+the single tightening move stays quarantined to accidental-activation (§8.2).
+
+**Output.** `StruggleAssessment` = per-failure-mode `{ score, confidence, gatePassed, context? }` + an
+aggregate struggle level, consumed by the 1b-④ `AdaptationController`. New Core types: `StruggleMonitor`,
+`StruggleAssessment`, a failure-mode enum, and per-signal scorer helpers.
+
+**Decomposition (approved: core subset first):**
+- **1b-③a** — `StruggleAssessment` + failure-mode/signal types + the **four core signal scorers**
+  (Abandonment, Jitter, Poor-tracking, Accidental) as pure, testable functions over the evidence window.
+- **1b-③b** — the remaining scorers (Aiming, Drift [the complex cross-context one], Fatigue amplifier)
+  + the `StruggleMonitor` itself (evidence-window/session management, classification, `Assess`). May
+  split further if large.
+
+**Testability.** Pure Core, headless: feed synthetic `DwellOutcome` / `GazeQualitySummary` sequences
+(or a pre-loaded `BufferingTelemetrySink`) and assert scores/confidences/classification, session-reset,
+and monotonic-guard behaviour. No display dependency.
 
 ## 14. Open Questions / Future Work
 

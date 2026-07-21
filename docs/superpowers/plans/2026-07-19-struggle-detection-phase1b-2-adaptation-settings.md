@@ -81,11 +81,11 @@ Append to `tests/EyeCtrl.Core.Tests/Settings/AdaptationSettingsTests.cs` (keep t
     }
 
     [Fact]
-    public void BandFraction_OutOfRange_IsReportedByValidate()
+    public void BandFraction_OutOfRange_ThrowsFromSetterGuard()
     {
-        // Bypass the setter guard via the generated OnChanging by constructing then forcing an invalid
-        // value through Validate on a mutated copy is not possible (guard throws on set), so assert the
-        // guard throws — the runtime protection — and that Validate is the collected-report counterpart.
+        // Invalid values can't be stored — the setter guard throws first — so we assert the guard, which
+        // is the runtime protection. Validate() is the non-throwing aggregate counterpart, exercised via
+        // the default-valid case above.
         var s = new AdaptationSettings();
         Check.ThatCode(() => s.ToleranceLooserMaxFraction = 1.5).Throws<ArgumentOutOfRangeException>();
         Check.ThatCode(() => s.DwellShorterMaxFraction = -0.1).Throws<ArgumentOutOfRangeException>();
@@ -177,7 +177,7 @@ public partial class AdaptationSettings : ObservableObject, IValidatable
     private static void GuardFraction(double value, string name)
     {
         if (value < 0.0 || value > 1.0)
-            throw new ArgumentOutOfRangeException(name, value, $"{name} must be between 0 and 1.");
+            throw new ArgumentOutOfRangeException(nameof(value), value, $"{name} must be between 0 and 1.");
     }
 
     /// <inheritdoc />
@@ -344,7 +344,7 @@ git commit -m "feat(adaptation): add PosturePresets eagerness table (Conservativ
 - §10 `AdaptationSettings` surface — `Enabled` (1a-⑤) + per-knob enables (`AdaptDwell/Tolerance/Smoothing/Geometry`) + per-knob band bounds + `ShowCue`/`CaregiverAlerts`/`SuppressInSensitiveContexts` toggles. `ResetLearnedBaseline` + status label deferred (documented) to their consuming slices. ✓
 - §13.1 fixed envelope — band fractions default to the §13.1 numbers (dwell −40 %, dwell-longer +50 %, tolerance +50 %, geometry +50 %; smoothing +50 % as a flagged starting value); posture-independent (not scaled by posture). ✓
 - §13.1 posture presets — `PosturePresets` returns the exact Conservative/Balanced/Responsive rows; `RecoverStepFraction` posture-independent (tested). ✓
-- §8.4 sub-bands inside validated ranges — fractions are a *desired* band; the hard clamp to the base validated range happens in `EffectiveValue.Compute` at composition time (unchanged from 1b-①). Bands validate to `[0, 1]` here. ✓
+- §8.4 sub-bands inside validated ranges — fractions are a *desired* band; the hard clamp to the base validated range happens at composition time via the clamp path established in 1b-① over 1a-⑤'s `EffectiveValue.Compute`. §10's "validated inside base ranges" is therefore satisfied at composition, not in `Validate()` (which bounds the fractions to `[0, 1]`); base-range centralization is deferred (scope boundary). ✓
 - Registration convention — `AdaptationSettings` stays one enumerated sub-setting; count unchanged (19); `Validate()` uses `ValidationHelper` and returns empty for defaults. ✓
 
 **Placeholder scan:** none — every step has full code and exact commands.

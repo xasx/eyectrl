@@ -513,7 +513,7 @@ resets.) **Drift** is classified only when a `NearMiss` bias is directionally co
 across **≥ 2 distinct contexts** with **≥ 5 qualifying abandons each**; a bias confined to a single context
 is treated as UI geometry, not calibration slip, and never triggers a calibration report (§6.2/C2).
 
-## 13.2 Phase 1b-③ — StruggleMonitor Scoring Design (approved 2026-07-21)
+## 13.2 Phase 1b-③ — StruggleMonitor Scoring Design (approved 2026-07-21; retry definition clarified 2026-07-22, 1b-③a review round 2)
 
 Detection design consumed by the Phase-1b controller. All numeric thresholds are **starting values,
 tuned in review / Phase 1b** (§14); the *structure* is fixed here.
@@ -542,8 +542,10 @@ signal's failure-mode only when that signal's confidence gate is met (§6.3 — 
 **Design calls (approved 2026-07-21):**
 - **"Slow/effortful" (§6.2) is folded into the Abandonment/sustain-failure signal as a retry term**,
   not a standalone signal — §7.1 has no distinct "slow" response mode, and `DwellOutcome` carries no
-  dwell-enter timestamp (true time-to-activate isn't derivable), but *retries* (abandon-then-reactivate
-  in the same context) are, and carry the same "make it easier" meaning.
+  dwell-enter timestamp (true time-to-activate isn't derivable), but *retries* (abandon-then-re-engage
+  in the same context — a strictly-later same-context outcome, whether an activation **or** a
+  re-abandonment; a re-attempt that also fails is still effort evidence) are, and carry the same
+  "make it easier" meaning.
 - **Jitter/tracking px-thresholds are uncalibrated starting guesses** — jitter is measured on the
   *filtered* gaze stream (1a-④), so absolute px/s needs real-data tuning; flagged, not authoritative.
 

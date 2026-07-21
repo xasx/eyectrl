@@ -8,7 +8,7 @@ public partial class CursorSettings : ObservableObject, IValidatable
 {
     /// <summary>Gaze filtering strategy applied to raw gaze samples.</summary>
     [ObservableProperty] private GazeFilterMode _filterMode = GazeFilterMode.OneEuro;
-    /// <summary>Smoothing factor for EMA filter. 0 = no filtering, 1 = maximum smoothing. Valid range: 0–1.</summary>
+    /// <summary>Smoothing factor for the EMA filter. 0 = maximum smoothing, 1 = no filtering (higher = more responsive, less smoothing). Valid range: 0–1.</summary>
     [ObservableProperty] private double _smoothingFactor = 0.5;
     /// <summary>Minimum cutoff frequency in Hz for the 1€ filter. Lower values produce more smoothing. Valid range: 0.1–20.</summary>
     [ObservableProperty] private double _oneEuroMinCutoff = 5.0;

@@ -202,7 +202,7 @@ using EyeCtrl.Core.Settings;
 /// window, runs the seven §13.2 signal scorers (<see cref="StruggleSignals"/>), classifies them into
 /// per-<see cref="FailureMode"/> assessments, and produces a <see cref="StruggleAssessment"/> per
 /// controller tick (design §13.2). Reuses the sink's bounded ring + monotonic guard rather than
-/// reimplementing a sink. Single-threaded: <see cref="Assess"/>/<see cref="ResetSession"/> run on the
+/// reimplementing a sink. Single-threaded: <c>Assess</c>/<see cref="ResetSession"/> run on the
 /// dispatcher thread — the same serialized thread the sink is fed on (§9) — so no locking is needed.
 /// </summary>
 public sealed class StruggleMonitor
@@ -216,7 +216,7 @@ public sealed class StruggleMonitor
 
     /// <summary>Initializes the monitor over an existing telemetry sink.</summary>
     /// <param name="sink">The 1a buffering sink to read (dwell outcomes + gaze-quality summaries).</param>
-    /// <param name="eyeCare">Eye-care settings; only <see cref="EyeCareSettings.FatigueMonitorEnabled"/> is read (live, in <see cref="Assess"/>), gating the fatigue amplifier.</param>
+    /// <param name="eyeCare">Eye-care settings; only <see cref="EyeCareSettings.FatigueMonitorEnabled"/> is read (live, in <c>Assess</c>), gating the fatigue amplifier.</param>
     /// <param name="evidenceMaxAgeMicroseconds">Rolling evidence-window length. Default 60 000 000 (60 s, §13.1).</param>
     /// <param name="idleResetMicroseconds">A gaze-idle gap this long (inferred from the gaze-quality stream) resets the session boundary. Default 120 000 000 (120 s, §13.1).</param>
     /// <param name="backspaceTargetId">Keyboard Backspace target id for the accidental-activation corroboration; null disables it (wired by the App later).</param>
@@ -236,7 +236,7 @@ public sealed class StruggleMonitor
 
     /// <summary>
     /// Starts a fresh momentary session at <paramref name="nowMicroseconds"/>: evidence at or before it
-    /// is ignored by the next <see cref="Assess"/> (even if younger than the rolling window). Invoked by
+    /// is ignored by the next <c>Assess</c> (even if younger than the rolling window). Invoked by
     /// the coordinator on app-start and on resume from an explicit Pause (§13.1). No buffer mutation —
     /// only the boundary moves.
     /// </summary>

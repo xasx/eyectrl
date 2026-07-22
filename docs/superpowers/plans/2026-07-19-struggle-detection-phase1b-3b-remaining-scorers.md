@@ -421,10 +421,13 @@ In `src/EyeCtrl.Core/Adaptation/StruggleSignals.cs`, add this method inside the 
         if (vectors.Count < minCoherentContexts)
             return new SignalScore(0.0, confidence, false);
 
-        // Largest cluster of context-bias vectors mutually within the coherence cone of an anchor.
-        // (a,b within θ) ⟺ dot(a,b) >= |a||b|·cos θ. Score the winning cluster by its resultant
-        // coherence (|Σv| ÷ Σ|v| ∈ (0,1]) × its normalized mean magnitude. Ties in size break toward the
-        // higher score, so the result is independent of dictionary enumeration order.
+        // Anchored "star" cluster (NOT a mutual clique): for each anchor, gather every vector within the
+        // ±θ cone OF THE ANCHOR — two gathered vectors may themselves be > θ apart. This is intentional
+        // (a calibration slip aligns most contexts one way; clique-finding is NP-hard), and the coherence
+        // term |Σv| ÷ Σ|v| naturally penalizes a spread-out star. Coherence test: (a,b within θ) ⟺
+        // dot(a,b) >= |a||b|·cos θ. Score = coherence (∈ (0,1], 1 = perfectly aligned) × normalized MEAN
+        // magnitude — the mean cluster bias, NOT the total, so a bigger cluster does not inflate the score.
+        // Ties in size break toward the higher score, so the result is independent of Dictionary order.
         double cosThreshold = Math.Cos(coherenceAngleDegrees * Math.PI / 180.0);
         int bestSize = 0;
         double bestScore = 0.0;
@@ -595,6 +598,8 @@ git commit -m "feat(adaptation): add fatigue pass-through amplifier scorer"
 **Order-independence:** all three scorers are order-independent (Aiming = mean; Drift = per-context grouping + means + clustering; Fatigue = mean), so — unlike 1b-③a's abandonment/accidental/poor-tracking — **none calls `AssertOrdered`**, and none relies on the oldest-first window precondition. (Correct: there is no early-`break` prune or first/last-element span here.)
 
 **Drift algorithm notes (the load-bearing correctness):** grouping is by `Context`; a context qualifies only at `≥ minAbandonsPerContext` abandons and a non-zero mean vector. Coherence uses the cosine test `dot(a,b) ≥ |a||b|·cosθ` (no `atan2`); the anchor is always in its own cluster (`dot(a,a)=|a|² ≥ |a|²·cosθ` since `cosθ ≤ 1`), so `sumMag > 0` and coherence never divides by zero. The winner is the largest cluster, ties broken toward higher score — so the result does not depend on `Dictionary` enumeration order (a deliberate guard, since dictionary order is not contractual). `Drift_TwoContextsCoherent` (score 0.5) and `Drift_LargerBias_SaturatesScore` (score 1.0) pin the coherence×magnitude math; `Drift_TwoContextsIncoherent` and `Drift_ContextBelowMinAbandons` pin the two gate failure paths.
+
+**Note for 1b-③c (Drift confidence semantics — carry this forward):** unlike the 1b-③a scorers (where `GatePassed ⟺ Confidence == 1`), Drift **decouples** them — `Confidence` is evidence *volume* (qualifying-context count ÷ `minCoherentContexts`) while `GatePassed` is *coherence achieved*. So a single strongly-biased context reports `Confidence 0.5, GatePassed false`, and two biased-but-unaligned contexts report `Confidence 1.0, GatePassed false`. The monitor must classify the Drift **mode off `GatePassed`/`Score`**, and must **not** fold Drift's `Confidence` into a naive cross-mode aggregate — a single biased surface (a UI-geometry artifact, §6.2/C2) would otherwise inflate the aggregate struggle level. (This is what makes `Drift_SingleContextStrongBias_IsNotDrift` a safety property, not just a scoring detail.)
 
 **Honest testability limits:** every scorer is a pure, framework-agnostic Core function, fully headless-unit-tested (17 new tests: 7 aiming + 7 drift + 3 fatigue) over synthetic sequences — no display, sink, clock, or threading dependency. Boundary behaviour (empty → `None`, below-gate score-still-computed, ramp low/mid/high, rect/activation exclusion, single-vs-cross-context drift, incoherent/under-qualified drift gates, magnitude saturation, fatigue opt-in) is asserted directly. What is **not** exercised here (correctly, per the scope boundary): how the monitor classifies these scores into `FailureMode`s, how Fatigue amplifies, and end-to-end assessment production from a live sink — all 1b-③c/1b-④. The Aiming ramp bounds and the Drift `magnitudeNormalizerPx` are **uncalibrated starting values** (the ±30° / ≥2 / ≥5 drift gates are the spec's §13.1 numbers) — the tests assert the *structure* (ramps, gating, coherence discrimination), not that any absolute px number is field-calibrated.
 

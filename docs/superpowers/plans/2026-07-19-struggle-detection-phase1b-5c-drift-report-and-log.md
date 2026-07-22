@@ -595,7 +595,11 @@ public partial class DriftNoticeWindow : OverlayWindow, IDriftNoticePresenter
     public void ShowDriftNotice()
     {
         EnsurePositioned();
-        Banner.BeginAnimation(UIElement.OpacityProperty, null); // cancel any in-flight fade
+        // Cancel any in-flight fade and re-show at full opacity. Unlike CueOverlayWindow's per-tick
+        // re-flash (which needs a _fadeGeneration guard), a fade here is started ONLY by the hold-timer
+        // tick, and removing a clock via BeginAnimation(dp, null) does not raise the removed clock's
+        // Completed — so a re-show during a fade can't leave a stale Completed to hide the banner. No guard needed.
+        Banner.BeginAnimation(UIElement.OpacityProperty, null);
         Banner.Opacity = 1.0;
         if (!IsVisible)
             base.Show();
@@ -710,7 +714,7 @@ git commit -m "feat(adaptation): register + start the adaptation log and drift n
 - §7.1 drift → report — `DriftNoticeService` surfaces a user-visible note when Drift is gated; **report only**. ✓
 - §8.5 calibration off-limits — the notice only shows a message; nothing in this slice reads or writes calibration. ✓ (asserted by construction + documented on `IDriftNoticePresenter`/`DriftNoticeWindow`.)
 - §8.10 no feedback leakage — both services consult the single `IFeedbackGate`; the log emits the coarse marker and the drift notice is skipped when suppressing; 1b-⑥ swaps the gate. ✓
-- §9.1 I/O off the hot path — the log writes only on transitions (not per tick) via Serilog's buffered file sink; the drift notice fires at most once per episode; neither touches the gaze thread. ✓
+- §9.1 I/O off the hot path — the log writes only on gated-mode transitions (a handful per session), from the dispatcher thread (never the 30–60 Hz gaze poll thread), via the existing synchronous rolling file sink (`LoggingInitializer.cs:25-29`); the drift notice fires at most once per episode. The spec's async/batched `adaptation-log.jsonl` writes are the Phase-2 upgrade; the interim safety rests on the transitions-only + dispatcher-thread argument, not on sink buffering. ✓
 
 **Placeholder scan:** none — every step has full code and exact commands.
 

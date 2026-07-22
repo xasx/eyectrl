@@ -72,7 +72,7 @@ Other deferrals (unchanged from prior slices):
 **Test (modify):**
 - `tests/EyeCtrl.ViewModels.Tests/ToolbarViewModelTests.cs` — button count 7 → 8 + the reset-button message test.
 
-**Zero-behaviour-change guarantee:** the cue only calls `Show` when `AdaptationCueService.OnAssessment` sees `AggregateLevel > 0` (which requires a gated failure mode, hence `AdaptationSettings.Enabled`, off by default) **and** `ShowCue` **and** a non-suppressing gate; until then the cue window is constructed-but-hidden. `AllowAllFeedbackGate` never suppresses (identical to no gate). The escape controls send a message whose handler calls `Reset()`, a no-op at baseline. The `AssessmentUpdated` event has no subscribers on the gaze hot path. The manual toolbar/tray escape is intentionally **always present** (not gated on `Enabled`) per §8.6 "always-reachable" — it is static UI chrome, not a gaze-pipeline cost (§9.1's "disabled = current cost" governs the pipeline), and `Reset()` is safe when there is nothing to reset.
+**Zero-behaviour-change guarantee:** the cue only calls `Show` when `AdaptationCueService.OnAssessment` sees `AggregateLevel > 0` (which requires a gated failure mode, hence `AdaptationSettings.Enabled`, off by default) **and** `ShowCue` **and** a non-suppressing gate; until then the cue window is constructed-but-hidden. `AllowAllFeedbackGate` never suppresses (identical to no gate). The escape controls send a message whose handler calls `Reset()`, a no-op at baseline. The `AssessmentUpdated` event has no subscribers on the gaze hot path. The manual toolbar/tray escape is intentionally **always present** (not gated on `Enabled`) per §8.6 "always-reachable" — it is static UI chrome, not a gaze-pipeline cost (§9.1's "disabled = current cost" governs the pipeline), and `Reset()` is safe when there is nothing to reset. (Ratified in the round-1 review, which flagged the gaze-only mis-activation surface of an always-on toolbar dwell target: §9.1 governs the gaze-pipeline cost only and §8.6 explicitly wants a large toolbar button mirrored in the tray, so always-present is spec-faithful. Gating the toolbar button on `Enabled` while keeping the tray item always-on — via a settings-reactive `ToolbarViewModel` update — remains a clean future option if the extra always-on dwell target proves a nuisance.)
 
 ---
 
@@ -87,7 +87,7 @@ Add the per-tick push event the feedback surface subscribes to, and the single s
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/EyeCtrl.App.Tests/Services/AdaptationCueServiceTests.cs` (App.Tests has a global `using Xunit;` via `tests/Directory.Build.props` but not `NFluent`, so import `NFluent` explicitly — matching `ToolbarAutoHideControllerTests`):
+Create `tests/EyeCtrl.App.Tests/Services/AdaptationCueServiceTests.cs` (`tests/Directory.Build.props:27-28` already supplies global `using Xunit;` **and** `using NFluent;`, so neither is strictly required; the explicit `using NFluent;` below just matches the sibling `ToolbarAutoHideControllerTests` / ⑤a `AdaptationCoordinatorTests` style — redundant but consistent, and a local using duplicating a global one is CS8019-suppressed by default):
 
 ```csharp
 namespace EyeCtrl.App.Tests.Services;
@@ -776,7 +776,7 @@ Expected: FAIL — `InitializesWith8Buttons` sees 7, and `ResetAdaptationButton_
 
 - [ ] **Step 8: Add the `ResetAdaptation` button to `ToolbarViewModel`**
 
-In `src/EyeCtrl.ViewModels/ToolbarViewModel.cs`, add a new entry as the **last element** of the `(string Id, string Symbol)[]` array in the constructor (`:38-47`), immediately after the `("QuickActions", "⚡")` line — keep the existing seven entries and their `\u` escapes byte-for-byte unchanged (use the `\u` escape form for the new glyph too, matching the file's style):
+In `src/EyeCtrl.ViewModels/ToolbarViewModel.cs`, add a new entry as the **last element** of the `(string Id, string Symbol)[]` array in the constructor (`:38-47`), immediately after the `("QuickActions", "⚡")` line — keep the existing seven entries and their `\u` escapes byte-for-byte unchanged, and write the new entry's symbol as the `\u`-escaped code point **U+21BA** (the ↺ glyph), matching the existing entries' escape style (the code block shows the glyph for readability):
 
 ```csharp
             ("QuickActions", "⚡"),  // ⚡
@@ -797,7 +797,7 @@ Expected: PASS (`InitializesWith8Buttons` + `ResetAdaptationButton_SendsResetAda
 
 - [ ] **Step 10: Render the button in `ToolbarWindow` + add the tray item**
 
-In `src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs`, add a new entry as the **last element** of the `(string Id, string Symbol)[]` array in `Initialize` (`:41-47`), immediately after the `("Settings", "⚙")` line — keep the existing four entries and their `\u` escapes byte-for-byte unchanged (use the `↺` escape form for the new glyph, matching the file's style). This makes 5 rendered buttons:
+In `src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs`, add a new entry as the **last element** of the `(string Id, string Symbol)[]` array in `Initialize` (`:41-47`), immediately after the `("Settings", "⚙")` line — keep the existing four entries and their `\u` escapes byte-for-byte unchanged, and write the new entry's symbol as the `\u`-escaped code point **U+21BA** (the ↺ glyph), matching the file's escape style (the code block shows the glyph for readability). This makes 5 rendered buttons:
 
 ```csharp
             ("Settings", "⚙"),    // ⚙ Gear
@@ -822,7 +822,7 @@ and add it to the menu immediately after `menu.Items.Add(settingsItem);` (`:52`)
 - [ ] **Step 11: Build to verify the App compiles**
 
 Run: `dotnet build EyeCtrl.slnx`
-Expected: builds. `ToolbarWindow`/`TrayIconManager` reference `ResetAdaptationMessage` (`using EyeCtrl.ViewModels.Messages;` already present in both). (The toolbar now renders 5 buttons; any `[Trait("Category","UI")]` app-launch test asserting exactly 4 is UI-gated and excluded from the headless subset.)
+Expected: builds. `ToolbarWindow`/`TrayIconManager` reference `ResetAdaptationMessage` (`using EyeCtrl.ViewModels.Messages;` already present in both). (The toolbar now renders 5 buttons. The two relevant app-launch checks are class-level `[Trait("Category","UI")]` (`AppLaunchTests.cs:9`) and excluded from the headless subset — and both are already stale vs current source, independent of this change: `Toolbar_HasFiveButtons` (`:38-47`) asserts a count of 5 while today's View renders 4, so after this change the count coincidentally matches; `Toolbar_ButtonsHaveCorrectIds` (`:50-69`) expects `ManualSelection`/`Calibrate` IDs the current View never renders. Neither runs in CI; that pre-existing UI-test drift is out of scope here.)
 
 - [ ] **Step 12: Commit**
 

@@ -29,7 +29,8 @@ If any differ, adjust before proceeding.
 ## Scope boundary (explicit)
 
 This slice is the **controller only** — a pure, headless-testable Core component. Deferred:
-- **DI registration + ticking + reset wiring.** Nothing constructs or calls the controller here; the `AdaptationCoordinator` (**1b-⑤**) registers it (singleton over the DI `EffectiveSettingsProvider` + `EyeCtrlSettings.Adaptation`), ticks `Tick(monitor.Assess(now), now)` on a dispatcher timer, and calls `Reset()` from the toolbar/tray escape and on session boundaries. Enable-gating the *ticking* is also ⑤'s (the controller additionally self-guards on `Enabled`, so a stray tick is safe).
+- **DI registration + ticking + reset wiring.** Nothing constructs or calls the controller here; the `AdaptationCoordinator` (**1b-⑤**) registers it (singleton over the DI `EffectiveSettingsProvider` + `EyeCtrlSettings.Adaptation`), ticks `Tick(monitor.Assess(now), now)` on a dispatcher timer with a **monotonically-advancing `now` at a roughly-fixed cadence**, and calls `Reset()` from the toolbar/tray escape and on session boundaries — including **resume-from-Pause**, so no stale wall-clock sustain timer (see `Step`) survives a pause. Enable-gating the *ticking* is also ⑤'s (the controller additionally self-guards on `Enabled`, so a stray tick is safe).
+- **Separate engagement tuning for the tightening.** The quarantined dwell tightening uses the **same** posture stepping (`RelaxThreshold`/`SustainSeconds`/`RelaxStepFraction`) as the forgiving responses — §7.2 prescribes no separate tuning, and the tightening is already gated + sustained + bounded (+50 %) + instantly escapable (§8.2). Making the tightening *slower to engage* than forgiving (a higher threshold / longer sustain, since it alone makes interaction harder) would be a future §13.1 + `AdaptationSettings` addition; not adopted here (no spec basis, and it would risk over-tuning a move that is already conservative).
 - **Observability of three of the four knobs.** Only `FixationRadius` (tolerance) is routed to a consumer today (`GazeEngine`, 1b-①). The controller drives all four knobs' fills, but `DwellTime`/`Smoothing`/`TargetGeometry` remain stored no-ops until their routing slices (1b-④a scope boundary). The controller's *decisions* for those knobs are fully tested at the `provider.Effective(knob, Other, baseline)` composition level.
 - **The drift "report" half of §7.1.** Drift's response is "loosen tolerance **+ report**"; this controller does the tolerance loosening. The calibration-drift *report* (a surfaced notification, never a calibration write — §8.5) is a coordinator/feedback concern (**1b-⑤**).
 - **Fatigue amplification.** Fatigue is folded into the assessment's `AggregateLevel` by the `StruggleMonitor` (1b-③c), not re-applied here. The controller drives knobs off **per-mode gated scores**, not the aggregate (the aggregate drives cue intensity in ⑤).
@@ -190,6 +191,37 @@ public class AdaptationControllerTests
         c.Tick(a, 0); c.Tick(a, 3 * Sec);
         Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsEqualTo(50.0);
     }
+
+    [Fact]
+    public void SustainIsWallClock_NotConsecutiveTicks()
+    {
+        // Sustain is measured in wall-clock from first-above-threshold (§7.2 "held SustainSeconds"), NOT a
+        // count of consecutive ticks — so a single tick ≥ SustainSeconds after detection relaxes even with no
+        // intermediate ticks (a stalled/sparse dispatcher). The coordinator (1b-⑤) advances `now` monotonically
+        // at a fixed cadence and Resets on Pause, so a gap is the documented "continuous hold" (see Step).
+        var (c, p, _) = Make();
+        var a = Assess(Mode(FailureMode.SustainFailure, 0.7));
+        c.Tick(a, 0);          // first tick above threshold → start sustaining, no step yet
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsEqualTo(50.0);
+        c.Tick(a, 5 * Sec);    // 5 s ≥ 3 s sustain on the first tick after the gap → one relax step (0.10)
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(52.5, 1e-9);
+    }
+
+    [Fact]
+    public void PostureSwitch_TakesEffectNextTick()
+    {
+        // Posture is read live (PosturePresets.For(_adaptation.Posture)) each tick, so a runtime posture change
+        // takes effect on the next tick. Relax one Conservative step (0.10), switch to Responsive, then the next
+        // sustained tick steps by Responsive's RelaxStepFraction 0.20 (→ 0.30 → 57.5), not Conservative's 0.10.
+        var (c, p, s) = Make();
+        var a = Assess(Mode(FailureMode.SustainFailure, 0.7));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec); // Conservative: fill 0.10 → 52.5
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(52.5, 1e-9);
+
+        s.Posture = AdaptationPosture.Responsive; // RelaxThreshold 0.30 / SustainSeconds 1 / RelaxStepFraction 0.20
+        c.Tick(a, 4 * Sec);                        // 0.10 + 0.20 = 0.30 → 50 + 0.30*25 = 57.5 (Conservative would give 55)
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(57.5, 1e-9);
+    }
 }
 ```
 
@@ -317,7 +349,10 @@ public sealed class AdaptationController
     }
 
     // One relax/recover/deadband step (§7.2). relaxSince tracks when the relax condition began (advanced by
-    // the tick 'now') so the score must stay above RelaxThreshold for SustainSeconds before relaxing.
+    // the tick 'now') so the score must stay above RelaxThreshold for SustainSeconds before relaxing. Sustain
+    // is WALL-CLOCK (now − relaxSince), not a consecutive-tick count, so SustainSeconds maps to real seconds
+    // independent of the tick rate; a tick gap therefore reads as a continuous hold (the coordinator, 1b-⑤,
+    // ticks monotonically at a fixed cadence and Resets on Pause, so no stale relaxSince survives a pause).
     private static double Step(double fill, double drive, PostureTuning tuning, long now, ref long relaxSince)
     {
         if (drive >= tuning.RelaxThreshold)
@@ -357,7 +392,7 @@ public sealed class AdaptationController
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AdaptationControllerTests"`
-Expected: PASS (8 tests). No `CS1591`.
+Expected: PASS (10 tests). No `CS1591`.
 
 - [ ] **Step 5: Commit**
 
@@ -472,7 +507,7 @@ In `src/EyeCtrl.Core/Adaptation/AdaptationController.cs`, in `Tick`, immediately
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AdaptationControllerTests"`
-Expected: PASS (13 tests — 8 from Task 1 + 5 new). No `CS1591`.
+Expected: PASS (15 tests — 10 from Task 1 + 5 new). No `CS1591`.
 
 - [ ] **Step 5: Commit**
 
@@ -569,7 +604,7 @@ In `src/EyeCtrl.Core/Adaptation/AdaptationController.cs`, in `Tick`, change the 
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AdaptationControllerTests"`
-Expected: PASS (17 tests — 13 + 4 new). No `CS1591`.
+Expected: PASS (19 tests — 15 + 4 new). No `CS1591`.
 
 - [ ] **Step 5: Full Core suite (confirm zero regressions)**
 
@@ -589,7 +624,7 @@ git commit -m "feat(adaptation): add quarantined dwell tightening for accidental
 
 **Spec coverage (this slice):**
 - §7.1 failure-mode → typed knob transform — sustain-failure → looser tolerance + shorter dwell + more smoothing; accidental → longer dwell (tightening); aiming → bigger geometry; drift → looser tolerance; poor-tracking → more smoothing + bigger geometry. Each mode's footprint is asserted, including the "NOT" knobs (e.g. poor-tracking never touches dwell, sustain-failure never enlarges geometry). ✓
-- §7.2 relax/recover/deadband stepping — `Step`: relax past `RelaxThreshold` held `SustainSeconds` by `RelaxStepFraction`; recover below `RecoverThreshold` by `RecoverStepFraction`; deadband holds. Verified by `Forgiving_RelaxesOnlyAfterSustain`, `Forgiving_RecoversWhenStruggleSubsides`, `Deadband_HoldsWithoutOscillation`. ✓
+- §7.2 relax/recover/deadband stepping — `Step`: relax past `RelaxThreshold` held `SustainSeconds` by `RelaxStepFraction`; recover below `RecoverThreshold` by `RecoverStepFraction`; deadband holds. Verified by `Forgiving_RelaxesOnlyAfterSustain`, `Forgiving_RecoversWhenStruggleSubsides`, `Deadband_HoldsWithoutOscillation`. The sustain is **wall-clock** (a tick gap reads as a continuous hold) — pinned by `SustainIsWallClock_NotConsecutiveTicks`; and the posture is read **live** each tick — pinned by `PostureSwitch_TakesEffectNextTick` (a mid-session Conservative→Responsive switch changes the next step). ✓
 - §8.2 quarantined tightening — dwell longer, driven by accidental-activation ONLY, in its own tightening sub-band, coexisting with forgiving (C1), instantly escapable (`Tightening_RecoversIndependently`, `Reset`). `AccidentalActivation_LengthensDwell_Quarantined` proves nothing else moves. ✓
 - §8.3 zero delta ⇒ baseline — no drive ⇒ fills stay 0 ⇒ provider returns baseline (`UngatedMode_DoesNotDrive`, and every "NOT" assertion). ✓
 - §8.6 always-reachable escape — `Reset()` (`Reset_ReturnsToBaseline`). ✓
@@ -611,6 +646,6 @@ git commit -m "feat(adaptation): add quarantined dwell tightening for accidental
 
 **Performance (design §9/§9.1):** `Tick` runs at the controller tick (a few Hz, dispatcher), **not** the gaze hot path. Per tick it does four `UpdateKnob` calls, each a couple `ForgivingDrive`/`GatedScore` dictionary lookups + a small `params FailureMode[]` allocation (1–2 elements) — negligible and off the per-sample path (§9.1's zero-per-sample-allocation budget governs 1a's gaze aggregation, not this tick). The push-on-change guard means an idle or deadband tick pushes nothing (no `Changed`, no rebuild). During an active *multi-knob* relaxation ramp, though, each changed knob raises `Changed` separately and the 1b-① `GazeEngine` handler rebuilds the fixation detector on **any** `Changed`, so such a tick can trigger a few redundant fixation-detector rebuilds. That rebuild is cheap (a `FixationDetector` construction + event rewiring, 1b-①) and the ramp is transient (it stops at the band edge / in the deadband), so it stays within budget. Coalescing to one `Changed` per tick is the natural optimization for when the **expensive** smoothing-filter rebuild is routed — the rebuild §9.1's "~1/s" clause targets — and belongs to the smoothing-routing slice (which would add a batch/coalesce path to the provider); it is not worth the added provider surface for the cheap fixation rebuild alone here.
 
-**Honest testability limits:** the controller is a pure, framework-agnostic Core component, fully headless-unit-tested (17 tests) by ticking synthetic `StruggleAssessment` sequences with a supplied `now` and reading `provider.Effective(knob, Other, baseline)`. The stepping engine (relax/sustain/recover/deadband/hysteresis), the full §7.1 mode→knob map (each mode's footprint + its "NOT" knobs), the quarantined tightening + C1 coexistence, F4 gating, per-knob and master enable-gating, and `Reset` are all asserted directly. **Only the tolerance knob is verified end-to-end through a real consumer** (`GazeEngine`, via 1b-①/④a); dwell/smoothing/geometry are verified at the provider composition level because they have no consumer until their routing slices. Not exercised here (correctly, per scope): the coordinator's real-time ticking / `Reset` wiring / enable-gating of the tick loop (1b-⑤). Posture presets and band fractions are the §13.1 starting values (1b-②); the tests assert the stepping/composition *structure*, not field-calibrated constants.
+**Honest testability limits:** the controller is a pure, framework-agnostic Core component, fully headless-unit-tested (19 tests) by ticking synthetic `StruggleAssessment` sequences with a supplied `now` and reading `provider.Effective(knob, Other, baseline)`. The stepping engine (relax/sustain/recover/deadband/hysteresis), the full §7.1 mode→knob map (each mode's footprint + its "NOT" knobs), the quarantined tightening + C1 coexistence, F4 gating, per-knob and master enable-gating, and `Reset` are all asserted directly. **Only the tolerance knob is verified end-to-end through a real consumer** (`GazeEngine`, via 1b-①/④a); dwell/smoothing/geometry are verified at the provider composition level because they have no consumer until their routing slices. Not exercised here (correctly, per scope): the coordinator's real-time ticking / `Reset` wiring / enable-gating of the tick loop (1b-⑤). Posture presets and band fractions are the §13.1 starting values (1b-②); the tests assert the stepping/composition *structure*, not field-calibrated constants.
 
 **Deferred (documented above, not gaps):** DI + ticking + reset/enable wiring (1b-⑤); the drift report (1b-⑤); dwell/smoothing/geometry consumer routing (their slices); the learned layer + persistence (Phase 2).

@@ -17,7 +17,7 @@
 2. `SignalScore` fields `Score`/`Confidence`/`GatePassed` + `SignalScore.None`.
 3. `FailureMode` members `SustainFailure`, `AccidentalActivation`, `Aiming`, `Drift`, `PoorTracking`.
 4. `FailureModeAssessment(FailureMode Mode, double Score, double Confidence, bool GatePassed, DwellContext? Context)` and `StruggleAssessment(IReadOnlyList<FailureModeAssessment> modes, double aggregateLevel)` + static `None` + `FailureModeAssessment? ForMode(FailureMode)`.
-5. `BufferingTelemetrySink` (`EyeCtrl.Core.Adaptation`) has `IReadOnlyList<DwellOutcome> Snapshot()` and `IReadOnlyList<GazeQualitySummary> SnapshotQuality()`, both oldest-first / non-decreasing (monotonic guard).
+5. `BufferingTelemetrySink` (`EyeCtrl.Core.Adaptation`) has `BufferingTelemetrySink(int capacity)` + `Report(in DwellOutcome)` + `IReadOnlyList<DwellOutcome> Snapshot()` (from **1a-②**) **and** `ReportGazeQuality(in GazeQualitySummary)` + `IReadOnlyList<GazeQualitySummary> SnapshotQuality()` (the **1a-④** extension — a second parallel buffer), all oldest-first / non-decreasing (per-stream monotonic guard). The quality methods are the load-bearing 1a-④ additions this monitor reads — confirm those exact names (`ReportGazeQuality`/`SnapshotQuality`), as this plan spans three upstream plans (1a-①/②/④).
 6. `EyeCareSettings.FatigueMonitorEnabled` is a `bool` on the Core `EyeCtrl.Core.Settings.EyeCareSettings` (verified at `EyeCareSettings.cs:21`).
 
 If any differ, adjust before proceeding.
@@ -513,10 +513,11 @@ In `src/EyeCtrl.Core/Adaptation/StruggleMonitor.cs`, add these members to the cl
         return new StruggleAssessment(modes, aggregate);
     }
 
-    // Adds a per-mode assessment when any feeding signal shows struggle (score > 0). Score = peak feeder
-    // score; GatePassed = any feeder gated; Confidence = peak feeder confidence. Context is null (the
-    // Phase-1b momentary response is global per knob, §7.2). A mode with score 0 is omitted, so
-    // StruggleAssessment.ForMode returns null for "no struggle in this mode".
+    // Adds a per-mode assessment when any feeding signal shows struggle (score > 0). Score = PEAK feeder
+    // score (not a sum: two correlated feeders — e.g. abandonment + jitter both signalling sustain-failure
+    // — must not double-count; the dominant signal drives the mode); GatePassed = any feeder gated;
+    // Confidence = peak feeder confidence. Context is null (the Phase-1b momentary response is global per
+    // knob, §7.2). A mode with score 0 is omitted, so StruggleAssessment.ForMode returns null for it.
     private static void AddMode(List<FailureModeAssessment> modes, FailureMode mode, params SignalScore[] feeders)
     {
         double score = 0.0, confidence = 0.0;
@@ -614,6 +615,29 @@ Append to `StruggleMonitorTests`:
             EyeCare(fatigue: true), fatigueAmplifyWeight: 5.0);
         Check.That(monitor.Assess(3 * Sec).AggregateLevel).IsEqualTo(1.0);
     }
+
+    [Fact]
+    public void Assess_FatigueDoesNotAmplifyBelowGateStruggle()
+    {
+        // Below-gate struggle (2 high-progress abandons < the 4-attempt gate → SustainFailure surfaced,
+        // score > 0, gate FALSE) plus high fatigue. Fatigue amplifies only the GATED base (PeakGatedScore
+        // = 0 here), so the aggregate stays 0 even though a struggle mode is present — the amplifier
+        // cannot turn ungated evidence into an actionable aggregate.
+        var monitor = new StruggleMonitor(SinkWith(
+            dwell: new[]
+            {
+                Abandon(0 * Sec, DwellContext.ActionMenu, 0.8, 30, nmX: 15),
+                Abandon(10 * Sec, DwellContext.ActionMenu, 0.8, 30, nmX: 15),
+            },
+            quality: new[] { Quality(0, 0.0, 0, 0.9), Quality(Sec, 0.0, 0, 0.9), Quality(2 * Sec, 0.0, 0, 0.9) }),
+            EyeCare(fatigue: true));
+        var a = monitor.Assess(20 * Sec);
+
+        var sustain = a.ForMode(FailureMode.SustainFailure);
+        Check.That(sustain.HasValue).IsTrue();
+        Check.That(sustain!.Value.GatePassed).IsFalse();
+        Check.That(a.AggregateLevel).IsEqualTo(0.0);
+    }
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -694,7 +718,7 @@ to (amplify by fatigue — multiplicative, so fatigue with no struggle stays 0; 
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~StruggleMonitorTests"`
-Expected: PASS (17 tests — 13 + 4 fatigue). The Task-2 `Assess_AggregateIsPeakGatedModeScore` and `Assess_FatigueDisabled_DoesNotAmplify` still pass (fatigue disabled ⇒ `fatigue.Score` 0 ⇒ `base · 1`). No `CS1591`.
+Expected: PASS (18 tests — 13 + 5 fatigue). The Task-2 `Assess_AggregateIsPeakGatedModeScore` and `Assess_FatigueDisabled_DoesNotAmplify` still pass (fatigue disabled ⇒ `fatigue.Score` 0 ⇒ `base · 1`). No `CS1591`.
 
 - [ ] **Step 5: Full Core suite (confirm zero regressions)**
 
@@ -732,8 +756,10 @@ git commit -m "feat(adaptation): amplify StruggleMonitor aggregate by opt-in fat
 - `BufferingTelemetrySink(int capacity)` + `Report`/`ReportGazeQuality` + `Snapshot`/`SnapshotQuality` returning oldest-first `IReadOnlyList<…>` (1a-②/1a-④); its per-stream monotonic guard means the monitor never sees out-of-order evidence, so `LatestIdleBoundary`/`Within`'s ordered-scan `break` is sound.
 - `EyeCtrl.Core.csproj` `ImplicitUsings=enable` (Math/Func/List/IReadOnlyList need no using) + `WarningsAsErrors=CS1591`; `InternalsVisibleTo EyeCtrl.Core.Tests` makes `internal SelectEvidence` test-visible. NFluent `IsCloseTo(expected, delta)` for amplification results; the no-struggle path is asserted behaviourally (`Modes` empty + `AggregateLevel` 0), not by reference identity.
 
-**Performance (design §9/§9.1):** `Assess` runs at the controller tick (a few Hz, dispatcher), not the gaze hot path. Per tick it takes two `Snapshot` copies + one filter pass each + seven scorer calls over the ≤ 60 s window (n ≈ tens); the scorers' own costs (O(n) / bounded O(n²)) dominate and are all trivial at this size. No per-gaze-sample work. The idle scan is a single O(n) pass over the quality snapshot.
+**Performance (design §9/§9.1):** `Assess` runs at the controller tick (a few Hz, dispatcher), not the gaze hot path. Per tick it takes two `Snapshot` copies + two `Within` filter passes (each allocating a small `List<>`) + seven scorer calls over the ≤ 60 s window (n ≈ tens); the scorers' own costs (O(n) / bounded O(n²)) dominate and are all trivial at this size. The idle scan is a single O(n) pass over the quality snapshot. These per-tick allocations are negligible and off the gaze hot path — §9.1's zero-per-sample-allocation budget governs the per-gaze-sample path (1a's aggregation), not this few-Hz tick; there is no per-gaze-sample work here.
 
-**Honest testability limits:** the monitor is a pure, framework-agnostic Core component, fully headless-unit-tested (17 tests) by pre-loading a real `BufferingTelemetrySink` and calling `SelectEvidence`/`Assess` single-threaded — no dispatcher, timer, or DI. `SelectEvidence` is tested directly (internal) for the window/reset/idle/future-guard paths; classification and aggregation are tested through `Assess`. The idle-gap reset is verified in isolation (large max-age) since it is otherwise subsumed by the 60 s window (documented). **Not** exercised here (correctly, per scope): the coordinator's real-time ticking / `ResetSession` triggers / enable-gating (1b-⑤), and the controller's consumption (1b-④). The `fatigueAmplifyWeight` (0.5) is a tunable starting value; tests assert the amplification *structure* (multiplicative, base-preserving when disabled, clamped), not a calibrated constant.
+**Note for 1b-⑤ (idle detection is quality-stream-only):** `LatestIdleBoundary` infers idle solely from gaps in the ~2 Hz `GazeQualitySummary` stream (the continuous gaze-activity signal; dwell outcomes are too sparse to indicate idle and §13.1 says "gaze-idle"). Correct — but it means if quality emission ever stops while dwell outcomes still flow (e.g. a provider disconnect that pauses the gaze-quality aggregator but not dwell), the idle auto-reset goes blind. The coordinator (1b-⑤) should call `ResetSession` explicitly on such provider-state transitions rather than relying on the timestamp-gap inference.
+
+**Honest testability limits:** the monitor is a pure, framework-agnostic Core component, fully headless-unit-tested (18 tests) by pre-loading a real `BufferingTelemetrySink` and calling `SelectEvidence`/`Assess` single-threaded — no dispatcher, timer, or DI. `SelectEvidence` is tested directly (internal) for the window/reset/idle/future-guard paths; classification and aggregation are tested through `Assess`. The idle-gap reset is verified in isolation (large max-age) since it is otherwise subsumed by the 60 s window (documented). **Not** exercised here (correctly, per scope): the coordinator's real-time ticking / `ResetSession` triggers / enable-gating (1b-⑤), and the controller's consumption (1b-④). The `fatigueAmplifyWeight` (0.5) is a tunable starting value; tests assert the amplification *structure* (multiplicative, base-preserving when disabled, clamped), not a calibrated constant.
 
 **Deferred (documented above, not gaps):** DI + ticking + enable-gate (1b-⑤); assessment consumption (1b-④); backspace-id + per-context attribution; threshold→settings promotion.

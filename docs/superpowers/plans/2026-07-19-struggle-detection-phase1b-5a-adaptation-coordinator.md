@@ -307,7 +307,9 @@ public sealed class AdaptationCoordinator : IDisposable
 
     /// <summary>
     /// The most recent assessment produced by <see cref="Tick"/>, consumed by the cue/report (plan 1b-⑤b).
-    /// <see cref="StruggleAssessment.None"/> before the first assessment and after any reset.
+    /// <see cref="StruggleAssessment.None"/> before the first assessment and after any reset. Retained
+    /// across skip ticks (paused / disconnected / awaiting-gaze) — so 1b-⑤b's cue should gate its rendering
+    /// on the current pause/connect state rather than assume this value is fresh.
     /// </summary>
     public StruggleAssessment LastAssessment { get; private set; } = StruggleAssessment.None;
 
@@ -409,12 +411,17 @@ public sealed class AdaptationCoordinator : IDisposable
 
     /// <summary>
     /// Starts the runtime tick loop: subscribes to gaze samples (the tick clock) and starts the dispatcher
-    /// timer. Call once on the UI thread after <c>GazeEngine.Start()</c>. App-runtime wiring only — the tick
-    /// logic is exercised headlessly via <see cref="Tick"/>/<see cref="OnGazeSample"/>.
+    /// timer. Call once on the UI thread after <c>GazeEngine.Start()</c>; idempotent (a second call is a
+    /// no-op, so it never double-subscribes or leaks a second timer). The timer + subscription are created
+    /// here rather than in the constructor so headless tests — which never call <see cref="Start"/> — don't
+    /// construct a <see cref="DispatcherTimer"/>; the tick logic itself is exercised via
+    /// <see cref="Tick"/>/<see cref="OnGazeSample"/>.
     /// </summary>
     /// <param name="gazeEngine">The gaze engine whose <c>GazeSampled</c> stream drives the tick clock.</param>
     public void Start(GazeEngine gazeEngine)
     {
+        if (_timer is not null)
+            return; // already started
         _gazeEngine = gazeEngine;
         gazeEngine.GazeSampled += OnGazeSample;
         _timer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(TickIntervalMs) };
@@ -465,7 +472,7 @@ Register the monitor, controller, and coordinator (the sink + provider are alrea
 
 - [ ] **Step 1: Register the monitor, controller, and coordinator**
 
-In `src/EyeCtrl.App/Services/AppBootstrapper.cs`, immediately **before** the `return services.BuildServiceProvider();` line (currently `:234`), add (the file already has `using EyeCtrl.Core.Adaptation;` from 1b-①; `AdaptationCoordinator` is same-namespace):
+In `src/EyeCtrl.App/Services/AppBootstrapper.cs`, first ensure `using EyeCtrl.Core.Adaptation;` is present at the top of the file so `StruggleMonitor`/`AdaptationController` resolve unqualified (1b-① Task 2 adds it; add it if the merged source lacks it — `AdaptationCoordinator` is same-namespace, and `Interfaces`/`Core`/`Settings` usings are already present). Then, immediately **before** the `return services.BuildServiceProvider();` line (currently `:234`), add:
 
 ```csharp
         // Struggle-detection adaptation runtime (Phase 1b). The telemetry sink (1a-②) and the

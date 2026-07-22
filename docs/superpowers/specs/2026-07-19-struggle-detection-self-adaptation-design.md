@@ -202,8 +202,12 @@ DwellOutcome {
     double ProgressAtEnd;      // 0..1
     PhysicalPoint GazePoint;   // at outcome
     PhysicalPoint TargetCenter;
-    double TargetRadius;       // or bounds descriptor
-    Vector NearMiss;           // GazePoint - TargetCenter
+    double TargetRadius;       // circular hit radius; 0 for rect targets
+    PhysicalRect? TargetBounds; // rect target bounds; null for circular targets
+    // NearMiss is exposed as two computed doubles NearMissX / NearMissY (= GazePoint − TargetCenter);
+    // there is NO separate Vector field — Core has no Vector type and the geometry already lives in
+    // GazePoint/TargetCenter. (Realized this way in the committed 1a-① plan, which is authoritative;
+    // this sketch reconciled 2026-07-22 during 1b-③b review round 2.)
 }
 ```
 

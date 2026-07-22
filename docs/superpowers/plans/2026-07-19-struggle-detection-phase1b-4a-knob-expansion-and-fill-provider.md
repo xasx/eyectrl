@@ -33,7 +33,7 @@ This slice completes the **value-model plumbing**. It does **not** contain the c
 
 - **The `AdaptationController`** (consumes `StruggleAssessment`; steps the fills via relax/recover/deadband; the quarantined dwell tightening) → **1b-④b**. This slice supplies the provider surface it pushes into.
 - **Routing `DwellTime` / `Smoothing` / `TargetGeometry` to consumers.** Only the tolerance knob is read by a Core consumer today (`GazeEngine._fixationDetector`, from 1b-①). The other three fills are stored and composable via `Effective(knob, ctx, baseline)` but **nothing calls that** for them yet — dwell routing (~20 creation sites), smoothing routing (the filter rebuild reading the effective `OneEuroMinCutoff`/`SmoothingFactor`), and cursor/geometry routing are each their own later slice. The fills are honest no-ops until then.
-- **Per-consumer / per-mode / runtime validated ranges for the three new knobs.** This slice gives them **provider-side superset ranges** (dwell = the union of the 13 dwell-time guards `[100, 2000]`; smoothing = the union of both filter ranges `[0, 20]`; geometry = unbounded above, `[0, double.MaxValue]`, since it has **no** pre-existing validated range — §8.4 for geometry stays deferred exactly as 1b-① stated). Each knob's precise range (per dwell surface; per active filter mode; the runtime-derived geometry bound) is re-applied by its routing slice. The fill × fraction already bounds the delta well inside these supersets, so the superset clamp is a safety net, not the operative bound.
+- **Per-consumer / per-mode / runtime validated ranges for the three new knobs.** This slice gives them **provider-side superset ranges** (dwell = the union of the 11 dwell-time guards `[100, 2000]`; smoothing = the union of both filter ranges `[0, 20]`; geometry = unbounded above, `[0, double.MaxValue]`, since it has **no** pre-existing validated range — §8.4 for geometry stays deferred exactly as 1b-① stated). Each knob's precise range (per dwell surface; per active filter mode; the runtime-derived geometry bound) is re-applied by its routing slice. The fill × fraction already bounds the delta well inside these supersets, so the superset clamp is a safety net, not the operative bound.
 - **`FixationDetectionMs` is still NOT an adaptation knob** (§13.1 gives no fixation-*time* band) — unchanged from 1b-①.
 
 `AdaptationKnob` reaches its **complete** §5 set here (the four knob families), because the controller (1b-④b) routes every failure mode to a knob and needs the full enum; the incremental part is which knobs are *observably routed to consumers*, not which exist.
@@ -351,7 +351,7 @@ public sealed class EffectiveSettingsProvider
     //
     // ⚠️ FixationRadius's ValidMin/ValidMax DUPLICATE DwellSettings.FixationRadiusPixels's guard (10–200);
     // the Task-2 drift-guard test uses that setter as the oracle so a divergence fails the build. The three
-    // unrouted knobs get SUPERSET validated ranges (dwell = union of the 13 dwell-time guards [100, 2000];
+    // unrouted knobs get SUPERSET validated ranges (dwell = union of the 11 dwell-time guards [100, 2000];
     // smoothing = union of both filter ranges [0, 20]; geometry = unbounded above, since geometry has NO
     // pre-existing validated range — §8.4 for geometry stays deferred). The per-consumer/mode/runtime range
     // is re-applied by each knob's routing slice; here the fraction clamp is the operative bound and the
@@ -371,15 +371,22 @@ public sealed class EffectiveSettingsProvider
             [AdaptationKnob.FixationRadius] = new(
                 +1.0, static a => a.ToleranceLooserMaxFraction, 0.0, null, 10.0, 200.0),
             // Dwell: forgiving = shorter (−); the one quarantined tightening = longer (+). Range = union of
-            // the 13 dwell-time guards [100, 2000] (per-surface ranges re-applied at dwell routing).
+            // the 11 dwell-time guards [100, 2000] (per-surface ranges re-applied at dwell routing).
             [AdaptationKnob.DwellTime] = new(
                 -1.0, static a => a.DwellShorterMaxFraction, +1.0, static a => a.DwellLongerMaxFraction, 100.0, 2000.0),
             // Smoothing: forgiving = more = parameter DOWN (−); no tightening. Range = union of both filter
-            // ranges [0, 20] (per-mode range re-applied at smoothing routing).
+            // ranges [0, 20] (per-mode range re-applied at smoothing routing). Discharges 1b-②'s flagged
+            // "revisit fraction-vs-absolute" question: ④ ADOPTS fraction-of-baseline — the uniform fill
+            // model applies cleanly (OneEuro baseline 5 → 2.5; EMA 0.5 → 0.25, both in-range) and needs no
+            // per-filter special-casing here; a mode-aware absolute per-filter delta, if ever needed, is a
+            // smoothing-routing concern (this knob is unrouted, so the model choice is not yet load-bearing).
             [AdaptationKnob.Smoothing] = new(
                 -1.0, static a => a.SmoothingMoreMaxFraction, 0.0, null, 0.0, 20.0),
             // Geometry: forgiving = bigger (+); no tightening. No pre-existing validated range (runtime-
             // derived) → unbounded above; the +fraction band is the operative bound (§8.4 deferred, per 1b-①).
+            // The absolute geometry bound §13.1 expects "Phase 1b" to introduce lands with the GEOMETRY-ROUTING
+            // slice, which supplies both the runtime-derived baseline and the first consumer — it cannot be
+            // validated before then. This knob is unrouted here, so the fraction bounds the (no-op) delta.
             [AdaptationKnob.TargetGeometry] = new(
                 +1.0, static a => a.GeometryBiggerMaxFraction, 0.0, null, 0.0, double.MaxValue),
         };

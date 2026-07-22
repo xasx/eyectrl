@@ -506,8 +506,9 @@ down to 100 ms); dwell **longer** *(accidental-activation only)* +50 %; fixation
 smoothing **more** = a bounded shift of the *active filter parameter only*, **decreasing** it for both
 filters (One-Euro `OneEuroMinCutoff` down, EMA `SmoothingFactor` down — verified against
 `SmoothedFilter.cs:36`/`OneEuroFilter.cs`; mode never switched. NB: `CursorSettings.cs`'s `SmoothingFactor`
-summary comment is **inverted** vs. its implementation — a code-doc bug 1b reconciles, keying adaptation off
-actual filter behaviour); target geometry **bigger** +50 % of the (runtime-derived) ring/hit radius, coupled
+summary comment **was** inverted vs. its implementation when this spec was written — **fixed in `49a12e9`
+(2026-07-21)**, so it now reads "down = more smoothing" and there is no code-doc bug left to reconcile;
+adaptation keys off actual filter behaviour regardless); target geometry **bigger** +50 % of the (runtime-derived) ring/hit radius, coupled
 atomically with the visible size (§8.9), bounded by the feature-introduced geometry bound above.
 
 **Session boundary & evidence (resolves §14; §6.3).** Momentary struggle evidence has a **60 s rolling

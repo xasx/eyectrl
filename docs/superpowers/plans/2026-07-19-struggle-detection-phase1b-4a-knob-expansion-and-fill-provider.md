@@ -14,7 +14,7 @@
 
 **Executor pre-flight (do this FIRST — MANDATORY; 1a/1b-①/② are plans-only, not yet in the tree):** confirm these against the *merged* source before writing any code — a shape mismatch breaks the tasks silently:
 1. `EffectiveValue.Compute(double baseline, double forgivingDelta, double tighteningDelta, (double Min, double Max) forgivingBand, (double Min, double Max) tighteningBand, double validMin, double validMax)` returning `double`, with the zero-delta ⇒ exact-baseline short-circuit (1a-⑤).
-2. `EffectiveSettingsProvider` (1b-①, `EyeCtrl.Core.Adaptation`, `sealed`): ctor `EffectiveSettingsProvider(AdaptationSettings)`, `event Action? Changed`, `double Effective(AdaptationKnob, DwellContext, double baseline)`, `void SetMomentaryDelta(AdaptationKnob, DwellContext, double forgiving, double tightening)`, `void ClearMomentaryDeltas()`, and an internal `KnobPolicy` record struct + static `Policies` dictionary (FixationRadius only). **This plan replaces `SetMomentaryDelta` with `SetMomentaryFill` and the store's value type with fills** — confirm the current names before rewording the tests.
+2. `EffectiveSettingsProvider` (1b-①, `EyeCtrl.Core.Adaptation`, `sealed`): ctor `EffectiveSettingsProvider(AdaptationSettings)`, `event Action? Changed`, `double Effective(AdaptationKnob, DwellContext, double baseline)`, `void SetMomentaryDelta(AdaptationKnob, DwellContext, double forgiving, double tightening)`, `void ClearMomentaryDeltas()`, and an internal `KnobPolicy` record struct + static `Policies` dictionary (FixationRadius only). **This plan replaces `SetMomentaryDelta` with `SetMomentaryFill`, renames `ClearMomentaryDeltas` to `ClearMomentaryFills` (so the clear verb matches the `SetMomentaryFill`/fill vocabulary), and changes the store's value type to fills** — confirm the current names before rewording the tests.
 3. `AdaptationKnob` (1b-①) currently declares exactly one member, `FixationRadius`.
 4. `AdaptationSettings` (1b-②) exposes `double` band fractions `ToleranceLooserMaxFraction` (0.50), `DwellShorterMaxFraction` (0.40), `DwellLongerMaxFraction` (0.50), `SmoothingMoreMaxFraction` (0.50), `GeometryBiggerMaxFraction` (0.50), plus `Enabled` (bool) — reachable as `EyeCtrlSettings.Adaptation`.
 5. `DwellContext` (1a-①) includes `Other`.
@@ -274,11 +274,11 @@ public class EffectiveSettingsProviderTests
     }
 
     [Fact]
-    public void ClearMomentaryDeltas_RestoresBaseline()
+    public void ClearMomentaryFills_RestoresBaseline()
     {
         var (p, _) = Make(enabled: true);
         p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 1.0, 0.0);
-        p.ClearMomentaryDeltas();
+        p.ClearMomentaryFills();
         Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 50)).IsEqualTo(50.0);
     }
 
@@ -289,12 +289,12 @@ public class EffectiveSettingsProviderTests
         int changed = 0;
         p.Changed += () => changed++;
         p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 1.0, 0.0);
-        p.ClearMomentaryDeltas();
+        p.ClearMomentaryFills();
         Check.That(changed).IsEqualTo(2);
     }
 
     [Fact]
-    public void FixationRadius_EffectiveStaysWithinDwellSettingsValidatedRange()
+    public void FixationRadius_EffectiveStaysWithinDwellSettingsValidatedMax()
     {
         // Drift guard (from 1b-①, updated to the fill API): KnobPolicy hardcodes the fixation-radius
         // validated MAX (200) — a provider-owned constant NOT migrated to AdaptationSettings — duplicating
@@ -451,7 +451,7 @@ public sealed class EffectiveSettingsProvider
     }
 
     /// <summary>Clears every momentary fill (toolbar reset / session boundary) and raises <see cref="Changed"/> if any were present.</summary>
-    public void ClearMomentaryDeltas()
+    public void ClearMomentaryFills()
     {
         if (_fills.Count == 0)
             return;
@@ -527,7 +527,7 @@ git commit -m "feat(adaptation): fill-fraction provider + band-source migration 
 
 **Placeholder scan:** none — every step has full code and exact commands.
 
-**Type consistency:** `SetMomentaryFill(AdaptationKnob, DwellContext, double forgivingFill, double tighteningFill)`, `Effective(AdaptationKnob, DwellContext, double)`, `ClearMomentaryDeltas()`, `event Action Changed`, ctor `EffectiveSettingsProvider(AdaptationSettings)` are used identically in `EffectiveSettingsProviderTests`, the reworded `GazeEngineFixationRebuildTests`, and (next slice) the controller. `EffectiveValue.Compute(double, double, double, (double,double), (double,double), double, double)` matches its 1a-⑤ definition. The `KnobPolicy` fraction delegates read the `AdaptationSettings` members confirmed in the pre-flight (`ToleranceLooserMaxFraction`, `DwellShorterMaxFraction`, `DwellLongerMaxFraction`, `SmoothingMoreMaxFraction`, `GeometryBiggerMaxFraction`).
+**Type consistency:** `SetMomentaryFill(AdaptationKnob, DwellContext, double forgivingFill, double tighteningFill)`, `Effective(AdaptationKnob, DwellContext, double)`, `ClearMomentaryFills()`, `event Action Changed`, ctor `EffectiveSettingsProvider(AdaptationSettings)` are used identically in `EffectiveSettingsProviderTests`, the reworded `GazeEngineFixationRebuildTests`, and (next slice) the controller. `EffectiveValue.Compute(double, double, double, (double,double), (double,double), double, double)` matches its 1a-⑤ definition. The `KnobPolicy` fraction delegates read the `AdaptationSettings` members confirmed in the pre-flight (`ToleranceLooserMaxFraction`, `DwellShorterMaxFraction`, `DwellLongerMaxFraction`, `SmoothingMoreMaxFraction`, `GeometryBiggerMaxFraction`).
 
 **Verified facts relied on (from source):**
 - `DwellSettings.FixationRadiusPixels` guard 10–200 (`DwellSettings.cs:102-109,173`); the nine 200–2000 dwell-time guards + the two 100–1500 keyboard guards → union `[100, 2000]` (`DwellSettings.cs:11-37`).

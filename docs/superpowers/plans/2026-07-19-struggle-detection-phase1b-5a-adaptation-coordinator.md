@@ -125,17 +125,17 @@ public class AdaptationCoordinatorTests
     }
 
     [Fact]
-    public void FirstEnabledTick_ResetsOnStart()
+    public void FirstEnabledTick_ResetsOnEnable()
     {
         var (c, _, _, _, _, _) = Make(enabled: true);
-        Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ResetOnStart);
+        Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ResetOnEnable);
     }
 
     [Fact]
     public void AwaitingGaze_WhenNoSampleYet()
     {
         var (c, _, _, _, _, _) = Make(enabled: true);
-        Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ResetOnStart); // tick 1: fresh session
+        Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ResetOnEnable); // tick 1: fresh session
         Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.AwaitingGaze); // tick 2: now == Unseeded (no gaze)
     }
 
@@ -144,7 +144,7 @@ public class AdaptationCoordinatorTests
     {
         var (c, _, _, adaptation, _, _) = Make(enabled: true);
         c.OnGazeSample(new GazePoint(0, 0, 10 * Sec, true));
-        c.Tick(); // ResetOnStart
+        c.Tick(); // ResetOnEnable
         c.Tick(); // Assessed
         adaptation.Enabled = false;
         Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ClearedOnDisable);
@@ -156,7 +156,7 @@ public class AdaptationCoordinatorTests
     {
         var (c, _, _, _, gaze, _) = Make(enabled: true);
         c.OnGazeSample(new GazePoint(0, 0, 10 * Sec, true));
-        c.Tick(); // ResetOnStart
+        c.Tick(); // ResetOnEnable
         c.Tick(); // Assessed
         gaze.IsConnected = false;
         Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ResetOnDisconnect); // the ③c F3 carry-forward
@@ -168,7 +168,7 @@ public class AdaptationCoordinatorTests
     {
         var (c, _, _, _, _, im) = Make(enabled: true);
         c.OnGazeSample(new GazePoint(0, 0, 10 * Sec, true));
-        c.Tick(); // ResetOnStart
+        c.Tick(); // ResetOnEnable
         c.Tick(); // Assessed
         im.TogglePause(); // FreeLook → Paused
         Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.Paused);        // into-pause: skip (no reset)
@@ -181,7 +181,7 @@ public class AdaptationCoordinatorTests
     public void ActiveTick_AssessesAndAdaptsTolerance()
     {
         var (c, provider, sink, _, _, _) = Make(enabled: true);
-        Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ResetOnStart); // now == Unseeded → sessionStart = long.MinValue (excludes nothing)
+        Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ResetOnEnable); // now == Unseeded → sessionStart = long.MinValue (excludes nothing)
 
         // Gate SustainFailure: 4 high-progress abandons in one context (abandonment score 0.8, ≥ 4 attempts).
         for (int i = 0; i < 4; i++)
@@ -200,7 +200,7 @@ public class AdaptationCoordinatorTests
     public void Reset_ClearsMomentaryAdaptation()
     {
         var (c, provider, sink, _, _, _) = Make(enabled: true);
-        c.Tick(); // ResetOnStart
+        c.Tick(); // ResetOnEnable
         for (int i = 0; i < 4; i++)
             sink.Report(Abandon(i * 10 * Sec, progress: 0.8));
         c.OnGazeSample(new GazePoint(0, 0, 40 * Sec, true)); c.Tick();
@@ -209,6 +209,23 @@ public class AdaptationCoordinatorTests
 
         c.Reset(); // the always-reachable escape (§8.6)
         Check.That(provider.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsEqualTo(50.0);
+    }
+
+    [Fact]
+    public void LastAssessment_ClearsWhenNotAssessing()
+    {
+        // The cue reflects only LIVE struggle: LastAssessment is None whenever the last tick did not assess.
+        var (c, _, sink, _, _, im) = Make(enabled: true);
+        c.Tick(); // ResetOnEnable (now == Unseeded → sessionStart = long.MinValue, excludes nothing)
+        for (int i = 0; i < 4; i++)
+            sink.Report(Abandon(i * 10 * Sec, progress: 0.8));
+        c.OnGazeSample(new GazePoint(0, 0, 40 * Sec, true)); c.Tick();
+        c.OnGazeSample(new GazePoint(0, 0, 43 * Sec, true)); c.Tick(); // Assessed with gated SustainFailure
+        Check.That(c.LastAssessment.AggregateLevel > 0.0).IsTrue();     // live struggle present
+
+        im.TogglePause(); // FreeLook → Paused
+        c.Tick();         // Paused → LastAssessment cleared
+        Check.That(c.LastAssessment.AggregateLevel).IsEqualTo(0.0);
     }
 }
 ```
@@ -233,7 +250,7 @@ public enum CoordinatorTickResult
     /// <summary>Adaptation transitioned enabled→disabled this tick; momentary state was cleared once.</summary>
     ClearedOnDisable,
     /// <summary>First active tick after enable / app-start; a fresh evidence session was started.</summary>
-    ResetOnStart,
+    ResetOnEnable,
     /// <summary>The gaze provider went connected→disconnected; the session was reset (1b-③c F3) and the tick skipped.</summary>
     ResetOnDisconnect,
     /// <summary>Interaction resumed from Pause; the session was reset and the tick skipped.</summary>
@@ -294,7 +311,9 @@ public sealed class AdaptationCoordinator : IDisposable
     private readonly InteractionManager _interactionManager;
 
     // Written on the gaze thread (OnGazeSample), read on the dispatcher thread (Tick). `volatile long` is
-    // illegal (CS0677), so accesses go through Volatile.Read/Write (same acquire/release semantics).
+    // illegal (CS0677), so accesses go through Volatile.Read/Write (same acquire/release semantics). The app
+    // targets win-x64, where aligned 64-bit reads/writes are atomic (no torn read) — Volatile adds only the
+    // memory fence; a 32-bit target would need Interlocked for atomicity.
     private long _latestGazeTs = Unseeded;
 
     // Tick-only state (dispatcher thread) — edge detection across ticks.
@@ -306,10 +325,11 @@ public sealed class AdaptationCoordinator : IDisposable
     private DispatcherTimer? _timer;
 
     /// <summary>
-    /// The most recent assessment produced by <see cref="Tick"/>, consumed by the cue/report (plan 1b-⑤b).
-    /// <see cref="StruggleAssessment.None"/> before the first assessment and after any reset. Retained
-    /// across skip ticks (paused / disconnected / awaiting-gaze) — so 1b-⑤b's cue should gate its rendering
-    /// on the current pause/connect state rather than assume this value is fresh.
+    /// The current assessment for the cue/report (plan 1b-⑤b): the one from the most recent tick that
+    /// actually assessed (<see cref="CoordinatorTickResult.Assessed"/>), or <see cref="StruggleAssessment.None"/>
+    /// whenever the last tick did NOT assess — disabled, paused, disconnected, awaiting-gaze, or a reset. So
+    /// the cue reflects only *live* struggle and fades on pause/disconnect without 1b-⑤b having to gate away
+    /// a stale value.
     /// </summary>
     public StruggleAssessment LastAssessment { get; private set; } = StruggleAssessment.None;
 
@@ -367,10 +387,13 @@ public sealed class AdaptationCoordinator : IDisposable
 
         // Session-reset triggers (each: reset a fresh session + clear momentary, then skip this tick):
         //   - first active tick after enable / app-start,
-        //   - gaze-provider disconnect edge (1b-③c F3),
-        //   - resume-from-Pause edge.
+        //   - gaze-provider disconnect EDGE (1b-③c F3 — telemetry goes blind, so reset the moment it drops),
+        //   - resume-from-Pause EDGE (deliberately the RESUME edge, not the pause-ENTRY edge: a pause is a
+        //     deliberate user action and evidence gathered during it is meaningless, so a fresh session at
+        //     resume is both correct per §13.1 and cleaner than resetting on entry — unlike disconnect,
+        //     which must reset immediately because idle detection can no longer see the stall).
         CoordinatorTickResult? reset =
-            !_wasEnabled ? CoordinatorTickResult.ResetOnStart
+            !_wasEnabled ? CoordinatorTickResult.ResetOnEnable
             : _wasConnected && !connected ? CoordinatorTickResult.ResetOnDisconnect
             : _wasPaused && !paused ? CoordinatorTickResult.ResetOnResume
             : null;
@@ -385,9 +408,11 @@ public sealed class AdaptationCoordinator : IDisposable
             return reason;
         }
 
-        if (!connected) return CoordinatorTickResult.Disconnected;
-        if (paused) return CoordinatorTickResult.Paused;
-        if (now == Unseeded) return CoordinatorTickResult.AwaitingGaze;
+        // Not actively adapting → there is no current assessment, so clear it (the cue fades, §10) rather
+        // than leave a stale pre-skip value that 1b-⑤b's cue would otherwise have to gate away.
+        if (!connected) { LastAssessment = StruggleAssessment.None; return CoordinatorTickResult.Disconnected; }
+        if (paused) { LastAssessment = StruggleAssessment.None; return CoordinatorTickResult.Paused; }
+        if (now == Unseeded) { LastAssessment = StruggleAssessment.None; return CoordinatorTickResult.AwaitingGaze; }
 
         StruggleAssessment assessment = _monitor.Assess(now);
         _controller.Tick(assessment, now);
@@ -452,7 +477,7 @@ public sealed class AdaptationCoordinator : IDisposable
 - [ ] **Step 5: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AdaptationCoordinatorTests"`
-Expected: PASS (8 tests).
+Expected: PASS (9 tests).
 
 - [ ] **Step 6: Commit**
 
@@ -533,7 +558,7 @@ git commit -m "feat(adaptation): register + start the AdaptationCoordinator tick
 - §8.6 always-reachable escape — `Reset()` is public (the manual toolbar/tray sender is 1b-⑤b). ✓
 - §9 single serialized/dispatcher thread; aggregate on the gaze thread — `Tick()` runs on the dispatcher; `OnGazeSample` runs on the gaze thread and only publishes a timestamp via `Volatile`. ✓
 - §9.1 disabled = current cost — `Tick()` returns `Disabled` and does no monitor/controller work when `Enabled == false` (the default). ✓
-- §13.1 session boundaries — `ResetOnStart` (app-start/enable), `ResetOnResume` (resume-from-Pause). ✓
+- §13.1 session boundaries — `ResetOnEnable` (app-start/enable), `ResetOnResume` (resume-from-Pause). ✓
 - **③c F3 carry-forward** — `ResetOnDisconnect` on the `IsConnected` true→false edge (idle detection is quality-stream-only). ✓
 - **Clock correctness** — `now` is the latest gaze `TimestampMicroseconds`, matching the telemetry clock (the monitor filters against telemetry timestamps; the Tobii device epoch is not wall-clock). ✓
 
@@ -547,6 +572,6 @@ git commit -m "feat(adaptation): register + start the AdaptationCoordinator tick
 - `App.OnStartup` resolves + starts services after `gazeEngine.Start()` (`App.xaml.cs:209`) and subscribes `gazeEngine.GazeSampled` at `:219,237`; `AppBootstrapper` uses `AddSingleton(sp => new X(...))` factory lambdas (`:142`, `:210-232`); `EyeCtrlSettings` is the root singleton with sub-settings via properties (`:59`).
 - `ScrollWorker` is the `DispatcherTimer`-owning-service precedent (Start/Stop/Dispose, `Tick += OnTick`) (`ScrollWorker.cs:28-32,100-104`); `ToolbarAutoHideController` is the headless-service test tier (fed synthetic samples + timestamps, `Check.That`) and the `long.MinValue` sentinel discipline (`ToolbarAutoHideController.cs:44-50`).
 
-**Honest testability limits:** the coordinator's decision logic is fully headless-unit-tested (8 tests) — every `CoordinatorTickResult` branch (disabled / clear-on-disable / reset-on-start / reset-on-disconnect+disconnected / paused+reset-on-resume / awaiting-gaze), plus one integration test driving a real sink→monitor→controller→provider through to an observable tolerance change and its `Reset()`. What is **build-verified only** (not headlessly unit-tested), correctly per the App test tiers: `Start()`'s `DispatcherTimer` + `GazeSampled` subscription (the timer fires only under a running dispatcher) and the full DI-container resolution (building the container instantiates STA WPF overlays). The tick interval (250 ms) is a tunable starting value.
+**Honest testability limits:** the coordinator's decision logic is fully headless-unit-tested (9 tests) — every `CoordinatorTickResult` branch (disabled / clear-on-disable / reset-on-enable / reset-on-disconnect+disconnected / paused+reset-on-resume / awaiting-gaze), the `LastAssessment`-clears-when-not-assessing invariant, plus one integration test driving a real sink→monitor→controller→provider through to an observable tolerance change and its `Reset()`. What is **build-verified only** (not headlessly unit-tested), correctly per the App test tiers: `Start()`'s `DispatcherTimer` + `GazeSampled` subscription (the timer fires only under a running dispatcher) and the full DI-container resolution (building the container instantiates STA WPF overlays). The tick interval (250 ms) is a tunable starting value.
 
 **Deferred (documented above, not gaps):** the cue overlay, manual toolbar/tray reset, drift report, and adaptation log (1b-⑤b — they consume `LastAssessment` / `Reset()`); observable routing of dwell/smoothing/geometry (their routing slices); sensitive-context suppression (1b-⑥).

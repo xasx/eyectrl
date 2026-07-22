@@ -819,6 +819,8 @@ and add it to the menu immediately after `menu.Items.Add(settingsItem);` (`:52`)
         menu.Items.Add(resetAdaptationItem);
 ```
 
+> **Note — pre-existing orphan gaze targets (traceability; not introduced here).** `ToolbarViewModel` registers a `DwellDetector` target for *every* button in its array (`ToolbarViewModel.cs:54-57`), all at `(0,0)` until the View syncs a screen position; but `UpdateTargetPositions` (`ToolbarWindow.xaml.cs:180-199`) syncs positions **only for rendered buttons** (`_buttonVisuals`). So `Calibrate`/`TaskSwitcher`/`QuickActions` — declared in the VM but not rendered by the View — are today **orphan gaze targets stuck at `(0,0)`** (screen top-left), a pre-existing latent stray-activation risk near the origin, independent of this plan. `ResetAdaptation` is added to **both** the VM array (Step 8) and the View array (above), so it is rendered and correctly positioned — it is **not** an orphan and does **not** change the orphan count (still 3). Fixing the pre-existing orphans (render the missing buttons, or don't register targets for unrendered ones) is out of scope for ⑤b and tracked separately.
+
 - [ ] **Step 11: Build to verify the App compiles**
 
 Run: `dotnet build EyeCtrl.slnx`
@@ -901,7 +903,7 @@ git commit -m "feat(adaptation): register + start the cue service and manual-res
 ## Self-Review
 
 **Spec coverage (this slice):**
-- §10 on-screen cue — subtle corner badge (`CueOverlayWindow`), **on-canvas + excluded from magnifier capture** (`ExcludeFromScreenCapture = true`, verified against `ScreenCaptureService` GDI `CopyFromScreen` + both callers), **non-interactive** (click-through + non-activating via `OverlayWindow`), **auto-fading ~2 s** (2 s `DoubleAnimation` restarted per struggle tick, hides on genuine completion), **intensity scales with the assessment** (`AggregateLevel` → peak opacity), **gated on `ShowCue`**. ✓
+- §10 on-screen cue — subtle corner badge (`CueOverlayWindow`), **on-canvas + excluded from magnifier capture** (`ExcludeFromScreenCapture = true`, verified against `ScreenCaptureService` GDI `CopyFromScreen` + both callers), **non-interactive** (click-through + non-activating via `OverlayWindow`), **auto-fading ~2 s** (2 s `DoubleAnimation` restarted per struggle tick, hides on genuine completion), **intensity scales with the assessment** (`AggregateLevel` → peak opacity; note `AggregateLevel` already folds in the ③c fatigue multiplier, so with fatigue opted in the cue can saturate to full opacity under sustained high struggle — intended), **gated on `ShowCue`**. ✓
 - §10 manual override — toolbar reset button (`ToolbarViewModel` + `ToolbarWindow`) **mirrored in the tray** (`TrayIconManager`), both sending `ResetAdaptationMessage` → `AdaptationResetHandler` → `coordinator.Reset()`. ✓
 - §8.6 always-reachable escape — the toolbar button + tray item are always present (documented decision: static UI chrome, not a pipeline cost; `Reset()` is a safe baseline no-op). ✓
 - §8.10 no feedback leakage — the cue consults a single `IFeedbackGate` seam; `AllowAllFeedbackGate` is the no-op default; 1b-⑥ swaps the registration for the sensitive-context gate. ✓

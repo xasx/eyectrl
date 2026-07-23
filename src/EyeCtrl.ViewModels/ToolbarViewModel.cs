@@ -17,6 +17,16 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 {
     private readonly Dictionary<string, ToolbarButtonViewModel> _buttonLookup = new();
 
+    // Dwell-target parameters captured at construction: hit-test radius in physical pixels and
+    // dwell time in ms. The targets themselves are created lazily (see the constructor note and
+    // UpdateButtonScreenPosition), so these are held until the View reports a real position.
+    private readonly double _buttonDwellRadiusPhysical;
+    private readonly int _toolbarButtonDwellMs;
+
+    // Buttons the View has already positioned. The first position report for a button creates its
+    // dwell target; later reports only move it, so accumulated dwell state is preserved.
+    private readonly HashSet<string> _positionedButtons = new();
+
     [ObservableProperty] private bool _isPaused;
 
     private SelectionMode _currentSelectionMode = SelectionMode.None;
@@ -29,12 +39,29 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// </summary>
     public void UpdateButtonScreenPosition(string buttonId, PhysicalPoint screenCenter)
     {
-        DwellDetector.UpdateTargetCenter(buttonId, screenCenter);
+        if (_positionedButtons.Add(buttonId))
+        {
+            // First real position for this button: create its dwell target now, at the true
+            // on-screen center — never at the (0,0) placeholder. Because the View reports
+            // positions only for buttons it actually renders, unrendered buttons never get a
+            // target and so can't be dwell-activated from an off-screen/corner gaze.
+            DwellDetector.AddTarget(new DwellTarget(buttonId, screenCenter,
+                _buttonDwellRadiusPhysical, _toolbarButtonDwellMs));
+        }
+        else
+        {
+            // Later re-layout / re-dock: move the existing target without resetting accumulated
+            // dwell state (preserves the fix that stopped dwell resetting on every frame).
+            DwellDetector.UpdateTargetCenter(buttonId, screenCenter);
+        }
     }
 
     public ToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger)
         : base(messenger, settings.Dwell.DwellCooldownMs)
     {
+        _buttonDwellRadiusPhysical = DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2);
+        _toolbarButtonDwellMs = settings.Dwell.ToolbarButtonDwellMs;
+
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause", "\u23F8"),
@@ -51,10 +78,12 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             var btn = new ToolbarButtonViewModel(id, symbol);
             Buttons.Add(btn);
             _buttonLookup[id] = btn;
-            DwellDetector.AddTarget(new DwellTarget(id,
-                new PhysicalPoint(0, 0),
-                DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2),
-                settings.Dwell.ToolbarButtonDwellMs));
+            // Dwell targets are intentionally NOT created here. Each target is created lazily by
+            // UpdateButtonScreenPosition once the View reports the button's real on-screen center.
+            // This guarantees (a) only buttons the View actually renders ever become gaze targets,
+            // and (b) no target ever sits at the (0,0) placeholder where a top-left-corner gaze
+            // could dwell-activate an invisible button. Mirrors TaskSwitcherViewModel's deliberate
+            // avoidance of the same "(0,0) race".
         }
     }
 

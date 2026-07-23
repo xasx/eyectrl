@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
@@ -144,6 +145,15 @@ public class AppBootstrapper
             sp.GetRequiredService<IInputSimulator>(),
             sp.GetRequiredService<EyeCtrlSettings>(),
             sp.GetRequiredService<CalibrationService>()));
+
+        // Struggle-detection telemetry sink (Phase 1a): surfaces report DwellOutcomes here.
+        // BufferingTelemetrySink only buffers (zero behaviour change); DispatcherTelemetrySink
+        // serializes onto the UI dispatcher and swallows inner exceptions.
+        services.AddSingleton<BufferingTelemetrySink>();
+        services.AddSingleton<IStruggleTelemetrySink>(sp => new DispatcherTelemetrySink(
+            sp.GetRequiredService<BufferingTelemetrySink>(),
+            dispatcher,
+            sp.GetRequiredService<ILogger<DispatcherTelemetrySink>>()));
 
         // ViewModels (singleton -- each registers message handlers in constructor)
         services.AddSingleton<CursorCircleViewModel>();

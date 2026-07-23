@@ -12,9 +12,9 @@ public class DwellTarget
     /// <summary>Center position in physical screen pixels (used for nearest-target selection).</summary>
     public PhysicalPoint Center { get; set; }
     /// <summary>Hit-test radius in physical pixels (used when <see cref="Bounds"/> is null).</summary>
-    public double Radius { get; }
+    public double Radius { get; internal set; }
     /// <summary>Required dwell time in microseconds for activation.</summary>
-    public long DwellTimeMicroseconds { get; }
+    public long DwellTimeMicroseconds { get; internal set; }
     /// <summary>Timestamp in microseconds when gaze first entered this target, or null.</summary>
     public long? EnteredTimestamp { get; set; }
     /// <summary>Whether gaze is currently inside this target's hit area.</summary>

@@ -24,6 +24,9 @@ public class DwellDetector
     private readonly DwellContext _context;
     private readonly IStruggleTelemetrySink? _sink;
 
+    /// <summary>Minimum dwell fraction [0..1] an abandoned target must have reached to be reported.</summary>
+    private const double AbandonProgressThreshold = 0.3;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="DwellDetector"/> class.
     /// </summary>
@@ -177,6 +180,7 @@ public class DwellDetector
         // ── Accumulate dwell on nearest only; reset all others ──
         string? activatedId = null;
         DwellOutcome? activationOutcome = null;
+        DwellOutcome? abandonOutcome = null;
 
         for (int i = 0; i < targets.Length; i++)
         {
@@ -213,7 +217,22 @@ public class DwellDetector
             else
             {
                 if (target.IsGazeInside)
+                {
                     TargetProgress?.Invoke(target.Id, 0);
+                    if (_sink is not null && target.EnteredTimestamp.HasValue
+                        && (targetFilter is null || targetFilter(target)))
+                    {
+                        long abandonElapsed = timestampMicroseconds - target.EnteredTimestamp.Value;
+                        double abandonProgress = Math.Min(1.0,
+                            (double)abandonElapsed / target.DwellTimeMicroseconds);
+                        if (abandonProgress >= AbandonProgressThreshold)
+                            abandonOutcome = new DwellOutcome(
+                                timestampMicroseconds, _context, target.Id,
+                                OutcomeKind.Abandoned,
+                                nearestId is null ? AbandonReason.GazeLeft : AbandonReason.NearestChanged,
+                                abandonProgress, gazePoint, target.Center, target.Radius, target.Bounds);
+                    }
+                }
                 target.IsGazeInside = false;
                 target.EnteredTimestamp = null;
             }
@@ -226,8 +245,13 @@ public class DwellDetector
             TargetActivated?.Invoke(activatedId);
         }
 
-        if (_sink is not null && activationOutcome is { } completed)
-            _sink.Report(completed);
+        if (_sink is not null)
+        {
+            if (abandonOutcome is { } abandoned)
+                _sink.Report(abandoned);
+            if (activationOutcome is { } completed)
+                _sink.Report(completed);
+        }
     }
 
     /// <summary>

@@ -457,7 +457,11 @@ Phase 1b adds and validates before §8.4 is testable for geometry.
 `EyeCtrl.Platform` via **UI Automation** — reusing the existing `System.Windows.Automation` dependency
 and the defensive patterns already in `ControlFinder` (own-process exclusion, COM `try`/`catch`). It
 subscribes to UIA focus-changed events; on each focus change to a non-EyeCtrl element it reads the focused
-element's `IsPassword` (and `ControlType`) and caches a single boolean. The feedback gate reads that cached
+element's `IsPassword` and caches a single boolean. (**Clarified 2026-07-23 (1b-⑥ review round 2):** the
+v1 sensitivity rule keys off `IsPassword` alone — the authoritative password signal, set on WPF `PasswordBox`
+and Win32 `ES_PASSWORD` edits; `ControlType` is *available* to read but is **not** part of the v1 cached
+decision, reserved for a future broader-than-password refinement — e.g. OTP / number-pad fields that don't set
+`IsPassword`. YAGNI: a password field reports `IsPassword` regardless of control type.) The feedback gate reads that cached
 bool in O(1) — nothing runs on the gaze hot path. The focus-changed callback fires on a UIA (RPC) thread —
 not the UI thread — so the cached bool is published thread-safely (`Volatile.Write`/`Interlocked`) and the
 subscription is explicitly disposed on shutdown (UIA event hooks otherwise leak). It gates **only the

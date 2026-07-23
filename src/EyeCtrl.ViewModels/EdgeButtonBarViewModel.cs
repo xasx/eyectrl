@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels;
 
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -30,8 +31,8 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
     /// </summary>
     public event Action? ButtonSetChanged;
 
-    public EdgeButtonBarViewModel(EyeCtrlSettings settings, IMessenger messenger)
-        : base(messenger, settings.Dwell.DwellCooldownMs)
+    public EdgeButtonBarViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.EdgeButtonBar, sink)
     {
     }
 

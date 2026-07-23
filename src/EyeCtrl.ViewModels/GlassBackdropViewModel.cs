@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -19,8 +20,8 @@ public partial class GlassBackdropViewModel : DwellOverlayViewModelBase,
     [ObservableProperty] private PhysicalPoint _hideButtonCenter = new(0, 0);
     [ObservableProperty] private double _hideButtonProgress;
 
-    public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger)
-        : base(messenger, settings.Dwell.DwellCooldownMs)
+    public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Backdrop, sink)
     {
         _settings = settings;
     }

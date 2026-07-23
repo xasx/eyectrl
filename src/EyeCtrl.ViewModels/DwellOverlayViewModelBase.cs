@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels.Messages;
 
@@ -17,10 +18,11 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
 
     protected DwellDetector DwellDetector { get; }
 
-    protected DwellOverlayViewModelBase(IMessenger messenger, int dwellCooldownMs)
+    protected DwellOverlayViewModelBase(IMessenger messenger, int dwellCooldownMs,
+        DwellContext context = DwellContext.Other, IStruggleTelemetrySink? sink = null)
         : base(messenger)
     {
-        DwellDetector = new DwellDetector(dwellCooldownMs);
+        DwellDetector = new DwellDetector(dwellCooldownMs, context, sink);
         DwellDetector.TargetActivated += OnTargetActivated;
         DwellDetector.TargetProgress += OnTargetProgress;
     }

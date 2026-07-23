@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
@@ -20,8 +21,8 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
     /// one (false, e.g. navigating back from the action menu). Set before <see cref="IsVisible"/>.</summary>
     public bool Recapture { get; private set; } = true;
 
-    public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger)
-        : base(messenger, settings.Dwell.DwellCooldownMs)
+    public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ManualSelection, sink)
     {
     }
 

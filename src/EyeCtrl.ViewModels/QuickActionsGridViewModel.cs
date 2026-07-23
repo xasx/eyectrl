@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -46,8 +47,9 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
     public QuickActionsGridViewModel(
         IQuickActionsStore store,
         EyeCtrlSettings settings,
-        IMessenger messenger)
-        : base(messenger, settings.Dwell.DwellCooldownMs)
+        IMessenger messenger,
+        IStruggleTelemetrySink? sink = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.QuickActions, sink)
     {
         _store = store;
         _settings = settings;

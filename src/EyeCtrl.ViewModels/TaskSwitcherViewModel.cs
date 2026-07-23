@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels;
 
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -28,8 +29,9 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     public TaskSwitcherViewModel(
         IWindowManager windowManager,
         EyeCtrlSettings settings,
-        IMessenger messenger)
-        : base(messenger, settings.Dwell.DwellCooldownMs)
+        IMessenger messenger,
+        IStruggleTelemetrySink? sink = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.TaskSwitcher, sink)
     {
         _windowManager = windowManager;
         _messenger = messenger;

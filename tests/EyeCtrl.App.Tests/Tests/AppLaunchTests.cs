@@ -36,14 +36,16 @@ public class AppLaunchTests
     }
 
     [Fact]
-    public void Toolbar_HasFiveButtons()
+    public void Toolbar_HasFourButtons()
     {
         var toolbar = _fixture.FindWindow("Toolbar_Window");
         Check.That(toolbar).IsNotNull();
 
         var buttons = _fixture.FindElements(toolbar!, "Toolbar_Button_");
 
-        Check.That(buttons.Length).IsEqualTo(5);
+        // ToolbarWindow.Initialize renders exactly four utility buttons; the optional provider
+        // indicator carries no "Toolbar_Button_" AutomationId, so it is not counted here.
+        Check.That(buttons.Length).IsEqualTo(4);
     }
 
     [Fact]
@@ -52,12 +54,12 @@ public class AppLaunchTests
         var toolbar = _fixture.FindWindow("Toolbar_Window");
         Check.That(toolbar).IsNotNull();
 
+        // Must match the ids rendered by ToolbarWindow.Initialize (AutomationId = Toolbar_Button_{id}).
         var expectedIds = new[]
         {
             "Toolbar_Button_Pause",
-            "Toolbar_Button_ManualSelection",
+            "Toolbar_Button_SelectionMode",
             "Toolbar_Button_Keyboard",
-            "Toolbar_Button_Calibrate",
             "Toolbar_Button_Settings"
         };
 

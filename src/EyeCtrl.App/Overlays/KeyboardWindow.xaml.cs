@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
@@ -54,7 +55,7 @@ public partial class KeyboardWindow : OverlayWindow
         ForegroundLMSuggestion = lmSuggestionBrush;
     }
 
-    private readonly DwellDetector _predictionDwellDetector = new();
+    private readonly DwellDetector _predictionDwellDetector;
     private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
@@ -65,6 +66,7 @@ public partial class KeyboardWindow : OverlayWindow
     private EmojiGridManager? _emojiManager;
     private KeyboardSoundService? _soundService;
     private EyeCtrlSettings? _settings;
+    private readonly IStruggleTelemetrySink? _sink;
 
     private KeyboardLayout? _layout;
     private double _keySize;
@@ -73,9 +75,12 @@ public partial class KeyboardWindow : OverlayWindow
     private bool _predictionTargetsInitialized;
     private string? _previousNearestKeyId;
 
-    public KeyboardWindow()
+    public KeyboardWindow(IStruggleTelemetrySink? sink = null)
     {
         InitializeComponent();
+        _sink = sink;
+        _predictionDwellDetector = new DwellDetector(cooldownMs: 0,
+            context: DwellContext.KeyboardPrediction, sink: sink);
         SizeChanged += (_, _) => RepositionOnScreen();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
         _predictionDwellDetector.TargetProgress += OnPredictionProgress;
@@ -100,7 +105,8 @@ public partial class KeyboardWindow : OverlayWindow
             CategoryBar,
             RegisterKeyVisual,
             () => _keySize,
-            ClearKeyState);
+            ClearKeyState,
+            _sink);
         _emojiManager.ExitRequested += () =>
         {
             _viewModel.IsEmojiMode = false;

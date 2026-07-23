@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -37,7 +38,7 @@ public class EmojiGridManager
     private readonly Func<double> _getKeySize;
     private readonly Action _clearKeyState;
 
-    private readonly DwellDetector _categoryDwellDetector = new();
+    private readonly DwellDetector _categoryDwellDetector;
     private readonly List<SolidColorBrush> _categoryBrushes = new();
     private bool _categoryTargetsInitialized;
 
@@ -55,8 +56,10 @@ public class EmojiGridManager
         StackPanel categoryBar,
         Action<string, KeyDefinition, Border, TextBlock?> registerKeyVisual,
         Func<double> getKeySize,
-        Action clearKeyState)
+        Action clearKeyState,
+        IStruggleTelemetrySink? sink = null)
     {
+        _categoryDwellDetector = new DwellDetector(cooldownMs: 0, context: DwellContext.Emoji, sink: sink);
         _keyRows = keyRows;
         _categoryBar = categoryBar;
         _registerKeyVisual = registerKeyVisual;

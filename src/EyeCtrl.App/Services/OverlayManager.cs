@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Settings;
@@ -19,6 +20,7 @@ public class OverlayManager : IOverlayManager
     private readonly ILogger<OverlayManager> _logger;
     private readonly Dispatcher _dispatcher;
     private readonly IAppIconProvider _iconProvider;
+    private readonly IStruggleTelemetrySink? _sink;
 
     public CursorCircleWindow CursorCircle { get; private set; } = null!;
     public ActivationButtonWindow ActivationButton { get; private set; } = null!;
@@ -36,11 +38,13 @@ public class OverlayManager : IOverlayManager
     public TaskSwitcherWindow TaskSwitcher { get; private set; } = null!;
     public QuickActionsGridWindow QuickActionsGrid { get; private set; } = null!;
 
-    public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider)
+    public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider,
+        IStruggleTelemetrySink? sink = null)
     {
         _dispatcher = dispatcher;
         _logger = logger;
         _iconProvider = iconProvider;
+        _sink = sink;
     }
 
     /// <summary>
@@ -56,7 +60,7 @@ public class OverlayManager : IOverlayManager
         ManualSelectionOverlay = new ManualSelectionOverlayWindow();
         ActionMenu = new ActionMenuWindow();
         Toolbar = new ToolbarWindow();
-        Keyboard = new KeyboardWindow();
+        Keyboard = new KeyboardWindow(_sink);
         ManualSelectionIndicator = new ManualSelectionGazeIndicatorWindow();
         GlassBackdrop = new GlassBackdropWindow();
         TargetHighlight = new TargetHighlightWindow();

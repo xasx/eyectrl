@@ -473,8 +473,11 @@ public sealed class DriftNoticeService : IDisposable
         if (_driftEpisodeActive)
             return false; // already handled this episode
 
-        // Mark the episode handled regardless of suppression, so a mid-episode suppression change
-        // doesn't pop the notice late. In a sensitive context the notice is skipped; adaptation still runs.
+        // Mark the episode handled regardless of suppression, so a later suppression change can't pop
+        // the notice late. Consequence: if feedback is suppressed at the drift-gate ONSET, this episode
+        // shows NO notice at all — even if suppression lifts mid-episode — which is the §8.10-faithful
+        // trade (never leak feedback in a sensitive context; adaptation still runs silently). A fresh
+        // drift episode (after Drift clears and re-gates) re-arms and can show again.
         _driftEpisodeActive = true;
         if (_feedbackGate.IsFeedbackSuppressed)
             return false;

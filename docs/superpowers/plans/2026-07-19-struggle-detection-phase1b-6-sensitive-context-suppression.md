@@ -41,7 +41,7 @@ It does **not**:
 - **Touch the adaptation pipeline.** The monitor, controller, coordinator, and `EffectiveSettingsProvider` are untouched; the detector feeds **only** the gate, and the gate feeds **only** the cue/log/drift-notice. Adaptation runs identically whether or not a sensitive context is active (§8.10 "adaptation itself still functions silently").
 - **Run anything on the gaze hot path.** The detector updates a cached bool on rare UIA focus-changed events; the gate reads it O(1) on the coordinator's ~4 Hz dispatcher tick (§9.1).
 - **Implement the caregiver toast** (§10, Phase 3) — it is listed in §8.10's gated set but does not exist yet; when it lands it will read the same `IFeedbackGate`.
-- **Refine the sensitivity rule beyond `IsPassword`.** The focused element's `IsPassword` is the authoritative password signal; `ControlType` is read-available for a future refinement but is not part of the cached decision (YAGNI — a password field sets `IsPassword` regardless of control type).
+- **Refine the sensitivity rule beyond `IsPassword`.** The focused element's `IsPassword` is the authoritative password signal; `ControlType` is *available* to read for a future refinement but is **not read by the callback today** and is not part of the cached decision (YAGNI — a password field sets `IsPassword` regardless of control type). (§13.1's parenthetical "(and `ControlType`)" is thus satisfied as "could be read", not "is read".)
 - **Gate the detector on `AdaptationSettings.Enabled`.** The detector is always started: a system focus hook is *not* gaze-pipeline cost, so "disabled = current cost" (§9.1, pipeline-scoped — the same reasoning ⑤b used for the always-present toolbar button) is satisfied. When adaptation is disabled the gate simply is never read (the coordinator reports `None`).
 
 ---
@@ -72,7 +72,7 @@ It does **not**:
 
 ## Behaviour change (intended, confined — this is the feature, not a refactor)
 
-Unlike ⑤a–⑤c (net-new/unreferenced), ⑥ **wires** the gate, so it changes behaviour — but only within a tight envelope. Feedback is suppressed **iff** adaptation is `Enabled` (default `false`) **and** a gated struggle occurs **and** `SuppressInSensitiveContexts` is on (default `true`) **and** the focused element is a foreign password field. For the default-off user nothing changes. When it does fire, only the cue/drift-notice/log are affected — never the adaptation itself (§8.10). The gate read is O(1) on the dispatcher; the detector is off the gaze hot path (§9.1). `AllowAllFeedbackGate` remains behaviourally reachable for tests; only the runtime registration changes.
+Unlike ⑤a–⑤c (net-new/unreferenced), ⑥ **wires** the gate, so it changes behaviour — but only within a tight envelope. Feedback is suppressed **iff** adaptation is `Enabled` (default `false`) **and** a gated struggle occurs **and** `SuppressInSensitiveContexts` is on (default `true`) **and** the focused element is a foreign password field. For the default-off user **no feedback ever appears and the gaze-pipeline cost is unchanged**; the one new runtime side effect at every launch is the always-started detector's process-wide UIA focus hook (disclosed above at "always started" — off the pipeline, a rare O(1) callback, §9.1). When suppression does fire, only the cue/drift-notice/log are affected — never the adaptation itself (§8.10). The gate read is O(1) on the dispatcher; the detector is off the gaze hot path (§9.1). `AllowAllFeedbackGate` remains behaviourally reachable for tests; only the runtime registration changes.
 
 ---
 
@@ -370,13 +370,16 @@ public class UiaSensitiveContextDetectorTests
     {
         if (!DesktopAvailable) return;
 
+        // Smoke test: the real UIA add/remove path runs without throwing and Start/Stop are idempotent.
+        // We deliberately do NOT assert IsSensitiveActive after Dispose: on a live desktop a stray foreign
+        // password field could gain focus during this window and flip it, so the reset-to-false behaviour
+        // is a design property that cannot be asserted race-free headlessly. No-throw/idempotency is the value.
         var detector = new UiaSensitiveContextDetector(NullLogger<UiaSensitiveContextDetector>.Instance);
         detector.Start();
         detector.Start();   // idempotent — must not double-subscribe or throw
         detector.Stop();
         detector.Stop();    // idempotent
         detector.Dispose();
-        Check.That(detector.IsSensitiveActive).IsFalse(); // reset on Stop
     }
 }
 ```
@@ -488,6 +491,9 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
         {
             _logger.LogDebug(ex, "Failed to unsubscribe the UIA focus-changed handler during shutdown.");
         }
+        // Reset to the safe default. A focus callback already in flight on the UIA thread could in principle
+        // re-write this after the removal above, but that only happens at Stop/Dispose (shutdown), when
+        // IsSensitiveActive is no longer read — so any residual value is harmless.
         System.Threading.Volatile.Write(ref _isSensitive, false);
     }
 
@@ -496,6 +502,9 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
 
     private void OnFocusChanged(object? sender, AutomationFocusChangedEventArgs e)
     {
+        // The event's `sender` IS the newly focused element — equivalent to AutomationElement.FocusedElement
+        // (which §13.1 names as the example) but without the extra round-trip. Reading it can still fault, so
+        // the whole read is guarded and degrades to not-sensitive.
         try
         {
             if (sender is not AutomationElement element)
@@ -630,6 +639,6 @@ git commit -m "feat(adaptation): register sensitive-context detector + real feed
 - `AppBootstrapper` imports `EyeCtrl.Core.Interfaces` (`:8`) / `EyeCtrl.Core.Settings` (`:13`) / `EyeCtrl.Platform.Services` (`:20`) and registers Platform services interface→impl with logger auto-injection (`IControlFinder` `:139`); `App.xaml.cs` imports the same three namespaces (`:13`/`:18`/`:23`) and disposes the container in `OnExit` (`:299`).
 - `ControlFinderTests` uses the `Environment.UserInteractive` desktop-gate — the precedent for the Start/Stop smoke test; `Platform.Tests` references Platform + `Microsoft.Extensions.Logging.Abstractions` (for `NullLogger`), NFluent/xUnit via `Directory.Build.props`.
 
-**Honest testability limits:** headless-unit-tested (no desktop) — the gate composition (`SensitiveContextFeedbackGate`, 5 truth-table + live-read tests, App.Tests), the pure `EvaluateFocusedElement` (3 cases, Platform.Tests via IVT), and the side-effect-free ctor / not-sensitive default. **Build-verified + desktop-gated smoke test only** (correctly per the Platform test tier): the UIA subscription/callback/`Volatile`/dispose plumbing — the actual focus-changed → `IsPassword` read → cached-bool behaviour needs a real UIA/desktop environment and a focused password field, which cannot be driven headlessly (the smoke test asserts only that `Start`/`Stop`/`Dispose` don't throw and reset the flag, and it no-ops on CI). The full DI-container resolution + the running detector are exercised only when the app launches. The sensitivity rule (`IsPassword`), the own-process retain policy, and the always-started lifecycle are tunable/reviewable design choices.
+**Honest testability limits:** headless-unit-tested (no desktop) — the gate composition (`SensitiveContextFeedbackGate`, 5 truth-table + live-read tests, App.Tests), the pure `EvaluateFocusedElement` (3 cases, Platform.Tests via IVT), and the side-effect-free ctor / not-sensitive default. **Build-verified + desktop-gated smoke test only** (correctly per the Platform test tier): the UIA subscription/callback/`Volatile`/dispose plumbing — the actual focus-changed → `IsPassword` read → cached-bool behaviour needs a real UIA/desktop environment and a focused password field, which cannot be driven headlessly (the smoke test asserts only that `Start`/`Stop`/`Dispose` don't throw and are idempotent, and it no-ops on CI). The full DI-container resolution + the running detector are exercised only when the app launches. The sensitivity rule (`IsPassword`), the own-process retain policy, and the always-started lifecycle are tunable/reviewable design choices.
 
 **Deferred (documented above, not gaps):** the caregiver toast (§10, Phase 3 — will read the same gate); `ControlType`-based sensitivity refinement (YAGNI — `IsPassword` is authoritative); any per-`Enabled` gating of the detector (unnecessary — off the pipeline; the gate is simply never read when adaptation is disabled). With ⑥ complete, **Phase-1b planning is finished** (all slices remain plans-only until an implementation phase is separately greenlit).

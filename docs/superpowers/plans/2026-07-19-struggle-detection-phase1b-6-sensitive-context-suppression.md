@@ -429,7 +429,12 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
     // Held in a field so the exact same delegate instance can be removed in Stop() (and so it is never GC'd
     // while the native UIA hook holds it — the same discipline the Tobii gaze callback needs).
     private readonly AutomationFocusChangedEventHandler _focusHandler;
+    // Touched only on the UI/dispatcher thread (Start/Stop/Dispose run from App.OnStartup + container
+    // disposal), so it needs no synchronization.
     private bool _started;
+    // Written on the UIA/RPC callback thread, read on the dispatcher — published with Volatile for
+    // cross-thread ordering. A bool is a single aligned byte (atomic read/write on every arch, so no tearing
+    // even on x86); the Volatile here supplies the release/acquire fence, not atomicity.
     private bool _isSensitive;
 
     /// <summary>Initializes the detector. Assigns fields only — no UI Automation call happens until <see cref="Start"/>.</summary>
@@ -491,9 +496,10 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
         {
             _logger.LogDebug(ex, "Failed to unsubscribe the UIA focus-changed handler during shutdown.");
         }
-        // Reset to the safe default. A focus callback already in flight on the UIA thread could in principle
-        // re-write this after the removal above, but that only happens at Stop/Dispose (shutdown), when
-        // IsSensitiveActive is no longer read — so any residual value is harmless.
+        // Reset to the safe default. RemoveAutomationFocusChangedEventHandler stops *new* invocations but does
+        // not cancel one already running, so a callback in flight on the UIA thread could re-write this after
+        // the removal above — but that only happens at Stop/Dispose (shutdown), when IsSensitiveActive is no
+        // longer read (the coordinator's timer is disposed by the same container disposal), so it is harmless.
         System.Threading.Volatile.Write(ref _isSensitive, false);
     }
 
@@ -502,9 +508,11 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
 
     private void OnFocusChanged(object? sender, AutomationFocusChangedEventArgs e)
     {
-        // The event's `sender` IS the newly focused element — equivalent to AutomationElement.FocusedElement
-        // (which §13.1 names as the example) but without the extra round-trip. Reading it can still fault, so
-        // the whole read is guarded and degrades to not-sensitive.
+        // The event's `sender` IS the element that received focus when the event fired — the correct
+        // per-event choice. (AutomationElement.FocusedElement, which §13.1 names as the example, returns
+        // whatever has focus *now*, which for rapid focus flips could be a newer element; either way the
+        // ~4 Hz dispatcher read converges to the latest cached value, and using `sender` avoids a round-trip.)
+        // Reading it can still fault, so the whole read is guarded and degrades to not-sensitive.
         try
         {
             if (sender is not AutomationElement element)

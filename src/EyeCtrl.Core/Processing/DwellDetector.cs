@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Adaptation;
 using System.Collections.Concurrent;
 
 /// <summary>
@@ -20,13 +21,22 @@ public class DwellDetector
     private long _lastTimestamp;
     private long? _lastActivationTimestamp;
 
+    private readonly DwellContext _context;
+    private readonly IStruggleTelemetrySink? _sink;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="DwellDetector"/> class.
     /// </summary>
     /// <param name="cooldownMs">Cooldown period in milliseconds after an activation before another can trigger.</param>
-    public DwellDetector(int cooldownMs = 0)
+    /// <param name="context">Interaction surface this detector serves; tags emitted outcomes.</param>
+    /// <param name="sink">Optional telemetry sink. When null, no outcomes are emitted and the
+    /// hot path is byte-for-byte identical to a detector with no telemetry.</param>
+    public DwellDetector(int cooldownMs = 0, DwellContext context = DwellContext.Other,
+        IStruggleTelemetrySink? sink = null)
     {
         _cooldownMicroseconds = cooldownMs * MathConstants.MicrosecondsPerMillisecond;
+        _context = context;
+        _sink = sink;
     }
 
     /// <summary>Raised when a target's dwell time is met.</summary>
@@ -166,6 +176,7 @@ public class DwellDetector
 
         // ── Accumulate dwell on nearest only; reset all others ──
         string? activatedId = null;
+        DwellOutcome? activationOutcome = null;
 
         for (int i = 0; i < targets.Length; i++)
         {
@@ -188,6 +199,11 @@ public class DwellDetector
                     if (elapsed >= target.DwellTimeMicroseconds)
                     {
                         activatedId = target.Id;
+                        if (_sink is not null)
+                            activationOutcome = new DwellOutcome(
+                                timestampMicroseconds, _context, target.Id,
+                                OutcomeKind.Activated, AbandonReason.None,
+                                1.0, gazePoint, target.Center, target.Radius, target.Bounds);
                         target.EnteredTimestamp = null;
                         target.IsGazeInside = false;
                         _lastActivationTimestamp = timestampMicroseconds;
@@ -209,6 +225,9 @@ public class DwellDetector
             TargetProgress?.Invoke(activatedId, 0);
             TargetActivated?.Invoke(activatedId);
         }
+
+        if (_sink is not null && activationOutcome is { } completed)
+            _sink.Report(completed);
     }
 
     /// <summary>

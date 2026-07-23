@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
@@ -21,6 +22,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private long _keyCooldownEndTimestamp;
     private int _keyDwellMs;
     private int _cooldownMs;
+
+    private readonly IStruggleTelemetrySink? _sink;
+
+    /// <summary>Minimum dwell fraction an abandoned key must have reached to be reported.</summary>
+    private const double KeyAbandonProgressThreshold = 0.3;
 
     [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private bool _isEmojiMode;
@@ -43,10 +49,12 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     public event Action<string>? KeyDwellCompleted;
 
-    public KeyboardViewModel(EyeCtrlSettings settings, IMessenger messenger)
+    public KeyboardViewModel(EyeCtrlSettings settings, IMessenger messenger,
+        IStruggleTelemetrySink? sink = null)
         : base(messenger)
     {
         _settings = settings;
+        _sink = sink;
     }
 
     public void Configure(int keyDwellMs, int cooldownMs)
@@ -72,13 +80,14 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             if (NearestKeyId != null)
             {
+                EmitAbandonIfNeeded(keyScreenPositions, gazePoint, timestampUs, AbandonReason.GazeLeft);
                 NearestKeyProgress = 0;
                 NearestKeyId = null;
             }
             return;
         }
 
-        // Post-activation cooldown
+        // Post-activation cooldown (deliberately no emission — not a struggle signal).
         if (timestampUs < _keyCooldownEndTimestamp)
         {
             if (NearestKeyId != null)
@@ -105,6 +114,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         if (nearestId != NearestKeyId)
         {
+            EmitAbandonIfNeeded(keyScreenPositions, gazePoint, timestampUs, AbandonReason.NearestChanged);
             NearestKeyProgress = 0;
             NearestKeyId = nearestId;
             _nearestKeyEnteredTimestamp = timestampUs;
@@ -116,12 +126,41 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
             if (elapsed >= _keyDwellMs * MathConstants.MicrosecondsPerMillisecond)
             {
+                EmitActivation(keyScreenPositions, gazePoint, nearestId, timestampUs);
                 NearestKeyProgress = 0;
                 NearestKeyId = null;
                 _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
                 KeyDwellCompleted?.Invoke(nearestId);
             }
         }
+    }
+
+    // Reports an abandonment of the CURRENT NearestKeyId (still set at the call point) if it had
+    // accumulated at least the threshold. No-op when there is no sink or no in-progress key.
+    // The gazePoint fallback for the center is unreachable in practice — key ids are stable within
+    // a layout, so keyScreenPositions always contains NearestKeyId here — but keeps this total.
+    private void EmitAbandonIfNeeded(Dictionary<string, PhysicalPoint> keyScreenPositions,
+        PhysicalPoint gazePoint, long timestampUs, AbandonReason reason)
+    {
+        if (_sink is null || NearestKeyId is null) return;
+        long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
+        double progress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * MathConstants.MicrosecondsPerMillisecond));
+        if (progress < KeyAbandonProgressThreshold) return;
+        var center = keyScreenPositions.TryGetValue(NearestKeyId, out var c) ? c : gazePoint;
+        _sink.Report(new DwellOutcome(
+            timestampUs, DwellContext.Keyboard, NearestKeyId,
+            OutcomeKind.Abandoned, reason, progress, gazePoint, center, 0, null));
+    }
+
+    private void EmitActivation(Dictionary<string, PhysicalPoint> keyScreenPositions,
+        PhysicalPoint gazePoint, string keyId, long timestampUs)
+    {
+        if (_sink is null) return;
+        // gazePoint fallback is unreachable in practice (keyId just matched a dictionary entry).
+        var center = keyScreenPositions.TryGetValue(keyId, out var c) ? c : gazePoint;
+        _sink.Report(new DwellOutcome(
+            timestampUs, DwellContext.Keyboard, keyId,
+            OutcomeKind.Activated, AbandonReason.None, 1.0, gazePoint, center, 0, null));
     }
 
     public void SetLayout(KeyboardLayout layout)

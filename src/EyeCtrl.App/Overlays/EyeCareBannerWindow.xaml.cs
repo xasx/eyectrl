@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Overlays;
 
 using System.Windows;
 using System.Windows.Threading;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -21,12 +22,12 @@ public partial class EyeCareBannerWindow : OverlayWindow
     private TaskCompletionSource<bool>? _tcs;
 
     // Reuse the app's activation dwell time so the buttons feel consistent.
-    public EyeCareBannerWindow(int dwellMs = 700)
+    public EyeCareBannerWindow(int dwellMs = 700, IStruggleTelemetrySink? sink = null)
     {
         InitializeComponent();
         IsClickThrough = true; // set here (read in OverlayWindow.OnSourceInitialized), NOT in XAML
         _dwellMs = dwellMs;
-        _dwell = new DwellDetector(cooldownMs: 0);
+        _dwell = new DwellDetector(cooldownMs: 0, context: DwellContext.EyeCare, sink: sink);
         _dwell.TargetActivated += OnTargetActivated;
     }
 

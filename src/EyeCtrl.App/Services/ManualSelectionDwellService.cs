@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -25,6 +26,7 @@ public class ManualSelectionDwellService : IDisposable
     private readonly EyeCtrlSettings _settings;
     private readonly Dispatcher _dispatcher;
     private readonly InteractionManager _interactionManager;
+    private readonly IStruggleTelemetrySink? _sink;
 
     // State
     private DwellDetector? _dwellDetector;
@@ -39,13 +41,15 @@ public class ManualSelectionDwellService : IDisposable
         ILogger<ManualSelectionDwellService> logger,
         EyeCtrl.Core.Settings.EyeCtrlSettings settings,
         Dispatcher dispatcher,
-        InteractionManager interactionManager)
+        InteractionManager interactionManager,
+        IStruggleTelemetrySink? sink = null)
     {
         _messenger = messenger;
         _logger = logger;
         _settings = settings;
         _dispatcher = dispatcher;
         _interactionManager = interactionManager;
+        _sink = sink;
 
         // Register message handlers
         _messenger.Register<StartManualSelectionMessage>(this, (r, m) => OnManualSelectionStarted(m));
@@ -64,7 +68,7 @@ public class ManualSelectionDwellService : IDisposable
         _manualSelectionStartTimestamp = 0;
 
         // Create DwellDetector with cooldown disabled (we handle grace period separately)
-        _dwellDetector = new DwellDetector(cooldownMs: 0);
+        _dwellDetector = new DwellDetector(cooldownMs: 0, context: DwellContext.ManualSelection, sink: _sink);
 
         // Subscribe to dwell events
         _dwellDetector.TargetActivated += OnDwellActivated;

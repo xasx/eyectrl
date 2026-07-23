@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Contracts;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -50,7 +51,8 @@ public sealed class ExternalDwellService : IDisposable
         Dispatcher dispatcher,
         ILogger<ExternalDwellService> logger,
         IMessenger messenger,
-        Func<PhysicalPoint, long?>? rootWindowAtPoint = null)
+        Func<PhysicalPoint, long?>? rootWindowAtPoint = null,
+        IStruggleTelemetrySink? sink = null)
     {
         _settings = settings;
         _gazeEngine = gazeEngine;
@@ -58,7 +60,7 @@ public sealed class ExternalDwellService : IDisposable
         _logger = logger;
         _messenger = messenger;
         _rootWindowAtPoint = rootWindowAtPoint ?? RootWindowAtPointImpl;
-        _detector = new DwellDetector(settings.CooldownMs);
+        _detector = new DwellDetector(settings.CooldownMs, DwellContext.ExternalDwell, sink);
         _detector.TargetProgress += (id, p) =>
         {
             if (p > 0) { _frameProgressId = id; _frameProgress = p; }

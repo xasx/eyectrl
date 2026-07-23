@@ -112,6 +112,32 @@ public class DwellDetector
     }
 
     /// <summary>
+    /// Updates a target's required dwell time without resetting accumulated dwell state. The next
+    /// <see cref="Update"/> re-evaluates completion against the new time using the existing
+    /// <c>EnteredTimestamp</c> (design C4).
+    /// </summary>
+    /// <param name="id">Target ID.</param>
+    /// <param name="dwellTimeMs">New required dwell time in milliseconds.</param>
+    public void UpdateTargetDwellTime(string id, int dwellTimeMs)
+    {
+        if (_targets.TryGetValue(id, out var target))
+            target.DwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
+    }
+
+    /// <summary>
+    /// Updates a target's hit radius without resetting accumulated dwell state. Enlarging mid-dwell
+    /// keeps progress (gaze already inside stays inside); shrinking that leaves gaze outside ends the
+    /// dwell on the next <see cref="Update"/> as a normal gaze-left (design C4).
+    /// </summary>
+    /// <param name="id">Target ID.</param>
+    /// <param name="radius">New hit radius in physical pixels.</param>
+    public void UpdateTargetGeometry(string id, double radius)
+    {
+        if (_targets.TryGetValue(id, out var target))
+            target.Radius = radius;
+    }
+
+    /// <summary>
     /// Updates the dwell detector with the current gaze position and timestamp.
     /// Must be called from the UI thread (enforced by GazeEngineAdapter's Dispatcher marshaling).
     /// </summary>

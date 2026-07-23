@@ -13,4 +13,7 @@ public interface IEyeCareService
 
     /// <summary>Force-stops any in-flight break/banner (e.g. when Enabled toggled off).</summary>
     void Cancel();
+
+    /// <summary>Current fatigue score [0..1] from the fatigue monitor (0 when fatigue monitoring is off).</summary>
+    double FatigueScore { get; }
 }

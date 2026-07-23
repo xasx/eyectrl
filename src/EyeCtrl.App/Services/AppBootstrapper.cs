@@ -148,12 +148,19 @@ public class AppBootstrapper
 
         // Struggle-detection telemetry sink (Phase 1a): surfaces report DwellOutcomes here.
         // BufferingTelemetrySink only buffers (zero behaviour change); DispatcherTelemetrySink
-        // serializes onto the UI dispatcher and swallows inner exceptions.
+        // serializes onto the UI dispatcher and swallows inner exceptions. The concrete sink is
+        // registered once and mapped to both IStruggleTelemetrySink and IGazeQualitySink so one
+        // instance serializes both dwell-outcome and gaze-quality paths onto the UI thread. The
+        // GazeQualityAggregator feeds raw samples into the IGazeQualitySink path (App.xaml.cs).
         services.AddSingleton<BufferingTelemetrySink>();
-        services.AddSingleton<IStruggleTelemetrySink>(sp => new DispatcherTelemetrySink(
+        services.AddSingleton<DispatcherTelemetrySink>(sp => new DispatcherTelemetrySink(
             sp.GetRequiredService<BufferingTelemetrySink>(),
             dispatcher,
-            sp.GetRequiredService<ILogger<DispatcherTelemetrySink>>()));
+            sp.GetRequiredService<ILogger<DispatcherTelemetrySink>>(),
+            innerQuality: sp.GetRequiredService<BufferingTelemetrySink>()));
+        services.AddSingleton<IStruggleTelemetrySink>(sp => sp.GetRequiredService<DispatcherTelemetrySink>());
+        services.AddSingleton<IGazeQualitySink>(sp => sp.GetRequiredService<DispatcherTelemetrySink>());
+        services.AddSingleton(sp => new GazeQualityAggregator(sp.GetRequiredService<IGazeQualitySink>()));
 
         // ViewModels (singleton -- each registers message handlers in constructor)
         services.AddSingleton<CursorCircleViewModel>();

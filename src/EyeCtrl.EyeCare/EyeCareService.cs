@@ -70,6 +70,9 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
         _scheduler.OnBreakCompleted();
     }
 
+    /// <inheritdoc />
+    public double FatigueScore => _fatigueMonitor.Score;
+
     public void Dispose()
     {
         _settings.PropertyChanged -= OnSettingsChanged;

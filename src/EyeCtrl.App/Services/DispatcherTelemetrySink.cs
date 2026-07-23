@@ -11,9 +11,10 @@ using Microsoft.Extensions.Logging;
 /// (design §9 serialized channel, §11 no-throw on the gaze path). This is the sink handed to
 /// interaction surfaces.
 /// </summary>
-public sealed class DispatcherTelemetrySink : IStruggleTelemetrySink
+public sealed class DispatcherTelemetrySink : IStruggleTelemetrySink, IGazeQualitySink
 {
     private readonly IStruggleTelemetrySink _inner;
+    private readonly IGazeQualitySink? _innerQuality;
     private readonly Func<bool> _hasThreadAccess;
     private readonly Action<Action> _post;
     private readonly ILogger<DispatcherTelemetrySink>? _logger;
@@ -22,9 +23,10 @@ public sealed class DispatcherTelemetrySink : IStruggleTelemetrySink
     /// <param name="inner">The sink that receives reports on the dispatcher thread.</param>
     /// <param name="dispatcher">The UI dispatcher that owns the serialized channel.</param>
     /// <param name="logger">Optional logger for swallowed inner-sink exceptions.</param>
+    /// <param name="innerQuality">Optional gaze-quality sink forwarded on the dispatcher thread.</param>
     public DispatcherTelemetrySink(IStruggleTelemetrySink inner, Dispatcher dispatcher,
-        ILogger<DispatcherTelemetrySink>? logger = null)
-        : this(inner, dispatcher.CheckAccess, a => dispatcher.BeginInvoke(a), logger)
+        ILogger<DispatcherTelemetrySink>? logger = null, IGazeQualitySink? innerQuality = null)
+        : this(inner, dispatcher.CheckAccess, a => dispatcher.BeginInvoke(a), logger, innerQuality)
     {
     }
 
@@ -33,10 +35,13 @@ public sealed class DispatcherTelemetrySink : IStruggleTelemetrySink
     /// <param name="hasThreadAccess">Returns true when the caller is already on the serialized thread.</param>
     /// <param name="post">Queues an action onto the serialized thread.</param>
     /// <param name="logger">Optional logger for swallowed inner-sink exceptions.</param>
+    /// <param name="innerQuality">Optional gaze-quality sink forwarded on the dispatcher thread.</param>
     public DispatcherTelemetrySink(IStruggleTelemetrySink inner, Func<bool> hasThreadAccess,
-        Action<Action> post, ILogger<DispatcherTelemetrySink>? logger = null)
+        Action<Action> post, ILogger<DispatcherTelemetrySink>? logger = null,
+        IGazeQualitySink? innerQuality = null)
     {
         _inner = inner;
+        _innerQuality = innerQuality;
         _hasThreadAccess = hasThreadAccess;
         _post = post;
         _logger = logger;
@@ -56,5 +61,22 @@ public sealed class DispatcherTelemetrySink : IStruggleTelemetrySink
     {
         try { _inner.Report(outcome); }
         catch (Exception ex) { _logger?.LogError(ex, "Struggle telemetry sink threw; outcome dropped."); }
+    }
+
+    /// <inheritdoc />
+    public void ReportGazeQuality(in GazeQualitySummary summary)
+    {
+        if (_innerQuality is null) return;
+        var copy = summary;
+        if (_hasThreadAccess())
+            ForwardQuality(copy);
+        else
+            _post(() => ForwardQuality(copy));
+    }
+
+    private void ForwardQuality(GazeQualitySummary summary)
+    {
+        try { _innerQuality!.ReportGazeQuality(summary); }
+        catch (Exception ex) { _logger?.LogError(ex, "Gaze-quality sink threw; summary dropped."); }
     }
 }

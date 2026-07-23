@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Services;
 using EyeCtrl.App.Overlays;
@@ -243,6 +244,17 @@ public partial class App : Application
                     isPaused: im.CurrentState == InteractionState.Paused,
                     canInterrupt: im.CurrentState == InteractionState.FreeLook);
             };
+
+            // Gaze-quality telemetry: aggregate tracking/jitter/fatigue on the gaze thread and push
+            // periodic summaries through the (dispatcher-serialized) telemetry sink. Buffered only
+            // until the StruggleMonitor (Phase 1b) consumes them — zero behaviour change today.
+            // Registered after eye-care so eyeCare.FatigueScore reflects this sample when read here.
+            var gazeQuality = _serviceProvider.GetRequiredService<GazeQualityAggregator>();
+            gazeEngine.GazeSampled += sample =>
+                // LastFixationJitter = the last *completed* fixation's jitter (latched at fixation
+                // end); FatigueScore is fresh (eye-care's handler ran first this event). Both are
+                // read on the gaze thread, same as this handler.
+                gazeQuality.OnSample(sample, gazeEngine.LastFixationJitter, eyeCare.FatigueScore);
         }
         catch (Exception ex)
         {

@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -12,7 +13,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
 {
     private readonly List<NoteWindow> _windows = new();
     private readonly List<NoteData> _notes = new();
-    private readonly DwellDetector _dwellDetector = new(cooldownMs: 300);
+    private readonly DwellDetector _dwellDetector;
     private readonly IMessenger _messenger;
     private PhysicalPoint _lastGazePoint;
     private bool _disposed;
@@ -28,9 +29,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     /// </summary>
     public bool AllWindowsVisible => _windows.All(w => w.IsVisible);
 
-    public NoteManager(IMessenger messenger)
+    public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null)
     {
         _messenger = messenger;
+        _dwellDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
         _dwellDetector.TargetActivated += OnTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
         _messenger.Register<GazeCursorMovedMessage>(this);

@@ -196,7 +196,8 @@ public class AppBootstrapper
             sp.GetRequiredService<ILogger<ManualSelectionDwellService>>(),
             sp.GetRequiredService<EyeCtrlSettings>(),
             dispatcher,
-            sp.GetRequiredService<GazeEngine>().InteractionManager));
+            sp.GetRequiredService<GazeEngine>().InteractionManager,
+            sp.GetRequiredService<IStruggleTelemetrySink>()));
 
         // ExternalDwellService: lets cooperating apps register dwellable controls over a named pipe.
         services.AddSingleton(sp => new ExternalDwellService(
@@ -204,11 +205,13 @@ public class AppBootstrapper
             sp.GetRequiredService<GazeEngine>(),
             dispatcher,
             sp.GetRequiredService<ILogger<ExternalDwellService>>(),
-            sp.GetRequiredService<IMessenger>()));
+            sp.GetRequiredService<IMessenger>(),
+            sink: sp.GetRequiredService<IStruggleTelemetrySink>()));
 
         // NoteManager (pinned notes lifecycle)
         services.AddSingleton<INoteManager>(sp => new NoteManager(
-            sp.GetRequiredService<IMessenger>()));
+            sp.GetRequiredService<IMessenger>(),
+            sp.GetRequiredService<IStruggleTelemetrySink>()));
 
         // OverlayManager (manages all overlay window lifecycle)
         services.AddSingleton<IOverlayManager>(sp => new OverlayManager(
@@ -218,7 +221,8 @@ public class AppBootstrapper
 
         // Eye-care
         services.AddSingleton(sp => new EyeCareBannerWindow(
-            sp.GetRequiredService<EyeCtrlSettings>().Dwell.ActivationButtonDwellMs));
+            sp.GetRequiredService<EyeCtrlSettings>().Dwell.ActivationButtonDwellMs,
+            sp.GetRequiredService<IStruggleTelemetrySink>()));
         services.AddSingleton<EyeCareExerciseWindow>();
         services.AddSingleton<ExerciseRunner>(sp =>
         {

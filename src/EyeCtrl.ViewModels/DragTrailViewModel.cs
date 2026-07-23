@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -33,8 +34,8 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     [ObservableProperty] private bool _showBack;
     [ObservableProperty] private PhysicalPoint _releaseButtonCenter;
 
-    public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger)
-        : base(messenger, settings.Dwell.DwellCooldownMs)
+    public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.DragTrail, sink)
     {
         _settings = settings;
 

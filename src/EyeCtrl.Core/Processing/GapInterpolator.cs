@@ -64,6 +64,17 @@ public sealed class GapInterpolator
         _lastValidTimestamp = other._lastValidTimestamp;
     }
 
+    /// <summary>
+    /// Primes the (freshly constructed) filter with the current carried-over position so the first
+    /// real sample after a rebuild is smoothed relative to it rather than snapping to the raw sample
+    /// (design R1 — no cursor jump on reconfiguration). No-op if no valid position is known yet.
+    /// </summary>
+    public void WarmStartFromCurrentState()
+    {
+        if (_lastValidTimestamp < 0) return;
+        _filter.Filter(new GazePoint(_lastValidPosition.X, _lastValidPosition.Y, _lastValidTimestamp, true));
+    }
+
     /// <summary>Resets the interpolator and its underlying filter to initial state.</summary>
     public void Reset()
     {

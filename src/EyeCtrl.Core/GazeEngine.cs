@@ -72,12 +72,16 @@ public class GazeEngine : IDisposable
         _cursorSettingsChangedHandler = (_, e) =>
         {
             if (e.PropertyName is nameof(CursorSettings.FilterMode)
-                               or nameof(CursorSettings.MaxGapInterpolationMs))
+                               or nameof(CursorSettings.MaxGapInterpolationMs)
+                               or nameof(CursorSettings.OneEuroMinCutoff)
+                               or nameof(CursorSettings.OneEuroBeta)
+                               or nameof(CursorSettings.SmoothingFactor))
             {
                 var newInterpolator = new GapInterpolator(
                     GazeFilterFactory.Create(_settings.Cursor),
                     _settings.Cursor.MaxGapInterpolationMs);
                 newInterpolator.CopyStateFrom(_gapInterpolator);
+                newInterpolator.WarmStartFromCurrentState(); // R1: seed the fresh filter — no cursor jump
                 _gapInterpolator = newInterpolator;
             }
         };

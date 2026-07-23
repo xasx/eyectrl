@@ -217,7 +217,8 @@ public class AppBootstrapper
         services.AddSingleton<IOverlayManager>(sp => new OverlayManager(
             dispatcher,
             sp.GetRequiredService<ILogger<OverlayManager>>(),
-            sp.GetRequiredService<IAppIconProvider>()));
+            sp.GetRequiredService<IAppIconProvider>(),
+            sp.GetRequiredService<IStruggleTelemetrySink>()));
 
         // Eye-care
         services.AddSingleton(sp => new EyeCareBannerWindow(

@@ -35,6 +35,9 @@ public class GazeEngine : IDisposable
     }
     /// <summary>Stable centroid position in physical screen pixels.</summary>
     public PhysicalPoint? StableCentroid => _centroidTracker.StableCentroid;
+    /// <summary>Gaze-speed standard deviation (px/s) of the last *completed* fixation — a jitter/shakiness
+    /// proxy latched at fixation end (design §6.2). Persists between fixations.</summary>
+    public double LastFixationJitter => _centroidTracker.LastCompletedSpeedStdDev;
     /// <summary>Fired when cursor moves with filtered position in physical screen pixels.</summary>
     public event Action<PhysicalPoint, long>? CursorMoved;
 

@@ -251,6 +251,14 @@ public partial class App : Application
             // the instance for the process lifetime (like eyeCare/gazeEngine), so no explicit field is kept.
             _serviceProvider.GetRequiredService<AdaptationCoordinator>().Start(gazeEngine);
 
+            // 1b-⑤b: start the adaptation feedback surface. The cue subscribes to the coordinator's
+            // per-tick AssessmentUpdated event; the reset handler registers the manual toolbar/tray escape.
+            // Resolving the cue service constructs CueOverlayWindow on this (STA) thread; the container
+            // holds all three for the process lifetime, so no explicit fields are kept.
+            var adaptationCoordinator = _serviceProvider.GetRequiredService<AdaptationCoordinator>();
+            _serviceProvider.GetRequiredService<AdaptationCueService>().Start(adaptationCoordinator);
+            _serviceProvider.GetRequiredService<AdaptationResetHandler>().Start();
+
             // Gaze-quality telemetry: aggregate tracking/jitter/fatigue on the gaze thread and push
             // periodic summaries through the (dispatcher-serialized) telemetry sink. Buffered only
             // until the StruggleMonitor (Phase 1b) consumes them — zero behaviour change today.

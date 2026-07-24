@@ -60,6 +60,15 @@ public sealed class AdaptationCoordinator : IDisposable
     /// </summary>
     public StruggleAssessment LastAssessment { get; private set; } = StruggleAssessment.None;
 
+    /// <summary>
+    /// Raised once per timer tick (App runtime), carrying <see cref="LastAssessment"/> — the current
+    /// assessment, or <see cref="StruggleAssessment.None"/> whenever the tick did not assess (disabled,
+    /// paused, disconnected, awaiting-gaze, or a reset). The 1b-⑤b/⑤c feedback surface subscribes to this
+    /// single per-tick signal on the coordinator's cadence; because it carries None on non-assessing
+    /// ticks, the cue fades naturally without a subscriber having to gate away a stale value.
+    /// </summary>
+    public event Action<StruggleAssessment>? AssessmentUpdated;
+
     /// <summary>Initializes the coordinator over the Core adaptation pieces and the runtime signals it gates on.</summary>
     /// <param name="monitor">The struggle monitor, assessed each active tick.</param>
     /// <param name="controller">The adaptation controller, driven each active tick.</param>
@@ -181,7 +190,11 @@ public sealed class AdaptationCoordinator : IDisposable
         _timer.Start();
     }
 
-    private void OnTimerTick(object? sender, EventArgs e) => Tick();
+    private void OnTimerTick(object? sender, EventArgs e)
+    {
+        Tick();
+        AssessmentUpdated?.Invoke(LastAssessment);
+    }
 
     /// <summary>Stops the tick loop and unsubscribes from gaze samples.</summary>
     public void Dispose()

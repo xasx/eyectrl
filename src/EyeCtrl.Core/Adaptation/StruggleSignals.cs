@@ -261,6 +261,99 @@ public static class StruggleSignals
         return new SignalScore(score, confidence, count >= minAbandons);
     }
 
+    /// <summary>
+    /// Drift signal (design §13.1/§13.2/§6.2, C2): fires only when a near-miss bias is directionally
+    /// coherent (within ±<paramref name="coherenceAngleDegrees"/>) across at least
+    /// <paramref name="minCoherentContexts"/> distinct contexts, each with at least
+    /// <paramref name="minAbandonsPerContext"/> abandons — the signature of a calibration slip. A bias
+    /// confined to a single context is UI geometry, not drift, and never fires. Score = the coherent
+    /// cluster's directional coherence × its normalized mean magnitude. The response is loosen tolerance
+    /// + report; calibration is NEVER auto-touched (§8.5).
+    /// </summary>
+    /// <param name="window">Dwell outcomes in the evidence window.</param>
+    /// <param name="minAbandonsPerContext">Abandons a context needs to qualify as evidence. Default 5 (§13.1).</param>
+    /// <param name="minCoherentContexts">Coherent contexts required to classify drift. Default 2 (§13.1).</param>
+    /// <param name="coherenceAngleDegrees">Half-angle (degrees) of the coherence cone. Default 30 (§13.1).</param>
+    /// <param name="magnitudeNormalizerPx">Mean bias magnitude (px) at which the magnitude term saturates to 1. Default 100 — an UNCALIBRATED starting guess.</param>
+    /// <returns>The drift signal score; a zero, ungated score when fewer than <paramref name="minCoherentContexts"/> contexts qualify or none are coherent.</returns>
+    public static SignalScore ScoreDrift(
+        IReadOnlyList<DwellOutcome> window,
+        int minAbandonsPerContext = 5,
+        int minCoherentContexts = 2,
+        double coherenceAngleDegrees = 30.0,
+        double magnitudeNormalizerPx = 100.0)
+    {
+        // Per-context accumulation of NearMiss vectors over abandons (order-independent).
+        var groups = new Dictionary<DwellContext, (double X, double Y, int N)>();
+        for (int i = 0; i < window.Count; i++)
+        {
+            DwellOutcome o = window[i];
+            if (o.Kind != OutcomeKind.Abandoned)
+                continue;
+            groups.TryGetValue(o.Context, out var g);
+            groups[o.Context] = (g.X + o.NearMissX, g.Y + o.NearMissY, g.N + 1);
+        }
+
+        // Qualifying contexts: enough abandons AND a non-zero mean bias direction.
+        var vectors = new List<(double X, double Y, double Mag)>();
+        foreach (var g in groups.Values)
+        {
+            if (g.N < minAbandonsPerContext)
+                continue;
+            double mx = g.X / g.N, my = g.Y / g.N;
+            double mag = Math.Sqrt(mx * mx + my * my);
+            if (mag > 0.0)
+                vectors.Add((mx, my, mag));
+        }
+
+        // Confidence = evidence volume (qualifying-context count); GatePassed = coherence achieved. These
+        // are DECOUPLED here (unlike the 1b-③a scorers where the gate tracks confidence): a fully-confident
+        // "not drift" — Confidence 1.0 with GatePassed false — is a valid, intended outcome (two biased
+        // contexts that simply don't align). §13.2's gate is "the §13.1 gate itself" (coherence), not volume.
+        double confidence = Math.Clamp((double)vectors.Count / minCoherentContexts, 0.0, 1.0);
+        if (vectors.Count < minCoherentContexts)
+            return new SignalScore(0.0, confidence, false);
+
+        // Anchored "star" cluster (NOT a mutual clique): for each anchor, gather every vector within the
+        // ±θ cone OF THE ANCHOR — two gathered vectors may themselves be > θ apart. This is intentional
+        // (a calibration slip aligns most contexts one way; clique-finding is NP-hard), and the coherence
+        // term |Σv| ÷ Σ|v| naturally penalizes a spread-out star. Coherence test: (a,b within θ) ⟺
+        // dot(a,b) >= |a||b|·cos θ. Score = coherence (∈ (0,1], 1 = perfectly aligned) × normalized MEAN
+        // magnitude — the mean cluster bias, NOT the total, so a bigger cluster does not inflate the score.
+        // Ties in size break toward the higher score, so the result is independent of Dictionary order.
+        double cosThreshold = Math.Cos(coherenceAngleDegrees * Math.PI / 180.0);
+        int bestSize = 0;
+        double bestScore = 0.0;
+        for (int a = 0; a < vectors.Count; a++)
+        {
+            double rx = 0.0, ry = 0.0, sumMag = 0.0;
+            int count = 0;
+            for (int b = 0; b < vectors.Count; b++)
+            {
+                double dot = vectors[a].X * vectors[b].X + vectors[a].Y * vectors[b].Y;
+                if (dot >= vectors[a].Mag * vectors[b].Mag * cosThreshold)
+                {
+                    rx += vectors[b].X;
+                    ry += vectors[b].Y;
+                    sumMag += vectors[b].Mag;
+                    count++;
+                }
+            }
+
+            double coherence = Math.Sqrt(rx * rx + ry * ry) / sumMag; // 1 = perfectly aligned
+            double magNorm = Math.Clamp((sumMag / count) / magnitudeNormalizerPx, 0.0, 1.0);
+            double clusterScore = Math.Clamp(coherence * magNorm, 0.0, 1.0);
+            if (count > bestSize || (count == bestSize && clusterScore > bestScore))
+            {
+                bestSize = count;
+                bestScore = clusterScore;
+            }
+        }
+
+        bool gate = bestSize >= minCoherentContexts;
+        return new SignalScore(gate ? bestScore : 0.0, confidence, gate);
+    }
+
     // Linear ramp: 0 at/below low, 1 at/above high, linear between. Guards a degenerate low >= high
     // (returns a hard step at high) so a mis-passed threshold pair can't divide by zero.
     private static double Ramp(double value, double low, double high)

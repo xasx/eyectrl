@@ -48,6 +48,69 @@ public sealed class StruggleMonitor
     /// <param name="nowMicroseconds">The session-start timestamp, in microseconds.</param>
     public void ResetSession(long nowMicroseconds) => _sessionStart = nowMicroseconds;
 
+    /// <summary>
+    /// Assesses momentary struggle as of <paramref name="nowMicroseconds"/>: selects the in-window
+    /// evidence, runs the signal scorers, classifies them into per-failure-mode assessments (context =
+    /// null — the Phase-1b momentary response is global per knob, §7.2), and computes the aggregate level.
+    /// </summary>
+    /// <param name="nowMicroseconds">The current controller-tick timestamp, in microseconds.</param>
+    /// <returns>The struggle assessment for this tick, or <see cref="StruggleAssessment.None"/> when no mode shows struggle.</returns>
+    public StruggleAssessment Assess(long nowMicroseconds)
+    {
+        var (dwell, quality) = SelectEvidence(nowMicroseconds);
+
+        SignalScore abandonment = StruggleSignals.ScoreAbandonment(dwell);
+        SignalScore accidental = StruggleSignals.ScoreAccidental(dwell, backspaceTargetId: _backspaceTargetId);
+        SignalScore jitter = StruggleSignals.ScoreJitter(quality);
+        SignalScore poorTracking = StruggleSignals.ScorePoorTracking(quality);
+        SignalScore aiming = StruggleSignals.ScoreAiming(dwell);
+        SignalScore drift = StruggleSignals.ScoreDrift(dwell);
+
+        var modes = new List<FailureModeAssessment>(5);
+        AddMode(modes, FailureMode.SustainFailure, abandonment, jitter); // §13.2: abandonment(+retries, folded in ③a) + jitter
+        AddMode(modes, FailureMode.AccidentalActivation, accidental);
+        AddMode(modes, FailureMode.Aiming, aiming);
+        AddMode(modes, FailureMode.Drift, drift);
+        AddMode(modes, FailureMode.PoorTracking, poorTracking);
+
+        if (modes.Count == 0)
+            return StruggleAssessment.None;
+
+        double aggregate = PeakGatedScore(modes);
+        return new StruggleAssessment(modes, aggregate);
+    }
+
+    // Adds a per-mode assessment when any feeding signal shows struggle (score > 0). Score = PEAK feeder
+    // score (not a sum: two correlated feeders — e.g. abandonment + jitter both signalling sustain-failure
+    // — must not double-count; the dominant signal drives the mode); GatePassed = any feeder gated;
+    // Confidence = peak feeder confidence. Context is null (the Phase-1b momentary response is global per
+    // knob, §7.2). A mode with score 0 is omitted, so StruggleAssessment.ForMode returns null for it.
+    private static void AddMode(List<FailureModeAssessment> modes, FailureMode mode, params SignalScore[] feeders)
+    {
+        double score = 0.0, confidence = 0.0;
+        bool gate = false;
+        foreach (SignalScore s in feeders)
+        {
+            score = Math.Max(score, s.Score);
+            confidence = Math.Max(confidence, s.Confidence);
+            gate = gate || s.GatePassed;
+        }
+        if (score > 0.0)
+            modes.Add(new FailureModeAssessment(mode, score, confidence, gate, null));
+    }
+
+    // Peak struggle among GATED modes (the actionable ones). Uses gated SCORES (not confidences), so a
+    // single biased surface cannot inflate it — Drift scores 0 unless genuinely cross-context-coherent
+    // (F4, §6.2/C2). Base for the (Task-3) fatigue-amplified aggregate.
+    private static double PeakGatedScore(List<FailureModeAssessment> modes)
+    {
+        double peak = 0.0;
+        foreach (FailureModeAssessment m in modes)
+            if (m.GatePassed)
+                peak = Math.Max(peak, m.Score);
+        return peak;
+    }
+
     // Selects the evidence in [start, now], start = max(sessionStart, now − maxAge, idle-boundary). The
     // sink guarantees oldest-first, non-decreasing timestamps (§9); filtering preserves that order, so the
     // scorers' DEBUG AssertOrdered holds. No buffer mutation.

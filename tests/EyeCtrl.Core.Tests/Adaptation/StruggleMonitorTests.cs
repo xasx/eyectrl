@@ -259,4 +259,75 @@ public class StruggleMonitorTests
         Check.That(a.ForMode(FailureMode.PoorTracking).HasValue).IsTrue();
         Check.That(a.AggregateLevel).IsEqualTo(1.0);
     }
+
+    // A gated poor-tracking mode at score 0.5 (invalid 0.3 → ramp midpoint), plus a fatigue level, over
+    // ≥ 2 s. Base aggregate 0.5; fatigue amplification = 0.5 · (1 + 0.5 · fatigue).
+    private static GazeQualitySummary[] PoorTrackingWithFatigue(double fatigue) => new[]
+    {
+        Quality(0, 0.3, 0, fatigue), Quality(Sec, 0.3, 0, fatigue), Quality(2 * Sec, 0.3, 0, fatigue),
+    };
+
+    [Fact]
+    public void Assess_FatigueDisabled_DoesNotAmplify()
+    {
+        var monitor = new StruggleMonitor(SinkWith(quality: PoorTrackingWithFatigue(0.8)), EyeCare(fatigue: false));
+        Check.That(monitor.Assess(3 * Sec).AggregateLevel).IsCloseTo(0.5, 1e-9); // base only
+    }
+
+    [Fact]
+    public void Assess_FatigueEnabled_AmplifiesAggregate()
+    {
+        var monitor = new StruggleMonitor(SinkWith(quality: PoorTrackingWithFatigue(0.8)), EyeCare(fatigue: true));
+        // 0.5 · (1 + 0.5 · 0.8) = 0.5 · 1.4 = 0.70.
+        Check.That(monitor.Assess(3 * Sec).AggregateLevel).IsCloseTo(0.70, 1e-9);
+    }
+
+    [Fact]
+    public void Assess_FatigueWithoutStruggle_DoesNotCreateAggregate()
+    {
+        // High fatigue but no struggle mode (invalid 0.0, jitter 0) → amplifier can't create struggle → None.
+        var monitor = new StruggleMonitor(SinkWith(quality: new[]
+        {
+            Quality(0, 0.0, 0, 0.9), Quality(Sec, 0.0, 0, 0.9), Quality(2 * Sec, 0.0, 0, 0.9),
+        }), EyeCare(fatigue: true));
+        var result = monitor.Assess(3 * Sec);
+        Check.That(result.Modes).IsEmpty();
+        Check.That(result.AggregateLevel).IsEqualTo(0.0);
+    }
+
+    [Fact]
+    public void Assess_FatigueAmplification_ClampsToOne()
+    {
+        // Base 0.5 with a large amplify weight would exceed 1 → clamped.
+        var monitor = new StruggleMonitor(SinkWith(quality: PoorTrackingWithFatigue(1.0)),
+            EyeCare(fatigue: true), fatigueAmplifyWeight: 5.0);
+        Check.That(monitor.Assess(3 * Sec).AggregateLevel).IsEqualTo(1.0);
+    }
+
+    [Fact]
+    public void Assess_FatigueDoesNotAmplifyBelowGateStruggle()
+    {
+        // Below-gate struggle (2 high-progress abandons < the 4-attempt gate → SustainFailure surfaced,
+        // score > 0, gate FALSE) plus high fatigue. Fatigue amplifies only the GATED base (PeakGatedScore
+        // = 0 here), so the aggregate stays 0 even though a struggle mode is present — the amplifier
+        // cannot turn ungated evidence into an actionable aggregate.
+        //
+        // Exactly 2 quality summaries: enough to carry the fatigue signal (fatigue is a pass-through mean,
+        // no volume gate) but below jitter's ≥3-summary gate, so jitter does NOT lift SustainFailure's gate.
+        // (3 summaries would gate jitter, making this test assert the wrong behaviour.)
+        var monitor = new StruggleMonitor(SinkWith(
+            dwell: new[]
+            {
+                Abandon(0 * Sec, DwellContext.ActionMenu, 0.8, 30, nmX: 15),
+                Abandon(10 * Sec, DwellContext.ActionMenu, 0.8, 30, nmX: 15),
+            },
+            quality: new[] { Quality(0, 0.0, 0, 0.9), Quality(Sec, 0.0, 0, 0.9) }),
+            EyeCare(fatigue: true));
+        var a = monitor.Assess(20 * Sec);
+
+        var sustain = a.ForMode(FailureMode.SustainFailure);
+        Check.That(sustain.HasValue).IsTrue();
+        Check.That(sustain!.Value.GatePassed).IsFalse();
+        Check.That(a.AggregateLevel).IsEqualTo(0.0);
+    }
 }

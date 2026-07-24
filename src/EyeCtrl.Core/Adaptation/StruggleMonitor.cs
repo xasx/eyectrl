@@ -17,6 +17,7 @@ public sealed class StruggleMonitor
     private readonly long _evidenceMaxAgeMicroseconds;
     private readonly long _idleResetMicroseconds;
     private readonly string? _backspaceTargetId;
+    private readonly double _fatigueAmplifyWeight;
     private long _sessionStart = long.MinValue;
 
     /// <summary>Initializes the monitor over an existing telemetry sink.</summary>
@@ -25,18 +26,21 @@ public sealed class StruggleMonitor
     /// <param name="evidenceMaxAgeMicroseconds">Rolling evidence-window length. Default 60 000 000 (60 s, §13.1).</param>
     /// <param name="idleResetMicroseconds">A gaze-idle gap this long (inferred from the gaze-quality stream) resets the session boundary. Default 120 000 000 (120 s, §13.1).</param>
     /// <param name="backspaceTargetId">Keyboard Backspace target id for the accidental-activation corroboration; null disables it (wired by the App later).</param>
+    /// <param name="fatigueAmplifyWeight">How strongly the fatigue level amplifies the aggregate (multiplicative). Default 0.5 — a tunable starting value.</param>
     public StruggleMonitor(
         BufferingTelemetrySink sink,
         EyeCareSettings eyeCare,
         long evidenceMaxAgeMicroseconds = 60_000_000,
         long idleResetMicroseconds = 120_000_000,
-        string? backspaceTargetId = null)
+        string? backspaceTargetId = null,
+        double fatigueAmplifyWeight = 0.5)
     {
         _sink = sink;
         _eyeCare = eyeCare; // read in Assess (Task 3 fatigue gate)
         _evidenceMaxAgeMicroseconds = evidenceMaxAgeMicroseconds;
         _idleResetMicroseconds = idleResetMicroseconds;
         _backspaceTargetId = backspaceTargetId; // read in Assess (Task 2)
+        _fatigueAmplifyWeight = fatigueAmplifyWeight;
     }
 
     /// <summary>
@@ -65,6 +69,7 @@ public sealed class StruggleMonitor
         SignalScore poorTracking = StruggleSignals.ScorePoorTracking(quality);
         SignalScore aiming = StruggleSignals.ScoreAiming(dwell);
         SignalScore drift = StruggleSignals.ScoreDrift(dwell);
+        SignalScore fatigue = StruggleSignals.ScoreFatigue(quality, _eyeCare.FatigueMonitorEnabled);
 
         var modes = new List<FailureModeAssessment>(5);
         AddMode(modes, FailureMode.SustainFailure, abandonment, jitter); // §13.2: abandonment(+retries, folded in ③a) + jitter
@@ -76,7 +81,10 @@ public sealed class StruggleMonitor
         if (modes.Count == 0)
             return StruggleAssessment.None;
 
-        double aggregate = PeakGatedScore(modes);
+        // Fatigue is a pass-through AMPLIFIER (§13.2), not a failure mode: it scales the actionable
+        // struggle level but cannot create struggle from nothing (base 0 → 0). Opt-in via EyeCare.
+        double baseLevel = PeakGatedScore(modes);
+        double aggregate = Math.Clamp(baseLevel * (1.0 + _fatigueAmplifyWeight * fatigue.Score), 0.0, 1.0);
         return new StruggleAssessment(modes, aggregate);
     }
 

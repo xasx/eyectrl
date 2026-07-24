@@ -245,4 +245,118 @@ public class StruggleSignalsTests
         Check.That(s.Score).IsCloseTo(0.25, 1e-9);
         Check.That(s.GatePassed).IsTrue();
     }
+
+    // A gaze-quality summary with the fields the gaze-quality scorers read (FatigueScore unused here).
+    private static GazeQualitySummary Quality(long ts, double invalidFraction, double jitter, int sampleCount = 30) =>
+        new(ts, invalidFraction, jitter, 0.0, sampleCount);
+
+    // ---- Jitter ----
+
+    [Fact]
+    public void Jitter_Empty_ReturnsNone()
+    {
+        var s = StruggleSignals.ScoreJitter(new List<GazeQualitySummary>());
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsFalse();
+    }
+
+    [Fact]
+    public void Jitter_BelowGate_ScoreStillComputed_GateFalse()
+    {
+        // 2 summaries (< default 3), both above the high threshold → score 1, gate false, confidence 2/3.
+        var window = new List<GazeQualitySummary> { Quality(0, 0.0, 500), Quality(Sec, 0.0, 500) };
+        var s = StruggleSignals.ScoreJitter(window);
+        Check.That(s.Score).IsEqualTo(1.0);
+        Check.That(s.Confidence).IsCloseTo(2.0 / 3.0, 1e-9);
+        Check.That(s.GatePassed).IsFalse();
+    }
+
+    [Fact]
+    public void Jitter_MeanBelowLow_ScoreZero()
+    {
+        var window = new List<GazeQualitySummary> { Quality(0, 0, 10), Quality(Sec, 0, 20), Quality(2 * Sec, 0, 30) };
+        var s = StruggleSignals.ScoreJitter(window); // mean 20 < 50
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsTrue();
+    }
+
+    [Fact]
+    public void Jitter_MeanAboveHigh_ScoreOne()
+    {
+        var window = new List<GazeQualitySummary> { Quality(0, 0, 500), Quality(Sec, 0, 500), Quality(2 * Sec, 0, 500) };
+        Check.That(StruggleSignals.ScoreJitter(window).Score).IsEqualTo(1.0);
+    }
+
+    [Fact]
+    public void Jitter_MidRamp_IsLinear()
+    {
+        // mean 225 is the midpoint of the [50, 400] ramp → 0.5.
+        var window = new List<GazeQualitySummary> { Quality(0, 0, 225), Quality(Sec, 0, 225), Quality(2 * Sec, 0, 225) };
+        Check.That(StruggleSignals.ScoreJitter(window).Score).IsCloseTo(0.5, 1e-9);
+    }
+
+    // ---- Poor tracking ----
+
+    [Fact]
+    public void PoorTracking_Empty_ReturnsNone()
+    {
+        var s = StruggleSignals.ScorePoorTracking(new List<GazeQualitySummary>());
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsFalse();
+    }
+
+    [Fact]
+    public void PoorTracking_SpanBelowGate_GateFalse()
+    {
+        // Two summaries spanning 1 s (< default 2 s) → gate false, confidence 0.5. Score still computed.
+        var window = new List<GazeQualitySummary> { Quality(0, 0.6, 0), Quality(Sec, 0.6, 0) };
+        var s = StruggleSignals.ScorePoorTracking(window);
+        Check.That(s.Score).IsEqualTo(1.0); // mean invalid 0.6 ≥ high 0.5
+        Check.That(s.Confidence).IsCloseTo(0.5, 1e-9);
+        Check.That(s.GatePassed).IsFalse();
+    }
+
+    [Fact]
+    public void PoorTracking_TimeBasedGate_FiresWithZeroInteractions()
+    {
+        // Summaries span 2 s with a high invalid fraction and NO dwell outcomes anywhere → gate passes
+        // purely on elapsed time (§6.3: tracking loss produces no interactions but must still be detected).
+        var window = new List<GazeQualitySummary>
+        {
+            Quality(0, 0.6, 0),
+            Quality(Sec, 0.6, 0),
+            Quality(2 * Sec, 0.6, 0),
+        };
+        var s = StruggleSignals.ScorePoorTracking(window);
+        Check.That(s.Score).IsEqualTo(1.0);
+        Check.That(s.GatePassed).IsTrue();
+    }
+
+    [Fact]
+    public void PoorTracking_MeanIsSampleCountWeighted()
+    {
+        // 90 valid samples then 10 samples at 0.4 invalid → true fraction 0.04 (< low 0.1) → score 0.
+        // A naive per-summary mean would be 0.2 and score 0.25 — this asserts the weighting.
+        var window = new List<GazeQualitySummary>
+        {
+            Quality(0, 0.0, 0, sampleCount: 90),
+            Quality(2 * Sec, 0.4, 0, sampleCount: 10),
+        };
+        var s = StruggleSignals.ScorePoorTracking(window);
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsTrue(); // 2 s span
+    }
+
+    [Fact]
+    public void PoorTracking_MidRamp_IsLinear()
+    {
+        // Uniform invalid fraction 0.3 → midpoint of [0.1, 0.5] ramp → 0.5.
+        var window = new List<GazeQualitySummary>
+        {
+            Quality(0, 0.3, 0),
+            Quality(Sec, 0.3, 0),
+            Quality(2 * Sec, 0.3, 0),
+        };
+        Check.That(StruggleSignals.ScorePoorTracking(window).Score).IsCloseTo(0.5, 1e-9);
+    }
 }

@@ -156,6 +156,82 @@ public static class StruggleSignals
         return new SignalScore(score, confidence, activations >= minActivations);
     }
 
+    /// <summary>
+    /// Jitter / shakiness signal (design §13.2): a linear ramp of the mean fixation gaze-speed
+    /// standard deviation across the window's summaries. Feeds the sustain-failure mode.
+    /// </summary>
+    /// <param name="window">Gaze-quality summaries in the evidence window, oldest first.</param>
+    /// <param name="minSummaries">Confidence gate: minimum summaries before the controller may act. Default 3.</param>
+    /// <param name="lowJitterPxPerSec">Ramp start (px/s); at or below this the score is 0. Default 50 — UNCALIBRATED starting guess (jitter is on the filtered stream, plan 1a-④).</param>
+    /// <param name="highJitterPxPerSec">Ramp end (px/s); at or above this the score is 1. Default 400 — UNCALIBRATED starting guess.</param>
+    /// <returns>The jitter signal score; <see cref="SignalScore.None"/> for an empty window.</returns>
+    public static SignalScore ScoreJitter(
+        IReadOnlyList<GazeQualitySummary> window,
+        int minSummaries = 3,
+        double lowJitterPxPerSec = 50.0,
+        double highJitterPxPerSec = 400.0)
+    {
+        int count = window.Count;
+        if (count == 0)
+            return SignalScore.None;
+
+        double sum = 0.0;
+        for (int i = 0; i < window.Count; i++)
+            sum += window[i].JitterStdDev;
+        double mean = sum / count;
+
+        double score = Ramp(mean, lowJitterPxPerSec, highJitterPxPerSec);
+        double confidence = Math.Clamp((double)count / minSummaries, 0.0, 1.0);
+        return new SignalScore(score, confidence, count >= minSummaries);
+    }
+
+    /// <summary>
+    /// Poor-tracking signal (design §13.2/§6.3): a linear ramp of the sample-count-weighted mean
+    /// invalid-sample fraction. Its gate is <b>time-based</b> (the summaries must span a minimum
+    /// duration), NOT interaction-count-based, so tracking loss — which produces no dwell outcomes — is
+    /// still detected promptly. Feeds the poor-tracking mode (never a tightening response).
+    /// </summary>
+    /// <param name="window">Gaze-quality summaries in the evidence window, oldest first.</param>
+    /// <param name="minSpanMicroseconds">Confidence gate: minimum time span the summaries must cover. Default 2 000 000 (2 s).</param>
+    /// <param name="lowInvalidFraction">Ramp start; at or below this invalid fraction the score is 0. Default 0.1.</param>
+    /// <param name="highInvalidFraction">Ramp end; at or above this invalid fraction the score is 1. Default 0.5.</param>
+    /// <returns>The poor-tracking signal score; <see cref="SignalScore.None"/> for an empty window.</returns>
+    public static SignalScore ScorePoorTracking(
+        IReadOnlyList<GazeQualitySummary> window,
+        long minSpanMicroseconds = 2_000_000,
+        double lowInvalidFraction = 0.1,
+        double highInvalidFraction = 0.5)
+    {
+        AssertOrdered(window, static s => s.TimestampMicroseconds);
+        int count = window.Count;
+        if (count == 0)
+            return SignalScore.None;
+
+        double invalidSamples = 0.0;
+        long totalSamples = 0;
+        for (int i = 0; i < window.Count; i++)
+        {
+            GazeQualitySummary s = window[i];
+            invalidSamples += s.InvalidFraction * s.SampleCount;
+            totalSamples += s.SampleCount;
+        }
+        double meanInvalid = totalSamples > 0 ? invalidSamples / totalSamples : 0.0;
+
+        long span = window[count - 1].TimestampMicroseconds - window[0].TimestampMicroseconds;
+        double score = Ramp(meanInvalid, lowInvalidFraction, highInvalidFraction);
+        double confidence = Math.Clamp((double)span / minSpanMicroseconds, 0.0, 1.0);
+        return new SignalScore(score, confidence, span >= minSpanMicroseconds);
+    }
+
+    // Linear ramp: 0 at/below low, 1 at/above high, linear between. Guards a degenerate low >= high
+    // (returns a hard step at high) so a mis-passed threshold pair can't divide by zero.
+    private static double Ramp(double value, double low, double high)
+    {
+        if (high <= low)
+            return value >= high ? 1.0 : 0.0;
+        return Math.Clamp((value - low) / (high - low), 0.0, 1.0);
+    }
+
     // Dev-time tripwire for the oldest-first / non-decreasing precondition (see the class summary). The
     // early-break pruning (Abandonment/Accidental) and the poor-tracking span gate silently mis-score an
     // out-of-order window, so assert ordering in DEBUG. [Conditional("DEBUG")] removes the call — and its

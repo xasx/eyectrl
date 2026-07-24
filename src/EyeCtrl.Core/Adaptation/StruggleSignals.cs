@@ -223,6 +223,44 @@ public static class StruggleSignals
         return new SignalScore(score, confidence, span >= minSpanMicroseconds);
     }
 
+    /// <summary>
+    /// Aiming signal (design §13.2/§7.1): a linear ramp of the mean near-miss ratio
+    /// <c>|NearMiss| ÷ TargetRadius</c> over circular-target abandons. A ratio &gt; 1 means the gaze was
+    /// outside the target's hit radius at abandonment — poor aim → enlarge target geometry. Rectangular
+    /// (radius 0) targets carry no usable radius, so they are excluded from both the mean and the gate
+    /// count (rect-target aiming would need bounds-based near-miss — deferred). Feeds the aiming mode.
+    /// </summary>
+    /// <param name="window">Dwell outcomes in the evidence window.</param>
+    /// <param name="minAbandons">Confidence gate: minimum circular-target abandons before the controller may act. Default 4.</param>
+    /// <param name="lowRatio">Ramp start; at or below this near-miss ratio the score is 0. Default 1.0 (gaze at the radius edge).</param>
+    /// <param name="highRatio">Ramp end; at or above this ratio the score is 1. Default 2.5 — a tunable starting value.</param>
+    /// <returns>The aiming signal score; <see cref="SignalScore.None"/> when there are no circular-target abandons.</returns>
+    public static SignalScore ScoreAiming(
+        IReadOnlyList<DwellOutcome> window,
+        int minAbandons = 4,
+        double lowRatio = 1.0,
+        double highRatio = 2.5)
+    {
+        double ratioSum = 0.0;
+        int count = 0;
+        for (int i = 0; i < window.Count; i++)
+        {
+            DwellOutcome o = window[i];
+            if (o.Kind != OutcomeKind.Abandoned || o.TargetRadius <= 0.0)
+                continue; // only circular-target abandons have a usable near-miss ratio
+            double magnitude = Math.Sqrt(o.NearMissX * o.NearMissX + o.NearMissY * o.NearMissY);
+            ratioSum += magnitude / o.TargetRadius;
+            count++;
+        }
+
+        if (count == 0)
+            return SignalScore.None;
+
+        double score = Ramp(ratioSum / count, lowRatio, highRatio);
+        double confidence = Math.Clamp((double)count / minAbandons, 0.0, 1.0);
+        return new SignalScore(score, confidence, count >= minAbandons);
+    }
+
     // Linear ramp: 0 at/below low, 1 at/above high, linear between. Guards a degenerate low >= high
     // (returns a hard step at high) so a mis-passed threshold pair can't divide by zero.
     private static double Ramp(double value, double low, double high)

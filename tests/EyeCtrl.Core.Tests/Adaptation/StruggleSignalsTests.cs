@@ -359,4 +359,119 @@ public class StruggleSignalsTests
         };
         Check.That(StruggleSignals.ScorePoorTracking(window).Score).IsCloseTo(0.5, 1e-9);
     }
+
+    // An abandonment with a controlled NearMiss vector: TargetCenter=(0,0), GazePoint=(nmX,nmY),
+    // so NearMissX/Y == nmX/nmY. radius feeds the aiming |NearMiss|÷radius ratio (0 = rect target).
+    // Shared by the Aiming and Drift tests.
+    private static DwellOutcome AbandonNM(
+        long ts, DwellContext ctx, double radius, double nmX, double nmY, string id = "t") => new(
+            ts, ctx, id, OutcomeKind.Abandoned, AbandonReason.GazeLeft, 0.5,
+            new PhysicalPoint(nmX, nmY), new PhysicalPoint(0, 0), radius, null);
+
+    // ---- Aiming ----
+
+    [Fact]
+    public void Aiming_Empty_ReturnsNone()
+    {
+        var s = StruggleSignals.ScoreAiming(new List<DwellOutcome>());
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsFalse();
+    }
+
+    [Fact]
+    public void Aiming_NoCircularAbandons_ReturnsNone()
+    {
+        // Only activations + a rect (radius 0) abandon → nothing usable → None.
+        var window = new List<DwellOutcome>
+        {
+            Activate(0),
+            AbandonNM(10 * Sec, DwellContext.ActionMenu, radius: 0, nmX: 90, nmY: 0),
+        };
+        var s = StruggleSignals.ScoreAiming(window);
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsFalse();
+    }
+
+    [Fact]
+    public void Aiming_MeanRatioBelowLow_ScoreZero()
+    {
+        // radius 30, |NearMiss| 15 → ratio 0.5 (< low 1.0) → score 0.
+        var window = new List<DwellOutcome>
+        {
+            AbandonNM(0, DwellContext.ActionMenu, 30, 15, 0),
+            AbandonNM(1 * Sec, DwellContext.ActionMenu, 30, 15, 0),
+            AbandonNM(2 * Sec, DwellContext.ActionMenu, 30, 15, 0),
+            AbandonNM(3 * Sec, DwellContext.ActionMenu, 30, 15, 0),
+        };
+        var s = StruggleSignals.ScoreAiming(window);
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsTrue();
+    }
+
+    [Fact]
+    public void Aiming_MeanRatioAboveHigh_ScoreOne()
+    {
+        // radius 30, |NearMiss| 90 → ratio 3.0 (> high 2.5) → score 1.
+        var window = new List<DwellOutcome>
+        {
+            AbandonNM(0, DwellContext.ActionMenu, 30, 90, 0),
+            AbandonNM(1 * Sec, DwellContext.ActionMenu, 30, 90, 0),
+            AbandonNM(2 * Sec, DwellContext.ActionMenu, 30, 90, 0),
+            AbandonNM(3 * Sec, DwellContext.ActionMenu, 30, 90, 0),
+        };
+        Check.That(StruggleSignals.ScoreAiming(window).Score).IsEqualTo(1.0);
+    }
+
+    [Fact]
+    public void Aiming_MidRamp_IsLinear()
+    {
+        // radius 40, |NearMiss| 70 → ratio 1.75, midpoint of the [1.0, 2.5] ramp → 0.5.
+        var window = new List<DwellOutcome>
+        {
+            AbandonNM(0, DwellContext.ActionMenu, 40, 70, 0),
+            AbandonNM(1 * Sec, DwellContext.ActionMenu, 40, 70, 0),
+            AbandonNM(2 * Sec, DwellContext.ActionMenu, 40, 70, 0),
+            AbandonNM(3 * Sec, DwellContext.ActionMenu, 40, 70, 0),
+        };
+        Check.That(StruggleSignals.ScoreAiming(window).Score).IsCloseTo(0.5, 1e-9);
+    }
+
+    [Fact]
+    public void Aiming_RectAndActivationsExcluded_OnlyCircularAbandonsCount()
+    {
+        // 4 circular abandons at ratio 0.5 → mean 0.5 → score 0. Two poison entries that must be ignored,
+        // each chosen so INCLUSION would change the score (so asserting 0.0 discriminates BOTH exclusions):
+        //   • an ACTIVATION carrying a large near-miss (150 px ÷ radius 30 = ratio 5) → if counted, mean
+        //     rises to (2.0 + 5.0)/5 = 1.4 → score ≈ 0.27. Excluded by the Kind guard.
+        //   • a RECT abandon (radius 0) → if counted, |NearMiss| ÷ 0 = +∞ drives the mean → score 1.0.
+        //     Excluded by the radius > 0 guard.
+        var window = new List<DwellOutcome>
+        {
+            AbandonNM(0, DwellContext.ActionMenu, 30, 15, 0),
+            AbandonNM(1 * Sec, DwellContext.ActionMenu, 30, 15, 0),
+            AbandonNM(2 * Sec, DwellContext.ActionMenu, 30, 15, 0),
+            AbandonNM(3 * Sec, DwellContext.ActionMenu, 30, 15, 0),
+            new DwellOutcome(4 * Sec, DwellContext.ActionMenu, "act", OutcomeKind.Activated,
+                AbandonReason.None, 1.0, new PhysicalPoint(150, 0), new PhysicalPoint(0, 0), 30, null),
+            AbandonNM(5 * Sec, DwellContext.ActionMenu, radius: 0, nmX: 500, nmY: 0),
+        };
+        var s = StruggleSignals.ScoreAiming(window);
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsTrue(); // exactly 4 circular abandons meet the gate
+    }
+
+    [Fact]
+    public void Aiming_BelowGate_ScoreStillComputed_GateFalse()
+    {
+        // 2 circular abandons (< default 4) → gate false, confidence 0.5, score still computed (ratio 3 → 1).
+        var window = new List<DwellOutcome>
+        {
+            AbandonNM(0, DwellContext.ActionMenu, 30, 90, 0),
+            AbandonNM(1 * Sec, DwellContext.ActionMenu, 30, 90, 0),
+        };
+        var s = StruggleSignals.ScoreAiming(window);
+        Check.That(s.Score).IsEqualTo(1.0);
+        Check.That(s.Confidence).IsCloseTo(0.5, 1e-9);
+        Check.That(s.GatePassed).IsFalse();
+    }
 }

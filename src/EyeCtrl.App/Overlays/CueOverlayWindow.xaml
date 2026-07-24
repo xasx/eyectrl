@@ -1,0 +1,21 @@
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.CueOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+        AutomationProperties.AutomationId="AdaptationCue_Window"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False"
+        Width="64" Height="64">
+    <Canvas>
+        <!-- Amber "struggle" badge; Opacity is animated in code-behind (0 = invisible at rest). -->
+        <Ellipse x:Name="Badge"
+                 Width="40" Height="40"
+                 Canvas.Left="12" Canvas.Top="12"
+                 Fill="#FFB300" Opacity="0"/>
+        <!-- Hidden TextBlock UIA anchor — WPF transparent overlay windows only expose TextBlock nodes
+             in the UIA tree; Ellipse/Canvas are collapsed. -->
+        <TextBlock AutomationProperties.AutomationId="AdaptationCue_Badge"
+                   Opacity="0" IsHitTestVisible="False"
+                   Canvas.Left="0" Canvas.Top="0"/>
+    </Canvas>
+</overlays:OverlayWindow>

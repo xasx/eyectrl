@@ -102,6 +102,10 @@ public record PredictionSelectedMessage(string Word, int DeleteCount = 0);
 public record SpecialKeyMessage(string KeyName, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record SettingsChangedMessage;
 
+/// <summary>Sent by the toolbar reset button and tray item to clear all struggle-adaptation back to
+/// baseline — the always-reachable escape (design §8.6). Handled by <c>AdaptationResetHandler</c>.</summary>
+public record ResetAdaptationMessage;
+
 /// <summary>Sent to show the glass backdrop. HideButtonCenter is in physical screen pixels.</summary>
 public record ShowBackdropMessage(PhysicalPoint HideButtonCenter);
 public record HideBackdropMessage;

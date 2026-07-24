@@ -44,12 +44,17 @@ public class TrayIconManager : IDisposable
         settingsItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
             _messenger.Send(new SettingsRequestedMessage()));
 
+        var resetAdaptationItem = new ToolStripMenuItem("Reset adaptation");
+        resetAdaptationItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
+            _messenger.Send(new ResetAdaptationMessage()));
+
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => dispatcher.BeginInvoke(shutdownCallback);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(_pauseMenuItem);
         menu.Items.Add(settingsItem);
+        menu.Items.Add(resetAdaptationItem);
         if (showToolbarCallback != null)
         {
             _showToolbarMenuItem = new ToolStripMenuItem("Show toolbar");

@@ -277,6 +277,21 @@ public class AppBootstrapper
             sp.GetRequiredService<IGazeProvider>(),
             sp.GetRequiredService<GazeEngine>().InteractionManager));
 
+        // 1b-⑤b feedback & manual-escape surface. AllowAllFeedbackGate is the no-op suppression seam
+        // 1b-⑥ replaces with the sensitive-context gate (§8.10). CueOverlayWindow is excluded from
+        // magnifier capture and doubles as the ICuePresenter. The cue service + reset handler are started
+        // in App.OnStartup (after the coordinator starts).
+        services.AddSingleton<IFeedbackGate, AllowAllFeedbackGate>();
+        services.AddSingleton<CueOverlayWindow>();
+        services.AddSingleton<ICuePresenter>(sp => sp.GetRequiredService<CueOverlayWindow>());
+        services.AddSingleton(sp => new AdaptationCueService(
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
+            sp.GetRequiredService<IFeedbackGate>(),
+            sp.GetRequiredService<ICuePresenter>()));
+        services.AddSingleton(sp => new AdaptationResetHandler(
+            sp.GetRequiredService<IMessenger>(),
+            sp.GetRequiredService<AdaptationCoordinator>()));
+
         return services.BuildServiceProvider();
     }
 

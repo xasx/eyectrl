@@ -222,4 +222,56 @@ public class AdaptationControllerTests
         Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(52.5, 1e-9);   // tolerance still adapts
         Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsCloseTo(4.75, 1e-9);       // smoothing still adapts
     }
+
+    [Fact]
+    public void AccidentalActivation_LengthensDwell_Quarantined()
+    {
+        var (c, p, _) = Make();
+        var a = Assess(Mode(FailureMode.AccidentalActivation, 0.7));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec); // dwell tightening fill 0.10
+
+        // Longer band = +DwellLonger(0.5)×700 = +350; 10% → +35 → 735.
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsCloseTo(735.0, 1e-9);
+        // Quarantine (§8.2): accidental drives ONLY the dwell tightening — nothing else moves.
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsEqualTo(50.0);
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsEqualTo(5.0);
+        Check.That(p.Effective(AdaptationKnob.TargetGeometry, DwellContext.Other, 100)).IsEqualTo(100.0);
+    }
+
+    [Fact]
+    public void SustainFailureAndAccidental_DwellForgivingAndTighteningCoexist()
+    {
+        // C1 (§5/§8.2/§12): dwell forgiving (shorter) from sustain-failure and tightening (longer) from
+        // accidental-activation apply in independent sub-bands and coexist — the tightening is NOT swallowed.
+        var (c, p, _) = Make();
+        var a = Assess(
+            Mode(FailureMode.SustainFailure, 0.7),        // → dwell shorter (forgiving)
+            Mode(FailureMode.AccidentalActivation, 0.7)); // → dwell longer (tightening)
+        c.Tick(a, 0); c.Tick(a, 3 * Sec); // both fills 0.10
+
+        // forgiving −0.4×700×0.10 = −28; tightening +0.5×700×0.10 = +35 → 700 − 28 + 35 = 707.
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsCloseTo(707.0, 1e-9);
+    }
+
+    [Fact]
+    public void AccidentalUngated_DoesNotTighten()
+    {
+        // Below-gate accidental (high score, gate false) must not tighten dwell (F4).
+        var (c, p, _) = Make();
+        var a = Assess(Mode(FailureMode.AccidentalActivation, 0.9, gated: false));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec); c.Tick(a, 6 * Sec);
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsEqualTo(700.0);
+    }
+
+    [Fact]
+    public void Tightening_RecoversIndependently_WhenAccidentalSubsides()
+    {
+        var (c, p, _) = Make();
+        var high = Assess(Mode(FailureMode.AccidentalActivation, 0.7));
+        c.Tick(high, 0); c.Tick(high, 3 * Sec); c.Tick(high, 4 * Sec); // tightening fill 0.20 → +70 → 770
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsCloseTo(770.0, 1e-9);
+
+        c.Tick(Assess(), 5 * Sec); // no struggle → recover 0.20 → 0.15 → +52.5 → 752.5 (instantly escapable, §8.2)
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsCloseTo(752.5, 1e-9);
+    }
 }

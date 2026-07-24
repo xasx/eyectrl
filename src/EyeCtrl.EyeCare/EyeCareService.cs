@@ -60,6 +60,10 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
         {
             _hooks.CancelActive();
             Cancel();
+            // OnGazeSample stops feeding the monitor once eye-care is disabled, so without a reset
+            // it would hold the last score and report stale fatigue. GazeQualitySummary documents
+            // fatigue as "0 when fatigue monitoring is disabled" — clear it on the toggle.
+            _fatigueMonitor.Reset();
         }
     }
 

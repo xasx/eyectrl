@@ -65,6 +65,18 @@ public sealed class AdaptationController
         UpdateKnob(AdaptationKnob.FixationRadius, _adaptation.AdaptTolerance, tuning, nowMicroseconds,
             forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure, FailureMode.Drift),
             tighteningDrive: 0.0);
+        // Dwell: shorten (forgiving) on sustain-failure. Tightening (longer) is added in Task 3.
+        UpdateKnob(AdaptationKnob.DwellTime, _adaptation.AdaptDwell, tuning, nowMicroseconds,
+            forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure),
+            tighteningDrive: 0.0);
+        // Smoothing: more (parameter down) on sustain-failure OR poor-tracking (union).
+        UpdateKnob(AdaptationKnob.Smoothing, _adaptation.AdaptSmoothing, tuning, nowMicroseconds,
+            forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure, FailureMode.PoorTracking),
+            tighteningDrive: 0.0);
+        // Geometry: enlarge on aiming OR poor-tracking (union).
+        UpdateKnob(AdaptationKnob.TargetGeometry, _adaptation.AdaptGeometry, tuning, nowMicroseconds,
+            forgivingDrive: ForgivingDrive(assessment, FailureMode.Aiming, FailureMode.PoorTracking),
+            tighteningDrive: 0.0);
     }
 
     /// <summary>

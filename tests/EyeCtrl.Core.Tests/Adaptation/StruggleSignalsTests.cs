@@ -474,4 +474,110 @@ public class StruggleSignalsTests
         Check.That(s.Confidence).IsCloseTo(0.5, 1e-9);
         Check.That(s.GatePassed).IsFalse();
     }
+
+    // ---- Drift ----
+
+    [Fact]
+    public void Drift_Empty_ReturnsZeroUngated()
+    {
+        var s = StruggleSignals.ScoreDrift(new List<DwellOutcome>());
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.Confidence).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsFalse();
+    }
+
+    [Fact]
+    public void Drift_SingleContextStrongBias_IsNotDrift()
+    {
+        // 8 abandons in ONE context all biased hard right. A single-context bias is UI geometry, NOT
+        // calibration drift (§6.2/C2) → only 1 qualifying context → gate false, score 0.
+        var window = new List<DwellOutcome>();
+        for (int i = 0; i < 8; i++)
+            window.Add(AbandonNM(i * Sec, DwellContext.ActionMenu, 30, nmX: 80, nmY: 0));
+        var s = StruggleSignals.ScoreDrift(window);
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsFalse();
+        Check.That(s.Confidence).IsCloseTo(0.5, 1e-9); // 1 qualifying context / min 2
+    }
+
+    [Fact]
+    public void Drift_TwoContextsCoherent_FiresDrift()
+    {
+        // Two contexts, 5 abandons each, both mean-biased (50,0). Coherent + magnitude 50 vs the 100 px
+        // normalizer → coherence 1.0 × magNorm 0.5 = score 0.5.
+        var window = new List<DwellOutcome>();
+        for (int i = 0; i < 5; i++)
+        {
+            window.Add(AbandonNM(i * Sec, DwellContext.ActionMenu, 30, 50, 0));
+            window.Add(AbandonNM(i * Sec, DwellContext.Keyboard, 30, 50, 0));
+        }
+        var s = StruggleSignals.ScoreDrift(window);
+        Check.That(s.Score).IsCloseTo(0.5, 1e-9);
+        Check.That(s.Confidence).IsEqualTo(1.0);
+        Check.That(s.GatePassed).IsTrue();
+    }
+
+    [Fact]
+    public void Drift_TwoContextsIncoherent_GateFalse()
+    {
+        // Both contexts qualify (≥5 abandons) but bias 90° apart (right vs down) → not within ±30° →
+        // no coherent pair → gate false, score 0. Confidence still 1.0 (two qualifying contexts).
+        var window = new List<DwellOutcome>();
+        for (int i = 0; i < 5; i++)
+        {
+            window.Add(AbandonNM(i * Sec, DwellContext.ActionMenu, 30, 50, 0));
+            window.Add(AbandonNM(i * Sec, DwellContext.Keyboard, 30, 0, 50));
+        }
+        var s = StruggleSignals.ScoreDrift(window);
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsFalse();
+        Check.That(s.Confidence).IsEqualTo(1.0);
+    }
+
+    [Fact]
+    public void Drift_ContextBelowMinAbandons_DoesNotQualify()
+    {
+        // Context A: 5 coherent abandons. Context B: only 4 (< 5) → B does not qualify → 1 qualifying
+        // context → gate false.
+        var window = new List<DwellOutcome>();
+        for (int i = 0; i < 5; i++)
+            window.Add(AbandonNM(i * Sec, DwellContext.ActionMenu, 30, 50, 0));
+        for (int i = 0; i < 4; i++)
+            window.Add(AbandonNM(i * Sec, DwellContext.Keyboard, 30, 50, 0));
+        var s = StruggleSignals.ScoreDrift(window);
+        Check.That(s.GatePassed).IsFalse();
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.Confidence).IsCloseTo(0.5, 1e-9);
+    }
+
+    [Fact]
+    public void Drift_LargerBias_SaturatesScore()
+    {
+        // Same coherent-pair shape but magnitude 100 == normalizer → magNorm 1.0 → score 1.0.
+        var window = new List<DwellOutcome>();
+        for (int i = 0; i < 5; i++)
+        {
+            window.Add(AbandonNM(i * Sec, DwellContext.ActionMenu, 30, 100, 0));
+            window.Add(AbandonNM(i * Sec, DwellContext.Keyboard, 30, 100, 0));
+        }
+        Check.That(StruggleSignals.ScoreDrift(window).Score).IsCloseTo(1.0, 1e-9);
+    }
+
+    [Fact]
+    public void Drift_CoherentPairPlusIncoherentThird_StillFires()
+    {
+        // A and B coherent (50,0); C (0,50) is incoherent but qualifies. The coherent PAIR must still
+        // trigger drift (score 0.5 from {A,B}); an outlier context does not block it.
+        var window = new List<DwellOutcome>();
+        for (int i = 0; i < 5; i++)
+        {
+            window.Add(AbandonNM(i * Sec, DwellContext.ActionMenu, 30, 50, 0));
+            window.Add(AbandonNM(i * Sec, DwellContext.Keyboard, 30, 50, 0));
+            window.Add(AbandonNM(i * Sec, DwellContext.Toolbar, 30, 0, 50));
+        }
+        var s = StruggleSignals.ScoreDrift(window);
+        Check.That(s.Score).IsCloseTo(0.5, 1e-9);
+        Check.That(s.GatePassed).IsTrue();
+        Check.That(s.Confidence).IsEqualTo(1.0);
+    }
 }

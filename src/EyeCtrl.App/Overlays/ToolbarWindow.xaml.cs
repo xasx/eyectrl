@@ -44,6 +44,7 @@ public partial class ToolbarWindow : OverlayWindow
             ("SelectionMode",     "\u2295"),    // ⊕ Magnify/ManualSelection
             ("Keyboard", "\u2328"),    // ⌨ Keyboard
             ("Settings", "\u2699"),    // ⚙ Gear
+            ("ResetAdaptation", "\u21BA"),  // ↺ Reset struggle-adaptation (§8.6 always-reachable escape)
         };
 
         foreach (var (id, symbol) in buttons)

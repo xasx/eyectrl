@@ -11,10 +11,10 @@ public class ToolbarViewModelTests
     private readonly EyeCtrlSettings _settings = new();
 
     [Fact]
-    public void InitializesWith7Buttons()
+    public void InitializesWith8Buttons()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        Check.That(vm.Buttons.Count).IsEqualTo(7);
+        Check.That(vm.Buttons.Count).IsEqualTo(8);
     }
 
     [Fact]
@@ -27,6 +27,18 @@ public class ToolbarViewModelTests
         // Find the Pause button and simulate activation
         var pauseBtn = vm.Buttons.First(b => b.Id == "Pause");
         vm.SimulateButtonActivated("Pause");
+
+        Check.That(received).IsTrue();
+    }
+
+    [Fact]
+    public void ResetAdaptationButton_SendsResetAdaptationMessage()
+    {
+        var vm = new ToolbarViewModel(_settings, _messenger);
+        bool received = false;
+        _messenger.Register<ResetAdaptationMessage>(_messenger, (_, _) => received = true);
+
+        vm.SimulateButtonActivated("ResetAdaptation");
 
         Check.That(received).IsTrue();
     }

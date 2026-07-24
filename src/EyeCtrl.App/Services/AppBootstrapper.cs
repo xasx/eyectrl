@@ -260,6 +260,23 @@ public class AppBootstrapper
             sp.GetRequiredService<ExerciseRunner>(),
             sp.GetRequiredService<IEyeCareHooks>()));
 
+        // Struggle-detection adaptation runtime (Phase 1b). The telemetry sink (1a-②) and the
+        // effective-settings provider (1b-①) are already registered above; here we add the monitor,
+        // controller, and coordinator. The coordinator ticks the monitor→controller pipeline on a
+        // dispatcher timer, enable-gated on AdaptationSettings.Enabled (off by default) — inert until opted in.
+        services.AddSingleton(sp => new StruggleMonitor(
+            sp.GetRequiredService<BufferingTelemetrySink>(),
+            sp.GetRequiredService<EyeCtrlSettings>().EyeCare));
+        services.AddSingleton(sp => new AdaptationController(
+            sp.GetRequiredService<EffectiveSettingsProvider>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation));
+        services.AddSingleton(sp => new AdaptationCoordinator(
+            sp.GetRequiredService<StruggleMonitor>(),
+            sp.GetRequiredService<AdaptationController>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
+            sp.GetRequiredService<IGazeProvider>(),
+            sp.GetRequiredService<GazeEngine>().InteractionManager));
+
         return services.BuildServiceProvider();
     }
 

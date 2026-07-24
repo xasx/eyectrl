@@ -245,6 +245,12 @@ public partial class App : Application
                     canInterrupt: im.CurrentState == InteractionState.FreeLook);
             };
 
+            // Struggle-detection coordinator: ticks the monitor→controller pipeline on a dispatcher timer,
+            // enable-gated on AdaptationSettings.Enabled (off by default). Resolving the singleton and
+            // Start()ing it subscribes GazeSampled (the tick clock) + starts the timer; the container holds
+            // the instance for the process lifetime (like eyeCare/gazeEngine), so no explicit field is kept.
+            _serviceProvider.GetRequiredService<AdaptationCoordinator>().Start(gazeEngine);
+
             // Gaze-quality telemetry: aggregate tracking/jitter/fatigue on the gaze thread and push
             // periodic summaries through the (dispatcher-serialized) telemetry sink. Buffered only
             // until the StruggleMonitor (Phase 1b) consumes them — zero behaviour change today.

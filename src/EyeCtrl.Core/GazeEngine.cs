@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core;
 
 using System.ComponentModel;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
@@ -24,8 +25,11 @@ public class GazeEngine : IDisposable
     private readonly object _interpolatorLock = new();
     private readonly PropertyChangedEventHandler _cursorSettingsChangedHandler;
     private readonly Action<PhysicalPoint> _startTrackingHandler;
-    private readonly FixationDetector _fixationDetector;
+    private volatile FixationDetector _fixationDetector;
     private readonly FixationCentroidTracker _centroidTracker;
+    private readonly EffectiveSettingsProvider? _effectiveSettings;
+    private readonly PropertyChangedEventHandler _dwellSettingsChangedHandler;
+    private readonly Action? _effectiveSettingsChangedHandler;
 
     /// <summary>Interaction state machine controlling fixation → activation → action flow.</summary>
     public InteractionManager InteractionManager { get; }
@@ -58,11 +62,14 @@ public class GazeEngine : IDisposable
     /// <param name="inputSimulator">Platform-level mouse/keyboard input simulator.</param>
     /// <param name="settings">Application settings for filter, dwell, and selection configuration.</param>
     /// <param name="calibrationService">Optional calibration service for gaze-to-screen coordinate mapping.</param>
+    /// <param name="effectiveSettings">Optional effective-settings provider. When null, tolerance
+    /// reads the baseline directly and no adaptation-driven rebuild occurs.</param>
     public GazeEngine(
         IGazeProvider gazeProvider,
         IInputSimulator inputSimulator,
         EyeCtrlSettings settings,
-        CalibrationService? calibrationService = null)
+        CalibrationService? calibrationService = null,
+        EffectiveSettingsProvider? effectiveSettings = null)
     {
         _gazeProvider = gazeProvider;
         _inputSimulator = inputSimulator;
@@ -100,9 +107,7 @@ public class GazeEngine : IDisposable
         };
         _settings.Cursor.PropertyChanged += _cursorSettingsChangedHandler;
 
-        _fixationDetector = new FixationDetector(
-            settings.Dwell.FixationRadiusPixels,
-            settings.Dwell.FixationDetectionMs);
+        _effectiveSettings = effectiveSettings;
 
         _centroidTracker = new FixationCentroidTracker(settings.Dwell.VelocityThresholdPxPerSec);
 
@@ -113,17 +118,79 @@ public class GazeEngine : IDisposable
 
         _startTrackingHandler = _ => _centroidTracker.StartTracking();
 
+        // FixationDetector radius/time are readonly, so tolerance changes are applied by REBUILDING it
+        // (design §5). Build with the effective radius and move its four subscriptions across rebuilds.
+        _fixationDetector = new FixationDetector(EffectiveFixationRadius(), settings.Dwell.FixationDetectionMs);
+        WireFixation(_fixationDetector);
+
+        // Rebuild on a baseline tolerance edit. GazeEngine previously subscribed to CursorSettings only,
+        // so DwellSettings tolerance edits never reached the live detector (latent bug — now fixed).
+        _dwellSettingsChangedHandler = (_, e) =>
+        {
+            if (e.PropertyName is nameof(DwellSettings.FixationRadiusPixels)
+                               or nameof(DwellSettings.FixationDetectionMs))
+                RebuildFixationDetector();
+        };
+        _settings.Dwell.PropertyChanged += _dwellSettingsChangedHandler;
+
+        // Rebuild when an adaptation delta changes the effective tolerance.
+        if (_effectiveSettings is not null)
+        {
+            _effectiveSettingsChangedHandler = RebuildFixationDetector;
+            _effectiveSettings.Changed += _effectiveSettingsChangedHandler;
+        }
+
         _gazeProvider.GazePointReceived += OnGazePoint;
-        _fixationDetector.FixationStarted += InteractionManager.OnFixationStarted;
-        _fixationDetector.FixationEnded += InteractionManager.OnFixationEnded;
-        _fixationDetector.FixationStarted += _startTrackingHandler;
-        _fixationDetector.FixationEnded += _centroidTracker.StopTracking;
     }
 
     /// <summary>Starts the gaze data stream.</summary>
     public void Start()
     {
         _gazeProvider.Start();
+    }
+
+    private double EffectiveFixationRadius() =>
+        _effectiveSettings?.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, _settings.Dwell.FixationRadiusPixels)
+        ?? _settings.Dwell.FixationRadiusPixels;
+
+    private void WireFixation(FixationDetector d)
+    {
+        d.FixationStarted += InteractionManager.OnFixationStarted;
+        d.FixationEnded += InteractionManager.OnFixationEnded;
+        d.FixationStarted += _startTrackingHandler;
+        d.FixationEnded += _centroidTracker.StopTracking;
+    }
+
+    private void UnwireFixation(FixationDetector d)
+    {
+        d.FixationStarted -= InteractionManager.OnFixationStarted;
+        d.FixationEnded -= InteractionManager.OnFixationEnded;
+        d.FixationStarted -= _startTrackingHandler;
+        d.FixationEnded -= _centroidTracker.StopTracking;
+    }
+
+    // Rebuilds the detector with the current effective radius + baseline detection time (FixationDetectionMs
+    // is not an adaptation knob). Invoked on the settings/dispatcher thread; the volatile publish makes the
+    // swap visible to the gaze thread, which reads a fully-wired detector (old or new). The fresh detector
+    // starts cold, so any in-progress fixation is dropped; since the state machine only honours a new
+    // FixationStarted from FreeLook (InteractionManager.OnFixationStarted no-ops otherwise), we END an
+    // in-progress fixation cleanly here — mirroring the FixationEnded fan-out from WireFixation — so the
+    // activation button never strands and the fresh detector's next fixation re-triggers (review round-1 F2).
+    private void RebuildFixationDetector()
+    {
+        var fresh = new FixationDetector(EffectiveFixationRadius(), _settings.Dwell.FixationDetectionMs);
+        WireFixation(fresh);
+        var old = _fixationDetector;
+        bool wasFixating = old.IsFixating;
+        _fixationDetector = fresh;
+        UnwireFixation(old);
+        if (wasFixating)
+        {
+            // Old is now unwired; replicate its FixationEnded handlers so the state machine returns to
+            // FreeLook and the centroid tracker stops. OnFixationEnded is guarded (no-op unless in Fixation).
+            InteractionManager.OnFixationEnded();
+            _centroidTracker.StopTracking();
+        }
     }
 
     /// <summary>Stops the gaze data stream.</summary>
@@ -169,11 +236,11 @@ public class GazeEngine : IDisposable
     public void Dispose()
     {
         _settings.Cursor.PropertyChanged -= _cursorSettingsChangedHandler;
+        _settings.Dwell.PropertyChanged -= _dwellSettingsChangedHandler;
+        if (_effectiveSettings is not null && _effectiveSettingsChangedHandler is not null)
+            _effectiveSettings.Changed -= _effectiveSettingsChangedHandler;
         _gazeProvider.GazePointReceived -= OnGazePoint;
-        _fixationDetector.FixationStarted -= InteractionManager.OnFixationStarted;
-        _fixationDetector.FixationEnded -= InteractionManager.OnFixationEnded;
-        _fixationDetector.FixationStarted -= _startTrackingHandler;
-        _fixationDetector.FixationEnded -= _centroidTracker.StopTracking;
+        UnwireFixation(_fixationDetector);
         _gazeProvider.Dispose();
         GC.SuppressFinalize(this);
     }

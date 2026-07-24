@@ -139,12 +139,19 @@ public class AppBootstrapper
         // ControlFinder (AutoSelection mode)
         services.AddSingleton<IControlFinder, ControlFinder>();
 
+        // Struggle-detection effective-settings provider (Phase 1b): composes bounded momentary
+        // deltas onto baseline settings. Holds no deltas until the AdaptationController lands, and
+        // returns baseline while AdaptationSettings.Enabled == false.
+        services.AddSingleton(sp => new EffectiveSettingsProvider(
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation));
+
         // Core engine
         services.AddSingleton(sp => new GazeEngine(
             sp.GetRequiredService<IGazeProvider>(),
             sp.GetRequiredService<IInputSimulator>(),
             sp.GetRequiredService<EyeCtrlSettings>(),
-            sp.GetRequiredService<CalibrationService>()));
+            sp.GetRequiredService<CalibrationService>(),
+            sp.GetRequiredService<EffectiveSettingsProvider>()));
 
         // Struggle-detection telemetry sink (Phase 1a): surfaces report DwellOutcomes here.
         // BufferingTelemetrySink only buffers (zero behaviour change); DispatcherTelemetrySink

@@ -5,76 +5,151 @@ using EyeCtrl.Core.Settings;
 
 public class EffectiveSettingsProviderTests
 {
-    private static EffectiveSettingsProvider Make(bool enabled)
-        => new(new AdaptationSettings { Enabled = enabled });
+    // Returns the provider AND its settings so tests can mutate band fractions (band-source migration).
+    private static (EffectiveSettingsProvider Provider, AdaptationSettings Settings) Make(bool enabled)
+    {
+        var settings = new AdaptationSettings { Enabled = enabled };
+        return (new EffectiveSettingsProvider(settings), settings);
+    }
 
     [Fact]
-    public void Disabled_ReturnsBaseline_EvenWithDeltaSet()
+    public void Disabled_ReturnsBaseline_EvenWithFillSet()
     {
-        var p = Make(enabled: false);
-        p.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, forgiving: 40, tightening: 0);
+        var (p, _) = Make(enabled: false);
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
         Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 50)).IsEqualTo(50.0);
     }
 
     [Fact]
-    public void Enabled_NoDelta_ReturnsBaseline()
+    public void Enabled_NoFill_ReturnsBaseline()
     {
-        var p = Make(enabled: true);
+        var (p, _) = Make(enabled: true);
         Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 50)).IsEqualTo(50.0);
     }
 
     [Fact]
-    public void Enabled_ForgivingDelta_LoosensRadius_ClampedToBand()
+    public void ZeroFill_ReturnsExactBaseline_EvenWhenBaselineOutOfRange()
     {
-        var p = Make(enabled: true);
-        // Forgiving (looser = larger) delta of +40; band is [0, +50% of baseline] = [0, 25].
-        p.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, forgiving: 40, tightening: 0);
-        double eff = p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 50);
-        Check.That(eff > 50.0).IsTrue();
-        Check.That(eff).IsEqualTo(75.0); // +40 clamped to +25 → 50 + 25
+        // Locked exit invariant (§8.3): zero fill ⇒ exact baseline, even a baseline above the validated
+        // max — the validated-range clamp only engages when the delta is non-zero (EffectiveValue, 1a-⑤).
+        var (p, _) = Make(enabled: true);
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 0.0, 0.0);
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 5000)).IsEqualTo(5000.0);
     }
 
     [Fact]
-    public void Enabled_ForgivingDelta_NeverExceedsValidatedMax()
+    public void Tolerance_HalfForgivingFill_MovesHalfTheBand()
     {
-        var p = Make(enabled: true);
-        p.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, forgiving: 1000, tightening: 0);
-        // 190 + min(1000, 190*0.5=95) = 285, clamped to the validated max (200).
+        // Tolerance forgiving is +looser: band edge = +ToleranceLooserMaxFraction(0.50) × baseline(50) = +25.
+        // Half fill → +12.5 → 62.5. Proves intermediate (sub-saturation) stepping composes correctly.
+        var (p, _) = Make(enabled: true);
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, forgivingFill: 0.5, tighteningFill: 0.0);
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 50)).IsCloseTo(62.5, 1e-9);
+    }
+
+    [Fact]
+    public void Tolerance_FillOverOne_SaturatesAtBandEdge()
+    {
+        // Fill > 1 is clamped by the sub-band to the edge (+25) → 75. The controller (1b-④b) clamps fills
+        // to [0, 1]; the provider's band clamp is the safety net.
+        var (p, _) = Make(enabled: true);
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, forgivingFill: 5.0, tighteningFill: 0.0);
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 50)).IsEqualTo(75.0);
+    }
+
+    [Fact]
+    public void Tolerance_NeverExceedsValidatedMax()
+    {
+        // baseline 190, full fill → +95 = 285, clamped to the validated max 200.
+        var (p, _) = Make(enabled: true);
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 1.0, 0.0);
         Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 190)).IsEqualTo(200.0);
     }
 
     [Fact]
-    public void ClearMomentaryDeltas_RestoresBaseline()
+    public void Dwell_ForgivingShortens()
     {
-        var p = Make(enabled: true);
-        p.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, 40, 0);
-        p.ClearMomentaryDeltas();
-        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsEqualTo(50.0);
+        // Dwell forgiving is −shorter: band edge = −DwellShorterMaxFraction(0.40) × baseline(700) = −280.
+        // Full fill → 700 − 280 = 420.
+        var (p, _) = Make(enabled: true);
+        p.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, baseline: 700)).IsCloseTo(420.0, 1e-9);
+    }
+
+    [Fact]
+    public void Dwell_ForgivingAndTightening_Coexist_TighteningNotSwallowed()
+    {
+        // C1 at the provider level (§5/§8.2): dwell forgiving (shorter, −) and tightening (longer, +) are
+        // clamped in independent sub-bands and summed, so the bounded tightening is never swallowed by the
+        // forgiving offset. forgiving edge −280; tightening edge +DwellLongerMaxFraction(0.50)×700 = +350.
+        // Full both → 700 − 280 + 350 = 770.
+        var (p, _) = Make(enabled: true);
+        p.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 1.0);
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, baseline: 700)).IsCloseTo(770.0, 1e-9);
+    }
+
+    [Fact]
+    public void Smoothing_MoreSmoothing_DecreasesParameter()
+    {
+        // Smoothing forgiving is −more (parameter DOWN for both filters, §13.1). OneEuro baseline 5.0;
+        // full fill → −SmoothingMoreMaxFraction(0.50) × 5 = −2.5 → 2.5.
+        var (p, _) = Make(enabled: true);
+        p.SetMomentaryFill(AdaptationKnob.Smoothing, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, baseline: 5.0)).IsCloseTo(2.5, 1e-9);
+    }
+
+    [Fact]
+    public void Geometry_Bigger_IncreasesSize()
+    {
+        // Geometry forgiving is +bigger. baseline 100; full fill → +GeometryBiggerMaxFraction(0.50)×100 = +50 → 150.
+        var (p, _) = Make(enabled: true);
+        p.SetMomentaryFill(AdaptationKnob.TargetGeometry, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
+        Check.That(p.Effective(AdaptationKnob.TargetGeometry, DwellContext.Other, baseline: 100)).IsCloseTo(150.0, 1e-9);
+    }
+
+    [Fact]
+    public void BandSourceMigration_ToleranceFractionReadFromSettings_IsLive()
+    {
+        // Band-source migration: the provider reads AdaptationSettings.ToleranceLooserMaxFraction live (not
+        // a baked constant). Narrowing it to 0.25 halves the band → full fill gives +12.5, not +25.
+        var (p, s) = Make(enabled: true);
+        s.ToleranceLooserMaxFraction = 0.25;
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 1.0, 0.0);
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 50)).IsCloseTo(62.5, 1e-9);
+    }
+
+    [Fact]
+    public void ClearMomentaryFills_RestoresBaseline()
+    {
+        var (p, _) = Make(enabled: true);
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 1.0, 0.0);
+        p.ClearMomentaryFills();
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, baseline: 50)).IsEqualTo(50.0);
     }
 
     [Fact]
     public void SetAndClear_RaiseChanged()
     {
-        var p = Make(enabled: true);
+        var (p, _) = Make(enabled: true);
         int changed = 0;
         p.Changed += () => changed++;
-        p.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, 40, 0);
-        p.ClearMomentaryDeltas();
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 1.0, 0.0);
+        p.ClearMomentaryFills();
         Check.That(changed).IsEqualTo(2);
     }
 
     [Fact]
-    public void FixationRadius_EffectiveStaysWithinDwellSettingsValidatedRange()
+    public void FixationRadius_EffectiveStaysWithinDwellSettingsValidatedMax()
     {
-        // Drift guard: KnobPolicy hardcodes the fixation-radius validated range (10–200), duplicating
-        // DwellSettings.FixationRadiusPixels's guard. Use that setter as the ORACLE — if KnobPolicy's
-        // ValidMax ever drifts above the settings guard, assigning the effective value back throws and
-        // this fails. No magic number in the assertion (Phase 1b-② removes the duplication).
+        // Drift guard (from 1b-①, updated to the fill API): KnobPolicy hardcodes the fixation-radius
+        // validated MAX (200) — a provider-owned constant NOT migrated to AdaptationSettings — duplicating
+        // DwellSettings.FixationRadiusPixels's guard. Use that setter as the ORACLE: if the provider's
+        // ValidMax ever drifts above the settings guard, assigning the effective value back throws.
         var settings = new EyeCtrlSettings();
         settings.Adaptation.Enabled = true;
         var p = new EffectiveSettingsProvider(settings.Adaptation);
         settings.Dwell.FixationRadiusPixels = 200; // top of the validated range
-        p.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, forgiving: 10_000, tightening: 0);
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, forgivingFill: 5.0, tighteningFill: 0.0);
         double eff = p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, settings.Dwell.FixationRadiusPixels);
 
         bool threw = false;

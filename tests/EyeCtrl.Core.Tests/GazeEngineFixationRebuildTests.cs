@@ -62,8 +62,8 @@ public class GazeEngineFixationRebuildTests
         DriveJitter(provider, 500, 500, spanPx: 40, durationMs: 300, ref ts); // baseline 30 < 40 → no fixation
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
 
-        // Controller-style forgiving delta: +100 clamps to +50% (=15) → effective radius 45 >= 40.
-        effective.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, forgiving: 100, tightening: 0);
+        // Controller-style full forgiving fill → +50% band edge (=15) → effective radius 45 >= 40.
+        effective.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
         DriveJitter(provider, 500, 500, spanPx: 40, durationMs: 300, ref ts);
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
     }
@@ -78,7 +78,7 @@ public class GazeEngineFixationRebuildTests
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s, effectiveSettings: effective);
         long ts = 0;
 
-        effective.SetMomentaryDelta(AdaptationKnob.FixationRadius, DwellContext.Other, forgiving: 100, tightening: 0);
+        effective.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
         DriveJitter(provider, 500, 500, spanPx: 40, durationMs: 300, ref ts);
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }

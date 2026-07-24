@@ -156,4 +156,21 @@ public class AdaptationCoordinatorTests
         c.Tick();         // Paused → LastAssessment cleared
         Check.That(c.LastAssessment.AggregateLevel).IsEqualTo(0.0);
     }
+
+    [Fact]
+    public void ReEnableAfterDisable_FiresResetOnEnable()
+    {
+        // The enable→disable→enable cycle: re-enable must take the ResetOnEnable branch (the
+        // reset-edge ternary gives !_wasEnabled priority), ignoring any stale _wasConnected/_wasPaused.
+        var (c, _, _, adaptation, _, _) = Make(enabled: true);
+        c.OnGazeSample(new GazePoint(0, 0, 10 * Sec, true));
+        c.Tick(); // ResetOnEnable (first enable)
+        c.Tick(); // Assessed
+        adaptation.Enabled = false;
+        Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ClearedOnDisable); // _wasEnabled -> false
+        adaptation.Enabled = true;
+        // Re-enable: _wasEnabled is false → ResetOnEnable wins the ternary, regardless of stale flags.
+        Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ResetOnEnable);
+        Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.Assessed); // back to active
+    }
 }

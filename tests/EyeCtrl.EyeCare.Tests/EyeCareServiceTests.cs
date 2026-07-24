@@ -94,4 +94,34 @@ public class EyeCareServiceTests
 
         Check.That(hooks.CancelActiveCalls).IsEqualTo(0);
     }
+
+    [Fact]
+    public void Disabling_ResetsFatigueScore()
+    {
+        // OnGazeSample stops updating fatigue when eye-care is disabled, so without a reset the
+        // monitor holds the last score and reports stale fatigue. The GazeQualitySummary contract
+        // documents fatigue as "0 when fatigue monitoring is disabled" — disabling must zero it.
+        var settings = new EyeCareSettings
+        {
+            Enabled = true,
+            FatigueMonitorEnabled = true,
+            IntervalMinutes = 10,
+            NaturalBreakSeconds = 30,
+            SnoozeMinutes = 10,
+        };
+        var hooks = new FakeHooks();
+        var svc = NewService(settings, hooks);
+
+        // Accumulate fixation (low gaze spread) to drive the score up. canInterrupt: false keeps
+        // the fatigue-driven escalation from firing (and resetting the monitor via its break flow),
+        // so the score is observable.
+        for (long t = 0; t < 5_000_000; t += 100_000)
+            svc.OnGazeSample(new GazePoint(500, 500, t, IsValid: true), isPaused: false, canInterrupt: false);
+
+        Check.That(svc.FatigueScore > 0.0).IsTrue();
+
+        settings.Enabled = false;
+
+        Check.That(svc.FatigueScore).IsEqualTo(0.0);
+    }
 }

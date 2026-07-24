@@ -54,7 +54,7 @@ public sealed class DispatcherTelemetrySink : IStruggleTelemetrySink, IGazeQuali
         if (_hasThreadAccess())
             Forward(copy);
         else
-            _post(() => Forward(copy));
+            Post(() => Forward(copy)); // post itself can throw (e.g. BeginInvoke during shutdown)
     }
 
     private void Forward(DwellOutcome outcome)
@@ -71,12 +71,21 @@ public sealed class DispatcherTelemetrySink : IStruggleTelemetrySink, IGazeQuali
         if (_hasThreadAccess())
             ForwardQuality(copy);
         else
-            _post(() => ForwardQuality(copy));
+            Post(() => ForwardQuality(copy));
     }
 
     private void ForwardQuality(GazeQualitySummary summary)
     {
         try { _innerQuality!.ReportGazeQuality(summary); }
         catch (Exception ex) { _logger?.LogError(ex, "Gaze-quality sink threw; summary dropped."); }
+    }
+
+    // Marshals an action onto the serialized thread, swallowing any failure of the post itself
+    // (design §11 no-throw on the gaze path — the inner sink's exceptions are caught in Forward*,
+    // the post delegate's exceptions are caught here).
+    private void Post(Action action)
+    {
+        try { _post(action); }
+        catch (Exception ex) { _logger?.LogError(ex, "Telemetry dispatcher post threw; outcome dropped."); }
     }
 }

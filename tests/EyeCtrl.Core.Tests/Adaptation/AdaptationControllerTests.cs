@@ -159,4 +159,67 @@ public class AdaptationControllerTests
         c.Tick(a, 4 * Sec);                        // 0.10 + 0.20 = 0.30 → 50 + 0.30*25 = 57.5 (Conservative would give 55)
         Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(57.5, 1e-9);
     }
+
+    [Fact]
+    public void SustainFailure_LoosensTolerance_ShortensDwell_IncreasesSmoothing_NotGeometry()
+    {
+        var (c, p, _) = Make();
+        var a = Assess(Mode(FailureMode.SustainFailure, 0.7));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec); // fill 0.10 on each driven knob
+
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(52.5, 1e-9);   // +looser
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsCloseTo(672.0, 1e-9);      // −shorter (−0.4×700×0.10 = −28)
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsCloseTo(4.75, 1e-9);       // −more (−0.5×5×0.10 = −0.25)
+        Check.That(p.Effective(AdaptationKnob.TargetGeometry, DwellContext.Other, 100)).IsEqualTo(100.0);        // sustain-failure does NOT enlarge geometry
+    }
+
+    [Fact]
+    public void PoorTracking_IncreasesSmoothingAndGeometry_NotToleranceOrDwell()
+    {
+        var (c, p, _) = Make();
+        var a = Assess(Mode(FailureMode.PoorTracking, 0.7));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec);
+
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsCloseTo(4.75, 1e-9);       // −more (smoothing fed by poor-tracking too, union)
+        Check.That(p.Effective(AdaptationKnob.TargetGeometry, DwellContext.Other, 100)).IsCloseTo(105.0, 1e-9); // +bigger (+0.5×100×0.10 = +5)
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsEqualTo(50.0);          // NOT tolerance
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsEqualTo(700.0);            // NOT dwell (never tighten on poor-tracking, §7.1)
+    }
+
+    [Fact]
+    public void Aiming_EnlargesGeometryOnly()
+    {
+        var (c, p, _) = Make();
+        var a = Assess(Mode(FailureMode.Aiming, 0.7));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec);
+
+        Check.That(p.Effective(AdaptationKnob.TargetGeometry, DwellContext.Other, 100)).IsCloseTo(105.0, 1e-9);
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsEqualTo(5.0);   // aiming ≠ smoothing
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsEqualTo(50.0);
+    }
+
+    [Fact]
+    public void Drift_LoosensToleranceOnly()
+    {
+        var (c, p, _) = Make();
+        var a = Assess(Mode(FailureMode.Drift, 0.7));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec);
+
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(52.5, 1e-9); // loosen tolerance (the "report" half is 1b-⑤)
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsEqualTo(700.0);          // drift never shortens dwell
+        Check.That(p.Effective(AdaptationKnob.TargetGeometry, DwellContext.Other, 100)).IsEqualTo(100.0);
+    }
+
+    [Fact]
+    public void DwellDisabled_StaysBaseline_WhileOtherKnobsAdapt()
+    {
+        var (c, p, s) = Make();
+        s.AdaptDwell = false;
+        var a = Assess(Mode(FailureMode.SustainFailure, 0.7));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec);
+
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsEqualTo(700.0);            // dwell disabled
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(52.5, 1e-9);   // tolerance still adapts
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsCloseTo(4.75, 1e-9);       // smoothing still adapts
+    }
 }

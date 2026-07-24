@@ -354,6 +354,30 @@ public static class StruggleSignals
         return new SignalScore(gate ? bestScore : 0.0, confidence, gate);
     }
 
+    /// <summary>
+    /// Fatigue amplifier (design §13.2/§6.2): a pass-through of the mean windowed EyeCare fatigue score,
+    /// gated on the opt-in <c>EyeCareSettings.FatigueMonitorEnabled</c> (passed as
+    /// <paramref name="fatigueMonitorEnabled"/>). Unlike the other signals it maps to NO failure mode of
+    /// its own — the <c>StruggleMonitor</c> (plan 1b-③c) uses it to AMPLIFY the aggregate / other modes.
+    /// Reuses <c>FatigueMonitor.Score</c> (already computed on the gaze thread); it is not recomputed here.
+    /// </summary>
+    /// <param name="window">Gaze-quality summaries in the evidence window.</param>
+    /// <param name="fatigueMonitorEnabled">The <c>EyeCareSettings.FatigueMonitorEnabled</c> opt-in; when false the amplifier is inert.</param>
+    /// <returns>A pass-through score of the mean <see cref="GazeQualitySummary.FatigueScore"/>; <see cref="SignalScore.None"/> when disabled or the window is empty.</returns>
+    public static SignalScore ScoreFatigue(
+        IReadOnlyList<GazeQualitySummary> window,
+        bool fatigueMonitorEnabled)
+    {
+        if (!fatigueMonitorEnabled || window.Count == 0)
+            return SignalScore.None;
+
+        double sum = 0.0;
+        for (int i = 0; i < window.Count; i++)
+            sum += window[i].FatigueScore;
+
+        return new SignalScore(sum / window.Count, 1.0, true);
+    }
+
     // Linear ramp: 0 at/below low, 1 at/above high, linear between. Guards a degenerate low >= high
     // (returns a hard step at high) so a mis-passed threshold pair can't divide by zero.
     private static double Ramp(double value, double low, double high)

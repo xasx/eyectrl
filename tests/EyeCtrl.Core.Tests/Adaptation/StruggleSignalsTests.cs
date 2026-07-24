@@ -580,4 +580,36 @@ public class StruggleSignalsTests
         Check.That(s.GatePassed).IsTrue();
         Check.That(s.Confidence).IsEqualTo(1.0);
     }
+
+    // A gaze-quality summary carrying only a fatigue score (other fields 0 — unused by ScoreFatigue).
+    private static GazeQualitySummary QualityFat(long ts, double fatigue) => new(ts, 0.0, 0.0, fatigue, 30);
+
+    // ---- Fatigue (opt-in pass-through amplifier) ----
+
+    [Fact]
+    public void Fatigue_Disabled_ReturnsNone()
+    {
+        var window = new List<GazeQualitySummary> { QualityFat(0, 0.9), QualityFat(Sec, 0.9) };
+        var s = StruggleSignals.ScoreFatigue(window, fatigueMonitorEnabled: false);
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsFalse();
+    }
+
+    [Fact]
+    public void Fatigue_Empty_ReturnsNone()
+    {
+        var s = StruggleSignals.ScoreFatigue(new List<GazeQualitySummary>(), fatigueMonitorEnabled: true);
+        Check.That(s.Score).IsEqualTo(0.0);
+        Check.That(s.GatePassed).IsFalse();
+    }
+
+    [Fact]
+    public void Fatigue_Enabled_PassesThroughMeanScore()
+    {
+        var window = new List<GazeQualitySummary> { QualityFat(0, 0.2), QualityFat(Sec, 0.4), QualityFat(2 * Sec, 0.6) };
+        var s = StruggleSignals.ScoreFatigue(window, fatigueMonitorEnabled: true);
+        Check.That(s.Score).IsCloseTo(0.4, 1e-9); // mean of 0.2/0.4/0.6
+        Check.That(s.Confidence).IsEqualTo(1.0);
+        Check.That(s.GatePassed).IsTrue();
+    }
 }

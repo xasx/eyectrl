@@ -264,9 +264,13 @@ public class AppBootstrapper
         // effective-settings provider (1b-①) are already registered above; here we add the monitor,
         // controller, and coordinator. The coordinator ticks the monitor→controller pipeline on a
         // dispatcher timer, enable-gated on AdaptationSettings.Enabled (off by default) — inert until opted in.
+        // backspaceTargetId: the keyboard Backspace special-action id (KeyDefinition), enabling the
+        // key→Backspace corroboration half of accidental-activation detection (§13.1). The geometric
+        // re-approach half works without it; this adds the keyboard-specific reversal signal.
         services.AddSingleton(sp => new StruggleMonitor(
             sp.GetRequiredService<BufferingTelemetrySink>(),
-            sp.GetRequiredService<EyeCtrlSettings>().EyeCare));
+            sp.GetRequiredService<EyeCtrlSettings>().EyeCare,
+            backspaceTargetId: "backspace"));
         services.AddSingleton(sp => new AdaptationController(
             sp.GetRequiredService<EffectiveSettingsProvider>(),
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation));

@@ -59,8 +59,16 @@ public sealed class EffectiveSettingsProvider
             // Geometry: forgiving = bigger (+); no tightening. No pre-existing validated range (runtime-
             // derived) → unbounded above; the +fraction band is the operative bound (§8.4 deferred, per 1b-①).
             // The absolute geometry bound §13.1 expects "Phase 1b" to introduce lands with the GEOMETRY-ROUTING
-            // slice, which supplies both the runtime-derived baseline and the first consumer — it cannot be
-            // validated before then. This knob is unrouted here, so the fraction bounds the (no-op) delta.
+            // slice, which supplies the first consumer — it cannot be validated before then. This knob is
+            // unrouted here, so the fraction bounds the (no-op) delta.
+            //
+            // ⚠️ UNIT MISMATCH for the routing slice to resolve: Effective() returns an ABSOLUTE extent
+            // (baseline + fill × fraction × baseline), but DwellDetector.UpdateTargetGeometry consumes a
+            // signed MARGIN relative to the target's as-registered extents. So routing must convert —
+            // margin = Effective(TargetGeometry, ctx, baseExtent) − baseExtent — and must NOT pass a
+            // baseline of 0, which would make every delta 0 (the band is a fraction OF the baseline).
+            // Rect targets have no single "radius", so the slice also has to choose a reference extent
+            // (DwellTarget captures both base half-extents, so a per-target baseline is available).
             [AdaptationKnob.TargetGeometry] = new(
                 +1.0, static a => a.GeometryBiggerMaxFraction, 0.0, null, 0.0, double.MaxValue),
         };

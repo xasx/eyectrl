@@ -23,6 +23,13 @@ public class DwellTarget
     /// <summary>Optional rectangular bounds. When set, HitTest uses rect containment; null ⇒ circle.</summary>
     public PhysicalRect? Bounds { get; set; }
 
+    // As-registered hit-area extents, captured at construction. ApplyHitAreaMargin derives the live
+    // geometry from these rather than from the current values, so repeated calls with the same margin
+    // are idempotent instead of compounding — Phase 1b recomputes and re-applies a margin every tick.
+    private readonly double _baseRadius;
+    private readonly double _baseHalfWidth;
+    private readonly double _baseHalfHeight;
+
     /// <summary>
     /// Initializes a new circular dwell target.
     /// </summary>
@@ -37,6 +44,7 @@ public class DwellTarget
         Radius = radius;
         DwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
         Bounds = null;
+        _baseRadius = radius;
     }
 
     /// <summary>
@@ -52,6 +60,31 @@ public class DwellTarget
         Radius = 0;
         DwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
         Bounds = bounds;
+        _baseHalfWidth = bounds.Width / 2;
+        _baseHalfHeight = bounds.Height / 2;
+    }
+
+    /// <summary>
+    /// Grows (or, for a negative margin, shrinks) the hit area by <paramref name="marginPx"/> physical
+    /// pixels on every side, relative to the as-registered extents. Circular targets get
+    /// <c>baseRadius + margin</c>; rectangular targets get their base half-extents outset by the margin
+    /// around the current <see cref="Center"/> — <see cref="HitTest"/> ignores <see cref="Radius"/>
+    /// whenever <see cref="Bounds"/> is set, so a radius-only adjustment would silently do nothing there.
+    /// Clamped so the hit area never inverts. Does not touch dwell accumulation state.
+    /// </summary>
+    /// <param name="marginPx">Signed margin in physical pixels; 0 restores the as-registered geometry.</param>
+    internal void ApplyHitAreaMargin(double marginPx)
+    {
+        if (Bounds is not null)
+        {
+            double halfW = Math.Max(0, _baseHalfWidth + marginPx);
+            double halfH = Math.Max(0, _baseHalfHeight + marginPx);
+            Bounds = new PhysicalRect(Center.X - halfW, Center.Y - halfH, halfW * 2, halfH * 2);
+        }
+        else
+        {
+            Radius = Math.Max(0, _baseRadius + marginPx);
+        }
     }
 
     /// <summary>Rect containment when <see cref="Bounds"/> is set; otherwise circle distance.</summary>

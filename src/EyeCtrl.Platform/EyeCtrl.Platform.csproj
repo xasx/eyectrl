@@ -34,6 +34,7 @@
   <!-- ProcessIdentity (Win32 P/Invokes) is internal; Supervisor's ClientIdentityBinder consumes it. -->
   <ItemGroup>
     <InternalsVisibleTo Include="EyeCtrl.Supervisor" />
+    <InternalsVisibleTo Include="EyeCtrl.Platform.Tests" />
   </ItemGroup>
 
 </Project>

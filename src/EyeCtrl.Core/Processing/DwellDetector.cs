@@ -24,9 +24,6 @@ public class DwellDetector
     private readonly DwellContext _context;
     private readonly IStruggleTelemetrySink? _sink;
 
-    /// <summary>Minimum dwell fraction [0..1] an abandoned target must have reached to be reported.</summary>
-    private const double AbandonProgressThreshold = 0.3;
-
     /// <summary>
     /// Initializes a new instance of the <see cref="DwellDetector"/> class.
     /// </summary>
@@ -74,7 +71,7 @@ public class DwellDetector
     }
 
     /// <summary>
-    /// Clears the post-activation cooldown so the next <see cref="Update"/> can accumulate dwell
+    /// Clears the post-activation cooldown so the next <see cref="Update(PhysicalPoint, long)"/> can accumulate dwell
     /// immediately. Use when repurposing a shared detector for a new interaction context that must
     /// not inherit the previous context's cooldown (e.g. the unified edge-button bar).
     /// </summary>
@@ -113,8 +110,8 @@ public class DwellDetector
 
     /// <summary>
     /// Updates a target's required dwell time without resetting accumulated dwell state. The next
-    /// <see cref="Update"/> re-evaluates completion against the new time using the existing
-    /// <c>EnteredTimestamp</c> (design C4).
+    /// <see cref="Update(PhysicalPoint, long)"/> re-evaluates completion against the new time using
+    /// the existing <c>EnteredTimestamp</c> (design C4).
     /// </summary>
     /// <param name="id">Target ID.</param>
     /// <param name="dwellTimeMs">New required dwell time in milliseconds.</param>
@@ -125,16 +122,21 @@ public class DwellDetector
     }
 
     /// <summary>
-    /// Updates a target's hit radius without resetting accumulated dwell state. Enlarging mid-dwell
-    /// keeps progress (gaze already inside stays inside); shrinking that leaves gaze outside ends the
-    /// dwell on the next <see cref="Update"/> as a normal gaze-left (design C4).
+    /// Grows a target's hit area by <paramref name="marginPx"/> physical pixels on every side,
+    /// relative to its as-registered extents, without resetting accumulated dwell state. Works for
+    /// both circular and rectangular targets (a rect's bounds are outset — adjusting only the radius
+    /// would be a silent no-op there, since <see cref="DwellTarget.HitTest"/> ignores the radius when
+    /// bounds are set). Enlarging mid-dwell keeps progress (gaze already inside stays inside);
+    /// shrinking such that gaze falls outside ends the dwell on the next
+    /// <see cref="Update(PhysicalPoint, long)"/> as a normal gaze-left (design C4). Re-applying the
+    /// same margin is idempotent, so a controller may call this every tick.
     /// </summary>
     /// <param name="id">Target ID.</param>
-    /// <param name="radius">New hit radius in physical pixels.</param>
-    public void UpdateTargetGeometry(string id, double radius)
+    /// <param name="marginPx">Signed margin in physical pixels; 0 restores the as-registered geometry.</param>
+    public void UpdateTargetGeometry(string id, double marginPx)
     {
         if (_targets.TryGetValue(id, out var target))
-            target.Radius = radius;
+            target.ApplyHitAreaMargin(marginPx);
     }
 
     /// <summary>
@@ -205,6 +207,10 @@ public class DwellDetector
 
         // ── Accumulate dwell on nearest only; reset all others ──
         string? activatedId = null;
+        // One slot each is sufficient: only the nearest target is ever given IsGazeInside == true, and
+        // every other target is cleared in the same pass, so at most one target can transition out of
+        // "inside" per Update. If that invariant is ever relaxed, these must become collections or
+        // abandonments will be silently overwritten.
         DwellOutcome? activationOutcome = null;
         DwellOutcome? abandonOutcome = null;
 
@@ -251,7 +257,7 @@ public class DwellDetector
                         long abandonElapsed = timestampMicroseconds - target.EnteredTimestamp.Value;
                         double abandonProgress = Math.Min(1.0,
                             (double)abandonElapsed / target.DwellTimeMicroseconds);
-                        if (abandonProgress >= AbandonProgressThreshold)
+                        if (abandonProgress >= TelemetryThresholds.AbandonProgress)
                             abandonOutcome = new DwellOutcome(
                                 timestampMicroseconds, _context, target.Id,
                                 OutcomeKind.Abandoned,

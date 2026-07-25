@@ -25,9 +25,6 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     private readonly IStruggleTelemetrySink? _sink;
 
-    /// <summary>Minimum dwell fraction an abandoned key must have reached to be reported.</summary>
-    private const double KeyAbandonProgressThreshold = 0.3;
-
     [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private bool _isEmojiMode;
 
@@ -145,7 +142,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         if (_sink is null || NearestKeyId is null) return;
         long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
         double progress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * MathConstants.MicrosecondsPerMillisecond));
-        if (progress < KeyAbandonProgressThreshold) return;
+        // Shared with DwellDetector: cross-context comparability in Phase-1b scoring depends on every
+        // surface using the same cut-off.
+        if (progress < TelemetryThresholds.AbandonProgress) return;
         var center = keyScreenPositions.TryGetValue(NearestKeyId, out var c) ? c : gazePoint;
         _sink.Report(new DwellOutcome(
             timestampUs, DwellContext.Keyboard, NearestKeyId,

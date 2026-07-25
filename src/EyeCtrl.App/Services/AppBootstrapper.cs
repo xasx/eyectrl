@@ -292,6 +292,18 @@ public class AppBootstrapper
             sp.GetRequiredService<IMessenger>(),
             sp.GetRequiredService<AdaptationCoordinator>()));
 
+        // 1b-⑤c drift report + adaptation log. Both subscribe to the coordinator's AssessmentUpdated event
+        // and consult the same IFeedbackGate (1b-⑤b). The drift banner is excluded from magnifier capture
+        // and non-interactive; both are started in App.OnStartup after the cue service.
+        services.AddSingleton(sp => new AdaptationLog(
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
+            sp.GetRequiredService<IFeedbackGate>()));
+        services.AddSingleton<DriftNoticeWindow>();
+        services.AddSingleton<IDriftNoticePresenter>(sp => sp.GetRequiredService<DriftNoticeWindow>());
+        services.AddSingleton(sp => new DriftNoticeService(
+            sp.GetRequiredService<IFeedbackGate>(),
+            sp.GetRequiredService<IDriftNoticePresenter>()));
+
         return services.BuildServiceProvider();
     }
 

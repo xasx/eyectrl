@@ -259,6 +259,10 @@ public partial class App : Application
             _serviceProvider.GetRequiredService<AdaptationCueService>().Start(adaptationCoordinator);
             _serviceProvider.GetRequiredService<AdaptationResetHandler>().Start();
 
+            // 1b-⑤c: start the drift report + adaptation log (same coordinator event as the cue).
+            _serviceProvider.GetRequiredService<AdaptationLog>().Start(adaptationCoordinator);
+            _serviceProvider.GetRequiredService<DriftNoticeService>().Start(adaptationCoordinator);
+
             // Gaze-quality telemetry: aggregate tracking/jitter/fatigue on the gaze thread and push
             // periodic summaries through the (dispatcher-serialized) telemetry sink. Buffered only
             // until the StruggleMonitor (Phase 1b) consumes them — zero behaviour change today.

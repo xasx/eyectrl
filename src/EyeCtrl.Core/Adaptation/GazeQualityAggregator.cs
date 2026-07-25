@@ -19,6 +19,9 @@ public sealed class GazeQualityAggregator
     private double _lastJitter;
     private double _lastFatigue;
 
+    /// <summary>Number of times the gaze clock moved backwards and the window was resynchronized.</summary>
+    public long ClockRestarts { get; private set; }
+
     /// <summary>Initializes the aggregator.</summary>
     /// <param name="sink">Destination for window summaries.</param>
     /// <param name="windowMs">Window length in milliseconds; must be positive. Default 500.</param>
@@ -40,7 +43,20 @@ public sealed class GazeQualityAggregator
     public void OnSample(GazePoint sample, double fixationJitter, double fatigueScore)
     {
         if (_windowStart == long.MinValue)
+        {
             _windowStart = sample.TimestampMicroseconds;
+        }
+        else if (sample.TimestampMicroseconds < _windowStart)
+        {
+            // The gaze clock moved backwards — the tracker clock is monotonic but has an arbitrary
+            // epoch, so a device reconnect can restart it. Samples reach this aggregator in order on a
+            // single thread, so this is never reordering. Without resyncing, _windowStart would sit
+            // permanently in the future and no summary would ever be emitted again.
+            ClockRestarts++;
+            _windowStart = sample.TimestampMicroseconds;
+            _total = 0;
+            _invalid = 0;
+        }
 
         _total++;
         if (!sample.IsValid) _invalid++;

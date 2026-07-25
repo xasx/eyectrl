@@ -50,4 +50,38 @@ public class EffectiveValueTests
             Forgiving, Tightening, validMin: 200, validMax: 2000);
         Check.That(v).IsEqualTo(2000.0); // 1900 + 500 = 2400 clamped to 2000
     }
+
+    // Bands come from posture/config, so an inverted pair is a wiring bug. Math.Clamp would already
+    // throw, but with an anonymous message from one of three call sites — these pin which input is bad.
+    [Fact]
+    public void InvertedForgivingBand_ThrowsNamingTheBand()
+    {
+        var ex = CaptureArgumentException(
+            () => EffectiveValue.Compute(700, 0, 0, (0, -300), Tightening, 200, 2000));
+        Check.That(ex.ParamName).IsEqualTo("forgivingBand");
+    }
+
+    [Fact]
+    public void InvertedTighteningBand_ThrowsNamingTheBand()
+    {
+        var ex = CaptureArgumentException(
+            () => EffectiveValue.Compute(700, 0, 0, Forgiving, (500, 0), 200, 2000));
+        Check.That(ex.ParamName).IsEqualTo("tighteningBand");
+    }
+
+    [Fact]
+    public void InvertedValidatedRange_ThrowsNamingTheBound()
+    {
+        var ex = CaptureArgumentException(
+            () => EffectiveValue.Compute(700, 0, 0, Forgiving, Tightening, validMin: 2000, validMax: 200));
+        Check.That(ex.ParamName).IsEqualTo("validMin");
+    }
+
+    private static ArgumentException CaptureArgumentException(Action act)
+    {
+        Check.ThatCode(act).Throws<ArgumentException>();
+        try { act(); }
+        catch (ArgumentException ex) { return ex; }
+        throw new InvalidOperationException("unreachable: Throws<ArgumentException> already asserted");
+    }
 }

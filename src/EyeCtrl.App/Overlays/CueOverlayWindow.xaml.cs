@@ -51,6 +51,19 @@ public partial class CueOverlayWindow : OverlayWindow, ICuePresenter
         Badge.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
+    /// <inheritdoc />
+    public void Hide()
+    {
+        // Cancel any in-progress fade: bump the generation so a stale Completed handler is a no-op, stop the
+        // animation (resetting Opacity to the XAML-rest value 0), and hide the window. Idempotent. The
+        // explicit base.Hide() avoids recursing into this same-named method.
+        _fadeGeneration++;
+        Badge.BeginAnimation(UIElement.OpacityProperty, null);
+        Badge.Opacity = 0.0;
+        if (IsVisible)
+            base.Hide();
+    }
+
     private void EnsurePositioned()
     {
         if (_positioned)

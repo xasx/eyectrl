@@ -245,29 +245,16 @@ public partial class App : Application
                     canInterrupt: im.CurrentState == InteractionState.FreeLook);
             };
 
-            // Struggle-detection coordinator: ticks the monitor→controller pipeline on a dispatcher timer,
-            // enable-gated on AdaptationSettings.Enabled (off by default). Resolving the singleton and
-            // Start()ing it subscribes GazeSampled (the tick clock) + starts the timer; the container holds
-            // the instance for the process lifetime (like eyeCare/gazeEngine), so no explicit field is kept.
-            _serviceProvider.GetRequiredService<AdaptationCoordinator>().Start(gazeEngine);
+            // Struggle-detection adaptation. AdaptationActivation starts and stops the whole runtime —
+            // coordinator tick timer, the cue / drift-notice / log subscribers (resolving the cue service is
+            // what constructs its overlay HWND), and the system-wide UIA focus hook — on the
+            // AdaptationSettings.Enabled edge. Since the setting is off by default, none of that exists until
+            // the user opts in, and it is torn back down when they opt out.
+            _serviceProvider.GetRequiredService<AdaptationActivation>().Start(gazeEngine);
 
-            // 1b-⑤b: start the adaptation feedback surface. The cue subscribes to the coordinator's
-            // per-tick AssessmentUpdated event; the reset handler registers the manual toolbar/tray escape.
-            // Resolving the cue service constructs CueOverlayWindow on this (STA) thread; the container
-            // holds all three for the process lifetime, so no explicit fields are kept.
-            var adaptationCoordinator = _serviceProvider.GetRequiredService<AdaptationCoordinator>();
-            _serviceProvider.GetRequiredService<AdaptationCueService>().Start(adaptationCoordinator);
+            // The manual escape (§8.6) is NOT gated on Enabled: it is one messenger registration with no
+            // runtime cost, and the reset path should be reachable rather than conditional.
             _serviceProvider.GetRequiredService<AdaptationResetHandler>().Start();
-
-            // 1b-⑤c: start the drift report + adaptation log (same coordinator event as the cue).
-            _serviceProvider.GetRequiredService<AdaptationLog>().Start(adaptationCoordinator);
-            _serviceProvider.GetRequiredService<DriftNoticeService>().Start(adaptationCoordinator);
-
-            // 1b-⑥: start sensitive-context detection so the feedback gate can suppress the cue / drift
-            // notice / verbose log while a password field is focused (§8.10). Subscribing to UIA focus events
-            // is off the gaze hot path; failures inside Start() are swallowed (detection stays inactive). The
-            // container disposes the detector in OnExit, removing the UIA hook.
-            _serviceProvider.GetRequiredService<ISensitiveContextDetector>().Start();
 
             // Gaze-quality telemetry: aggregate tracking/jitter/fatigue on the gaze thread and push
             // periodic summaries through the (dispatcher-serialized) telemetry sink. Buffered only

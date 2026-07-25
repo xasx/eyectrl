@@ -273,13 +273,21 @@ public class AppBootstrapper
             backspaceTargetId: "backspace"));
         services.AddSingleton(sp => new AdaptationController(
             sp.GetRequiredService<EffectiveSettingsProvider>(),
-            sp.GetRequiredService<EyeCtrlSettings>().Adaptation));
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
+            sp.GetRequiredService<ILogger<AdaptationController>>()));
         services.AddSingleton(sp => new AdaptationCoordinator(
             sp.GetRequiredService<StruggleMonitor>(),
             sp.GetRequiredService<AdaptationController>(),
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
             sp.GetRequiredService<IGazeProvider>(),
             sp.GetRequiredService<GazeEngine>().InteractionManager));
+
+        // Starts/stops the whole adaptation runtime on the Enabled edge, so the opt-in feature costs nothing
+        // (no tick timer, no overlay HWNDs, no system-wide UIA focus hook) while it is off. Resolves its
+        // participants lazily from the container, hence the IServiceProvider dependency.
+        services.AddSingleton(sp => new AdaptationActivation(
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
+            sp));
 
         // 1b-⑤b feedback & manual-escape surface. The sensitive-context gate (1b-⑥) is the real suppression
         // seam (§8.10). CueOverlayWindow is excluded from magnifier capture and doubles as the ICuePresenter.

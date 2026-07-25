@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Adaptation;
 
 using EyeCtrl.Core.Settings;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// The momentary struggle-adaptation controller (design §7.1/§7.2). Consumes a
@@ -15,6 +16,7 @@ public sealed class AdaptationController
 {
     private readonly EffectiveSettingsProvider _provider;
     private readonly AdaptationSettings _adaptation;
+    private readonly ILogger<AdaptationController>? _logger;
 
     // Per-knob momentary state. Fills are the [0, 1] band position; RelaxSince records when the relax
     // condition began (long.MinValue = not currently sustaining a relax), for the SustainSeconds hold.
@@ -37,10 +39,16 @@ public sealed class AdaptationController
     /// <summary>Initializes the controller over the effective-settings provider and adaptation settings.</summary>
     /// <param name="provider">The provider the controller pushes momentary fills into.</param>
     /// <param name="adaptation">Adaptation settings: master switch, posture (→ <see cref="PosturePresets"/>), and per-knob enables — all read live per tick.</param>
-    public AdaptationController(EffectiveSettingsProvider provider, AdaptationSettings adaptation)
+    /// <param name="logger">Optional logger for the §11 degradation path. Without it a recurring tick
+    /// exception pins adaptation at baseline with no diagnostic at all — safe, but undiagnosable.</param>
+    public AdaptationController(
+        EffectiveSettingsProvider provider,
+        AdaptationSettings adaptation,
+        ILogger<AdaptationController>? logger = null)
     {
         _provider = provider;
         _adaptation = adaptation;
+        _logger = logger;
     }
 
     /// <summary>
@@ -85,8 +93,9 @@ public sealed class AdaptationController
                 forgivingDrive: ForgivingDrive(assessment, FailureMode.Aiming, FailureMode.PoorTracking),
                 tighteningDrive: 0.0);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger?.LogError(ex, "Adaptation tick failed; momentary state cleared, effective settings back at baseline.");
             Reset();
         }
     }

@@ -84,7 +84,10 @@ public sealed class StruggleMonitor
         // Fatigue is a pass-through AMPLIFIER (§13.2), not a failure mode: it scales the actionable
         // struggle level but cannot create struggle from nothing (base 0 → 0). Opt-in via EyeCare.
         double baseLevel = PeakGatedScore(modes);
-        double aggregate = Math.Clamp(baseLevel * (1.0 + _fatigueAmplifyWeight * fatigue.Score), 0.0, 1.0);
+        // The amplifier is subject to F4 like every other signal: it raises the actionable aggregate (and
+        // cue intensity), so below-gate fatigue evidence must not drive it.
+        double fatigueLevel = fatigue.GatePassed ? fatigue.Score : 0.0;
+        double aggregate = Math.Clamp(baseLevel * (1.0 + _fatigueAmplifyWeight * fatigueLevel), 0.0, 1.0);
         return new StruggleAssessment(modes, aggregate);
     }
 
@@ -138,6 +141,20 @@ public sealed class StruggleMonitor
     // scorers' DEBUG AssertOrdered holds. No buffer mutation.
     internal (IReadOnlyList<DwellOutcome> Dwell, IReadOnlyList<GazeQualitySummary> Quality) SelectEvidence(long now)
     {
+        // Gaze-clock regression guard. `now` is a gaze timestamp (the tracker clock is monotonic but has an
+        // arbitrary epoch), and the coordinator's session resets stamp _sessionStart from whatever the clock
+        // read at the time. A reconnect that restarts the clock lower therefore leaves _sessionStart pinned
+        // ABOVE every subsequent `now`, so the window below would select nothing — permanently, because
+        // nothing resets on the reconnect edge (only on disconnect/enable/resume).
+        //
+        // Drop the boundary rather than move it to `now`: the old value is expressed in a clock that no
+        // longer exists, and re-anchoring to `now` would discard the post-restart evidence that has already
+        // arrived (it is older than `now`, though only by milliseconds). Unanchored, the rolling max-age
+        // window governs — which is the correct behaviour on a fresh clock. Pre-restart evidence cannot leak
+        // in: BufferingTelemetrySink purges its buffers on the same restart detection.
+        if (now < _sessionStart)
+            _sessionStart = long.MinValue;
+
         IReadOnlyList<DwellOutcome> dwell = _sink.Snapshot();
         IReadOnlyList<GazeQualitySummary> quality = _sink.SnapshotQuality();
 
@@ -150,8 +167,8 @@ public sealed class StruggleMonitor
         if (idleBoundary > start)
             start = idleBoundary;
 
-        return (Within(dwell, start, now, static o => o.TimestampMicroseconds),
-                Within(quality, start, now, static q => q.TimestampMicroseconds));
+        return (Within(dwell, start, now, static o => o.TimestampMicroseconds, _dwellWindow),
+                Within(quality, start, now, static q => q.TimestampMicroseconds, _qualityWindow));
     }
 
     // Timestamp of the summary immediately AFTER the latest idle gap (> idleReset) in the ordered stream,
@@ -174,18 +191,26 @@ public sealed class StruggleMonitor
         return boundary;
     }
 
-    // Order-preserving filter to [start, now]. Ordered input → break once past now.
-    private static IReadOnlyList<T> Within<T>(IReadOnlyList<T> items, long start, long now, Func<T, long> timestamp)
+    // Reused across ticks so the filter does not allocate a fresh list every tick (single-threaded: Assess
+    // runs only on the dispatcher). The scorers neither retain nor mutate the windows they are handed —
+    // they only read within the call — so reusing the backing lists is safe. Assess's returned
+    // StruggleAssessment holds a separately-allocated mode list, not these.
+    private readonly List<DwellOutcome> _dwellWindow = new();
+    private readonly List<GazeQualitySummary> _qualityWindow = new();
+
+    // Order-preserving filter to [start, now] into a reused buffer. Ordered input → break once past now.
+    private static IReadOnlyList<T> Within<T>(
+        IReadOnlyList<T> items, long start, long now, Func<T, long> timestamp, List<T> into)
     {
-        var result = new List<T>();
+        into.Clear();
         for (int i = 0; i < items.Count; i++)
         {
             long ts = timestamp(items[i]);
             if (ts > now)
                 break;
             if (ts >= start)
-                result.Add(items[i]);
+                into.Add(items[i]);
         }
-        return result;
+        return into;
     }
 }

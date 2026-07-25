@@ -11,8 +11,10 @@ public class AdaptationCueServiceTests
     private sealed class FakeCuePresenter : ICuePresenter
     {
         public int ShowCalls { get; private set; }
+        public int HideCalls { get; private set; }
         public double LastIntensity { get; private set; } = double.NaN;
         public void Show(double intensity) { ShowCalls++; LastIntensity = intensity; }
+        public void Hide() { HideCalls++; }
     }
 
     private sealed class FakeFeedbackGate : IFeedbackGate
@@ -106,5 +108,24 @@ public class AdaptationCueServiceTests
         var (svc, _, _, presenter) = Make();
         svc.OnAssessment(StruggleAssessment.None);
         Check.That(presenter.ShowCalls).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void OnAssessment_HidesPresenter_WhenDecisionFlipsToHidden()
+    {
+        // PR #71 review #6: when the cue decision flips from visible to hidden MID-STRUGGLE — e.g. feedback
+        // suppression turning on while struggle is ongoing (§8.10) — the badge must be force-hidden now,
+        // not left flashing through its 2 s auto-fade window in a sensitive context. Pre-fix OnAssessment
+        // only called Show when visible and did nothing when hidden, so a mid-struggle suppress-onset left
+        // the badge up until struggle stopped. Now the hidden path calls Hide.
+        var (svc, _, gate, presenter) = Make();
+        svc.OnAssessment(Level(0.7));            // visible → Show
+        Check.That(presenter.ShowCalls).IsEqualTo(1);
+        Check.That(presenter.HideCalls).IsEqualTo(0);
+
+        gate.IsFeedbackSuppressed = true;        // suppress mid-struggle → decision flips to hidden
+        svc.OnAssessment(Level(0.7));
+        Check.That(presenter.HideCalls).IsEqualTo(1); // force-hidden immediately
+        Check.That(presenter.ShowCalls).IsEqualTo(1); // not re-shown
     }
 }

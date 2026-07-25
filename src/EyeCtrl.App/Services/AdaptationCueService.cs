@@ -63,6 +63,10 @@ public sealed class AdaptationCueService : IDisposable
         CueState state = ComputeCueState(assessment, _adaptation.ShowCue, _feedbackGate.IsFeedbackSuppressed);
         if (state.Visible)
             _presenter.Show(state.Intensity);
+        else
+            _presenter.Hide(); // immediately drop the badge when the decision flips to hidden — e.g. feedback
+                               // suppression turning on mid-struggle (§8.10) must not let the 2 s auto-fade
+                               // keep flashing a visible cue in a sensitive context.
         return state;
     }
 

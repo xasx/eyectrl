@@ -59,25 +59,36 @@ public sealed class AdaptationController
             return;
         }
 
-        PostureTuning tuning = PosturePresets.For(_adaptation.Posture);
+        // §11 defensive degradation: an unexpected exception during a tick (e.g. a future unhandled
+        // AdaptationPosture in PosturePresets.For) must NOT crash the dispatcher tick loop or leave partial
+        // knob state. Degrade to baseline (clear all momentary state) and let the next tick retry from clean.
+        // This honours the §11 catch the PosturePresets.For <exception> doc claims the controller applies.
+        try
+        {
+            PostureTuning tuning = PosturePresets.For(_adaptation.Posture);
 
-        // Tolerance: loosen (forgiving = larger) on sustain-failure OR drift (union of forgiving responses, §8.2).
-        UpdateKnob(AdaptationKnob.FixationRadius, _adaptation.AdaptTolerance, tuning, nowMicroseconds,
-            forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure, FailureMode.Drift),
-            tighteningDrive: 0.0);
-        // Dwell: shorten (forgiving) on sustain-failure; the ONE quarantined tightening (longer dwell) on
-        // accidental-activation ONLY, in its own sub-band, instantly escapable via Reset (§8.2).
-        UpdateKnob(AdaptationKnob.DwellTime, _adaptation.AdaptDwell, tuning, nowMicroseconds,
-            forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure),
-            tighteningDrive: GatedScore(assessment, FailureMode.AccidentalActivation));
-        // Smoothing: more (parameter down) on sustain-failure OR poor-tracking (union).
-        UpdateKnob(AdaptationKnob.Smoothing, _adaptation.AdaptSmoothing, tuning, nowMicroseconds,
-            forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure, FailureMode.PoorTracking),
-            tighteningDrive: 0.0);
-        // Geometry: enlarge on aiming OR poor-tracking (union).
-        UpdateKnob(AdaptationKnob.TargetGeometry, _adaptation.AdaptGeometry, tuning, nowMicroseconds,
-            forgivingDrive: ForgivingDrive(assessment, FailureMode.Aiming, FailureMode.PoorTracking),
-            tighteningDrive: 0.0);
+            // Tolerance: loosen (forgiving = larger) on sustain-failure OR drift (union of forgiving responses, §8.2).
+            UpdateKnob(AdaptationKnob.FixationRadius, _adaptation.AdaptTolerance, tuning, nowMicroseconds,
+                forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure, FailureMode.Drift),
+                tighteningDrive: 0.0);
+            // Dwell: shorten (forgiving) on sustain-failure; the ONE quarantined tightening (longer dwell) on
+            // accidental-activation ONLY, in its own sub-band, instantly escapable via Reset (§8.2).
+            UpdateKnob(AdaptationKnob.DwellTime, _adaptation.AdaptDwell, tuning, nowMicroseconds,
+                forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure),
+                tighteningDrive: GatedScore(assessment, FailureMode.AccidentalActivation));
+            // Smoothing: more (parameter down) on sustain-failure OR poor-tracking (union).
+            UpdateKnob(AdaptationKnob.Smoothing, _adaptation.AdaptSmoothing, tuning, nowMicroseconds,
+                forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure, FailureMode.PoorTracking),
+                tighteningDrive: 0.0);
+            // Geometry: enlarge on aiming OR poor-tracking (union).
+            UpdateKnob(AdaptationKnob.TargetGeometry, _adaptation.AdaptGeometry, tuning, nowMicroseconds,
+                forgivingDrive: ForgivingDrive(assessment, FailureMode.Aiming, FailureMode.PoorTracking),
+                tighteningDrive: 0.0);
+        }
+        catch
+        {
+            Reset();
+        }
     }
 
     /// <summary>

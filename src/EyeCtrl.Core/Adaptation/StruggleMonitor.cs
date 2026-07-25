@@ -88,23 +88,37 @@ public sealed class StruggleMonitor
         return new StruggleAssessment(modes, aggregate);
     }
 
-    // Adds a per-mode assessment when any feeding signal shows struggle (score > 0). Score = PEAK feeder
-    // score (not a sum: two correlated feeders — e.g. abandonment + jitter both signalling sustain-failure
-    // — must not double-count; the dominant signal drives the mode); GatePassed = any feeder gated;
-    // Confidence = peak feeder confidence. Context is null (the Phase-1b momentary response is global per
-    // knob, §7.2). A mode with score 0 is omitted, so StruggleAssessment.ForMode returns null for it.
+    // Adds a per-mode assessment from its feeding signals. The mode is GATED iff at feeder gated, and the
+    // mode's actionable SCORE/CONFIDENCE come from the GATED feeders only — a high score on an UNGATED
+    // feeder must never drive adaptation (F4: below-gate evidence never drives). Concretely, a gated-but-
+    // zero-score feeder (e.g. zero-jitter meeting the volume gate) combined with an ungated-but-high-score
+    // feeder (e.g. below-gate abandonment) yields a gated mode whose score is 0 (no gated evidence) rather
+    // than 0.8 (the ungated evidence) — so it surfaces but does not act. Score = PEAK among gated feeders
+    // (not a sum: correlated feeders must not double-count); Confidence = peak gated-feeder confidence.
+    // Context is null (the Phase-1b momentary response is global per knob, §7.2). A mode with no gated
+    // feeder AND no score is omitted entirely; a mode with score>0 but no gated feeder is surfaced
+    // (GatePassed=false) so monitoring can show "warming up" without acting on it.
     private static void AddMode(List<FailureModeAssessment> modes, FailureMode mode, params SignalScore[] feeders)
     {
-        double score = 0.0, confidence = 0.0;
-        bool gate = false;
+        double gatedScore = 0.0, gatedConfidence = 0.0;
+        double rawScore = 0.0;
         foreach (SignalScore s in feeders)
         {
-            score = Math.Max(score, s.Score);
-            confidence = Math.Max(confidence, s.Confidence);
-            gate = gate || s.GatePassed;
+            rawScore = Math.Max(rawScore, s.Score);
+            if (s.GatePassed)
+            {
+                gatedScore = Math.Max(gatedScore, s.Score);
+                gatedConfidence = Math.Max(gatedConfidence, s.Confidence);
+            }
         }
-        if (score > 0.0)
-            modes.Add(new FailureModeAssessment(mode, score, confidence, gate, null));
+        if (rawScore <= 0.0)
+            return; // no feeder shows any struggle → omit (ForMode returns null)
+        bool anyGated = Array.Exists(feeders, static s => s.GatePassed);
+        // Actionable score/confidence come from gated feeders; if none gated the mode surfaces with the
+        // (non-actionable) raw score and GatePassed=false, so the controller ignores it but monitoring sees it.
+        double score = anyGated ? gatedScore : rawScore;
+        double confidence = anyGated ? gatedConfidence : 0.0;
+        modes.Add(new FailureModeAssessment(mode, score, confidence, anyGated, null));
     }
 
     // Peak struggle among GATED modes (the actionable ones). Uses gated SCORES (not confidences), so a

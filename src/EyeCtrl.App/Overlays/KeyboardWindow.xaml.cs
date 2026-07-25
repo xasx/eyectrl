@@ -183,7 +183,13 @@ public partial class KeyboardWindow : OverlayWindow
             for (int keyIdx = 0; keyIdx < subLayout.Rows[rowIdx].Count; keyIdx++)
             {
                 var key = subLayout.Rows[rowIdx][keyIdx];
-                var id = $"key_{rowIdx}_{keyIdx}";
+                // Special-action keys (backspace, enter, modifiers, etc.) get a STABLE id from their
+                // SpecialAction, so they carry the same TargetId across layouts/sub-layouts (the backspace
+                // key sits at different row/col per sub-layout, so key_{row}_{col} would be unstable). This
+                // lets struggle-detection's accidental-activation corroboration match it by id. SpecialAction
+                // values are unique within a sub-layout (verified per layout), so the id stays unique. Regular
+                // keys (no SpecialAction) keep the positional id.
+                var id = !string.IsNullOrEmpty(key.SpecialAction) ? key.SpecialAction : $"key_{rowIdx}_{keyIdx}";
 
                 var label = new TextBlock
                 {

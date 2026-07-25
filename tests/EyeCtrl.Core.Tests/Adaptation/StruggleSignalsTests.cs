@@ -229,10 +229,13 @@ public class StruggleSignalsTests
     {
         // Key "e" activation, then Backspace activation 0.5 s later, FAR away (800 px) so the geometric
         // re-approach path can't catch it — only the backspace corroboration can. 4 activations, 1 reversed.
+        // The Backspace TargetId is "backspace" — KeyboardWindow mints special-action keys' ids from their
+        // SpecialAction (stable across layouts/sub-layouts), and AppBootstrapper passes that exact value as
+        // backspaceTargetId. This test therefore doubles as a contract check on the wired id.
         var window = new List<DwellOutcome>
         {
             Activate(0, DwellContext.Keyboard, "e", 100, 100, 20),
-            Activate(500_000, DwellContext.Keyboard, "Back", 900, 100, 20),
+            Activate(500_000, DwellContext.Keyboard, "backspace", 900, 100, 20),
             Activate(10 * Sec, DwellContext.Keyboard, "x", 100, 100, 20),
             Activate(20 * Sec, DwellContext.Keyboard, "y", 200, 100, 20),
         };
@@ -241,7 +244,7 @@ public class StruggleSignalsTests
         Check.That(StruggleSignals.ScoreAccidental(window).Score).IsEqualTo(0.0);
 
         // Enabled → key→Backspace is a reversal → 1/4.
-        var s = StruggleSignals.ScoreAccidental(window, backspaceTargetId: "Back");
+        var s = StruggleSignals.ScoreAccidental(window, backspaceTargetId: "backspace");
         Check.That(s.Score).IsCloseTo(0.25, 1e-9);
         Check.That(s.GatePassed).IsTrue();
     }

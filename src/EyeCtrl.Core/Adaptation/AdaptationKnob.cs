@@ -18,6 +18,9 @@ public enum AdaptationKnob
     /// <summary>The active gaze filter's smoothing parameter (forgiving = more smoothing = parameter DOWN for both filters). Unrouted until the smoothing-routing slice.</summary>
     Smoothing,
 
-    /// <summary>Target ring/hit radius and its coupled visible size in physical pixels (forgiving = bigger). Unrouted until the geometry-routing slice.</summary>
+    /// <summary>Target ring/hit extent and its coupled visible size in physical pixels (forgiving = bigger).
+    /// Composed as an absolute extent, but <c>DwellDetector.UpdateTargetGeometry</c> applies a signed
+    /// <em>margin</em> relative to a target's as-registered extents (and grows rect bounds, not just the
+    /// radius), so the routing slice converts between the two. Unrouted until the geometry-routing slice.</summary>
     TargetGeometry,
 }

@@ -176,7 +176,11 @@ target geometry (button ring radius + hit radius, key hit slop, and the coupled 
 - **Dwell time & geometry:** baked into `DwellTarget` at creation and `DwellTarget.Radius` is
   immutable. Add **state-preserving** update methods on `DwellDetector` (mirroring the existing
   `DwellDetector.UpdateTargetCenter`, which is on the *detector*, not the target): `UpdateTargetDwellTime`
-  and `UpdateTargetGeometry` that adjust timing/radius while preserving `EnteredTimestamp`/`IsGazeInside`.
+  and `UpdateTargetGeometry` that adjust timing/hit area while preserving `EnteredTimestamp`/`IsGazeInside`.
+  `UpdateTargetGeometry` takes a signed **margin** applied to the target's as-registered extents — it
+  outsets rectangular `Bounds` as well as circular `Radius` (`HitTest` ignores `Radius` whenever `Bounds`
+  is set, so a radius-only update would be a silent no-op on rect surfaces such as `ExternalDwellService`),
+  and re-applying the same margin is idempotent so a controller may call it every tick.
   Surfaces read effective values at (re)creation; the action menu already clears+recreates targets each show.
 
 When `AdaptationSettings.Enabled == false`, both components are 0, `effective == baseline`, and no

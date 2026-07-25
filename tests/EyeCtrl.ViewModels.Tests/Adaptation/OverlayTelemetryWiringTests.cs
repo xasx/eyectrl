@@ -84,6 +84,39 @@ public class OverlayTelemetryWiringTests
     }
 
     [Fact]
+    public void EveryDwellOverlaySubclass_TakesTheSinkOnItsSingleConstructor()
+    {
+        // Companion to the App-side TelemetrySinkRegistrationTests. Microsoft.Extensions.DependencyInjection
+        // picks the greediest constructor it can satisfy — so "exactly one public constructor" + "that
+        // constructor declares IStruggleTelemetrySink" + "the sink is registered" together guarantee
+        // injection. Without this guard, adding a second constructor or dropping the parameter would
+        // silently fall back to the `sink = null` default: telemetry stops with a fully green suite.
+        //
+        // ScrollOverlayViewModel is exempt by design: it overrides Receive without ever calling
+        // DwellDetector.Update, so it cannot emit (scroll-stop dwell lives on EdgeButtonBarViewModel).
+        // DwellContext.Scroll is reserved-but-silent. Listing it explicitly means un-exempting it is a
+        // deliberate edit rather than an oversight.
+        var exempt = new HashSet<string> { nameof(ScrollOverlayViewModel) };
+
+        var subclasses = typeof(DwellOverlayViewModelBase).Assembly.GetTypes()
+            .Where(t => !t.IsAbstract && typeof(DwellOverlayViewModelBase).IsAssignableFrom(t))
+            .Where(t => !exempt.Contains(t.Name))
+            .ToList();
+
+        Check.That(subclasses).Not.IsEmpty();
+        foreach (var type in subclasses)
+        {
+            var ctors = type.GetConstructors();
+            Check.WithCustomMessage($"{type.Name} must have exactly one public constructor for DI to "
+                    + "unambiguously select the sink-taking overload")
+                .That(ctors).HasSize(1);
+            Check.WithCustomMessage($"{type.Name} must accept IStruggleTelemetrySink so DI can inject it")
+                .That(ctors[0].GetParameters().Any(p => p.ParameterType == typeof(IStruggleTelemetrySink)))
+                .IsTrue();
+        }
+    }
+
+    [Fact]
     public void ActivationButtonViewModel_EmitsOutcome_TaggedActivationButtonContext()
     {
         // A real subclass, end-to-end: proves the wired context literal is correct. The drift guard

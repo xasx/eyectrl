@@ -13,8 +13,9 @@ using EyeCtrl.Core.Settings;
 /// is disabled or no non-zero fill is stored, <see cref="Effective"/> returns the exact baseline — the
 /// locked "disabled ⇒ effective == baseline" invariant (design §8.3).
 /// Not thread-safe for concurrent writes: fills are set on the serialized controller/dispatcher thread.
-/// In this slice the only reader (<c>GazeEngine.RebuildFixationDetector</c>, plan 1b-①) runs on that same
-/// thread; the other three knobs are composable but have no consumer yet (design §9).
+/// The sole consumer (<c>GazeEngine</c>, plan 1b-①) defers its <c>Changed</c>-driven fixation rebuild onto
+/// the gaze thread, so its reads of <see cref="Effective"/> arrive there; the other three knobs are
+/// composable but have no consumer yet (design §9).
 /// </summary>
 public sealed class EffectiveSettingsProvider
 {

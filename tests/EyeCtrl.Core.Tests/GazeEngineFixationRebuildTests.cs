@@ -84,11 +84,41 @@ public class GazeEngineFixationRebuildTests
     }
 
     [Fact]
+    public void NonToleranceKnobFill_DoesNotRebuildFixationDetector()
+    {
+        // PR #71 review blocker #2: SetMomentaryFill fires Changed for EVERY knob, but only FixationRadius
+        // routes to the detector. A Dwell/Smoothing/Geometry fill must NOT tear down an in-progress fixation
+        // (the effective FixationRadius is unchanged → the deferred rebuild skips). Hold a fixation, step a
+        // non-tolerance fill, push a sample (which would flush a rebuild if one were pending), and confirm
+        // the fixation is still live — no clean-end, no FreeLook.
+        var s = Settings(radius: 60, detectMs: 150);
+        s.Adaptation.Enabled = true;
+        var provider = new ScriptedGazeProvider();
+        var effective = new EffectiveSettingsProvider(s.Adaptation);
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s, effectiveSettings: effective);
+        long ts = 0;
+
+        DriveJitter(provider, 500, 500, spanPx: 0, durationMs: 300, ref ts); // hold still → fixation
+        Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
+
+        // Step a DwellTime fill (a non-tolerance knob). Changed fires, requesting a rebuild, but the gaze
+        // thread's ApplyPending sees the effective FixationRadius is unchanged (still 60) and skips the swap.
+        effective.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
+        ts += 33_000;
+        provider.Push(new GazePoint(500, 500, ts, true)); // flush any pending rebuild
+        Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation); // still fixating — no teardown
+    }
+
+    [Fact]
     public void RebuildMidFixation_EndsCleanly_SoNextFixationRetriggers()
     {
         // Review round-1 (reviewer F2): a rebuild while CurrentState == Fixation must NOT strand the state
         // machine — unwiring the old detector fires no FixationEnded, and a fresh FixationStarted no-ops
         // unless in FreeLook, so RebuildFixationDetector ends the in-progress fixation cleanly.
+        //
+        // The rebuild is deferred onto the gaze thread (RequestFixationRebuild sets a flag; ApplyPending at
+        // the top of the next OnGazePoint performs it), so the clean-end happens on the first sample AFTER
+        // the settings change, not synchronously on the setter. Push one sample to flush the rebuild.
         var s = Settings(radius: 60, detectMs: 150);
         var provider = new ScriptedGazeProvider();
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
@@ -97,7 +127,11 @@ public class GazeEngineFixationRebuildTests
         DriveJitter(provider, 500, 500, spanPx: 0, durationMs: 300, ref ts); // hold still → fixation
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
 
-        s.Dwell.FixationRadiusPixels = 80; // rebuild mid-fixation → clean end → FreeLook
+        s.Dwell.FixationRadiusPixels = 80; // request rebuild mid-fixation
+        // One sample flushes the deferred rebuild → clean end → FreeLook (the sample's point alone doesn't
+        // complete a fresh fixation at the new radius within detection time).
+        ts += 33_000;
+        provider.Push(new GazePoint(500, 500, ts, true));
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
 
         DriveJitter(provider, 700, 700, spanPx: 0, durationMs: 300, ref ts); // fresh fixation re-triggers

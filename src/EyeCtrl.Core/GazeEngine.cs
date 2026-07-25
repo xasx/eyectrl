@@ -18,6 +18,10 @@ public class GazeEngine : IDisposable
     private readonly EyeCtrlSettings _settings;
     private readonly CalibrationService? _calibrationService;
     private volatile GapInterpolator _gapInterpolator;
+    // Serializes the gaze thread's Process call against the settings-thread rebuild, so the rebuild's
+    // CopyStateFrom never reads a partially-updated interpolator. Guards only the interpolator call —
+    // never held across an event raise.
+    private readonly object _interpolatorLock = new();
     private readonly PropertyChangedEventHandler _cursorSettingsChangedHandler;
     private readonly Action<PhysicalPoint> _startTrackingHandler;
     private readonly FixationDetector _fixationDetector;
@@ -80,9 +84,18 @@ public class GazeEngine : IDisposable
                 var newInterpolator = new GapInterpolator(
                     GazeFilterFactory.Create(_settings.Cursor),
                     _settings.Cursor.MaxGapInterpolationMs);
-                newInterpolator.CopyStateFrom(_gapInterpolator);
-                newInterpolator.WarmStartFromCurrentState(); // R1: seed the fresh filter — no cursor jump
-                _gapInterpolator = newInterpolator;
+                // Locked against OnGazePoint: CopyStateFrom reads the OLD interpolator's carried-over
+                // position/timestamp, which the gaze thread mutates inside Process. `volatile` on the
+                // field only makes the swapped-in reference visible (audit Bug #2); it does not stop the
+                // copy from capturing half-updated state. Since the smoothing sliders now ride this
+                // path, the rebuild fires per slider tick rather than per rare mode switch, so the
+                // window is hit routinely. Uncontended lock cost is negligible vs the ~33-120 Hz stream.
+                lock (_interpolatorLock)
+                {
+                    newInterpolator.CopyStateFrom(_gapInterpolator);
+                    newInterpolator.WarmStartFromCurrentState(); // R1: seed the fresh filter — no cursor jump
+                    _gapInterpolator = newInterpolator;
+                }
             }
         };
         _settings.Cursor.PropertyChanged += _cursorSettingsChangedHandler;
@@ -129,7 +142,10 @@ public class GazeEngine : IDisposable
             var p = t.Apply(new PhysicalPoint(gaze.X, gaze.Y));
             corrected = gaze with { X = p.X, Y = p.Y };
         }
-        var (filtered, isInGap) = _gapInterpolator.Process(corrected);
+        PhysicalPoint filtered;
+        bool isInGap;
+        lock (_interpolatorLock)
+            (filtered, isInGap) = _gapInterpolator.Process(corrected);
 
         // Always fire CursorMoved so the cursor circle + toolbar receive gaze
         // (this allows unpause via toolbar dwell even when paused)

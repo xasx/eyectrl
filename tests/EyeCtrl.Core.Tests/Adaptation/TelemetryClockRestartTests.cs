@@ -23,9 +23,40 @@ public class TelemetryClockRestartTests
         sink.Report(Outcome(80_000));           // and the session keeps recording
         sink.Report(Outcome(110_000));
 
-        Check.That(sink.Snapshot()).HasSize(4);
+        // Pre-restart evidence is dropped: its timestamps are not comparable with post-restart ones.
+        Check.That(sink.Snapshot()).HasSize(3);
         Check.That(sink.ClockRestarts).IsEqualTo(1L);
         Check.That(sink.DroppedOutOfOrder).IsEqualTo(0L);
+    }
+
+    [Fact]
+    public void ClockRestart_KeepsSnapshotsNonDecreasing()
+    {
+        // StruggleSignals documents an oldest-first, non-decreasing window and DEBUG-asserts it; its
+        // early-break pruning and span gates silently mis-score otherwise. Retaining pre-restart entries
+        // would put a descending step in the middle of the snapshot.
+        var sink = new BufferingTelemetrySink(capacity: 16);
+        sink.Report(Outcome(9_000_000, DwellContext.Toolbar));
+        sink.Report(Outcome(9_500_000, DwellContext.Keyboard));
+        sink.ReportGazeQuality(new GazeQualitySummary(9_200_000, 0.1, 5, 0, 30));
+
+        sink.Report(Outcome(40_000, DwellContext.Toolbar)); // clock restart
+        sink.Report(Outcome(70_000, DwellContext.Keyboard));
+        sink.ReportGazeQuality(new GazeQualitySummary(60_000, 0.1, 5, 0, 30));
+
+        AssertNonDecreasing(sink.Snapshot().Select(o => o.TimestampMicroseconds).ToList());
+        AssertNonDecreasing(sink.SnapshotQuality().Select(q => q.TimestampMicroseconds).ToList());
+
+        // Both streams are purged by either stream's restart detection, so neither retains a stale entry.
+        Check.That(sink.Snapshot()).HasSize(2);
+        Check.That(sink.SnapshotQuality()).HasSize(1);
+    }
+
+    private static void AssertNonDecreasing(IReadOnlyList<long> timestamps)
+    {
+        for (int i = 1; i < timestamps.Count; i++)
+            Check.WithCustomMessage($"snapshot must be non-decreasing; index {i} went backwards")
+                .That(timestamps[i] >= timestamps[i - 1]).IsTrue();
     }
 
     [Fact]
@@ -74,7 +105,9 @@ public class TelemetryClockRestartTests
         sink.ReportGazeQuality(new GazeQualitySummary(50_000, 0.1, 5, 0, 30));
         sink.ReportGazeQuality(new GazeQualitySummary(550_000, 0.1, 5, 0, 30));
 
-        Check.That(sink.SnapshotQuality()).HasSize(3);
+        // The pre-restart summary is purged (see ClockRestart_KeepsSnapshotsNonDecreasing); the two
+        // post-restart ones are retained, and emission continues rather than wedging.
+        Check.That(sink.SnapshotQuality()).HasSize(2);
         Check.That(sink.ClockRestarts).IsEqualTo(1L);
     }
 

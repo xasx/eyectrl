@@ -80,9 +80,7 @@ public sealed class BufferingTelemetrySink : IStruggleTelemetrySink, IGazeQualit
             }
             // Large backward step: the gaze clock restarted (device reconnect). Accept and resync every
             // watermark, otherwise the pre-restart marks would reject the rest of the session.
-            ClockRestarts++;
-            Array.Fill(_lastAcceptedByContext, long.MinValue);
-            _lastAcceptedQualityTimestamp = long.MinValue;
+            OnClockRestart();
         }
         _lastAcceptedByContext[slot] = outcome.TimestampMicroseconds;
         _buffer[_next] = outcome;
@@ -112,13 +110,29 @@ public sealed class BufferingTelemetrySink : IStruggleTelemetrySink, IGazeQualit
                 DroppedOutOfOrderQuality++;
                 return;
             }
-            ClockRestarts++;
-            Array.Fill(_lastAcceptedByContext, long.MinValue);
+            OnClockRestart();
         }
         _lastAcceptedQualityTimestamp = summary.TimestampMicroseconds;
         _qualityBuffer[_qualityNext] = summary;
         _qualityNext = (_qualityNext + 1) % _qualityBuffer.Length;
         if (_qualityCount < _qualityBuffer.Length) _qualityCount++;
+    }
+
+    // A restarted gaze clock invalidates BOTH the watermarks and everything already retained: pre-restart
+    // timestamps are not comparable with post-restart ones, so keeping them would make Snapshot() emit a
+    // descending step. Consumers rely on the ordering — StruggleSignals documents an oldest-first,
+    // non-decreasing window and DEBUG-asserts it, and its early-break pruning and span gates silently
+    // mis-score otherwise. Dropping the stale evidence is also semantically right: a reconnect starts a new
+    // session, and evidence from before it belongs to the old one.
+    private void OnClockRestart()
+    {
+        ClockRestarts++;
+        Array.Fill(_lastAcceptedByContext, long.MinValue);
+        _lastAcceptedQualityTimestamp = long.MinValue;
+        _count = 0;
+        _next = 0;
+        _qualityCount = 0;
+        _qualityNext = 0;
     }
 
     /// <summary>Returns the retained gaze-quality summaries, oldest first.</summary>

@@ -19,10 +19,10 @@ public class GazeEngine : IDisposable
     private readonly EyeCtrlSettings _settings;
     private readonly CalibrationService? _calibrationService;
     private volatile GapInterpolator _gapInterpolator;
-    // Serializes the gaze thread's Process call against the settings-thread rebuild, so the rebuild's
-    // CopyStateFrom never reads a partially-updated interpolator. Guards only the interpolator call —
-    // never held across an event raise.
-    private readonly object _interpolatorLock = new();
+    // Same defer-onto-the-gaze-thread contract as _fixationRebuildRequested below; see the comment there.
+    // A cursor-settings edit only requests the interpolator rebuild, which then runs on the gaze thread so
+    // CopyStateFrom can never read the old interpolator while Process is mutating it.
+    private volatile bool _interpolatorRebuildRequested;
     private readonly PropertyChangedEventHandler _cursorSettingsChangedHandler;
     private readonly Action<PhysicalPoint> _startTrackingHandler;
     private volatile FixationDetector _fixationDetector;
@@ -96,21 +96,11 @@ public class GazeEngine : IDisposable
                                or nameof(CursorSettings.OneEuroBeta)
                                or nameof(CursorSettings.SmoothingFactor))
             {
-                var newInterpolator = new GapInterpolator(
-                    GazeFilterFactory.Create(_settings.Cursor),
-                    _settings.Cursor.MaxGapInterpolationMs);
-                // Locked against OnGazePoint: CopyStateFrom reads the OLD interpolator's carried-over
-                // position/timestamp, which the gaze thread mutates inside Process. `volatile` on the
-                // field only makes the swapped-in reference visible (audit Bug #2); it does not stop the
-                // copy from capturing half-updated state. Since the smoothing sliders now ride this
-                // path, the rebuild fires per slider tick rather than per rare mode switch, so the
-                // window is hit routinely. Uncontended lock cost is negligible vs the ~33-120 Hz stream.
-                lock (_interpolatorLock)
-                {
-                    newInterpolator.CopyStateFrom(_gapInterpolator);
-                    newInterpolator.WarmStartFromCurrentState(); // R1: seed the fresh filter — no cursor jump
-                    _gapInterpolator = newInterpolator;
-                }
+                // Request only — the rebuild itself runs on the gaze thread (ApplyPendingInterpolatorRebuild),
+                // because CopyStateFrom reads the OLD interpolator's carried-over position/timestamp, which the
+                // gaze thread mutates inside Process. Coalescing is a bonus: dragging a smoothing slider now
+                // costs one rebuild per gaze frame instead of one per PropertyChanged tick.
+                _interpolatorRebuildRequested = true;
             }
         };
         _settings.Cursor.PropertyChanged += _cursorSettingsChangedHandler;
@@ -188,6 +178,22 @@ public class GazeEngine : IDisposable
         RebuildFixationDetector();
     }
 
+    // Runs on the gaze thread, before Process below, so CopyStateFrom reads the outgoing interpolator on the
+    // only thread that mutates it. Same contract as ApplyPendingFixationRebuild — one convention for every
+    // reconfiguration of live gaze-pipeline state.
+    private void ApplyPendingInterpolatorRebuild()
+    {
+        if (!_interpolatorRebuildRequested)
+            return;
+        _interpolatorRebuildRequested = false;
+        var fresh = new GapInterpolator(
+            GazeFilterFactory.Create(_settings.Cursor),
+            _settings.Cursor.MaxGapInterpolationMs);
+        fresh.CopyStateFrom(_gapInterpolator);
+        fresh.WarmStartFromCurrentState(); // R1: seed the fresh filter — no cursor jump
+        _gapInterpolator = fresh;
+    }
+
     private void WireFixation(FixationDetector d)
     {
         d.FixationStarted += InteractionManager.OnFixationStarted;
@@ -237,10 +243,11 @@ public class GazeEngine : IDisposable
 
     private void OnGazePoint(GazePoint gaze)
     {
-        // Deferred fixation rebuild (set on the dispatcher thread) runs here on the gaze thread first,
-        // before any _fixationDetector/_centroidTracker use below, so all mutations of both stay on this
-        // thread. Skipped when no rebuild was requested or the effective radius is unchanged.
+        // Deferred reconfiguration (requested on the dispatcher thread) runs here on the gaze thread first,
+        // before any _fixationDetector/_centroidTracker/_gapInterpolator use below, so all mutations of the
+        // live pipeline state stay on this thread. Each is skipped when nothing was requested.
         ApplyPendingFixationRebuild();
+        ApplyPendingInterpolatorRebuild();
 
         GazeSampled?.Invoke(gaze);
 
@@ -250,10 +257,7 @@ public class GazeEngine : IDisposable
             var p = t.Apply(new PhysicalPoint(gaze.X, gaze.Y));
             corrected = gaze with { X = p.X, Y = p.Y };
         }
-        PhysicalPoint filtered;
-        bool isInGap;
-        lock (_interpolatorLock)
-            (filtered, isInGap) = _gapInterpolator.Process(corrected);
+        var (filtered, isInGap) = _gapInterpolator.Process(corrected);
 
         // Always fire CursorMoved so the cursor circle + toolbar receive gaze
         // (this allows unpause via toolbar dwell even when paused)

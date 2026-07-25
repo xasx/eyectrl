@@ -31,6 +31,22 @@ public static class EffectiveValue
         double validMin,
         double validMax)
     {
+        // Bands and the validated range come from posture/config, not from per-sample data, so an
+        // inverted pair is a wiring bug. Reject it with a message that names the offender rather than
+        // letting Math.Clamp throw an anonymous ArgumentException from three call sites.
+        if (forgivingBand.Min > forgivingBand.Max)
+            throw new ArgumentException(
+                $"Forgiving band is inverted: Min ({forgivingBand.Min}) > Max ({forgivingBand.Max}).",
+                nameof(forgivingBand));
+        if (tighteningBand.Min > tighteningBand.Max)
+            throw new ArgumentException(
+                $"Tightening band is inverted: Min ({tighteningBand.Min}) > Max ({tighteningBand.Max}).",
+                nameof(tighteningBand));
+        if (validMin > validMax)
+            throw new ArgumentException(
+                $"Validated range is inverted: validMin ({validMin}) > validMax ({validMax}).",
+                nameof(validMin));
+
         double forgiving = Math.Clamp(forgivingDelta, forgivingBand.Min, forgivingBand.Max);
         double tightening = Math.Clamp(tighteningDelta, tighteningBand.Min, tighteningBand.Max);
         double delta = forgiving + tightening;

@@ -9,6 +9,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using Serilog;
 
 /// <summary>
 /// The struggle-adaptation coordinator (design §4): bridges the Core adaptation pieces into the running
@@ -50,6 +51,11 @@ public sealed class AdaptationCoordinator : IDisposable
 
     private GazeEngine? _gazeEngine; // retained to unsubscribe in Dispose
     private DispatcherTimer? _timer;
+
+    // True once a None assessment has been raised, so runs of Nones collapse to their first. Starts true:
+    // subscribers begin in their own "nothing to show" state (cue hidden, drift armed, log empty), which a
+    // leading None would only restate.
+    private bool _lastRaisedWasNone = true;
 
     /// <summary>
     /// The current assessment for the cue/report (plan 1b-⑤b): the one from the most recent tick that
@@ -190,11 +196,57 @@ public sealed class AdaptationCoordinator : IDisposable
         _timer.Start();
     }
 
-    private void OnTimerTick(object? sender, EventArgs e)
+    private void OnTimerTick(object? sender, EventArgs e) => RunTick();
+
+    /// <summary>
+    /// One timer iteration: the guarded <see cref="Tick"/> plus the guarded, None-coalesced
+    /// <see cref="AssessmentUpdated"/> raise. Internal rather than private so the crash-containment and
+    /// coalescing behaviour is headless-testable without a <see cref="DispatcherTimer"/>.
+    /// </summary>
+    internal void RunTick()
     {
-        Tick();
-        AssessmentUpdated?.Invoke(LastAssessment);
+        // The whole tick is guarded. App.OnStartup deliberately does NOT set DispatcherUnhandledException's
+        // Handled flag ("log + let the process crash so the supervisor's respawn owns recovery"), so ANY
+        // throw escaping here takes the process down — and for a user whose sole input channel is this app,
+        // that is a loss of control until the supervisor respawns. AdaptationController.Tick has its own §11
+        // catch, but Assess and the AssessmentUpdated fan-out did not: the subscribers do WPF window work
+        // (cue overlay, drift banner) and Serilog file I/O, both of which can fail — during shutdown, or on
+        // a full disk. Adaptation is a comfort feature; it must never be able to end the session.
+        try
+        {
+            Tick();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Adaptation coordinator tick failed; skipping this tick.");
+            LastAssessment = StruggleAssessment.None;
+        }
+
+        // Coalesce runs of "nothing to say". Every non-None assessment is still raised individually (the cue
+        // depends on repeated Show calls to keep re-flashing while struggle persists), but consecutive Nones
+        // are collapsed to the first — which is the one that makes the cue fade, re-arms the drift notice,
+        // and logs the transition. Without this the disabled-by-default case ran the whole fan-out at 4 Hz
+        // forever, including two WPF dependency-property writes per tick in CueOverlayWindow.Hide.
+        bool isNone = IsNone(LastAssessment);
+        if (isNone && _lastRaisedWasNone)
+            return;
+        _lastRaisedWasNone = isNone;
+
+        // Raised outside the try above but guarded separately, so one faulting subscriber cannot suppress
+        // the others' notification or the tick itself.
+        try
+        {
+            AssessmentUpdated?.Invoke(LastAssessment);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "An adaptation assessment subscriber threw; feedback for this tick was skipped.");
+        }
     }
+
+    private static bool IsNone(StruggleAssessment assessment) =>
+        ReferenceEquals(assessment, StruggleAssessment.None)
+        || (assessment.Modes.Count == 0 && assessment.AggregateLevel <= 0.0);
 
     /// <summary>Stops the tick loop and unsubscribes from gaze samples.</summary>
     public void Dispose()

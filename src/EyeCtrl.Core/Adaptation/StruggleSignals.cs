@@ -136,7 +136,17 @@ public static class StruggleSignals
                 // Intentional asymmetry (§13.1): re-approach accepts ANY follow-up kind ("activation
                 // or ≥-threshold abandonment", §13.1:472-473), whereas Backspace corroboration requires
                 // an actual Backspace *activation* (§13.1:474). Do not unify the Kind handling.
+                //
+                // The follow-up must be a DIFFERENT target. A re-approach models "activated the wrong
+                // thing, then went back to correct it", which necessarily lands somewhere else; hitting
+                // the SAME target again is repetition, not correction — a double letter ("ll" in
+                // "hello"), a repeated arrow press, tapping scroll-stop twice. Without this those all
+                // scored as reversals at distance 0, and since accidental-activation is the only signal
+                // that TIGHTENS (longer dwell, §8.2), ordinary typing would have made the keyboard
+                // harder to use. Keyboard outcomes carry radius 0, so they use the radiusFloorPx cone,
+                // which a same-target repeat always sits inside.
                 bool reapproach = n.Context == a.Context
+                    && !string.Equals(n.TargetId, a.TargetId, StringComparison.Ordinal)
                     && n.TargetCenter.DistanceSquaredTo(a.TargetCenter) <= radiusSq;
                 bool backspace = backspaceTargetId is not null
                     && a.Context == DwellContext.Keyboard
@@ -171,6 +181,9 @@ public static class StruggleSignals
         double lowJitterPxPerSec = 50.0,
         double highJitterPxPerSec = 400.0)
     {
+        // Order-independent (a plain mean), but asserted anyway so the class-level precondition is
+        // enforced uniformly across every scorer rather than only where it is load-bearing.
+        AssertOrdered(window, static s => s.TimestampMicroseconds);
         int count = window.Count;
         if (count == 0)
             return SignalScore.None;
@@ -248,6 +261,8 @@ public static class StruggleSignals
             DwellOutcome o = window[i];
             if (o.Kind != OutcomeKind.Abandoned || o.TargetRadius <= 0.0)
                 continue; // only circular-target abandons have a usable near-miss ratio
+            if (o.Reason != AbandonReason.GazeLeft)
+                continue; // see NearMissMeasuresAim below
             double magnitude = Math.Sqrt(o.NearMissX * o.NearMissX + o.NearMissY * o.NearMissY);
             ratioSum += magnitude / o.TargetRadius;
             count++;
@@ -288,8 +303,8 @@ public static class StruggleSignals
         for (int i = 0; i < window.Count; i++)
         {
             DwellOutcome o = window[i];
-            if (o.Kind != OutcomeKind.Abandoned)
-                continue;
+            if (o.Kind != OutcomeKind.Abandoned || o.Reason != AbandonReason.GazeLeft)
+                continue; // see NearMissMeasuresAim below
             groups.TryGetValue(o.Context, out var g);
             groups[o.Context] = (g.X + o.NearMissX, g.Y + o.NearMissY, g.N + 1);
         }
@@ -363,11 +378,14 @@ public static class StruggleSignals
     /// </summary>
     /// <param name="window">Gaze-quality summaries in the evidence window.</param>
     /// <param name="fatigueMonitorEnabled">The <c>EyeCareSettings.FatigueMonitorEnabled</c> opt-in; when false the amplifier is inert.</param>
+    /// <param name="minSummaries">Confidence gate: minimum summaries before the amplifier may act. Default 3 — matching <see cref="ScoreJitter"/>, so one thin window cannot amplify the aggregate.</param>
     /// <returns>A pass-through score of the mean <see cref="GazeQualitySummary.FatigueScore"/>; <see cref="SignalScore.None"/> when disabled or the window is empty.</returns>
     public static SignalScore ScoreFatigue(
         IReadOnlyList<GazeQualitySummary> window,
-        bool fatigueMonitorEnabled)
+        bool fatigueMonitorEnabled,
+        int minSummaries = 3)
     {
+        AssertOrdered(window, static s => s.TimestampMicroseconds);
         if (!fatigueMonitorEnabled || window.Count == 0)
             return SignalScore.None;
 
@@ -375,8 +393,33 @@ public static class StruggleSignals
         for (int i = 0; i < window.Count; i++)
             sum += window[i].FatigueScore;
 
-        return new SignalScore(sum / window.Count, 1.0, true);
+        // Volume-gated like every other scorer. Previously this returned Confidence 1.0 / GatePassed true
+        // off a single 500 ms summary; it cannot create struggle from zero (the monitor multiplies), but it
+        // could amplify the aggregate by up to 1.5× on one window's worth of evidence.
+        double confidence = Math.Clamp((double)window.Count / minSummaries, 0.0, 1.0);
+        return new SignalScore(sum / window.Count, confidence, window.Count >= minSummaries);
     }
+
+    // ── NearMissMeasuresAim ────────────────────────────────────────────────────────────────────────
+    // Why the near-miss scorers (Aiming, Drift) accept ONLY AbandonReason.GazeLeft.
+    //
+    // DwellDetector records an abandonment's GazePoint at the moment accumulation stopped, against the
+    // abandoned target's centre. For GazeLeft that difference is the aiming error: gaze drifted off the
+    // target it was working on. For NearestChanged it is not — gaze has already landed on ANOTHER target,
+    // so the vector measures the distance to wherever the user looked next, i.e. the UI's own target
+    // spacing.
+    //
+    // Including NearestChanged inflated Aiming by roughly (inter-target spacing ÷ radius), and was worse
+    // for Drift: a user scanning a toolbar left→right and a grid left→right yields a coherent +X bias in
+    // two distinct contexts, which is exactly the cross-context coherence Drift treats as a calibration
+    // slip. The multi-context requirement is meant to reject "a bias confined to a single context is UI
+    // geometry, not drift" — but it cannot reject a scan direction shared BETWEEN contexts. That produced
+    // a spurious drift notice plus tolerance loosening.
+    //
+    // Cost of the restriction: fewer qualifying abandons, so both gates take longer to fill. That is the
+    // right trade — these two scorers drive geometry enlargement and a user-visible re-calibration
+    // suggestion, so a slower true positive beats a confident false one. Rect-target aiming (bounds-based
+    // near-miss) remains deferred; see ScoreAiming.
 
     // Linear ramp: 0 at/below low, 1 at/above high, linear between. Guards a degenerate low >= high
     // (returns a hard step at high) so a mis-passed threshold pair can't divide by zero.

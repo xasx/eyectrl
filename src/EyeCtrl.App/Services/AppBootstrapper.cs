@@ -277,11 +277,18 @@ public class AppBootstrapper
             sp.GetRequiredService<IGazeProvider>(),
             sp.GetRequiredService<GazeEngine>().InteractionManager));
 
-        // 1b-⑤b feedback & manual-escape surface. AllowAllFeedbackGate is the no-op suppression seam
-        // 1b-⑥ replaces with the sensitive-context gate (§8.10). CueOverlayWindow is excluded from
-        // magnifier capture and doubles as the ICuePresenter. The cue service + reset handler are started
-        // in App.OnStartup (after the coordinator starts).
-        services.AddSingleton<IFeedbackGate, AllowAllFeedbackGate>();
+        // 1b-⑤b feedback & manual-escape surface. The sensitive-context gate (1b-⑥) is the real suppression
+        // seam (§8.10). CueOverlayWindow is excluded from magnifier capture and doubles as the ICuePresenter.
+        // The cue service + reset handler are started in App.OnStartup (after the coordinator starts).
+        // 1b-⑥ sensitive-context suppression (§8.10). The UIA detector caches whether a password field is
+        // focused; the gate suppresses the cue / drift notice / verbose log while it is (and the setting is
+        // on), leaving adaptation itself running. Replaces ⑤b's no-op AllowAllFeedbackGate registration.
+        // ILogger<UiaSensitiveContextDetector> is auto-injected (as for ControlFinder). Started in
+        // App.OnStartup; disposed by the container in OnExit (removing the UIA focus hook).
+        services.AddSingleton<ISensitiveContextDetector, UiaSensitiveContextDetector>();
+        services.AddSingleton<IFeedbackGate>(sp => new SensitiveContextFeedbackGate(
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
+            sp.GetRequiredService<ISensitiveContextDetector>()));
         services.AddSingleton<CueOverlayWindow>();
         services.AddSingleton<ICuePresenter>(sp => sp.GetRequiredService<CueOverlayWindow>());
         services.AddSingleton(sp => new AdaptationCueService(

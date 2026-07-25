@@ -263,6 +263,12 @@ public partial class App : Application
             _serviceProvider.GetRequiredService<AdaptationLog>().Start(adaptationCoordinator);
             _serviceProvider.GetRequiredService<DriftNoticeService>().Start(adaptationCoordinator);
 
+            // 1b-⑥: start sensitive-context detection so the feedback gate can suppress the cue / drift
+            // notice / verbose log while a password field is focused (§8.10). Subscribing to UIA focus events
+            // is off the gaze hot path; failures inside Start() are swallowed (detection stays inactive). The
+            // container disposes the detector in OnExit, removing the UIA hook.
+            _serviceProvider.GetRequiredService<ISensitiveContextDetector>().Start();
+
             // Gaze-quality telemetry: aggregate tracking/jitter/fatigue on the gaze thread and push
             // periodic summaries through the (dispatcher-serialized) telemetry sink. Buffered only
             // until the StruggleMonitor (Phase 1b) consumes them — zero behaviour change today.

@@ -77,4 +77,23 @@ public class DriftNoticeServiceTests
         svc.OnAssessment(Drift(gated: false));
         Check.That(presenter.ShowCalls).IsEqualTo(0);
     }
+
+    [Fact]
+    public void SuppressionAtOnset_BlocksNoticeForEntireEpisode_EvenIfSuppressionLifts()
+    {
+        // §8.10-faithful trade: if a drift episode starts while feedback is suppressed, marking the
+        // episode handled BEFORE the suppression check means no notice shows for this episode AT ALL —
+        // even if suppression lifts mid-episode. Never leak that drift was detected during the sensitive
+        // window. A fresh episode (after Drift clears and re-gates) re-arms.
+        var (svc, gate, presenter) = Make();
+        gate.IsFeedbackSuppressed = true;
+        svc.OnAssessment(Drift(gated: true));   // onset suppressed → episode marked handled, no notice
+        gate.IsFeedbackSuppressed = false;       // suppression lifts mid-episode
+        svc.OnAssessment(Drift(gated: true));    // still same episode → no notice
+        Check.That(presenter.ShowCalls).IsEqualTo(0);
+
+        svc.OnAssessment(Drift(gated: false));   // episode ends → re-arm
+        Check.That(svc.OnAssessment(Drift(gated: true))).IsTrue(); // fresh episode → shows
+        Check.That(presenter.ShowCalls).IsEqualTo(1);
+    }
 }

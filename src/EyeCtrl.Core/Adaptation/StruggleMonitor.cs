@@ -71,15 +71,21 @@ public sealed class StruggleMonitor
         SignalScore drift = StruggleSignals.ScoreDrift(dwell);
         SignalScore fatigue = StruggleSignals.ScoreFatigue(quality, _eyeCare.FatigueMonitorEnabled);
 
-        var modes = new List<FailureModeAssessment>(5);
-        AddMode(modes, FailureMode.SustainFailure, abandonment, jitter); // §13.2: abandonment(+retries, folded in ③a) + jitter
-        AddMode(modes, FailureMode.AccidentalActivation, accidental);
-        AddMode(modes, FailureMode.Aiming, aiming);
-        AddMode(modes, FailureMode.Drift, drift);
-        AddMode(modes, FailureMode.PoorTracking, poorTracking);
+        // Collected into a reused buffer, then copied into an exactly-sized list only if any mode surfaced.
+        // The no-struggle tick — the overwhelmingly common one — therefore allocates nothing at all.
+        int modeCount = 0;
+        AddMode(ref modeCount, FailureMode.SustainFailure, abandonment, jitter); // §13.2: abandonment(+retries, folded in ③a) + jitter
+        AddMode(ref modeCount, FailureMode.AccidentalActivation, accidental);
+        AddMode(ref modeCount, FailureMode.Aiming, aiming);
+        AddMode(ref modeCount, FailureMode.Drift, drift);
+        AddMode(ref modeCount, FailureMode.PoorTracking, poorTracking);
 
-        if (modes.Count == 0)
+        if (modeCount == 0)
             return StruggleAssessment.None;
+
+        var modes = new List<FailureModeAssessment>(modeCount);
+        for (int i = 0; i < modeCount; i++)
+            modes.Add(_modeBuffer[i]);
 
         // Fatigue is a pass-through AMPLIFIER (§13.2), not a failure mode: it scales the actionable
         // struggle level but cannot create struggle from nothing (base 0 → 0). Opt-in via EyeCare.
@@ -101,27 +107,38 @@ public sealed class StruggleMonitor
     // Context is null (the Phase-1b momentary response is global per knob, §7.2). A mode with no gated
     // feeder AND no score is omitted entirely; a mode with score>0 but no gated feeder is surfaced
     // (GatePassed=false) so monitoring can show "warming up" without acting on it.
-    private static void AddMode(List<FailureModeAssessment> modes, FailureMode mode, params SignalScore[] feeders)
+    //
+    // Two explicit arities instead of `params SignalScore[]`: every mode has one or two feeders, and a params
+    // array allocated five times per tick is pure waste on a 4 Hz dispatcher path.
+    private void AddMode(ref int count, FailureMode mode, SignalScore only) =>
+        AddMode(ref count, mode, only, SignalScore.None);
+
+    private void AddMode(ref int count, FailureMode mode, SignalScore first, SignalScore second)
     {
-        double gatedScore = 0.0, gatedConfidence = 0.0;
-        double rawScore = 0.0;
-        foreach (SignalScore s in feeders)
-        {
-            rawScore = Math.Max(rawScore, s.Score);
-            if (s.GatePassed)
-            {
-                gatedScore = Math.Max(gatedScore, s.Score);
-                gatedConfidence = Math.Max(gatedConfidence, s.Confidence);
-            }
-        }
+        double rawScore = Math.Max(first.Score, second.Score);
         if (rawScore <= 0.0)
             return; // no feeder shows any struggle → omit (ForMode returns null)
-        bool anyGated = Array.Exists(feeders, static s => s.GatePassed);
+
+        double gatedScore = 0.0, gatedConfidence = 0.0;
+        bool anyGated = false;
+        Fold(first, ref gatedScore, ref gatedConfidence, ref anyGated);
+        Fold(second, ref gatedScore, ref gatedConfidence, ref anyGated);
+
         // Actionable score/confidence come from gated feeders; if none gated the mode surfaces with the
         // (non-actionable) raw score and GatePassed=false, so the controller ignores it but monitoring sees it.
         double score = anyGated ? gatedScore : rawScore;
         double confidence = anyGated ? gatedConfidence : 0.0;
-        modes.Add(new FailureModeAssessment(mode, score, confidence, anyGated, null));
+        _modeBuffer[count++] = new FailureModeAssessment(mode, score, confidence, anyGated, null);
+    }
+
+    // SignalScore.None is gate-failed with score 0, so folding it as the absent second feeder is a no-op.
+    private static void Fold(SignalScore s, ref double gatedScore, ref double gatedConfidence, ref bool anyGated)
+    {
+        if (!s.GatePassed)
+            return;
+        anyGated = true;
+        gatedScore = Math.Max(gatedScore, s.Score);
+        gatedConfidence = Math.Max(gatedConfidence, s.Confidence);
     }
 
     // Peak struggle among GATED modes (the actionable ones). Uses gated SCORES (not confidences), so a
@@ -155,32 +172,53 @@ public sealed class StruggleMonitor
         if (now < _sessionStart)
             _sessionStart = long.MinValue;
 
-        IReadOnlyList<DwellOutcome> dwell = _sink.Snapshot();
-        IReadOnlyList<GazeQualitySummary> quality = _sink.SnapshotQuality();
-
         long start = Math.Max(_sessionStart, now - _evidenceMaxAgeMicroseconds);
 
         // Idle-gap auto-reset (§13.1): a gap > idleReset in the continuous ~2 Hz gaze-quality stream marks
         // an idle period; evidence before it belongs to a prior session. Belt-and-suspenders under the
         // default 60 s max-age (a >120 s gap cannot fit a 60 s window) but spec-required and correct.
-        long idleBoundary = LatestIdleBoundary(quality, now);
+        long idleBoundary = LatestIdleBoundary(now);
         if (idleBoundary > start)
             start = idleBoundary;
 
-        return (Within(dwell, start, now, static o => o.TimestampMicroseconds, _dwellWindow),
-                Within(quality, start, now, static q => q.TimestampMicroseconds, _qualityWindow));
+        // Filtered straight out of the sink's ring into the reused buffers. Snapshot()/SnapshotQuality()
+        // would each allocate a list first (~35 KB per tick at a full ring) only to be copied here and
+        // dropped — the whole point of the reused buffers.
+        _dwellWindow.Clear();
+        for (int i = 0; i < _sink.OutcomeCount; i++)
+        {
+            ref readonly DwellOutcome o = ref _sink.OutcomeAt(i);
+            if (o.TimestampMicroseconds > now)
+                break; // ordered → nothing later is ≤ now
+            if (o.TimestampMicroseconds >= start)
+                _dwellWindow.Add(o);
+        }
+
+        _qualityWindow.Clear();
+        for (int i = 0; i < _sink.QualityCount; i++)
+        {
+            ref readonly GazeQualitySummary q = ref _sink.QualityAt(i);
+            if (q.TimestampMicroseconds > now)
+                break;
+            if (q.TimestampMicroseconds >= start)
+                _qualityWindow.Add(q);
+        }
+
+        return (_dwellWindow, _qualityWindow);
     }
 
     // Timestamp of the summary immediately AFTER the latest idle gap (> idleReset) in the ordered stream,
-    // or long.MinValue if none. Ordered ascending, so a later gap overwrites an earlier one.
-    private long LatestIdleBoundary(IReadOnlyList<GazeQualitySummary> quality, long now)
+    // or long.MinValue if none. Ordered ascending, so a later gap overwrites an earlier one. Reads the
+    // sink's ring in place — this runs before the quality window is filtered, and needs the whole stream
+    // anyway (a gap that starts before `start` still moves the boundary).
+    private long LatestIdleBoundary(long now)
     {
         long boundary = long.MinValue;
         long prev = long.MinValue;
         bool hasPrev = false;
-        for (int i = 0; i < quality.Count; i++)
+        for (int i = 0; i < _sink.QualityCount; i++)
         {
-            long ts = quality[i].TimestampMicroseconds;
+            long ts = _sink.QualityAt(i).TimestampMicroseconds;
             if (ts > now)
                 break; // ordered → nothing later is ≤ now
             if (hasPrev && ts - prev > _idleResetMicroseconds)
@@ -194,23 +232,14 @@ public sealed class StruggleMonitor
     // Reused across ticks so the filter does not allocate a fresh list every tick (single-threaded: Assess
     // runs only on the dispatcher). The scorers neither retain nor mutate the windows they are handed —
     // they only read within the call — so reusing the backing lists is safe. Assess's returned
-    // StruggleAssessment holds a separately-allocated mode list, not these.
+    // StruggleAssessment holds a separately-allocated mode list, not these. They reach steady-state
+    // capacity within the first few ticks and then never reallocate.
     private readonly List<DwellOutcome> _dwellWindow = new();
     private readonly List<GazeQualitySummary> _qualityWindow = new();
 
-    // Order-preserving filter to [start, now] into a reused buffer. Ordered input → break once past now.
-    private static IReadOnlyList<T> Within<T>(
-        IReadOnlyList<T> items, long start, long now, Func<T, long> timestamp, List<T> into)
-    {
-        into.Clear();
-        for (int i = 0; i < items.Count; i++)
-        {
-            long ts = timestamp(items[i]);
-            if (ts > now)
-                break;
-            if (ts >= start)
-                into.Add(items[i]);
-        }
-        return into;
-    }
+    // Reused per-tick staging for the classified modes (at most one per FailureMode), copied into an
+    // exactly-sized list only when at least one mode surfaced. Sized from the enum so adding a failure mode
+    // cannot silently overflow it.
+    private readonly FailureModeAssessment[] _modeBuffer =
+        new FailureModeAssessment[Enum.GetValues<FailureMode>().Length];
 }

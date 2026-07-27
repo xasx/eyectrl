@@ -90,13 +90,43 @@ public sealed class BufferingTelemetrySink : IStruggleTelemetrySink, IGazeQualit
 
     /// <summary>Returns the retained outcomes, oldest first.</summary>
     /// <returns>A snapshot list of retained outcomes.</returns>
+    /// <remarks>
+    /// Allocates a list sized to the retained count. Callers on the tick path should prefer
+    /// <see cref="OutcomeCount"/> + <see cref="OutcomeAt"/>, which read the ring in place; at a full
+    /// 256-entry ring this snapshot is ~35 KB of garbage per call, and the <c>StruggleMonitor</c> called it
+    /// every tick only to copy the result into a reused buffer.
+    /// </remarks>
     public IReadOnlyList<DwellOutcome> Snapshot()
     {
         var result = new List<DwellOutcome>(_count);
-        int start = (_next - _count + _buffer.Length) % _buffer.Length;
         for (int i = 0; i < _count; i++)
-            result.Add(_buffer[(start + i) % _buffer.Length]);
+            result.Add(OutcomeAt(i));
         return result;
+    }
+
+    /// <summary>Number of retained dwell outcomes.</summary>
+    public int OutcomeCount => _count;
+
+    /// <summary>
+    /// The retained outcome at <paramref name="index"/> in oldest-first order (0 = oldest), read directly
+    /// from the ring — the allocation-free counterpart to <see cref="Snapshot"/>. Returned by readonly
+    /// reference to avoid copying the struct on the tick path.
+    /// <para>
+    /// The reference points into the live ring, so it is valid only until the next <see cref="Report"/>
+    /// (which may overwrite that slot) — copy the value out rather than holding the reference. Both calls
+    /// come from the same serialized thread (§9), so this is a discipline, not a race.
+    /// </para>
+    /// </summary>
+    /// <param name="index">Zero-based index into the retained outcomes, oldest first.</param>
+    /// <returns>A readonly reference to the outcome.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="index"/> is outside
+    /// <c>[0, <see cref="OutcomeCount"/>)</c>.</exception>
+    public ref readonly DwellOutcome OutcomeAt(int index)
+    {
+        if ((uint)index >= (uint)_count)
+            throw new ArgumentOutOfRangeException(nameof(index), index, "Index is outside the retained outcomes.");
+        int start = (_next - _count + _buffer.Length) % _buffer.Length;
+        return ref _buffer[(start + index) % _buffer.Length];
     }
 
     /// <inheritdoc />
@@ -137,12 +167,32 @@ public sealed class BufferingTelemetrySink : IStruggleTelemetrySink, IGazeQualit
 
     /// <summary>Returns the retained gaze-quality summaries, oldest first.</summary>
     /// <returns>A snapshot list of retained summaries.</returns>
+    /// <remarks>Allocates; see the note on <see cref="Snapshot"/>. Tick-path callers should prefer
+    /// <see cref="QualityCount"/> + <see cref="QualityAt"/>.</remarks>
     public IReadOnlyList<GazeQualitySummary> SnapshotQuality()
     {
         var result = new List<GazeQualitySummary>(_qualityCount);
-        int start = (_qualityNext - _qualityCount + _qualityBuffer.Length) % _qualityBuffer.Length;
         for (int i = 0; i < _qualityCount; i++)
-            result.Add(_qualityBuffer[(start + i) % _qualityBuffer.Length]);
+            result.Add(QualityAt(i));
         return result;
+    }
+
+    /// <summary>Number of retained gaze-quality summaries.</summary>
+    public int QualityCount => _qualityCount;
+
+    /// <summary>
+    /// The retained summary at <paramref name="index"/> in oldest-first order (0 = oldest), read directly
+    /// from the ring — the allocation-free counterpart to <see cref="SnapshotQuality"/>.
+    /// </summary>
+    /// <param name="index">Zero-based index into the retained summaries, oldest first.</param>
+    /// <returns>A readonly reference to the summary.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="index"/> is outside
+    /// <c>[0, <see cref="QualityCount"/>)</c>.</exception>
+    public ref readonly GazeQualitySummary QualityAt(int index)
+    {
+        if ((uint)index >= (uint)_qualityCount)
+            throw new ArgumentOutOfRangeException(nameof(index), index, "Index is outside the retained summaries.");
+        int start = (_qualityNext - _qualityCount + _qualityBuffer.Length) % _qualityBuffer.Length;
+        return ref _qualityBuffer[(start + index) % _qualityBuffer.Length];
     }
 }

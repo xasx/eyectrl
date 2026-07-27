@@ -27,6 +27,13 @@ public class AdaptationCueServiceTests
     private static StruggleAssessment Level(double aggregate) =>
         new(Array.Empty<FailureModeAssessment>(), aggregate);
 
+    // Controllable monotonic clock so the flash throttle can be exercised without waiting.
+    private sealed class FakeClock
+    {
+        public long NowMs { get; set; }
+        public long Read() => NowMs;
+    }
+
     private static (AdaptationCueService Svc, AdaptationSettings Adaptation, FakeFeedbackGate Gate, FakeCuePresenter Presenter) Make()
     {
         var settings = new EyeCtrlSettings();     // ShowCue defaults true (1b-②)
@@ -34,6 +41,16 @@ public class AdaptationCueServiceTests
         var presenter = new FakeCuePresenter();
         var svc = new AdaptationCueService(settings.Adaptation, gate, presenter);
         return (svc, settings.Adaptation, gate, presenter);
+    }
+
+    private static (AdaptationCueService Svc, AdaptationSettings Adaptation, FakeFeedbackGate Gate, FakeCuePresenter Presenter, FakeClock Clock) MakeWithClock()
+    {
+        var settings = new EyeCtrlSettings();
+        var gate = new FakeFeedbackGate();
+        var presenter = new FakeCuePresenter();
+        var clock = new FakeClock { NowMs = 10_000 }; // non-zero start: a 0 clock would hide off-by-one bugs
+        var svc = new AdaptationCueService(settings.Adaptation, gate, presenter, clock.Read);
+        return (svc, settings.Adaptation, gate, presenter, clock);
     }
 
     [Fact]
@@ -127,5 +144,112 @@ public class AdaptationCueServiceTests
         svc.OnAssessment(Level(0.7));
         Check.That(presenter.HideCalls).IsEqualTo(1); // force-hidden immediately
         Check.That(presenter.ShowCalls).IsEqualTo(1); // not re-shown
+    }
+
+    [Fact]
+    public void OnAssessment_ThrottlesReflash_WithinTheFadeWindow()
+    {
+        // The coordinator raises an assessment every 250 ms while struggle persists. Re-flashing on each one
+        // meant the badge never completed its ~2 s fade and cost a topmost SetWindowPos plus a new WPF
+        // DoubleAnimation per tick, on the thread that also renders the gaze cursor. Only the leading edge
+        // should flash within one fade window.
+        var (svc, _, _, presenter, clock) = MakeWithClock();
+
+        for (int tick = 0; tick < 8; tick++) // 8 ticks = 2 s at the 250 ms cadence
+        {
+            svc.OnAssessment(Level(0.6));
+            clock.NowMs += 250;
+        }
+
+        Check.That(presenter.ShowCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void OnAssessment_ReflashesOncePerFadeWindow()
+    {
+        // Struggle that persists past a full fade re-pulses, so the badge keeps signalling rather than
+        // vanishing for the rest of the episode.
+        var (svc, _, _, presenter, clock) = MakeWithClock();
+
+        svc.OnAssessment(Level(0.6));                 // leading edge
+        Check.That(presenter.ShowCalls).IsEqualTo(1);
+
+        clock.NowMs += AdaptationCueService.ReflashIntervalMs - 1;
+        svc.OnAssessment(Level(0.6));                 // still inside the window
+        Check.That(presenter.ShowCalls).IsEqualTo(1);
+
+        clock.NowMs += 1;                             // window elapsed exactly
+        svc.OnAssessment(Level(0.6));
+        Check.That(presenter.ShowCalls).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void OnAssessment_ReflashesImmediately_WhenIntensityEscalates()
+    {
+        // Worsening struggle is worth an immediate pulse at the higher peak opacity rather than waiting out
+        // the throttle — the badge's intensity is the whole signal.
+        var (svc, _, _, presenter, clock) = MakeWithClock();
+
+        svc.OnAssessment(Level(0.40));
+        Check.That(presenter.ShowCalls).IsEqualTo(1);
+
+        clock.NowMs += 250;
+        svc.OnAssessment(Level(0.40 + AdaptationCueService.IntensityEscalationDelta));
+        Check.That(presenter.ShowCalls).IsEqualTo(2);
+        Check.That(presenter.LastIntensity).IsEqualTo(0.40 + AdaptationCueService.IntensityEscalationDelta);
+    }
+
+    [Fact]
+    public void OnAssessment_DoesNotReflash_WhenIntensityDrifts_BelowEscalation()
+    {
+        // A small wobble in the aggregate is not an escalation; only a material rise beats the throttle.
+        var (svc, _, _, presenter, clock) = MakeWithClock();
+
+        svc.OnAssessment(Level(0.40));
+        clock.NowMs += 250;
+        svc.OnAssessment(Level(0.45));
+        clock.NowMs += 250;
+        svc.OnAssessment(Level(0.30));
+
+        Check.That(presenter.ShowCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void OnAssessment_NewEpisodeFlashesImmediately_AfterTheCueWentDown()
+    {
+        // The throttle is per-episode, not a global rate limit: once the badge has been taken down, the next
+        // episode's leading edge flashes at once however recently the last pulse was.
+        var (svc, _, gate, presenter, clock) = MakeWithClock();
+
+        svc.OnAssessment(Level(0.6));
+        Check.That(presenter.ShowCalls).IsEqualTo(1);
+
+        gate.IsFeedbackSuppressed = true;   // decision flips to hidden → badge taken down
+        clock.NowMs += 250;
+        svc.OnAssessment(Level(0.6));
+        Check.That(presenter.HideCalls).IsEqualTo(1);
+
+        gate.IsFeedbackSuppressed = false;  // new episode, well inside the throttle window
+        clock.NowMs += 250;
+        svc.OnAssessment(Level(0.6));
+        Check.That(presenter.ShowCalls).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void OnAssessment_DoesNotRepeatHide_WhileGatedOff()
+    {
+        // CueOverlayWindow.Hide is two dependency-property writes plus a generation bump; with the cue gated
+        // off there is nothing on screen to take down, so a struggle that persists must not re-issue it 4×/s.
+        var (svc, adaptation, _, presenter, clock) = MakeWithClock();
+        adaptation.ShowCue = false;
+
+        for (int tick = 0; tick < 8; tick++)
+        {
+            svc.OnAssessment(Level(0.6));
+            clock.NowMs += 250;
+        }
+
+        Check.That(presenter.ShowCalls).IsEqualTo(0);
+        Check.That(presenter.HideCalls).IsEqualTo(0);
     }
 }

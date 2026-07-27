@@ -131,9 +131,10 @@ dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Small
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze*               # all gaze benchmarks (7 classes: filters, detectors, DwellDetector, GazeEngine + WithFatigue, FatigueMonitor params + steady-state)
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *GazeFatigue*        # fatigue monitor micro-benchmarks only
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *WithEyeCare*         # eye-care-wired pipeline integration only
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Adaptation*          # struggle-adaptation: monitor/controller tick + pipeline enabled-vs-disabled
 ```
 
-14 benchmark classes, 62 benchmarks total — covering WordPredictor, BigramModel, PhraseModel, SentenceCompletionIndex, FuzzyEditDistance, CapitalizationHelper, CasingHelper, PredictionOrchestrator, SmallLMPredictor, LMTokenizer (prediction), the gaze processing pipeline (DirectFilter, SmoothedFilter, OneEuroFilter, FixationDetector, FixationCentroidTracker, GapInterpolator, DwellDetector, end-to-end GazeEngine), and the eye-care gaze subscriber (FatigueMonitor O(window) scan, EyeCareService pipeline integration).
+16 benchmark classes, 70 benchmarks total — covering WordPredictor, BigramModel, PhraseModel, SentenceCompletionIndex, FuzzyEditDistance, CapitalizationHelper, CasingHelper, PredictionOrchestrator, SmallLMPredictor, LMTokenizer (prediction), the gaze processing pipeline (DirectFilter, SmoothedFilter, OneEuroFilter, FixationDetector, FixationCentroidTracker, GapInterpolator, DwellDetector, end-to-end GazeEngine), the eye-care gaze subscriber (FatigueMonitor O(window) scan, EyeCareService pipeline integration), and struggle adaptation (StruggleMonitor.Assess over a filled evidence window, AdaptationController tick + relax ramp, and the pipeline with telemetry wired at adaptation off/on against a bare-pipeline baseline).
 
 SmallLM benchmarks require ONNX model + tokenizer files in `%APPDATA%/EyeCtrl/models` (overridable via `EYECTRL_MODEL_DIR` env var). The `Program.cs` pre-flight check excludes the class entirely if no model is present.
 

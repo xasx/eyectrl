@@ -19,25 +19,27 @@ public class GazeEngine : IDisposable
     private readonly EyeCtrlSettings _settings;
     private readonly CalibrationService? _calibrationService;
     private volatile GapInterpolator _gapInterpolator;
-    // Same defer-onto-the-gaze-thread contract as _fixationRebuildRequested below; see the comment there.
+    // Same defer-onto-the-gaze-thread contract as _fixationReconfigureRequested below; see the comment there.
     // A cursor-settings edit only requests the interpolator rebuild, which then runs on the gaze thread so
     // CopyStateFrom can never read the old interpolator while Process is mutating it.
     private volatile bool _interpolatorRebuildRequested;
     private readonly PropertyChangedEventHandler _cursorSettingsChangedHandler;
     private readonly Action<PhysicalPoint> _startTrackingHandler;
-    private volatile FixationDetector _fixationDetector;
-    private double _currentFixationRadius;
+    // Never swapped: tolerance changes are applied IN PLACE via FixationDetector.RadiusPixels /
+    // FixationTimeMs, so the instance (and its four subscriptions, and any in-progress fixation) outlives
+    // every reconfiguration. See ApplyPendingFixationReconfiguration.
+    private readonly FixationDetector _fixationDetector;
     private readonly FixationCentroidTracker _centroidTracker;
     private readonly EffectiveSettingsProvider? _effectiveSettings;
     private readonly PropertyChangedEventHandler _dwellSettingsChangedHandler;
     private readonly Action? _effectiveSettingsChangedHandler;
-    // Set by the effective-settings Changed handler (dispatcher thread) and read+cleared on the gaze thread
-    // at the top of OnGazePoint. Deferring the rebuild onto the gaze thread serializes every _fixationDetector
-    // and _centroidTracker mutation on that one thread (the centroid tracker is also mutated by Update below),
-    // eliminating the dispatcher/gaze data race that a synchronous dispatcher-thread rebuild would create now
-    // that the AdaptationCoordinator ticks the controller from its dispatcher timer. Volatile supplies the
+    // Set by the effective-settings Changed handler / the DwellSettings handler (dispatcher thread) and
+    // read+cleared on the gaze thread at the top of OnGazePoint. Deferring the apply onto the gaze thread
+    // keeps every _fixationDetector mutation on the one thread that calls Update, eliminating the
+    // dispatcher/gaze data race a synchronous dispatcher-thread write would create now that the
+    // AdaptationCoordinator ticks the controller from its dispatcher timer. Volatile supplies the
     // release/acquire fence; a bool is atomic on every arch.
-    private volatile bool _fixationRebuildRequested;
+    private volatile bool _fixationReconfigureRequested;
 
     /// <summary>Interaction state machine controlling fixation → activation → action flow.</summary>
     public InteractionManager InteractionManager { get; }
@@ -71,7 +73,7 @@ public class GazeEngine : IDisposable
     /// <param name="settings">Application settings for filter, dwell, and selection configuration.</param>
     /// <param name="calibrationService">Optional calibration service for gaze-to-screen coordinate mapping.</param>
     /// <param name="effectiveSettings">Optional effective-settings provider. When null, tolerance
-    /// reads the baseline directly and no adaptation-driven rebuild occurs.</param>
+    /// reads the baseline directly and no adaptation-driven reconfiguration occurs.</param>
     public GazeEngine(
         IGazeProvider gazeProvider,
         IInputSimulator inputSimulator,
@@ -116,31 +118,29 @@ public class GazeEngine : IDisposable
 
         _startTrackingHandler = _ => _centroidTracker.StartTracking();
 
-        // FixationDetector radius/time are readonly, so tolerance changes are applied by REBUILDING it
-        // (design §5). Build with the effective radius and move its four subscriptions across rebuilds.
-        // The rebuild itself is deferred onto the gaze thread (see _fixationRebuildRequested) so the
-        // _centroidTracker is never mutated from two threads.
-        _currentFixationRadius = EffectiveFixationRadius();
-        _fixationDetector = new FixationDetector(_currentFixationRadius, settings.Dwell.FixationDetectionMs);
+        // Built once with the effective radius and reconfigured IN PLACE thereafter (design §5): its
+        // RadiusPixels/FixationTimeMs are settable, so the instance and its four subscriptions live for the
+        // engine's lifetime and an in-progress fixation survives every tolerance change.
+        _fixationDetector = new FixationDetector(EffectiveFixationRadius(), settings.Dwell.FixationDetectionMs);
         WireFixation(_fixationDetector);
 
-        // Rebuild on a baseline tolerance edit. GazeEngine previously subscribed to CursorSettings only,
+        // Reconfigure on a baseline tolerance edit. GazeEngine previously subscribed to CursorSettings only,
         // so DwellSettings tolerance edits never reached the live detector (latent bug — now fixed).
         _dwellSettingsChangedHandler = (_, e) =>
         {
             if (e.PropertyName is nameof(DwellSettings.FixationRadiusPixels)
                                or nameof(DwellSettings.FixationDetectionMs))
-                RequestFixationRebuild();
+                RequestFixationReconfiguration();
         };
         _settings.Dwell.PropertyChanged += _dwellSettingsChangedHandler;
 
-        // Rebuild when an adaptation delta changes the effective tolerance. The provider's Changed fires on
-        // EVERY SetMomentaryFill (any knob), so requesting-then-deferring lets the gaze thread skip the
-        // rebuild when the effective FixationRadius is unchanged (e.g. only Dwell/Smoothing/Geometry fills
-        // moved) — no teardown of an in-progress fixation for a non-tolerance knob step.
+        // Reconfigure when an adaptation delta changes the effective tolerance. The provider's Changed fires
+        // on EVERY SetMomentaryFill (any knob), so a fill on a non-tolerance knob also lands here; the apply
+        // is idempotent (writing the unchanged radius is a no-op), so it costs two compares and needs no
+        // change detection of its own.
         if (_effectiveSettings is not null)
         {
-            _effectiveSettingsChangedHandler = RequestFixationRebuild;
+            _effectiveSettingsChangedHandler = RequestFixationReconfiguration;
             _effectiveSettings.Changed += _effectiveSettingsChangedHandler;
         }
 
@@ -158,29 +158,32 @@ public class GazeEngine : IDisposable
         ?? _settings.Dwell.FixationRadiusPixels;
 
     // Called on the dispatcher thread (DwellSettings change or provider.Changed). Just sets a flag — the
-    // actual rebuild runs on the gaze thread at the top of the next OnGazePoint, which serializes every
-    // _fixationDetector/_centroidTracker mutation on one thread. The gaze thread then skips the rebuild when
-    // the effective radius is unchanged (the common case when only a non-tolerance knob fill moved).
-    private void RequestFixationRebuild() => _fixationRebuildRequested = true;
+    // actual write runs on the gaze thread at the top of the next OnGazePoint, which keeps every
+    // _fixationDetector mutation on the one thread that calls Update. Coalescing is a bonus: a burst of
+    // Changed events (the controller steps four knobs per tick) costs one apply per gaze frame.
+    private void RequestFixationReconfiguration() => _fixationReconfigureRequested = true;
 
-    // Runs on the gaze thread. Performs the deferred rebuild if one was requested AND the effective radius
-    // actually changed. Skipping on an unchanged radius avoids tearing down an in-progress fixation for a
-    // non-tolerance knob step (Dwell/Smoothing/Geometry fills fire Changed too).
-    private void ApplyPendingFixationRebuild()
+    // Runs on the gaze thread. Applies the current effective tolerance to the LIVE detector in place. No
+    // rebuild, so an in-progress fixation is preserved across an adaptation step: the controller relaxes and
+    // recovers a knob every tick (250 ms) while active, and a rebuild-per-step would end the fixation each
+    // time — with FixationDetectionMs (default 300 ms) longer than the tick interval, no fixation could ever
+    // complete during a ramp. Writing an unchanged value is a no-op, so no change detection is needed and a
+    // non-tolerance knob's fill costs two compares.
+    private void ApplyPendingFixationReconfiguration()
     {
-        if (!_fixationRebuildRequested)
+        if (!_fixationReconfigureRequested)
             return;
-        _fixationRebuildRequested = false;
-        double radius = EffectiveFixationRadius();
-        if (radius == _currentFixationRadius)
-            return; // a non-tolerance fill changed, or FixationDetectionMs alone — no radius rebuild needed
-        _currentFixationRadius = radius;
-        RebuildFixationDetector();
+        _fixationReconfigureRequested = false;
+        // FixationDetectionMs is not an adaptation knob, so it comes straight from the baseline. Applying it
+        // here (rather than only on a radius change) is what makes a manual detection-time edit take effect.
+        _fixationDetector.RadiusPixels = EffectiveFixationRadius();
+        _fixationDetector.FixationTimeMs = _settings.Dwell.FixationDetectionMs;
     }
 
     // Runs on the gaze thread, before Process below, so CopyStateFrom reads the outgoing interpolator on the
-    // only thread that mutates it. Same contract as ApplyPendingFixationRebuild — one convention for every
-    // reconfiguration of live gaze-pipeline state.
+    // only thread that mutates it. Same contract as ApplyPendingFixationReconfiguration — one convention for
+    // every reconfiguration of live gaze-pipeline state. (This one still rebuilds: IGazeFilter exposes no way
+    // to retune in place, so the fresh-filter + WarmStartFromCurrentState path stands — see design §5 R1.)
     private void ApplyPendingInterpolatorRebuild()
     {
         if (!_interpolatorRebuildRequested)
@@ -210,31 +213,6 @@ public class GazeEngine : IDisposable
         d.FixationEnded -= _centroidTracker.StopTracking;
     }
 
-    // Rebuilds the detector with the current effective radius + baseline detection time (FixationDetectionMs
-    // is not an adaptation knob). Runs on the gaze thread (ApplyPendingFixationRebuild), so _centroidTracker
-    // is mutated here on the same thread that calls Update below — no cross-thread race. The volatile publish
-    // makes the fresh detector visible to any other reader. The fresh detector starts cold, so any in-progress
-    // fixation is dropped; since the state machine only honours a new FixationStarted from FreeLook
-    // (InteractionManager.OnFixationStarted no-ops otherwise), we END an in-progress fixation cleanly here —
-    // mirroring the FixationEnded fan-out from WireFixation — so the activation button never strands and the
-    // fresh detector's next fixation re-triggers (review round-1 F2).
-    private void RebuildFixationDetector()
-    {
-        var fresh = new FixationDetector(EffectiveFixationRadius(), _settings.Dwell.FixationDetectionMs);
-        WireFixation(fresh);
-        var old = _fixationDetector;
-        bool wasFixating = old.IsFixating;
-        _fixationDetector = fresh;
-        UnwireFixation(old);
-        if (wasFixating)
-        {
-            // Old is now unwired; replicate its FixationEnded handlers so the state machine returns to
-            // FreeLook and the centroid tracker stops. OnFixationEnded is guarded (no-op unless in Fixation).
-            InteractionManager.OnFixationEnded();
-            _centroidTracker.StopTracking();
-        }
-    }
-
     /// <summary>Stops the gaze data stream.</summary>
     public void Stop()
     {
@@ -246,7 +224,7 @@ public class GazeEngine : IDisposable
         // Deferred reconfiguration (requested on the dispatcher thread) runs here on the gaze thread first,
         // before any _fixationDetector/_centroidTracker/_gapInterpolator use below, so all mutations of the
         // live pipeline state stay on this thread. Each is skipped when nothing was requested.
-        ApplyPendingFixationRebuild();
+        ApplyPendingFixationReconfiguration();
         ApplyPendingInterpolatorRebuild();
 
         GazeSampled?.Invoke(gaze);

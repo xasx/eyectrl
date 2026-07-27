@@ -170,9 +170,15 @@ target geometry (button ring radius + hit radius, key hit slop, and the coupled 
   accessors on `OneEuroFilter` (incl. its nested `LowPassFilter.Last`, currently `private set`) and
   `SmoothedFilter`. Either way, extend `GazeEngine`'s rebuild trigger — which today fires only on
   `FilterMode`/`MaxGapInterpolationMs` — to `OneEuroMinCutoff`/`OneEuroBeta`/`SmoothingFactor`.
-- **Tolerance:** `FixationDetector` radius/time are readonly → rebuild on change (it currently
-  subscribes to `CursorSettings` only, never `DwellSettings`, so even manual tolerance changes don't
-  propagate today — real gap to fix).
+- **Tolerance:** `FixationDetector` radius/time were readonly. Make them **settable** and apply changes
+  **in place** — `RadiusPixels` / `FixationTimeMs` — rather than rebuilding the detector. A rebuild starts
+  cold and so ends the in-progress fixation, and the controller steps a knob on *every* tick while relaxing
+  or recovering (0.10/tick relax, 0.05/tick recover at Conservative — 10 and 20 consecutive ticks); with
+  the 250 ms tick shorter than `FixationDetectionMs` (default 300 ms), a rebuild-per-step means no fixation
+  can complete for the whole ramp. Same state-preserving semantics as the dwell knob below: enlarge ⇒
+  in-progress fixation preserved, shrink-out ⇒ ordinary gaze-left. Writing an unchanged value is a no-op,
+  so the apply is idempotent and needs no quantization. (`GazeEngine` also subscribed to `CursorSettings`
+  only, never `DwellSettings`, so even manual tolerance changes didn't propagate — fixed alongside.)
 - **Dwell time & geometry:** baked into `DwellTarget` at creation and `DwellTarget.Radius` is
   immutable. Add **state-preserving** update methods on `DwellDetector` (mirroring the existing
   `DwellDetector.UpdateTargetCenter`, which is on the *detector*, not the target): `UpdateTargetDwellTime`
@@ -349,7 +355,8 @@ not regress it.
   boxing); the per-sample abandonment check adds no LINQ/closures. `[MemoryDiagnoser]` asserts zero
   per-sample allocation.
 - **Bound reconfiguration churn.** Smoothing changes trigger a filter rebuild (small alloc);
-  quantize + hysteresis so rebuilds occur at most ~1/s during active adaptation, never per tick.
+  quantize + hysteresis so rebuilds occur at most ~1/s during active adaptation, never per tick. Tolerance
+  needs no such quantization — it is applied in place (§5), so a per-tick step is free and lossless.
 - **Prefer in-place target updates.** `UpdateTargetGeometry`/`UpdateTargetDwellTime` (state-preserving,
   no snapshot rebuild) over `Add/Clear`, avoiding the copy-on-write `_targetsSnapshot` array
   reallocation on the UI thread.
@@ -404,7 +411,10 @@ Headless, xUnit v3 + NFluent, synthetic timestamped signal sequences (reuses the
   exact baseline even for out-of-band baseline; **learned-forgiving + accidental-tightening coexistence**
   — tightening still applied, not swallowed (C1); learned forgiving-only + decay; hysteresis/no-oscillation.
 - `EffectiveSettingsProvider`: composition/clamp; disabled = pass-through; changes reach
-  `FixationDetector` rebuild, `DwellTarget` recreate/update, and **smoothing filter reconfiguration**.
+  `FixationDetector` **in-place tolerance apply**, `DwellTarget` recreate/update, and **smoothing filter
+  reconfiguration**.
+- **In-progress fixation:** a tolerance step mid-fixation preserves it (widen) or ends it as a normal
+  gaze-left (shrink-out); a ramp of per-tick steps at the controller cadence never starves fixation.
 - **Smoothing continuity (R1):** a smoothing-param change produces **no discontinuity** — the seeded
   output equals the current position and the first real sample stays within a bounded **one-sample lag
   toward the seed** (assert that bound, not zero). Warm-start path in Phase 1a; if Phase-2 state
@@ -613,7 +623,8 @@ and monotonic-guard behaviour. No display dependency.
 
 *Modified (Core):* `Processing/DwellDetector.cs` (outcomes, `UpdateTargetDwellTime`/`UpdateTargetGeometry`),
 `Processing/DwellTarget.cs` (state-preserving geometry/timing updates), `Processing/FixationDetector.cs`
-(rebuild-on-change; also fix that it ignores `DwellSettings` today), `Processing/FixationCentroidTracker.cs`
+(settable `RadiusPixels`/`FixationTimeMs` for in-place tolerance changes; also fix that `GazeEngine` ignores
+`DwellSettings` today), `Processing/FixationCentroidTracker.cs`
 (expose jitter statistic — R3), `Processing/GapInterpolator.cs` + `IGazeFilter` (transfer filter state on
 rebuild — R1), `GazeEngine.cs` (extend reconfiguration to smoothing params; route adapted knobs),
 `Settings/EyeCtrlSettings.cs` (property + `EnumerateSubSettings()` entry).

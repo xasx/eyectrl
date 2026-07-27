@@ -1,16 +1,24 @@
 namespace EyeCtrl.Core.Adaptation;
 
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// Aggregates raw gaze samples into periodic <see cref="GazeQualitySummary"/> snapshots on the gaze
 /// thread and pushes them through an <see cref="IGazeQualitySink"/> (design §9.1: O(1) per sample,
 /// summary marshaled by the sink). Timestamp-driven — no wall clock — so it is deterministic and
 /// unit-testable. Not thread-safe: call <see cref="OnSample"/> from one thread (the gaze poll thread).
+/// <para>
+/// Gated at the source on <see cref="AdaptationSettings.Enabled"/> (design §9.1 "disabled = current
+/// cost"), the same discipline as <c>FatigueMonitor</c>'s early return: while adaptation is off — the
+/// default — <see cref="OnSample"/> does no aggregation and emits no summaries, so the gaze path is
+/// exactly what it was before struggle detection existed.
+/// </para>
 /// </summary>
 public sealed class GazeQualityAggregator
 {
     private readonly IGazeQualitySink _sink;
+    private readonly AdaptationSettings _adaptation;
     private readonly long _windowMicroseconds;
 
     private long _windowStart = long.MinValue;
@@ -24,12 +32,15 @@ public sealed class GazeQualityAggregator
 
     /// <summary>Initializes the aggregator.</summary>
     /// <param name="sink">Destination for window summaries.</param>
+    /// <param name="adaptation">Adaptation settings; <see cref="AdaptationSettings.Enabled"/> gates all
+    /// per-sample work. Required rather than optional so the gate cannot be bypassed by omission.</param>
     /// <param name="windowMs">Window length in milliseconds; must be positive. Default 500.</param>
-    public GazeQualityAggregator(IGazeQualitySink sink, int windowMs = 500)
+    public GazeQualityAggregator(IGazeQualitySink sink, AdaptationSettings adaptation, int windowMs = 500)
     {
         if (windowMs <= 0)
             throw new ArgumentOutOfRangeException(nameof(windowMs), windowMs, "Window must be positive.");
         _sink = sink;
+        _adaptation = adaptation;
         _windowMicroseconds = windowMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
@@ -42,6 +53,26 @@ public sealed class GazeQualityAggregator
     /// <param name="fatigueScore">Current fatigue score [0..1] (0 when disabled).</param>
     public void OnSample(GazePoint sample, double fixationJitter, double fatigueScore)
     {
+        // The enable gate (§9.1). `Enabled` is written on the dispatcher and read here on the gaze thread;
+        // a bool field is a single aligned byte, so the read cannot tear, and the worst a race costs is one
+        // sample aggregated (or skipped) either side of the toggle. Same treatment as EyeCareService's
+        // per-sample read of EyeCareSettings.Enabled.
+        if (!_adaptation.Enabled)
+        {
+            // Discard any partial window so a re-enable starts clean rather than emitting a summary whose
+            // counts straddle the disabled stretch — mirrors EyeCareService resetting the FatigueMonitor
+            // when fatigue monitoring is switched off.
+            if (_windowStart != long.MinValue)
+            {
+                _windowStart = long.MinValue;
+                _total = 0;
+                _invalid = 0;
+                _lastJitter = 0.0;
+                _lastFatigue = 0.0;
+            }
+            return;
+        }
+
         if (_windowStart == long.MinValue)
         {
             _windowStart = sample.TimestampMicroseconds;

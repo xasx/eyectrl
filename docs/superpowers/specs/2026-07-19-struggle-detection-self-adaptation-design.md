@@ -365,8 +365,18 @@ not regress it.
 - **I/O off the hot path.** `adaptation-log.jsonl` writes are async/batched; learned-state
   persistence is debounced to session boundaries with an atomic write.
 - **Disabled = current cost.** Gated at the source (like `FatigueMonitor`'s `if (!Enabled) return;`):
-  when off (default) surfaces skip reporting, the monitor isn't fed, effective = baseline, no
-  rebuilds — the pipeline's measured cost is unchanged.
+  when off (default) the monitor isn't fed, effective = baseline, no reconfiguration — the pipeline's
+  measured cost is unchanged. Two gate points, both read per call so the settings toggle takes effect on
+  the live objects without re-wiring:
+  - `GazeQualityAggregator.OnSample` early-returns, so the per-sample path does no aggregation at all
+    (and discards any partial window, so a re-enable can't emit one straddling the disabled stretch).
+  - `DispatcherTelemetrySink.Report`/`ReportGazeQuality` drop before the dispatcher marshal and before
+    the buffer retains anything — this is what keeps a gaze-thread report from costing a `BeginInvoke`.
+
+  Note the deviation from "surfaces skip reporting": `DwellDetector` still builds the `DwellOutcome` and
+  hands it to the sink, which drops it. Gating inside `DwellDetector` would mean plumbing settings into
+  Core's dwell path at four-plus construction sites to avoid one struct construction that happens only on
+  a real activation or abandonment — not worth the coupling. The sink boundary is the effective gate.
 - **Regression budget & coverage:** extend the suite (reuse `GazeStreamGenerator`, mirror
   `GazePipelineWithFatigueBenchmarks`) with a StruggleMonitor per-sample benchmark, an
   `AdaptationController` tick benchmark, and pipeline-with-adaptation enabled-vs-disabled; gate on a

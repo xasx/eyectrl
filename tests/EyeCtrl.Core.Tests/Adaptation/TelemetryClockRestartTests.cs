@@ -2,6 +2,7 @@ namespace EyeCtrl.Core.Tests.Adaptation;
 
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// The gaze clock is monotonic but has an arbitrary epoch, so a device reconnect can move it
@@ -13,6 +14,14 @@ public class TelemetryClockRestartTests
     private static DwellOutcome Outcome(long ts, DwellContext ctx = DwellContext.Toolbar) => new(
         ts, ctx, "t", OutcomeKind.Activated, AbandonReason.None,
         1.0, new PhysicalPoint(0, 0), new PhysicalPoint(0, 0), 0, null);
+
+    // The aggregator only does work while adaptation is enabled (§9.1 gate).
+    private static AdaptationSettings EnabledAdaptation()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Adaptation.Enabled = true;
+        return settings.Adaptation;
+    }
 
     [Fact]
     public void LargeBackwardJump_IsTreatedAsClockRestart_AndKeepsAccepting()
@@ -116,7 +125,7 @@ public class TelemetryClockRestartTests
     {
         var recorded = new List<GazeQualitySummary>();
         var probe = new DelegateQualitySink(recorded.Add);
-        var agg = new GazeQualityAggregator(probe, windowMs: 500);
+        var agg = new GazeQualityAggregator(probe, EnabledAdaptation(), windowMs: 500);
 
         // Establish a window far into the session, then restart the clock near zero.
         agg.OnSample(new GazePoint(1, 1, 10_000_000, true), 5, 0);

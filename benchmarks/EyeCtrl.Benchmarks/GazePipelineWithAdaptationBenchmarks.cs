@@ -33,7 +33,13 @@ namespace EyeCtrl.Benchmarks;
 [RankColumn]
 public class GazePipelineWithAdaptationBenchmarks
 {
-    private const int SamplesPerBatch = 100_000;
+    // Sized to clear BDN's 100 ms MinIterationTime floor with headroom on a fast machine (~50 ns/sample ×
+    // 2.5 M ≈ 125 ms). 100 k samples ran in ~5 ms, far under the floor, and the measurement was bimodal as a
+    // result: the same untouched baseline landed at ~5 ms in one run and ~12 ms in the next, the alternate
+    // mode surfacing as "outliers removed" rather than as visible variance. Do not trade this back down for
+    // the ~80 MB the GazePoint array costs — it is a one-off GlobalSetup allocation shared by all three
+    // benchmarks, and short iterations here produce numbers that look precise and are not.
+    private const int SamplesPerBatch = 2_500_000;
     private const int PrefillSamples = 128; // enough to settle the filter and reach a fixation
 
     private GazePoint[] _fixation = null!;
@@ -63,8 +69,10 @@ public class GazePipelineWithAdaptationBenchmarks
     public void Pipeline_OneEuro_NoAdaptationWiring() => Replay();
 
     /// <summary>
-    /// Phase-1a telemetry attached, adaptation off: the aggregator's O(1) per-sample update plus the
-    /// centroid tracker's jitter accumulation. This is what every user pays by default.
+    /// Phase-1a telemetry attached but gated off — the default shipping state. The aggregator is
+    /// subscribed and reached on every sample, then early-returns on the §9.1 enable gate, so this measures
+    /// the residual cost of the wiring existing at all: one delegate invocation and one bool test per
+    /// sample, on top of the centroid tracker's jitter accumulation.
     /// </summary>
     [Benchmark]
     public void Pipeline_OneEuro_Telemetry_AdaptationDisabled() => Replay();
@@ -102,7 +110,7 @@ public class GazePipelineWithAdaptationBenchmarks
             // Mirrors App.xaml.cs's 1a wiring, minus the dispatcher hop (see the SCOPE note above): the
             // aggregator reads the engine's latched fixation jitter on the gaze thread and pushes 2 Hz
             // summaries into the buffering sink.
-            var aggregator = new GazeQualityAggregator(new BufferingTelemetrySink());
+            var aggregator = new GazeQualityAggregator(new BufferingTelemetrySink(), settings.Adaptation);
             _engine.GazeSampled += sample => aggregator.OnSample(sample, _engine.LastFixationJitter, 0.0);
         }
 

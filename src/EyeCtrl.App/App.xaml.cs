@@ -257,8 +257,12 @@ public partial class App : Application
             _serviceProvider.GetRequiredService<AdaptationResetHandler>().Start();
 
             // Gaze-quality telemetry: aggregate tracking/jitter/fatigue on the gaze thread and push
-            // periodic summaries through the (dispatcher-serialized) telemetry sink. Buffered only
-            // until the StruggleMonitor (Phase 1b) consumes them — zero behaviour change today.
+            // periodic summaries through the (dispatcher-serialized) telemetry sink, for the
+            // StruggleMonitor to consume. The subscription is unconditional but the aggregator gates
+            // itself on AdaptationSettings.Enabled (§9.1), so while adaptation is off — the default —
+            // this costs one delegate call and one bool test per sample and does no aggregation. Gating
+            // inside rather than by (un)subscribing here is what makes the settings toggle take effect
+            // live, without this wiring having to be torn down and rebuilt.
             // Registered after eye-care so eyeCare.FatigueScore reflects this sample when read here.
             var gazeQuality = _serviceProvider.GetRequiredService<GazeQualityAggregator>();
             gazeEngine.GazeSampled += sample =>

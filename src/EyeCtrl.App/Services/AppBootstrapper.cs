@@ -163,11 +163,14 @@ public class AppBootstrapper
         services.AddSingleton<DispatcherTelemetrySink>(sp => new DispatcherTelemetrySink(
             sp.GetRequiredService<BufferingTelemetrySink>(),
             dispatcher,
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
             sp.GetRequiredService<ILogger<DispatcherTelemetrySink>>(),
             innerQuality: sp.GetRequiredService<BufferingTelemetrySink>()));
         services.AddSingleton<IStruggleTelemetrySink>(sp => sp.GetRequiredService<DispatcherTelemetrySink>());
         services.AddSingleton<IGazeQualitySink>(sp => sp.GetRequiredService<DispatcherTelemetrySink>());
-        services.AddSingleton(sp => new GazeQualityAggregator(sp.GetRequiredService<IGazeQualitySink>()));
+        services.AddSingleton(sp => new GazeQualityAggregator(
+            sp.GetRequiredService<IGazeQualitySink>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation));
 
         // ViewModels (singleton -- each registers message handlers in constructor)
         services.AddSingleton<CursorCircleViewModel>();

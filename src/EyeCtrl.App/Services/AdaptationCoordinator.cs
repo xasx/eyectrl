@@ -222,11 +222,12 @@ public sealed class AdaptationCoordinator : IDisposable
             LastAssessment = StruggleAssessment.None;
         }
 
-        // Coalesce runs of "nothing to say". Every non-None assessment is still raised individually (the cue
-        // depends on repeated Show calls to keep re-flashing while struggle persists), but consecutive Nones
-        // are collapsed to the first — which is the one that makes the cue fade, re-arms the drift notice,
-        // and logs the transition. Without this the disabled-by-default case ran the whole fan-out at 4 Hz
-        // forever, including two WPF dependency-property writes per tick in CueOverlayWindow.Hide.
+        // Coalesce runs of "nothing to say". Every non-None assessment is still raised individually — the
+        // subscribers each decide what a repeat means (AdaptationCueService throttles its re-flash to the
+        // badge's fade duration, the drift notice is once per episode, the log fires on gated-mode
+        // transitions) — but consecutive Nones are collapsed to the first, which is the one that takes the
+        // cue down, re-arms the drift notice, and logs the transition. Without this the disabled-by-default
+        // case ran the whole fan-out at 4 Hz forever.
         bool isNone = IsNone(LastAssessment);
         if (isNone && _lastRaisedWasNone)
             return;

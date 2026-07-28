@@ -51,6 +51,8 @@ The cue badge at 1.06:1 is invisible over amber content — on the one overlay w
 
 **Modified files:** `DwellArcButton.cs` (Controls) · `ActivationButtonWindow.xaml`, `CursorCircleWindow.xaml` + `.xaml.cs`, `ManualSelectionGazeIndicatorWindow.xaml`, `ScrollOverlayWindow.xaml`, `DwellFeedbackOverlay.xaml`, `CueOverlayWindow.xaml` (App) · `LegacyColourLiteralTests.cs`.
 
+**The `+2` invariant.** Every halo is exactly 2px wider than the accent mark it backs (`StrokeThickness + 2` in Tasks 3, 4, 5 and 7). It is not a token because it is a geometry relationship rather than a palette value, but it does appear in four places: change one and the others must follow, or that overlay rim will visibly differ from the rest.
+
 **Two hazards to hold in mind throughout:**
 
 1. **Z-order.** If the halo is declared *after* the accent shape it paints on top, rendering as a dark ring on every backdrop. Obvious to the eye, invisible to every headless test — hence `HaloZOrderTests`.
@@ -173,7 +175,7 @@ public class HaloContrastTests
     {
         // CursorSettings.CircleColor is user-selectable, so the guarantee must
         // survive any preset — not just the default.
-        foreach (var preset in EyeCtrl.Controls.DwellColorPicker.Presets)
+        foreach (var preset in EyeCtrl.Controls.DwellColorPicker.DefaultPresets)
         {
             var mark = Parse(preset.Hex);
             foreach (var b in Backdrops)
@@ -337,7 +339,7 @@ public class HaloZOrderTests
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~HaloZOrderTests" --nologo`
 
-Expected: PASS. `HaloElement_IsDeclaredBeforeItsAccentElement` passes trivially because `HaloedOverlays` starts empty, and `ActivationButton_NeverAllocatesABrush` already holds.
+Expected: PASS. `HaloElement_IsDeclaredBeforeItsAccentElement` passes trivially because `HaloedOverlays` starts empty, and `ActivationButton_NeverAllocatesABrush` holds at baseline — verified: `grep -c "new SolidColorBrush" src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml.cs` returns `0` at `b8295b6`. Re-run that grep before committing; a non-zero result would mean the guard commits red, which is exactly what this task structure exists to avoid.
 
 `FilledCueBadge_HasAHaloOutlineStroke` and `DwellFeedbackOverlay_UsesTheAccentBrush` cover files not yet migrated, so comment out their `[Fact]` attributes with `// enabled by Task 6` and `// enabled by Task 7` and re-enable each in the task that satisfies it.
 
@@ -514,11 +516,17 @@ Line 75, the progress path - add the matching call:
 
 Omit either and the halo arc stays at zero length while only the accent arc sweeps - which looks like the halo working at rest and vanishing under dwell.
 
-- [ ] **Step 3: Run tests**
+- [ ] **Step 3: Register the overlay in the z-order guard, then run tests**
+
+Uncomment the Task 4 line in `HaloZOrderTests.HaloedOverlays`. It lives in a different file from the XAML you just edited, which makes it the easiest thing in this plan to forget:
+
+```csharp
+        ["src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml"] = ("ProgressArcHalo", "ProgressArc"),
+```
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~HaloZOrderTests" --nologo`
 
-Expected: `ActivationButtonWindow` no longer named; two overlays remain.
+Expected: PASS — the new entry is now checked and satisfied. A failure means the halo is declared after the accent arc.
 
 - [ ] **Step 4: Prune the allow-list, run the suite**
 
@@ -527,7 +535,7 @@ Delete the `ActivationButtonWindow.xaml` entry from `StillPending`, then `dotnet
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
+git add src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml.cs tests/EyeCtrl.App.Tests/HaloZOrderTests.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
 git commit -m "feat(overlay): halo the activation progress arc"
 ```
 
@@ -798,6 +806,14 @@ git commit -m "chore(theme): Plan B complete — StrokeHalo contrast guarantee"
 **`TargetHighlightWindow.xaml` is deliberately excluded** — §6 lists it as opacity-driven with no accent mark, so there is nothing to halo. `GlassBackdropWindow`, `ManualSelectionOverlayWindow` and `DragTrailOverlay` are likewise excluded per §6 (fully dynamic or screen-capture).
 
 **Type consistency.** `Tokens.BrushStrokeHalo` / `BrushAccent` / `BrushAccentWarning` / `BrushTextPrimary` / `BrushSurfaceDark` all come from Plan A Task 1 and are spelled identically here. `DwellColorPicker.Presets` (Plan A Task 7) is consumed by `HaloContrastTests`. The `x:Name` pairs in `HaloZOrderTests.HaloedOverlays` match the names introduced in Tasks 3–5 exactly: `CircleHalo`/`Circle`, `ProgressArcHalo`/`ProgressArc`, `OuterCircleHalo`/`OuterCircle`, `VelocityRingHalo`/`VelocityRing` — all four verified against the current XAML rather than invented. `CenterDot` in the gaze indicator is deliberately absent from that dictionary: it is a *filled* shape taking an outline ring, so there is no second element whose order could be wrong.
+
+**Review round 2 (2026-07-28).** `HaloContrastTests` now consumes
+`DwellColorPicker.DefaultPresets`, the field's real name — an earlier draft of Plan A wrongly
+renamed it to `Presets`, which would have broken this plan at its first task. Task 2 records that
+`ActivationButton_NeverAllocatesABrush` was *verified* green at baseline rather than assumed.
+Task 4 gained an explicit step to register its overlay in `HaloZOrderTests.HaloedOverlays` in the
+same commit, since that file is not the one being edited. The `+2` halo invariant is named up
+front.
 
 **Review outcome (2026-07-28).** Findings that held and are fixed: the
 `new SolidColorBrush` decision is now made rather than delegated (scoped to

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
@@ -16,9 +17,6 @@ public partial class ToolbarWindow : OverlayWindow
     private const int ButtonMargin = 2; // Margin between toolbar buttons
     private const int BorderCornerRadius = 4; // Corner radius for button containers
     private const double ButtonSymbolSizeRatio = 0.4; // Button symbol font size as ratio of button size
-    private const byte NormalButtonAlpha = 180; // Alpha value for normal button background
-    private const byte IndicatorButtonAlpha = 120; // Alpha value for provider indicator background
-    private const byte ManualSelectionActiveButtonAlpha = 180; // Alpha value for ManualSelection enabled button background
 
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
     private double _buttonSize;
@@ -59,7 +57,7 @@ public partial class ToolbarWindow : OverlayWindow
         var progressBar = new Rectangle
         {
             Height = ProgressBarHeight,
-            Fill = Brushes.Lime,
+            Fill = Tokens.BrushAccent,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Bottom,
             Width = 0
@@ -79,7 +77,7 @@ public partial class ToolbarWindow : OverlayWindow
             Width = _buttonSize,
             Height = _buttonSize,
             Margin = new Thickness(ButtonMargin),
-            Background = new SolidColorBrush(Color.FromArgb(NormalButtonAlpha, 60, 60, 60)),
+            Background = Tokens.BrushSurfaceMedium,
             CornerRadius = new CornerRadius(BorderCornerRadius),
             Child = new Grid
             {
@@ -122,7 +120,7 @@ public partial class ToolbarWindow : OverlayWindow
             Width = _buttonSize,
             Height = _buttonSize,
             Margin = new Thickness(ButtonMargin),
-            Background = new SolidColorBrush(Color.FromArgb(IndicatorButtonAlpha, 40, 40, 40)),
+            Background = Tokens.BrushSurfaceDark,
             CornerRadius = new CornerRadius(BorderCornerRadius),
             Child = label
         };
@@ -214,9 +212,9 @@ public partial class ToolbarWindow : OverlayWindow
         {
             visuals.Container.Background = mode switch
             {
-                SelectionMode.ManualSelection => new SolidColorBrush(Color.FromArgb(ManualSelectionActiveButtonAlpha, 0, 100, 0)),
-                SelectionMode.AutoSelection => new SolidColorBrush(Color.FromArgb(ManualSelectionActiveButtonAlpha, 0, 100, 180)),
-                _ => new SolidColorBrush(Color.FromArgb(NormalButtonAlpha, 60, 60, 60))
+                SelectionMode.ManualSelection => Tokens.BrushToggleOn,
+                SelectionMode.AutoSelection => Tokens.BrushSurfaceKeySwitch,
+                _ => Tokens.BrushSurfaceMedium
             };
         }
     }

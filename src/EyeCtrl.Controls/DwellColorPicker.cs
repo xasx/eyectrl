@@ -23,14 +23,18 @@ using EyeCtrl.Core.Processing;
 public class DwellColorPicker : IDwellComposite
 {
     /// <summary>
-    /// The default eight-colour preset palette used when no custom presets are provided.
-    /// Each entry is a (hex string, display name) pair.
+    /// Palette-aligned presets, Accent first. Every entry must clear 7:1 against
+    /// Tokens.StrokeHalo — see ColorPickerPresetTests. This list feeds
+    /// CursorSettings.CircleColor, which colours a haloed ring on a transparent
+    /// overlay, so a dark or mid-tone entry collapses the 4.1.3 guarantee.
+    ///
+    /// AccentDanger (#FF5C7A) is deliberately absent: it fails that bar at 6.62:1,
+    /// and is reserved for destructive actions rather than cursor decoration.
     /// </summary>
     public static readonly (string Hex, string Name)[] DefaultPresets =
     [
-        ("#00FF00", "Green"), ("#0088FF", "Blue"), ("#FF0000", "Red"),
-        ("#FFFF00", "Yellow"), ("#00FFFF", "Cyan"), ("#FF00FF", "Magenta"),
-        ("#FFFFFF", "White"), ("#FF8800", "Orange")
+        ("#A5F3FC", "Aqua"), ("#7EE787", "Green"),
+        ("#E8A33C", "Amber"), ("#D6DEF5", "White"),
     ];
 
     private readonly DwellLabel _label;

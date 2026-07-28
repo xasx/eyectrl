@@ -39,7 +39,7 @@ public class DwellArcButton
         var fillBrush = fill ?? Tokens.BrushSurfaceMedium;
         var strokeBrush = stroke ?? Tokens.BrushBorderSubtle;
         var arcBrushActual = arcBrush ?? Tokens.BrushAccent;
-        var symbolBrushActual = symbolBrush ?? Brushes.White;
+        var symbolBrushActual = symbolBrush ?? Tokens.BrushTextPrimary;
         var dia = radius * 2;
         var arcRad = radius - arcInset;
 

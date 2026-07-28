@@ -21,9 +21,6 @@ public class LegacyColourLiteralTests
     /// <summary>file (repo-relative) -> literals still expected in it.</summary>
     private static readonly Dictionary<string, string[]> StillPending = new()
     {
-        ["src/EyeCtrl.Controls/DwellColorPicker.cs"] = ["#00FF00"],
-        ["src/EyeCtrl.Controls/DwellLabel.cs"] = ["180, 180, 180"],
-        ["src/EyeCtrl.Controls/ColorBlend.cs"] = ["Colors.White"],
         ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] = ["200, 50, 50, 50", "100 + 155 * progress", "Brushes.Gray"],
         ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] = ["Brushes.Lime", "60, 60, 60"],
         ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] = ["200, 40, 90, 160"],

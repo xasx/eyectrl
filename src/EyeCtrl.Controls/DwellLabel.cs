@@ -3,6 +3,7 @@ namespace EyeCtrl.Controls;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 
 /// <summary>
 /// A non-interactive label helper used by composite dwell controls to display a
@@ -27,7 +28,7 @@ public class DwellLabel
         Root = new TextBlock
         {
             Text = text,
-            Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
+            Foreground = Tokens.BrushTextSecondary,
             FontSize = 22,
             Margin = new Thickness(0, 8, 0, 2)
         };

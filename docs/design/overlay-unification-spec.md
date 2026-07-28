@@ -1,0 +1,1081 @@
+# EyeCtrl Overlay Design Unification Spec
+
+**Status:** Draft  
+**Date:** 2026-07-25
+
+---
+
+## 1. Problem Statement
+
+EyeCtrl has 25 overlay windows and 7 dwell controls — 23 with XAML under
+`Overlays/`, the code-only `NoteWindow`, and `SettingsWindow` under `Views/`
+(which also derives from `OverlayWindow`). Re-counted against merged `main` at
+b8295b6, which includes PRs #70 and #71, and enforced by
+`OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
+
+- **10 different background colors** used across overlays
+- **7 different corner-radius values** (2, 4, 6, 8, 12, 14, 22)
+- **8 different accent-color families** for dwell feedback
+- **Zero shared resources** — `App.xaml` is empty
+- **Repeated magic color literals** in XAML and C# code-behind
+
+The result is a UI that feels like a patchwork of different apps rather than one cohesive product.
+
+---
+
+## 2. Design Constraints (Hard)
+
+| Constraint | Reason |
+|---|---|
+| **Dwell-friendly above all** | Users interact by staring. Feedback must be instant, high-contrast, and unambiguous. Targets must not shrink. |
+| **Dark-only backgrounds** | Eye trackers work poorly on bright surfaces; users stare at this UI for hours |
+| **No layout changes** | Target positions, sizes, and spacing are tuned for gaze accuracy — don't move them |
+| **Must not break UI tests** | FlaUI tests reference `AutomationId` strings — these must stay unchanged |
+| **No new dependencies** | Resource dictionary must be pure WPF/XAML, no new NuGet packages |
+
+---
+
+## 3. Current State Audit
+
+### 3.1 Overlay Backgrounds
+
+| Overlay | Class | Current Background | Format |
+|---|---|---|---|
+| Keyboard | `KeyboardWindow` | `#F0181818` | XAML |
+| Toolbar | `ToolbarWindow` | `#E0202020` | XAML |
+| QuickActionsGrid | `QuickActionsGridWindow` | `#1A1A2E` + `Opacity="0.95"` | XAML |
+| Settings | `SettingsWindow` | `#E01E1E1E` | XAML |
+| Splash | `SplashWindow` | `#F0181818` | XAML |
+| TrackStatus | `TrackStatusWindow` | `#80000000` | XAML |
+| TaskSwitcher | `TaskSwitcherWindow` | `#E6000000` | XAML |
+| PauseIndicator | `PauseIndicatorWindow` | `#C0204060` | XAML |
+| EyeCareBanner | `EyeCareBannerWindow` | `#F0181830` | XAML |
+| EyeCareExercise | `EyeCareExerciseWindow` | `#E8000000` | XAML |
+| Calibration | `CalibrationWindow` | `#DD000000` | XAML |
+| ActivationButton | `ActivationButtonWindow` | `#80000000` | code-behind |
+| DwellFeedback | `DwellFeedbackOverlay` | `#1A3399FF` | XAML |
+| ScrollOverlay | `ScrollOverlayWindow` | `Transparent` | XAML |
+| GlassBackdrop | `GlassBackdropWindow` | `Transparent` | XAML |
+| ManualSelection | `ManualSelectionOverlayWindow` | `Transparent` | XAML |
+| CursorCircle | `CursorCircleWindow` | `Transparent` | XAML |
+| ActionMenu | `ActionMenuWindow` | `Transparent` | XAML |
+| EdgeButtonBar | `EdgeButtonBarWindow` | `Transparent` | XAML |
+| TargetHighlight | `TargetHighlightWindow` | `Transparent` | XAML |
+| ManualGazeIndicator | `ManualSelectionGazeIndicatorWindow` | `Transparent` | XAML |
+| DragTrail | `DragTrailOverlay` | `Transparent` | XAML |
+| **AdaptationCue** | `CueOverlayWindow` | `Transparent` + `Ellipse Fill="#FFB300"` | XAML |
+| **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML |
+| **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML |
+
+The **Class** column is the match key for the drift-guard test
+(`tests/EyeCtrl.App.Tests/OverlayInventoryDriftTests.cs`): every concrete
+`OverlayWindow` subclass in `EyeCtrl.App` must appear here, and every name here
+must resolve to a real type. Adding an overlay without a row fails the build.
+
+**Finding:** 14 overlays carry a dark fill; 11 are `Background="Transparent"` at
+the window level. The transparent ones are *not* out of scope — they composite
+accent content over live desktop pixels and therefore need §4.1.3's contrast
+guarantee, not merely a token swap. Two of the eleven (`AdaptationCue`,
+`DriftNotice`) are transparent windows hosting a *filled* shape, which is the case
+§4.1.3 originally missed.
+
+**Post-merge additions (PRs #70/#71).** `CueOverlayWindow` and `DriftNoticeWindow`
+arrived after this audit was first written. `DriftNoticeWindow` ships `#E0202020` —
+the exact legacy Toolbar background §5 removes — plus another `CornerRadius="6"`,
+so a brand-new file already carries two of the values this work exists to
+eliminate. `CueOverlayWindow` introduces `#FFB300`, an 8th accent family, on a
+filled shape.
+
+### 3.2 Dwell Accent / Feedback Colors
+
+| Location | Current Accent | Notes |
+|---|---|---|
+| `DwellArcButton` default arc | `Brushes.Lime` (`#00FF00`) | Used by ActionMenu, EdgeButtonBar |
+| `ActivationButtonWindow` progress arc | `Lime` | XAML hardcoded |
+| `CursorCircleWindow` ring | `Lime` | XAML hardcoded |
+| `ManualSelectionGazeIndicatorWindow` | `Lime` | XAML hardcoded |
+| `ToolbarWindow` progress bar | `Brushes.Lime` | code-behind `Rectangle.Fill` |
+| `KeyboardWindow` dwell highlight | Green blend `(0, 100+155*progress, 0)` | code-behind |
+| `QuickActionsGridWindow` progress | `#FFEAA7` (warm yellow) | XAML |
+| `DwellFeedbackOverlay` | `#3399FF` (blue) | XAML |
+| `EyeCareBanner` rings | `#6c8cff` / `#888888` | XAML |
+| `EyeCareExercise` target/dot | `#6c8cff` / `#7ee787` | XAML |
+| `CalibrationWindow` target | `Green` / `Lime` | XAML |
+| `ScrollOverlayWindow` ring | `#4af` (teal) | XAML |
+| `DwellToggle` on/off | `#C81E6428` / `#C8502828` | code-behind `Color` |
+| `DwellButton` highlight | `ColorBlend.ToHighlightBrush` → white blend | code-behind |
+| `DwellSlider` button base | `#C83C3C50` | code-behind |
+| `SettingsWindow` buttons | Various: `#C83C3C50`, `#C8285AA0`, `#C8323232` | code-behind |
+| `CueOverlayWindow` badge | `#FFB300` (amber) | XAML, filled Ellipse |
+| `NoteWindow` state ring | `#4488FF` / `#FFEAA7` | code-only overlay |
+| `CursorSettings.CircleColor` | `#00FF00` default | **persisted setting** |
+| `CalibrationSettings.TargetColor` | `#00FF00` default | **persisted setting** |
+| `AutoSelectionSettings.HighlightColor` | `#0078D4` default | **persisted setting** |
+| `DragSettings.TrailColor` | `#ff9800` default | **persisted setting** |
+
+**Finding:** 8 distinct accent families — Lime green, warm yellow, sky blue, blue-purple, teal, MS blue (`#0078D4`), orange (`#ff9800`) and amber (`#FFB300`). No single colour communicates "this is EyeCtrl." Four of the eight are **persisted settings in `EyeCtrl.Core`**, not XAML, and are read back over the XAML value at runtime — see §7.1.
+
+### 3.3 Corner Radii
+
+| Overlay | Current Radius |
+|---|---|
+| Keyboard | `6` |
+| Toolbar | `4` |
+| QuickActionsGrid | `8` |
+| Splash | `12` |
+| TrackStatus | `8` |
+| EyeCareExercise summary | `14` |
+| DwellButton | `8` |
+| DwellToggle | `8` |
+| DwellSlider buttons | `8` (inherited from DwellButton) |
+
+### 3.4 Typography
+
+No font family is explicitly set anywhere — everything inherits the WPF default (`Segoe UI`). Font sizes vary widely (9px–36px). This is acceptable since different overlays serve different purposes, but the lack of a declared default means a system font change could cascade unexpectedly.
+
+### 3.5 App.xaml
+
+```xml
+<Application.Resources>
+    <!-- completely empty -->
+</Application.Resources>
+```
+
+---
+
+## 4. Proposed Unified Design System
+
+### 4.1 Color Palette
+
+Every value below is validated by `tools/palette_validate.py`, which encodes the
+nine design rules of §4.1.1 as pass/fail gates. **The script must exit 0 before
+this palette is considered valid.** All numbers in §9 are its output — do not
+hand-edit them.
+
+```
+┌─────────────────────┬───────────┬──────────────────────────────────┐
+│ Token               │ Value     │ Usage                            │
+├─────────────────────┼───────────┼──────────────────────────────────┤
+│ SurfaceDark         │ #FA1A1A2E │ All overlay container backgrounds│
+│ SurfaceMedium       │ #FA2A2A44 │ Cards, button fills              │
+│ SurfaceLight        │ #FF3A3A5E │ Elevated surfaces (modals)       │
+│ SurfaceKey          │ #2A2A3E   │ Keyboard key resting state       │
+│ SurfaceKeyModifier  │ #3E3E64   │ Keyboard modifier keys           │
+│ SurfaceKeySwitch    │ #38527F   │ Keyboard sub-layout switch keys  │
+│ SurfacePrediction   │ #2F5340   │ Prediction bar chips             │
+│ BorderSubtle        │ #616BA0   │ Container borders                │
+│ BorderFocus         │ #A5F3FC   │ = Accent (see §4.1.2)            │
+│ TextPrimary         │ #D6DEF5   │ All primary text                 │
+│ TextSecondary       │ #9AA4C8   │ Subtext, hints, labels           │
+│ TextDim             │ #868FB5   │ Disabled/placeholder text        │
+│ Accent              │ #A5F3FC   │ **Dwell progress — reserved**    │
+│ StrokeHalo          │ #0A0A14   │ Outline under Accent on          │
+│                     │           │ transparent overlays (§4.1.3)    │
+│ AccentSuccess       │ #7EE787   │ Positive state, completion       │
+│ AccentWarning       │ #E8A33C   │ Warnings, delete confirmation    │
+│ AccentDanger        │ #FF5C7A   │ Close, cancel, destructive       │
+│ ToggleOn            │ #4A8F5C   │ Toggle enabled state             │
+│ ToggleOff           │ #2E2E42   │ Toggle disabled state            │
+│ ModalBackdrop       │ #B3000000 │ Modal overlay dim                │
+└─────────────────────┴───────────┴──────────────────────────────────┘
+```
+
+Tokens carrying an alpha channel are composited over live desktop content.
+Tokens without one (`SurfaceKey*`, `Text*`, `Border*`, accents) only ever sit on
+another token and are therefore specified opaque.
+
+#### 4.1.1 The nine rules
+
+These are the design rules the palette must satisfy. Each is a gate in
+`tools/palette_validate.py`; changing a value without re-running the script
+invalidates §9.
+
+1. **Layering** — adjacent surfaces show a fill step, and `BorderSubtle` reaches
+   3:1 against the worst composited surface (WCAG 1.4.11 for non-text UI
+   components). The border carries the boundary; the fill only suggests depth.
+2. **Elevation raises opacity.** A modal must separate itself from what is behind
+   it, so `SurfaceLight` is fully opaque and `SurfaceDark` is the most
+   translucent of the three — the inverse of the previous draft.
+3. **Text is measured against the worst composited surface**, not an idealised
+   opaque one. `TextPrimary` ≥ 7:1 (AAA), `TextSecondary` and `TextDim` ≥ 4.5:1
+   (AA at normal text size, since both are used on small text).
+4. **The dwell accent must beat Lime in normal vision and in all three
+   dichromacies.** Replacing the current colour may not regress the one signal
+   the interaction model depends on. (Restated as an absolute 9.5:1 floor for
+   multi-theme use — see §10.4. Midnight's outcome is unchanged either way.)
+5. **The accent is reserved.** No meaning-bearing token within ΔE2000 25 of it;
+   no text token within 15. Text is separated from the accent by *form* — the
+   accent only ever draws arcs, rings and progress fills, never glyphs — so the
+   lower floor is deliberate, not a relaxation.
+6. **Semantic state is separated by lightness, not hue alone** — ≥ 9 L\* between
+   any two of success/warning/danger, so the triad survives red-green deficiency.
+7. **Binary state never rests on hue.** `ToggleOn`/`ToggleOff` hold ≥ 3:1 against
+   each other in normal vision *and* all three dichromacies.
+8. **Keyboard surfaces are mutually distinct** at ΔE2000 ≥ 8, so modifier and
+   sub-layout keys are separable at a glance.
+9. **Semantic colours are saturated enough to read as their own hue** — Lab
+   chroma C\* ≥ 55 for success/warning/danger. Rules 1–8 are all satisfiable by
+   desaturated pastels that no longer *mean* anything: a near-white "warning" at
+   C\* 10 or a pastel-pink "danger" at C\* 41 can pass every other gate. The real
+   triad sits at C\* 62–66. Deliberately **not** applied to `Accent`, which is a
+   high-luminance signal and is correctly low-chroma (C\* ≈ 25 in both themes).
+   Added after an optimiser search over §10 exploited its absence.
+
+#### 4.1.2 Rationale
+
+- **`SurfaceDark` keeps `#1A1A2E`** — the navy already used by QuickActionsGrid.
+  It reads as intentional rather than grey mush, and it is the one part of the
+  previous draft that was locally sourced. Opacity rises from `#E6` (90%) to
+  `#FA` (98%), which bounds the composited contrast drift to −5% instead of −27%.
+  Desktop awareness in this UI comes from overlays being *small*, not from
+  see-through fills; genuine translucency now lives only in `ModalBackdrop` and
+  the full-screen dims.
+
+- **`Accent` = `#A5F3FC`** (replaces Lime `#00FF00`). A light aqua, not the
+  mid-tone cyan of the previous draft. It **strictly dominates Lime** — higher
+  contrast in normal vision *and* in all three dichromacies (§9.2) — so the swap
+  costs nothing in signal strength while gaining a lower green-receptor load for
+  hours-long sessions and a colour that is not "terminal green." The earlier
+  `#7DCFFF` was a regression on every one of those axes.
+
+- **`BorderFocus` = `Accent`.** Two distinct light blues for "dwelling" and
+  "focused" were confusable (ΔE 8.6–14.8) and semantically redundant. Selection
+  and active state are now carried by *fill* (`SurfaceLight` / `SurfaceMedium`),
+  leaving the accent to mean exactly one thing: gaze dwell in progress. Separate
+  the channel, not the hue.
+
+- **`ToggleOn`/`ToggleOff` are no longer a dark red/green pair.** The old values
+  differed by 1.52:1 on the red-green axis alone — the least reliable possible
+  encoding. The new pair differs by 3.39:1 in lightness and holds ≥ 3.26:1 under
+  every dichromacy. "Off" is also no longer red: off is not an error, and red is
+  freed for `AccentDanger`.
+
+- **`TextPrimary` = `#D6DEF5`** (not `#FFFFFF`): pure white is needlessly harsh
+  over long sessions; a soft blue-white stays AAA (12.14:1 worst case) while
+  sitting in the same hue family as the surfaces.
+
+- **`AccentSuccess`/`AccentWarning`/`AccentDanger`** are staged by lightness
+  (L\* 83.6 / 72.0 / 61.9) rather than chosen for hue harmony, so the triad
+  degrades gracefully. See §9.4 for the residual limit and the glyph rule.
+
+#### 4.1.3 Transparent overlays require `StrokeHalo`
+
+`CursorCircleWindow`, `ActivationButtonWindow`, `ManualSelectionGazeIndicatorWindow`
+and `ScrollOverlayWindow` draw directly onto desktop content with no surface
+beneath them. No single colour can hold contrast there — the current Lime ring
+falls to 1.37:1 over a white document, and any replacement fares the same
+(§9.5). **A token swap cannot fix this; it is a contrast-guarantee problem.**
+
+Every accent stroke on a transparent overlay is therefore drawn twice: a
+`StrokeHalo` outline at `StrokeThickness + 2`, then the `Accent` stroke over it.
+The visible feature becomes the *internal edge* between the two, which is fixed
+at 15.78:1 regardless of what is behind the window. Measured across nine
+backdrops, the worst-case edge contrast never drops below 15.78:1 — compared
+with 1.37:1 for a single-stroke ring today.
+
+This applies to the dwell ring, the activation progress arc, the manual-selection
+gaze dot and the scroll velocity ring.
+
+**Filled shapes need the same guarantee by a different means.** The rule above
+covers *strokes*; a filled shape has none to sit under. `CueOverlayWindow`
+(PR #71) is a 40px `Ellipse` with `Fill="#FFB300"` and no stroke at all, on a
+transparent window — so it inherits the full problem:
+
+| Cue badge `#FFB300` on raw desktop | |
+|---|---|
+| black | 11.70 |
+| mid grey | **2.20** |
+| white | **1.79** |
+| amber-ish content | **1.06** |
+
+At 1.06:1 the struggle cue is invisible over amber content — on the one overlay
+whose entire purpose is to get attention when the user is already struggling.
+
+**Rule:** a filled accent shape on a transparent overlay carries a `StrokeHalo`
+**outline ring** (`StrokeThickness` 2) around its fill. Measured across five
+backdrops the badge/halo edge then holds ≥ **10.97:1** in every theme (Midnight
+10.97, Ember 10.99, Contrast 11.70). Stroked shapes get an under-stroke; filled
+shapes get an outline. Both end up guaranteeing an *internal* edge, which is what
+makes the result backdrop-independent.
+
+### 4.2 Corner Radii
+
+| Context | Value | Token |
+|---|---|---|
+| Overlay containers | `8` | `CornerRadiusStandard` |
+| Small inline elements | `4` | `CornerRadiusSmall` |
+| Modal cards | `12` | `CornerRadiusLarge` |
+
+**Rationale:** `8` is the most common current value and works at every scale from a 30px gaze indicator to a full-screen keyboard. `4` covers the Toolbar's current look (compact edge-docked bar). `12` is reserved for prominent cards like the splash screen and modal dialogs.
+
+### 4.3 Typography
+
+Set `FontFamily="Segoe UI"` as an explicit application-level default so a system change doesn't silently alter the UI. Individual overlays keep their existing font sizes — those are functional, not decorative.
+
+### 4.4 Thickness
+
+| Token | Midnight | Usage |
+|---|---|---|
+| `BorderThicknessStandard` | `1` | All container borders |
+
+**This token is theme-varying** — the only non-colour token that is. High-contrast
+convention is a heavier outline because in that theme structure is carried by the
+border rather than by fill steps (§10.7 gate 1); `Contrast` uses `2`. Consequences
+for the token layer:
+
+- `Tokens.cs` cannot be colours-only. `ITheme` must expose a
+  `double BorderThicknessStandard` alongside the 20 brushes, so plan for it in
+  Phase 0 rather than widening the interface later (§10.6).
+- The validator excludes it from every colour gate (`NON_COLOUR_TOKENS`) and gates
+  it only for being ≥ 1, reported next to the theme's border contrast so the two
+  are read together.
+
+---
+
+## 5. Migration Plan
+
+Phase order is a dependency chain: tokens must exist before anything consumes
+them, and `EyeCtrl.Controls` must be migrated before `EyeCtrl.App` so the shared
+dwell controls carry the new defaults into every overlay that hosts them.
+
+### Phase 0: Token foundation (3 new files, 1 modify)
+
+Tokens live in **`EyeCtrl.Controls`**, not `EyeCtrl.App`. The reference direction
+is `App → Controls` (`EyeCtrl.App.csproj:10`) and `Controls → Core` only, so a
+dictionary in `src/EyeCtrl.App/` is invisible to `DwellArcButton` and friends.
+Placing tokens in `App` would make Phase 1 uncompilable.
+
+1. **CREATE** `src/EyeCtrl.Controls/Theme/Tokens.cs`
+   - `public static class Tokens` exposing one `public static readonly Color` per
+     §4.1 token, plus a frozen `SolidColorBrush` per token (`BrushAccent`, …).
+   - Plain C# — no `Application.Current` lookup. `EyeCtrl.Controls.Tests` and
+     `EyeCtrl.Core.Tests` run without a WPF `Application`; a resource-lookup
+     approach would `NullReferenceException` there.
+   - This is the **single source of truth** for all colour values.
+
+2. **CREATE** `src/EyeCtrl.Controls/Theme/OverlayStyles.xaml`
+   - `ResourceDictionary` exposing each token as `{StaticResource BrushXxx}` for
+     XAML consumers, deriving its value from `Tokens` rather than restating it:
+     ```xml
+     <SolidColorBrush x:Key="BrushSurfaceDark"
+                      Color="{x:Static theme:Tokens.SurfaceDark}"/>
+     ```
+   - Deriving via `x:Static` makes drift between the C# and XAML views
+     structurally impossible — there is one literal per colour, in `Tokens.cs`.
+
+3. **CREATE** `tests/EyeCtrl.Controls.Tests/Theme/TokenDictionaryTests.cs`
+   - Loads `OverlayStyles.xaml` and asserts every `Brush*` key resolves and equals
+     its `Tokens` counterpart. Guards a mistyped `x:Static` path (which fails at
+     runtime, not build time) and catches anyone later pasting a raw literal into
+     the dictionary.
+   - Mirrors the existing drift-guard convention of
+     `EyeCtrlSettingsEnumerationTests`.
+
+4. **MODIFY** `src/EyeCtrl.App/App.xaml`
+   - Merge the library dictionary by pack URI:
+     ```xml
+     <ResourceDictionary Source="pack://application:,,,/EyeCtrl.Controls;component/Theme/OverlayStyles.xaml"/>
+     ```
+
+### Phase 1: Shared dwell controls (7 files, `EyeCtrl.Controls`)
+
+Changes here propagate to `ActionMenuWindow` and `EdgeButtonBarWindow` without
+touching those files.
+
+5. **MODIFY** `DwellArcButton.cs`
+   - Arc brush: `Brushes.Lime` → `Tokens.BrushAccent`
+   - Default fill: `#C81E1E1E` → `Tokens.SurfaceMedium`
+   - Default stroke: `#64646464` → `Tokens.BorderSubtle`
+   - **Add the §4.1.3 halo**: draw a `StrokeHalo` arc at `StrokeThickness + 2`
+     beneath the accent arc. Both `ActionMenuWindow` and `EdgeButtonBarWindow`
+     are `Background="Transparent"`, so their arcs currently have no contrast
+     guarantee; this is where they get one.
+
+6. **MODIFY** `DwellToggle.cs`
+   - `OnColor`: `#C81E641E` → `Tokens.ToggleOn` (`#4A8F5C`)
+   - `OffColor`: `#C8502828` → `Tokens.ToggleOff` (`#2E2E42`)
+   - **This is a deliberate value change, not a constant extraction.** The old
+     pair differed by 1.52:1 on the red-green axis alone (§9.4 rationale); the new
+     pair carries state in lightness at 3.39:1.
+
+7. **MODIFY** `DwellSlider.cs`
+   - `BtnBase`: `#C83C3C50` → `Tokens.SurfaceMedium`
+
+8. **MODIFY** `DwellComboBox.cs`
+   - `BtnBase` (line 30): `#C83C3C50` → `Tokens.SurfaceMedium`
+   - `SelectedColor` (line 31): `#C81E641E` → `Tokens.ToggleOn`
+
+9. **MODIFY** `DwellColorPicker.cs`
+   - Replace the 8-swatch preset list (lines 31–33) with palette-aligned presets,
+     `Accent` first: `#A5F3FC` "Aqua" (15.78), `#7EE787` "Green" (12.82),
+     `#E8A33C` "Amber" (9.13), `#D6DEF5` "White" (14.65).
+   - The current list offers `#00FF00` labelled "Green" as the first option — the
+     exact colour this migration removes everywhere else.
+   - **Every preset must clear 7:1 against `StrokeHalo`** (figures above). This
+     picker feeds `CursorSettings.CircleColor`, which colours a haloed ring on a
+     transparent overlay; a preset that is dark or mid-tone collapses the §4.1.3
+     guarantee from 15.78:1 to whatever that colour manages against `#0A0A14`.
+     `AccentDanger` (`#FF5C7A`) fails this at 6.62 and is deliberately **not**
+     offered — it is also semantically wrong for a cursor ring, being reserved for
+     destructive actions.
+   - See the note in §7 on why an already-persisted `#0088FF` (5.59:1 vs halo)
+     matters more than a stale default would.
+
+10. **MODIFY** `DwellLabel.cs`
+    - Foreground (line 30): `Color.FromRgb(180, 180, 180)` → `Tokens.TextSecondary`
+
+11. **MODIFY** `ColorBlend.cs`
+    - `ToHighlightBrush` blends the base colour toward `Colors.White`. Change the
+      target to `Tokens.Accent` so dwell highlight is cyan-tinted everywhere.
+    - **Scope warning:** this single change alters dwell feedback on every
+      `DwellButton`, `DwellToggle`, settings tab, and pagination control in the
+      app — the largest visual delta in the migration, from a three-line edit. It
+      is what makes §4.1's "accent = dwell in progress" true rather than aspirational.
+
+### Phase 2: Settings colour defaults (4 files + 1 test, `EyeCtrl.Core`)
+
+**This phase is new and non-optional.** Four accent colours are persisted
+settings, not XAML. Without it, the cursor ring and calibration target stay Lime
+no matter what the XAML says — `CursorCircleWindow.xaml.cs:32` and
+`CalibrationWindow.xaml.cs:70` overwrite the XAML value at runtime from settings.
+Two of these (`HighlightColor`, `TrailColor`) were absent from the §3.2 audit
+entirely, making the real count seven accent families rather than five.
+
+12. **MODIFY** `src/EyeCtrl.Core/Settings/CursorSettings.cs:22`
+    - `CircleColor`: `"#00FF00"` → `"#A5F3FC"` (`Accent`)
+
+13. **MODIFY** `src/EyeCtrl.Core/Settings/CalibrationSettings.cs:19`
+    - `TargetColor`: `"#00FF00"` → `"#A5F3FC"` (`Accent`)
+
+14. **MODIFY** `src/EyeCtrl.Core/Settings/AutoSelectionSettings.cs:9`
+    - `HighlightColor`: `"#0078D4"` → `"#A5F3FC"` (`Accent`)
+
+15. **MODIFY** `src/EyeCtrl.Core/Settings/DragSettings.cs:9`
+    - `TrailColor`: `"#ff9800"` → `"#E8A33C"` (`AccentWarning`) — keeps the warm,
+      deliberately-distinct-from-`Accent` character of the drag trail so a motion
+      trail is never mistaken for dwell progress.
+
+16. **MODIFY** `tests/EyeCtrl.Core.Tests/Settings/DragSettingsTests.cs:13`
+    - `Check.That(s.TrailColor).IsEqualTo("#ff9800")` → `"#E8A33C"`. This is the
+      only test in the suite that hard-asserts a colour default and it **will**
+      fail otherwise. (`SettingsServiceValidationTests.cs:69` compares against
+      `defaults.Cursor.CircleColor` and is self-relative; the `#00FF00` literals
+      in `SettingsSerializationTests` and `SettingsPropertyValidationTests` are
+      explicit inputs and hex-format fixtures, both unaffected.)
+
+`EyeCtrl.Core` contains no UI rendering, but it does own these values — see the
+correction in §6.
+
+### Phase 3: Code-behind colour constants (4 files, `EyeCtrl.App`)
+
+17. **MODIFY** `Overlays/KeyboardWindow.xaml.cs`
+    - `KeyColorNormal` (line 20): `#C8323232` → `Tokens.SurfaceKey`
+    - `KeyColorSpecial` (line 21): `#C83C3C50` → `Tokens.SurfaceKeyModifier`
+    - `KeyColorSwitch` (line 22): `#C832466E` → `Tokens.SurfaceKeySwitch`
+    - `KeyColorModifierActive` (line 23): `#E650B4FF` → `Tokens.Accent`
+    - `PredictionBarColor` (line 24): `#C8285028` → `Tokens.SurfacePrediction`
+    - Dwell highlight blend → `Tokens.Accent`. **There are two call sites**, not
+      one: line 573 (prediction chip) and line 602 (key). Both use
+      `Color.FromArgb(a, 0, (byte)(100 + 155 * progress), 0)`.
+    - Prediction-kind brushes (lines 37–53) are five semantic colours absent from
+      §3.2: `#C8C8FF` fuzzy, `#C8FFC8` next-word, `#FFFFC8` phrase, `#64C8FF`
+      sentence-completion, `#C896FF` LM suggestion. Retarget onto the palette
+      (`TextSecondary`, `AccentSuccess`, `AccentWarning`, `Accent`, `TextPrimary`)
+      or document them as an intentional out-of-palette semantic set — but do not
+      leave them unaddressed. `Brushes.Gray` (line 559) → `Tokens.TextDim`.
+
+18. **MODIFY** `Overlays/ToolbarWindow.xaml.cs`
+    - Button background (line 82): `FromArgb(NormalButtonAlpha, 60, 60, 60)` →
+      `Tokens.SurfaceMedium`
+    - Indicator background (line 125): `FromArgb(IndicatorButtonAlpha, 40, 40, 40)`
+      → `Tokens.SurfaceDark`
+    - Progress bar (line 62): `Brushes.Lime` → `Tokens.BrushAccent`
+    - ManualSelection active (line 217): `FromArgb(180, 0, 100, 0)` → `Tokens.ToggleOn`
+    - AutoSelection active (line 218): `FromArgb(180, 0, 100, 180)` → `Tokens.SurfaceKeySwitch`
+    - The three alpha constants (lines 19–21: 180 / 120 / 180) become redundant
+      once fills come from tokens; remove them rather than leaving dead constants.
+
+19. **MODIFY** `Views/SettingsWindow.xaml.cs`
+    - `BtnBase` (line 43): `#C83C3C50` → `Tokens.SurfaceMedium`
+    - `TabActive` (line 44): `#C8285AA0` → `Tokens.SurfaceKeySwitch`
+    - `TabInactive` (line 45): `#C8323232` → `Tokens.SurfaceKey`
+    - `ResetBase` (line 46): `#C8805020` → `Tokens.AccentWarning`
+    - `ModalYes` (line 47): `#C81E641E` → `Tokens.ToggleOn`
+    - `ModalNo` (line 48): `#C8641E1E` → `Tokens.AccentDanger`
+    - `CloseBase` (line 49): `#C8641E1E` → `Tokens.AccentDanger`
+    - `DeleteBase` (line 50): `#C8C88228` → `Tokens.AccentWarning`
+    - Note `TabActive` is `#C8285AA0` (`FromArgb(200,40,90,160)`); earlier drafts
+      of this document recorded it as `#C82859A0`.
+
+20. **MODIFY** `Overlays/NoteWindow.xaml.cs`
+    - **A 22nd overlay window, absent from every table in §3.** It is
+      `class NoteWindow : OverlayWindow` with no `.xaml` file, so a XAML-only
+      audit misses it. Ten hardcoded colours:
+      `#1A1A2E` (line 67) → `Tokens.SurfaceDark`; `#2D2D3F` (79) →
+      `Tokens.SurfaceMedium`; `#999999` (85) → `Tokens.TextSecondary`; `#252540`
+      (117) → `Tokens.SurfaceKey`; `#FFEAA7` (137) → `Tokens.AccentWarning`;
+      `#4488FF` (212) → `Tokens.Accent`; `#333344` (213) → `Tokens.SurfaceMedium`;
+      the `#FF6666`/`#66FF66`/`#6688FF` symbol triple (224–226) →
+      `AccentDanger`/`AccentSuccess`/`Accent`; `#33FFFFFF` (237) →
+      `Tokens.BorderSubtle`.
+
+### Phase 4: Filled overlay XAML (12 files)
+
+All backgrounds below are on an inner `<Border>`/`<Rectangle>` with the `Window`
+itself `Background="Transparent"`, except `SettingsWindow`, `TaskSwitcherWindow`
+and `EyeCareExerciseWindow` where it is on the `Window`.
+
+21. **`KeyboardWindow.xaml:9`** — `#F0181818` → `{StaticResource BrushSurfaceDark}`
+22. **`ToolbarWindow.xaml:9`** — `#E0202020` → `{StaticResource BrushSurfaceDark}`
+23. **`QuickActionsGridWindow.xaml`**
+    - RootBorder bg (11): `#1A1A2E` → `BrushSurfaceDark`; border (12): `#334` → `BrushBorderSubtle`
+    - Remove `Opacity="0.95"` (12) — alpha now lives in the token
+    - Tile/close bg (23, 47): `#2A2A3E` → `BrushSurfaceMedium`
+    - Progress + text foreground (31, 63): `#FFEAA7` → `BrushAccent` / `BrushTextPrimary`
+24. **`SplashWindow.xaml`** — bg (8): `#F0181818` → `BrushSurfaceDark`; progress (18): `#FF00AA00` → `BrushAccentSuccess`; track `#FF333333` → `BrushSurfaceMedium`
+25. **`TrackStatusWindow.xaml`** — bg (8): `#80000000` → `BrushSurfaceDark`; box border (13): `White` → `BrushBorderSubtle`; box fill: `#20FFFFFF` → `BrushSurfaceMedium`
+26. **`TaskSwitcherWindow.xaml`** — bg (5): `#E6000000` → `BrushSurfaceDark`; tile (22): `#40FFFFFF` → `BrushSurfaceMedium`; text → `BrushTextPrimary` / `BrushTextSecondary`
+27. **`EyeCareBannerWindow.xaml`** — banner (17): `#F0181830` → `BrushSurfaceDark`; **bottom `BorderBrush` (18): `#6c8cff` → `BrushBorderSubtle`** (omitted from earlier drafts); WorkDim (14): `#73000000` → `BrushModalBackdrop`; SnoozeRing (29): `#888888` → `BrushTextDim`; StartRing + glyphs (36–39): `#FF6c8cff` → `BrushAccent`; SubText (24, 30): `#FFAAAAAA` → `BrushTextSecondary`; "snooze" label (32): `#FF777777` → `BrushTextDim`
+28. **`EyeCareExerciseWindow.xaml`** — window bg (7): `#E8000000` → `BrushSurfaceDark`; snooze fg/border (31): `#FF888888`/`#FF444444` → `BrushTextDim`/`BrushBorderSubtle`; summary card (39): `#F0181830` → `BrushSurfaceLight`, border `#FF6c8cff` → `BrushBorderSubtle`; target dot → `BrushAccent`; gaze ring `#FF7ee787` → `BrushAccentSuccess`; metric values → `BrushAccent`
+29. **`CalibrationWindow.xaml`** — Backdrop `Rectangle.Fill` (15): `#DD000000` → `BrushModalBackdrop`; target dot (20): `Green` → runtime-set from `CalibrationSettings.TargetColor` (Phase 2), XAML value is a fallback only; progress text: `#B0FFFFFF` → `BrushTextPrimary`; completion `Lime` → `BrushAccentSuccess`; error (52): `#FFAA00` → `BrushAccentWarning`; hint (55): `#88FFFFFF` → `BrushTextSecondary`; **`FontFamily="Segoe UI"` (30) is redundant once §4.3 sets it app-wide — remove it** (this is the declaration that falsifies §3.4's "no font family is set anywhere")
+30. **`PauseIndicatorWindow.xaml:12`** — `#C0204060` → `BrushSurfaceDark`
+31. **`Views/SettingsWindow.xaml`** — bg (8): `#E01E1E1E` → `BrushSurfaceDark`; sidebar (14): `#C0141414` → `BrushSurfaceMedium`; close (20): `#C8641E1E` → `BrushAccentDanger`; modal dim (54): `#A0000000` → `BrushModalBackdrop`; modal content (59): `#E0282828` → `BrushSurfaceLight` (elevated — §4.1.1 rule 2)
+32. **`Overlays/DriftNoticeWindow.xaml`** *(new — PR #71)* — inner `Border` (12):
+    `#E0202020` → `{StaticResource BrushSurfaceDark}`, and add
+    `BorderBrush="{StaticResource BrushBorderSubtle}"` +
+    `BorderThickness="{StaticResource BorderThicknessStandard}"` (it currently has
+    none, so its edge is undefined against the desktop); text (15):
+    `Foreground="White"` → `BrushTextPrimary`. Leave `CornerRadius="6"` — radius
+    unification is deferred (§8), but note this file adds a fourth instance of it.
+
+### Phase 5: Transparent overlays — halo pass (6 files)
+
+**This is a rendering change, not a colour swap.** Each accent stroke becomes two
+strokes per §4.1.3. The former "accent only" framing was wrong: no token value
+can give these overlays a contrast guarantee, because they composite against
+arbitrary desktop content (§9.5).
+
+33. **`ActivationButtonWindow.xaml`** — bg circle (11): `#80000000` → `BrushSurfaceDark`; **add a `StrokeHalo` arc beneath `ProgressArc`** (16); arc `Stroke="Lime"` → `BrushAccent`; centre icon (28) `Fill="White"` → `BrushTextPrimary`
+34. **`CursorCircleWindow.xaml` + `.xaml.cs`** — **add a halo `Ellipse` beneath `Circle`** at `StrokeThickness + 2`; XAML `Stroke="Lime"` (11) → `BrushAccent` (fallback only — the runtime value comes from Phase 2); `.xaml.cs:36` parse-failure fallback `Brushes.Lime` → `Tokens.BrushAccent`. Keep the hidden `TextBlock` UIA anchor and its `AutomationId` untouched.
+35. **`ManualSelectionGazeIndicatorWindow.xaml`** — all `Lime` → `BrushAccent`, + halo
+36. **`ScrollOverlayWindow.xaml`** — crosshairs/cursor/anchor (13–18): `White` → `BrushTextPrimary`; velocity ring (19): `#4af` → `BrushAccent`; + halo on the ring
+37. **`DwellFeedbackOverlay.xaml:8`** — `BorderBrush`/`Background`: `#3399FF`/`#1A3399FF` → `BrushAccent` / `Accent` at low alpha
+38. **`Overlays/CueOverlayWindow.xaml`** *(new — PR #71)* — badge `Fill` (14):
+    `#FFB300` → `{StaticResource BrushAccentWarning}` (`#E8A33C`, only ΔE 7.0
+    away, so this is a substitution rather than a redesign). **Add the §4.1.3
+    outline ring**: `Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="2"`.
+    This is the filled-shape case, not the stroked one. `Opacity` is animated in
+    code-behind and must stay untouched, as must the
+    `AdaptationCue_Badge` UIA anchor.
+
+### Phase 6: Verification
+
+39. **RUN** `dotnet build EyeCtrl.slnx` — must compile clean
+40. **RUN** `python tools/palette_validate.py` — must exit 0 (§9 is only valid if it does)
+41. **RUN** `dotnet test --filter "Category!=UI"` — must pass, including
+    `EyeCtrl.App.Tests --filter "Category!=UI"` and the new
+    `TokenDictionaryTests`
+42. **RUN** `dotnet test --filter "Category=UI"` — **requires an interactive
+    desktop session.** Roughly 13 of these fail headless on clean `main` with
+    "Toolbar_Window did not appear within 15s"; they are environmental, not
+    regressions. This is not a usable CI gate — do not treat a headless failure
+    here as a migration defect.
+43. **VISUAL** — launch once and confirm the halo renders on `CursorCircle`,
+    `ActivationButton`, `ActionMenu` and `EdgeButtonBar` over both a dark and a
+    light background window. This is the only check that can catch a z-order
+    mistake putting the halo *above* the accent stroke.
+
+---
+
+## 6. Files NOT Changed
+
+- `ActionMenuWindow.xaml` + `.cs` — inherits accent **and halo** from `DwellArcButton` (Phase 1)
+- `EdgeButtonBarWindow.xaml` + `.cs` — same
+- `GlassBackdropWindow.xaml` + `.cs` — fully dynamic; no hardcoded colours
+- `ManualSelectionOverlayWindow.xaml` + `.cs` — screen capture; no decorative colours
+- `TargetHighlightWindow.xaml` — opacity-driven; `CornerRadius="2"` left as-is (§8)
+- `DragTrailOverlay.xaml` + `.cs` — renders from `DragSettings.TrailColor`, which
+  Phase 2 retargets; the files themselves need no edit
+- `EyeCtrl.LM`, `EyeCtrl.Platform`, `EyeCtrl.ViewModels`, `EyeCtrl.EyeCare`,
+  `EyeCtrl.Contracts`, `EyeCtrl.Sdk.*`, `EyeCtrl.Supervisor` — no colour literals
+  in scope
+
+**Correction to earlier drafts:** `EyeCtrl.Core` was previously listed here as
+"no UI rendering." That is true of its rendering but false of its *ownership* — it
+holds four persisted accent colours, and Phase 2 changes them. Excluding Core is
+what would have left the cursor ring Lime.
+
+---
+
+## 7. Risk Assessment
+
+| Risk | Likelihood | Mitigation |
+|---|---|---|
+| **A persisted `cursor.circleColor` survives Phase 2 and weakens the halo.** Settings persist to `%APPDATA%\EyeCtrl\settings.json`, and changing a code default does not touch keys already in that file. | Low — one key, see §7.1 | **No migration code.** Single-user project; change the value once through the existing Circle Color picker. Details and the reason it matters in §7.1. |
+| `ColorBlend.ToHighlightBrush` retarget silently changes dwell feedback on every button, toggle, tab and pagination control | Medium | Largest visual delta per line changed in the migration. Review it as its own commit; it is easy to mistake for a regression during Phase 1 review. |
+| Halo z-order inverted — `StrokeHalo` drawn *above* the accent stroke, hiding it | Medium | Renders as a dark ring on every backdrop, so it is obvious once seen but invisible to any headless test. Step 41 exists for this. |
+| Pack URI fails to resolve `OverlayStyles.xaml` from the `EyeCtrl.Controls` assembly | Medium | Fails at runtime, not build time. `TokenDictionaryTests` (Phase 0 step 3) loads the dictionary explicitly and fails fast in a headless test. |
+| `x:Static` path typo in the dictionary | Medium | Same mitigation — the dictionary test compares each brush against `Tokens`. |
+| `DragSettingsTests` fails | **Certain** | Step 16 updates it in the same phase as the default change. |
+| Halo doubles stroke geometry on overlays that redraw at gaze rate (`CursorCircle`, `ActivationButton`) | Low | Two `Freeze()`d brushes and one extra `Ellipse`/`Path` per overlay; no per-frame allocation. Confirm no new allocations in the gaze path. |
+| `DwellColorPicker` preset change conflicts with a persisted user choice | Low | The picker only offers presets; a saved out-of-list colour still round-trips. Existing selection is preserved, just no longer highlighted as a preset. |
+| `AccentDanger` is AA (5.49:1), not AAA | Accepted | Used only on ≥22px close/cancel glyphs, where AA applies. Deliberate trade to preserve the semantic triad's lightness separation — see §9.1 and §9.4. |
+| Warning/danger indistinguishable under tritanopia | Accepted | Unsolvable in a three-colour triad (§9.4). Mitigated by the mandatory glyph rule, which existing UI already satisfies. |
+| Missing one of the two green dwell blends in `KeyboardWindow` | Medium | Two call sites (lines 573, 602) with near-identical code; earlier drafts of this document recorded only one. Grep for `100 + 155 * progress` to confirm both are gone. |
+| UI test selector breakage | Low | No `AutomationId` changes; no test asserts on any brush or colour except `DragSettingsTests`. `CursorCircle_Ellipse_Main`'s hidden `TextBlock` anchor must survive the halo edit in step 33. |
+| Removing QuickActions' `Opacity="0.95"` shifts the fill | Low | `SurfaceDark` is `#FA` (98%) against the old effective ~85% (`0.95 × #1A1A2E` composited); the overlay becomes slightly more opaque, which §4.1.1 rule 3 intends. |
+
+### 7.1 Persisted settings — decision: no migration code
+
+**Decided:** this is a single-user project, so Phase 2 ships no settings-migration
+code. The behaviour below was checked against the actual install rather than
+assumed.
+
+`%APPDATA%\EyeCtrl\settings.json` is a **partial** document — it contains only
+`actionMenu`, `cursor`, `dwell`, `general`, `keyboard`, `selectionMode`, `theme`,
+`toolbar` and `zoom`. Every absent section deserializes from the code defaults, so:
+
+| Setting | In the file? | Effect of Phase 2 |
+|---|---|---|
+| `calibration.targetColor` | no | picks up `#A5F3FC` automatically |
+| `autoSelection.highlightColor` | no | picks up `#A5F3FC` automatically |
+| `drag.trailColor` | no | picks up `#E8A33C` automatically |
+| `cursor.circleColor` | **yes — `#0088FF`** | unchanged; needs one manual edit |
+
+Three of the four therefore need no action at all. **Correction to earlier drafts
+of this document:** they claimed an existing install "will still show a Lime cursor
+ring," rated High/certain. That is wrong — the persisted value is `#0088FF`, a
+deliberate user choice, not a stale `#00FF00` default, and it is the only one of
+the four that persists.
+
+**Why the remaining one still matters.** `#0088FF` is not merely off-palette; it
+is a poor ring colour and it undermines §4.1.3:
+
+| | on `#1A1A2E` | prot | deut | trit | **vs `StrokeHalo`** |
+|---|---|---|---|---|---|
+| `#0088FF` (persisted) | 4.85 | 5.29 | 4.62 | 3.87 | **5.59** |
+| `#00FF00` (old default) | 12.43 | 14.20 | 11.52 | 9.66 | 14.35 |
+| `#A5F3FC` (`Accent`) | 13.67 | 14.60 | 13.20 | 11.60 | **15.78** |
+
+The halo guarantees a backdrop-independent edge only to the extent the ring
+contrasts with `StrokeHalo`. At 5.59:1 the guarantee drops from 15.78:1 to 5.59:1 —
+below the 7:1 gate — so the transparent-overlay fix is substantially weakened for
+the one overlay the user looks at most. On raw desktop without the halo, `#0088FF`
+manages 1.12:1 over mid-grey.
+
+**Action:** after Phase 2 lands, set Circle Color to Aqua (`#A5F3FC`) once via the
+existing picker in Settings → Cursor — a single dwell interaction, no JSON editing,
+no migration code. The alternative "Reset ALL Settings" button
+(`SettingsViewModel.ResetAllSettings()`) would also do it, but it rebuilds every
+sub-setting from defaults and would discard unrelated tuning; prefer the picker.
+
+---
+
+## 8. Out of Scope
+
+Genuinely excluded from this work:
+
+- Layout changes (margins, padding, control sizes)
+- Font size changes
+- Light mode
+- Animation curves / timing
+- Settings **file format** (Phase 2 changes four default *values*, not the schema)
+- EyeCare scoring UI
+- Supervisor UI (`EyeCtrl.Supervisor`)
+- WinUI SDK sample (`EyeCtrl.Sdk.WinUI.Sample`)
+
+**No longer out of scope.** Earlier drafts excluded "new controls or behaviors,"
+which would have barred the §4.1.3 halo. The halo is a rendering change and it is
+in scope: it is the only fix for the transparent overlays, whose accent strokes
+fall to 1.37:1 over light desktop content (§9.5). Under the §2 constraint that
+dwell feedback be "instant, high-contrast, and unambiguous," shipping a palette
+that leaves them unguaranteed would miss the point of the exercise.
+
+**Deferred, with reason.** Corner-radius unification is *not* delivered by this
+pass, and §4.2's three tokens are insufficient for it. Seven distinct radii are in
+use — `2`, `4`, `6`, `8`, `12`, `14`, `22` — against tokens covering only `4`, `8`
+and `12`. The `22` on `QuickActionsGridWindow.xaml:23` is a pill radius on a 44px
+button and would visibly break if forced to `8`; `14`
+(`EyeCareExerciseWindow.xaml:39`) and the `6` used by `KeyboardWindow.xaml.cs:197`,
+`NoteWindow.xaml.cs:68`, `DwellComboBox.cs:139` and `DwellColorPicker.cs:97` are
+also unmapped. No migration step above changes a radius, so radii remain exactly
+as fragmented as before. Closing this needs a `CornerRadiusPill` token and a
+decision on `6` vs `8` for key caps — a follow-up to §4.2, not a silent edit here.
+
+---
+
+## 9. Appendix: Measured Colour Metrics
+
+All figures below are the output of `tools/palette_validate.py` (WCAG 2.1
+relative luminance, CIEDE2000 perceptual distance, Viénot 1999 dichromat
+simulation). Re-run it after any palette change:
+
+```bash
+python tools/palette_validate.py
+```
+
+### 9.1 Contrast — opaque core vs worst composited case
+
+Two backgrounds matter. The **opaque core** `#1A1A2E` is what a token sits on
+when the overlay is stacked on itself. The **worst composited** case is
+`SurfaceDark` (`#FA1A1A2E`, 98%) over a white document — `#1E1E32` — which is
+what actually happens when the overlay floats above a browser or editor. The
+previous draft measured only the former, overstating every ratio.
+
+| Token | Opaque core | Worst composited | Level (worst case) |
+|---|---|---|---|
+| `#D6DEF5` TextPrimary | 12.69 | **12.14** | AAA |
+| `#A5F3FC` Accent | 13.67 | **13.07** | AAA |
+| `#7EE787` AccentSuccess | 11.10 | **10.62** | AAA |
+| `#E8A33C` AccentWarning | 7.91 | **7.56** | AAA |
+| `#FF5C7A` AccentDanger | 5.74 | **5.49** | AA |
+| `#9AA4C8` TextSecondary | 6.92 | **6.62** | AA (normal text) |
+| `#868FB5` TextDim | 5.37 | **5.14** | AA (normal text) |
+| `#616BA0` BorderSubtle | 3.35 | **3.20** | WCAG 1.4.11 non-text |
+| `#00FF00` Lime (current) | 12.43 | — | AAA |
+
+`AccentDanger` is the one token that does not reach AAA (5.49:1 worst case). It
+is used exclusively on close/cancel glyphs at 22px and above, where AA is the
+applicable threshold; raising it further would collapse the L\* gap that keeps
+the semantic triad separable under red-green deficiency (§9.4). This is a
+deliberate trade, not an oversight.
+
+### 9.2 The accent swap does not regress — it dominates
+
+Contrast against the opaque core, as each vision type perceives it:
+
+| Vision | Lime `#00FF00` | Accent `#A5F3FC` | Δ |
+|---|---|---|---|
+| Normal | 12.43 | **13.67** | +1.24 |
+| Protanopia | 14.20 | **14.60** | +0.40 |
+| Deuteranopia | 11.52 | **13.20** | +1.68 |
+| Tritanopia | 9.66 | **11.60** | +1.94 |
+
+The accent is at least as visible as Lime for every vision type. For reference,
+the earlier `#7DCFFF` proposal was *worse* than Lime on all four rows
+(10.69 / 9.56 / 8.28 against 14.20 / 11.52 / 9.66) — the claim that the two had
+"nearly identical" contrast was incorrect, and the swap as originally specified
+would have degraded the primary dwell signal.
+
+### 9.3 Accent isolation (ΔE2000)
+
+The accent must not be confusable with anything that carries meaning. Floor is
+25 for meaning-bearing tokens, 15 for text (separated by form — the accent draws
+only geometry, never glyphs).
+
+| Against | ΔE2000 | Floor |
+|---|---|---|
+| AccentSuccess | 29.0 | 25 |
+| AccentWarning | 42.3 | 25 |
+| AccentDanger | 61.0 | 25 |
+| ToggleOn | 35.6 | 25 |
+| BorderSubtle | 42.1 | 25 |
+| SurfaceKeySwitch | 51.8 | 25 |
+| TextSecondary | 26.9 | 15 |
+| TextPrimary | 20.0 | 15 |
+
+`TextPrimary` at 20.0 is the tightest pair. ΔE 25 is unreachable between a bright
+accent and near-white text — for two colours of near-equal lightness the CIEDE2000
+lightness term vanishes and the achievable distance plateaus around 20 regardless
+of hue choice. 20.0 is nearly nine times the just-noticeable difference (≈2.3), and
+the two never appear in the same role.
+
+### 9.4 Semantic triad under colour-vision deficiency
+
+Staged by lightness so the triad does not depend on hue:
+
+| Token | L\* | ΔE prot | ΔE deut | ΔE trit |
+|---|---|---|---|---|
+| AccentSuccess `#7EE787` | 83.6 | — | — | — |
+| AccentWarning `#E8A33C` | 72.0 | 13.3 | 10.8 | 58.6 |
+| AccentDanger `#FF5C7A` | 61.9 | 33.9 (vs success) | 12.4 (vs success) | 58.3 (vs success) |
+
+Success↔warning ΔL\* = 11.6, success↔danger 21.7, warning↔danger 10.1 — all above
+the 9 L\* floor. Compare the previous draft, where `AccentSuccess` and
+`AccentWarning` sat at **ΔE 1.1** under deuteranopia: indistinguishable.
+
+**Residual limit, stated plainly:** `AccentWarning` and `AccentDanger` still
+collapse under tritanopia (ΔE 1.6), separated only by 10.1 L\* / 1.38:1. Tritanopia
+is rare (≈0.01%) and the blue-yellow axis cannot carry both an amber and a red,
+so this is not solvable within a three-colour triad.
+
+**Therefore: semantic colour is never the sole carrier of meaning.** Every use of
+the triad must be accompanied by a distinct glyph (✓ / ⚠ / ✕). The app already
+uses Unicode symbols throughout the toolbar and action menu, so this is a
+constraint on new code rather than a change to existing UI.
+
+### 9.5 Transparent overlays — why `StrokeHalo` is required
+
+Contrast of a single-stroke ring against the desktop it floats on:
+
+| Backdrop | Lime (current) | Accent (alone) | Accent + `StrokeHalo` |
+|---|---|---|---|
+| Black | 15.30 | 16.83 | **15.78** |
+| Mid grey `#808080` | 2.88 | 3.16 | **15.78** |
+| White document | 1.37 | 1.25 | **19.69** |
+| Cyan-ish content | — | 1.33 | **15.78** |
+
+A single stroke of *any* colour fails over mid-tone and light content; this is the
+most serious unaddressed defect in the original draft, which treated it as a
+palette question. With the halo, the visible feature is the accent/halo edge,
+which is independent of the backdrop. Measured across nine backdrops the
+worst-case edge never drops below **15.78:1**.
+
+### 9.6 Layering
+
+| Pair | Contrast | ΔE2000 |
+|---|---|---|
+| SurfaceDark → SurfaceMedium | 1.23 | 5.6 |
+| SurfaceMedium → SurfaceLight | 1.29 | 6.2 |
+| SurfaceKey → SurfaceKeyModifier | 1.39 | 9.3 |
+| SurfaceKeyModifier → SurfaceKeySwitch | 1.29 | 9.8 |
+
+Surface fill steps are deliberately modest. In the dark region ΔE2000 compresses
+sharply — `#1A1A2E → #3C3C63` spans only 12.8 — so a large perceptual step
+between adjacent surfaces is unachievable without abandoning the dark-only
+constraint of §2. Layering is therefore carried by `BorderSubtle` at 3.20:1
+(§9.1), with the fill providing a supporting cue. The keyboard ramp clears
+ΔE 8 on every pair, which the previous draft's `SurfaceKeyModifier`/
+`SurfaceKeySwitch` (ΔE 7.2) did not.
+
+## 10. Appendix: Alternative Themes — "Ember" and "Contrast"
+
+**Status:** proposals for a future theme system. **Nothing in §5 changes.** The
+palette in §4.1 remains the sole shipping palette; this section adds two validated
+alternative themes so the token layer can be built theme-ready rather than
+retrofitted.
+
+The §4.1 palette is now named **Midnight**. Both themes are validated by the same
+script, which takes an optional theme name:
+
+```bash
+python tools/palette_validate.py Ember
+```
+
+### 10.1 Why warm
+
+A second theme is only worth having if it does something the first cannot. A light
+theme is excluded outright by §2 (eye trackers work poorly on bright surfaces), so
+the useful axis is **colour temperature**, not lightness: Ember warms every
+surface and text token, cutting short-wavelength emission across the large areas
+that dominate exposure. That has a functional rationale in this product rather
+than a decorative one — the app already ships an `EyeCtrl.EyeCare` subsystem for
+break scheduling and eye strain, and a low-blue-light variant is the same concern
+expressed in the palette.
+
+The accent is the deliberate exception: it stays cool (§10.5). It covers a few
+percent of lit pixels, so it barely affects exposure, and keeping it off the warm
+axis leaves that axis free for the semantic triad.
+
+Ember is the *comfort* axis. §10.7 adds **Contrast**, which is the *legibility*
+axis and a different kind of theme again — situational rather than all-day. Beyond
+those two there is no third axis worth the validation surface: every theme
+multiplies it, and §9.4's glyph rule and §4.1.3's halo have to hold in each.
+
+### 10.2 Palette
+
+| Token | Midnight | Ember |
+|---|---|---|
+| `SurfaceDark` | `#FA1A1A2E` | `#FA211B14` |
+| `SurfaceMedium` | `#FA2A2A44` | `#FA342B20` |
+| `SurfaceLight` | `#FF3A3A5E` | `#FF473A2C` |
+| `SurfaceKey` | `#2A2A3E` | `#2E2619` |
+| `SurfaceKeyModifier` | `#3E3E64` | `#4E4029` |
+| `SurfaceKeySwitch` | `#38527F` | `#63382A` |
+| `SurfacePrediction` | `#2F5340` | `#33422A` |
+| `BorderSubtle` | `#616BA0` | `#7A6C51` |
+| `BorderFocus` | `#A5F3FC` | `#9FE8FF` |
+| `TextPrimary` | `#D6DEF5` | `#F2EEE8` |
+| `TextSecondary` | `#9AA4C8` | `#BFB4A2` |
+| `TextDim` | `#868FB5` | `#A0917C` |
+| **`Accent`** | **`#A5F3FC`** | **`#9FE8FF`** |
+| `StrokeHalo` | `#0A0A14` | `#0E0A06` |
+| `AccentSuccess` | `#7EE787` | `#7EE787` (shared) |
+| `AccentWarning` | `#E8A33C` | `#E8A33C` (shared) |
+| `AccentDanger` | `#FF5C7A` | `#FF5C7A` (shared) |
+| `ToggleOn` | `#4A8F5C` | `#67874C` |
+| `ToggleOff` | `#2E2E42` | `#342C21` |
+| `ModalBackdrop` | `#B3000000` | `#B3000000` |
+| `BorderThicknessStandard` | `1` | `1` |
+
+Opaque surface core `#211B14` (L\* 10.2) is deliberately matched to Midnight's
+`#1A1A2E` (L\* 10.2), so the two themes sit at the same perceived depth and only
+temperature changes.
+
+### 10.3 Measured results
+
+All nine gates pass. Worst composited surface `#251F19`.
+
+| Gate | Midnight | Ember |
+|---|---|---|
+| TextPrimary (composited) | 12.14 | 14.10 |
+| TextSecondary | 6.62 | 7.97 |
+| TextDim | 5.14 | 5.30 |
+| BorderSubtle | 3.20 | 3.17 |
+| Accent — normal | 13.67 | 12.55 |
+| Accent — protanopia | 14.60 | 13.33 |
+| Accent — deuteranopia | 13.20 | 12.12 |
+| Accent — tritanopia | 11.60 | 10.69 |
+| Toggle on/off (worst dichromacy) | 3.26 | 3.30 |
+| Halo edge, worst backdrop | 15.78 | 14.52 |
+| Triad ΔL\* (min pair) | 10.08 | 10.08 (shared triad) |
+
+### 10.4 Gate 3, restated
+
+Midnight's rule 4 was "the accent must beat Lime in every dichromacy" — a
+no-regression proof valid only while Lime was the incumbent. For a theme system it
+is restated as an **absolute floor of 9.5:1 in normal vision and all three
+dichromacies**, which is the bar Lime itself set at its worst (9.66 under
+tritanopia). Midnight's outcome is unchanged: its worst case is 11.60. §9.2's
+Lime comparison stands as the evidence for the original swap.
+
+### 10.5 Where Ember stands — and a corrected claim
+
+**Correction.** An earlier draft of this section claimed that Ember's
+`AccentDanger` was stuck at AA-large (4.12:1) and that this was *structural* —
+"no warm-accent arrangement keeps danger at AA while satisfying gates 4 and 5."
+**That was wrong.** It was tested by sweeping accent hue across the circle with
+warm surfaces and warm text held fixed, and arrangements satisfying every gate
+exist well above AA. The cause was a choice, not a constraint: spending the warm
+hue axis on the accent left the semantics competing with it for ΔE 25. Moving the
+accent off that axis frees it entirely.
+
+Ember therefore uses a **cool accent on warm surfaces** (`#9FE8FF`), and its
+semantic triad is now identical to Midnight's. Measured difference between the
+two themes after the change:
+
+| | Midnight | Ember |
+|---|---|---|
+| `AccentDanger` | 5.74 (AA) | **5.74 (AA)** |
+| `AccentWarning` | 7.91 (AAA) | **7.90 (AAA)** |
+| `AccentSuccess` | 11.10 (AAA) | **11.10 (AAA)** |
+| Accent, worst vision type | 11.60 | 10.69 |
+| Halo edge, worst backdrop | 15.78 | 14.52 |
+
+The only residual gap is accent headroom under tritanopia (10.69 vs 11.60) and a
+slightly weaker halo edge — both far above their floors (9.5 and 7.0). **Ember is
+not meaningfully weaker than Midnight.**
+
+**Why a cool accent does not defeat the point of the theme.** The accent is
+small-area — rings, arcs, progress bars, a few percent of lit pixels. Short-
+wavelength exposure is dominated by *surfaces*, which remain warm. The low-blue-
+light rationale of §10.1 survives essentially intact, and a warm charcoal UI with
+a single cool accent is a deliberate combination rather than a compromise.
+`#9FE8FF` rather than Midnight's `#A5F3FC` keeps the two themes distinguishable.
+
+**Semantic colours are shared across themes, by design.** Success, warning and
+danger are *functional* — they encode outcome, not brand — so they do not vary by
+theme. Theme identity lives in surfaces, text and the accent. This also means
+§9.4's measurements and the glyph rule transfer unchanged, and there is one fewer
+triad to re-validate per theme.
+
+The §9.4 tritanopia limitation applies identically, since the triad is the same:
+warning and danger collapse at ΔE 1.6, so the glyph rule (✓ / ⚠ / ✕) is not
+optional in either theme.
+
+### 10.5.1 Gate 9 came out of this
+
+The hue sweep above initially produced "passing" arrangements with a near-white
+`#F0D6D1` as *warning* (ΔE 10.3 from `TextPrimary`) and a pastel pink as *danger*.
+Both satisfied rules 1–8 while ceasing to read as amber or red. Rules 1–8 never
+required a semantic colour to be saturated enough to signify — so rule 9, a Lab
+chroma floor of C\* ≥ 55 on the triad, was added (§4.1.1). Without it the
+validator will certify palettes that are numerically sound and semantically
+meaningless. It is scoped to the triad only; `Accent` is correctly low-chroma at
+C\* ≈ 25 in both themes, being a luminance signal rather than a categorical one.
+
+### 10.6 What a theme system requires structurally
+
+Not in scope for §5, but worth recording before Phase 0 fixes the shape:
+
+- **`{StaticResource}` cannot switch at runtime.** §5 Phase 4–5 specify
+  `StaticResource` throughout, which resolves once when a window loads. That is
+  fine for a theme chosen at startup, and fine for overlays that are created and
+  destroyed per use — but a live "switch theme now" affecting an already-open
+  Settings or Keyboard window needs `{DynamicResource}`, or those windows must be
+  recreated on change. **Decide restart-vs-live before Phase 4**, because
+  converting the resource references afterwards touches every file in that phase.
+- **`Tokens.cs` becomes a provider, not a set of constants.** A theme system needs
+  the values behind an indirection (`ITheme` with a current-theme accessor), while
+  the §5 design deliberately uses plain statics so `EyeCtrl.Controls.Tests` can
+  run without a WPF `Application`. Both are satisfiable — keep the statics as the
+  Midnight implementation of `ITheme` — but the interface should exist from
+  Phase 0 rather than being introduced by a later refactor. Note it carries more
+  than the 20 brushes: `BorderThicknessStandard` is theme-varying (§4.4), so
+  `ITheme` needs at least one non-colour member from the start.
+- **A theme setting means a fifth persisted colour-adjacent key.** `ThemeSettings`
+  already exists in `EyeCtrlSettings`; a theme name belongs there, and per §7.1
+  the user-chosen `CursorSettings.CircleColor` would then need to be
+  theme-relative or explicitly theme-independent. The halo constraint from
+  §5 item 9 (presets ≥ 7:1 against `StrokeHalo`) must be re-checked per theme —
+  Ember's halo is `#0E0A06`, so the preset list is not automatically portable.
+
+---
+
+### 10.7 "Contrast" — the high-contrast theme
+
+Situational, not a daily driver: for glare, a bright room, or tired eyes. Pure
+white at 21:1 for hours is exactly what §4.1.2 rejects for `TextPrimary`. Its
+pure-black surfaces are the friendliest of the three to the eye tracker, so it
+costs nothing on that axis.
+
+| Token | Value | Token | Value |
+|---|---|---|---|
+| `SurfaceDark` | `#FF000000` | `Accent` | `#00FFFF` |
+| `SurfaceMedium` | `#FF141414` | `StrokeHalo` | `#000000` |
+| `SurfaceLight` | `#FF262626` | `AccentSuccess` | `#00FF00` |
+| `SurfaceKey` | `#0F0F0F` | `AccentWarning` | `#FFFF00` |
+| `SurfaceKeyModifier` | `#123A63` | `AccentDanger` | `#FF7777` |
+| `SurfaceKeySwitch` | `#4A4A4A` | `ToggleOn` | `#00FF00` |
+| `SurfacePrediction` | `#004D22` | `ToggleOff` | `#000000` |
+| `BorderSubtle` | `#FFFFFF` | `TextPrimary` | `#FFFFFF` |
+| `BorderFocus` | = `Accent` | `TextSecondary` / `TextDim` | `#E8E8E8` / `#C8C8C8` |
+| `ModalBackdrop` | `#E6000000` | | |
+
+All nine gates pass. Text 21.00 / 17.14 / 12.55; accent 16.75 normal and 11.89 at
+its worst dichromacy; halo edge 16.75.
+
+**Three gates pass for different reasons than in the other themes** — which is
+what makes this theme structurally distinct rather than a re-hue:
+
+1. **Gate 1 is carried entirely by the border.** Fill steps are ΔE 3.7 and 5.6 —
+   effectively invisible — while `BorderSubtle` reaches **21:1** against a 3:1
+   floor. Structure by outline, not by fill, which is the authentic HC idiom.
+   Surfaces are also necessarily **opaque**: translucency and a contrast guarantee
+   are incompatible. So "elevation raises opacity" reads a trivial 255→255 and the
+   worst-composited case equals the surface itself.
+2. **Gate 5 passes on lightness alone.** `#00FF00` and `#FFFF00` collapse to
+   **ΔE 2.7 under protanopia**, against Midnight's 13.3 for the same pair. Maximum
+   saturation pushes colours toward the confusion-line endpoints, so *the property
+   that makes the theme high-contrast makes its hues less separable for CVD.* The
+   pair survives only on ΔL\* 9.40 — a 1.28:1 luminance ratio. **§9.4's glyph rule
+   is more load-bearing here, not less:** for a protanope, ✓ versus ⚠ is very
+   nearly the only thing separating success from warning.
+3. **Gate 9 is the binding constraint on danger.** `#FF0000` is only **5.25:1** on
+   black — red is inherently dark. Raising it past 10:1 drops chroma below the
+   C\* 55 floor (`#FF9999` is C\* 41.5), at which point it stops reading as red.
+   `#FF7777` is the ceiling: 8.16:1 at C\* 57.6. So danger is the weakest colour
+   *within* this theme (8.16 against 15–21) while being the **strongest
+   `AccentDanger` of all three themes** (Midnight and Ember are 5.74).
+
+**The triad is therefore NOT shared with Midnight and Ember.** That is a
+consequence of the above, not an inconsistency — no high-contrast palette can use
+`#FF5C7A` and still be high-contrast.
+
+Two choices worth recording:
+
+- **Keys are tinted, not outlined.** Gate 8 first *failed* with an achromatic
+  ramp (ΔE 6.1 and 7.0 — near-blacks compress badly), so `SurfaceKeyModifier` and
+  `SurfacePrediction` carry low-luminance blue and green tints. A strict HC
+  reading would differentiate by border instead and need gate 8 restated as
+  "distinguishable by fill ΔE ≥ 8 **or** by a ≥ 7:1 border."
+- **The accent is fully saturated `#00FFFF`, not a brighter `#66FFFF`.** In this
+  theme white is a *structural* colour, and the paler cyan sits only ΔE 24.6 from
+  `BorderSubtle` — failing gate 4. HC constrains the accent more than the other
+  themes do.
+
+**`BorderThicknessStandard` is theme-varying** (`2` here, `1` elsewhere) — see
+§4.4. It is the one non-colour token a theme overrides, which is why `ITheme` has
+to carry more than the 20 brushes.
+
+---

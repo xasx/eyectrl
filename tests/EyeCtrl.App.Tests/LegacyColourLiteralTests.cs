@@ -23,13 +23,9 @@ public class LegacyColourLiteralTests
     {
         // All 11 of this file's colour literals, not a subset — the allow-list is the
         // cross-task guard, and a partial entry lets the untracked ones return silently.
-        ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =
-        [
-            "0x1A, 0x1A, 0x2E", "0x2D, 0x2D, 0x3F", "0x99, 0x99, 0x99",
-            "0x25, 0x25, 0x40", "0xFF, 0xEA, 0xA7", "0x44, 0x88, 0xFF",
-            "0x33, 0x33, 0x44", "0xFF, 0x66, 0x66", "0x66, 0xFF, 0x66",
-            "0x66, 0x88, 0xFF", "0x33, 0xFF, 0xFF, 0xFF",
-        ],
+        // NoteWindow.xaml.cs migrated by Task 12 (incl. three Colors.Lime accent usages
+        // the plan's substitution table omitted — edit border, GetBorderBrush edit/move
+        // states, and the dwell-arc stroke — all retargeted to Tokens.BrushAccent).
         ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml"] = ["#F0181818"],
         ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml"] = ["#E0202020"],
         ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml"] = ["#1A1A2E", "#2A2A3E", "#FFEAA7"],

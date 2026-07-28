@@ -11,6 +11,7 @@ using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.ViewModels;
@@ -40,14 +41,14 @@ public partial class SettingsWindow : OverlayWindow
     private const int PaginationButtonHeight = 80;
     private const int PaginationSymbolFontSize = 30;
 
-    private static readonly Color BtnBase = Color.FromArgb(200, 60, 60, 80);
-    private static readonly Color TabActive = Color.FromArgb(200, 40, 90, 160);
-    private static readonly Color TabInactive = Color.FromArgb(200, 50, 50, 50);
-    private static readonly Color ResetBase = Color.FromArgb(200, 128, 80, 32);
-    private static readonly Color ModalYes = Color.FromArgb(200, 30, 100, 30);
-    private static readonly Color ModalNo = Color.FromArgb(200, 100, 30, 30);
-    private static readonly Color CloseBase = Color.FromArgb(200, 100, 30, 30);
-    private static readonly Color DeleteBase = Color.FromArgb(200, 200, 130, 40);
+    private static readonly Color BtnBase = Tokens.SurfaceMedium;
+    private static readonly Color TabActive = Tokens.SurfaceKeySwitch;
+    private static readonly Color TabInactive = Tokens.SurfaceKey;
+    private static readonly Color ResetBase = Tokens.AccentWarning;
+    private static readonly Color ModalYes = Tokens.ToggleOn;
+    private static readonly Color ModalNo = Tokens.AccentDanger;
+    private static readonly Color CloseBase = Tokens.AccentDanger;
+    private static readonly Color DeleteBase = Tokens.AccentWarning;
 
     // ────── State ──────
 

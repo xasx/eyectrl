@@ -10,7 +10,22 @@
 
 **Source spec:** `docs/design/overlay-unification-spec.md` §4.1.3 (the rule and its two cases), §9.5 (measured backdrop table), §5 Phase 5 steps 33–38, plus the `DwellArcButton` halo from step 5.
 
-**Prerequisite: Plan A must be complete.** This plan consumes `Tokens.BrushStrokeHalo` and `Tokens.BrushAccent`, and assumes `LegacyColourLiteralTests.StillPending` has been pruned down to exactly the four Plan B entries.
+**Prerequisite: Plan A must be complete.** Verify before Task 1 rather than
+discovering it as a wall of compile errors:
+
+```bash
+git rev-parse --abbrev-ref HEAD                      # -> docs/overlay-unification
+test -f src/EyeCtrl.Controls/Theme/Tokens.cs && echo "Plan A Task 1 done"
+grep -c 'BrushStrokeHalo' src/EyeCtrl.Controls/Theme/OverlayStyles.xaml   # -> 1
+dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo                 # -> PASS
+```
+
+All four must succeed. This plan consumes `Tokens.BrushStrokeHalo` and
+`Tokens.BrushAccent`, and assumes `LegacyColourLiteralTests.StillPending` has been
+pruned to exactly the four Plan B entries.
+
+**Location matters:** the spec and `tools/palette_validate.py` this plan cites live
+on branch `docs/overlay-unification`, not on `main`.
 
 **Why this matters more than it looks.** These are the app's *primary dwell feedback* — the cursor ring, the activation arc, the gaze dot, the struggle cue. Measured against raw desktop:
 
@@ -101,8 +116,13 @@ public class HaloContrastTests
     /// <summary>
     /// The strongest edge available to the eye: accent-vs-halo (backdrop
     /// independent), accent-vs-backdrop, or halo-vs-backdrop.
+    ///
+    /// Taking the maximum is deliberate and is exactly what the guarantee claims:
+    /// the mark is discernible if ANY of its edges is strong. It does NOT claim the
+    /// accent-vs-backdrop edge is strong - that one is often weak, which is the
+    /// entire reason the halo exists.
     /// </summary>
-    private static double BestEdge(Color mark, Color halo, Color backdrop) =>
+    private static double StrongestVisibleEdge(Color mark, Color halo, Color backdrop) =>
         Math.Max(Contrast(mark, halo),
             Math.Max(Contrast(mark, backdrop), Contrast(halo, backdrop)));
 
@@ -111,7 +131,7 @@ public class HaloContrastTests
     {
         foreach (var b in Backdrops)
         {
-            var edge = BestEdge(Tokens.Accent, Tokens.StrokeHalo, Parse(b));
+            var edge = StrongestVisibleEdge(Tokens.Accent, Tokens.StrokeHalo, Parse(b));
             Check.WithCustomMessage(
                     $"Accent+StrokeHalo reaches only {edge:F2}:1 over {b}; "
                     + $"§4.1.3 requires >= {EdgeFloor}.")
@@ -144,7 +164,7 @@ public class HaloContrastTests
         Check.That(worstAlone).IsStrictlyLessThan(EdgeFloor);
 
         foreach (var b in Backdrops)
-            Check.That(BestEdge(Tokens.AccentWarning, Tokens.StrokeHalo, Parse(b)))
+            Check.That(StrongestVisibleEdge(Tokens.AccentWarning, Tokens.StrokeHalo, Parse(b)))
                  .IsStrictlyGreaterThan(EdgeFloor);
     }
 
@@ -160,7 +180,7 @@ public class HaloContrastTests
                 Check.WithCustomMessage(
                         $"Preset '{preset.Name}' ({preset.Hex}) breaks the halo "
                         + $"guarantee over {b}.")
-                    .That(BestEdge(mark, Tokens.StrokeHalo, Parse(b)))
+                    .That(StrongestVisibleEdge(mark, Tokens.StrokeHalo, Parse(b)))
                     .IsStrictlyGreaterThan(EdgeFloor);
         }
     }
@@ -210,13 +230,19 @@ using Xunit;
 /// </summary>
 public class HaloZOrderTests
 {
-    /// <summary>overlay XAML (repo-relative) -> (halo element x:Name, accent element x:Name).</summary>
+    /// <summary>
+    /// overlay XAML (repo-relative) -> (halo element x:Name, accent element x:Name).
+    ///
+    /// Starts EMPTY and grows one entry per task, so the branch is green at every
+    /// commit rather than red from here until the last overlay lands. Add each entry
+    /// in the same commit that adds its halo.
+    /// </summary>
     public static readonly Dictionary<string, (string Halo, string Accent)> HaloedOverlays = new()
     {
-        ["src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml"] = ("CircleHalo", "Circle"),
-        ["src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml"] = ("ProgressArcHalo", "ProgressArc"),
-        ["src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml"] = ("OuterCircleHalo", "OuterCircle"),
-        ["src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml"] = ("VelocityRingHalo", "VelocityRing"),
+        // Task 3: ["src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml"] = ("CircleHalo", "Circle"),
+        // Task 4: ["src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml"] = ("ProgressArcHalo", "ProgressArc"),
+        // Task 5: ["src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml"] = ("OuterCircleHalo", "OuterCircle"),
+        // Task 5: ["src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml"] = ("VelocityRingHalo", "VelocityRing"),
     };
 
     private static DirectoryInfo RepoRoot()
@@ -270,47 +296,59 @@ public class HaloZOrderTests
     }
 
     [Fact]
-    public void NoHaloedOverlay_AllocatesBrushesPerFrame()
+    public void ActivationButton_NeverAllocatesABrush()
     {
-        // CursorCircle and ActivationButton redraw at gaze rate. Frozen Tokens
-        // brushes are shared; `new SolidColorBrush` in an update path is not.
-        var root = RepoRoot().FullName;
-        var offenders = new List<string>();
-
-        foreach (var relative in new[]
-                 {
-                     "src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs",
-                     "src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml.cs",
-                 })
-        {
-            var path = Path.Combine(root, relative);
-            if (!File.Exists(path)) continue;
-            if (File.ReadAllText(path).Contains("new SolidColorBrush", System.StringComparison.Ordinal))
-                offenders.Add(relative);
-        }
+        // ActivationButtonWindow redraws at gaze rate and has no user-configurable
+        // colour, so it should reach for frozen Tokens brushes only.
+        //
+        // CursorCircleWindow is deliberately NOT checked: its ring colour comes
+        // from CursorSettings.CircleColor, so it must parse a string into a brush.
+        // That happens once per settings change, not per frame, and the brush is
+        // frozen immediately (see Task 3). Scoping this test to ActivationButton is
+        // the decision, not an oversight - do not widen it to CursorCircle without
+        // first giving that file a cache keyed on the settings string.
+        var path = Path.Combine(RepoRoot().FullName,
+            "src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml.cs");
 
         Check.WithCustomMessage(
-                "These gaze-rate overlays allocate a brush instead of using a "
-                + "frozen Tokens brush: " + string.Join(", ", offenders))
-            .That(offenders).IsEmpty();
+                "ActivationButtonWindow must use frozen Tokens brushes, not "
+                + "allocate per update - it redraws at gaze rate.")
+            .That(File.ReadAllText(path).Contains("new SolidColorBrush", System.StringComparison.Ordinal))
+            .IsFalse();
+    }
+
+    [Fact]   // enabled by Task 7
+    public void DwellFeedbackOverlay_UsesTheAccentBrush()
+    {
+        // Not a haloed overlay (it is a filled Border, not a stroke on transparency)
+        // but it is migrated in Task 7 and would otherwise have no guard at all.
+        var path = Path.Combine(RepoRoot().FullName,
+            "src/EyeCtrl.App/Overlays/DwellFeedbackOverlay.xaml");
+
+        Check.WithCustomMessage(
+                "DwellFeedbackOverlay must reference BrushAccent; if this fails the "
+                + "migration in Task 7 was reverted.")
+            .That(File.ReadAllText(path)).Contains("BrushAccent");
     }
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run the tests**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~HaloZOrderTests" --nologo`
 
-Expected: FAIL, 3 tests — no halo elements exist yet, and `CursorCircleWindow.xaml.cs:32` still does `new SolidColorBrush(color)`.
+Expected: PASS. `HaloElement_IsDeclaredBeforeItsAccentElement` passes trivially because `HaloedOverlays` starts empty, and `ActivationButton_NeverAllocatesABrush` already holds.
 
-- [ ] **Step 3: Commit the guard (red)**
+`FilledCueBadge_HasAHaloOutlineStroke` and `DwellFeedbackOverlay_UsesTheAccentBrush` cover files not yet migrated, so comment out their `[Fact]` attributes with `// enabled by Task 6` and `// enabled by Task 7` and re-enable each in the task that satisfies it.
+
+- [ ] **Step 3: Commit the guard (green)**
 
 ```bash
 git add tests/EyeCtrl.App.Tests/HaloZOrderTests.cs
 git commit -m "test(theme): guard halo z-order and gaze-path allocation"
 ```
 
-Committing a failing guard is deliberate here: Tasks 3–7 turn it green one overlay at a time, and the failure list doubles as the task checklist.
+Each of Tasks 3–7 adds its dictionary entry or re-enables its `[Fact]` **in the same commit as the change it guards**, so `dotnet test --filter "Category!=UI"` passes at every point on the branch. That matters because CI runs on anything targeting `main` — a guard committed red would leave the branch failing for most of its life.
 
 ---
 
@@ -383,7 +421,7 @@ And wherever `Circle.Width`/`Height` are set from `size` (currently lines 46–4
         CircleHalo.Height = size;
 ```
 
-> **On `NoHaloedOverlay_AllocatesBrushesPerFrame`:** this file still contains `new SolidColorBrush`, but in a settings-change path rather than a per-frame one. Update that test's exclusion to check only per-frame update methods, or narrow it to `ActivationButtonWindow`. Do **not** delete the check — it is guarding a real gaze-path cost. Record whichever choice you make in the commit message.
+> **On brush allocation — decided, not a loose end.** This file keeps one `new SolidColorBrush`. The ring colour is user-configurable (`CursorSettings.CircleColor`), so a string must become a brush somewhere; doing it in the settings-change path and freezing immediately costs one allocation per settings change, not per frame. The guard is therefore scoped to `ActivationButtonWindow`, which has no configurable colour and must never allocate — see `ActivationButton_NeverAllocatesABrush` in Task 2. Do not widen it to this file without first adding a cache keyed on the settings string.
 
 - [ ] **Step 3: Run tests**
 
@@ -669,7 +707,7 @@ Four coordinated changes.
         };
 ```
 
-Copy the property values from the adjacent `arcSegment`/`figure` block rather than trusting the snippet above - if they diverge, the halo will not track the accent arc.
+The snippet above is the verified content of lines 56-76 with `arcThickness + 2` substituted: `Point`, `Size`, `IsLargeArc` and `SweepDirection` on the segment; `StartPoint` and `IsClosed` on the figure; `Data`, `Stroke` and `StrokeThickness` on the path. Diff it against the adjacent block before moving on — if the accent arc has gained a property since `b8295b6`, mirror it.
 
 **2. Carry both through the constructor.** Add `HaloArc` and `HaloPath` properties beside `Arc` (line 18) and `ProgressPath`, and extend the private constructor (line 24) to accept them.
 
@@ -761,7 +799,20 @@ git commit -m "chore(theme): Plan B complete — StrokeHalo contrast guarantee"
 
 **Type consistency.** `Tokens.BrushStrokeHalo` / `BrushAccent` / `BrushAccentWarning` / `BrushTextPrimary` / `BrushSurfaceDark` all come from Plan A Task 1 and are spelled identically here. `DwellColorPicker.Presets` (Plan A Task 7) is consumed by `HaloContrastTests`. The `x:Name` pairs in `HaloZOrderTests.HaloedOverlays` match the names introduced in Tasks 3–5 exactly: `CircleHalo`/`Circle`, `ProgressArcHalo`/`ProgressArc`, `OuterCircleHalo`/`OuterCircle`, `VelocityRingHalo`/`VelocityRing` — all four verified against the current XAML rather than invented. `CenterDot` in the gaze indicator is deliberately absent from that dictionary: it is a *filled* shape taking an outline ring, so there is no second element whose order could be wrong.
 
-**Two honest weak points.**
+**Review outcome (2026-07-28).** Findings that held and are fixed: the
+`new SolidColorBrush` decision is now made rather than delegated (scoped to
+`ActivationButtonWindow`, with the reasoning recorded in both Task 2 and Task 3);
+`DwellFeedbackOverlay` gained a guard; `BestEdge` is renamed
+`StrongestVisibleEdge` and documents what it does *not* claim; the z-order
+dictionary now starts empty so the branch is green at every commit; the
+`DwellArcButton` geometry is quoted verbatim from source rather than "copy the
+values"; and the Plan A prerequisite is now an executable check.
 
-1. Task 3 knowingly leaves `new SolidColorBrush` in `CursorCircleWindow.xaml.cs` — in a settings-change path, not a per-frame one — which means `NoHaloedOverlay_AllocatesBrushesPerFrame` must be narrowed rather than satisfied. The step says so and requires the decision to be recorded in the commit message, rather than quietly deleting the check.
+A finding that the spec and validator "do not exist" did not hold — both are
+committed in `3477eef` on this branch, and the validator exits 0. They are absent
+from `main` only, which the Prerequisite block now calls out.
+
+**Remaining honest weak points.**
+
+1. `CursorCircleWindow.xaml.cs` keeps one `new SolidColorBrush` and is therefore not covered by the allocation guard. That is now a decision with stated reasoning (Task 2 and Task 3) rather than an open question, but it does leave a real gap: nothing stops a future edit moving that parse into a per-frame path. Closing it properly needs a brush cache keyed on the settings string, which is out of scope here.
 2. Task 5 requires copying `OuterCircle`'s layout attributes onto its halo by hand, because those attributes are set through view-model bindings that this plan does not enumerate. Read line 11 of that file before starting, and keep the two elements' geometry in sync in any code that resizes the indicator.

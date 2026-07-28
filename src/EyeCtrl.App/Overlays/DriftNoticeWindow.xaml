@@ -9,10 +9,13 @@
     <Grid>
         <Border x:Name="Banner"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
-                Background="#E0202020" CornerRadius="6" Padding="18,10" Opacity="0">
+                Background="{StaticResource BrushSurfaceDark}"
+                BorderBrush="{StaticResource BrushBorderSubtle}"
+                BorderThickness="{StaticResource BorderThicknessStandard}"
+                CornerRadius="6" Padding="18,10" Opacity="0">
             <TextBlock x:Name="Message"
                        AutomationProperties.AutomationId="DriftNotice_Message"
-                       Foreground="White" FontSize="18" TextAlignment="Center"
+                       Foreground="{StaticResource BrushTextPrimary}" FontSize="18" TextAlignment="Center"
                        Text="Tracking may have drifted — consider re-calibrating"/>
         </Border>
     </Grid>

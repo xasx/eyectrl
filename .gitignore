@@ -35,3 +35,7 @@ BenchmarkDotNet.Artifacts/
 
 ## Qoder
 .qoder/
+
+## Python tooling (tools/*.py)
+__pycache__/
+*.py[cod]

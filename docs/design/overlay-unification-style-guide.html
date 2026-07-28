@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="midnight">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EyeCtrl Design System — Unified Overlay Styles</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ══════════════════════════════════════════════════════════════
+     TOKENS. Every component below is written once against these
+     variables; switching theme swaps the values and nothing else.
+     This page is therefore a working demonstration of the token
+     layer it documents.
+
+     NOTE: WPF writes ARGB (#AARRGGBB); CSS parses 8-digit hex as
+     RRGGBBAA — the reverse. Translucent tokens use rgba() here and
+     carry their WPF value in the label.
+     ══════════════════════════════════════════════════════════════ */
+  :root[data-theme="midnight"] {
+    --surface-dark:        rgba(26,26,46,0.98);
+    --surface-medium:      rgba(42,42,68,0.98);
+    --surface-light:       #3A3A5E;
+    --surface-key:         #2A2A3E;
+    --surface-key-mod:     #3E3E64;
+    --surface-key-switch:  #38527F;
+    --surface-prediction:  #2F5340;
+    --border-subtle:       #616BA0;
+    --text-primary:        #D6DEF5;
+    --text-secondary:      #9AA4C8;
+    --text-dim:            #868FB5;
+    --accent:              #A5F3FC;
+    --stroke-halo:         #0A0A14;
+    --accent-success:      #7EE787;
+    --accent-warning:      #E8A33C;
+    --accent-danger:       #FF5C7A;
+    --toggle-on:           #4A8F5C;
+    --toggle-off:          #2E2E42;
+    --page-bg:             #0D0D1A;
+    --panel-bg:            #141428;
+    --rule:                #1E1E36;
+    --border-width:        1px;
+    --core:                #1A1A2E;
+  }
+  :root[data-theme="ember"] {
+    --surface-dark:        rgba(33,27,20,0.98);
+    --surface-medium:      rgba(52,43,32,0.98);
+    --surface-light:       #473A2C;
+    --surface-key:         #2E2619;
+    --surface-key-mod:     #4E4029;
+    --surface-key-switch:  #63382A;
+    --surface-prediction:  #33422A;
+    --border-subtle:       #7A6C51;
+    --text-primary:        #F2EEE8;
+    --text-secondary:      #BFB4A2;
+    --text-dim:            #A0917C;
+    --accent:              #9FE8FF;
+    --stroke-halo:         #0E0A06;
+    --accent-success:      #7EE787;
+    --accent-warning:      #E8A33C;
+    --accent-danger:       #FF5C7A;
+    --toggle-on:           #67874C;
+    --toggle-off:          #342C21;
+    --page-bg:             #150F09;
+    --panel-bg:            #1E1710;
+    --rule:                #2A2118;
+    --border-width:        1px;
+    --core:                #211B14;
+  }
+
+  /* Situational theme: glare, bright rooms, tired eyes. Surfaces are OPAQUE —
+     translucency and a contrast guarantee are incompatible. Structure is carried
+     by a 21:1 border, not by fill steps. */
+  :root[data-theme="contrast"] {
+    --surface-dark:        #000000;
+    --surface-medium:      #141414;
+    --surface-light:       #262626;
+    --surface-key:         #0F0F0F;
+    --surface-key-mod:     #123A63;
+    --surface-key-switch:  #4A4A4A;
+    --surface-prediction:  #004D22;
+    --border-subtle:       #FFFFFF;
+    --text-primary:        #FFFFFF;
+    --text-secondary:      #E8E8E8;
+    --text-dim:            #C8C8C8;
+    --accent:              #00FFFF;
+    --stroke-halo:         #000000;
+    --accent-success:      #00FF00;
+    --accent-warning:      #FFFF00;
+    --accent-danger:       #FF7777;
+    --toggle-on:           #00FF00;
+    --toggle-off:          #000000;
+    --page-bg:             #000000;
+    --panel-bg:            #0D0D0D;
+    --rule:                #2E2E2E;
+    --border-width:        2px;
+    --core:                #000000;
+  }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--page-bg); color: var(--text-primary);
+    padding: 40px; display: flex; flex-direction: column; gap: 44px;
+    /* No transition here. A transition on a property fed by a custom property
+       stays pinned at its start value if the page is not producing frames, which
+       left body stuck on the previous theme's background. The switch is instant. */
+  }
+
+  .header { display: flex; align-items: center; gap: 20px; padding-bottom: 22px; border-bottom: var(--border-width) solid var(--border-subtle); }
+  .header h1 { font-size: 27px; font-weight: 600; }
+  .header .sub { font-size: 14px; color: var(--text-secondary); display: block; }
+  .logo { width: 46px; height: 46px; border-radius: 10px; background: var(--accent);
+          display: flex; align-items: center; justify-content: center; font-size: 23px; }
+
+  /* theme switch */
+  .switch { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .switch .lbl { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-right: 4px; }
+  .switch button {
+    font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+    padding: 8px 16px; border-radius: 8px;
+    background: var(--surface-medium); color: var(--text-secondary);
+    border: var(--border-width) solid var(--border-subtle);
+  }
+  .switch button[aria-pressed="true"] {
+    background: var(--surface-key-switch); color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  h2 { font-size: 17px; font-weight: 600; color: var(--accent);
+       text-transform: uppercase; letter-spacing: 1.5px;
+       margin-bottom: 14px; padding-bottom: 8px; border-bottom: var(--border-width) solid var(--border-subtle); }
+  h3 { font-size: 13px; font-weight: 600; color: var(--accent-success); margin-bottom: 10px; }
+
+  .note { font-size: 12px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 14px; max-width: 104ch; }
+  .note strong { color: var(--text-primary); }
+  code { font-family: 'Cascadia Code','Consolas',monospace; color: var(--accent); }
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--panel-bg);
+    padding: 12px 16px; font-size: 12px; color: var(--text-secondary);
+    line-height: 1.65; border-radius: 0 6px 6px 0; margin-bottom: 16px; max-width: 110ch;
+  }
+  .callout strong { color: var(--text-primary); }
+  .callout.warn { border-left-color: var(--accent-warning); }
+
+  /* swatches */
+  .palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 12px; }
+  .swatch { border-radius: 8px; overflow: hidden; border: var(--border-width) solid var(--border-subtle); }
+  .swatch .chip { height: 68px; }
+  .swatch .meta { padding: 9px 12px; background: var(--panel-bg); font-size: 12px; }
+  .swatch .meta .name { font-weight: 600; color: var(--text-primary); }
+  .swatch .meta .hex { color: var(--text-secondary); font-family: 'Cascadia Code','Consolas',monospace; font-size: 11px; }
+  .swatch .meta .usage { color: var(--text-dim); margin-top: 2px; font-size: 10.5px; }
+  /* the ONE place a token is shown out-of-theme: shared semantics */
+  .swatch.shared .meta .name::after { content: " ·shared"; color: var(--text-dim); font-weight: 400; font-size: 10px; }
+  /* Contrast cannot share the triad — red can't be high-contrast (see §7). */
+  :root[data-theme="contrast"] .swatch.shared .meta .name::after { content: " ·HC-specific"; }
+
+  /* typography */
+  .type-samples { display: flex; flex-direction: column; gap: 14px; }
+  .type-row { display: flex; align-items: baseline; gap: 24px; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+  .type-row .specimen { flex: 1; }
+  .type-row .spec { color: var(--text-secondary); font-size: 11px; width: 176px; flex-shrink: 0; font-family: 'Cascadia Code','Consolas',monospace; }
+
+  /* corners */
+  .corner-samples { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .corner-card { text-align: center; }
+  .corner-box { width: 78px; height: 78px; background: var(--surface-medium); border: var(--border-width) solid var(--border-subtle); margin-bottom: 8px; }
+  .corner-card .label { font-size: 11.5px; color: var(--text-secondary); font-family: 'Cascadia Code','Consolas',monospace; }
+
+  /* before/after + theme-vs-theme columns */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .col { border-radius: 12px; overflow: hidden; border: var(--border-width) solid var(--border-subtle); }
+  .col .hdr { padding: 9px 14px; font-size: 11.5px; font-weight: 600; }
+  .col.before .hdr { background: #2A1A1A; color: #FF8FA0; }
+  .col.after  .hdr { background: var(--panel-bg); color: var(--accent-success); }
+  .col .body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .cap { font-size: 10.5px; line-height: 1.5; color: var(--text-secondary); }
+  .cap.legacy { color: #AAAAAA; }
+
+  /* mock overlay pieces — "after" pieces use tokens, "before" uses legacy literals */
+  .mock { border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 7px; font-size: 12px; }
+  .mock.now    { background: var(--surface-dark); border: var(--border-width) solid var(--border-subtle); }
+  .mock.legacy { background: #181818; }
+  .key { flex: 1; height: 33px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .key.now    { background: var(--surface-key); color: var(--text-primary); border: var(--border-width) solid var(--border-subtle); }
+  .key.legacy { background: #323232; color: #FFF; }
+  .bar { height: 4px; border-radius: 2px; }
+
+  /* halo */
+  .halo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)); gap: 13px; }
+  .halo-cell { border-radius: 8px; overflow: hidden; border: var(--border-width) solid var(--border-subtle); }
+  .halo-stage { height: 114px; display: flex; align-items: center; justify-content: space-evenly; }
+  .halo-cap { background: var(--panel-bg); padding: 8px 10px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 1.5; }
+  .ring-plain { width: 42px; height: 42px; border-radius: 50%; border: 3px solid var(--accent); }
+  /* Accent stroke with StrokeHalo on both sides of it. */
+  .ring-halo  { width: 42px; height: 42px; border-radius: 50%; border: 3px solid var(--accent);
+                box-shadow: 0 0 0 2px var(--stroke-halo), inset 0 0 0 2px var(--stroke-halo); }
+  .ring-lime  { width: 42px; height: 42px; border-radius: 50%; border: 3px solid #00FF00; }
+
+  /* tables */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; padding: 7px 11px; background: var(--panel-bg); color: var(--accent);
+       font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px; }
+  td { padding: 7px 11px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+  .num { font-family: 'Cascadia Code','Consolas',monospace; }
+  .aaa  { color: var(--accent-success); font-weight: 600; }
+  .aa   { color: var(--accent-warning); font-weight: 600; }
+  .bad  { color: var(--accent-danger); }
+  .dot { display: inline-block; width: 13px; height: 13px; border-radius: 3px; vertical-align: middle;
+         margin-right: 6px; border: var(--border-width) solid var(--border-subtle); }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  pre { background: var(--panel-bg); padding: 13px; border-radius: 8px; font-size: 11.5px; line-height: 1.6;
+        font-family: 'Cascadia Code','Consolas',monospace; color: var(--text-primary); overflow: auto; }
+  .cmt { color: var(--text-dim); }
+  .kw  { color: var(--accent-danger); }
+  .typ { color: var(--accent); }
+  .att { color: var(--accent-success); }
+  .str { color: var(--accent-warning); }
+
+  @media print { body { padding: 20px; gap: 30px; } .switch { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">👁</div>
+  <div>
+    <h1>EyeCtrl Design System</h1>
+    <span class="sub">Overlay unification — v2.2 — three themes, nine gates</span>
+  </div>
+  <div class="switch" role="group" aria-label="Theme">
+    <span class="lbl">Theme</span>
+    <button id="b-mid" aria-pressed="true"  onclick="setTheme('midnight')">Midnight</button>
+    <button id="b-emb" aria-pressed="false" onclick="setTheme('ember')">Ember</button>
+    <button id="b-con" aria-pressed="false" onclick="setTheme('contrast')">Contrast</button>
+  </div>
+</div>
+
+<div class="callout">
+  <strong>Flip the switch above.</strong> Every component on this page is written once against CSS
+  variables; the switch swaps the token values and nothing else — so the page is a working
+  demonstration of the token layer it documents. <strong>Midnight</strong> is the shipping palette
+  (spec §4.1); <strong>Ember</strong> is the warm low-blue-light alternative (§10) and <strong>Contrast</strong>
+  is a situational high-contrast theme — both additive and not yet implemented. All three pass all
+  nine gates:
+  <code>python tools/palette_validate.py</code>. Visual sections follow the switch; measured tables
+  always show both themes, so nothing is hidden behind a toggle.
+</div>
+
+<!-- ═══ 1. PALETTE ═══ -->
+<div>
+<h2>1. Palette</h2>
+<p class="note">
+  Tokens with an alpha channel are composited over live desktop content and are labelled in WPF's
+  <code>#AARRGGBB</code> order. Tokens without one only ever sit on another token, so they are
+  opaque. Values below follow the active theme.
+</p>
+
+<h3>Surfaces</h3>
+<div class="palette">
+  <div class="swatch"><div class="chip" style="background:var(--surface-dark);"></div>
+    <div class="meta"><div class="name">SurfaceDark</div><div class="hex" data-tok="surfaceDark"></div><div class="usage">All overlay backgrounds</div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--surface-medium);"></div>
+    <div class="meta"><div class="name">SurfaceMedium</div><div class="hex" data-tok="surfaceMedium"></div><div class="usage">Cards, button fills</div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--surface-light);"></div>
+    <div class="meta"><div class="name">SurfaceLight</div><div class="hex" data-tok="surfaceLight"></div><div class="usage">Modals — fully opaque</div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--surface-key);"></div>
+    <div class="meta"><div class="name">SurfaceKey</div><div class="hex" data-tok="surfaceKey"></div><div class="usage">Keyboard keys, inactive tab</div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--surface-key-mod);"></div>
+    <div class="meta"><div class="name">SurfaceKeyModifier</div><div class="hex" data-tok="surfaceKeyMod"></div><div class="usage">Shift / Ctrl / Alt</div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--surface-key-switch);"></div>
+    <div class="meta"><div class="name">SurfaceKeySwitch</div><div class="hex" data-tok="surfaceKeySwitch"></div><div class="usage">Sub-layout switch, active tab</div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--surface-prediction);"></div>
+    <div class="meta"><div class="name">SurfacePrediction</div><div class="hex" data-tok="surfacePrediction"></div><div class="usage">Prediction bar chips</div></div></div>
+</div>
+<p class="note" style="margin-top:12px;">
+  In <strong>Contrast</strong> the fill steps are ΔE 3.7 and 5.6 — effectively invisible — and
+  <code>BorderSubtle</code> at <strong>21:1</strong> against a 3:1 floor carries the layering
+  single-handed. Gate 1 passes there for a different reason than in the other two themes: structure
+  by outline, not by fill. That is the authentic high-contrast idiom.
+</p>
+<p class="note">
+  <strong>Elevation raises opacity</strong> — <code>SurfaceLight</code> is fully opaque,
+  <code>SurfaceDark</code> the most translucent. v1.0 had this inverted at 72% / 90%, making modals
+  the <em>least</em> separated surface. Surface opacity also went 90% → 98%, cutting composited
+  contrast drift from −27% to −5%; real translucency now lives only in <code>ModalBackdrop</code>
+  and the full-screen dims.
+</p>
+
+<h3 style="margin-top:18px;">Text &amp; borders</h3>
+<div class="palette">
+  <div class="swatch"><div class="chip" style="background:var(--text-primary);"></div>
+    <div class="meta"><div class="name">TextPrimary</div><div class="hex" data-tok="textPrimary"></div><div class="usage" data-tok="textPrimaryCr"></div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--text-secondary);"></div>
+    <div class="meta"><div class="name">TextSecondary</div><div class="hex" data-tok="textSecondary"></div><div class="usage" data-tok="textSecondaryCr"></div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--text-dim);"></div>
+    <div class="meta"><div class="name">TextDim</div><div class="hex" data-tok="textDim"></div><div class="usage" data-tok="textDimCr"></div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--border-subtle);"></div>
+    <div class="meta"><div class="name">BorderSubtle</div><div class="hex" data-tok="borderSubtle"></div><div class="usage" data-tok="borderSubtleCr"></div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--accent);"></div>
+    <div class="meta"><div class="name">BorderFocus</div><div class="hex" data-tok="accent"></div><div class="usage">= Accent — see below</div></div></div>
+</div>
+<p class="note" style="margin-top:12px;">
+  Both secondary text tokens moved up from v1.0, where <code>TextSecondary</code> was large-text-only
+  and <code>TextDim</code> failed every threshold at 2.76:1 — yet both are used on small text. They
+  now clear AA at normal size against the <em>worst composited</em> surface.
+  <code>BorderSubtle</code> went from 1.74:1 (invisible) to ≈3.2:1, meeting WCAG 1.4.11: in a gaze
+  UI a border is the boundary of a dwell target the user must aim at.
+</p>
+
+<p class="note">
+  <strong>One non-colour token varies by theme too:</strong>
+  <code>BorderThicknessStandard</code> — <span data-tok="borderThickness"></span>. High-contrast
+  convention is a heavier outline, because in that theme structure is carried by the border rather
+  than by fill steps. The borders on this page are driven by it, so the switch changes them.
+</p>
+
+<h3 style="margin-top:18px;">Accent &amp; semantics</h3>
+<div class="palette">
+  <div class="swatch"><div class="chip" style="background:var(--accent);"></div>
+    <div class="meta"><div class="name">Accent</div><div class="hex" data-tok="accent"></div><div class="usage">Dwell progress — reserved</div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--stroke-halo);"></div>
+    <div class="meta"><div class="name">StrokeHalo</div><div class="hex" data-tok="strokeHalo"></div><div class="usage">Outline under Accent (§4)</div></div></div>
+  <div class="swatch shared"><div class="chip" style="background:var(--accent-success);"></div>
+    <div class="meta"><div class="name">AccentSuccess</div><div class="hex" data-tok="accentSuccess"></div><div class="usage" data-tok="accentSuccessMeta"></div></div></div>
+  <div class="swatch shared"><div class="chip" style="background:var(--accent-warning);"></div>
+    <div class="meta"><div class="name">AccentWarning</div><div class="hex" data-tok="accentWarning"></div><div class="usage" data-tok="accentWarningMeta"></div></div></div>
+  <div class="swatch shared"><div class="chip" style="background:var(--accent-danger);"></div>
+    <div class="meta"><div class="name">AccentDanger</div><div class="hex" data-tok="accentDanger"></div><div class="usage" data-tok="accentDangerMeta"></div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--toggle-on);"></div>
+    <div class="meta"><div class="name">ToggleOn</div><div class="hex" data-tok="toggleOn"></div><div class="usage">Toggle enabled, modal Yes</div></div></div>
+  <div class="swatch"><div class="chip" style="background:var(--toggle-off);"></div>
+    <div class="meta"><div class="name">ToggleOff</div><div class="hex" data-tok="toggleOff"></div><div class="usage">Toggle disabled</div></div></div>
+  <div class="swatch"><div class="chip" style="background:rgba(0,0,0,0.70);"></div>
+    <div class="meta"><div class="name">ModalBackdrop</div><div class="hex" data-tok="modalBackdrop"></div><div class="usage">Modal dim, calibration</div></div></div>
+</div>
+
+<div class="callout" style="margin-top:16px;">
+  <strong>The accent is reserved</strong> — it means exactly one thing, gaze dwell in progress, and
+  nothing meaning-bearing sits within ΔE2000 25 of it. v1.0 spent two near-identical light blues on
+  "dwelling" (<code>#7DCFFF</code>) and "focused" (<code>#7AA2F7</code>), ΔE 14.8 apart and
+  collapsing to 8.6 under tritanopia. Selection and active state are now carried by <em>fill</em>,
+  so <code>BorderFocus</code> is simply <code>Accent</code>. Separate the channel, not the hue.
+</div>
+
+<div class="callout">
+  <strong>Midnight and Ember share the semantic triad, by design.</strong> Success, warning and
+  danger encode <em>outcome</em>, not brand, so they need not vary — theme identity lives in surfaces,
+  text and the accent. One fewer triad to re-validate, and §9.4's measurements transfer unchanged.
+  <br><br>
+  <strong>Contrast cannot share it</strong>, and that is a finding rather than an inconsistency:
+  <code>#FF0000</code> is only 5.25:1 on black, so a high-contrast theme has to lighten its red to
+  <code>#FF7777</code> (8.16:1) — which, at C* 57.6, only just clears gate 9's chroma floor. Push
+  further for contrast and it stops reading as red. Its triad is marked <em>·HC-specific</em> when
+  that theme is active.
+</div>
+
+<div class="callout warn">
+  <strong>Semantic colour is never the sole carrier of meaning.</strong> The triad is staged by
+  lightness (L* 83.6 / 72.0 / 61.9) so it degrades gracefully, but warning and danger still collapse
+  under tritanopia (ΔE 1.6) — unsolvable with one amber and one red on the blue-yellow axis. Every
+  use must be paired with a distinct glyph (✓ / ⚠ / ✕). For scale: v1.0's success and warning sat at
+  <strong>ΔE 1.1</strong> under deuteranopia — the same colour for roughly 6% of males.
+</div>
+
+<div class="callout warn">
+  <strong>High contrast and colour-blind robustness pull against each other.</strong> In Contrast,
+  <code>#00FF00</code> and <code>#FFFF00</code> collapse to <strong>ΔE 2.7 under protanopia</strong> —
+  against Midnight's 13.3 for the same pair. Maximum saturation pushes colours toward the
+  confusion-line endpoints, so the very property that makes the theme high-contrast makes its hues
+  <em>less</em> separable for CVD. Gate 5 passes there only on its lightness criterion (ΔL* 9.40, a
+  1.28:1 luminance ratio). <strong>The glyph rule is more load-bearing in Contrast, not less</strong>
+  — for a protanope, ✓ versus ⚠ is very nearly the only thing separating success from warning.
+</div>
+
+<div class="callout">
+  <strong>Contrast is situational, not a daily driver.</strong> Pure white at 21:1 for hours is
+  exactly what Midnight's <code>TextPrimary</code> deliberately avoids (§4.1.2 rejects
+  <code>#FFFFFF</code> for that reason). It is for glare, a bright room, or tired eyes. Its
+  pure-black surfaces are also the friendliest of the three to the eye tracker, so it costs nothing
+  on that axis. Note too that its surfaces are <strong>opaque</strong> — translucency and a contrast
+  guarantee are incompatible — which is why "elevation raises opacity" reads a trivial 255→255 and
+  the worst-composited case equals the surface itself.
+</div>
+</div>
+
+<!-- ═══ 2. TYPOGRAPHY ═══ -->
+<div>
+<h2>2. Typography</h2>
+<div class="type-samples">
+  <div class="type-row"><div class="spec">FontFamily<br><code>Segoe UI</code></div>
+    <div class="specimen" style="font-weight:600;font-size:27px;">EyeCtrl Heading — Segoe UI Semibold</div></div>
+  <div class="type-row"><div class="spec">TextPrimary<br><code data-tok="textPrimary"></code></div>
+    <div class="specimen" style="font-size:16px;">The quick brown fox jumps over the lazy dog. 1234567890</div></div>
+  <div class="type-row"><div class="spec">TextSecondary<br><code data-tok="textSecondary"></code></div>
+    <div class="specimen" style="font-size:14px;color:var(--text-secondary);">Secondary information, hints, keyboard shortcuts, metadata.</div></div>
+  <div class="type-row"><div class="spec">TextDim<br><code data-tok="textDim"></code></div>
+    <div class="specimen" style="font-size:13px;color:var(--text-dim);">Disabled state, placeholder text, deprecated options.</div></div>
+  <div class="type-row"><div class="spec">Dwell Button<br>24px Bold</div>
+    <div class="specimen" style="font-size:23px;font-weight:700;">+ &nbsp; − &nbsp; ☑ Enable &nbsp; ✕ Cancel</div></div>
+  <div class="type-row"><div class="spec">Keyboard Key<br>16px Regular</div>
+    <div class="specimen" style="font-size:16px;">Q W E R T Y &nbsp; Space &nbsp; ↵ Enter &nbsp; ⌫ Backspace</div></div>
+  <div class="type-row"><div class="spec">Overlay Subtext<br>11px Regular</div>
+    <div class="specimen" style="font-size:11px;color:var(--text-secondary);">Snooze &nbsp;•&nbsp; Start &nbsp;•&nbsp; Press Esc to cancel &nbsp;•&nbsp; Auto-dismissing in 3s…</div></div>
+  <div class="type-row"><div class="spec">Symbols / Icons<br>22–34px</div>
+    <div class="specimen" style="font-size:27px;">⏸ &nbsp; ⊕ &nbsp; ⌨ &nbsp; ⚙ &nbsp; ✕ &nbsp; ▶ &nbsp; ✓ &nbsp; ☑ &nbsp; ☐</div></div>
+</div>
+<p class="note" style="margin-top:13px;">
+  <code>FontFamily="Segoe UI"</code> becomes an explicit application default. One declaration already
+  exists — <code>CalibrationWindow.xaml:30</code> — contradicting the audit's claim that no font
+  family is set anywhere; it is removed as redundant once the app-wide default lands.
+</p>
+</div>
+
+<!-- ═══ 3. CORNER RADII ═══ -->
+<div>
+<h2>3. Corner Radii</h2>
+<div class="callout warn">
+  <strong>Radius unification is deferred, not delivered.</strong> Seven distinct radii are in use —
+  2, 4, 6, 8, 12, 14, 22 — against the three tokens below, and no migration step changes any of them.
+  The 22px on <code>QuickActionsGridWindow.xaml:23</code> is a pill radius on a 44px button and would
+  visibly break if forced to 8; 14 (<code>EyeCareExerciseWindow.xaml:39</code>) and the several 6s in
+  <code>KeyboardWindow.xaml.cs</code>, <code>NoteWindow.xaml.cs</code>, <code>DwellComboBox.cs</code>
+  and <code>DwellColorPicker.cs</code> are also unmapped. Closing this needs a
+  <code>CornerRadiusPill</code> token and a decision on 6 vs 8 for key caps.
+</div>
+<div class="corner-samples">
+  <div class="corner-card"><div class="corner-box" style="border-radius:4px;"></div>
+    <div class="label">4px — Small<br>Toolbar, inline chips</div></div>
+  <div class="corner-card"><div class="corner-box" style="border-radius:8px;"></div>
+    <div class="label">8px — Standard ★<br>Overlays, buttons, cards</div></div>
+  <div class="corner-card"><div class="corner-box" style="border-radius:12px;"></div>
+    <div class="label">12px — Large<br>Splash, modal dialogs</div></div>
+  <div class="corner-card" style="display:flex;align-items:center;gap:12px;">
+    <div style="width:62px;height:62px;border-radius:50%;background:var(--surface-medium);border:1px solid var(--border-subtle);"></div>
+    <div class="label" style="text-align:left;">∞ — Circle<br>Gaze indicators,<br>dwell ring buttons</div></div>
+</div>
+</div>
+
+<!-- ═══ 4. HALO ═══ -->
+<div>
+<h2>4. StrokeHalo — transparent-overlay contrast</h2>
+<p class="note">
+  <code>CursorCircleWindow</code>, <code>ActivationButtonWindow</code>,
+  <code>ManualSelectionGazeIndicatorWindow</code> and <code>ScrollOverlayWindow</code> draw straight
+  onto desktop content with no surface beneath them. <strong>No single colour can hold contrast
+  there</strong> — today's Lime ring falls to 1.37:1 over a white document, and any replacement fares
+  the same. This is a contrast-<em>guarantee</em> problem, not a palette problem, and v1.0 had it out
+  of scope while these are the app's primary dwell feedback.
+</p>
+<p class="note">
+  Every accent stroke on a transparent overlay is drawn twice: a <code>StrokeHalo</code> outline at
+  <code>StrokeThickness + 2</code>, then the <code>Accent</code> stroke over it. The visible feature
+  becomes the <em>internal edge</em>, which is fixed regardless of backdrop. Left ring in each cell
+  is single-stroke, middle is today's Lime, right is haloed.
+</p>
+<div class="halo-grid">
+  <div class="halo-cell"><div class="halo-stage" style="background:#000;">
+    <div class="ring-plain"></div><div class="ring-lime"></div><div class="ring-halo"></div></div>
+    <div class="halo-cap">Black desktop<br><span data-tok="haloBlack"></span></div></div>
+  <div class="halo-cell"><div class="halo-stage" style="background:#808080;">
+    <div class="ring-plain"></div><div class="ring-lime"></div><div class="ring-halo"></div></div>
+    <div class="halo-cap">Mid grey<br><span data-tok="haloGrey"></span></div></div>
+  <div class="halo-cell"><div class="halo-stage" style="background:#FFF;">
+    <div class="ring-plain"></div><div class="ring-lime"></div><div class="ring-halo"></div></div>
+    <div class="halo-cap">White document<br><span data-tok="haloWhite"></span></div></div>
+  <div class="halo-cell"><div class="halo-stage" style="background:#66D9E8;">
+    <div class="ring-plain"></div><div class="ring-lime"></div><div class="ring-halo"></div></div>
+    <div class="halo-cap">Cyan-ish content<br><span data-tok="haloCyan"></span></div></div>
+  <div class="halo-cell"><div class="halo-stage" style="background:linear-gradient(120deg,#F2F2F0 0%,#9AA07A 45%,#2B2B33 100%);">
+    <div class="ring-plain"></div><div class="ring-lime"></div><div class="ring-halo"></div></div>
+    <div class="halo-cap">Mixed backdrop<br><span data-tok="haloMixed"></span></div></div>
+</div>
+<p class="note" style="margin-top:12px;">
+  Worst-case edge across nine backdrops: <strong>Midnight 15.78:1 · Ember 14.52:1</strong>, against a
+  floor of 7.0 and today's 1.37:1.
+</p>
+</div>
+
+<!-- ═══ 5. MIGRATION MOCKUPS ═══ -->
+<div>
+<h2>5. Before &amp; after — the migration</h2>
+<p class="note">
+  Left column is today's code. Right column is the migration target, rendered in the
+  <strong>active theme</strong> — flip the switch to see it in the other one.
+</p>
+
+<h3>Keyboard</h3>
+<div class="cols">
+  <div class="col before"><div class="hdr">BEFORE — #F0181818, Lime dwell blend</div><div class="body">
+    <div class="mock legacy">
+      <div style="display:flex;gap:4px;">
+        <div class="key legacy">Q</div><div class="key legacy">W</div>
+        <div class="key legacy" style="background:#3C3C50;">⇧</div>
+        <div class="key legacy" style="background:#32466E;">123</div>
+      </div>
+      <div class="bar" style="background:#00FF00;width:62%;"></div>
+      <div class="cap legacy">Modifier vs switch keys ΔE 7.2 — too close</div>
+    </div>
+  </div></div>
+  <div class="col after"><div class="hdr">AFTER — SurfaceDark, Accent dwell blend</div><div class="body">
+    <div class="mock now">
+      <div style="display:flex;gap:4px;">
+        <div class="key now">Q</div><div class="key now">W</div>
+        <div class="key now" style="background:var(--surface-key-mod);">⇧</div>
+        <div class="key now" style="background:var(--surface-key-switch);">123</div>
+      </div>
+      <div style="display:flex;gap:4px;">
+        <div style="flex:1;height:21px;border-radius:4px;background:var(--surface-prediction);display:flex;align-items:center;justify-content:center;color:var(--text-primary);font-size:10px;">going</div>
+        <div style="flex:1;height:21px;border-radius:4px;background:var(--surface-prediction);display:flex;align-items:center;justify-content:center;color:var(--text-primary);font-size:10px;">good</div>
+      </div>
+      <div class="bar" style="background:var(--accent);width:62%;"></div>
+      <div class="cap">Modifier vs switch <span data-tok="keyRamp"></span></div>
+    </div>
+  </div></div>
+</div>
+
+<h3 style="margin-top:22px;">Toolbar</h3>
+<div class="cols">
+  <div class="col before"><div class="hdr">BEFORE — #E0202020, no border</div><div class="body">
+    <div style="display:flex;gap:4px;padding:6px;background:#202020;border-radius:4px;align-items:center;">
+      <div class="key legacy" style="width:34px;height:34px;flex:none;background:#3C3C3C;">👁</div>
+      <div class="key legacy" style="width:34px;height:34px;flex:none;background:#3C3C3C;">⏸</div>
+      <div class="key legacy" style="width:34px;height:34px;flex:none;background:#3C3C3C;">⊕</div>
+      <div class="key legacy" style="width:34px;height:34px;flex:none;background:#3C3C3C;">⌨</div>
+      <div class="key legacy" style="width:34px;height:34px;flex:none;background:#3C3C3C;">⚙</div>
+      <div class="bar" style="background:#00FF00;width:14px;"></div>
+    </div>
+    <div class="cap legacy">Edge undefined against the desktop behind it</div>
+  </div></div>
+  <div class="col after"><div class="hdr">AFTER — SurfaceDark + visible border</div><div class="body">
+    <div style="display:flex;gap:4px;padding:6px;background:var(--surface-dark);border-radius:8px;align-items:center;border:1px solid var(--border-subtle);">
+      <div class="key now" style="width:34px;height:34px;flex:none;border-radius:8px;background:var(--surface-medium);">👁</div>
+      <div class="key now" style="width:34px;height:34px;flex:none;border-radius:8px;background:var(--surface-medium);">⏸</div>
+      <div class="key now" style="width:34px;height:34px;flex:none;border-radius:8px;background:var(--surface-medium);">⊕</div>
+      <div class="key now" style="width:34px;height:34px;flex:none;border-radius:8px;background:var(--surface-medium);">⌨</div>
+      <div class="key now" style="width:34px;height:34px;flex:none;border-radius:8px;background:var(--surface-medium);">⚙</div>
+      <div class="bar" style="background:var(--accent);width:14px;"></div>
+    </div>
+    <div class="cap">BorderSubtle <span data-tok="borderSubtleCr"></span> defines the target boundary</div>
+  </div></div>
+</div>
+
+<h3 style="margin-top:22px;">Dwell toggle &amp; semantic buttons</h3>
+<div class="cols">
+  <div class="col before"><div class="hdr">BEFORE — dark red vs dark green, 1.52:1</div><div class="body">
+    <div style="padding:9px 15px;border-radius:8px;background:#1D5421;color:#FFF;font-size:16px;font-weight:600;">☑ Enable Feature</div>
+    <div style="padding:9px 15px;border-radius:8px;background:#442529;color:#FFF;font-size:16px;font-weight:600;">☐ Disable Feature</div>
+    <div class="cap legacy">State on the red–green axis at near-equal luminance —<br>1.43:1 under deuteranopia. Effectively unreadable.</div>
+  </div></div>
+  <div class="col after"><div class="hdr">AFTER — lightness-carried, ≈3.4:1</div><div class="body">
+    <div style="padding:9px 15px;border-radius:8px;background:var(--toggle-on);color:var(--text-primary);font-size:16px;font-weight:600;border:1px solid var(--accent-success);">☑ Enable Feature</div>
+    <div style="padding:9px 15px;border-radius:8px;background:var(--toggle-off);color:var(--text-secondary);font-size:16px;font-weight:600;border:1px solid var(--border-subtle);">☐ Disable Feature</div>
+    <div style="display:flex;gap:8px;">
+      <div style="flex:1;padding:8px;border-radius:8px;background:var(--accent-success);color:var(--core);font-size:12.5px;font-weight:600;text-align:center;">✓ Done</div>
+      <div style="flex:1;padding:8px;border-radius:8px;background:var(--accent-warning);color:var(--core);font-size:12.5px;font-weight:600;text-align:center;">⚠ Reset</div>
+      <div style="flex:1;padding:8px;border-radius:8px;background:var(--accent-danger);color:var(--core);font-size:12.5px;font-weight:600;text-align:center;">✕ Delete</div>
+    </div>
+    <div class="cap">≥3.26:1 under every dichromacy. "Off" is no longer red — off is not an error, and red is freed for genuine danger.</div>
+  </div></div>
+</div>
+</div>
+
+<!-- ═══ 6. TOKEN REFERENCE ═══ -->
+<div>
+<h2>6. Token reference — both themes</h2>
+<table>
+  <thead><tr><th>Token</th><th>XAML key</th><th>Midnight</th><th>Ember</th><th>Contrast</th><th>Used in</th></tr></thead>
+  <tbody>
+    <tr><td>SurfaceDark</td><td><code>BrushSurfaceDark</code></td><td class="num">#FA1A1A2E</td><td class="num">#FA211B14</td><td class="num">#FF000000</td><td>All overlay backgrounds</td></tr>
+    <tr><td>SurfaceMedium</td><td><code>BrushSurfaceMedium</code></td><td class="num">#FA2A2A44</td><td class="num">#FA342B20</td><td class="num">#FF141414</td><td>Cards, DwellSlider/ComboBox</td></tr>
+    <tr><td>SurfaceLight</td><td><code>BrushSurfaceLight</code></td><td class="num">#FF3A3A5E</td><td class="num">#FF473A2C</td><td class="num">#FF262626</td><td>Modals, EyeCare summary</td></tr>
+    <tr><td>SurfaceKey</td><td><code>BrushSurfaceKey</code></td><td class="num">#2A2A3E</td><td class="num">#2E2619</td><td class="num">#0F0F0F</td><td>Keyboard keys, inactive tab</td></tr>
+    <tr><td>SurfaceKeyModifier</td><td><code>BrushSurfaceKeyModifier</code></td><td class="num">#3E3E64</td><td class="num">#4E4029</td><td class="num">#123A63</td><td>Shift / Ctrl / Alt</td></tr>
+    <tr><td>SurfaceKeySwitch</td><td><code>BrushSurfaceKeySwitch</code></td><td class="num">#38527F</td><td class="num">#63382A</td><td class="num">#4A4A4A</td><td>Sub-layout switch, active tab</td></tr>
+    <tr><td>SurfacePrediction</td><td><code>BrushSurfacePrediction</code></td><td class="num">#2F5340</td><td class="num">#33422A</td><td class="num">#004D22</td><td>Prediction bar chips</td></tr>
+    <tr><td>BorderSubtle</td><td><code>BrushBorderSubtle</code></td><td class="num">#616BA0</td><td class="num">#7A6C51</td><td class="num">#FFFFFF</td><td>All container borders</td></tr>
+    <tr><td>BorderFocus</td><td><code>BrushBorderFocus</code></td><td class="num">#A5F3FC</td><td class="num">#9FE8FF</td><td class="num">#00FFFF</td><td>= Accent; selection uses fill</td></tr>
+    <tr><td>TextPrimary</td><td><code>BrushTextPrimary</code></td><td class="num">#D6DEF5</td><td class="num">#F2EEE8</td><td class="num">#FFFFFF</td><td>All primary text</td></tr>
+    <tr><td>TextSecondary</td><td><code>BrushTextSecondary</code></td><td class="num">#9AA4C8</td><td class="num">#BFB4A2</td><td class="num">#E8E8E8</td><td>Subtext, hints, DwellLabel</td></tr>
+    <tr><td>TextDim</td><td><code>BrushTextDim</code></td><td class="num">#868FB5</td><td class="num">#A0917C</td><td class="num">#C8C8C8</td><td>Disabled / placeholder</td></tr>
+    <tr><td><strong>Accent</strong></td><td><code>BrushAccent</code></td><td class="num">#A5F3FC</td><td class="num">#9FE8FF</td><td class="num">#00FFFF</td><td><strong>Dwell progress — reserved</strong></td></tr>
+    <tr><td>StrokeHalo</td><td><code>BrushStrokeHalo</code></td><td class="num">#0A0A14</td><td class="num">#0E0A06</td><td class="num">#000000</td><td>Outline under Accent strokes</td></tr>
+    <tr><td>AccentSuccess</td><td><code>BrushAccentSuccess</code></td><td class="num" colspan="2" style="text-align:center;">#7EE787 — shared</td><td class="num">#00FF00</td><td>Completion, calibration done</td></tr>
+    <tr><td>AccentWarning</td><td><code>BrushAccentWarning</code></td><td class="num" colspan="2" style="text-align:center;">#E8A33C — shared</td><td class="num">#FFFF00</td><td>Warnings, reset, drag trail</td></tr>
+    <tr><td>AccentDanger</td><td><code>BrushAccentDanger</code></td><td class="num" colspan="2" style="text-align:center;">#FF5C7A — shared</td><td class="num">#FF7777</td><td>Close, cancel, delete</td></tr>
+    <tr><td>ToggleOn</td><td><code>BrushToggleOn</code></td><td class="num">#4A8F5C</td><td class="num">#67874C</td><td class="num">#00FF00</td><td>Toggles enabled, modal Yes</td></tr>
+    <tr><td>ToggleOff</td><td><code>BrushToggleOff</code></td><td class="num">#2E2E42</td><td class="num">#342C21</td><td class="num">#000000</td><td>Toggles disabled</td></tr>
+    <tr><td>ModalBackdrop</td><td><code>BrushModalBackdrop</code></td><td class="num" colspan="2" style="text-align:center;">#B3000000 — shared</td><td class="num">#E6000000</td><td>Modal dim, calibration backdrop</td></tr>
+    <tr><td>CornerRadiusSmall / Standard / Large</td><td><code>CornerRadius*</code></td><td class="num" colspan="3" style="text-align:center;">4 / 8 / 12</td><td>See §3 — unification deferred</td></tr>
+    <tr><td>BorderThicknessStandard</td><td><code>BorderThicknessStandard</code></td><td class="num">1</td><td class="num">1</td><td class="num">2</td><td>All container borders</td></tr>
+    <tr><td>FontPrimary</td><td><code>FontPrimary</code></td><td class="num" colspan="3" style="text-align:center;">Segoe UI</td><td>Application default</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ═══ 7. MEASURED ═══ -->
+<div>
+<h2>7. Measured — nine gates, both themes</h2>
+<p class="note">
+  Output of <code>tools/palette_validate.py</code>; none of these are estimated. The
+  <strong>worst composited</strong> reference is <code>SurfaceDark</code> over a white document —
+  <code>#1E1E32</code> for Midnight, <code>#251F19</code> for Ember — which is what happens when an
+  overlay floats above a browser or editor. v1.0 measured only the opaque core and so overstated
+  every ratio.
+</p>
+<table>
+  <thead><tr><th>Gate</th><th>Midnight</th><th>Ember</th><th>Contrast</th><th>Floor</th></tr></thead>
+  <tbody>
+    <tr><td>1 · BorderSubtle (worst composited)</td><td class="num">3.20</td><td class="num">3.17</td><td class="num">21.00</td><td class="num">3.0</td></tr>
+    <tr><td>1 · Elevation raises opacity</td><td class="num">250→255</td><td class="num">250→255</td><td class="num">255→255</td><td class="num">≥0</td></tr>
+    <tr><td>2 · TextPrimary</td><td class="num aaa">12.14</td><td class="num aaa">14.10</td><td class="num">21.00</td><td class="num">7.0</td></tr>
+    <tr><td>2 · TextSecondary</td><td class="num">6.62</td><td class="num">7.97</td><td class="num">17.14</td><td class="num">4.5</td></tr>
+    <tr><td>2 · TextDim</td><td class="num">5.14</td><td class="num">5.30</td><td class="num">12.55</td><td class="num">4.5</td></tr>
+    <tr><td>3 · Accent — normal</td><td class="num">13.67</td><td class="num">12.55</td><td class="num">16.75</td><td class="num">9.5</td></tr>
+    <tr><td>3 · Accent — protanopia</td><td class="num">14.60</td><td class="num">13.33</td><td class="num">18.92</td><td class="num">9.5</td></tr>
+    <tr><td>3 · Accent — deuteranopia</td><td class="num">13.20</td><td class="num">12.12</td><td class="num">15.59</td><td class="num">9.5</td></tr>
+    <tr><td>3 · Accent — tritanopia</td><td class="num">11.60</td><td class="num">10.69</td><td class="num">11.89</td><td class="num">9.5</td></tr>
+    <tr><td>4 · Accent ↔ TextPrimary ΔE</td><td class="num">20.0</td><td class="num">21.1</td><td class="num">25.7</td><td class="num">15</td></tr>
+    <tr><td>4 · Accent ↔ nearest semantic ΔE</td><td class="num">29.0</td><td class="num">35.1</td><td class="num">34.5</td><td class="num">25</td></tr>
+    <tr><td>5 · Triad ΔL* (tightest pair)</td><td class="num">10.08</td><td class="num">10.08</td><td class="num">9.40</td><td class="num">9.0</td></tr>
+    <tr><td>6 · Toggle on/off (worst dichromacy)</td><td class="num">3.26</td><td class="num">3.30</td><td class="num">11.89</td><td class="num">3.0</td></tr>
+    <tr><td>7 · Halo edge, worst backdrop</td><td class="num">15.78</td><td class="num">14.52</td><td class="num">16.75</td><td class="num">7.0</td></tr>
+    <tr><td>8 · Key ramp ΔE (tightest pair)</td><td class="num">9.26</td><td class="num">9.56</td><td class="num">18.25</td><td class="num">8.0</td></tr>
+    <tr><td>9 · Semantic chroma C*</td><td class="num" colspan="2" style="text-align:center;">62.4 / 63.1 / 66.2</td><td class="num">119.8 / 96.9 / 57.6</td><td class="num">55</td></tr>
+  </tbody>
+</table>
+
+<h3 style="margin-top:22px;">Semantic triad, per theme core</h3>
+<table>
+  <thead><tr><th>Token</th><th>Midnight / Ember</th><th>Contrast</th><th>Level (HC)</th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot" style="background:var(--accent-success);"></span>AccentSuccess</td><td class="num">#7EE787 · L* 83.6 · 11.10</td><td class="num">#00FF00 · L* 87.7 · 15.30</td><td class="aaa">AAA</td></tr>
+    <tr><td><span class="dot" style="background:var(--accent-warning);"></span>AccentWarning</td><td class="num">#E8A33C · L* 72.0 · 7.91</td><td class="num">#FFFF00 · L* 97.1 · 19.56</td><td class="aaa">AAA</td></tr>
+    <tr><td><span class="dot" style="background:var(--accent-danger);"></span>AccentDanger</td><td class="num">#FF5C7A · L* 61.9 · 5.74</td><td class="num">#FF7777 · L* 66.4 · 8.16</td><td class="aaa">AAA</td></tr>
+  </tbody>
+</table>
+<p class="note" style="margin-top:10px;">
+  <code>AccentDanger</code> is the only token below AAA. It appears exclusively on ≥22px close/cancel
+  glyphs, where AA applies; raising it would collapse the lightness gap that keeps the triad
+  separable under red-green deficiency. A deliberate trade.
+</p>
+
+<h3 style="margin-top:22px;">The accent swap does not regress</h3>
+<p class="note">
+  Contrast against each theme's own opaque core, as each vision type perceives it (Viénot 1999).
+  v1.0's <code>#7DCFFF</code> was <em>worse than Lime on all four rows</em> — the claim that the two
+  had "nearly identical" contrast was wrong, and that swap would have degraded the single signal the
+  interaction model depends on.
+</p>
+<table>
+  <thead><tr><th>Vision</th><th>Lime #00FF00 (today)</th><th>v1.0 #7DCFFF</th><th>Midnight #A5F3FC</th><th>Ember #9FE8FF</th><th>Contrast #00FFFF</th></tr></thead>
+  <tbody>
+    <tr><td>Normal</td><td class="num">12.43</td><td class="num bad">9.94</td><td class="num aaa">13.67</td><td class="num aaa">12.55</td><td class="num aaa">16.75</td></tr>
+    <tr><td>Protanopia</td><td class="num">14.20</td><td class="num bad">10.69</td><td class="num aaa">14.60</td><td class="num aaa">13.33</td><td class="num aaa">18.92</td></tr>
+    <tr><td>Deuteranopia</td><td class="num">11.52</td><td class="num bad">9.56</td><td class="num aaa">13.20</td><td class="num aaa">12.12</td><td class="num aaa">15.59</td></tr>
+    <tr><td>Tritanopia</td><td class="num">9.66</td><td class="num bad">8.28</td><td class="num aaa">11.60</td><td class="num aaa">10.69</td><td class="num aaa">11.89</td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn" style="margin-top:16px;">
+  <strong>Gate 9 exists because gates 1–8 were gameable.</strong> A hue sweep over the Ember design
+  space produced arrangements that passed all eight original gates with a near-white
+  <code>#F0D6D1</code> as <em>warning</em> and a pastel pink as <em>danger</em> — numerically fine,
+  semantically meaningless. Nothing required a semantic colour to be saturated enough to signify.
+  Gate 9 is a Lab chroma floor of <strong>C* ≥ 55</strong> on the triad. It is scoped to the triad
+  only: <code>Accent</code> is correctly low-chroma (C* ≈ 25 in both themes), being a luminance
+  signal rather than a categorical one.
+</div>
+
+<div class="callout">
+  <strong>A corrected claim, recorded.</strong> An earlier draft said Ember's <code>AccentDanger</code>
+  was stuck at 4.12:1 (AA-large) and that this was <em>structural</em>. That was wrong. Sweeping
+  accent hue with warm surfaces and text held fixed found arrangements well above AA: the cause was
+  a choice, not a constraint — a gold accent spent the warm hue axis, leaving the semantics competing
+  with it for ΔE 25. Ember now uses a <strong>cool accent on warm surfaces</strong>, and its danger
+  is 5.74:1, identical to Midnight. The accent covers a few percent of lit pixels, so keeping it cool
+  costs almost nothing in short-wavelength exposure — which is dominated by surfaces, and those stay
+  warm.
+</div>
+</div>
+
+<!-- ═══ 8. USAGE ═══ -->
+<div>
+<h2>8. Usage patterns</h2>
+<div class="callout">
+  <strong>Tokens live in <code>EyeCtrl.Controls</code>, not <code>EyeCtrl.App</code>.</strong> The
+  reference direction is App → Controls → Core, so a dictionary under <code>src/EyeCtrl.App/</code>
+  would be invisible to <code>DwellArcButton</code> and the other shared dwell controls — v1.0's
+  Phase 1 could not have compiled. <code>Theme/Tokens.cs</code> is the single source of truth; the
+  XAML dictionary derives from it via <code>x:Static</code>, so drift between the two views is
+  structurally impossible. Plain C# statics rather than
+  <code>Application.Current.Resources</code>, because <code>EyeCtrl.Controls.Tests</code> runs
+  without a WPF <code>Application</code>.
+</div>
+<div class="two-col">
+  <div>
+    <h3>In XAML</h3>
+<pre><span class="cmt">&lt;!-- App.xaml, once --&gt;</span>
+&lt;<span class="typ">ResourceDictionary</span> <span class="att">Source</span>=<span class="str">"pack://application:,,,/</span>
+  <span class="str">EyeCtrl.Controls;component/Theme/OverlayStyles.xaml"</span>/&gt;
+
+<span class="cmt">&lt;!-- Dictionary entry — one literal, in Tokens.cs --&gt;</span>
+&lt;<span class="typ">SolidColorBrush</span> <span class="att">x:Key</span>=<span class="str">"BrushSurfaceDark"</span>
+    <span class="att">Color</span>=<span class="str">"{x:Static theme:Tokens.SurfaceDark}"</span>/&gt;
+
+<span class="cmt">&lt;!-- Before --&gt;</span>
+&lt;<span class="typ">Border</span> <span class="att">Background</span>=<span class="str">"#F0181818"</span> <span class="att">CornerRadius</span>=<span class="str">"8"</span>/&gt;
+
+<span class="cmt">&lt;!-- After --&gt;</span>
+&lt;<span class="typ">Border</span> <span class="att">Background</span>=<span class="str">"{StaticResource BrushSurfaceDark}"</span>
+    <span class="att">CornerRadius</span>=<span class="str">"{StaticResource CornerRadiusStandard}"</span>
+    <span class="att">BorderBrush</span>=<span class="str">"{StaticResource BrushBorderSubtle}"</span>
+    <span class="att">BorderThickness</span>=<span class="str">"{StaticResource BorderThicknessStandard}"</span>/&gt;</pre>
+  </div>
+  <div>
+    <h3>In C# code-behind</h3>
+<pre><span class="cmt">// Before — magic literal, repeated across 6 files</span>
+<span class="kw">new</span> <span class="typ">SolidColorBrush</span>(
+    Color.<span class="att">FromArgb</span>(<span class="str">200</span>, <span class="str">60</span>, <span class="str">60</span>, <span class="str">80</span>));
+
+<span class="cmt">// After — one source of truth</span>
+<span class="typ">Tokens</span>.<span class="att">BrushSurfaceMedium</span>;
+
+<span class="cmt">// Halo pass on a transparent overlay.</span>
+<span class="cmt">// Declare the halo BEFORE the accent stroke.</span>
+Halo.<span class="att">Stroke</span> = <span class="typ">Tokens</span>.<span class="att">BrushStrokeHalo</span>;
+Halo.<span class="att">StrokeThickness</span> = t + <span class="str">2</span>;
+Ring.<span class="att">Stroke</span> = <span class="typ">Tokens</span>.<span class="att">BrushAccent</span>;
+Ring.<span class="att">StrokeThickness</span> = t;</pre>
+    <p class="note" style="margin-top:8px;">
+      Brushes are <code>Freeze()</code>d statics, so the halo adds one shape per overlay and no
+      per-frame allocation on the gaze path. <strong>Watch z-order:</strong> inverted, the halo
+      renders as a dark ring on every backdrop — obvious to the eye, invisible to every headless test.
+    </p>
+  </div>
+</div>
+
+<div class="callout warn" style="margin-top:18px;">
+  <strong>A second theme changes the resource contract.</strong> The migration plan specifies
+  <code>{StaticResource}</code>, which resolves once when a window loads. That is fine for a theme
+  chosen at startup and for overlays created per use, but a live switch affecting an already-open
+  Settings or Keyboard window needs <code>{DynamicResource}</code> or window recreation. <strong>Decide
+  restart-vs-live before Phase 4</strong> — converting those references afterwards touches all
+  eleven files in that phase. <code>Tokens.cs</code> should also be an <code>ITheme</code>
+  implementation from Phase 0, with the statics as Midnight's, rather than being refactored later.
+</div>
+
+<div class="callout warn">
+  <strong>Four of these colours are persisted settings, not XAML.</strong>
+  <code>CursorSettings.CircleColor</code>, <code>CalibrationSettings.TargetColor</code>,
+  <code>AutoSelectionSettings.HighlightColor</code> and <code>DragSettings.TrailColor</code> live in
+  <code>EyeCtrl.Core</code> and are written to <code>%APPDATA%\EyeCtrl\settings.json</code>. The
+  first two are read back over the XAML value at runtime, so a XAML-only edit is a <em>no-op</em> for
+  the cursor ring and calibration target. Per spec §7.1 there is deliberately <strong>no migration
+  code</strong>: three of the four sections are absent from the existing file and inherit the new
+  defaults automatically, and <code>cursor.circleColor</code> is set to <code>#0088FF</code> — worth
+  changing once via the picker, since at 5.59:1 against <code>StrokeHalo</code> it drops the §4 edge
+  guarantee below its 7:1 gate. Every colour-picker preset must clear 7:1 against
+  <code>StrokeHalo</code>, and the halos differ per theme.
+</div>
+</div>
+
+<div style="margin-top:36px;padding-top:20px;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-dim);">
+  <span>EyeCtrl Design System v2.2</span>
+  <span>3 themes · 20 tokens · 9 validated gates · ~38 files to migrate</span>
+  <span>python tools/palette_validate.py</span>
+</div>
+
+<script>
+  // Per-theme label text. Colours come from CSS variables; only the strings that
+  // name a value or quote a measurement need swapping.
+  const DATA = {
+    midnight: {
+      surfaceDark:'#FA1A1A2E', surfaceMedium:'#FA2A2A44', surfaceLight:'#FF3A3A5E',
+      surfaceKey:'#2A2A3E', surfaceKeyMod:'#3E3E64', surfaceKeySwitch:'#38527F',
+      surfacePrediction:'#2F5340', borderSubtle:'#616BA0',
+      textPrimary:'#D6DEF5', textSecondary:'#9AA4C8', textDim:'#868FB5',
+      accent:'#A5F3FC', strokeHalo:'#0A0A14', toggleOn:'#4A8F5C', toggleOff:'#2E2E42',
+      textPrimaryCr:'12.14:1 — AAA', textSecondaryCr:'6.62:1 — AA', textDimCr:'5.14:1 — AA',
+      borderSubtleCr:'3.20:1', keyRamp:'ΔE 9.26', borderThickness:'1px at 3.20:1',
+      accentSuccess:'#7EE787', accentSuccessMeta:'L* 83.6 · 11.10:1',
+      accentWarning:'#E8A33C', accentWarningMeta:'L* 72.0 · 7.91:1',
+      accentDanger:'#FF5C7A',  accentDangerMeta:'L* 61.9 · 5.74:1 — AA',
+      modalBackdrop:'#B3000000',
+      haloBlack:'plain 16.83 · lime 15.30 · halo 16.83',
+      haloGrey:'plain 3.16 · lime 2.88 · halo 15.78',
+      haloWhite:'plain 1.25 · lime 1.37 · halo 19.69',
+      haloCyan:'plain 1.33 · halo 15.78',
+      haloMixed:'plain varies · halo 15.78'
+    },
+    ember: {
+      surfaceDark:'#FA211B14', surfaceMedium:'#FA342B20', surfaceLight:'#FF473A2C',
+      surfaceKey:'#2E2619', surfaceKeyMod:'#4E4029', surfaceKeySwitch:'#63382A',
+      surfacePrediction:'#33422A', borderSubtle:'#7A6C51',
+      textPrimary:'#F2EEE8', textSecondary:'#BFB4A2', textDim:'#A0917C',
+      accent:'#9FE8FF', strokeHalo:'#0E0A06', toggleOn:'#67874C', toggleOff:'#342C21',
+      textPrimaryCr:'14.10:1 — AAA', textSecondaryCr:'7.97:1 — AA', textDimCr:'5.30:1 — AA',
+      borderSubtleCr:'3.17:1', keyRamp:'ΔE 9.56', borderThickness:'1px at 3.17:1',
+      accentSuccess:'#7EE787', accentSuccessMeta:'L* 83.6 · 11.10:1',
+      accentWarning:'#E8A33C', accentWarningMeta:'L* 72.0 · 7.90:1',
+      accentDanger:'#FF5C7A',  accentDangerMeta:'L* 61.9 · 5.74:1 — AA',
+      modalBackdrop:'#B3000000',
+      haloBlack:'plain 15.46 · lime 15.30 · halo 15.46',
+      haloGrey:'plain 2.91 · lime 2.88 · halo 14.52',
+      haloWhite:'plain 1.36 · lime 1.37 · halo 19.72',
+      haloCyan:'plain 1.22 · halo 14.52',
+      haloMixed:'plain varies · halo 14.52'
+    },
+    contrast: {
+      surfaceDark:'#FF000000', surfaceMedium:'#FF141414', surfaceLight:'#FF262626',
+      surfaceKey:'#0F0F0F', surfaceKeyMod:'#123A63', surfaceKeySwitch:'#4A4A4A',
+      surfacePrediction:'#004D22', borderSubtle:'#FFFFFF',
+      textPrimary:'#FFFFFF', textSecondary:'#E8E8E8', textDim:'#C8C8C8',
+      accent:'#00FFFF', strokeHalo:'#000000', toggleOn:'#00FF00', toggleOff:'#000000',
+      textPrimaryCr:'21.00:1 — AAA', textSecondaryCr:'17.14:1 — AAA', textDimCr:'12.55:1 — AAA',
+      borderSubtleCr:'21.00:1', keyRamp:'ΔE 18.25', borderThickness:'2px at 21.00:1',
+      accentSuccess:'#00FF00', accentSuccessMeta:'L* 87.7 · 15.30:1',
+      accentWarning:'#FFFF00', accentWarningMeta:'L* 97.1 · 19.56:1',
+      accentDanger:'#FF7777',  accentDangerMeta:'L* 66.4 · 8.16:1 — best of 3',
+      modalBackdrop:'#E6000000',
+      haloBlack:'plain 16.75 · lime 15.30 · halo 16.75',
+      haloGrey:'plain 3.15 · lime 2.88 · halo 16.75',
+      haloWhite:'plain 1.25 · lime 1.37 · halo 21.00',
+      haloCyan:'plain 1.32 · halo 16.75',
+      haloMixed:'plain varies · halo 16.75'
+    }
+  };
+  function setTheme(name) {
+    document.documentElement.dataset.theme = name;
+    for (const [k, v] of Object.entries(DATA[name])) {
+      document.querySelectorAll('[data-tok="' + k + '"]').forEach(el => el.textContent = v);
+    }
+    document.getElementById('b-mid').setAttribute('aria-pressed', name === 'midnight');
+    document.getElementById('b-emb').setAttribute('aria-pressed', name === 'ember');
+    document.getElementById('b-con').setAttribute('aria-pressed', name === 'contrast');
+  }
+  setTheme('midnight');
+</script>
+
+</body>
+</html>

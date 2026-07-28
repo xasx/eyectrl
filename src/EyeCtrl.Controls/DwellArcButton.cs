@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core;
 
 public class DwellArcButton
@@ -35,9 +36,9 @@ public class DwellArcButton
         Brush? fill = null, Brush? stroke = null, Brush? arcBrush = null, Brush? symbolBrush = null,
         double arcThickness = DefaultArcThickness, double arcInset = DefaultArcInset, double fontSize = DefaultSymbolFontSize)
     {
-        var fillBrush = fill ?? new SolidColorBrush(Color.FromArgb(0xC8, 0x1E, 0x1E, 0x1E));
-        var strokeBrush = stroke ?? new SolidColorBrush(Color.FromArgb(0x64, 0x64, 0x64, 0x64));
-        var arcBrushActual = arcBrush ?? Brushes.Lime;
+        var fillBrush = fill ?? Tokens.BrushSurfaceMedium;
+        var strokeBrush = stroke ?? Tokens.BrushBorderSubtle;
+        var arcBrushActual = arcBrush ?? Tokens.BrushAccent;
         var symbolBrushActual = symbolBrush ?? Brushes.White;
         var dia = radius * 2;
         var arcRad = radius - arcInset;

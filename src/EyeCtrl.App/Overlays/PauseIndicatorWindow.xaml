@@ -9,5 +9,5 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent">
-    <Border Background="#C0204060" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+    <Border Background="{StaticResource BrushSurfaceDark}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 </overlay:OverlayWindow>

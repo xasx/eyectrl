@@ -21,7 +21,6 @@ public class LegacyColourLiteralTests
     /// <summary>file (repo-relative) -> literals still expected in it.</summary>
     private static readonly Dictionary<string, string[]> StillPending = new()
     {
-        ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] = ["200, 40, 90, 160"],
         // All 11 of this file's colour literals, not a subset — the allow-list is the
         // cross-task guard, and a partial entry lets the untracked ones return silently.
         ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =

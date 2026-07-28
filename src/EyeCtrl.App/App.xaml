@@ -4,6 +4,12 @@
              xmlns:local="clr-namespace:EyeCtrl.App"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
-
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Palette tokens live in EyeCtrl.Controls so the shared dwell
+                     controls can reach them; see spec §5 Phase 0. -->
+                <ResourceDictionary Source="pack://application:,,,/EyeCtrl.Controls;component/Theme/OverlayStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

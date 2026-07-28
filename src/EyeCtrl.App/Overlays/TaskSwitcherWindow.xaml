@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
-        WindowStyle="None" AllowsTransparency="True" Background="#E6000000"
+        WindowStyle="None" AllowsTransparency="True" Background="{StaticResource BrushSurfaceDark}"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         IsClickThrough="False">
     <Grid>
@@ -19,10 +19,10 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Margin="8" Background="#40FFFFFF" CornerRadius="8" Padding="8">
+                        <Border Margin="8" Background="{StaticResource BrushSurfaceMedium}" CornerRadius="8" Padding="8">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <Image Source="{Binding Icon}" Width="32" Height="32" Margin="0,0,0,4"/>
-                                <TextBlock Text="{Binding Title}" Foreground="White" FontSize="12"
+                                <TextBlock Text="{Binding Title}" Foreground="{StaticResource BrushTextPrimary}" FontSize="12"
                                            TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                            MaxWidth="180"/>
                             </StackPanel>
@@ -32,6 +32,6 @@
             </ItemsControl>
         </ScrollViewer>
         <TextBlock Grid.Row="1" Text="Select a window — or look away to cancel"
-                   Foreground="LightGray" FontSize="14" HorizontalAlignment="Center" Margin="0,12"/>
+                   Foreground="{StaticResource BrushTextSecondary}" FontSize="14" HorizontalAlignment="Center" Margin="0,12"/>
     </Grid>
 </overlays:OverlayWindow>

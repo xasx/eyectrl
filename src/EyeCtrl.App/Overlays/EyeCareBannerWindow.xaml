@@ -11,32 +11,32 @@
 
     <Grid>
         <!-- Dim the work area below the banner (click-through) -->
-        <Rectangle x:Name="WorkDim" Fill="#73000000" Visibility="Collapsed"/>
+        <Rectangle x:Name="WorkDim" Fill="{StaticResource BrushModalBackdrop}" Visibility="Collapsed"/>
 
         <!-- Top banner strip -->
-        <Border VerticalAlignment="Top" Height="80" Background="#F0181830"
-                BorderBrush="#6c8cff" BorderThickness="0,0,0,1">
+        <Border VerticalAlignment="Top" Height="80" Background="{StaticResource BrushSurfaceDark}"
+                BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="0,0,0,1">
             <Grid Margin="20,0">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Left">
                     <TextBlock x:Name="MessageText" Text="👁 Time for an eye break"
-                               Foreground="White" FontSize="16" FontWeight="SemiBold"/>
+                               Foreground="{StaticResource BrushTextPrimary}" FontSize="16" FontWeight="SemiBold"/>
                     <TextBlock x:Name="SubText" Text="You've been fixating for a while"
-                               Foreground="#FFAAAAAA" FontSize="11" Margin="0,2,0,0"/>
+                               Foreground="{StaticResource BrushTextSecondary}" FontSize="11" Margin="0,2,0,0"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <!-- Two large dwell circles: Start (accept) and Snooze -->
                     <Grid Margin="0,0,16,0" Width="64" Height="64">
-                        <Ellipse x:Name="SnoozeRing" Stroke="#888888" StrokeThickness="2" StrokeDashArray="3 3"/>
-                        <TextBlock Text="✕" Foreground="#FFAAAAAA" FontSize="22"
+                        <Ellipse x:Name="SnoozeRing" Stroke="{StaticResource BrushTextDim}" StrokeThickness="2" StrokeDashArray="3 3"/>
+                        <TextBlock Text="✕" Foreground="{StaticResource BrushTextSecondary}" FontSize="22"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock Text="snooze" Foreground="#FF777777" FontSize="9"
+                        <TextBlock Text="snooze" Foreground="{StaticResource BrushTextDim}" FontSize="9"
                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
                     </Grid>
                     <Grid Width="64" Height="64">
-                        <Ellipse x:Name="StartRing" Stroke="#FF6c8cff" StrokeThickness="2" StrokeDashArray="3 3"/>
-                        <TextBlock Text="▶" Foreground="#FF6c8cff" FontSize="22"
+                        <Ellipse x:Name="StartRing" Stroke="{StaticResource BrushAccent}" StrokeThickness="2" StrokeDashArray="3 3"/>
+                        <TextBlock Text="▶" Foreground="{StaticResource BrushAccent}" FontSize="22"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock Text="start" Foreground="#FF6c8cff" FontSize="9"
+                        <TextBlock Text="start" Foreground="{StaticResource BrushAccent}" FontSize="9"
                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
                     </Grid>
                 </StackPanel>

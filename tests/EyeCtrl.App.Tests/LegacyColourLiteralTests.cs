@@ -26,7 +26,6 @@ public class LegacyColourLiteralTests
         // NoteWindow.xaml.cs migrated by Task 12 (incl. three Colors.Lime accent usages
         // the plan's substitution table omitted — edit border, GetBorderBrush edit/move
         // states, and the dwell-arc stroke — all retargeted to Tokens.BrushAccent).
-        ["src/EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml"] = ["#F0181830", "#6c8cff", "#73000000"],
         ["src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml"] = ["#E8000000", "#FF6c8cff", "#FF7ee787"],
         ["src/EyeCtrl.App/Overlays/CalibrationWindow.xaml"] = ["#DD000000", "#FFAA00"],
         ["src/EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml"] = ["#C0204060"],

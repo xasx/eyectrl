@@ -16,6 +16,20 @@
 - **No halo.** The `StrokeHalo` token is *defined* here (Task 1) but nothing consumes it. §4.1.3's rendering change is Plan B, including the `DwellArcButton` halo arc that §5 step 5 lists under Phase 1 — it is the same kind of change as Phase 5 and belongs with it.
 - **No radius or font work.** Radius unification is deferred (§8). §4.3's app-wide `FontFamily` is not in §5 and is out of scope; the redundant `FontFamily` on `CalibrationWindow.xaml:30` is therefore **left alone** (contrary to step 29's aside, which assumes §4.3 has landed).
 
+**Preconditions — check these before Task 1.** Everything below assumes you are
+working *in the worktree* `.worktrees/overlay-unification` on branch
+`docs/overlay-unification`, where the spec and validator live. They are **not
+present on `main`**:
+
+```bash
+git rev-parse --abbrev-ref HEAD          # -> docs/overlay-unification
+test -f docs/design/overlay-unification-spec.md && echo spec ok
+python tools/palette_validate.py         # -> ALL GATES PASS, exit 0
+```
+
+If the spec is missing you are on the wrong branch or in the wrong directory. Do
+not proceed — every section reference in this plan will be unresolvable.
+
 **Line numbers** in this plan are pinned to `main` at `b8295b6`. If `git log --oneline -1` shows something else, re-verify before editing — two PRs already shifted these once.
 
 ---
@@ -45,6 +59,8 @@
 - Create: `tests/EyeCtrl.Controls.Tests/Theme/TokenValueTests.cs`
 
 `EyeCtrl.Controls.Tests` currently has **no test files** — this is its first. Create the `Theme/` folder.
+
+> **On test packages:** `tests/Directory.Build.props` centrally supplies xUnit v3, NFluent and the runner, so this task needs no csproj edit. `Xunit.StaFact` is **not** centralised — it is referenced per-project — so Task 2 does add a `PackageReference`. Do not read this task as "csproj edits are never needed."
 
 - [ ] **Step 1: Write the failing test**
 
@@ -229,8 +245,13 @@ public static class Tokens
     /// The one non-colour theme-varying token (§4.4). Midnight and Ember use 1;
     /// Contrast uses 2, because high-contrast structure is carried by the border
     /// rather than by fill steps.
+    ///
+    /// Deliberately <c>static readonly</c> rather than <c>const</c>: {x:Static}
+    /// cannot bind a const, and a const would force OverlayStyles.xaml to restate
+    /// the literal — breaking the single-source-of-truth guarantee for the sake of
+    /// one number.
     /// </summary>
-    public const double BorderThicknessStandard = 1.0;
+    public static readonly double BorderThicknessStandard = 1.0;
 }
 ```
 
@@ -387,11 +408,11 @@ Create `src/EyeCtrl.Controls/Theme/OverlayStyles.xaml`. Every value derives from
     <SolidColorBrush x:Key="BrushToggleOff"          Color="{x:Static theme:Tokens.ToggleOff}"/>
     <SolidColorBrush x:Key="BrushModalBackdrop"      Color="{x:Static theme:Tokens.ModalBackdrop}"/>
 
-    <sys:Double x:Key="BorderThicknessStandard">1</sys:Double>
+    <sys:Double x:Key="BorderThicknessStandard">{x:Static theme:Tokens.BorderThicknessStandard}</sys:Double>
 </ResourceDictionary>
 ```
 
-> **Note on `BorderThicknessStandard`:** it is a `const double`, and `{x:Static}` cannot bind a `const` (only fields/properties). It is therefore restated here as `1`. The `Dictionary_ExposesBorderThickness` test pins the two together so they cannot diverge silently. If you prefer no restatement, change `Tokens.BorderThicknessStandard` from `const` to `static readonly` and use `{x:Static}` — either is acceptable, but the test must keep passing.
+The `sys:` namespace declaration can be dropped if `{x:Static}` is used as above — keep whichever form compiles, but the value must come from `Tokens`, not be restated. `Dictionary_ExposesBorderThickness` enforces that.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1098,6 +1119,50 @@ git add src/EyeCtrl.Core/Settings/CursorSettings.cs src/EyeCtrl.Core/Settings/Ca
 git commit -m "feat(settings): retarget the four persisted colour defaults onto the palette"
 ```
 
+- [ ] **Step 6: Remove the hex duplication**
+
+The four literals above now appear in 4 settings files plus `DragSettingsTests`, so a token change means editing 5 files. Centralise them in `EyeCtrl.Core` — which still cannot reference `Controls`, so `SettingsDefaultsMatchTokensTests` remains the thing that ties them to `Tokens`:
+
+Create `src/EyeCtrl.Core/Settings/SettingsDefaults.cs`:
+
+```csharp
+namespace EyeCtrl.Core.Settings;
+
+/// <summary>
+/// Default colours for persisted settings, as hex strings.
+///
+/// EyeCtrl.Core cannot reference EyeCtrl.Controls (the dependency runs the other
+/// way), so these cannot be EyeCtrl.Controls.Theme.Tokens directly. They are kept
+/// in sync by SettingsDefaultsMatchTokensTests in EyeCtrl.App.Tests, which is the
+/// only project referencing both.
+/// </summary>
+internal static class SettingsDefaults
+{
+    /// <summary>Tokens.Accent — dwell progress, cursor ring, calibration target.</summary>
+    internal const string Accent = "#A5F3FC";
+
+    /// <summary>Tokens.AccentWarning — the drag trail, deliberately distinct from Accent.</summary>
+    internal const string AccentWarning = "#E8A33C";
+}
+```
+
+Then reference it from all four settings files, e.g.:
+
+```csharp
+    [ObservableProperty] private string _circleColor = SettingsDefaults.Accent;
+```
+
+`CalibrationSettings.TargetColor` and `AutoSelectionSettings.HighlightColor` likewise take `SettingsDefaults.Accent`; `DragSettings.TrailColor` takes `SettingsDefaults.AccentWarning`.
+
+Leave `DragSettingsTests` asserting the literal `"#E8A33C"` — a test that asserts against the same constant it is verifying proves nothing.
+
+Run: `dotnet test tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj --nologo && dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo` → both PASS.
+
+```bash
+git add src/EyeCtrl.Core/Settings/SettingsDefaults.cs src/EyeCtrl.Core/Settings/
+git commit -m "refactor(settings): centralise persisted colour defaults"
+```
+
 > **Existing installs are unaffected by design.** `%APPDATA%\EyeCtrl\settings.json` already contains `cursor.circleColor`, so that key keeps its current value; the other three sections are absent from the file and inherit the new defaults automatically. Spec §7.1 records the decision to ship **no migration code** — change Circle Color once via the picker instead.
 
 ---
@@ -1385,7 +1450,7 @@ git commit -m "refactor(note): colours from Tokens (code-only overlay, no XAML)"
 
 ---
 
-## Task 13: Filled overlay XAML — 12 files
+## Task 13: Filled overlay XAML — 12 files (13 steps: 12 files + 1 confirmation)
 
 **Files:** all under `src/EyeCtrl.App/`, plus `tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs`
 
@@ -1504,7 +1569,112 @@ Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Cat
 
 ---
 
-## Task 14: Full verification
+## Task 14: Headless window instantiation — catches misspelled resource keys
+
+**Files:**
+- Create: `tests/EyeCtrl.App.Tests/OverlayResourceResolutionTests.cs`
+
+A misspelled `{StaticResource BrushSurfaceDrak}` throws `ResourceReferenceKeyNotFoundException` **at window load**. Nothing in Tasks 1–13 exercises that, which currently leaves manual visual checking as the only detection — for 12 files of substitutions. This closes the gap.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/EyeCtrl.App.Tests/OverlayResourceResolutionTests.cs`:
+
+```csharp
+namespace EyeCtrl.App.Tests;
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows;
+using EyeCtrl.App.Overlays;
+using NFluent;
+using Xunit;
+
+/// <summary>
+/// Instantiates each migrated overlay so its XAML is actually parsed. A misspelled
+/// {StaticResource} key throws ResourceReferenceKeyNotFoundException at load time —
+/// invisible to a build and to every literal-scanning test.
+///
+/// Requires STA plus an Application whose resources include the merged token
+/// dictionary, mirroring what App.xaml sets up at runtime.
+/// </summary>
+public class OverlayResourceResolutionTests
+{
+    private static void EnsureApplicationWithTokens()
+    {
+        if (Application.Current is null)
+            _ = new Application();
+
+        const string uri =
+            "pack://application:,,,/EyeCtrl.Controls;component/Theme/OverlayStyles.xaml";
+
+        var already = Application.Current!.Resources.MergedDictionaries
+            .Any(d => d.Source?.ToString() == uri);
+
+        if (!already)
+            Application.Current.Resources.MergedDictionaries.Add(
+                new ResourceDictionary { Source = new Uri(uri, UriKind.Absolute) });
+    }
+
+    /// <summary>Overlays migrated by Plan A whose XAML uses StaticResource brushes.</summary>
+    public static TheoryData<Type> MigratedOverlays() =>
+    [
+        typeof(KeyboardWindow), typeof(ToolbarWindow), typeof(QuickActionsGridWindow),
+        typeof(SplashWindow), typeof(TrackStatusWindow), typeof(TaskSwitcherWindow),
+        typeof(EyeCareBannerWindow), typeof(EyeCareExerciseWindow),
+        typeof(CalibrationWindow), typeof(PauseIndicatorWindow),
+        typeof(DriftNoticeWindow),
+    ];
+
+    [StaTheory]
+    [MemberData(nameof(MigratedOverlays))]
+    public void Overlay_LoadsWithoutUnresolvedResourceKeys(Type overlayType)
+    {
+        EnsureApplicationWithTokens();
+
+        Window? w = null;
+        try
+        {
+            // Activator runs InitializeComponent, which parses the XAML and
+            // resolves every StaticResource.
+            w = (Window)Activator.CreateInstance(overlayType)!;
+        }
+        catch (Exception ex) when (ex.InnerException is ResourceReferenceKeyNotFoundException inner)
+        {
+            Check.WithCustomMessage(
+                    $"{overlayType.Name} references an undefined resource key "
+                    + $"'{inner.Key}'. Check the spelling against OverlayStyles.xaml.")
+                .That(false).IsTrue();
+        }
+        finally
+        {
+            w?.Close();
+        }
+    }
+}
+```
+
+`[StaTheory]` comes from `Xunit.StaFact`, already referenced by `EyeCtrl.App.Tests`.
+
+- [ ] **Step 2: Run the test**
+
+Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~OverlayResourceResolution" --nologo`
+
+Expected: PASS, 11 cases. If a case fails with an unresolved key, fix that overlay's XAML — the message names the key.
+
+**If a window cannot be constructed without a view model or other dependency**, exclude it from `MigratedOverlays()` with a comment naming the blocker, and note it in the Task 15 visual check instead. Do not weaken the test to a try/catch that swallows everything — a test that cannot fail is worse than no test.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/EyeCtrl.App.Tests/OverlayResourceResolutionTests.cs
+git commit -m "test(theme): load each migrated overlay to catch unresolved resource keys"
+```
+
+---
+
+## Task 15: Full verification
 
 **Files:** none modified — this task only runs checks.
 
@@ -1534,9 +1704,9 @@ Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Cat
 
 **This requires an interactive desktop session.** Roughly 13 of these fail headless on clean `main` with "Toolbar_Window did not appear within 15s". They are environmental, not regressions — do **not** treat a headless failure here as a migration defect, and do not use this as a CI gate.
 
-- [ ] **Step 5: Visual confirmation — the only check that catches a bad resource key**
+- [ ] **Step 5: Visual confirmation**
 
-A misspelled `{StaticResource}` throws `ResourceReferenceKeyNotFoundException` at window load, which no test above exercises. **Ask the user before launching the app** — they control the PC solely by eye tracking, so an app launch takes over their only input channel. Keep the run short.
+Task 14 now catches unresolved resource keys, so this step is about whether the result *looks* right — colour choices in context, and anything Task 14 had to exclude. **Ask the user before launching the app** — they control the PC solely by eye tracking, so an app launch takes over their only input channel. Keep the run short.
 
 Open, in this order, and confirm each renders with the new navy palette and no exception dialog: Toolbar → Settings (all tabs, plus a reset modal) → Keyboard (including the prediction bar) → Quick Actions → Calibration → the EyeCare banner.
 
@@ -1558,5 +1728,20 @@ git commit -m "chore(theme): Plan A complete — token foundation and colour mig
 **One spec inconsistency corrected here:** step 29 says to delete `CalibrationWindow.xaml:30`'s `FontFamily` "once §4.3 sets it app-wide." §4.3 is not in §5's step list, so this plan leaves the declaration in place rather than removing a setting with no replacement.
 
 **Type consistency.** `Tokens.BrushXxx` naming is used identically in Tasks 1, 2, 5–13. `DwellColorPicker.Presets` is defined in Task 7 and consumed by `ColorPickerPresetTests` in the same task. `ColorBlend.Blend` (public, pre-existing) is what Task 9 calls; `ColorBlend.ToHighlightBrush` is modified in Task 7 and not re-signatured. `LegacyColourLiteralTests.StillPending` is created in Task 4 and pruned by Tasks 5–13, ending with exactly the 4 Plan B entries asserted in Task 13 Step 13.
+
+**Review outcome (2026-07-28).** Two findings raised as HIGH — that the spec and
+`tools/palette_validate.py` do not exist — were checked and did not hold: both are
+committed in `3477eef` on this branch and the validator exits 0. They are absent
+from `main` only because the working tree there was deliberately cleaned after the
+commit. A Preconditions block now states the required branch and directory so the
+confusion cannot recur. A third finding, that `DwellArcButton.cs:38-40` are
+"constructor parameter defaults", also did not hold — the *parameters* default to
+`null` on line 35 and lines 38-40 are local `??` fallbacks, which is the shape
+Task 5 replaces.
+
+Findings that did hold and are now fixed: the misleading csproj wording in Task 1,
+the `const` vs `static readonly` restatement wart in Task 2, hex duplication across
+five files (new Task 8 Step 6), the Task 13 header count, and the absence of any
+automated check for misspelled resource keys (new Task 14).
 
 **Known plan weakness.** Tasks 6, 9, 11 and 12 cannot produce a natural red test — a colour literal becoming a token is not observable behaviour. Those use a `grep` count as the red-to-green gate instead, which is honest about what is being verified rather than dressing a substitution up as TDD.

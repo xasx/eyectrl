@@ -4,7 +4,7 @@
                      xmlns:local="clr-namespace:EyeCtrl.App.Overlays"
                      WindowStyle="None" AllowsTransparency="True"
                      Topmost="True" ShowInTaskbar="False"
-                     Background="#E8000000"
+                     Background="{StaticResource BrushSurfaceDark}"
                      Width="{x:Static SystemParameters.PrimaryScreenWidth}"
                      Height="{x:Static SystemParameters.PrimaryScreenHeight}"
                      Left="0" Top="0">
@@ -12,23 +12,23 @@
     <Grid>
         <Canvas x:Name="Stage">
             <!-- Target dot -->
-            <Ellipse x:Name="TargetDot" Width="36" Height="36" Fill="#FF6c8cff" Opacity="0.9"/>
+            <Ellipse x:Name="TargetDot" Width="36" Height="36" Fill="{StaticResource BrushAccent}" Opacity="0.9"/>
             <!-- Live gaze cursor (green ring) -->
-            <Ellipse x:Name="GazeRing" Width="44" Height="44" Stroke="#FF7ee787" StrokeThickness="2"/>
+            <Ellipse x:Name="GazeRing" Width="44" Height="44" Stroke="{StaticResource BrushAccentSuccess}" StrokeThickness="2"/>
         </Canvas>
 
         <!-- HUD (top center): name + countdown, no score -->
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,20,0,0">
-            <TextBlock x:Name="ExerciseName" Foreground="White" FontSize="18" FontWeight="SemiBold"
+            <TextBlock x:Name="ExerciseName" Foreground="{StaticResource BrushTextPrimary}" FontSize="18" FontWeight="SemiBold"
                        HorizontalAlignment="Center"/>
-            <TextBlock x:Name="Countdown" Foreground="#FFAAAAAA" FontSize="12"
+            <TextBlock x:Name="Countdown" Foreground="{StaticResource BrushTextSecondary}" FontSize="12"
                        HorizontalAlignment="Center" Margin="0,4,0,0"/>
         </StackPanel>
 
         <!-- Skip button (corner) -->
         <Button x:Name="SkipButton" Content="Skip ✕" Width="60" Height="32"
                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20"
-                Foreground="#FF888888" Background="Transparent" BorderBrush="#FF444444"/>
+                Foreground="{StaticResource BrushTextDim}" Background="Transparent" BorderBrush="{StaticResource BrushBorderSubtle}"/>
 
         <!-- Progress bar -->
         <ProgressBar x:Name="Progress" Height="3" VerticalAlignment="Bottom" Minimum="0" Maximum="100"/>
@@ -36,27 +36,27 @@
         <!-- Summary card (hidden until exercise ends) -->
         <Border x:Name="SummaryCard" Visibility="Collapsed"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
-                Background="#F0181830" BorderBrush="#FF6c8cff" BorderThickness="1" CornerRadius="14"
+                Background="{StaticResource BrushSurfaceLight}" BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1" CornerRadius="14"
                 Padding="28,18">
             <StackPanel HorizontalAlignment="Center">
-                <TextBlock x:Name="SummaryTitle" Text="✓ Nice work" Foreground="#FF7ee787" FontSize="13"
+                <TextBlock x:Name="SummaryTitle" Text="✓ Nice work" Foreground="{StaticResource BrushAccentSuccess}" FontSize="13"
                            HorizontalAlignment="Center" Margin="0,0,0,6"/>
-                <TextBlock x:Name="SummaryName" Foreground="White" FontSize="12" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                <TextBlock x:Name="SummaryName" Foreground="{StaticResource BrushTextPrimary}" FontSize="12" HorizontalAlignment="Center" Margin="0,0,0,12"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,12">
                     <StackPanel Margin="0,0,18,0">
-                        <TextBlock x:Name="SummaryAccuracy" Foreground="#FF6c8cff" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center"/>
-                        <TextBlock Text="accuracy" Foreground="#FF888888" FontSize="9" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="SummaryAccuracy" Foreground="{StaticResource BrushAccent}" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center"/>
+                        <TextBlock Text="accuracy" Foreground="{StaticResource BrushTextDim}" FontSize="9" HorizontalAlignment="Center"/>
                     </StackPanel>
                     <StackPanel Margin="0,0,18,0">
-                        <TextBlock x:Name="SummarySteadiness" Foreground="#FF6c8cff" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center"/>
-                        <TextBlock Text="steadiness" Foreground="#FF888888" FontSize="9" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="SummarySteadiness" Foreground="{StaticResource BrushAccent}" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center"/>
+                        <TextBlock Text="steadiness" Foreground="{StaticResource BrushTextDim}" FontSize="9" HorizontalAlignment="Center"/>
                     </StackPanel>
                     <StackPanel x:Name="ReactionTimePanel" Visibility="Collapsed">
-                        <TextBlock x:Name="SummaryReactionTime" Foreground="#FF6c8cff" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center"/>
-                        <TextBlock Text="reaction ms" Foreground="#FF888888" FontSize="9" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="SummaryReactionTime" Foreground="{StaticResource BrushAccent}" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center"/>
+                        <TextBlock Text="reaction ms" Foreground="{StaticResource BrushTextDim}" FontSize="9" HorizontalAlignment="Center"/>
                     </StackPanel>
                 </StackPanel>
-                <TextBlock x:Name="SummaryEncourage" Foreground="#FF888888" FontSize="9" HorizontalAlignment="Center"/>
+                <TextBlock x:Name="SummaryEncourage" Foreground="{StaticResource BrushTextDim}" FontSize="9" HorizontalAlignment="Center"/>
             </StackPanel>
         </Border>
     </Grid>

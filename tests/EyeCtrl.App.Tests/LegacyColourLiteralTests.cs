@@ -21,7 +21,6 @@ public class LegacyColourLiteralTests
     /// <summary>file (repo-relative) -> literals still expected in it.</summary>
     private static readonly Dictionary<string, string[]> StillPending = new()
     {
-        ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] = ["200, 50, 50, 50", "100 + 155 * progress", "Brushes.Gray"],
         ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] = ["Brushes.Lime", "60, 60, 60"],
         ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] = ["200, 40, 90, 160"],
         // All 11 of this file's colour literals, not a subset — the allow-list is the

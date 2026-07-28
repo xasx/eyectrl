@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Keyboard;
@@ -11,17 +12,18 @@ using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.ViewModels;
 
 public partial class KeyboardWindow : OverlayWindow
 {
     private const double BaseKeySize = 70;
 
-    private static readonly Color KeyColorNormal = Color.FromArgb(200, 50, 50, 50);
-    private static readonly Color KeyColorSpecial = Color.FromArgb(200, 60, 60, 80);
-    private static readonly Color KeyColorSwitch = Color.FromArgb(200, 50, 70, 110);
-    private static readonly Color KeyColorModifierActive = Color.FromArgb(230, 80, 180, 255);
-    private static readonly Color PredictionBarColor = Color.FromArgb(200, 40, 80, 40);
+    private static readonly Color KeyColorNormal = Tokens.SurfaceKey;
+    private static readonly Color KeyColorSpecial = Tokens.SurfaceKeyModifier;
+    private static readonly Color KeyColorSwitch = Tokens.SurfaceKeySwitch;
+    private static readonly Color KeyColorModifierActive = Tokens.Accent;
+    private static readonly Color PredictionBarColor = Tokens.SurfacePrediction;
 
     // Cached frozen brushes for prediction foreground colors (performance optimization)
     private static readonly Brush ForegroundExactPrefix = Brushes.White;
@@ -33,25 +35,16 @@ public partial class KeyboardWindow : OverlayWindow
 
     static KeyboardWindow()
     {
-        // Initialize and freeze brushes for better WPF rendering performance
-        var fuzzyBrush = new SolidColorBrush(Color.FromRgb(200, 200, 255));
-        fuzzyBrush.Freeze();
+        // Token brushes are already frozen, so the static fields can reference them directly.
+        var fuzzyBrush = Tokens.BrushTextSecondary;
+        var nextWordBrush = Tokens.BrushAccentSuccess;
+        var phraseBrush = Tokens.BrushAccentWarning;
+        var sentenceCompletionBrush = Tokens.BrushAccent;
+        var lmSuggestionBrush = Tokens.BrushTextPrimary;
         ForegroundFuzzyMatch = fuzzyBrush;
-
-        var nextWordBrush = new SolidColorBrush(Color.FromRgb(200, 255, 200));
-        nextWordBrush.Freeze();
         ForegroundNextWord = nextWordBrush;
-
-        var phraseBrush = new SolidColorBrush(Color.FromRgb(255, 255, 200));
-        phraseBrush.Freeze();
         ForegroundPhrase = phraseBrush;
-
-        var sentenceCompletionBrush = new SolidColorBrush(Color.FromRgb(100, 200, 255));
-        sentenceCompletionBrush.Freeze();
         ForegroundSentenceCompletion = sentenceCompletionBrush;
-
-        var lmSuggestionBrush = new SolidColorBrush(Color.FromRgb(200, 150, 255));
-        lmSuggestionBrush.Freeze();
         ForegroundLMSuggestion = lmSuggestionBrush;
     }
 
@@ -556,7 +549,7 @@ public partial class KeyboardWindow : OverlayWindow
             {
                 Text = symbol,
                 FontSize = 12,
-                Foreground = Brushes.Gray,
+                Foreground = Tokens.BrushTextDim,
                 Margin = new Thickness(4, 0, 0, 0)
             }
         };
@@ -570,7 +563,7 @@ public partial class KeyboardWindow : OverlayWindow
 
         // Blend highlight on top of the stored base color to preserve confidence shading
         var baseColor = _predictionBaseColors[index];
-        var highlightColor = Color.FromArgb(baseColor.A, 0, (byte)(100 + 155 * progress), 0);
+        var highlightColor = ColorBlend.Blend(baseColor, Tokens.Accent, progress);
 
         _predictionBrushes[index].Color = Color.FromArgb(
             baseColor.A,
@@ -599,7 +592,8 @@ public partial class KeyboardWindow : OverlayWindow
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
 
         var baseColor = GetKeyBaseColor(targetId);
-        var highlightColor = Color.FromArgb(200, 0, (byte)(100 + 155 * progress), 0);
+        var highlightColor = ColorBlend.Blend(
+            Color.FromArgb(200, baseColor.R, baseColor.G, baseColor.B), Tokens.Accent, progress);
         var blended = Color.FromArgb(
             200,
             (byte)(baseColor.R * (1 - progress) + highlightColor.R * progress),

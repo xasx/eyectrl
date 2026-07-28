@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Processing;
 
 /// <summary>
@@ -17,8 +18,8 @@ using EyeCtrl.Core.Processing;
 /// </remarks>
 public class DwellToggle : DwellControl
 {
-    private static readonly Color OnColor = Color.FromArgb(200, 30, 100, 30);
-    private static readonly Color OffColor = Color.FromArgb(200, 80, 40, 40);
+    private static readonly Color OnColor = Tokens.ToggleOn;
+    private static readonly Color OffColor = Tokens.ToggleOff;
 
     private readonly string _label;
     private readonly Func<bool> _get;

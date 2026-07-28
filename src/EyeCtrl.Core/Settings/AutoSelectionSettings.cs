@@ -6,7 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 public partial class AutoSelectionSettings : ObservableObject, IValidatable
 {
     /// <summary>Hex color of the highlight border around the selected control (e.g., "#0078D4").</summary>
-    [ObservableProperty] private string _highlightColor = "#0078D4";
+    [ObservableProperty] private string _highlightColor = "#A5F3FC";
     /// <summary>Thickness of the highlight border in logical pixels. Valid range: 1–10.</summary>
     [ObservableProperty] private double _highlightThickness = 3.0;
     /// <summary>Opacity of the highlight overlay. Valid range: 0.1–1.0.</summary>

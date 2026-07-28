@@ -10,7 +10,7 @@ public class DragSettingsTests
         var s = new DragSettings();
         Check.That(s.SettleDwellMs).IsEqualTo(500);
         Check.That(s.SettleRadiusPixels).IsEqualTo(40);
-        Check.That(s.TrailColor).IsEqualTo("#ff9800");
+        Check.That(s.TrailColor).IsEqualTo("#E8A33C");
         Check.That(s.TrailOpacity).IsEqualTo(0.7);
     }
 

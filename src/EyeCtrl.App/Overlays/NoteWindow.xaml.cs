@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 
@@ -64,7 +65,7 @@ public class NoteWindow : OverlayWindow
         var bg = new Border
         {
             Width = LayoutConstants.NoteWindowWidth, Height = Height,
-            Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x2E)),
+            Background = Tokens.BrushSurfaceDark,
             CornerRadius = new CornerRadius(6),
             BorderBrush = GetBorderBrush(),
             BorderThickness = GetBorderThickness(),
@@ -76,13 +77,13 @@ public class NoteWindow : OverlayWindow
         var titleBar = new Border
         {
             Height = TitleBarHeight, Width = LayoutConstants.NoteWindowWidth,
-            Background = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x3F)),
+            Background = Tokens.BrushSurfaceMedium,
             CornerRadius = new CornerRadius(6, 6, 0, 0)
         };
         var titleLabel = new TextBlock
         {
             Text = "PINNED NOTE", FontSize = 10,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x99, 0x99, 0x99)),
+            Foreground = Tokens.BrushTextSecondary,
             Margin = new Thickness(8, 4, 0, 0)
         };
         titleBar.Child = titleLabel;
@@ -114,9 +115,9 @@ public class NoteWindow : OverlayWindow
             {
                 Width = TextAreaWidth - 20, Height = Height - TitleBarHeight - 20,
                 Margin = new Thickness(10, 10, 0, 0),
-                Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x40)),
+                Background = Tokens.BrushSurfaceKey,
                 Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Colors.Lime),
+                BorderBrush = Tokens.BrushAccent,
                 BorderThickness = new Thickness(1),
                 FontSize = 12,
                 AcceptsReturn = true,
@@ -134,7 +135,7 @@ public class NoteWindow : OverlayWindow
                 MaxWidth = TextAreaWidth - 20,
                 Margin = new Thickness(10, 10, 0, 0),
                 FontSize = 12,
-                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xEA, 0xA7)),
+                Foreground = Tokens.BrushAccentWarning,
                 TextWrapping = TextWrapping.Wrap
             };
             _contentBorder.Child = _textBlock;
@@ -208,9 +209,9 @@ public class NoteWindow : OverlayWindow
     {
         return _state switch
         {
-            NoteState.Edit => new SolidColorBrush(Colors.Lime),
-            NoteState.Move => new SolidColorBrush(Color.FromRgb(0x44, 0x88, 0xFF)),
-            _ => new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x44))
+            NoteState.Edit => Tokens.BrushAccent,
+            NoteState.Move => Tokens.BrushAccent,
+            _ => Tokens.BrushSurfaceMedium
         };
     }
 
@@ -221,9 +222,9 @@ public class NoteWindow : OverlayWindow
 
     private void DrawButtons()
     {
-        var symbols = new[] { ("close", "✕", Color.FromRgb(0xFF, 0x66, 0x66)),
-                              ("edit",  "✎", Color.FromRgb(0x66, 0xFF, 0x66)),
-                              ("move",  "↕", Color.FromRgb(0x66, 0x88, 0xFF)) };
+        var symbols = new[] { ("close", "✕", Tokens.AccentDanger),
+                              ("edit",  "✎", Tokens.AccentSuccess),
+                              ("move",  "↕", Tokens.Accent) };
 
         for (int i = 0; i < 3; i++)
         {
@@ -234,7 +235,7 @@ public class NoteWindow : OverlayWindow
             var ellipse = new Ellipse
             {
                 Width = ButtonDiameter, Height = ButtonDiameter,
-                Fill = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF)),
+                Fill = Tokens.BrushBorderSubtle,
                 Stroke = new SolidColorBrush(color),
                 StrokeThickness = 1
             };
@@ -256,7 +257,7 @@ public class NoteWindow : OverlayWindow
 
             var arcPath = new Path
             {
-                Stroke = new SolidColorBrush(Colors.Lime),
+                Stroke = Tokens.BrushAccent,
                 StrokeThickness = 3, Visibility = Visibility.Hidden
             };
             Canvas.SetLeft(arcPath, 0); Canvas.SetTop(arcPath, 0);

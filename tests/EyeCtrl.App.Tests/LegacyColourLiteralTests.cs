@@ -1,0 +1,131 @@
+namespace EyeCtrl.App.Tests;
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using NFluent;
+using Xunit;
+
+/// <summary>
+/// Regression guard for the colour migration (spec §5). Each legacy literal is
+/// listed with the file that still contains it; as a file is migrated its entry
+/// is deleted, and this test then fails if the literal ever comes back.
+///
+/// This is the red-to-green driver for the XAML and code-behind tasks, which
+/// otherwise have no natural unit test.
+/// </summary>
+public class LegacyColourLiteralTests
+{
+    /// <summary>file (repo-relative) -> literals still expected in it.</summary>
+    private static readonly Dictionary<string, string[]> StillPending = new()
+    {
+        ["src/EyeCtrl.Controls/DwellArcButton.cs"] = ["0x1E, 0x1E, 0x1E", "0x64, 0x64, 0x64", "Brushes.Lime"],
+        ["src/EyeCtrl.Controls/DwellToggle.cs"] = ["200, 30, 100, 30", "200, 80, 40, 40"],
+        ["src/EyeCtrl.Controls/DwellSlider.cs"] = ["200, 60, 60, 80"],
+        ["src/EyeCtrl.Controls/DwellComboBox.cs"] = ["200, 60, 60, 80", "200, 30, 100, 30"],
+        ["src/EyeCtrl.Controls/DwellColorPicker.cs"] = ["#00FF00"],
+        ["src/EyeCtrl.Controls/DwellLabel.cs"] = ["180, 180, 180"],
+        ["src/EyeCtrl.Controls/ColorBlend.cs"] = ["Colors.White"],
+        ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] = ["200, 50, 50, 50", "100 + 155 * progress", "Brushes.Gray"],
+        ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] = ["Brushes.Lime", "60, 60, 60"],
+        ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] = ["200, 40, 90, 160"],
+        // All 11 of this file's colour literals, not a subset — the allow-list is the
+        // cross-task guard, and a partial entry lets the untracked ones return silently.
+        ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =
+        [
+            "0x1A, 0x1A, 0x2E", "0x2D, 0x2D, 0x3F", "0x99, 0x99, 0x99",
+            "0x25, 0x25, 0x40", "0xFF, 0xEA, 0xA7", "0x44, 0x88, 0xFF",
+            "0x33, 0x33, 0x44", "0xFF, 0x66, 0x66", "0x66, 0xFF, 0x66",
+            "0x66, 0x88, 0xFF", "0x33, 0xFF, 0xFF, 0xFF",
+        ],
+        ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml"] = ["#F0181818"],
+        ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml"] = ["#E0202020"],
+        ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml"] = ["#1A1A2E", "#2A2A3E", "#FFEAA7"],
+        ["src/EyeCtrl.App/Overlays/SplashWindow.xaml"] = ["#F0181818", "#FF00AA00"],
+        ["src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml"] = ["#80000000", "#20FFFFFF"],
+        ["src/EyeCtrl.App/Overlays/TaskSwitcherWindow.xaml"] = ["#E6000000", "#40FFFFFF"],
+        ["src/EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml"] = ["#F0181830", "#6c8cff", "#73000000"],
+        ["src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml"] = ["#E8000000", "#FF6c8cff", "#FF7ee787"],
+        ["src/EyeCtrl.App/Overlays/CalibrationWindow.xaml"] = ["#DD000000", "#FFAA00"],
+        ["src/EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml"] = ["#C0204060"],
+        ["src/EyeCtrl.App/Views/SettingsWindow.xaml"] = ["#E01E1E1E", "#C0141414", "#E0282828"],
+        ["src/EyeCtrl.App/Overlays/DriftNoticeWindow.xaml"] = ["#E0202020"],
+        // Plan B files — migrated by Plan B Tasks 3-5. Listed with the bare
+        // "Lime" substring, which the regex above anchors for the dwell accent
+        // (Brushes.Lime / "Lime") but not Brushes.LimeGreen / "LimeGreen".
+        ["src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml"] = ["Lime"],
+        ["src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs"] = ["Lime"],
+        ["src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml"] = ["Lime"],
+        ["src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml"] = ["Lime"],
+    };
+
+    private static DirectoryInfo RepoRoot()
+    {
+        var dir = new DirectoryInfo(Path.GetDirectoryName(
+            typeof(LegacyColourLiteralTests).Assembly.Location)!);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "EyeCtrl.slnx")))
+            dir = dir.Parent;
+        Check.That(dir).IsNotNull();
+        return dir!;
+    }
+
+    [Fact]
+    public void MigratedFiles_ContainNoLegacyColourLiterals()
+    {
+        var root = RepoRoot().FullName;
+        var offenders = new List<string>();
+
+        foreach (var (relative, allowed) in StillPending)
+        {
+            var path = Path.Combine(root, relative);
+            if (!File.Exists(path)) continue;   // file renamed/removed — not this test's business
+            var text = File.ReadAllText(path);
+
+            foreach (var literal in allowed)
+                if (!text.Contains(literal, StringComparison.Ordinal))
+                    offenders.Add($"{relative}: '{literal}' is gone — delete it from StillPending");
+        }
+
+        // Fails when a file has been migrated but its allow-list entry was not
+        // pruned, which would let the literal silently return later.
+        Check.WithCustomMessage(
+                "The allow-list is stale. Remove migrated entries so the guard "
+                + "starts protecting them:\n  " + string.Join("\n  ", offenders))
+            .That(offenders).IsEmpty();
+    }
+
+    /// <summary>
+    /// Matches the outgoing Lime accent but NOT Brushes.LimeGreen, a different colour
+    /// (#32CD32) used legitimately by TrackStatusWindow for track-quality dots. A naive
+    /// Contains("Brushes.Lime") substring test flags it as a false positive; the \b
+    /// prevents that, because e and G are both word characters.
+    /// </summary>
+    private static readonly Regex LimeAccent =
+        new(@"Brushes\.Lime\b|""Lime""", RegexOptions.Compiled);
+
+    [Fact]
+    public void NoUnlistedFile_UsesTheOutgoingLimeAccent()
+    {
+        var root = RepoRoot().FullName;
+        var listed = StillPending.Keys.Select(k => Path.Combine(root, k).Replace('/', Path.DirectorySeparatorChar))
+                                      .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var offenders = Directory
+            .EnumerateFiles(Path.Combine(root, "src"), "*.*", SearchOption.AllDirectories)
+            .Where(f => (f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+                         || f.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
+                        && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                        && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
+                        && !listed.Contains(f))
+            .Where(f => LimeAccent.IsMatch(File.ReadAllText(f)))
+            .Select(f => Path.GetRelativePath(root, f))
+            .ToList();
+
+        Check.WithCustomMessage(
+                "Lime appeared in a file that is not on the migration allow-list: "
+                + string.Join(", ", offenders))
+            .That(offenders).IsEmpty();
+    }
+}

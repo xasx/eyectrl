@@ -6,7 +6,7 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
         SizeToContent="WidthAndHeight">
-    <Border Background="#E0202020" CornerRadius="4" Padding="4">
+    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="4" Padding="4">
         <StackPanel x:Name="ButtonPanel" Orientation="Horizontal"/>
     </Border>
 </overlays:OverlayWindow>

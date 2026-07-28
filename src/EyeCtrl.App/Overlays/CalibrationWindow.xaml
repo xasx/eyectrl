@@ -12,12 +12,12 @@
 
     <Grid x:Name="RootGrid">
         <!-- Glass backdrop -->
-        <Rectangle x:Name="Backdrop" Fill="#DD000000" Visibility="Collapsed"/>
+        <Rectangle x:Name="Backdrop" Fill="{StaticResource BrushModalBackdrop}" Visibility="Collapsed"/>
 
         <!-- Target area -->
         <Canvas x:Name="TargetCanvas" Visibility="Collapsed">
             <Ellipse x:Name="TargetDot" Width="40" Height="40"
-                     Fill="Green" Opacity="0.8"
+                     Fill="{StaticResource BrushAccent}" Opacity="0.8"
                      RenderTransformOrigin="0.5,0.5">
                 <Ellipse.RenderTransform>
                     <ScaleTransform CenterX="20" CenterY="20"/>
@@ -26,7 +26,7 @@
         </Canvas>
 
         <!-- Progress text -->
-        <TextBlock x:Name="ProgressText" Foreground="#B0FFFFFF" FontSize="16"
+        <TextBlock x:Name="ProgressText" Foreground="{StaticResource BrushTextPrimary}" FontSize="16"
                    FontFamily="Segoe UI" HorizontalAlignment="Center"
                    VerticalAlignment="Top" Margin="0,30,0,0" Visibility="Collapsed"/>
 
@@ -35,30 +35,30 @@
                     HorizontalAlignment="Center" VerticalAlignment="Center">
             <TextBlock x:Name="CompletionSymbol" Text="&#x2713;" FontSize="32"
                        HorizontalAlignment="Center" Margin="0,0,0,12"
-                       Foreground="Lime"/>
+                       Foreground="{StaticResource BrushAccentSuccess}"/>
             <TextBlock x:Name="CompletionTitle" Text="Calibration complete"
-                       Foreground="White" FontSize="18"
+                       Foreground="{StaticResource BrushTextPrimary}" FontSize="18"
                        HorizontalAlignment="Center" Margin="0,0,0,4"/>
             <TextBlock x:Name="CompletionError" Text=""
-                       Foreground="#FFAA00" FontSize="14"
+                       Foreground="{StaticResource BrushAccentWarning}" FontSize="14"
                        HorizontalAlignment="Center" Margin="0,0,0,12"/>
             <TextBlock x:Name="CompletionHint" Text="Auto-dismissing in 3s..."
-                       Foreground="#FFFFFF44" FontSize="11"
+                       Foreground="{StaticResource BrushTextDim}" FontSize="11"
                        HorizontalAlignment="Center" Margin="0,0,0,12" Visibility="Collapsed"/>
             <!-- Retry / Accept buttons for poor results -->
             <StackPanel x:Name="RetryPanel" Orientation="Horizontal"
                         HorizontalAlignment="Center" Visibility="Collapsed">
                 <Button x:Name="RetryButton" Content="Retry" Width="80" Height="32" Margin="0,0,8,0"
-                        Foreground="#FFAA00" Background="Transparent"
-                        BorderBrush="#FFAA00" BorderThickness="1"/>
+                        Foreground="{StaticResource BrushAccentWarning}" Background="Transparent"
+                        BorderBrush="{StaticResource BrushAccentWarning}" BorderThickness="1"/>
                 <Button x:Name="AcceptButton" Content="Accept anyway" Width="120" Height="32"
-                        Foreground="#88FFFFFF" Background="Transparent"
-                        BorderBrush="#44FFFFFF" BorderThickness="1"/>
+                        Foreground="{StaticResource BrushTextSecondary}" Background="Transparent"
+                        BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1"/>
             </StackPanel>
         </StackPanel>
 
         <!-- Cancel hint -->
-        <TextBlock x:Name="CancelHint" Foreground="#FFFFFF44" FontSize="11"
+        <TextBlock x:Name="CancelHint" Foreground="{StaticResource BrushTextDim}" FontSize="11"
                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
                    Margin="0,0,20,20" Visibility="Collapsed"
                    Text="Press Esc to cancel"/>

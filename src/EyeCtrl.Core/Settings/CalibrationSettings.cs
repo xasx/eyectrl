@@ -15,8 +15,8 @@ public partial class CalibrationSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _settleWindowMs = 200;
     /// <summary>Radius of the calibration target in physical pixels. Valid range: 8–80.</summary>
     [ObservableProperty] private int _targetRadiusPixels = 20;
-    /// <summary>Hex color of the calibration target (e.g., "#00FF00").</summary>
-    [ObservableProperty] private string _targetColor = "#A5F3FC";
+    /// <summary>Hex color of the calibration target (e.g., "#A5F3FC").</summary>
+    [ObservableProperty] private string _targetColor = SettingsDefaults.Accent;
 
     partial void OnPointCountChanging(int value)
     {

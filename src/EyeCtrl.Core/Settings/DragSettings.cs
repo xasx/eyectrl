@@ -6,7 +6,7 @@ public partial class DragSettings : ObservableObject, IValidatable
 {
     [ObservableProperty] private int _settleDwellMs = 500;
     [ObservableProperty] private int _settleRadiusPixels = 40;
-    [ObservableProperty] private string _trailColor = "#E8A33C";
+    [ObservableProperty] private string _trailColor = SettingsDefaults.AccentWarning;
     [ObservableProperty] private double _trailOpacity = 0.7;
 
     partial void OnSettleDwellMsChanging(int value)

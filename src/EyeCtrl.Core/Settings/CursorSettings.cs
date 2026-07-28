@@ -18,8 +18,8 @@ public partial class CursorSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _snapRadiusPixels = 30;
     /// <summary>Maximum gap in milliseconds to interpolate between missing gaze samples. Valid range: 0–500.</summary>
     [ObservableProperty] private int _maxGapInterpolationMs = 150;
-    /// <summary>Hex color of the gaze cursor circle (e.g., "#00FF00").</summary>
-    [ObservableProperty] private string _circleColor = "#A5F3FC";
+    /// <summary>Hex color of the gaze cursor circle (e.g., "#A5F3FC").</summary>
+    [ObservableProperty] private string _circleColor = SettingsDefaults.Accent;
     /// <summary>Opacity of the gaze cursor circle. Valid range: 0–1.</summary>
     [ObservableProperty] private double _circleOpacity = 0.6;
     /// <summary>Thickness of the gaze cursor circle stroke in logical pixels. Valid range: 1–10.</summary>

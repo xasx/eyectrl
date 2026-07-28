@@ -446,6 +446,7 @@ namespace EyeCtrl.App.Tests;
 
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using NFluent;
 using Xunit;
 
@@ -568,7 +569,15 @@ public class LegacyColourLiteralTests
         ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] = ["200, 50, 50, 50", "100 + 155 * progress", "Brushes.Gray"],
         ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] = ["Brushes.Lime", "60, 60, 60"],
         ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] = ["200, 40, 90, 160"],
-        ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] = ["0x1A, 0x1A, 0x2E", "0xFF, 0xEA, 0xA7"],
+        // All 11 of this file's colour literals, not a subset — the allow-list is the
+        // cross-task guard, and a partial entry lets the untracked ones return silently.
+        ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =
+        [
+            "0x1A, 0x1A, 0x2E", "0x2D, 0x2D, 0x3F", "0x99, 0x99, 0x99",
+            "0x25, 0x25, 0x40", "0xFF, 0xEA, 0xA7", "0x44, 0x88, 0xFF",
+            "0x33, 0x33, 0x44", "0xFF, 0x66, 0x66", "0x66, 0xFF, 0x66",
+            "0x66, 0x88, 0xFF", "0x33, 0xFF, 0xFF, 0xFF",
+        ],
         ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml"] = ["#F0181818"],
         ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml"] = ["#E0202020"],
         ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml"] = ["#1A1A2E", "#2A2A3E", "#FFEAA7"],
@@ -618,6 +627,15 @@ public class LegacyColourLiteralTests
             .That(offenders).IsEmpty();
     }
 
+    /// <summary>
+    /// Matches the outgoing Lime accent but NOT Brushes.LimeGreen, a different colour
+    /// (#32CD32) used legitimately by TrackStatusWindow for track-quality dots. A naive
+    /// Contains("Brushes.Lime") substring test flags it as a false positive; the \b
+    /// prevents that, because e and G are both word characters.
+    /// </summary>
+    private static readonly Regex LimeAccent =
+        new(@"Brushes\.Lime\b|""Lime""", RegexOptions.Compiled);
+
     [Fact]
     public void NoUnlistedFile_UsesTheOutgoingLimeAccent()
     {
@@ -632,10 +650,7 @@ public class LegacyColourLiteralTests
                         && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
                         && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
                         && !listed.Contains(f))
-            .Where(f => File.ReadAllText(f) is var t
-                        && (t.Contains("Brushes.Lime", StringComparison.Ordinal)
-                            || t.Contains("\"Lime\"", StringComparison.Ordinal)
-                            || t.Contains("Stroke=\"Lime\"", StringComparison.Ordinal)))
+            .Where(f => LimeAccent.IsMatch(File.ReadAllText(f)))
             .Select(f => Path.GetRelativePath(root, f))
             .ToList();
 
@@ -651,9 +666,23 @@ public class LegacyColourLiteralTests
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~LegacyColourLiteral" --nologo`
 
-Expected: `NoUnlistedFile_UsesTheOutgoingLimeAccent` FAILS, listing the transparent overlays that still say `Stroke="Lime"` (`CursorCircleWindow.xaml`, `ActivationButtonWindow.xaml`, `ManualSelectionGazeIndicatorWindow.xaml`). Those are **Plan B**, so add them to `StillPending` with `["Lime"]` and re-run.
+Expected: `NoUnlistedFile_UsesTheOutgoingLimeAccent` FAILS, naming files that still carry Lime but are not yet allow-listed. The complete inventory, verified at `b8295b6` — **seven usages across six files**:
 
-Expected after that: PASS, 2 tests.
+| File | Line | Migrated by |
+|---|---|---|
+| `Controls/DwellArcButton.cs` | 40 | Plan A Task 5 (already listed) |
+| `Overlays/ToolbarWindow.xaml.cs` | 62 | Plan A Task 10 (already listed) |
+| `Overlays/CalibrationWindow.xaml` | 38 | Plan A Task 13 Step 9 (already listed) |
+| `Overlays/CursorCircleWindow.xaml` | 11 | **Plan B** Task 3 |
+| `Overlays/CursorCircleWindow.xaml.cs` | 36 | **Plan B** Task 3 |
+| `Overlays/ActivationButtonWindow.xaml` | 15 | **Plan B** Task 4 |
+| `Overlays/ManualSelectionGazeIndicatorWindow.xaml` | 12, 17 | **Plan B** Task 5 |
+
+Add the four Plan B files to `StillPending` with `["Lime"]` and re-run.
+
+> **`TrackStatusWindow.xaml.cs` is deliberately absent and must not be added.** It uses `Brushes.LimeGreen` (#32CD32) for track-quality status dots — a different colour with nothing to do with the dwell accent, correctly migrated by no task. A substring match flags it as a false positive, which is why `LimeAccent` anchors with `\b`. If you find yourself allow-listing `TrackStatusWindow`, the regex has been broken.
+
+Expected after adding the four: PASS, 2 tests.
 
 - [ ] **Step 3: Commit**
 
@@ -898,7 +927,7 @@ public class ColorPickerPresetTests
     [Fact]
     public void EveryPreset_ClearsSevenToOneAgainstStrokeHalo()
     {
-        foreach (var (hex, name) in DwellColorPicker.Presets)
+        foreach (var (hex, name) in DwellColorPicker.DefaultPresets)
         {
             var c = (Color)ColorConverter.ConvertFromString(hex)!;
             var ratio = Contrast(c, Tokens.StrokeHalo);
@@ -913,7 +942,7 @@ public class ColorPickerPresetTests
     [Fact]
     public void Presets_DoNotOfferTheOutgoingLime()
     {
-        Check.That(DwellColorPicker.Presets.Select(p => p.Hex))
+        Check.That(DwellColorPicker.DefaultPresets.Select(p => p.Hex))
              .Not.Contains("#00FF00");
     }
 
@@ -921,7 +950,7 @@ public class ColorPickerPresetTests
     public void FirstPreset_IsTheAccent()
     {
         // Accent is the default dwell colour; it should be the first choice offered.
-        Check.That(DwellColorPicker.Presets[0].Hex).IsEqualTo("#A5F3FC");
+        Check.That(DwellColorPicker.DefaultPresets[0].Hex).IsEqualTo("#A5F3FC");
     }
 }
 ```
@@ -930,31 +959,37 @@ public class ColorPickerPresetTests
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --filter "FullyQualifiedName~ColorPickerPresetTests" --nologo`
 
-Expected: FAIL to compile — `error CS0117: 'DwellColorPicker' does not contain a definition for 'Presets'`. The preset list is currently a private array; this task promotes it.
+Expected: FAIL on assertions, not compilation. `DefaultPresets[0].Hex` is `"#00FF00"`, so `FirstPreset_IsTheAccent` and `Presets_DoNotOfferTheOutgoingLime` both fail, and `EveryPreset_ClearsSevenToOneAgainstStrokeHalo` fails on `#FF0000` (Red).
+
+> **The field already exists and is already public.** `DwellColorPicker.cs:29` declares
+> `public static readonly (string Hex, string Name)[] DefaultPresets`, and line 78 does
+> `presets ??= DefaultPresets`, so callers may supply their own list. **Do not rename it and do
+> not change its type** — the named tuple members `.Hex` and `.Name` are exactly what the test
+> needs: no record struct, no consumer edits. Only the *values* change. An earlier draft of this
+> plan wrongly described it as a private array needing promotion.
 
 - [ ] **Step 3: Write the implementation**
 
-In `src/EyeCtrl.Controls/DwellColorPicker.cs`, add `using EyeCtrl.Controls.Theme;` and replace the private swatch array at lines 31–33 with a public, testable one:
+In `src/EyeCtrl.Controls/DwellColorPicker.cs`, replace only the **contents** of `DefaultPresets` (lines 29—34). The declaration, name, type and every consumer stay exactly as they are:
 
 ```csharp
-    /// <summary>A selectable cursor/target colour and its display name.</summary>
-    public readonly record struct Preset(string Hex, string Name);
-
     /// <summary>
     /// Palette-aligned presets, Accent first. Every entry must clear 7:1 against
-    /// Tokens.StrokeHalo — see ColorPickerPresetTests. AccentDanger is deliberately
-    /// absent: it fails that bar at 6.62:1 and is reserved for destructive actions.
+    /// Tokens.StrokeHalo — see ColorPickerPresetTests. This list feeds
+    /// CursorSettings.CircleColor, which colours a haloed ring on a transparent
+    /// overlay, so a dark or mid-tone entry collapses the 4.1.3 guarantee.
+    ///
+    /// AccentDanger (#FF5C7A) is deliberately absent: it fails that bar at 6.62:1,
+    /// and is reserved for destructive actions rather than cursor decoration.
     /// </summary>
-    public static readonly Preset[] Presets =
+    public static readonly (string Hex, string Name)[] DefaultPresets =
     [
-        new("#A5F3FC", "Aqua"),
-        new("#7EE787", "Green"),
-        new("#E8A33C", "Amber"),
-        new("#D6DEF5", "White"),
+        ("#A5F3FC", "Aqua"), ("#7EE787", "Green"),
+        ("#E8A33C", "Amber"), ("#D6DEF5", "White"),
     ];
 ```
 
-Update the swatch-building loop to iterate `Presets` and use `p.Hex` / `p.Name` in place of the old tuple fields. The loop body is otherwise unchanged.
+No `using EyeCtrl.Controls.Theme;` is needed here — the values are hex strings, and the token relationship is asserted by the test rather than referenced in code. The swatch-building loop is untouched: it consumes whatever `presets` resolves to via `presets ??= DefaultPresets` on line 78.
 
 In `src/EyeCtrl.Controls/DwellLabel.cs`, add the using and replace line 30:
 
@@ -1404,7 +1439,7 @@ Delete from `StillPending`:
 grep -c "Color.FromRgb\|Color.FromArgb" src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs
 ```
 
-Expected: `10`. After Step 3 it must be `0`.
+Expected: `11`. After Step 3 it must be `0`. (The symbol triple at lines 224—226 supplies three of the eleven.)
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1728,6 +1763,21 @@ git commit -m "chore(theme): Plan A complete — token foundation and colour mig
 **One spec inconsistency corrected here:** step 29 says to delete `CalibrationWindow.xaml:30`'s `FontFamily` "once §4.3 sets it app-wide." §4.3 is not in §5's step list, so this plan leaves the declaration in place rather than removing a setting with no replacement.
 
 **Type consistency.** `Tokens.BrushXxx` naming is used identically in Tasks 1, 2, 5–13. `DwellColorPicker.Presets` is defined in Task 7 and consumed by `ColorPickerPresetTests` in the same task. `ColorBlend.Blend` (public, pre-existing) is what Task 9 calls; `ColorBlend.ToHighlightBrush` is modified in Task 7 and not re-signatured. `LegacyColourLiteralTests.StillPending` is created in Task 4 and pruned by Tasks 5–13, ending with exactly the 4 Plan B entries asserted in Task 13 Step 13.
+
+**Review round 2 (2026-07-28).** Three findings held and are fixed. `DwellColorPicker` was
+misdescribed: the preset field is `DefaultPresets` at line 29, already
+`public static readonly (string Hex, string Name)[]`, consumed via `presets ??= DefaultPresets`
+on line 78. Task 7 now changes only its *values* — no rename, no record struct, no consumer
+edits, which is both correct and smaller than the previous draft. The `NoteWindow` allow-list
+tracked 2 of 11 literals and its gate count said 10; both fixed. And the Lime check used a
+substring match that flagged `Brushes.LimeGreen` in `TrackStatusWindow.xaml.cs`, a legitimate
+unrelated colour — it is now an anchored regex, and Step 2 carries the verified seven-usage
+inventory plus a warning against allow-listing that file.
+
+A related finding did **not** hold: `TrackStatusWindow.xaml.cs` was reported as an unmigrated
+`Brushes.Lime` gap. It uses `Brushes.LimeGreen` (#32CD32), which is not the dwell accent and
+correctly migrates nowhere. The symptom — the test failing on that file — was real; the cause
+was test precision, not a missing task.
 
 **Review outcome (2026-07-28).** Two findings raised as HIGH — that the spec and
 `tools/palette_validate.py` do not exist — were checked and did not hold: both are

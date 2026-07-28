@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Processing;
 
 /// <summary>
@@ -17,7 +18,7 @@ using EyeCtrl.Core.Processing;
 /// </remarks>
 public class DwellSlider : IDwellComposite
 {
-    private static readonly Color BtnBase = Color.FromArgb(200, 60, 60, 80);
+    private static readonly Color BtnBase = Tokens.SurfaceMedium;
 
     private readonly DwellLabel _label;
     private readonly DwellButton _minus;

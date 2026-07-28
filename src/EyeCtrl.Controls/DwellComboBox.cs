@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Processing;
 
 /// <summary>
@@ -27,8 +28,8 @@ using EyeCtrl.Core.Processing;
 /// </remarks>
 public class DwellComboBox : IDwellComposite
 {
-    private static readonly Color BtnBase = Color.FromArgb(200, 60, 60, 80);
-    private static readonly Color SelectedColor = Color.FromArgb(200, 30, 100, 30);
+    private static readonly Color BtnBase = Tokens.SurfaceMedium;
+    private static readonly Color SelectedColor = Tokens.ToggleOn;
 
     private readonly DwellLabel _label;
     private readonly List<DwellButton> _options = new();

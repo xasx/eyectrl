@@ -26,7 +26,6 @@ public class LegacyColourLiteralTests
         // NoteWindow.xaml.cs migrated by Task 12 (incl. three Colors.Lime accent usages
         // the plan's substitution table omitted — edit border, GetBorderBrush edit/move
         // states, and the dwell-arc stroke — all retargeted to Tokens.BrushAccent).
-        ["src/EyeCtrl.App/Overlays/DriftNoticeWindow.xaml"] = ["#E0202020"],
         // Plan B files — migrated by Plan B Tasks 3-5. Listed with the bare
         // "Lime" substring, which the regex above anchors for the dwell accent
         // (Brushes.Lime / "Lime") but not Brushes.LimeGreen / "LimeGreen".

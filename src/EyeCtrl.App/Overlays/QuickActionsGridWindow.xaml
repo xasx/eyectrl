@@ -8,8 +8,8 @@
                         Background="Transparent" Topmost="True"
                         ShowInTaskbar="False">
     <Grid>
-        <Border x:Name="RootBorder" Background="#1A1A2E" CornerRadius="8"
-                BorderBrush="#334" BorderThickness="1" Opacity="0.95">
+        <Border x:Name="RootBorder" Background="{StaticResource BrushSurfaceDark}" CornerRadius="8"
+                BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1">
             <Grid Margin="12">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -20,15 +20,15 @@
                      DwellButtonStyle resource in this app. Dwell progress binds to CloseDwellProgress. -->
                 <Border x:Name="CloseButton" Grid.Row="0"
                         Width="44" Height="44" HorizontalAlignment="Right"
-                        CornerRadius="22" Background="#2A2A3E"
-                        BorderBrush="#445" BorderThickness="1">
+                        CornerRadius="22" Background="{StaticResource BrushSurfaceMedium}"
+                        BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1">
                     <Grid>
-                        <TextBlock Text="&#x2715;" FontSize="20" Foreground="#FFEAA7"
+                        <TextBlock Text="&#x2715;" FontSize="20" Foreground="{StaticResource BrushTextPrimary}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <ProgressBar Minimum="0" Maximum="1"
                                      Value="{Binding CloseDwellProgress}"
                                      Height="4" VerticalAlignment="Bottom"
-                                     Background="Transparent" Foreground="#FFEAA7"
+                                     Background="Transparent" Foreground="{StaticResource BrushTextPrimary}"
                                      BorderThickness="0"/>
                     </Grid>
                 </Border>
@@ -44,23 +44,23 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:QuickActionTileViewModel}">
                             <Border x:Name="TileBorder" Width="120" Height="120"
-                                    CornerRadius="6" Background="#2A2A3E"
-                                    BorderBrush="#445" BorderThickness="1"
+                                    CornerRadius="6" Background="{StaticResource BrushSurfaceMedium}"
+                                    BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1"
                                     Margin="4">
                                 <Grid>
                                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                                         <!-- Icon per action type. -->
                                         <TextBlock Text="{Binding Icon}"
                                                    FontSize="28" HorizontalAlignment="Center"
-                                                   Foreground="#FFEAA7" Margin="0,0,0,4"/>
+                                                   Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,4"/>
                                         <TextBlock Text="{Binding Action.Label}"
-                                                   FontSize="14" Foreground="#FFEAA7"
+                                                   FontSize="14" Foreground="{StaticResource BrushTextPrimary}"
                                                    TextWrapping="Wrap" TextAlignment="Center"
                                                    Margin="6"/>
                                         <ProgressBar Minimum="0" Maximum="1"
                                                      Value="{Binding DwellProgress}"
                                                      Height="4" VerticalAlignment="Bottom"
-                                                     Background="Transparent" Foreground="#FFEAA7"
+                                                     Background="Transparent" Foreground="{StaticResource BrushAccent}"
                                                      BorderThickness="0"/>
                                     </StackPanel>
                                 </Grid>

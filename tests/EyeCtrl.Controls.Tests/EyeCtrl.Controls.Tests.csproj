@@ -6,6 +6,9 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Xunit.StaFact" Version="3.0.13" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\EyeCtrl.Controls\EyeCtrl.Controls.csproj" />
   </ItemGroup>
 </Project>

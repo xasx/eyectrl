@@ -83,7 +83,7 @@ public class DwellSlider : IDwellComposite
         _valueText = new TextBlock
         {
             Text = FormatVal(get()),
-            Foreground = Brushes.White,
+            Foreground = Tokens.BrushTextPrimary,
             FontSize = 24,
             FontWeight = FontWeights.SemiBold,
             Width = 140,

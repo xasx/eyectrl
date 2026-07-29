@@ -83,9 +83,8 @@ public partial class TrackStatusWindow : OverlayWindow
                 break;
             case nameof(_viewModel.DistanceQuality):
                 QualityText.Text = _viewModel.DistanceQuality;
-                // Quality is a semantic triad: success/warning/danger, carried by the
-                // palette tokens rather than raw Brushes. (The XAML track-box dots keep
-                // LimeGreen — a separate track-presence indicator, not a quality semantic.)
+                // Quality is a semantic triad: success/warning/danger, carried by the palette
+                // tokens rather than raw Brushes.
                 QualityText.Foreground = _viewModel.DistanceQuality switch
                 {
                     "Good" => Tokens.BrushAccentSuccess,

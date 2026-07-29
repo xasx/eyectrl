@@ -59,7 +59,7 @@ public class DwellToggle : DwellControl
         {
             FontSize = 22,
             FontWeight = FontWeights.SemiBold,
-            Foreground = Brushes.White,
+            Foreground = Tokens.BrushTextPrimary,
             VerticalAlignment = VerticalAlignment.Center
         };
 

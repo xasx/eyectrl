@@ -11,8 +11,8 @@
             <!-- Track box with eye dots -->
             <Canvas Width="60" Height="40" HorizontalAlignment="Left" Margin="0,0,8,0">
                 <Border Width="60" Height="40" BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1" Background="{StaticResource BrushSurfaceMedium}"/>
-                <Ellipse x:Name="LeftEyeDot" Width="6" Height="6" Fill="LimeGreen"/>
-                <Ellipse x:Name="RightEyeDot" Width="6" Height="6" Fill="LimeGreen"/>
+                <Ellipse x:Name="LeftEyeDot" Width="6" Height="6" Fill="{StaticResource BrushAccentSuccess}"/>
+                <Ellipse x:Name="RightEyeDot" Width="6" Height="6" Fill="{StaticResource BrushAccentSuccess}"/>
             </Canvas>
             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                 <TextBlock Text="Distance: " Foreground="{StaticResource BrushTextPrimary}" FontSize="10"/>

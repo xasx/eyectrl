@@ -48,6 +48,7 @@ public partial class CueOverlayWindow : OverlayWindow, ICuePresenter
             if (generation == _fadeGeneration)
                 Hide();
         };
+        BadgeHalo.Visibility = Visibility.Visible;   // ring shows with the badge, stays opaque
         Badge.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
@@ -58,6 +59,7 @@ public partial class CueOverlayWindow : OverlayWindow, ICuePresenter
         // animation (resetting Opacity to the XAML-rest value 0), and hide the window. Idempotent. The
         // explicit base.Hide() avoids recursing into this same-named method.
         _fadeGeneration++;
+        BadgeHalo.Visibility = Visibility.Hidden;    // ring hides with the badge
         Badge.BeginAnimation(UIElement.OpacityProperty, null);
         Badge.Opacity = 0.0;
         if (IsVisible)

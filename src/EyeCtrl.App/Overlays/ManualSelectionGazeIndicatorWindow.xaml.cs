@@ -31,6 +31,13 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow
         OuterCircle.StrokeThickness = strokeThickness;
         OuterCircle.Opacity = opacity;
 
+        // Halo mirrors the outer circle's geometry but stays at Opacity=1: the §4.1.3
+        // backdrop-independent edge holds only at full opacity, so the accent dims and
+        // the halo does not. StrokeThickness is accent + 2 (1px wider each side).
+        OuterCircleHalo.Width = outerDiameter;
+        OuterCircleHalo.Height = outerDiameter;
+        OuterCircleHalo.StrokeThickness = strokeThickness + 2;
+
         CenterDot.Width = centerDotDiameter;
         CenterDot.Height = centerDotDiameter;
         CenterDot.Opacity = opacity;
@@ -55,6 +62,8 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow
     {
         OuterCircle.Width = diameter;
         OuterCircle.Height = diameter;
+        OuterCircleHalo.Width = diameter;
+        OuterCircleHalo.Height = diameter;
         CenterOuterCircle();
     }
 
@@ -73,16 +82,22 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow
         {
             OuterCircle.Width = targetDiameter;
             OuterCircle.Height = targetDiameter;
+            OuterCircleHalo.Width = targetDiameter;
+            OuterCircleHalo.Height = targetDiameter;
             CenterOuterCircle();
         };
         OuterCircle.BeginAnimation(FrameworkElement.WidthProperty, anim);
         OuterCircle.BeginAnimation(FrameworkElement.HeightProperty, anim);
+        OuterCircleHalo.BeginAnimation(FrameworkElement.WidthProperty, anim);
+        OuterCircleHalo.BeginAnimation(FrameworkElement.HeightProperty, anim);
     }
 
     private void CenterOuterCircle()
     {
         System.Windows.Controls.Canvas.SetLeft(OuterCircle, (_maxDiameter - OuterCircle.Width) / 2);
         System.Windows.Controls.Canvas.SetTop(OuterCircle, (_maxDiameter - OuterCircle.Height) / 2);
+        System.Windows.Controls.Canvas.SetLeft(OuterCircleHalo, (_maxDiameter - OuterCircleHalo.Width) / 2);
+        System.Windows.Controls.Canvas.SetTop(OuterCircleHalo, (_maxDiameter - OuterCircleHalo.Height) / 2);
     }
 
     private void CenterDotElement()

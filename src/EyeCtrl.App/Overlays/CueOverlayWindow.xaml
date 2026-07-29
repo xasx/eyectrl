@@ -8,14 +8,19 @@
         Width="64" Height="64">
     <Canvas>
         <!-- Amber "struggle" badge; Opacity is animated in code-behind (0 = invisible at rest).
-             Filled shapes take a StrokeHalo OUTLINE rather than an under-stroke (spec §4.1.3):
-             unringed, this badge reaches 1.06:1 over amber desktop content. -->
+             Split into a halo ring (opaque, backdrop-independent edge per §4.1.3) and the fill
+             (fades). Dimming the halo with the fill would void the 15.78:1 edge guarantee; the
+             halo must stay at Opacity=1 while the fill fades. -->
+        <Ellipse x:Name="BadgeHalo"
+                 Width="40" Height="40"
+                 Canvas.Left="12" Canvas.Top="12"
+                 Stroke="{StaticResource BrushStrokeHalo}"
+                 StrokeThickness="2"
+                 Visibility="Hidden"/>
         <Ellipse x:Name="Badge"
                  Width="40" Height="40"
                  Canvas.Left="12" Canvas.Top="12"
                  Fill="{StaticResource BrushAccentWarning}"
-                 Stroke="{StaticResource BrushStrokeHalo}"
-                 StrokeThickness="2"
                  Opacity="0"/>
         <!-- Hidden TextBlock UIA anchor — WPF transparent overlay windows only expose TextBlock nodes
              in the UIA tree; Ellipse/Canvas are collapsed. -->

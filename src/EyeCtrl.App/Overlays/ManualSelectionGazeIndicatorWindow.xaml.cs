@@ -41,6 +41,10 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow
         CenterDot.Width = centerDotDiameter;
         CenterDot.Height = centerDotDiameter;
         CenterDot.Opacity = opacity;
+        // Halo mirrors the dot's geometry but stays at Opacity=1: the §4.1.3 edge holds only at
+        // full opacity, so the fill dims (per the passed opacity) and the ring does not.
+        CenterDotHalo.Width = centerDotDiameter;
+        CenterDotHalo.Height = centerDotDiameter;
 
         CenterOuterCircle();
         CenterDotElement();
@@ -104,5 +108,7 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow
     {
         System.Windows.Controls.Canvas.SetLeft(CenterDot, (_maxDiameter - CenterDot.Width) / 2);
         System.Windows.Controls.Canvas.SetTop(CenterDot, (_maxDiameter - CenterDot.Height) / 2);
+        System.Windows.Controls.Canvas.SetLeft(CenterDotHalo, (_maxDiameter - CenterDotHalo.Width) / 2);
+        System.Windows.Controls.Canvas.SetTop(CenterDotHalo, (_maxDiameter - CenterDotHalo.Height) / 2);
     }
 }

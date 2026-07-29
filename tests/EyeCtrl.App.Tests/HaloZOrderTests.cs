@@ -25,8 +25,8 @@ public class HaloZOrderTests
     {
         ["src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml"] = ("CircleHalo", "Circle"),
         ["src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml"] = ("ProgressArcHalo", "ProgressArc"),
-        // Task 5: ["src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml"] = ("OuterCircleHalo", "OuterCircle"),
-        // Task 5: ["src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml"] = ("VelocityRingHalo", "VelocityRing"),
+        ["src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml"] = ("OuterCircleHalo", "OuterCircle"),
+        ["src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml"] = ("VelocityRingHalo", "VelocityRing"),
     };
 
     private static DirectoryInfo RepoRoot()

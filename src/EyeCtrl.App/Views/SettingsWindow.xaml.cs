@@ -65,6 +65,13 @@ public partial class SettingsWindow : OverlayWindow
     private readonly Dictionary<string, Border> _pagButtons = new();
     private readonly Dictionary<string, Border> _modalButtons = new();
 
+    // One mutable brush per button, mutated in place on dwell ticks (mirrors KeyboardWindow._keyBrushes).
+    // Never allocated per-tick: UpdateXxxVisuals only sets .Color, so dwell highlight has zero GC churn.
+    private readonly Dictionary<string, SolidColorBrush> _tabBrushes = new();
+    private readonly Dictionary<string, SolidColorBrush> _pagBrushes = new();
+    private readonly Dictionary<string, SolidColorBrush> _modalBrushes = new();
+    private SolidColorBrush? _closeButtonBrush;
+
     private List<List<Action>> _pages = new();
     private readonly List<object> _activeItems = new(); // DwellControl | IDwellComposite
 
@@ -99,6 +106,12 @@ public partial class SettingsWindow : OverlayWindow
         CalibrationService calibrationService)
     {
         InitializeComponent();
+
+        // Replace the XAML-provided frozen background (shared resource BrushAccentDanger) with a
+        // mutable brush so UpdateTabVisuals can mutate .Color in place on dwell ticks without
+        // allocating. CloseBase == Tokens.AccentDanger, matching the XAML resource.
+        _closeButtonBrush = new SolidColorBrush(CloseBase);
+        CloseButton.Background = _closeButtonBrush;
 
         _viewModel = viewModel;
         _settings = settings;
@@ -222,12 +235,13 @@ public partial class SettingsWindow : OverlayWindow
             };
             System.Windows.Automation.AutomationProperties.SetAutomationId(iconText, $"Settings_Tab_{id}");
 
+            var tabBrush = new SolidColorBrush(TabInactive);
             var border = new Border
             {
                 Height = 100,
                 Margin = new Thickness(4),
                 CornerRadius = new CornerRadius(8),
-                Background = new SolidColorBrush(TabInactive),
+                Background = tabBrush,
                 Cursor = System.Windows.Input.Cursors.Hand,
                 Child = new StackPanel
                 {
@@ -252,8 +266,9 @@ public partial class SettingsWindow : OverlayWindow
             // Mouse fallback
             border.MouseLeftButtonDown += (_, _) => ShowTab(id);
 
-            // Store border for visual updates
+            // Store border + brush for visual updates
             _tabButtons[id] = border;
+            _tabBrushes[id] = tabBrush;
             TabButtonPanel.Children.Add(border);
 
             // Register with ViewModel for dwell detection
@@ -313,6 +328,7 @@ public partial class SettingsWindow : OverlayWindow
     {
         PaginationPanel.Children.Clear();
         _pagButtons.Clear();
+        _pagBrushes.Clear();
 
         // Use ViewModel's pagination state
         if (_viewModel.Settings.TotalPages <= 1) return;
@@ -342,13 +358,14 @@ public partial class SettingsWindow : OverlayWindow
 
     private Border MakePagButton(string id, string text)
     {
+        var pagBrush = new SolidColorBrush(BtnBase);
         var btn = new Border
         {
             Width = 100,
             Height = 80,
             Margin = new Thickness(4),
             CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(BtnBase),
+            Background = pagBrush,
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
             {
@@ -371,6 +388,7 @@ public partial class SettingsWindow : OverlayWindow
         };
 
         _pagButtons[id] = btn;
+        _pagBrushes[id] = pagBrush;
 
         // Register with ViewModel for dwell detection
         _viewModel.Register(id, DwellCategory.Pagination, DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs, () => { });
@@ -1235,13 +1253,15 @@ public partial class SettingsWindow : OverlayWindow
         {
             if (id == "close")
             {
-                CloseButton.Background = ColorBlend.ToHighlightBrush(CloseBase, progress, 0.5);
+                // ToHighlightBrush(CloseBase, progress, 0.5) == Blend(CloseBase, Accent, progress * 0.5)
+                if (_closeButtonBrush != null)
+                    _closeButtonBrush.Color = ColorBlend.Blend(CloseBase, Tokens.Accent, progress * 0.5);
                 continue;
             }
 
-            if (_tabButtons.TryGetValue(id, out var border) && id != _viewModel.ActiveTabId)
+            if (_tabBrushes.TryGetValue(id, out var brush) && id != _viewModel.ActiveTabId)
             {
-                border.Background = new SolidColorBrush(ColorBlend.Blend(TabInactive, TabActive, progress));
+                brush.Color = ColorBlend.Blend(TabInactive, TabActive, progress);
             }
         }
     }
@@ -1250,9 +1270,10 @@ public partial class SettingsWindow : OverlayWindow
     {
         foreach (var (id, progress) in _viewModel.PagProgress)
         {
-            if (_pagButtons.TryGetValue(id, out var border))
+            if (_pagBrushes.TryGetValue(id, out var brush))
             {
-                border.Background = ColorBlend.ToHighlightBrush(BtnBase, progress, 0.4);
+                // ToHighlightBrush(BtnBase, progress, 0.4) == Blend(BtnBase, Accent, progress * 0.4)
+                brush.Color = ColorBlend.Blend(BtnBase, Tokens.Accent, progress * 0.4);
             }
         }
     }
@@ -1261,19 +1282,20 @@ public partial class SettingsWindow : OverlayWindow
     {
         foreach (var (id, progress) in _viewModel.ModalProgress)
         {
-            if (_modalButtons.TryGetValue(id, out var border))
+            if (_modalBrushes.TryGetValue(id, out var brush))
             {
                 var baseC = id == "modal_yes" ? ModalYes : ModalNo;
-                border.Background = ColorBlend.ToHighlightBrush(baseC, progress, 0.5);
+                // ToHighlightBrush(baseC, progress, 0.5) == Blend(baseC, Accent, progress * 0.5)
+                brush.Color = ColorBlend.Blend(baseC, Tokens.Accent, progress * 0.5);
             }
         }
     }
 
     private void UpdateActiveTabHighlight()
     {
-        foreach (var (id, border) in _tabButtons)
+        foreach (var (id, brush) in _tabBrushes)
         {
-            border.Background = new SolidColorBrush(id == _viewModel.ActiveTabId ? TabActive : TabInactive);
+            brush.Color = id == _viewModel.ActiveTabId ? TabActive : TabInactive;
         }
     }
 
@@ -1284,6 +1306,7 @@ public partial class SettingsWindow : OverlayWindow
             ModalMessage.Text = _viewModel.ModalMessage;
             ModalButtonPanel.Children.Clear();
             _modalButtons.Clear();
+            _modalBrushes.Clear();
 
             var yesBtn = MakeModalButton("modal_yes", "\u2713 Yes", ModalYes);
             var noBtn = MakeModalButton("modal_no", "\u2715 No", ModalNo);
@@ -1301,6 +1324,7 @@ public partial class SettingsWindow : OverlayWindow
         {
             ModalOverlay.Visibility = Visibility.Collapsed;
             _modalButtons.Clear();
+            _modalBrushes.Clear();
         }
     }
 
@@ -1314,13 +1338,14 @@ public partial class SettingsWindow : OverlayWindow
 
     private Border MakeModalButton(string id, string text, Color bg)
     {
+        var modalBrush = new SolidColorBrush(bg);
         var border = new Border
         {
             Width = 170,
             Height = 80,
             Margin = new Thickness(12, 0, 12, 0),
             CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(bg),
+            Background = modalBrush,
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
             {
@@ -1343,6 +1368,7 @@ public partial class SettingsWindow : OverlayWindow
         };
 
         _modalButtons[id] = border;
+        _modalBrushes[id] = modalBrush;
         return border;
     }
 }

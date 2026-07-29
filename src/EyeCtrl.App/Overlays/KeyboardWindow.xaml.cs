@@ -22,7 +22,11 @@ public partial class KeyboardWindow : OverlayWindow
     private static readonly Color KeyColorNormal = Tokens.SurfaceKey;
     private static readonly Color KeyColorSpecial = Tokens.SurfaceKeyModifier;
     private static readonly Color KeyColorSwitch = Tokens.SurfaceKeySwitch;
-    private static readonly Color KeyColorModifierActive = Tokens.Accent;
+    // Active modifier (e.g. held Shift) must NOT be Accent: dwell blends every key toward
+    // Accent, so an Accent resting state would make an active Shift indistinguishable from a
+    // key at full dwell. SurfaceKeySwitch is the blue-leaning key surface, distinct from the
+    // cyan Accent reserved for dwell-in-progress.
+    private static readonly Color KeyColorModifierActive = Tokens.SurfaceKeySwitch;
     private static readonly Color PredictionBarColor = Tokens.SurfacePrediction;
 
     // Cached frozen brushes for prediction foreground colors (performance optimization)
@@ -561,9 +565,11 @@ public partial class KeyboardWindow : OverlayWindow
         if (!int.TryParse(targetId.AsSpan(5), out var index)) return;
         if (index < 0 || index >= _predictionBrushes.Count) return;
 
-        // Blend highlight on top of the stored base color to preserve confidence shading
+        // Linear blend from the stored base colour toward Accent as dwell progresses.
+        // (Previously this blended base→Accent by `progress` to form the target, then
+        // base→that by `progress` again — a p² ramp that muted mid-dwell.)
         var baseColor = _predictionBaseColors[index];
-        var highlightColor = ColorBlend.Blend(baseColor, Tokens.Accent, progress);
+        var highlightColor = Tokens.Accent;
 
         _predictionBrushes[index].Color = Color.FromArgb(
             baseColor.A,
@@ -592,8 +598,9 @@ public partial class KeyboardWindow : OverlayWindow
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
 
         var baseColor = GetKeyBaseColor(targetId);
-        var highlightColor = ColorBlend.Blend(
-            Color.FromArgb(200, baseColor.R, baseColor.G, baseColor.B), Tokens.Accent, progress);
+        // Linear blend toward Accent (see OnPredictionProgress): target is Accent itself, not a
+        // pre-blended colour, so mid-dwell is a correct linear ramp rather than the old p² curve.
+        var highlightColor = Tokens.Accent;
         var blended = Color.FromArgb(
             200,
             (byte)(baseColor.R * (1 - progress) + highlightColor.R * progress),

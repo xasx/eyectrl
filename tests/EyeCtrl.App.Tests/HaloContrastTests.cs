@@ -49,6 +49,12 @@ public class HaloContrastTests
     /// the mark is discernible if ANY of its edges is strong. It does NOT claim the
     /// accent-vs-backdrop edge is strong - that one is often weak, which is the
     /// entire reason the halo exists.
+    ///
+    /// Consequence: for Accent+StrokeHalo the constant accent-vs-halo term (15.78:1)
+    /// dominates on every backdrop, so <see cref="AccentWithHalo_ClearsTheFloorOnEveryBackdrop"/>
+    /// cannot fail for a backdrop reason - which is precisely the property the halo
+    /// exists to deliver. The loop is retained as documentation of the backdrops the
+    /// guarantee must hold over (spec §9.5), not as a backdrop-discrimination test.
     /// </summary>
     private static double StrongestVisibleEdge(Color mark, Color halo, Color backdrop) =>
         Math.Max(Contrast(mark, halo),

@@ -41,7 +41,14 @@ public class OverlayResourceResolutionTests
                 new ResourceDictionary { Source = new Uri(uri, UriKind.Absolute) });
     }
 
-    /// <summary>Overlays migrated by Plan A whose XAML uses StaticResource brushes.</summary>
+    /// <summary>
+    /// Overlays whose XAML references {StaticResource} token brushes. Covers the Plan A
+    /// filled overlays plus the Plan B haloed overlays (which each gained 2-6 brush keys).
+    /// SettingsWindow is excluded: its constructor requires 7 non-optional dependencies
+    /// (ViewModel/Settings/Services/Messenger/CalibrationService), so it cannot be
+    /// constructed headlessly; its keys are covered by the literal-scan guards instead.
+    /// NoteWindow is excluded: it is a code-only overlay with no .xaml file.
+    /// </summary>
     public static TheoryData<Type> MigratedOverlays() =>
     [
         typeof(KeyboardWindow), typeof(ToolbarWindow), typeof(QuickActionsGridWindow),
@@ -49,6 +56,10 @@ public class OverlayResourceResolutionTests
         typeof(EyeCareBannerWindow), typeof(EyeCareExerciseWindow),
         typeof(CalibrationWindow), typeof(PauseIndicatorWindow),
         typeof(DriftNoticeWindow),
+        // Plan B haloed overlays
+        typeof(CursorCircleWindow), typeof(ActivationButtonWindow),
+        typeof(ManualSelectionGazeIndicatorWindow), typeof(ScrollOverlayWindow),
+        typeof(CueOverlayWindow), typeof(DwellFeedbackOverlay),
     ];
 
     [StaTheory]

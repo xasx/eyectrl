@@ -30,7 +30,10 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     [ObservableProperty] private string? _errorText;
     [ObservableProperty] private double? _meanErrorPixels;
     [ObservableProperty] private double? _qualityPercent;
-    [ObservableProperty] private string _targetColor = "#00FF00";
+    // Default mirrors Tokens.Accent / SettingsDefaults.Accent (#A5F3FC); overwritten from
+    // settings.TargetColor in the constructor, but the initializer must not carry the
+    // outgoing Lime accent this migration removed.
+    [ObservableProperty] private string _targetColor = "#A5F3FC";
 
     public CalibrationViewModel(
         CalibrationSettings settings,

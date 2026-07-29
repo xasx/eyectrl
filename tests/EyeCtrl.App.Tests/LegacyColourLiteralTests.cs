@@ -9,26 +9,23 @@ using NFluent;
 using Xunit;
 
 /// <summary>
-/// Regression guard for the colour migration (spec §5). Each legacy literal is
-/// listed with the file that still contains it; as a file is migrated its entry
-/// is deleted, and this test then fails if the literal ever comes back.
-///
-/// This is the red-to-green driver for the XAML and code-behind tasks, which
-/// otherwise have no natural unit test.
+/// Regression guard for the colour migration (spec §5). During the migration each
+/// legacy literal was listed with the file that still contained it; as a file was
+/// migrated its entry was pruned. With the migration complete <see cref="StillPending"/>
+/// is empty, so <see cref="MigratedFiles_ContainNoLegacyColourLiterals"/> is now a
+/// vacuous-when-empty guard that fails only if a stale entry is re-added, and
+/// <see cref="NoUnlistedFile_UsesTheOutgoingLimeAccent"/> scans all of src/ for any
+/// returning Lime accent that is not the unrelated Brushes.LimeGreen track-quality dot.
 /// </summary>
 public class LegacyColourLiteralTests
 {
-    /// <summary>file (repo-relative) -> literals still expected in it.</summary>
+    /// <summary>
+    /// file (repo-relative) -&gt; literals still expected in it. Empty now that every
+    /// tracked file is migrated; kept (rather than deleted) so re-introducing a literal
+    /// and re-listing it here is caught, and so the prune-as-you-go structure survives.
+    /// </summary>
     private static readonly Dictionary<string, string[]> StillPending = new()
     {
-        // All 11 of this file's colour literals, not a subset — the allow-list is the
-        // cross-task guard, and a partial entry lets the untracked ones return silently.
-        // NoteWindow.xaml.cs migrated by Task 12 (incl. three Colors.Lime accent usages
-        // the plan's substitution table omitted — edit border, GetBorderBrush edit/move
-        // states, and the dwell-arc stroke — all retargeted to Tokens.BrushAccent).
-        // Plan B files — migrated by Plan B Tasks 3-5. Listed with the bare
-        // "Lime" substring, which the regex above anchors for the dwell accent
-        // (Brushes.Lime / "Lime") but not Brushes.LimeGreen / "LimeGreen".
     };
 
     private static DirectoryInfo RepoRoot()

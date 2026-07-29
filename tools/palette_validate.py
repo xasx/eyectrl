@@ -127,8 +127,6 @@ SEMANTIC_CHROMA_FLOOR = 55.0
 # 1px. Any future non-colour token must be added here or parse() will reject it.
 NON_COLOUR_TOKENS = {"BorderThicknessStandard"}
 
-# Opaque core of SurfaceDark — the reference background for on-surface ratios.
-SURFACE_CORE = "#1A1A2E"
 # Worst realistic desktop behind a translucent overlay: a white document.
 WORST_DESKTOP = "#FFFFFF"
 # Backdrops a Background="Transparent" overlay may be drawn over.

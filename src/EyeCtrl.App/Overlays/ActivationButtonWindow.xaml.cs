@@ -69,9 +69,12 @@ public partial class ActivationButtonWindow : OverlayWindow
         {
             ArcSegment.Point = new Point(ButtonCenter, ButtonCenter - ArcRadius);
             ArcSegment.IsLargeArc = false;
+            ArcSegmentHalo.Point = new Point(ButtonCenter, ButtonCenter - ArcRadius);
+            ArcSegmentHalo.IsLargeArc = false;
             return;
         }
 
         DwellArcButton.UpdateArc(ArcSegment, new Point(ButtonCenter, ButtonCenter), ArcRadius, progress);
+        DwellArcButton.UpdateArc(ArcSegmentHalo, new Point(ButtonCenter, ButtonCenter), ArcRadius, progress);
     }
 }

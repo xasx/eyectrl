@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Overlays;
 
 using System.Windows;
 using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -29,15 +30,22 @@ public partial class CursorCircleWindow : OverlayWindow
         try
         {
             var color = (Color)ColorConverter.ConvertFromString(settings.CircleColor);
-            Circle.Stroke = new SolidColorBrush(color);
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();                 // built once per settings change, not per frame
+            Circle.Stroke = brush;
         }
         catch
         {
-            Circle.Stroke = Brushes.Lime;
+            Circle.Stroke = Tokens.BrushAccent;
         }
 
         Circle.StrokeThickness = settings.CircleThickness;
         Circle.Opacity = settings.CircleOpacity;
+
+        // Halo is 2px wider on each side so a rim of it shows past the accent ring.
+        CircleHalo.Stroke = Tokens.BrushStrokeHalo;
+        CircleHalo.StrokeThickness = settings.CircleThickness + 2;
+        CircleHalo.Opacity = settings.CircleOpacity;
 
         // Update circle size
         var size = Math.Max(MinimumCircleSize, settings.CircleSize);
@@ -45,5 +53,7 @@ public partial class CursorCircleWindow : OverlayWindow
         Height = size;
         Circle.Width = size;
         Circle.Height = size;
+        CircleHalo.Width = size;
+        CircleHalo.Height = size;
     }
 }

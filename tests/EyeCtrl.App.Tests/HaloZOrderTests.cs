@@ -23,7 +23,7 @@ public class HaloZOrderTests
     /// </summary>
     public static readonly Dictionary<string, (string Halo, string Accent)> HaloedOverlays = new()
     {
-        // Task 3: ["src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml"] = ("CircleHalo", "Circle"),
+        ["src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml"] = ("CircleHalo", "Circle"),
         // Task 4: ["src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml"] = ("ProgressArcHalo", "ProgressArc"),
         // Task 5: ["src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml"] = ("OuterCircleHalo", "OuterCircle"),
         // Task 5: ["src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml"] = ("VelocityRingHalo", "VelocityRing"),

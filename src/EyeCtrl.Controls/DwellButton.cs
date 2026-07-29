@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Processing;
 
 /// <summary>
@@ -29,6 +30,9 @@ public class DwellButton : DwellControl
 {
     private readonly Action _action;
     private readonly Color _baseColor;
+    // One mutable brush on Root.Background, mutated in place by ApplyProgress so dwell
+    // updates at gaze rate never allocate a new brush per tick.
+    private readonly SolidColorBrush _brush;
 
     /// <summary>
     /// Creates a <see cref="DwellButton"/>.
@@ -66,7 +70,8 @@ public class DwellButton : DwellControl
         Root.Height = height;
         Root.Margin = new Thickness(4, 0, 4, 0);
         Root.CornerRadius = new CornerRadius(8);
-        Root.Background = new SolidColorBrush(baseColor);
+        _brush = new SolidColorBrush(baseColor);
+        Root.Background = _brush;
         Root.Cursor = Cursors.Hand;
         Root.Child = new TextBlock
         {
@@ -93,6 +98,6 @@ public class DwellButton : DwellControl
     /// <inheritdoc/>
     protected override void ApplyProgress(double progress)
     {
-        Root.Background = ColorBlend.ToHighlightBrush(_baseColor, progress);
+        _brush.Color = ColorBlend.Blend(_baseColor, Tokens.Accent, progress * 0.5);
     }
 }

@@ -25,6 +25,9 @@ public class DwellToggle : DwellControl
     private readonly Func<bool> _get;
     private readonly Action<bool> _set;
     private readonly TextBlock _text;
+    // One mutable brush on Root.Background, mutated in place by RefreshVisual and
+    // ApplyProgress so dwell updates at gaze rate never allocate a new brush per tick.
+    private readonly SolidColorBrush _brush = new();
 
     /// <summary>
     /// Creates a <see cref="DwellToggle"/>.
@@ -69,6 +72,7 @@ public class DwellToggle : DwellControl
         Root.HorizontalAlignment = HorizontalAlignment.Left;
         Root.Cursor = Cursors.Hand;
         Root.Child = _text;
+        Root.Background = _brush;
 
         Root.MouseLeftButtonDown += (_, _) => Toggle();
         RefreshVisual();
@@ -84,7 +88,7 @@ public class DwellToggle : DwellControl
     protected override void ApplyProgress(double progress)
     {
         var baseColor = _get() ? OnColor : OffColor;
-        Root.Background = ColorBlend.ToHighlightBrush(baseColor, progress);
+        _brush.Color = ColorBlend.Blend(baseColor, Tokens.Accent, progress * 0.5);
     }
 
     private void Toggle()
@@ -97,6 +101,6 @@ public class DwellToggle : DwellControl
     {
         var on = _get();
         _text.Text = (on ? "\u2611 " : "\u2610 ") + _label;
-        Root.Background = new SolidColorBrush(on ? OnColor : OffColor);
+        _brush.Color = on ? OnColor : OffColor;
     }
 }

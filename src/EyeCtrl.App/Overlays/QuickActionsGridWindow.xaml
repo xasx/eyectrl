@@ -28,7 +28,7 @@
                         <ProgressBar Minimum="0" Maximum="1"
                                      Value="{Binding CloseDwellProgress}"
                                      Height="4" VerticalAlignment="Bottom"
-                                     Background="Transparent" Foreground="{StaticResource BrushTextPrimary}"
+                                     Background="Transparent" Foreground="{StaticResource BrushAccent}"
                                      BorderThickness="0"/>
                     </Grid>
                 </Border>

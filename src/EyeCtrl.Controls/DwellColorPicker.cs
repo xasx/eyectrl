@@ -34,7 +34,7 @@ public class DwellColorPicker : IDwellComposite
     public static readonly (string Hex, string Name)[] DefaultPresets =
     [
         ("#A5F3FC", "Aqua"), ("#7EE787", "Green"),
-        ("#E8A33C", "Amber"), ("#D6DEF5", "White"),
+        ("#E8A33C", "Amber"), ("#D6DEF5", "Light"),
     ];
 
     private readonly DwellLabel _label;

@@ -54,6 +54,10 @@ public partial class KeyboardWindow : OverlayWindow
 
     private readonly DwellDetector _predictionDwellDetector;
     private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();
+    // One mutable brush per key, mutated in place by UpdateKeyVisual/ResetKeyVisual/
+    // UpdateModifierVisuals so dwell updates at gaze rate never allocate a brush per tick
+    // (mirrors _predictionBrushes). Each brush is also installed as its Container.Background.
+    private readonly Dictionary<string, SolidColorBrush> _keyBrushes = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
     private readonly List<SolidColorBrush> _predictionBrushes = new();
@@ -197,15 +201,17 @@ public partial class KeyboardWindow : OverlayWindow
                     VerticalAlignment = VerticalAlignment.Center
                 };
 
+                var keyBrush = new SolidColorBrush(GetKeyBaseColor(key));
                 var container = new Border
                 {
                     Width = _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0),
                     Height = _keySize,
                     Margin = new Thickness(2),
-                    Background = new SolidColorBrush(GetKeyBaseColor(key)),
+                    Background = keyBrush,
                     CornerRadius = new CornerRadius(6),
                     Child = label
                 };
+                _keyBrushes[id] = keyBrush;
 
                 System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Keyboard_Key_{id}");
 
@@ -607,24 +613,25 @@ public partial class KeyboardWindow : OverlayWindow
             (byte)(baseColor.G * (1 - progress) + highlightColor.G * progress),
             (byte)(baseColor.B * (1 - progress) + highlightColor.B * progress));
 
-        visuals.Container.Background = new SolidColorBrush(blended);
+        _keyBrushes[targetId].Color = blended;
     }
 
     private void ResetKeyVisual(string targetId)
     {
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
+        if (!_keyBrushes.TryGetValue(targetId, out var brush)) return;
 
         if (_viewModel != null && _keyDefinitions.TryGetValue(targetId, out var key))
         {
             var modifier = GetModifierFromAction(key.SpecialAction);
             if (modifier != null && _viewModel.ActiveModifiers.Contains(modifier.Value))
             {
-                visuals.Container.Background = new SolidColorBrush(KeyColorModifierActive);
+                brush.Color = KeyColorModifierActive;
                 return;
             }
         }
 
-        visuals.Container.Background = new SolidColorBrush(GetKeyBaseColor(targetId));
+        brush.Color = GetKeyBaseColor(targetId);
     }
 
     private Color GetKeyBaseColor(string keyId)
@@ -676,11 +683,12 @@ public partial class KeyboardWindow : OverlayWindow
         foreach (var (id, (container, _)) in _keyVisuals)
         {
             if (!_keyDefinitions.TryGetValue(id, out var key)) continue;
+            if (!_keyBrushes.TryGetValue(id, out var brush)) continue;
             var modifier = GetModifierFromAction(key.SpecialAction);
             if (modifier == null) continue;
 
             var isActive = _viewModel.ActiveModifiers.Contains(modifier.Value);
-            container.Background = new SolidColorBrush(isActive ? KeyColorModifierActive : GetKeyBaseColor(key));
+            brush.Color = isActive ? KeyColorModifierActive : GetKeyBaseColor(key);
         }
 
         UpdateShiftDisplay();
@@ -695,6 +703,7 @@ public partial class KeyboardWindow : OverlayWindow
     private void ClearKeyState()
     {
         _keyVisuals.Clear();
+        _keyBrushes.Clear();
         _keyDefinitions.Clear();
         _keyScreenPositions.Clear();
     }

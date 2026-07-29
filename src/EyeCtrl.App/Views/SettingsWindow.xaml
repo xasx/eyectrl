@@ -19,7 +19,7 @@
                     HorizontalAlignment="Right" Margin="8"
                     CornerRadius="8" Background="{StaticResource BrushAccentDanger}"
                     Cursor="Hand">
-                <TextBlock Text="✕" Foreground="{StaticResource BrushTextPrimary}"
+                <TextBlock Text="✕" Foreground="{StaticResource BrushSurfaceDark}"
                            FontSize="34" FontWeight="Bold"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"/>

@@ -444,7 +444,7 @@ public partial class SettingsWindow : OverlayWindow
                         ApplyAndSave();
                         RebuildContent();
                     }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
             ]
         ];
     }
@@ -520,7 +520,7 @@ public partial class SettingsWindow : OverlayWindow
                         ApplyAndSave();
                         RebuildContent();
                     }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
             ]
         ];
     }
@@ -587,7 +587,7 @@ public partial class SettingsWindow : OverlayWindow
                         ApplyAndSave();
                         RebuildContent();
                     }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
             ]
         ];
     }
@@ -613,7 +613,7 @@ public partial class SettingsWindow : OverlayWindow
                         ApplyAndSave();
                         RebuildContent();
                     }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
             ]
         ];
     }
@@ -668,7 +668,7 @@ public partial class SettingsWindow : OverlayWindow
                         ApplyAndSave();
                         RebuildContent();
                     }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
             ]
         ];
     }
@@ -705,7 +705,7 @@ public partial class SettingsWindow : OverlayWindow
                         ApplyAndSave();
                         RebuildContent();
                     }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
             ]
         ];
     }
@@ -799,7 +799,7 @@ public partial class SettingsWindow : OverlayWindow
                         ApplyAndSave();
                         RebuildContent();
                     }),
-                    DeleteBase, cat, r, _dwellMs, width: 400, height: 60)));
+                    DeleteBase, cat, r, _dwellMs, width: 400, height: 60, textBrush: Tokens.BrushSurfaceDark)));
             }
 
             page2.Add(() => Add(new DwellButton(_viewModel, "md_back", "Back to models",
@@ -909,7 +909,7 @@ public partial class SettingsWindow : OverlayWindow
                         ApplyAndSave();
                         RebuildContent();
                     }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
                 () => Add(new DwellButton(_viewModel, "g_resetall", "\u26A0 Reset ALL Settings",
                     () => ShowModal("Reset ALL settings to defaults?\nThis cannot be undone.", () =>
                     {
@@ -917,7 +917,7 @@ public partial class SettingsWindow : OverlayWindow
                         ApplyAndSave();
                         RebuildContent();
                     }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
             ]
         ];
     }
@@ -989,7 +989,7 @@ public partial class SettingsWindow : OverlayWindow
                     () => a.Enabled, _ => { editor.ToggleEnabled(a.Id); }, cat, r, _dwellMs)));
                 page.Add(() => Add(new DwellButton(_viewModel, "qa_del_" + a.Id, "✕  Delete",
                     () => ShowModal($"Delete \"{a.Label}\"?", () => { editor.DeleteAction(a.Id); RebuildContent(); }),
-                    DeleteBase, cat, r, _dwellMs, width: 360, height: 70)));
+                    DeleteBase, cat, r, _dwellMs, width: 360, height: 70, textBrush: Tokens.BrushSurfaceDark)));
             }
             pages.Add(page);
         }
@@ -1122,7 +1122,7 @@ public partial class SettingsWindow : OverlayWindow
                         _messenger.Send(new CalibrationClearRequestedMessage());
                         RebuildContent();
                     }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80)),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
             ]
         ];
     }
@@ -1325,7 +1325,7 @@ public partial class SettingsWindow : OverlayWindow
             Child = new TextBlock
             {
                 Text = text,
-                Foreground = Brushes.White,
+                Foreground = Tokens.BrushSurfaceDark,
                 FontSize = 24,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,

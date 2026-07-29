@@ -43,6 +43,8 @@ public class DwellButton : DwellControl
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
     /// <param name="width">Logical width of the button in WPF units. Pass 0 for auto-width.</param>
     /// <param name="height">Logical height of the button in WPF units.</param>
+    /// <param name="textBrush">Label foreground. Defaults to white (suitable for dark surface fills);
+    /// pass a dark brush for light semantic fills (AccentWarning/AccentDanger) so the label clears WCAG.</param>
     public DwellButton(
         IDwellRegistrar registrar,
         string id,
@@ -53,7 +55,8 @@ public class DwellButton : DwellControl
         double radiusPhysical,
         int dwellMs,
         double width = 100,
-        double height = 80)
+        double height = 80,
+        Brush? textBrush = null)
         : base(registrar, id, category, radiusPhysical, dwellMs)
     {
         _action = action;
@@ -68,7 +71,10 @@ public class DwellButton : DwellControl
         Root.Child = new TextBlock
         {
             Text = label,
-            Foreground = Brushes.White,
+            // Default white text suits the dark surface fills; light semantic fills
+            // (AccentWarning/AccentDanger) need dark text to clear WCAG, so the caller
+            // passes a textBrush for those.
+            Foreground = textBrush ?? Brushes.White,
             FontSize = 24,
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Center,

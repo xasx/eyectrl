@@ -228,7 +228,7 @@ public partial class SettingsWindow : OverlayWindow
             var iconText = new TextBlock
             {
                 Text = icon,
-                Foreground = Brushes.White,
+                Foreground = Tokens.BrushTextPrimary,
                 FontSize = 30,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 12, 0)
@@ -254,7 +254,7 @@ public partial class SettingsWindow : OverlayWindow
                         new TextBlock
                         {
                             Text = label,
-                            Foreground = Brushes.White,
+                            Foreground = Tokens.BrushTextPrimary,
                             FontSize = 22,
                             FontWeight = FontWeights.SemiBold,
                             VerticalAlignment = VerticalAlignment.Center
@@ -337,7 +337,7 @@ public partial class SettingsWindow : OverlayWindow
         var indicator = new TextBlock
         {
             Text = $"{_viewModel.Settings.CurrentPage + 1} / {_viewModel.Settings.TotalPages}",
-            Foreground = Brushes.White,
+            Foreground = Tokens.BrushTextPrimary,
             FontSize = 24,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
@@ -370,7 +370,7 @@ public partial class SettingsWindow : OverlayWindow
             Child = new TextBlock
             {
                 Text = text,
-                Foreground = Brushes.White,
+                Foreground = Tokens.BrushTextPrimary,
                 FontSize = 30,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,

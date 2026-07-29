@@ -32,6 +32,10 @@
     <SolidColorBrush x:Key="BrushToggleOff"          Color="{x:Static theme:Tokens.ToggleOff}"/>
     <SolidColorBrush x:Key="BrushModalBackdrop"      Color="{x:Static theme:Tokens.ModalBackdrop}"/>
 
+    <!-- Accent at 10% opacity (derived; see Tokens.BrushAccentDim10). Exposed via x:Static
+         because the brush already carries its Opacity and is frozen — a Color binding would lose it. -->
+    <x:Static x:Key="BrushAccentDim10" Member="theme:Tokens.BrushAccentDim10"/>
+
     <x:Static x:Key="BorderThicknessStandard"
               Member="theme:Tokens.BorderThicknessStandard"/>
 </ResourceDictionary>

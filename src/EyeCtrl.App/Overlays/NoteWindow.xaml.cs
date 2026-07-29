@@ -116,7 +116,7 @@ public class NoteWindow : OverlayWindow
                 Width = TextAreaWidth - 20, Height = Height - TitleBarHeight - 20,
                 Margin = new Thickness(10, 10, 0, 0),
                 Background = Tokens.BrushSurfaceKey,
-                Foreground = Brushes.White,
+                Foreground = Tokens.BrushTextPrimary,
                 BorderBrush = Tokens.BrushAccent,
                 BorderThickness = new Thickness(1),
                 FontSize = 12,

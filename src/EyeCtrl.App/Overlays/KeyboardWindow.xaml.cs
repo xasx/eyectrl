@@ -30,7 +30,7 @@ public partial class KeyboardWindow : OverlayWindow
     private static readonly Color PredictionBarColor = Tokens.SurfacePrediction;
 
     // Cached frozen brushes for prediction foreground colors (performance optimization)
-    private static readonly Brush ForegroundExactPrefix = Brushes.White;
+    private static readonly Brush ForegroundExactPrefix = Tokens.BrushTextPrimary;
     private static readonly Brush ForegroundFuzzyMatch;
     private static readonly Brush ForegroundNextWord;
     private static readonly Brush ForegroundPhrase;
@@ -195,7 +195,7 @@ public partial class KeyboardWindow : OverlayWindow
                 var label = new TextBlock
                 {
                     Text = key.Label,
-                    Foreground = Brushes.White,
+                    Foreground = Tokens.BrushTextPrimary,
                     FontSize = 16,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center

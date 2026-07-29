@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.ViewModels;
 
 public partial class TrackStatusWindow : OverlayWindow
@@ -82,12 +83,15 @@ public partial class TrackStatusWindow : OverlayWindow
                 break;
             case nameof(_viewModel.DistanceQuality):
                 QualityText.Text = _viewModel.DistanceQuality;
+                // Quality is a semantic triad: success/warning/danger, carried by the
+                // palette tokens rather than raw Brushes. (The XAML track-box dots keep
+                // LimeGreen — a separate track-presence indicator, not a quality semantic.)
                 QualityText.Foreground = _viewModel.DistanceQuality switch
                 {
-                    "Good" => Brushes.LimeGreen,
-                    "Fair" => Brushes.Orange,
-                    "Poor" => Brushes.Red,
-                    _ => Brushes.Gray
+                    "Good" => Tokens.BrushAccentSuccess,
+                    "Fair" => Tokens.BrushAccentWarning,
+                    "Poor" => Tokens.BrushAccentDanger,
+                    _ => Tokens.BrushTextDim
                 };
                 break;
         }
@@ -103,7 +107,7 @@ public partial class TrackStatusWindow : OverlayWindow
         }
         Canvas.SetLeft(dot, normalizedX * 54);
         Canvas.SetTop(dot, normalizedY * 34);
-        dot.Fill = Brushes.LimeGreen;
+        dot.Fill = Tokens.BrushAccentSuccess;
         dot.Visibility = Visibility.Visible;
     }
 

@@ -66,7 +66,7 @@ public partial class ToolbarWindow : OverlayWindow
         var label = new TextBlock
         {
             Text = symbol,
-            Foreground = Brushes.White,
+            Foreground = Tokens.BrushTextPrimary,
             FontSize = _buttonSize * ButtonSymbolSizeRatio,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
@@ -109,7 +109,7 @@ public partial class ToolbarWindow : OverlayWindow
         var label = new TextBlock
         {
             Text = symbol,
-            Foreground = Brushes.White,
+            Foreground = Tokens.BrushTextPrimary,
             FontSize = _buttonSize * ButtonSymbolSizeRatio,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center

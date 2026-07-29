@@ -4,9 +4,8 @@
     xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
     WindowStyle="None" AllowsTransparency="True" Background="Transparent"
     Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize">
-    <!-- Accent at 10% alpha; no XAML syntax exists for deriving this from BrushAccent -->
     <Border x:Name="ProgressBorder" CornerRadius="4" BorderThickness="2"
-            BorderBrush="{StaticResource BrushAccent}" Background="#1AA5F3FC" Visibility="Hidden">
+            BorderBrush="{StaticResource BrushAccent}" Background="{StaticResource BrushAccentDim10}" Visibility="Hidden">
         <Grid>
             <Rectangle x:Name="ProgressFill" HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}" />
         </Grid>

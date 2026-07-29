@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
@@ -155,7 +156,7 @@ public partial class CalibrationWindow : OverlayWindow
         if (goodResult && isGood)
         {
             CompletionSymbol.Text = "\u2713";
-            CompletionSymbol.Foreground = new SolidColorBrush(Colors.Lime);
+            CompletionSymbol.Foreground = Tokens.BrushAccentSuccess;
             CompletionTitle.Text = "Calibration complete";
             CompletionError.Text = $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%)";
             CompletionHint.Visibility = Visibility.Visible;
@@ -165,7 +166,7 @@ public partial class CalibrationWindow : OverlayWindow
         else
         {
             CompletionSymbol.Text = "\u26A0";
-            CompletionSymbol.Foreground = new SolidColorBrush(Color.FromRgb(255, 170, 0));
+            CompletionSymbol.Foreground = Tokens.BrushAccentWarning;
             CompletionTitle.Text = goodResult ? "Calibration complete" : "Calibration failed";
             CompletionError.Text = goodResult
                 ? $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%) \u2014 poor quality"

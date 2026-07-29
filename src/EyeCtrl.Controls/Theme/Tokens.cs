@@ -26,6 +26,14 @@ public static class Tokens
         return b;
     }
 
+    /// <summary>A frozen brush over <paramref name="c"/> at the given <paramref name="opacity"/> (0-1).</summary>
+    private static SolidColorBrush Dimmed(Color c, double opacity)
+    {
+        var b = new SolidColorBrush(c) { Opacity = opacity };
+        b.Freeze();
+        return b;
+    }
+
     // ── Surfaces ────────────────────────────────────────────────────────────
     // Alpha only where the token composites over live desktop content. 0xFA
     // (98%) bounds the worst-case contrast drift to -5%; §4.1.2.
@@ -79,6 +87,14 @@ public static class Tokens
     public static readonly SolidColorBrush BrushToggleOn = Frozen(ToggleOn);
     public static readonly SolidColorBrush BrushToggleOff = Frozen(ToggleOff);
     public static readonly SolidColorBrush BrushModalBackdrop = Frozen(ModalBackdrop);
+
+    /// <summary>
+    /// <see cref="Accent"/> at 10% opacity — the translucent dwell-progress fill used on
+    /// <c>DwellFeedbackOverlay</c>. WPF XAML has no syntax for "this brush at N% alpha", so the
+    /// derived brush lives here as a frozen token rather than a restated hex literal in XAML.
+    /// Not a new palette colour (no matching <c>Color</c> field); derived from <see cref="Accent"/>.
+    /// </summary>
+    public static readonly SolidColorBrush BrushAccentDim10 = Dimmed(Accent, 0.10);
 
     /// <summary>
     /// The one non-colour theme-varying token (§4.4). Midnight and Ember use 1;

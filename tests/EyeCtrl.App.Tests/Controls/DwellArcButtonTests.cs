@@ -57,4 +57,18 @@ public class DwellArcButtonTests
         btn.AddTo(canvas);
         Check.That(canvas.Children.Count).IsEqualTo(4);   // Background, HaloPath, ProgressPath, Symbol
     }
+
+    [StaFact]
+    public void AddTo_PlacesHaloBeforeProgressArc()
+    {
+        // HaloZOrderTests guards the XAML-declared halos; this is the code-built analogue.
+        // In WPF later siblings paint on top, so HaloPath must precede ProgressPath or the
+        // halo renders as a dark ring over the accent (spec §4.1.3).
+        var canvas = new Canvas();
+        var btn = DwellArcButton.Create(new Point(10, 10), radius: 20, symbol: "X");
+        btn.AddTo(canvas);
+
+        Check.That(canvas.Children.IndexOf(btn.HaloPath))
+             .IsStrictlyLessThan(canvas.Children.IndexOf(btn.ProgressPath));
+    }
 }

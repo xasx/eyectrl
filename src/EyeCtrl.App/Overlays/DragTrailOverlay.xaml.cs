@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
@@ -20,9 +21,11 @@ public partial class DragTrailOverlay : OverlayWindow
         IsClickThrough = true;
         InitializeComponent();
 
+        // Trail-line colour is settings-driven (DragSettings.TrailColor); set in Configure.
+        // Default to AccentWarning so the line is visible if Configure is never called.
         _trailLine = new Line
         {
-            Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#ff9800")),
+            Stroke = Tokens.BrushAccentWarning,
             StrokeThickness = 2,
             Opacity = 0.7
         };
@@ -31,21 +34,46 @@ public partial class DragTrailOverlay : OverlayWindow
         _settleRing = new Ellipse
         {
             Width = 40, Height = 40,
-            Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4caf50")),
+            Stroke = Tokens.BrushAccentSuccess,
             StrokeThickness = 3,
             Fill = Brushes.Transparent,
             Visibility = Visibility.Collapsed
         };
         TrailCanvas.Children.Add(_settleRing);
 
-        _grabIcon = CreateIcon("\u270A", "#ff9800");
-        _releaseIcon = CreateIcon("\u270B", "#4caf50");
+        _grabIcon = CreateIcon("\u270A", Tokens.BrushAccentWarning);
+        _releaseIcon = CreateIcon("\u270B", Tokens.BrushAccentSuccess);
 
-        _releaseBg = CreateButtonBg("#1a3a1a", "#4caf50");
+        _releaseBg = CreateButtonBg(Tokens.BrushSurfacePrediction, Tokens.BrushAccentSuccess);
 
         TrailCanvas.Children.Add(_releaseBg);
         TrailCanvas.Children.Add(_releaseIcon);
         TrailCanvas.Children.Add(_grabIcon);
+    }
+
+    /// <summary>
+    /// Applies the user-configurable trail colour (a hex string from DragSettings.TrailColor)
+    /// and opacity. Mirrors TargetHighlightWindow.Configure. Falls back to AccentWarning on a
+    /// bad hex string. Call after construction (e.g. in OnDragStarted before Show).
+    /// </summary>
+    public void Configure(string trailColor, double trailOpacity)
+    {
+        Brush brush;
+        try
+        {
+            var c = (Color)ColorConverter.ConvertFromString(trailColor);
+            var b = new SolidColorBrush(c);
+            b.Freeze();
+            brush = b;
+        }
+        catch
+        {
+            brush = Tokens.BrushAccentWarning;
+        }
+
+        _trailLine.Stroke = brush;
+        _trailLine.Opacity = trailOpacity;
+        _grabIcon.Foreground = brush;
     }
 
     public void Update(PhysicalPoint grabOrigin, PhysicalPoint cursorPos, double settleProgress,
@@ -88,24 +116,24 @@ public partial class DragTrailOverlay : OverlayWindow
         _settleRing.Visibility = Visibility.Collapsed;
     }
 
-    private static TextBlock CreateIcon(string glyph, string color)
+    private static TextBlock CreateIcon(string glyph, Brush foreground)
     {
         return new TextBlock
         {
             Text = glyph,
             FontSize = 16,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color)),
+            Foreground = foreground,
             IsHitTestVisible = false
         };
     }
 
-    private static Ellipse CreateButtonBg(string fill, string stroke)
+    private static Ellipse CreateButtonBg(Brush fill, Brush stroke)
     {
         return new Ellipse
         {
             Width = 26, Height = 26,
-            Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(fill)),
-            Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(stroke)),
+            Fill = fill,
+            Stroke = stroke,
             StrokeThickness = 1.5,
             IsHitTestVisible = false
         };

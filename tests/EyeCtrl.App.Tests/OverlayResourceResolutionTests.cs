@@ -60,6 +60,8 @@ public class OverlayResourceResolutionTests
         typeof(CursorCircleWindow), typeof(ActivationButtonWindow),
         typeof(ManualSelectionGazeIndicatorWindow), typeof(ScrollOverlayWindow),
         typeof(CueOverlayWindow), typeof(DwellFeedbackOverlay),
+        // Drag trail: migrated onto tokens + reads DragSettings.TrailColor via Configure
+        typeof(DragTrailOverlay),
     ];
 
     [StaTheory]

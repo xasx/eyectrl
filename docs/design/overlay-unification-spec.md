@@ -594,8 +594,11 @@ arbitrary desktop content (§9.5).
 - `GlassBackdropWindow.xaml` + `.cs` — fully dynamic; no hardcoded colours
 - `ManualSelectionOverlayWindow.xaml` + `.cs` — screen capture; no decorative colours
 - `TargetHighlightWindow.xaml` — opacity-driven; `CornerRadius="2"` left as-is (§8)
-- `DragTrailOverlay.xaml` + `.cs` — renders from `DragSettings.TrailColor`, which
-  Phase 2 retargets; the files themselves need no edit
+- `DragTrailOverlay.xaml` + `.cs` — the trail line now reads `DragSettings.TrailColor`
+  via `Configure` (wired in `EventCoordinator.OnDragStarted`); the settle/release greens
+  and release background are on tokens. (An earlier draft wrongly claimed the files needed
+  no edit — the overlay had hardcoded `#ff9800`/`#4caf50`/`#1a3a1a` and never read the
+  setting; the wiring fix corrected both the dead default and the no-op "Trail Color" picker.)
 - `EyeCtrl.LM`, `EyeCtrl.Platform`, `EyeCtrl.ViewModels`, `EyeCtrl.EyeCare`,
   `EyeCtrl.Contracts`, `EyeCtrl.Sdk.*`, `EyeCtrl.Supervisor` — no colour literals
   in scope

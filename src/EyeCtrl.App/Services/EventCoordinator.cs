@@ -823,6 +823,7 @@ public class EventCoordinator : IEventCoordinator
         _context.InputSimulator.MouseDown(grabOrigin);
 
         _dragTrailOverlay = new DragTrailOverlay();
+        _dragTrailOverlay.Configure(_context.Settings.Drag.TrailColor, _context.Settings.Drag.TrailOpacity);
         _dragTrailOverlay.Show();
 
         var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.DragButtonRadius);

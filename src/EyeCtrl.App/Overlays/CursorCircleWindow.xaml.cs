@@ -42,10 +42,11 @@ public partial class CursorCircleWindow : OverlayWindow
         Circle.StrokeThickness = settings.CircleThickness;
         Circle.Opacity = settings.CircleOpacity;
 
-        // Halo is 2px wider on each side so a rim of it shows past the accent ring.
-        CircleHalo.Stroke = Tokens.BrushStrokeHalo;
+        // Halo is 1px wider on each side (accent + 2 total) so a rim of it shows past the
+        // accent ring. It stays at Opacity=1: the §4.1.3 backdrop-independent edge holds
+        // only at full opacity, so the accent ring dims (per CircleOpacity) and the halo
+        // does not — the visible feature becomes the fixed accent/halo edge.
         CircleHalo.StrokeThickness = settings.CircleThickness + 2;
-        CircleHalo.Opacity = settings.CircleOpacity;
 
         // Update circle size
         var size = Math.Max(MinimumCircleSize, settings.CircleSize);

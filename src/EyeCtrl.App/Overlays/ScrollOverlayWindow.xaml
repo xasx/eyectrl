@@ -16,8 +16,9 @@
         <Ellipse x:Name="CursorCircle" Stroke="{StaticResource BrushTextPrimary}" StrokeThickness="2"
                  Width="80" Height="80" Opacity="0.7"/>
         <Ellipse x:Name="AnchorDot" Fill="{StaticResource BrushTextPrimary}" Width="8" Height="8" Opacity="0.9"/>
+        <!-- Halo stays at Opacity=1 so the §4.1.3 edge holds; only the accent ring dims. -->
         <Ellipse x:Name="VelocityRingHalo" Stroke="{StaticResource BrushStrokeHalo}"
-                 StrokeThickness="4" Width="80" Height="80" Opacity="0.8"/>
+                 StrokeThickness="4" Width="80" Height="80"/>
         <Ellipse x:Name="VelocityRing" Stroke="{StaticResource BrushAccent}"
                  StrokeThickness="2" Width="80" Height="80" Opacity="0.8"/>
     </Canvas>

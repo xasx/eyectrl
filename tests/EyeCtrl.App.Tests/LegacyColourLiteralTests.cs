@@ -29,7 +29,6 @@ public class LegacyColourLiteralTests
         // Plan B files — migrated by Plan B Tasks 3-5. Listed with the bare
         // "Lime" substring, which the regex above anchors for the dwell accent
         // (Brushes.Lime / "Lime") but not Brushes.LimeGreen / "LimeGreen".
-        ["src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml"] = ["Lime"],
     };
 
     private static DirectoryInfo RepoRoot()

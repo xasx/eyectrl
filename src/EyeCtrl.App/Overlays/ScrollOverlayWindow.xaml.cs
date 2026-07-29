@@ -42,6 +42,8 @@ public partial class ScrollOverlayWindow : OverlayWindow
         Canvas.SetTop(AnchorDot, anchorLogY - 4);
         Canvas.SetLeft(VelocityRing, anchorLogX - 40);
         Canvas.SetTop(VelocityRing, anchorLogY - 40);
+        Canvas.SetLeft(VelocityRingHalo, anchorLogX - 40);
+        Canvas.SetTop(VelocityRingHalo, anchorLogY - 40);
 
         base.Show();
         Topmost = true;
@@ -58,5 +60,6 @@ public partial class ScrollOverlayWindow : OverlayWindow
 
         double thickness = 2 + velMagnitude * 0.2;
         VelocityRing.StrokeThickness = Math.Min(thickness, 12);
+        VelocityRingHalo.StrokeThickness = Math.Min(thickness, 12) + 2;
     }
 }

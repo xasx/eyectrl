@@ -10,12 +10,15 @@
                         Background="Transparent"
                         IsHitTestVisible="False">
     <Canvas x:Name="OverlayCanvas">
-        <Line x:Name="AnchorCrosshairH" Stroke="White" StrokeThickness="1" Opacity="0.5"/>
-        <Line x:Name="AnchorCrosshairV" Stroke="White" StrokeThickness="1" Opacity="0.5"/>
+        <Line x:Name="AnchorCrosshairH" Stroke="{StaticResource BrushTextPrimary}" StrokeThickness="1" Opacity="0.5"/>
+        <Line x:Name="AnchorCrosshairV" Stroke="{StaticResource BrushTextPrimary}" StrokeThickness="1" Opacity="0.5"/>
 
-        <Ellipse x:Name="CursorCircle" Stroke="White" StrokeThickness="2"
+        <Ellipse x:Name="CursorCircle" Stroke="{StaticResource BrushTextPrimary}" StrokeThickness="2"
                  Width="80" Height="80" Opacity="0.7"/>
-        <Ellipse x:Name="AnchorDot" Fill="White" Width="8" Height="8" Opacity="0.9"/>
-        <Ellipse x:Name="VelocityRing" Stroke="#4af" StrokeThickness="2" Width="80" Height="80" Opacity="0.8"/>
+        <Ellipse x:Name="AnchorDot" Fill="{StaticResource BrushTextPrimary}" Width="8" Height="8" Opacity="0.9"/>
+        <Ellipse x:Name="VelocityRingHalo" Stroke="{StaticResource BrushStrokeHalo}"
+                 StrokeThickness="4" Width="80" Height="80" Opacity="0.8"/>
+        <Ellipse x:Name="VelocityRing" Stroke="{StaticResource BrushAccent}"
+                 StrokeThickness="2" Width="80" Height="80" Opacity="0.8"/>
     </Canvas>
 </overlays:OverlayWindow>

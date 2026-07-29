@@ -29,6 +29,9 @@ public static class ColorBlend
     /// controls. Blending toward the accent rather than white is what makes
     /// "accent means dwell in progress" (spec §4.1.2) true across the whole app.
     /// </summary>
+    /// <param name="baseColor">Resting background colour of the dwell target.</param>
+    /// <param name="progress">Dwell progress in [0, 1].</param>
+    /// <param name="factor">Blend factor applied to progress (default 0.5).</param>
     public static SolidColorBrush ToHighlightBrush(Color baseColor, double progress, double factor = 0.5)
     {
         var t = Math.Clamp(progress * factor, 0, 1);

@@ -8,7 +8,7 @@ using Xunit;
 /// <summary>
 /// Invariants for <see cref="ColorBlend"/>: the linear interpolation and dwell-highlight
 /// helpers used across buttons, toggles, tabs and the keyboard. Endpoint and identity
-/// behaviour, plus the Accent-targeting contract of <c>ToHighlightBrush</c>.
+/// behaviour, plus the Accent-targeting contract of <c>HighlightColor</c>.
 /// </summary>
 public class ColorBlendTests
 {
@@ -51,18 +51,16 @@ public class ColorBlendTests
     }
 
     [Fact]
-    public void ToHighlightBrush_AtZeroProgress_ReturnsBaseColour()
+    public void HighlightColor_AtZeroProgress_ReturnsBaseColour()
     {
         // No dwell progress -> the resting colour (Accent is the blend target, not applied).
-        var brush = ColorBlend.ToHighlightBrush(Red, 0);
-        Check.That(brush.Color).IsEqualTo(Red);
+        Check.That(ColorBlend.HighlightColor(Red, 0)).IsEqualTo(Red);
     }
 
     [Fact]
-    public void ToHighlightBrush_AtFullProgressAndFactor_IsAccent()
+    public void HighlightColor_AtFullProgressAndFactor_IsAccent()
     {
         // progress=1, factor=1 -> fully blended toward Accent.
-        var brush = ColorBlend.ToHighlightBrush(Red, 1, 1);
-        Check.That(brush.Color).IsEqualTo(Tokens.Accent);
+        Check.That(ColorBlend.HighlightColor(Red, 1, 1)).IsEqualTo(Tokens.Accent);
     }
 }

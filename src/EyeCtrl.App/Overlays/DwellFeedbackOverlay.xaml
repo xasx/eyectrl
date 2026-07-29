@@ -4,10 +4,11 @@
     xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
     WindowStyle="None" AllowsTransparency="True" Background="Transparent"
     Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize">
+    <!-- Accent at 10% alpha; no XAML syntax exists for deriving this from BrushAccent -->
     <Border x:Name="ProgressBorder" CornerRadius="4" BorderThickness="2"
-            BorderBrush="#3399FF" Background="#1A3399FF" Visibility="Hidden">
+            BorderBrush="{StaticResource BrushAccent}" Background="#1AA5F3FC" Visibility="Hidden">
         <Grid>
-            <Rectangle x:Name="ProgressFill" HorizontalAlignment="Left" Fill="#3399FF" />
+            <Rectangle x:Name="ProgressFill" HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}" />
         </Grid>
     </Border>
 </overlays:OverlayWindow>

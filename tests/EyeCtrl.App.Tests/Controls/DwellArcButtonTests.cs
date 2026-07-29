@@ -55,6 +55,6 @@ public class DwellArcButtonTests
         var canvas = new Canvas();
         var btn = DwellArcButton.Create(new Point(10, 10), radius: 20, symbol: "X");
         btn.AddTo(canvas);
-        Check.That(canvas.Children.Count).IsEqualTo(3);
+        Check.That(canvas.Children.Count).IsEqualTo(4);   // Background, HaloPath, ProgressPath, Symbol
     }
 }

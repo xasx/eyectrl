@@ -101,7 +101,7 @@ public class HaloZOrderTests
             .IsFalse();
     }
 
-    //[Fact]   // enabled by Task 7
+    [Fact]   // enabled by Task 7
     public void DwellFeedbackOverlay_UsesTheAccentBrush()
     {
         // Not a haloed overlay (it is a filled Border, not a stroke on transparency)

@@ -15,17 +15,21 @@ public class DwellArcButton
     public const double DefaultSymbolFontSize = 22;
 
     public Ellipse Background { get; }
+    public Path HaloPath { get; }
     public Path ProgressPath { get; }
+    public ArcSegment HaloArc { get; }
     public ArcSegment Arc { get; }
     public TextBlock? Symbol { get; }
 
     private readonly Point _center;
     private readonly double _arcRadius;
 
-    private DwellArcButton(Ellipse background, Path progressPath, ArcSegment arc, TextBlock? symbol, Point center, double arcRadius)
+    private DwellArcButton(Ellipse background, Path haloPath, Path progressPath, ArcSegment haloArc, ArcSegment arc, TextBlock? symbol, Point center, double arcRadius)
     {
         Background = background;
+        HaloPath = haloPath;
         ProgressPath = progressPath;
+        HaloArc = haloArc;
         Arc = arc;
         Symbol = symbol;
         _center = center;
@@ -53,6 +57,31 @@ public class DwellArcButton
         };
         Canvas.SetLeft(bg, center.X - radius);
         Canvas.SetTop(bg, center.Y - radius);
+
+        // Halo under-stroke (spec §4.1.3). ActionMenu and EdgeButtonBar are both
+        // transparent overlays, so this is where their arcs get a contrast
+        // guarantee - neither window file needs to change.
+        var haloSegment = new ArcSegment
+        {
+            Point = new Point(center.X, center.Y - arcRad),
+            Size = new Size(arcRad, arcRad),
+            IsLargeArc = false,
+            SweepDirection = SweepDirection.Clockwise,
+        };
+        var haloFigure = new PathFigure
+        {
+            StartPoint = new Point(center.X, center.Y - arcRad),
+            IsClosed = false,
+        };
+        haloFigure.Segments.Add(haloSegment);
+        var haloGeometry = new PathGeometry();
+        haloGeometry.Figures.Add(haloFigure);
+        var haloPath = new Path
+        {
+            Stroke = Tokens.BrushStrokeHalo,
+            StrokeThickness = arcThickness + 2,
+            Data = haloGeometry,
+        };
 
         var arcSegment = new ArcSegment
         {
@@ -94,7 +123,7 @@ public class DwellArcButton
             Canvas.SetTop(symbolText, center.Y - symbolText.DesiredSize.Height / 2);
         }
 
-        return new DwellArcButton(bg, progressPath, arcSegment, symbolText, center, arcRad);
+        return new DwellArcButton(bg, haloPath, progressPath, haloSegment, arcSegment, symbolText, center, arcRad);
     }
 
     public void UpdateProgress(double progress)
@@ -103,18 +132,14 @@ public class DwellArcButton
         if (clamped <= 0)
         {
             ProgressPath.Visibility = Visibility.Collapsed;
+            HaloPath.Visibility = Visibility.Collapsed;
             return;
         }
         ProgressPath.Visibility = Visibility.Visible;
+        HaloPath.Visibility = Visibility.Visible;
 
-        var angle = clamped * MathConstants.FullCircleDegrees;
-        var radians = angle * MathConstants.DegreesToRadians;
-
-        var endX = _center.X + _arcRadius * Math.Sin(radians);
-        var endY = _center.Y - _arcRadius * Math.Cos(radians);
-
-        Arc.Point = new Point(endX, endY);
-        Arc.IsLargeArc = angle > 180;
+        UpdateArc(Arc, _center, _arcRadius, progress);
+        UpdateArc(HaloArc, _center, _arcRadius, progress);
     }
 
     public static void UpdateArc(ArcSegment arc, Point center, double arcRadius, double progress)
@@ -133,6 +158,7 @@ public class DwellArcButton
     public void AddTo(Canvas canvas)
     {
         canvas.Children.Add(Background);
+        canvas.Children.Add(HaloPath);      // must precede ProgressPath
         canvas.Children.Add(ProgressPath);
         if (Symbol is not null)
             canvas.Children.Add(Symbol);

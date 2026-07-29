@@ -64,7 +64,7 @@ public class HaloZOrderTests
         }
     }
 
-    //[Fact]   // enabled by Task 6
+    [Fact]   // enabled by Task 6
     public void FilledCueBadge_HasAHaloOutlineStroke()
     {
         // The filled-shape case: a fill has no stroke to sit under, so it takes an

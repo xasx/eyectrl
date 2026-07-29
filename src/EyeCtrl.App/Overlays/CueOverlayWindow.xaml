@@ -7,11 +7,16 @@
         Topmost="True" ShowInTaskbar="False"
         Width="64" Height="64">
     <Canvas>
-        <!-- Amber "struggle" badge; Opacity is animated in code-behind (0 = invisible at rest). -->
+        <!-- Amber "struggle" badge; Opacity is animated in code-behind (0 = invisible at rest).
+             Filled shapes take a StrokeHalo OUTLINE rather than an under-stroke (spec §4.1.3):
+             unringed, this badge reaches 1.06:1 over amber desktop content. -->
         <Ellipse x:Name="Badge"
                  Width="40" Height="40"
                  Canvas.Left="12" Canvas.Top="12"
-                 Fill="#FFB300" Opacity="0"/>
+                 Fill="{StaticResource BrushAccentWarning}"
+                 Stroke="{StaticResource BrushStrokeHalo}"
+                 StrokeThickness="2"
+                 Opacity="0"/>
         <!-- Hidden TextBlock UIA anchor — WPF transparent overlay windows only expose TextBlock nodes
              in the UIA tree; Ellipse/Canvas are collapsed. -->
         <TextBlock AutomationProperties.AutomationId="AdaptationCue_Badge"

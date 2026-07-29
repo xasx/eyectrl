@@ -22,6 +22,7 @@ public class TokenValueTests
     [InlineData(nameof(Tokens.SurfaceKey), "#FF2A2A3E")]
     [InlineData(nameof(Tokens.SurfaceKeyModifier), "#FF3E3E64")]
     [InlineData(nameof(Tokens.SurfaceKeySwitch), "#FF38527F")]
+    [InlineData(nameof(Tokens.SurfaceKeyActive), "#FF5278B8")]
     [InlineData(nameof(Tokens.SurfacePrediction), "#FF2F5340")]
     // Text and borders
     [InlineData(nameof(Tokens.BorderSubtle), "#FF616BA0")]
@@ -29,6 +30,7 @@ public class TokenValueTests
     [InlineData(nameof(Tokens.TextPrimary), "#FFD6DEF5")]
     [InlineData(nameof(Tokens.TextSecondary), "#FF9AA4C8")]
     [InlineData(nameof(Tokens.TextDim), "#FF868FB5")]
+    [InlineData(nameof(Tokens.MarkerMove), "#FFA8A0D0")]
     // Accent and semantics
     [InlineData(nameof(Tokens.Accent), "#FFA5F3FC")]
     [InlineData(nameof(Tokens.StrokeHalo), "#FF0A0A14")]

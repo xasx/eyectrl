@@ -28,12 +28,14 @@ THEMES = {
         "SurfaceKey":         "#2A2A3E",
         "SurfaceKeyModifier": "#3E3E64",
         "SurfaceKeySwitch":   "#38527F",
+        "SurfaceKeyActive":   "#5278B8",
         "SurfacePrediction":  "#2F5340",
         "BorderSubtle":       "#616BA0",
         "BorderFocus":        "#A5F3FC",
         "TextPrimary":        "#D6DEF5",
         "TextSecondary":      "#9AA4C8",
         "TextDim":            "#868FB5",
+        "MarkerMove":         "#A8A0D0",
         "Accent":             "#A5F3FC",
         "StrokeHalo":         "#0A0A14",
         "AccentSuccess":      "#7EE787",
@@ -52,12 +54,14 @@ THEMES = {
         "SurfaceKey":         "#2E2619",
         "SurfaceKeyModifier": "#4E4029",
         "SurfaceKeySwitch":   "#63382A",
+        "SurfaceKeyActive":   "#9A6840",
         "SurfacePrediction":  "#33422A",
         "BorderSubtle":       "#7A6C51",
         "BorderFocus":        "#9FE8FF",
         "TextPrimary":        "#F2EEE8",
         "TextSecondary":      "#BFB4A2",
         "TextDim":            "#A0917C",
+        "MarkerMove":         "#D8CBB0",
         "Accent":             "#9FE8FF",
         "StrokeHalo":         "#0E0A06",
         "AccentSuccess":      "#7EE787",
@@ -80,12 +84,14 @@ THEMES = {
         "SurfaceKey":         "#0F0F0F",
         "SurfaceKeyModifier": "#123A63",
         "SurfaceKeySwitch":   "#4A4A4A",
+        "SurfaceKeyActive":   "#FF8800",
         "SurfacePrediction":  "#004D22",
         "BorderSubtle":       "#FFFFFF",
         "BorderFocus":        "#00FFFF",
         "TextPrimary":        "#FFFFFF",
         "TextSecondary":      "#E8E8E8",
         "TextDim":            "#C8C8C8",
+        "MarkerMove":         "#FFFFFF",
         # Fully saturated, not a brighter #66FFFF: HC's pure-white border is a
         # structural colour and sits only dE 24.6 from the paler cyan.
         "Accent":             "#00FFFF",
@@ -358,7 +364,8 @@ def validate_theme(name: str, palette: dict) -> None:
 
     print()
     print("GATE 8 - keyboard key ramp mutually distinct")
-    keys = ["SurfaceKey", "SurfaceKeyModifier", "SurfaceKeySwitch", "SurfacePrediction"]
+    keys = ["SurfaceKey", "SurfaceKeyModifier", "SurfaceKeySwitch", "SurfaceKeyActive",
+            "SurfacePrediction"]
     for i in range(len(keys)):
         for j in range(i + 1, len(keys)):
             check(f"[{name}] {keys[i][7:]}/{keys[j][7:]}",

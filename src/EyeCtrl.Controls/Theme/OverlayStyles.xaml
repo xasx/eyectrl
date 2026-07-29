@@ -15,6 +15,7 @@
     <SolidColorBrush x:Key="BrushSurfaceKey"         Color="{x:Static theme:Tokens.SurfaceKey}"/>
     <SolidColorBrush x:Key="BrushSurfaceKeyModifier" Color="{x:Static theme:Tokens.SurfaceKeyModifier}"/>
     <SolidColorBrush x:Key="BrushSurfaceKeySwitch"   Color="{x:Static theme:Tokens.SurfaceKeySwitch}"/>
+    <SolidColorBrush x:Key="BrushSurfaceKeyActive"   Color="{x:Static theme:Tokens.SurfaceKeyActive}"/>
     <SolidColorBrush x:Key="BrushSurfacePrediction"  Color="{x:Static theme:Tokens.SurfacePrediction}"/>
 
     <SolidColorBrush x:Key="BrushBorderSubtle"       Color="{x:Static theme:Tokens.BorderSubtle}"/>
@@ -22,6 +23,7 @@
     <SolidColorBrush x:Key="BrushTextPrimary"        Color="{x:Static theme:Tokens.TextPrimary}"/>
     <SolidColorBrush x:Key="BrushTextSecondary"      Color="{x:Static theme:Tokens.TextSecondary}"/>
     <SolidColorBrush x:Key="BrushTextDim"            Color="{x:Static theme:Tokens.TextDim}"/>
+    <SolidColorBrush x:Key="BrushMarkerMove"         Color="{x:Static theme:Tokens.MarkerMove}"/>
 
     <SolidColorBrush x:Key="BrushAccent"             Color="{x:Static theme:Tokens.Accent}"/>
     <SolidColorBrush x:Key="BrushStrokeHalo"         Color="{x:Static theme:Tokens.StrokeHalo}"/>

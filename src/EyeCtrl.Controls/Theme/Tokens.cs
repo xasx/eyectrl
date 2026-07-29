@@ -44,6 +44,8 @@ public static class Tokens
     public static readonly Color SurfaceKey = Color.FromRgb(0x2A, 0x2A, 0x3E);
     public static readonly Color SurfaceKeyModifier = Color.FromRgb(0x3E, 0x3E, 0x64);
     public static readonly Color SurfaceKeySwitch = Color.FromRgb(0x38, 0x52, 0x7F);
+    /// <summary>Active modifier (held Shift/Ctrl) — a 5th, brighter key-surface step (gate 8 ramp).</summary>
+    public static readonly Color SurfaceKeyActive = Color.FromRgb(0x52, 0x78, 0xB8);
     public static readonly Color SurfacePrediction = Color.FromRgb(0x2F, 0x53, 0x40);
 
     // ── Text and borders ────────────────────────────────────────────────────
@@ -53,6 +55,8 @@ public static class Tokens
     public static readonly Color TextPrimary = Color.FromRgb(0xD6, 0xDE, 0xF5);
     public static readonly Color TextSecondary = Color.FromRgb(0x9A, 0xA4, 0xC8);
     public static readonly Color TextDim = Color.FromRgb(0x86, 0x8F, 0xB5);
+    /// <summary>Marker for the note Move state — distinct from the cyan Accent (Edit) and visible on surfaces (§9).</summary>
+    public static readonly Color MarkerMove = Color.FromRgb(0xA8, 0xA0, 0xD0);
 
     // ── Accent and semantics ────────────────────────────────────────────────
     /// <summary>Reserved: means gaze dwell in progress and nothing else (§4.1.2).</summary>
@@ -73,12 +77,14 @@ public static class Tokens
     public static readonly SolidColorBrush BrushSurfaceKey = Frozen(SurfaceKey);
     public static readonly SolidColorBrush BrushSurfaceKeyModifier = Frozen(SurfaceKeyModifier);
     public static readonly SolidColorBrush BrushSurfaceKeySwitch = Frozen(SurfaceKeySwitch);
+    public static readonly SolidColorBrush BrushSurfaceKeyActive = Frozen(SurfaceKeyActive);
     public static readonly SolidColorBrush BrushSurfacePrediction = Frozen(SurfacePrediction);
     public static readonly SolidColorBrush BrushBorderSubtle = Frozen(BorderSubtle);
     public static readonly SolidColorBrush BrushBorderFocus = Frozen(BorderFocus);
     public static readonly SolidColorBrush BrushTextPrimary = Frozen(TextPrimary);
     public static readonly SolidColorBrush BrushTextSecondary = Frozen(TextSecondary);
     public static readonly SolidColorBrush BrushTextDim = Frozen(TextDim);
+    public static readonly SolidColorBrush BrushMarkerMove = Frozen(MarkerMove);
     public static readonly SolidColorBrush BrushAccent = Frozen(Accent);
     public static readonly SolidColorBrush BrushStrokeHalo = Frozen(StrokeHalo);
     public static readonly SolidColorBrush BrushAccentSuccess = Frozen(AccentSuccess);

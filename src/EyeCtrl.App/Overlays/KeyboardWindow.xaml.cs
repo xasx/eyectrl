@@ -22,11 +22,10 @@ public partial class KeyboardWindow : OverlayWindow
     private static readonly Color KeyColorNormal = Tokens.SurfaceKey;
     private static readonly Color KeyColorSpecial = Tokens.SurfaceKeyModifier;
     private static readonly Color KeyColorSwitch = Tokens.SurfaceKeySwitch;
-    // Active modifier (e.g. held Shift) must NOT be Accent: dwell blends every key toward
-    // Accent, so an Accent resting state would make an active Shift indistinguishable from a
-    // key at full dwell. SurfaceKeySwitch is the blue-leaning key surface, distinct from the
-    // cyan Accent reserved for dwell-in-progress.
-    private static readonly Color KeyColorModifierActive = Tokens.SurfaceKeySwitch;
+    // Active modifier (e.g. held Shift) takes the 5th key-surface step (SurfaceKeyActive),
+    // a brighter blue than the resting switch keys and distinct from every ramp step (gate 8)
+    // and from the cyan Accent reserved for dwell-in-progress.
+    private static readonly Color KeyColorModifierActive = Tokens.SurfaceKeyActive;
     private static readonly Color PredictionBarColor = Tokens.SurfacePrediction;
 
     // Cached frozen brushes for prediction foreground colors (performance optimization)

@@ -209,11 +209,12 @@ public class NoteWindow : OverlayWindow
     {
         return _state switch
         {
-            // Edit is the active/dwell state -> Accent (cyan). Move is a secondary state;
-            // it must be visually distinct from Edit, so it takes the blue-leaning
-            // SurfaceKeySwitch rather than the same Accent the migration had collapsed it to.
+            // Edit is the active/dwell state -> Accent (cyan). Move is a secondary state that
+            // must be distinct from Edit AND clearly visible on surfaces; MarkerMove (a soft
+            // violet) clears 3:1 on the note surface where the prior SurfaceKeySwitch mark sat
+            // at 1.77-2.18:1 (below the non-text floor).
             NoteState.Edit => Tokens.BrushAccent,
-            NoteState.Move => Tokens.BrushSurfaceKeySwitch,
+            NoteState.Move => Tokens.BrushMarkerMove,
             _ => Tokens.BrushSurfaceMedium
         };
     }
@@ -225,11 +226,11 @@ public class NoteWindow : OverlayWindow
 
     private void DrawButtons()
     {
-        // Move glyph takes SurfaceKeySwitch (blue) so it matches the Move state border and
-        // does not collide with the Accent reserved for Edit/dwell-in-progress.
+        // Move glyph takes MarkerMove so it matches the Move state border and stays visible on
+        // the button disc, without colliding with the Accent reserved for Edit/dwell-in-progress.
         var symbols = new[] { ("close", "✕", Tokens.AccentDanger),
                               ("edit",  "✎", Tokens.AccentSuccess),
-                              ("move",  "↕", Tokens.SurfaceKeySwitch) };
+                              ("move",  "↕", Tokens.MarkerMove) };
 
         for (int i = 0; i < 3; i++)
         {

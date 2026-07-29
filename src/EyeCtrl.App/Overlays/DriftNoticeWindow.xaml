@@ -7,11 +7,14 @@
         Topmost="True" ShowInTaskbar="False"
         Width="560" Height="72">
     <Grid>
+        <!-- BorderThickness="1" mirrors Tokens.BorderThicknessStandard; a double
+             token cannot be consumed as a WPF Thickness via StaticResource, so the
+             value is stated here rather than referenced. -->
         <Border x:Name="Banner"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
                 Background="{StaticResource BrushSurfaceDark}"
                 BorderBrush="{StaticResource BrushBorderSubtle}"
-                BorderThickness="{StaticResource BorderThicknessStandard}"
+                BorderThickness="1"
                 CornerRadius="6" Padding="18,10" Opacity="0">
             <TextBlock x:Name="Message"
                        AutomationProperties.AutomationId="DriftNotice_Message"

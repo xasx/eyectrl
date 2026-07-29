@@ -17,11 +17,15 @@
                  Stroke="{StaticResource BrushAccent}" StrokeThickness="2" Fill="Transparent"
                  Width="30" Height="30"
                  Canvas.Left="0" Canvas.Top="0"/>
-        <!-- Center dot (fixed size) -->
-        <Ellipse x:Name="CenterDot"
-                 Fill="{StaticResource BrushAccent}"
+        <!-- Center dot: split so the halo ring stays opaque while the fill dims (§4.1.3). -->
+        <Ellipse x:Name="CenterDotHalo"
                  Stroke="{StaticResource BrushStrokeHalo}"
                  StrokeThickness="2"
+                 Width="10" Height="10"
+                 Canvas.Left="10" Canvas.Top="10"/>
+        <!-- Center dot fill (fixed size; Opacity set per settings, fill only) -->
+        <Ellipse x:Name="CenterDot"
+                 Fill="{StaticResource BrushAccent}"
                  Width="10" Height="10"
                  Canvas.Left="10" Canvas.Top="10"/>
         <!-- UIA anchor -->

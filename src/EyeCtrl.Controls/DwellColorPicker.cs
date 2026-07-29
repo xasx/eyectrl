@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Processing;
 
 /// <summary>
@@ -102,7 +103,7 @@ public class DwellColorPicker : IDwellComposite
             btn.Root.Background = new SolidColorBrush(color);
             btn.Root.BorderThickness = new Thickness(3);
             btn.Root.BorderBrush = hex.Equals(get(), StringComparison.OrdinalIgnoreCase)
-                ? Brushes.White : Brushes.Transparent;
+                ? Tokens.BrushTextPrimary : Brushes.Transparent;
             btn.Root.ToolTip = name;
             btn.Root.Child = null; // No text label for colour swatches
 
@@ -141,7 +142,7 @@ public class DwellColorPicker : IDwellComposite
         for (int i = 0; i < _swatchBorders.Count; i++)
         {
             _swatchBorders[i].BorderBrush = _hexValues[i].Equals(selected, StringComparison.OrdinalIgnoreCase)
-                ? Brushes.White : Brushes.Transparent;
+                ? Tokens.BrushTextPrimary : Brushes.Transparent;
         }
     }
 }

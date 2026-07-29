@@ -79,7 +79,7 @@ public class DwellButton : DwellControl
             // Default white text suits the dark surface fills; light semantic fills
             // (AccentWarning/AccentDanger) need dark text to clear WCAG, so the caller
             // passes a textBrush for those.
-            Foreground = textBrush ?? Brushes.White,
+            Foreground = textBrush ?? Tokens.BrushTextPrimary,
             FontSize = 24,
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Center,

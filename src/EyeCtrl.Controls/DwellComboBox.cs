@@ -108,7 +108,7 @@ public class DwellComboBox : IDwellComposite
 
             var text = new TextBlock
             {
-                Foreground = Brushes.White,
+                Foreground = Tokens.BrushTextPrimary,
                 FontSize = 22,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center

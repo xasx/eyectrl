@@ -8,25 +8,37 @@
     <Canvas>
         <!-- Background circle -->
         <Ellipse x:Name="BackgroundCircle"
-                 Fill="#80000000"
+                 Fill="{StaticResource BrushSurfaceDark}"
                  Width="100" Height="100"
                  Canvas.Left="0" Canvas.Top="0"/>
+        <!-- Halo first (spec §4.1.3): 2px wider than the accent arc on each side. -->
+        <Path x:Name="ProgressArcHalo" Stroke="{StaticResource BrushStrokeHalo}"
+              StrokeThickness="9" Canvas.Left="0" Canvas.Top="0">
+            <Path.Data>
+                <PathGeometry>
+                    <PathFigure x:Name="ArcFigureHalo" StartPoint="50,5" IsClosed="False">
+                        <ArcSegment x:Name="ArcSegmentHalo"
+                                    Point="50,5" Size="45,45"
+                                    IsLargeArc="False" SweepDirection="Clockwise"/>
+                    </PathFigure>
+                </PathGeometry>
+            </Path.Data>
+        </Path>
         <!-- Dwell progress arc -->
-        <Path x:Name="ProgressArc" Stroke="Lime" StrokeThickness="5" Canvas.Left="0" Canvas.Top="0">
+        <Path x:Name="ProgressArc" Stroke="{StaticResource BrushAccent}"
+              StrokeThickness="5" Canvas.Left="0" Canvas.Top="0">
             <Path.Data>
                 <PathGeometry>
                     <PathFigure x:Name="ArcFigure" StartPoint="50,5" IsClosed="False">
                         <ArcSegment x:Name="ArcSegment"
-                                    Point="50,5"
-                                    Size="45,45"
-                                    IsLargeArc="False"
-                                    SweepDirection="Clockwise"/>
+                                    Point="50,5" Size="45,45"
+                                    IsLargeArc="False" SweepDirection="Clockwise"/>
                     </PathFigure>
                 </PathGeometry>
             </Path.Data>
         </Path>
         <!-- Center icon -->
-        <Ellipse Fill="White" Width="30" Height="30"
+        <Ellipse Fill="{StaticResource BrushTextPrimary}" Width="30" Height="30"
                  Canvas.Left="35" Canvas.Top="35"/>
     </Canvas>
 </overlays:OverlayWindow>

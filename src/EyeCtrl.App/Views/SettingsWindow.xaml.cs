@@ -1253,7 +1253,7 @@ public partial class SettingsWindow : OverlayWindow
         {
             if (id == "close")
             {
-                // ToHighlightBrush(CloseBase, progress, 0.5) == Blend(CloseBase, Accent, progress * 0.5)
+                // HighlightColor(CloseBase, progress, 0.5) == Blend(CloseBase, Accent, progress * 0.5)
                 if (_closeButtonBrush != null)
                     _closeButtonBrush.Color = ColorBlend.Blend(CloseBase, Tokens.Accent, progress * 0.5);
                 continue;
@@ -1272,7 +1272,7 @@ public partial class SettingsWindow : OverlayWindow
         {
             if (_pagBrushes.TryGetValue(id, out var brush))
             {
-                // ToHighlightBrush(BtnBase, progress, 0.4) == Blend(BtnBase, Accent, progress * 0.4)
+                // HighlightColor(BtnBase, progress, 0.4) == Blend(BtnBase, Accent, progress * 0.4)
                 brush.Color = ColorBlend.Blend(BtnBase, Tokens.Accent, progress * 0.4);
             }
         }
@@ -1285,7 +1285,7 @@ public partial class SettingsWindow : OverlayWindow
             if (_modalBrushes.TryGetValue(id, out var brush))
             {
                 var baseC = id == "modal_yes" ? ModalYes : ModalNo;
-                // ToHighlightBrush(baseC, progress, 0.5) == Blend(baseC, Accent, progress * 0.5)
+                // HighlightColor(baseC, progress, 0.5) == Blend(baseC, Accent, progress * 0.5)
                 brush.Color = ColorBlend.Blend(baseC, Tokens.Accent, progress * 0.5);
             }
         }

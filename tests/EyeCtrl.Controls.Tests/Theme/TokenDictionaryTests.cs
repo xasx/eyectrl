@@ -72,13 +72,31 @@ public class TokenDictionaryTests
     [StaFact]
     public void Dictionary_ExposesBorderThickness()
     {
-        // The raw double lives in the dictionary; the XAML-consumable Thickness form
-        // (StandardBorderThickness) is added in App.OnStartup, since WPF provides no XAML
-        // syntax for a Thickness from a {x:Static} double. OverlayResourceResolutionTests
-        // covers that the Thickness resolves at window load.
         var dict = Load();
         Check.That(dict.Contains("BorderThicknessStandard")).IsTrue();
         Check.That(dict["BorderThicknessStandard"]).IsEqualTo(Tokens.BorderThicknessStandard);
+    }
+
+    [StaFact]
+    public void Dictionary_ExposesTheThicknessFormDerivedFromTheToken()
+    {
+        // The XAML-consumable Thickness. This assertion is only possible because the value is
+        // declared in the dictionary via UniformThicknessExtension; while it was assembled in
+        // App.OnStartup this test could not see it, so the one theme-varying non-colour token
+        // was the only one outside the drift guard.
+        var dict = Load();
+        var t = Tokens.BorderThicknessStandard;
+
+        Check.WithCustomMessage(
+                "OverlayStyles.xaml must expose StandardBorderThickness, or every "
+                + "BorderThickness=\"{StaticResource StandardBorderThickness}\" throws at load.")
+            .That(dict.Contains("StandardBorderThickness")).IsTrue();
+
+        Check.WithCustomMessage(
+                "StandardBorderThickness must be DERIVED from Tokens.BorderThicknessStandard, "
+                + "never a restated literal — that is what lets a theme flip the double to 2 "
+                + "and have every container border follow (§4.4).")
+            .That(dict["StandardBorderThickness"]).IsEqualTo(new Thickness(t, t, t, t));
     }
 
     [StaFact]

@@ -61,7 +61,10 @@ THEMES = {
         "TextPrimary":        "#F2EEE8",
         "TextSecondary":      "#BFB4A2",
         "TextDim":            "#A0917C",
-        "MarkerMove":         "#D8CBB0",
+        # Violet, not a warm tone: the warm axis is already spent on Ember's surfaces and
+        # text, so a warm marker sat only dE 11.4 from TextPrimary (gate 10). Every theme's
+        # optimum lands in the violet band once cyan/green/amber/red are taken.
+        "MarkerMove":         "#B6A3DC",
         "Accent":             "#9FE8FF",
         "StrokeHalo":         "#0E0A06",
         "AccentSuccess":      "#7EE787",
@@ -91,7 +94,9 @@ THEMES = {
         "TextPrimary":        "#FFFFFF",
         "TextSecondary":      "#E8E8E8",
         "TextDim":            "#C8C8C8",
-        "MarkerMove":         "#FFFFFF",
+        # Was #FFFFFF - identical to both TextPrimary and BorderSubtle (dE 0), so the Move
+        # marker was indistinguishable from body text and from every container border.
+        "MarkerMove":         "#AA80FF",
         # Fully saturated, not a brighter #66FFFF: HC's pure-white border is a
         # structural colour and sits only dE 24.6 from the paler cyan.
         "Accent":             "#00FFFF",
@@ -125,6 +130,17 @@ ACCENT_FLOOR = 9.5
 # Deliberately NOT applied to Accent: the accent is a high-luminance signal and
 # is correctly low-chroma (C* ~25 in both themes).
 SEMANTIC_CHROMA_FLOOR = 55.0
+
+# Gate 10: floors for Marker* tokens — small marks (a glyph, a 2px state border)
+# that are neither the reserved Accent nor semantic state. 3.0 is WCAG 1.4.11 for
+# non-text UI; 15 is the same perceptual floor gate 4 uses for accent-vs-text, and
+# applies to a marker in BOTH directions because a marker glyph is itself a glyph,
+# so form does not separate it from text the way it separates the accent. 7.0
+# against StrokeHalo mirrors the colour-picker preset bar, since a marker may be
+# drawn over captured or desktop content with a halo (§4.1.3).
+MARKER_SURFACE_FLOOR = 3.0
+MARKER_SEPARATION_FLOOR = 15.0
+MARKER_HALO_FLOOR = 7.0
 
 # Tokens that are not colours. Theme-varying but parsed as numbers, so they are
 # excluded from every colour gate. BorderThicknessStandard is the only one:
@@ -376,6 +392,33 @@ def validate_theme(name: str, palette: dict) -> None:
     for key in triad:
         check(f"[{name}] {key} chroma", chroma(tok[key]), SEMANTIC_CHROMA_FLOOR,
               "C* — guards against pastels that pass every other gate")
+
+    print()
+    print("GATE 10 - Marker* tokens visible on surfaces and not confusable with text/borders")
+    # Added after MarkerMove was introduced to fix an ungated failure (a state marker at
+    # 1.77:1 on its own surface) and was itself ungated for the property it was added for.
+    # A Marker is a small mark - a glyph or a 2px border - so it needs the non-text UI floor
+    # against the surfaces it is drawn on, and perceptual distance from the two things it
+    # would otherwise be mistaken for: body text and a plain container border. Form does NOT
+    # separate a marker from text the way it separates the accent (gate 4), because a marker
+    # glyph IS a glyph, so the same dE 15 floor applies in both directions.
+    markers = [k for k in tok if k.startswith("Marker")]
+    for key in markers:
+        check(f"[{name}] {key} on worst surface", contrast(tok[key], worst), MARKER_SURFACE_FLOOR,
+              "WCAG 1.4.11 non-text — a marker the user cannot see is not a marker")
+        check(f"[{name}] {key} on SurfaceMedium", contrast(tok[key], tok["SurfaceMedium"]),
+              MARKER_SURFACE_FLOOR, "markers also sit on cards and button discs")
+        check(f"[{name}] {key} ~ TextPrimary", delta_e(tok[key], tok["TextPrimary"]),
+              MARKER_SEPARATION_FLOOR, "dE — must not read as body text")
+        check(f"[{name}] {key} ~ BorderSubtle", delta_e(tok[key], tok["BorderSubtle"]),
+              MARKER_SEPARATION_FLOOR, "dE — must not read as a plain container border")
+        check(f"[{name}] {key} vs StrokeHalo", contrast(tok[key], tok["StrokeHalo"]),
+              MARKER_HALO_FLOOR, "markers may be drawn over captured/desktop content (§4.1.3)")
+    for i in range(len(markers)):
+        for j in range(i + 1, len(markers)):
+            check(f"[{name}] {markers[i]}/{markers[j]}",
+                  delta_e(tok[markers[i]], tok[markers[j]]), 25.0,
+                  "dE — distinct meanings need distinct marks")
     print()
 
 

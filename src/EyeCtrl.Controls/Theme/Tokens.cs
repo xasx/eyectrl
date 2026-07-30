@@ -5,7 +5,7 @@ using System.Windows.Media;
 /// <summary>
 /// The single source of truth for every palette colour in the EyeCtrl overlay UI.
 /// See docs/design/overlay-unification-spec.md §4.1 for values and §4.1.1 for the
-/// nine design rules they satisfy; tools/palette_validate.py enforces those rules
+/// ten design rules they satisfy; tools/palette_validate.py enforces those rules
 /// and must exit 0 after any edit here.
 ///
 /// Deliberately plain C# statics rather than Application.Current.Resources

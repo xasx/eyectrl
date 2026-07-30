@@ -148,7 +148,7 @@ No font family is explicitly set anywhere — everything inherits the WPF defaul
 ### 4.1 Color Palette
 
 Every value below is validated by `tools/palette_validate.py`, which encodes the
-nine design rules of §4.1.1 as pass/fail gates. **The script must exit 0 before
+ten design rules of §4.1.1 as pass/fail gates. **The script must exit 0 before
 this palette is considered valid.** All numbers in §9 are its output — do not
 hand-edit them.
 
@@ -162,12 +162,14 @@ hand-edit them.
 │ SurfaceKey          │ #2A2A3E   │ Keyboard key resting state       │
 │ SurfaceKeyModifier  │ #3E3E64   │ Keyboard modifier keys           │
 │ SurfaceKeySwitch    │ #38527F   │ Keyboard sub-layout switch keys  │
+│ SurfaceKeyActive    │ #5278B8   │ Held modifier, active category    │
 │ SurfacePrediction   │ #2F5340   │ Prediction bar chips             │
 │ BorderSubtle        │ #616BA0   │ Container borders                │
 │ BorderFocus         │ #A5F3FC   │ = Accent (see §4.1.2)            │
 │ TextPrimary         │ #D6DEF5   │ All primary text                 │
 │ TextSecondary       │ #9AA4C8   │ Subtext, hints, labels           │
 │ TextDim             │ #868FB5   │ Disabled/placeholder text        │
+│ MarkerMove          │ #A8A0D0   │ Note Move state — border + glyph │
 │ Accent              │ #A5F3FC   │ **Dwell progress — reserved**    │
 │ StrokeHalo          │ #0A0A14   │ Outline under Accent on          │
 │                     │           │ transparent overlays (§4.1.3)    │
@@ -184,7 +186,7 @@ Tokens carrying an alpha channel are composited over live desktop content.
 Tokens without one (`SurfaceKey*`, `Text*`, `Border*`, accents) only ever sit on
 another token and are therefore specified opaque.
 
-#### 4.1.1 The nine rules
+#### 4.1.1 The ten rules
 
 These are the design rules the palette must satisfy. Each is a gate in
 `tools/palette_validate.py`; changing a value without re-running the script
@@ -211,8 +213,9 @@ invalidates §9.
    any two of success/warning/danger, so the triad survives red-green deficiency.
 7. **Binary state never rests on hue.** `ToggleOn`/`ToggleOff` hold ≥ 3:1 against
    each other in normal vision *and* all three dichromacies.
-8. **Keyboard surfaces are mutually distinct** at ΔE2000 ≥ 8, so modifier and
-   sub-layout keys are separable at a glance.
+8. **Keyboard surfaces are mutually distinct** at ΔE2000 ≥ 8 across all five ramp
+   steps, so resting, modifier, sub-layout, held-modifier and prediction keys are
+   separable at a glance.
 9. **Semantic colours are saturated enough to read as their own hue** — Lab
    chroma C\* ≥ 55 for success/warning/danger. Rules 1–8 are all satisfiable by
    desaturated pastels that no longer *mean* anything: a near-white "warning" at
@@ -220,6 +223,20 @@ invalidates §9.
    triad sits at C\* 62–66. Deliberately **not** applied to `Accent`, which is a
    high-luminance signal and is correctly low-chroma (C\* ≈ 25 in both themes).
    Added after an optimiser search over §10 exploited its absence.
+10. **A `Marker*` is visible on its surface and not confusable with text or a
+    border.** Markers are the third category of mark — neither the reserved
+    `Accent` nor semantic state — so they need their own floors: ≥ 3:1 against the
+    worst composited surface *and* against `SurfaceMedium` (WCAG 1.4.11, since a
+    marker is a glyph or a 2px border, not text), ΔE2000 ≥ 15 from both
+    `TextPrimary` and `BorderSubtle`, ≥ 7:1 against `StrokeHalo`, and ΔE2000 ≥ 25
+    from any other marker. Note the text floor applies in *both* directions here:
+    rule 5 lets the accent sit closer to text because form separates them — the
+    accent never draws glyphs — but a marker glyph *is* a glyph, so that argument
+    does not transfer. Added because `MarkerMove` was introduced to fix an ungated
+    failure (a state border at 1.77:1 on its own surface) and was itself ungated
+    for the property it existed for: two of the three themes then failed the new
+    gate, one of them by setting the marker to the same `#FFFFFF` as `TextPrimary`
+    and `BorderSubtle`.
 
 #### 4.1.2 Rationale
 
@@ -916,12 +933,14 @@ multiplies it, and §9.4's glyph rule and §4.1.3's halo have to hold in each.
 | `SurfaceKey` | `#2A2A3E` | `#2E2619` |
 | `SurfaceKeyModifier` | `#3E3E64` | `#4E4029` |
 | `SurfaceKeySwitch` | `#38527F` | `#63382A` |
+| `SurfaceKeyActive` | `#5278B8` | `#9A6840` |
 | `SurfacePrediction` | `#2F5340` | `#33422A` |
 | `BorderSubtle` | `#616BA0` | `#7A6C51` |
 | `BorderFocus` | `#A5F3FC` | `#9FE8FF` |
 | `TextPrimary` | `#D6DEF5` | `#F2EEE8` |
 | `TextSecondary` | `#9AA4C8` | `#BFB4A2` |
 | `TextDim` | `#868FB5` | `#A0917C` |
+| `MarkerMove` | `#A8A0D0` | `#B6A3DC` |
 | **`Accent`** | **`#A5F3FC`** | **`#9FE8FF`** |
 | `StrokeHalo` | `#0A0A14` | `#0E0A06` |
 | `AccentSuccess` | `#7EE787` | `#7EE787` (shared) |
@@ -938,7 +957,7 @@ temperature changes.
 
 ### 10.3 Measured results
 
-All nine gates pass. Worst composited surface `#251F19`.
+All ten gates pass. Worst composited surface `#251F19`.
 
 | Gate | Midnight | Ember |
 |---|---|---|
@@ -1061,13 +1080,21 @@ costs nothing on that axis.
 | `SurfaceKey` | `#0F0F0F` | `AccentWarning` | `#FFFF00` |
 | `SurfaceKeyModifier` | `#123A63` | `AccentDanger` | `#FF7777` |
 | `SurfaceKeySwitch` | `#4A4A4A` | `ToggleOn` | `#00FF00` |
-| `SurfacePrediction` | `#004D22` | `ToggleOff` | `#000000` |
-| `BorderSubtle` | `#FFFFFF` | `TextPrimary` | `#FFFFFF` |
-| `BorderFocus` | = `Accent` | `TextSecondary` / `TextDim` | `#E8E8E8` / `#C8C8C8` |
+| `SurfaceKeyActive` | `#FF8800` | `ToggleOff` | `#000000` |
+| `SurfacePrediction` | `#004D22` | `TextPrimary` | `#FFFFFF` |
+| `BorderSubtle` | `#FFFFFF` | `TextSecondary` / `TextDim` | `#E8E8E8` / `#C8C8C8` |
+| `BorderFocus` | = `Accent` | `MarkerMove` | `#AA80FF` |
 | `ModalBackdrop` | `#E6000000` | | |
 
-All nine gates pass. Text 21.00 / 17.14 / 12.55; accent 16.75 normal and 11.89 at
-its worst dichromacy; halo edge 16.75.
+All ten gates pass. Text 21.00 / 17.14 / 12.55; accent 16.75 normal and 11.89 at
+its worst dichromacy; halo edge 16.75; `MarkerMove` 7.24 on surface and ΔE 37.5
+from `TextPrimary`.
+
+`MarkerMove` is the one token where high contrast is *not* achieved by pushing to
+pure white. `#FFFFFF` would have been the obvious choice and was the original
+value — but `BorderSubtle` and `TextPrimary` are both already `#FFFFFF` here, so it
+collapsed three meanings into one colour and gate 10 rejects it. The violet is the
+theme admitting that "maximum contrast" and "distinguishable" are different goals.
 
 **Three gates pass for different reasons than in the other themes** — which is
 what makes this theme structurally distinct rather than a re-hue:

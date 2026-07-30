@@ -20,8 +20,15 @@ public partial class CursorSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _maxGapInterpolationMs = 150;
     /// <summary>Hex color of the gaze cursor circle (e.g., "#A5F3FC").</summary>
     [ObservableProperty] private string _circleColor = SettingsDefaults.Accent;
-    /// <summary>Opacity of the gaze cursor circle. Valid range: 0–1.</summary>
-    [ObservableProperty] private double _circleOpacity = 0.6;
+    /// <summary>
+    /// Opacity of the gaze cursor circle. Valid range: 0–1.
+    ///
+    /// 0.7, not 0.6: the ring's halo edge is backdrop-independent but scales with the accent's
+    /// opacity, and 0.6 put it at 6.04:1 — under the 7.0 floor the halo tests use. 0.7 gives
+    /// 7.90:1. The halo itself stays fully opaque (CursorCircleWindow), so lowering this only
+    /// dims the accent side of the edge rather than voiding the guarantee.
+    /// </summary>
+    [ObservableProperty] private double _circleOpacity = 0.7;
     /// <summary>Thickness of the gaze cursor circle stroke in logical pixels. Valid range: 1–10.</summary>
     [ObservableProperty] private double _circleThickness = 2.0;
     /// <summary>Diameter of the gaze cursor circle in logical pixels. Valid range: 10–500.</summary>

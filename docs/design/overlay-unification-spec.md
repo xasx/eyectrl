@@ -293,6 +293,16 @@ with 1.37:1 for a single-stroke ring today.
 This applies to the dwell ring, the activation progress arc, the manual-selection
 gaze dot and the scroll velocity ring.
 
+`DragTrailOverlay` belongs here too, and did not once it was migrated: the trail line
+takes a user-chosen colour from `DragSettings.TrailColor` at 0.7 opacity on a
+click-through transparent window, so it has the same problem as the cursor ring and by
+the same argument. The line and the settle ring now carry under-strokes; the grab
+glyph, being a `TextBlock` with no stroke to sit under, takes a zero-depth
+`StrokeHalo` shadow instead. Note that `StrokeDashArray` is expressed in *multiples of
+`StrokeThickness`*, so the settle ring's halo pattern is scaled by
+`thickness / (thickness + 2)` — otherwise the halo's dashes run longer than the
+accent's and it shows past each dash end.
+
 **Two more sites belong here, and the original list missed them** because it
 reasoned about *window* transparency rather than about what the mark is actually
 drawn on. `ActionMenuWindow`'s position indicator (crosshair or pin) and
@@ -332,6 +342,25 @@ backdrops the badge/halo edge then holds ≥ **10.97:1** in every theme (Midnigh
 10.97, Ember 10.99, Contrast 11.70). Stroked shapes get an under-stroke; filled
 shapes get an outline. Both end up guaranteeing an *internal* edge, which is what
 makes the result backdrop-independent.
+
+**The ring and the fill must be separate elements.** A single `Ellipse` with both
+`Fill` and `Stroke` looks equivalent but is not: `CueOverlayWindow` animates the
+badge's `Opacity`, and on one element that dims the ring along with the fill, which
+puts the backdrop back into *both* terms of the edge. Measured at the badge's rest
+intensity that collapsed the edge to **1.48:1** over white and **1.67:1** over amber
+— i.e. the halo bought nothing on the overlay it was introduced for. Split into an
+opaque `BadgeHalo` ring plus a fading `Badge` fill, the same backdrops give **19.69**
+and **9.13**. The same applies to every mark whose opacity is animated or
+user-configurable: the halo keeps `Opacity` 1 and only the accent side dims.
+
+**Known limit — fading over dark content.** The guarantee is over the *internal*
+edge, and an opaque `StrokeHalo` ring is itself invisible against near-black
+backdrops (halo-vs-black is 1.07:1). So while the cue badge fades toward zero over
+near-black content, its strongest edge falls to **1.50:1** at the 0.25 rest
+intensity. No halo can fix that: fading a mark's opacity trades away contrast by
+definition. Options if it matters in practice are to fade *colour* or *size* rather
+than opacity, or to raise `MinPeakOpacity` — recorded here rather than left implied
+by the ≥ 10.97 figure above, which assumes a fully-opaque fill.
 
 ### 4.2 Corner Radii
 

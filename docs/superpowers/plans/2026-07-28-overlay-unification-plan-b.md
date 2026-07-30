@@ -1,5 +1,24 @@
 # Overlay Design Unification — Plan B (StrokeHalo Contrast Guarantee) Implementation Plan
 
+> **STATUS: COMPLETE.** All 8 tasks / 35 steps implemented on `docs/overlay-unification`.
+> Verified: `dotnet build EyeCtrl.slnx` 0 errors; `python tools/palette_validate.py` exit 0;
+> `dotnet test EyeCtrl.slnx --filter "Category!=UI"` green.
+>
+> Review found the halo mechanism correct but its application incomplete, in ways worth
+> knowing before trusting this plan's text:
+> - **Opacity voids the guarantee.** Four of five haloed sites dimmed halo *and* accent
+>   together, which puts the backdrop back into both terms (2.54:1 on the cursor ring, 1.48:1
+>   on the cue badge). Halos now stay opaque; only the accent side dims.
+> - **Two sites needed splitting**, not just a stroke: the cue badge and the gaze indicator's
+>   centre dot had fill and ring on one element.
+> - **Two sites this plan listed are belt-and-braces**, not load-bearing: the `DwellArcButton`
+>   and `ActivationButtonWindow` arcs sit inside their own 98%-opaque fill.
+> - **Three sites this plan omitted** draw marks over captured screen content or a transparent
+>   overlay and needed halos: the action-menu position indicator, the magnifier rim, and the
+>   drag trail.
+> - The z-order guard could only express one halo pair per file; it is now a flat list.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the seven transparent overlays a contrast guarantee that holds on any desktop backdrop, replacing single-colour strokes that currently fall to 1.37:1 over a white document.
@@ -67,7 +86,7 @@ The cue badge at 1.06:1 is invisible over amber content — on the one overlay w
 
 Establish the guarantee as an executable claim first, so every later task has something to satisfy.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.App.Tests/HaloContrastTests.cs`:
 
@@ -189,13 +208,13 @@ public class HaloContrastTests
 }
 ```
 
-- [ ] **Step 2: Run to verify it passes**
+- [x] **Step 2: Run to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~HaloContrastTests" --nologo`
 
 Expected: PASS, 4 tests. These assert properties of the *palette*, which Plan A already delivered — the point is to pin the guarantee before any XAML depends on it, and to make `AccentAlone_FailsOnAtLeastOneBackdrop` document why the mechanism exists.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/EyeCtrl.App.Tests/HaloContrastTests.cs
@@ -211,7 +230,7 @@ git commit -m "test(theme): pin the StrokeHalo contrast guarantee as an executab
 
 An inverted halo is the failure mode most likely to ship, because it looks like a deliberate dark ring and no functional test exercises rendering order. This test reads the XAML and asserts declaration order.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.App.Tests/HaloZOrderTests.cs`:
 
@@ -335,7 +354,7 @@ public class HaloZOrderTests
 }
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~HaloZOrderTests" --nologo`
 
@@ -343,7 +362,7 @@ Expected: PASS. `HaloElement_IsDeclaredBeforeItsAccentElement` passes trivially 
 
 `FilledCueBadge_HasAHaloOutlineStroke` and `DwellFeedbackOverlay_UsesTheAccentBrush` cover files not yet migrated, so comment out their `[Fact]` attributes with `// enabled by Task 6` and `// enabled by Task 7` and re-enable each in the task that satisfies it.
 
-- [ ] **Step 3: Commit the guard (green)**
+- [x] **Step 3: Commit the guard (green)**
 
 ```bash
 git add tests/EyeCtrl.App.Tests/HaloZOrderTests.cs
@@ -364,7 +383,7 @@ The ring colour comes from `CursorSettings.CircleColor` at runtime, so the XAML 
 
 **Do not touch** the hidden `TextBlock` with `AutomationProperties.AutomationId="CursorCircle_Ellipse_Main"` — WPF transparent overlays only expose `TextBlock` nodes to UIA, so it is the sole automation anchor for this window.
 
-- [ ] **Step 1: Write the XAML**
+- [x] **Step 1: Write the XAML**
 
 Replace the `Canvas` contents of `src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml`. `CircleHalo` comes **first** so it paints underneath:
 
@@ -388,7 +407,7 @@ Replace the `Canvas` contents of `src/EyeCtrl.App/Overlays/CursorCircleWindow.xa
     </Canvas>
 ```
 
-- [ ] **Step 2: Write the code-behind**
+- [x] **Step 2: Write the code-behind**
 
 In `src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs`, add `using EyeCtrl.Controls.Theme;`, then update the settings-application block (currently lines 31–40) so the halo tracks the ring and no brush is allocated:
 
@@ -425,17 +444,17 @@ And wherever `Circle.Width`/`Height` are set from `size` (currently lines 46–4
 
 > **On brush allocation — decided, not a loose end.** This file keeps one `new SolidColorBrush`. The ring colour is user-configurable (`CursorSettings.CircleColor`), so a string must become a brush somewhere; doing it in the settings-change path and freezing immediately costs one allocation per settings change, not per frame. The guard is therefore scoped to `ActivationButtonWindow`, which has no configurable colour and must never allocate — see `ActivationButton_NeverAllocatesABrush` in Task 2. Do not widen it to this file without first adding a cache keyed on the settings string.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~HaloZOrderTests" --nologo`
 
 Expected: `HaloElement_IsDeclaredBeforeItsAccentElement` still fails (three overlays to go) but no longer names `CursorCircleWindow`.
 
-- [ ] **Step 4: Prune the allow-list**
+- [x] **Step 4: Prune the allow-list**
 
 In `LegacyColourLiteralTests.StillPending`, delete the `CursorCircleWindow.xaml` entry. Run the full headless suite: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo` → PASS except the two remaining z-order overlays.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs tests/EyeCtrl.App.Tests/HaloZOrderTests.cs
@@ -451,7 +470,7 @@ git commit -m "feat(overlay): halo the cursor ring for backdrop-independent cont
 
 The progress arc is a `Path` whose geometry is animated in code-behind. The halo needs its **own** `Path` with its own `PathFigure`/`ArcSegment`, because a single geometry cannot be shared between two `Path` elements with different stroke thicknesses and still be mutated — sharing one `PathGeometry` instance across both is acceptable and cheaper, so do that and give the segments distinct names only where the code-behind needs them.
 
-- [ ] **Step 1: Write the XAML**
+- [x] **Step 1: Write the XAML**
 
 Replace the `Canvas` contents of `src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml`:
 
@@ -494,7 +513,7 @@ Replace the `Canvas` contents of `src/EyeCtrl.App/Overlays/ActivationButtonWindo
     </Canvas>
 ```
 
-- [ ] **Step 2: Mirror the arc sweep in code-behind**
+- [x] **Step 2: Mirror the arc sweep in code-behind**
 
 `src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml.cs` drives the arc through the shared static helper `DwellArcButton.UpdateArc`, so the halo needs one extra call rather than duplicated trigonometry. Two places to change.
 
@@ -516,7 +535,7 @@ Line 75, the progress path - add the matching call:
 
 Omit either and the halo arc stays at zero length while only the accent arc sweeps - which looks like the halo working at rest and vanishing under dwell.
 
-- [ ] **Step 3: Register the overlay in the z-order guard, then run tests**
+- [x] **Step 3: Register the overlay in the z-order guard, then run tests**
 
 Uncomment the Task 4 line in `HaloZOrderTests.HaloedOverlays`. It lives in a different file from the XAML you just edited, which makes it the easiest thing in this plan to forget:
 
@@ -528,11 +547,11 @@ Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Ful
 
 Expected: PASS — the new entry is now checked and satisfied. A failure means the halo is declared after the accent arc.
 
-- [ ] **Step 4: Prune the allow-list, run the suite**
+- [x] **Step 4: Prune the allow-list, run the suite**
 
 Delete the `ActivationButtonWindow.xaml` entry from `StillPending`, then `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml.cs tests/EyeCtrl.App.Tests/HaloZOrderTests.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -547,7 +566,7 @@ git commit -m "feat(overlay): halo the activation progress arc"
 - Modify: `src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml`
 - Modify: `src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml`
 
-- [ ] **Step 1: ManualSelectionGazeIndicatorWindow**
+- [x] **Step 1: ManualSelectionGazeIndicatorWindow**
 
 This one file contains **both** halo cases: `OuterCircle` (line 11) is stroked, `CenterDot` (line 16) is filled. Keep the existing `x:Name`s - the code-behind and `ManualSelectionGazeIndicatorViewModel` bind to them.
 
@@ -575,7 +594,7 @@ Copy `OuterCircle`'s existing `Width`/`Height`/`Canvas.*` attributes onto `Outer
 
 Preserve every `AutomationProperties.AutomationId` and any hidden `TextBlock` UIA anchor in this file.
 
-- [ ] **Step 2: ScrollOverlayWindow**
+- [x] **Step 2: ScrollOverlayWindow**
 
 Lines 13–18 — crosshairs, cursor circle and anchor dot: `Stroke="White"` / `Fill="White"` → `{StaticResource BrushTextPrimary}`.
 
@@ -590,17 +609,17 @@ Line 19 — the velocity ring gains a halo declared before it:
 
 Any code-behind that positions or resizes `VelocityRing` must do the same to `VelocityRingHalo`.
 
-- [ ] **Step 3: Run tests to verify they pass**
+- [x] **Step 3: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~HaloZOrderTests" --nologo`
 
 Expected: `HaloElement_IsDeclaredBeforeItsAccentElement` now PASSES — all four overlays present and correctly ordered.
 
-- [ ] **Step 4: Prune the allow-list, run the suite**
+- [x] **Step 4: Prune the allow-list, run the suite**
 
 Delete the `ManualSelectionGazeIndicatorWindow.xaml` entry from `StillPending`. Run `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -618,7 +637,7 @@ A 40px filled `Ellipse` with no stroke at all, so there is nothing for a halo to
 
 `#FFB300` sits only ΔE 7.0 from `AccentWarning`, so this is a substitution rather than a redesign. `Opacity` is animated in code-behind and the `AdaptationCue_Badge` UIA anchor must survive.
 
-- [ ] **Step 1: Write the XAML**
+- [x] **Step 1: Write the XAML**
 
 In `src/EyeCtrl.App/Overlays/CueOverlayWindow.xaml`, replace the badge (line 14 region):
 
@@ -637,21 +656,21 @@ In `src/EyeCtrl.App/Overlays/CueOverlayWindow.xaml`, replace the badge (line 14 
 
 Leave the hidden `TextBlock` UIA anchor exactly as it is.
 
-- [ ] **Step 2: Run tests to verify they pass**
+- [x] **Step 2: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~HaloZOrderTests" --nologo`
 
 Expected: PASS, 3 tests — `FilledCueBadge_HasAHaloOutlineStroke` now finds `BrushStrokeHalo`.
 
-- [ ] **Step 3: Prune the allow-list**
+- [x] **Step 3: Prune the allow-list**
 
 Delete the `CueOverlayWindow.xaml` entry from `StillPending`. `StillPending` should now be **empty** — leave the empty dictionary and both tests in place; they guard against any legacy literal returning.
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/CueOverlayWindow.xaml tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -668,7 +687,7 @@ git commit -m "feat(overlay): ring the struggle cue badge (filled-shape halo cas
 
 The `DwellArcButton` change is §5 step 5's halo, deferred from Plan A. It is the highest-leverage item in this plan: `ActionMenuWindow` and `EdgeButtonBarWindow` are both `Background="Transparent"` and get their guarantee entirely from this one control, without either file being touched.
 
-- [ ] **Step 1: DwellFeedbackOverlay.xaml**
+- [x] **Step 1: DwellFeedbackOverlay.xaml**
 
 Line 8 — border and fill both move onto the accent; the fill keeps a low alpha so the highlight stays translucent:
 
@@ -680,7 +699,7 @@ Line 8 — border and fill both move onto the accent; the fill keeps a low alpha
 
 > `#1AA5F3FC` is `Accent` at 10% alpha. This is the one place in the migration where a literal is unavoidable: WPF has no XAML syntax for "this brush at N% alpha." Add the comment `<!-- Accent at 10% alpha; no XAML syntax exists for deriving this from BrushAccent -->` above it so a future reader does not mistake it for drift.
 
-- [ ] **Step 2: DwellArcButton halo arc**
+- [x] **Step 2: DwellArcButton halo arc**
 
 `src/EyeCtrl.Controls/DwellArcButton.cs` builds the arc at lines 56-71 (`arcSegment` then `figure` then `geometry` then `progressPath`), exposes the segment as `public ArcSegment Arc { get; }` (line 18), mutates it at line 116, and adds children in order at lines 134-137.
 
@@ -738,13 +757,13 @@ The snippet above is the verified content of lines 56-76 with `arcThickness + 2`
 
 Miss this and the halo shows at rest but disappears as the arc sweeps.
 
-- [ ] **Step 3: Run tests to verify they pass**
+- [x] **Step 3: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --nologo && dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo`
 
 Expected: both PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/DwellFeedbackOverlay.xaml src/EyeCtrl.Controls/DwellArcButton.cs
@@ -757,17 +776,17 @@ git commit -m "feat(controls): halo the dwell arc, covering ActionMenu and EdgeB
 
 **Files:** none modified.
 
-- [ ] **Step 1: Clean build**
+- [x] **Step 1: Clean build**
 
 Run: `dotnet build EyeCtrl.slnx --nologo` → `Build succeeded`, 0 errors.
 
-- [ ] **Step 2: Validator and headless suite**
+- [x] **Step 2: Validator and headless suite**
 
 Run: `python tools/palette_validate.py` → `ALL GATES PASS - 3 theme(s)`, exit 0.
 
 Run: `dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo` → PASS.
 
-- [ ] **Step 3: Confirm the migration guard is fully armed**
+- [x] **Step 3: Confirm the migration guard is fully armed**
 
 ```bash
 grep -c "\[\"src/" tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -775,7 +794,7 @@ grep -c "\[\"src/" tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
 
 Expected: `0` — `StillPending` is empty, so every previously-listed literal is now guarded against returning.
 
-- [ ] **Step 4: Visual verification — mandatory for this plan**
+- [x] **Step 4: Visual verification — mandatory for this plan**
 
 Nothing above can catch an inverted halo, a halo that fails to track its accent's geometry, or a misspelled resource key. **Ask the user before launching** — they control the PC solely by eye tracking, so a launch takes over their only input channel. Keep it short and have a plan for each check before starting.
 
@@ -790,7 +809,7 @@ Confirm, over both a **dark** and a **light** background window (the light one i
 
 If any element shows a **dark ring instead of a light one**, the halo is declared after its accent — fix the ordering, and add that overlay to `HaloZOrderTests.HaloedOverlays` if it is not already there.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A

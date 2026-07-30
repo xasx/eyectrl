@@ -1,5 +1,19 @@
 # Overlay Design Unification — Plan A (Token Foundation + Colour Migration) Implementation Plan
 
+> **STATUS: COMPLETE.** All 15 tasks / 81 steps implemented on `docs/overlay-unification`.
+> Verified: `dotnet build EyeCtrl.slnx` 0 errors; `python tools/palette_validate.py` exit 0
+> (ten gates x three themes); `dotnet test EyeCtrl.slnx --filter "Category!=UI"` green.
+>
+> Three review rounds followed implementation and changed things this plan did not
+> anticipate — read the spec, not this plan, for current intent. The substantive ones:
+> semantic tokens were being used as button *fills* under white text (2.16:1, fixed with
+> dark labels); the dwell-highlight blend was applied twice, giving a p2 ramp; two tokens
+> (`SurfaceKeyActive`, `MarkerMove`) had to be added because collapsing distinct states onto
+> one token made them indistinguishable; and `EmojiGridManager` was missed entirely by this
+> plan's file list, since it builds overlay content without being an `OverlayWindow`.
+> `RawColourLiteralTests` now guards that class of miss.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace every hardcoded colour literal in the EyeCtrl overlay UI with tokens from a single source of truth, so the 8 accent families, 10 background colours and 5 accent variants collapse into one validated palette.
@@ -62,7 +76,7 @@ not proceed — every section reference in this plan will be unresolvable.
 
 > **On test packages:** `tests/Directory.Build.props` centrally supplies xUnit v3, NFluent and the runner, so this task needs no csproj edit. `Xunit.StaFact` is **not** centralised — it is referenced per-project — so Task 2 does add a `PackageReference`. Do not read this task as "csproj edits are never needed."
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Controls.Tests/Theme/TokenValueTests.cs`:
 
@@ -146,7 +160,7 @@ public class TokenValueTests
 }
 ```
 
-- [ ] **Step 2: Add the missing test-project wiring, then run to verify it fails**
+- [x] **Step 2: Add the missing test-project wiring, then run to verify it fails**
 
 `tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj` has no test packages — the centralised `tests/Directory.Build.props` supplies xUnit v3 and NFluent, so no csproj edit is needed. Add the `System.Linq` using the test needs by confirming `ImplicitUsings` is `enable` (it is).
 
@@ -154,7 +168,7 @@ Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --n
 
 Expected: FAIL to **compile** — `error CS0234: The type or namespace name 'Theme' does not exist in the namespace 'EyeCtrl.Controls'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/EyeCtrl.Controls/Theme/Tokens.cs`:
 
@@ -255,13 +269,13 @@ public static class Tokens
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --nologo`
 
 Expected: PASS, 22 tests (20 `[InlineData]` + 2 `[Fact]`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/Theme/Tokens.cs tests/EyeCtrl.Controls.Tests/Theme/TokenValueTests.cs
@@ -276,7 +290,7 @@ git commit -m "feat(theme): add Tokens as the single source of palette truth"
 - Create: `src/EyeCtrl.Controls/Theme/OverlayStyles.xaml`
 - Create: `tests/EyeCtrl.Controls.Tests/Theme/TokenDictionaryTests.cs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Controls.Tests/Theme/TokenDictionaryTests.cs`:
 
@@ -363,13 +377,13 @@ public class TokenDictionaryTests
 <PackageReference Include="Xunit.StaFact" Version="3.0.13" />
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --filter "FullyQualifiedName~TokenDictionaryTests" --nologo`
 
 Expected: FAIL — `System.IO.IOException: Cannot locate resource 'theme/overlaystyles.xaml'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/EyeCtrl.Controls/Theme/OverlayStyles.xaml`. Every value derives from `Tokens` — there is deliberately not one literal in this file:
 
@@ -414,13 +428,13 @@ Create `src/EyeCtrl.Controls/Theme/OverlayStyles.xaml`. Every value derives from
 
 The `sys:` namespace declaration can be dropped if `{x:Static}` is used as above — keep whichever form compiles, but the value must come from `Tokens`, not be restated. `Dictionary_ExposesBorderThickness` enforces that.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --nologo`
 
 Expected: PASS, 25 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/Theme/OverlayStyles.xaml tests/EyeCtrl.Controls.Tests/Theme/TokenDictionaryTests.cs tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj
@@ -437,7 +451,7 @@ git commit -m "feat(theme): expose tokens as a ResourceDictionary derived via x:
 
 `App.xaml` currently has an empty `<Application.Resources>`. This is the one line that makes `{StaticResource BrushXxx}` work in every overlay.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.App.Tests/ThemeResourcesTests.cs`:
 
@@ -482,13 +496,13 @@ public class ThemeResourcesTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~ThemeResourcesTests" --nologo`
 
 Expected: FAIL — the string is not present in `App.xaml`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Replace the empty `<Application.Resources>` block in `src/EyeCtrl.App/App.xaml`:
 
@@ -510,13 +524,13 @@ Replace the empty `<Application.Resources>` block in `src/EyeCtrl.App/App.xaml`:
 </Application>
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo`
 
 Expected: PASS. ~13 `Category=UI` tests are environmental and excluded — see the note in Task 14.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/App.xaml tests/EyeCtrl.App.Tests/ThemeResourcesTests.cs
@@ -532,7 +546,7 @@ git commit -m "feat(theme): merge the token dictionary into App.xaml"
 
 Colour substitution in XAML and code-behind has no natural unit test: the change is "this literal became a token." This guard supplies one. It starts **allowing** everything, and each later task removes entries from the allow-list — so every task has a real red-to-green step.
 
-- [ ] **Step 1: Write the test with a full allow-list (passes immediately)**
+- [x] **Step 1: Write the test with a full allow-list (passes immediately)**
 
 Create `tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs`:
 
@@ -662,7 +676,7 @@ public class LegacyColourLiteralTests
 }
 ```
 
-- [ ] **Step 2: Run to verify it passes now (baseline green)**
+- [x] **Step 2: Run to verify it passes now (baseline green)**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~LegacyColourLiteral" --nologo`
 
@@ -684,7 +698,7 @@ Add the four Plan B files to `StillPending` with `["Lime"]` and re-run.
 
 Expected after adding the four: PASS, 2 tests.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -701,7 +715,7 @@ git commit -m "test(theme): add legacy colour-literal guard to drive the migrati
 
 The halo arc from §5 step 5 is **Plan B**. This task does the three colour defaults only.
 
-- [ ] **Step 1: Make the guard fail by pruning the allow-list**
+- [x] **Step 1: Make the guard fail by pruning the allow-list**
 
 In `LegacyColourLiteralTests.StillPending`, delete this line:
 
@@ -709,13 +723,13 @@ In `LegacyColourLiteralTests.StillPending`, delete this line:
 ["src/EyeCtrl.Controls/DwellArcButton.cs"] = ["0x1E, 0x1E, 0x1E", "0x64, 0x64, 0x64", "Brushes.Lime"],
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~LegacyColourLiteral" --nologo`
 
 Expected: FAIL — `NoUnlistedFile_UsesTheOutgoingLimeAccent` reports `src/EyeCtrl.Controls/DwellArcButton.cs`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 In `src/EyeCtrl.Controls/DwellArcButton.cs`, add the using at the top of the file's using block:
 
@@ -733,7 +747,7 @@ Then replace lines 38–40:
 
 Leave line 41 (`symbolBrushActual`) as `Brushes.White` for now — Task 7 handles it.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~LegacyColourLiteral" --nologo`
 
@@ -741,7 +755,7 @@ Expected: PASS, 2 tests.
 
 Then confirm nothing else broke: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --nologo` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/DwellArcButton.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -761,7 +775,7 @@ git commit -m "refactor(controls): DwellArcButton defaults come from Tokens"
 
 `DwellToggle`'s change is a **deliberate value change**, not a constant extraction: the old dark-red/dark-green pair differed by 1.52:1 on the red-green axis alone, which is the least reliable possible encoding of a binary state (spec §9.4). Assert the new behaviour rather than only the new literal.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Controls.Tests/Theme/ToggleContrastTests.cs`:
 
@@ -816,7 +830,7 @@ public class ToggleContrastTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --filter "FullyQualifiedName~ToggleContrastTests" --nologo`
 
@@ -832,7 +846,7 @@ Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Ful
 
 Expected: PASS (the pruned files contain no `Lime`, so only the stale-entry check applies and it now passes). To get a genuine red step, temporarily assert the tokens are used — instead, rely on Step 4's build: the literals must be gone for the file to compile against `Tokens`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 `src/EyeCtrl.Controls/DwellToggle.cs` — add `using EyeCtrl.Controls.Theme;` and replace lines 20–21:
 
@@ -854,13 +868,13 @@ Expected: PASS (the pruned files contain no `Lime`, so only the stale-entry chec
     private static readonly Color SelectedColor = Tokens.ToggleOn;
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --nologo && dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo`
 
 Expected: both PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/DwellToggle.cs src/EyeCtrl.Controls/DwellSlider.cs src/EyeCtrl.Controls/DwellComboBox.cs tests/EyeCtrl.Controls.Tests/Theme/ToggleContrastTests.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -887,7 +901,7 @@ The new pair carries it in lightness at 3.39:1."
 
 The picker feeds `CursorSettings.CircleColor`, which colours a haloed ring on a transparent overlay — so **every preset must clear 7:1 against `StrokeHalo`**, or Plan B's guarantee collapses to whatever that colour manages. `AccentDanger` fails at 6.62 and is deliberately not offered (it is also semantically wrong for a cursor ring).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Controls.Tests/Theme/ColorPickerPresetTests.cs`:
 
@@ -955,7 +969,7 @@ public class ColorPickerPresetTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --filter "FullyQualifiedName~ColorPickerPresetTests" --nologo`
 
@@ -968,7 +982,7 @@ Expected: FAIL on assertions, not compilation. `DefaultPresets[0].Hex` is `"#00F
 > needs: no record struct, no consumer edits. Only the *values* change. An earlier draft of this
 > plan wrongly described it as a private array needing promotion.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 In `src/EyeCtrl.Controls/DwellColorPicker.cs`, replace only the **contents** of `DefaultPresets` (lines 29—34). The declaration, name, type and every consumer stay exactly as they are:
 
@@ -1028,13 +1042,13 @@ Then prune from `StillPending`:
 ["src/EyeCtrl.Controls/ColorBlend.cs"] = ["Colors.White"],
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --nologo && dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo`
 
 Expected: both PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/DwellColorPicker.cs src/EyeCtrl.Controls/DwellLabel.cs src/EyeCtrl.Controls/ColorBlend.cs src/EyeCtrl.Controls/DwellArcButton.cs tests/EyeCtrl.Controls.Tests/Theme/ColorPickerPresetTests.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -1059,7 +1073,7 @@ changes dwell feedback on every button, toggle, tab and pagination control."
 
 `EyeCtrl.Core` cannot reference `EyeCtrl.Controls` (the dependency runs the other way), so these are string literals matching `Tokens` by value. The `SettingsDefaultsMatchTokensTests` in Step 1 is what keeps them in sync.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.App.Tests/SettingsDefaultsMatchTokensTests.cs` — it lives in `App.Tests` because that is the only test project referencing both `Core` and `Controls`:
 
@@ -1103,13 +1117,13 @@ public class SettingsDefaultsMatchTokensTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~SettingsDefaultsMatchTokens" --nologo`
 
 Expected: FAIL, 4 tests — e.g. `The checked value: [#FF00FF00] The expected value: [#FFA5F3FC]`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 `src/EyeCtrl.Core/Settings/CursorSettings.cs:22`:
 
@@ -1141,20 +1155,20 @@ Expected: FAIL, 4 tests — e.g. `The checked value: [#FF00FF00] The expected va
         Check.That(s.TrailColor).IsEqualTo("#E8A33C");
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj --nologo && dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo`
 
 Expected: both PASS. `SettingsServiceValidationTests.cs:69` compares against `defaults.Cursor.CircleColor` and is self-relative, so it is unaffected; the `#00FF00` literals in `SettingsSerializationTests` and `SettingsPropertyValidationTests` are explicit inputs and hex-format fixtures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.Core/Settings/CursorSettings.cs src/EyeCtrl.Core/Settings/CalibrationSettings.cs src/EyeCtrl.Core/Settings/AutoSelectionSettings.cs src/EyeCtrl.Core/Settings/DragSettings.cs tests/EyeCtrl.Core.Tests/Settings/DragSettingsTests.cs tests/EyeCtrl.App.Tests/SettingsDefaultsMatchTokensTests.cs
 git commit -m "feat(settings): retarget the four persisted colour defaults onto the palette"
 ```
 
-- [ ] **Step 6: Remove the hex duplication**
+- [x] **Step 6: Remove the hex duplication**
 
 The four literals above now appear in 4 settings files plus `DragSettingsTests`, so a token change means editing 5 files. Centralise them in `EyeCtrl.Core` — which still cannot reference `Controls`, so `SettingsDefaultsMatchTokensTests` remains the thing that ties them to `Tokens`:
 
@@ -1210,7 +1224,7 @@ git commit -m "refactor(settings): centralise persisted colour defaults"
 
 Two green dwell blends, not one — lines 573 and 602. Missing one leaves half the keyboard blending green.
 
-- [ ] **Step 1: Prune the allow-list to make the guard fail**
+- [x] **Step 1: Prune the allow-list to make the guard fail**
 
 Delete from `StillPending`:
 
@@ -1218,7 +1232,7 @@ Delete from `StillPending`:
 ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] = ["200, 50, 50, 50", "100 + 155 * progress", "Brushes.Gray"],
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~LegacyColourLiteral" --nologo`
 
@@ -1230,7 +1244,7 @@ grep -c "100 + 155 \* progress" src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs
 
 Expected: `2`. After Step 3 it must be `0`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Add `using EyeCtrl.Controls.Theme;`. Replace lines 20–24:
 
@@ -1273,7 +1287,7 @@ Line 602 — the key dwell blend, same substitution with the literal alpha the o
 
 Add `using EyeCtrl.Controls;` if `ColorBlend` is not already in scope.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c "100 + 155 \* progress" src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs
@@ -1285,7 +1299,7 @@ Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Cat
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -1300,7 +1314,7 @@ git commit -m "refactor(keyboard): key, prediction and dwell-blend colours from 
 - Modify: `src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs` (lines 19–21, 62, 82, 125, 217–219)
 - Modify: `tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs`
 
-- [ ] **Step 1: Prune the allow-list**
+- [x] **Step 1: Prune the allow-list**
 
 Delete from `StillPending`:
 
@@ -1308,13 +1322,13 @@ Delete from `StillPending`:
 ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] = ["Brushes.Lime", "60, 60, 60"],
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~LegacyColourLiteral" --nologo`
 
 Expected: FAIL — `NoUnlistedFile_UsesTheOutgoingLimeAccent` reports `src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Add `using EyeCtrl.Controls.Theme;`. Delete the three now-dead alpha constants at lines 19–21 (`NormalButtonAlpha`, `IndicatorButtonAlpha`, `ManualSelectionActiveButtonAlpha`) — leaving them would be dead code.
 
@@ -1344,13 +1358,13 @@ Lines 217–219:
                 _ => Tokens.BrushSurfaceMedium
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo`
 
 Expected: PASS. Also confirm no dead references remain: `grep -c "ButtonAlpha" src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs` → `0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -1367,7 +1381,7 @@ git commit -m "refactor(toolbar): button and progress colours from Tokens, drop 
 
 `TabActive` is `#C8285AA0` (`FromArgb(200,40,90,160)`) — earlier drafts of the spec recorded it as `#C82859A0`, which is wrong. The value is being replaced either way.
 
-- [ ] **Step 1: Prune the allow-list**
+- [x] **Step 1: Prune the allow-list**
 
 Delete from `StillPending`:
 
@@ -1375,7 +1389,7 @@ Delete from `StillPending`:
 ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] = ["200, 40, 90, 160"],
 ```
 
-- [ ] **Step 2: Run to verify the literal is still there**
+- [x] **Step 2: Run to verify the literal is still there**
 
 ```bash
 grep -c "200, 40, 90, 160" src/EyeCtrl.App/Views/SettingsWindow.xaml.cs
@@ -1383,7 +1397,7 @@ grep -c "200, 40, 90, 160" src/EyeCtrl.App/Views/SettingsWindow.xaml.cs
 
 Expected: `1`. After Step 3 it must be `0`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Add `using EyeCtrl.Controls.Theme;` and replace lines 43–50:
 
@@ -1398,7 +1412,7 @@ Add `using EyeCtrl.Controls.Theme;` and replace lines 43–50:
     private static readonly Color DeleteBase = Tokens.AccentWarning;
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 grep -c "200, 40, 90, 160" src/EyeCtrl.App/Views/SettingsWindow.xaml.cs
@@ -1408,7 +1422,7 @@ Expected: `0`.
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -1425,7 +1439,7 @@ git commit -m "refactor(settings): tab, modal and destructive-action colours fro
 
 A code-only `OverlayWindow` with no `.xaml` file, which is why a XAML-file sweep missed it and the original audit omitted it entirely.
 
-- [ ] **Step 1: Prune the allow-list**
+- [x] **Step 1: Prune the allow-list**
 
 Delete from `StillPending`:
 
@@ -1433,7 +1447,7 @@ Delete from `StillPending`:
 ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] = ["0x1A, 0x1A, 0x2E", "0xFF, 0xEA, 0xA7"],
 ```
 
-- [ ] **Step 2: Verify the literals are still present**
+- [x] **Step 2: Verify the literals are still present**
 
 ```bash
 grep -c "Color.FromRgb\|Color.FromArgb" src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs
@@ -1441,7 +1455,7 @@ grep -c "Color.FromRgb\|Color.FromArgb" src/EyeCtrl.App/Overlays/NoteWindow.xaml
 
 Expected: `11`. After Step 3 it must be `0`. (The symbol triple at lines 224—226 supplies three of the eleven.)
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Add `using EyeCtrl.Controls.Theme;`, then substitute each literal:
 
@@ -1466,7 +1480,7 @@ The symbol triple at lines 224–226 keeps its tuple shape but takes token colou
                               ("move",  "↕", Tokens.Accent) };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 grep -c "Color.FromRgb\|Color.FromArgb" src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs
@@ -1476,7 +1490,7 @@ Expected: `0`.
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category!=UI" --nologo` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs tests/EyeCtrl.App.Tests/LegacyColourLiteralTests.cs
@@ -1493,19 +1507,19 @@ Commit **one file at a time** — this is the widest-reaching visual change in t
 
 Every `{StaticResource ...}` below resolves through the dictionary merged in Task 3. If a brush key is misspelled the window throws `ResourceReferenceKeyNotFoundException` **at load**, not at build — so Task 14's visual check is the only thing that catches a typo here.
 
-- [ ] **Step 1: `Overlays/KeyboardWindow.xaml:9`**
+- [x] **Step 1: `Overlays/KeyboardWindow.xaml:9`**
 
 ```xml
     <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="8" Padding="8">
 ```
 
-- [ ] **Step 2: `Overlays/ToolbarWindow.xaml:9`**
+- [x] **Step 2: `Overlays/ToolbarWindow.xaml:9`**
 
 ```xml
     <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="4" Padding="4">
 ```
 
-- [ ] **Step 3: `Overlays/QuickActionsGridWindow.xaml`**
+- [x] **Step 3: `Overlays/QuickActionsGridWindow.xaml`**
 
 Line 11–12 — note `Opacity="0.95"` is **removed**; the alpha now lives in `SurfaceDark` itself:
 
@@ -1518,23 +1532,23 @@ Lines 23 and 47 — tile and close-button fills: `Background="#2A2A3E"` → `Bac
 
 Lines 31 and 63 — `Foreground="#FFEAA7"` → `Foreground="{StaticResource BrushTextPrimary}"` for text, and the progress-bar foreground → `{StaticResource BrushAccent}`.
 
-- [ ] **Step 4: `Overlays/SplashWindow.xaml`**
+- [x] **Step 4: `Overlays/SplashWindow.xaml`**
 
 Line 8: `Background="#F0181818"` → `{StaticResource BrushSurfaceDark}`.
 Line 18: `Foreground="#FF00AA00"` → `{StaticResource BrushAccentSuccess}`, `Background="#FF333333"` → `{StaticResource BrushSurfaceMedium}`.
 
-- [ ] **Step 5: `Overlays/TrackStatusWindow.xaml`**
+- [x] **Step 5: `Overlays/TrackStatusWindow.xaml`**
 
 Line 8: `Background="#80000000"` → `{StaticResource BrushSurfaceDark}`.
 Line 13: `BorderBrush="White"` → `{StaticResource BrushBorderSubtle}`, `Background="#20FFFFFF"` → `{StaticResource BrushSurfaceMedium}`.
 
-- [ ] **Step 6: `Overlays/TaskSwitcherWindow.xaml`**
+- [x] **Step 6: `Overlays/TaskSwitcherWindow.xaml`**
 
 Line 5 (on the `Window`): `Background="#E6000000"` → `{StaticResource BrushSurfaceDark}`.
 Line 22: `Background="#40FFFFFF"` → `{StaticResource BrushSurfaceMedium}`.
 Text: `White` → `{StaticResource BrushTextPrimary}`, `LightGray` → `{StaticResource BrushTextSecondary}`.
 
-- [ ] **Step 7: `Overlays/EyeCareBannerWindow.xaml`**
+- [x] **Step 7: `Overlays/EyeCareBannerWindow.xaml`**
 
 Line 14: `Fill="#73000000"` → `{StaticResource BrushModalBackdrop}`.
 Line 17: `Background="#F0181830"` → `{StaticResource BrushSurfaceDark}`.
@@ -1544,14 +1558,14 @@ Line 29: `Stroke="#888888"` → `{StaticResource BrushTextDim}`.
 Line 32: `Foreground="#FF777777"` → `{StaticResource BrushTextDim}`.
 Lines 36–39: `#FF6c8cff` → `{StaticResource BrushAccent}` (stroke and both glyph foregrounds).
 
-- [ ] **Step 8: `Overlays/EyeCareExerciseWindow.xaml`**
+- [x] **Step 8: `Overlays/EyeCareExerciseWindow.xaml`**
 
 Line 7 (on the `Window`): `Background="#E8000000"` → `{StaticResource BrushSurfaceDark}`.
 Line 31: `Foreground="#FF888888"` → `{StaticResource BrushTextDim}`, `BorderBrush="#FF444444"` → `{StaticResource BrushBorderSubtle}`.
 Line 39: `Background="#F0181830"` → `{StaticResource BrushSurfaceLight}` (elevated card — §4.1.1 rule 2), `BorderBrush="#FF6c8cff"` → `{StaticResource BrushBorderSubtle}`.
 Target dot and metric values: `#FF6c8cff` → `{StaticResource BrushAccent}`. Gaze ring `#FF7ee787` → `{StaticResource BrushAccentSuccess}`.
 
-- [ ] **Step 9: `Overlays/CalibrationWindow.xaml`**
+- [x] **Step 9: `Overlays/CalibrationWindow.xaml`**
 
 Line 15: `Fill="#DD000000"` → `{StaticResource BrushModalBackdrop}`.
 Line 20: target dot `Fill="Green"` → `{StaticResource BrushAccent}` — **fallback only**; the runtime value comes from `CalibrationSettings.TargetColor` via `CalibrationWindow.xaml.cs:70`.
@@ -1561,13 +1575,13 @@ Line 55: `Foreground="#88FFFFFF"` → `{StaticResource BrushTextSecondary}`.
 
 **Leave `FontFamily="Segoe UI"` on line 30.** §4.3's app-wide font default is not in this plan's scope, so removing it here would change rendering with nothing to replace it.
 
-- [ ] **Step 10: `Overlays/PauseIndicatorWindow.xaml:12`**
+- [x] **Step 10: `Overlays/PauseIndicatorWindow.xaml:12`**
 
 ```xml
         <Border Background="{StaticResource BrushSurfaceDark}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 ```
 
-- [ ] **Step 11: `Views/SettingsWindow.xaml`**
+- [x] **Step 11: `Views/SettingsWindow.xaml`**
 
 Line 8 (on the `Window`): `Background="#E01E1E1E"` → `{StaticResource BrushSurfaceDark}`.
 Line 14: `Background="#C0141414"` → `{StaticResource BrushSurfaceMedium}`.
@@ -1575,7 +1589,7 @@ Line 20: `Background="#C8641E1E"` → `{StaticResource BrushAccentDanger}`.
 Line 54: `Background="#A0000000"` → `{StaticResource BrushModalBackdrop}`.
 Line 59: `Background="#E0282828"` → `{StaticResource BrushSurfaceLight}` (elevated modal — §4.1.1 rule 2).
 
-- [ ] **Step 12: `Overlays/DriftNoticeWindow.xaml`** *(added by PR #71)*
+- [x] **Step 12: `Overlays/DriftNoticeWindow.xaml`** *(added by PR #71)*
 
 Line 12 — also **adds a border**, which the file currently lacks entirely, leaving its edge undefined against the desktop:
 
@@ -1590,7 +1604,7 @@ Line 15: `Foreground="White"` → `{StaticResource BrushTextPrimary}`.
 
 `CornerRadius="6"` stays — radius unification is deferred (§8).
 
-- [ ] **Step 13: Confirm the allow-list is fully pruned for Phase 4**
+- [x] **Step 13: Confirm the allow-list is fully pruned for Phase 4**
 
 Only Plan B's entries should remain:
 
@@ -1611,7 +1625,7 @@ Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Cat
 
 A misspelled `{StaticResource BrushSurfaceDrak}` throws `ResourceReferenceKeyNotFoundException` **at window load**. Nothing in Tasks 1–13 exercises that, which currently leaves manual visual checking as the only detection — for 12 files of substitutions. This closes the gap.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.App.Tests/OverlayResourceResolutionTests.cs`:
 
@@ -1692,7 +1706,7 @@ public class OverlayResourceResolutionTests
 
 `[StaTheory]` comes from `Xunit.StaFact`, already referenced by `EyeCtrl.App.Tests`.
 
-- [ ] **Step 2: Run the test**
+- [x] **Step 2: Run the test**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "FullyQualifiedName~OverlayResourceResolution" --nologo`
 
@@ -1700,7 +1714,7 @@ Expected: PASS, 11 cases. If a case fails with an unresolved key, fix that overl
 
 **If a window cannot be constructed without a view model or other dependency**, exclude it from `MigratedOverlays()` with a comment naming the blocker, and note it in the Task 15 visual check instead. Do not weaken the test to a try/catch that swallows everything — a test that cannot fail is worse than no test.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/EyeCtrl.App.Tests/OverlayResourceResolutionTests.cs
@@ -1713,19 +1727,19 @@ git commit -m "test(theme): load each migrated overlay to catch unresolved resou
 
 **Files:** none modified — this task only runs checks.
 
-- [ ] **Step 1: Clean build**
+- [x] **Step 1: Clean build**
 
 Run: `dotnet build EyeCtrl.slnx --nologo`
 
 Expected: `Build succeeded`, 0 errors. Pre-existing warnings (CS1591 in `Contracts`, MVVMTK0034 in `ViewModels`, CS0108 in `CueOverlayWindow`) are unrelated to this work — do not "fix" them here.
 
-- [ ] **Step 2: Palette validator still green**
+- [x] **Step 2: Palette validator still green**
 
 Run: `python tools/palette_validate.py`
 
 Expected: `ALL GATES PASS - 3 theme(s): Midnight, Ember, Contrast`, exit 0. Nothing in this plan changes a palette value, so a failure here means a `Tokens.cs` typo.
 
-- [ ] **Step 3: Full headless test suite**
+- [x] **Step 3: Full headless test suite**
 
 Run: `dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo`
 
@@ -1733,19 +1747,19 @@ Expected: PASS. Includes the drift guards (`OverlayInventoryDriftTests`, `TokenD
 
 Two pre-existing flakes are load-dependent and unrelated: `HeartbeatPublisher` (<1500ms assertion) and `MouseGazeProviderTests`. Re-run once before investigating.
 
-- [ ] **Step 4: UI tests — desktop session only**
+- [x] **Step 4: UI tests — desktop session only**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj --filter "Category=UI" --nologo`
 
 **This requires an interactive desktop session.** Roughly 13 of these fail headless on clean `main` with "Toolbar_Window did not appear within 15s". They are environmental, not regressions — do **not** treat a headless failure here as a migration defect, and do not use this as a CI gate.
 
-- [ ] **Step 5: Visual confirmation**
+- [x] **Step 5: Visual confirmation**
 
 Task 14 now catches unresolved resource keys, so this step is about whether the result *looks* right — colour choices in context, and anything Task 14 had to exclude. **Ask the user before launching the app** — they control the PC solely by eye tracking, so an app launch takes over their only input channel. Keep the run short.
 
 Open, in this order, and confirm each renders with the new navy palette and no exception dialog: Toolbar → Settings (all tabs, plus a reset modal) → Keyboard (including the prediction bar) → Quick Actions → Calibration → the EyeCare banner.
 
-- [ ] **Step 6: Commit any fixes, then record completion**
+- [x] **Step 6: Commit any fixes, then record completion**
 
 ```bash
 git add -A

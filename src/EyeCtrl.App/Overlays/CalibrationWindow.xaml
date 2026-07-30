@@ -50,10 +50,10 @@
                         HorizontalAlignment="Center" Visibility="Collapsed">
                 <Button x:Name="RetryButton" Content="Retry" Width="80" Height="32" Margin="0,0,8,0"
                         Foreground="{StaticResource BrushAccentWarning}" Background="Transparent"
-                        BorderBrush="{StaticResource BrushAccentWarning}" BorderThickness="1"/>
+                        BorderBrush="{StaticResource BrushAccentWarning}" BorderThickness="{StaticResource StandardBorderThickness}"/>
                 <Button x:Name="AcceptButton" Content="Accept anyway" Width="120" Height="32"
                         Foreground="{StaticResource BrushTextSecondary}" Background="Transparent"
-                        BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1"/>
+                        BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}"/>
             </StackPanel>
         </StackPanel>
 

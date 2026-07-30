@@ -72,6 +72,10 @@ public class TokenDictionaryTests
     [StaFact]
     public void Dictionary_ExposesBorderThickness()
     {
+        // The raw double lives in the dictionary; the XAML-consumable Thickness form
+        // (StandardBorderThickness) is added in App.OnStartup, since WPF provides no XAML
+        // syntax for a Thickness from a {x:Static} double. OverlayResourceResolutionTests
+        // covers that the Thickness resolves at window load.
         var dict = Load();
         Check.That(dict.Contains("BorderThicknessStandard")).IsTrue();
         Check.That(dict["BorderThicknessStandard"]).IsEqualTo(Tokens.BorderThicknessStandard);

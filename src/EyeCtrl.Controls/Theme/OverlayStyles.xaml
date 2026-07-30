@@ -38,6 +38,9 @@
          because the brush already carries its Opacity and is frozen — a Color binding would lose it. -->
     <x:Static x:Key="BrushAccentDim10" Member="theme:Tokens.BrushAccentDim10"/>
 
+    <!-- The raw pixel value (a double) for code/validator consumers. The XAML-consumable
+         Thickness form (StandardBorderThickness) is added in App.xaml.cs at startup, since
+         WPF provides no XAML syntax to build a Thickness from a {x:Static} double. -->
     <x:Static x:Key="BorderThicknessStandard"
               Member="theme:Tokens.BorderThicknessStandard"/>
 </ResourceDictionary>

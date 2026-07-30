@@ -3,6 +3,8 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.Controls;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -15,12 +17,16 @@ public class EmojiGridManager
     private const int EmojisPerPage = 40;
     private const int EmojiColumns = 10;
 
-    private static readonly Color KeyColorNormal = Color.FromArgb(200, 50, 50, 50);
-    private static readonly Color KeyColorSwitch = Color.FromArgb(200, 50, 70, 110);
-    private static readonly Color KeyColorHighlight = Color.FromArgb(200, 0, 100, 0);
-    private static readonly Color CategoryBarColor = Color.FromArgb(200, 40, 40, 40);
-    private static readonly Color CategoryBarActiveColor = Color.FromArgb(200, 0, 100, 0);
-    private static readonly Color EmojiGridBackgroundColor = Color.FromArgb(200, 50, 50, 50);
+    // Palette tokens, matching KeyboardWindow's key ramp — the emoji grid is built inside
+    // KeyboardWindow (opaque BrushSurfaceDark background), so these sit on another surface
+    // and are correctly opaque (§4.1.1: alpha only where it composites over the desktop).
+    private static readonly Color KeyColorNormal = Tokens.SurfaceKey;
+    private static readonly Color KeyColorSwitch = Tokens.SurfaceKeySwitch;
+    private static readonly Color KeyColorHighlight = Tokens.ToggleOn;
+    private static readonly Color CategoryBarColor = Tokens.SurfaceDark;
+    /// <summary>Active category tab — the 5th key-surface step, same role as a held modifier.</summary>
+    private static readonly Color CategoryBarActiveColor = Tokens.SurfaceKeyActive;
+    private static readonly Color EmojiGridBackgroundColor = Tokens.SurfaceMedium;
 
     private static readonly string[] SkinToneModifiers =
     {
@@ -314,7 +320,7 @@ public class EmojiGridManager
             {
                 Text = icon,
                 FontSize = 22,
-                Foreground = Brushes.White,
+                Foreground = Tokens.BrushTextPrimary,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -361,12 +367,12 @@ public class EmojiGridManager
             }
             else
             {
-                var highlightColor = Color.FromArgb(200, 0, (byte)(100 + 155 * progress), 0);
-                _categoryBrushes[i].Color = Color.FromArgb(
-                    200,
-                    (byte)(baseColor.R * (1 - progress) + highlightColor.R * progress),
-                    (byte)(baseColor.G * (1 - progress) + highlightColor.G * progress),
-                    (byte)(baseColor.B * (1 - progress) + highlightColor.B * progress));
+                // Linear blend toward Accent, matching KeyboardWindow. The old form built a
+                // green highlight that itself scaled with progress and then blended toward it
+                // by progress again — a p² ramp, and green where §4.1.2 reserves Accent for
+                // dwell-in-progress. Alpha is carried from baseColor rather than forced to
+                // 200, so a key does not change opacity as it dwells.
+                _categoryBrushes[i].Color = ColorBlend.Blend(baseColor, Tokens.Accent, progress);
             }
             break;
         }
@@ -445,7 +451,7 @@ public class EmojiGridManager
         var label = new TextBlock
         {
             Text = text,
-            Foreground = Brushes.White,
+            Foreground = Tokens.BrushTextPrimary,
             FontSize = 16,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center

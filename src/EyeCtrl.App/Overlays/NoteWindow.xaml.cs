@@ -69,7 +69,9 @@ public class NoteWindow : OverlayWindow
             CornerRadius = new CornerRadius(6),
             BorderBrush = GetBorderBrush(),
             BorderThickness = GetBorderThickness(),
-            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 8, Opacity = 0.4, ShadowDepth = 2 }
+            // StrokeHalo is the palette's near-black; at 0.4 opacity it is indistinguishable
+            // from pure black, and it keeps the shadow on the token so a light theme can move it.
+            Effect = new DropShadowEffect { Color = Tokens.StrokeHalo, BlurRadius = 8, Opacity = 0.4, ShadowDepth = 2 }
         };
         Canvas.SetLeft(bg, 0); Canvas.SetTop(bg, 0);
         _canvas.Children.Add(bg);

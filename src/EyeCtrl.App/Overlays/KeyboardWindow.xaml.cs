@@ -605,14 +605,12 @@ public partial class KeyboardWindow : OverlayWindow
         var baseColor = GetKeyBaseColor(targetId);
         // Linear blend toward Accent (see OnPredictionProgress): target is Accent itself, not a
         // pre-blended colour, so mid-dwell is a correct linear ramp rather than the old p² curve.
-        var highlightColor = Tokens.Accent;
-        var blended = Color.FromArgb(
-            200,
-            (byte)(baseColor.R * (1 - progress) + highlightColor.R * progress),
-            (byte)(baseColor.G * (1 - progress) + highlightColor.G * progress),
-            (byte)(baseColor.B * (1 - progress) + highlightColor.B * progress));
-
-        _keyBrushes[targetId].Color = blended;
+        //
+        // Alpha comes from baseColor, not a hardcoded 200. The pre-migration base colours were
+        // all FromArgb(200, ...), so forcing 200 here matched them; the token base colours are
+        // opaque, so it made a key turn slightly translucent while dwelling and snap back to
+        // opaque on reset (ResetKeyVisual assigns the token directly).
+        _keyBrushes[targetId].Color = ColorBlend.Blend(baseColor, Tokens.Accent, progress);
     }
 
     private void ResetKeyVisual(string targetId)

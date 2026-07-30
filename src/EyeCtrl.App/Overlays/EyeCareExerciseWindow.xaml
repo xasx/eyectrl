@@ -36,7 +36,7 @@
         <!-- Summary card (hidden until exercise ends) -->
         <Border x:Name="SummaryCard" Visibility="Collapsed"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
-                Background="{StaticResource BrushSurfaceLight}" BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1" CornerRadius="14"
+                Background="{StaticResource BrushSurfaceLight}" BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}" CornerRadius="14"
                 Padding="28,18">
             <StackPanel HorizontalAlignment="Center">
                 <TextBlock x:Name="SummaryTitle" Text="✓ Nice work" Foreground="{StaticResource BrushAccentSuccess}" FontSize="13"

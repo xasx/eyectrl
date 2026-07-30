@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Windows;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.Controls.Theme;
 using NFluent;
 using Xunit;
 
@@ -39,6 +40,15 @@ public class OverlayResourceResolutionTests
         if (!already)
             Application.Current.Resources.MergedDictionaries.Add(
                 new ResourceDictionary { Source = new Uri(uri, UriKind.Absolute) });
+
+        // StandardBorderThickness lives in App.OnStartup (WPF has no XAML syntax for a
+        // Thickness from a {x:Static} double), so the test Application must mirror that
+        // setup or overlays referencing it throw at load.
+        if (!Application.Current.Resources.Contains("StandardBorderThickness"))
+        {
+            var t = Tokens.BorderThicknessStandard;
+            Application.Current.Resources["StandardBorderThickness"] = new Thickness(t, t, t, t);
+        }
     }
 
     /// <summary>

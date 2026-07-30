@@ -9,7 +9,7 @@
                         ShowInTaskbar="False">
     <Grid>
         <Border x:Name="RootBorder" Background="{StaticResource BrushSurfaceDark}" CornerRadius="8"
-                BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1">
+                BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}">
             <Grid Margin="12">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -21,7 +21,7 @@
                 <Border x:Name="CloseButton" Grid.Row="0"
                         Width="44" Height="44" HorizontalAlignment="Right"
                         CornerRadius="22" Background="{StaticResource BrushSurfaceMedium}"
-                        BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1">
+                        BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}">
                     <Grid>
                         <TextBlock Text="&#x2715;" FontSize="20" Foreground="{StaticResource BrushTextPrimary}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -45,7 +45,7 @@
                         <DataTemplate DataType="{x:Type vm:QuickActionTileViewModel}">
                             <Border x:Name="TileBorder" Width="120" Height="120"
                                     CornerRadius="6" Background="{StaticResource BrushSurfaceMedium}"
-                                    BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1"
+                                    BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}"
                                     Margin="4">
                                 <Grid>
                                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">

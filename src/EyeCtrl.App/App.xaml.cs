@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Services;
@@ -70,6 +71,14 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Expose the standard border thickness as a WPF Thickness resource. The XAML token is
+        // a double (BorderThicknessStandard); WPF provides no XAML syntax to build a Thickness
+        // from a {x:Static} double, so the Thickness form is added here at startup, derived
+        // from the token so a future Contrast theme flipping the double to 2 propagates.
+        var t = Tokens.BorderThicknessStandard;
+        Resources["StandardBorderThickness"] = new Thickness(t, t, t, t);
+
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
         IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
 

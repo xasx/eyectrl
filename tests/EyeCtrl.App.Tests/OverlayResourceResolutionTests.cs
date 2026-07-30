@@ -72,6 +72,8 @@ public class OverlayResourceResolutionTests
         typeof(CueOverlayWindow), typeof(DwellFeedbackOverlay),
         // Drag trail: migrated onto tokens + reads DragSettings.TrailColor via Configure
         typeof(DragTrailOverlay),
+        // Magnifier: its rim + halo are marks over the captured image (§4.1.3)
+        typeof(ManualSelectionOverlayWindow),
     ];
 
     [StaTheory]

@@ -276,6 +276,24 @@ with 1.37:1 for a single-stroke ring today.
 This applies to the dwell ring, the activation progress arc, the manual-selection
 gaze dot and the scroll velocity ring.
 
+**Two more sites belong here, and the original list missed them** because it
+reasoned about *window* transparency rather than about what the mark is actually
+drawn on. `ActionMenuWindow`'s position indicator (crosshair or pin) and
+`ManualSelectionOverlayWindow`'s magnifier rim are drawn on top of a **captured
+screen image** — arbitrary content, exactly like the raw desktop, and the reason a
+red crosshair could vanish on a photograph. Both now use a `TextPrimary` mark over a
+`StrokeHalo` under-stroke: the conventional precision-marker form (light mark, dark
+outline), backdrop-independent by the same internal-edge argument.
+
+**Two sites in the list are belt-and-braces, not load-bearing.** The
+`DwellArcButton` progress arc (`ActionMenu`, `EdgeButtonBar`) and
+`ActivationButtonWindow`'s arc both sit *inside* a fill their own overlay draws —
+`SurfaceMedium` and `SurfaceDark` respectively, each 98 % opaque — because the arc
+radius is inset from the button edge. Their accent already has a guaranteed backdrop,
+so their halo is defence-in-depth rather than the contrast guarantee. It is retained
+(it sharpens the arc against the navy fill and costs one extra `Path`), but the
+backdrop-independence argument does **not** rest on those two.
+
 **Filled shapes need the same guarantee by a different means.** The rule above
 covers *strokes*; a filled shape has none to sit under. `CueOverlayWindow`
 (PR #71) is a 40px `Ellipse` with `Fill="#FFB300"` and no stroke at all, on a
@@ -589,10 +607,8 @@ arbitrary desktop content (§9.5).
 
 ## 6. Files NOT Changed
 
-- `ActionMenuWindow.xaml` + `.cs` — inherits accent **and halo** from `DwellArcButton` (Phase 1)
-- `EdgeButtonBarWindow.xaml` + `.cs` — same
+- `EdgeButtonBarWindow.xaml` + `.cs` — inherits accent **and halo** from `DwellArcButton` (Phase 1)
 - `GlassBackdropWindow.xaml` + `.cs` — fully dynamic; no hardcoded colours
-- `ManualSelectionOverlayWindow.xaml` + `.cs` — screen capture; no decorative colours
 - `TargetHighlightWindow.xaml` — opacity-driven; `CornerRadius="2"` left as-is (§8)
 - `DragTrailOverlay.xaml` + `.cs` — the trail line now reads `DragSettings.TrailColor`
   via `Configure` (wired in `EventCoordinator.OnDragStarted`); the settle/release greens
@@ -607,6 +623,21 @@ arbitrary desktop content (§9.5).
 "no UI rendering." That is true of its rendering but false of its *ownership* — it
 holds four persisted accent colours, and Phase 2 changes them. Excluding Core is
 what would have left the cursor ring Lime.
+
+**Three further exclusions were wrong for the same reason** — the rationale was true
+of *part* of the file. All three are now migrated, and the pattern is worth naming: an
+exclusion must be justified against every colour in the file, not against its headline
+purpose.
+
+| Was excluded because | Actually contained |
+|---|---|
+| `DragTrailOverlay` "renders from `DragSettings.TrailColor`" | hardcoded `#ff9800`/`#4caf50`/`#1a3a1a`, and never read the setting |
+| `ActionMenuWindow` "inherits accent and halo from `DwellArcButton`" | true of the arc buttons; the position indicator had its own 4× `Brushes.Red` + `Brushes.White` |
+| `ManualSelectionOverlayWindow` "screen capture; no decorative colours" | a decorative `Stroke="White"` 2px magnifier rim |
+
+The last two are also **§4.1.3 cases the original list missed**: both draw marks *on
+top of a captured screen image*, which is arbitrary content exactly like the desktop.
+They now carry `StrokeHalo` under-strokes, and §4.1.3's overlay list includes them.
 
 ---
 

@@ -10,6 +10,12 @@
                 <ImageBrush x:Name="ManualSelectionBrush" Stretch="Fill"/>
             </Ellipse.Fill>
         </Ellipse>
-        <Ellipse Stroke="White" StrokeThickness="2" IsHitTestVisible="False"/>
+        <!-- The magnifier rim sits on the captured image (arbitrary screen content), so it is
+             the §4.1.3 case: halo under-stroke first (later siblings paint on top), accent
+             rim over it, making the visible feature the backdrop-independent internal edge. -->
+        <Ellipse x:Name="RimHalo" Stroke="{StaticResource BrushStrokeHalo}"
+                 StrokeThickness="4" IsHitTestVisible="False"/>
+        <Ellipse x:Name="Rim" Stroke="{StaticResource BrushTextPrimary}"
+                 StrokeThickness="2" IsHitTestVisible="False"/>
     </Grid>
 </overlays:OverlayWindow>

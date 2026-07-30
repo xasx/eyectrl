@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
@@ -111,56 +112,67 @@ public partial class ActionMenuWindow : OverlayWindow
         // Position indicator at center of preview
         var indicatorSize = Math.Min(previewCircleSize * IndicatorSizeRatio, MaxIndicatorSize); // scale with circle, cap at 30px
 
+        // The indicator is drawn ON TOP of the captured preview image — arbitrary screen
+        // content — so it is the §4.1.3 case: no single colour holds contrast there. It is a
+        // TextPrimary mark over a StrokeHalo under-stroke, which is the conventional
+        // precision-marker form (light mark, dark outline) and makes the visible feature the
+        // backdrop-independent internal edge. Halo elements are added FIRST: later siblings
+        // paint on top. (Previously Brushes.Red / Brushes.White — off-palette, and red on a
+        // captured photo can vanish entirely.)
         if (positionIndicatorStyle == PositionIndicatorStyle.Crosshair)
         {
-            // Thin red crosshair lines
-            var hLine = new Line
+            Line CrosshairLine(double x1, double y1, double x2, double y2, Brush stroke, double thickness) => new()
             {
-                X1 = canvasCenter.X - indicatorSize + indicatorOffsetX,
-                Y1 = canvasCenter.Y + indicatorOffsetY,
-                X2 = canvasCenter.X + indicatorSize + indicatorOffsetX,
-                Y2 = canvasCenter.Y + indicatorOffsetY,
-                Stroke = Brushes.Red,
-                StrokeThickness = CrosshairLineThickness
+                X1 = x1, Y1 = y1, X2 = x2, Y2 = y2,
+                Stroke = stroke,
+                StrokeThickness = thickness
             };
-            var vLine = new Line
-            {
-                X1 = canvasCenter.X + indicatorOffsetX,
-                Y1 = canvasCenter.Y - indicatorSize + indicatorOffsetY,
-                X2 = canvasCenter.X + indicatorOffsetX,
-                Y2 = canvasCenter.Y + indicatorSize + indicatorOffsetY,
-                Stroke = Brushes.Red,
-                StrokeThickness = CrosshairLineThickness
-            };
-            MenuCanvas.Children.Add(hLine);
-            MenuCanvas.Children.Add(vLine);
+
+            double hx1 = canvasCenter.X - indicatorSize + indicatorOffsetX;
+            double hy = canvasCenter.Y + indicatorOffsetY;
+            double hx2 = canvasCenter.X + indicatorSize + indicatorOffsetX;
+            double vx = canvasCenter.X + indicatorOffsetX;
+            double vy1 = canvasCenter.Y - indicatorSize + indicatorOffsetY;
+            double vy2 = canvasCenter.Y + indicatorSize + indicatorOffsetY;
+
+            MenuCanvas.Children.Add(CrosshairLine(hx1, hy, hx2, hy,
+                Tokens.BrushStrokeHalo, CrosshairLineThickness + 2));
+            MenuCanvas.Children.Add(CrosshairLine(vx, vy1, vx, vy2,
+                Tokens.BrushStrokeHalo, CrosshairLineThickness + 2));
+            MenuCanvas.Children.Add(CrosshairLine(hx1, hy, hx2, hy,
+                Tokens.BrushTextPrimary, CrosshairLineThickness));
+            MenuCanvas.Children.Add(CrosshairLine(vx, vy1, vx, vy2,
+                Tokens.BrushTextPrimary, CrosshairLineThickness));
         }
         else // Pin
         {
-            // Pin: small filled circle with a line pointing down to center
+            // Pin: small filled circle with a line pointing down to center. The head is a
+            // filled shape, so it takes a StrokeHalo OUTLINE rather than an under-stroke.
             var pinHeadSize = indicatorSize * PinHeadRatio;
             var pinHead = new Ellipse
             {
                 Width = pinHeadSize,
                 Height = pinHeadSize,
-                Fill = Brushes.Red,
-                Stroke = Brushes.White,
-                StrokeThickness = 1
+                Fill = Tokens.BrushTextPrimary,
+                Stroke = Tokens.BrushStrokeHalo,
+                StrokeThickness = 2
             };
             Canvas.SetLeft(pinHead, canvasCenter.X - pinHeadSize / 2 + indicatorOffsetX);
             Canvas.SetTop(pinHead, canvasCenter.Y - indicatorSize + indicatorOffsetY);
 
-            var pinLine = new Line
+            Line PinLine(Brush stroke, double thickness) => new()
             {
                 X1 = canvasCenter.X + indicatorOffsetX,
                 Y1 = canvasCenter.Y - indicatorSize / 2 + indicatorOffsetY,
                 X2 = canvasCenter.X + indicatorOffsetX,
                 Y2 = canvasCenter.Y + indicatorOffsetY,
-                Stroke = Brushes.Red,
-                StrokeThickness = PinLineThickness
+                Stroke = stroke,
+                StrokeThickness = thickness
             };
+
+            MenuCanvas.Children.Add(PinLine(Tokens.BrushStrokeHalo, PinLineThickness + 2));
+            MenuCanvas.Children.Add(PinLine(Tokens.BrushTextPrimary, PinLineThickness));
             MenuCanvas.Children.Add(pinHead);
-            MenuCanvas.Children.Add(pinLine);
         }
 
         // Render action menu buttons from VM items using DwellArcButton

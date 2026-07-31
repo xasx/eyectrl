@@ -2356,7 +2356,7 @@ with:
         Check.That(loaded.Theme.Name).IsEqualTo("Contrast");
 ```
 
-- [ ] **Step 7: Run the full suite**
+- [x] **Step 7: Run the full suite**
 
 ```bash
 dotnet build EyeCtrl.slnx --nologo
@@ -3064,7 +3064,7 @@ Expected: 0 errors, 0 failures. Note that `--filter "Category!=UI"` is required:
 
 **Do not launch the app to look at the picker.** The two surfaces are covered by the build and by `ThemeSettingsNamesTests`; visual confirmation is the user's call, on their schedule.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Views/SettingsWindow.xaml.cs src/EyeCtrl.ViewModels/SettingsViewModel.cs tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs

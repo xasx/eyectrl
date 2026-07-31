@@ -218,7 +218,7 @@ Fixing the regex is **not** in this slice. Tightening it immediately surfaces th
 
 `Tokens.cs` is **not** touched in this task — the new types sit alongside it and nothing consumes them yet. That keeps the build green throughout and makes Task 2 a pure swap.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs`:
 
@@ -309,7 +309,7 @@ public class ThemeShapeTests
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeShapeTests" --nologo
@@ -317,7 +317,7 @@ dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeShape
 
 Expected: **build failure**, `CS0246: The type or namespace name 'ITheme' could not be found`.
 
-- [ ] **Step 3: Create the interface**
+- [x] **Step 3: Create the interface**
 
 Create `src/EyeCtrl.Controls/Theme/ITheme.cs`:
 
@@ -455,7 +455,7 @@ public interface ITheme
 }
 ```
 
-- [ ] **Step 4: Create the base class**
+- [x] **Step 4: Create the base class**
 
 Create `src/EyeCtrl.Controls/Theme/ThemeBase.cs`:
 
@@ -617,7 +617,7 @@ public abstract class ThemeBase : ITheme
 }
 ```
 
-- [ ] **Step 5: Create the Midnight theme**
+- [x] **Step 5: Create the Midnight theme**
 
 Create `src/EyeCtrl.Controls/Theme/MidnightTheme.cs`. Values are lifted verbatim from `Tokens.cs:40-71`:
 
@@ -695,7 +695,7 @@ public sealed class MidnightTheme : ThemeBase
 }
 ```
 
-- [ ] **Step 6: Exempt the new palette file from the raw-literal guard**
+- [x] **Step 6: Exempt the new palette file from the raw-literal guard**
 
 `MidnightTheme.cs` now holds colour literals, and `RawColourLiteralTests` scans `src/EyeCtrl.Controls` for exactly that. Skipping this leaves the suite red from here to Task 6 (finding 5). In `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs`, add a third entry to `Exempt` (`:40-46`):
 
@@ -706,7 +706,7 @@ public sealed class MidnightTheme : ThemeBase
 
 Keep both existing entries. `Tokens.cs` is **still** a live exemption at this point — it holds every literal until Task 2 guts it, so removing it now would fail the other half of the guard.
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeShapeTests" --nologo
@@ -717,7 +717,7 @@ Expected: 5 passing on the first (3 theory cases across 3 theories + 2 facts; ex
 
 The second command is not optional padding: Task 1 adds a file to a scanned project, so a `Controls.Tests`-only gate cannot see the guard it breaks. That is exactly how this defect survived a trial run.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/Theme/ITheme.cs src/EyeCtrl.Controls/Theme/ThemeBase.cs src/EyeCtrl.Controls/Theme/MidnightTheme.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs

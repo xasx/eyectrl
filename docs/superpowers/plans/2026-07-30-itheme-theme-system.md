@@ -2998,7 +2998,7 @@ The label carries `(restart to apply)`. That is deliberate and is the whole miti
 
 **Do not add a restart button.** The supervisor treats an authenticated clean exit as "do not relaunch" (`SupervisionStateMachine.cs:101-103`), so exiting would not bring the app back; exiting *uncleanly* would relaunch but book a crash strike and count toward the fallback-AT escalation. See "Why 'restart to apply' rather than a restart button" in the scope boundaries for the full reasoning and for the one viable follow-up design.
 
-- [ ] **Step 1: Add the live item to the ViewModel**
+- [x] **Step 1: Add the live item to the ViewModel**
 
 **The three dead items are already gone.** Task 7 Step 3 deleted `ThemeSettings.Mode`, `.OverlayOpacity` and `.HighContrast`, so the three lines that read them could not be left in place — they would not compile. Task 7 removed them (along with the now-unused `var th = _settings.Theme;`) and left a placeholder comment pointing here. This step only *adds*.
 
@@ -3021,7 +3021,7 @@ Note it reads `_settings.Theme` inline rather than a `th` local — Task 7 remov
 
 `ThemeSettings.ValidNames` is `string[]`, which is what `ComboSettingViewModel` takes — the same shape as the literal array the old `themeMode` item used. `EyeCtrl.Core.Settings` is already imported in this file.
 
-- [ ] **Step 2: Add the picker to the gaze-driven settings window**
+- [x] **Step 2: Add the picker to the gaze-driven settings window**
 
 In `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs`, inside `BuildGeneralPages` (line 901), add the picker as the first item on the page — immediately after the opening `[` `[` at lines 906-907 and before the `g_boot` toggle:
 
@@ -3039,7 +3039,7 @@ This uses the single-array `DwellComboBox` overload (`src/EyeCtrl.Controls/Dwell
 
 **Page fit — known-unknown.** The General page grows from five rows to six (g_theme, g_boot, g_pause, g_track, g_reset, g_resetall). `SettingsWindow` is a fixed-height window with no scrolling, and the no-launch rule means no headless check can confirm six uniform rows still fit; if the user reports the last row clipped, the picker moves onto its own page. Do not pre-emptively split — this is a user-visual verification on their schedule, not a gate here.
 
-- [ ] **Step 3: Add the coverage test**
+- [x] **Step 3: Add the coverage test**
 
 Append to `tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs`, inside the class:
 
@@ -3053,7 +3053,7 @@ Append to `tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs`, inside the class
     }
 ```
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 ```bash
 dotnet build EyeCtrl.slnx --nologo

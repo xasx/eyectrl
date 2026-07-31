@@ -32,11 +32,31 @@ public class DwellColorPicker : IDwellComposite
     /// AccentDanger (#FF5C7A) is deliberately absent: it fails that bar at 6.62:1,
     /// and is reserved for destructive actions rather than cursor decoration.
     /// </summary>
-    public static readonly (string Hex, string Name)[] DefaultPresets =
+    private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+
+    /// <summary>
+    /// The swatches offered for <paramref name="theme"/>: its accent first (the
+    /// default dwell colour), then success, warning and body text.
+    ///
+    /// Derived rather than listed, so each theme offers colours from its own
+    /// palette instead of Midnight's. Under Midnight this reproduces the four
+    /// presets that shipped, hex for hex. Every entry is gated at >= 7:1 against
+    /// its own theme's StrokeHalo by ColorPickerPresetTests — worst case across all
+    /// three themes is 9.13:1 — because a dark preset would collapse the §4.1.3
+    /// halo guarantee on the cursor ring.
+    /// </summary>
+    /// <param name="theme">The theme whose palette the swatches come from.</param>
+    /// <returns>Hex/name pairs, accent first.</returns>
+    public static (string Hex, string Name)[] PresetsFor(ITheme theme) =>
     [
-        ("#A5F3FC", "Aqua"), ("#7EE787", "Green"),
-        ("#E8A33C", "Amber"), ("#D6DEF5", "Light"),
+        (Hex(theme.Accent), "Accent"),
+        (Hex(theme.AccentSuccess), "Green"),
+        (Hex(theme.AccentWarning), "Amber"),
+        (Hex(theme.TextPrimary), "Light"),
     ];
+
+    /// <summary>Swatches for the active theme. Used when no explicit preset list is passed.</summary>
+    public static (string Hex, string Name)[] DefaultPresets => PresetsFor(Tokens.Current);
 
     private readonly DwellLabel _label;
     private readonly List<DwellButton> _swatches = new();

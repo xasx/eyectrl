@@ -39,8 +39,6 @@ public class RawColourLiteralTests
     /// </summary>
     private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["src/EyeCtrl.Controls/DwellColorPicker.cs"] =
-            "DefaultPresets are user-selectable palette values, gated by ColorPickerPresetTests",
         ["src/EyeCtrl.Controls/Theme/MidnightTheme.cs"] =
             "the Midnight palette itself (spec §4.1) — gated by tools/palette_validate.py",
         ["src/EyeCtrl.Controls/Theme/EmberTheme.cs"] =

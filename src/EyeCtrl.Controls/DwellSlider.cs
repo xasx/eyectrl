@@ -18,7 +18,7 @@ using EyeCtrl.Core.Processing;
 /// </remarks>
 public class DwellSlider : IDwellComposite
 {
-    private static readonly Color BtnBase = Tokens.SurfaceMedium;
+    private static Color BtnBase => Tokens.SurfaceMedium;
 
     private readonly DwellLabel _label;
     private readonly DwellButton _minus;

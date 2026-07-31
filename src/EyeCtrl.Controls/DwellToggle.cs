@@ -18,8 +18,8 @@ using EyeCtrl.Core.Processing;
 /// </remarks>
 public class DwellToggle : DwellControl
 {
-    private static readonly Color OnColor = Tokens.ToggleOn;
-    private static readonly Color OffColor = Tokens.ToggleOff;
+    private static Color OnColor => Tokens.ToggleOn;
+    private static Color OffColor => Tokens.ToggleOff;
 
     private readonly string _label;
     private readonly Func<bool> _get;

@@ -20,13 +20,13 @@ public class EmojiGridManager
     // Palette tokens, matching KeyboardWindow's key ramp — the emoji grid is built inside
     // KeyboardWindow (opaque BrushSurfaceDark background), so these sit on another surface
     // and are correctly opaque (§4.1.1: alpha only where it composites over the desktop).
-    private static readonly Color KeyColorNormal = Tokens.SurfaceKey;
-    private static readonly Color KeyColorSwitch = Tokens.SurfaceKeySwitch;
-    private static readonly Color KeyColorHighlight = Tokens.ToggleOn;
-    private static readonly Color CategoryBarColor = Tokens.SurfaceDark;
+    private static Color KeyColorNormal => Tokens.SurfaceKey;
+    private static Color KeyColorSwitch => Tokens.SurfaceKeySwitch;
+    private static Color KeyColorHighlight => Tokens.ToggleOn;
+    private static Color CategoryBarColor => Tokens.SurfaceDark;
     /// <summary>Active category tab — the 5th key-surface step, same role as a held modifier.</summary>
-    private static readonly Color CategoryBarActiveColor = Tokens.SurfaceKeyActive;
-    private static readonly Color EmojiGridBackgroundColor = Tokens.SurfaceMedium;
+    private static Color CategoryBarActiveColor => Tokens.SurfaceKeyActive;
+    private static Color EmojiGridBackgroundColor => Tokens.SurfaceMedium;
 
     private static readonly string[] SkinToneModifiers =
     {

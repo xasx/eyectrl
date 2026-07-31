@@ -41,14 +41,14 @@ public partial class SettingsWindow : OverlayWindow
     private const int PaginationButtonHeight = 80;
     private const int PaginationSymbolFontSize = 30;
 
-    private static readonly Color BtnBase = Tokens.SurfaceMedium;
-    private static readonly Color TabActive = Tokens.SurfaceKeySwitch;
-    private static readonly Color TabInactive = Tokens.SurfaceKey;
-    private static readonly Color ResetBase = Tokens.AccentWarning;
-    private static readonly Color ModalYes = Tokens.ToggleOn;
-    private static readonly Color ModalNo = Tokens.AccentDanger;
-    private static readonly Color CloseBase = Tokens.AccentDanger;
-    private static readonly Color DeleteBase = Tokens.AccentWarning;
+    private static Color BtnBase => Tokens.SurfaceMedium;
+    private static Color TabActive => Tokens.SurfaceKeySwitch;
+    private static Color TabInactive => Tokens.SurfaceKey;
+    private static Color ResetBase => Tokens.AccentWarning;
+    private static Color ModalYes => Tokens.ToggleOn;
+    private static Color ModalNo => Tokens.AccentDanger;
+    private static Color CloseBase => Tokens.AccentDanger;
+    private static Color DeleteBase => Tokens.AccentWarning;
 
     // ────── State ──────
 

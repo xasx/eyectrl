@@ -1179,7 +1179,7 @@ public class ThemeParityTests
             .OrderBy(n => n)
             .ToList();
 
-        var inCSharp = ThemeNames().Select(row => (string)row[0]).OrderBy(n => n).ToList();
+        var inCSharp = ThemeNames().Select(row => (string)row).OrderBy(n => n).ToList();
 
         Check.That(inCSharp).ContainsExactly(inPython);
     }
@@ -1193,6 +1193,8 @@ dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeParit
 ```
 
 Expected: **build failure**, `CS0246: The type or namespace name 'EmberTheme' could not be found` (and the same for `ContrastTheme`) — the two theme classes arrive in Steps 3 and 4.
+
+**`(string)row`, not `row[0]`.** xUnit v3 enumerates `TheoryData<string>` as `TheoryDataRow<string>`, which has **no indexer** — `row[0]` fails with `CS0021`. It does define an implicit operator back to `T` that returns the row's `Data`, so the plain cast is both correct and non-vacuous (verified against xunit.v3 3.2.2: the operator returns `"Ember"`, whereas `ToString()` would give `Xunit.TheoryDataRow\`1[System.String]`).
 
 **Note what this test does *not* reference.** It resolves names through the local `ThemeNamed` helper, not `ThemeRegistry`. That is deliberate and load-bearing: `ThemeRegistry.All` is built from `EmberTheme.Instance` and `ContrastTheme.Instance`, which this task creates, so a registry reference here would make Tasks 3 and 4 mutually dependent and leave **no** order in which both commits compile. Task 4 Step 4 swaps both this file and `ThemeShapeTests` onto the registry once it exists.
 
@@ -1600,7 +1602,7 @@ with:
 Then retarget the theme-set guard so it compares the validator against the registry — which is the stronger statement, and restores the check the plan originally intended. Rename `ValidatorAndCSharp_DeclareTheSameThemes` to `ValidatorAndRegistry_DeclareTheSameThemes` and replace its last two statements:
 
 ```csharp
-        var inCSharp = ThemeNames().Select(row => (string)row[0]).OrderBy(n => n).ToList();
+        var inCSharp = ThemeNames().Select(row => (string)row).OrderBy(n => n).ToList();
 
         Check.That(inCSharp).ContainsExactly(inPython);
 ```

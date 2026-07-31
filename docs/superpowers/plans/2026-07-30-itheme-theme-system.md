@@ -1875,7 +1875,7 @@ git commit -m "test(theme): gate the toggle pair in every theme, by chroma not b
 
 **The preset list.** Midnight's four presets are exactly `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, so deriving them from the theme reproduces the current Midnight list hex-for-hex (the first swatch's tooltip label changes from "Aqua" to "Accent") while giving Ember and Contrast coherent lists of their own.
 
-- [ ] **Step 1: Rewrite `ColorPickerPresetTests`**
+- [x] **Step 1: Rewrite `ColorPickerPresetTests`**
 
 Replace the entire contents of `tests/EyeCtrl.Controls.Tests/Theme/ColorPickerPresetTests.cs`:
 
@@ -1982,7 +1982,7 @@ public class ColorPickerPresetTests
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ColorPickerPresetTests" --nologo
@@ -1990,7 +1990,7 @@ dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ColorPicke
 
 Expected: **build failure**, `CS0117: 'DwellColorPicker' does not contain a definition for 'PresetsFor'`.
 
-- [ ] **Step 3: Derive the presets**
+- [x] **Step 3: Derive the presets**
 
 In `src/EyeCtrl.Controls/DwellColorPicker.cs`, replace lines 35-39:
 
@@ -2036,7 +2036,7 @@ Add `using EyeCtrl.Controls.Theme;` to the file's using block if it is not alrea
 
 `DefaultPresets` changes from a field to a property. Its only consumer is `presets ??= DefaultPresets;` at `src/EyeCtrl.Controls/DwellColorPicker.cs:83`, which is unaffected.
 
-- [ ] **Step 4: Pin the settings defaults to Midnight explicitly**
+- [x] **Step 4: Pin the settings defaults to Midnight explicitly**
 
 In `tests/EyeCtrl.App.Tests/SettingsDefaultsMatchTokensTests.cs`, replace the class doc comment and the four assertions (lines 9-36) with the version below.
 
@@ -2085,7 +2085,7 @@ public class SettingsDefaultsMatchTokensTests
 }
 ```
 
-- [ ] **Step 5: Swap the raw-literal exemptions**
+- [x] **Step 5: Swap the raw-literal exemptions**
 
 This is the **last** of the four exemption edits (finding 5). Tasks 1, 2 and 3 already moved the list onto the theme files; the only entry that goes stale here is `DwellColorPicker.cs`, because Step 3 just replaced its literal presets with a derivation. `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` fails on it until it goes.
 
@@ -2112,7 +2112,7 @@ In `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs`, **delete** these two line
 
 Three entries, one per palette. `Tokens.cs` and `DwellColorPicker.cs` are deliberately absent: neither contains a literal any more, and a stale exemption silently protects nothing. If this block does not already have the three theme files in it, an earlier task skipped its exemption step — go back and find which, rather than pasting them all in here.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 ```bash
 dotnet build EyeCtrl.slnx --nologo
@@ -2121,7 +2121,7 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 
 Expected: 0 errors, 0 failures. `HaloContrastTests` from Task 5 now compiles and its four theories run across three themes each. If `NoUIFile_ContainsARawColourOutsideThePalette` fails naming a theme file, the exemption path is misspelled — it is repo-relative with forward slashes (`RawColourLiteralTests.cs:117`).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/DwellColorPicker.cs tests/EyeCtrl.Controls.Tests/Theme/ColorPickerPresetTests.cs tests/EyeCtrl.App.Tests/HaloContrastTests.cs tests/EyeCtrl.App.Tests/SettingsDefaultsMatchTokensTests.cs tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs

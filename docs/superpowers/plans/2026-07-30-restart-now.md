@@ -16,7 +16,7 @@
 
 **Supervisor-mediated is preferred wherever it is available**, because it is the only one where a *failed* relaunch is still recovered: if `Process.Start` throws, `DoLaunchApp` logs and deliberately leaves the machine in `Launching` (`src/EyeCtrl.Supervisor/Program.cs:399-422`), where the startup-grace check fires `StartupGraceElapsed → GoRecovering` (`SupervisionStateMachine.cs:110-115`) and retries. Nothing in-process can offer that, because the thing that would do the retrying is the thing that exited.
 
-**Self-restart is the fallback, and it has one genuine obstacle: the mutex.** `SingleInstanceGuard.TryAcquire` uses `WaitOne(0)` (`src/EyeCtrl.Core/Services/SingleInstanceGuard.cs`), so a child launched while the parent still holds the mutex exits instantly (`src/EyeCtrl.App/App.xaml.cs:81-87`), and the mutex is only released partway through `OnExit` (`App.xaml.cs:311`). Naively, then, the parent cannot confirm a healthy child before committing to exit — which is what made this look unsafe.
+**Self-restart is the fallback, and it has one genuine obstacle: the mutex.** `SingleInstanceGuard.TryAcquire` uses `WaitOne(0)` (`src/EyeCtrl.Core/Services/SingleInstanceGuard.cs`), so a child launched while the parent still holds the mutex exits instantly (`src/EyeCtrl.App/App.xaml.cs:81-87`), and the mutex is not released until `OnExit` runs (`App.xaml.cs:311` today; Task 6 Step 3 moves it to the *end* of `OnExit`, so the successor cannot start while this instance still holds the settings file, the Tobii device or the dwell pipe). Naively, then, the parent cannot confirm a healthy child before committing to exit — which is what made this look unsafe.
 
 **The handshake dissolves that.** Split "the child started" from "the child took over":
 
@@ -123,7 +123,7 @@ Failure branches, all landing somewhere safe:
 | `Environment.ProcessPath` null, or `Process.Start` throws | Abort, app keeps running, user is told |
 | Child exits before signalling ready | Abort, app keeps running, user is told |
 | Child never signals within 30s | Child killed, abort, app keeps running, user is told |
-| Parent hangs during `OnExit` | Child's mutex wait times out after 30s and it exits quietly, leaving one instance rather than two |
+| Parent hangs during `OnExit` | Child's mutex wait times out after 30s and it exits quietly, leaving one instance rather than two. **Traceless from the child's side** — logging is not configured that early (Task 6 Step 2); diagnose from the parent's refusal modal and `Restart refused` log line |
 | Parent killed mid-exit | Mutex is abandoned; the guard treats that as acquired, so the child takes over (`SingleInstanceGuard.cs`) |
 | Child signals, then dies during init | **The residual risk**, on the self-restart path only. Task 12's offer moves the operation onto the supervised path, where it is recovered |
 | Supervisor dies between probe and exit | App exits, no relaunch. **Accepted residual risk** — a ~2s window, indistinguishable from the supervisor crashing at any other moment |
@@ -165,7 +165,7 @@ Failure branches, all landing somewhere safe:
 | `src/EyeCtrl.Supervisor/Supervision/SupervisionStateMachine.cs:90-104` | Remember the request; branch `ProcessExited`. |
 | `src/EyeCtrl.Supervisor/Program.cs:280-286,366-378` | Thread the flag in; zero backoff for a restart-originated launch. |
 | `src/EyeCtrl.Core/Services/SingleInstanceGuard.cs` | `TryAcquire(TimeSpan)` — wait for the mutex instead of failing fast. |
-| `src/EyeCtrl.App/App.xaml.cs:74-87,~215,275-286,300-311` | Handoff arg; construct the coordinator; pass the flag to `SignalShuttingDown`. |
+| `src/EyeCtrl.App/App.xaml.cs:74-87,~215,275-286,300-330` | Handoff arg; move the mutex release to the end of `OnExit`; construct the coordinator; pass the flag to `SignalShuttingDown`. |
 | `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:901,99-106` | The button; display a refusal. |
 | `src/EyeCtrl.ViewModels/SettingsViewModel.cs:~171-179` | The matching `ActionButtonSettingItem`. |
 | `src/EyeCtrl.App/Services/HeartbeatPublisher.cs` (again) | `EnablePublishing()` so a session can start publishing mid-flight (Task 11). |
@@ -798,6 +798,15 @@ git commit -m "feat(restart): relaunch after a restart-flagged clean exit, witho
 
 The rule is extracted to a pure helper because `SupervisorApp` is a WPF `Application` (`Program.cs:61`) and cannot be exercised headlessly.
 
+**The discriminator is the state PAIR, not the previous state alone.** Two transitions leave `CleanExitPending` emitting `LaunchApp`, and only one of them is a restart:
+
+| Transition | Emits | Strike? | Correct delay |
+|---|---|---|---|
+| `ProcessExited` → `Launching` (Task 2's restart branch) | `LaunchApp` | no | **zero** |
+| `DeadlineElapsed` → `Recovering`/`FallenBack` (`SupervisionStateMachine.cs:135-137`) | `ForceKill` + `LaunchApp` (`:153-154`) | **yes** | its backoff |
+
+The second is the hung-shutdown recovery: the app announced a restart, failed to exit within the 5s deadline, and got force-killed. That is a genuine crash recovery, it books a strike, and today it correctly inherits its backoff from `Program.cs:377`. Keying the policy on `prevState` alone would silently strip it — producing exactly the tight relaunch loop the policy's own rationale says backoff exists to prevent, bounded only by the three-strike escalation to `FallenBack`. So the policy takes both states, and zero applies only to `CleanExitPending → Launching`. `DrainCommands` runs *after* `_sm.Handle` (`Program.cs:201-202`), so `_sm.State` is already the post-transition state and no extra plumbing is needed.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Supervisor.Tests/Supervision/RelaunchDelayPolicyTests.cs`:
@@ -812,31 +821,59 @@ public class RelaunchDelayPolicyTests
     [Fact]
     public void RestartOriginatedLaunch_IsImmediate()
     {
-        // A LaunchApp emitted straight out of CleanExitPending is a user-requested
-        // restart. The user is waiting for their only UI to come back; a crash-loop
-        // brake is the wrong instrument.
-        Check.That(RelaunchDelayPolicy.For(SupervisorState.CleanExitPending, TimeSpan.FromSeconds(60)))
+        // CleanExitPending -> Launching is Task 2's restart branch: the ONLY path that
+        // reaches LaunchApp without booking a strike. The user is waiting for their only
+        // UI to come back; a crash-loop brake is the wrong instrument.
+        Check.That(RelaunchDelayPolicy.For(
+                SupervisorState.CleanExitPending, SupervisorState.Launching, TimeSpan.FromSeconds(60)))
              .IsEqualTo(TimeSpan.Zero);
+    }
+
+    [Fact]
+    public void HungRestartForceKill_KeepsItsBackoff()
+    {
+        // THE case that makes the state PAIR necessary. The app announced a restart and
+        // then failed to exit inside the 5s deadline, so DeadlineElapsed force-killed it
+        // (SupervisionStateMachine.cs:135-137) and GoRecovering emitted ForceKill +
+        // LaunchApp (:153-154) — with prevState still CleanExitPending. That is a real
+        // crash recovery: it books a strike, and stripping its backoff would produce the
+        // tight relaunch loop backoff exists to prevent.
+        Check.That(RelaunchDelayPolicy.For(
+                SupervisorState.CleanExitPending, SupervisorState.Recovering, TimeSpan.FromSeconds(15)))
+             .IsEqualTo(TimeSpan.FromSeconds(15));
+    }
+
+    [Fact]
+    public void HungRestartThatEscalates_KeepsItsBackoff()
+    {
+        // Same transition, but the strike tripped the crash window so GoRecovering went
+        // to FallenBack instead of Recovering. Still not a restart.
+        Check.That(RelaunchDelayPolicy.For(
+                SupervisorState.CleanExitPending, SupervisorState.FallenBack, TimeSpan.FromSeconds(60)))
+             .IsEqualTo(TimeSpan.FromSeconds(60));
     }
 
     [Fact]
     public void RecoveryLaunch_KeepsItsBackoff()
     {
-        Check.That(RelaunchDelayPolicy.For(SupervisorState.Recovering, TimeSpan.FromSeconds(15)))
+        Check.That(RelaunchDelayPolicy.For(
+                SupervisorState.Supervising, SupervisorState.Recovering, TimeSpan.FromSeconds(15)))
              .IsEqualTo(TimeSpan.FromSeconds(15));
     }
 
     [Fact]
     public void InitialLogonLaunch_KeepsItsZeroDelay()
     {
-        Check.That(RelaunchDelayPolicy.For(SupervisorState.IdleWatch, TimeSpan.Zero))
+        Check.That(RelaunchDelayPolicy.For(
+                SupervisorState.IdleWatch, SupervisorState.Launching, TimeSpan.Zero))
              .IsEqualTo(TimeSpan.Zero);
     }
 
     [Fact]
     public void FallenBackRelaunch_KeepsItsBackoff()
     {
-        Check.That(RelaunchDelayPolicy.For(SupervisorState.FallenBack, TimeSpan.FromSeconds(60)))
+        Check.That(RelaunchDelayPolicy.For(
+                SupervisorState.FallenBack, SupervisorState.FallenBack, TimeSpan.FromSeconds(60)))
              .IsEqualTo(TimeSpan.FromSeconds(60));
     }
 }
@@ -866,21 +903,36 @@ using System;
 /// restart is not a crash loop: it books no strike, and the user is waiting for the
 /// only interface they can operate to come back. Making them wait up to 60s because
 /// the app happened to crash earlier in the window reads as a hang.
+///
+/// The restart is identified by the state PAIR, not by the previous state alone. Two
+/// transitions leave <see cref="SupervisorState.CleanExitPending"/> emitting LaunchApp:
+/// Task 2's restart branch (to <see cref="SupervisorState.Launching"/>, no strike) and
+/// the hung-shutdown force-kill (DeadlineElapsed → GoRecovering → Recovering/FallenBack,
+/// which DOES book a strike). Only the first may skip backoff.
 /// </summary>
 public static class RelaunchDelayPolicy
 {
     /// <summary>
     /// Chooses the delay for a launch command.
     /// </summary>
-    /// <param name="stateWhenCommanded">
-    /// The state the machine was in when the command was emitted.
-    /// <see cref="SupervisorState.CleanExitPending"/> means the launch came out of the
-    /// restart branch — the only path that reaches LaunchApp without a strike.
+    /// <param name="stateWhenCommanded">The state the machine was in before this input.</param>
+    /// <param name="stateAfterInput">
+    /// The state the machine reached. Together with <paramref name="stateWhenCommanded"/>
+    /// this identifies the emitting transition: <c>CleanExitPending → Launching</c> is the
+    /// user-requested restart, and the only path that reaches LaunchApp without a strike.
+    /// <c>CleanExitPending → Recovering/FallenBack</c> is the hung-shutdown force-kill,
+    /// which is a real crash recovery and must keep its brake.
     /// </param>
     /// <param name="backoffDelay">The crash-backoff delay that would otherwise apply.</param>
     /// <returns>Zero for a user-requested restart; <paramref name="backoffDelay"/> otherwise.</returns>
-    public static TimeSpan For(SupervisorState stateWhenCommanded, TimeSpan backoffDelay) =>
-        stateWhenCommanded == SupervisorState.CleanExitPending ? TimeSpan.Zero : backoffDelay;
+    public static TimeSpan For(
+        SupervisorState stateWhenCommanded,
+        SupervisorState stateAfterInput,
+        TimeSpan backoffDelay) =>
+        stateWhenCommanded == SupervisorState.CleanExitPending
+            && stateAfterInput == SupervisorState.Launching
+                ? TimeSpan.Zero
+                : backoffDelay;
 }
 ```
 
@@ -908,9 +960,9 @@ to:
 
 ```csharp
     /// <param name="prevState">
-    /// The state the machine was in before this input. A LaunchApp emitted out of
-    /// CleanExitPending is a user-requested restart and skips backoff — see
-    /// <see cref="RelaunchDelayPolicy"/>.
+    /// The state the machine was in before this input. Paired with the machine's current
+    /// state it identifies the emitting transition: only CleanExitPending → Launching is a
+    /// user-requested restart and skips backoff — see <see cref="RelaunchDelayPolicy"/>.
     /// </param>
     private void DrainCommands(SupervisorState prevState)
 ```
@@ -925,11 +977,18 @@ Then replace the delay computation at `Program.cs:377-378`:
 with:
 
 ```csharp
-                    var delay = RelaunchDelayPolicy.For(prevState, _sm.NextBackoffDelay);
+                    // _sm.State is already the POST-transition state here: HandleInput calls
+                    // DrainCommands after _sm.Handle(input). The pair is what distinguishes a
+                    // restart (CleanExitPending -> Launching, no strike) from the hung-shutdown
+                    // force-kill (CleanExitPending -> Recovering/FallenBack, which books one and
+                    // must keep its brake).
+                    var delay = RelaunchDelayPolicy.For(prevState, _sm.State, _sm.NextBackoffDelay);
                     _pendingLaunchAt = DateTime.UtcNow + delay;
 ```
 
 `prevState` is the local `HandleInput` captures at `Program.cs:200` (`var prevState = _sm.State;`), already in scope at the `DrainCommands()` call on line 202 — pass it straight through. (Verified against `4451cdb`; if you are implementing on a later `main`, the `grep -n "prevState" src/EyeCtrl.Supervisor/Program.cs` check at the top of `HandleInput` confirms the name and scope in one line.)
+
+`_sm.State` needs no plumbing: `DrainCommands` is an instance method and `_sm` is a field, so it reads the post-transition state directly. Do **not** capture the state into a local before `_sm.Handle` and pass that as the second argument — that would make both arguments the *previous* state and the restart branch would never match.
 
 - [ ] **Step 5: Run the full suite**
 
@@ -1130,7 +1189,8 @@ In `src/EyeCtrl.Core/Services/SingleInstanceGuard.cs`, replace the `TryAcquire` 
     /// <see cref="TimeSpan.Zero"/> — the default and the behaviour every existing caller
     /// gets — fails fast, which is what the double-click guard needs. A restart child
     /// passes a real timeout instead: it must QUEUE behind the instance it is replacing,
-    /// because that instance only releases partway through its own OnExit.
+    /// because that instance does not release until the end of its own OnExit — after it
+    /// has written settings and torn down the gaze device.
     /// </summary>
     /// <param name="timeout">How long to wait for the current holder to release.</param>
     /// <returns><see langword="true"/> if the mutex is now held by this instance.</returns>
@@ -1179,7 +1239,7 @@ git commit -m "feat(restart): let a restart child queue for the single-instance 
 
 **Files:**
 - Create: `src/EyeCtrl.App/Services/RestartHandoff.cs`
-- Modify: `src/EyeCtrl.App/App.xaml.cs:74-87`
+- Modify: `src/EyeCtrl.App/App.xaml.cs:74-87` (handoff arg) and `:300-330` (`OnExit` — release the mutex last)
 
 Two processes have to agree on two names and one ordering rule. Putting them in one small type means the parent and child cannot drift, and gives the ordering rule somewhere to be written down.
 
@@ -1325,25 +1385,79 @@ with:
         // Local\ (not Global\): multi-user/RDP is a non-goal; avoids cross-session collisions.
         //
         // A restart replacement is the one case that must WAIT rather than fail fast: the
-        // instance it replaces only releases the mutex partway through its own OnExit.
+        // instance it replaces holds the mutex until the very end of its own OnExit.
         _singleInstance = new SingleInstanceGuard();
         if (!_singleInstance.TryAcquire(isRestartHandoff ? RestartHandoff.MutexWait : TimeSpan.Zero))
         {
             // Another instance is already running (likely the supervisor's legitimate one),
             // or — for a handoff — the outgoing instance never let go. Either way, exit:
             // one working instance beats two fighting over the gaze device.
-            Log.Information(
-                isRestartHandoff
-                    ? "Restart handoff timed out waiting for the outgoing instance; exiting."
-                    : "Another instance is already running; exiting.");
+            //
+            // Deliberately unlogged: InitializeSettingsAndLogging() has not run yet, so
+            // Serilog's static Log is still a SilentLogger and a Log.Information here would
+            // compile and then discard the line. See the note below for what that costs.
             Shutdown();
             return;
         }
 ```
 
-`Log` is available here — `InitializeSettingsAndLogging` runs later, so if the logger is not yet configured at this point, drop the two `Log.Information` calls rather than reordering startup. Check whether `Log` is used anywhere above line 100 before keeping them.
+**No logging here, and that has a consequence worth knowing about.** `Log` resolves (`using Serilog;` is at the top of the file) but `InitializeSettingsAndLogging()` is not called until `App.xaml.cs:99` — after this block — and Serilog's static `Log.Logger` is a `SilentLogger` until configured. Any `Log.Information` at this point compiles and silently discards. Reordering startup to log two lines is not worth it.
 
-- [ ] **Step 3: Build and run the suite**
+The cost is that **a handoff child which times out on the mutex exits leaving no trace at all.** That is the "Parent hangs during `OnExit`" row in the failure table, and its diagnosis has to come from the parent's side rather than the child's: the parent stays running and shows a refusal modal, and `Log.Warning("Restart refused: {Reason}", …)` from Task 9 is the log line to look for. If you ever find yourself needing the child's own account of a failed handoff, the fix is a Serilog bootstrap logger configured before the guard — not a `Log` call here that looks like it works.
+
+- [ ] **Step 3: Release the mutex LAST, not partway through `OnExit`**
+
+`OnExit` currently disposes the guard at `App.xaml.cs:311`, but the resources the guard exists to protect are released **after** that:
+
+| `App.xaml.cs` | Statement |
+|---|---|
+| 311 | `_singleInstance?.Dispose()` ← mutex released here |
+| 320 | `settingsService.Save(settings)` |
+| 324-325 | `adapter.Dispose()` / `gazeEngine.Dispose()` (Tobii device torn down) |
+| 326 | `ExternalDwellService.Dispose()` |
+
+The guard's own comment (`App.xaml.cs:78-79`) says it exists so two instances never fight "over the same gaze device, settings file, and dwell pipe". Today that gap is harmless because a second instance fails `TryAcquire(0)` and exits instantly — nothing ever proceeds into the window. Step 2 changes that: a handoff child now *waits*, so it acquires the mutex the moment line 311 runs and begins initialising while the outgoing instance is still holding all three.
+
+Two of the three are provably benign, and are recorded here so nobody has to re-derive them:
+
+- **settings.json — safe.** `SettingsService.Save` writes `*.tmp` then `File.Move(overwrite: true)` under the cross-process mutex `Local\EyeCtrl.Settings.Writer`, so the child always reads a complete file. Worst case is a stale-but-valid read, and the settings window's `SaveDebounced` (500ms, `SettingsWindow.xaml.cs:295`) has long since fired by the time a restart commits.
+- **`eyectrl_dwell` — safe.** `ExternalDwellService` binds with `NamedPipeServerStream.MaxAllowedServerInstances` (`ExternalDwellService.cs:201-202`), so both servers coexist; a cooperating app may briefly reach either instance, which resolves when the parent disposes.
+- **The Tobii device — not verified, and not verifiable headlessly.** Both processes would hold `tobii_device_create` handles across the window.
+
+Rather than ship three separate "verified safe" arguments that a later edit could quietly invalidate, close the window. Move the disposal to the end of `OnExit` — from line 311:
+
+```csharp
+        _trayIconManager?.Dispose();
+        _eventCoordinator?.Dispose();
+        _singleInstance?.Dispose();
+```
+
+to:
+
+```csharp
+        _trayIconManager?.Dispose();
+        _eventCoordinator?.Dispose();
+```
+
+and immediately before `Log.CloseAndFlush()` at the end of the method:
+
+```csharp
+        _heartbeatPublisher?.Dispose();
+
+        // Release the single-instance mutex LAST. A restart child is queued on it
+        // (Task 6's waiting acquire) and starts initialising the instant it is released, so
+        // everything this instance still owns — the settings file, the Tobii device, the
+        // external-dwell pipe — must already be released. Releasing it at the TOP of OnExit
+        // was harmless only while a second instance exited immediately instead of waiting.
+        _singleInstance?.Dispose();
+
+        Log.CloseAndFlush();
+        base.OnExit(e);
+```
+
+This costs nothing: the child's `RestartHandoff.MutexWait` is 30s and the remaining teardown is well under a second. It also strictly improves the ordinary double-click case, which simply waits marginally longer to be told "no".
+
+- [ ] **Step 4: Build and run the suite**
 
 ```bash
 dotnet build EyeCtrl.slnx --nologo
@@ -1352,7 +1466,7 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 
 Expected: 0 errors, 0 failures. Nothing exercises the handoff yet; this step only proves the argument plumbing compiles and the ordinary launch path is unchanged.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Services/RestartHandoff.cs src/EyeCtrl.App/App.xaml.cs
@@ -1937,6 +2051,39 @@ public class AppRestartCoordinatorTests
 
         Check.That(requests).HasSize(2);
     }
+
+    [Fact]
+    public void AThrowingStrategy_ReportsAndReArms_RatherThanDeadeningTheButton()
+    {
+        // The background body runs on a thread-pool thread, so an escaping exception would
+        // be swallowed as an unobserved faulted Task: no report, and _restartInFlight stays
+        // latched forever — the user dwells the one control meant to get them unstuck and
+        // nothing happens, silently. Task 13's persistSettings is a real throw source
+        // (SettingsService.Save throws on invalid settings), so this is not hypothetical.
+        var settings = new EyeCtrlSettings();
+        var reports = new List<string>();
+        var attempts = 0;
+        var messenger = new WeakReferenceMessenger();
+        var coordinator = new AppRestartCoordinator(
+            messenger, settings,
+            tryReachSupervisor: () => false,
+            selfRestart: () => { attempts++; throw new InvalidOperationException("boom"); },
+            shutdown: () => reports.Add("shutdown"),
+            reportUnavailable: reports.Add,
+            runInBackground: work => work(),
+            postToUi: work => work());
+
+        messenger.Send(new RestartAppRequestedMessage());
+
+        Check.That(reports).HasSize(1);
+        Check.That(reports[0]).Contains("still running");
+        Check.WithCustomMessage("the app must not exit when the strategy threw")
+            .That(reports).Not.Contains("shutdown");
+
+        // Re-armed: a second dwell is honoured rather than silently dropped.
+        messenger.Send(new RestartAppRequestedMessage());
+        Check.That(attempts).IsEqualTo(2);
+    }
 }
 ```
 
@@ -2028,6 +2175,11 @@ public sealed class AppRestartCoordinator
     /// 0 = idle, 1 = a restart attempt is in progress. Guards against a second dwell
     /// launching a second child while the first readiness wait is still running — the
     /// loser would sit on the single-instance mutex for 30s and then exit.
+    ///
+    /// Latched with <see cref="Interlocked.Exchange(ref int, int)"/> and released with
+    /// <see cref="Volatile.Write(ref int, int)"/>. Every exit from the background body
+    /// must release it, including the exceptional one: a latch that is never cleared
+    /// deadens the button for the remainder of the session, silently.
     /// </summary>
     private int _restartInFlight;
 
@@ -2091,32 +2243,50 @@ public sealed class AppRestartCoordinator
 
         _runInBackground(() =>
         {
-            // Strategy 1 — supervisor-mediated. Enabled is necessary but not sufficient:
-            // the app may have been launched by hand with no supervisor running.
-            if (_settings.Supervision.Enabled && _tryReachSupervisor())
+            // Everything below runs on a thread-pool thread, where an escaping exception
+            // becomes an unobserved faulted Task — silent. If that happened, _postToUi would
+            // never run, _restartInFlight would stay latched, and the button would be dead
+            // for the rest of the session with no modal and no log: the user dwells the one
+            // control meant to get them unstuck and nothing happens. So the whole body is
+            // guarded, and the guard re-arms.
+            try
             {
+                // Strategy 1 — supervisor-mediated. Enabled is necessary but not sufficient:
+                // the app may have been launched by hand with no supervisor running.
+                if (_settings.Supervision.Enabled && _tryReachSupervisor())
+                {
+                    _postToUi(() =>
+                    {
+                        SupervisorRelaunchRequested = true;   // before _shutdown: OnExit reads this
+                        _shutdown();
+                    });
+                    return;
+                }
+
+                // Strategy 2 — self-restart. Begin() blocks for up to the readiness timeout.
+                var outcome = _selfRestart();
                 _postToUi(() =>
                 {
-                    SupervisorRelaunchRequested = true;   // before _shutdown: OnExit reads this
-                    _shutdown();
+                    if (outcome == RestartOutcome.Started)
+                    {
+                        _shutdown();
+                    }
+                    else
+                    {
+                        Volatile.Write(ref _restartInFlight, 0);   // re-arm: the user may try again
+                        _reportUnavailable(SelfRestartStrategy.Describe(outcome));
+                    }
                 });
-                return;
             }
-
-            // Strategy 2 — self-restart. Begin() blocks for up to the readiness timeout.
-            var outcome = _selfRestart();
-            _postToUi(() =>
+            catch (Exception ex)
             {
-                if (outcome == RestartOutcome.Started)
-                {
-                    _shutdown();
-                }
-                else
-                {
-                    _restartInFlight = 0;   // re-arm: the user may try again
-                    _reportUnavailable(SelfRestartStrategy.Describe(outcome));
-                }
-            });
+                // Never leave the button latched. The app is still running by construction —
+                // nothing here calls _shutdown outside the proven-successor branches — so the
+                // safe report is the generic one.
+                Volatile.Write(ref _restartInFlight, 0);
+                _postToUi(() => _reportUnavailable(
+                    "Restart failed: " + ex.Message + " EyeCtrl is still running."));
+            }
         });
     }
 }
@@ -2129,7 +2299,7 @@ dotnet build EyeCtrl.slnx --nologo
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AppRestartCoordinatorTests" --nologo
 ```
 
-Expected: 0 errors; 9 passing.
+Expected: 0 errors; 10 passing.
 
 - [ ] **Step 6: Commit**
 
@@ -2317,10 +2487,13 @@ using NFluent;
 using Xunit;
 
 /// <summary>
-/// Locating the supervisor mirrors how the supervisor locates the app: an environment
-/// override wins, otherwise it is assumed to sit beside us in the install directory
-/// (`Program.cs:597-608`). Keeping the two symmetrical means one install layout works
-/// in both directions.
+/// Locating the supervisor follows the same shape as the supervisor locating the app: an
+/// environment override wins, otherwise it is assumed to sit beside us in the install
+/// directory (`Program.cs:597-608`). One install layout then works in both directions.
+///
+/// The one deliberate difference is what these tests exist to pin: unlike
+/// `ResolveAppExePath`, a missing sibling yields null rather than a hopeful path, because
+/// `IsInstalled` gates whether Task 13 offers the user a supervisor at all.
 /// </summary>
 public class SupervisorLauncherTests : IDisposable
 {
@@ -2443,10 +2616,17 @@ using System.IO;
 /// <summary>
 /// Locates and starts the EyeCtrl supervisor.
 ///
-/// Resolution mirrors how the supervisor locates the app (`Program.cs:597-608`): an
-/// environment override wins, otherwise the exe is assumed to sit beside us in the same
-/// install directory. Keeping the two symmetrical means one install layout works in
-/// both directions, and one env var pair documents both.
+/// Resolution follows the same shape as the supervisor's `ResolveAppExePath`
+/// (`Program.cs:597-608`): an environment override wins, otherwise the exe is assumed to
+/// sit beside us in the same install directory. One install layout therefore works in both
+/// directions, and one env var pair documents both.
+///
+/// It is NOT an exact mirror, and the difference is load-bearing: `ResolveAppExePath`
+/// returns the sibling path unconditionally — it never checks `File.Exists` on it, because
+/// the supervisor has to launch *something* and lets `Process.Start` fail loudly. Here the
+/// sibling IS existence-checked and a missing exe yields <see langword="null"/>, because
+/// <see cref="IsInstalled"/> is a question Task 13 asks before offering the user a choice.
+/// Offering to start a supervisor that is not installed would be worse than not offering.
 /// </summary>
 public static class SupervisorLauncher
 {
@@ -2560,6 +2740,29 @@ and change `TryReachSupervisor`'s guard from `if (!_supervised) return false;` t
         if (Volatile.Read(ref _publishing) == 0) return false;
 ```
 
+Finally, make `Stamp` skip the wake-up when there is no writer to wake. Step 5 starts the timer unconditionally, so `Stamp` now runs every 3s in standalone mode — which is the default (`SupervisionSettings.Enabled == false`). `_sendSignal` is `new(0, 1)` (line 51), so with nothing draining it the count saturates at 1 and **every tick from the second one onward throws `SemaphoreFullException` into the existing catch**. Caught, so not a correctness bug, but it is ~20 thrown exceptions a minute on the dispatcher forever, and it makes any first-chance-exception debugging session unusable. Change the tail of `Stamp` (lines 82-87) from:
+
+```csharp
+        try { _sendSignal.Release(); }
+        catch (SemaphoreFullException) { /* already signaled — writer will pick up _pending */ }
+```
+
+to:
+
+```csharp
+        // Nothing to wake in standalone mode: the timer stamps unconditionally (App.xaml.cs)
+        // but no writer loop exists, so the semaphore would saturate at its max of 1 and every
+        // subsequent Release would throw into the catch below — every 3s, for the life of the
+        // process. The payload still lands in _pending, which is all CurrentPayload needs, and
+        // EnablePublishing's writer drains it on its first pass.
+        if (Volatile.Read(ref _publishing) == 0) return;
+
+        try { _sendSignal.Release(); }
+        catch (SemaphoreFullException) { /* already signaled — writer will pick up _pending */ }
+```
+
+The `catch` stays: it still covers the genuine case it was written for, a stamp arriving while the writer is mid-send.
+
 - [ ] **Step 5: Create the heartbeat timer unconditionally**
 
 In `src/EyeCtrl.App/App.xaml.cs`, replace the conditional timer (lines 213-228):
@@ -2595,9 +2798,10 @@ with:
             //
             // The TIMER now runs unconditionally; the WRITER is what standalone mode omits
             // (HeartbeatPublisher.EnablePublishing). Stamping with no writer costs one field
-            // assignment every 3s, and it means that if the user starts a supervisor
-            // mid-session, heartbeats begin flowing the moment publishing is enabled — with
-            // no window in which the supervisor has adopted an app that is not yet stamping.
+            // assignment every 3s — Stamp skips the semaphore Release when not publishing,
+            // see below — and it means that if the user starts a supervisor mid-session,
+            // heartbeats begin flowing the moment publishing is enabled, with no window in
+            // which the supervisor has adopted an app that is not yet stamping.
             _heartbeatPublisher = new HeartbeatPublisher(supervised: settings.Supervision.Enabled);
             gazeEngine.GazeSampled += _ => _heartbeatPublisher.OnGazeSample();
             var heartbeatTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
@@ -2605,6 +2809,10 @@ with:
                 _heartbeatPublisher.Stamp(gazeProvider.IsConnected, im.CurrentState == InteractionState.Paused);
             heartbeatTimer.Start();
 ```
+
+**One consequence of the unconditional timer, verified safe — recorded so nobody "fixes" it.** `Stamp` passes `_shuttingDown` positionally with `RestartRequested` defaulting to false (`HeartbeatPublisher.cs:81`). So a tick landing *after* `SignalShuttingDown(restartRequested: true)` has latched `_shuttingDown` would put `{shuttingDown: true, restartRequested: false}` on the wire — apparently retracting the restart. It cannot: the supervisor's `CleanExitRequested` case is guarded `when State == SupervisorState.Supervising` (`SupervisionStateMachine.cs:90`), and by then the machine is already in `CleanExitPending`, so the duplicate falls through unmatched and `_restartAfterExit` survives untouched.
+
+Two independent reasons it is unreachable anyway — a `DispatcherTimer` cannot tick while `OnExit` occupies the dispatcher, and `SignalShuttingDown` flushes synchronously — but the guard is the one that would still hold if either changed. If you ever make `Stamp` preserve the latched restart intent, do it because the positional default is fragile, not because this scenario is live.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
@@ -3182,9 +3390,16 @@ assign `Settings = settings;` in the constructor, and pass four more arguments t
 
 ```csharp
                 supervisorInstalled: () => SupervisorInstalled,
-                launchSupervisor: () => { Launches++; return SupervisorLaunches; },
-                enablePublishing: () => PublishingEnabled = true,
-                persistSettings: () => SupervisionPersisted = true,
+                launchSupervisor: () => { Launches++; BringUp.Add("launch"); return SupervisorLaunches; },
+                enablePublishing: () => { PublishingEnabled = true; BringUp.Add("publish"); },
+                persistSettings: () => { SupervisionPersisted = true; BringUp.Add("persist"); },
+```
+
+`BringUp` records the bring-up sequence so the documented order is pinned, not merely the end state — add it beside the other fields:
+
+```csharp
+        /// <summary>Bring-up steps in the order TryBringUpSupervisor performed them.</summary>
+        public List<string> BringUp { get; } = new();
 ```
 
 Update `Request` to carry the choice:
@@ -3235,6 +3450,12 @@ Then add:
         Check.That(h.Launches).IsEqualTo(1);
         Check.That(h.Coordinator.SupervisorRelaunchRequested).IsTrue();
         Check.That(h.Log).ContainsExactly("shutdown");
+
+        // The ORDER, not just the end state. Asserting only the three booleans let the
+        // implementation drift from its own doc comment once already: publishing must be on
+        // before anything can adopt us, and persist must precede the launch. It is also the
+        // only throwing step, so it goes last.
+        Check.That(h.BringUp).ContainsExactly("publish", "persist", "launch");
     }
 
     [Fact]
@@ -3367,55 +3588,82 @@ Add the offer predicate, rewrite `HandleRestart`, and add the bring-up helper:
 
         _runInBackground(() =>
         {
-            // Strategy 1 — supervisor-mediated. Enabled is necessary but not sufficient:
-            // the app may have been launched by hand with no supervisor running.
-            if (_settings.Supervision.Enabled && _tryReachSupervisor())
+            // Guarded exactly as in Task 8, and it matters more here: TryBringUpSupervisor
+            // calls _persistSettings, i.e. SettingsService.Save, which THROWS
+            // InvalidOperationException when settings.Validate() fails. Unguarded, that
+            // exception would vanish into an unobserved faulted Task with the button left
+            // latched — and with Supervision.Enabled already mutated in memory.
+            try
             {
+                // Strategy 1 — supervisor-mediated. Enabled is necessary but not sufficient:
+                // the app may have been launched by hand with no supervisor running.
+                if (_settings.Supervision.Enabled && _tryReachSupervisor())
+                {
+                    _postToUi(() =>
+                    {
+                        SupervisorRelaunchRequested = true;   // before _shutdown: OnExit reads this
+                        _shutdown();
+                    });
+                    return;
+                }
+
+                // Strategy 1b — the user asked us to start a supervisor first, which upgrades
+                // this restart to the recoverable path AND leaves the replacement watched.
+                if (startSupervisor && TryBringUpSupervisor())
+                {
+                    _postToUi(() =>
+                    {
+                        SupervisorRelaunchRequested = true;
+                        _shutdown();
+                    });
+                    return;
+                }
+
+                // Strategy 2 — self-restart. Begin() blocks for up to the readiness timeout.
+                var outcome = _selfRestart();
                 _postToUi(() =>
                 {
-                    SupervisorRelaunchRequested = true;   // before _shutdown: OnExit reads this
-                    _shutdown();
+                    if (outcome == RestartOutcome.Started)
+                    {
+                        _shutdown();
+                    }
+                    else
+                    {
+                        Volatile.Write(ref _restartInFlight, 0);   // re-arm: the user may try again
+                        _reportUnavailable(SelfRestartStrategy.Describe(outcome));
+                    }
                 });
-                return;
             }
-
-            // Strategy 1b — the user asked us to start a supervisor first, which upgrades
-            // this restart to the recoverable path AND leaves the replacement watched.
-            if (startSupervisor && TryBringUpSupervisor())
+            catch (Exception ex)
             {
-                _postToUi(() =>
-                {
-                    SupervisorRelaunchRequested = true;
-                    _shutdown();
-                });
-                return;
+                // Never leave the button latched — see Task 8.
+                Volatile.Write(ref _restartInFlight, 0);
+                _postToUi(() => _reportUnavailable(
+                    "Restart failed: " + ex.Message + " EyeCtrl is still running."));
             }
-
-            // Strategy 2 — self-restart. Begin() blocks for up to the readiness timeout.
-            var outcome = _selfRestart();
-            _postToUi(() =>
-            {
-                if (outcome == RestartOutcome.Started)
-                {
-                    _shutdown();
-                }
-                else
-                {
-                    _restartInFlight = 0;   // re-arm: the user may try again
-                    _reportUnavailable(SelfRestartStrategy.Describe(outcome));
-                }
-            });
         });
     }
 
     /// <summary>
     /// Enables supervision, starts the supervisor, and waits for it to answer.
     ///
-    /// Ordering is load-bearing in both directions. Publishing goes on FIRST, because the
-    /// probe that follows adopts this app into the supervisor's Supervising state and an
-    /// adopted app that sends nothing is force-killed after HangThresholdSeconds. The
-    /// setting is persisted BEFORE the replacement launches, because that replacement must
-    /// publish too, for exactly the same reason.
+    /// Ordering is load-bearing in both directions, and the three statements below are in
+    /// their documented order — keep them that way:
+    ///
+    /// <list type="number">
+    /// <item><b>Publishing on FIRST.</b> The probe that follows adopts this app into the
+    /// supervisor's Supervising state, and an adopted app that sends nothing is force-killed
+    /// after HangThresholdSeconds. It is also the only one of the three that cannot throw,
+    /// so doing it first means a later failure leaves a consistent session rather than one
+    /// claiming supervision while silent.</item>
+    /// <item><b>Then the in-memory flag</b>, so the running session's own behaviour matches
+    /// what is about to be written.</item>
+    /// <item><b>Then persist</b>, BEFORE the replacement launches, because that replacement
+    /// must publish too, for exactly the same reason. This is the step that can throw —
+    /// <c>SettingsService.Save</c> rejects settings that fail validation — and
+    /// <see cref="HandleRestart"/>'s catch is what turns that into a report rather than a
+    /// dead button.</item>
+    /// </list>
     ///
     /// Returns false on any failure, and the caller falls through to self-restart — which
     /// still improves matters, since supervision is now on and a late-arriving supervisor
@@ -3423,9 +3671,14 @@ Add the offer predicate, rewrite `HandleRestart`, and add the bring-up helper:
     /// </summary>
     private bool TryBringUpSupervisor()
     {
+        // Publishing FIRST, and before the throwing call. _persistSettings can throw
+        // (SettingsService.Save rejects invalid settings), and if it did with publishing
+        // still off we would be left claiming Supervision.Enabled in memory while sending
+        // no heartbeats — the delayed-kill shape from Task 11. Enabling first makes that
+        // failure inert; HandleRestart's catch then reports it and re-arms.
+        _enablePublishing();
         _settings.Supervision.Enabled = true;
         _persistSettings();
-        _enablePublishing();
 
         if (!_launchSupervisor())
         {
@@ -3623,7 +3876,8 @@ Expected: clean-exit notification → `Bound process exited (pid=…)` → `Laun
 |---|---|
 | No relaunch, supervisor in `IdleWatch` | The restart flag did not reach the state machine — check Task 4 |
 | Relaunch happened but a strike was booked | `ProcessExited` reached the machine while still `Supervising` (the `ShuttingDown:true` payload lost the race with process exit) — check Task 2; the synchronous 2s flush in `SignalShuttingDown` is what minimizes this window |
-| Relaunch delayed 5-60s | `RelaunchDelayPolicy` not consulted, or `prevState` wrong — check Task 3 |
+| Relaunch delayed 5-60s | `RelaunchDelayPolicy` not consulted, or the state pair is wrong — check Task 3. The second argument must be the POST-transition `_sm.State`; passing `prevState` twice makes the restart branch never match and every relaunch inherit backoff |
+| Relaunch was immediate after a **hung** shutdown (force-killed first) | The reverse error: the pair is being collapsed to `prevState` alone, so the `DeadlineElapsed → Recovering` crash recovery is skipping its brake — check Task 3 |
 | Two instances start | `SupervisorRelaunchRequested` was set on a self-restart path — check Task 8 |
 
 - [ ] **Scenario C — the three-way offer**

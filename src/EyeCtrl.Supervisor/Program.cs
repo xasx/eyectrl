@@ -280,9 +280,15 @@ internal sealed class SupervisorApp : Application
             // 3. Clean exit: the app's final ShuttingDown payload. ClientVerified == (id != null),
             //    which is true here (we dropped unbound above); the flag is threaded through for
             //    the state machine's authenticated-shutdown check.
+            //    RestartRequested rides along: a user-requested restart is a clean exit that is
+            //    followed by a launch. It is only honoured for a verified client, by the same
+            //    rule and in the same place as the shutdown signal itself.
             if (hb.ShuttingDown)
             {
-                HandleInput(new CleanExitRequested(now, ClientVerified: id != null));
+                HandleInput(new CleanExitRequested(
+                    now,
+                    ClientVerified: id != null,
+                    RestartRequested: hb.RestartRequested));
             }
         }));
     }

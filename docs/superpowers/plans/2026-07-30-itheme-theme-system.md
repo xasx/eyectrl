@@ -2599,7 +2599,7 @@ git commit -m "fix(theme): stop 30 static captures snapshotting the palette at t
 
 `OverlayStyles.xaml` resolves its `{x:Static}` references when WPF parses it, which happens during `Application` construction — potentially *before* `OnStartup` activates a theme. Rather than reason about parse timing, the applier writes the resolved theme into the target dictionary explicitly. Written into `Application.Resources` at the top level, those entries shadow the merged dictionary's, so the result is correct regardless of when parsing happened.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Controls.Tests/Theme/ThemeResourceApplierTests.cs`:
 
@@ -2691,7 +2691,7 @@ public class ThemeResourceApplierTests
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeResourceApplierTests" --nologo
@@ -2699,7 +2699,7 @@ dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeResou
 
 Expected: **build failure**, `CS0103: The name 'ThemeResourceApplier' does not exist`.
 
-- [ ] **Step 3: Create the applier**
+- [x] **Step 3: Create the applier**
 
 Create `src/EyeCtrl.Controls/Theme/ThemeResourceApplier.cs`:
 
@@ -2763,7 +2763,7 @@ public static class ThemeResourceApplier
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --nologo
@@ -2771,7 +2771,7 @@ dotnet test tests/EyeCtrl.Controls.Tests --nologo
 
 Expected: all pass. If `Apply_CoversEveryKeyTheDictionaryDeclares` fails, `OverlayStyles.xaml` declares something outside the brush/thickness set — add it to `Apply` rather than loosening the test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/Theme/ThemeResourceApplier.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeResourceApplierTests.cs

@@ -3081,7 +3081,7 @@ git commit -m "feat(theme): offer the theme picker in both settings surfaces"
 
 §10.6 poses four structural questions. All four now have answers in code, and the spec should say so rather than leaving a reader to infer it.
 
-- [ ] **Step 1: Rewrite §10.6's status**
+- [x] **Step 1: Rewrite §10.6's status**
 
 Replace the §10.6 introduction at `docs/design/overlay-unification-spec.md:1069-1071`:
 
@@ -3108,7 +3108,7 @@ Then append to each of the four bullets, in order:
 - After the `A theme setting means a fifth persisted colour-adjacent key` bullet: **Resolved — and it cost three keys rather than adding one.** `ThemeSettings.Mode`, `.OverlayOpacity` and `.HighContrast` were persisted, gaze-reachable, and read by nothing; so was `CursorSettings.CircleHighContrast`, which was surfaced twice. All four were deleted and replaced by `ThemeSettings.Name`. The four persisted colours (`CircleColor`, `TargetColor`, `HighlightColor`, `TrailColor`) are **explicitly theme-independent**: they are user-chosen absolute values, and their defaults track Midnight.
 - After the halo-constraint sentence: **Re-checked, and it is portable after all.** All four shipping presets clear 7:1 against all three halos (worst case 9.13:1, Amber vs Midnight's `#0A0A14`). What was not portable is the *first* preset, which must be the theme's accent — so the list is now derived from the theme as `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, which reproduces Midnight's four values exactly.
 
-- [ ] **Step 2: Note the two gate corrections in §4.4**
+- [x] **Step 2: Note the two gate corrections in §4.4**
 
 Append to §4.4, after the two existing consequence bullets at `docs/design/overlay-unification-spec.md:389-395`:
 
@@ -3132,7 +3132,7 @@ both are worth recording because they were assertions that only held for Midnigh
   always meant.
 ```
 
-- [ ] **Step 3: Verify the whole gate one last time**
+- [x] **Step 3: Verify the whole gate one last time**
 
 ```bash
 python tools/palette_validate.py
@@ -3150,7 +3150,7 @@ node .gitnexus/run.cjs analyze
 
 and run `detect_changes({scope: "compare", base_ref: "main"})` to confirm the affected symbols are the ones this plan names.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/design/overlay-unification-spec.md

@@ -45,8 +45,6 @@ public partial class SettingsWindow : OverlayWindow
     private static readonly Color TabActive = Tokens.SurfaceKeySwitch;
     private static readonly Color TabInactive = Tokens.SurfaceKey;
     private static readonly Color ResetBase = Tokens.AccentWarning;
-    private static readonly Color ModalYes = Tokens.ToggleOn;
-    private static readonly Color ModalNo = Tokens.AccentDanger;
     private static readonly Color CloseBase = Tokens.AccentDanger;
     private static readonly Color DeleteBase = Tokens.AccentWarning;
 
@@ -70,6 +68,9 @@ public partial class SettingsWindow : OverlayWindow
     private readonly Dictionary<string, SolidColorBrush> _tabBrushes = new();
     private readonly Dictionary<string, SolidColorBrush> _pagBrushes = new();
     private readonly Dictionary<string, SolidColorBrush> _modalBrushes = new();
+    // Base fill per modal button id, captured at build time so UpdateModalVisuals can
+    // blend each button's dwell progress from its own base rather than a single shared one.
+    private readonly Dictionary<string, Color> _modalBaseColors = new();
     private SolidColorBrush? _closeButtonBrush;
 
     private List<List<Action>> _pages = new();
@@ -1294,9 +1295,9 @@ public partial class SettingsWindow : OverlayWindow
     {
         foreach (var (id, progress) in _viewModel.ModalProgress)
         {
-            if (_modalBrushes.TryGetValue(id, out var brush))
+            if (_modalBrushes.TryGetValue(id, out var brush)
+                && _modalBaseColors.TryGetValue(id, out var baseC))
             {
-                var baseC = id == "modal_yes" ? ModalYes : ModalNo;
                 // HighlightColor(baseC, progress, 0.5) == Blend(baseC, Accent, progress * 0.5)
                 brush.Color = ColorBlend.Blend(baseC, Tokens.Accent, progress * 0.5);
             }
@@ -1319,16 +1320,27 @@ public partial class SettingsWindow : OverlayWindow
             ModalButtonPanel.Children.Clear();
             _modalButtons.Clear();
             _modalBrushes.Clear();
+            _modalBaseColors.Clear();
 
-            var yesBtn = MakeModalButton("modal_yes", "\u2713 Yes", ModalYes);
-            var noBtn = MakeModalButton("modal_no", "\u2715 No", ModalNo);
+            // Two choices keep the horizontal row they have always had. Three or more
+            // stack vertically: side by side they would not fit descriptive labels, and a
+            // vertical stack gives a dwell user more separation between targets.
+            var choices = _viewModel.ModalChoices;
+            var vertical = choices.Count > 2;
+            ModalButtonPanel.Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal;
 
-            ModalButtonPanel.Children.Add(yesBtn);
-            ModalButtonPanel.Children.Add(noBtn);
+            foreach (var choice in choices)
+            {
+                var (background, foreground) = ModalButtonPalette.For(choice.Kind);
+                var button = MakeModalButton(choice.Id, choice.Label, background, foreground, vertical);
+                ModalButtonPanel.Children.Add(button);
 
-            // Register modal buttons as dwell targets with DPI-scaled radius
-            _viewModel.Register("modal_yes", DwellCategory.Modal, DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs, () => { });
-            _viewModel.Register("modal_no", DwellCategory.Modal, DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs, () => { });
+                // Register as a dwell target with DPI-scaled radius. The empty callback is
+                // the extension point; the ViewModel runs the choice's own action.
+                _viewModel.Register(
+                    choice.Id, DwellCategory.Modal,
+                    DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs, () => { });
+            }
 
             ModalOverlay.Visibility = Visibility.Visible;
         }
@@ -1337,6 +1349,7 @@ public partial class SettingsWindow : OverlayWindow
             ModalOverlay.Visibility = Visibility.Collapsed;
             _modalButtons.Clear();
             _modalBrushes.Clear();
+            _modalBaseColors.Clear();
         }
     }
 
@@ -1348,39 +1361,45 @@ public partial class SettingsWindow : OverlayWindow
         _viewModel.ShowModal(message, onYes);
     }
 
-    private Border MakeModalButton(string id, string text, Color bg)
+    /// <summary>Builds one modal button.</summary>
+    /// <param name="id">Dwell-target id.</param>
+    /// <param name="text">Label.</param>
+    /// <param name="bg">Fill, from <see cref="ModalButtonPalette"/>.</param>
+    /// <param name="foreground">Label brush, paired with the fill for contrast.</param>
+    /// <param name="wide">
+    /// True for a vertically stacked layout, where buttons are wider (descriptive labels)
+    /// and separated by vertical margins instead of horizontal ones.
+    /// </param>
+    private Border MakeModalButton(string id, string text, Color bg, SolidColorBrush foreground, bool wide)
     {
         var modalBrush = new SolidColorBrush(bg);
         var border = new Border
         {
-            Width = 170,
+            Width = wide ? 460 : 170,
             Height = 80,
-            Margin = new Thickness(12, 0, 12, 0),
+            Margin = wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
             CornerRadius = new CornerRadius(8),
             Background = modalBrush,
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
             {
                 Text = text,
-                Foreground = Tokens.BrushSurfaceDark,
+                Foreground = foreground,
                 FontSize = 24,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
             }
         };
 
-        // Mouse fallback - ViewModel handles the actual activation
-        border.MouseLeftButtonDown += (_, _) =>
-        {
-            if (id == "modal_yes")
-                _viewModel.SimulateActivated(id, DwellCategory.Modal);
-            else
-                _viewModel.HideModal();
-        };
+        // Mouse fallback. Everything routes through the ViewModel now — it owns which
+        // choice does what, so the view no longer branches on the id.
+        border.MouseLeftButtonDown += (_, _) => _viewModel.SimulateActivated(id, DwellCategory.Modal);
 
         _modalButtons[id] = border;
         _modalBrushes[id] = modalBrush;
+        _modalBaseColors[id] = bg;
         return border;
     }
 }

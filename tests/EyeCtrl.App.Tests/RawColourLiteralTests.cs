@@ -43,6 +43,8 @@ public class RawColourLiteralTests
             "the palette itself — the one place a colour literal is correct",
         ["src/EyeCtrl.Controls/DwellColorPicker.cs"] =
             "DefaultPresets are user-selectable palette values, gated by ColorPickerPresetTests",
+        ["src/EyeCtrl.Controls/Theme/MidnightTheme.cs"] =
+            "the Midnight palette itself (spec §4.1) — gated by tools/palette_validate.py",
     };
 
     /// <summary>

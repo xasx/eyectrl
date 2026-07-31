@@ -10,6 +10,12 @@ public sealed class SupervisionStateMachine
     private readonly List<SupervisorCommand> _commands = new();
     private DateTime? _supervisingSince;
     private DateTime? _launchingSince;
+    /// <summary>
+    /// Set when the pending clean exit is a user-requested restart, so ProcessExited
+    /// relaunches instead of going idle. Per-request: cleared as soon as it is consumed,
+    /// and cleared on a plain clean exit, so it can never leak into a later genuine quit.
+    /// </summary>
+    private bool _restartAfterExit;
 
     public SupervisorState State { get; private set; } = SupervisorState.IdleWatch; // spec entry state
     public IReadOnlyList<SupervisorCommand> Commands => _commands;
@@ -90,17 +96,33 @@ public sealed class SupervisionStateMachine
             case CleanExitRequested ce when State == SupervisorState.Supervising:
                 // Spec: the shuttingDown signal "must come from the verified supervised
                 // process, not an untrusted sender." An unverified request is IGNORED —
-                // it must not suppress crash recovery.
+                // it must not suppress crash recovery. That applies to the restart flag
+                // too: an untrusted sender must not be able to cycle the app.
                 if (ce.ClientVerified)
                 {
                     State = SupervisorState.CleanExitPending;
+                    _restartAfterExit = ce.RestartRequested;
                     _commands.Add(SupervisorCommand.NotifyCleanExit);
                 }
                 break;
 
             case ProcessExited when State == SupervisorState.CleanExitPending:
-                State = SupervisorState.IdleWatch; // authenticated clean exit within deadline
                 _supervisingSince = null;
+                if (_restartAfterExit)
+                {
+                    // User-requested restart: relaunch, and book NO strike. This is not a
+                    // crash, so it must not consume crash budget or step toward the
+                    // fallback-AT escalation. Consumed here so the intent cannot leak
+                    // into a later genuine quit.
+                    _restartAfterExit = false;
+                    State = SupervisorState.Launching;
+                    _launchingSince = DateTime.UtcNow;   // same source as the LaunchRequest case
+                    _commands.Add(SupervisorCommand.LaunchApp);
+                }
+                else
+                {
+                    State = SupervisorState.IdleWatch; // authenticated clean exit within deadline
+                }
                 break;
 
             case ProcessExited when State is SupervisorState.Supervising or SupervisorState.Recovering or SupervisorState.Launching:
@@ -140,6 +162,7 @@ public sealed class SupervisionStateMachine
 
     private void GoRecovering(DateTime at, bool forceKill)
     {
+        _restartAfterExit = false;
         ConsecutiveFailures++;
         _crash.RecordStrike(at);
         if (_crash.ShouldEscalate(at))

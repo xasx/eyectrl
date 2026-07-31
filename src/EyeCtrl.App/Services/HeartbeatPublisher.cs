@@ -50,6 +50,7 @@ public sealed class HeartbeatPublisher : IDisposable
     private HeartbeatPayload? _pending;          // next payload to send
     private readonly SemaphoreSlim _sendSignal = new(0, 1);
     private volatile bool _shuttingDown;
+    private readonly bool _supervised;
     private readonly CancellationTokenSource _cts = new();
     private Task? _writerLoop;
 
@@ -63,6 +64,7 @@ public sealed class HeartbeatPublisher : IDisposable
     /// </param>
     public HeartbeatPublisher(bool supervised)
     {
+        _supervised = supervised;
         if (supervised) StartWriter();
     }
 
@@ -94,11 +96,13 @@ public sealed class HeartbeatPublisher : IDisposable
     /// a SYNCHRONOUS bounded send (not via the async loop) so that a subsequent Dispose/CTS-cancel
     /// cannot abort the final payload mid-flight. If not supervised (no server), this is a bounded no-op.
     /// </summary>
-    public void SignalShuttingDown()
+    public void SignalShuttingDown(bool restartRequested = false)
     {
         _shuttingDown = true;
         var lastFrame = new DateTime(Interlocked.Read(ref _lastFrameTicks), DateTimeKind.Utc);
-        var final = new HeartbeatPayload(_pid, _startedAtUtc, false, false, lastFrame, ShuttingDown: true);
+        var final = new HeartbeatPayload(
+            _pid, _startedAtUtc, false, false, lastFrame,
+            ShuttingDown: true, RestartRequested: restartRequested);
         _pending = final;
         // Synchronous bounded flush — a fresh CancellationTokenSource (NOT _cts) so Dispose's cancel
         // can't race it. If the send can't complete in 2s (no server / slow server), give up; the
@@ -106,6 +110,55 @@ public sealed class HeartbeatPublisher : IDisposable
         try { SendOneAsync(final, CancellationToken.None).Wait(TimeSpan.FromSeconds(2)); }
         catch { /* best-effort — never block OnExit on the final send */ }
     }
+
+    /// <summary>
+    /// Sends one ordinary payload and reports whether it was actually delivered — i.e.
+    /// whether a supervisor is listening on the pipe *right now*.
+    /// <c>Supervision.Enabled</c> only records that the user configured one; the app can
+    /// still be launched by hand with no supervisor running, and in that case a restart
+    /// would exit into nothing.
+    ///
+    /// Deliberately inert: it does NOT set <see cref="_shuttingDown"/>. That field latches,
+    /// so a probe that set it and then aborted would make every later <see cref="Stamp"/>
+    /// announce a shutdown that never arrives — arming the supervisor's 5s clean-exit
+    /// deadline and getting a healthy app force-killed.
+    ///
+    /// The caller's wait is bounded by <see cref="ProbeWait"/>, not by the 2s connect
+    /// timeout: <see cref="AppRestartCoordinator.ShouldOfferSupervisor"/> runs this on the
+    /// dispatcher, and a live supervisor answers in single-digit milliseconds. Anything
+    /// slower is not a supervisor worth freezing the user's gaze control for — a stale
+    /// probe simply reads false and the restart falls through to the self-restart
+    /// strategy, which is the safe direction.
+    /// </summary>
+    /// <returns><c>true</c> if the payload reached the supervisor within the timeout.</returns>
+    public bool TryReachSupervisor()
+    {
+        if (!_supervised) return false;   // standalone: no writer, no supervisor, no channel
+
+        var lastFrame = new DateTime(Interlocked.Read(ref _lastFrameTicks), DateTimeKind.Utc);
+        var probe = new HeartbeatPayload(
+            _pid, _startedAtUtc, false, false, lastFrame,
+            ShuttingDown: false, RestartRequested: false);
+
+        try
+        {
+            var send = SendOneAsync(probe, CancellationToken.None);
+            return send.Wait(ProbeWait) && send.Result;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// How long a supervisor probe may block the caller before the supervisor is treated
+    /// as absent. A live supervisor answers in milliseconds; 500ms also matches the
+    /// bring-up poll interval (Task 13). The probe's connect may run past this in the
+    /// background — it is bounded by <see cref="ConnectTimeout"/> and its faulted outcome
+    /// is observed there — but the caller never waits on it.
+    /// </summary>
+    private static readonly TimeSpan ProbeWait = TimeSpan.FromMilliseconds(500);
 
     private void StartWriter() => _writerLoop = Task.Run(WriterLoopAsync);
 
@@ -124,12 +177,18 @@ public sealed class HeartbeatPublisher : IDisposable
             // is captured now or remains for the next iteration.
             var payload = Interlocked.Exchange(ref _pending, null);
             if (payload == null) continue;
-            try { await SendOneAsync(payload, _cts.Token); }
+            try { _ = await SendOneAsync(payload, _cts.Token); }
             catch { /* drop this send — never throw, never block the Dispatcher */ }
         }
     }
 
-    private static async Task SendOneAsync(HeartbeatPayload payload, CancellationToken token)
+    /// <summary>
+    /// Sends one payload. Returns <c>true</c> only if the write completed — the
+    /// connect-timeout path returns <c>false</c> rather than succeeding silently,
+    /// because <see cref="TryReachSupervisor"/> stakes the restart decision on the
+    /// difference between "delivered" and "dropped".
+    /// </summary>
+    private static async Task<bool> SendOneAsync(HeartbeatPayload payload, CancellationToken token)
     {
         await using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.Asynchronous);
         // CANCELLABLE connect with a real timeout — a missing server (standalone) does NOT
@@ -148,11 +207,12 @@ public sealed class HeartbeatPublisher : IDisposable
             // Exception (it may fault later with IOException/TimeoutException) so it never surfaces
             // as an unobserved-task exception tearing down the process. Cancellation is benign here.
             _ = connectTask.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
-            return;
+            return false;
         }
         await connectTask.ConfigureAwait(false); // observe exceptions if connect threw
         var json = JsonSerializer.Serialize(payload, JsonOptions) + "\n";
         await client.WriteAsync(Encoding.UTF8.GetBytes(json), token).ConfigureAwait(false);
+        return true;
     }
 
     /// <summary>

@@ -10,10 +10,16 @@ namespace EyeCtrl.Core.Models;
 /// <param name="IsPaused"><c>true</c> if the interaction manager is in the paused state (no SendInput).</param>
 /// <param name="LastFrameUtc">UTC timestamp of the most recent raw gaze sample, valid or invalid.</param>
 /// <param name="ShuttingDown"><c>true</c> on the final payload stamped during clean shutdown.</param>
+/// <param name="RestartRequested">
+/// <c>true</c> when the final payload accompanies a user-requested restart: the
+/// supervisor should relaunch after the process exits, without booking a crash
+/// strike. Only meaningful alongside <paramref name="ShuttingDown"/>.
+/// </param>
 public record HeartbeatPayload(
     int Pid,
     DateTime StartedAtUtc,
     bool IsConnected,
     bool IsPaused,
     DateTime LastFrameUtc,
-    bool ShuttingDown);
+    bool ShuttingDown,
+    bool RestartRequested = false);

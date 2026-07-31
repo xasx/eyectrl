@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 
+[Collection("HeartbeatPipe")]
 public class HeartbeatPublisherTests
 {
     [Fact]

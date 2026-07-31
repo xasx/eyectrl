@@ -94,8 +94,9 @@ User dwells "Restart Now"  (SettingsWindow, General page)
        └─ STRATEGY 2 — self-restart (no supervisor answering)
             off the UI thread:
               exePath = Environment.ProcessPath            → null?    abort
+              create Local\EyeCtrl.App.RestartReady (unset) — PARENT owns it for the wait
               Process.Start(exePath, "--restart-handoff")  → throws?  abort
-              wait up to 30s for the Local\EyeCtrl.App.RestartReady event
+              wait up to 30s on the event the parent owns
                 ├─ child exited early / never signalled → kill child, abort
                 └─ signalled → back on the dispatcher: Shutdown()
                      → OnExit releases the mutex (restartRequested stays FALSE)
@@ -107,7 +108,7 @@ User dwells "Restart Now"  (SettingsWindow, General page)
 Child, when started with `--restart-handoff`:
 
 ```
-signal Local\EyeCtrl.App.RestartReady        ← BEFORE waiting, or this deadlocks
+OpenExisting + Set Local\EyeCtrl.App.RestartReady   ← BEFORE waiting, or this deadlocks
 SingleInstanceGuard.TryAcquire(30s)          ← waits instead of failing fast
   ├─ acquired  → carry on with normal startup
   └─ timed out → exit quietly (the parent never left; do not fight it)
@@ -886,7 +887,7 @@ with:
                     _pendingLaunchAt = DateTime.UtcNow + delay;
 ```
 
-Verify `prevState` is in scope at the `DrainCommands(prevState)` call — it is assigned before `_sm.Handle(...)` in `HandleInput`. If the local has a different name, use whatever `Program.cs:205` compares against.
+`prevState` is the local `HandleInput` captures at `Program.cs:200` (`var prevState = _sm.State;`), already in scope at the `DrainCommands()` call on line 202 — pass it straight through. (Verified against `4451cdb`; if you are implementing on a later `main`, the `grep -n "prevState" src/EyeCtrl.Supervisor/Program.cs` check at the top of `HandleInput` confirms the name and scope in one line.)
 
 - [ ] **Step 5: Run the full suite**
 
@@ -1178,6 +1179,11 @@ public static class RestartHandoff
     /// Name of the event a restart child sets to announce it is alive and queued.
     /// <c>Local\</c> (not <c>Global\</c>) to match the single-instance mutex: multi-user
     /// and RDP are non-goals, and a session-local name avoids cross-session collisions.
+    ///
+    /// Owned by the PARENT for the duration of the handoff: the parent creates it BEFORE
+    /// launching the child and holds it open across the wait (see
+    /// <see cref="SelfRestartStrategy.CreateDefault"/>). That is what makes the child's
+    /// signal reliable in both directions — see <see cref="SignalReady"/>.
     /// </summary>
     public const string ReadyEventName = @"Local\EyeCtrl.App.RestartReady";
 
@@ -1195,20 +1201,41 @@ public static class RestartHandoff
     public static readonly TimeSpan ReadyWait = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Sets the ready event. Safe to call when no parent is listening — the event is
-    /// created if absent and simply never waited on.
+    /// Sets the ready event. Safe to call when no parent is listening — see the note below.
     /// </summary>
+    /// <remarks>
+    /// The child OPENS the event the parent already owns rather than creating-or-opening it.
+    /// <see cref="EventWaitHandle.OpenExisting"/> is used deliberately:
+    /// <list type="bullet">
+    /// <item><b>A missing event means no parent is waiting</b> (the parent always creates it
+    /// before launching). A standalone launch must not fabricate an orphaned Set event into
+    /// the void, so a missing event is a clean no-op, not a signal. <c>CreateOrOpen</c> would
+    /// leave a stray Set event from a launch with no listener, which the NEXT restart's parent
+    /// could observe as a false ready.</item>
+    /// <item>The child never RESETs the event. The parent created it unset and holds it; the
+    /// child only ever Sets. Reversed roles (child creating, parent observing) would need the
+    /// creator to set <c>initialState</c>, which only applies on first creation — a leftover
+    /// event would be opened <i>still Set</i> from a prior run and produce a false positive.</item>
+    /// </list>
+    /// </remarks>
     public static void SignalReady()
     {
         try
         {
-            using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, ReadyEventName);
+            using var ready = EventWaitHandle.OpenExisting(ReadyEventName);
             ready.Set();
+        }
+        catch (WaitHandleCannotBeOpenedException)
+        {
+            // No parent created this event, so there is no handoff to acknowledge. The child
+            // proceeds with normal startup — it was not launched as a restart replacement, or
+            // the parent died before we got here. Do NOT fabricate an event: a stray Set event
+            // with no owner would be observed as a false ready by the next restart's parent.
         }
         catch
         {
-            // Best-effort. A child that cannot signal will be killed by the parent's
-            // timeout, and the parent stays running — the safe outcome either way.
+            // Best-effort. A child that cannot signal for any other reason will be killed by
+            // the parent's timeout, and the parent stays running — the safe outcome either way.
         }
     }
 }
@@ -1309,6 +1336,7 @@ namespace EyeCtrl.App.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using EyeCtrl.App.Services;
 using NFluent;
 using Xunit;
@@ -1341,7 +1369,11 @@ public class SelfRestartStrategyTests
                 if (launchThrows) throw new InvalidOperationException("boom");
                 return child ?? new FakeChild();
             },
-            waitForReady: _ => readySignalled,
+            // The seam receives the parent-owned handle; tests ignore it and return the
+            // canned result. The signature matches the production wait, which waits on the
+            // real named event — exercising it headlessly would mean standing up a second
+            // process, so the outcome is made injectable instead.
+            waitForReady: (_, _) => readySignalled,
             readyWait: TimeSpan.FromSeconds(1));
 
     [Fact]
@@ -1482,18 +1514,22 @@ public sealed class SelfRestartStrategy
 {
     private readonly Func<string?> _resolveExePath;
     private readonly Func<string, string, IRestartChild> _launch;
-    private readonly Func<TimeSpan, bool> _waitForReady;
+    private readonly Func<EventWaitHandle, TimeSpan, bool> _waitForReady;
     private readonly TimeSpan _readyWait;
 
     /// <summary>Creates a strategy with explicit seams (tests supply fakes).</summary>
     /// <param name="resolveExePath">Returns the running executable's path, or null.</param>
     /// <param name="launch">Starts a process: (exePath, arguments) => child.</param>
-    /// <param name="waitForReady">Waits for the child's ready signal; true if it arrived.</param>
+    /// <param name="waitForReady">
+    /// Waits on the PARENT-OWNED ready event (created by <see cref="Begin"/> before the
+    /// launch) for up to the given timeout; returns true if the child signalled. Production
+    /// waits on the real named event; tests ignore the handle and return a canned result.
+    /// </param>
     /// <param name="readyWait">How long to wait for that signal.</param>
     public SelfRestartStrategy(
         Func<string?> resolveExePath,
         Func<string, string, IRestartChild> launch,
-        Func<TimeSpan, bool> waitForReady,
+        Func<EventWaitHandle, TimeSpan, bool> waitForReady,
         TimeSpan readyWait)
     {
         _resolveExePath = resolveExePath;
@@ -1514,11 +1550,23 @@ public sealed class SelfRestartStrategy
                     ?? throw new InvalidOperationException("Process.Start returned no process.");
                 return new ProcessRestartChild(process);
             },
-            waitForReady: timeout =>
+            // The parent OWNS the ready event for the whole handoff: it creates the event
+            // (unset) BEFORE launch, passes that same handle into waitForReady, and disposes
+            // it after the wait returns. That ownership is what makes the signal reliable:
+            //
+            //  - No stale-Set false positive: the event is a fresh, unset object the parent
+            //    controls the lifetime of, so a leftover event from a prior run can never be
+            //    observed. (new EventWaitHandle(false, ManualReset, name) only applies
+            //    initialState on CREATION — opening an existing Set event keeps it Set.)
+            //  - No signal-before-open false negative: the event exists from before the child
+            //    is launched, so however fast the child opens+sets, there is something to open.
+            //
+            // The child's side (RestartHandoff.SignalReady) OPENs this event rather than
+            // creating it — see that method for why a missing event is a clean no-op.
+            waitForReady: (readyEvent, timeout) =>
             {
-                using var ready = new System.Threading.EventWaitHandle(
-                    false, System.Threading.EventResetMode.ManualReset, RestartHandoff.ReadyEventName);
-                return ready.WaitOne(timeout);
+                try { return readyEvent.WaitOne(timeout); }
+                catch { return false; }
             },
             readyWait: RestartHandoff.ReadyWait);
 
@@ -1535,6 +1583,13 @@ public sealed class SelfRestartStrategy
             return RestartOutcome.NoExePath;
         }
 
+        // Create the ready event BEFORE launching, so the child always has something to
+        // open+set, and a leftover event from a prior run can never be observed. Created
+        // unset; the child is the only thing that ever Sets it. Disposed after the wait
+        // regardless of outcome — the event's job is done once the parent has decided.
+        using var readyEvent = new EventWaitHandle(
+            initialState: false, EventResetMode.ManualReset, RestartHandoff.ReadyEventName);
+
         IRestartChild child;
         try
         {
@@ -1545,7 +1600,7 @@ public sealed class SelfRestartStrategy
             return RestartOutcome.LaunchFailed;
         }
 
-        if (_waitForReady(_readyWait))
+        if (_waitForReady(readyEvent, _readyWait))
         {
             return RestartOutcome.Started;
         }
@@ -1998,7 +2053,7 @@ Add `using EyeCtrl.ViewModels.Messages;` if `App.xaml.cs` does not already have 
 
 - [ ] **Step 2: Pass the flag to the final payload**
 
-In `OnExit`, replace line 307:
+In `OnExit`, replace the `SignalShuttingDown()` call at line 307 (verified at `4451cdb`; it is the one inside `OnExit`, not the one in `OnSessionEnding` at line 296 — that one stays parameterless, see below):
 
 ```csharp
         _heartbeatPublisher?.SignalShuttingDown();
@@ -2042,6 +2097,10 @@ git commit -m "feat(restart): wire the restart coordinator into app startup and 
 
 The button is now **unconditional** — both strategies are available to every configuration, and the coordinator refuses safely when neither can proceed.
 
+**Why this task touches two files, and why they behave differently.** The settings surfaces are split the same way every other tab is: `SettingsViewModel`'s `Tabs` list is **pagination and layout only** (`SettingsViewModel.cs:180-181`: "item count here only drives pagination … the actual interactive controls are built in `SettingsWindow`"), and `SettingsWindow.BuildGeneralPages` builds the real, gaze-driven controls. The Calibration tab already follows this split — `calCalibrate`/`calClear` in the VM mirror `cal_run`/`cal_clear` in the window. So **both additions below are required**, and they are not redundant:
+- Step 1's `DwellButton` is the actual interactive control the user dwells on. It alone runs `ShouldOfferSupervisor()` and may show the three-way modal (Task 13).
+- Step 3's `ActionButtonSettingItem` keeps the VM's pagination count consistent with the window, so the page layout does not desync from the rendered controls. It sends the plain (no-offer) message because prompting belongs to the one interactive surface, not to a pagination placeholder.
+
 - [ ] **Step 1: Add it to the gaze-driven settings window**
 
 In `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs`, `BuildGeneralPages` (line 901) returns a single page. Insert the restart button **above** the reset buttons — deliberately, so a mis-aimed dwell near the destructive controls cannot land on it and vice versa. After the `g_track` toggle and before `g_reset`:
@@ -2082,7 +2141,7 @@ The General tab is built from an inline list (`SettingsViewModel.cs:171-179`). A
                 () => _messenger.Send(new RestartAppRequestedMessage())),
 ```
 
-`_messenger` is already a field (`SettingsViewModel.cs:33`), and `ActionButtonSettingItem` is used exactly this way at `SettingsViewModel.cs:188-190`. Add `using EyeCtrl.ViewModels.Messages;` if the message namespace differs from the file's own.
+`_messenger` is already a field (`SettingsViewModel.cs:33`), and `ActionButtonSettingItem` is used exactly this way at `SettingsViewModel.cs:188-190`. Add `using EyeCtrl.ViewModels.Messages;` if the message namespace differs from the file's own. As noted at the top of this task, this item intentionally sends the plain message — it is a pagination placeholder, not the interactive surface that prompts.
 
 > **If the ITheme slice landed first**, the three theme lines (`themeMode`, `overlayOpacity`, `themeHighContrast`) will already be a single `themeName` combo. Keep whatever is there and just append this item.
 
@@ -2922,6 +2981,8 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 
 Expected: 0 errors, 0 failures — **including the four pre-existing modal tests** (`SettingsWindowViewModelTests.cs:223-274`). Those passing untouched is the point of this task: the two-button form is unchanged.
 
+The vertical three-button layout hardcodes `Width = 460` for wide buttons. That value is **not verified headlessly** — the `ModalButtonPaletteTests` check contrast, not fit, and the settings window's available width is a runtime concern. Scenario C in Task 14 (the only step with eyes on the UI) must confirm the three wide buttons fit without clipping before this ships; if they overflow, lower 460 rather than growing the panel.
+
 - [ ] **Step 8: Commit**
 
 ```bash
@@ -3115,6 +3176,15 @@ Add the offer predicate, rewrite `HandleRestart`, and add the bring-up helper:
     /// True only when one is installed and none is currently answering — offering what is
     /// not installed, or starting a second one, would both be noise.
     /// </summary>
+    /// <remarks>
+    /// <b>Not a pure query:</b> the reachability check sends one real heartbeat, and a live
+    /// supervisor records/adopts it (see <c>Program.cs</c>'s heartbeat handler). That is safe
+    /// here because the probe is only evaluated when <c>Supervision.Enabled</c> is already
+    /// true — i.e. periodic heartbeats are already flowing, so the probe's extra payload is a
+    /// no-op adoption, not the delayed-kill from Task 11 (which concerns probing while NOT
+    /// publishing). The side-effect is called out because a reader named <c>Should…</c> would
+    /// not expect it to reach across a process boundary.
+    /// </remarks>
     /// <returns>True if the offer is worth making.</returns>
     public bool ShouldOfferSupervisor() =>
         _supervisorInstalled() && !(_settings.Supervision.Enabled && _tryReachSupervisor());
@@ -3347,7 +3417,7 @@ Expected: clean-exit notification → `Bound process exited (pid=…)` → `Laun
 | Observation | Diagnosis |
 |---|---|
 | No relaunch, supervisor in `IdleWatch` | The restart flag did not reach the state machine — check Task 4 |
-| Relaunch happened but a strike was booked | `ProcessExited` fell through to the recovery case — check Task 2 |
+| Relaunch happened but a strike was booked | `ProcessExited` reached the machine while still `Supervising` (the `ShuttingDown:true` payload lost the race with process exit) — check Task 2; the synchronous 2s flush in `SignalShuttingDown` is what minimizes this window |
 | Relaunch delayed 5-60s | `RelaunchDelayPolicy` not consulted, or `prevState` wrong — check Task 3 |
 | Two instances start | `SupervisorRelaunchRequested` was set on a self-restart path — check Task 8 |
 
@@ -3397,7 +3467,7 @@ git commit -m "docs(restart): record the end-to-end verification result"
 Tasks 1-13 are fully headless. Three environmental notes:
 
 - **Task 1's tests bind the real `eyectrl_watch` pipe**, so a running supervisor will steal the connection and make them flake. Check for a live `EyeCtrl.Supervisor` process before investigating a failure there.
-- **Tasks 5 and 7 use real named kernel objects.** The tests use per-test GUID names and are safe in parallel, but a leftover `EyeCtrl.App.RestartReady` event from a manual experiment could make a production run see a stale signal. It is manual-reset and created fresh per wait; if you experiment by hand, use a distinct name or reboot.
+- **Tasks 5 and 7 use real named kernel objects.** The tests use per-test GUID names and are safe in parallel. The `EyeCtrl.App.RestartReady` event is **parent-owned**: the strategy creates it (unset) before launch and disposes it after the wait, and the child `OpenExisting`s it rather than creating-or-opening — so a leftover Set event from a prior run cannot produce a false ready (the parent always observes its own fresh object). If you experiment by hand outside the strategy, create+dispose the event yourself rather than leaving a stray Set event named `Local\EyeCtrl.App.RestartReady`.
 - **Task 11's tests mutate `EYECTRL_SUPERVISOR_EXE`** for the current process and restore it in `Dispose`. They must not run in parallel with anything else reading that variable — they are the only such tests today.
 
 **CI will run on this PR**, because it branches from `main` and the workflow triggers on `branches: [main]`.

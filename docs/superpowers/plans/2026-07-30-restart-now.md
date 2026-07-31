@@ -81,18 +81,19 @@ Test output is German: per-test failures read `Fehler <FQN>`, not `Failed`.
 User dwells "Restart Now"  (SettingsWindow, General page)
   → ShowModal("Restart EyeCtrl now?")                       [existing confirm pattern]
   → IMessenger.Send(RestartAppRequestedMessage)
-  → AppRestartCoordinator.HandleRestart()
+  → AppRestartCoordinator.HandleRestart() — ALL strategy work runs off the UI thread
+       (probe, bring-up poll, self-restart wait); the dispatcher only ever executes
+       the shutdown or the refusal
        │
        ├─ STRATEGY 1 — supervisor-mediated (preferred: recovers a failed relaunch)
        │    Supervision.Enabled && publisher.TryReachSupervisor()
-       │      → SupervisorRelaunchRequested = true; Shutdown()
+       │      → back on the dispatcher: SupervisorRelaunchRequested = true; Shutdown()
        │      → OnExit stamps { shuttingDown: true, restartRequested: true }
        │      → supervisor: Supervising → CleanExitPending (remembers restart)
        │      → ProcessExited → Launching + LaunchApp   (no strike, no backoff)
        │      → DoLaunchApp → app starts → heartbeat → Supervising
        │
        └─ STRATEGY 2 — self-restart (no supervisor answering)
-            off the UI thread:
               exePath = Environment.ProcessPath            → null?    abort
               create Local\EyeCtrl.App.RestartReady (unset) — PARENT owns it for the wait
               Process.Start(exePath, "--restart-handoff")  → throws?  abort
@@ -170,6 +171,8 @@ Failure branches, all landing somewhere safe:
 | `src/EyeCtrl.App/Services/HeartbeatPublisher.cs` (again) | `EnablePublishing()` so a session can start publishing mid-flight (Task 11). |
 | `src/EyeCtrl.ViewModels/SettingsWindowViewModel.cs:207-220,289-330` | `ModalChoices`; generalise the modal beyond Yes/No (Task 12). |
 | `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:1300-1373` | Render N choices; vertical stack past two; route mouse through the ViewModel (Task 12). |
+| `src/EyeCtrl.App/Services/EventCoordinator.cs` | `SetRestartCoordinator`; pass the coordinator to `SettingsWindow` at construction (Task 13). |
+| `tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs` | Join the `HeartbeatPipe` collection so it serializes against `HeartbeatRestartPayloadTests` (Task 1). |
 | `tests/EyeCtrl.ViewModels.Tests/SettingsWindowViewModelTests.cs` | Multi-choice modal cases beside the four existing ones (Task 12). |
 
 ---
@@ -203,11 +206,25 @@ using NFluent;
 using Xunit;
 
 /// <summary>
+/// Test collection for every class that binds the real <c>eyectrl_watch</c> pipe name.
+/// The pipe server is constructed with <c>maxInstances: 1</c>, and xUnit v3 runs test
+/// classes in parallel — two classes standing up a server concurrently means the second
+/// construction throws <c>IOException: All pipe instances are busy</c> and the failure
+/// is intermittent. <c>HeartbeatPublisherTests</c> (same assembly, same pipe name) joins
+/// this collection so the two classes serialize against each other.
+/// </summary>
+[CollectionDefinition("HeartbeatPipe")]
+public sealed class HeartbeatPipeCollection
+{
+}
+
+/// <summary>
 /// The restart request travels on the existing heartbeat pipe. These tests stand up a
 /// real NamedPipeServerStream, so "was it actually delivered?" is answered by the
 /// wire rather than by a mock — which is the question AppRestartCoordinator bets the
 /// user's only input channel on.
 /// </summary>
+[Collection("HeartbeatPipe")]
 public class HeartbeatRestartPayloadTests
 {
     private const string PipeName = "eyectrl_watch";
@@ -317,6 +334,15 @@ public class HeartbeatRestartPayloadTests
     }
 }
 ```
+
+Also join the pre-existing pipe-bound class to the same collection, or the two classes collide under xUnit v3's parallel class execution. In `tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs`, annotate the class:
+
+```csharp
+[Collection("HeartbeatPipe")]
+public class HeartbeatPublisherTests
+```
+
+its `SignalShuttingDown_DeliversFinalPayload_EvenUnderBlockingSyncContext` test (line 44) binds the same `eyectrl_watch` name with `maxInstances: 1`; without the shared collection, one of the two concurrent server constructions throws `IOException: All pipe instances are busy` and the failure is intermittent. (A live supervisor on the machine produces the same symptom — see Step 6.)
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -447,6 +473,13 @@ Replace `SignalShuttingDown` (lines 97-108) with:
     /// so a probe that set it and then aborted would make every later <see cref="Stamp"/>
     /// announce a shutdown that never arrives — arming the supervisor's 5s clean-exit
     /// deadline and getting a healthy app force-killed.
+    ///
+    /// The caller's wait is bounded by <see cref="ProbeWait"/>, not by the 2s connect
+    /// timeout: <see cref="AppRestartCoordinator.ShouldOfferSupervisor"/> runs this on the
+    /// dispatcher, and a live supervisor answers in single-digit milliseconds. Anything
+    /// slower is not a supervisor worth freezing the user's gaze control for — a stale
+    /// probe simply reads false and the restart falls through to the self-restart
+    /// strategy, which is the safe direction.
     /// </summary>
     /// <returns><c>true</c> if the payload reached the supervisor within the timeout.</returns>
     public bool TryReachSupervisor()
@@ -461,13 +494,22 @@ Replace `SignalShuttingDown` (lines 97-108) with:
         try
         {
             var send = SendOneAsync(probe, CancellationToken.None);
-            return send.Wait(TimeSpan.FromSeconds(3)) && send.Result;
+            return send.Wait(ProbeWait) && send.Result;
         }
         catch
         {
             return false;
         }
     }
+
+    /// <summary>
+    /// How long a supervisor probe may block the caller before the supervisor is treated
+    /// as absent. A live supervisor answers in milliseconds; 500ms also matches the
+    /// bring-up poll interval (Task 13). The probe's connect may run past this in the
+    /// background — it is bounded by <see cref="ConnectTimeout"/> and its faulted outcome
+    /// is observed there — but the caller never waits on it.
+    /// </summary>
+    private static readonly TimeSpan ProbeWait = TimeSpan.FromMilliseconds(500);
 ```
 
 - [ ] **Step 6: Run the tests to verify they pass**
@@ -477,12 +519,12 @@ dotnet build EyeCtrl.slnx --nologo
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~HeartbeatRestartPayloadTests" --nologo
 ```
 
-Expected: 0 errors; 7 passing. These bind the real `eyectrl_watch` pipe name, so **a running supervisor on the same machine will steal the connection and make them flake.** If they fail intermittently, check for a live `EyeCtrl.Supervisor` process before debugging the code.
+Expected: 0 errors; 7 passing. These bind the real `eyectrl_watch` pipe name, so **a running supervisor on the same machine will steal the connection and make them flake.** If they fail intermittently, check for a live `EyeCtrl.Supervisor` process before debugging the code. (Collision with the sibling `HeartbeatPublisherTests` class is already excluded — the shared `HeartbeatPipe` collection from Step 1 serializes the two.)
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/EyeCtrl.Core/Models/HeartbeatPayload.cs src/EyeCtrl.App/Services/HeartbeatPublisher.cs tests/EyeCtrl.App.Tests/HeartbeatRestartPayloadTests.cs
+git add src/EyeCtrl.Core/Models/HeartbeatPayload.cs src/EyeCtrl.App/Services/HeartbeatPublisher.cs tests/EyeCtrl.App.Tests/HeartbeatRestartPayloadTests.cs tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs
 git commit -m "feat(restart): carry restartRequested on the heartbeat and report real delivery"
 ```
 
@@ -712,7 +754,7 @@ with:
                     // into a later genuine quit.
                     _restartAfterExit = false;
                     State = SupervisorState.Launching;
-                    _launchingSince = input.At;
+                    _launchingSince = DateTime.UtcNow;   // same source as the LaunchRequest case
                     _commands.Add(SupervisorCommand.LaunchApp);
                 }
                 else
@@ -1842,6 +1884,59 @@ public class AppRestartCoordinatorTests
 
         Check.That(order).ContainsExactly("background", "self", "ui", "shutdown");
     }
+
+    [Fact]
+    public void SupervisorProbe_RunsOffTheUiThread_AndShutsDownOnIt()
+    {
+        // The supervised probe can wait up to ProbeWait (500ms). Same rule as the
+        // self-restart: the dispatcher must never block on IPC, or gaze processing
+        // freezes while the user is waiting for a restart they asked for.
+        var settings = new EyeCtrlSettings();
+        settings.Supervision.Enabled = true;
+        var order = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        var coordinator = new AppRestartCoordinator(
+            messenger, settings,
+            tryReachSupervisor: () => { order.Add("probe"); return true; },
+            selfRestart: () => RestartOutcome.Started,
+            shutdown: () => order.Add("shutdown"),
+            reportUnavailable: _ => { },
+            runInBackground: work => { order.Add("background"); work(); },
+            postToUi: work => { order.Add("ui"); work(); });
+
+        messenger.Send(new RestartAppRequestedMessage());
+
+        Check.That(order).ContainsExactly("background", "probe", "ui", "shutdown");
+    }
+
+    [Fact]
+    public void SecondRequest_WhileTheFirstIsInFlight_IsIgnored()
+    {
+        // Two rapid dwells must not launch two children: the loser would sit on the
+        // single-instance mutex for its 30s wait and then exit — one orphaned process.
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var requests = new List<Action>();
+        var coordinator = new AppRestartCoordinator(
+            messenger, settings,
+            tryReachSupervisor: () => false,
+            selfRestart: () => RestartOutcome.ChildNotReady,
+            shutdown: () => { },
+            reportUnavailable: _ => { },
+            runInBackground: work => requests.Add(work),   // defer: the request is "in flight"
+            postToUi: work => work());
+
+        messenger.Send(new RestartAppRequestedMessage());  // first: in flight
+        messenger.Send(new RestartAppRequestedMessage());  // second: dropped
+
+        Check.That(requests).HasSize(1);
+
+        // The refusal path re-arms: after the failed attempt reports, the button works again.
+        requests[0]();
+        messenger.Send(new RestartAppRequestedMessage());
+
+        Check.That(requests).HasSize(2);
+    }
 }
 ```
 
@@ -1890,6 +1985,7 @@ Create `src/EyeCtrl.App/Services/AppRestartCoordinator.cs`:
 namespace EyeCtrl.App.Services;
 
 using System;
+using System.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
@@ -1909,6 +2005,12 @@ using EyeCtrl.ViewModels.Messages;
 /// before exiting. Covers the unsupervised case, which is the default.</item>
 /// </list>
 ///
+/// Both strategies run OFF the dispatcher: the probe can wait up to 500ms and the
+/// self-restart up to 30s, and a frozen dispatcher means no gaze processing — the user
+/// loses control of the machine for the duration. <see cref="HandleRestart"/> marshals
+/// the outcome back to the dispatcher, which only ever executes the shutdown or the
+/// refusal.
+///
 /// If neither can prove it, the restart is abandoned and the app keeps running — always
 /// recoverable, unlike exiting into nothing.
 /// </summary>
@@ -1921,6 +2023,13 @@ public sealed class AppRestartCoordinator
     private readonly Action<string> _reportUnavailable;
     private readonly Action<Action> _runInBackground;
     private readonly Action<Action> _postToUi;
+
+    /// <summary>
+    /// 0 = idle, 1 = a restart attempt is in progress. Guards against a second dwell
+    /// launching a second child while the first readiness wait is still running — the
+    /// loser would sit on the single-instance mutex for 30s and then exit.
+    /// </summary>
+    private int _restartInFlight;
 
     /// <summary>Creates the coordinator and subscribes it to <see cref="RestartAppRequestedMessage"/>.</summary>
     /// <param name="messenger">Application messenger.</param>
@@ -1962,23 +2071,39 @@ public sealed class AppRestartCoordinator
     /// </summary>
     public bool SupervisorRelaunchRequested { get; private set; }
 
-    /// <summary>Picks a strategy and runs it. Returns immediately; the work continues in the background.</summary>
+    /// <summary>
+    /// Picks a strategy and runs it. Returns immediately; the work continues in the
+    /// background. The dispatcher never blocks: the probe, the bring-up poll and the
+    /// self-restart wait all happen off-thread, and the dispatcher only ever executes
+    /// the shutdown or the refusal — a frozen dispatcher means no gaze processing, i.e.
+    /// the user loses control of the machine for the duration.
+    /// </summary>
     public void HandleRestart()
     {
-        // Strategy 1 — supervisor-mediated. Enabled is necessary but not sufficient:
-        // the app may have been launched by hand with no supervisor running.
-        if (_settings.Supervision.Enabled && _tryReachSupervisor())
+        // One restart attempt at a time. A second dwell while the first readiness wait
+        // is still running must not launch a second child (it would queue on the mutex
+        // for 30s and then exit). Re-armed on the refusal path, so a failed attempt
+        // does not deaden the button.
+        if (Interlocked.Exchange(ref _restartInFlight, 1) != 0)
         {
-            SupervisorRelaunchRequested = true;   // before _shutdown: OnExit reads this
-            _shutdown();
             return;
         }
 
-        // Strategy 2 — self-restart. Begin() blocks for up to the readiness timeout, so
-        // it must not touch the dispatcher: a frozen UI thread means no gaze processing,
-        // and the user would lose control of the machine while waiting.
         _runInBackground(() =>
         {
+            // Strategy 1 — supervisor-mediated. Enabled is necessary but not sufficient:
+            // the app may have been launched by hand with no supervisor running.
+            if (_settings.Supervision.Enabled && _tryReachSupervisor())
+            {
+                _postToUi(() =>
+                {
+                    SupervisorRelaunchRequested = true;   // before _shutdown: OnExit reads this
+                    _shutdown();
+                });
+                return;
+            }
+
+            // Strategy 2 — self-restart. Begin() blocks for up to the readiness timeout.
             var outcome = _selfRestart();
             _postToUi(() =>
             {
@@ -1988,6 +2113,7 @@ public sealed class AppRestartCoordinator
                 }
                 else
                 {
+                    _restartInFlight = 0;   // re-arm: the user may try again
                     _reportUnavailable(SelfRestartStrategy.Describe(outcome));
                 }
             });
@@ -2003,7 +2129,7 @@ dotnet build EyeCtrl.slnx --nologo
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AppRestartCoordinatorTests" --nologo
 ```
 
-Expected: 0 errors; 7 passing.
+Expected: 0 errors; 9 passing.
 
 - [ ] **Step 6: Commit**
 
@@ -2154,7 +2280,7 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 
 Expected: 0 errors, 0 failures.
 
-**Do not launch the app to look at the button.** Task 14 covers that, with your go-ahead. Note that Task 13 revises this button's prompt once the three-way offer exists — the plain two-button modal here is deliberate, so this task lands green on its own.
+**Do not launch the app to look at the button.** Task 14 covers that, with your go-ahead. Note that Task 13 revises this button's prompt once the three-way offer exists — the plain two-button modal here is deliberate, so this task lands green on its own. The General page now carries six buttons; whether they still fit the page (no clipping or overflow) cannot be verified headlessly, so it is checked in Task 14, scenario A.
 
 - [ ] **Step 5: Commit**
 
@@ -2391,7 +2517,7 @@ In `src/EyeCtrl.App/Services/HeartbeatPublisher.cs`, replace the `_supervised` f
 becomes:
 
 ```csharp
-    private volatile bool _publishing;
+    private int _publishing;   // 0 = off, 1 = on — swapped with Interlocked, see EnablePublishing
 ```
 
 The constructor (Task 1's version) becomes:
@@ -2417,8 +2543,9 @@ Replace `StartWriter` (line 110) with the idempotent enable:
     /// </summary>
     public void EnablePublishing()
     {
-        if (_publishing) return;
-        _publishing = true;
+        // CompareExchange, not a check-then-set: two callers (the constructor and Task 13's
+        // mid-session enable) must not both spin up a writer loop.
+        if (Interlocked.CompareExchange(ref _publishing, 1, 0) != 0) return;
         _writerLoop = Task.Run(WriterLoopAsync);
     }
 ```
@@ -2430,7 +2557,7 @@ and change `TryReachSupervisor`'s guard from `if (!_supervised) return false;` t
         // supervisor's Supervising state, after which the absence of periodic heartbeats
         // gets it force-killed within HangThresholdSeconds. Probing without publishing is
         // a delayed kill, not a harmless question.
-        if (!_publishing) return false;
+        if (Volatile.Read(ref _publishing) == 0) return false;
 ```
 
 - [ ] **Step 5: Create the heartbeat timer unconditionally**
@@ -2897,6 +3024,7 @@ with:
             ModalButtonPanel.Children.Clear();
             _modalButtons.Clear();
             _modalBrushes.Clear();
+            _modalBaseColors.Clear();
 
             // Two choices keep the horizontal row they have always had. Three or more
             // stack vertically: side by side they would not fit descriptive labels, and a
@@ -2960,17 +3088,43 @@ Replace `MakeModalButton` (lines 1339-1373):
 
         _modalButtons[id] = border;
         _modalBrushes[id] = modalBrush;
+        _modalBaseColors[id] = bg;
         return border;
     }
 ```
 
-`ModalYes` and `ModalNo` (`SettingsWindow.xaml.cs:48-49`) become unused once the palette owns the mapping — delete them, or the build warns and `StaticTokenCaptureTests` from Task 8 keeps flagging fields nothing reads. Check for other uses first:
+**The dwell-progress blend needs the same per-choice base.** `UpdateModalVisuals` (`SettingsWindow.xaml.cs:1281-1292`) still branches on `id == "modal_yes" ? ModalYes : ModalNo` for the blend base — with three choices that paints every new button's progress from `AccentDanger` red, and it is the reason `ModalYes`/`ModalNo` cannot simply be deleted. Replace the branch with a per-id base stored at build time:
+
+```csharp
+    private void UpdateModalVisuals()
+    {
+        foreach (var (id, progress) in _viewModel.ModalProgress)
+        {
+            if (_modalBrushes.TryGetValue(id, out var brush)
+                && _modalBaseColors.TryGetValue(id, out var baseC))
+            {
+                // HighlightColor(baseC, progress, 0.5) == Blend(baseC, Accent, progress * 0.5)
+                brush.Color = ColorBlend.Blend(baseC, Tokens.Accent, progress * 0.5);
+            }
+        }
+    }
+```
+
+Add the dictionary beside `_modalBrushes` (line 72):
+
+```csharp
+    private readonly Dictionary<string, Color> _modalBaseColors = new();
+```
+
+and clear it wherever `_modalBrushes` is cleared — both branches of `UpdateModalVisibility` (the visible branch above, and the collapsed branch at lines 1326-1327). The two-button form keeps its exact behaviour: its choices are Affirmative/Negative, so the bases are `ToggleOn`/`AccentDanger` — the former `ModalYes`/`ModalNo` values — and the existing reset confirmations blend exactly as they do today.
+
+`ModalYes` and `ModalNo` (`SettingsWindow.xaml.cs:48-49`) can now be deleted — with the build block, `MakeModalButton` and `UpdateModalVisuals` migrated, nothing reads them (a compiler warning and `StaticTokenCaptureTests` flag unused fields). Confirm nothing else references them:
 
 ```bash
 grep -n "ModalYes\|ModalNo" src/EyeCtrl.App/Views/SettingsWindow.xaml.cs
 ```
 
-Add `using EyeCtrl.ViewModels;` for `ModalChoiceKind` if absent, and confirm `Orientation` resolves (`System.Windows.Controls`).
+Expected: no output. Add `using EyeCtrl.ViewModels;` for `ModalChoiceKind` if absent, and confirm `Orientation` resolves (`System.Windows.Controls`).
 
 - [ ] **Step 7: Run the suite**
 
@@ -3184,26 +3338,47 @@ Add the offer predicate, rewrite `HandleRestart`, and add the bring-up helper:
     /// no-op adoption, not the delayed-kill from Task 11 (which concerns probing while NOT
     /// publishing). The side-effect is called out because a reader named <c>Should…</c> would
     /// not expect it to reach across a process boundary.
+    ///
+    /// <b>Runs on the dispatcher</b> (the dwell handler asks it synchronously), so its probe
+    /// is bounded by the publisher's <c>ProbeWait</c> (500ms): a live supervisor answers in
+    /// milliseconds, and an absent one must not freeze the user's gaze control while they
+    /// wait for a modal. The restart path itself never probes on the dispatcher — see
+    /// <see cref="HandleRestart"/>.
     /// </remarks>
     /// <returns>True if the offer is worth making.</returns>
     public bool ShouldOfferSupervisor() =>
         _supervisorInstalled() && !(_settings.Supervision.Enabled && _tryReachSupervisor());
 
-    /// <summary>Picks a strategy and runs it. Returns immediately; the work continues in the background.</summary>
+    /// <summary>
+    /// Picks a strategy and runs it. Returns immediately; the work continues in the
+    /// background. The dispatcher never blocks: the probe, the bring-up poll and the
+    /// self-restart wait all happen off-thread, and the dispatcher only ever executes
+    /// the shutdown or the refusal — a frozen dispatcher means no gaze processing, i.e.
+    /// the user loses control of the machine for the duration.
+    /// </summary>
     /// <param name="startSupervisor">True when the user chose to start a supervisor first.</param>
     public void HandleRestart(bool startSupervisor)
     {
-        // Strategy 1 — supervisor-mediated. Enabled is necessary but not sufficient:
-        // the app may have been launched by hand with no supervisor running.
-        if (_settings.Supervision.Enabled && _tryReachSupervisor())
+        // One restart attempt at a time (see Task 8). Re-armed on the refusal path.
+        if (Interlocked.Exchange(ref _restartInFlight, 1) != 0)
         {
-            SupervisorRelaunchRequested = true;   // before _shutdown: OnExit reads this
-            _shutdown();
             return;
         }
 
         _runInBackground(() =>
         {
+            // Strategy 1 — supervisor-mediated. Enabled is necessary but not sufficient:
+            // the app may have been launched by hand with no supervisor running.
+            if (_settings.Supervision.Enabled && _tryReachSupervisor())
+            {
+                _postToUi(() =>
+                {
+                    SupervisorRelaunchRequested = true;   // before _shutdown: OnExit reads this
+                    _shutdown();
+                });
+                return;
+            }
+
             // Strategy 1b — the user asked us to start a supervisor first, which upgrades
             // this restart to the recoverable path AND leaves the replacement watched.
             if (startSupervisor && TryBringUpSupervisor())
@@ -3216,9 +3391,7 @@ Add the offer predicate, rewrite `HandleRestart`, and add the bring-up helper:
                 return;
             }
 
-            // Strategy 2 — self-restart. Begin() blocks for up to the readiness timeout,
-            // which is why this whole block is off the dispatcher: a frozen UI thread
-            // means no gaze processing, and the user would lose control of the machine.
+            // Strategy 2 — self-restart. Begin() blocks for up to the readiness timeout.
             var outcome = _selfRestart();
             _postToUi(() =>
             {
@@ -3228,6 +3401,7 @@ Add the offer predicate, rewrite `HandleRestart`, and add the bring-up helper:
                 }
                 else
                 {
+                    _restartInFlight = 0;   // re-arm: the user may try again
                     _reportUnavailable(SelfRestartStrategy.Describe(outcome));
                 }
             });
@@ -3289,6 +3463,8 @@ Change the registration to pass the flag:
 
 Add `using System.Threading;`.
 
+**Keep the Task 8 tests compiling:** the four new constructor parameters are required, so the direct (non-harness) constructions in `AppRestartCoordinatorTests` must pass them too — `SupervisorFlagIsSetBeforeShutdown_SoOnExitCanSeeIt`, `SupervisorProbe_RunsOffTheUiThread_AndShutsDownOnIt`, `SecondRequest_WhileTheFirstIsInFlight_IsIgnored` and `SelfRestart_RunsOffTheUiThread_AndShutsDownOnIt` each gain `supervisorInstalled: () => false, launchSupervisor: () => false, enablePublishing: () => { }, persistSettings: () => { }`. Those tests do not exercise the offer path, so the no-op defaults are correct for them.
+
 - [ ] **Step 5: Wire the new dependencies**
 
 In `src/EyeCtrl.App/App.xaml.cs`, extend the coordinator construction from Task 9:
@@ -3297,14 +3473,42 @@ In `src/EyeCtrl.App/App.xaml.cs`, extend the coordinator construction from Task 
                 supervisorInstalled: () => SupervisorLauncher.IsInstalled,
                 launchSupervisor: SupervisorLauncher.TryLaunch,
                 enablePublishing: () => _heartbeatPublisher?.EnablePublishing(),
-                persistSettings: () => settingsService.Save(settings),
+                persistSettings: () =>
+                {
+                    settingsService.Save(settings);
+                    // Supervision just turned on: the app must stop self-registering the
+                    // HKCU Run key, or the next logon launches it BOTH from the Run key and
+                    // from the supervisor's own launch path (a transient double-launch the
+                    // mutex resolves, but a race at logon). Same reconciliation the startup
+                    // block performs, with the captured `supervised` flag now known true.
+                    startupRegistrar.SetStartOnBoot(
+                        StartOnBootPolicy.ShouldSelfRegister(supervised: true, settings.General.StartOnBoot));
+                },
 ```
 
-`settingsService` is already resolved at `App.xaml.cs:107`.
+`settingsService` is already resolved at `App.xaml.cs:107`, `startupRegistrar` at line 119. Immediately after the coordinator construction, hand it to the settings window's owner so Task 13 Step 6 can pass it through:
+
+```csharp
+            _eventCoordinator.SetRestartCoordinator(_restartCoordinator);
+```
 
 - [ ] **Step 6: Make the offer**
 
-In `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs`, replace the restart button's action from Task 10. The window needs the coordinator: add `AppRestartCoordinator restartCoordinator` to the constructor parameter list, store it in `_restartCoordinator`, and pass it from wherever `SettingsWindow` is constructed.
+In `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs`, replace the restart button's action from Task 10. The window needs the coordinator: add `AppRestartCoordinator restartCoordinator` to the constructor parameter list and store it in `_restartCoordinator`. `SettingsWindow` is constructed in `EventCoordinator.ShowSettingsWindow` (`EventCoordinator.cs:1146`), so thread the coordinator through there: give `EventCoordinator` a `_restartCoordinator` field plus
+
+```csharp
+    /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
+    public void SetRestartCoordinator(AppRestartCoordinator coordinator) => _restartCoordinator = coordinator;
+```
+
+(mirroring `SetModelServices`), and pass it as the new argument at `EventCoordinator.cs:1146`, using the same guard the model services use:
+
+```csharp
+                _restartCoordinator ?? throw new InvalidOperationException(
+                    "Restart coordinator not set; SetRestartCoordinator must be called at startup."),
+```
+
+The settings window is only reachable after startup completes, so the throw can never fire in practice.
 
 ```csharp
                 () => Add(new DwellButton(_viewModel, "g_restart", "↻ Restart Now",
@@ -3403,6 +3607,7 @@ Expected: a `Shutdown` from the outgoing instance, then a fresh startup line sec
 | Modal says "closed immediately" | The child exited early; look for its own startup exception in the log |
 | App exits and does not come back | The handshake passed but init failed after it — the residual risk; check the replacement's log |
 | Two instances briefly visible | The child did not wait on the mutex — check Task 5's timeout is being passed |
+| General page buttons clip or overflow the page | The sixth button (Task 10) exceeds the page height — reduce the row height or split the page (fit cannot be verified headlessly) |
 
 - [ ] **Scenario B — supervisor-mediated restart**
 

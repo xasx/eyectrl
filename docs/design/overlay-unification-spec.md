@@ -393,6 +393,23 @@ for the token layer:
 - The validator excludes it from every colour gate (`NON_COLOUR_TOKENS`) and gates
   it only for being ≥ 1, reported next to the theme's border contrast so the two
   are read together.
+- Implemented as `ITheme.BorderThicknessStandard`, published to XAML by
+  `ThemeResourceApplier` in both forms (`BorderThicknessStandard`, a `double`, and
+  `StandardBorderThickness`, a `Thickness`), and pinned per theme against the
+  validator by `ThemeParityTests`.
+
+Two existing guards had to be re-scoped when the other two themes became real, and
+both are worth recording because they were assertions that only held for Midnight:
+
+- `ToggleContrastTests` asserted `ToggleOff.R <= ToggleOff.B` as a stand-in for "off
+  is not an error colour". Ember's warm neutral `#342C21` (R 52, B 33) fails that
+  while being no more an error colour than Midnight's `#2E2E42`. The rule is now a
+  Lab chroma ceiling of 20 — measured 13.7 / 8.6 / 0.0 — against the C* ≥ 55 floor
+  gate 9 holds the semantic triad to.
+- `ColorPickerPresetTests` banned `#00FF00` from the preset list, as a memory of the
+  outgoing Lime accent. Contrast uses `#00FF00` as `AccentSuccess` and `ToggleOn`,
+  validated by all ten gates. The rule now applies to the *accent*, which is what it
+  always meant.
 
 ---
 
@@ -1068,7 +1085,9 @@ C\* ≈ 25 in both themes, being a luminance signal rather than a categorical on
 
 ### 10.6 What a theme system requires structurally
 
-Not in scope for §5, but worth recording before Phase 0 fixes the shape:
+**Status: implemented.** The four requirements below were recorded before Phase 0
+and are now all satisfied in code; each bullet closes with what was built. See
+`docs/superpowers/plans/2026-07-30-itheme-theme-system.md`.
 
 - **`{StaticResource}` cannot switch at runtime.** §5 Phase 4–5 specify
   `StaticResource` throughout, which resolves once when a window loads. That is
@@ -1077,6 +1096,11 @@ Not in scope for §5, but worth recording before Phase 0 fixes the shape:
   Settings or Keyboard window needs `{DynamicResource}`, or those windows must be
   recreated on change. **Decide restart-vs-live before Phase 4**, because
   converting the resource references afterwards touches every file in that phase.
+  **Resolved — startup-applied.** The theme is chosen once in `App.OnStartup` via
+  `ThemeStartup.Apply`; changing it takes effect on the next launch, and the
+  picker says so. No `{DynamicResource}` conversion was needed, and none of
+  Phase 4–5's files were touched. Recreating the 15 overlay singletons in place
+  remains unbuilt.
 - **`Tokens.cs` becomes a provider, not a set of constants.** A theme system needs
   the values behind an indirection (`ITheme` with a current-theme accessor), while
   the §5 design deliberately uses plain statics so `EyeCtrl.Controls.Tests` can
@@ -1084,13 +1108,30 @@ Not in scope for §5, but worth recording before Phase 0 fixes the shape:
   Midnight implementation of `ITheme` — but the interface should exist from
   Phase 0 rather than being introduced by a later refactor. Note it carries more
   than the 20 brushes: `BorderThicknessStandard` is theme-varying (§4.4), so
-  `ITheme` needs at least one non-colour member from the start.
+  `ITheme` needs at least one non-colour member from the start. **Resolved.**
+  `ITheme` + `ThemeBase` + three theme classes; `Tokens` keeps its 45-member
+  static surface as forwarding properties, so all 131 C# call sites and 106 XAML
+  lookups were unchanged. `BorderThicknessStandard` is on the interface from the
+  start. The statics-without-`Application` property is preserved —
+  `Tokens.Current` defaults to Midnight with no resource lookup.
 - **A theme setting means a fifth persisted colour-adjacent key.** `ThemeSettings`
   already exists in `EyeCtrlSettings`; a theme name belongs there, and per §7.1
   the user-chosen `CursorSettings.CircleColor` would then need to be
-  theme-relative or explicitly theme-independent. The halo constraint from
-  §5 item 9 (presets ≥ 7:1 against `StrokeHalo`) must be re-checked per theme —
-  Ember's halo is `#0E0A06`, so the preset list is not automatically portable.
+  theme-relative or explicitly theme-independent. **Resolved — and it cost three
+  keys rather than adding one.** `ThemeSettings.Mode`, `.OverlayOpacity` and
+  `.HighContrast` were persisted, gaze-reachable, and read by nothing; so was
+  `CursorSettings.CircleHighContrast`, which was surfaced twice. All four were
+  deleted and replaced by `ThemeSettings.Name`. The four persisted colours
+  (`CircleColor`, `TargetColor`, `HighlightColor`, `TrailColor`) are **explicitly
+  theme-independent**: they are user-chosen absolute values, and their defaults
+  track Midnight. The halo constraint from §5 item 9 (presets ≥ 7:1 against
+  `StrokeHalo`) must be re-checked per theme — Ember's halo is `#0E0A06`, so the
+  preset list is not automatically portable. **Re-checked, and it is portable
+  after all.** All four shipping presets clear 7:1 against all three halos (worst
+  case 9.13:1, Amber vs Midnight's `#0A0A14`). What was not portable is the
+  *first* preset, which must be the theme's accent — so the list is now derived
+  from the theme as `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, which
+  reproduces Midnight's four values exactly.
 
 ---
 

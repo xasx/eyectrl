@@ -138,6 +138,12 @@ dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Adapt
 
 SmallLM benchmarks require ONNX model + tokenizer files in `%APPDATA%/EyeCtrl/models` (overridable via `EYECTRL_MODEL_DIR` env var). The `Program.cs` pre-flight check excludes the class entirely if no model is present.
 
+**Toolchain is pinned — don't remove it.** `Program.cs` gives every job an explicit toolchain built by `PinnedProjectToolchain.cs`, resolving `EyeCtrl.Benchmarks.csproj` by walking *up* from the running assembly. BenchmarkDotNet's stock behaviour is to search *down* from the repo root instead, which finds one copy of the project per checkout under `.worktrees/` and aborts every benchmark with `NotSupportedException: Found more than one matching project file ... Benchmark project names needs to be unique.` — i.e. the whole suite is unrunnable while any worktree exists, and no result can be recorded. Consequences:
+
+- Benchmarks run from a worktree pin to *that* worktree's project, which is the copy that was built. No absolute paths, nothing to keep in sync.
+- The pin fixes the target framework at `net10.0`, so keep every class on `[SimpleJob(RuntimeMoniker.Net10_0)]`. A stale moniker no longer fails the build — it produces a result labelled with a runtime it did not run on. (`PredictionBenchmarks` was on `Net90` and never produced a recorded report; corrected.)
+- `--inProcess` still works and now applies to every job. It generates no project, so it also sidesteps the search — but it runs in the host process with no isolation. Smoke tests only; don't record results from it.
+
 ## Logging
 
 Serilog, initialized in `LoggingInitializer.Initialize()`. Logs to `%APPDATA%/EyeCtrl/logs/eyectrl-.log` with daily rolling and 7-day retention. Both Serilog's static `Log` class and injected `ILogger<T>` are used.

@@ -2791,7 +2791,7 @@ The wiring is two lines, but they go through an extracted, testable type — the
 
 Placement matters: after `InitializeSettingsAndLogging()` (`App.xaml.cs:101`), which is where `settings` first exists, and **before** `AppBootstrapper.BuildServiceProvider` (`App.xaml.cs:104`), which is upstream of every overlay window and dwell control. `SplashWindow` is shown earlier still (`App.xaml.cs:95-96`) and is therefore always drawn pre-theme; it is a brief, deliberate exception, not something to fix here.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.App.Tests/ThemeStartupTests.cs`:
 
@@ -2877,7 +2877,7 @@ public class ThemeStartupTests
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ThemeStartupTests" --nologo
@@ -2885,7 +2885,7 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ThemeStartupTes
 
 Expected: **build failure**, `CS0103: The name 'ThemeStartup' does not exist`.
 
-- [ ] **Step 3: Create `ThemeStartup`**
+- [x] **Step 3: Create `ThemeStartup`**
 
 Create `src/EyeCtrl.App/Services/ThemeStartup.cs`:
 
@@ -2926,7 +2926,7 @@ public static class ThemeStartup
 }
 ```
 
-- [ ] **Step 4: Add the xUnit collection so the global-state tests do not race**
+- [x] **Step 4: Add the xUnit collection so the global-state tests do not race**
 
 This is not belt-and-braces. There is **no `xunit.runner.json` in the repo and no `ParallelizeTestCollections=false` anywhere** (checked: `tests/Directory.Build.props` only pins package versions), so xUnit v3's defaults apply — assembly *and* collection parallelization both **on**. `ThemeStartupTests` mutates the process-global `Tokens.Current` and restores it in `finally`; without serialization it races any test reading `Tokens.X` in parallel. Two things make that set empty by the time these tests run:
 
@@ -2952,7 +2952,7 @@ public class ActiveThemeCollection
 }
 ```
 
-- [ ] **Step 5: Wire it into `OnStartup`**
+- [x] **Step 5: Wire it into `OnStartup`**
 
 In `src/EyeCtrl.App/App.xaml.cs`, after line 101 and before the `// ── Build DI container ──` comment at line 103, insert:
 
@@ -2968,7 +2968,7 @@ In `src/EyeCtrl.App/App.xaml.cs`, after line 101 and before the `// ── Build
 
 `Resources` is `Application.Resources` — this file is the `Application` subclass. `ThemeStartup` is in `EyeCtrl.App.Services`, which `App.xaml.cs` already imports for `AppBootstrapper`; if the compiler disagrees, add `using EyeCtrl.App.Services;`.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 ```bash
 dotnet build EyeCtrl.slnx --nologo
@@ -2977,7 +2977,7 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 
 Expected: 0 errors, 0 failures.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Services/ThemeStartup.cs src/EyeCtrl.App/App.xaml.cs tests/EyeCtrl.App.Tests/ThemeStartupTests.cs tests/EyeCtrl.App.Tests/ActiveThemeCollection.cs

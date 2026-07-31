@@ -1,6 +1,5 @@
 namespace EyeCtrl.Controls.Tests.Theme;
 
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -82,29 +81,12 @@ public class ThemeParityTests
 
     public static TheoryData<string> ThemeNames() => new() { "Midnight", "Ember", "Contrast" };
 
-    /// <summary>
-    /// Name to theme, local to this file.
-    ///
-    /// Deliberately **not** <c>ThemeRegistry.Resolve</c>: the registry does not
-    /// exist until Task 4, and it is itself built from these same three instances,
-    /// so depending on it here would make Tasks 3 and 4 mutually dependent —
-    /// neither could compile first. Task 4 Step 4 swaps this for the registry once
-    /// there is one, which is also what proves the registry agrees with this list.
-    /// </summary>
-    private static ITheme ThemeNamed(string name) => name switch
-    {
-        "Midnight" => MidnightTheme.Instance,
-        "Ember" => EmberTheme.Instance,
-        "Contrast" => ContrastTheme.Instance,
-        _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown theme"),
-    };
-
     [Theory]
     [MemberData(nameof(ThemeNames))]
     public void EveryColour_MatchesTheValidator(string themeName)
     {
         var expected = ParseTheme(ValidatorSource(), themeName);
-        var theme = ThemeNamed(themeName);
+        var theme = ThemeRegistry.Resolve(themeName);
 
         foreach (var property in typeof(ITheme).GetProperties()
                      .Where(p => p.PropertyType == typeof(Color)))
@@ -129,7 +111,7 @@ public class ThemeParityTests
     public void BorderThickness_MatchesTheValidator(string themeName)
     {
         var expected = ParseTheme(ValidatorSource(), themeName);
-        var theme = ThemeNamed(themeName);
+        var theme = ThemeRegistry.Resolve(themeName);
 
         Check.WithCustomMessage(
                 $"{themeName} must declare BorderThicknessStandard in the validator — "
@@ -141,7 +123,7 @@ public class ThemeParityTests
     }
 
     [Fact]
-    public void ValidatorAndCSharp_DeclareTheSameThemes()
+    public void ValidatorAndRegistry_DeclareTheSameThemes()
     {
         // A theme gated in Python but missing from C# is unreachable; a theme in C#
         // but not in Python has never passed a single gate.
@@ -151,8 +133,7 @@ public class ThemeParityTests
             .OrderBy(n => n)
             .ToList();
 
-        var inCSharp = ThemeNames().Select(row => (string)row).OrderBy(n => n).ToList();
-
-        Check.That(inCSharp).ContainsExactly(inPython);
+        Check.That(ThemeRegistry.All.Select(t => t.Name).OrderBy(n => n).ToList())
+             .ContainsExactly(inPython);
     }
 }

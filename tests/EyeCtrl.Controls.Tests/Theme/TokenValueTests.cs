@@ -1,79 +1,62 @@
 namespace EyeCtrl.Controls.Tests.Theme;
 
+using System.Linq;
 using System.Windows.Media;
 using EyeCtrl.Controls.Theme;
 using NFluent;
 using Xunit;
 
 /// <summary>
-/// Pins every palette token to its docs/design/overlay-unification-spec.md §4.1
-/// value. These are validated by tools/palette_validate.py — changing one here
-/// without re-running that script invalidates §9's measured tables.
+/// Guards the shape of the <see cref="Tokens"/> facade.
+///
+/// Token *values* are no longer pinned here: they live in tools/palette_validate.py
+/// (which runs the ten gates against them) and are checked against the C# themes by
+/// ThemeParityTests. Restating them here as well would have been a third copy.
 /// </summary>
 public class TokenValueTests
 {
-    private static string Hex(Color c) => $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
-
-    [Theory]
-    // Surfaces
-    [InlineData(nameof(Tokens.SurfaceDark), "#FA1A1A2E")]
-    [InlineData(nameof(Tokens.SurfaceMedium), "#FA2A2A44")]
-    [InlineData(nameof(Tokens.SurfaceLight), "#FF3A3A5E")]
-    [InlineData(nameof(Tokens.SurfaceKey), "#FF2A2A3E")]
-    [InlineData(nameof(Tokens.SurfaceKeyModifier), "#FF3E3E64")]
-    [InlineData(nameof(Tokens.SurfaceKeySwitch), "#FF38527F")]
-    [InlineData(nameof(Tokens.SurfaceKeyActive), "#FF5278B8")]
-    [InlineData(nameof(Tokens.SurfacePrediction), "#FF2F5340")]
-    // Text and borders
-    [InlineData(nameof(Tokens.BorderSubtle), "#FF616BA0")]
-    [InlineData(nameof(Tokens.BorderFocus), "#FFA5F3FC")]
-    [InlineData(nameof(Tokens.TextPrimary), "#FFD6DEF5")]
-    [InlineData(nameof(Tokens.TextSecondary), "#FF9AA4C8")]
-    [InlineData(nameof(Tokens.TextDim), "#FF868FB5")]
-    [InlineData(nameof(Tokens.MarkerMove), "#FFA8A0D0")]
-    // Accent and semantics
-    [InlineData(nameof(Tokens.Accent), "#FFA5F3FC")]
-    [InlineData(nameof(Tokens.StrokeHalo), "#FF0A0A14")]
-    [InlineData(nameof(Tokens.AccentSuccess), "#FF7EE787")]
-    [InlineData(nameof(Tokens.AccentWarning), "#FFE8A33C")]
-    [InlineData(nameof(Tokens.AccentDanger), "#FFFF5C7A")]
-    [InlineData(nameof(Tokens.ToggleOn), "#FF4A8F5C")]
-    [InlineData(nameof(Tokens.ToggleOff), "#FF2E2E42")]
-    [InlineData(nameof(Tokens.ModalBackdrop), "#B3000000")]
-    public void Token_HasSpecifiedValue(string name, string expected)
-    {
-        var field = typeof(Tokens).GetField(name);
-        Check.WithCustomMessage($"Tokens.{name} does not exist").That(field).IsNotNull();
-
-        var actual = Hex((Color)field!.GetValue(null)!);
-        Check.WithCustomMessage(
-                $"Tokens.{name} is {actual}, spec §4.1 says {expected}. "
-                + "If this change is intended, update §4.1 AND re-run "
-                + "tools/palette_validate.py before changing this test.")
-            .That(actual).IsEqualTo(expected);
-    }
-
     [Fact]
     public void EveryColourToken_HasAMatchingFrozenBrush()
     {
-        foreach (var field in typeof(Tokens).GetFields()
-                     .Where(f => f.FieldType == typeof(Color)))
+        foreach (var property in typeof(Tokens).GetProperties()
+                     .Where(p => p.PropertyType == typeof(Color)))
         {
-            var brushField = typeof(Tokens).GetField("Brush" + field.Name);
-            Check.WithCustomMessage($"Tokens.Brush{field.Name} is missing")
-                .That(brushField).IsNotNull();
+            var brushProperty = typeof(Tokens).GetProperty("Brush" + property.Name);
+            Check.WithCustomMessage($"Tokens.Brush{property.Name} is missing")
+                .That(brushProperty).IsNotNull();
 
-            var brush = (SolidColorBrush)brushField!.GetValue(null)!;
-            Check.That(brush.Color).IsEqualTo((Color)field.GetValue(null)!);
-            Check.WithCustomMessage($"Tokens.Brush{field.Name} must be frozen")
+            var brush = (SolidColorBrush)brushProperty!.GetValue(null)!;
+            Check.That(brush.Color).IsEqualTo((Color)property.GetValue(null)!);
+            Check.WithCustomMessage($"Tokens.Brush{property.Name} must be frozen")
                 .That(brush.IsFrozen).IsTrue();
         }
     }
 
     [Fact]
-    public void BorderThicknessStandard_IsOnePixel()
+    public void Tokens_ExposesEveryMemberOfITheme()
     {
-        // Theme-varying per spec §4.4 — Contrast uses 2. Midnight is 1.
+        // The facade must not fall behind the interface: a token added to ITheme
+        // and not forwarded here is invisible to all 131 C# call sites.
+        foreach (var member in typeof(ITheme).GetProperties()
+                     .Where(p => p.Name != nameof(ITheme.Name)))
+        {
+            Check.WithCustomMessage(
+                    $"ITheme.{member.Name} has no forwarding property on Tokens. "
+                    + "Add it, or the token is unreachable from C# and XAML.")
+                .That(typeof(Tokens).GetProperty(member.Name)).IsNotNull();
+        }
+    }
+
+    [Fact]
+    public void DefaultTheme_IsMidnight()
+    {
+        // Tests and any pre-startup code path must see the shipping palette.
+        Check.That(Tokens.Current.Name).IsEqualTo("Midnight");
+    }
+
+    [Fact]
+    public void BorderThicknessStandard_IsOnePixelUnderMidnight()
+    {
         Check.That(Tokens.BorderThicknessStandard).IsEqualTo(1.0);
     }
 }

@@ -736,7 +736,7 @@ git commit -m "feat(theme): introduce ITheme with Midnight as its first implemen
 
 **This is the risk-retirement task.** The entire plan rests on `{x:Static theme:Tokens.SurfaceDark}` binding a static *property* as happily as it bound a static *field*. `TokenDictionaryTests` loads the real `OverlayStyles.xaml` through the pack URI in a headless `[StaFact]` (`TokenDictionaryTests.cs:31-48`) — if `x:Static` could not bind a property, that test throws at dictionary load. So Step 4 below is a genuine proof, not a smoke test, and it costs no app launch. Do not proceed to Task 3 until it is green.
 
-- [ ] **Step 1: Update the two reflection-based tests to expect properties**
+- [x] **Step 1: Update the two reflection-based tests to expect properties**
 
 In `tests/EyeCtrl.Controls.Tests/Theme/TokenValueTests.cs`, delete the whole `[Theory] Token_HasSpecifiedValue` block including all 22 `[InlineData]` lines (lines 17-54) — those hexes move to Task 3's cross-language parity guard, so they end up with one source of truth instead of three. Replace the remainder of the class body (lines 56-78) so the file reads:
 
@@ -821,7 +821,7 @@ with:
 
 The loop body needs no other change: `field.Name` and `field.GetValue(null)` are identical on `PropertyInfo`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~TokenValueTests|FullyQualifiedName~TokenDictionaryTests" --nologo
@@ -829,7 +829,7 @@ dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~TokenValue
 
 Expected: **build failure**, `CS0117: 'Tokens' does not contain a definition for 'Current'`. `Tokens` still holds fields, so the property reflection would also find nothing.
 
-- [ ] **Step 3: Rewrite `Tokens.cs` as a facade**
+- [x] **Step 3: Rewrite `Tokens.cs` as a facade**
 
 Replace the entire contents of `src/EyeCtrl.Controls/Theme/Tokens.cs`:
 
@@ -973,7 +973,7 @@ public static class Tokens
 }
 ```
 
-- [ ] **Step 4: Drop the now-stale `Tokens.cs` exemption**
+- [x] **Step 4: Drop the now-stale `Tokens.cs` exemption**
 
 `Tokens.cs` is pure forwarding as of Step 3, so its `Exempt` entry protects nothing and `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` fails on it (finding 5). In `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs`, **delete** these two lines from `Exempt`:
 
@@ -984,7 +984,7 @@ public static class Tokens
 
 `MidnightTheme.cs` (added in Task 1) and `DwellColorPicker.cs` both still hold literals, so both stay.
 
-- [ ] **Step 5: Run the full suite — this is the `{x:Static}`-on-property proof**
+- [x] **Step 5: Run the full suite — this is the `{x:Static}`-on-property proof**
 
 ```bash
 dotnet build EyeCtrl.slnx --nologo
@@ -999,7 +999,7 @@ The proof that `{x:Static}` can bind a static *property* (not just a field) live
 
 Remember: failures print as `Fehler <FQN>`, and long names wrap across lines.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/Theme/Tokens.cs tests/EyeCtrl.Controls.Tests/Theme/TokenValueTests.cs tests/EyeCtrl.Controls.Tests/Theme/TokenDictionaryTests.cs tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs

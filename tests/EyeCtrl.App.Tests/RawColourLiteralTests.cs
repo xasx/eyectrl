@@ -39,8 +39,6 @@ public class RawColourLiteralTests
     /// </summary>
     private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["src/EyeCtrl.Controls/Theme/Tokens.cs"] =
-            "the palette itself — the one place a colour literal is correct",
         ["src/EyeCtrl.Controls/DwellColorPicker.cs"] =
             "DefaultPresets are user-selectable palette values, gated by ColorPickerPresetTests",
         ["src/EyeCtrl.Controls/Theme/MidnightTheme.cs"] =

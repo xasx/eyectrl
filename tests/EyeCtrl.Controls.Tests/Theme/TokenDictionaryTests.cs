@@ -52,8 +52,8 @@ public class TokenDictionaryTests
     {
         var dict = Load();
 
-        foreach (var field in typeof(Tokens).GetFields(BindingFlags.Public | BindingFlags.Static)
-                     .Where(f => f.FieldType == typeof(SolidColorBrush)))
+        foreach (var field in typeof(Tokens).GetProperties(BindingFlags.Public | BindingFlags.Static)
+                     .Where(f => f.PropertyType == typeof(SolidColorBrush)))
         {
             var key = field.Name;   // e.g. BrushAccent
             Check.WithCustomMessage($"OverlayStyles.xaml is missing key '{key}'")

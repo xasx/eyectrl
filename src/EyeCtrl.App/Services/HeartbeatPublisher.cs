@@ -153,7 +153,19 @@ public sealed class HeartbeatPublisher : IDisposable
         try
         {
             var send = SendOneAsync(probe, CancellationToken.None);
-            return send.Wait(ProbeWait) && send.Result;
+            if (send.Wait(ProbeWait))
+            {
+                return send.Result;
+            }
+
+            // The probe gave up before the send completed. The send may still fault in the
+            // background (e.g. WriteAsync throwing after connect succeeded but past ProbeWait);
+            // observe its exception so it can never surface as an unobserved-task exception.
+            // SendOneAsync's own connect-timeout branch already observes a connect fault; this
+            // covers a fault on the write path that races past the probe's wait. Matches the
+            // doc comment on ProbeWait ("its faulted outcome is observed").
+            _ = send.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+            return false;
         }
         catch
         {

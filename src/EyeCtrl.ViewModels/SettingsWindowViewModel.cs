@@ -217,6 +217,12 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
                 if (choice is not null)
                 {
                     var chosen = choice.OnChosen;
+                    // HideModal() runs BEFORE the chosen action — the reverse of the old
+                    // two-button form, which invoked onYes first. Load-bearing for the
+                    // supervisor-restart choice (Task 13): its action shuts the app down, and
+                    // leaving modal state live across shutdown would leave dwell targets
+                    // pointing at a disposing window. Note this means a future OnChosen that
+                    // reads modal state will see it cleared — by design.
                     HideModal();
                     chosen?.Invoke();
                 }

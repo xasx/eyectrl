@@ -14,7 +14,7 @@
 
 ## Scope boundaries — read before starting
 
-- **Theme applies at startup, not live.** The recorded decision (`src/EyeCtrl.Controls/Theme/Tokens.cs:15-18`) is that a theme change *recreates windows* rather than re-resolving live, which is why `{StaticResource}` throughout needs no rework. **That decision still holds and is not reopened here.** This plan takes the coarsest correct form of "recreate": the theme is resolved once in `App.OnStartup`, and changing it takes effect on the next launch. Recreating the overlay singletons in place is *not* in scope — `IOverlayManager` hands out 16 long-lived window instances (`src/EyeCtrl.App/Services/IOverlayManager.cs:18-77`) that `EventCoordinator` holds references to, and swapping them at runtime is a separate change that could not be verified without launching the app.
+- **Theme applies at startup, not live.** The recorded decision (`src/EyeCtrl.Controls/Theme/Tokens.cs:15-18`) is that a theme change *recreates windows* rather than re-resolving live, which is why `{StaticResource}` throughout needs no rework. **That decision still holds and is not reopened here.** This plan takes the coarsest correct form of "recreate": the theme is resolved once in `App.OnStartup`, and changing it takes effect on the next launch. Recreating the overlay singletons in place is *not* in scope — `IOverlayManager` hands out 15 long-lived window instances (`src/EyeCtrl.App/Services/IOverlayManager.cs:18-77`) that `EventCoordinator` holds references to, and swapping them at runtime is a separate change that could not be verified without launching the app.
 - **The setting must not be a fourth dead knob.** Task 11 labels the picker `Theme (restart to apply)`. That is the whole mitigation; do not add a restart button, and do not silently leave the knob inert. **The supervisor does not offer a shortcut here — see below.**
 
 ### Why "restart to apply" rather than a restart button
@@ -25,8 +25,8 @@ The obvious objection is that `EyeCtrl.Supervisor` already respawns the app, so 
 
 That leaves three options, two of which the supervisor makes worse rather than better:
 
-1. **Exit uncleanly on purpose.** The supervisor does relaunch — but `GoRecovering` books a strike (`ConsecutiveFailures++`, `_crash.RecordStrike`), applies a backoff delay, and accumulated strikes escalate to `FallenBack`, which launches a fallback AT (Windows Eye Control, `src/EyeCtrl.Supervisor/Fallback/FallbackAtLauncher.cs:83`) and shows a recovery dialog. Burning crash budget to change a colour scheme is a bad trade: a couple of theme experiments plus one genuine crash could push the user into the fallback path. **Rejected.**
-2. **Self-relaunch, then exit cleanly.** Architecturally supported: the heartbeat pipe runs in *adoption* mode with exe-path-only binding specifically "so a manually-launched app can connect" (`src/EyeCtrl.Supervisor/Program.cs:460` remarks), and `AdoptRequest` in `IdleWatch` returns straight to `Supervising` (`SupervisionStateMachine.cs:55-58`). But `SingleInstanceGuard` makes the new instance exit immediately while the old one holds the mutex (`App.xaml.cs:81-87`), and that is only released partway through `OnExit` (`App.xaml.cs:311`) — so the relaunch has to be ordered against teardown, and getting it wrong is a race.
+1. **Exit uncleanly on purpose.** The supervisor does relaunch — but `GoRecovering` books a strike (`ConsecutiveFailures++`, `_crash.RecordStrike`), applies a backoff delay, and accumulated strikes escalate to `FallenBack`, which launches a fallback AT (Windows Eye Control, `src/EyeCtrl.Supervisor/Fallback/FallbackAtLauncher.cs:84`) and shows a recovery dialog. Burning crash budget to change a colour scheme is a bad trade: a couple of theme experiments plus one genuine crash could push the user into the fallback path. **Rejected.**
+2. **Self-relaunch, then exit cleanly.** Architecturally supported: the heartbeat pipe runs in *adoption* mode with exe-path-only binding specifically "so a manually-launched app can connect" (`src/EyeCtrl.Supervisor/Program.cs:461` remarks), and `AdoptRequest` in `IdleWatch` returns straight to `Supervising` (`SupervisionStateMachine.cs:55-58`). But `SingleInstanceGuard` makes the new instance exit immediately while the old one holds the mutex (`App.xaml.cs:81-87`), and that is only released partway through `OnExit` (`App.xaml.cs:311`) — so the relaunch has to be ordered against teardown, and getting it wrong is a race.
 3. **Label the picker and apply at startup.** What this plan does.
 
 The decider is the failure mode, not the elegance. Under option 2, if `Process.Start` throws, the supervisor is already in `IdleWatch` and **will not recover** — a clean exit told it to stop watching. The user is left with no app and no watchdog. And `Supervision.Enabled` may be false (`App.xaml.cs:120`), in which case options 1 and 2 have no safety net whatsoever. For a user whose sole input channel is the application being restarted, that is a stranding risk, and it cuts against the same "never strand the user" goal the supervisor's own fallback path cites (`src/EyeCtrl.Supervisor/Program.cs`, `OnFallenBack`).
@@ -95,18 +95,18 @@ These were measured against the merged tree (`4451cdb` on `main`), not assumed. 
 **1. There is already dead theme UI, and it is worse than three flags.**
 `ThemeSettings.Mode` / `.OverlayOpacity` / `.HighContrast` (`src/EyeCtrl.Core/Settings/ThemeSettings.cs:9-13`) have **no consumer outside their own class and the settings UI that writes them**. `Mode` and `OverlayOpacity` and `HighContrast` are surfaced as live controls at `src/EyeCtrl.ViewModels/SettingsViewModel.cs:175-177`. Separately, `CursorSettings.CircleHighContrast` (`src/EyeCtrl.Core/Settings/CursorSettings.cs:37`) is surfaced **twice** — `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:447-450` and `src/EyeCtrl.ViewModels/SettingsViewModel.cs:71` — and no renderer reads it. Five gaze-reachable controls, zero effect. Task 7 deletes all five and replaces them with one that works.
 
-**2. 25 `static readonly` fields snapshot token values at type-init time.** This is the sharpest hazard in the slice, and a facade alone does *not* fix it:
+**2. 30 static token captures snapshot values at type-init time.** This is the sharpest hazard in the slice, and a facade alone does *not* fix it:
 
 ```
 src/EyeCtrl.App/Overlays/EmojiGridManager.cs:23-29      (6 fields)
-src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs:22-32   (6 fields)
+src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs:22-37   (11: 6 field initialisers + 5 assigned in a static constructor)
 src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:44-51      (8 fields)
 src/EyeCtrl.Controls/DwellComboBox.cs:31-32             (2 fields)
 src/EyeCtrl.Controls/DwellSlider.cs:21                  (1 field)
 src/EyeCtrl.Controls/DwellToggle.cs:21-22               (2 fields)
 ```
 
-Each reads `Tokens.X` exactly once, whenever the CLR first touches that type. Under Contrast they would silently render Midnight if any of those types is touched before the theme is activated. Task 8 converts all 25 to forwarding properties and adds a guard so a 26th cannot appear.
+Each reads `Tokens.X` exactly once, whenever the CLR first touches that type. Five of them are not field initialisers at all: `ForegroundFuzzyMatch`, `ForegroundNextWord`, `ForegroundPhrase`, `ForegroundSentenceCompletion` and `ForegroundLMSuggestion` are declared at `KeyboardWindow.xaml.cs:33-37` and assigned from `Tokens.Brush*` inside the static constructor (`:39-52`, assignments at `:47-51`) — the same type-init snapshot, in a form a `= Tokens.` grep cannot see. Under Contrast they would silently render Midnight if any of those types is touched before the theme is activated. Task 8 converts all 30 to forwarding properties (and deletes the constructor that held five) and adds a guard that catches both forms, so a 31st cannot appear quietly.
 
 **3. Ember trips an existing guard.** `ToggleContrastTests.ToggleOff_IsNotRed` asserts `c.R <= c.B` (`tests/EyeCtrl.Controls.Tests/Theme/ToggleContrastTests.cs:46`). Ember's `ToggleOff` is `#342C21` → R=0x34=52, B=0x21=33, so **52 <= 33 is false and the test fails**. Ember's toggle-off is a warm near-neutral, not a red. Measured Lab chroma: Midnight 13.7, Ember 8.6, Contrast 0.0 — all comfortably neutral. Task 5 restates the rule as a chroma floor, which is what "off is not an error colour" actually means.
 
@@ -119,13 +119,13 @@ Each reads `Tokens.X` exactly once, whenever the CLR first touches that type. Un
 | `#E8A33C` Amber | 9.13 | 9.14 | 9.74 |
 | `#D6DEF5` Light | 14.65 | 14.68 | 15.63 |
 
-So §10.6's "the preset list is not automatically portable" resolves in the reassuring direction: it *is*. What breaks is `FirstPreset_IsTheAccent` (`tests/EyeCtrl.Controls.Tests/Theme/ColorPickerPresetTests.cs:59`), because the accent differs per theme. Conveniently, Midnight's four presets are **exactly** `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, so deriving the list from the theme reproduces today's Midnight list byte-for-byte and gives the other two coherent lists. Measured minimum halo edge for the derived list across all three themes: **9.13**.
+So §10.6's "the preset list is not automatically portable" resolves in the reassuring direction: it *is*. What breaks is `FirstPreset_IsTheAccent` (`tests/EyeCtrl.Controls.Tests/Theme/ColorPickerPresetTests.cs:59`), because the accent differs per theme. Conveniently, Midnight's four presets are **exactly** `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, so deriving the list from the theme reproduces today's Midnight list hex-for-hex (the first swatch's tooltip label changes from "Aqua" to "Accent"; the swatches themselves render label-less) and gives the other two coherent lists. Measured minimum halo edge for the derived list across all three themes: **9.13**.
 
 **5. Deriving the presets makes two `RawColourLiteralTests` exemptions go stale.** `Exempt` (`tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46`) lists `Tokens.cs` and `DwellColorPicker.cs`, and `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` fails an exemption that protects nothing. After this plan **both lose their literals** — `Tokens.cs` becomes pure forwarding, `DwellColorPicker.cs` derives its presets — while three new theme files gain them. Task 6 swaps the list.
 
 **6. Contrast legitimately uses `#00FF00`, which one guard forbids.** `Presets_DoNotOfferTheOutgoingLime` (`ColorPickerPresetTests.cs:49-53`) bans `#00FF00` from the preset list; Contrast's `AccentSuccess` and `ToggleOn` are `#00FF00` (`tools/palette_validate.py:104,111`), validated by all ten gates. The guard's real intent was "the *dwell accent* must not be the old Lime". Task 6 restates it against the accent, where it belongs.
 
-**7. Constraint checks that come back clean.** `ThemeSettings` is already enumerated at `EyeCtrlSettings.cs:66`, so `EyeCtrlSettingsEnumerationTests` (which pins 19 entries, `tests/EyeCtrl.Core.Tests/Settings/EyeCtrlSettingsEnumerationTests.cs:11`) needs **no change** — reusing `ThemeSettings` rather than adding a sub-setting is what buys that. No test in `tests/EyeCtrl.ViewModels.Tests/` references the General tab or any of the five dead controls.
+**7. Constraint checks that come back clean.** `ThemeSettings` is already enumerated at `EyeCtrlSettings.cs:66`, so `EyeCtrlSettingsEnumerationTests` (which pins 19 entries, `tests/EyeCtrl.Core.Tests/Settings/EyeCtrlSettingsEnumerationTests.cs:12`) needs **no change** — reusing `ThemeSettings` rather than adding a sub-setting is what buys that. No test in `tests/EyeCtrl.ViewModels.Tests/` references the General tab or any of the five dead controls.
 
 ---
 
@@ -146,7 +146,7 @@ So §10.6's "the preset list is not automatically portable" resolves in the reas
 | `tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs` | Cross-language guard: every C# theme equals its `palette_validate.py` entry. |
 | `tests/EyeCtrl.Controls.Tests/Theme/ThemeRegistryTests.cs` | Name resolution and fallback. |
 | `tests/EyeCtrl.Controls.Tests/Theme/ThemeResourceApplierTests.cs` | Applier covers every key the dictionary declares. |
-| `tests/EyeCtrl.App.Tests/StaticTokenCaptureTests.cs` | Guard: no file may snapshot a token into a static field. |
+| `tests/EyeCtrl.App.Tests/StaticTokenCaptureTests.cs` | Guard: no file may snapshot a token into a static field or static constructor. |
 | `tests/EyeCtrl.App.Tests/ThemeStartupTests.cs` | Startup resolves the persisted name and applies it. |
 
 **Modified files:**
@@ -159,7 +159,7 @@ So §10.6's "the preset list is not automatically portable" resolves in the reas
 | `src/EyeCtrl.Core/Settings/ThemeSettings.cs` | Three dead flags → one `Name`. |
 | `src/EyeCtrl.Core/Settings/CursorSettings.cs:36-37` | Delete `CircleHighContrast`. |
 | `src/EyeCtrl.App/App.xaml.cs:101-104` | Two-line theme activation. |
-| `src/EyeCtrl.App/Overlays/EmojiGridManager.cs:23-29`, `KeyboardWindow.xaml.cs:22-32`, `Views/SettingsWindow.xaml.cs:44-51` | 20 static captures → properties. |
+| `src/EyeCtrl.App/Overlays/EmojiGridManager.cs:23-29`, `KeyboardWindow.xaml.cs:22-37`, `Views/SettingsWindow.xaml.cs:44-51` | 25 static captures → properties (incl. KeyboardWindow's static constructor, deleted). |
 | `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:447-450,461,901-940` | Delete the dead toggle; add the theme picker. |
 | `src/EyeCtrl.ViewModels/SettingsViewModel.cs:71,175-177` | Delete four dead items; add one live one. |
 | `tests/EyeCtrl.Controls.Tests/Theme/TokenValueTests.cs` | Reflection moves field→property; hexes move to the parity test. |
@@ -170,7 +170,7 @@ So §10.6's "the preset list is not automatically portable" resolves in the reas
 | `tests/EyeCtrl.App.Tests/SettingsDefaultsMatchTokensTests.cs` | Pin to Midnight explicitly, not to ambient `Current`. |
 | `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46` | Exemption list swap. |
 | `tests/EyeCtrl.Core.Tests/Settings/SettingsSerializationTests.cs:31,49` | `Theme.Mode` → `Theme.Name`. |
-| `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceValidationTests.cs:187-190,208-209` | Same. |
+| `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceValidationTests.cs:187-191,208-209` | Same. |
 | `docs/design/overlay-unification-spec.md:1069-1096` | Record §10.6 as resolved. |
 
 ---
@@ -668,7 +668,7 @@ public sealed class MidnightTheme : ThemeBase
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeShapeTests" --nologo
 ```
 
-Expected: 6 passing (4 theory cases across 3 theories + 2 facts... exact count varies with the theory expansion; what matters is **0 failures**). If `EveryColour_HasAMatchingFrozenBrush` reports a mismatch, a `MidnightTheme` override does not match its `Tokens.cs` source — re-check against `Tokens.cs:40-71`.
+Expected: 5 passing (3 theory cases across 3 theories + 2 facts; exact count varies with the theory expansion; what matters is **0 failures**). If `EveryColour_HasAMatchingFrozenBrush` reports a mismatch, a `MidnightTheme` override does not match its `Tokens.cs` source — re-check against `Tokens.cs:40-71`.
 
 - [ ] **Step 7: Commit**
 
@@ -1722,7 +1722,7 @@ git commit -m "test(theme): gate the toggle pair in every theme, by chroma not b
 
 **The persisted-colour decision.** `CursorSettings.CircleColor`, `CalibrationSettings.TargetColor`, `AutoSelectionSettings.HighlightColor` and `DragSettings.TrailColor` are absolute hex in `settings.json`. They are hereby **explicitly theme-independent**: they are user-chosen absolute values, and silently rewriting a user's chosen colour because they switched theme is worse than leaving it. Their *defaults* continue to track Midnight (`src/EyeCtrl.Core/Settings/SettingsDefaults.cs:14-18`), which is safe because the guarantee that matters — the §4.1.3 halo bar — is measured to hold for every preset against every theme's halo, worst case **9.13:1** against a 7:1 floor. What must change is that `SettingsDefaultsMatchTokensTests` currently compares against `Tokens.Accent`, i.e. against *ambient* `Current`; it is pinned to `MidnightTheme.Instance` so it states what it means.
 
-**The preset list.** Midnight's four presets are exactly `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, so deriving them from the theme reproduces the current Midnight list byte-for-byte while giving Ember and Contrast coherent lists of their own.
+**The preset list.** Midnight's four presets are exactly `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, so deriving them from the theme reproduces the current Midnight list hex-for-hex (the first swatch's tooltip label changes from "Aqua" to "Accent") while giving Ember and Contrast coherent lists of their own.
 
 - [ ] **Step 1: Rewrite `ColorPickerPresetTests`**
 
@@ -1862,7 +1862,7 @@ with:
     ///
     /// Derived rather than listed, so each theme offers colours from its own
     /// palette instead of Midnight's. Under Midnight this reproduces the four
-    /// presets that shipped, byte for byte. Every entry is gated at >= 7:1 against
+    /// presets that shipped, hex for hex. Every entry is gated at >= 7:1 against
     /// its own theme's StrokeHalo by ColorPickerPresetTests — worst case across all
     /// three themes is 9.13:1 — because a dark preset would collapse the §4.1.3
     /// halo guarantee on the cursor ring.
@@ -1990,7 +1990,7 @@ git commit -m "feat(theme): derive colour-picker presets per theme; gate halo/pr
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:447-450,461`
 - Modify: `src/EyeCtrl.ViewModels/SettingsViewModel.cs:71`
 - Modify: `tests/EyeCtrl.Core.Tests/Settings/SettingsSerializationTests.cs:31,49`
-- Modify: `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceValidationTests.cs:187-190,208-209`
+- Modify: `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceValidationTests.cs:187-191,208-209`
 - Test: `tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs` (create)
 
 `ThemeSettings` is already enumerated at `src/EyeCtrl.Core/Settings/EyeCtrlSettings.cs:66`, so reusing it means `EyeCtrlSettingsEnumerationTests` (which pins 19 entries) needs **no change**. Adding a new sub-setting would have required editing both the field and `EnumerateSubSettings`; reusing avoids that entirely.
@@ -2176,7 +2176,7 @@ with:
         // settings.json still loads without migration code.
 ```
 
-In `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceValidationTests.cs`, replace lines 187-190:
+In `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceValidationTests.cs`, replace lines 187-191:
 
 ```csharp
             Theme = new ThemeSettings
@@ -2226,18 +2226,18 @@ git commit -m "feat(theme): replace three dead theme flags and two dead toggles 
 
 ---
 
-## Task 8: Remove the 25 static token captures
+## Task 8: Remove the 30 static token captures
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Overlays/EmojiGridManager.cs:23-29`
-- Modify: `src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs:22-32`
+- Modify: `src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs:22-37` (+ delete the static constructor at 39-52)
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:44-51`
 - Modify: `src/EyeCtrl.Controls/DwellComboBox.cs:31-32`
 - Modify: `src/EyeCtrl.Controls/DwellSlider.cs:21`
 - Modify: `src/EyeCtrl.Controls/DwellToggle.cs:21-22`
 - Test: `tests/EyeCtrl.App.Tests/StaticTokenCaptureTests.cs` (create)
 
-Each of these reads `Tokens.X` **once**, at type initialisation, whenever the CLR first touches the type. Under a non-Midnight theme they render Midnight if anything touches the type before `Tokens.Activate` runs. The fix is mechanical — `=` becomes `=>` and `readonly` goes — and the guard makes a 26th impossible to add quietly.
+Each of these reads `Tokens.X` **once**, at type initialisation, whenever the CLR first touches the type. Under a non-Midnight theme they render Midnight if anything touches the type before `Tokens.Activate` runs. 25 are field initialisers — the fix is mechanical, `=` becomes `=>` and `readonly` goes. The other five (`ForegroundFuzzyMatch`, `ForegroundNextWord`, `ForegroundPhrase`, `ForegroundSentenceCompletion`, `ForegroundLMSuggestion`) are assigned from `Tokens.Brush*` inside `KeyboardWindow`'s static constructor (`KeyboardWindow.xaml.cs:33-52`) and the whole block must be deleted: once the fields are forwarding properties, the constructor's assignments no longer compile, which is the mechanical signal that nothing of it may survive. The guard makes a 31st capture impossible to add quietly, in either form.
 
 - [ ] **Step 1: Write the failing guard**
 
@@ -2257,10 +2257,13 @@ using Xunit;
 /// A static field initialised from Tokens snapshots the palette at type-init time,
 /// which is whenever the CLR first touches that type — before App.OnStartup has
 /// activated the persisted theme, in general. The field then holds Midnight
-/// forever, silently, under every other theme.
+/// forever, silently, under every other theme. Assigning Tokens brushes inside a
+/// static constructor is the same snapshot in a form a `= Tokens.` grep cannot
+/// see — KeyboardWindow had five such assignments, and the guard below catches
+/// both forms.
 ///
 /// Forwarding properties (=&gt; Tokens.X) have no such moment. This guard keeps it
-/// that way; 25 such fields existed before the theme system and all were converted.
+/// that way; 30 captures existed before the theme system and all were converted.
 /// </summary>
 public class StaticTokenCaptureTests
 {
@@ -2276,6 +2279,18 @@ public class StaticTokenCaptureTests
     /// </summary>
     private static readonly Regex Capture = new(
         @"static\s+(?:readonly\s+)?[\w.<>\[\]?]+\s+\w+\s*=\s*Tokens\.",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// A static constructor (or parameterless static method) whose first-level body
+    /// reads Tokens — the same type-init snapshot as a field initialiser, invisible
+    /// to <see cref="Capture"/>. KeyboardWindow's constructor held five such reads.
+    /// The `[^{}]*` span stops at nested braces, so a read nested deeper than one
+    /// level is missed — widening that span is a future refinement, not a gap in
+    /// what this task removes.
+    /// </summary>
+    private static readonly Regex CtorCapture = new(
+        @"static\s+\w+\(\)\s*\{[^{}]*Tokens\.",
         RegexOptions.Compiled);
 
     private static DirectoryInfo RepoRoot()
@@ -2307,13 +2322,16 @@ public class StaticTokenCaptureTests
                 var text = File.ReadAllText(file);
                 foreach (Match m in Capture.Matches(text))
                     offenders.Add($"{Path.GetRelativePath(root, file).Replace('\\', '/')}: {m.Value.Trim()}");
+                foreach (Match m in CtorCapture.Matches(text))
+                    offenders.Add($"{Path.GetRelativePath(root, file).Replace('\\', '/')}: static ctor reads Tokens: {m.Value.Trim()}");
             }
         }
 
         Check.WithCustomMessage(
-                "These static fields snapshot the palette at type-init time and will "
-                + "hold Midnight under every other theme. Change '= Tokens.X' to "
-                + "'=> Tokens.X' and drop 'readonly':\n  "
+                "These static fields and static ctors snapshot the palette at type-init "
+                + "time and will hold Midnight under every other theme. Change '= Tokens.X' "
+                + "to '=> Tokens.X' and drop 'readonly'; delete any static ctor that reads "
+                + "Tokens:\n  "
                 + string.Join("\n  ", offenders))
             .That(offenders).IsEmpty();
     }
@@ -2326,9 +2344,9 @@ public class StaticTokenCaptureTests
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~StaticTokenCaptureTests" --nologo
 ```
 
-Expected: **FAIL**, listing 25 offenders across the 5 files above. If the count is not 25, the codebase has moved since `4451cdb` — reconcile before continuing.
+Expected: **FAIL**, listing 26 offenders across the 6 files above — the 25 field-initialiser captures plus KeyboardWindow's static constructor (one offender per ctor, named by its signature). If the count is not 26, the codebase has moved since `4451cdb` — reconcile before continuing.
 
-- [ ] **Step 3: Convert all 25 fields**
+- [ ] **Step 3: Convert all 30 captures**
 
 The transformation is identical everywhere: `static readonly T Name = Tokens.X;` → `static T Name => Tokens.X;`. Apply it to each site.
 
@@ -2348,7 +2366,7 @@ The transformation is identical everywhere: `static readonly T Name = Tokens.X;`
     private static Color EmojiGridBackgroundColor => Tokens.SurfaceMedium;
 ```
 
-`src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs:22-32`:
+`src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs:22-37`:
 
 ```csharp
     private static Color KeyColorNormal => Tokens.SurfaceKey;
@@ -2363,7 +2381,14 @@ The transformation is identical everywhere: `static readonly T Name = Tokens.X;`
 
 ```csharp
     private static Brush ForegroundExactPrefix => Tokens.BrushTextPrimary;
+    private static Brush ForegroundFuzzyMatch => Tokens.BrushTextSecondary;
+    private static Brush ForegroundNextWord => Tokens.BrushAccentSuccess;
+    private static Brush ForegroundPhrase => Tokens.BrushAccentWarning;
+    private static Brush ForegroundSentenceCompletion => Tokens.BrushAccent;
+    private static Brush ForegroundLMSuggestion => Tokens.BrushTextPrimary;
 ```
+
+The last five are currently declared without initialisers (`KeyboardWindow.xaml.cs:33-37`) and assigned from local `Tokens.Brush*` copies in `static KeyboardWindow()` (`:39-52`) — **delete the entire static constructor including its comment**. Once the fields are forwarding properties, its assignments fail to compile ("cannot assign to a property", `CS0200`), which is the signal that nothing of the constructor may survive. The property reads resolve to the theme's cached frozen brushes (`ThemeBase` builds each once), so the "cached frozen brushes" intent of the removed comment still holds with zero per-access allocation. The `// Active modifier…` comment above `KeyColorModifierActive` and the `// Cached frozen brushes…` comment above `ForegroundExactPrefix` stay; only declaration lines and the constructor change.
 
 `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:44-51`:
 
@@ -2407,13 +2432,13 @@ dotnet build EyeCtrl.slnx --nologo
 dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 ```
 
-Expected: 0 errors, 0 failures, and `NoStaticField_SnapshotsAToken` green. If the build reports `CS0198` or "cannot assign to a property", a site was converted to a property but still has an assignment elsewhere — those 25 are read-only by construction, so investigate rather than reverting.
+Expected: 0 errors, 0 failures, and `NoStaticField_SnapshotsAToken` green. If the build reports `CS0198`/`CS0200` or "cannot assign to a property", a site was converted to a property but still has an assignment elsewhere — KeyboardWindow's constructor is the known one; the others are read-only by construction, so investigate rather than reverting.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/EmojiGridManager.cs src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs src/EyeCtrl.Controls/DwellComboBox.cs src/EyeCtrl.Controls/DwellSlider.cs src/EyeCtrl.Controls/DwellToggle.cs tests/EyeCtrl.App.Tests/StaticTokenCaptureTests.cs
-git commit -m "fix(theme): stop 25 static fields snapshotting the palette at type-init"
+git commit -m "fix(theme): stop 30 static captures snapshotting the palette at type-init"
 ```
 
 ---
@@ -2860,6 +2885,8 @@ This uses the single-array `DwellComboBox` overload (`src/EyeCtrl.Controls/Dwell
 
 `ThemeSettings.ValidNames` is `string[]` and the parameter is `string[]`; `EyeCtrl.Core.Settings` is already imported in this file (it constructs `CursorSettings` and `GeneralSettings` in the reset handlers).
 
+**Page fit — known-unknown.** The General page grows from five rows to six (g_theme, g_boot, g_pause, g_track, g_reset, g_resetall). `SettingsWindow` is a fixed-height window with no scrolling, and the no-launch rule means no headless check can confirm six uniform rows still fit; if the user reports the last row clipped, the picker moves onto its own page. Do not pre-emptively split — this is a user-visual verification on their schedule, not a gate here.
+
 - [ ] **Step 3: Add the coverage test**
 
 Append to `tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs`, inside the class:
@@ -2904,7 +2931,7 @@ git commit -m "feat(theme): offer the theme picker in both settings surfaces"
 
 - [ ] **Step 1: Rewrite §10.6's status**
 
-Replace the §10.6 introduction at `docs/design/overlay-unification-spec.md:1069-1072`:
+Replace the §10.6 introduction at `docs/design/overlay-unification-spec.md:1069-1071`:
 
 ```markdown
 ### 10.6 What a theme system requires structurally
@@ -2924,7 +2951,7 @@ and are now all satisfied in code; each bullet closes with what was built. See
 
 Then append to each of the four bullets, in order:
 
-- After the `{StaticResource}` bullet: **Resolved — startup-applied.** The theme is chosen once in `App.OnStartup` via `ThemeStartup.Apply`; changing it takes effect on the next launch, and the picker says so. No `{DynamicResource}` conversion was needed, and none of Phase 4–5's files were touched. Recreating the 16 overlay singletons in place remains unbuilt.
+- After the `{StaticResource}` bullet: **Resolved — startup-applied.** The theme is chosen once in `App.OnStartup` via `ThemeStartup.Apply`; changing it takes effect on the next launch, and the picker says so. No `{DynamicResource}` conversion was needed, and none of Phase 4–5's files were touched. Recreating the 15 overlay singletons in place remains unbuilt.
 - After the `Tokens.cs becomes a provider` bullet: **Resolved.** `ITheme` + `ThemeBase` + three theme classes; `Tokens` keeps its 45-member static surface as forwarding properties, so all 131 C# call sites and 106 XAML lookups were unchanged. `BorderThicknessStandard` is on the interface from the start. The statics-without-`Application` property is preserved — `Tokens.Current` defaults to Midnight with no resource lookup.
 - After the `A theme setting means a fifth persisted colour-adjacent key` bullet: **Resolved — and it cost three keys rather than adding one.** `ThemeSettings.Mode`, `.OverlayOpacity` and `.HighContrast` were persisted, gaze-reachable, and read by nothing; so was `CursorSettings.CircleHighContrast`, which was surfaced twice. All four were deleted and replaced by `ThemeSettings.Name`. The four persisted colours (`CircleColor`, `TargetColor`, `HighlightColor`, `TrailColor`) are **explicitly theme-independent**: they are user-chosen absolute values, and their defaults track Midnight.
 - After the halo-constraint sentence: **Re-checked, and it is portable after all.** All four shipping presets clear 7:1 against all three halos (worst case 9.13:1, Amber vs Midnight's `#0A0A14`). What was not portable is the *first* preset, which must be the theme's accent — so the list is now derived from the theme as `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, which reproduces Midnight's four values exactly.
@@ -2994,7 +3021,7 @@ git commit -m "docs(theme): record §10.6 as implemented and note the two re-sco
 
 ## What this slice does not do
 
-- **No live theme switching.** Changing the theme takes effect on next launch. Recreating the 16 overlay singletons in place is the remaining half of §10.6's first bullet and needs its own plan — plus, unavoidably, a supervised app launch to verify.
+- **No live theme switching.** Changing the theme takes effect on next launch. Recreating the 15 overlay singletons in place is the remaining half of §10.6's first bullet and needs its own plan — plus, unavoidably, a supervised app launch to verify.
 - **No "Restart now" button.** The supervisor cannot supply one for free: a clean exit puts it in `IdleWatch` and it deliberately does not relaunch. Making it safe means the supervisor doing the relaunch where one is running, a child-readiness handshake where none is, and the app refusing to exit until a successor is proven either way. Planned separately in `docs/superpowers/plans/2026-07-30-restart-now.md`.
 - **No fourth theme.** §10.1 argues two alternatives are the useful limit; each additional theme multiplies the validation surface, and §9.4's glyph rule and §4.1.3's halo have to hold in every one.
 - **No radius or typography work.** Still deferred (§8).

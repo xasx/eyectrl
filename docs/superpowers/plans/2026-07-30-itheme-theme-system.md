@@ -1021,7 +1021,7 @@ git commit -m "refactor(theme): Tokens forwards to ITheme instead of holding lit
 
 **This task and Task 4 must not reference each other.** `ThemeRegistry` (Task 4) is built from `EmberTheme.Instance` and `ContrastTheme.Instance` (this task), so if this task's tests reached for the registry, neither task could compile first — there would be no order that produces two green commits. Both test files here therefore hand-list the three themes, and Task 4 Step 4 swaps them onto the registry afterwards. That swap is not busywork: it is what proves the registry agrees with the list the validator already checked.
 
-- [ ] **Step 1: Write the failing parity test**
+- [x] **Step 1: Write the failing parity test**
 
 Create `tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs`:
 
@@ -1186,7 +1186,7 @@ public class ThemeParityTests
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeParityTests" --nologo
@@ -1196,7 +1196,7 @@ Expected: **build failure**, `CS0246: The type or namespace name 'EmberTheme' co
 
 **Note what this test does *not* reference.** It resolves names through the local `ThemeNamed` helper, not `ThemeRegistry`. That is deliberate and load-bearing: `ThemeRegistry.All` is built from `EmberTheme.Instance` and `ContrastTheme.Instance`, which this task creates, so a registry reference here would make Tasks 3 and 4 mutually dependent and leave **no** order in which both commits compile. Task 4 Step 4 swaps both this file and `ThemeShapeTests` onto the registry once it exists.
 
-- [ ] **Step 3: Create the Ember theme**
+- [x] **Step 3: Create the Ember theme**
 
 Create `src/EyeCtrl.Controls/Theme/EmberTheme.cs`. Values from `tools/palette_validate.py:50-78` (spec §10.2):
 
@@ -1285,7 +1285,7 @@ public sealed class EmberTheme : ThemeBase
 }
 ```
 
-- [ ] **Step 4: Create the Contrast theme**
+- [x] **Step 4: Create the Contrast theme**
 
 Create `src/EyeCtrl.Controls/Theme/ContrastTheme.cs`. Values from `tools/palette_validate.py:83-116` (spec §10.7):
 
@@ -1396,7 +1396,7 @@ public sealed class ContrastTheme : ThemeBase
 }
 ```
 
-- [ ] **Step 5: Widen `ThemeShapeTests` to cover all three**
+- [x] **Step 5: Widen `ThemeShapeTests` to cover all three**
 
 In `tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs`, replace the `AllThemes` member:
 
@@ -1417,7 +1417,7 @@ with:
 
 **List the three explicitly here, do not reach for `ThemeRegistry.All`** — the registry does not exist until Task 4 Step 3, and referencing it now would make this task's commit fail to compile. Task 4 Step 4 replaces this body with the registry once there is one, which is also what proves the registry agrees with the hand-written list.
 
-- [ ] **Step 6: Exempt the two new palette files from the raw-literal guard**
+- [x] **Step 6: Exempt the two new palette files from the raw-literal guard**
 
 Same obligation as Task 1 Step 6, for the same reason (finding 5): both new files hold colour literals inside a scanned project. In `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs`, add to `Exempt`:
 
@@ -1430,7 +1430,7 @@ Same obligation as Task 1 Step 6, for the same reason (finding 5): both new file
 
 `Exempt` now holds four entries: the three theme files plus `DwellColorPicker.cs`, which keeps its literals until Task 6 Step 3.
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 ```bash
 python tools/palette_validate.py
@@ -1440,7 +1440,7 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~RawColourLitera
 
 Expected: validator `ALL GATES PASS - 3 theme(s)`, exit 0; all Controls tests pass; both guard tests pass. This task no longer depends on Task 4 — it compiles and runs standalone. A parity failure names the exact token and both values — trust the Python side and fix the C#.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/Theme/EmberTheme.cs src/EyeCtrl.Controls/Theme/ContrastTheme.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs

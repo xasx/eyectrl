@@ -43,6 +43,10 @@ public class RawColourLiteralTests
             "DefaultPresets are user-selectable palette values, gated by ColorPickerPresetTests",
         ["src/EyeCtrl.Controls/Theme/MidnightTheme.cs"] =
             "the Midnight palette itself (spec §4.1) — gated by tools/palette_validate.py",
+        ["src/EyeCtrl.Controls/Theme/EmberTheme.cs"] =
+            "the Ember palette itself (spec §10.2) — gated by tools/palette_validate.py",
+        ["src/EyeCtrl.Controls/Theme/ContrastTheme.cs"] =
+            "the Contrast palette itself (spec §10.7) — gated by tools/palette_validate.py",
     };
 
     /// <summary>

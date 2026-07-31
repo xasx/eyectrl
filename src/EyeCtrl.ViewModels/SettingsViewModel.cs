@@ -53,7 +53,6 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
         var k = _settings.Keyboard;
         var t = _settings.Toolbar;
         var g = _settings.General;
-        var th = _settings.Theme;
         var cal = _settings.Calibration;
 
         Tabs.Add(new SettingsTabViewModel("Cursor", "\uD83D\uDDB1", new List<SettingItemViewModel>
@@ -68,7 +67,6 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
             new SliderSettingViewModel("circleOpacity", "Circle Opacity", c.CircleOpacity, 0, 1, 0.1, v => c.CircleOpacity = v),
             new SliderSettingViewModel("circleThickness", "Circle Thickness", c.CircleThickness, 1, 10, 0.5, v => c.CircleThickness = v),
             new SliderSettingViewModel("circleSize", "Circle Size", c.CircleSize, 10, 500, 10, v => c.CircleSize = v),
-            new ToggleSettingViewModel("highContrast", "High Contrast", c.CircleHighContrast, v => c.CircleHighContrast = v),
         }));
 
         Tabs.Add(new SettingsTabViewModel("Dwell", "\u23F1", new List<SettingItemViewModel>
@@ -172,9 +170,9 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
         {
             new ToggleSettingViewModel("startOnBoot", "Start on Boot", g.StartOnBoot, v => g.StartOnBoot = v),
             new ToggleSettingViewModel("startPaused", "Start Paused", g.StartPaused, v => g.StartPaused = v),
-            new ComboSettingViewModel("themeMode", "Theme", th.Mode, new[] { "System", "Light", "Dark" }, v => th.Mode = v),
-            new SliderSettingViewModel("overlayOpacity", "Overlay Opacity", th.OverlayOpacity, 0.1, 1.0, 0.1, v => th.OverlayOpacity = v),
-            new ToggleSettingViewModel("themeHighContrast", "High Contrast", th.HighContrast, v => th.HighContrast = v),
+            // Theme.Mode / OverlayOpacity / HighContrast were dead flags with no
+            // consumer; deleted here. Task 11 adds a working "Theme (restart to
+            // apply)" picker over Theme.Name in their place.
         }));
 
         // NOTE: item count here only drives pagination (ItemsPerPage = 6 → 2 pages);

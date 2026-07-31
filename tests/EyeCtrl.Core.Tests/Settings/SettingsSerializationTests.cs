@@ -28,7 +28,7 @@ public class SettingsSerializationTests
         original.Keyboard.ShowPredictionTypes = true;
         original.Keyboard.EmojiSuggestionsEnabled = true;
         original.Toolbar.Size = 120;
-        original.Theme.Mode = "Dark";
+        original.Theme.Name = "Ember";
         original.General.StartPaused = true;
 
         var json = JsonSerializer.Serialize(original, JsonOptions);
@@ -46,7 +46,7 @@ public class SettingsSerializationTests
         Check.That(deserialized.Keyboard.ShowPredictionTypes).IsTrue();
         Check.That(deserialized.Keyboard.EmojiSuggestionsEnabled).IsTrue();
         Check.That(deserialized.Toolbar.Size).IsEqualTo(120);
-        Check.That(deserialized.Theme.Mode).IsEqualTo("Dark");
+        Check.That(deserialized.Theme.Name).IsEqualTo("Ember");
         Check.That(deserialized.General.StartPaused).IsTrue();
     }
 
@@ -80,6 +80,9 @@ public class SettingsSerializationTests
     [Fact]
     public void Settings_BackwardsCompatible_DeserializesExistingJson()
     {
+        // circleHighContrast was removed when high contrast became a theme; it is
+        // retained here deliberately, as an unknown member, to prove a pre-existing
+        // settings.json still loads without migration code.
         var json = """
         {
           "cursor": {

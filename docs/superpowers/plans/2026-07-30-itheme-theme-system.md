@@ -1645,7 +1645,7 @@ These two guards currently assert against `Tokens.X`, which after Task 2 means "
 
 Colour maths is duplicated per test file here; that is the existing convention in all three of these files, and crossing assemblies to share ~20 lines is not worth a new type.
 
-- [ ] **Step 1: Rewrite `ToggleContrastTests`**
+- [x] **Step 1: Rewrite `ToggleContrastTests`**
 
 Replace the entire contents of `tests/EyeCtrl.Controls.Tests/Theme/ToggleContrastTests.cs`:
 
@@ -1755,7 +1755,7 @@ public class ToggleContrastTests
 }
 ```
 
-- [ ] **Step 2: Rewrite `HaloContrastTests` to run per theme**
+- [x] **Step 2: Rewrite `HaloContrastTests` to run per theme**
 
 In `tests/EyeCtrl.App.Tests/HaloContrastTests.cs`, add the theme source and convert the four `[Fact]`s to `[Theory]`s. Replace lines 63-120 (everything from `[Fact] public void AccentWithHalo_...` to the end of the class, keeping the closing brace) with:
 
@@ -1840,7 +1840,7 @@ Add `using EyeCtrl.Controls.Theme;` — it is already there at line 6 — and co
 
 `DwellColorPicker.PresetsFor` does not exist yet; it arrives in Task 6. Expect this file not to compile until then.
 
-- [ ] **Step 3: Run and confirm the expected shape of failure**
+- [x] **Step 3: Run and confirm the expected shape of failure**
 
 ```bash
 dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
@@ -1852,7 +1852,7 @@ Expected: `EyeCtrl.App.Tests` fails to build (`CS0117: 'DwellColorPicker' does n
 python -c "import importlib.util; s=importlib.util.spec_from_file_location('pv','tools/palette_validate.py'); pv=importlib.util.module_from_spec(s); s.loader.exec_module(pv); [print(t, '%.1f'%pv.chroma(pv.parse(p['ToggleOff']))) for t,p in pv.THEMES.items()]"
 ```
 
-- [ ] **Step 4: Commit (with Task 6, since the two files interlock)**
+- [x] **Step 4: Commit (with Task 6, since the two files interlock)**
 
 Hold this commit until Task 6 Step 4 — `HaloContrastTests` will not compile until `PresetsFor` exists. Commit the `ToggleContrastTests` half now if you want a clean boundary:
 

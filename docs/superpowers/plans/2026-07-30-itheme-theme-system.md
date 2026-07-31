@@ -932,7 +932,9 @@ dotnet build EyeCtrl.slnx --nologo
 dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 ```
 
-Expected: 0 build errors; **1710 passing, 0 failures** — the same count as the baseline, because no behaviour changed. The load-bearing assertion is `TokenDictionaryTests.EveryTokenBrush_IsExposedAndMatches`, which parses `OverlayStyles.xaml` through the pack URI. If `x:Static` could not resolve a static property, that test fails with an `XamlParseException` at `ResourceDictionary.Source` assignment.
+Expected: 0 build errors; **1710 passing, 0 failures** — the same count as the baseline, because no behaviour changed.
+
+The proof that `{x:Static}` can bind a static *property* (not just a field) lives in `TokenDictionaryTests.Load()` — specifically the `new ResourceDictionary { Source = DictionaryUri }` assignment, which forces WPF to parse `OverlayStyles.xaml` and resolve every `Color="{x:Static theme:Tokens.X}"`. If `x:Static` could not bind a static property, that assignment throws `XamlParseException` before any assertion runs; the whole `[StaFact]` fails to reach its body. `EveryTokenBrush_IsExposedAndMatches` then adds a *secondary* check (every brush property has a key and the value matches), but the load itself is the load-bearing mechanism. That is why this task is a genuine proof rather than a smoke test, and why it costs no app launch.
 
 **If it does fail that way, stop.** The fallback is to keep `Tokens`' colour members as fields assigned from `Current` at startup — but that reintroduces exactly the ordering hazard Task 8 removes, so raise it rather than improvising.
 
@@ -998,6 +1000,14 @@ public class ThemeParityTests
     /// <summary>
     /// Extracts one theme's token map from the THEMES dict. Keys starting with '_'
     /// are validator-internal (e.g. "_core", the opaque surface core) and skipped.
+    ///
+    /// Format coupling: this assumes the validator declares each theme as
+    /// <c>"Name": { ... }</c> with only string-valued keys inside (every token is a
+    /// quoted hex or the quoted <c>BorderThicknessStandard</c> number). It is a
+    /// checked copy, not a parser — if <c>palette_validate.py</c> ever gains nested
+    /// dicts, list values, or trailing commas under a theme, widen this and re-run.
+    /// Brace-matching (not a regex for the closing brace) keeps it immune to
+    /// indentation changes, which the previous <c>\n    }</c> form was not.
     /// </summary>
     private static Dictionary<string, string> ParseTheme(string source, string themeName)
     {
@@ -1005,12 +1015,27 @@ public class ThemeParityTests
         Check.WithCustomMessage($"THEMES has no entry named '{themeName}'")
             .That(start.Success).IsTrue();
 
-        var body = source[(start.Index + start.Length)..];
-        var end = body.IndexOf("\n    }", StringComparison.Ordinal);
+        // Walk braces from the opening { to its matching close, so indentation or
+        // a reformatted file cannot truncate the block.
+        var depth = 0;
+        var i = start.Index + start.Length - 1;   // position of the opening '{'
+        var end = -1;
+        while (i < source.Length)
+        {
+            var c = source[i];
+            if (c == '{') depth++;
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0) { end = i; break; }
+            }
+            i++;
+        }
         Check.WithCustomMessage($"Could not find the end of the '{themeName}' block")
             .That(end).IsStrictlyGreaterThan(0);
 
-        return Regex.Matches(body[..end], @"""(\w+)""\s*:\s*""([^""]+)""")
+        var body = source[(start.Index + start.Length)..end];
+        return Regex.Matches(body, @"""(\w+)""\s*:\s*""([^""]+)""")
             .Where(m => !m.Groups[1].Value.StartsWith('_'))
             .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
     }
@@ -1463,7 +1488,7 @@ git commit -m "feat(theme): add ThemeRegistry with case-insensitive resolve and 
 - Modify: `tests/EyeCtrl.Controls.Tests/Theme/ToggleContrastTests.cs` (full rewrite)
 - Modify: `tests/EyeCtrl.App.Tests/HaloContrastTests.cs` (full rewrite)
 
-These two guards currently assert against `Tokens.X`, which after Task 2 means "whatever theme is active" — in tests, Midnight. Two themes therefore ship ungated. Both tests are rewritten to iterate `ThemeRegistry.All` and read from the `ITheme` directly, **never** through `Tokens.Current`: mutating global state from a test would race with xUnit's parallel execution.
+These two guards currently assert against `Tokens.X`, which after Task 2 means "whatever theme is active" — in tests, Midnight. Two themes therefore ship ungated. Both tests are rewritten to iterate `ThemeRegistry.All` and read from the `ITheme` directly, **never** through `Tokens.Current`: the repo runs xUnit v3 with collection parallelization **on** (no `xunit.runner.json`, see Task 10 Step 4), and a test that flips `Tokens.Current` would race any reader — including `SettingsDefaultsMatchTokensTests`, which Task 6 Step 4 de-races by pinning it to `MidnightTheme.Instance`. Reading an immutable `ITheme` instance has no such hazard.
 
 `ToggleOff_IsNotRed` must also change. It asserts `c.R <= c.B` (`ToggleContrastTests.cs:46`), and Ember's `#342C21` gives R=52, B=33 — a straight failure. The rule's intent is "off is not an error", and what actually distinguishes Ember's warm near-neutral from a red is **chroma**: measured C* is Midnight 13.7, Ember 8.6, Contrast 0.0, against a semantic triad that gate 9 holds at C* ≥ 55. A ceiling of 20 encodes the intent with real headroom.
 
@@ -1786,9 +1811,13 @@ public class ColorPickerPresetTests
     [Fact]
     public void MidnightPresets_AreUnchangedByTheDerivation()
     {
-        // The four presets that shipped were, exactly, Midnight's
-        // {Accent, AccentSuccess, AccentWarning, TextPrimary}. Deriving them must
-        // not have moved a single value.
+        // Regression guard on the *derivation*, not on the palette: ThemeParityTests
+        // already pins Midnight's four underlying colours to the validator (the one
+        // source of truth). This restates the four hexes deliberately, to catch a
+        // change to the derivation itself — a reordered `PresetsFor`, a wrong
+        // `Hex()` format, a swapped entry — that leaves every palette value correct
+        // but ships a different preset list than the one users had. It is the only
+        // test that fixes the *order and membership* of the shipped list.
         Check.That(DwellColorPicker.PresetsFor(MidnightTheme.Instance).Select(p => p.Hex))
              .ContainsExactly("#A5F3FC", "#7EE787", "#E8A33C", "#D6DEF5");
     }
@@ -1858,7 +1887,9 @@ Add `using EyeCtrl.Controls.Theme;` to the file's using block if it is not alrea
 
 - [ ] **Step 4: Pin the settings defaults to Midnight explicitly**
 
-In `tests/EyeCtrl.App.Tests/SettingsDefaultsMatchTokensTests.cs`, replace the class doc comment and the four assertions (lines 9-36) with:
+In `tests/EyeCtrl.App.Tests/SettingsDefaultsMatchTokensTests.cs`, replace the class doc comment and the four assertions (lines 9-36) with the version below.
+
+This rewrite has a second purpose beyond stating what it means: the current class reads `Tokens.Accent` / `Tokens.AccentWarning` (i.e. ambient `Current`), which makes it a reader of process-global state. With xUnit v3 collection parallelization on (see Task 10 Step 4), that races `ThemeStartupTests` once it lands. Pinning every assertion to `MidnightTheme.Instance` removes the `Tokens.X` reads entirely, so this class needs no collection attribution. After this edit, `grep -rn "Tokens\." tests/EyeCtrl.App.Tests` should show only `ThemeStartupTests` (the one controlled mutator) and the exemption-path string in `RawColourLiteralTests`.
 
 ```csharp
 /// <summary>
@@ -2723,6 +2754,13 @@ public static class ThemeStartup
 ```
 
 - [ ] **Step 4: Add the xUnit collection so the global-state tests do not race**
+
+This is not belt-and-braces. There is **no `xunit.runner.json` in the repo and no `ParallelizeTestCollections=false` anywhere** (checked: `tests/Directory.Build.props` only pins package versions), so xUnit v3's defaults apply — assembly *and* collection parallelization both **on**. `ThemeStartupTests` mutates the process-global `Tokens.Current` and restores it in `finally`; without serialization it races any test reading `Tokens.X` in parallel. Two things make that set empty by the time these tests run:
+
+- **Task 5** rewrote `HaloContrastTests` to read each `ITheme` directly, never through `Tokens.Current`.
+- **Task 6 Step 4** pinned `SettingsDefaultsMatchTokensTests` to `MidnightTheme.Instance`, removing its `Tokens.X` reads entirely.
+
+So the only remaining `Tokens.Current` mutator/reader is `ThemeStartupTests` itself, and `[CollectionDefinition(DisableParallelization = true)]` keeps its three cases serial. `DisableParallelization` is the xUnit v3 attribute that opts a single collection out of collection-parallelization while leaving the rest of the assembly parallel — it is the minimal correct fix. Do not instead set a global `ParallelizeTestCollections=false`, which would serialize the whole `App.Tests` assembly for the sake of three tests.
 
 Create `tests/EyeCtrl.App.Tests/ActiveThemeCollection.cs`:
 

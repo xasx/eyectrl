@@ -7,7 +7,11 @@ namespace EyeCtrl.ViewModels.Messages;
 /// does, because refusing is the safety-critical half. A settings surface must never
 /// call Shutdown directly.
 /// </summary>
-public record RestartAppRequestedMessage;
+/// <param name="StartSupervisor">
+/// True when the user chose to start the supervisor first. Only ever set by a surface
+/// that actually asked — the coordinator does not prompt.
+/// </param>
+public record RestartAppRequestedMessage(bool StartSupervisor = false);
 
 /// <summary>
 /// Sent when a requested restart was refused, with the reason to show the user.

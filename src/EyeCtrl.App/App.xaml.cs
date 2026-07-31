@@ -265,7 +265,25 @@ public partial class App : Application
                     messenger.Send(new RestartUnavailableMessage(reason));
                 },
                 runInBackground: work => System.Threading.Tasks.Task.Run(work),
-                postToUi: work => Dispatcher.Invoke(work));
+                postToUi: work => Dispatcher.Invoke(work),
+                supervisorInstalled: () => SupervisorLauncher.IsInstalled,
+                launchSupervisor: SupervisorLauncher.TryLaunch,
+                enablePublishing: () => _heartbeatPublisher?.EnablePublishing(),
+                persistSettings: () =>
+                {
+                    settingsService.Save(settings);
+                    // Supervision just turned on: the app must stop self-registering the
+                    // HKCU Run key, or the next logon launches it BOTH from the Run key and
+                    // from the supervisor's own launch path (a transient double-launch the
+                    // mutex resolves, but a race at logon). Same reconciliation the startup
+                    // block performs, with the captured `supervised` flag now known true.
+                    startupRegistrar.SetStartOnBoot(
+                        StartOnBootPolicy.ShouldSelfRegister(supervised: true, settings.General.StartOnBoot));
+                });
+
+            // Hand the coordinator to the settings window's owner so the restart button
+            // can ask whether to offer the supervisor (Task 13 Step 6).
+            _eventCoordinator.SetRestartCoordinator(_restartCoordinator);
 
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();

@@ -26,10 +26,21 @@ public class AppRestartCoordinatorTests
         public IMessenger Messenger { get; } = new WeakReferenceMessenger();
         public AppRestartCoordinator Coordinator { get; }
 
+        public bool SupervisorInstalled { get; set; }
+        public bool SupervisorLaunches { get; set; } = true;
+        public int Launches { get; private set; }
+        public bool PublishingEnabled { get; private set; }
+        public bool SupervisionPersisted { get; private set; }
+        public EyeCtrlSettings Settings { get; }
+
+        /// <summary>Bring-up steps in the order TryBringUpSupervisor performed them.</summary>
+        public List<string> BringUp { get; } = new();
+
         public Harness(bool supervisionEnabled)
         {
             var settings = new EyeCtrlSettings();
             settings.Supervision.Enabled = supervisionEnabled;
+            Settings = settings;
 
             Coordinator = new AppRestartCoordinator(
                 Messenger,
@@ -39,10 +50,15 @@ public class AppRestartCoordinatorTests
                 shutdown: () => Log.Add("shutdown"),
                 reportUnavailable: reason => Log.Add("report:" + reason),
                 runInBackground: work => work(),   // inline: the tests are the background thread
-                postToUi: work => work());
+                postToUi: work => work(),
+                supervisorInstalled: () => SupervisorInstalled,
+                launchSupervisor: () => { Launches++; BringUp.Add("launch"); return SupervisorLaunches; },
+                enablePublishing: () => { PublishingEnabled = true; BringUp.Add("publish"); },
+                persistSettings: () => { SupervisionPersisted = true; BringUp.Add("persist"); });
         }
 
-        public void Request() => Messenger.Send(new RestartAppRequestedMessage());
+        public void Request(bool startSupervisor = false) =>
+            Messenger.Send(new RestartAppRequestedMessage(startSupervisor));
     }
 
     [Fact]
@@ -123,7 +139,11 @@ public class AppRestartCoordinatorTests
             shutdown: () => seenAtShutdown = coordinator!.SupervisorRelaunchRequested,
             reportUnavailable: _ => { },
             runInBackground: work => work(),
-            postToUi: work => work());
+            postToUi: work => work(),
+            supervisorInstalled: () => false,
+            launchSupervisor: () => false,
+            enablePublishing: () => { },
+            persistSettings: () => { });
 
         messenger.Send(new RestartAppRequestedMessage());
 
@@ -146,7 +166,11 @@ public class AppRestartCoordinatorTests
             shutdown: () => order.Add("shutdown"),
             reportUnavailable: _ => { },
             runInBackground: work => { order.Add("background"); work(); },
-            postToUi: work => { order.Add("ui"); work(); });
+            postToUi: work => { order.Add("ui"); work(); },
+            supervisorInstalled: () => false,
+            launchSupervisor: () => false,
+            enablePublishing: () => { },
+            persistSettings: () => { });
 
         messenger.Send(new RestartAppRequestedMessage());
 
@@ -170,7 +194,11 @@ public class AppRestartCoordinatorTests
             shutdown: () => order.Add("shutdown"),
             reportUnavailable: _ => { },
             runInBackground: work => { order.Add("background"); work(); },
-            postToUi: work => { order.Add("ui"); work(); });
+            postToUi: work => { order.Add("ui"); work(); },
+            supervisorInstalled: () => false,
+            launchSupervisor: () => false,
+            enablePublishing: () => { },
+            persistSettings: () => { });
 
         messenger.Send(new RestartAppRequestedMessage());
 
@@ -192,7 +220,11 @@ public class AppRestartCoordinatorTests
             shutdown: () => { },
             reportUnavailable: _ => { },
             runInBackground: work => requests.Add(work),   // defer: the request is "in flight"
-            postToUi: work => work());
+            postToUi: work => work(),
+            supervisorInstalled: () => false,
+            launchSupervisor: () => false,
+            enablePublishing: () => { },
+            persistSettings: () => { });
 
         messenger.Send(new RestartAppRequestedMessage());  // first: in flight
         messenger.Send(new RestartAppRequestedMessage());  // second: dropped
@@ -225,7 +257,11 @@ public class AppRestartCoordinatorTests
             shutdown: () => reports.Add("shutdown"),
             reportUnavailable: reports.Add,
             runInBackground: work => work(),
-            postToUi: work => work());
+            postToUi: work => work(),
+            supervisorInstalled: () => false,
+            launchSupervisor: () => false,
+            enablePublishing: () => { },
+            persistSettings: () => { });
 
         messenger.Send(new RestartAppRequestedMessage());
 
@@ -237,5 +273,98 @@ public class AppRestartCoordinatorTests
         // Re-armed: a second dwell is honoured rather than silently dropped.
         messenger.Send(new RestartAppRequestedMessage());
         Check.That(attempts).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void OffersTheSupervisor_WhenInstalledButNotRunning()
+    {
+        var h = new Harness(supervisionEnabled: false) { SupervisorInstalled = true };
+        Check.That(h.Coordinator.ShouldOfferSupervisor()).IsTrue();
+    }
+
+    [Fact]
+    public void DoesNotOffer_WhenNoSupervisorIsInstalled()
+    {
+        var h = new Harness(supervisionEnabled: false) { SupervisorInstalled = false };
+        Check.That(h.Coordinator.ShouldOfferSupervisor()).IsFalse();
+    }
+
+    [Fact]
+    public void DoesNotOffer_WhenOneIsAlreadyRunning()
+    {
+        var h = new Harness(supervisionEnabled: true) { SupervisorInstalled = true, SupervisorReachable = true };
+        Check.That(h.Coordinator.ShouldOfferSupervisor()).IsFalse();
+    }
+
+    [Fact]
+    public void AcceptingTheOffer_EnablesPublishingAndPersistsBeforeLaunching()
+    {
+        // Order matters twice over: publishing must be on before the probe can safely
+        // adopt us, and Enabled must be persisted before the replacement starts, or the
+        // supervisor adopts an instance that never heartbeats and kills it.
+        var h = new Harness(supervisionEnabled: false) { SupervisorInstalled = true };
+        h.SupervisorReachable = true;   // it comes up on the first poll
+
+        h.Request(startSupervisor: true);
+
+        Check.That(h.PublishingEnabled).IsTrue();
+        Check.That(h.Settings.Supervision.Enabled).IsTrue();
+        Check.That(h.SupervisionPersisted).IsTrue();
+        Check.That(h.Launches).IsEqualTo(1);
+        Check.That(h.Coordinator.SupervisorRelaunchRequested).IsTrue();
+        Check.That(h.Log).ContainsExactly("shutdown");
+
+        // The ORDER, not just the end state. Asserting only the three booleans let the
+        // implementation drift from its own doc comment once already: publishing must be on
+        // before anything can adopt us, and persist must precede the launch. It is also the
+        // only throwing step, so it goes last.
+        Check.That(h.BringUp).ContainsExactly("publish", "persist", "launch");
+    }
+
+    [Fact]
+    public void SupervisorThatNeverComesUp_FallsBackToSelfRestart()
+    {
+        // Degrades rather than fails: supervision is now enabled, so the replacement
+        // publishes heartbeats and the late-starting supervisor adopts it.
+        var h = new Harness(supervisionEnabled: false) { SupervisorInstalled = true };
+        h.SupervisorReachable = false;
+
+        h.Request(startSupervisor: true);
+
+        Check.That(h.Launches).IsEqualTo(1);
+        Check.That(h.SelfAttempts).IsEqualTo(1);
+        Check.That(h.Coordinator.SupervisorRelaunchRequested).IsFalse();
+        Check.That(h.Log).ContainsExactly("shutdown");
+    }
+
+    [Fact]
+    public void SupervisorThatFailsToLaunch_FallsBackToSelfRestart()
+    {
+        var h = new Harness(supervisionEnabled: false)
+        {
+            SupervisorInstalled = true,
+            SupervisorLaunches = false,
+        };
+
+        h.Request(startSupervisor: true);
+
+        Check.That(h.SelfAttempts).IsEqualTo(1);
+        Check.That(h.Log).ContainsExactly("shutdown");
+    }
+
+    [Fact]
+    public void DecliningTheOffer_RestartsUnsupervised_AndChangesNoSettings()
+    {
+        // "Restart without" is a real restart, not a cancel. Cancelling is the third
+        // choice, and it never reaches the coordinator at all.
+        var h = new Harness(supervisionEnabled: false) { SupervisorInstalled = true };
+
+        h.Request(startSupervisor: false);
+
+        Check.That(h.Launches).IsEqualTo(0);
+        Check.That(h.Settings.Supervision.Enabled).IsFalse();
+        Check.That(h.SupervisionPersisted).IsFalse();
+        Check.That(h.SelfAttempts).IsEqualTo(1);
+        Check.That(h.Log).ContainsExactly("shutdown");
     }
 }

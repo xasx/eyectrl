@@ -39,6 +39,10 @@ public sealed class AppRestartCoordinator
     private readonly Action<string> _reportUnavailable;
     private readonly Action<Action> _runInBackground;
     private readonly Action<Action> _postToUi;
+    private readonly Func<bool> _supervisorInstalled;
+    private readonly Func<bool> _launchSupervisor;
+    private readonly Action _enablePublishing;
+    private readonly Action _persistSettings;
 
     /// <summary>
     /// 0 = idle, 1 = a restart attempt is in progress. Guards against a second dwell
@@ -61,6 +65,10 @@ public sealed class AppRestartCoordinator
     /// <param name="reportUnavailable">Tells the user why the restart did not happen.</param>
     /// <param name="runInBackground">Runs work off the dispatcher.</param>
     /// <param name="postToUi">Marshals work back onto the dispatcher.</param>
+    /// <param name="supervisorInstalled">Whether a supervisor exe is installed (the offer predicate).</param>
+    /// <param name="launchSupervisor">Starts the supervisor; false on any failure.</param>
+    /// <param name="enablePublishing">Turns on heartbeat publishing (the first bring-up step).</param>
+    /// <param name="persistSettings">Saves settings; can throw if validation fails.</param>
     public AppRestartCoordinator(
         IMessenger messenger,
         EyeCtrlSettings settings,
@@ -69,7 +77,11 @@ public sealed class AppRestartCoordinator
         Action shutdown,
         Action<string> reportUnavailable,
         Action<Action> runInBackground,
-        Action<Action> postToUi)
+        Action<Action> postToUi,
+        Func<bool> supervisorInstalled,
+        Func<bool> launchSupervisor,
+        Action enablePublishing,
+        Action persistSettings)
     {
         _settings = settings;
         _tryReachSupervisor = tryReachSupervisor;
@@ -78,8 +90,12 @@ public sealed class AppRestartCoordinator
         _reportUnavailable = reportUnavailable;
         _runInBackground = runInBackground;
         _postToUi = postToUi;
+        _supervisorInstalled = supervisorInstalled;
+        _launchSupervisor = launchSupervisor;
+        _enablePublishing = enablePublishing;
+        _persistSettings = persistSettings;
 
-        messenger.Register<RestartAppRequestedMessage>(this, (_, _) => HandleRestart());
+        messenger.Register<RestartAppRequestedMessage>(this, (_, m) => HandleRestart(m.StartSupervisor));
     }
 
     /// <summary>
@@ -93,18 +109,40 @@ public sealed class AppRestartCoordinator
     public bool SupervisorRelaunchRequested { get; private set; }
 
     /// <summary>
+    /// Whether the settings surface should offer to start a supervisor before restarting.
+    /// True only when one is installed and none is currently answering — offering what is
+    /// not installed, or starting a second one, would both be noise.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not a pure query:</b> the reachability check sends one real heartbeat, and a live
+    /// supervisor records/adopts it (see <c>Program.cs</c>'s heartbeat handler). That is safe
+    /// here because the probe is only evaluated when <c>Supervision.Enabled</c> is already
+    /// true — i.e. periodic heartbeats are already flowing, so the probe's extra payload is a
+    /// no-op adoption, not the delayed-kill from Task 11 (which concerns probing while NOT
+    /// publishing). The side-effect is called out because a reader named <c>Should…</c> would
+    /// not expect it to reach across a process boundary.
+    ///
+    /// <b>Runs on the dispatcher</b> (the dwell handler asks it synchronously), so its probe
+    /// is bounded by the publisher's <c>ProbeWait</c> (500ms): a live supervisor answers in
+    /// milliseconds, and an absent one must not freeze the user's gaze control while they
+    /// wait for a modal. The restart path itself never probes on the dispatcher — see
+    /// <see cref="HandleRestart"/>.
+    /// </remarks>
+    /// <returns>True if the offer is worth making.</returns>
+    public bool ShouldOfferSupervisor() =>
+        _supervisorInstalled() && !(_settings.Supervision.Enabled && _tryReachSupervisor());
+
+    /// <summary>
     /// Picks a strategy and runs it. Returns immediately; the work continues in the
     /// background. The dispatcher never blocks: the probe, the bring-up poll and the
     /// self-restart wait all happen off-thread, and the dispatcher only ever executes
     /// the shutdown or the refusal — a frozen dispatcher means no gaze processing, i.e.
     /// the user loses control of the machine for the duration.
     /// </summary>
-    public void HandleRestart()
+    /// <param name="startSupervisor">True when the user chose to start a supervisor first.</param>
+    public void HandleRestart(bool startSupervisor)
     {
-        // One restart attempt at a time. A second dwell while the first readiness wait
-        // is still running must not launch a second child (it would queue on the mutex
-        // for 30s and then exit). Re-armed on the refusal path, so a failed attempt
-        // does not deaden the button.
+        // One restart attempt at a time (see Task 8). Re-armed on the refusal path.
         if (Interlocked.Exchange(ref _restartInFlight, 1) != 0)
         {
             return;
@@ -112,12 +150,11 @@ public sealed class AppRestartCoordinator
 
         _runInBackground(() =>
         {
-            // Everything below runs on a thread-pool thread, where an escaping exception
-            // becomes an unobserved faulted Task — silent. If that happened, _postToUi would
-            // never run, _restartInFlight would stay latched, and the button would be dead
-            // for the rest of the session with no modal and no log: the user dwells the one
-            // control meant to get them unstuck and nothing happens. So the whole body is
-            // guarded, and the guard re-arms.
+            // Guarded exactly as in Task 8, and it matters more here: TryBringUpSupervisor
+            // calls _persistSettings, i.e. SettingsService.Save, which THROWS
+            // InvalidOperationException when settings.Validate() fails. Unguarded, that
+            // exception would vanish into an unobserved faulted Task with the button left
+            // latched — and with Supervision.Enabled already mutated in memory.
             try
             {
                 // Strategy 1 — supervisor-mediated. Enabled is necessary but not sufficient:
@@ -127,6 +164,18 @@ public sealed class AppRestartCoordinator
                     _postToUi(() =>
                     {
                         SupervisorRelaunchRequested = true;   // before _shutdown: OnExit reads this
+                        _shutdown();
+                    });
+                    return;
+                }
+
+                // Strategy 1b — the user asked us to start a supervisor first, which upgrades
+                // this restart to the recoverable path AND leaves the replacement watched.
+                if (startSupervisor && TryBringUpSupervisor())
+                {
+                    _postToUi(() =>
+                    {
+                        SupervisorRelaunchRequested = true;
                         _shutdown();
                     });
                     return;
@@ -149,13 +198,74 @@ public sealed class AppRestartCoordinator
             }
             catch (Exception ex)
             {
-                // Never leave the button latched. The app is still running by construction —
-                // nothing here calls _shutdown outside the proven-successor branches — so the
-                // safe report is the generic one.
+                // Never leave the button latched — see Task 8.
                 Volatile.Write(ref _restartInFlight, 0);
                 _postToUi(() => _reportUnavailable(
                     "Restart failed: " + ex.Message + " EyeCtrl is still running."));
             }
         });
     }
+
+    /// <summary>
+    /// Enables supervision, starts the supervisor, and waits for it to answer.
+    ///
+    /// Ordering is load-bearing in both directions, and the three statements below are in
+    /// their documented order — keep them that way:
+    ///
+    /// <list type="number">
+    /// <item><b>Publishing on FIRST.</b> The probe that follows adopts this app into the
+    /// supervisor's Supervising state, and an adopted app that sends nothing is force-killed
+    /// after HangThresholdSeconds. It is also the only one of the three that cannot throw,
+    /// so doing it first means a later failure leaves a consistent session rather than one
+    /// claiming supervision while silent.</item>
+    /// <item><b>Then the in-memory flag</b>, so the running session's own behaviour matches
+    /// what is about to be written.</item>
+    /// <item><b>Then persist</b>, BEFORE the replacement launches, because that replacement
+    /// must publish too, for exactly the same reason. This is the step that can throw —
+    /// <c>SettingsService.Save</c> rejects settings that fail validation — and
+    /// <see cref="HandleRestart"/>'s catch is what turns that into a report rather than a
+    /// dead button.</item>
+    /// </list>
+    ///
+    /// Returns false on any failure, and the caller falls through to self-restart — which
+    /// still improves matters, since supervision is now on and a late-arriving supervisor
+    /// will adopt the replacement.
+    /// </summary>
+    private bool TryBringUpSupervisor()
+    {
+        // Publishing FIRST, and before the throwing call. _persistSettings can throw
+        // (SettingsService.Save rejects invalid settings), and if it did with publishing
+        // still off we would be left claiming Supervision.Enabled in memory while sending
+        // no heartbeats — the delayed-kill shape from Task 11. Enabling first makes that
+        // failure inert; HandleRestart's catch then reports it and re-arms.
+        _enablePublishing();
+        _settings.Supervision.Enabled = true;
+        _persistSettings();
+
+        if (!_launchSupervisor())
+        {
+            return false;
+        }
+
+        // Poll rather than sleep-then-check: a supervisor that comes up in 300ms should
+        // not cost the user the whole budget.
+        var deadline = DateTime.UtcNow + SupervisorStartWait;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (_tryReachSupervisor())
+            {
+                return true;
+            }
+
+            Thread.Sleep(SupervisorPollInterval);
+        }
+
+        return false;
+    }
+
+    /// <summary>How long to wait for a just-started supervisor to answer on the pipe.</summary>
+    private static readonly TimeSpan SupervisorStartWait = TimeSpan.FromSeconds(15);
+
+    /// <summary>Gap between reachability polls while waiting for the supervisor.</summary>
+    private static readonly TimeSpan SupervisorPollInterval = TimeSpan.FromMilliseconds(500);
 }

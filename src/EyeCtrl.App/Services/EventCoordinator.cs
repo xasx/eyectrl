@@ -52,6 +52,7 @@ public class EventCoordinator : IEventCoordinator
     private ModelRegistryService? _modelRegistry;
     private ModelDownloadService? _downloadService;
     private ModelManagementService? _modelManagementService;
+    private AppRestartCoordinator? _restartCoordinator;
     private ScrollModeController? _scrollModeController;
     private ToolbarAutoHideController? _toolbarAutoHide;
     private ToolbarVisibilityAdapter? _toolbarVisibility;
@@ -75,6 +76,9 @@ public class EventCoordinator : IEventCoordinator
         _downloadService = modelDownload;
         _modelManagementService = modelManagement;
     }
+
+    /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
+    public void SetRestartCoordinator(AppRestartCoordinator coordinator) => _restartCoordinator = coordinator;
 
     /// <summary>Tray fallback: force-show the toolbar regardless of auto-hide state.</summary>
     public void ForceShowToolbar()
@@ -1150,7 +1154,9 @@ public class EventCoordinator : IEventCoordinator
                 _modelRegistry ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
                 _modelManagementService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
                 _context.Messenger,
-                _context.CalibrationService);
+                _context.CalibrationService,
+                _restartCoordinator ?? throw new InvalidOperationException(
+                    "Restart coordinator not set; SetRestartCoordinator must be called at startup."));
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;

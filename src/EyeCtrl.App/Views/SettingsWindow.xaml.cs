@@ -57,6 +57,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly ModelManagementService _modelManagementService;
     private readonly IMessenger _messenger;
     private readonly CalibrationService _calibrationService;
+    private readonly AppRestartCoordinator _restartCoordinator;
     private readonly int _dwellMs;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
@@ -104,7 +105,8 @@ public partial class SettingsWindow : OverlayWindow
         ModelRegistryService registryService,
         ModelManagementService modelManagementService,
         IMessenger messenger,
-        CalibrationService calibrationService)
+        CalibrationService calibrationService,
+        AppRestartCoordinator restartCoordinator)
     {
         InitializeComponent();
 
@@ -121,6 +123,7 @@ public partial class SettingsWindow : OverlayWindow
         _modelManagementService = modelManagementService;
         _messenger = messenger;
         _calibrationService = calibrationService;
+        _restartCoordinator = restartCoordinator;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
         // A refused restart must be visible: the user just completed a dwell, and
@@ -926,9 +929,34 @@ public partial class SettingsWindow : OverlayWindow
                     v => { _settings.TrackStatus.Enabled = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
                 () => Add(new DwellButton(_viewModel, "g_restart", "↻ Restart Now",
-                    () => ShowModal(
-                        "Restart EyeCtrl now?",
-                        () => _messenger.Send(new RestartAppRequestedMessage())),
+                    () =>
+                    {
+                        // Only offer what is installed and not already running.
+                        if (_restartCoordinator.ShouldOfferSupervisor())
+                        {
+                            _viewModel.ShowModal(
+                                "Restart EyeCtrl now?\n"
+                                + "A supervisor is installed. It restarts EyeCtrl if it ever "
+                                + "fails, and can recover a restart that goes wrong.\n"
+                                + "Starting it turns supervision on and leaves it on.",
+                                [
+                                    new ModalChoice("restart_supervised", "↻ Restart with supervisor",
+                                        ModalChoiceKind.Affirmative,
+                                        () => _messenger.Send(new RestartAppRequestedMessage(StartSupervisor: true))),
+                                    new ModalChoice("restart_plain", "↻ Restart without",
+                                        ModalChoiceKind.Neutral,
+                                        () => _messenger.Send(new RestartAppRequestedMessage())),
+                                    new ModalChoice("restart_cancel", "✕ Cancel",
+                                        ModalChoiceKind.Negative, null),
+                                ]);
+                        }
+                        else
+                        {
+                            ShowModal(
+                                "Restart EyeCtrl now?",
+                                () => _messenger.Send(new RestartAppRequestedMessage()));
+                        }
+                    },
                     ResetBase, cat, r, _dwellMs, width: 300, height: 80,
                     textBrush: Tokens.BrushSurfaceDark)),
                 () => Add(new DwellButton(_viewModel, "g_reset", "Reset General Settings",

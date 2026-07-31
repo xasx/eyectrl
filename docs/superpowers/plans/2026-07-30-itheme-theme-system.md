@@ -1459,7 +1459,7 @@ git commit -m "feat(theme): add Ember and Contrast, guarded against the validato
 - Modify: `tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs` (`AllThemes` → `ThemeRegistry.All`)
 - Modify: `tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs` (drop the local `ThemeNamed` helper → `ThemeRegistry.Resolve`)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Controls.Tests/Theme/ThemeRegistryTests.cs`:
 
@@ -1516,7 +1516,7 @@ public class ThemeRegistryTests
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeRegistryTests" --nologo
@@ -1524,7 +1524,7 @@ dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeRegis
 
 Expected: **build failure**, `CS0103: The name 'ThemeRegistry' does not exist in the current context`.
 
-- [ ] **Step 3: Create the registry**
+- [x] **Step 3: Create the registry**
 
 Create `src/EyeCtrl.Controls/Theme/ThemeRegistry.cs`:
 
@@ -1566,7 +1566,7 @@ public static class ThemeRegistry
 }
 ```
 
-- [ ] **Step 4: Point the two hand-listed test files at the registry**
+- [x] **Step 4: Point the two hand-listed test files at the registry**
 
 Task 3 deliberately hand-listed the three themes in two places so that its own commit could compile without a registry. Now that `ThemeRegistry` exists, both switch to it — which also means a fourth theme added to the registry is automatically shape-checked and parity-checked, instead of silently skipped.
 
@@ -1616,7 +1616,7 @@ with:
 
 Neither test's case count may change — `ThemeShapeTests` still expands to three cases per theory, and `ThemeParityTests` still runs three. If either moves, `ThemeRegistry.All` disagrees with the list Task 3 already verified against the validator, and the registry is what is wrong.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --nologo
@@ -1624,7 +1624,7 @@ dotnet test tests/EyeCtrl.Controls.Tests --nologo
 
 Expected: all Controls tests pass, with `ThemeShapeTests` and `ThemeParityTests` unchanged in case count.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/EyeCtrl.Controls/Theme/ThemeRegistry.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeRegistryTests.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs

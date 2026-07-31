@@ -50,7 +50,7 @@ public sealed class HeartbeatPublisher : IDisposable
     private HeartbeatPayload? _pending;          // next payload to send
     private readonly SemaphoreSlim _sendSignal = new(0, 1);
     private volatile bool _shuttingDown;
-    private readonly bool _supervised;
+    private int _publishing;   // 0 = off, 1 = on — swapped with Interlocked, see EnablePublishing
     private readonly CancellationTokenSource _cts = new();
     private Task? _writerLoop;
 
@@ -64,8 +64,7 @@ public sealed class HeartbeatPublisher : IDisposable
     /// </param>
     public HeartbeatPublisher(bool supervised)
     {
-        _supervised = supervised;
-        if (supervised) StartWriter();
+        if (supervised) EnablePublishing();
     }
 
     /// <summary>Last stamped payload (testability + diagnostics). <c>null</c> until first <see cref="Stamp"/>.</summary>
@@ -81,6 +80,13 @@ public sealed class HeartbeatPublisher : IDisposable
     {
         var lastFrame = new DateTime(Interlocked.Read(ref _lastFrameTicks), DateTimeKind.Utc);
         _pending = new HeartbeatPayload(_pid, _startedAtUtc, isConnected, isPaused, lastFrame, _shuttingDown);
+        // Nothing to wake in standalone mode: the timer stamps unconditionally (App.xaml.cs)
+        // but no writer loop exists, so the semaphore would saturate at its max of 1 and every
+        // subsequent Release would throw into the catch below — every 3s, for the life of the
+        // process. The payload still lands in _pending, which is all CurrentPayload needs, and
+        // EnablePublishing's writer drains it on its first pass.
+        if (Volatile.Read(ref _publishing) == 0) return;
+
         // Wake the single writer. The semaphore has capacity 1, so if a signal is already pending
         // (a stamp arrived while the writer was mid-send), Release throws SemaphoreFullException —
         // swallow it: the freshest payload is already in _pending, and the pending signal will
@@ -133,7 +139,11 @@ public sealed class HeartbeatPublisher : IDisposable
     /// <returns><c>true</c> if the payload reached the supervisor within the timeout.</returns>
     public bool TryReachSupervisor()
     {
-        if (!_supervised) return false;   // standalone: no writer, no supervisor, no channel
+        // Not publishing? Then do not probe. A successful probe adopts this app into the
+        // supervisor's Supervising state, after which the absence of periodic heartbeats
+        // gets it force-killed within HangThresholdSeconds. Probing without publishing is
+        // a delayed kill, not a harmless question.
+        if (Volatile.Read(ref _publishing) == 0) return false;
 
         var lastFrame = new DateTime(Interlocked.Read(ref _lastFrameTicks), DateTimeKind.Utc);
         var probe = new HeartbeatPayload(
@@ -160,7 +170,22 @@ public sealed class HeartbeatPublisher : IDisposable
     /// </summary>
     private static readonly TimeSpan ProbeWait = TimeSpan.FromMilliseconds(500);
 
-    private void StartWriter() => _writerLoop = Task.Run(WriterLoopAsync);
+    /// <summary>
+    /// Starts publishing heartbeats, if not already. Idempotent.
+    ///
+    /// Called from the constructor when <c>Supervision.Enabled</c>, and again if the user
+    /// starts a supervisor mid-session. Turning this on BEFORE probing is mandatory: a
+    /// probe that reaches a supervisor adopts this app into its Supervising state, and an
+    /// adopted app that then sends nothing is force-killed once HangThresholdSeconds
+    /// elapses.
+    /// </summary>
+    public void EnablePublishing()
+    {
+        // CompareExchange, not a check-then-set: two callers (the constructor and Task 13's
+        // mid-session enable) must not both spin up a writer loop.
+        if (Interlocked.CompareExchange(ref _publishing, 1, 0) != 0) return;
+        _writerLoop = Task.Run(WriterLoopAsync);
+    }
 
     private async Task WriterLoopAsync()
     {

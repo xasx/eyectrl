@@ -149,4 +149,35 @@ public class HeartbeatRestartPayloadTests
         Check.That(postPayload!.ShuttingDown).IsFalse();
         Check.That(postPayload.RestartRequested).IsFalse();
     }
+
+    [Fact]
+    public async Task EnablePublishing_TurnsTheProbeOn()
+    {
+        // A session that started unsupervised can be upgraded when the user chooses to
+        // start a supervisor. Until then the probe must stay false — see below.
+        using var publisher = new HeartbeatPublisher(supervised: false);
+        Check.That(publisher.TryReachSupervisor()).IsFalse();
+
+        var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
+        publisher.EnablePublishing();
+
+        Check.That(publisher.TryReachSupervisor()).IsTrue();
+        Check.That(await received).IsNotNull();
+    }
+
+    [Fact]
+    public void TryReachSupervisor_IsFalseWhileNotPublishing_EvenWithAServerListening()
+    {
+        // Load-bearing, and not an optimisation: a successful probe ADOPTS this app into
+        // the supervisor's Supervising state (Program.cs:270-278). With no periodic
+        // heartbeats following, PeriodicCheckStale force-kills it after
+        // HangThresholdSeconds. Probing without publishing is a delayed kill.
+        var received = ReceiveOneAsync(TimeSpan.FromSeconds(2));
+
+        using var publisher = new HeartbeatPublisher(supervised: false);
+        Check.That(publisher.TryReachSupervisor()).IsFalse();
+
+        Check.WithCustomMessage("nothing should have been sent")
+            .That(received.Wait(TimeSpan.FromSeconds(3)) && received.Result is not null).IsFalse();
+    }
 }

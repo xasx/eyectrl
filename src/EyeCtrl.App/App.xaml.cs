@@ -232,19 +232,22 @@ public partial class App : Application
             // ── Heartbeat liveness (supervisor watchdog) ──
             // A DispatcherTimer stamps a HeartbeatPayload on the UI thread every ~3s. A bounded
             // async writer sends it over the `eyectrl_watch` named pipe to the supervisor. The
-            // Dispatcher NEVER blocks on IPC — Stamp() only refreshes an in-memory slot. No-ops
-            // (no writer task, no timer) in standalone mode (Supervision.Enabled == false).
+            // Dispatcher NEVER blocks on IPC — Stamp() only refreshes an in-memory slot.
             // lastFrameUtc is fed by every raw gaze sample (valid or invalid), so a wedged poll
             // loop that stops delivering frames is detectable.
+            //
+            // The TIMER now runs unconditionally; the WRITER is what standalone mode omits
+            // (HeartbeatPublisher.EnablePublishing). Stamping with no writer costs one field
+            // assignment every 3s — Stamp skips the semaphore Release when not publishing,
+            // see below — and it means that if the user starts a supervisor mid-session,
+            // heartbeats begin flowing the moment publishing is enabled, with no window in
+            // which the supervisor has adopted an app that is not yet stamping.
             _heartbeatPublisher = new HeartbeatPublisher(supervised: settings.Supervision.Enabled);
             gazeEngine.GazeSampled += _ => _heartbeatPublisher.OnGazeSample();
-            if (settings.Supervision.Enabled)
-            {
-                var heartbeatTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-                heartbeatTimer.Tick += (_, _) =>
-                    _heartbeatPublisher.Stamp(gazeProvider.IsConnected, im.CurrentState == InteractionState.Paused);
-                heartbeatTimer.Start();
-            }
+            var heartbeatTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            heartbeatTimer.Tick += (_, _) =>
+                _heartbeatPublisher.Stamp(gazeProvider.IsConnected, im.CurrentState == InteractionState.Paused);
+            heartbeatTimer.Start();
 
             // ── Restart coordination ──
             // After the publisher, because the supervised strategy probes the same pipe.

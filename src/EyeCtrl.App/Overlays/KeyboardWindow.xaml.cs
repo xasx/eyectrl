@@ -19,37 +19,22 @@ public partial class KeyboardWindow : OverlayWindow
 {
     private const double BaseKeySize = 70;
 
-    private static readonly Color KeyColorNormal = Tokens.SurfaceKey;
-    private static readonly Color KeyColorSpecial = Tokens.SurfaceKeyModifier;
-    private static readonly Color KeyColorSwitch = Tokens.SurfaceKeySwitch;
+    private static Color KeyColorNormal => Tokens.SurfaceKey;
+    private static Color KeyColorSpecial => Tokens.SurfaceKeyModifier;
+    private static Color KeyColorSwitch => Tokens.SurfaceKeySwitch;
     // Active modifier (e.g. held Shift) takes the 5th key-surface step (SurfaceKeyActive),
     // a brighter blue than the resting switch keys and distinct from every ramp step (gate 8)
     // and from the cyan Accent reserved for dwell-in-progress.
-    private static readonly Color KeyColorModifierActive = Tokens.SurfaceKeyActive;
-    private static readonly Color PredictionBarColor = Tokens.SurfacePrediction;
+    private static Color KeyColorModifierActive => Tokens.SurfaceKeyActive;
+    private static Color PredictionBarColor => Tokens.SurfacePrediction;
 
     // Cached frozen brushes for prediction foreground colors (performance optimization)
-    private static readonly Brush ForegroundExactPrefix = Tokens.BrushTextPrimary;
-    private static readonly Brush ForegroundFuzzyMatch;
-    private static readonly Brush ForegroundNextWord;
-    private static readonly Brush ForegroundPhrase;
-    private static readonly Brush ForegroundSentenceCompletion;
-    private static readonly Brush ForegroundLMSuggestion;
-
-    static KeyboardWindow()
-    {
-        // Token brushes are already frozen, so the static fields can reference them directly.
-        var fuzzyBrush = Tokens.BrushTextSecondary;
-        var nextWordBrush = Tokens.BrushAccentSuccess;
-        var phraseBrush = Tokens.BrushAccentWarning;
-        var sentenceCompletionBrush = Tokens.BrushAccent;
-        var lmSuggestionBrush = Tokens.BrushTextPrimary;
-        ForegroundFuzzyMatch = fuzzyBrush;
-        ForegroundNextWord = nextWordBrush;
-        ForegroundPhrase = phraseBrush;
-        ForegroundSentenceCompletion = sentenceCompletionBrush;
-        ForegroundLMSuggestion = lmSuggestionBrush;
-    }
+    private static Brush ForegroundExactPrefix => Tokens.BrushTextPrimary;
+    private static Brush ForegroundFuzzyMatch => Tokens.BrushTextSecondary;
+    private static Brush ForegroundNextWord => Tokens.BrushAccentSuccess;
+    private static Brush ForegroundPhrase => Tokens.BrushAccentWarning;
+    private static Brush ForegroundSentenceCompletion => Tokens.BrushAccent;
+    private static Brush ForegroundLMSuggestion => Tokens.BrushTextPrimary;
 
     private readonly DwellDetector _predictionDwellDetector;
     private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();

@@ -2387,7 +2387,7 @@ git commit -m "feat(theme): replace three dead theme flags and two dead toggles 
 
 Each of these reads `Tokens.X` **once**, at type initialisation, whenever the CLR first touches the type. Under a non-Midnight theme they render Midnight if anything touches the type before `Tokens.Activate` runs. 25 are field initialisers — the fix is mechanical, `=` becomes `=>` and `readonly` goes. The other five (`ForegroundFuzzyMatch`, `ForegroundNextWord`, `ForegroundPhrase`, `ForegroundSentenceCompletion`, `ForegroundLMSuggestion`) are assigned from `Tokens.Brush*` inside `KeyboardWindow`'s static constructor (`KeyboardWindow.xaml.cs:33-52`) and the whole block must be deleted: once the fields are forwarding properties, the constructor's assignments no longer compile, which is the mechanical signal that nothing of it may survive. The guard makes a 31st capture impossible to add quietly, in either form.
 
-- [ ] **Step 1: Write the failing guard**
+- [x] **Step 1: Write the failing guard**
 
 Create `tests/EyeCtrl.App.Tests/StaticTokenCaptureTests.cs`:
 
@@ -2486,7 +2486,7 @@ public class StaticTokenCaptureTests
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~StaticTokenCaptureTests" --nologo
@@ -2494,7 +2494,7 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~StaticTokenCapt
 
 Expected: **FAIL**, listing 26 offenders across the 6 files above — the 25 field-initialiser captures plus KeyboardWindow's static constructor (one offender per ctor, named by its signature). If the count is not 26, the codebase has moved since `4451cdb` — reconcile before continuing.
 
-- [ ] **Step 3: Convert all 30 captures**
+- [x] **Step 3: Convert all 30 captures**
 
 The transformation is identical everywhere: `static readonly T Name = Tokens.X;` → `static T Name => Tokens.X;`. Apply it to each site.
 
@@ -2573,7 +2573,7 @@ The last five are currently declared without initialisers (`KeyboardWindow.xaml.
 
 Preserve each existing doc comment or inline comment above these declarations; only the declaration line changes.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 ```bash
 dotnet build EyeCtrl.slnx --nologo
@@ -2582,7 +2582,7 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 
 Expected: 0 errors, 0 failures, and `NoStaticField_SnapshotsAToken` green. If the build reports `CS0198`/`CS0200` or "cannot assign to a property", a site was converted to a property but still has an assignment elsewhere — KeyboardWindow's constructor is the known one; the others are read-only by construction, so investigate rather than reverting.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/EmojiGridManager.cs src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs src/EyeCtrl.Controls/DwellComboBox.cs src/EyeCtrl.Controls/DwellSlider.cs src/EyeCtrl.Controls/DwellToggle.cs tests/EyeCtrl.App.Tests/StaticTokenCaptureTests.cs

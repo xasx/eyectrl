@@ -901,6 +901,11 @@ public partial class SettingsWindow : OverlayWindow
         return
         [
             [
+                () => Add(new DwellComboBox(_viewModel, "g_theme", "Theme (restart to apply)",
+                    ThemeSettings.ValidNames,
+                    () => _settings.Theme.Name,
+                    v => { _settings.Theme.Name = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
                 () => Add(new DwellToggle(_viewModel, "g_boot", "Start on Windows Boot",
                     () => _settings.General.StartOnBoot,
                     v => { _settings.General.StartOnBoot = v; ApplyAndSave(); },

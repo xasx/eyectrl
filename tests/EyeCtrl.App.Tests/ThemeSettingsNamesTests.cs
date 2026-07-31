@@ -29,4 +29,12 @@ public class ThemeSettingsNamesTests
             Check.WithCustomMessage($"ThemeSettings offers '{name}' but the registry cannot resolve it")
                 .That(ThemeRegistry.Resolve(name).Name).IsEqualTo(name);
     }
+
+    [Fact]
+    public void EveryRegisteredTheme_IsOfferedByThePicker()
+    {
+        // Both settings surfaces build their option list from ValidNames, so this
+        // is what stops a theme existing in code but being unreachable by gaze.
+        Check.That(ThemeSettings.ValidNames.Length).IsEqualTo(ThemeRegistry.All.Count);
+    }
 }

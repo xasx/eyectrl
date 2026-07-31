@@ -170,9 +170,8 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
         {
             new ToggleSettingViewModel("startOnBoot", "Start on Boot", g.StartOnBoot, v => g.StartOnBoot = v),
             new ToggleSettingViewModel("startPaused", "Start Paused", g.StartPaused, v => g.StartPaused = v),
-            // Theme.Mode / OverlayOpacity / HighContrast were dead flags with no
-            // consumer; deleted here. Task 11 adds a working "Theme (restart to
-            // apply)" picker over Theme.Name in their place.
+            new ComboSettingViewModel("themeName", "Theme (restart to apply)", _settings.Theme.Name,
+                ThemeSettings.ValidNames, v => _settings.Theme.Name = v),
         }));
 
         // NOTE: item count here only drives pagination (ItemsPerPage = 6 → 2 pages);

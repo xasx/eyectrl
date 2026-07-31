@@ -42,6 +42,7 @@ public partial class App : Application
     private EventCoordinator _eventCoordinator = null!;
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
+    private AppRestartCoordinator? _restartCoordinator;
     private string _appDataDir = null!;
 
     /// <summary>
@@ -245,6 +246,24 @@ public partial class App : Application
                 heartbeatTimer.Start();
             }
 
+            // ── Restart coordination ──
+            // After the publisher, because the supervised strategy probes the same pipe.
+            // The coordinator refuses to shut down unless a successor has been proven, so
+            // a failed restart leaves a running app rather than a dark screen.
+            _restartCoordinator = new AppRestartCoordinator(
+                messenger,
+                settings,
+                tryReachSupervisor: () => _heartbeatPublisher?.TryReachSupervisor() ?? false,
+                selfRestart: SelfRestartStrategy.CreateDefault().Begin,
+                shutdown: () => Shutdown(),
+                reportUnavailable: reason =>
+                {
+                    Log.Warning("Restart refused: {Reason}", reason);
+                    messenger.Send(new RestartUnavailableMessage(reason));
+                },
+                runInBackground: work => System.Threading.Tasks.Task.Run(work),
+                postToUi: work => Dispatcher.Invoke(work));
+
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
 
@@ -322,7 +341,11 @@ public partial class App : Application
         // Stamp the final shuttingDown:true payload BEFORE tearing down services — the supervisor
         // needs this authenticated clean-shutdown signal within its 5s deadline to distinguish a
         // graceful exit (no restart) from a crash. Cancels the writer loop and drains it (bounded).
-        _heartbeatPublisher?.SignalShuttingDown();
+        // Carries the restart intent to the supervisor. False for every ordinary exit —
+        // and also for a self-restart, where a replacement is already coming up and a
+        // supervisor-launched second instance would just lose the race for the mutex.
+        _heartbeatPublisher?.SignalShuttingDown(
+            restartRequested: _restartCoordinator?.SupervisorRelaunchRequested ?? false);
 
         _trayIconManager?.Dispose();
         _eventCoordinator?.Dispose();

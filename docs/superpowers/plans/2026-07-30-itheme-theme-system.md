@@ -2145,7 +2145,7 @@ git commit -m "feat(theme): derive colour-picker presets per theme; gate halo/pr
 
 `EyeCtrl.Core` cannot reference `EyeCtrl.Controls`, so the valid names are restated in Core and checked against `ThemeRegistry` from `EyeCtrl.App.Tests` — the same arrangement `SettingsDefaults` / `SettingsDefaultsMatchTokensTests` already uses (`src/EyeCtrl.Core/Settings/SettingsDefaults.cs:5-10`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs`:
 
@@ -2198,7 +2198,7 @@ Add to `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceValidationTests.cs` (af
     }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 dotnet test EyeCtrl.slnx --filter "FullyQualifiedName~ThemeSettingsNamesTests|FullyQualifiedName~ThemeName_IsRejected" --nologo
@@ -2206,7 +2206,7 @@ dotnet test EyeCtrl.slnx --filter "FullyQualifiedName~ThemeSettingsNamesTests|Fu
 
 Expected: **build failure**, `CS0117: 'ThemeSettings' does not contain a definition for 'ValidNames'`.
 
-- [ ] **Step 3: Rewrite `ThemeSettings`**
+- [x] **Step 3: Rewrite `ThemeSettings`**
 
 Replace the entire contents of `src/EyeCtrl.Core/Settings/ThemeSettings.cs`:
 
@@ -2254,7 +2254,7 @@ public partial class ThemeSettings : ObservableObject, IValidatable
 }
 ```
 
-- [ ] **Step 4: Delete `CursorSettings.CircleHighContrast`**
+- [x] **Step 4: Delete `CursorSettings.CircleHighContrast`**
 
 In `src/EyeCtrl.Core/Settings/CursorSettings.cs`, delete lines 36-37:
 
@@ -2265,7 +2265,7 @@ In `src/EyeCtrl.Core/Settings/CursorSettings.cs`, delete lines 36-37:
 
 No renderer reads it; high contrast is now a theme (`ContrastTheme`), not a per-control flag.
 
-- [ ] **Step 5: Delete the two dead toggles**
+- [x] **Step 5: Delete the two dead toggles**
 
 In `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs`, delete lines 447-450:
 
@@ -2290,7 +2290,7 @@ In `src/EyeCtrl.ViewModels/SettingsViewModel.cs`, delete line 71:
 
 Leave `SettingsViewModel.cs:175-177` alone for now — Task 11 replaces those three with the picker.
 
-- [ ] **Step 6: Update the two settings tests**
+- [x] **Step 6: Update the two settings tests**
 
 In `tests/EyeCtrl.Core.Tests/Settings/SettingsSerializationTests.cs`, replace line 31:
 
@@ -2365,7 +2365,7 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 
 Expected: 0 errors, 0 failures. In particular `EyeCtrlSettingsEnumerationTests` must still report 19 entries — if it does not, a sub-setting was added or removed by mistake. The build will surface any remaining `CircleHighContrast` reference as `CS1061`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/EyeCtrl.Core/Settings/ThemeSettings.cs src/EyeCtrl.Core/Settings/CursorSettings.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs src/EyeCtrl.ViewModels/SettingsViewModel.cs tests/EyeCtrl.Core.Tests/Settings/SettingsSerializationTests.cs tests/EyeCtrl.Core.Tests/Settings/SettingsServiceValidationTests.cs tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs

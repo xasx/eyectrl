@@ -444,10 +444,6 @@ public partial class SettingsWindow : OverlayWindow
                     () => _settings.Cursor.CircleThickness,
                     v => { _settings.Cursor.CircleThickness = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
-                () => Add(new DwellToggle(_viewModel, "c_hc", "High Contrast Mode",
-                    () => _settings.Cursor.CircleHighContrast,
-                    v => { _settings.Cursor.CircleHighContrast = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
                 () => Add(new DwellButton(_viewModel, "c_reset", "Reset Cursor Settings",
                     () => ShowModal("Reset Cursor settings to defaults?", () =>
                     {
@@ -458,7 +454,6 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Cursor.CircleColor = defaults.CircleColor;
                         _settings.Cursor.CircleOpacity = defaults.CircleOpacity;
                         _settings.Cursor.CircleThickness = defaults.CircleThickness;
-                        _settings.Cursor.CircleHighContrast = defaults.CircleHighContrast;
                         ApplyAndSave();
                         RebuildContent();
                     }),

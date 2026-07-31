@@ -2998,24 +2998,28 @@ The label carries `(restart to apply)`. That is deliberate and is the whole miti
 
 **Do not add a restart button.** The supervisor treats an authenticated clean exit as "do not relaunch" (`SupervisionStateMachine.cs:101-103`), so exiting would not bring the app back; exiting *uncleanly* would relaunch but book a crash strike and count toward the fallback-AT escalation. See "Why 'restart to apply' rather than a restart button" in the scope boundaries for the full reasoning and for the one viable follow-up design.
 
-- [ ] **Step 1: Replace the three dead items in the ViewModel**
+- [ ] **Step 1: Add the live item to the ViewModel**
 
-In `src/EyeCtrl.ViewModels/SettingsViewModel.cs`, replace lines 175-177:
+**The three dead items are already gone.** Task 7 Step 3 deleted `ThemeSettings.Mode`, `.OverlayOpacity` and `.HighContrast`, so the three lines that read them could not be left in place — they would not compile. Task 7 removed them (along with the now-unused `var th = _settings.Theme;`) and left a placeholder comment pointing here. This step only *adds*.
+
+In `src/EyeCtrl.ViewModels/SettingsViewModel.cs`, replace the placeholder comment in the General tab:
 
 ```csharp
-            new ComboSettingViewModel("themeMode", "Theme", th.Mode, new[] { "System", "Light", "Dark" }, v => th.Mode = v),
-            new SliderSettingViewModel("overlayOpacity", "Overlay Opacity", th.OverlayOpacity, 0.1, 1.0, 0.1, v => th.OverlayOpacity = v),
-            new ToggleSettingViewModel("themeHighContrast", "High Contrast", th.HighContrast, v => th.HighContrast = v),
+            // Theme.Mode / OverlayOpacity / HighContrast were dead flags with no
+            // consumer; deleted here. Task 11 adds a working "Theme (restart to
+            // apply)" picker over Theme.Name in their place.
 ```
 
 with:
 
 ```csharp
-            new ComboSettingViewModel("themeName", "Theme (restart to apply)", th.Name,
-                ThemeSettings.ValidNames, v => th.Name = v),
+            new ComboSettingViewModel("themeName", "Theme (restart to apply)", _settings.Theme.Name,
+                ThemeSettings.ValidNames, v => _settings.Theme.Name = v),
 ```
 
-`ThemeSettings.ValidNames` is `string[]`, which is what `ComboSettingViewModel` takes — the same shape as the literal array it replaces.
+Note it reads `_settings.Theme` inline rather than a `th` local — Task 7 removed that local when the last user of it went. Re-introducing `th` for one item would be churn; if you prefer it, that is fine too, but do not leave an unused local.
+
+`ThemeSettings.ValidNames` is `string[]`, which is what `ComboSettingViewModel` takes — the same shape as the literal array the old `themeMode` item used. `EyeCtrl.Core.Settings` is already imported in this file.
 
 - [ ] **Step 2: Add the picker to the gaze-driven settings window**
 

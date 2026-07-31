@@ -73,15 +73,33 @@ public partial class App : Application
 
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
         IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
+        var isRestartHandoff = e.Args.Contains(RestartHandoff.Argument, StringComparer.OrdinalIgnoreCase);
+
+        // A restart replacement announces itself BEFORE queueing for the mutex: the
+        // outgoing instance is waiting for exactly this before it exits, and it still
+        // holds the mutex while it waits. Reversing the order deadlocks.
+        if (isRestartHandoff)
+        {
+            RestartHandoff.SignalReady();
+        }
 
         // Single-instance guard: a second instance exits fast. The supervisor's respawn
         // is legitimate, but a stray double-click/race must not launch two instances
         // fighting over the same gaze device, settings file, and dwell pipe.
         // Local\ (not Global\): multi-user/RDP is a non-goal; avoids cross-session collisions.
+        //
+        // A restart replacement is the one case that must WAIT rather than fail fast: the
+        // instance it replaces holds the mutex until the very end of its own OnExit.
         _singleInstance = new SingleInstanceGuard();
-        if (!_singleInstance.TryAcquire())
+        if (!_singleInstance.TryAcquire(isRestartHandoff ? RestartHandoff.MutexWait : TimeSpan.Zero))
         {
-            // Another instance is already running (likely the supervisor's legitimate one).
+            // Another instance is already running (likely the supervisor's legitimate one),
+            // or — for a handoff — the outgoing instance never let go. Either way, exit:
+            // one working instance beats two fighting over the gaze device.
+            //
+            // Deliberately unlogged: InitializeSettingsAndLogging() has not run yet, so
+            // Serilog's static Log is still a SilentLogger and a Log.Information here would
+            // compile and then discard the line. See the note below for what that costs.
             Shutdown();
             return;
         }
@@ -308,7 +326,6 @@ public partial class App : Application
 
         _trayIconManager?.Dispose();
         _eventCoordinator?.Dispose();
-        _singleInstance?.Dispose();
 
         if (_serviceProvider != null)
         {
@@ -328,6 +345,13 @@ public partial class App : Application
         }
 
         _heartbeatPublisher?.Dispose();
+
+        // Release the single-instance mutex LAST. A restart child is queued on it
+        // (Task 6's waiting acquire) and starts initialising the instant it is released, so
+        // everything this instance still owns — the settings file, the Tobii device, the
+        // external-dwell pipe — must already be released. Releasing it at the TOP of OnExit
+        // was harmless only while a second instance exited immediately instead of waiting.
+        _singleInstance?.Dispose();
 
         Log.CloseAndFlush();
         base.OnExit(e);

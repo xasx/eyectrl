@@ -17,7 +17,12 @@ using Xunit;
 /// </summary>
 public class ThemeShapeTests
 {
-    public static TheoryData<ITheme> AllThemes() => new() { MidnightTheme.Instance };
+    public static TheoryData<ITheme> AllThemes() => new()
+    {
+        MidnightTheme.Instance,
+        EmberTheme.Instance,
+        ContrastTheme.Instance,
+    };
 
     [Theory]
     [MemberData(nameof(AllThemes))]

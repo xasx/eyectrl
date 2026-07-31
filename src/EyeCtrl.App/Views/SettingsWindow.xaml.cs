@@ -122,6 +122,12 @@ public partial class SettingsWindow : OverlayWindow
         _calibrationService = calibrationService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
+        // A refused restart must be visible: the user just completed a dwell, and
+        // silence reads as the dwell not registering. onYes is a no-op — ShowModal is
+        // the only dialog this window has, and here it is used purely as an OK notice.
+        _messenger.Register<RestartUnavailableMessage>(this, (_, m) =>
+            Dispatcher.Invoke(() => ShowModal(m.Reason, onYes: () => { })));
+
         // Initialize tab definitions with page builders
         _tabDefs =
         [
@@ -918,6 +924,12 @@ public partial class SettingsWindow : OverlayWindow
                     () => _settings.TrackStatus.Enabled,
                     v => { _settings.TrackStatus.Enabled = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "g_restart", "↻ Restart Now",
+                    () => ShowModal(
+                        "Restart EyeCtrl now?",
+                        () => _messenger.Send(new RestartAppRequestedMessage())),
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80,
+                    textBrush: Tokens.BrushSurfaceDark)),
                 () => Add(new DwellButton(_viewModel, "g_reset", "Reset General Settings",
                     () => ShowModal("Reset General settings to defaults?", () =>
                     {

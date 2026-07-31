@@ -175,6 +175,8 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
             new ComboSettingViewModel("themeMode", "Theme", th.Mode, new[] { "System", "Light", "Dark" }, v => th.Mode = v),
             new SliderSettingViewModel("overlayOpacity", "Overlay Opacity", th.OverlayOpacity, 0.1, 1.0, 0.1, v => th.OverlayOpacity = v),
             new ToggleSettingViewModel("themeHighContrast", "High Contrast", th.HighContrast, v => th.HighContrast = v),
+            new ActionButtonSettingItem("restartApp", "Restart Now",
+                () => _messenger.Send(new RestartAppRequestedMessage())),
         }));
 
         // NOTE: item count here only drives pagination (ItemsPerPage = 6 → 2 pages);

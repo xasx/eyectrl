@@ -72,6 +72,10 @@ public partial class SettingsWindow : OverlayWindow
     // Base fill per modal button id, captured at build time so UpdateModalVisuals can
     // blend each button's dwell progress from its own base rather than a single shared one.
     private readonly Dictionary<string, Color> _modalBaseColors = new();
+    // Per-id dwell blend factor from ModalButtonPalette. The dark Neutral fill's light label
+    // would collapse (to ~2.6:1 at full dwell) at the bright kinds' 0.5 factor; the palette
+    // sizes the factor so the label stays legible through the whole dwell. See ModalButtonPalette.
+    private readonly Dictionary<string, double> _modalBlendFactors = new();
     private SolidColorBrush? _closeButtonBrush;
 
     private List<List<Action>> _pages = new();
@@ -1324,10 +1328,15 @@ public partial class SettingsWindow : OverlayWindow
         foreach (var (id, progress) in _viewModel.ModalProgress)
         {
             if (_modalBrushes.TryGetValue(id, out var brush)
-                && _modalBaseColors.TryGetValue(id, out var baseC))
+                && _modalBaseColors.TryGetValue(id, out var baseC)
+                && _modalBlendFactors.TryGetValue(id, out var factor))
             {
-                // HighlightColor(baseC, progress, 0.5) == Blend(baseC, Accent, progress * 0.5)
-                brush.Color = ColorBlend.Blend(baseC, Tokens.Accent, progress * 0.5);
+                // Blend toward Accent by progress * factor. The factor is per-kind from
+                // ModalButtonPalette: 0.5 for the bright fills (their dark labels only gain
+                // contrast), 0.25 for the dark Neutral fill (whose light label would collapse
+                // to ~2.6:1 at full dwell under 0.5). Same Accent target preserves the app-wide
+                // "accent means dwell in progress" cue; only the intensity adapts to the fill.
+                brush.Color = ColorBlend.Blend(baseC, Tokens.Accent, progress * factor);
             }
         }
     }
@@ -1349,6 +1358,7 @@ public partial class SettingsWindow : OverlayWindow
             _modalButtons.Clear();
             _modalBrushes.Clear();
             _modalBaseColors.Clear();
+            _modalBlendFactors.Clear();
 
             // Two choices keep the horizontal row they have always had. Three or more
             // stack vertically: side by side they would not fit descriptive labels, and a
@@ -1361,6 +1371,9 @@ public partial class SettingsWindow : OverlayWindow
             {
                 var (background, foreground) = ModalButtonPalette.For(choice.Kind);
                 var button = MakeModalButton(choice.Id, choice.Label, background, foreground, vertical);
+                // Capture this kind's dwell blend factor alongside the base color MakeModalButton
+                // stored, so UpdateModalVisuals blends at the per-kind intensity.
+                _modalBlendFactors[choice.Id] = ModalButtonPalette.DwellBlendFactor(choice.Kind);
                 ModalButtonPanel.Children.Add(button);
 
                 // Register as a dwell target with DPI-scaled radius. The empty callback is
@@ -1378,6 +1391,7 @@ public partial class SettingsWindow : OverlayWindow
             _modalButtons.Clear();
             _modalBrushes.Clear();
             _modalBaseColors.Clear();
+            _modalBlendFactors.Clear();
         }
     }
 

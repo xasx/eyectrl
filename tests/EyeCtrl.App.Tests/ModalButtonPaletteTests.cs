@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests;
 using System;
 using System.Windows.Media;
 using EyeCtrl.App.Views;
+using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.ViewModels;
 using NFluent;
@@ -86,5 +87,31 @@ public class ModalButtonPaletteTests
         var neutral = ModalButtonPalette.For(ModalChoiceKind.Neutral).Background;
         Check.That(neutral).IsNotEqualTo(ModalButtonPalette.For(ModalChoiceKind.Affirmative).Background);
         Check.That(neutral).IsNotEqualTo(ModalButtonPalette.For(ModalChoiceKind.Negative).Background);
+    }
+
+    [Theory]
+    // The dwell-progress blend (ColorBlend.Blend(base, Accent, progress * factor)) shifts each
+    // button's fill toward the bright Accent as the user dwells. For the bright fills the dark
+    // label only gains contrast, but the dark-fill Neutral with its LIGHT label would collapse:
+    // a 0.5 factor reaches 2.62:1 at full dwell (below the 3.0 large-text floor the static test
+    // asserts). The palette therefore exposes a per-kind blend factor sized so the label clears
+    // the AA floor across the whole dwell. This test exercises the blend the static tests can't
+    // see — the worst case is the moment the button fires (progress 1.0).
+    [InlineData(ModalChoiceKind.Affirmative)]
+    [InlineData(ModalChoiceKind.Neutral)]
+    [InlineData(ModalChoiceKind.Negative)]
+    public void LabelStaysLegible_AtFullDwellBlend(ModalChoiceKind kind)
+    {
+        var (baseColor, foreground) = ModalButtonPalette.For(kind);
+        var factor = ModalButtonPalette.DwellBlendFactor(kind);
+        var atFullDwell = ColorBlend.Blend(baseColor, Tokens.Accent, 1.0 * factor);
+        var ratio = Contrast(atFullDwell, foreground.Color);
+
+        Check.WithCustomMessage(
+                $"{kind} modal button blends toward Accent at factor {factor} and reaches "
+                + $"{ratio:F2}:1 label-on-fill at full dwell (progress 1.0); the AA large-text "
+                + "floor for the 24px bold label is 3.0, and it must hold through the whole dwell "
+                + "— the button fires at progress 1.0, exactly when a 0.5 factor collapsed.")
+            .That(ratio).IsStrictlyGreaterThan(3.0);
     }
 }

@@ -121,7 +121,39 @@ Each reads `Tokens.X` exactly once, whenever the CLR first touches that type. Fi
 
 So §10.6's "the preset list is not automatically portable" resolves in the reassuring direction: it *is*. What breaks is `FirstPreset_IsTheAccent` (`tests/EyeCtrl.Controls.Tests/Theme/ColorPickerPresetTests.cs:59`), because the accent differs per theme. Conveniently, Midnight's four presets are **exactly** `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, so deriving the list from the theme reproduces today's Midnight list hex-for-hex (the first swatch's tooltip label changes from "Aqua" to "Accent"; the swatches themselves render label-less) and gives the other two coherent lists. Measured minimum halo edge for the derived list across all three themes: **9.13**.
 
-**5. Deriving the presets makes two `RawColourLiteralTests` exemptions go stale.** `Exempt` (`tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46`) lists `Tokens.cs` and `DwellColorPicker.cs`, and `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` fails an exemption that protects nothing. After this plan **both lose their literals** — `Tokens.cs` becomes pure forwarding, `DwellColorPicker.cs` derives its presets — while three new theme files gain them. Task 6 swaps the list.
+**5. The `RawColourLiteralTests` exemption list must move with the literals, starting at Task 1.** `Exempt` (`tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46`) lists `Tokens.cs` and `DwellColorPicker.cs`. Two guards read it: `NoUIFile_ContainsARawColourOutsideThePalette` fails when a non-exempt UI file holds a literal, and `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` fails when an exemption protects nothing. Both trip during this plan, and **the first trips at Task 1**, the moment `MidnightTheme.cs` lands holding `Color.FromArgb(0xFA, …)` with no exemption. This was observed on a trial run, not predicted:
+
+```
+Fehler NoUIFile_ContainsARawColourOutsideThePalette
+  src/EyeCtrl.Controls/Theme/MidnightTheme.cs: Color.FromArgb(0xFA,, Color.FromArgb(0xB3,
+Fehler EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour
+  src/EyeCtrl.Controls/Theme/Tokens.cs: no raw colour left — drop the exemption
+```
+
+So the list is edited **in the same task as the file whose literals moved**, never deferred — otherwise the suite is red from Task 1 to Task 6 while each task's own gate demands 0 failures:
+
+| After | `Exempt` holds | Because |
+|---|---|---|
+| Task 1 | `Tokens.cs`, `DwellColorPicker.cs`, **+ `MidnightTheme.cs`** | Midnight gains literals; `Tokens.cs` still has its own |
+| Task 2 | **− `Tokens.cs`** | the facade has no literals left |
+| Task 3 | **+ `EmberTheme.cs`, + `ContrastTheme.cs`** | both gain literals |
+| Task 6 | **− `DwellColorPicker.cs`** | Step 3 derives its presets |
+
+The end state is exactly the three theme files — literals live in palettes and nowhere else.
+
+**Known hole in the guard, out of scope here.** `RawColour` (`RawColourLiteralTests.cs:54-62`) is built with `RegexOptions.IgnorePatternWhitespace`, so its `Color\.From A? rgb` alternative collapses to `Color\.FromA?rgb` — and the regex is not case-insensitive. It therefore matches `Color.FromArgb(...)` but **never** `Color.FromRgb(...)` with a capital R. Verified:
+
+```
+MATCH  Color.FromArgb(0xFA, 0x1A, 0x1A, 0x2E)   -> Color.FromArgb(0xFA,
+MISSED Color.FromRgb(0x3A, 0x3A, 0x5E)
+MISSED Color.FromRgb(0, 120, 212)
+```
+
+One real literal already hides behind this: `src/EyeCtrl.App/Overlays/TargetHighlightWindow.xaml.cs:28` sets `Color.FromRgb(0, 120, 212)` — Windows accent blue, not a token, not exempt, and silently passing.
+
+This does **not** affect the exemption sequence above: all three theme files carry at least one `Color.FromArgb` (each theme's `ModalBackdrop` has an alpha byte — `#B3000000`, `#B3000000`, `#E6000000`), so every exemption stays live and `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` is satisfied throughout.
+
+Fixing the regex is **not** in this slice. Tightening it immediately surfaces that blue, and deciding which token replaces it is a palette question — it must go through `tools/palette_validate.py` and the spec, which this plan explicitly forbids doing inline ("No new palette values"). Track it separately.
 
 **6. Contrast legitimately uses `#00FF00`, which one guard forbids.** `Presets_DoNotOfferTheOutgoingLime` (`ColorPickerPresetTests.cs:49-53`) bans `#00FF00` from the preset list; Contrast's `AccentSuccess` and `ToggleOn` are `#00FF00` (`tools/palette_validate.py:104,111`), validated by all ten gates. The guard's real intent was "the *dwell accent* must not be the old Lime". Task 6 restates it against the accent, where it belongs.
 
@@ -168,7 +200,7 @@ So §10.6's "the preset list is not automatically portable" resolves in the reas
 | `tests/EyeCtrl.Controls.Tests/Theme/ColorPickerPresetTests.cs` | Per theme; derived presets. |
 | `tests/EyeCtrl.App.Tests/HaloContrastTests.cs` | Per theme. |
 | `tests/EyeCtrl.App.Tests/SettingsDefaultsMatchTokensTests.cs` | Pin to Midnight explicitly, not to ambient `Current`. |
-| `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46` | Exemption list swap. |
+| `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46` | Exemption list tracks the literals — edited in Tasks 1, 2, 3 and 6 (finding 5). |
 | `tests/EyeCtrl.Core.Tests/Settings/SettingsSerializationTests.cs:31,49` | `Theme.Mode` → `Theme.Name`. |
 | `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceValidationTests.cs:187-191,208-209` | Same. |
 | `docs/design/overlay-unification-spec.md:1069-1096` | Record §10.6 as resolved. |
@@ -181,6 +213,7 @@ So §10.6's "the preset list is not automatically portable" resolves in the reas
 - Create: `src/EyeCtrl.Controls/Theme/ITheme.cs`
 - Create: `src/EyeCtrl.Controls/Theme/ThemeBase.cs`
 - Create: `src/EyeCtrl.Controls/Theme/MidnightTheme.cs`
+- Modify: `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46` (exempt the new palette file — finding 5)
 - Test: `tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs` (create)
 
 `Tokens.cs` is **not** touched in this task — the new types sit alongside it and nothing consumes them yet. That keeps the build green throughout and makes Task 2 a pure swap.
@@ -662,18 +695,32 @@ public sealed class MidnightTheme : ThemeBase
 }
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 6: Exempt the new palette file from the raw-literal guard**
+
+`MidnightTheme.cs` now holds colour literals, and `RawColourLiteralTests` scans `src/EyeCtrl.Controls` for exactly that. Skipping this leaves the suite red from here to Task 6 (finding 5). In `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs`, add a third entry to `Exempt` (`:40-46`):
+
+```csharp
+        ["src/EyeCtrl.Controls/Theme/MidnightTheme.cs"] =
+            "the Midnight palette itself (spec §4.1) — gated by tools/palette_validate.py",
+```
+
+Keep both existing entries. `Tokens.cs` is **still** a live exemption at this point — it holds every literal until Task 2 guts it, so removing it now would fail the other half of the guard.
+
+- [ ] **Step 7: Run the tests to verify they pass**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeShapeTests" --nologo
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~RawColourLiteralTests" --nologo
 ```
 
-Expected: 5 passing (3 theory cases across 3 theories + 2 facts; exact count varies with the theory expansion; what matters is **0 failures**). If `EveryColour_HasAMatchingFrozenBrush` reports a mismatch, a `MidnightTheme` override does not match its `Tokens.cs` source — re-check against `Tokens.cs:40-71`.
+Expected: 5 passing on the first (3 theory cases across 3 theories + 2 facts; exact count varies with the theory expansion; what matters is **0 failures**), 2 passing on the second. If `EveryColour_HasAMatchingFrozenBrush` reports a mismatch, a `MidnightTheme` override does not match its `Tokens.cs` source — re-check against `Tokens.cs:40-71`.
 
-- [ ] **Step 7: Commit**
+The second command is not optional padding: Task 1 adds a file to a scanned project, so a `Controls.Tests`-only gate cannot see the guard it breaks. That is exactly how this defect survived a trial run.
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/EyeCtrl.Controls/Theme/ITheme.cs src/EyeCtrl.Controls/Theme/ThemeBase.cs src/EyeCtrl.Controls/Theme/MidnightTheme.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs
+git add src/EyeCtrl.Controls/Theme/ITheme.cs src/EyeCtrl.Controls/Theme/ThemeBase.cs src/EyeCtrl.Controls/Theme/MidnightTheme.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs
 git commit -m "feat(theme): introduce ITheme with Midnight as its first implementation"
 ```
 
@@ -685,6 +732,7 @@ git commit -m "feat(theme): introduce ITheme with Midnight as its first implemen
 - Modify: `src/EyeCtrl.Controls/Theme/Tokens.cs` (full rewrite, same public surface)
 - Modify: `tests/EyeCtrl.Controls.Tests/Theme/TokenValueTests.cs:56-78`
 - Modify: `tests/EyeCtrl.Controls.Tests/Theme/TokenDictionaryTests.cs:55-56`
+- Modify: `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46` (drop the stale `Tokens.cs` exemption — finding 5)
 
 **This is the risk-retirement task.** The entire plan rests on `{x:Static theme:Tokens.SurfaceDark}` binding a static *property* as happily as it bound a static *field*. `TokenDictionaryTests` loads the real `OverlayStyles.xaml` through the pack URI in a headless `[StaFact]` (`TokenDictionaryTests.cs:31-48`) — if `x:Static` could not bind a property, that test throws at dictionary load. So Step 4 below is a genuine proof, not a smoke test, and it costs no app launch. Do not proceed to Task 3 until it is green.
 
@@ -925,14 +973,25 @@ public static class Tokens
 }
 ```
 
-- [ ] **Step 4: Run the full suite — this is the `{x:Static}`-on-property proof**
+- [ ] **Step 4: Drop the now-stale `Tokens.cs` exemption**
+
+`Tokens.cs` is pure forwarding as of Step 3, so its `Exempt` entry protects nothing and `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` fails on it (finding 5). In `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs`, **delete** these two lines from `Exempt`:
+
+```csharp
+        ["src/EyeCtrl.Controls/Theme/Tokens.cs"] =
+            "the palette itself — the one place a colour literal is correct",
+```
+
+`MidnightTheme.cs` (added in Task 1) and `DwellColorPicker.cs` both still hold literals, so both stay.
+
+- [ ] **Step 5: Run the full suite — this is the `{x:Static}`-on-property proof**
 
 ```bash
 dotnet build EyeCtrl.slnx --nologo
 dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 ```
 
-Expected: 0 build errors; **1710 passing, 0 failures** — the same count as the baseline, because no behaviour changed.
+Expected: 0 build errors and **0 failures**, at **1695 passing**. That is not the 1710 baseline, and the drop is intentional: Task 1 added 5 (`ThemeShapeTests`), and Step 1 here removed 22 `[InlineData]` cases while adding 2 facts, for 1710 + 5 − 20 = 1695. `EyeCtrl.Controls.Tests` alone should read 25. A count of 1717 means the `[InlineData]` block was not deleted; anything with `Fehler` > 0 is a real failure.
 
 The proof that `{x:Static}` can bind a static *property* (not just a field) lives in `TokenDictionaryTests.Load()` — specifically the `new ResourceDictionary { Source = DictionaryUri }` assignment, which forces WPF to parse `OverlayStyles.xaml` and resolve every `Color="{x:Static theme:Tokens.X}"`. If `x:Static` could not bind a static property, that assignment throws `XamlParseException` before any assertion runs; the whole `[StaFact]` fails to reach its body. `EveryTokenBrush_IsExposedAndMatches` then adds a *secondary* check (every brush property has a key and the value matches), but the load itself is the load-bearing mechanism. That is why this task is a genuine proof rather than a smoke test, and why it costs no app launch.
 
@@ -940,10 +999,10 @@ The proof that `{x:Static}` can bind a static *property* (not just a field) live
 
 Remember: failures print as `Fehler <FQN>`, and long names wrap across lines.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/EyeCtrl.Controls/Theme/Tokens.cs tests/EyeCtrl.Controls.Tests/Theme/TokenValueTests.cs tests/EyeCtrl.Controls.Tests/Theme/TokenDictionaryTests.cs
+git add src/EyeCtrl.Controls/Theme/Tokens.cs tests/EyeCtrl.Controls.Tests/Theme/TokenValueTests.cs tests/EyeCtrl.Controls.Tests/Theme/TokenDictionaryTests.cs tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs
 git commit -m "refactor(theme): Tokens forwards to ITheme instead of holding literals"
 ```
 
@@ -955,9 +1014,12 @@ git commit -m "refactor(theme): Tokens forwards to ITheme instead of holding lit
 - Create: `src/EyeCtrl.Controls/Theme/EmberTheme.cs`
 - Create: `src/EyeCtrl.Controls/Theme/ContrastTheme.cs`
 - Create: `tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs`
-- Modify: `tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs` (`AllThemes`)
+- Modify: `tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs` (`AllThemes` — explicit list, **not** `ThemeRegistry`, which does not exist yet)
+- Modify: `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46` (exempt both new palette files — finding 5)
 
 `tools/palette_validate.py:23-117` is the source of truth for all three token sets — it is what the ten gates actually run against, and two of the Ember/Contrast values were corrected by gate 10 this week. The parity test makes the C# a checked copy rather than a second original.
+
+**This task and Task 4 must not reference each other.** `ThemeRegistry` (Task 4) is built from `EmberTheme.Instance` and `ContrastTheme.Instance` (this task), so if this task's tests reached for the registry, neither task could compile first — there would be no order that produces two green commits. Both test files here therefore hand-list the three themes, and Task 4 Step 4 swaps them onto the registry afterwards. That swap is not busywork: it is what proves the registry agrees with the list the validator already checked.
 
 - [ ] **Step 1: Write the failing parity test**
 
@@ -1048,12 +1110,29 @@ public class ThemeParityTests
 
     public static TheoryData<string> ThemeNames() => new() { "Midnight", "Ember", "Contrast" };
 
+    /// <summary>
+    /// Name to theme, local to this file.
+    ///
+    /// Deliberately **not** <c>ThemeRegistry.Resolve</c>: the registry does not
+    /// exist until Task 4, and it is itself built from these same three instances,
+    /// so depending on it here would make Tasks 3 and 4 mutually dependent —
+    /// neither could compile first. Task 4 Step 4 swaps this for the registry once
+    /// there is one, which is also what proves the registry agrees with this list.
+    /// </summary>
+    private static ITheme ThemeNamed(string name) => name switch
+    {
+        "Midnight" => MidnightTheme.Instance,
+        "Ember" => EmberTheme.Instance,
+        "Contrast" => ContrastTheme.Instance,
+        _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown theme"),
+    };
+
     [Theory]
     [MemberData(nameof(ThemeNames))]
     public void EveryColour_MatchesTheValidator(string themeName)
     {
         var expected = ParseTheme(ValidatorSource(), themeName);
-        var theme = ThemeRegistry.Resolve(themeName);
+        var theme = ThemeNamed(themeName);
 
         foreach (var property in typeof(ITheme).GetProperties()
                      .Where(p => p.PropertyType == typeof(Color)))
@@ -1078,7 +1157,7 @@ public class ThemeParityTests
     public void BorderThickness_MatchesTheValidator(string themeName)
     {
         var expected = ParseTheme(ValidatorSource(), themeName);
-        var theme = ThemeRegistry.Resolve(themeName);
+        var theme = ThemeNamed(themeName);
 
         Check.WithCustomMessage(
                 $"{themeName} must declare BorderThicknessStandard in the validator — "
@@ -1090,7 +1169,7 @@ public class ThemeParityTests
     }
 
     [Fact]
-    public void ValidatorAndRegistry_DeclareTheSameThemes()
+    public void ValidatorAndCSharp_DeclareTheSameThemes()
     {
         // A theme gated in Python but missing from C# is unreachable; a theme in C#
         // but not in Python has never passed a single gate.
@@ -1100,8 +1179,9 @@ public class ThemeParityTests
             .OrderBy(n => n)
             .ToList();
 
-        Check.That(ThemeRegistry.All.Select(t => t.Name).OrderBy(n => n).ToList())
-             .ContainsExactly(inPython);
+        var inCSharp = ThemeNames().Select(row => (string)row[0]).OrderBy(n => n).ToList();
+
+        Check.That(inCSharp).ContainsExactly(inPython);
     }
 }
 ```
@@ -1112,7 +1192,9 @@ public class ThemeParityTests
 dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~ThemeParityTests" --nologo
 ```
 
-Expected: **build failure**, `CS0103: The name 'ThemeRegistry' does not exist`. `ThemeRegistry` arrives in Task 4 — write it now so the parity guard exists before the values it guards, and accept a red build across this task boundary. If you prefer a green boundary, do Task 4 first; the two are independent otherwise.
+Expected: **build failure**, `CS0246: The type or namespace name 'EmberTheme' could not be found` (and the same for `ContrastTheme`) — the two theme classes arrive in Steps 3 and 4.
+
+**Note what this test does *not* reference.** It resolves names through the local `ThemeNamed` helper, not `ThemeRegistry`. That is deliberate and load-bearing: `ThemeRegistry.All` is built from `EmberTheme.Instance` and `ContrastTheme.Instance`, which this task creates, so a registry reference here would make Tasks 3 and 4 mutually dependent and leave **no** order in which both commits compile. Task 4 Step 4 swaps both this file and `ThemeShapeTests` onto the registry once it exists.
 
 - [ ] **Step 3: Create the Ember theme**
 
@@ -1325,28 +1407,43 @@ In `tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs`, replace the `AllThem
 with:
 
 ```csharp
-    public static TheoryData<ITheme> AllThemes()
+    public static TheoryData<ITheme> AllThemes() => new()
     {
-        var data = new TheoryData<ITheme>();
-        foreach (var theme in ThemeRegistry.All)
-            data.Add(theme);
-        return data;
-    }
+        MidnightTheme.Instance,
+        EmberTheme.Instance,
+        ContrastTheme.Instance,
+    };
 ```
 
-- [ ] **Step 6: Run the tests (after Task 4 supplies `ThemeRegistry`)**
+**List the three explicitly here, do not reach for `ThemeRegistry.All`** — the registry does not exist until Task 4 Step 3, and referencing it now would make this task's commit fail to compile. Task 4 Step 4 replaces this body with the registry once there is one, which is also what proves the registry agrees with the hand-written list.
+
+- [ ] **Step 6: Exempt the two new palette files from the raw-literal guard**
+
+Same obligation as Task 1 Step 6, for the same reason (finding 5): both new files hold colour literals inside a scanned project. In `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs`, add to `Exempt`:
+
+```csharp
+        ["src/EyeCtrl.Controls/Theme/EmberTheme.cs"] =
+            "the Ember palette itself (spec §10.2) — gated by tools/palette_validate.py",
+        ["src/EyeCtrl.Controls/Theme/ContrastTheme.cs"] =
+            "the Contrast palette itself (spec §10.7) — gated by tools/palette_validate.py",
+```
+
+`Exempt` now holds four entries: the three theme files plus `DwellColorPicker.cs`, which keeps its literals until Task 6 Step 3.
+
+- [ ] **Step 7: Run the tests**
 
 ```bash
 python tools/palette_validate.py
 dotnet test tests/EyeCtrl.Controls.Tests --nologo
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~RawColourLiteralTests" --nologo
 ```
 
-Expected: validator `ALL GATES PASS - 3 theme(s)`, exit 0; all Controls tests pass. A parity failure names the exact token and both values — trust the Python side and fix the C#.
+Expected: validator `ALL GATES PASS - 3 theme(s)`, exit 0; all Controls tests pass; both guard tests pass. This task no longer depends on Task 4 — it compiles and runs standalone. A parity failure names the exact token and both values — trust the Python side and fix the C#.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/EyeCtrl.Controls/Theme/EmberTheme.cs src/EyeCtrl.Controls/Theme/ContrastTheme.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs
+git add src/EyeCtrl.Controls/Theme/EmberTheme.cs src/EyeCtrl.Controls/Theme/ContrastTheme.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs
 git commit -m "feat(theme): add Ember and Contrast, guarded against the validator"
 ```
 
@@ -1357,6 +1454,8 @@ git commit -m "feat(theme): add Ember and Contrast, guarded against the validato
 **Files:**
 - Create: `src/EyeCtrl.Controls/Theme/ThemeRegistry.cs`
 - Create: `tests/EyeCtrl.Controls.Tests/Theme/ThemeRegistryTests.cs`
+- Modify: `tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs` (`AllThemes` → `ThemeRegistry.All`)
+- Modify: `tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs` (drop the local `ThemeNamed` helper → `ThemeRegistry.Resolve`)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1465,18 +1564,68 @@ public static class ThemeRegistry
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 4: Point the two hand-listed test files at the registry**
+
+Task 3 deliberately hand-listed the three themes in two places so that its own commit could compile without a registry. Now that `ThemeRegistry` exists, both switch to it — which also means a fourth theme added to the registry is automatically shape-checked and parity-checked, instead of silently skipped.
+
+**(a)** In `tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs`, replace the explicit list Task 3 Step 5 installed:
+
+```csharp
+    public static TheoryData<ITheme> AllThemes() => new()
+    {
+        MidnightTheme.Instance,
+        EmberTheme.Instance,
+        ContrastTheme.Instance,
+    };
+```
+
+with:
+
+```csharp
+    public static TheoryData<ITheme> AllThemes()
+    {
+        var data = new TheoryData<ITheme>();
+        foreach (var theme in ThemeRegistry.All)
+            data.Add(theme);
+        return data;
+    }
+```
+
+**(b)** In `tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs`, delete the whole `ThemeNamed` helper and its doc comment, and change the two `var theme = ThemeNamed(themeName);` lines to:
+
+```csharp
+        var theme = ThemeRegistry.Resolve(themeName);
+```
+
+Then retarget the theme-set guard so it compares the validator against the registry — which is the stronger statement, and restores the check the plan originally intended. Rename `ValidatorAndCSharp_DeclareTheSameThemes` to `ValidatorAndRegistry_DeclareTheSameThemes` and replace its last two statements:
+
+```csharp
+        var inCSharp = ThemeNames().Select(row => (string)row[0]).OrderBy(n => n).ToList();
+
+        Check.That(inCSharp).ContainsExactly(inPython);
+```
+
+with:
+
+```csharp
+        Check.That(ThemeRegistry.All.Select(t => t.Name).OrderBy(n => n).ToList())
+             .ContainsExactly(inPython);
+```
+
+Neither test's case count may change — `ThemeShapeTests` still expands to three cases per theory, and `ThemeParityTests` still runs three. If either moves, `ThemeRegistry.All` disagrees with the list Task 3 already verified against the validator, and the registry is what is wrong.
+
+- [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
 dotnet test tests/EyeCtrl.Controls.Tests --nologo
 ```
 
-Expected: all Controls tests pass, including Task 3's parity tests, which needed this type.
+Expected: all Controls tests pass, with `ThemeShapeTests` and `ThemeParityTests` unchanged in case count.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/EyeCtrl.Controls/Theme/ThemeRegistry.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeRegistryTests.cs
+git add src/EyeCtrl.Controls/Theme/ThemeRegistry.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeRegistryTests.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeShapeTests.cs tests/EyeCtrl.Controls.Tests/Theme/ThemeParityTests.cs
 git commit -m "feat(theme): add ThemeRegistry with case-insensitive resolve and Midnight fallback"
 ```
 
@@ -1936,19 +2085,16 @@ public class SettingsDefaultsMatchTokensTests
 
 - [ ] **Step 5: Swap the raw-literal exemptions**
 
-Both current exemptions go stale in this task: `Tokens.cs` no longer holds a literal (Task 2), and `DwellColorPicker.cs` no longer holds one (Step 3). `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` fails on both. Replace `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs:40-46`:
+This is the **last** of the four exemption edits (finding 5). Tasks 1, 2 and 3 already moved the list onto the theme files; the only entry that goes stale here is `DwellColorPicker.cs`, because Step 3 just replaced its literal presets with a derivation. `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` fails on it until it goes.
+
+In `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs`, **delete** these two lines from `Exempt`:
 
 ```csharp
-    private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["src/EyeCtrl.Controls/Theme/Tokens.cs"] =
-            "the palette itself — the one place a colour literal is correct",
         ["src/EyeCtrl.Controls/DwellColorPicker.cs"] =
             "DefaultPresets are user-selectable palette values, gated by ColorPickerPresetTests",
-    };
 ```
 
-with:
+`Exempt` should then read exactly:
 
 ```csharp
     private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
@@ -1962,7 +2108,7 @@ with:
     };
 ```
 
-`Tokens.cs` and `DwellColorPicker.cs` are deliberately **not** listed: they no longer contain literals, and a stale exemption silently protects nothing.
+Three entries, one per palette. `Tokens.cs` and `DwellColorPicker.cs` are deliberately absent: neither contains a literal any more, and a stale exemption silently protects nothing. If this block does not already have the three theme files in it, an earlier task skipped its exemption step — go back and find which, rather than pasting them all in here.
 
 - [ ] **Step 6: Run the full suite**
 

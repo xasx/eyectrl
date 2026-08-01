@@ -3039,9 +3039,9 @@ This uses the single-array `DwellComboBox` overload (`src/EyeCtrl.Controls/Dwell
 
 **Page fit — known-unknown.** The General page grows from five rows to six (g_theme, g_boot, g_pause, g_track, g_reset, g_resetall). `SettingsWindow` is a fixed-height window with no scrolling, and the no-launch rule means no headless check can confirm six uniform rows still fit; if the user reports the last row clipped, the picker moves onto its own page. Do not pre-emptively split — this is a user-visual verification on their schedule, not a gate here.
 
-- [x] **Step 3: Add the coverage test**
+- [x] **Step 3: Add the coverage test** — *added, then removed as redundant; see below*
 
-Append to `tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs`, inside the class:
+This step originally appended to `tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs`:
 
 ```csharp
     [Fact]
@@ -3052,6 +3052,18 @@ Append to `tests/EyeCtrl.App.Tests/ThemeSettingsNamesTests.cs`, inside the class
         Check.That(ThemeSettings.ValidNames.Length).IsEqualTo(ThemeRegistry.All.Count);
     }
 ```
+
+**Code review found it redundant, and it was deleted.** The same file already had
+`ValidNames_MatchTheRegistry`, which asserts
+`Check.That(ThemeSettings.ValidNames).ContainsExactly(ThemeRegistry.Names)` — exact
+content *and* order. Since `ThemeRegistry.Names` is derived as `All.Select(t => t.Name)`,
+that assertion strictly implies the length check above, so the new test could never fail
+without the older one failing first.
+
+The coverage this step exists to provide is real and is retained — it was simply already
+present before Task 11 started. Nothing was lost by the deletion; `ThemeSettingsNamesTests`
+still keeps `ThemeSettings.ValidNames` and `ThemeRegistry` in step, which is the whole
+reason the class exists given `EyeCtrl.Core` cannot reference `EyeCtrl.Controls`.
 
 - [x] **Step 4: Run the full suite**
 

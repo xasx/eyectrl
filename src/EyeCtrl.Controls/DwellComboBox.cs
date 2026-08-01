@@ -28,8 +28,8 @@ using EyeCtrl.Core.Processing;
 /// </remarks>
 public class DwellComboBox : IDwellComposite
 {
-    private static readonly Color BtnBase = Tokens.SurfaceMedium;
-    private static readonly Color SelectedColor = Tokens.ToggleOn;
+    private static Color BtnBase => Tokens.SurfaceMedium;
+    private static Color SelectedColor => Tokens.ToggleOn;
 
     private readonly DwellLabel _label;
     private readonly List<DwellButton> _options = new();

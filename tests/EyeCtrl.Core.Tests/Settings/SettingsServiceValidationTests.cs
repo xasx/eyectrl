@@ -186,8 +186,7 @@ public class SettingsServiceValidationTests : IDisposable
             },
             Theme = new ThemeSettings
             {
-                Mode = "Dark",
-                OverlayOpacity = 0.5
+                Name = "Contrast"
             }
         };
 
@@ -205,7 +204,16 @@ public class SettingsServiceValidationTests : IDisposable
         Check.That(loaded.Keyboard.ScreenEdge).IsEqualTo("Top");
         Check.That(loaded.Toolbar.DockedEdge).IsEqualTo("Left");
         Check.That(loaded.Toolbar.Size).IsEqualTo(100);
-        Check.That(loaded.Theme.Mode).IsEqualTo("Dark");
-        Check.That(loaded.Theme.OverlayOpacity).IsEqualTo(0.5);
+        Check.That(loaded.Theme.Name).IsEqualTo("Contrast");
+    }
+
+    [Fact]
+    public void ThemeName_IsRejected_WhenNotAKnownTheme()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Theme.Name = "Sepia";
+
+        Check.That(settings.Validate())
+             .HasElementThatMatches(e => e.Contains(nameof(ThemeSettings.Name)));
     }
 }

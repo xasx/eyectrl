@@ -10,6 +10,10 @@ class Program
     {
         var config = ManualConfig.Create(DefaultConfig.Instance);
 
+        // Give every job one explicit toolchain — pinned to this project file, or in-process if asked for.
+        // See PinnedProjectToolchain for why the stock project search cannot work in this repo.
+        config = config.AddJob(PinnedProjectToolchain.AsMutatorJob(InProcessRequested(args)));
+
         if (!SmallLMModelAvailable())
         {
             config = config.AddFilter(new DisableClassFilter(nameof(SmallLMBenchmarks)));
@@ -19,6 +23,9 @@ class Program
             .FromAssembly(typeof(Program).Assembly)
             .Run(args, config);
     }
+
+    private static bool InProcessRequested(string[] args) =>
+        args.Any(arg => arg.Equals("--inProcess", StringComparison.OrdinalIgnoreCase));
 
     private static bool SmallLMModelAvailable()
     {

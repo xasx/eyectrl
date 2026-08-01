@@ -8,7 +8,7 @@ namespace EyeCtrl.Benchmarks;
 /// Phase 8: Performance benchmarks for prediction latency and decay operations.
 /// Target: GetSuggestions should complete in < 10ms (99th percentile).
 /// </summary>
-[SimpleJob(RuntimeMoniker.Net90)]
+[SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
 [RankColumn]
 public class PredictionBenchmarks

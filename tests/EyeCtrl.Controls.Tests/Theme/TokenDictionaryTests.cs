@@ -14,7 +14,12 @@ using Xunit;
 /// resolve and equal its Tokens counterpart. Catches a mistyped {x:Static} path
 /// — which fails at runtime, not build time — and catches anyone pasting a raw
 /// literal into the dictionary. Mirrors EyeCtrlSettingsEnumerationTests.
+///
+/// Shares a collection with <see cref="ThemeResourceApplierTests"/> so the two
+/// pack-URI loaders never race to construct the one permitted WPF Application —
+/// see <see cref="WpfPackSchemeCollection"/>.
 /// </summary>
+[Collection("WpfPackScheme")]
 public class TokenDictionaryTests
 {
     private static readonly Uri DictionaryUri = new(
@@ -52,8 +57,8 @@ public class TokenDictionaryTests
     {
         var dict = Load();
 
-        foreach (var field in typeof(Tokens).GetFields(BindingFlags.Public | BindingFlags.Static)
-                     .Where(f => f.FieldType == typeof(SolidColorBrush)))
+        foreach (var field in typeof(Tokens).GetProperties(BindingFlags.Public | BindingFlags.Static)
+                     .Where(f => f.PropertyType == typeof(SolidColorBrush)))
         {
             var key = field.Name;   // e.g. BrushAccent
             Check.WithCustomMessage($"OverlayStyles.xaml is missing key '{key}'")

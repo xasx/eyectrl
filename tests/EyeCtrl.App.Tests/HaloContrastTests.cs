@@ -60,61 +60,76 @@ public class HaloContrastTests
         Math.Max(Contrast(mark, halo),
             Math.Max(Contrast(mark, backdrop), Contrast(halo, backdrop)));
 
-    [Fact]
-    public void AccentWithHalo_ClearsTheFloorOnEveryBackdrop()
+    public static TheoryData<ITheme> AllThemes()
+    {
+        var data = new TheoryData<ITheme>();
+        foreach (var theme in ThemeRegistry.All)
+            data.Add(theme);
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void AccentWithHalo_ClearsTheFloorOnEveryBackdrop(ITheme theme)
     {
         foreach (var b in Backdrops)
         {
-            var edge = StrongestVisibleEdge(Tokens.Accent, Tokens.StrokeHalo, Parse(b));
+            var edge = StrongestVisibleEdge(theme.Accent, theme.StrokeHalo, Parse(b));
             Check.WithCustomMessage(
-                    $"Accent+StrokeHalo reaches only {edge:F2}:1 over {b}; "
+                    $"{theme.Name}: Accent+StrokeHalo reaches only {edge:F2}:1 over {b}; "
                     + $"§4.1.3 requires >= {EdgeFloor}.")
                 .That(edge).IsStrictlyGreaterThan(EdgeFloor);
         }
     }
 
-    [Fact]
-    public void AccentAlone_FailsOnAtLeastOneBackdrop()
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void AccentAlone_FailsOnAtLeastOneBackdrop(ITheme theme)
     {
         // The reason the halo exists. If this ever passes, the guarantee has
         // become unnecessary and §4.1.3 should be revisited.
         var worst = double.MaxValue;
         foreach (var b in Backdrops)
-            worst = Math.Min(worst, Contrast(Tokens.Accent, Parse(b)));
+            worst = Math.Min(worst, Contrast(theme.Accent, Parse(b)));
 
         Check.WithCustomMessage(
-                $"Accent alone manages {worst:F2}:1 at worst — if that is above "
-                + $"{EdgeFloor} the halo is redundant.")
+                $"{theme.Name}: Accent alone manages {worst:F2}:1 at worst — if that is "
+                + $"above {EdgeFloor} the halo is redundant.")
             .That(worst).IsStrictlyLessThan(EdgeFloor);
     }
 
-    [Fact]
-    public void CueBadgeColour_NeedsTheHaloToo()
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void CueBadgeColour_NeedsTheHaloToo(ITheme theme)
     {
         // The cue badge is AccentWarning on a filled shape (spec §4.1.3 case 2).
         var worstAlone = double.MaxValue;
         foreach (var b in Backdrops)
-            worstAlone = Math.Min(worstAlone, Contrast(Tokens.AccentWarning, Parse(b)));
-        Check.That(worstAlone).IsStrictlyLessThan(EdgeFloor);
+            worstAlone = Math.Min(worstAlone, Contrast(theme.AccentWarning, Parse(b)));
+        Check.WithCustomMessage(
+                $"{theme.Name}: AccentWarning alone manages {worstAlone:F2}:1 at worst.")
+            .That(worstAlone).IsStrictlyLessThan(EdgeFloor);
 
         foreach (var b in Backdrops)
-            Check.That(StrongestVisibleEdge(Tokens.AccentWarning, Tokens.StrokeHalo, Parse(b)))
-                 .IsStrictlyGreaterThan(EdgeFloor);
+            Check.WithCustomMessage($"{theme.Name}: cue badge breaks the guarantee over {b}.")
+                .That(StrongestVisibleEdge(theme.AccentWarning, theme.StrokeHalo, Parse(b)))
+                .IsStrictlyGreaterThan(EdgeFloor);
     }
 
-    [Fact]
-    public void EveryColourPickerPreset_KeepsTheGuarantee()
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void EveryColourPickerPreset_KeepsTheGuarantee(ITheme theme)
     {
         // CursorSettings.CircleColor is user-selectable, so the guarantee must
         // survive any preset — not just the default.
-        foreach (var preset in EyeCtrl.Controls.DwellColorPicker.DefaultPresets)
+        foreach (var preset in EyeCtrl.Controls.DwellColorPicker.PresetsFor(theme))
         {
             var mark = Parse(preset.Hex);
             foreach (var b in Backdrops)
                 Check.WithCustomMessage(
-                        $"Preset '{preset.Name}' ({preset.Hex}) breaks the halo "
-                        + $"guarantee over {b}.")
-                    .That(StrongestVisibleEdge(mark, Tokens.StrokeHalo, Parse(b)))
+                        $"{theme.Name}: preset '{preset.Name}' ({preset.Hex}) breaks the "
+                        + $"halo guarantee over {b}.")
+                    .That(StrongestVisibleEdge(mark, theme.StrokeHalo, Parse(b)))
                     .IsStrictlyGreaterThan(EdgeFloor);
         }
     }

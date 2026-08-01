@@ -119,6 +119,13 @@ public partial class App : Application
 
             var (settings, settingsFilePath) = InitializeSettingsAndLogging();
 
+            // ── Theme ──
+            // Before the DI container, because everything downstream — overlays, dwell
+            // controls, the settings window — reads Tokens the moment it is constructed.
+            // Applies at startup only: a theme change recreates windows rather than
+            // re-resolving live (spec §10.6), so the picker is labelled "restart to apply".
+            ThemeStartup.Apply(settings, Resources);
+
             // ── Build DI container ──
             _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
 

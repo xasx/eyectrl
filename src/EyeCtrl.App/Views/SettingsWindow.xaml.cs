@@ -41,12 +41,16 @@ public partial class SettingsWindow : OverlayWindow
     private const int PaginationButtonHeight = 80;
     private const int PaginationSymbolFontSize = 30;
 
-    private static readonly Color BtnBase = Tokens.SurfaceMedium;
-    private static readonly Color TabActive = Tokens.SurfaceKeySwitch;
-    private static readonly Color TabInactive = Tokens.SurfaceKey;
-    private static readonly Color ResetBase = Tokens.AccentWarning;
-    private static readonly Color CloseBase = Tokens.AccentDanger;
-    private static readonly Color DeleteBase = Tokens.AccentWarning;
+    // Expression-bodied properties (not fields): Tokens now forwards to the active ITheme
+    // (ITheme slice), so these must re-evaluate on access rather than snapshot Midnight at
+    // type-init. ModalYes/ModalNo are gone — Task 12's modal generalization moved modal
+    // colours into ModalButtonPalette (per-kind, contrast-tested).
+    private static Color BtnBase => Tokens.SurfaceMedium;
+    private static Color TabActive => Tokens.SurfaceKeySwitch;
+    private static Color TabInactive => Tokens.SurfaceKey;
+    private static Color ResetBase => Tokens.AccentWarning;
+    private static Color CloseBase => Tokens.AccentDanger;
+    private static Color DeleteBase => Tokens.AccentWarning;
 
     // ────── State ──────
 
@@ -481,10 +485,6 @@ public partial class SettingsWindow : OverlayWindow
                     () => _settings.Cursor.CircleThickness,
                     v => { _settings.Cursor.CircleThickness = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
-                () => Add(new DwellToggle(_viewModel, "c_hc", "High Contrast Mode",
-                    () => _settings.Cursor.CircleHighContrast,
-                    v => { _settings.Cursor.CircleHighContrast = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
                 () => Add(new DwellButton(_viewModel, "c_reset", "Reset Cursor Settings",
                     () => ShowModal("Reset Cursor settings to defaults?", () =>
                     {
@@ -495,7 +495,6 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Cursor.CircleColor = defaults.CircleColor;
                         _settings.Cursor.CircleOpacity = defaults.CircleOpacity;
                         _settings.Cursor.CircleThickness = defaults.CircleThickness;
-                        _settings.Cursor.CircleHighContrast = defaults.CircleHighContrast;
                         ApplyAndSave();
                         RebuildContent();
                     }),
@@ -943,6 +942,11 @@ public partial class SettingsWindow : OverlayWindow
         return
         [
             [
+                () => Add(new DwellComboBox(_viewModel, "g_theme", "Theme (restart to apply)",
+                    ThemeSettings.ValidNames,
+                    () => _settings.Theme.Name,
+                    v => { _settings.Theme.Name = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
                 () => Add(new DwellToggle(_viewModel, "g_boot", "Start on Windows Boot",
                     () => _settings.General.StartOnBoot,
                     v => { _settings.General.StartOnBoot = v; ApplyAndSave(); },

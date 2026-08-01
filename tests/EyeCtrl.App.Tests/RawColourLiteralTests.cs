@@ -39,10 +39,12 @@ public class RawColourLiteralTests
     /// </summary>
     private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["src/EyeCtrl.Controls/Theme/Tokens.cs"] =
-            "the palette itself — the one place a colour literal is correct",
-        ["src/EyeCtrl.Controls/DwellColorPicker.cs"] =
-            "DefaultPresets are user-selectable palette values, gated by ColorPickerPresetTests",
+        ["src/EyeCtrl.Controls/Theme/MidnightTheme.cs"] =
+            "the Midnight palette itself (spec §4.1) — gated by tools/palette_validate.py",
+        ["src/EyeCtrl.Controls/Theme/EmberTheme.cs"] =
+            "the Ember palette itself (spec §10.2) — gated by tools/palette_validate.py",
+        ["src/EyeCtrl.Controls/Theme/ContrastTheme.cs"] =
+            "the Contrast palette itself (spec §10.7) — gated by tools/palette_validate.py",
     };
 
     /// <summary>

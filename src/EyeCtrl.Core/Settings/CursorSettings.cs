@@ -33,8 +33,6 @@ public partial class CursorSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _circleThickness = 2.0;
     /// <summary>Diameter of the gaze cursor circle in logical pixels. Valid range: 10–500.</summary>
     [ObservableProperty] private double _circleSize = 250;
-    /// <summary>Whether the cursor circle uses a high-contrast color scheme.</summary>
-    [ObservableProperty] private bool _circleHighContrast = false;
     /// <summary>Visual style of the position indicator shown at the gaze point.</summary>
     [ObservableProperty] private PositionIndicatorStyle _positionIndicatorStyle = PositionIndicatorStyle.Crosshair;
 

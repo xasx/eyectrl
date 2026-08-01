@@ -13,12 +13,14 @@ using NFluent;
 using Xunit;
 
 /// <summary>
-/// Test collection for every class that binds the real <c>eyectrl_watch</c> pipe name.
-/// The pipe server is constructed with <c>maxInstances: 1</c>, and xUnit v3 runs test
-/// classes in parallel — two classes standing up a server concurrently means the second
-/// construction throws <c>IOException: All pipe instances are busy</c> and the failure
-/// is intermittent. <c>HeartbeatPublisherTests</c> (same assembly, same pipe name) joins
-/// this collection so the two classes serialize against each other.
+/// Each pipe-binding test class uses its own GUID-suffixed pipe name (see
+/// <see cref="HeartbeatRestartPayloadTests.PipeName"/> / the field on
+/// <c>HeartbeatPublisherTests</c>) rather than the machine-global production name
+/// <c>eyectrl_watch</c>. The server is <c>maxInstances: 1</c>, and xUnit v3 runs test
+/// methods concurrently; a unique name per test instance removes the
+/// <c>IOException: All pipe instances are busy</c> contention at the source, with no
+/// dependence on xUnit's collection-parallelism controls (which proved unreliable on CI).
+/// The collection is retained only to group the related classes.
 /// </summary>
 [CollectionDefinition("HeartbeatPipe")]
 public sealed class HeartbeatPipeCollection
@@ -34,7 +36,12 @@ public sealed class HeartbeatPipeCollection
 [Collection("HeartbeatPipe")]
 public class HeartbeatRestartPayloadTests
 {
-    private const string PipeName = "eyectrl_watch";
+    /// <summary>
+    /// Unique pipe name per test instance (xUnit constructs a new instance per method).
+    /// Avoids contending for the machine-global single-instance production name across
+    /// concurrent test methods — the original cause of CI flakes and hangs.
+    /// </summary>
+    private readonly string _pipeName = "eyectrl_watch_test_" + Guid.NewGuid().ToString("N");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -43,10 +50,10 @@ public class HeartbeatRestartPayloadTests
     };
 
     /// <summary>Accepts one connection and returns the payload it received, or null on timeout.</summary>
-    private static async Task<HeartbeatPayload?> ReceiveOneAsync(TimeSpan timeout)
+    private async Task<HeartbeatPayload?> ReceiveOneAsync(TimeSpan timeout)
     {
         await using var server = new NamedPipeServerStream(
-            PipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            _pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
         using var cts = new CancellationTokenSource(timeout);
         try { await server.WaitForConnectionAsync(cts.Token); }
@@ -71,7 +78,7 @@ public class HeartbeatRestartPayloadTests
     {
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
 
-        using var publisher = new HeartbeatPublisher(supervised: true);
+        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
         publisher.SignalShuttingDown(restartRequested: true);
 
         var payload = await received;
@@ -85,7 +92,7 @@ public class HeartbeatRestartPayloadTests
     {
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
 
-        using var publisher = new HeartbeatPublisher(supervised: true);
+        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
         publisher.SignalShuttingDown();
 
         var payload = await received;
@@ -99,7 +106,7 @@ public class HeartbeatRestartPayloadTests
     {
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
 
-        using var publisher = new HeartbeatPublisher(supervised: true);
+        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
         var reachable = publisher.TryReachSupervisor();
 
         Check.That(reachable).IsTrue();
@@ -110,7 +117,7 @@ public class HeartbeatRestartPayloadTests
     public void TryReachSupervisor_IsFalse_WhenNothingIsListening()
     {
         // No server stood up. This is the case that must stop a restart dead.
-        using var publisher = new HeartbeatPublisher(supervised: true);
+        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
         Check.That(publisher.TryReachSupervisor()).IsFalse();
     }
 
@@ -118,7 +125,7 @@ public class HeartbeatRestartPayloadTests
     public void TryReachSupervisor_IsFalse_WhenNotSupervised()
     {
         // Standalone mode starts no writer at all; there is no supervisor by construction.
-        using var publisher = new HeartbeatPublisher(supervised: false);
+        using var publisher = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
         Check.That(publisher.TryReachSupervisor()).IsFalse();
     }
 
@@ -130,7 +137,7 @@ public class HeartbeatRestartPayloadTests
         // comes — the supervisor arms its 5s deadline and force-kills a healthy app.
         var probe = ReceiveOneAsync(TimeSpan.FromSeconds(5));
 
-        using var publisher = new HeartbeatPublisher(supervised: true);
+        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
         _ = publisher.TryReachSupervisor();
         var probePayload = await probe;
         Check.That(probePayload!.ShuttingDown).IsFalse();
@@ -155,7 +162,7 @@ public class HeartbeatRestartPayloadTests
     {
         // A session that started unsupervised can be upgraded when the user chooses to
         // start a supervisor. Until then the probe must stay false — see below.
-        using var publisher = new HeartbeatPublisher(supervised: false);
+        using var publisher = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
         Check.That(publisher.TryReachSupervisor()).IsFalse();
 
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
@@ -174,7 +181,7 @@ public class HeartbeatRestartPayloadTests
         // HangThresholdSeconds. Probing without publishing is a delayed kill.
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(2));
 
-        using var publisher = new HeartbeatPublisher(supervised: false);
+        using var publisher = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
         Check.That(publisher.TryReachSupervisor()).IsFalse();
 
         Check.WithCustomMessage("nothing should have been sent")

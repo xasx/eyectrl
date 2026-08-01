@@ -27,7 +27,15 @@ using EyeCtrl.Core.Models;
 /// </remarks>
 public sealed class HeartbeatPublisher : IDisposable
 {
-    private const string PipeName = "eyectrl_watch";
+    /// <summary>
+    /// The named pipe the supervisor listens on. Injected so tests can use a unique
+    /// GUID-suffixed name per class — the production name (<c>eyectrl_watch</c>) is
+    /// machine-global and the server is constructed with <c>maxInstances: 1</c>, so two
+    /// test classes binding it concurrently contend (<c>IOException: All pipe instances
+    /// busy</c>) regardless of xUnit's collection serialization. A per-class unique name
+    /// removes the contention at the source. Defaults to the production name.
+    /// </summary>
+    private readonly string _pipeName;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
 
     // I1: camelCase JSON to match every other emitter in the codebase AND the supervisor's deserializer.
@@ -55,6 +63,11 @@ public sealed class HeartbeatPublisher : IDisposable
     private Task? _writerLoop;
 
     /// <summary>
+    /// The production pipe name the supervisor listens on.
+    /// </summary>
+    public const string DefaultPipeName = "eyectrl_watch";
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="HeartbeatPublisher"/> class.
     /// </summary>
     /// <param name="supervised">
@@ -62,8 +75,14 @@ public sealed class HeartbeatPublisher : IDisposable
     /// (standalone mode — <c>Supervision.Enabled == false</c>) no writer is spun up: the publisher
     /// no-ops, so a missing server never blocks a thread-pool thread on Connect forever.
     /// </param>
-    public HeartbeatPublisher(bool supervised)
+    /// <param name="pipeName">
+    /// Named pipe to publish on. Defaults to <see cref="DefaultPipeName"/>; tests pass a unique
+    /// GUID-suffixed name so concurrent test classes never contend for the machine-global
+    /// single-instance production name.
+    /// </param>
+    public HeartbeatPublisher(bool supervised, string? pipeName = null)
     {
+        _pipeName = pipeName ?? DefaultPipeName;
         if (supervised) EnablePublishing();
     }
 
@@ -225,9 +244,9 @@ public sealed class HeartbeatPublisher : IDisposable
     /// because <see cref="TryReachSupervisor"/> stakes the restart decision on the
     /// difference between "delivered" and "dropped".
     /// </summary>
-    private static async Task<bool> SendOneAsync(HeartbeatPayload payload, CancellationToken token)
+    private async Task<bool> SendOneAsync(HeartbeatPayload payload, CancellationToken token)
     {
-        await using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.Asynchronous);
+        await using var client = new NamedPipeClientStream(".", _pipeName, PipeDirection.Out, PipeOptions.Asynchronous);
         // CANCELLABLE connect with a real timeout — a missing server (standalone) does NOT
         // block a thread-pool thread forever. WhenAny(connect, delay) bounds it to ConnectTimeout.
         var connectTask = client.ConnectAsync(token);

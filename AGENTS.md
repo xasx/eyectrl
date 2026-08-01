@@ -111,6 +111,13 @@ SDK is .NET 10.0.102 (pinned in `global.json`).
 - Test namespaces mirror the source namespace (e.g., `EyeCtrl.Core.Tests.Processing`)
 - `InternalsVisibleTo` is only declared from `EyeCtrl.Core` → `EyeCtrl.Core.Tests`
 - No shared base test class or `IClassFixture` — each test creates its own dependencies
+- **Never run two test suites on this box at once.** Several tests bind real named pipes under their production names (`eyectrl_watch`, `eyectrl_dwell`), which are machine-global and created with a single server instance. A `dotnet test` in another worktree — and this repo routinely has a dozen checked out — steals the connection, and so does a live `EyeCtrl.Supervisor` or `EyeCtrl.App`. The symptom is deceptive: a *different* test fails on each run, which reads as flaky product code. xUnit's `DisableParallelization` cannot help, being process-local. Before debugging any pipe-test failure, confirm the box is quiet and re-run:
+
+```powershell
+Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
+```
+
+- `ExternalDwellServiceTests` fails 8/8 when run **alone** (`--filter "FullyQualifiedName~ExternalDwellServiceTests"`) with `XamlParseException: resource "BrushAccent" not found`. It builds a `DwellFeedbackOverlay` whose XAML resolves app-level brushes, so it depends on another test in the same host having populated `Application.Current.Resources`. Long-standing and unrelated to any given branch — run the whole `EyeCtrl.App.Tests` project instead of that class in isolation.
 
 ## Dependencies & Quirks
 

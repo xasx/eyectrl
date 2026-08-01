@@ -131,10 +131,17 @@ public partial class SettingsWindow : OverlayWindow
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
         // A refused restart must be visible: the user just completed a dwell, and
-        // silence reads as the dwell not registering. onYes is a no-op — ShowModal is
-        // the only dialog this window has, and here it is used purely as an OK notice.
+        // silence reads as the dwell not registering.
+        //
+        // ONE button, not the Yes/No pair. This is an acknowledgement, not a question —
+        // "✕ No" to "the new EyeCtrl did not start in time" means nothing, and for a gaze
+        // user every extra target is another chance to mis-dwell on a message that only
+        // needs dismissing. The multi-choice modal makes a single button expressible;
+        // before it existed this had to borrow the Yes/No form.
         _messenger.Register<RestartUnavailableMessage>(this, (_, m) =>
-            Dispatcher.Invoke(() => ShowModal(m.Reason, onYes: () => { })));
+            Dispatcher.Invoke(() => _viewModel.ShowModal(
+                m.Reason,
+                [new ModalChoice("restart_failed_ok", "✓ OK", ModalChoiceKind.Affirmative, null)])));
 
         // Initialize tab definitions with page builders
         _tabDefs =

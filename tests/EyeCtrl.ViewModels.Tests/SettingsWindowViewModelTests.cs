@@ -357,6 +357,28 @@ public class SettingsWindowViewModelTests
     }
 
     [Fact]
+    public void SingleChoiceModal_ActsAsAnAcknowledgement()
+    {
+        // The refused-restart notice uses a one-button modal: it is an acknowledgement,
+        // not a question, and for a gaze user a second target that means nothing is just
+        // another chance to mis-dwell. Nothing else in the app builds a one-choice modal,
+        // so the dismissal path is pinned here.
+        var vm = CreateViewModel();
+        vm.ShowModal("Restart failed. EyeCtrl is still running.", new[]
+        {
+            new ModalChoice("restart_failed_ok", "✓ OK", ModalChoiceKind.Affirmative, null),
+        });
+
+        Check.That(vm.IsModalVisible).IsTrue();
+        Check.That(vm.ModalChoices.Select(c => c.Id)).ContainsExactly("restart_failed_ok");
+
+        vm.SimulateActivated("restart_failed_ok", DwellCategory.Modal);
+
+        Check.That(vm.IsModalVisible).IsFalse();
+        Check.That(vm.ModalChoices).IsEmpty();
+    }
+
+    [Fact]
     public void HideModal_ClearsTheChoices()
     {
         // Stale choices would let a dwell on a leftover target fire an action from a

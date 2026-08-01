@@ -33,60 +33,111 @@ public class ModalButtonPaletteTests
         return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
     }
 
+    /// <summary>
+    /// Every registered theme paired with every choice kind.
+    ///
+    /// These gates run per THEME, not against whatever <c>Tokens.Current</c> happens to be.
+    /// The pairings were chosen against a fixed palette, and the theme picker now varies all
+    /// five tokens underneath them — a gate that measures only the active theme would let a
+    /// new or edited theme ship an illegible modal button. Kinds come from
+    /// <see cref="Enum.GetValues{T}()"/> so a fourth kind is gated the day it is added.
+    /// </summary>
+    public static TheoryData<ITheme, ModalChoiceKind> EveryThemeAndKind()
+    {
+        var data = new TheoryData<ITheme, ModalChoiceKind>();
+        foreach (var theme in ThemeRegistry.All)
+        {
+            foreach (var kind in Enum.GetValues<ModalChoiceKind>())
+            {
+                data.Add(theme, kind);
+            }
+        }
+
+        return data;
+    }
+
+    /// <summary>Every registered theme paired with the kinds held to the stricter 4.5 floor.</summary>
+    public static TheoryData<ITheme, ModalChoiceKind> EveryThemeAndBrightKind()
+    {
+        var data = new TheoryData<ITheme, ModalChoiceKind>();
+        foreach (var theme in ThemeRegistry.All)
+        {
+            data.Add(theme, ModalChoiceKind.Negative);
+            data.Add(theme, ModalChoiceKind.Neutral);
+        }
+
+        return data;
+    }
+
     [Theory]
-    [InlineData(ModalChoiceKind.Affirmative)]
-    [InlineData(ModalChoiceKind.Neutral)]
-    [InlineData(ModalChoiceKind.Negative)]
-    public void EveryKind_ClearsTheAALargeTextFloor(ModalChoiceKind kind)
+    [MemberData(nameof(EveryThemeAndKind))]
+    public void EveryKind_ClearsTheAALargeTextFloor(ITheme theme, ModalChoiceKind kind)
     {
         // The 24px bold label is WCAG "large text" (>= 14pt bold), so the AA floor is 3.0:1.
-        // Affirmative measures 4.37:1, Negative 5.74:1, Neutral 10.33:1 — all clear it.
-        var (background, foreground) = ModalButtonPalette.For(kind);
+        // Measured at rest: Affirmative 4.37 (Midnight) / 4.18 (Ember) / 15.30 (Contrast);
+        // Negative 5.74 / 5.74 / 8.16; Neutral 10.33 / 12.01 / 18.42. All clear 3.0.
+        var (background, foreground) = ModalButtonPalette.For(kind, theme);
         var ratio = Contrast(background, foreground.Color);
 
         Check.WithCustomMessage(
-                $"{kind} modal button is {ratio:F2}:1 label-on-fill; 3.0 is the AA large-text "
-                + "floor for the 24px bold label these buttons use.")
+                $"{theme.Name}/{kind} modal button is {ratio:F2}:1 label-on-fill; 3.0 is the AA "
+                + "large-text floor for the 24px bold label these buttons use.")
             .That(ratio).IsStrictlyGreaterThan(3.0);
     }
 
     [Theory]
-    // Affirmative is deliberately excluded: it is pinned to the shared Tokens.ToggleOn
-    // (#4A8F5C), which measures 4.37:1 against the dark label — a 0.13 near-miss on the
-    // 4.5 normal-text floor, but these buttons are 24px bold (WCAG "large text", 3.0
-    // floor), so 4.37 still passes AA. Brightening the shared token to clear 4.5 was
-    // rejected as app-wide scope creep; the near-miss is documented, not papered over.
-    // Negative (5.74:1) and Neutral (10.33:1) both clear 4.5 and are held to it here.
-    [InlineData(ModalChoiceKind.Negative)]
-    [InlineData(ModalChoiceKind.Neutral)]
-    public void BrightKinds_AlsoClearTheNormalTextFloor(ModalChoiceKind kind)
+    // Affirmative is deliberately excluded: it is pinned to the shared ToggleOn token, which
+    // measures 4.37:1 against the dark label in Midnight and 4.18:1 in Ember — a near-miss on
+    // the 4.5 normal-text floor, but these buttons are 24px bold (WCAG "large text", 3.0
+    // floor), so both still pass AA. Brightening the shared token to clear 4.5 was rejected as
+    // app-wide scope creep; the near-miss is documented, not papered over. Note the worst case
+    // is EMBER's 4.18, not Midnight's 4.37 — the figure to quote when revisiting this.
+    // Negative (>= 5.74) and Neutral (>= 10.33) clear 4.5 in every theme and are held to it.
+    [MemberData(nameof(EveryThemeAndBrightKind))]
+    public void BrightKinds_AlsoClearTheNormalTextFloor(ITheme theme, ModalChoiceKind kind)
     {
-        var (background, foreground) = ModalButtonPalette.For(kind);
+        var (background, foreground) = ModalButtonPalette.For(kind, theme);
         var ratio = Contrast(background, foreground.Color);
 
         Check.WithCustomMessage(
-                $"{kind} modal button is {ratio:F2}:1 label-on-fill; the normal-text AA "
-                + "floor is 4.5, and this bright kind is expected to clear it.")
+                $"{theme.Name}/{kind} modal button is {ratio:F2}:1 label-on-fill; the normal-text "
+                + "AA floor is 4.5, and this kind is expected to clear it in every theme.")
             .That(ratio).IsStrictlyGreaterThan(4.5);
     }
 
-    [Fact]
-    public void AffirmativeAndNegative_KeepTheirExistingFills()
+    [Theory]
+    [MemberData(nameof(ToggleContrastThemes))]
+    public void AffirmativeAndNegative_KeepTheirExistingFills(ITheme theme)
     {
         // Regression guard: every reset confirmation in the settings window already uses
-        // these. This task must not restyle them.
-        Check.That(ModalButtonPalette.For(ModalChoiceKind.Affirmative).Background)
-             .IsEqualTo(Tokens.ToggleOn);
-        Check.That(ModalButtonPalette.For(ModalChoiceKind.Negative).Background)
-             .IsEqualTo(Tokens.AccentDanger);
+        // these. This task must not restyle them — in any theme.
+        Check.That(ModalButtonPalette.For(ModalChoiceKind.Affirmative, theme).Background)
+             .IsEqualTo(theme.ToggleOn);
+        Check.That(ModalButtonPalette.For(ModalChoiceKind.Negative, theme).Background)
+             .IsEqualTo(theme.AccentDanger);
     }
 
-    [Fact]
-    public void Neutral_IsDistinctFromBothOthers()
+    [Theory]
+    [MemberData(nameof(ToggleContrastThemes))]
+    public void Neutral_IsDistinctFromBothOthers(ITheme theme)
     {
-        var neutral = ModalButtonPalette.For(ModalChoiceKind.Neutral).Background;
-        Check.That(neutral).IsNotEqualTo(ModalButtonPalette.For(ModalChoiceKind.Affirmative).Background);
-        Check.That(neutral).IsNotEqualTo(ModalButtonPalette.For(ModalChoiceKind.Negative).Background);
+        // Per theme: nothing stops a new theme from collapsing SurfaceMedium onto ToggleOn,
+        // which would make "another way forward" indistinguishable from "confirm".
+        var neutral = ModalButtonPalette.For(ModalChoiceKind.Neutral, theme).Background;
+        Check.That(neutral).IsNotEqualTo(ModalButtonPalette.For(ModalChoiceKind.Affirmative, theme).Background);
+        Check.That(neutral).IsNotEqualTo(ModalButtonPalette.For(ModalChoiceKind.Negative, theme).Background);
+    }
+
+    /// <summary>Every registered theme, for the gates that do not vary by kind.</summary>
+    public static TheoryData<ITheme> ToggleContrastThemes()
+    {
+        var data = new TheoryData<ITheme>();
+        foreach (var theme in ThemeRegistry.All)
+        {
+            data.Add(theme);
+        }
+
+        return data;
     }
 
     [Theory]
@@ -97,21 +148,23 @@ public class ModalButtonPaletteTests
     // asserts). The palette therefore exposes a per-kind blend factor sized so the label clears
     // the AA floor across the whole dwell. This test exercises the blend the static tests can't
     // see — the worst case is the moment the button fires (progress 1.0).
-    [InlineData(ModalChoiceKind.Affirmative)]
-    [InlineData(ModalChoiceKind.Neutral)]
-    [InlineData(ModalChoiceKind.Negative)]
-    public void LabelStaysLegible_AtFullDwellBlend(ModalChoiceKind kind)
+    //
+    // Per theme, because Accent is a theme token too: the blend TARGET moves with the theme,
+    // not just the base. Worst measured full-dwell case is Midnight Neutral at 5.11:1.
+    [MemberData(nameof(EveryThemeAndKind))]
+    public void LabelStaysLegible_AtFullDwellBlend(ITheme theme, ModalChoiceKind kind)
     {
-        var (baseColor, foreground) = ModalButtonPalette.For(kind);
+        var (baseColor, foreground) = ModalButtonPalette.For(kind, theme);
         var factor = ModalButtonPalette.DwellBlendFactor(kind);
-        var atFullDwell = ColorBlend.Blend(baseColor, Tokens.Accent, 1.0 * factor);
+        var atFullDwell = ColorBlend.Blend(baseColor, theme.Accent, 1.0 * factor);
         var ratio = Contrast(atFullDwell, foreground.Color);
 
         Check.WithCustomMessage(
-                $"{kind} modal button blends toward Accent at factor {factor} and reaches "
-                + $"{ratio:F2}:1 label-on-fill at full dwell (progress 1.0); the AA large-text "
-                + "floor for the 24px bold label is 3.0, and it must hold through the whole dwell "
-                + "— the button fires at progress 1.0, exactly when a 0.5 factor collapsed.")
+                $"{theme.Name}/{kind} modal button blends toward Accent at factor {factor} and "
+                + $"reaches {ratio:F2}:1 label-on-fill at full dwell (progress 1.0); the AA "
+                + "large-text floor for the 24px bold label is 3.0, and it must hold through the "
+                + "whole dwell — the button fires at progress 1.0, exactly when a 0.5 factor "
+                + "collapsed.")
             .That(ratio).IsStrictlyGreaterThan(3.0);
     }
 }

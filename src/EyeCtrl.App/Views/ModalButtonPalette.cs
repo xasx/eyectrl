@@ -16,18 +16,34 @@ using EyeCtrl.ViewModels;
 /// </summary>
 public static class ModalButtonPalette
 {
-    /// <summary>Fill and label for a choice kind.</summary>
+    /// <summary>Fill and label for a choice kind, in the active theme.</summary>
     /// <param name="kind">The choice's meaning.</param>
     /// <returns>Background colour and a frozen foreground brush.</returns>
-    public static (Color Background, SolidColorBrush Foreground) For(ModalChoiceKind kind) => kind switch
+    public static (Color Background, SolidColorBrush Foreground) For(ModalChoiceKind kind) =>
+        For(kind, Tokens.Current);
+
+    /// <summary>
+    /// Fill and label for a choice kind in a SPECIFIC theme.
+    ///
+    /// The theme is a parameter rather than a read of <see cref="Tokens.Current"/> so the
+    /// contrast gates can measure every registered theme, not merely whichever one happens
+    /// to be active. That matters here: these pairings were chosen against a fixed palette,
+    /// and the theme picker now varies all five tokens underneath them. Mutating
+    /// <see cref="Tokens.Current"/> from a test would be the alternative, and it is a shared
+    /// global — the same shape as the type-init snapshotting the theme slice had to undo.
+    /// </summary>
+    /// <param name="kind">The choice's meaning.</param>
+    /// <param name="theme">The theme to resolve the pairing against.</param>
+    /// <returns>Background colour and a frozen foreground brush.</returns>
+    public static (Color Background, SolidColorBrush Foreground) For(ModalChoiceKind kind, ITheme theme) => kind switch
     {
         // Bright fills: dark label.
-        ModalChoiceKind.Affirmative => (Tokens.ToggleOn, Tokens.BrushSurfaceDark),
-        ModalChoiceKind.Negative => (Tokens.AccentDanger, Tokens.BrushSurfaceDark),
+        ModalChoiceKind.Affirmative => (theme.ToggleOn, theme.BrushSurfaceDark),
+        ModalChoiceKind.Negative => (theme.AccentDanger, theme.BrushSurfaceDark),
 
         // Dark fill: light label. Same surface as the ordinary control buttons, so a
         // neutral option reads as "another way forward", not as a second confirm.
-        ModalChoiceKind.Neutral => (Tokens.SurfaceMedium, Tokens.BrushTextPrimary),
+        ModalChoiceKind.Neutral => (theme.SurfaceMedium, theme.BrushTextPrimary),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };

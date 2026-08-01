@@ -2450,7 +2450,7 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI" --nologo
 
 Expected: 0 errors, 0 failures.
 
-**Do not launch the app to look at the button.** Task 14 covers that, with your go-ahead. Note that Task 13 revises this button's prompt once the three-way offer exists — the plain two-button modal here is deliberate, so this task lands green on its own. The General page now carries six buttons; whether they still fit the page (no clipping or overflow) cannot be verified headlessly, so it is checked in Task 14, scenario A.
+**Do not launch the app to look at the button.** Task 14 covers that, with your go-ahead. Note that Task 13 revises this button's prompt once the three-way offer exists — the plain two-button modal here is deliberate, so this task lands green on its own. The General page now carries **seven** controls — the theme combo (`g_theme`), three toggles, this restart button and the two resets — after the ITheme slice merged. `BuildGeneralPages` returns a single page and does **not** chunk (unlike the Quick Actions pages, which split at `QaActionsPerPage`), so nothing bounds the page height automatically. Whether they still fit without clipping cannot be verified headlessly, so it is checked in Task 14, scenario A — which makes that scenario the only mitigation for a page that has since grown by one control.
 
 - [ ] **Step 5: Commit**
 
@@ -3860,7 +3860,7 @@ Expected: a `Shutdown` from the outgoing instance, then a fresh startup line sec
 | Modal says "closed immediately" | The child exited early; look for its own startup exception in the log |
 | App exits and does not come back | The handshake passed but init failed after it — the residual risk; check the replacement's log |
 | Two instances briefly visible | The child did not wait on the mutex — check Task 5's timeout is being passed |
-| General page buttons clip or overflow the page | The sixth button (Task 10) exceeds the page height — reduce the row height or split the page (fit cannot be verified headlessly) |
+| General page controls clip or overflow the page | Seven controls now share one non-chunking page (Task 10's restart button plus the ITheme combo) — reduce the row height or split `BuildGeneralPages` into two pages, as the Quick Actions builder already does (fit cannot be verified headlessly) |
 
 - [ ] **Scenario B — supervisor-mediated restart**
 

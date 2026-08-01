@@ -36,16 +36,59 @@ public class StaticTokenCaptureTests
         RegexOptions.Compiled);
 
     /// <summary>
-    /// A static constructor (or parameterless static method) whose first-level body
-    /// reads Tokens — the same type-init snapshot as a field initialiser, invisible
-    /// to <see cref="Capture"/>. KeyboardWindow's constructor held five such reads.
-    /// The `[^{}]*` span stops at nested braces, so a read nested deeper than one
-    /// level is missed — widening that span is a future refinement, not a gap in
-    /// what this task removes.
+    /// Opening of a static constructor. A static ctor is always parameterless and
+    /// named for its type, so <c>static Identifier()</c> cannot also match a method
+    /// — a method would need a return type between <c>static</c> and its name.
+    /// <see cref="StaticCtorReadsTokens"/> walks the body from here.
     /// </summary>
-    private static readonly Regex CtorCapture = new(
-        @"static\s+\w+\(\)\s*\{[^{}]*Tokens\.",
+    private static readonly Regex CtorOpen = new(
+        @"static\s+\w+\(\)\s*\{",
         RegexOptions.Compiled);
+
+    /// <summary>
+    /// Whether any static constructor in <paramref name="text"/> reads Tokens
+    /// anywhere in its body — the same type-init snapshot as a field initialiser,
+    /// and invisible to <see cref="Capture"/>. KeyboardWindow's constructor held
+    /// five such reads before they became forwarding properties.
+    ///
+    /// Brace-walks to the matching close rather than spanning <c>[^{}]*</c>. The
+    /// span form stopped at the first nested brace, so a read inside an
+    /// <c>if</c>/<c>foreach</c>/<c>try</c> block escaped the guard entirely —
+    /// exactly the shape someone reintroducing a capture is likely to write.
+    /// </summary>
+    /// <param name="text">Full source text of one file.</param>
+    /// <param name="body">The offending constructor body, when one is found.</param>
+    /// <returns><c>true</c> if a static constructor reads Tokens.</returns>
+    private static bool StaticCtorReadsTokens(string text, out string body)
+    {
+        foreach (Match open in CtorOpen.Matches(text))
+        {
+            var depth = 0;
+            var start = open.Index + open.Length - 1;   // the opening '{'
+
+            for (var i = start; i < text.Length; i++)
+            {
+                if (text[i] == '{') depth++;
+                else if (text[i] == '}')
+                {
+                    depth--;
+                    if (depth != 0) continue;
+
+                    var span = text[start..(i + 1)];
+                    if (span.Contains("Tokens.", StringComparison.Ordinal))
+                    {
+                        body = open.Value + " … }";
+                        return true;
+                    }
+
+                    break;   // this ctor is clean; on to the next
+                }
+            }
+        }
+
+        body = string.Empty;
+        return false;
+    }
 
     private static DirectoryInfo RepoRoot()
     {
@@ -76,8 +119,8 @@ public class StaticTokenCaptureTests
                 var text = File.ReadAllText(file);
                 foreach (Match m in Capture.Matches(text))
                     offenders.Add($"{Path.GetRelativePath(root, file).Replace('\\', '/')}: {m.Value.Trim()}");
-                foreach (Match m in CtorCapture.Matches(text))
-                    offenders.Add($"{Path.GetRelativePath(root, file).Replace('\\', '/')}: static ctor reads Tokens: {m.Value.Trim()}");
+                if (StaticCtorReadsTokens(text, out var ctorBody))
+                    offenders.Add($"{Path.GetRelativePath(root, file).Replace('\\', '/')}: static ctor reads Tokens: {ctorBody.Trim()}");
             }
         }
 

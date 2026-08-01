@@ -141,19 +141,35 @@ So the list is edited **in the same task as the file whose literals moved**, nev
 
 The end state is exactly the three theme files — literals live in palettes and nowhere else.
 
-**Known hole in the guard, out of scope here.** `RawColour` (`RawColourLiteralTests.cs:54-62`) is built with `RegexOptions.IgnorePatternWhitespace`, so its `Color\.From A? rgb` alternative collapses to `Color\.FromA?rgb` — and the regex is not case-insensitive. It therefore matches `Color.FromArgb(...)` but **never** `Color.FromRgb(...)` with a capital R. Verified:
+**TWO known holes in the guard, out of scope here — fix them together or not at all.** `RawColour` (`RawColourLiteralTests.cs:54-62`) is built with `RegexOptions.IgnorePatternWhitespace`, so its `Color\.From A? rgb` alternative collapses to `Color\.FromA?rgb`. Two independent escapes follow, each with a live example already in the tree:
+
+**(a) Capital R.** The pattern is not case-insensitive, so it matches `FromArgb` (= `From` + `A` + `rgb`) but **never** `FromRgb`.
+
+**(b) Non-literal first argument.** The pattern requires the first argument to be `0x…` or a bare number. A computed first argument escapes even after (a) is fixed.
+
+Verified against the actual regex:
 
 ```
-MATCH  Color.FromArgb(0xFA, 0x1A, 0x1A, 0x2E)   -> Color.FromArgb(0xFA,
-MISSED Color.FromRgb(0x3A, 0x3A, 0x5E)
-MISSED Color.FromRgb(0, 120, 212)
+MATCH  Color.FromArgb(0xFA, 0x1A, 0x1A, 0x2E)
+MISSED Color.FromRgb(0x3A, 0x3A, 0x5E)                       <- (a)
+MISSED Color.FromRgb(0, 120, 212)                            <- (a)
+MISSED Color.FromArgb((byte)(255 * opacity), 18, 18, 18)     <- (b)
+MISSED Color.FromArgb(alpha, 18, 18, 18)                     <- (b)
 ```
 
-One real literal already hides behind this: `src/EyeCtrl.App/Overlays/TargetHighlightWindow.xaml.cs:28` sets `Color.FromRgb(0, 120, 212)` — Windows accent blue, not a token, not exempt, and silently passing.
+Live examples, both in files this slice never touched:
 
-This does **not** affect the exemption sequence above: all three theme files carry at least one `Color.FromArgb` (each theme's `ModalBackdrop` has an alpha byte — `#B3000000`, `#B3000000`, `#E6000000`), so every exemption stays live and `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` is satisfied throughout.
+- `src/EyeCtrl.App/Overlays/TargetHighlightWindow.xaml.cs:28` — `Color.FromRgb(0, 120, 212)`, Windows accent blue. Escapes via (a). Not a token, not exempt, silently passing.
+- `src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml.cs:207-208` — `Color.FromArgb((byte)(255 * opacity), 18, 18, 18)`. Escapes via (b).
 
-Fixing the regex is **not** in this slice. Tightening it immediately surfaces that blue, and deciding which token replaces it is a palette question — it must go through `tools/palette_validate.py` and the spec, which this plan explicitly forbids doing inline ("No new palette values"). Track it separately.
+**Fixing only (a) is worse than fixing neither**, because it produces a guard that looks tightened while (b) stays open — and (b) is the harder shape to notice on review. Whoever takes this must close both.
+
+The two live examples then need *different* remedies, which is the other reason this is a separate piece of work:
+
+- `GlassBackdropWindow`'s `18,18,18` is the Phase-3 fallback scrim used only when Mica/Acrylic/DWM backdrops all fail. It is a desktop-dimming effect parameterised by opacity, not one of the 22 palette colours — theme-agnostic in the same sense as `Transparent`. It needs an `Exempt` entry with that reason. Cheap.
+- `TargetHighlightWindow`'s accent blue is a genuine unmigrated colour. Choosing its replacement token is a **palette** decision that must go through `tools/palette_validate.py` and the spec — which this plan explicitly forbids doing inline ("No new palette values"). That is what gates the whole job.
+
+Neither hole affects the exemption sequence above: all three theme files carry at least one `Color.FromArgb` with a literal first argument (each theme's `ModalBackdrop` has an alpha byte — `#B3000000`, `#B3000000`, `#E6000000`), so every exemption stays live and `EveryExemption_NamesAFileThatExistsAndActuallyHasARawColour` is satisfied throughout.
 
 **6. Contrast legitimately uses `#00FF00`, which one guard forbids.** `Presets_DoNotOfferTheOutgoingLime` (`ColorPickerPresetTests.cs:49-53`) bans `#00FF00` from the preset list; Contrast's `AccentSuccess` and `ToggleOn` are `#00FF00` (`tools/palette_validate.py:104,111`), validated by all ten gates. The guard's real intent was "the *dwell accent* must not be the old Lime". Task 6 restates it against the accent, where it belongs.
 

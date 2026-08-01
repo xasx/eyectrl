@@ -13,7 +13,12 @@ using Xunit;
 /// lookups. It writes explicitly rather than relying on OverlayStyles.xaml being
 /// parsed after the theme is chosen — parse timing is not something startup can
 /// control, and getting it wrong would silently ship Midnight.
+///
+/// Shares a collection with <see cref="TokenDictionaryTests"/> so the two
+/// pack-URI loaders never race to construct the one permitted WPF Application —
+/// see <see cref="WpfPackSchemeCollection"/>.
 /// </summary>
+[Collection("WpfPackScheme")]
 public class ThemeResourceApplierTests
 {
     private static readonly Uri DictionaryUri = new(

@@ -130,6 +130,22 @@ public partial class SettingsWindow : OverlayWindow
         _restartCoordinator = restartCoordinator;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
+        // An accepted restart must also be visible. The handshake allows the replacement up
+        // to 30s to announce itself; the dispatcher stays free, but silence for that long is
+        // indistinguishable from a hang, and the in-flight guard drops a second dwell without
+        // saying so. Replaced automatically by the refusal notice below if it fails, and
+        // taken down with the process if it succeeds.
+        //
+        // The one button only HIDES the notice — it cannot cancel a restart whose child may
+        // already be running, and it must exist: a modal with no dwell target would trap a
+        // gaze-only user if the outcome never arrived.
+        _messenger.Register<RestartInProgressMessage>(this, (_, _) =>
+            Dispatcher.Invoke(() => _viewModel.ShowModal(
+                "Restarting EyeCtrl…\n"
+                + "Waiting for the new EyeCtrl to start. If it cannot, this one keeps running.\n"
+                + "Hiding this notice does not stop the restart.",
+                [new ModalChoice("restart_progress_hide", "✕ Hide", ModalChoiceKind.Neutral, null)])));
+
         // A refused restart must be visible: the user just completed a dwell, and
         // silence reads as the dwell not registering.
         //

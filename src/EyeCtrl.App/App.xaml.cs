@@ -259,6 +259,11 @@ public partial class App : Application
                 tryReachSupervisor: () => _heartbeatPublisher?.TryReachSupervisor() ?? false,
                 selfRestart: SelfRestartStrategy.CreateDefault().Begin,
                 shutdown: () => Shutdown(),
+                reportInProgress: () =>
+                {
+                    Log.Information("Restart accepted; waiting for a successor.");
+                    messenger.Send(new RestartInProgressMessage());
+                },
                 reportUnavailable: reason =>
                 {
                     Log.Warning("Restart refused: {Reason}", reason);

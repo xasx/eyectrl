@@ -36,6 +36,7 @@ public sealed class AppRestartCoordinator
     private readonly Func<bool> _tryReachSupervisor;
     private readonly Func<RestartOutcome> _selfRestart;
     private readonly Action _shutdown;
+    private readonly Action _reportInProgress;
     private readonly Action<string> _reportUnavailable;
     private readonly Action<Action> _runInBackground;
     private readonly Action<Action> _postToUi;
@@ -62,6 +63,10 @@ public sealed class AppRestartCoordinator
     /// <param name="tryReachSupervisor">Probes the heartbeat pipe; true only if a payload was delivered.</param>
     /// <param name="selfRestart">Runs the self-restart handshake. Blocks; never called on the dispatcher.</param>
     /// <param name="shutdown">Begins application shutdown. Normally <c>Application.Shutdown</c>.</param>
+    /// <param name="reportInProgress">
+    /// Tells the user the restart has been accepted and is under way. Invoked on the
+    /// CALLER's thread, unlike the outcome callbacks — see <see cref="HandleRestart"/>.
+    /// </param>
     /// <param name="reportUnavailable">Tells the user why the restart did not happen.</param>
     /// <param name="runInBackground">Runs work off the dispatcher.</param>
     /// <param name="postToUi">Marshals work back onto the dispatcher.</param>
@@ -75,6 +80,7 @@ public sealed class AppRestartCoordinator
         Func<bool> tryReachSupervisor,
         Func<RestartOutcome> selfRestart,
         Action shutdown,
+        Action reportInProgress,
         Action<string> reportUnavailable,
         Action<Action> runInBackground,
         Action<Action> postToUi,
@@ -87,6 +93,7 @@ public sealed class AppRestartCoordinator
         _tryReachSupervisor = tryReachSupervisor;
         _selfRestart = selfRestart;
         _shutdown = shutdown;
+        _reportInProgress = reportInProgress;
         _reportUnavailable = reportUnavailable;
         _runInBackground = runInBackground;
         _postToUi = postToUi;
@@ -145,8 +152,22 @@ public sealed class AppRestartCoordinator
         // One restart attempt at a time (see Task 8). Re-armed on the refusal path.
         if (Interlocked.Exchange(ref _restartInFlight, 1) != 0)
         {
+            // Dropped. Deliberately silent: the notice for the attempt already running is
+            // still on screen, and replacing it would only make a second dwell look like it
+            // started something new.
             return;
         }
+
+        // Acknowledge before any work begins. The self-restart handshake can take 30s, and
+        // although the dispatcher stays free throughout, an unacknowledged 30s reads exactly
+        // like the hang this feature exists to prevent — and the in-flight guard above means
+        // dwelling the button again tells the user nothing either.
+        //
+        // Called directly rather than through _postToUi: this runs in HandleRestart's
+        // prologue, still on the sender's thread, and every sender is on the dispatcher. The
+        // production wiring only raises a message, and its handler marshals — the same shape
+        // as the refusal path, so a future off-thread sender stays correct.
+        _reportInProgress();
 
         _runInBackground(() =>
         {

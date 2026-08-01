@@ -36,6 +36,13 @@ public class AppRestartCoordinatorTests
         /// <summary>Bring-up steps in the order TryBringUpSupervisor performed them.</summary>
         public List<string> BringUp { get; } = new();
 
+        /// <summary>
+        /// How many "restart is under way" notices were raised. Counted separately from
+        /// <see cref="Log"/> so the existing ContainsExactly("shutdown") assertions keep
+        /// asserting what they were written to assert.
+        /// </summary>
+        public int Notices { get; private set; }
+
         public Harness(bool supervisionEnabled)
         {
             var settings = new EyeCtrlSettings();
@@ -48,6 +55,7 @@ public class AppRestartCoordinatorTests
                 tryReachSupervisor: () => { Probes++; return SupervisorReachable; },
                 selfRestart: () => { SelfAttempts++; return SelfOutcome; },
                 shutdown: () => Log.Add("shutdown"),
+                reportInProgress: () => Notices++,
                 reportUnavailable: reason => Log.Add("report:" + reason),
                 runInBackground: work => work(),   // inline: the tests are the background thread
                 postToUi: work => work(),
@@ -122,6 +130,61 @@ public class AppRestartCoordinatorTests
     }
 
     [Fact]
+    public void AnAcceptedRestart_AcknowledgesBeforeDoingAnyWork()
+    {
+        // The self-restart handshake can take 30s. The dispatcher stays free, but silence
+        // for that long reads exactly like the hang this feature exists to prevent, so the
+        // notice must precede the work rather than accompany its result.
+        var settings = new EyeCtrlSettings();
+        var order = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        var coordinator = new AppRestartCoordinator(
+            messenger, settings,
+            tryReachSupervisor: () => false,
+            selfRestart: () => { order.Add("self"); return RestartOutcome.Started; },
+            shutdown: () => order.Add("shutdown"),
+            reportInProgress: () => order.Add("notice"),
+            reportUnavailable: _ => { },
+            runInBackground: work => work(),
+            postToUi: work => work(),
+            supervisorInstalled: () => false,
+            launchSupervisor: () => false,
+            enablePublishing: () => { },
+            persistSettings: () => { });
+
+        messenger.Send(new RestartAppRequestedMessage());
+
+        Check.That(order).ContainsExactly("notice", "self", "shutdown");
+    }
+
+    [Fact]
+    public void ADroppedSecondRequest_RaisesNoSecondNotice()
+    {
+        // The in-flight guard drops the second dwell. It must not also re-raise the notice:
+        // the one for the running attempt is still on screen, and replacing it would make a
+        // dropped request look like it started something.
+        var h = new Harness(supervisionEnabled: false) { SelfOutcome = RestartOutcome.Started };
+        h.Request();
+        h.Request();
+
+        Check.That(h.Notices).IsEqualTo(1);
+        Check.That(h.SelfAttempts).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void EachReArmedAttempt_GetsItsOwnNotice()
+    {
+        // After a refusal the button re-arms, and the next attempt is a new attempt: it
+        // needs its own acknowledgement, or the second dwell looks ignored.
+        var h = new Harness(supervisionEnabled: false) { SelfOutcome = RestartOutcome.LaunchFailed };
+        h.Request();
+        h.Request();
+
+        Check.That(h.Notices).IsEqualTo(2);
+        Check.That(h.SelfAttempts).IsEqualTo(2);
+    }
+
+    [Fact]
     public void SupervisorFlagIsSetBeforeShutdown_SoOnExitCanSeeIt()
     {
         // OnExit reads the flag when it stamps the final payload. Setting it after
@@ -137,6 +200,7 @@ public class AppRestartCoordinatorTests
             tryReachSupervisor: () => true,
             selfRestart: () => RestartOutcome.Started,
             shutdown: () => seenAtShutdown = coordinator!.SupervisorRelaunchRequested,
+            reportInProgress: () => { },
             reportUnavailable: _ => { },
             runInBackground: work => work(),
             postToUi: work => work(),
@@ -164,6 +228,7 @@ public class AppRestartCoordinatorTests
             tryReachSupervisor: () => false,
             selfRestart: () => { order.Add("self"); return RestartOutcome.Started; },
             shutdown: () => order.Add("shutdown"),
+            reportInProgress: () => { },
             reportUnavailable: _ => { },
             runInBackground: work => { order.Add("background"); work(); },
             postToUi: work => { order.Add("ui"); work(); },
@@ -192,6 +257,7 @@ public class AppRestartCoordinatorTests
             tryReachSupervisor: () => { order.Add("probe"); return true; },
             selfRestart: () => RestartOutcome.Started,
             shutdown: () => order.Add("shutdown"),
+            reportInProgress: () => { },
             reportUnavailable: _ => { },
             runInBackground: work => { order.Add("background"); work(); },
             postToUi: work => { order.Add("ui"); work(); },
@@ -218,6 +284,7 @@ public class AppRestartCoordinatorTests
             tryReachSupervisor: () => false,
             selfRestart: () => RestartOutcome.ChildNotReady,
             shutdown: () => { },
+            reportInProgress: () => { },
             reportUnavailable: _ => { },
             runInBackground: work => requests.Add(work),   // defer: the request is "in flight"
             postToUi: work => work(),
@@ -255,6 +322,7 @@ public class AppRestartCoordinatorTests
             tryReachSupervisor: () => false,
             selfRestart: () => { attempts++; throw new InvalidOperationException("boom"); },
             shutdown: () => reports.Add("shutdown"),
+            reportInProgress: () => { },
             reportUnavailable: reports.Add,
             runInBackground: work => work(),
             postToUi: work => work(),

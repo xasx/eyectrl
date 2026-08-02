@@ -18,9 +18,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 // These tests each bind a real named pipe, but under a per-instance unique name (see
-// ExternalDwellServiceTests._pipeName), so they no longer contend for the machine-global production
-// name. The collection is retained to group them; DisableParallelization is now belt-and-braces
-// rather than load-bearing (the unique names remove the contention the attribute was meant to gate).
+// ExternalDwellServiceTests._pipeName), so they no longer share the machine-global production name
+// with anything else on the box. The collection is retained to keep these STA + timing-sensitive
+// tests off the parallel path within this process; it never could have prevented the cross-process
+// theft that actually broke them (DisableParallelization is process-local) — the unique name does.
 [CollectionDefinition("ExternalDwellPipe", DisableParallelization = true)]
 public sealed class ExternalDwellPipeCollection { }
 
@@ -30,13 +31,13 @@ public class ExternalDwellServiceTests
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     /// <summary>
-    /// Unique pipe name per test instance (xUnit constructs a new instance per method). The
-    /// production name (<c>eyectrl_dwell</c>) is machine-global and the server is constructed with
-    /// <c>MaxAllowedServerInstances</c>; binding it under the production name meant concurrent test
-    /// methods contended for the single pipe (<c>IOException: Pipe is broken</c>), and the
-    /// <c>DisableParallelization</c> collection attribute does not reliably suppress xUnit v3's
-    /// method-level concurrency. A per-instance unique name removes the contention at the source
-    /// (issue #76), mirroring the fix applied to the <c>eyectrl_watch</c> tests.
+    /// Unique pipe name per test instance (xUnit constructs a new instance per method). Pipe names
+    /// are machine-global, so binding the production name (<c>eyectrl_dwell</c>) let any other
+    /// process on the box — a <c>dotnet test</c> in a sibling worktree, or a live
+    /// <c>EyeCtrl.App</c>/<c>EyeCtrl.Supervisor</c> — accept a test's client and then drop it
+    /// (<c>IOException: Pipe is broken</c>), which surfaced as a *different* test failing each run.
+    /// xUnit's <c>DisableParallelization</c> cannot help there, being process-local; not sharing the
+    /// name is the only real fix (issue #76), mirroring the <c>eyectrl_watch</c> tests.
     /// </summary>
     private readonly string _pipeName = ExternalDwellService.DefaultPipeName + "_test_" + Guid.NewGuid().ToString("N");
 

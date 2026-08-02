@@ -20,15 +20,18 @@ using Microsoft.Extensions.Logging;
 public sealed class ExternalDwellService : IDisposable
 {
     /// <summary>
-    /// The production pipe name the cooperating dwell app connects to.
+    /// The production pipe name the cooperating dwell app connects to. Shared with the SDK client
+    /// via <see cref="DwellPipe.Name"/> so server and client cannot drift.
     /// </summary>
-    public const string DefaultPipeName = "eyectrl_dwell";
+    public const string DefaultPipeName = DwellPipe.Name;
 
     /// <summary>
     /// Named pipe this instance serves on. Defaults to <see cref="DefaultPipeName"/>; tests pass a
-    /// unique GUID-suffixed name so concurrent test instances never contend for the machine-global
-    /// single-instance production name (the <c>DisableParallelization</c> collection attribute does
-    /// not reliably suppress xUnit v3 method-level concurrency — see issue #76).
+    /// unique GUID-suffixed name because pipe names are machine-global — any other process binding
+    /// the production name (a <c>dotnet test</c> run in a sibling worktree, or a live
+    /// <c>EyeCtrl.App</c>/<c>EyeCtrl.Supervisor</c>) can accept a test's client and then drop it
+    /// mid-test (<c>IOException: Pipe is broken</c>). xUnit's <c>DisableParallelization</c> cannot
+    /// prevent that, being process-local; not sharing the name is the only real fix. See issue #76.
     /// </summary>
     private readonly string _pipeName;
 

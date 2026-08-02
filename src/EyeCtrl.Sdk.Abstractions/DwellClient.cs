@@ -14,7 +14,7 @@ using EyeCtrl.Contracts;
 /// </summary>
 public sealed class DwellClient : IDisposable
 {
-    private const string PipeName = "eyectrl_dwell";
+    private const string PipeName = DwellPipe.Name;
     private const int ConnectTimeoutMs = 2000;
     private const int MinBackoffMs = 1000;
     private const int MaxBackoffMs = 30000;

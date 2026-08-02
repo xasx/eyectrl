@@ -172,6 +172,8 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
             new ToggleSettingViewModel("startPaused", "Start Paused", g.StartPaused, v => g.StartPaused = v),
             new ComboSettingViewModel("themeName", "Theme (restart to apply)", _settings.Theme.Name,
                 ThemeSettings.ValidNames, v => _settings.Theme.Name = v),
+            new ActionButtonSettingItem("restartApp", "Restart Now",
+                () => _messenger.Send(new RestartAppRequestedMessage())),
         }));
 
         // NOTE: item count here only drives pagination (ItemsPerPage = 6 → 2 pages);

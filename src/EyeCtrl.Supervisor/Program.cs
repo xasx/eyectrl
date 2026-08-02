@@ -199,7 +199,7 @@ internal sealed class SupervisorApp : Application
         {
             var prevState = _sm.State;
             _sm.Handle(input);
-            DrainCommands();
+            DrainCommands(prevState);
 
             // Clean-exit bookkeeping: stamp the deadline when the machine enters CleanExitPending.
             if (_sm.State == SupervisorState.CleanExitPending && prevState != SupervisorState.CleanExitPending)
@@ -280,9 +280,15 @@ internal sealed class SupervisorApp : Application
             // 3. Clean exit: the app's final ShuttingDown payload. ClientVerified == (id != null),
             //    which is true here (we dropped unbound above); the flag is threaded through for
             //    the state machine's authenticated-shutdown check.
+            //    RestartRequested rides along: a user-requested restart is a clean exit that is
+            //    followed by a launch. It is only honoured for a verified client, by the same
+            //    rule and in the same place as the shutdown signal itself.
             if (hb.ShuttingDown)
             {
-                HandleInput(new CleanExitRequested(now, ClientVerified: id != null));
+                HandleInput(new CleanExitRequested(
+                    now,
+                    ClientVerified: id != null,
+                    RestartRequested: hb.RestartRequested));
             }
         }));
     }
@@ -363,7 +369,12 @@ internal sealed class SupervisorApp : Application
     // ---- Command drain -----------------------------------------------------------------
 
     /// <summary>Dispatches every command the last Handle() emitted to its side-effecting action.</summary>
-    private void DrainCommands()
+    /// <param name="prevState">
+    /// The state the machine was in before this input. Paired with the machine's current
+    /// state it identifies the emitting transition: only CleanExitPending → Launching is a
+    /// user-requested restart and skips backoff — see <see cref="RelaunchDelayPolicy"/>.
+    /// </param>
+    private void DrainCommands(SupervisorState prevState)
     {
         foreach (var cmd in _sm.Commands)
         {
@@ -374,7 +385,12 @@ internal sealed class SupervisorApp : Application
                     // PeriodicCheckPendingRelaunch). The initial logon launch has ConsecutiveFailures==0
                     // -> delay 0, so it still happens on the next tick (~immediate). Recovery relaunches
                     // after N failures are spread per the 0/5/15/60s curve (spec worked example).
-                    var delay = _sm.NextBackoffDelay;
+                    // _sm.State is already the POST-transition state here: HandleInput calls
+                    // DrainCommands after _sm.Handle(input). The pair is what distinguishes a
+                    // restart (CleanExitPending -> Launching, no strike) from the hung-shutdown
+                    // force-kill (CleanExitPending -> Recovering/FallenBack, which books one and
+                    // must keep its brake).
+                    var delay = RelaunchDelayPolicy.For(prevState, _sm.State, _sm.NextBackoffDelay);
                     _pendingLaunchAt = DateTime.UtcNow + delay;
                     Log.Information("LaunchApp scheduled in {Delay:F1}s (consecutiveFailures={Failures}).",
                         delay.TotalSeconds, _sm.ConsecutiveFailures);

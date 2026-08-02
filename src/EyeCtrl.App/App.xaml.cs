@@ -42,6 +42,7 @@ public partial class App : Application
     private EventCoordinator _eventCoordinator = null!;
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
+    private AppRestartCoordinator? _restartCoordinator;
     private string _appDataDir = null!;
 
     /// <summary>
@@ -73,15 +74,33 @@ public partial class App : Application
 
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
         IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
+        var isRestartHandoff = e.Args.Contains(RestartHandoff.Argument, StringComparer.OrdinalIgnoreCase);
+
+        // A restart replacement announces itself BEFORE queueing for the mutex: the
+        // outgoing instance is waiting for exactly this before it exits, and it still
+        // holds the mutex while it waits. Reversing the order deadlocks.
+        if (isRestartHandoff)
+        {
+            RestartHandoff.SignalReady();
+        }
 
         // Single-instance guard: a second instance exits fast. The supervisor's respawn
         // is legitimate, but a stray double-click/race must not launch two instances
         // fighting over the same gaze device, settings file, and dwell pipe.
         // Local\ (not Global\): multi-user/RDP is a non-goal; avoids cross-session collisions.
+        //
+        // A restart replacement is the one case that must WAIT rather than fail fast: the
+        // instance it replaces holds the mutex until the very end of its own OnExit.
         _singleInstance = new SingleInstanceGuard();
-        if (!_singleInstance.TryAcquire())
+        if (!_singleInstance.TryAcquire(isRestartHandoff ? RestartHandoff.MutexWait : TimeSpan.Zero))
         {
-            // Another instance is already running (likely the supervisor's legitimate one).
+            // Another instance is already running (likely the supervisor's legitimate one),
+            // or — for a handoff — the outgoing instance never let go. Either way, exit:
+            // one working instance beats two fighting over the gaze device.
+            //
+            // Deliberately unlogged: InitializeSettingsAndLogging() has not run yet, so
+            // Serilog's static Log is still a SilentLogger and a Log.Information here would
+            // compile and then discard the line. See the note below for what that costs.
             Shutdown();
             return;
         }
@@ -220,19 +239,63 @@ public partial class App : Application
             // ── Heartbeat liveness (supervisor watchdog) ──
             // A DispatcherTimer stamps a HeartbeatPayload on the UI thread every ~3s. A bounded
             // async writer sends it over the `eyectrl_watch` named pipe to the supervisor. The
-            // Dispatcher NEVER blocks on IPC — Stamp() only refreshes an in-memory slot. No-ops
-            // (no writer task, no timer) in standalone mode (Supervision.Enabled == false).
+            // Dispatcher NEVER blocks on IPC — Stamp() only refreshes an in-memory slot.
             // lastFrameUtc is fed by every raw gaze sample (valid or invalid), so a wedged poll
             // loop that stops delivering frames is detectable.
+            //
+            // The TIMER now runs unconditionally; the WRITER is what standalone mode omits
+            // (HeartbeatPublisher.EnablePublishing). Stamping with no writer costs one field
+            // assignment every 3s — Stamp skips the semaphore Release when not publishing,
+            // see below — and it means that if the user starts a supervisor mid-session,
+            // heartbeats begin flowing the moment publishing is enabled, with no window in
+            // which the supervisor has adopted an app that is not yet stamping.
             _heartbeatPublisher = new HeartbeatPublisher(supervised: settings.Supervision.Enabled);
             gazeEngine.GazeSampled += _ => _heartbeatPublisher.OnGazeSample();
-            if (settings.Supervision.Enabled)
-            {
-                var heartbeatTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-                heartbeatTimer.Tick += (_, _) =>
-                    _heartbeatPublisher.Stamp(gazeProvider.IsConnected, im.CurrentState == InteractionState.Paused);
-                heartbeatTimer.Start();
-            }
+            var heartbeatTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            heartbeatTimer.Tick += (_, _) =>
+                _heartbeatPublisher.Stamp(gazeProvider.IsConnected, im.CurrentState == InteractionState.Paused);
+            heartbeatTimer.Start();
+
+            // ── Restart coordination ──
+            // After the publisher, because the supervised strategy probes the same pipe.
+            // The coordinator refuses to shut down unless a successor has been proven, so
+            // a failed restart leaves a running app rather than a dark screen.
+            _restartCoordinator = new AppRestartCoordinator(
+                messenger,
+                settings,
+                tryReachSupervisor: () => _heartbeatPublisher?.TryReachSupervisor() ?? false,
+                selfRestart: SelfRestartStrategy.CreateDefault().Begin,
+                shutdown: () => Shutdown(),
+                reportInProgress: () =>
+                {
+                    Log.Information("Restart accepted; waiting for a successor.");
+                    messenger.Send(new RestartInProgressMessage());
+                },
+                reportUnavailable: reason =>
+                {
+                    Log.Warning("Restart refused: {Reason}", reason);
+                    messenger.Send(new RestartUnavailableMessage(reason));
+                },
+                runInBackground: work => System.Threading.Tasks.Task.Run(work),
+                postToUi: work => Dispatcher.Invoke(work),
+                supervisorInstalled: () => SupervisorLauncher.IsInstalled,
+                launchSupervisor: SupervisorLauncher.TryLaunch,
+                enablePublishing: () => _heartbeatPublisher?.EnablePublishing(),
+                persistSettings: () =>
+                {
+                    settingsService.Save(settings);
+                    // Supervision just turned on: the app must stop self-registering the
+                    // HKCU Run key, or the next logon launches it BOTH from the Run key and
+                    // from the supervisor's own launch path (a transient double-launch the
+                    // mutex resolves, but a race at logon). Same reconciliation the startup
+                    // block performs, with the captured `supervised` flag now known true.
+                    startupRegistrar.SetStartOnBoot(
+                        StartOnBootPolicy.ShouldSelfRegister(supervised: true, settings.General.StartOnBoot));
+                });
+
+            // Hand the coordinator to the settings window's owner so the restart button
+            // can ask whether to offer the supervisor (Task 13 Step 6).
+            _eventCoordinator.SetRestartCoordinator(_restartCoordinator);
 
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
@@ -311,11 +374,14 @@ public partial class App : Application
         // Stamp the final shuttingDown:true payload BEFORE tearing down services — the supervisor
         // needs this authenticated clean-shutdown signal within its 5s deadline to distinguish a
         // graceful exit (no restart) from a crash. Cancels the writer loop and drains it (bounded).
-        _heartbeatPublisher?.SignalShuttingDown();
+        // Carries the restart intent to the supervisor. False for every ordinary exit —
+        // and also for a self-restart, where a replacement is already coming up and a
+        // supervisor-launched second instance would just lose the race for the mutex.
+        _heartbeatPublisher?.SignalShuttingDown(
+            restartRequested: _restartCoordinator?.SupervisorRelaunchRequested ?? false);
 
         _trayIconManager?.Dispose();
         _eventCoordinator?.Dispose();
-        _singleInstance?.Dispose();
 
         if (_serviceProvider != null)
         {
@@ -335,6 +401,13 @@ public partial class App : Application
         }
 
         _heartbeatPublisher?.Dispose();
+
+        // Release the single-instance mutex LAST. A restart child is queued on it
+        // (Task 6's waiting acquire) and starts initialising the instant it is released, so
+        // everything this instance still owns — the settings file, the Tobii device, the
+        // external-dwell pipe — must already be released. Releasing it at the TOP of OnExit
+        // was harmless only while a second instance exited immediately instead of waiting.
+        _singleInstance?.Dispose();
 
         Log.CloseAndFlush();
         base.OnExit(e);

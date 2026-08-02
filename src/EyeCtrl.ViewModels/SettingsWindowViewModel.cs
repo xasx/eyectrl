@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels;
 
 using System.Collections.Generic;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
@@ -45,7 +46,8 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     // Modal state
     [ObservableProperty] private bool _isModalVisible;
     [ObservableProperty] private string _modalMessage = "";
-    private Action? _modalYesAction;
+    /// <summary>Buttons currently offered by the modal, in display order. Empty when hidden.</summary>
+    [ObservableProperty] private IReadOnlyList<ModalChoice> _modalChoices = [];
 
     // Active tab for visual highlighting
     [ObservableProperty] private string _activeTabId = "";
@@ -205,17 +207,24 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
                 break;
 
             case DwellCategory.Modal:
-                // Cache the callback before HideModal() clears _modalActions.
+                // Cache both callbacks before HideModal() clears the modal state.
                 _modalActions.TryGetValue(id, out var modalAction);
+                var choice = ModalChoices.FirstOrDefault(c => c.Id == id);
 
-                if (id == "modal_yes")
+                // An id that is not one of the current choices is stale — a target left
+                // over from a modal that has already closed. Ignore it rather than
+                // closing a modal the user is still reading.
+                if (choice is not null)
                 {
-                    _modalYesAction?.Invoke();
+                    var chosen = choice.OnChosen;
+                    // HideModal() runs BEFORE the chosen action — the reverse of the old
+                    // two-button form, which invoked onYes first. Load-bearing for the
+                    // supervisor-restart choice (Task 13): its action shuts the app down, and
+                    // leaving modal state live across shutdown would leave dwell targets
+                    // pointing at a disposing window. Note this means a future OnChosen that
+                    // reads modal state will see it cleared — by design.
                     HideModal();
-                }
-                else if (id == "modal_no")
-                {
-                    HideModal();
+                    chosen?.Invoke();
                 }
 
                 modalAction?.Invoke();
@@ -280,13 +289,26 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     #region Modal Management
 
     /// <summary>
-    /// Shows a modal confirmation dialog with the specified message and Yes callback.
-    /// Clears any previous modal state and always notifies the view to re-register modal
-    /// dwell targets, even if the modal was already visible.
+    /// Shows a two-button Yes/No confirmation. Unchanged in behaviour and appearance —
+    /// every reset confirmation in the settings window uses this form.
     /// </summary>
     /// <param name="message">Text displayed in the modal dialog body.</param>
     /// <param name="onYes">Invoked when the user confirms (dwells or clicks Yes).</param>
-    public void ShowModal(string message, Action onYes)
+    public void ShowModal(string message, Action onYes) =>
+        ShowModal(message,
+        [
+            new ModalChoice("modal_yes", "✓ Yes", ModalChoiceKind.Affirmative, onYes),
+            new ModalChoice("modal_no", "✕ No", ModalChoiceKind.Negative, null),
+        ]);
+
+    /// <summary>
+    /// Shows a modal offering <paramref name="choices"/>. Clears any previous modal state
+    /// and always notifies the view to re-register modal dwell targets, even if the modal
+    /// was already visible.
+    /// </summary>
+    /// <param name="message">Text displayed in the modal dialog body.</param>
+    /// <param name="choices">Buttons to offer, in display order. Must not be empty.</param>
+    public void ShowModal(string message, IReadOnlyList<ModalChoice> choices)
     {
         // Clear any existing modal state
         _modalDwell.ClearTargets();
@@ -301,7 +323,7 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
         _pagDwell.ResetAllState();
 
         ModalMessage = message;
-        _modalYesAction = onYes;
+        ModalChoices = choices;
         // Always fire PropertyChanged so the view always re-registers the modal targets.
         // SetProperty skips notification if IsModalVisible is already true, which would
         // leave _modalDwell without targets after ClearTargets() above.
@@ -318,9 +340,9 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     {
         IsModalVisible = false;
         ModalMessage = "";
+        ModalChoices = [];
         _modalDwell.ClearTargets();
         _modalActions.Clear();
-        _modalYesAction = null;
     }
 
     #endregion

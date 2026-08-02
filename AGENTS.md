@@ -111,6 +111,13 @@ SDK is .NET 10.0.102 (pinned in `global.json`).
 - Test namespaces mirror the source namespace (e.g., `EyeCtrl.Core.Tests.Processing`)
 - `InternalsVisibleTo` is only declared from `EyeCtrl.Core` → `EyeCtrl.Core.Tests`
 - No shared base test class or `IClassFixture` — each test creates its own dependencies
+- **Don't run two test suites on this box at once, and prefer unique pipe names in new tests.** Named pipes are machine-global, and a server created with a single instance is stolen by any other process binding the same name — a `dotnet test` in another worktree (this repo routinely has a dozen checked out), or a live `EyeCtrl.Supervisor`/`EyeCtrl.App`. The symptom is deceptive: a *different* test fails on each run, which reads as flaky product code. xUnit's `DisableParallelization` cannot help, being process-local — the only real fix is not to share the name. `HeartbeatPublisher` takes an optional `pipeName` for exactly this, and its tests pass `"eyectrl_watch_test_" + Guid`; **`ExternalDwellServiceTests` still binds the production `eyectrl_dwell` const** and remains exposed. Before debugging any pipe-test failure, confirm the box is quiet and re-run:
+
+```powershell
+Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
+```
+
+- `ExternalDwellServiceTests` fails 8/8 when run **alone** (`--filter "FullyQualifiedName~ExternalDwellServiceTests"`) with `XamlParseException: resource "BrushAccent" not found`. It builds a `DwellFeedbackOverlay` whose XAML resolves app-level brushes, so it depends on another test in the same host having populated `Application.Current.Resources`. Long-standing and unrelated to any given branch — run the whole `EyeCtrl.App.Tests` project instead of that class in isolation.
 
 ## Dependencies & Quirks
 
@@ -161,7 +168,7 @@ Serilog, initialized in `LoggingInitializer.Initialize()`. Logs to `%APPDATA%/Ey
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **eyectrl** (8610 symbols, 19700 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **eyectrl** (10214 symbols, 24157 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

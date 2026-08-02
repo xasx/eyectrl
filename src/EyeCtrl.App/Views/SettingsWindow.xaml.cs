@@ -41,12 +41,14 @@ public partial class SettingsWindow : OverlayWindow
     private const int PaginationButtonHeight = 80;
     private const int PaginationSymbolFontSize = 30;
 
+    // Expression-bodied properties (not fields): Tokens now forwards to the active ITheme
+    // (ITheme slice), so these must re-evaluate on access rather than snapshot Midnight at
+    // type-init. ModalYes/ModalNo are gone — Task 12's modal generalization moved modal
+    // colours into ModalButtonPalette (per-kind, contrast-tested).
     private static Color BtnBase => Tokens.SurfaceMedium;
     private static Color TabActive => Tokens.SurfaceKeySwitch;
     private static Color TabInactive => Tokens.SurfaceKey;
     private static Color ResetBase => Tokens.AccentWarning;
-    private static Color ModalYes => Tokens.ToggleOn;
-    private static Color ModalNo => Tokens.AccentDanger;
     private static Color CloseBase => Tokens.AccentDanger;
     private static Color DeleteBase => Tokens.AccentWarning;
 
@@ -59,6 +61,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly ModelManagementService _modelManagementService;
     private readonly IMessenger _messenger;
     private readonly CalibrationService _calibrationService;
+    private readonly AppRestartCoordinator _restartCoordinator;
     private readonly int _dwellMs;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
@@ -70,6 +73,13 @@ public partial class SettingsWindow : OverlayWindow
     private readonly Dictionary<string, SolidColorBrush> _tabBrushes = new();
     private readonly Dictionary<string, SolidColorBrush> _pagBrushes = new();
     private readonly Dictionary<string, SolidColorBrush> _modalBrushes = new();
+    // Base fill per modal button id, captured at build time so UpdateModalVisuals can
+    // blend each button's dwell progress from its own base rather than a single shared one.
+    private readonly Dictionary<string, Color> _modalBaseColors = new();
+    // Per-id dwell blend factor from ModalButtonPalette. The dark Neutral fill's light label
+    // would collapse (to ~2.6:1 at full dwell) at the bright kinds' 0.5 factor; the palette
+    // sizes the factor so the label stays legible through the whole dwell. See ModalButtonPalette.
+    private readonly Dictionary<string, double> _modalBlendFactors = new();
     private SolidColorBrush? _closeButtonBrush;
 
     private List<List<Action>> _pages = new();
@@ -103,7 +113,8 @@ public partial class SettingsWindow : OverlayWindow
         ModelRegistryService registryService,
         ModelManagementService modelManagementService,
         IMessenger messenger,
-        CalibrationService calibrationService)
+        CalibrationService calibrationService,
+        AppRestartCoordinator restartCoordinator)
     {
         InitializeComponent();
 
@@ -120,7 +131,37 @@ public partial class SettingsWindow : OverlayWindow
         _modelManagementService = modelManagementService;
         _messenger = messenger;
         _calibrationService = calibrationService;
+        _restartCoordinator = restartCoordinator;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
+
+        // An accepted restart must also be visible. The handshake allows the replacement up
+        // to 30s to announce itself; the dispatcher stays free, but silence for that long is
+        // indistinguishable from a hang, and the in-flight guard drops a second dwell without
+        // saying so. Replaced automatically by the refusal notice below if it fails, and
+        // taken down with the process if it succeeds.
+        //
+        // The one button only HIDES the notice — it cannot cancel a restart whose child may
+        // already be running, and it must exist: a modal with no dwell target would trap a
+        // gaze-only user if the outcome never arrived.
+        _messenger.Register<RestartInProgressMessage>(this, (_, _) =>
+            Dispatcher.Invoke(() => _viewModel.ShowModal(
+                "Restarting EyeCtrl…\n"
+                + "Waiting for the new EyeCtrl to start. If it cannot, this one keeps running.\n"
+                + "Hiding this notice does not stop the restart.",
+                [new ModalChoice("restart_progress_hide", "✕ Hide", ModalChoiceKind.Neutral, null)])));
+
+        // A refused restart must be visible: the user just completed a dwell, and
+        // silence reads as the dwell not registering.
+        //
+        // ONE button, not the Yes/No pair. This is an acknowledgement, not a question —
+        // "✕ No" to "the new EyeCtrl did not start in time" means nothing, and for a gaze
+        // user every extra target is another chance to mis-dwell on a message that only
+        // needs dismissing. The multi-choice modal makes a single button expressible;
+        // before it existed this had to borrow the Yes/No form.
+        _messenger.Register<RestartUnavailableMessage>(this, (_, m) =>
+            Dispatcher.Invoke(() => _viewModel.ShowModal(
+                m.Reason,
+                [new ModalChoice("restart_failed_ok", "✓ OK", ModalChoiceKind.Affirmative, null)])));
 
         // Initialize tab definitions with page builders
         _tabDefs =
@@ -918,6 +959,37 @@ public partial class SettingsWindow : OverlayWindow
                     () => _settings.TrackStatus.Enabled,
                     v => { _settings.TrackStatus.Enabled = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
+                () => Add(new DwellButton(_viewModel, "g_restart", "↻ Restart Now",
+                    () =>
+                    {
+                        // Only offer what is installed and not already running.
+                        if (_restartCoordinator.ShouldOfferSupervisor())
+                        {
+                            _viewModel.ShowModal(
+                                "Restart EyeCtrl now?\n"
+                                + "A supervisor is installed. It restarts EyeCtrl if it ever "
+                                + "fails, and can recover a restart that goes wrong.\n"
+                                + "Starting it turns supervision on and leaves it on.",
+                                [
+                                    new ModalChoice("restart_supervised", "↻ Restart with supervisor",
+                                        ModalChoiceKind.Affirmative,
+                                        () => _messenger.Send(new RestartAppRequestedMessage(StartSupervisor: true))),
+                                    new ModalChoice("restart_plain", "↻ Restart without",
+                                        ModalChoiceKind.Neutral,
+                                        () => _messenger.Send(new RestartAppRequestedMessage())),
+                                    new ModalChoice("restart_cancel", "✕ Cancel",
+                                        ModalChoiceKind.Negative, null),
+                                ]);
+                        }
+                        else
+                        {
+                            ShowModal(
+                                "Restart EyeCtrl now?",
+                                () => _messenger.Send(new RestartAppRequestedMessage()));
+                        }
+                    },
+                    ResetBase, cat, r, _dwellMs, width: 300, height: 80,
+                    textBrush: Tokens.BrushSurfaceDark)),
                 () => Add(new DwellButton(_viewModel, "g_reset", "Reset General Settings",
                     () => ShowModal("Reset General settings to defaults?", () =>
                     {
@@ -1282,11 +1354,16 @@ public partial class SettingsWindow : OverlayWindow
     {
         foreach (var (id, progress) in _viewModel.ModalProgress)
         {
-            if (_modalBrushes.TryGetValue(id, out var brush))
+            if (_modalBrushes.TryGetValue(id, out var brush)
+                && _modalBaseColors.TryGetValue(id, out var baseC)
+                && _modalBlendFactors.TryGetValue(id, out var factor))
             {
-                var baseC = id == "modal_yes" ? ModalYes : ModalNo;
-                // HighlightColor(baseC, progress, 0.5) == Blend(baseC, Accent, progress * 0.5)
-                brush.Color = ColorBlend.Blend(baseC, Tokens.Accent, progress * 0.5);
+                // Blend toward Accent by progress * factor. The factor is per-kind from
+                // ModalButtonPalette: 0.5 for the bright fills (their dark labels only gain
+                // contrast), 0.25 for the dark Neutral fill (whose light label would collapse
+                // to ~2.6:1 at full dwell under 0.5). Same Accent target preserves the app-wide
+                // "accent means dwell in progress" cue; only the intensity adapts to the fill.
+                brush.Color = ColorBlend.Blend(baseC, Tokens.Accent, progress * factor);
             }
         }
     }
@@ -1307,16 +1384,31 @@ public partial class SettingsWindow : OverlayWindow
             ModalButtonPanel.Children.Clear();
             _modalButtons.Clear();
             _modalBrushes.Clear();
+            _modalBaseColors.Clear();
+            _modalBlendFactors.Clear();
 
-            var yesBtn = MakeModalButton("modal_yes", "\u2713 Yes", ModalYes);
-            var noBtn = MakeModalButton("modal_no", "\u2715 No", ModalNo);
+            // Two choices keep the horizontal row they have always had. Three or more
+            // stack vertically: side by side they would not fit descriptive labels, and a
+            // vertical stack gives a dwell user more separation between targets.
+            var choices = _viewModel.ModalChoices;
+            var vertical = choices.Count > 2;
+            ModalButtonPanel.Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal;
 
-            ModalButtonPanel.Children.Add(yesBtn);
-            ModalButtonPanel.Children.Add(noBtn);
+            foreach (var choice in choices)
+            {
+                var (background, foreground) = ModalButtonPalette.For(choice.Kind);
+                var button = MakeModalButton(choice.Id, choice.Label, background, foreground, vertical);
+                // Capture this kind's dwell blend factor alongside the base color MakeModalButton
+                // stored, so UpdateModalVisuals blends at the per-kind intensity.
+                _modalBlendFactors[choice.Id] = ModalButtonPalette.DwellBlendFactor(choice.Kind);
+                ModalButtonPanel.Children.Add(button);
 
-            // Register modal buttons as dwell targets with DPI-scaled radius
-            _viewModel.Register("modal_yes", DwellCategory.Modal, DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs, () => { });
-            _viewModel.Register("modal_no", DwellCategory.Modal, DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs, () => { });
+                // Register as a dwell target with DPI-scaled radius. The empty callback is
+                // the extension point; the ViewModel runs the choice's own action.
+                _viewModel.Register(
+                    choice.Id, DwellCategory.Modal,
+                    DpiHelper.LogicalToPhysicalX(ModalBtnRadius), _dwellMs, () => { });
+            }
 
             ModalOverlay.Visibility = Visibility.Visible;
         }
@@ -1325,6 +1417,8 @@ public partial class SettingsWindow : OverlayWindow
             ModalOverlay.Visibility = Visibility.Collapsed;
             _modalButtons.Clear();
             _modalBrushes.Clear();
+            _modalBaseColors.Clear();
+            _modalBlendFactors.Clear();
         }
     }
 
@@ -1336,39 +1430,45 @@ public partial class SettingsWindow : OverlayWindow
         _viewModel.ShowModal(message, onYes);
     }
 
-    private Border MakeModalButton(string id, string text, Color bg)
+    /// <summary>Builds one modal button.</summary>
+    /// <param name="id">Dwell-target id.</param>
+    /// <param name="text">Label.</param>
+    /// <param name="bg">Fill, from <see cref="ModalButtonPalette"/>.</param>
+    /// <param name="foreground">Label brush, paired with the fill for contrast.</param>
+    /// <param name="wide">
+    /// True for a vertically stacked layout, where buttons are wider (descriptive labels)
+    /// and separated by vertical margins instead of horizontal ones.
+    /// </param>
+    private Border MakeModalButton(string id, string text, Color bg, SolidColorBrush foreground, bool wide)
     {
         var modalBrush = new SolidColorBrush(bg);
         var border = new Border
         {
-            Width = 170,
+            Width = wide ? 460 : 170,
             Height = 80,
-            Margin = new Thickness(12, 0, 12, 0),
+            Margin = wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
             CornerRadius = new CornerRadius(8),
             Background = modalBrush,
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
             {
                 Text = text,
-                Foreground = Tokens.BrushSurfaceDark,
+                Foreground = foreground,
                 FontSize = 24,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
             }
         };
 
-        // Mouse fallback - ViewModel handles the actual activation
-        border.MouseLeftButtonDown += (_, _) =>
-        {
-            if (id == "modal_yes")
-                _viewModel.SimulateActivated(id, DwellCategory.Modal);
-            else
-                _viewModel.HideModal();
-        };
+        // Mouse fallback. Everything routes through the ViewModel now — it owns which
+        // choice does what, so the view no longer branches on the id.
+        border.MouseLeftButtonDown += (_, _) => _viewModel.SimulateActivated(id, DwellCategory.Modal);
 
         _modalButtons[id] = border;
         _modalBrushes[id] = modalBrush;
+        _modalBaseColors[id] = bg;
         return border;
     }
 }

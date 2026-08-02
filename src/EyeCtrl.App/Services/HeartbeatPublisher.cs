@@ -27,7 +27,15 @@ using EyeCtrl.Core.Models;
 /// </remarks>
 public sealed class HeartbeatPublisher : IDisposable
 {
-    private const string PipeName = "eyectrl_watch";
+    /// <summary>
+    /// The named pipe the supervisor listens on. Injected so tests can use a unique
+    /// GUID-suffixed name per class — the production name (<c>eyectrl_watch</c>) is
+    /// machine-global and the server is constructed with <c>maxInstances: 1</c>, so two
+    /// test classes binding it concurrently contend (<c>IOException: All pipe instances
+    /// busy</c>) regardless of xUnit's collection serialization. A per-class unique name
+    /// removes the contention at the source. Defaults to the production name.
+    /// </summary>
+    private readonly string _pipeName;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
 
     // I1: camelCase JSON to match every other emitter in the codebase AND the supervisor's deserializer.
@@ -50,8 +58,14 @@ public sealed class HeartbeatPublisher : IDisposable
     private HeartbeatPayload? _pending;          // next payload to send
     private readonly SemaphoreSlim _sendSignal = new(0, 1);
     private volatile bool _shuttingDown;
+    private int _publishing;   // 0 = off, 1 = on — swapped with Interlocked, see EnablePublishing
     private readonly CancellationTokenSource _cts = new();
     private Task? _writerLoop;
+
+    /// <summary>
+    /// The production pipe name the supervisor listens on.
+    /// </summary>
+    public const string DefaultPipeName = "eyectrl_watch";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HeartbeatPublisher"/> class.
@@ -61,9 +75,15 @@ public sealed class HeartbeatPublisher : IDisposable
     /// (standalone mode — <c>Supervision.Enabled == false</c>) no writer is spun up: the publisher
     /// no-ops, so a missing server never blocks a thread-pool thread on Connect forever.
     /// </param>
-    public HeartbeatPublisher(bool supervised)
+    /// <param name="pipeName">
+    /// Named pipe to publish on. Defaults to <see cref="DefaultPipeName"/>; tests pass a unique
+    /// GUID-suffixed name so concurrent test classes never contend for the machine-global
+    /// single-instance production name.
+    /// </param>
+    public HeartbeatPublisher(bool supervised, string? pipeName = null)
     {
-        if (supervised) StartWriter();
+        _pipeName = pipeName ?? DefaultPipeName;
+        if (supervised) EnablePublishing();
     }
 
     /// <summary>Last stamped payload (testability + diagnostics). <c>null</c> until first <see cref="Stamp"/>.</summary>
@@ -79,6 +99,13 @@ public sealed class HeartbeatPublisher : IDisposable
     {
         var lastFrame = new DateTime(Interlocked.Read(ref _lastFrameTicks), DateTimeKind.Utc);
         _pending = new HeartbeatPayload(_pid, _startedAtUtc, isConnected, isPaused, lastFrame, _shuttingDown);
+        // Nothing to wake in standalone mode: the timer stamps unconditionally (App.xaml.cs)
+        // but no writer loop exists, so the semaphore would saturate at its max of 1 and every
+        // subsequent Release would throw into the catch below — every 3s, for the life of the
+        // process. The payload still lands in _pending, which is all CurrentPayload needs, and
+        // EnablePublishing's writer drains it on its first pass.
+        if (Volatile.Read(ref _publishing) == 0) return;
+
         // Wake the single writer. The semaphore has capacity 1, so if a signal is already pending
         // (a stamp arrived while the writer was mid-send), Release throws SemaphoreFullException —
         // swallow it: the freshest payload is already in _pending, and the pending signal will
@@ -94,11 +121,13 @@ public sealed class HeartbeatPublisher : IDisposable
     /// a SYNCHRONOUS bounded send (not via the async loop) so that a subsequent Dispose/CTS-cancel
     /// cannot abort the final payload mid-flight. If not supervised (no server), this is a bounded no-op.
     /// </summary>
-    public void SignalShuttingDown()
+    public void SignalShuttingDown(bool restartRequested = false)
     {
         _shuttingDown = true;
         var lastFrame = new DateTime(Interlocked.Read(ref _lastFrameTicks), DateTimeKind.Utc);
-        var final = new HeartbeatPayload(_pid, _startedAtUtc, false, false, lastFrame, ShuttingDown: true);
+        var final = new HeartbeatPayload(
+            _pid, _startedAtUtc, false, false, lastFrame,
+            ShuttingDown: true, RestartRequested: restartRequested);
         _pending = final;
         // Synchronous bounded flush — a fresh CancellationTokenSource (NOT _cts) so Dispose's cancel
         // can't race it. If the send can't complete in 2s (no server / slow server), give up; the
@@ -107,7 +136,87 @@ public sealed class HeartbeatPublisher : IDisposable
         catch { /* best-effort — never block OnExit on the final send */ }
     }
 
-    private void StartWriter() => _writerLoop = Task.Run(WriterLoopAsync);
+    /// <summary>
+    /// Sends one ordinary payload and reports whether it was actually delivered — i.e.
+    /// whether a supervisor is listening on the pipe *right now*.
+    /// <c>Supervision.Enabled</c> only records that the user configured one; the app can
+    /// still be launched by hand with no supervisor running, and in that case a restart
+    /// would exit into nothing.
+    ///
+    /// Deliberately inert: it does NOT set <see cref="_shuttingDown"/>. That field latches,
+    /// so a probe that set it and then aborted would make every later <see cref="Stamp"/>
+    /// announce a shutdown that never arrives — arming the supervisor's 5s clean-exit
+    /// deadline and getting a healthy app force-killed.
+    ///
+    /// The caller's wait is bounded by <see cref="ProbeWait"/>, not by the 2s connect
+    /// timeout: <see cref="AppRestartCoordinator.ShouldOfferSupervisor"/> runs this on the
+    /// dispatcher, and a live supervisor answers in single-digit milliseconds. Anything
+    /// slower is not a supervisor worth freezing the user's gaze control for — a stale
+    /// probe simply reads false and the restart falls through to the self-restart
+    /// strategy, which is the safe direction.
+    /// </summary>
+    /// <returns><c>true</c> if the payload reached the supervisor within the timeout.</returns>
+    public bool TryReachSupervisor()
+    {
+        // Not publishing? Then do not probe. A successful probe adopts this app into the
+        // supervisor's Supervising state, after which the absence of periodic heartbeats
+        // gets it force-killed within HangThresholdSeconds. Probing without publishing is
+        // a delayed kill, not a harmless question.
+        if (Volatile.Read(ref _publishing) == 0) return false;
+
+        var lastFrame = new DateTime(Interlocked.Read(ref _lastFrameTicks), DateTimeKind.Utc);
+        var probe = new HeartbeatPayload(
+            _pid, _startedAtUtc, false, false, lastFrame,
+            ShuttingDown: false, RestartRequested: false);
+
+        try
+        {
+            var send = SendOneAsync(probe, CancellationToken.None);
+            if (send.Wait(ProbeWait))
+            {
+                return send.Result;
+            }
+
+            // The probe gave up before the send completed. The send may still fault in the
+            // background (e.g. WriteAsync throwing after connect succeeded but past ProbeWait);
+            // observe its exception so it can never surface as an unobserved-task exception.
+            // SendOneAsync's own connect-timeout branch already observes a connect fault; this
+            // covers a fault on the write path that races past the probe's wait. Matches the
+            // doc comment on ProbeWait ("its faulted outcome is observed").
+            _ = send.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// How long a supervisor probe may block the caller before the supervisor is treated
+    /// as absent. A live supervisor answers in milliseconds; 500ms also matches the
+    /// bring-up poll interval (Task 13). The probe's connect may run past this in the
+    /// background — it is bounded by <see cref="ConnectTimeout"/> and its faulted outcome
+    /// is observed there — but the caller never waits on it.
+    /// </summary>
+    private static readonly TimeSpan ProbeWait = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// Starts publishing heartbeats, if not already. Idempotent.
+    ///
+    /// Called from the constructor when <c>Supervision.Enabled</c>, and again if the user
+    /// starts a supervisor mid-session. Turning this on BEFORE probing is mandatory: a
+    /// probe that reaches a supervisor adopts this app into its Supervising state, and an
+    /// adopted app that then sends nothing is force-killed once HangThresholdSeconds
+    /// elapses.
+    /// </summary>
+    public void EnablePublishing()
+    {
+        // CompareExchange, not a check-then-set: two callers (the constructor and Task 13's
+        // mid-session enable) must not both spin up a writer loop.
+        if (Interlocked.CompareExchange(ref _publishing, 1, 0) != 0) return;
+        _writerLoop = Task.Run(WriterLoopAsync);
+    }
 
     private async Task WriterLoopAsync()
     {
@@ -124,14 +233,20 @@ public sealed class HeartbeatPublisher : IDisposable
             // is captured now or remains for the next iteration.
             var payload = Interlocked.Exchange(ref _pending, null);
             if (payload == null) continue;
-            try { await SendOneAsync(payload, _cts.Token); }
+            try { _ = await SendOneAsync(payload, _cts.Token); }
             catch { /* drop this send — never throw, never block the Dispatcher */ }
         }
     }
 
-    private static async Task SendOneAsync(HeartbeatPayload payload, CancellationToken token)
+    /// <summary>
+    /// Sends one payload. Returns <c>true</c> only if the write completed — the
+    /// connect-timeout path returns <c>false</c> rather than succeeding silently,
+    /// because <see cref="TryReachSupervisor"/> stakes the restart decision on the
+    /// difference between "delivered" and "dropped".
+    /// </summary>
+    private async Task<bool> SendOneAsync(HeartbeatPayload payload, CancellationToken token)
     {
-        await using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.Asynchronous);
+        await using var client = new NamedPipeClientStream(".", _pipeName, PipeDirection.Out, PipeOptions.Asynchronous);
         // CANCELLABLE connect with a real timeout — a missing server (standalone) does NOT
         // block a thread-pool thread forever. WhenAny(connect, delay) bounds it to ConnectTimeout.
         var connectTask = client.ConnectAsync(token);
@@ -148,11 +263,12 @@ public sealed class HeartbeatPublisher : IDisposable
             // Exception (it may fault later with IOException/TimeoutException) so it never surfaces
             // as an unobserved-task exception tearing down the process. Cancellation is benign here.
             _ = connectTask.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
-            return;
+            return false;
         }
         await connectTask.ConfigureAwait(false); // observe exceptions if connect threw
         var json = JsonSerializer.Serialize(payload, JsonOptions) + "\n";
         await client.WriteAsync(Encoding.UTF8.GetBytes(json), token).ConfigureAwait(false);
+        return true;
     }
 
     /// <summary>

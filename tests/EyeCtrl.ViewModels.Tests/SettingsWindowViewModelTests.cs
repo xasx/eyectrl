@@ -1,5 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
+using System.Collections.Generic;
+using System.Linq;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
@@ -294,6 +296,99 @@ public class SettingsWindowViewModelTests
 
         Check.That(vm.ModalProgress).ContainsKey("modal_yes");
         Check.That(vm.ModalProgress["modal_yes"] > 0).IsTrue();
+    }
+
+    [Fact]
+    public void ShowModal_TwoButtonForm_StillOffersYesAndNo()
+    {
+        // The wrapper must keep the ids every existing confirmation depends on.
+        var vm = CreateViewModel();
+        vm.ShowModal("Confirm action?", () => { });
+
+        Check.That(vm.ModalChoices.Select(c => c.Id)).ContainsExactly("modal_yes", "modal_no");
+    }
+
+    [Fact]
+    public void ShowModal_ThreeChoices_ExposesThemAll()
+    {
+        var vm = CreateViewModel();
+        vm.ShowModal("Pick one", new[]
+        {
+            new ModalChoice("a", "Alpha", ModalChoiceKind.Affirmative, () => { }),
+            new ModalChoice("b", "Beta", ModalChoiceKind.Neutral, () => { }),
+            new ModalChoice("c", "Cancel", ModalChoiceKind.Negative, null),
+        });
+
+        Check.That(vm.IsModalVisible).IsTrue();
+        Check.That(vm.ModalChoices.Select(c => c.Label)).ContainsExactly("Alpha", "Beta", "Cancel");
+    }
+
+    [Fact]
+    public void ChoosingAMiddleOption_InvokesOnlyItsAction_AndCloses()
+    {
+        var vm = CreateViewModel();
+        var chosen = new List<string>();
+        vm.ShowModal("Pick one", new[]
+        {
+            new ModalChoice("a", "Alpha", ModalChoiceKind.Affirmative, () => chosen.Add("a")),
+            new ModalChoice("b", "Beta", ModalChoiceKind.Neutral, () => chosen.Add("b")),
+            new ModalChoice("c", "Cancel", ModalChoiceKind.Negative, () => chosen.Add("c")),
+        });
+
+        vm.SimulateActivated("b", DwellCategory.Modal);
+
+        Check.That(chosen).ContainsExactly("b");
+        Check.That(vm.IsModalVisible).IsFalse();
+    }
+
+    [Fact]
+    public void AChoiceWithNoAction_JustCloses()
+    {
+        var vm = CreateViewModel();
+        vm.ShowModal("Pick one", new[]
+        {
+            new ModalChoice("a", "Alpha", ModalChoiceKind.Affirmative, () => { }),
+            new ModalChoice("c", "Cancel", ModalChoiceKind.Negative, null),
+        });
+
+        vm.SimulateActivated("c", DwellCategory.Modal);
+
+        Check.That(vm.IsModalVisible).IsFalse();
+    }
+
+    [Fact]
+    public void SingleChoiceModal_ActsAsAnAcknowledgement()
+    {
+        // The refused-restart notice uses a one-button modal: it is an acknowledgement,
+        // not a question, and for a gaze user a second target that means nothing is just
+        // another chance to mis-dwell. Nothing else in the app builds a one-choice modal,
+        // so the dismissal path is pinned here.
+        var vm = CreateViewModel();
+        vm.ShowModal("Restart failed. EyeCtrl is still running.", new[]
+        {
+            new ModalChoice("restart_failed_ok", "✓ OK", ModalChoiceKind.Affirmative, null),
+        });
+
+        Check.That(vm.IsModalVisible).IsTrue();
+        Check.That(vm.ModalChoices.Select(c => c.Id)).ContainsExactly("restart_failed_ok");
+
+        vm.SimulateActivated("restart_failed_ok", DwellCategory.Modal);
+
+        Check.That(vm.IsModalVisible).IsFalse();
+        Check.That(vm.ModalChoices).IsEmpty();
+    }
+
+    [Fact]
+    public void HideModal_ClearsTheChoices()
+    {
+        // Stale choices would let a dwell on a leftover target fire an action from a
+        // modal the user already dismissed.
+        var vm = CreateViewModel();
+        vm.ShowModal("Test", () => { });
+
+        vm.HideModal();
+
+        Check.That(vm.ModalChoices).IsEmpty();
     }
 
     #endregion

@@ -17,8 +17,10 @@ using EyeCtrl.Core.Settings;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
-// These tests bind a real named pipe with a fixed name ("eyectrl_dwell", a production const), so
-// they must not run concurrently with each other or with any other pipe-using test collection.
+// These tests each bind a real named pipe, but under a per-instance unique name (see
+// ExternalDwellServiceTests._pipeName), so they no longer contend for the machine-global production
+// name. The collection is retained to group them; DisableParallelization is now belt-and-braces
+// rather than load-bearing (the unique names remove the contention the attribute was meant to gate).
 [CollectionDefinition("ExternalDwellPipe", DisableParallelization = true)]
 public sealed class ExternalDwellPipeCollection { }
 
@@ -27,13 +29,24 @@ public class ExternalDwellServiceTests
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
+    /// <summary>
+    /// Unique pipe name per test instance (xUnit constructs a new instance per method). The
+    /// production name (<c>eyectrl_dwell</c>) is machine-global and the server is constructed with
+    /// <c>MaxAllowedServerInstances</c>; binding it under the production name meant concurrent test
+    /// methods contended for the single pipe (<c>IOException: Pipe is broken</c>), and the
+    /// <c>DisableParallelization</c> collection attribute does not reliably suppress xUnit v3's
+    /// method-level concurrency. A per-instance unique name removes the contention at the source
+    /// (issue #76), mirroring the fix applied to the <c>eyectrl_watch</c> tests.
+    /// </summary>
+    private readonly string _pipeName = ExternalDwellService.DefaultPipeName + "_test_" + Guid.NewGuid().ToString("N");
+
     private static GazeEngine NewGazeEngine() =>
         new(new StubGazeProvider(), new StubInputSimulator(), new EyeCtrlSettings());
 
-    private static ExternalDwellService NewService(GazeEngine engine, Func<PhysicalPoint, long?> root) =>
+    private ExternalDwellService NewService(GazeEngine engine, Func<PhysicalPoint, long?> root) =>
         new(new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
             engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
-            new WeakReferenceMessenger(), root);
+            new WeakReferenceMessenger(), root, pipeName: _pipeName);
 
     private static void RunOnStaThread(Action action)
     {
@@ -71,7 +84,7 @@ public class ExternalDwellServiceTests
             using var svc = NewService(engine, _ => 7);
             svc.Start();
             Thread.Sleep(100);
-            RunPipeClient().GetAwaiter().GetResult();
+            RunPipeClient(_pipeName).GetAwaiter().GetResult();
         });
     }
 
@@ -105,10 +118,11 @@ public class ExternalDwellServiceTests
             var provider = new StubGazeProvider();
             using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
             using var svc = new ExternalDwellService(settings, engine, Dispatcher.CurrentDispatcher,
-                NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => 7);
+                NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => 7,
+                pipeName: _pipeName);
             svc.Start();
 
-            var activated = RegisterToggleAndDwell(settings, provider).GetAwaiter().GetResult();
+            var activated = RegisterToggleAndDwell(settings, provider, _pipeName).GetAwaiter().GetResult();
 
             // With the target retained across the disable/enable toggle, dwell still activates it.
             Check.That(activated).IsNotNull();
@@ -119,9 +133,9 @@ public class ExternalDwellServiceTests
 
     // Registers a target, toggles Enabled off then on, dwells over it, and returns the server's
     // activation line (or null on timeout). Used to verify re-enable does not drop the target.
-    private static async Task<string?> RegisterToggleAndDwell(ExternalDwellSettings settings, StubGazeProvider provider)
+    private static async Task<string?> RegisterToggleAndDwell(ExternalDwellSettings settings, StubGazeProvider provider, string pipeName)
     {
-        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
@@ -142,9 +156,9 @@ public class ExternalDwellServiceTests
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
     }
 
-    private static async Task RunPipeClient()
+    private static async Task RunPipeClient(string pipeName)
     {
-        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut);
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut);
         await client.ConnectAsync(2000);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
@@ -161,19 +175,20 @@ public class ExternalDwellServiceTests
             var provider = new StubGazeProvider();
             using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
             using var svc = new ExternalDwellService(settings, engine, Dispatcher.CurrentDispatcher,
-                NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => 7);
+                NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => 7,
+                pipeName: _pipeName);
             svc.Start();
 
-            var activated = RegisterDisabledThenEnableAndDwell(settings, provider).GetAwaiter().GetResult();
+            var activated = RegisterDisabledThenEnableAndDwell(settings, provider, _pipeName).GetAwaiter().GetResult();
             Check.That(activated).IsNotNull();
             Check.That(activated).Contains("activated");
         });
     }
 
     private static async Task<string?> RegisterDisabledThenEnableAndDwell(
-        ExternalDwellSettings settings, StubGazeProvider provider)
+        ExternalDwellSettings settings, StubGazeProvider provider, string pipeName)
     {
-        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
@@ -206,10 +221,10 @@ public class ExternalDwellServiceTests
             using var svc = new ExternalDwellService(
                 new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
                 engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
-                new WeakReferenceMessenger(), _ => 99);
+                new WeakReferenceMessenger(), _ => 99, pipeName: _pipeName);
             svc.Start();
 
-            var activated = RegisterAndDwell(provider).GetAwaiter().GetResult();
+            var activated = RegisterAndDwell(provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(activated).IsNull();
             Check.That(engine.SuppressFixation).IsFalse();
@@ -227,7 +242,7 @@ public class ExternalDwellServiceTests
             svc.Start();
 
             var (afterAccumulate, afterLeave) =
-                RegisterAccumulateThenLeave(engine, provider).GetAwaiter().GetResult();
+                RegisterAccumulateThenLeave(engine, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(afterAccumulate).IsTrue();  // mid-dwell over a gated target suppresses fixation
             Check.That(afterLeave).IsFalse();      // leaving the target releases our suppression
@@ -244,10 +259,10 @@ public class ExternalDwellServiceTests
             using var svc = new ExternalDwellService(
                 new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 5000 },
                 engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
-                new WeakReferenceMessenger(), _ => 7);
+                new WeakReferenceMessenger(), _ => 7, pipeName: _pipeName);
             svc.Start();
 
-            var (first, second) = RegisterActivateTwice(provider).GetAwaiter().GetResult();
+            var (first, second) = RegisterActivateTwice(provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(first).IsNotNull();          // first dwell activates
             Check.That(first).Contains("activated");
@@ -256,9 +271,9 @@ public class ExternalDwellServiceTests
     }
 
     // Registers a target (hwnd 7) and dwells fully over it, returning the activation line or null.
-    private static async Task<string?> RegisterAndDwell(StubGazeProvider provider)
+    private static async Task<string?> RegisterAndDwell(StubGazeProvider provider, string pipeName)
     {
-        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
@@ -277,9 +292,9 @@ public class ExternalDwellServiceTests
     // Registers a target, accumulates dwell partway (captures suppression state), then moves the
     // gaze off it (captures suppression state again). Keeps the pipe open so the target survives.
     private static async Task<(bool afterAccumulate, bool afterLeave)> RegisterAccumulateThenLeave(
-        GazeEngine engine, StubGazeProvider provider)
+        GazeEngine engine, StubGazeProvider provider, string pipeName)
     {
-        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
 
@@ -300,9 +315,9 @@ public class ExternalDwellServiceTests
     }
 
     // Activates the target once, then attempts a second dwell within the cooldown window.
-    private static async Task<(string? first, string? second)> RegisterActivateTwice(StubGazeProvider provider)
+    private static async Task<(string? first, string? second)> RegisterActivateTwice(StubGazeProvider provider, string pipeName)
     {
-        await using var client = new NamedPipeClientStream(".", "eyectrl_dwell", PipeDirection.InOut, PipeOptions.Asynchronous);
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);

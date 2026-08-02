@@ -19,7 +19,18 @@ using Microsoft.Extensions.Logging;
 
 public sealed class ExternalDwellService : IDisposable
 {
-    private const string PipeName = "eyectrl_dwell";
+    /// <summary>
+    /// The production pipe name the cooperating dwell app connects to.
+    /// </summary>
+    public const string DefaultPipeName = "eyectrl_dwell";
+
+    /// <summary>
+    /// Named pipe this instance serves on. Defaults to <see cref="DefaultPipeName"/>; tests pass a
+    /// unique GUID-suffixed name so concurrent test instances never contend for the machine-global
+    /// single-instance production name (the <c>DisableParallelization</c> collection attribute does
+    /// not reliably suppress xUnit v3 method-level concurrency — see issue #76).
+    /// </summary>
+    private readonly string _pipeName;
 
     private readonly ExternalDwellSettings _settings;
     private readonly GazeEngine _gazeEngine;
@@ -52,8 +63,10 @@ public sealed class ExternalDwellService : IDisposable
         ILogger<ExternalDwellService> logger,
         IMessenger messenger,
         Func<PhysicalPoint, long?>? rootWindowAtPoint = null,
-        IStruggleTelemetrySink? sink = null)
+        IStruggleTelemetrySink? sink = null,
+        string? pipeName = null)
     {
+        _pipeName = pipeName ?? DefaultPipeName;
         _settings = settings;
         _gazeEngine = gazeEngine;
         _dispatcher = dispatcher;
@@ -198,7 +211,7 @@ public sealed class ExternalDwellService : IDisposable
     {
         while (!token.IsCancellationRequested)
         {
-            var pipe = new NamedPipeServerStream(PipeName, PipeDirection.InOut,
+            var pipe = new NamedPipeServerStream(_pipeName, PipeDirection.InOut,
                 NamedPipeServerStream.MaxAllowedServerInstances,
                 PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
             try

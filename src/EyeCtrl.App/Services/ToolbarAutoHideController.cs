@@ -17,6 +17,7 @@ public sealed class ToolbarAutoHideController
     private readonly long _summonDelayUs;   // run of "gaze past docked edge" before summoning
     private readonly double _offScreenMarginPx;
     private readonly Func<bool>? _calibrationActive;
+    private readonly Func<PhysicalPoint, PhysicalPoint>? _toScreen;
 
     // ── Geometry (cached, physical px) ──
     private readonly double _screenW;
@@ -58,7 +59,8 @@ public sealed class ToolbarAutoHideController
 
     public ToolbarAutoHideController(bool enabled, string edge, double screenW, double screenH,
         PhysicalRect toolbarRect, int hideDelayMs, int summonDelayMs, double offScreenMarginPx,
-        Func<bool>? calibrationActive = null)
+        Func<bool>? calibrationActive = null,
+        Func<PhysicalPoint, PhysicalPoint>? toScreen = null)
     {
         _enabled = enabled;
         _edge = edge;
@@ -70,6 +72,7 @@ public sealed class ToolbarAutoHideController
         _summonDelayUs = summonDelayMs * 1000L;
         _offScreenMarginPx = offScreenMarginPx;
         _calibrationActive = calibrationActive;
+        _toScreen = toScreen;
     }
 
     /// <summary>Binds the output seam. Real wiring passes an OverlayManager adapter; tests pass a fake.</summary>
@@ -156,7 +159,15 @@ public sealed class ToolbarAutoHideController
         switch (_state)
         {
             case State.Visible:
-                if (sample.IsValid && _toolbarRect.Contains(sample.X, sample.Y))
+            {
+                // The rect is screen geometry captured from the live window, but the sample arrives
+                // pre-calibration (GazeSampled fires at GazeEngine.cs:230, before the transform at
+                // :233). Map into screen space for THIS test only. IsPastDockedEdge below keeps raw
+                // coordinates: off-screen gaze is outside the transform's fitted domain.
+                var probe = _toScreen is null
+                    ? new PhysicalPoint(sample.X, sample.Y)
+                    : _toScreen(new PhysicalPoint(sample.X, sample.Y));
+                if (sample.IsValid && _toolbarRect.Contains(probe.X, probe.Y))
                 {
                     // Gaze on toolbar — anchor to "now" so the hide countdown measures time since
                     // the LAST on-toolbar sample (a later off-toolbar run resumes the count from here).
@@ -183,6 +194,7 @@ public sealed class ToolbarAutoHideController
                     }
                 }
                 break;
+            }
 
             case State.Hidden:
                 if (IsPastDockedEdge(sample))

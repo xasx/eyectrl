@@ -381,12 +381,73 @@ public class ToolbarAutoHideControllerTests
         Check.That(vis.HideCalls).IsEqualTo(0);
     }
 
+    // ── Coordinate space ──
+
+    [Fact]
+    public void RectTest_UsesMappedCoordinates_SoRawInsideButMappedOutsideIsOffToolbar()
+    {
+        // Mapper shifts gaze 500 px down. Raw (960, 25) is inside the top toolbar rect;
+        // mapped (960, 525) is not. The controller must treat this as OFF toolbar and hide.
+        var sut = NewController(toScreen: p => new PhysicalPoint(p.X, p.Y + 500));
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+
+        sut.Feed(CreateSample(960, 25, valid: true), 0);
+        sut.Feed(CreateSample(960, 25, valid: true), 6_000_000); // past the 5s hide delay
+
+        Check.That(vis.HideCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void RectTest_UsesMappedCoordinates_SoRawOutsideButMappedInsideIsOnToolbar()
+    {
+        // Inverse of the above: raw (960, 525) is outside the rect, mapped (960, 25) is inside.
+        // The controller must treat this as ON toolbar and never hide.
+        var sut = NewController(toScreen: p => new PhysicalPoint(p.X, p.Y - 500));
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+
+        sut.Feed(CreateSample(960, 525, valid: true), 0);
+        sut.Feed(CreateSample(960, 525, valid: true), 6_000_000);
+
+        Check.That(vis.HideCalls).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void EdgeTest_IgnoresTheMapper_AndStaysOnTrackerNativeCoordinates()
+    {
+        // A mapper that would pull off-screen gaze back on-screen must NOT reach IsPastDockedEdge,
+        // or the summon gesture is erased. Raw y = -100 is past the top edge; mapped y = +400 is not.
+        var sut = NewController(toScreen: p => new PhysicalPoint(p.X, p.Y + 500));
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.HideForTest(vis);
+
+        sut.Feed(CreateSample(960, -100, valid: true), 0);
+        sut.Feed(CreateSample(960, -100, valid: true), 500_000); // past the 400ms summon delay
+
+        Check.That(vis.ShowCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void NullMapper_BehavesAsIdentity()
+    {
+        var sut = NewController(toScreen: null);
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+
+        sut.Feed(CreateSample(960, 25, valid: true), 0);          // inside the rect
+        sut.Feed(CreateSample(960, 25, valid: true), 6_000_000);
+
+        Check.That(vis.HideCalls).IsEqualTo(0);
+    }
+
     // ── helpers ──
 
     private static ToolbarAutoHideController NewController(bool enabled = true, string edge = Edge,
-        Func<bool>? calibrationActive = null)
+        Func<bool>? calibrationActive = null, Func<PhysicalPoint, PhysicalPoint>? toScreen = null)
         => new(enabled, edge, ScreenW, ScreenH, ToolbarRect,
-               hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50, calibrationActive);
+               hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50, calibrationActive, toScreen);
 
     private static GazePoint CreateSample(double x, double y, bool valid)
         => new(x, y, 0, valid);

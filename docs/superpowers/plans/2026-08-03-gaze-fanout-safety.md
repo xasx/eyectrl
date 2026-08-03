@@ -1026,6 +1026,13 @@ In `GazeEngine.cs`, add these fields near the other private fields:
     // matters because a handler may unsubscribe itself from inside its own callback.
     // GetInvocationList() was the obvious alternative and was rejected: it allocates per sample at
     // 30-90 Hz, trading a crash risk for GC pressure on the gaze thread.
+    //
+    // INVARIANT: array elements are NEVER mutated in place. Add/remove build a whole new array under
+    // _handlerLock and publish it by assigning this field. That assignment is the only fence there
+    // is: `volatile` orders the reference read and write, but the elements are plain references, so
+    // correctness depends on a reader that observes the new reference observing a fully-constructed
+    // array. Writing into an existing array — even under the lock — would let a concurrent publisher
+    // read a half-updated slot, and no amount of `volatile` on this field would catch it.
     private volatile Action<GazePoint>[] _gazeSampledHandlers = [];
     private readonly object _handlerLock = new();
     private readonly HandlerFaultReporter _faults;
@@ -1238,9 +1245,11 @@ Expected: the two new tests fail; the seven from Task 5 still pass.
 
 - [ ] **Step 3: Apply the same pattern**
 
-Add the field:
+Add the field. The same never-mutate-in-place invariant documented on `_gazeSampledHandlers` in Task 5 applies here, and both fields share `_handlerLock`:
 
 ```csharp
+    // Copy-on-write, same invariant as _gazeSampledHandlers: elements are never mutated in place;
+    // add/remove build a new array under _handlerLock and publish it by assigning this field.
     private volatile Action<PhysicalPoint, long>[] _cursorMovedHandlers = [];
 ```
 

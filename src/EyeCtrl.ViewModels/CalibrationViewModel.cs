@@ -17,6 +17,9 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     private readonly IGazeProvider _gazeProvider;
     private readonly PhysicalPoint _screenSize;
     private readonly string _monitorDeviceName;
+    // Persisted alongside the device name so a later load survives display renumbering; empty when the
+    // platform could not read the monitor's EDID, which falls the match back to the device name.
+    private readonly string _monitorHardwareId;
     private readonly string _calibrationFilePath;
     private readonly SynchronizationContext? _syncContext;
 
@@ -42,7 +45,8 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         IGazeProvider gazeProvider,
         PhysicalPoint screenSize,
         string monitorDeviceName,
-        string? calibrationFilePath = null)
+        string? calibrationFilePath = null,
+        string monitorHardwareId = "")
         : base(messenger)
     {
         _settings = settings;
@@ -50,6 +54,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         _gazeProvider = gazeProvider;
         _screenSize = screenSize;
         _monitorDeviceName = monitorDeviceName;
+        _monitorHardwareId = monitorHardwareId;
         _calibrationFilePath = calibrationFilePath ?? System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "EyeCtrl", "calibration.json");
@@ -149,7 +154,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
 
         try
         {
-            var data = _calibrationService.CompleteSession(_screenSize, _monitorDeviceName);
+            var data = _calibrationService.CompleteSession(_screenSize, _monitorDeviceName, _monitorHardwareId);
             var errorPx = data.ComputeMeanErrorPixels();
             MeanErrorPixels = errorPx;
             QualityPercent = data.ComputeQualityPercent();

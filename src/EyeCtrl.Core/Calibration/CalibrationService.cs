@@ -51,6 +51,18 @@ public class CalibrationService
     public CalibrationData? CurrentData { get; private set; }
 
     /// <summary>
+    /// Why the last <see cref="Load"/> refused to apply a persisted calibration, as a sentence fit to show
+    /// the user; null when nothing was rejected (no file, loaded successfully, or no load attempted).
+    /// <para>
+    /// Exists because a rejected calibration is otherwise indistinguishable from never having calibrated:
+    /// <see cref="CurrentTransform"/> is null either way and gaze silently runs raw. The UI pairs this with
+    /// <see cref="CurrentData"/> — non-null data means a calibration is active, null data plus a non-null
+    /// rejection means one exists on disk but is inert.
+    /// </para>
+    /// </summary>
+    public string? LastLoadRejection { get; private set; }
+
+    /// <summary>
     /// Starts a new calibration session with the specified number of target points.
     /// </summary>
     /// <param name="pointCount">Number of calibration points (3–16).</param>
@@ -129,10 +141,15 @@ public class CalibrationService
     /// validating the result, and activating the transform.
     /// </summary>
     /// <param name="screenSize">Screen dimensions in physical pixels.</param>
-    /// <param name="monitorDeviceName">Name of the monitor for calibration metadata.</param>
+    /// <param name="monitorDeviceName">GDI display name of the monitor (e.g. <c>\\.\DISPLAY1</c>).</param>
+    /// <param name="monitorHardwareId">
+    /// Stable EDID-derived identity of the monitor (see <see cref="CalibrationData.MonitorHardwareId"/>).
+    /// Pass empty when the platform cannot determine one; <see cref="Load"/> then matches on
+    /// <paramref name="monitorDeviceName"/> instead.
+    /// </param>
     /// <returns>The <see cref="CalibrationData"/> with the fitted transform and metadata.</returns>
     /// <exception cref="InvalidOperationException">Thrown when no session is in progress or the fit fails validation.</exception>
-    public CalibrationData CompleteSession(PhysicalPoint screenSize, string monitorDeviceName)
+    public CalibrationData CompleteSession(PhysicalPoint screenSize, string monitorDeviceName, string monitorHardwareId = "")
     {
         if (_targetPositions == null)
             throw new InvalidOperationException("No session in progress.");
@@ -156,6 +173,7 @@ public class CalibrationService
             ScreenWidth = (int)screenSize.X,
             ScreenHeight = (int)screenSize.Y,
             MonitorDeviceName = monitorDeviceName,
+            MonitorHardwareId = monitorHardwareId,
         };
 
         // Reject degenerate fits before they are applied or persisted. A calibration fit to
@@ -181,6 +199,7 @@ public class CalibrationService
 
         _currentTransform = transform;
         CurrentData = data;
+        LastLoadRejection = null;
 
         _targetPositions = null;
         _collectedPoints.Clear();
@@ -200,29 +219,85 @@ public class CalibrationService
     {
         _currentTransform = null;
         CurrentData = null;
+        // The user deliberately discarded the calibration, so an earlier load rejection is no longer
+        // the reason there is none — leaving it set would make the UI blame a monitor change.
+        LastLoadRejection = null;
     }
 
     /// <summary>
-    /// Loads calibration data from a JSON file. Validates that the screen size and monitor
-    /// match before applying the transform. Silently ignores invalid or mismatched data.
+    /// Loads calibration data from a JSON file. Validates that the screen size and monitor match,
+    /// and that the transform is usable, before applying it. Mismatched or invalid data is ignored
+    /// (leaving the pipeline on raw gaze) and every rejection is logged as a warning and recorded
+    /// in <see cref="LastLoadRejection"/> for the UI.
     /// </summary>
     /// <param name="filePath">Full path to the calibration JSON file.</param>
     /// <param name="currentScreenSize">Current screen dimensions in physical pixels.</param>
-    /// <param name="currentMonitorDeviceName">Current monitor name for matching against persisted data.</param>
-    public void Load(string filePath, PhysicalPoint currentScreenSize, string currentMonitorDeviceName)
+    /// <param name="currentMonitorDeviceName">Current GDI display name (e.g. <c>\\.\DISPLAY1</c>).</param>
+    /// <param name="currentMonitorHardwareId">
+    /// Current stable EDID-derived monitor identity (see <see cref="CalibrationData.MonitorHardwareId"/>).
+    /// When this and the persisted record both carry one, it is what the monitor match is decided on, so
+    /// display renumbering no longer discards the calibration. Pass empty to match on the device name.
+    /// </param>
+    public void Load(
+        string filePath,
+        PhysicalPoint currentScreenSize,
+        string currentMonitorDeviceName,
+        string currentMonitorHardwareId = "")
     {
+        LastLoadRejection = null;
         if (!File.Exists(filePath)) return;
 
         try
         {
             var json = File.ReadAllText(filePath);
             var data = JsonSerializer.Deserialize<CalibrationData>(json, s_readOptions);
-            if (data == null) return;
-
-            if (data.ScreenWidth != (int)currentScreenSize.X ||
-                data.ScreenHeight != (int)currentScreenSize.Y ||
-                !string.Equals(data.MonitorDeviceName, currentMonitorDeviceName, StringComparison.OrdinalIgnoreCase))
+            if (data == null)
             {
+                _logger?.LogWarning(
+                    "Calibration data from {FilePath} deserialized to null; ignoring", filePath);
+                LastLoadRejection = "Not applied — the saved calibration file is empty. Recalibrate to fix.";
+                return;
+            }
+
+            int currentWidth = (int)currentScreenSize.X;
+            int currentHeight = (int)currentScreenSize.Y;
+
+            if (data.ScreenWidth != currentWidth || data.ScreenHeight != currentHeight)
+            {
+                // Was a bare `return` until 2026-08-02: a discarded calibration left no trace at all,
+                // so "why did dwell start drifting?" was unanswerable from the log.
+                _logger?.LogWarning(
+                    "Calibration from {FilePath} was recorded for a {SavedWidth}x{SavedHeight} screen but the "
+                    + "current screen is {CurrentWidth}x{CurrentHeight}; NOT applying it — gaze runs uncalibrated "
+                    + "until you recalibrate. Saved on monitor {SavedMonitor} (hardware id {SavedHardwareId}) "
+                    + "at {CalibratedAt:u}",
+                    filePath, data.ScreenWidth, data.ScreenHeight, currentWidth, currentHeight,
+                    Describe(data.MonitorDeviceName), Describe(data.MonitorHardwareId), data.CalibratedAt);
+                LastLoadRejection =
+                    $"Not applied — saved for a {data.ScreenWidth}×{data.ScreenHeight} screen, "
+                    + $"current is {currentWidth}×{currentHeight}. Recalibrate to fix.";
+                return;
+            }
+
+            var match = MatchMonitor(data, currentMonitorDeviceName, currentMonitorHardwareId);
+            if (match == MonitorMatch.Mismatch)
+            {
+                // Same as above: this path used to `return` silently, which is how an inert calibration
+                // could survive weeks unnoticed. Name BOTH sides so the log answers the question alone.
+                _logger?.LogWarning(
+                    "Calibration from {FilePath} was recorded on a different monitor; NOT applying it — gaze "
+                    + "runs uncalibrated until you recalibrate. Saved: name={SavedMonitor}, "
+                    + "hardwareId={SavedHardwareId}, calibrated {CalibratedAt:u}. Current: name={CurrentMonitor}, "
+                    + "hardwareId={CurrentHardwareId}. Note Windows renumbers \\\\.\\DISPLAYn when monitors are "
+                    + "attached, detached, or re-enumerated, so a name-only difference can still be the same "
+                    + "physical monitor — that case is matched by hardware id once both records carry one",
+                    filePath, Describe(data.MonitorDeviceName), Describe(data.MonitorHardwareId),
+                    data.CalibratedAt, Describe(currentMonitorDeviceName), Describe(currentMonitorHardwareId));
+                LastLoadRejection =
+                    $"Not applied — saved on a different monitor ({Describe(data.MonitorDeviceName)}"
+                    + $"{DescribeHardwareIdSuffix(data.MonitorHardwareId)}), current is "
+                    + $"{Describe(currentMonitorDeviceName)}"
+                    + $"{DescribeHardwareIdSuffix(currentMonitorHardwareId)}. Recalibrate to fix.";
                 return;
             }
 
@@ -231,6 +306,7 @@ public class CalibrationService
                 _logger?.LogWarning(
                     "Calibration data from {FilePath} has invalid transform parameters (expected 6); ignoring",
                     filePath);
+                LastLoadRejection = "Not applied — the saved calibration is malformed. Recalibrate to fix.";
                 return;
             }
 
@@ -245,6 +321,8 @@ public class CalibrationService
                 _logger?.LogWarning(
                     "Calibration data from {FilePath} maps gaze off-screen (degenerate transform); ignoring",
                     filePath);
+                LastLoadRejection =
+                    "Not applied — the saved calibration maps gaze off-screen (bad fit). Recalibrate to fix.";
                 return;
             }
 
@@ -258,17 +336,100 @@ public class CalibrationService
                 _logger?.LogWarning(
                     "Calibration data from {FilePath} deviates too far from identity (degenerate fit); ignoring",
                     filePath);
+                LastLoadRejection =
+                    "Not applied — the saved calibration flips or amplifies gaze (bad fit). Recalibrate to fix.";
                 return;
             }
 
             _currentTransform = transform;
             CurrentData = data;
+
+            if (match == MonitorMatch.HardwareId &&
+                !string.Equals(data.MonitorDeviceName, currentMonitorDeviceName, StringComparison.OrdinalIgnoreCase))
+            {
+                RefreshPersistedDeviceName(filePath, data, currentMonitorDeviceName);
+            }
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
             _logger?.LogWarning(ex, "Failed to load calibration data from {FilePath}; ignoring", filePath);
+            LastLoadRejection = "Not applied — the saved calibration could not be read. Recalibrate to fix.";
         }
     }
+
+    /// <summary>How <see cref="Load"/> resolved the persisted monitor against the current one.</summary>
+    private enum MonitorMatch
+    {
+        /// <summary>Both sides carried a stable hardware id and they agree.</summary>
+        HardwareId,
+        /// <summary>No hardware id to compare, but the GDI display names agree (legacy path).</summary>
+        DeviceName,
+        /// <summary>Different monitor — the calibration must not be applied.</summary>
+        Mismatch,
+    }
+
+    private static MonitorMatch MatchMonitor(CalibrationData data, string currentDeviceName, string currentHardwareId)
+    {
+        // Prefer the stable hardware id. The GDI name (\\.\DISPLAYn) is an enumeration index that Windows
+        // reassigns on dock changes, driver updates, and reboots, so matching on it discards a perfectly
+        // good calibration for the very same physical monitor.
+        if (!string.IsNullOrEmpty(data.MonitorHardwareId) && !string.IsNullOrEmpty(currentHardwareId))
+        {
+            return string.Equals(data.MonitorHardwareId, currentHardwareId, StringComparison.OrdinalIgnoreCase)
+                ? MonitorMatch.HardwareId
+                : MonitorMatch.Mismatch;
+        }
+
+        // Legacy record, or the platform could not determine an id right now: fall back to the name. This
+        // is deliberately strict — a name-only match is the only evidence available, and applying a fit
+        // from a genuinely different monitor would reintroduce the silent-drift failure this guards against.
+        return string.Equals(data.MonitorDeviceName, currentDeviceName, StringComparison.OrdinalIgnoreCase)
+            ? MonitorMatch.DeviceName
+            : MonitorMatch.Mismatch;
+    }
+
+    /// <summary>
+    /// Rewrites the persisted record with the monitor's current GDI name after a hardware-id match proved
+    /// it is the same physical display under a new number. Keeps the legacy name-only path accurate for the
+    /// day the hardware id cannot be read. Best-effort: a failed rewrite must not disturb the loaded
+    /// calibration, which is already applied by this point.
+    /// </summary>
+    private void RefreshPersistedDeviceName(string filePath, CalibrationData data, string currentMonitorDeviceName)
+    {
+        _logger?.LogInformation(
+            "Calibration monitor matched by hardware id {HardwareId}; the display was renumbered from "
+            + "{SavedMonitor} to {CurrentMonitor}. Applying the calibration and refreshing the stored name",
+            data.MonitorHardwareId, Describe(data.MonitorDeviceName), Describe(currentMonitorDeviceName));
+
+        var refreshed = new CalibrationData
+        {
+            Type = data.Type,
+            TransformParams = data.TransformParams,
+            Points = data.Points,
+            CalibratedAt = data.CalibratedAt,
+            ScreenWidth = data.ScreenWidth,
+            ScreenHeight = data.ScreenHeight,
+            MonitorDeviceName = currentMonitorDeviceName,
+            MonitorHardwareId = data.MonitorHardwareId,
+        };
+
+        try
+        {
+            Save(filePath, refreshed);
+            CurrentData = refreshed;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            _logger?.LogWarning(ex,
+                "Could not refresh the stored monitor name in {FilePath}; the calibration is applied regardless",
+                filePath);
+        }
+    }
+
+    private static string Describe(string? value) => string.IsNullOrEmpty(value) ? "(none)" : value;
+
+    private static string DescribeHardwareIdSuffix(string? hardwareId) =>
+        string.IsNullOrEmpty(hardwareId) ? "" : $", {hardwareId}";
 
     /// <summary>Persists calibration data to disk as JSON.</summary>
     /// <param name="filePath">Full path for the output JSON file.</param>

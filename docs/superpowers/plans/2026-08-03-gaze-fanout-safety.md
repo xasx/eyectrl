@@ -597,7 +597,7 @@ Delete the `Registered after eye-care so eyeCare.FatigueScore reflects this samp
 dotnet test EyeCtrl.slnx --filter "Category!=UI"
 ```
 
-Expected: `Fehler: 0` everywhere. `TelemetrySinkRegistrationTests` and `OverlayTelemetryWiringTests` touch this wiring — if either fails, it is asserting the old lambda shape and needs updating, not reverting.
+Expected: `Fehler: 0` everywhere, with nothing needing an update. `TelemetrySinkRegistrationTests` resolves `GazeQualityAggregator` and feeds it directly rather than inspecting `App.OnStartup`'s subscription, and `OverlayTelemetryWiringTests` lives in `EyeCtrl.ViewModels.Tests` and never touches `App.xaml.cs` — so neither asserts the lambda shape this task replaces. If either does fail, that is a genuine surprise worth investigating rather than a test to adjust.
 
 - [ ] **Step 7: Commit**
 
@@ -727,8 +727,18 @@ namespace EyeCtrl.Core.Diagnostics;
 /// being reported. A handler that throws on every sample must cost one log line per window, not one
 /// per sample.
 /// <para>
-/// Not thread-safe by design: faults are only ever reported from the single thread that publishes the
-/// event (the gaze thread). The dictionary is touched on the fault path only, never per sample.
+/// Not thread-safe, and safe only because of an invariant worth stating: every gaze provider publishes
+/// from one thread at a time. Tobii uses a dedicated <c>PollLoop</c> thread. MouseGazeProvider uses a
+/// one-shot <see cref="System.Threading.Timer"/> re-armed in a <c>finally</c>, so although successive
+/// ticks may land on different pool threads, two ticks never overlap. Switching that to a periodic
+/// timer, or running two providers concurrently, would require a lock here.
+/// </para>
+/// <para>
+/// The dictionary is touched on the fault path only, never per sample, and has no eviction. That is
+/// deliberate and bounded: the compiler caches a lambda per call site, so each of the lambda
+/// subscribers contributes exactly one entry; method-group subscriptions allocate a fresh delegate per
+/// <c>+=</c>, but every subscription site in this codebase runs once at startup. A site that
+/// re-subscribes in a loop would grow this dictionary and would need eviction added.
 /// </para>
 /// </remarks>
 internal sealed class HandlerFaultReporter
@@ -736,7 +746,7 @@ internal sealed class HandlerFaultReporter
     private sealed class Entry
     {
         public long WindowStartSeconds;
-        public int Occurrences;
+        public int SuppressedSinceEmit;
     }
 
     private readonly Action<string, Exception> _emit;
@@ -761,21 +771,31 @@ internal sealed class HandlerFaultReporter
     public void Report(string eventName, Delegate handler, Exception exception)
     {
         long now = _nowSeconds();
+
+        // First fault for this handler: emit at once and open its window.
         if (!_entries.TryGetValue(handler, out var entry))
         {
-            entry = new Entry { WindowStartSeconds = now, Occurrences = 0 };
-            _entries[handler] = entry;
+            _entries[handler] = new Entry { WindowStartSeconds = now, SuppressedSinceEmit = 0 };
+            Emit(eventName, handler, exception, suppressed: 0);
+            return;
         }
 
-        entry.Occurrences++;
-        bool windowElapsed = now - entry.WindowStartSeconds >= _windowSeconds;
-        if (entry.Occurrences > 1 && !windowElapsed)
+        // Inside the window: count it and stay silent.
+        if (now - entry.WindowStartSeconds < _windowSeconds)
+        {
+            entry.SuppressedSinceEmit++;
             return;
+        }
 
-        int suppressed = entry.Occurrences - 1;
+        // Window elapsed: emit, reporting what was swallowed, and open a fresh window.
+        int suppressed = entry.SuppressedSinceEmit;
         entry.WindowStartSeconds = now;
-        entry.Occurrences = 0;
+        entry.SuppressedSinceEmit = 0;
+        Emit(eventName, handler, exception, suppressed);
+    }
 
+    private void Emit(string eventName, Delegate handler, Exception exception, int suppressed)
+    {
         // Method.DeclaringType + Method.Name names the enclosing method even for a lambda — e.g.
         // App+<>c__DisplayClass0_0.<OnStartup>b__0 — which is enough to locate the offender.
         string who = $"{handler.Method.DeclaringType?.FullName}.{handler.Method.Name}";
@@ -786,6 +806,10 @@ internal sealed class HandlerFaultReporter
     }
 }
 ```
+
+**Emission is decided by the window timestamp alone, never by the counter.** An earlier draft of this plan gated on `Occurrences > 1 && !windowElapsed` while also resetting `Occurrences = 0` on the emit path. That does not rate-limit at all: the next fault increments the counter back to 1, `1 > 1` is false, so it falls through and emits again — every single time. Measured on a transcription of that draft: **10 emits from 10 in-window faults, and 11 total where 2 were wanted.** A plausible-looking variant that gates on `Occurrences == 1 || windowElapsed` fails identically, for the same reason. If you are tempted to simplify this method, re-run the Step 2 tests — `Report_SuppressesRepeatsInsideTheWindow` is the one that catches it.
+
+Sanity check on the shipped shape: a handler throwing on every sample at 33 Hz for 60 s produces **2** log lines, not 1,980.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -988,7 +1012,9 @@ public class GazeEngineFanOutIsolationTests
 dotnet test tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj --filter "FullyQualifiedName~GazeEngineFanOutIsolationTests"
 ```
 
-Expected: `AThrowingHandler_DoesNotStarveLaterHandlers`, `..._DoesNotEscapeToTheProvider` and `..._DoesNotStopTheCursorMoving` **fail** — the exception propagates out of `SimulateGaze`. `HandlersRun_InRegistrationOrder` and `Unsubscribe_RemovesOnlyTheLastMatchingHandler` should already pass against the multicast delegate; that is expected and confirms the new implementation preserves existing semantics.
+Expected — **four** fail, because the exception propagates out of `SimulateGaze`: `AThrowingHandler_DoesNotStarveLaterHandlers`, `..._DoesNotEscapeToTheProvider`, `..._DoesNotStopTheCursorMoving`, and `AThrowingHandler_StaysSubscribed_AndIsCalledAgain` (it never reaches the second sample, so `calls` stops at 1).
+
+`HandlersRun_InRegistrationOrder`, `Unsubscribe_RemovesOnlyTheLastMatchingHandler` and `AHandlerUnsubscribingItself_DoesNotDisturbTheInFlightPublication` should already **pass** against the multicast delegate. That is deliberate: they characterise the semantics the rewrite must preserve, so they are regression guards rather than red-to-green tests.
 
 - [ ] **Step 3: Replace the event with copy-on-write accessors**
 
@@ -1117,11 +1143,19 @@ Add `using Microsoft.Extensions.Logging;` to the usings. As the first statement 
             windowSeconds: 30);
 ```
 
-In `AppBootstrapper.cs`, pass the logger where `GazeEngine` is constructed:
+In `AppBootstrapper.cs`, add the logger as the sixth argument to the existing `GazeEngine` registration at `:149`. Read the current block first — the four arguments before `logger` must be preserved exactly as they are; only the trailing argument is new:
 
 ```csharp
-            sp.GetRequiredService<ILogger<GazeEngine>>()
+        services.AddSingleton(sp => new GazeEngine(
+            sp.GetRequiredService<IGazeProvider>(),
+            sp.GetRequiredService<IInputSimulator>(),
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            sp.GetRequiredService<CalibrationService>(),
+            sp.GetRequiredService<EffectiveSettingsProvider>(),
+            sp.GetRequiredService<ILogger<GazeEngine>>()));
 ```
+
+If the existing argument list differs from the above (it is the current shape as of `b590a87`, but Spec C may have changed the `EffectiveSettingsProvider` argument to `IEffectiveSettings`), keep whatever is there and append only the logger.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
@@ -1364,13 +1398,20 @@ with:
             }
 ```
 
-- [ ] **Step 2: Verify it compiles**
+- [ ] **Step 2: Verify it compiles, or state that it was excluded**
 
 ```bash
 dotnet build src/EyeCtrl.Platform/EyeCtrl.Platform.csproj -c Debug
 ```
 
-Expected: `Der Buildvorgang wurde erfolgreich ausgeführt.` with `0 Fehler`. If the Tobii SDK is not installed the guarded code is excluded from compilation — confirm that by checking whether `TOBII_AVAILABLE` is defined, and say so in the commit message rather than claiming the change was compiled.
+⚠️ **A green build here does not prove this change compiles.** The entire file sits inside `#if TOBII_AVAILABLE`, which `Tobii.props` defines only when both SDK DLLs exist under `C:\Program Files\Tobii\Tobii EyeX\`. Without the SDK the build succeeds *having compiled none of your edit*. Determine which case you are in and say so explicitly:
+
+```bash
+dotnet build src/EyeCtrl.Platform/EyeCtrl.Platform.csproj -c Debug -v:n 2>&1 | grep -i "define\|TOBII_AVAILABLE" | head -3
+ls "C:/Program Files/Tobii/Tobii EyeX/tobii_stream_engine.dll" 2>/dev/null && echo "SDK PRESENT" || echo "SDK ABSENT - guarded code NOT compiled"
+```
+
+If the SDK is absent, verify by inspection only and record that in the commit message. Do not claim the change was compiled, and do not fake the SDK to force compilation. `_logger` already exists on the provider (`:20`), so the log call is well-formed either way.
 
 - [ ] **Step 3: Verify the platform tests still pass**
 
@@ -1405,44 +1446,76 @@ Stop()."
 
 Create `tests/EyeCtrl.Platform.Tests/Gaze/MouseGazeProviderFaultTests.cs`:
 
+The obvious test — "the provider keeps ticking after a subscriber throws" — is worthless here, and it is worth knowing why before writing it. The exception escapes on a pool thread that xUnit does not observe, and the existing `finally` re-arms the timer regardless, so such a test **passes against the unfixed code**. It would be permanent false assurance: delete the `catch` later and it stays green.
+
+Assert the thing only the `catch` can produce instead — the log. That genuinely fails without the fix. Use a private nested fake; this repo uses no mocking library.
+
 ```csharp
 namespace EyeCtrl.Platform.Tests.Gaze;
 
 using EyeCtrl.Core.Models;
 using EyeCtrl.Platform.Gaze;
+using Microsoft.Extensions.Logging;
 using NFluent;
 
 public class MouseGazeProviderFaultTests
 {
-    [Fact]
-    public async Task AThrowingSubscriber_DoesNotStopTheProviderTicking()
+    private sealed class CapturingLogger : ILogger
     {
-        using var sut = new MouseGazeProvider(pollIntervalMs: 10);
-        int throwingCalls = 0;
-        sut.GazePointReceived += _ =>
+        public readonly List<Exception> Faults = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
         {
-            throwingCalls++;
-            throw new InvalidOperationException("boom");
-        };
+            if (exception is not null) Faults.Add(exception);
+        }
+    }
+
+    [Fact]
+    public async Task AThrowingSubscriber_IsCaughtAndLogged_NotLeftToKillTheProcess()
+    {
+        var logger = new CapturingLogger();
+        using var sut = new MouseGazeProvider(pollIntervalMs: 10, logger: logger);
+        sut.GazePointReceived += _ => throw new InvalidOperationException("boom");
 
         sut.Start();
         await Task.Delay(200);
         sut.Stop();
 
-        // The timer re-arms in a finally, so it keeps ticking; the point of this test is that the
-        // process survives a subscriber that throws on every tick.
-        Check.That(throwingCalls > 1).IsTrue();
+        // Without the catch, the exception escapes the timer callback and nothing is ever logged.
+        Check.That(logger.Faults).Not.IsEmpty();
+        Check.That(logger.Faults[0]).IsInstanceOf<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task AThrowingSubscriber_DoesNotStopTheProviderTicking()
+    {
+        var logger = new CapturingLogger();
+        using var sut = new MouseGazeProvider(pollIntervalMs: 10, logger: logger);
+        int calls = 0;
+        sut.GazePointReceived += _ => { calls++; throw new InvalidOperationException("boom"); };
+
+        sut.Start();
+        await Task.Delay(200);
+        sut.Stop();
+
+        // The finally already re-armed before this change; this guards that the added catch did not
+        // break the re-arm.
+        Check.That(calls > 1).IsTrue();
     }
 }
 ```
 
-- [ ] **Step 2: Run it and observe the current behaviour**
+- [ ] **Step 2: Run to verify the first test fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Platform.Tests/EyeCtrl.Platform.Tests.csproj --filter "FullyQualifiedName~MouseGazeProviderFaultTests"
 ```
 
-Expected: this test may **pass** already, because the exception is thrown on a thread-pool thread that xUnit does not observe — the `finally` re-arms regardless. That is precisely the danger: the fault is invisible to the test host while still being fatal in production. Record the observed result and proceed; the value of the change is the `catch` plus the log, not a red-to-green transition here.
+Expected: compile error first — `MouseGazeProvider` has no `logger` parameter. After Step 3 adds it but *before* the `catch` is added, `AThrowingSubscriber_IsCaughtAndLogged_NotLeftToKillTheProcess` must **fail** with an empty `Faults` list. If it passes at that point, the `catch` is not doing the work and something else is swallowing the exception — stop and investigate rather than proceeding.
 
 - [ ] **Step 3: Add the catch and a logger**
 

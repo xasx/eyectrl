@@ -35,9 +35,11 @@ private readonly object _handlerLock = new();
 public event Action<GazePoint>? GazeSampled
 {
     add    { if (value is not null) lock (_handlerLock) _gazeSampledHandlers = [.. _gazeSampledHandlers, value]; }
-    remove { if (value is not null) lock (_handlerLock) _gazeSampledHandlers = _gazeSampledHandlers.Where(h => !h.Equals(value)).ToArray(); }
+    remove { if (value is not null) lock (_handlerLock) _gazeSampledHandlers = RemoveLast(_gazeSampledHandlers, value); }
 }
 ```
+
+`remove` must strip only the **last** matching handler, not every match — that is what `-=` does on a multicast delegate, and duplicating the semantics matters if the same target is ever subscribed twice. A `Where(h => !h.Equals(value))` filter would silently remove all of them and is wrong.
 
 Publication iterates the array by index and guards each handler individually:
 

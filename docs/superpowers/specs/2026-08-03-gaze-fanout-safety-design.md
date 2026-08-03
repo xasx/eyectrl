@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-03
 **Branch:** `worktree-gaze-observer-hub`
-**Scope:** three contained fixes to the gaze hot path. No new contract, no plug-in mechanism, no migration.
+**Scope:** four contained fixes to the gaze hot path. No new contract, no plug-in mechanism, no migration.
 
 ## Why this is small
 
@@ -12,9 +12,9 @@ An earlier draft of this work specified a full pluggable observer tier — `IGaz
 2. **Declared consumption was speculative.** Third-party extensions are explicitly not a goal, so the declaration bought one diagnostic and some documentation.
 3. **The dual coordinate space is a permanent complexity tax** on every future author, incurred because one controller performs two kinds of test.
 
-What survives is the part that stands on its own: the gaze fan-out can kill the process, and a latent stale-data bug sits next to it. Extension-point design waits until a second consumer actually demands it.
+What survives is the part that stands on its own: the gaze fan-out can kill the process, and two coordinate/staleness bugs sit next to it. Extension-point design waits until a second consumer actually demands it.
 
-A fourth fix — logging a silently-discarded calibration — was in an earlier draft of this spec and has been **removed as already done**; see [Related work](#related-work).
+Two changes since the first reduction, both worth noting because they moved in opposite directions. A calibration-logging fix was dropped as **already done elsewhere** (see [Related work](#related-work)). And Problem 4 — the uncalibrated toolbar hit-test — was pulled **in** from a recorded-but-deferred finding, because that same calibration work is about to activate it.
 
 ## Problem 1 — the fan-out is unguarded
 
@@ -115,6 +115,59 @@ Eye care exposes its fatigue score together with the timestamp of the sample it 
 
 This also removes the ordering dependency outright — worst case is a one-frame-stale value on a 60-second window — so the two handlers become genuinely independent and registration order stops being load-bearing. The other input, `gazeEngine.LastFixationJitter`, is read from the engine itself and cannot fault.
 
+## Problem 4 — the toolbar rect test uses uncalibrated coordinates
+
+`ToolbarAutoHideController` subscribes to `GazeSampled` ([EventCoordinator.cs:604](../../../src/EyeCtrl.App/Services/EventCoordinator.cs)), which fires at `GazeEngine.cs:230` — *before* the calibration transform at `:233-237`. The controller then performs two tests that want **different coordinate spaces**:
+
+| Test | Line | Wants | Gets |
+|---|---|---|---|
+| `_toolbarRect.Contains(sample.X, sample.Y)` | [:159](../../../src/EyeCtrl.App/Services/ToolbarAutoHideController.cs) | calibrated — an on-screen rect captured from the live window | raw ❌ |
+| `IsPastDockedEdge(sample)` | [:214](../../../src/EyeCtrl.App/Services/ToolbarAutoHideController.cs) | raw — tests `s.X < -_offScreenMarginPx`, outside calibration's fitted domain | raw ✔ |
+
+So the rect hit-test compares tracker-native coordinates against screen geometry. **It has been correct only by accident**: `:233` guards the transform with `is { } t`, and this machine's persisted calibration was being discarded at load, so `CurrentTransform` was null, raw ≡ calibrated, and the error was zero.
+
+**That accident is ending, which is why this is now in scope.** The calibration work described under [Related work](#related-work) makes previously-rejected calibrations load successfully. Once a transform is live, the toolbar's gaze-sensitive region separates from the visible toolbar — the toolbar stops hiding when you look away from it, and stops staying visible when you look at it.
+
+`CalibrationValidator.IsNearIdentity` does **not** bound the error usefully. Its limit is `sqrt(w² + h²) × MaxIdentityDisplacementScreenFraction` ([CalibrationValidator.cs:95-97](../../../src/EyeCtrl.Core/Calibration/CalibrationValidator.cs)) — 25% of the screen *diagonal*, which on 3840×2400 permits ~1,132 px of displacement at any reference point. Far more than enough to move a hit-test off an 80 px-tall toolbar.
+
+### Fix 4 — inject a to-screen mapper, and use it for the rect test only
+
+The controller already accepts an optional delegate for calibration state (`Func<bool>? calibrationActive = null`, [:61](../../../src/EyeCtrl.App/Services/ToolbarAutoHideController.cs)). Follow that precedent with a second one:
+
+```csharp
+public ToolbarAutoHideController(
+    …,
+    Func<bool>? calibrationActive = null,
+    Func<PhysicalPoint, PhysicalPoint>? toScreen = null)   // null ⇒ identity
+```
+
+Inside `Feed`, map **only** in the `State.Visible` branch, where the rect test lives:
+
+```csharp
+case State.Visible:
+    var probe = _toScreen is null
+        ? new PhysicalPoint(sample.X, sample.Y)
+        : _toScreen(new PhysicalPoint(sample.X, sample.Y));
+    if (sample.IsValid && _toolbarRect.Contains(probe.X, probe.Y))
+```
+
+`IsPastDockedEdge(sample)` is **unchanged** and keeps raw coordinates. Off-screen gaze must stay tracker-native: the transform is fit exclusively to on-screen targets, so beyond the edge it is extrapolating outside its fitted domain, and `IsNearIdentity` constrains only the corners and centre — it says nothing about points outside them. Calibrating the edge test would not degrade the gesture, it would erase it: raw `x = -30` with a +200 px edge displacement becomes `+170`, comfortably on-screen, and summon never fires.
+
+Wiring, at the existing construction site ([EventCoordinator.cs:579-588](../../../src/EyeCtrl.App/Services/EventCoordinator.cs)), which already has `_context.CalibrationService` in scope:
+
+```csharp
+toScreen: p => _context.CalibrationService.CurrentTransform?.Apply(p) ?? p
+```
+
+Four properties make this the right shape:
+
+- **It is a no-op today.** With `CurrentTransform` null the delegate returns its input, so behaviour is bit-identical to current until a calibration actually loads. The fix cannot regress the present state — which matters for a control surface on a daily driver.
+- **It picks up recalibration live.** The delegate reads `CurrentTransform` per call rather than caching, so a mid-session recalibration takes effect without re-wiring.
+- **It introduces no new cross-thread exposure.** `GazeEngine` already reads `_calibrationService?.CurrentTransform` on the gaze thread at `:233`. `CompleteSession` and `Load` both publish a *fresh* `AffineTransform` instance rather than mutating the live one, so a reference read cannot observe half-updated coefficients.
+- **Cost is one affine apply** (6 multiplies, 4 adds) per sample, and only while the toolbar is Visible — the `Hidden` branch does not touch it. This does duplicate the transform the pipeline already computes at `:233-237`; passing the corrected point through instead would require the payload change this spec deliberately does not make, and the arithmetic is far below noise on a 33 ms frame.
+
+**Not addressed, deliberately:** `FatigueMonitor` also compares gaze against a screen-space setting (`_fixationRadiusPixels`) while reading raw coordinates. Its measure is dispersion around a centroid, which is translation-invariant, so only the transform's scale terms bias it — and those are implicitly bounded by `IsNearIdentity`. Switching it would alter a tuned scoring heuristic for a second-order correction. Recorded here rather than fixed.
+
 ## Explicitly not doing
 
 Preserved in `32243f9` should any of it become warranted:
@@ -122,28 +175,11 @@ Preserved in `32243f9` should any of it become warranted:
 - `IGazeObserver` / `IGazeObserverHub` / `GazeSample` / `GazeSampleKind`
 - declared consumption and its calibration diagnostic
 - trip-and-disable, and the user-visible notice it needed
-- a calibrated-coordinate delivery, and moving the toolbar rect test onto it
+- a calibrated-coordinate delivery *in the pipeline* — Fix 4 maps at the one consumer that needs it instead
 - the twelve-site migration and the four-step sequencing
 - a slow-observer watchdog in any form — measured at 174.3 ns/sample always-on, exceeding the entire pipeline cost, with StdDev 76 ms on a 436 ms mean
 
 Also unchanged: `CursorMoved`'s signature. It drops `IsValid` deliberately, which is precisely why `samples/OffScreenGazeProbe` cannot use it ([:74](../../../samples/OffScreenGazeProbe/MainWindow.xaml.cs)).
-
-### Known bug NOT fixed here: the toolbar rect test uses uncalibrated coordinates
-
-Recorded so the finding is not lost with the rejected design. It is verified, it is not addressed by any of the four fixes, and it is **not** introduced by them.
-
-`ToolbarAutoHideController` subscribes to `GazeSampled` ([EventCoordinator.cs:604](../../../src/EyeCtrl.App/Services/EventCoordinator.cs)), which fires at `GazeEngine.cs:230` — *before* the calibration transform at `:233-237`. The controller then performs two tests that want **different coordinate spaces**:
-
-| Test | Line | Wants | Gets |
-|---|---|---|---|
-| `_toolbarRect.Contains(sample.X, sample.Y)` | [:159](../../../src/EyeCtrl.App/Services/ToolbarAutoHideController.cs) | calibrated — an on-screen rect from the live window | raw ❌ |
-| `IsPastDockedEdge(sample)` | [:214](../../../src/EyeCtrl.App/Services/ToolbarAutoHideController.cs) | raw — tests `s.X < -_offScreenMarginPx`, outside calibration's fitted domain | raw ✔ |
-
-So the rect hit-test compares tracker-native coordinates against screen geometry. **It has been correct only by accident**: `:233` guards the transform with `is { } t`, and this machine's persisted calibration was being discarded at load, so `CurrentTransform` was null, raw ≡ calibrated, and the error was zero. That accident is ending — the calibration fix described under [Related work](#related-work) makes previously-rejected calibrations load — and once a transform is live, the toolbar's gaze-sensitive region separates from the visible toolbar.
-
-`CalibrationValidator.IsNearIdentity` does **not** bound this usefully. Its limit is `sqrt(w² + h²) × MaxIdentityDisplacementScreenFraction` ([CalibrationValidator.cs:95-97](../../../src/EyeCtrl.Core/Calibration/CalibrationValidator.cs)) — 25% of the screen *diagonal*, which on 3840×2400 permits ~1,132 px of displacement at any reference point. That is far more than enough to move a hit-test off an 80 px-tall toolbar.
-
-Not fixed here because the fix needs a calibrated-coordinate delivery, which is the contract this spec deliberately does not build. Whoever addresses it should note that off-screen gaze must *keep* tracker-native coordinates — a transform fit exclusively to on-screen targets extrapolates badly beyond the edge, and `IsNearIdentity` constrains only the corners and centre, saying nothing outside them.
 
 ## Testing
 
@@ -162,9 +198,14 @@ xUnit v3 with NFluent (`Check.That(...)`, never `Assert.*`), centrally wired in 
 
 **Platform.Tests:** a throwing subscriber does not escape `PollLoop`, and does not escape `MouseGazeProvider.OnTick`; the mouse provider's timer still re-arms afterwards.
 
-**App.Tests (headless, `Category!=UI`):** `GazeQualityAggregator` receives `0` when eye care's last-processed timestamp does not match the current sample — asserted by making eye care throw, not by reordering registration.
+**App.Tests (headless, `Category!=UI`):**
 
-No calibration tests are needed here — that work landed separately, with its own coverage.
+- `GazeQualityAggregator` receives `0` when eye care's last-processed timestamp does not match the current sample — asserted by making eye care throw, not by reordering registration.
+- **Fix 4, the case that matters:** with a non-identity `toScreen` mapper, gaze whose *raw* coordinates fall inside the toolbar rect but whose *mapped* coordinates fall outside does **not** count as on-toolbar, and vice versa. A test that only exercises an identity mapper would pass against the unfixed code and prove nothing.
+- With `toScreen: null`, behaviour is unchanged from today — the existing `ToolbarAutoHideControllerTests` should pass untouched, which is the regression guard for the no-calibration path.
+- `IsPastDockedEdge` still fires on raw off-screen coordinates **even when a non-identity mapper is supplied** — the mapper must not reach the edge test. This is the test that would catch someone "helpfully" applying the mapper to the whole `Feed`.
+
+No calibration-loading tests are needed here — that work landed separately, with its own coverage.
 
 Test output is German — per-test failures appear as `Fehler <FQN>`, so grepping for `Failed` reports false green.
 
@@ -182,7 +223,8 @@ The second is required because that project is not in `EyeCtrl.slnx`. No `sample
 
 1. **Fix 1 + Fix 3 together.** Isolation without staleness detection would ship the stale-`FatigueScore` distortion described in Problem 3. They are one change.
 2. **Fix 2**, both providers. Independent of step 1 and separately verifiable.
-3. Add the delegate-array variant to `GazeObserverFanOutBenchmarks` and record it, to confirm Fix 1 is not a regression.
+3. **Fix 4**, the toolbar mapper. Independent of the others, and a no-op until a calibration loads — so it can land before the calibration work without any behaviour change, which is the safer order. Landing it *after* leaves a window where the toolbar hit-test is live-wrong.
+4. Add the delegate-array variant to `GazeObserverFanOutBenchmarks` and record it, to confirm Fix 1 is not a regression.
 
 ## Related work
 
@@ -191,4 +233,4 @@ The second is required because that project is not in `EyeCtrl.slnx`. No `sample
 - **Rejected larger design** — commit `32243f9`.
 - **Silently-discarded calibration — ALREADY FIXED; was Fix 4 in an earlier draft of this spec.** Work in the main checkout (uncommitted as of 2026-08-03) supersedes it and goes further than this spec had proposed. `CalibrationService.Load` now logs both the screen-size and the monitor mismatch naming *both* sides; adds a `LastLoadRejection` sentence for the UI, so an inert calibration is distinguishable from never having calibrated; and adds EDID-derived `MonitorHardwareId` matching (`src/EyeCtrl.Platform/Interop/MonitorIdentity.cs`, with tests) so display renumbering no longer discards a calibration at all — the stable-identity question this spec had explicitly deferred as needing its own decision. Its own comment records the symptom: *"this path used to `return` silently, which is how an inert calibration could survive weeks unnoticed."*
 
-  **This raises the priority of the [known toolbar bug](#known-bug-not-fixed-here-the-toolbar-rect-test-uses-uncalibrated-coordinates).** Calibrations that previously failed to load will now load successfully, so raw and calibrated coordinates will stop coinciding — which is exactly the condition under which the uncalibrated rect test starts misbehaving. The "correct today only by accident" reasoning in that section describes a state that is about to end.
+  **This is what pulled [Problem 4](#problem-4--the-toolbar-rect-test-uses-uncalibrated-coordinates) into scope.** Calibrations that previously failed to load will now load successfully, so raw and calibrated coordinates stop coinciding — which is exactly the condition under which the uncalibrated toolbar hit-test starts misbehaving. Fix 4 is a no-op until that happens, so the safe order is to land it first; see [Sequencing](#sequencing).

@@ -8,7 +8,7 @@
 
 An earlier draft of this work specified a full pluggable observer tier — `IGazeObserver`, a `GazeSample` carrying two coordinate spaces, declared consumption, a trip-and-disable fault policy, and a twelve-site migration. That version is preserved in commit `32243f9` and was deliberately rejected as oversized for the actual problem. Three reasons:
 
-1. **The trip policy generated its own bug.** Trip-and-disable is what makes a tripped eye-care observer freeze `FatigueScore` into adaptation, which then needed a third mechanism (timestamp staleness) to solve. The measurement undercut the case for tripping anyway: a caught exception costs ~1 µs, about 0.003% of a 30 Hz frame.
+1. **The trip policy generated its own bug.** Trip-and-disable is what makes a tripped eye-care observer freeze `FatigueScore` into adaptation, which then needed a third mechanism (timestamp staleness) to solve. The measurement undercut the case for tripping anyway: a caught exception costs ~1 µs, about 0.003% of a 30 Hz frame. Read that as the cost of the *mechanism* — throw, unwind, catch — and not as the cost of a real fault, where the faulting handler's own partial work (WPF calls, Serilog I/O) would dominate. It bounds what isolation costs; it does not bound what a broken handler costs.
 2. **Declared consumption was speculative.** Third-party extensions are explicitly not a goal, so the declaration bought one diagnostic and some documentation.
 3. **The dual coordinate space is a permanent complexity tax** on every future author, incurred because one controller performs two kinds of test.
 
@@ -101,7 +101,7 @@ This one is subtle and must land **in the same change** as Fix 1.
 
 Today, if eye care throws, the multicast aborts and gaze quality — registered after it — never runs either. Both stop together, which is bad but not silently wrong.
 
-**Per-handler isolation changes that.** After Fix 1, eye care throwing no longer stops gaze quality, so gaze quality runs and reads a *stale* `FatigueScore`. `FatigueMonitor.Score` is assigned only inside `OnSample`, so it freezes at its value when the fault hit. That value then flows into every summary, is averaged by [`StruggleSignals`](../../../src/EyeCtrl.Core/Adaptation/StruggleSignals.cs), and leaves adaptation behaving as though the user were permanently as fatigued as at that instant — loosening tolerances and lengthening dwell indefinitely.
+**Per-handler isolation changes that.** After Fix 1, eye care throwing no longer stops gaze quality, so gaze quality runs and reads a *stale* `FatigueScore`. `FatigueMonitor.Score` is written only by the constructor, `OnSample`, and `Reset` — and `Reset` fires only on a settings toggle-off or a completed break. Nothing decays it with time, so once `OnSample` stops being reached the score freezes at whatever it held when the fault hit. That value then flows into every summary, is averaged by [`StruggleSignals`](../../../src/EyeCtrl.Core/Adaptation/StruggleSignals.cs), and leaves adaptation behaving as though the user were permanently as fatigued as at that instant — loosening tolerances and lengthening dwell indefinitely.
 
 So Fix 1 converts "both handlers stop" into "one handler runs on frozen data and quietly distorts dwell". The second is worse, because it is invisible.
 
@@ -143,6 +143,23 @@ Preserved in `32243f9` should any of it become warranted:
 - a slow-observer watchdog in any form — measured at 174.3 ns/sample always-on, exceeding the entire pipeline cost, with StdDev 76 ms on a 436 ms mean
 
 Also unchanged: `CursorMoved`'s signature. It drops `IsValid` deliberately, which is precisely why `samples/OffScreenGazeProbe` cannot use it ([:74](../../../samples/OffScreenGazeProbe/MainWindow.xaml.cs)).
+
+### Known bug NOT fixed here: the toolbar rect test uses uncalibrated coordinates
+
+Recorded so the finding is not lost with the rejected design. It is verified, it is not addressed by any of the four fixes, and it is **not** introduced by them.
+
+`ToolbarAutoHideController` subscribes to `GazeSampled` ([EventCoordinator.cs:604](../../../src/EyeCtrl.App/Services/EventCoordinator.cs)), which fires at `GazeEngine.cs:230` — *before* the calibration transform at `:233-237`. The controller then performs two tests that want **different coordinate spaces**:
+
+| Test | Line | Wants | Gets |
+|---|---|---|---|
+| `_toolbarRect.Contains(sample.X, sample.Y)` | [:159](../../../src/EyeCtrl.App/Services/ToolbarAutoHideController.cs) | calibrated — an on-screen rect from the live window | raw ❌ |
+| `IsPastDockedEdge(sample)` | [:214](../../../src/EyeCtrl.App/Services/ToolbarAutoHideController.cs) | raw — tests `s.X < -_offScreenMarginPx`, outside calibration's fitted domain | raw ✔ |
+
+So the rect hit-test compares tracker-native coordinates against screen geometry. **It is correct today only by accident**: `:233` guards the transform with `is { } t`, and on this machine `CurrentTransform` is null (Problem 4), so raw ≡ calibrated and the error is zero. The moment a calibration loads successfully, the toolbar's gaze-sensitive region separates from the visible toolbar.
+
+`CalibrationValidator.IsNearIdentity` does **not** bound this usefully. Its limit is `sqrt(w² + h²) × MaxIdentityDisplacementScreenFraction` ([CalibrationValidator.cs:95-97](../../../src/EyeCtrl.Core/Calibration/CalibrationValidator.cs)) — 25% of the screen *diagonal*, which on 3840×2400 permits ~1,132 px of displacement at any reference point. That is far more than enough to move a hit-test off an 80 px-tall toolbar.
+
+Not fixed here because the fix needs a calibrated-coordinate delivery, which is the contract this spec deliberately does not build. Whoever addresses it should note that off-screen gaze must *keep* tracker-native coordinates — a transform fit exclusively to on-screen targets extrapolates badly beyond the edge, and `IsNearIdentity` constrains only the corners and centre, saying nothing outside them.
 
 ## Testing
 

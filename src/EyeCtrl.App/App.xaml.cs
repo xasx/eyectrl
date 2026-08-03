@@ -184,8 +184,12 @@ public partial class App : Application
             var screen = new PhysicalPoint(
                 SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
                 SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
+            // Match on the monitor's EDID identity, not its \\.\DISPLAYn index: Windows renumbers those
+            // on dock changes/driver updates/reboots, which used to discard the calibration silently.
             var monitorName = System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "";
-            _serviceProvider.GetRequiredService<CalibrationService>().Load(calibrationPath, screen, monitorName);
+            var monitorHardwareId = EyeCtrl.Platform.Interop.MonitorIdentity.GetHardwareId(monitorName);
+            _serviceProvider.GetRequiredService<CalibrationService>()
+                .Load(calibrationPath, screen, monitorName, monitorHardwareId);
 
             // ── Event Coordination ──
             // All PropertyChanged and message handlers are now managed by EventCoordinator

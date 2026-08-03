@@ -1220,9 +1220,17 @@ public partial class SettingsWindow : OverlayWindow
     private string CalibrationStatusText()
     {
         var data = _calibrationService.CurrentData;
-        if (data == null) return "Last calibration: none";
-        return $"Last calibration: {data.CalibratedAt.LocalDateTime:g}  ·  "
-            + $"{data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)";
+        if (data != null)
+        {
+            return $"Last calibration: {data.CalibratedAt.LocalDateTime:g}  ·  "
+                + $"{data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)";
+        }
+
+        // A calibration that exists on disk but was refused at startup is otherwise indistinguishable
+        // from never having calibrated — both leave CurrentData null and gaze running raw. Say which,
+        // and why, so drifting dwell has a visible explanation without reading the log.
+        var rejection = _calibrationService.LastLoadRejection;
+        return rejection == null ? "Last calibration: none" : $"Last calibration: {rejection}";
     }
 
     // ────── Shared helpers ──────

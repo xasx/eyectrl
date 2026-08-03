@@ -18,6 +18,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Windows.Forms;
 using EyeCtrl.Platform.Input;
+using EyeCtrl.Platform.Interop;
 using EyeCtrl.Platform.Services;
 using EyeCtrl.ViewModels;
 using EyeCtrl.EyeCare;
@@ -190,7 +191,10 @@ public class AppBootstrapper
                 System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
                 System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY),
             System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "",
-            Path.Combine(appDataDir, "calibration.json")));
+            Path.Combine(appDataDir, "calibration.json"),
+            // Recorded so the next load matches on EDID rather than the \\.\DISPLAYn index, which
+            // Windows renumbers on dock changes/driver updates/reboots.
+            MonitorIdentity.GetHardwareId(System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "")));
         services.AddSingleton<TargetHighlightOverlayViewModel>();
         services.AddSingleton<DragTrailViewModel>();
         services.AddSingleton<EdgeButtonBarViewModel>();

@@ -15,8 +15,28 @@ public sealed class CalibrationData
     public int ScreenWidth { get; init; }
     /// <summary>Screen height in physical pixels at calibration time.</summary>
     public int ScreenHeight { get; init; }
-    /// <summary>Name of the monitor the calibration was performed on.</summary>
+    /// <summary>
+    /// GDI display name of the monitor the calibration was performed on (e.g. <c>\\.\DISPLAY1</c>).
+    /// Windows renumbers these whenever monitors are attached, detached, or re-enumerated (dock
+    /// changes, driver updates, reboots), so this is NOT a durable identity — prefer
+    /// <see cref="MonitorHardwareId"/> and keep this for diagnostics and legacy records.
+    /// </summary>
     public string MonitorDeviceName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Stable hardware identity of the monitor the calibration was performed on: the EDID PnP ID
+    /// (three-letter manufacturer code plus four-hex-digit product code, e.g. <c>DELA1CF</c>).
+    /// Unlike <see cref="MonitorDeviceName"/> this survives display renumbering, so it is the
+    /// primary key <see cref="CalibrationService.Load"/> matches on.
+    /// <para>
+    /// Empty when the platform could not determine it, and on records written before this field
+    /// existed; <see cref="CalibrationService.Load"/> then falls back to matching
+    /// <see cref="MonitorDeviceName"/>. Identifies a monitor <em>model</em>, not an individual
+    /// unit — EDID carries a serial number but DisplayConfig does not surface it, so two identical
+    /// monitors share an ID.
+    /// </para>
+    /// </summary>
+    public string MonitorHardwareId { get; init; } = string.Empty;
 
     /// <summary>Computes the mean Euclidean error in pixels across all calibration points.</summary>
     /// <returns>Mean error in physical pixels, or positive infinity if no points exist.</returns>

@@ -314,9 +314,257 @@ public class CalibrationServiceTests
         Check.That(service.CurrentTransform).IsNull();
     }
 
+    // ── Monitor / screen identity on load ──
+    // Until 2026-08-02 a screen-or-monitor mismatch was a bare `return` with no log of any kind, so a
+    // calibration silently stopped applying and the only symptom was drifting dwell. Windows renumbers
+    // \\.\DISPLAYn whenever monitors are attached, detached, or re-enumerated, so this recurs; these
+    // tests pin both that the rejection is observable and that a stable hardware id prevents it.
+
+    /// <summary>Saves a valid calibration for the given monitor identity and returns its file path.</summary>
+    private static string SaveValidCalibration(
+        PhysicalPoint screen, string monitorDeviceName, string monitorHardwareId = "")
+    {
+        var service = new CalibrationService();
+        service.StartSession(3, screen);
+        var targets = CalibrationTargetPositionHelper.GetPositions(3, screen);
+        for (int i = 0; i < 3; i++)
+        {
+            service.BeginTarget(i);
+            for (int j = 0; j < 30; j++)
+                service.AddRawSample(new PhysicalPoint(targets[i].X + 1, targets[i].Y));
+            service.EndTarget();
+        }
+        var data = service.CompleteSession(screen, monitorDeviceName, monitorHardwareId);
+
+        var path = Path.GetTempFileName();
+        service.Save(path, data);
+        return path;
+    }
+
+    [Fact]
+    public void Load_LogsWarningNamingBothMonitors_OnMonitorMismatch()
+    {
+        var screen = new PhysicalPoint(3840, 2400);
+        var path = SaveValidCalibration(screen, "\\\\.\\DISPLAY14");
+        try
+        {
+            var logger = new FakeLogger<CalibrationService>();
+            var service = new CalibrationService(logger);
+
+            // DISPLAY2, not DISPLAY1, as the current name: "DISPLAY14" contains "DISPLAY1", so a
+            // Contains("DISPLAY1") assertion would pass on the persisted value alone and prove nothing.
+            service.Load(path, screen, "\\\\.\\DISPLAY2");
+
+            Check.That(service.CurrentTransform).IsNull();
+
+            // The whole point: the log must answer "why did my calibration stop applying?" on its own,
+            // which means naming the persisted AND the current monitor.
+            var warning = logger.Warnings.FirstOrDefault(w => w.Contains("different monitor"));
+            Check.That(warning).IsNotNull();
+            Check.That(warning!).Contains("DISPLAY14");
+            Check.That(warning!).Contains("DISPLAY2");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_LogsWarningNamingBothSizes_OnScreenSizeMismatch()
+    {
+        var path = SaveValidCalibration(new PhysicalPoint(3840, 2400), "DISPLAY1");
+        try
+        {
+            var logger = new FakeLogger<CalibrationService>();
+            var service = new CalibrationService(logger);
+
+            service.Load(path, new PhysicalPoint(1920, 1080), "DISPLAY1");
+
+            Check.That(service.CurrentTransform).IsNull();
+            var warning = logger.Warnings.FirstOrDefault(w => w.Contains("3840x2400"));
+            Check.That(warning).IsNotNull();
+            Check.That(warning!).Contains("1920x1080");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_RecordsRejectionNamingBothMonitors_OnMonitorMismatch()
+    {
+        // LastLoadRejection is what the settings Calibration tab shows, so it must distinguish
+        // "never calibrated" from "calibrated, but inert because the monitor changed".
+        var screen = new PhysicalPoint(3840, 2400);
+        var path = SaveValidCalibration(screen, "\\\\.\\DISPLAY14", "AUOC5AC");
+        try
+        {
+            var service = new CalibrationService();
+            // DISPLAY2 rather than DISPLAY1: see Load_LogsWarningNamingBothMonitors_OnMonitorMismatch.
+            service.Load(path, screen, "\\\\.\\DISPLAY2", "DELA1CF");
+
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(service.CurrentData).IsNull();
+            Check.That(service.LastLoadRejection).IsNotNull();
+            Check.That(service.LastLoadRejection!).Contains("DISPLAY14");
+            Check.That(service.LastLoadRejection!).Contains("DISPLAY2");
+            Check.That(service.LastLoadRejection!).Contains("AUOC5AC");
+            Check.That(service.LastLoadRejection!).Contains("DELA1CF");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_AppliesCalibration_WhenHardwareIdMatchesButDisplayWasRenumbered()
+    {
+        // The fix for the recurring failure: same physical monitor, new \\.\DISPLAYn index.
+        var screen = new PhysicalPoint(3840, 2400);
+        var path = SaveValidCalibration(screen, "\\\\.\\DISPLAY14", "AUOC5AC");
+        try
+        {
+            var service = new CalibrationService();
+            service.Load(path, screen, "\\\\.\\DISPLAY1", "AUOC5AC");
+
+            Check.That(service.CurrentTransform).IsNotNull();
+            Check.That(service.LastLoadRejection).IsNull();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_RefreshesStoredDeviceName_AfterHardwareIdMatch()
+    {
+        // Keeps the legacy name-only path accurate for the day the hardware id cannot be read.
+        var screen = new PhysicalPoint(3840, 2400);
+        var path = SaveValidCalibration(screen, "\\\\.\\DISPLAY14", "AUOC5AC");
+        try
+        {
+            var service = new CalibrationService();
+            service.Load(path, screen, "\\\\.\\DISPLAY1", "AUOC5AC");
+
+            Check.That(service.CurrentData).IsNotNull();
+            Check.That(service.CurrentData!.MonitorDeviceName).IsEqualTo("\\\\.\\DISPLAY1");
+            Check.That(service.CurrentData!.MonitorHardwareId).IsEqualTo("AUOC5AC");
+
+            // Persisted, not just in memory.
+            var reloaded = new CalibrationService();
+            reloaded.Load(path, screen, "\\\\.\\DISPLAY1");
+            Check.That(reloaded.CurrentTransform).IsNotNull();
+            Check.That(reloaded.CurrentData!.MonitorDeviceName).IsEqualTo("\\\\.\\DISPLAY1");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_RejectsCalibration_WhenHardwareIdDiffers_EvenThoughDeviceNameMatches()
+    {
+        // A renumbering can also hand the OLD name to a DIFFERENT monitor, so the hardware id must win.
+        var screen = new PhysicalPoint(3840, 2400);
+        var path = SaveValidCalibration(screen, "\\\\.\\DISPLAY1", "AUOC5AC");
+        try
+        {
+            var logger = new FakeLogger<CalibrationService>();
+            var service = new CalibrationService(logger);
+
+            service.Load(path, screen, "\\\\.\\DISPLAY1", "DELA1CF");
+
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(logger.Warnings.Any(w => w.Contains("different monitor"))).IsTrue();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_FallsBackToDeviceName_ForLegacyRecordWithoutHardwareId()
+    {
+        // Records written before MonitorHardwareId existed must keep loading on a name match.
+        var screen = new PhysicalPoint(1920, 1080);
+        var path = SaveValidCalibration(screen, "DISPLAY1");
+        try
+        {
+            var service = new CalibrationService();
+            service.Load(path, screen, "DISPLAY1", "AUOC5AC");
+
+            Check.That(service.CurrentTransform).IsNotNull();
+            Check.That(service.LastLoadRejection).IsNull();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void LastLoadRejection_IsClearedByASuccessfulLoadAndByClear()
+    {
+        var screen = new PhysicalPoint(1920, 1080);
+        var path = SaveValidCalibration(screen, "DISPLAY1");
+        try
+        {
+            var service = new CalibrationService();
+
+            service.Load(path, screen, "DISPLAY2");
+            Check.That(service.LastLoadRejection).IsNotNull();
+
+            service.Load(path, screen, "DISPLAY1");
+            Check.That(service.LastLoadRejection).IsNull();
+
+            service.Load(path, screen, "DISPLAY2");
+            Check.That(service.LastLoadRejection).IsNotNull();
+            service.Clear();
+            Check.That(service.LastLoadRejection).IsNull();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void CompleteSession_PersistsMonitorHardwareId()
+    {
+        var service = new CalibrationService();
+        var screen = new PhysicalPoint(1920, 1080);
+        service.StartSession(3, screen);
+        var targets = CalibrationTargetPositionHelper.GetPositions(3, screen);
+        for (int i = 0; i < 3; i++)
+        {
+            service.BeginTarget(i);
+            for (int j = 0; j < 30; j++)
+                service.AddRawSample(new PhysicalPoint(targets[i].X + 1, targets[i].Y));
+            service.EndTarget();
+        }
+
+        var data = service.CompleteSession(screen, "\\\\.\\DISPLAY1", "AUOC5AC");
+
+        Check.That(data.MonitorDeviceName).IsEqualTo("\\\\.\\DISPLAY1");
+        Check.That(data.MonitorHardwareId).IsEqualTo("AUOC5AC");
+    }
+
     private sealed class FakeLogger<T> : ILogger<T>
     {
         public int LoggedCount { get; private set; }
+
+        /// <summary>Formatted text of every entry, so tests can assert what a warning actually names.</summary>
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        /// <summary>Formatted text of the warning-or-worse entries only.</summary>
+        public IEnumerable<string> Warnings =>
+            Entries.Where(e => e.Level >= LogLevel.Warning).Select(e => e.Message);
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -325,6 +573,7 @@ public class CalibrationServiceTests
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             LoggedCount++;
+            Entries.Add((logLevel, formatter(state, exception)));
         }
     }
 }

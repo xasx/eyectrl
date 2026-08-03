@@ -585,7 +585,12 @@ public class EventCoordinator : IEventCoordinator
             hideDelayMs: 5000,
             summonDelayMs: 400,
             offScreenMarginPx: 50,
-            calibrationActive: () => _context.CalibrationService.IsSessionActive);
+            calibrationActive: () => _context.CalibrationService.IsSessionActive,
+            // Read per call, not cached, so a mid-session recalibration takes effect. Identity while
+            // no calibration is loaded, which makes this a no-op until one is. Deliberately NOT
+            // passed to QuickActionsSummonController below: its IsPastEdge test is purely off-screen,
+            // where the transform extrapolates outside the domain it was fit to.
+            toScreen: p => _context.CalibrationService.CurrentTransform?.Apply(p) ?? p);
 
         var vis = new ToolbarVisibilityAdapter(_context.OverlayManager, _context.Dispatcher);
         controller.Attach(vis);

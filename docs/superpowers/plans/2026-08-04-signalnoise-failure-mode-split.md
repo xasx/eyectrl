@@ -37,6 +37,7 @@ Why tolerance is unchanged, algebraically: writing `g` for a signal's gated scor
 | `tests/.../Adaptation/StruggleAssessmentTests.cs` | Type/enum drift guards | Enum arity 5 → 6 |
 | `tests/.../Adaptation/StruggleMonitorTests.cs` | Monitor behaviour through `Assess` | Retarget the jitter test; move the F4 test out |
 | `tests/.../Adaptation/AdaptationControllerTests.cs` | Controller transform map | Fix 2 smoothing assertions; add `SignalNoise` + identity tests |
+| `benchmarks/EyeCtrl.Benchmarks/AdaptationBenchmarks.cs` | Per-tick cost measurement | Refresh the stale feeder comment + fixture |
 
 The new test file exists because the fold contract is a distinct responsibility from `Assess`-level monitor behaviour, and after this slice it is the *only* place the two-feeder path is exercised.
 
@@ -55,7 +56,7 @@ Merely widening `AddMode` to `internal` would **not** work: it takes `ref int co
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests`
 
-Expected: `Bestanden!` with `Fehler: 0`. Note the `gesamt:` count — you will compare against it later. (At time of writing: 1018 total, 1 skipped.)
+Expected: `Bestanden!` with `Fehler: 0`. Note the `gesamt:` count — you will compare against it later. On `main` at `b590a87` this is **1009 total** (1008 passed, 1 skipped).
 
 - [ ] **Step 2: Replace the two `AddMode` overloads with a wrapper plus the extracted static**
 
@@ -512,6 +513,7 @@ This is where the smoothing drive actually moves off abandonment. **The two knob
 **Files:**
 - Modify: `src/EyeCtrl.Core/Adaptation/AdaptationController.cs:79-81` and `:88-90`
 - Modify: `tests/EyeCtrl.Core.Tests/Adaptation/AdaptationControllerTests.cs:164-174` and `:214-224`
+- Modify: `benchmarks/EyeCtrl.Benchmarks/AdaptationBenchmarks.cs:53-65`
 
 - [ ] **Step 1: Fix the two tests that assert the old smoothing coupling, and add the new coverage**
 
@@ -666,10 +668,62 @@ Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~Adaptati
 
 Expected: `Bestanden!`, `Fehler: 0`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Refresh the benchmark fixture, whose comment this change falsifies**
+
+`benchmarks/EyeCtrl.Benchmarks/AdaptationBenchmarks.cs` builds a `_gatedStruggle` fixture meant to keep all
+four `UpdateKnob` paths doing real work, and its comment enumerates the feeder map. The `SustainFailure feeds
+tolerance/dwell/smoothing` clause becomes false here.
+
+The fixture keeps working either way — `PoorTracking` at 0.65 is present and still drives smoothing above the
+0.50 `RelaxThreshold`, so the smoothing path is **not** idle — but the comment misleads and the fixture no
+longer represents the new mode map. Replace:
+
+```csharp
+        // Every knob's feeding mode gated and scoring above the Conservative RelaxThreshold (0.50), so all
+        // four UpdateKnob paths do real work: SustainFailure feeds tolerance/dwell/smoothing,
+        // AccidentalActivation drives the quarantined dwell tightening, Aiming + PoorTracking feed geometry.
+        _gatedStruggle = new StruggleAssessment(
+            new[]
+            {
+                new FailureModeAssessment(FailureMode.SustainFailure, 0.80, 1.0, true, null),
+                new FailureModeAssessment(FailureMode.AccidentalActivation, 0.75, 1.0, true, null),
+                new FailureModeAssessment(FailureMode.Aiming, 0.70, 1.0, true, null),
+                new FailureModeAssessment(FailureMode.PoorTracking, 0.65, 1.0, true, null),
+            },
+            aggregateLevel: 0.80);
+```
+
+with:
+
+```csharp
+        // Every knob's feeding mode gated and scoring above the Conservative RelaxThreshold (0.50), so all
+        // four UpdateKnob paths do real work: SustainFailure feeds tolerance/dwell, SignalNoise feeds
+        // smoothing/tolerance (design §13.3), AccidentalActivation drives the quarantined dwell tightening,
+        // Aiming + PoorTracking feed geometry.
+        _gatedStruggle = new StruggleAssessment(
+            new[]
+            {
+                new FailureModeAssessment(FailureMode.SustainFailure, 0.80, 1.0, true, null),
+                new FailureModeAssessment(FailureMode.AccidentalActivation, 0.75, 1.0, true, null),
+                new FailureModeAssessment(FailureMode.Aiming, 0.70, 1.0, true, null),
+                new FailureModeAssessment(FailureMode.PoorTracking, 0.65, 1.0, true, null),
+                new FailureModeAssessment(FailureMode.SignalNoise, 0.80, 1.0, true, null),
+            },
+            aggregateLevel: 0.80);
+```
+
+- [ ] **Step 6: Verify the benchmark project still builds and its correctness tests pass**
+
+Run: `dotnet test benchmarks/EyeCtrl.Benchmarks.Tests`
+
+Expected: `Bestanden!`, `Fehler: 0`. This project exists precisely to assert the benchmark fixtures stay
+valid, so it — not just a build — is the check. Do **not** run the benchmarks themselves: they take minutes
+and measure per-tick cost, which this slice does not change.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/EyeCtrl.Core/Adaptation/AdaptationController.cs tests/EyeCtrl.Core.Tests/Adaptation/AdaptationControllerTests.cs
+git add src/EyeCtrl.Core/Adaptation/AdaptationController.cs tests/EyeCtrl.Core.Tests/Adaptation/AdaptationControllerTests.cs benchmarks/EyeCtrl.Benchmarks/AdaptationBenchmarks.cs
 git commit -m "feat(adaptation): drive smoothing from SignalNoise, never from abandonment
 
 Smoothing's feeders become SignalNoise + PoorTracking; tolerance gains
@@ -692,7 +746,14 @@ The per-task runs only covered `EyeCtrl.Core.Tests`. CI also runs the ViewModels
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests`
 
-Expected: `Bestanden!`, `Fehler: 0`, and a `gesamt:` count **higher** than the Task 1 baseline — 18 fold tests and 1 `SignalNoise` response test and 6 identity theory rows are added, 1 test is relocated, and the rest are edited in place. Confirm `Fehler: 0` and that the total rose; do not try to match an exact number, since xUnit counts each `[InlineData]` row separately and the baseline depends on when you started.
+Expected: `Bestanden!`, `Fehler: 0`, `gesamt: 1033` (1032 passed, 1 skipped) — the `b590a87` baseline of 1009 **+ 24**, deterministic because xUnit counts each `[InlineData]` row separately:
+
+| Task | Delta | From |
+|---|---|---|
+| 2 | **+17** | 18 new (12 fold rows + 4 omission rows + 2 facts) − 1 relocated |
+| 5 | **+7** | 1 `SignalNoise` response fact + 6 identity theory rows |
+
+A different total means a theory row was duplicated or dropped — find it rather than adjusting this number. If your baseline was not 1009, confirm you branched from `main` and not from another branch.
 
 - [ ] **Step 2: Run the ViewModels suite**
 
@@ -708,11 +769,18 @@ Expected: `Bestanden!`, `Fehler: 0`. Do **not** run App.Tests without the filter
 
 `AdaptationLog` lives in this project and logs the gated-mode set, so if any App test asserts on logged mode **names**, this is where it surfaces. That would be an expected update, not a regression — see §13.3's exit criterion.
 
+- [ ] **Step 3b: Run the benchmark-correctness suite**
+
+Run: `dotnet test benchmarks/EyeCtrl.Benchmarks.Tests`
+
+Expected: `Bestanden!`, `Fehler: 0`. Repeats Task 5 Step 6 as part of the final sweep, since the fixture edit
+landed several commits back.
+
 - [ ] **Step 4: Confirm the change surface is exactly what was intended**
 
 Run: `git diff --stat main`
 
-Expected: exactly six files — three under `src/EyeCtrl.Core/Adaptation/`, three under `tests/EyeCtrl.Core.Tests/Adaptation/`, plus the new test file. **No** `src/EyeCtrl.App/`, `src/EyeCtrl.Platform/`, or `GazeEngine.cs` changes: this slice does not route anything.
+Expected: exactly seven files — three under `src/EyeCtrl.Core/Adaptation/`, three under `tests/EyeCtrl.Core.Tests/Adaptation/` (one of them new), and `benchmarks/EyeCtrl.Benchmarks/AdaptationBenchmarks.cs`. **No** `src/EyeCtrl.App/`, `src/EyeCtrl.Platform/`, or `GazeEngine.cs` changes: this slice does not route anything.
 
 - [ ] **Step 5: Verify the exit criterion honestly, and record what was not verified**
 

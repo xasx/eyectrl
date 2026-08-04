@@ -17,6 +17,10 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
     private Timer? _timer;
     private readonly int _intervalMs;
     private readonly ILogger? _logger;
+    // TickCount64 value when the last fault report was written; 0 means "never logged". Read and
+    // written on the timer thread only, so a plain field suffices. One line per 30 s window,
+    // matching the per-handler window Fix 1 uses.
+    private long _lastFaultLogTicks;
 
     public event Action<GazePoint>? GazePointReceived;
     public bool IsConnected { get; private set; }
@@ -65,7 +69,22 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
             // OnTick is a System.Threading.Timer callback, so it runs on a pooled thread where an
             // unhandled exception terminates the process. The finally below already re-arms the
             // timer; this catch is what stops the fault from being fatal.
-            _logger?.LogError(ex, "Gaze subscriber threw during a mouse-provider tick");
+            // Rate-limited like Fix 1's handler reporting: a subscriber throwing every tick must
+            // cost one log line per window, not one per tick.
+            long now = Environment.TickCount64;
+            if (_lastFaultLogTicks == 0 || now - _lastFaultLogTicks >= 30_000)
+            {
+                _lastFaultLogTicks = now;
+                try
+                {
+                    _logger?.LogError(ex, "Gaze subscriber threw during a mouse-provider tick");
+                }
+                catch
+                {
+                    // The log call is the one thing this catch invokes; a broken logger must not
+                    // re-open the escape the catch closes.
+                }
+            }
         }
         finally
         {

@@ -22,7 +22,8 @@ public class GazeProviderFactory
     {
         return type switch
         {
-            GazeProviderType.Mouse => new MouseGazeProvider(),
+            GazeProviderType.Mouse => new MouseGazeProvider(
+                logger: _loggerFactory.CreateLogger<MouseGazeProvider>()),
 #if TOBII_AVAILABLE
             GazeProviderType.StreamEngine => new TobiiStreamEngineProvider(screenWidth, screenHeight,
                 _loggerFactory.CreateLogger<TobiiStreamEngineProvider>()),
@@ -68,7 +69,7 @@ public class GazeProviderFactory
 #endif
 
         _logger.LogInformation("Falling back to Mouse simulation");
-        return new MouseGazeProvider();
+        return new MouseGazeProvider(logger: _loggerFactory.CreateLogger<MouseGazeProvider>());
     }
 
 #if TOBII_AVAILABLE

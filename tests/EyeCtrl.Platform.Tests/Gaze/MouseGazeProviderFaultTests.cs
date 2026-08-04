@@ -33,7 +33,8 @@ public class MouseGazeProviderFaultTests
         sut.Stop();
 
         // Without the catch, the exception escapes the timer callback and nothing is ever logged.
-        Check.That(logger.Faults).Not.IsEmpty();
+        // The rate limiter (30 s window) holds the flood to exactly the first fault.
+        Check.That(logger.Faults).HasSize(1);
         Check.That(logger.Faults[0]).IsInstanceOf<InvalidOperationException>();
     }
 

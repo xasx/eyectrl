@@ -75,6 +75,7 @@ public class GazeObserverFanOutBenchmarks
     private IProtoObserver[] _registered = null!;
     private IProtoObserver[] _empty = null!;
     private int[] _consecutiveFaults = null!;
+    private Action<GazePoint>[] _delegateHandlers = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -92,6 +93,9 @@ public class GazeObserverFanOutBenchmarks
             var captured = observer;
             _multicast += sample => captured.OnGazeSample(sample);
         }
+
+        // Fix 1's actual shape: a delegate array iterated by index, guarded per handler.
+        _delegateHandlers = [.. _registered.Select(o => (Action<GazePoint>)o.OnGazeSample)];
     }
 
     /// <summary>
@@ -272,5 +276,44 @@ public class GazeObserverFanOutBenchmarks
             acc += sample.TimestampMicroseconds & 1;
         }
         return acc;
+    }
+
+    /// <summary>
+    /// The shape Fix 1 actually ships: a delegate array iterated by index, no try/catch. Read against
+    /// A_BareMulticastEvent to price replacing multicast dispatch with an array loop.
+    /// </summary>
+    [Benchmark]
+    public long I_DelegateArray()
+    {
+        var stream = _stream;
+        var handlers = _delegateHandlers;
+        for (int i = 0; i < SamplesPerBatch; i++)
+        {
+            ref readonly var sample = ref stream[i & StreamMask];
+            for (int k = 0; k < handlers.Length; k++)
+                handlers[k](sample);
+        }
+        return _observers.Checksum();
+    }
+
+    /// <summary>
+    /// Fix 1 complete: delegate array plus a per-handler try/catch. The difference against
+    /// A_BareMulticastEvent is the number the spec needs — whether isolation costs anything at all.
+    /// </summary>
+    [Benchmark]
+    public long J_DelegateArray_TryCatch()
+    {
+        var stream = _stream;
+        var handlers = _delegateHandlers;
+        for (int i = 0; i < SamplesPerBatch; i++)
+        {
+            ref readonly var sample = ref stream[i & StreamMask];
+            for (int k = 0; k < handlers.Length; k++)
+            {
+                try { handlers[k](sample); }
+                catch { /* fault path priced in GazeObserverFaultBenchmarks */ }
+            }
+        }
+        return _observers.Checksum();
     }
 }

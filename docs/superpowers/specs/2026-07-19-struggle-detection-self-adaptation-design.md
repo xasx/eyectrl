@@ -53,7 +53,7 @@ must be **conservative, visible, reversible, and incapable of locking the user o
 | Value model | Effective-value layer; **delta clamped in per-direction sub-bands**, not the sum |
 | Default posture | Conservative (tunable) |
 | Caregiver channel (v1) | **Net-new** tray balloon/toast (no toast API exists today); Supervisor relay deferred |
-| Build structure | Phased: **1a substrate → 1b momentary → 2 learning → 3 caregiver** |
+| Build structure | Phased: **1a substrate → 1b momentary → 1c knob routing (§13.3) → 2 learning → 3 caregiver** |
 
 ## 4. Architecture Overview
 
@@ -149,9 +149,11 @@ effective(knob,ctx)  = clamp(baseline + forgiving + tightening, validatedRange(k
   `SmoothingFactor` (**down** = more smoothing — verified against `SmoothedFilter.cs`), target geometry px.
   There is no single scalar "relaxation."
 
-**Knobs routed through the provider:** dwell durations; tolerance (`FixationRadiusPixels`,
-`FixationDetectionMs`); smoothing (the active filter's parameter only — mode is never auto-switched);
-target geometry (button ring radius + hit radius, key hit slop, and the coupled visible size).
+**Knobs routed through the provider** — this is the *target* architecture, not the current state: dwell
+durations; tolerance (`FixationRadiusPixels`, `FixationDetectionMs`); smoothing (the active filter's
+parameter only — mode is never auto-switched); target geometry (button ring radius + hit radius, key hit
+slop, and the coupled visible size). **As implemented today only tolerance is actually routed** — the
+other three are composable but have no consumer; see §13.3 (Phase 1c).
 
 **Live-update integration** (state-preserving, gaze-thread-owned):
 - **Smoothing rebuild must not cold-start the filter (2nd-round R1).** Today `GazeEngine` builds a
@@ -168,8 +170,10 @@ target geometry (button ring radius + hit radius, key hit slop, and the coupled 
   **Optional Phase-2 hardening — full state transfer** (eliminates even the lag) is interface surgery:
   a new copy/seed method on `IGazeFilter` (which today exposes only `Filter`/`Reset`) plus state
   accessors on `OneEuroFilter` (incl. its nested `LowPassFilter.Last`, currently `private set`) and
-  `SmoothedFilter`. Either way, extend `GazeEngine`'s rebuild trigger — which today fires only on
-  `FilterMode`/`MaxGapInterpolationMs` — to `OneEuroMinCutoff`/`OneEuroBeta`/`SmoothingFactor`.
+  `SmoothedFilter`. Either way, extend `GazeEngine`'s rebuild trigger — which at the time of writing fired
+  only on `FilterMode`/`MaxGapInterpolationMs` — to `OneEuroMinCutoff`/`OneEuroBeta`/`SmoothingFactor`.
+  **(Done in 1a-⑤: the trigger now includes all three smoothing parameters. What is still missing is the
+  provider→filter *value* path and the §9.1 rebuild budget — see §13.3.)**
 - **Tolerance:** `FixationDetector` radius/time were readonly. Make them **settable** and apply changes
   **in place** — `RadiusPixels` / `FixationTimeMs` — rather than rebuilding the detector. A rebuild starts
   cold and so ends the in-progress fixation, and the controller steps a knob on *every* tick while relaxing
@@ -179,8 +183,11 @@ target geometry (button ring radius + hit radius, key hit slop, and the coupled 
   in-progress fixation preserved, shrink-out ⇒ ordinary gaze-left. Writing an unchanged value is a no-op,
   so the apply is idempotent and needs no quantization. (`GazeEngine` also subscribed to `CursorSettings`
   only, never `DwellSettings`, so even manual tolerance changes didn't propagate — fixed alongside.)
-- **Dwell time & geometry:** baked into `DwellTarget` at creation and `DwellTarget.Radius` is
-  immutable. Add **state-preserving** update methods on `DwellDetector` (mirroring the existing
+- **Dwell time & geometry:** baked into `DwellTarget` at creation and, at the time of writing,
+  `DwellTarget.Radius` was immutable. **(Done in 1a-⑤: `Radius` now has an `internal set`, `_baseRadius` is
+  retained for idempotent margins, and both update methods exist. What is still missing is the
+  application-level detector registry + dwell-time baseline + context mapping — see §13.3.)**
+  Add **state-preserving** update methods on `DwellDetector` (mirroring the existing
   `DwellDetector.UpdateTargetCenter`, which is on the *detector*, not the target): `UpdateTargetDwellTime`
   and `UpdateTargetGeometry` that adjust timing/hit area while preserving `EnteredTimestamp`/`IsGazeInside`.
   `UpdateTargetGeometry` takes a signed **margin** applied to the target's as-registered extents — it
@@ -255,8 +262,8 @@ Abandonment is reported only when `ProgressAtEnd >= AbandonProgressThreshold` (d
   pause longer than a threshold — precise threshold in §14).
 - **Poor tracking uses a direct, time-based threshold independent of interaction count**, so tracking
   loss (which produces *no* interactions) is still detected promptly.
-- Failure-mode classification (sustain-failure vs. accidental-activation vs. aiming vs. tracking)
-  selects the response (§7).
+- Failure-mode classification (sustain-failure vs. signal-noise vs. accidental-activation vs. aiming vs.
+  drift vs. poor-tracking) selects the response (§7.1). Each mode is fed by exactly one signal (§13.3).
 
 ## 7. Adaptation Policy
 
@@ -470,10 +477,12 @@ effective == baseline everywhere (tested). This is the safe, testable foundation
 `AdaptationController` (momentary only, typed transforms, sub-band clamps, quarantined tightening) + cue +
 toolbar override + `AdaptationSettings` + sensitive-context suppression. Learned offset pinned to 0.
 
-**Phase 1c — Knob routing (§13.3).** The dwell/smoothing/geometry routing slices deferred out of 1b, so
-all four knobs reach a consumer instead of only `FixationRadius`. Ordered smoothing → dwell → geometry,
-each its own plan, preceded by the behaviour-neutral `SignalNoise` failure-mode split. **Prerequisite to
-Phase 2:** a learned offset on an unrouted knob has no observable effect.
+**Phase 1c — Knob routing: completion of deferred Phase-1b work (§13.3).** Not a new capability —
+remediation of the dwell/smoothing/geometry routing slices that 1b deferred, so all four knobs reach a
+consumer instead of only `FixationRadius`. Ordered smoothing → dwell → geometry, each its own plan,
+preceded by the behaviour-neutral `SignalNoise` failure-mode split. **A hard release gate before Phase 2:**
+a learned offset on an unrouted knob has no observable effect, so it is numbered rather than left outside
+the phase sequence, where the dependency would be easy to miss.
 
 **Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review.
 
@@ -489,7 +498,8 @@ tolerance, and smoothing that bound is the knob's existing `*Settings` validated
 **target-geometry knob has no pre-existing validated range** — its ring radius is derived at runtime from
 `CircleSize` + `UIConstants` constants (`ActionMenuViewModel.cs:52`) and keyboard keys have no hit-slop
 setting today — so its safety bound is a **feature-introduced bound defined in `AdaptationSettings`** that
-Phase 1b adds and validates before §8.4 is testable for geometry.
+Phase 1b adds and validates before §8.4 is testable for geometry. **(Amended: Phase 1b deferred this bound;
+it is now owned by the geometry-routing slice, which supplies its first consumer — §13.3 and §14.)**
 
 **Sensitive-context detection (resolves §14 C5; Safety Invariant §8.10).** A new Core interface
 `ISensitiveContextDetector` (`bool IsSensitiveActive { get; }` + start/stop), implemented in
@@ -633,11 +643,35 @@ and monotonic-guard behaviour. No display dependency.
 `GazeEngine.cs:157` reads `Effective(FixationRadius, …)` and nothing reads the other three. The
 dwell/smoothing/geometry **routing slices** deferred out of 1b were never written, so the momentary layer
 is a quarter live. Routing them is therefore prerequisite to the Phase-2 learned layer (§7.4) — a learned
-offset on an unrouted knob is invisible by construction. Routing order: **smoothing → dwell → geometry**
-(smoothing is nearly complete already; dwell and geometry share a live-target-update substrate that does
-not exist yet; geometry additionally needs the §13.1 absolute bound and resolution of the absolute-extent
-vs. signed-margin unit mismatch noted in `EffectiveSettingsProvider`'s `KnobPolicy` table). Each routing
-slice gets its own plan.
+offset on an unrouted knob is invisible by construction. Routing order: **smoothing → dwell → geometry**.
+Each routing slice gets its own plan. What each still needs, stated precisely (review round 1 found the
+original wording understated all three):
+
+- **Smoothing.** The *baseline-settings* rebuild path is complete: `GazeEngine` subscribes to
+  `EffectiveSettingsProvider.Changed`, requests a rebuild off-thread and applies it on the gaze thread,
+  warm-starts the fresh filter (R1), already triggers on `OneEuroMinCutoff`/`OneEuroBeta`/`SmoothingFactor`,
+  and coalesces multiple requests through a `volatile bool`. Four things are **missing**, and none is
+  cosmetic: (1) a **provider→filter value path** — the `Changed` handler only calls
+  `RequestFixationReconfiguration`, and the rebuild calls `GazeFilterFactory.Create(_settings.Cursor)`,
+  a factory that accepts only a *baseline* `CursorSettings`, so routing needs an effective-value snapshot
+  or a factory overload; (2) **knob-aware change handling** — `Changed` is payloadless and fires for every
+  knob, so naively requesting a filter rebuild there would rebuild on dwell and geometry changes too
+  (comparing against the last-applied active parameter is the cheapest fix and needs no interface change);
+  (3) the **§9.1 rebuild budget** — that section already requires quantize + hysteresis so smoothing
+  rebuilds occur *at most ~1/s during active adaptation, never per tick*, and explicitly exempts tolerance;
+  the existing `volatile bool` coalesces only to one rebuild **per gaze sample** (~30/s), so it does **not**
+  discharge this requirement; (4) a **cross-thread snapshot strategy** — the provider owns a mutable
+  `Dictionary`, is documented as not thread-safe, is written on the dispatcher thread and read by
+  `GazeEngine` on the gaze thread.
+- **Dwell and geometry.** The *per-detector mutation* substrate already exists and is state-preserving:
+  `DwellDetector.UpdateTargetDwellTime` / `UpdateTargetGeometry`, with `DwellTarget` retaining `_baseRadius`
+  and applying idempotent margins. What is missing is **application-level discovery and routing**: nothing
+  can enumerate live `DwellDetector`s (each is privately owned by its overlay view-model), `DwellDetector`
+  exposes no target enumeration or context accessor, and `DwellTarget` retains no *dwell-time* baseline
+  (unlike radius). That registry + baseline/context mapping is the real work, and it is shared by both slices.
+- **Geometry additionally** needs the §13.1 absolute bound (which §13.1 assigns to Phase 1b and 1b deferred
+  — see §14) and resolution of the absolute-extent vs. signed-margin unit mismatch noted in
+  `EffectiveSettingsProvider`'s `KnobPolicy` table.
 
 **The blocker smoothing routing exposed.** `StruggleMonitor` classified jitter *and* abandonment into a
 single `SustainFailure` mode whose score is `max(abandonment, jitter)`, and the controller drove smoothing
@@ -659,15 +693,20 @@ Abandonment (+ retries) alone. Response map per §7.1/§13.2 above: smoothing mo
 `PoorTracking` (no longer on `SustainFailure`); tolerance moves on `SustainFailure` + `Drift` +
 `SignalNoise`; dwell and geometry are unchanged, and the quarantined tightening is untouched.
 
-**This is behaviour-neutral for every routed knob, and it is verified, not argued.** Tolerance's drive was
-`max(SustainFailure, Drift)` with `SustainFailure = max(abandonment, jitter)`; it becomes
-`max(abandonment, Drift, jitter)` — the same value. The gating carries through: `AddMode` gates a mode iff
-some feeder gates and scores it from gated feeders only, while `GatedScore` yields 0 for a mode that is
-absent or ungated, so a mode omitted under the `rawScore <= 0` rule contributes the same 0 it did as a
-folded feeder. `PeakGatedScore` maxes across modes, so splitting `max(a, j)` into two modes scoring `a`
-and `j` leaves the aggregate — and hence cue intensity — unchanged.
+**This is behaviour-neutral for every routed knob. The proof is the algebra; the sweep below is regression
+evidence, not the proof.** Tolerance's drive was `max(SustainFailure, Drift)` with
+`SustainFailure = max(abandonment, jitter)`; it becomes `max(abandonment, Drift, jitter)` — the same value.
+Writing `g` for a signal's gated score (its score when gated, else 0), the old drive is
+`max(max(g(a), g(j)), g(drift))` and the new one `max(g(a), g(j), g(drift))`: identical by associativity,
+including both asymmetric gated-zero/ungated-high cases. The gating carries through: when a mode has
+positive raw score, `AddMode` gates it iff some feeder gates and scores it from gated feeders only; when
+raw score is `<= 0` the mode is **omitted entirely** — even if a zero-score feeder passed its volume gate —
+and `GatedScore` yields 0 for a mode that is absent or ungated, so omission contributes exactly the 0 the
+folded feeder contributed. `PeakGatedScore` maxes across modes, so splitting `max(a, j)` into two modes
+scoring `a` and `j` leaves the aggregate unchanged; the fatigue amplifier multiplies that same base level,
+so it is preserved too, and cue intensity reads the aggregate directly.
 
-Confirmed by a throwaway differential spike (2026-08-04): a deterministic 288-scenario × 40-tick sweep
+Corroborated by a throwaway differential spike (2026-08-04): a deterministic 288-scenario × 40-tick sweep
 (11 520 rows) of synthetic evidence through the real `StruggleMonitor` → `AdaptationController` →
 `EffectiveSettingsProvider` pipeline, run before and after the split. **0 rows differed** on the aggregate
 level, on the routed `FixationRadius` effective value, or on `TargetGeometry`; the routed knob left
@@ -677,16 +716,36 @@ dwell, itself a correctness fix, since shortening dwell on a noisy signal invite
 activations the quarantined tightening exists to suppress) and smoothing (2 392 rows). The spike's
 production diff was 11 insertions / 4 deletions across three files.
 
-**Consequence for the F4 safety test.** After the split every mode is single-feeder, which makes PR #71
-review blocker #1 — a gated-zero-score feeder lifting an ungated-high-score feeder into a gated mode —
-**structurally unrepresentable** rather than merely guarded. Its regression test
+**What that sweep does *not* establish** (review round 1): its grid never reaches several relevant states,
+so it must not be read as exhaustive. Abandonment counts were `{0, 3, 8}` against a ≈4-attempt gate, and the
+drift/accidental fixtures add further outcomes, so those counts are not isolated. Every scenario emitted 60
+quality summaries, so jitter's ≈3-summary gate and poor-tracking's ≈2 s span gate **always pass** —
+meaning jitter is never ungated, and the *inverse* of the F4 asymmetry (gated zero abandonment + ungated
+high jitter) is never exercised, though its mirror is. Drift jumps 0 → 6 abandons per context rather than
+straddling the ≥5 gate; accidental jumps to 4 activations rather than straddling ≈3. All evidence is
+preloaded before the first tick, so gate *crossings over time* are untested. **Therefore the
+implementation slice must add a table-driven identity test** enumerating both feeders' gate states × zero/
+non-zero scores (plus drift), with explicit gate-boundary fixtures; the evidence-grid sweep is kept as a
+scorer-integration regression, not as the correctness argument.
+
+**Consequence for the F4 safety test.** After the split, **no mode in the current map has two real
+feeders**, so PR #71 review blocker #1 — a gated-zero-score feeder lifting an ungated-high-score feeder
+into a gated mode — is unreachable *through `Assess` as wired today*. Its regression test
 (`Assess_GatedZeroScoreFeeder_DoesNotLiftUngatedHighScore_IntoGatedMode`) needs a two-real-feeder mode to
-express itself and so cannot survive. Decision: **retarget it** to the single-feeder F4 property the
-controller still relies on — an ungated high score surfaces its mode with `GatePassed = false` and
-contributes 0 to the drive. The two-feeder `AddMode` overload and `Fold` are **kept** (the single-feeder
-overload delegates through them), so re-adding a two-feeder mode later needs no structural change. A
-future reader should not mistake that test's removal for a dropped safety property: the bug class was
-designed out.
+express itself and so cannot survive unchanged. Decision: **retarget it** to the single-feeder F4 property
+the controller still relies on — an ungated high score surfaces its mode with `GatePassed = false` and
+contributes 0 to the drive.
+
+**Do not over-read that as the bug class being eliminated** (review round 1 correctly refuted an earlier
+draft's claim of "structurally unrepresentable"). The two-feeder `AddMode` overload and `Fold` are
+**kept** — the single-feeder overload delegates through them — so the multi-feeder fold contract still
+exists in the code and a future two-feeder mode could reintroduce the same bug class with no structural
+change. The retargeted test is adequate coverage for the **current** mode map; it is *not* an equivalent
+replacement for a regression test of `Fold` itself. Two ways to close that gap, neither adopted here:
+remove the two-feeder path so the claim becomes literal, or make `AddMode` `internal` (the
+`InternalsVisibleTo` seam already exists for `SelectEvidence`) and test the fold directly. **Open decision
+for the implementation slice** — recorded rather than settled, because the choice trades a reviewed safety
+net against testing a path production no longer uses.
 
 **Slicing.** Because the split is provably behaviour-neutral it ships **before** and **separately from**
 smoothing routing, with "adaptation behaviour identical" as its exit criterion — the Phase-1a posture.
@@ -696,12 +755,40 @@ fail, all expected semantic updates — the `FailureMode` arity drift-guard, one
 jitter→sustain-failure classification, the F4 test above, and two controller tests whose smoothing
 assertions move to `SignalNoise`.
 
-**Deliberately still open** (owned by the smoothing-routing slice, not this one): whether
-`SmoothingMoreMaxFraction` stays at 0.50 now that smoothing answers only to noise — the fraction-of-baseline
-model is inherently range-safe for both filters, since `GuardFraction` caps the fraction at 1.0 and a
-downward move by a fraction of a non-negative baseline cannot leave either filter's validated range, so
-this is a comfort question rather than a safety one; and `GazeFilterMode.Direct`, which has **no** smoothing
-parameter (`DirectFilter` takes none), so the knob must no-op there — mode is never auto-switched (§5).
+**Exit criterion, stated precisely** (review round 1 narrowed this from a looser "adaptation behaviour
+identical"): for every evidence combination, the **effective value of each routed knob** and the
+**aggregate level** — hence cue intensity, which reads the aggregate — are unchanged. **Mode reporting
+deliberately does change:** `AdaptationLog` logs the set of gated `FailureMode`s, so evidence that
+previously logged `SustainFailure` on jitter now logs `SignalNoise`, even where the aggregate and the
+fixation radius are bit-identical. That is the one externally visible effect of this slice, and it is
+intended. `AdaptationCueService` is unaffected because it consumes only `AggregateLevel`.
+
+**The smoothing knob needs an active-filter-specific clamp — a safety requirement, not a comfort one.**
+(Review round 1, blocker: an earlier draft of this section claimed the fraction-of-baseline model was
+inherently range-safe for both filters. That is **false for One-Euro**, and the error was reasoning from
+"a downward fractional move of a non-negative baseline stays non-negative" to "stays inside the validated
+range" — sound only where the range floor *is* 0.)
+
+- EMA is safe: `CursorSettings.SmoothingFactor` validates `[0,1]`, so a downward fractional move of a
+  baseline in `[0,1]` stays in `[0,1]`.
+- One-Euro is **not**: `OneEuroMinCutoff` validates `[0.1,20]`, but the provider's `Smoothing` `KnobPolicy`
+  carries the union superset `ValidMin = 0.0`. So at the **default 0.50 fraction** a legal `0.1 Hz` baseline
+  composes to `0.05 Hz` — outside the parameter's validated range, with no clamp to catch it. At
+  **fraction 1.0** (which `AdaptationSettings.GuardFraction` permits) it composes to exactly `0.0 Hz`, and
+  `OneEuroFilter`'s constructor rejects `minCutoff <= 0`. `GazeEngine.ApplyPendingInterpolatorRebuild` has
+  **no try/catch**, so that throw surfaces on the **gaze thread** — for a user whose sole input channel is
+  gaze, a loss of control until the supervisor respawns. Today this is latent, because the knob is unrouted;
+  routing is what arms it.
+
+**Requirement for the smoothing-routing slice:** clamp the composed smoothing value to the **active
+filter's** validated range — `[0.1,20]` for One-Euro, `[0,1]` for EMA — rather than relying on the
+provider's union superset. Test a `0.1 Hz` One-Euro baseline at both the default fraction and fraction
+`1.0`, asserting the effective value stays inside `[0.1,20]` and no filter construction throws.
+
+**Also still open** (owned by the smoothing-routing slice): whether `SmoothingMoreMaxFraction` stays at
+0.50 now that smoothing answers only to noise evidence — a genuine comfort question, distinct from the
+clamp above; and `GazeFilterMode.Direct`, which has **no** smoothing parameter (`DirectFilter` takes none),
+so the knob must no-op there — mode is never auto-switched (§5).
 
 ## 14. Open Questions / Future Work
 
@@ -720,9 +807,11 @@ parameter (`DirectFilter` takes none), so the knob must no-op there — mode is 
   constant + merge logic need extending. Alert payload/channel format also open.
 - Time-of-day-aware learned baseline — deferred past Phase 2.
 - `SmoothingMoreMaxFraction` fraction-vs-absolute model (the `AdaptationSettings` PROVISIONAL note) —
-  **Resolved for Phase 1c (§13.3):** fraction-of-baseline is kept, and is range-safe for both filters by
-  construction. The remaining question is the 0.50 *comfort* ceiling now that smoothing answers only to
-  noise evidence; owned by the smoothing-routing slice, which supplies the first real consumer.
+  **Resolved for Phase 1c (§13.3):** fraction-of-baseline is kept, **but it is range-safe only for EMA**.
+  One-Euro's floor is `0.1`, not `0`, so the composed value must be clamped to the **active filter's**
+  validated range — a safety requirement on the smoothing-routing slice, detailed in §13.3. Separately, the
+  0.50 *comfort* ceiling remains open now that smoothing answers only to noise evidence; also owned by that
+  slice, which supplies the first real consumer.
 - Absolute target-geometry bound (§13.1 expected it in Phase 1b; 1b deferred it) — owned by the
   geometry-routing slice (§13.3), together with the absolute-extent vs. signed-margin unit conversion.
 

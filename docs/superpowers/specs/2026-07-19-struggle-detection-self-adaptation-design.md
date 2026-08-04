@@ -232,7 +232,9 @@ Abandonment is reported only when `ProgressAtEnd >= AbandonProgressThreshold` (d
   across abandons, **evaluated across contexts** (2nd-round C2): a persistent bias within a *single*
   surface (e.g. a too-narrow radial wedge) is a UI-geometry artifact and is *not* reported as
   calibration drift; only bias coherent across multiple contexts is treated as genuine drift. Each
-  context keeps its own `NearMiss` baseline for this comparison.
+  context keeps its own `NearMiss` baseline for this comparison. **Jitter and drift are separate failure
+  modes** — jitter classifies as `SignalNoise` (§13.3), drift as `Drift`; they are grouped in this bullet
+  only because both derive from gaze-position variability.
 - **Poor tracking** — invalid/off-screen fraction from `GazeSampled`, **aggregated on the gaze thread**
   (§9) rather than marshaled per sample.
 - **Slow / effortful** — time-to-activate vs. the user's own rolling baseline pace, plus retries.
@@ -262,7 +264,8 @@ Abandonment is reported only when `ProgressAtEnd >= AbandonProgressThreshold` (d
 
 | Failure mode (evidence) | Safe response |
 |---|---|
-| **Sustain-failure** — high-progress abandonment, jitter | **shorter** dwell (bounded); **loosen** tolerance; **more** smoothing |
+| **Sustain-failure** — high-progress abandonment (+ retries) | **shorter** dwell (bounded); **loosen** tolerance |
+| **Signal-noise** — high fixation jitter | **more** smoothing; **loosen** tolerance |
 | **Accidental activation** — activation then reversal | **longer** dwell (bounded, gated on this signal only) |
 | **Aiming** — large `NearMiss` | **enlarge target geometry** (ring + hit radius / key slop) *and* coupled visible size, atomically |
 | **Drift** — cross-context coherent `NearMiss` bias | **loosen** tolerance + **report** (never touch calibration) |
@@ -270,6 +273,13 @@ Abandonment is reported only when `ProgressAtEnd >= AbandonProgressThreshold` (d
 
 "Shorter" and "longer" dwell are opposite responses to *different, separately-detected* modes; they
 never both apply from a generic "struggle" score. Cooldown is not adapted.
+
+**Smoothing is driven only by noise evidence (§13.3).** Sustain-failure deliberately does *not* request
+more smoothing, unlike every other forgiving response: smoothing buys jitter reduction with **latency**,
+so applying it to abandonment that is not noise-caused adds cursor lag to a user already failing to
+complete dwells — a lag → abandonment → more-lag feedback loop. Jitter therefore classifies as its own
+`Signal-noise` mode rather than folding into sustain-failure. Tolerance stays on both modes, so a
+noisy-signal user still gets the looser fixation radius.
 
 ### 7.2 Momentary layer (Phase 1b)
 
@@ -460,6 +470,11 @@ effective == baseline everywhere (tested). This is the safe, testable foundation
 `AdaptationController` (momentary only, typed transforms, sub-band clamps, quarantined tightening) + cue +
 toolbar override + `AdaptationSettings` + sensitive-context suppression. Learned offset pinned to 0.
 
+**Phase 1c — Knob routing (§13.3).** The dwell/smoothing/geometry routing slices deferred out of 1b, so
+all four knobs reach a consumer instead of only `FixationRadius`. Ordered smoothing → dwell → geometry,
+each its own plan, preceded by the behaviour-neutral `SignalNoise` failure-mode split. **Prerequisite to
+Phase 2:** a learned offset on an unrouted knob has no observable effect.
+
 **Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review.
 
 **Phase 3 — Caregiver.** Net-new tray toast + rate-limiting; optional Supervisor relay (new payload/channel).
@@ -583,11 +598,16 @@ signal's failure-mode only when that signal's confidence gate is met (§6.3 — 
   *filtered* gaze stream (1a-④), so absolute px/s needs real-data tuning; flagged, not authoritative.
 
 **Failure-mode classification → response (§7.1):**
-- **sustain-failure** ← Abandonment (high-progress) + Jitter (+ retries) → shorter dwell + looser tolerance + more smoothing.
+- **sustain-failure** ← Abandonment (high-progress, + retries) → shorter dwell + looser tolerance.
+  **(Amended §13.3: Jitter split out; no longer requests smoothing.)**
+- **signal-noise** ← Jitter → more smoothing + looser tolerance. **(Added §13.3.)**
 - **accidental-activation** ← Accidental → longer dwell (the one quarantined tightening; bounded, escapable).
 - **aiming** ← Aiming → enlarge target geometry (+ coupled visible size, §8.9).
 - **drift** ← Drift → looser tolerance + **report only** (calibration NEVER auto-touched, §8.5).
 - **poor-tracking** ← PoorTracking → more smoothing + enlarge geometry + caregiver alert if sustained; never tighten.
+
+Every mode is now fed by **exactly one** signal (§13.3), so a mode's score and gate come straight from
+its signal with no cross-feeder fold.
 
 Multiple modes may be active; the controller (1b-④) applies the union of *forgiving* responses, while
 the single tightening move stays quarantined to accidental-activation (§8.2).
@@ -607,6 +627,82 @@ aggregate struggle level, consumed by the 1b-④ `AdaptationController`. New Cor
 (or a pre-loaded `BufferingTelemetrySink`) and assert scores/confidences/classification, session-reset,
 and monotonic-guard behaviour. No display dependency.
 
+## 13.3 Knob-routing prerequisite — the `SignalNoise` failure-mode split (brainstormed 2026-08-04)
+
+**Why this exists.** Phases 1a and 1b are merged, but only **one** of the four knobs reaches a consumer:
+`GazeEngine.cs:157` reads `Effective(FixationRadius, …)` and nothing reads the other three. The
+dwell/smoothing/geometry **routing slices** deferred out of 1b were never written, so the momentary layer
+is a quarter live. Routing them is therefore prerequisite to the Phase-2 learned layer (§7.4) — a learned
+offset on an unrouted knob is invisible by construction. Routing order: **smoothing → dwell → geometry**
+(smoothing is nearly complete already; dwell and geometry share a live-target-update substrate that does
+not exist yet; geometry additionally needs the §13.1 absolute bound and resolution of the absolute-extent
+vs. signed-margin unit mismatch noted in `EffectiveSettingsProvider`'s `KnobPolicy` table). Each routing
+slice gets its own plan.
+
+**The blocker smoothing routing exposed.** `StruggleMonitor` classified jitter *and* abandonment into a
+single `SustainFailure` mode whose score is `max(abandonment, jitter)`, and the controller drove smoothing
+from that mode. Because smoothing trades jitter reduction for **latency**, routing it would have added
+cursor lag in response to abandonment that has nothing to do with signal noise — plausibly causing more
+abandonment, raising the same mode, and relaxing smoothing further. The mode aggregation made the loop
+invisible: nothing downstream could tell which feeder drove the score. This is also the revisit that
+`AdaptationSettings.SmoothingMoreMaxFraction`'s **PROVISIONAL** note demands of "the first consumer".
+
+Lag magnitudes, derived from the two filter formulas at a 30 Hz sample rate (Core's own fallback rate) —
+**not measured**: One-Euro `minCutoff` 5.0 → 2.5 Hz moves the fixation-time constant ≈32 ms → ≈64 ms, and
+only at low speed, since `cutoff = minCutoff + beta·speed` raises it during saccades. EMA `SmoothingFactor`
+0.5 → 0.25 moves it ≈48 ms → ≈116 ms **at every speed** — the fixed-factor filter never consults `dt`. So
+the backfire risk is materially worse on the non-default `Smoothed`/`SmoothedWithSnapping` modes than on
+the default One-Euro.
+
+**Resolution.** Add `FailureMode.SignalNoise`, fed by the Jitter signal alone. `SustainFailure` keeps
+Abandonment (+ retries) alone. Response map per §7.1/§13.2 above: smoothing moves on `SignalNoise` +
+`PoorTracking` (no longer on `SustainFailure`); tolerance moves on `SustainFailure` + `Drift` +
+`SignalNoise`; dwell and geometry are unchanged, and the quarantined tightening is untouched.
+
+**This is behaviour-neutral for every routed knob, and it is verified, not argued.** Tolerance's drive was
+`max(SustainFailure, Drift)` with `SustainFailure = max(abandonment, jitter)`; it becomes
+`max(abandonment, Drift, jitter)` — the same value. The gating carries through: `AddMode` gates a mode iff
+some feeder gates and scores it from gated feeders only, while `GatedScore` yields 0 for a mode that is
+absent or ungated, so a mode omitted under the `rawScore <= 0` rule contributes the same 0 it did as a
+folded feeder. `PeakGatedScore` maxes across modes, so splitting `max(a, j)` into two modes scoring `a`
+and `j` leaves the aggregate — and hence cue intensity — unchanged.
+
+Confirmed by a throwaway differential spike (2026-08-04): a deterministic 288-scenario × 40-tick sweep
+(11 520 rows) of synthetic evidence through the real `StruggleMonitor` → `AdaptationController` →
+`EffectiveSettingsProvider` pipeline, run before and after the split. **0 rows differed** on the aggregate
+level, on the routed `FixationRadius` effective value, or on `TargetGeometry`; the routed knob left
+baseline on identically the same 7 856 rows, spanning the full band (50 → 75 px). Differences appeared
+only on the two **unrouted** knobs, exactly as predicted: dwell (680 rows — jitter no longer shortens
+dwell, itself a correctness fix, since shortening dwell on a noisy signal invites the accidental
+activations the quarantined tightening exists to suppress) and smoothing (2 392 rows). The spike's
+production diff was 11 insertions / 4 deletions across three files.
+
+**Consequence for the F4 safety test.** After the split every mode is single-feeder, which makes PR #71
+review blocker #1 — a gated-zero-score feeder lifting an ungated-high-score feeder into a gated mode —
+**structurally unrepresentable** rather than merely guarded. Its regression test
+(`Assess_GatedZeroScoreFeeder_DoesNotLiftUngatedHighScore_IntoGatedMode`) needs a two-real-feeder mode to
+express itself and so cannot survive. Decision: **retarget it** to the single-feeder F4 property the
+controller still relies on — an ungated high score surfaces its mode with `GatePassed = false` and
+contributes 0 to the drive. The two-feeder `AddMode` overload and `Fold` are **kept** (the single-feeder
+overload delegates through them), so re-adding a two-feeder mode later needs no structural change. A
+future reader should not mistake that test's removal for a dropped safety property: the bug class was
+designed out.
+
+**Slicing.** Because the split is provably behaviour-neutral it ships **before** and **separately from**
+smoothing routing, with "adaptation behaviour identical" as its exit criterion — the Phase-1a posture.
+Routing then lands as its own behaviour-changing slice, so a regression in either is unambiguous about
+which change caused it. Test cost of the split, measured on the spike: **5 of 1018** `EyeCtrl.Core.Tests`
+fail, all expected semantic updates — the `FailureMode` arity drift-guard, one monitor test naming the old
+jitter→sustain-failure classification, the F4 test above, and two controller tests whose smoothing
+assertions move to `SignalNoise`.
+
+**Deliberately still open** (owned by the smoothing-routing slice, not this one): whether
+`SmoothingMoreMaxFraction` stays at 0.50 now that smoothing answers only to noise — the fraction-of-baseline
+model is inherently range-safe for both filters, since `GuardFraction` caps the fraction at 1.0 and a
+downward move by a fraction of a non-negative baseline cannot leave either filter's validated range, so
+this is a comfort question rather than a safety one; and `GazeFilterMode.Direct`, which has **no** smoothing
+parameter (`DirectFilter` takes none), so the knob must no-op there — mode is never auto-switched (§5).
+
 ## 14. Open Questions / Future Work
 
 - Default weights/thresholds/sub-band widths per posture — **Resolved for Phase 1b (§13.1):** eagerness-only
@@ -623,6 +719,12 @@ and monotonic-guard behaviour. No display dependency.
   marked cross-writer; if the supervisor must *write* adaptation state, the `SupervisionSectionName`
   constant + merge logic need extending. Alert payload/channel format also open.
 - Time-of-day-aware learned baseline — deferred past Phase 2.
+- `SmoothingMoreMaxFraction` fraction-vs-absolute model (the `AdaptationSettings` PROVISIONAL note) —
+  **Resolved for Phase 1c (§13.3):** fraction-of-baseline is kept, and is range-safe for both filters by
+  construction. The remaining question is the 0.50 *comfort* ceiling now that smoothing answers only to
+  noise evidence; owned by the smoothing-routing slice, which supplies the first real consumer.
+- Absolute target-geometry bound (§13.1 expected it in Phase 1b; 1b deferred it) — owned by the
+  geometry-routing slice (§13.3), together with the absolute-extent vs. signed-margin unit conversion.
 
 ## 15. Affected / New Files (indicative — the exhaustive surface list is a Phase 1a deliverable)
 

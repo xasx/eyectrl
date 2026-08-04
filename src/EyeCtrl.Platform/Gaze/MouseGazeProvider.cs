@@ -6,6 +6,7 @@ using EyeCtrl.Core.Models;
 using System.Runtime.InteropServices;
 using EyeCtrl.Platform.Input;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 
 public partial class MouseGazeProvider : IGazeProvider, IDisposable
 {
@@ -15,13 +16,18 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
 
     private Timer? _timer;
     private readonly int _intervalMs;
+    private readonly ILogger? _logger;
 
     public event Action<GazePoint>? GazePointReceived;
     public bool IsConnected { get; private set; }
 
-    public MouseGazeProvider(int pollIntervalMs = 30)
+    /// <summary>Initializes a new instance of the <see cref="MouseGazeProvider"/> class.</summary>
+    /// <param name="pollIntervalMs">Cursor sampling interval in milliseconds.</param>
+    /// <param name="logger">Optional logger for subscriber faults.</param>
+    public MouseGazeProvider(int pollIntervalMs = 30, ILogger? logger = null)
     {
         _intervalMs = pollIntervalMs;
+        _logger = logger;
     }
 
     public void Start()
@@ -53,6 +59,13 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
                 var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * MathConstants.MicrosecondsPerMillisecond;
                 GazePointReceived?.Invoke(new GazePoint(point.X, point.Y, timestamp, true));
             }
+        }
+        catch (Exception ex)
+        {
+            // OnTick is a System.Threading.Timer callback, so it runs on a pooled thread where an
+            // unhandled exception terminates the process. The finally below already re-arms the
+            // timer; this catch is what stops the fault from being fatal.
+            _logger?.LogError(ex, "Gaze subscriber threw during a mouse-provider tick");
         }
         finally
         {

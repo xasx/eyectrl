@@ -331,20 +331,11 @@ public partial class App : Application
             // runtime cost, and the reset path should be reachable rather than conditional.
             _serviceProvider.GetRequiredService<AdaptationResetHandler>().Start();
 
-            // Gaze-quality telemetry: aggregate tracking/jitter/fatigue on the gaze thread and push
-            // periodic summaries through the (dispatcher-serialized) telemetry sink, for the
-            // StruggleMonitor to consume. The subscription is unconditional but the aggregator gates
-            // itself on AdaptationSettings.Enabled (§9.1), so while adaptation is off — the default —
-            // this costs one delegate call and one bool test per sample and does no aggregation. Gating
-            // inside rather than by (un)subscribing here is what makes the settings toggle take effect
-            // live, without this wiring having to be torn down and rebuilt.
-            // Registered after eye-care so eyeCare.FatigueScore reflects this sample when read here.
-            var gazeQuality = _serviceProvider.GetRequiredService<GazeQualityAggregator>();
-            gazeEngine.GazeSampled += sample =>
-                // LastFixationJitter = the last *completed* fixation's jitter (latched at fixation
-                // end); FatigueScore is fresh (eye-care's handler ran first this event). Both are
-                // read on the gaze thread, same as this handler.
-                gazeQuality.OnSample(sample, gazeEngine.LastFixationJitter, eyeCare.FatigueScore);
+            // Gaze-quality telemetry. The bridge substitutes 0 for a stale fatigue score, so a
+            // faulting eye-care handler degrades to the documented "disabled" value rather than
+            // freezing its last reading into adaptation.
+            var gazeQuality = _serviceProvider.GetRequiredService<GazeQualityBridge>();
+            gazeEngine.GazeSampled += gazeQuality.OnGazeSample;
         }
         catch (Exception ex)
         {

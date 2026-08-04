@@ -3,6 +3,7 @@
 **Date:** 2026-08-03
 **Branch:** `worktree-gaze-observer-hub`
 **Scope:** four contained fixes to the gaze hot path. No new contract, no plug-in mechanism, no migration.
+**Status:** all four fixes implemented. Fix 4 `4291fbf`; Fix 3 `ec9cf95`, `a4ed34a`; Fix 1 `1712b42`, `64adf32`, `996cc23`; Fix 2 `84c0850`, `de6f616`. Cost claim in the Cost section is now a measurement (`c50704e`). Headless suite: 1891 passed / 0 failed / 1 skipped.
 
 ## Why this is small
 
@@ -71,9 +72,15 @@ Handlers are identified by `Delegate.Method.DeclaringType` + `Method.Name`. For 
 
 ### Cost
 
-**This design gives up the 2.7× speedup measured for the rejected hub.** That win came from `in`-passing a new sample type (8.4 ns/sample vs 24.1 by value), which required exactly the contract being cut. A delegate-array loop passing `GazePoint` by value should land near today's 29.0 ns/sample, plus roughly the +20% that per-handler `try/catch` cost in the benchmark — so approximately cost-neutral, possibly slightly better since it drops multicast dispatch.
+**Measured (`c50704e`, BenchmarkDotNet, 10/10 benchmarks, artifacts outside the repo):**
 
-That is a projection, not a measurement: `GazeObserverFanOutBenchmarks` measured *interface* dispatch, not delegate-array dispatch. Add a delegate-array variant to that class and record it before claiming a number. The absolute figures are tiny against a 33 ms frame either way; what matters is confirming no regression.
+| Variant | Mean per sample | vs `A_BareMulticastEvent` | Allocated |
+|---|---|---|---|
+| `A_BareMulticastEvent` (today's shape) | 22.10 ns | 1.00 | `-` |
+| `I_DelegateArray` (array, no try/catch) | 19.26 ns | 0.87 | `-` |
+| `J_DelegateArray_TryCatch` (Fix 1's shape) | 20.72 ns | **0.94** | `-` |
+
+Fix 1's shipped shape is cost-neutral against the multicast it replaces — slightly *faster* (0.94×, well under the 1.5× stop threshold), with the per-handler `try/catch` adding +7.6% over the bare array loop. Both new rows allocate nothing per publication, discharging the no-allocation requirement directly (an allocation assertion in xUnit would be brittle; BDN's `Allocated` column measures it).
 
 ## Problem 2 — an escaping exception kills the process
 

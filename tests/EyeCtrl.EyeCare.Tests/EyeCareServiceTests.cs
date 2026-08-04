@@ -160,4 +160,48 @@ public class EyeCareServiceTests
         Check.That(sut.TryGetFatigueScore(5_033_333, out var score)).IsFalse();
         Check.That(score).IsEqualTo(0.0);
     }
+
+    [Fact]
+    public void TryGetFatigueScore_ReturnsFalse_WhenEyeCareIsDisabled()
+    {
+        // A disabled service never stamps, so even the sample it just received is reported stale —
+        // which is how a consumer substitutes 0 instead of reading a frozen score.
+        var settings = new EyeCareSettings { Enabled = false, FatigueMonitorEnabled = true };
+        var sut = NewService(settings, new FakeHooks());
+
+        sut.OnGazeSample(new GazePoint(960, 540, 5_000_000, IsValid: true), isPaused: false);
+
+        Check.That(sut.TryGetFatigueScore(5_000_000, out var score)).IsFalse();
+        Check.That(score).IsEqualTo(0.0);
+    }
+
+    [Fact]
+    public void TryGetFatigueScore_ReturnsTheLiveScore_ForTheSampleItJustProcessed()
+    {
+        // The fresh path must carry the monitor's actual value, not just "fresh = true" — an
+        // implementation returning (true, 0.0) would otherwise pass every staleness test.
+        var settings = new EyeCareSettings
+        {
+            Enabled = true,
+            FatigueMonitorEnabled = true,
+            IntervalMinutes = 10,
+            NaturalBreakSeconds = 30,
+            SnoozeMinutes = 10,
+        };
+        var sut = NewService(settings, new FakeHooks());
+
+        // Accumulate fixation (low gaze spread) to drive the score up, mirroring
+        // Disabling_ResetsFatigueScore. canInterrupt: false keeps the fatigue-driven escalation
+        // from firing (and resetting the monitor via its break flow).
+        long last = 0;
+        for (long t = 0; t < 5_000_000; t += 100_000)
+        {
+            last = t;
+            sut.OnGazeSample(new GazePoint(500, 500, t, IsValid: true), isPaused: false, canInterrupt: false);
+        }
+
+        Check.That(sut.TryGetFatigueScore(last, out var score)).IsTrue();
+        Check.That(score).IsEqualTo(sut.FatigueScore);
+        Check.That(score).IsStrictlyPositive();
+    }
 }

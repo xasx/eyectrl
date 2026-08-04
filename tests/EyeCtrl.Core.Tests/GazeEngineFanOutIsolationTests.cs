@@ -5,6 +5,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
+using Microsoft.Extensions.Logging;
 using NFluent;
 
 public class GazeEngineFanOutIsolationTests
@@ -172,6 +173,71 @@ public class GazeEngineFanOutIsolationTests
 
         // Must not throw: the remainder of OnGazePoint (centroid tracking, fixation) still runs.
         provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
+    }
+
+    [Fact]
+    public void UnsubscribeWithoutSubscription_IsANoOp()
+    {
+        var (provider, engine) = NewEngine();
+        using var _ = engine;
+        int hits = 0;
+        Action<GazePoint> handler = _ => hits++;
+
+        engine.GazeSampled -= handler;   // never subscribed — must not throw or disturb
+        engine.GazeSampled += handler;
+
+        provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
+
+        Check.That(hits).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void NullAddAndRemove_AreIgnored()
+    {
+        var (provider, engine) = NewEngine();
+        using var _ = engine;
+        int hits = 0;
+
+        engine.GazeSampled += null!;
+        engine.GazeSampled -= null!;
+        engine.GazeSampled += _ => hits++;
+
+        provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
+
+        Check.That(hits).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void FaultsAreLogged_ThroughTheReporter_RateLimitedToOnePerWindow()
+    {
+        // End-to-end wiring: the fault path must reach the logger exactly once per 30 s window.
+        // Deleting the _faults.Report call in PublishGazeSampled leaves Faults empty.
+        var logger = new CapturingLogger();
+        var provider = new FakeGazeProvider();
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        using var engine = new GazeEngine(provider, new FakeInputSimulator(), settings, logger: logger);
+        engine.Start();
+        engine.GazeSampled += _ => throw new InvalidOperationException("boom");
+
+        for (int i = 0; i < 5; i++)
+            provider.SimulateGaze(new GazePoint(100, 200, 1_000_000 + i, IsValid: true));
+
+        Check.That(logger.Faults).HasSize(1);
+    }
+
+    private sealed class CapturingLogger : ILogger<GazeEngine>
+    {
+        public readonly List<Exception> Faults = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (exception is not null) Faults.Add(exception);
+        }
     }
 
     private static (FakeGazeProvider Provider, GazeEngine Engine) NewEngine()

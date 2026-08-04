@@ -18,10 +18,12 @@ namespace EyeCtrl.Core.Diagnostics;
 /// </para>
 /// <para>
 /// The dictionary is touched on the fault path only, never per sample, and has no eviction. That is
-/// deliberate and bounded: the compiler caches a lambda per call site, so each of the lambda
-/// subscribers contributes exactly one entry; method-group subscriptions allocate a fresh delegate per
-/// <c>+=</c>, but every subscription site in this codebase runs once at startup. A site that
-/// re-subscribes in a loop would grow this dictionary and would need eviction added.
+/// deliberate and bounded: the compiler caches a lambda per call site, so each lambda subscriber
+/// contributes exactly one entry; a method-group subscription allocates a fresh delegate per
+/// <c>+=</c>, so a site that re-subscribes — AdaptationCoordinator subscribes and unsubscribes its
+/// handler on every adaptation Enable toggle — adds one entry per distinct subscription instance
+/// that faults. Growth is bounded by user actions and occurs only on the fault path; a site that
+/// re-subscribes in a hot loop would still need eviction added.
 /// </para>
 /// </remarks>
 internal sealed class HandlerFaultReporter

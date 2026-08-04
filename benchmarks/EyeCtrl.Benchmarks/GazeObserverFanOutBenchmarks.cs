@@ -279,8 +279,9 @@ public class GazeObserverFanOutBenchmarks
     }
 
     /// <summary>
-    /// The shape Fix 1 actually ships: a delegate array iterated by index, no try/catch. Read against
-    /// A_BareMulticastEvent to price replacing multicast dispatch with an array loop.
+    /// The array shape Fix 1 ships, before isolation is added — <see cref="J_DelegateArray_TryCatch"/>
+    /// is the complete shipped shape. Read against A_BareMulticastEvent to price replacing multicast
+    /// dispatch with an array loop.
     /// </summary>
     [Benchmark]
     public long I_DelegateArray()

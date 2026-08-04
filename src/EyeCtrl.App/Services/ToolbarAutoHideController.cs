@@ -161,36 +161,40 @@ public sealed class ToolbarAutoHideController
             case State.Visible:
             {
                 // The rect is screen geometry captured from the live window, but the sample arrives
-                // pre-calibration (GazeSampled fires at GazeEngine.cs:230, before the transform at
-                // :233). Map into screen space for THIS test only. IsPastDockedEdge below keeps raw
-                // coordinates: off-screen gaze is outside the transform's fitted domain.
-                var probe = _toScreen is null
-                    ? new PhysicalPoint(sample.X, sample.Y)
-                    : _toScreen(new PhysicalPoint(sample.X, sample.Y));
-                if (sample.IsValid && _toolbarRect.Contains(probe.X, probe.Y))
-                {
-                    // Gaze on toolbar — anchor to "now" so the hide countdown measures time since
-                    // the LAST on-toolbar sample (a later off-toolbar run resumes the count from here).
-                    Volatile.Write(ref _hideAnchorUs, timestampUs);
-                }
-                else if (!sample.IsValid)
+                // pre-calibration (GazeSampled fires before the calibration transform in
+                // GazeEngine.OnGazePoint). Map into screen space for THIS test only — and only for
+                // valid samples: an invalid one pays no mapper call. IsPastDockedEdge below keeps
+                // raw coordinates: off-screen gaze is outside the transform's fitted domain.
+                if (!sample.IsValid)
                 {
                     // Blink: ignored, does NOT reset the hide countdown (per spec).
                 }
                 else
                 {
-                    // Off-toolbar run. Seed the anchor on the first such sample, then measure elapsed.
-                    var anchor = Volatile.Read(ref _hideAnchorUs);
-                    if (anchor == Unseeded)
+                    var probe = _toScreen is null
+                        ? new PhysicalPoint(sample.X, sample.Y)
+                        : _toScreen(new PhysicalPoint(sample.X, sample.Y));
+                    if (_toolbarRect.Contains(probe.X, probe.Y))
                     {
-                        anchor = timestampUs;
-                        Volatile.Write(ref _hideAnchorUs, anchor);
+                        // Gaze on toolbar — anchor to "now" so the hide countdown measures time since
+                        // the LAST on-toolbar sample (a later off-toolbar run resumes the count from here).
+                        Volatile.Write(ref _hideAnchorUs, timestampUs);
                     }
-                    if (timestampUs - anchor >= _hideDelayUs)
+                    else
                     {
-                        _state = State.Hidden;
-                        Volatile.Write(ref _summonRunUs, Unseeded);
-                        _visibility.HideToolbar(_paused);
+                        // Off-toolbar run. Seed the anchor on the first such sample, then measure elapsed.
+                        var anchor = Volatile.Read(ref _hideAnchorUs);
+                        if (anchor == Unseeded)
+                        {
+                            anchor = timestampUs;
+                            Volatile.Write(ref _hideAnchorUs, anchor);
+                        }
+                        if (timestampUs - anchor >= _hideDelayUs)
+                        {
+                            _state = State.Hidden;
+                            Volatile.Write(ref _summonRunUs, Unseeded);
+                            _visibility.HideToolbar(_paused);
+                        }
                     }
                 }
                 break;

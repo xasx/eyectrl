@@ -324,7 +324,15 @@ public class TobiiStreamEngineProvider : IGazeProvider
                 //
                 // The catch is OUTSIDE the lock on purpose: the backoff below must not hold _lock,
                 // or Stop() cannot make progress.
-                _logger.LogError(ex, "Gaze callback threw; treating as a device error and backing off");
+                try
+                {
+                    _logger.LogError(ex, "Gaze callback threw; treating as a device error and backing off");
+                }
+                catch
+                {
+                    // The log call must not itself escape this catch: LogError runs on the
+                    // IsBackground poll thread, where any escaping exception terminates the process.
+                }
                 hasError = true;
             }
 

@@ -85,6 +85,14 @@ internal sealed class HandlerFaultReporter
         string message = suppressed > 0
             ? $"{eventName} handler {who} threw; {suppressed} further fault(s) suppressed since the last report"
             : $"{eventName} handler {who} threw";
-        _emit(message, exception);
+        try
+        {
+            _emit(message, exception);
+        }
+        catch
+        {
+            // This reporter runs inside a catch on the gaze thread; an emit that throws would re-open
+            // the very containment it reports into. A broken logger is itself unreportable.
+        }
     }
 }

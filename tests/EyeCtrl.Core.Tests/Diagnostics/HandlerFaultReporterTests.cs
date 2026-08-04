@@ -56,6 +56,19 @@ public class HandlerFaultReporterTests
         Check.That(emitted).HasSize(2);
     }
 
+    [Fact]
+    public void Report_DoesNotEscape_WhenTheEmitCallbackThrows()
+    {
+        // The reporter runs inside a catch on the gaze thread; an emit that throws would re-open
+        // the containment it reports into. Must not throw.
+        var sut = new HandlerFaultReporter(
+            (_, _) => throw new InvalidOperationException("logger exploded"),
+            () => 0,
+            windowSeconds: 30);
+
+        sut.Report("GazeSampled", Handler, new InvalidOperationException("boom"));
+    }
+
     private sealed class FakeClock
     {
         public long Seconds { get; private set; }

@@ -1,9 +1,11 @@
 # Design: Window-management actions (gap #2)
 
 **Date:** 2026-08-04
-**Status:** Design (pre-implementation)
+**Status:** Design (pre-implementation) — **revised after spec review**
 **Branch:** `feat/window-management-actions` (off `main` @ `b590a87`)
 **Gap source:** `docs/COMPETITIVE_FEATURE_ANALYSIS.md` §Tier-1 #2 (OptiKey + Tobii Dynavox Computer Control both have it)
+
+> **Revision note (2026-08-04):** the first draft was reviewed read-only against every seam it named. All 5 BLOCKERs were verified correct against the code (self-hit on EyeCtrl's own menu, destructive close of the Explorer desktop via `Progman`, a Core→ViewModels layering violation, a dead Back button, and an equality-gated re-show leaving invisible hit zones), as were two enum-drift tests. The design below incorporates those findings. The biggest change is the **resolver**: the `WindowFromPoint`+`GetAncestor` approach is replaced by a z-ordered hit-test over `EnumerateOpenWindows()`, which closes three findings at once. The sub-menu entry is **no longer an `InteractionAction` member** and there is **no new message type** — both reuse existing mechanisms. See §10 change-log.
 
 ## §0 Context & problem
 
@@ -13,109 +15,164 @@ This design closes that slice. It deliberately **does not** add Show Desktop (gl
 
 ## §1 Goal & scope
 
-Add **Minimize**, **Maximize/Restore** (single toggle), and **Close** to the action menu, acting on the top-level window under the already-resolved target point.
+Add **Minimize**, **Maximize/Restore** (single toggle), and **Close** to the action menu, acting on the top-level window under the already-resolved target point, behind a grouped "Window" sub-menu.
 
-**In scope:** three new actions, a window-under-point resolver, a "Window" sub-menu entry in the action menu, dispatch + icons + default visibility, unit tests.
+**In scope:** three new `InteractionAction` members (Minimize, MaximizeRestore, Close — appended after PinNote), a window-under-point resolver, a sub-menu state + Back path, dispatch + icons + default visibility, unit tests, two enum-drift-test updates.
 
-**Out of scope:** Show Desktop, a window-picker grid (option C), multi-monitor coordinate handling (separate gap #7), localization of new icon tooltips.
+**Out of scope:** Show Desktop, a window-picker grid (option C), multi-monitor coordinate handling (separate gap #7), localization of icon tooltips.
 
 ## §2 Targeting — implicit, window-of-target-point
 
-The target point is already resolved by `InteractionManager.OnActionSelected` (`src/EyeCtrl.Core/Processing/InteractionManager.cs:130-142`) into one of:
+The target point is already resolved by `InteractionManager.OnActionSelected` (`src/EyeCtrl.Core/Processing/InteractionManager.cs:130-142`) into the snapped UIA control center (L135-136), the original fixation point (L137-138), or the precise zoom dwell point (`ManualSelectionDwellPoint`, L139-140). Window actions resolve **the top-level window owning that point** — reusing the existing target point. Zero new UI affordance for targeting.
 
-- the snapped UIA control center (AutoSelection + resolved control → `AutoSelectionTarget.CenterPoint`, L135-136),
-- the original fixation point (where the menu was invoked, L137-138), or
-- the precise zoom dwell point (`ManualSelectionDwellPoint`, L139-140).
+### Resolver — z-ordered hit-test over `EnumerateOpenWindows()` *(revised: was `WindowFromPoint`+`GetAncestor`)*
 
-Window-management actions resolve **the top-level window owning that point** — reusing the existing target point. Zero new UI affordance for targeting; the model matches how LeftClick/Drag already "act on what I was looking at."
+`ControlFinder.FindTarget` (`src/EyeCtrl.Platform/Services/ControlFinder.cs:38`) only resolves **leaf** controls (walks *up* to interactive ancestors, never to a `Window`), so a new resolver is required. The first draft used `WindowFromPoint` → `GetAncestor(GA_ROOT)`. **Review rejected this** for three verified reasons:
 
-### New resolver
+1. **Self-hit (BLOCKER):** `ActionMenuWindow` is **not** click-through — `OverlayWindow.cs:84-87` gates `WS_EX_TRANSPARENT` on `IsClickThrough`, and `ActionMenuWindow` never sets it. `WindowFromPoint` hit-tests it, so resolving the HWND *at Window-dwell time* returns EyeCtrl's own menu (or `IntPtr.Zero` after the tool-window guard). *(Fixed by resolving the HWND before the menu is shown — but see the consolidated fix.)*
+2. **Destructive desktop close (BLOCKER):** on the bare desktop `WindowFromPoint` returns `Progman`/`WorkerW`, which is visible, not tool-window, not own-process — it passes both guards the draft relied on. `PostMessage(WM_CLOSE)` to `Progman` tears down the Explorer desktop + taskbar — unacceptable for a gaze-only user.
+3. **Owner-vs-parent (MAJOR):** `GA_ROOT` walks the parent chain; an owned modal dialog is top-level, so `GA_ROOT` returns the dialog, not its owner — diverging from the codebase's owner-rooted convention (`EnumerateOpenWindows` excludes `GW_OWNER != 0`, `Win32WindowManager.cs:37-38`).
 
-`ControlFinder.FindTarget` (`src/EyeCtrl.Platform/Services/ControlFinder.cs:38`) only resolves **leaf** interactive controls (it walks *up* via `TreeWalker.ControlViewWalker.GetParent` to the first interactive ancestor, L73-109, and never to a `ControlType.Window`). So a new resolver is required, not a reuse.
-
-Add to `IWindowManager` / `Win32WindowManager`:
+**Adopted fix (reviewer's consolidated proposal):** add to `IWindowManager` / `Win32WindowManager`:
 
 ```csharp
-IntPtr TopLevelWindowFromPoint(PhysicalPoint point);
+AppWindow? WindowAtPoint(PhysicalPoint point);
 ```
 
-Implementation: `NativeMethods.WindowFromPoint` → `GetAncestor(hwnd, GA_ROOT)` to reach the top-level owner (cleaner than the client-rect fallback in `ControlFinder.FallbackToWindow`, L178-191, which discards the HWND). This resolver is also exactly what the future window-picker grid (option C, §8) would need per tile — so option A does not preclude C.
+implemented as a **z-ordered hit-test over the existing `EnumerateOpenWindows()` pass** — `EnumWindows` already yields windows top-to-bottom, so the first enumerated window whose rect (`GetWindowRect`) contains the point is the topmost one under gaze. This closes all three findings at once:
+
+- **No self-hit:** `EnumerateOpenWindows` filters `WS_EX_TOOLWINDOW` (all EyeCtrl overlays) *before* hit-testing (`Win32WindowManager.cs:31-34`).
+- **No `Progman`:** it also filters empty-title (`Win32WindowManager.cs:49-56`), cloaked (`:42-44`), and owned (`:37-38`) windows — `Progman`/`WorkerW`/`Shell_TrayWnd` all fail.
+- **No owner decision:** `EnumerateOpenWindows` only ever yields unowned roots, so `GA_ROOT`/`GA_ROOTOWNER` is moot.
+
+Return type is `AppWindow?` (not `IntPtr`) — makes "not found" explicit, reuses the existing model (`src/EyeCtrl.Core/Models/AppWindow.cs`), and gives the future picker grid (§8) the title/process it will need. `GetWindowRect` is the **only** new P/Invoke. `IsWindow` is **not** currently declared anywhere in `src/` (verified — the first draft's self-review incorrectly claimed otherwise); it must be added for the stale-handle guard (§6).
+
+**Cost:** one full `EnumWindows` pass per `Window` dwell. Irrelevant next to the ~500 ms UIA budget already spent on control resolution (`GazeEngineAdapter.cs:205-207`).
+
+### Pure-predicate factor for testability
+
+The "is this `AppWindow` a valid target, and does its rect contain the point?" decision is extracted as a pure function over injected `AppWindow` + point data, so it is unit-testable with NFluent and **no** Win32, **no** fake `IWindowManager`. (Testing a fake of the interface under test would be circular.) The P/Invoke shell around it stays untested — consistent with how `Win32WindowManager` is treated today.
 
 ## §3 Action set
 
 - **Minimize** → `ShowWindow(hwnd, SW_MINIMIZE)`
-- **Maximize/Restore** (single toggle button) → `IsZoomed(hwnd)` ? `SW_RESTORE` : `SW_MAXIMIZE`
-- **Close** → `PostMessage(hwnd, WM_CLOSE)` (graceful — lets the target app prompt "save changes?" normally; chosen over `WM_SYSCOMMAND SC_CLOSE`/`TerminateProcess` deliberately)
+- **Maximize/Restore** (single toggle) → pure `WindowStateOp` over `IsZoomed`/`IsIconic` (see below)
+- **Close** → `PostMessage(hwnd, WM_CLOSE)` (graceful; `DefWindowProc` derives this from `SC_CLOSE`)
 
-The Maximize/Restore toggle avoids two buttons where one is always a no-op (the standard window-manager convention). Minimize is always its own button.
+### Maximize/Restore toggle — pure function *(revised: now also handles `IsIconic`)*
 
-### Close behavior (deliberate: no confirm sub-step)
+Extract into `EyeCtrl.Core` (no Win32 reference → unit-testable without fakes):
 
-Close fires immediately on dwell completion, **without a confirm sub-step**, consistent with LeftClick/RightClick/Drag which all fire without confirmation in the existing flow (dwell = intent). `WM_CLOSE` preserves the target app's own "save changes?" prompt, so an accidental dwell still gives the user a chance to cancel at the *application* level. This is the call most worth confirming during review; a Close→confirm sub-step is the documented alternative.
+```csharp
+WindowStateOp DecideWindowOp(bool isZoomed, bool isIconic)
+    => isIconic ? WindowStateOp.Restore            // un-minimize first
+     : isZoomed ? WindowStateOp.Restore            // maximized → restore
+     : WindowStateOp.Maximize;                      // normal → maximize
+```
 
-## §4 Placement — "Window" sub-menu button
+`Win32WindowManager` consumes it: read `IsZoomed`+`IsIconic`, call `ShowWindow` with the chosen `SW_*`. `IsIconic` is needed because the deferred picker grid (§8) can reach an already-minimized window (unreachable by gaze today), and a window minimized *from* maximized keeps `WS_MAXIMIZE` — `IsZoomed` is true but the right op is `Restore` (un-minimize), not a second maximize.
 
-A single **"Window"** button in the main ring opens a sub-ring: `{Minimize, Maximize/Restore, Close, Back}`. This keeps the main ring at **9 items** (the 8 existing defaults + Window) instead of 11 (~32° apart — too dense for reliable dwell on a 100-DIP-diameter button; `ActionMenuGeometry.ButtonRadius = 50`, `src/EyeCtrl.App/Overlays/ActionMenuGeometry.cs:17`).
+### Close behavior — no confirm, **conditional** on two guards *(revised)*
 
-### How (reuse, no second overlay)
+Close fires immediately on dwell completion, **without** a confirm sub-step — consistent with LeftClick/RightClick/Drag (no confirms anywhere in the existing flow), and `WM_CLOSE` preserves the target app's own "save changes?" prompt. **This is defensible only because of two guards** (the reviewer's condition, accepted):
 
-Handle the `Window` action like the existing special-cases in `InteractionManager.OnActionSelected` (ScrollMode at `InteractionManager.cs:146`, Drag at `:160`) — intercept it rather than raising `ActionRequested`:
+1. **Ring-position guard (§4):** Close is never placed at the ring position the `Window` button occupied, so the sub-ring appearing under the user's resting gaze cannot accidentally fire Close.
+2. **Back path fixed (§4):** a gaze-only user who opens the Window sub-menu by mistake has a working way out.
 
-1. Resolve the top-level HWND from the target point (§2) and **stash it** as state on the action-request that follows (the HWND must survive across the menu transition; see §6 stale-HWND edge case).
-2. Raise a new `ShowWindowMenuMessage(PhysicalPoint Center, IReadOnlyList<InteractionAction> Actions)` rather than `ActionRequested`.
-3. `EventCoordinator` / `ActionMenuViewModel` re-shows the **same** `ActionMenuWindow` with the filtered `{Minimize, MaximizeRestore, Close}` list + a Back button. The Back concept already exists (`BackSelectedMessage`, `src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs`; handled in `ActionMenuViewModel.OnTargetActivated`, `src/EyeCtrl.ViewModels/ActionMenuViewModel.cs:92`) — Back returns to the main action ring.
+**Caveats to document (review MINOR):** `ConsoleWindowClass` hosts terminate on `WM_CLOSE` with no save prompt (so "still gives a chance to cancel" is not universal), and apps that map "X = minimize to tray" via `WM_SYSCOMMAND` will *actually close* under `WM_CLOSE`. State these rather than implying a blanket safety net.
 
-The window-management actions (`Minimize`/`MaximizeRestore`/`Close`) then go through the normal `ActionRequested` path → new cases in the `EventCoordinator.HandleActionRequested` switch (`src/EyeCtrl.App/Services/EventCoordinator.cs:1386`; existing cases at `:1388-1395`). Note the switch has **no `default`** case — `PinNote` is special-cased in an `if` before the switch (~`:1378`), and `ScrollMode`/`Drag` never reach here (intercepted in `InteractionManager`). A new enum member reaching this switch without a case is a silent no-op, so exhaustiveness must be verified at implementation.
+### Observable failures *(revised per review MAJOR)*
 
-No new overlay window type is needed.
+Every op returns `bool`; a failed op (`PostMessage` to an elevated window is blocked by UIPI and returns `false`; `ShowWindow`/`PostMessage` return values checked) is logged at `Information` like the existing dispatch (`EventCoordinator.cs:1369-1371`). The decision on a *visible* cue for failure is deferred — the struggle-detection cue overlay exists as precedent if user confusion warrants it. At minimum the decision is explicit, not silent.
 
-### Alternative considered (flat top-level ring buttons)
+## §4 Placement — "Window" sub-menu, with its own state *(substantially revised)*
 
-Add Minimize/MaximizeRestore/Close directly to the main ring (no sub-menu). Simpler code (no new message, no menu-state transition), but the ring grows to 11 items at ~32° spacing — too dense for reliable dwell. Rejected in favor of the grouped sub-menu.
+A single **"Window"** button in the main ring opens a sub-ring: `{Minimize, MaximizeRestore, Close, Back}`. Keeps the main ring readable and groups related actions. (The density arithmetic in the first draft was off by omitting Back; the manual-selection ring is already 9 items today, `angleStep = 360/allItems.Count` including Back — the sub-menu is still the better call for *grouping* reasons, not the 11-at-32° figure the draft cited.)
 
-## §5 Components & seams
+### The sub-menu entry is NOT an `InteractionAction` member *(revised — review MAJOR)*
+
+The first draft added a `Window` enum member. Review correctly noted this forces a navigation marker through five unrelated sites (settings defaults, `EnsureDefaults`, the glyph map, the `EventCoordinator` switch, persisted settings). **Back already models menu navigation without the enum** — `ActionMenuItemViewModel` carries `InteractionAction? Action` + `bool IsBackButton`, and `OnTargetActivated` branches on the flag with `Action == null` (`ActionMenuItemViewModel.cs:9,16`; `ActionMenuViewModel.cs:47-51,87-95`). The Window entry is modelled the same way: a menu item with `Action == null` + a `IsSubMenu`/kind flag. **Only the three real actions (Minimize, MaximizeRestore, Close) are added to `InteractionAction`.**
+
+### New state required — `WindowMenuVisible` *(revised — review BLOCKER + MAJOR)*
+
+The first draft claimed "no persistent state." Review verified this is wrong on three counts: (a) **Back is a dead button** — `OnManualSelectionBack` (`InteractionManager.cs:170-189`) handles only `ManualSelectionActionMenuVisible` and `ManualSelectionActive`, returning *silently* in `ActionMenuVisible`; (b) `GazeEngineAdapter` derives `ShowBack` **and** dwell time from `CurrentState` (`GazeEngineAdapter.cs:112-115`), so a sub-ring can't get a Back button without a state; (c) the backdrop-dismiss handler (`EventCoordinator.cs:466-470`) and the target-point `switch` (`InteractionManager.cs:132-142`) both route on state.
+
+**Add `InteractionState.WindowMenuVisible`** and enumerate its behaviour: Back → return to the parent ring (`ActionMenuVisible`/`ManualSelectionActionMenuVisible`); dismiss → free look; pause/`TogglePause` → same handling as the parent menu. The stashed target HWND lives on the transition into this state.
+
+### No new message type *(revised — review MAJOR)*
+
+The first draft proposed `ShowWindowMenuMessage`. Review verified (a) this would be raised from `InteractionManager` in **Core**, but `EyeCtrl.Core.csproj` has **zero** `ProjectReference`s — Core→ViewModels is backwards; `InteractionManager` communicates by C# `event`s that `GazeEngineAdapter` translates to messages; and (b) `ShowWindowMenuMessage(Center, Actions)` would be missing `DwellTimeMs`/`CircleSize`/`GazePoint` that `ActionMenuViewModel.Receive` needs.
+
+**Re-send `ShowActionMenuMessage`** (`InteractionMessages.cs:21`) with a filtered `Actions` list and `ShowBack: true`. It already carries every field the VM needs. This follows the existing `ShowActionMenu` event → `ShowActionMenuMessage` path in `GazeEngineAdapter.cs:134-155`.
+
+### Re-show must actually repaint *(revised — review BLOCKER)*
+
+`ActionMenuWindow.Show` is called **only** from the `IsVisible` `PropertyChanged` handler (`EventCoordinator.cs:1071-1090`). If the sub-menu message arrives while the menu is already up, `Receive` rebuilds `Items`/dwell targets (`ActionMenuViewModel.cs:43-73`) but `IsVisible = true` is equality-gated — no `PropertyChanged`, `Show()` never re-runs, and the user sees the **old ring** over **new invisible hit zones**. The design must either:
+
+- send an explicit `HideActionMenuMessage` → `ShowActionMenuMessage` sequence (accepting the backdrop hide/show + ~100 ms re-capture at `ActionMenuWindow.xaml.cs:92-96`), **or**
+- have the VM force the `IsVisible` notification (flip false→true, or raise `PropertyChanged` unconditionally).
+
+Pick one at implementation; state which.
+
+### Ring-position guard for Close (§3 condition 1)
+
+Ring position = list order, item 0 at 12 o'clock (`angleStep * i - 90°`, `ActionMenuViewModel.cs:57`). The sub-ring `Actions` list is ordered so **Close is never at the index the `Window` button occupied in the parent ring.** Trivially satisfiable since the sub-ring has ≤4 items and the sender controls list order.
+
+## §5 Components & seams *(revised)*
 
 | Change | File | Notes |
 |---|---|---|
-| New enum members | `src/EyeCtrl.Core/Models/InteractionAction.cs:4` | Add `Window` (sub-menu entry), `Minimize`, `MaximizeRestore`, `Close` |
-| Window-under-point + ops | `src/EyeCtrl.Core/Interfaces/IWindowManager.cs` + `src/EyeCtrl.Platform/Services/Win32WindowManager.cs` | Add `TopLevelWindowFromPoint(point)`, `Minimize(hwnd)`, `MaximizeOrRestore(hwnd)`, `CloseWindow(hwnd)` |
-| New Win32 P/Invoke | `src/EyeCtrl.Platform/Input/NativeMethods.cs` | Add `WindowFromPoint`, `ShowWindow` (+ `SW_MINIMIZE`/`SW_MAXIMIZE`/`SW_RESTORE`), `PostMessage` (+ `WM_CLOSE = 0x0010`), `GetAncestor` (+ `GA_ROOT = 2`), `IsZoomed`. Verified absent 2026-08-04: only `IsWindow` of the needed set is already present (`EnumWindows`/`IsWindowVisible`/`GetWindow`/`SetForegroundWindow` are present but not relevant here). |
-| Sub-menu interception | `src/EyeCtrl.Core/Processing/InteractionManager.cs:146` | New `Window` case → resolve HWND, stash it, raise `ShowWindowMenuMessage` |
-| New message | `src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs` | `record ShowWindowMenuMessage(PhysicalPoint Center, IReadOnlyList<InteractionAction> Actions)` |
-| Dispatch | `src/EyeCtrl.App/Services/EventCoordinator.cs:1386` switch | New `Minimize`/`MaximizeRestore`/`Close` cases → call `IWindowManager` on the stashed HWND. No `default` exists today — add one or ensure exhaustive. |
-| Icons | `src/EyeCtrl.ViewModels/ActionMenuViewModel.cs:103-116` (`GetActionSymbol`) | New glyph cases: Window ⧉, Minimize 🗕, MaxRestore 🗖, Close ✕. Falls through to `action.ToString()` otherwise (`:115`). |
-| Default visibility | `src/EyeCtrl.Core/Settings/ActionMenuSettings.cs:11-18` + `EnsureDefaults :28-47` | Add `Window` to the default `VisibleActions` list and to the `EnsureDefaults` seed list |
+| New enum members (real actions only) | `src/EyeCtrl.Core/Models/InteractionAction.cs:4` | Append `Minimize`, `MaximizeRestore`, `Close` **after `PinNote`** (the `PinNote==9` test pins ordering). No `Window` member. |
+| New state | `src/EyeCtrl.Core/Models/InteractionState.cs` | Add `WindowMenuVisible`. |
+| Resolver + ops | `src/EyeCtrl.Core/Interfaces/IWindowManager.cs` + `src/EyeCtrl.Platform/Services/Win32WindowManager.cs` | Add `AppWindow? WindowAtPoint(PhysicalPoint)` (z-ordered hit-test over `EnumerateOpenWindows`), `Minimize/MaximizeOrRestore/CloseWindow(IntPtr hwnd)` returning `bool`. Update the interface summary (it currently says only "Enumerates … and brings to front"). |
+| Pure toggle | `src/EyeCtrl.Core` (new small type, e.g. `Models/WindowStateOp.cs`) | `DecideWindowOp(bool isZoomed, bool isIconic) → WindowStateOp`. No Win32 reference. |
+| New Win32 P/Invoke | `src/EyeCtrl.Platform/Input/NativeMethods.cs` | Add `GetWindowRect` (only new one for the resolver), `ShowWindow` + `SW_*`, `PostMessage` + `WM_CLOSE`, `IsZoomed`, `IsIconic`, `IsWindow`. Use `[LibraryImport]` (file style), **not** `[DllImport]`. **Verified absent 2026-08-04:** none of these are in `NativeMethods.cs`. (`WindowFromPoint`/`GetAncestor` already exist elsewhere — `ExternalDwellService.cs:329-340`, `ControlFinder.cs:181,193-200` — but are not reused here; decide at implementation whether to consolidate `ExternalDwellService.RootWindowAtPointImpl` into the new seam or leave it. Not a blocker.) |
+| Sub-menu entry + Back | `InteractionManager.cs`, `GazeEngineAdapter.cs`, `ActionMenuViewModel.cs` | `Window` modelled as `Action==null`+kind (like Back); add `WindowMenuVisible` state + a Back transition into it; no new message type (re-send `ShowActionMenuMessage` filtered + `ShowBack:true`). |
+| Dispatch | `src/EyeCtrl.App/Services/EventCoordinator.cs:1386` switch | New `Minimize`/`MaximizeRestore`/`Close` cases → `IWindowManager` on the stashed HWND, returning `bool`, logged. No `default` exists today — add one or ensure exhaustive. |
+| Icons | `src/EyeCtrl.ViewModels/ActionMenuViewModel.cs:103-116` (`GetActionSymbol`) | New glyph cases. **Use BMP glyphs** (review MINOR): Minimize `▁` (U+2581), Maximize/Restore `□` (U+25A1), Close `✕` (U+2715). The first draft's `iminalage`/` Expand` are Supplementary-Plane (U+1F5D5/1F5D6) — no symbol font is set, WPF fallback is unreliable, tofu here is a usability bug. Verify on the target box before locking the symbol test. |
+| Default visibility | `src/EyeCtrl.Core/Settings/ActionMenuSettings.cs:11-18` + `EnsureDefaults :28-47` | Add the Window sub-menu entry (not an enum member) to the default visible set + `EnsureDefaults` seed. |
+| Drift tests | `tests/EyeCtrl.ViewModels.Tests/ActionMenuViewModelSymbolTests.cs:31-46`, `tests/EyeCtrl.Core.Tests/Models/InteractionActionEnumTests.cs:14` | Extend the glyph map for the 3 new actions; the `PinNote==9` pin stays valid (new members append after). |
 
 ### DI flow
-`IWindowManager` is already a registered singleton (`AppBootstrapper.cs:75`) injected into the coordinator context (`IEventCoordinator.cs:83`, constructed `App.xaml.cs:206`). The new methods on it flow through DI with no new registration.
+`IWindowManager` is already a registered singleton (`AppBootstrapper.cs:74`) injected into the coordinator context (`IEventCoordinator.cs:83`, constructed `App.xaml.cs:202`). The new methods flow through DI with no new registration. A second consumer means the **Task Switcher path must be re-verified** — it is currently the only `IWindowManager` caller.
 
-## §6 Edge cases & safety
+## §6 Edge cases & safety *(revised)*
 
-- **Target is the desktop / no top-level window** (menu invoked on empty desktop): resolver returns `IntPtr.Zero` → the `Window` sub-menu action is suppressed (or the sub-ring hides its window-actions and shows only Back). The resolver must never hand a zero HWND to `ShowWindow`/`PostMessage`.
-- **Target is EyeCtrl's own overlay**: `Win32WindowManager` already excludes `WS_EX_TOOLWINDOW` windows (all EyeCtrl overlays carry it, `Win32WindowManager.cs:31-34`). The resolver reuses that filter so EyeCtrl never minimizes/closes itself. The resolver must also reject the current process (`NativeMethods.OwnProcessId`, as `ControlFinder` does at `ControlFinder.cs:14,81`) as a second guard.
-- **Target is a child/owned window**: `GetAncestor(GA_ROOT)` resolves to the top-level owner, so a click on a dialog or tool-window child acts on the correct root. Owned tool windows are excluded by the `WS_EX_TOOLWINDOW` filter; non-tool owned windows (rare) act on their root — acceptable.
-- **Close on unsaved work**: `WM_CLOSE` is graceful; the target app's own "save changes?" dialog fires normally. This is the reason `PostMessage(WM_CLOSE)` is chosen over force-close.
-- **Maximize/Restore on a fullscreen (F11) window**: `IsZoomed` returns false for a fullscreen window, so the toggle would `SW_MAXIMIZE` an already-fullscreen window — harmless (no visible change). Acceptable for v1.
-- **Stale HWND between menu-open and action-fire**: the HWND is resolved when the user dwells `Window` (opening the sub-ring), and a non-trivial dwell time elapses before they dwell `Minimize`/`MaximizeRestore`/`Close`. If the window was closed by other means in that window, the HWND is stale. Guard each op with `NativeMethods.IsWindow(hwnd)` (already declared) and no-op if false. This is the one new timing-dependent case the existing click actions don't have.
-- **Multi-monitor points**: still primary-only (gap #7, `Win32InputSimulator.cs:12-15`). `WindowFromPoint` is screen-space and works regardless of monitor, so window actions are *not* blocked by #7 the way cursor movement is — but coordinate handling is unchanged here; full multi-monitor is a separate gap.
+- **Target is the desktop / no top-level window:** resolver returns `null` (`AppWindow?`) — never `Progman`/`WorkerW` (filtered by `EnumerateOpenWindows`). The Window sub-menu action is suppressed (sub-ring shows only Back).
+- **Target is EyeCtrl's own overlay:** filtered by `WS_EX_TOOLWINDOW` *before* hit-test in `EnumerateOpenWindows`. Re-verify own-process guard as a second line.
+- **Target is a child/owned window:** `EnumerateOpenWindows` only yields unowned roots, so the owner-vs-parent question is moot.
+- **Close on unsaved work:** `WM_CLOSE` is graceful — the target app's own prompt fires. **Exceptions to document:** `ConsoleWindowClass` hosts terminate with no prompt; "minimize-to-tray-on-X" apps actually close. Not a universal safety net.
+- **Maximize/Restore on a fullscreen (F11) window:** F11 fullscreen is typically a borderless window sized to the monitor *without* `WS_MAXIMIZE`; `SW_MAXIMIZE` on it can resize it to the **work area**, leaving a taskbar strip — a visible, wedged state a gaze-only user may not escape. **Guard:** skip the toggle when the window rect covers the monitor rect and `!IsZoomed`. (The first draft asserted this was "harmless" without evidence — corrected.)
+- **Already-minimized window:** `IsIconic` → `Restore` (un-minimize first). Relevant for the deferred picker grid (§8).
+- **Stale HWND between menu-open and action-fire:** guard each op with `IsWindow(hwnd)` (must be added) and no-op if false. This timing-dependent case doesn't exist for click actions.
+- **Elevated target window:** `PostMessage`/`ShowWindow` blocked by UIPI, returns `false` → logged (§3), no silent failure.
+- **Multi-monitor points:** still primary-only (gap #7). `WindowAtPoint` is screen-space and works regardless of monitor, so window actions are *not* blocked by #7 — but full multi-monitor cursor handling is unchanged here.
 
-## §7 Testing
+## §7 Testing *(revised)*
 
-Unit tests (no display, NFluent per `AGENTS.md`; private nested fakes, no mocking lib):
+Unit tests (no display, NFluent; private nested fakes, no mocking lib):
 
-- **`TopLevelWindowFromPoint` resolver** (via a fake `IWindowManager` in coordinator tests): returns root owner, skips `WS_EX_TOOLWINDOW`, skips own-process, returns `IntPtr.Zero` for desktop/empty regions.
-- **Maximize/Restore toggle logic**: extract `WindowStateOp` into a pure function `(bool isZoomed) → SW_RESTORE | SW_MAXIMIZE` so it's unit-testable without Win32. Test both branches.
-- **Settings**: `ActionMenuSettings.EnsureDefaults` includes `Window`; default `VisibleActions` is the documented 9-item list.
-- **`InteractionManager.OnActionSelected` for `Window`**: raises `ShowWindowMenuMessage` (not `ActionRequested`); does not transition to a persistent state (contrast ScrollMode/Drag which do); resolves + stashes HWND.
-- **Dispatch**: `Minimize`/`MaximizeRestore`/`Close` cases in `EventCoordinator.HandleActionRequested` route to `IWindowManager` (fake) with the stashed HWND; a stale (`!IsWindow`) HWND is a no-op.
+- **Resolver predicate** (pure function, no fake-of-interface): over injected `AppWindow` + point — accepts a containing rect, rejects empty-title/owned/cloaked/tool-window/own-process, returns null when no window contains the point. *(First draft's "fake `IWindowManager`" was circular — corrected.)*
+- **`DecideWindowOp`** (pure): all four `(isZoomed, isIconic)` combinations.
+- **Settings:** default visible set includes the Window sub-menu entry; `EnsureDefaults` seeds it.
+- **`InteractionState` + `InteractionManager`:** entering `WindowMenuVisible`; Back returns to the parent ring; dismiss → free look; the `Window` entry raises the re-show path, not `ActionRequested`.
+- **Dispatch:** `Minimize`/`MaximizeRestore`/`Close` route to `IWindowManager` with the stashed HWND; return `bool`; a stale (`!IsWindow`) HWND is a no-op; failures log.
+- **Drift tests updated** (above).
 
-UI tests (`Category=UI`): **not gating.** The Win32 calls need a real top-level window; cover via the unit-level fakes + a manual smoke note in the implementation plan. (UI tests are excluded from CI per `AGENTS.md`.)
+UI tests (`Category=UI`): **not gating** — Win32 calls need a real top-level window; cover via fakes + a manual smoke note. Excluded from CI per `AGENTS.md`.
 
 ## §8 Out of scope / future expansion
 
-- **Show Desktop** (global Win+D via the existing `Win32InputSimulator.SendModifiedKeyPress`): a separate global action, doesn't fit the window-under-gaze targeting. Add later as its own menu item, independent of this design.
-- **Window-picker grid (option C)**: a fullscreen grid of live window tiles (reuse `TaskSwitcherWindow`) where the user dwells Minimize/Close on the chosen tile — lets you act on *any* window, not just the one under gaze. The `TopLevelWindowFromPoint` resolver built here is reusable as the per-tile HWND source, so option A does not preclude C. Defer until A ships and proves the dispatch path.
-- **Per-action dwell times**: this design reuses the existing `ActionMenuSettings` / action-menu dwell time (`DwellSettings.ActionMenuDwellMs`). Separate per-surface dwell for window actions is a later polish, not needed for v1.
+- **Show Desktop** (global Win+D via `Win32InputSimulator.SendModifiedKeyPress`): separate global action, disjoint seam. Independent.
+- **Window-picker grid (option C):** reuses `WindowAtPoint` *and* the three ops — §8's "A does not preclude C" holds. The grid is what makes the already-minimized case (§6) *reachable*, which is why `IsIconic` is settled now rather than deferred.
+- **Per-action dwell times:** reuse `ActionMenuDwellMs`. Later polish.
 
-## §9 Change log
-- 2026-08-04: initial design, reviewed against `main` @ `b590a87`. Seams verified via read-only trace (action-menu dispatch path, `Win32WindowManager` surface, `ControlFinder` leaf-only behavior, all `InteractionAction` dispatch sites). Self-review corrections: all 6 new P/Invokes confirmed absent from `NativeMethods` (only `IsWindow` present); dispatch switch at `EventCoordinator.cs:1386` (not `:1391`) and has no `default` case. Open questions flagged for reviewer: Close no-confirm (§3), `IWindowManager` vs new abstraction as the home for window ops (§5).
+## §9 Open questions for implementation
+
+- **Re-show mechanism (§4):** hide→show sequence vs. forced `IsVisible` notification — pick one.
+- **`ExternalDwellService.RootWindowAtPointImpl` consolidation (§5):** fold into the new `IWindowManager.WindowAtPoint` seam, or leave as a third copy? Not a blocker; state the decision.
+- **Visible failure cue (§3):** log-only for v1; revisit if user confusion warrants the struggle-detection cue overlay.
+
+## §10 Change log
+- **2026-08-04 (revision after review):** all 5 BLOCKERs + the load-bearing MAJORs verified correct against the code and incorporated. Resolver changed from `WindowFromPoint`+`GetAncestor` to a z-ordered `EnumerateOpenWindows` hit-test (closes self-hit, Progman, owner-vs-parent). Sub-menu entry removed from `InteractionAction` (modelled like Back); no new message type (re-send `ShowActionMenuMessage`); new `WindowMenuVisible` state + Back path. Close stays no-confirm, conditional on ring-position + Back guards. Maximize/Restore now an `IsIconic`-aware pure function. Glyphs switched to BMP. Two drift tests flagged. Corrected the first draft's inverted P/Invoke self-review (`IsWindow` is absent, not present). Line refs corrected (`AppBootstrapper.cs:74`, `App.xaml.cs:202`, `EventCoordinator.cs:1373`).
+- **2026-08-04 (initial):** first draft, reviewed against `main` @ `b590a87`. Self-review corrected P/Invoke presence and dispatch-switch line (but the P/Invoke correction was itself inverted — fixed in this revision).

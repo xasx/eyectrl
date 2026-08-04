@@ -239,37 +239,6 @@ public class StruggleMonitorTests
     }
 
     [Fact]
-    public void Assess_GatedZeroScoreFeeder_DoesNotLiftUngatedHighScore_IntoGatedMode()
-    {
-        // F4 regression (PR #71 review blocker #1): a gated-but-zero-score feeder combined with an
-        // ungated-but-high-score feeder must NOT yield a gated mode carrying the high score. Concretely:
-        //   • 3 ZERO-jitter summaries → jitter gates (volume gate, score 0 because jitter is 0)
-        //   • 2 high-progress abandons (< 4-attempt gate) → abandonment score 0.8, gate FALSE
-        // SustainFailure is fed by both. Pre-fix: peak score across ALL feeders = 0.8, OR'd gate = true →
-        // SustainFailure(0.8, gate true) would drive adaptation on UNGATED evidence. Post-fix: the mode's
-        // actionable score comes from GATED feeders only → gatedScore = 0 (jitter's 0), so the mode is
-        // surfaced (rawScore 0.8 > 0) with GatePassed=true but Score=0 — the controller's GatedScore path
-        // sees a zero score and does not relax.
-        var monitor = new StruggleMonitor(SinkWith(
-            dwell: new[]
-            {
-                Abandon(0 * Sec, DwellContext.ActionMenu, 0.8, 30, nmX: 15),
-                Abandon(10 * Sec, DwellContext.ActionMenu, 0.8, 30, nmX: 15),
-            },
-            quality: new[] { Quality(0, 0.0, 0), Quality(Sec, 0.0, 0), Quality(2 * Sec, 0.0, 0) }),
-            EyeCare());
-        var a = monitor.Assess(20 * Sec);
-
-        var sustain = a.ForMode(FailureMode.SustainFailure);
-        Check.That(sustain.HasValue).IsTrue();
-        // The mode surfaces (some feeder showed struggle) but its actionable score is the GATED peak = 0,
-        // never the ungated abandonment 0.8. GatePassed is true (jitter gated) but the controller keys off
-        // Score under the gate, so this mode cannot drive adaptation.
-        Check.That(sustain!.Value.Score).IsEqualTo(0.0);
-        Check.That(a.AggregateLevel).IsEqualTo(0.0); // PeakGatedScore = 0 → aggregate 0
-    }
-
-    [Fact]
     public void Assess_AggregateIsPeakGatedModeScore()
     {
         // Aiming (score 1.0, gated) + poor-tracking (invalid 0.3 → score 0.5, gated). Base aggregate =

@@ -152,7 +152,8 @@ public class AppBootstrapper
             sp.GetRequiredService<IInputSimulator>(),
             sp.GetRequiredService<EyeCtrlSettings>(),
             sp.GetRequiredService<CalibrationService>(),
-            sp.GetRequiredService<EffectiveSettingsProvider>()));
+            sp.GetRequiredService<EffectiveSettingsProvider>(),
+            sp.GetRequiredService<ILogger<GazeEngine>>()));
 
         // Struggle-detection telemetry sink (Phase 1a): surfaces report DwellOutcomes here.
         // BufferingTelemetrySink only buffers (zero behaviour change); DispatcherTelemetrySink

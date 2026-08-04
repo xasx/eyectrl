@@ -3,10 +3,12 @@ namespace EyeCtrl.Core;
 using System.ComponentModel;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Core gaze processing engine.
@@ -41,6 +43,22 @@ public class GazeEngine : IDisposable
     // release/acquire fence; a bool is atomic on every arch.
     private volatile bool _fixationReconfigureRequested;
 
+    // Copy-on-write handler array. Publication does one volatile read and iterates by index, so it
+    // never allocates and cannot be disturbed by a subscription change mid-publication — which
+    // matters because a handler may unsubscribe itself from inside its own callback.
+    // GetInvocationList() was the obvious alternative and was rejected: it allocates per sample at
+    // 30-90 Hz, trading a crash risk for GC pressure on the gaze thread.
+    //
+    // INVARIANT: array elements are NEVER mutated in place. Add/remove build a whole new array under
+    // _handlerLock and publish it by assigning this field. That assignment is the only fence there
+    // is: `volatile` orders the reference read and write, but the elements are plain references, so
+    // correctness depends on a reader that observes the new reference observing a fully-constructed
+    // array. Writing into an existing array — even under the lock — would let a concurrent publisher
+    // read a half-updated slot, and no amount of `volatile` on this field would catch it.
+    private volatile Action<GazePoint>[] _gazeSampledHandlers = [];
+    private readonly object _handlerLock = new();
+    private readonly HandlerFaultReporter _faults;
+
     /// <summary>Interaction state machine controlling fixation → activation → action flow.</summary>
     public InteractionManager InteractionManager { get; }
     private volatile bool _suppressFixation;
@@ -61,8 +79,45 @@ public class GazeEngine : IDisposable
 
     /// <summary>Fires the raw (pre-interpolation) gaze sample including its validity flag.
     /// Used by eye-care scheduling/away-detection. CursorMoved fires the interpolated point;
-    /// this event fires the raw point so subscribers can detect eyes-lost / looking-away.</summary>
-    public event Action<GazePoint>? GazeSampled;
+    /// this event fires the raw point so subscribers can detect eyes-lost / looking-away.
+    /// <para>
+    /// Handlers run on the gaze thread, inside the gaze provider's lock. They must be cheap and must
+    /// not block — blocking here also blocks Stop() and TryGetLatestStatus. A handler that throws is
+    /// caught and reported; it does not abort the remaining handlers and does not reach the provider
+    /// thread, where an unhandled exception would terminate the process.
+    /// </para></summary>
+    public event Action<GazePoint>? GazeSampled
+    {
+        add
+        {
+            if (value is null) return;
+            lock (_handlerLock)
+                _gazeSampledHandlers = [.. _gazeSampledHandlers, value];
+        }
+        remove
+        {
+            if (value is null) return;
+            lock (_handlerLock)
+                _gazeSampledHandlers = RemoveLast(_gazeSampledHandlers, value);
+        }
+    }
+
+    // Mirrors multicast -= semantics: remove the LAST matching handler, not every match. A filter
+    // such as Where(h => !h.Equals(value)) would drop all duplicates and silently change behaviour
+    // for any caller that subscribed the same target twice.
+    private static T[] RemoveLast<T>(T[] source, T value) where T : class
+    {
+        for (int i = source.Length - 1; i >= 0; i--)
+        {
+            if (!source[i].Equals(value))
+                continue;
+            var result = new T[source.Length - 1];
+            Array.Copy(source, 0, result, 0, i);
+            Array.Copy(source, i + 1, result, i, source.Length - i - 1);
+            return result;
+        }
+        return source;
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="GazeEngine"/> class.
@@ -74,13 +129,21 @@ public class GazeEngine : IDisposable
     /// <param name="calibrationService">Optional calibration service for gaze-to-screen coordinate mapping.</param>
     /// <param name="effectiveSettings">Optional effective-settings provider. When null, tolerance
     /// reads the baseline directly and no adaptation-driven reconfiguration occurs.</param>
+    /// <param name="logger">Optional logger for handler faults. When null, faults are swallowed
+    /// silently — acceptable in tests, but production should always supply one.</param>
     public GazeEngine(
         IGazeProvider gazeProvider,
         IInputSimulator inputSimulator,
         EyeCtrlSettings settings,
         CalibrationService? calibrationService = null,
-        EffectiveSettingsProvider? effectiveSettings = null)
+        EffectiveSettingsProvider? effectiveSettings = null,
+        ILogger<GazeEngine>? logger = null)
     {
+        _faults = new HandlerFaultReporter(
+            (message, ex) => logger?.LogError(ex, "{FaultMessage}", message),
+            () => Environment.TickCount64 / 1000,
+            windowSeconds: 30);
+
         _gazeProvider = gazeProvider;
         _inputSimulator = inputSimulator;
         _settings = settings;
@@ -219,6 +282,22 @@ public class GazeEngine : IDisposable
         _gazeProvider.Stop();
     }
 
+    private void PublishGazeSampled(GazePoint gaze)
+    {
+        var handlers = _gazeSampledHandlers;   // one volatile read; the loop owns this snapshot
+        for (int i = 0; i < handlers.Length; i++)
+        {
+            try
+            {
+                handlers[i](gaze);
+            }
+            catch (Exception ex)
+            {
+                _faults.Report(nameof(GazeSampled), handlers[i], ex);
+            }
+        }
+    }
+
     private void OnGazePoint(GazePoint gaze)
     {
         // Deferred reconfiguration (requested on the dispatcher thread) runs here on the gaze thread first,
@@ -227,7 +306,7 @@ public class GazeEngine : IDisposable
         ApplyPendingFixationReconfiguration();
         ApplyPendingInterpolatorRebuild();
 
-        GazeSampled?.Invoke(gaze);
+        PublishGazeSampled(gaze);
 
         var corrected = gaze;
         if (gaze.IsValid && _calibrationService?.CurrentTransform is { } t)

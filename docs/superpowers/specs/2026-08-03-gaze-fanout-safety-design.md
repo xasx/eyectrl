@@ -80,7 +80,7 @@ Handlers are identified by `Delegate.Method.DeclaringType` + `Method.Name`. For 
 | `I_DelegateArray` (array, no try/catch) | 19.26 ns | 0.87 | `-` |
 | `J_DelegateArray_TryCatch` (Fix 1's shape) | 20.72 ns | **0.94** | `-` |
 
-Fix 1's shipped shape is cost-neutral against the multicast it replaces — slightly *faster* (0.94×, well under the 1.5× stop threshold), with the per-handler `try/catch` adding +7.6% over the bare array loop. Both new rows allocate nothing per publication, discharging the no-allocation requirement directly (an allocation assertion in xUnit would be brittle; BDN's `Allocated` column measures it).
+Fix 1's shipped shape is cost-neutral against the multicast it replaces — slightly *faster* (0.94×, well under the 1.5× stop threshold), with the per-handler `try/catch` adding +7.6% over the bare array loop. Both new rows allocate nothing per publication, discharging the no-allocation requirement directly (an allocation assertion in xUnit would be brittle; BDN's `Allocated` column measures it). One caveat for exactness: the benchmark hoists a non-volatile field read out of the sample loop, whereas production does one volatile read per publication — a single non-hoistable load, so the conclusion stands.
 
 ## Problem 2 — an escaping exception kills the process
 
@@ -104,6 +104,10 @@ Both logs are rate-limited on the same basis as Fix 1. The mouse provider's catc
 per 30 s window (a `TickCount64` comparison in `OnTick`); Tobii's limiter is its own recovery path —
 the catch falls into `_stopSignal.Wait(backoffMs)`, so a persistent fault logs at most once per
 backoff interval (500 ms → 5 s).
+
+One symptom to know when diagnosing: the Tobii catch deliberately reuses the device-error recovery,
+so a persistent pipeline fault reports as a disconnect — track status shows "disconnected" and the
+stream degrades to one attempt per backoff interval — even though the device itself is healthy.
 
 ## Problem 3 — Fix 1 introduces a stale-data bug
 
@@ -190,6 +194,8 @@ Preserved in `32243f9` should any of it become warranted:
 - a slow-observer watchdog in any form — measured at 174.3 ns/sample always-on, exceeding the entire pipeline cost, with StdDev 76 ms on a 436 ms mean
 
 Also unchanged: `CursorMoved`'s signature. It drops `IsValid` deliberately, which is precisely why `samples/OffScreenGazeProbe` cannot use it ([:74](../../../samples/OffScreenGazeProbe/MainWindow.xaml.cs)).
+
+Also unchanged: the provider-level `GazePointReceived` fan-out stays a bare multicast (subscribers: `GazeEngine.OnGazePoint` and the calibration view-model's raw-gaze handler). Fix 1 guards one level down and Fix 2 contains the consequences, so a throwing raw-gaze subscriber still loses that sample and, on Tobii, surfaces as a device-error backoff — but it can no longer kill the process.
 
 ## Testing
 

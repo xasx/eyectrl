@@ -14,17 +14,19 @@ public class StruggleAssessmentTests
     }
 
     [Fact]
-    public void FailureMode_DefinesTheFiveResponseModes()
+    public void FailureMode_DefinesTheSixResponseModes()
     {
-        // Locks the §7.1/§13.2 mode set so the monitor (1b-③b) and controller (1b-④) can rely on it.
+        // Locks the §7.1/§13.2 mode set so the monitor and controller can rely on it. SignalNoise was split
+        // out of SustainFailure in §13.3 so the smoothing response is driven only by noise evidence.
         var modes = Enum.GetValues<FailureMode>();
-        Check.That(modes).HasSize(5);
+        Check.That(modes).HasSize(6);
         Check.That(modes).Contains(
             FailureMode.SustainFailure,
             FailureMode.AccidentalActivation,
             FailureMode.Aiming,
             FailureMode.Drift,
-            FailureMode.PoorTracking);
+            FailureMode.PoorTracking,
+            FailureMode.SignalNoise);
     }
 
     [Fact]

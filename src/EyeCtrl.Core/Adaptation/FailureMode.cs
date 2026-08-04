@@ -6,7 +6,9 @@ namespace EyeCtrl.Core.Adaptation;
 /// </summary>
 public enum FailureMode
 {
-    /// <summary>High-progress abandonment and/or jitter (plus retries): shorter dwell, looser tolerance, more smoothing.</summary>
+    /// <summary>High-progress abandonment (plus retries): shorter dwell and looser tolerance. Jitter is
+    /// classified separately as <see cref="SignalNoise"/> (design §13.3), so abandonment alone never adds
+    /// smoothing lag.</summary>
     SustainFailure,
 
     /// <summary>Activation followed by a reversal (re-approach or keyboard Backspace): the one quarantined tightening — longer dwell, bounded and instantly escapable.</summary>
@@ -20,4 +22,9 @@ public enum FailureMode
 
     /// <summary>High invalid-sample fraction: more smoothing, enlarge geometry, caregiver alert if sustained; never tighten.</summary>
     PoorTracking,
+
+    /// <summary>Unstable gaze signal (high fixation jitter): more smoothing and looser tolerance. Split out
+    /// of <see cref="SustainFailure"/> (design §13.3) so the smoothing response answers only to evidence
+    /// smoothing can fix — added latency is itself a struggle risk when the cause is abandonment, not noise.</summary>
+    SignalNoise,
 }

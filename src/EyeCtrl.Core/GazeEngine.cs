@@ -56,6 +56,9 @@ public class GazeEngine : IDisposable
     // array. Writing into an existing array — even under the lock — would let a concurrent publisher
     // read a half-updated slot, and no amount of `volatile` on this field would catch it.
     private volatile Action<GazePoint>[] _gazeSampledHandlers = [];
+    // Copy-on-write, same invariant as _gazeSampledHandlers: elements are never mutated in place;
+    // add/remove build a new array under _handlerLock and publish it by assigning this field.
+    private volatile Action<PhysicalPoint, long>[] _cursorMovedHandlers = [];
     private readonly object _handlerLock = new();
     private readonly HandlerFaultReporter _faults;
 
@@ -74,8 +77,29 @@ public class GazeEngine : IDisposable
     /// <summary>Gaze-speed standard deviation (px/s) of the last *completed* fixation — a jitter/shakiness
     /// proxy latched at fixation end (design §6.2). Persists between fixations.</summary>
     public double LastFixationJitter => _centroidTracker.LastCompletedSpeedStdDev;
-    /// <summary>Fired when cursor moves with filtered position in physical screen pixels.</summary>
-    public event Action<PhysicalPoint, long>? CursorMoved;
+    /// <summary>Fired when cursor moves with filtered position in physical screen pixels.
+    /// <para>
+    /// Handlers run on the gaze thread and must be cheap and non-blocking, as with
+    /// <see cref="GazeSampled"/>. A throwing handler is caught and reported rather than aborting the
+    /// remaining handlers or the rest of the pipeline. Note this event carries the filtered point and
+    /// deliberately does NOT carry validity — consumers needing eyes-lost detection or off-screen
+    /// coordinates must use <see cref="GazeSampled"/>.
+    /// </para></summary>
+    public event Action<PhysicalPoint, long>? CursorMoved
+    {
+        add
+        {
+            if (value is null) return;
+            lock (_handlerLock)
+                _cursorMovedHandlers = [.. _cursorMovedHandlers, value];
+        }
+        remove
+        {
+            if (value is null) return;
+            lock (_handlerLock)
+                _cursorMovedHandlers = RemoveLast(_cursorMovedHandlers, value);
+        }
+    }
 
     /// <summary>Fires the raw (pre-interpolation) gaze sample including its validity flag.
     /// Used by eye-care scheduling/away-detection. CursorMoved fires the interpolated point;
@@ -298,6 +322,22 @@ public class GazeEngine : IDisposable
         }
     }
 
+    private void PublishCursorMoved(PhysicalPoint point, long timestampUs)
+    {
+        var handlers = _cursorMovedHandlers;
+        for (int i = 0; i < handlers.Length; i++)
+        {
+            try
+            {
+                handlers[i](point, timestampUs);
+            }
+            catch (Exception ex)
+            {
+                _faults.Report(nameof(CursorMoved), handlers[i], ex);
+            }
+        }
+    }
+
     private void OnGazePoint(GazePoint gaze)
     {
         // Deferred reconfiguration (requested on the dispatcher thread) runs here on the gaze thread first,
@@ -318,7 +358,7 @@ public class GazeEngine : IDisposable
 
         // Always fire CursorMoved so the cursor circle + toolbar receive gaze
         // (this allows unpause via toolbar dwell even when paused)
-        CursorMoved?.Invoke(filtered, gaze.TimestampMicroseconds);
+        PublishCursorMoved(filtered, gaze.TimestampMicroseconds);
 
         _centroidTracker.Update(filtered, gaze.TimestampMicroseconds);
 

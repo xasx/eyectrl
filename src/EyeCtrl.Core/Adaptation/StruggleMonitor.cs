@@ -74,11 +74,15 @@ public sealed class StruggleMonitor
         // Collected into a reused buffer, then copied into an exactly-sized list only if any mode surfaced.
         // The no-struggle tick — the overwhelmingly common one — therefore allocates nothing at all.
         int modeCount = 0;
-        AddMode(ref modeCount, FailureMode.SustainFailure, abandonment, jitter); // §13.2: abandonment(+retries, folded in ③a) + jitter
+        // §13.3: every mode is single-feeder. SustainFailure is abandonment(+retries, folded in ③a) alone;
+        // jitter is SignalNoise. Tolerance's drive is unchanged because the controller takes the peak across
+        // both modes — max(max(a, j), drift) == max(a, j, drift) — see §13.3.
+        AddMode(ref modeCount, FailureMode.SustainFailure, abandonment);
         AddMode(ref modeCount, FailureMode.AccidentalActivation, accidental);
         AddMode(ref modeCount, FailureMode.Aiming, aiming);
         AddMode(ref modeCount, FailureMode.Drift, drift);
         AddMode(ref modeCount, FailureMode.PoorTracking, poorTracking);
+        AddMode(ref modeCount, FailureMode.SignalNoise, jitter);
 
         if (modeCount == 0)
             return StruggleAssessment.None;

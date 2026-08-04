@@ -124,4 +124,40 @@ public class EyeCareServiceTests
 
         Check.That(svc.FatigueScore).IsEqualTo(0.0);
     }
+
+    // ── Fatigue staleness (Fix 3) ──
+
+    [Fact]
+    public void TryGetFatigueScore_ReturnsFalse_ForASampleItNeverProcessed()
+    {
+        var settings = new EyeCareSettings { Enabled = true, FatigueMonitorEnabled = true };
+        var sut = NewService(settings, new FakeHooks());
+
+        Check.That(sut.TryGetFatigueScore(12_345, out _)).IsFalse();
+    }
+
+    [Fact]
+    public void TryGetFatigueScore_ReturnsTrue_ForTheSampleItJustProcessed()
+    {
+        var settings = new EyeCareSettings { Enabled = true, FatigueMonitorEnabled = true };
+        var sut = NewService(settings, new FakeHooks());
+
+        sut.OnGazeSample(new GazePoint(960, 540, 5_000_000, IsValid: true), isPaused: false);
+
+        Check.That(sut.TryGetFatigueScore(5_000_000, out _)).IsTrue();
+    }
+
+    [Fact]
+    public void TryGetFatigueScore_ReturnsFalse_ForALaterSample_SoAFrozenScoreCannotLeak()
+    {
+        // The regression that matters: eye care processed sample N, then stopped (a fault). A consumer
+        // asking about sample N+1 must be told the score is stale, not handed the old one.
+        var settings = new EyeCareSettings { Enabled = true, FatigueMonitorEnabled = true };
+        var sut = NewService(settings, new FakeHooks());
+
+        sut.OnGazeSample(new GazePoint(960, 540, 5_000_000, IsValid: true), isPaused: false);
+
+        Check.That(sut.TryGetFatigueScore(5_033_333, out var score)).IsFalse();
+        Check.That(score).IsEqualTo(0.0);
+    }
 }

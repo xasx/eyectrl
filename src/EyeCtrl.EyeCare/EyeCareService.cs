@@ -21,6 +21,12 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
     // volatile gives the re-entrancy guard cross-thread visibility.
     private volatile bool _busy; // true while banner/exercise/summary is on screen
 
+    // Timestamp of the last sample actually fed to the fatigue monitor. Written and read on the gaze
+    // thread only (both this service's handler and the gaze-quality bridge run there), so a plain
+    // field is sufficient. Long.MinValue means "nothing processed yet" and cannot collide with a real
+    // tracker timestamp.
+    private long _lastFatigueSampleUs = long.MinValue;
+
     public EyeCareService(
         EyeCareSettings settings,
         ExerciseRunner runner,
@@ -44,6 +50,7 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
         _scheduler.Update(sample, isPaused, canInterrupt);
         if (!_settings.Enabled) return;
         _fatigueMonitor.OnSample(sample);
+        _lastFatigueSampleUs = sample.TimestampMicroseconds;
 
         // Escalation (gated, off by default): if fatigue crosses the threshold, request an early
         // break — but only when it is safe to interrupt (FreeLook) and no break is already running.
@@ -76,6 +83,18 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
 
     /// <inheritdoc />
     public double FatigueScore => _fatigueMonitor.Score;
+
+    /// <inheritdoc />
+    public bool TryGetFatigueScore(long sampleTimestampUs, out double score)
+    {
+        if (_lastFatigueSampleUs != sampleTimestampUs)
+        {
+            score = 0.0;
+            return false;
+        }
+        score = _fatigueMonitor.Score;
+        return true;
+    }
 
     public void Dispose()
     {

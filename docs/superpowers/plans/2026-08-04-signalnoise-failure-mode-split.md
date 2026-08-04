@@ -33,7 +33,7 @@ Why tolerance is unchanged, algebraically: writing `g` for a signal's gated scor
 | `src/EyeCtrl.Core/Adaptation/FailureMode.cs` | The mode enum + per-mode response docs | Add `SignalNoise`; correct `SustainFailure`'s doc |
 | `src/EyeCtrl.Core/Adaptation/StruggleMonitor.cs` | Evidence windowing, scoring, classification | Extract `ClassifyMode` as `internal static`; rewire the mode map |
 | `src/EyeCtrl.Core/Adaptation/AdaptationController.cs` | Mode → knob transforms, relax/recover stepping | Rewire tolerance and smoothing feeders |
-| `tests/.../Adaptation/StruggleMonitorClassifyModeTests.cs` | **New.** The fold contract, in isolation | Create — 16-row table + the F4 regression |
+| `tests/.../Adaptation/StruggleMonitorClassifyModeTests.cs` | **New.** The fold contract, in isolation | Create — the 16-combination fold table (12 + 4 theory rows) + the F4 regression |
 | `tests/.../Adaptation/StruggleAssessmentTests.cs` | Type/enum drift guards | Enum arity 5 → 6 |
 | `tests/.../Adaptation/StruggleMonitorTests.cs` | Monitor behaviour through `Assess` | Retarget the jitter test; move the F4 test out |
 | `tests/.../Adaptation/AdaptationControllerTests.cs` | Controller transform map | Fix 2 smoothing assertions; add `SignalNoise` + identity tests |
@@ -284,7 +284,7 @@ Delete the whole `Assess_GatedZeroScoreFeeder_DoesNotLiftUngatedHighScore_IntoGa
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests`
 
-Expected: `Bestanden!`, `Fehler: 0`. Total count rises by 16 (17 new tests minus the 1 deleted).
+Expected: `Bestanden!`, `Fehler: 0`. Total count rises by 17 — 18 new tests (12 fold rows + 4 omission rows + 2 facts) minus the 1 deleted.
 
 - [ ] **Step 5: Commit**
 
@@ -692,7 +692,7 @@ The per-task runs only covered `EyeCtrl.Core.Tests`. CI also runs the ViewModels
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests`
 
-Expected: `Bestanden!`, `Fehler: 0`, and a `gesamt:` count **higher** than the Task 1 baseline — 17 fold tests and 1 `SignalNoise` response test and 6 identity theory rows are added, 1 test is relocated, and the rest are edited in place. Confirm `Fehler: 0` and that the total rose; do not try to match an exact number, since xUnit counts each `[InlineData]` row separately and the baseline depends on when you started.
+Expected: `Bestanden!`, `Fehler: 0`, and a `gesamt:` count **higher** than the Task 1 baseline — 18 fold tests and 1 `SignalNoise` response test and 6 identity theory rows are added, 1 test is relocated, and the rest are edited in place. Confirm `Fehler: 0` and that the total rose; do not try to match an exact number, since xUnit counts each `[InlineData]` row separately and the baseline depends on when you started.
 
 - [ ] **Step 2: Run the ViewModels suite**
 
@@ -716,7 +716,7 @@ Expected: exactly six files — three under `src/EyeCtrl.Core/Adaptation/`, thre
 
 - [ ] **Step 5: Verify the exit criterion honestly, and record what was not verified**
 
-The §13.3 exit criterion is that `FixationRadius`'s effective value and `AggregateLevel` are unchanged for every evidence combination. The algebra is the proof; `Tolerance_DriveIsPeakOfSustainFailureDriftAndSignalNoise` and the 16-row fold table are the regression guards.
+The §13.3 exit criterion is that `FixationRadius`'s effective value and `AggregateLevel` are unchanged for every evidence combination. The algebra is the proof; `Tolerance_DriveIsPeakOfSustainFailureDriftAndSignalNoise` and the 16-combination fold table are the regression guards.
 
 State plainly in the PR description that the differential 288-scenario sweep from the design phase was a throwaway spike, **not** part of this suite, and that its grid never reached several relevant states (it always passed jitter's volume gate, so jitter was never ungated; it straddled no gate boundary; it preloaded all evidence before the first tick). Do not describe the split as exhaustively verified.
 

@@ -3,7 +3,7 @@
 **Date:** 2026-08-03
 **Branch:** `worktree-gaze-observer-hub`
 **Scope:** four contained fixes to the gaze hot path. No new contract, no plug-in mechanism, no migration.
-**Status:** all four fixes implemented. Fix 4 `4291fbf`; Fix 3 `ec9cf95`, `a4ed34a`; Fix 1 `1712b42`, `64adf32`, `996cc23`; Fix 2 `84c0850`, `de6f616`. Cost claim in the Cost section is now a measurement (`c50704e`). Headless suite: 1891 passed / 0 failed / 1 skipped.
+**Status:** all four fixes implemented. Fix 4 `4291fbf`; Fix 3 `ec9cf95`, `a4ed34a`; Fix 1 `1712b42`, `64adf32`, `996cc23`; Fix 2 `84c0850`, `de6f616`. Review follow-up `d877e1a` (fault-reporting path made throw-proof, mouse logger wired, mouse catch rate-limited). Cost claim in the Cost section is now a measurement (`c50704e`). Headless suite: 1891 passed / 0 failed / 1 skipped.
 
 ## Why this is small
 
@@ -100,7 +100,10 @@ This is defence in depth and remains worthwhile after Fix 1, because it also cov
 - **`PollLoop`:** wrap the loop body. The guard must sit in the frame that calls `tobii_device_process_callbacks`, since that is where the exception re-enters managed code across the native boundary. On catch, log, set `IsConnected = false`, and fall into the existing `_stopSignal.Wait(backoffMs)` exponential backoff rather than spinning. **Do not hold `_lock` while backing off**, or `Stop()` cannot make progress.
 - **`MouseGazeProvider.OnTick`:** add a `catch` that logs. The existing `finally` already re-arms, so recovery needs nothing more.
 
-Both logs must be rate-limited on the same basis as Fix 1.
+Both logs are rate-limited on the same basis as Fix 1. The mouse provider's catch logs at most once
+per 30 s window (a `TickCount64` comparison in `OnTick`); Tobii's limiter is its own recovery path —
+the catch falls into `_stopSignal.Wait(backoffMs)`, so a persistent fault logs at most once per
+backoff interval (500 ms → 5 s).
 
 ## Problem 3 — Fix 1 introduces a stale-data bug
 
@@ -203,7 +206,7 @@ xUnit v3 with NFluent (`Check.That(...)`, never `Assert.*`), centrally wired in 
 - Subscribe and unsubscribe still work through `+=` / `-=`, including removing one of several identical-target handlers.
 - No allocation per publication with handlers attached.
 
-**Platform.Tests:** a throwing subscriber does not escape `PollLoop`, and does not escape `MouseGazeProvider.OnTick`; the mouse provider's timer still re-arms afterwards.
+**Platform.Tests:** a throwing subscriber does not escape `PollLoop`, and does not escape `MouseGazeProvider.OnTick`; the mouse provider's timer still re-arms afterwards. The `PollLoop` half is verified by inspection + a local SDK-present build only: `TobiiStreamEngineProvider.cs` is entirely inside `#if TOBII_AVAILABLE`, which CI never defines (no SDK on the runner), so the block is not compiled there — pre-existing for the whole provider, but a future refactor can break it invisibly.
 
 **App.Tests (headless, `Category!=UI`):**
 

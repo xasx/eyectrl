@@ -161,7 +161,7 @@ public class AdaptationControllerTests
     }
 
     [Fact]
-    public void SustainFailure_LoosensTolerance_ShortensDwell_IncreasesSmoothing_NotGeometry()
+    public void SustainFailure_LoosensTolerance_ShortensDwell_NotSmoothingOrGeometry()
     {
         var (c, p, _) = Make();
         var a = Assess(Mode(FailureMode.SustainFailure, 0.7));
@@ -169,8 +169,51 @@ public class AdaptationControllerTests
 
         Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(52.5, 1e-9);   // +looser
         Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsCloseTo(672.0, 1e-9);      // −shorter (−0.4×700×0.10 = −28)
-        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsCloseTo(4.75, 1e-9);       // −more (−0.5×5×0.10 = −0.25)
+        // §13.3: abandonment must NOT add smoothing. Smoothing buys jitter reduction with latency, so
+        // relaxing it here would add cursor lag to a user already failing to complete dwells.
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsEqualTo(5.0);
         Check.That(p.Effective(AdaptationKnob.TargetGeometry, DwellContext.Other, 100)).IsEqualTo(100.0);        // sustain-failure does NOT enlarge geometry
+    }
+
+    [Fact]
+    public void SignalNoise_IncreasesSmoothingAndLoosensTolerance_NotDwellOrGeometry()
+    {
+        var (c, p, _) = Make();
+        var a = Assess(Mode(FailureMode.SignalNoise, 0.7));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec);
+
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsCloseTo(4.75, 1e-9);       // −more (−0.5×5×0.10 = −0.25)
+        // Tolerance stays on noise too (§13.3): a looser fixation radius is a correct response to a noisy
+        // signal, and keeping it is what makes this split behaviour-neutral for the one routed knob.
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(52.5, 1e-9);
+        // Shortening dwell on a noisy signal would invite the accidental activations the quarantined
+        // tightening exists to suppress, so noise does not drive dwell.
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsEqualTo(700.0);
+        Check.That(p.Effective(AdaptationKnob.TargetGeometry, DwellContext.Other, 100)).IsEqualTo(100.0);
+    }
+
+    // The §13.3 identity for the ONE routed knob: tolerance's drive is the peak gated score across its three
+    // feeders, so which feeder supplies the peak cannot matter. Modes are passed with explicit scores
+    // (including 0) because the controller reads whatever it is given — the monitor's own omission of
+    // zero-score modes is equivalent, since GatedScore reads an absent mode as 0.
+    [Theory]
+    [InlineData(0.7, 0.0, 0.0, 52.5)] // sustain-failure supplies the peak
+    [InlineData(0.0, 0.7, 0.0, 52.5)] // drift supplies it
+    [InlineData(0.0, 0.0, 0.7, 52.5)] // signal-noise supplies it (the feeder this split added)
+    [InlineData(0.3, 0.3, 0.7, 52.5)] // peak wins over sub-threshold feeders
+    [InlineData(0.7, 0.7, 0.7, 52.5)] // all three at once — still one step, not three
+    [InlineData(0.3, 0.3, 0.3, 50.0)] // all below RelaxThreshold 0.5 → deadband, no relaxation
+    public void Tolerance_DriveIsPeakOfSustainFailureDriftAndSignalNoise(
+        double sustainFailure, double drift, double signalNoise, double expectedRadius)
+    {
+        var (c, p, _) = Make();
+        var a = Assess(
+            Mode(FailureMode.SustainFailure, sustainFailure),
+            Mode(FailureMode.Drift, drift),
+            Mode(FailureMode.SignalNoise, signalNoise));
+        c.Tick(a, 0); c.Tick(a, 3 * Sec);
+
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(expectedRadius, 1e-9);
     }
 
     [Fact]
@@ -220,7 +263,9 @@ public class AdaptationControllerTests
 
         Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 700)).IsEqualTo(700.0);            // dwell disabled
         Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50)).IsCloseTo(52.5, 1e-9);   // tolerance still adapts
-        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsCloseTo(4.75, 1e-9);       // smoothing still adapts
+        // Smoothing is NOT driven by sustain-failure any more (§13.3), so it stays at baseline here; that a
+        // per-knob disable leaves the other knobs adapting is shown by tolerance above.
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsEqualTo(5.0);
     }
 
     [Fact]

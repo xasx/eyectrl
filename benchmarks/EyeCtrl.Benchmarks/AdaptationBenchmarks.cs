@@ -51,8 +51,9 @@ public class AdaptationBenchmarks
         _typicalMonitor = BuildMonitor(outcomes: 32, summaries: 120);
 
         // Every knob's feeding mode gated and scoring above the Conservative RelaxThreshold (0.50), so all
-        // four UpdateKnob paths do real work: SustainFailure feeds tolerance/dwell/smoothing,
-        // AccidentalActivation drives the quarantined dwell tightening, Aiming + PoorTracking feed geometry.
+        // four UpdateKnob paths do real work: SustainFailure feeds tolerance/dwell, SignalNoise feeds
+        // smoothing/tolerance (design §13.3), AccidentalActivation drives the quarantined dwell tightening,
+        // Aiming + PoorTracking feed geometry.
         _gatedStruggle = new StruggleAssessment(
             new[]
             {
@@ -60,6 +61,7 @@ public class AdaptationBenchmarks
                 new FailureModeAssessment(FailureMode.AccidentalActivation, 0.75, 1.0, true, null),
                 new FailureModeAssessment(FailureMode.Aiming, 0.70, 1.0, true, null),
                 new FailureModeAssessment(FailureMode.PoorTracking, 0.65, 1.0, true, null),
+                new FailureModeAssessment(FailureMode.SignalNoise, 0.80, 1.0, true, null),
             },
             aggregateLevel: 0.80);
 

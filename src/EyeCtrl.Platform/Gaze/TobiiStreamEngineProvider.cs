@@ -296,19 +296,36 @@ public class TobiiStreamEngineProvider : IGazeProvider
                 continue;
             }
 
-            bool hasError;
-            lock (_lock)
+            bool hasError = false;
+            try
             {
-                if (!_running) return;
-                tobii_error_t result = Interop.tobii_wait_for_callbacks(
-                    new[] { _deviceContext });
-                hasError = IsError(result);
-
-                if (!hasError)
+                lock (_lock)
                 {
-                    result = Interop.tobii_device_process_callbacks(_deviceContext);
+                    if (!_running) return;
+                    tobii_error_t result = Interop.tobii_wait_for_callbacks(
+                        new[] { _deviceContext });
                     hasError = IsError(result);
+
+                    if (!hasError)
+                    {
+                        result = Interop.tobii_device_process_callbacks(_deviceContext);
+                        hasError = IsError(result);
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                // tobii_device_process_callbacks invokes the managed gaze callback, so a subscriber
+                // fault re-enters managed code here. This thread is IsBackground = true, and an
+                // unhandled exception on it terminates the process — which for this app costs the
+                // user their only input channel. GazeEngine guards its own handlers, so reaching
+                // this catch means a fault in the pipeline itself; treat it as a device error and
+                // fall into the existing backoff rather than spinning.
+                //
+                // The catch is OUTSIDE the lock on purpose: the backoff below must not hold _lock,
+                // or Stop() cannot make progress.
+                _logger.LogError(ex, "Gaze callback threw; treating as a device error and backing off");
+                hasError = true;
             }
 
             if (hasError)

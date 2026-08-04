@@ -75,18 +75,24 @@ public sealed class AdaptationController
         {
             PostureTuning tuning = PosturePresets.For(_adaptation.Posture);
 
-            // Tolerance: loosen (forgiving = larger) on sustain-failure OR drift (union of forgiving responses, §8.2).
+            // Tolerance: loosen (forgiving = larger) on sustain-failure OR drift OR signal-noise (union of
+            // forgiving responses, §8.2). SignalNoise was folded into SustainFailure before §13.3, so adding
+            // it here is what keeps this knob's drive — the only one with a live consumer — unchanged.
             UpdateKnob(AdaptationKnob.FixationRadius, _adaptation.AdaptTolerance, tuning, nowMicroseconds,
-                forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure, FailureMode.Drift),
+                forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure, FailureMode.Drift, FailureMode.SignalNoise),
                 tighteningDrive: 0.0);
             // Dwell: shorten (forgiving) on sustain-failure; the ONE quarantined tightening (longer dwell) on
             // accidental-activation ONLY, in its own sub-band, instantly escapable via Reset (§8.2).
             UpdateKnob(AdaptationKnob.DwellTime, _adaptation.AdaptDwell, tuning, nowMicroseconds,
                 forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure),
                 tighteningDrive: GatedScore(assessment, FailureMode.AccidentalActivation));
-            // Smoothing: more (parameter down) on sustain-failure OR poor-tracking (union).
+            // Smoothing: more (parameter down) on signal-noise OR poor-tracking (union) — never on
+            // sustain-failure (§13.3). More smoothing buys jitter reduction with latency, so driving it from
+            // abandonment that is not noise-caused would add cursor lag to a user already failing to complete
+            // dwells, plausibly causing more abandonment: a feedback loop the old max(abandonment, jitter)
+            // fold made invisible.
             UpdateKnob(AdaptationKnob.Smoothing, _adaptation.AdaptSmoothing, tuning, nowMicroseconds,
-                forgivingDrive: ForgivingDrive(assessment, FailureMode.SustainFailure, FailureMode.PoorTracking),
+                forgivingDrive: ForgivingDrive(assessment, FailureMode.SignalNoise, FailureMode.PoorTracking),
                 tighteningDrive: 0.0);
             // Geometry: enlarge on aiming OR poor-tracking (union).
             UpdateKnob(AdaptationKnob.TargetGeometry, _adaptation.AdaptGeometry, tuning, nowMicroseconds,

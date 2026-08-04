@@ -737,15 +737,31 @@ the controller still relies on — an ungated high score surfaces its mode with 
 contributes 0 to the drive.
 
 **Do not over-read that as the bug class being eliminated** (review round 1 correctly refuted an earlier
-draft's claim of "structurally unrepresentable"). The two-feeder `AddMode` overload and `Fold` are
-**kept** — the single-feeder overload delegates through them — so the multi-feeder fold contract still
-exists in the code and a future two-feeder mode could reintroduce the same bug class with no structural
-change. The retargeted test is adequate coverage for the **current** mode map; it is *not* an equivalent
-replacement for a regression test of `Fold` itself. Two ways to close that gap, neither adopted here:
-remove the two-feeder path so the claim becomes literal, or make `AddMode` `internal` (the
-`InternalsVisibleTo` seam already exists for `SelectEvidence`) and test the fold directly. **Open decision
-for the implementation slice** — recorded rather than settled, because the choice trades a reviewed safety
-net against testing a path production no longer uses.
+draft's claim of "structurally unrepresentable"). The two-feeder fold is **kept** — the single-feeder path
+delegates through it — so the multi-feeder contract still exists in the code and a future two-feeder mode
+could reintroduce the same bug class with no structural change. The retargeted test covers the **current**
+mode map; it is *not* an equivalent replacement for a regression test of the fold itself.
+
+**Resolution: keep both tests, and expose the fold to make the two-feeder one possible** (decided
+2026-08-04, after review round 1 argued the retarget alone leaves the retained contract unguarded — and it
+does: the two-feeder path becomes entirely unused by production, which is precisely when it stops being
+exercised incidentally).
+
+- **Extract the classification decision as an `internal static`** returning `FailureModeAssessment?`
+  (`null` = omitted under the `rawScore <= 0` rule), with `AddMode` reduced to a wrapper that writes a
+  non-null result into `_modeBuffer`. Merely widening `AddMode` to `internal` is **not** enough: it takes
+  `ref int count` and mutates the `private readonly _modeBuffer`, so a caller could invoke it but not
+  observe the outcome without also exposing the buffer. A pure static is directly callable with any feeder
+  pair and keeps the buffer private. The `InternalsVisibleTo` seam already exists
+  (`EyeCtrl.Core.csproj:12`, `EyeCtrl.Core.Tests` — the same one `SelectEvidence` uses).
+- **Keep the original F4 regression test**, retargeted at that static rather than at `Assess`: gated
+  zero-score feeder + ungated high-score feeder must yield a mode whose actionable score is 0. It no longer
+  needs a two-feeder mode to exist in the live map, so it survives the split intact.
+- **Add the single-feeder F4 test** the current controller wiring relies on: an ungated high score surfaces
+  its mode with `GatePassed = false` and contributes 0 to the drive.
+- Together these cover both the retained contract and the live map, so retiring nothing. This supersedes
+  the alternative of deleting the two-feeder path, which would have made the "unrepresentable" claim
+  literal at the cost of a bigger change if a two-feeder mode is ever wanted again.
 
 **Slicing.** Because the split is provably behaviour-neutral it ships **before** and **separately from**
 smoothing routing, with "adaptation behaviour identical" as its exit criterion — the Phase-1a posture.

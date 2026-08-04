@@ -148,6 +148,32 @@ public class GazeEngineFanOutIsolationTests
         Check.That(secondHits).IsEqualTo(2);  // never skipped
     }
 
+    [Fact]
+    public void AThrowingCursorMovedHandler_DoesNotStarveLaterHandlers()
+    {
+        var (provider, engine) = NewEngine();
+        using var _ = engine;
+        int reached = 0;
+
+        engine.CursorMoved += (_, _) => throw new InvalidOperationException("boom");
+        engine.CursorMoved += (_, _) => reached++;
+
+        provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
+
+        Check.That(reached).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void AThrowingCursorMovedHandler_DoesNotStopFixationProcessing()
+    {
+        var (provider, engine) = NewEngine();
+        using var _ = engine;
+        engine.CursorMoved += (_, _) => throw new InvalidOperationException("boom");
+
+        // Must not throw: the remainder of OnGazePoint (centroid tracking, fixation) still runs.
+        provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
+    }
+
     private static (FakeGazeProvider Provider, GazeEngine Engine) NewEngine()
     {
         var provider = new FakeGazeProvider();

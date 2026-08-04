@@ -766,8 +766,8 @@ exercised incidentally).
 **Slicing.** Because the split is provably behaviour-neutral it ships **before** and **separately from**
 smoothing routing, with "adaptation behaviour identical" as its exit criterion — the Phase-1a posture.
 Routing then lands as its own behaviour-changing slice, so a regression in either is unambiguous about
-which change caused it. Test cost of the split, measured on the spike: **5 of 1018** `EyeCtrl.Core.Tests`
-fail, all expected semantic updates — the `FailureMode` arity drift-guard, one monitor test naming the old
+which change caused it. Test cost of the split: **5 of 1009** `EyeCtrl.Core.Tests` fail on `main` at
+`b590a87`, all expected semantic updates — the `FailureMode` arity drift-guard, one monitor test naming the old
 jitter→sustain-failure classification, the F4 test above, and two controller tests whose smoothing
 assertions move to `SignalNoise`.
 

@@ -173,6 +173,14 @@ public class AppBootstrapper
             sp.GetRequiredService<IGazeQualitySink>(),
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation));
 
+        // The jitter delegate resolves GazeEngine lazily. Factory registrations are not evaluated at
+        // registration time, so it does not matter that GazeEngine is registered earlier — and
+        // GazeEngineAdapter already resolves it the same way.
+        services.AddSingleton(sp => new GazeQualityBridge(
+            sp.GetRequiredService<GazeQualityAggregator>(),
+            sp.GetRequiredService<IEyeCareService>(),
+            () => sp.GetRequiredService<GazeEngine>().LastFixationJitter));
+
         // ViewModels (singleton -- each registers message handlers in constructor)
         services.AddSingleton<CursorCircleViewModel>();
         services.AddSingleton<ActivationButtonViewModel>();

@@ -16,4 +16,15 @@ public interface IEyeCareService
 
     /// <summary>Current fatigue score [0..1] from the fatigue monitor (0 when fatigue monitoring is off).</summary>
     double FatigueScore { get; }
+
+    /// <summary>
+    /// Reads the fatigue score only if it reflects the sample identified by
+    /// <paramref name="sampleTimestampUs"/>. Returns <c>false</c> (and <paramref name="score"/> 0)
+    /// when this service has not processed that sample — which is how a consumer distinguishes a
+    /// live score from one frozen by a fault or by eye-care being disabled.
+    /// </summary>
+    /// <param name="sampleTimestampUs">Timestamp of the sample the caller is handling.</param>
+    /// <param name="score">The fatigue score [0..1], or 0 when not fresh.</param>
+    /// <returns><c>true</c> when the score is fresh for that sample.</returns>
+    bool TryGetFatigueScore(long sampleTimestampUs, out double score);
 }

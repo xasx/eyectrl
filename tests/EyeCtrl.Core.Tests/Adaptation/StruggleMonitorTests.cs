@@ -156,17 +156,19 @@ public class StruggleMonitorTests
     }
 
     [Fact]
-    public void Assess_JitterAlone_ContributesToSustainFailure()
+    public void Assess_JitterAlone_ClassifiesAsSignalNoise_NotSustainFailure()
     {
-        // No dwell; only high-jitter quality (mean 500 ≥ high 400, ≥ 3 summaries) → jitter gates →
-        // SustainFailure present (jitter is a sustain-failure feeder alongside abandonment).
+        // No dwell; only high-jitter quality (mean 500 ≥ high 400, ≥ 3 summaries) → jitter gates. Per §13.3
+        // jitter is its own mode: SignalNoise gates, and SustainFailure — now fed by abandonment alone, of
+        // which there is none — is omitted entirely.
         var monitor = new StruggleMonitor(SinkWith(quality: new[]
         {
             Quality(0, 0.0, 500), Quality(Sec, 0.0, 500), Quality(2 * Sec, 0.0, 500),
         }), EyeCare());
         var a = monitor.Assess(3 * Sec);
 
-        Check.That(a.ForMode(FailureMode.SustainFailure)!.Value.GatePassed).IsTrue();
+        Check.That(a.ForMode(FailureMode.SignalNoise)!.Value.GatePassed).IsTrue();
+        Check.That(a.ForMode(FailureMode.SustainFailure).HasValue).IsFalse();
     }
 
     [Fact]

@@ -3,7 +3,7 @@
 **Date:** 2026-08-03
 **Branch:** `worktree-gaze-observer-hub`
 **Scope:** four contained fixes to the gaze hot path. No new contract, no plug-in mechanism, no migration.
-**Status:** all four fixes implemented. Fix 4 `4291fbf`; Fix 3 `ec9cf95`, `a4ed34a`; Fix 1 `1712b42`, `64adf32`, `996cc23`; Fix 2 `84c0850`, `de6f616`. Review follow-up `d877e1a` (fault-reporting path made throw-proof, mouse logger wired, mouse catch rate-limited). Cost claim in the Cost section is now a measurement (`c50704e`). Headless suite: 1891 passed / 0 failed / 1 skipped.
+**Status:** all four fixes implemented. Fix 4 `4291fbf`; Fix 3 `ec9cf95`, `a4ed34a`; Fix 1 `1712b42`, `64adf32`, `996cc23`; Fix 2 `84c0850`, `de6f616`. Review follow-ups `d877e1a` (fault-reporting path made throw-proof, mouse logger wired, mouse catch rate-limited), `611c8fa` (mapper cost, reporter remark, remaining test gaps), `93a8b06` (spec notes). Cost claim in the Cost section is now a measurement (`c50704e`). Final headless suite: 1897 passed / 0 failed / 1 skipped.
 
 ## Why this is small
 

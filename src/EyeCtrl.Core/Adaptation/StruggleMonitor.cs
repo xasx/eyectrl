@@ -115,9 +115,27 @@ public sealed class StruggleMonitor
 
     private void AddMode(ref int count, FailureMode mode, SignalScore first, SignalScore second)
     {
+        if (ClassifyMode(mode, first, second) is { } assessment)
+            _modeBuffer[count++] = assessment;
+    }
+
+    /// <summary>
+    /// The pure fold from one or two feeding signals to a mode assessment, or <c>null</c> when the mode is
+    /// omitted because no feeder shows any struggle. Extracted from <c>AddMode</c> so the multi-feeder fold
+    /// contract stays directly testable (design §13.3): after the `SignalNoise` split every mode in the live
+    /// map is single-feeder, so the two-feeder path is no longer exercised incidentally through
+    /// <see cref="Assess"/>. <c>internal</c> for <c>EyeCtrl.Core.Tests</c> (the `InternalsVisibleTo` seam in
+    /// `EyeCtrl.Core.csproj`); production callers go through <c>AddMode</c>.
+    /// </summary>
+    /// <param name="mode">The failure mode being classified.</param>
+    /// <param name="first">The first feeding signal.</param>
+    /// <param name="second">The second feeding signal, or <see cref="SignalScore.None"/> for a single-feeder mode.</param>
+    /// <returns>The mode assessment, or <c>null</c> when the mode should be omitted entirely.</returns>
+    internal static FailureModeAssessment? ClassifyMode(FailureMode mode, SignalScore first, SignalScore second)
+    {
         double rawScore = Math.Max(first.Score, second.Score);
         if (rawScore <= 0.0)
-            return; // no feeder shows any struggle → omit (ForMode returns null)
+            return null; // no feeder shows any struggle → omit (ForMode returns null)
 
         double gatedScore = 0.0, gatedConfidence = 0.0;
         bool anyGated = false;
@@ -128,7 +146,7 @@ public sealed class StruggleMonitor
         // (non-actionable) raw score and GatePassed=false, so the controller ignores it but monitoring sees it.
         double score = anyGated ? gatedScore : rawScore;
         double confidence = anyGated ? gatedConfidence : 0.0;
-        _modeBuffer[count++] = new FailureModeAssessment(mode, score, confidence, anyGated, null);
+        return new FailureModeAssessment(mode, score, confidence, anyGated, null);
     }
 
     // SignalScore.None is gate-failed with score 0, so folding it as the absent second feeder is a no-op.

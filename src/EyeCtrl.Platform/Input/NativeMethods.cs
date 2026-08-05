@@ -126,6 +126,38 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool AllowSetForegroundWindow(uint dwProcessId);
 
+    // ── Window-management (toolbar window-actions region) ──
+
+    [LibraryImport("user32.dll")]
+    internal static partial IntPtr GetForegroundWindow();
+
+    [LibraryImport("user32.dll")]
+    internal static partial IntPtr GetShellWindow();
+
+    // [LibraryImport] does not support StringBuilder (SYSLIB1051). Use [Out] char[].
+    [LibraryImport("user32.dll", EntryPoint = "GetClassNameW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int GetClassName(IntPtr hWnd, [Out] char[] lpClassName, int nMaxCount);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [LibraryImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsZoomed(IntPtr hWnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsIconic(IntPtr hWnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindow(IntPtr hWnd);
+
     // Returns S_OK (0) on success and writes the attribute into pvAttribute.
     [LibraryImport("dwmapi.dll")]
     internal static partial int DwmGetWindowAttribute(IntPtr hWnd, int dwAttribute, out int pvAttribute, int cbAttribute);
@@ -139,4 +171,10 @@ internal static partial class NativeMethods
     // DWMWA_CLOAKED: nonzero when DWM has cloaked the window (e.g. suspended UWP apps,
     // ApplicationFrameWindow ghosts) — visible + top-level to EnumWindows but not really shown.
     internal const int DWMWA_CLOAKED = 14;
+
+    // ShowWindow nCmdShow values + WM_CLOSE for the window-actions region.
+    internal const int SW_MINIMIZE = 6;
+    internal const int SW_MAXIMIZE = 3;
+    internal const int SW_RESTORE = 9;
+    internal const uint WM_CLOSE = 0x0010;
 }

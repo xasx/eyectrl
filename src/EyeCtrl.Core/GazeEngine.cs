@@ -96,8 +96,12 @@ public class GazeEngine : IDisposable
         remove
         {
             if (value is null) return;
+            bool gone;
             lock (_handlerLock)
-                _cursorMovedHandlers = RemoveLast(_cursorMovedHandlers, value);
+                gone = !Contains(_cursorMovedHandlers = RemoveLast(_cursorMovedHandlers, value), value);
+            // Outside the lock: Forget takes the reporter's own gate, and nesting _handlerLock around
+            // it would invent a lock order for no reason.
+            if (gone) _faults.Forget(value);
         }
     }
 
@@ -121,9 +125,23 @@ public class GazeEngine : IDisposable
         remove
         {
             if (value is null) return;
+            bool gone;
             lock (_handlerLock)
-                _gazeSampledHandlers = RemoveLast(_gazeSampledHandlers, value);
+                gone = !Contains(_gazeSampledHandlers = RemoveLast(_gazeSampledHandlers, value), value);
+            if (gone) _faults.Forget(value);
         }
+    }
+
+    // Only drop the fault bookkeeping once the LAST equal subscription is gone — a caller that
+    // subscribed the same handler twice still has one live, and resetting its window would let it
+    // log again inside the window it is being rate-limited by.
+    private static bool Contains<T>(T[] source, T value) where T : class
+    {
+        foreach (var candidate in source)
+        {
+            if (candidate.Equals(value)) return true;
+        }
+        return false;
     }
 
     // Mirrors multicast -= semantics: remove the LAST matching handler, not every match. A filter

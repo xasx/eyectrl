@@ -87,4 +87,57 @@ public class Win32WindowManager : IWindowManager
         NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
         NativeMethods.SetForegroundWindow(hwnd);
     }
+
+    /// <inheritdoc />
+    public IntPtr? TryGetEligibleForegroundWindow()
+    {
+        var hwnd = NativeMethods.GetForegroundWindow();
+        var shellHwnd = NativeMethods.GetShellWindow();
+
+        // GetClassName: allocate a buffer (256 is the documented max for a window class name).
+        var classNameBuffer = new char[256];
+        int len = NativeMethods.GetClassName(hwnd, classNameBuffer, classNameBuffer.Length);
+        var className = len > 0 ? new string(classNameBuffer, 0, len) : string.Empty;
+
+        NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+
+        var candidate = new ForegroundWindowCandidate(
+            hwnd,
+            IsWindow: NativeMethods.IsWindow(hwnd),
+            ShellWindowHwnd: shellHwnd,
+            ClassName: className,
+            ProcessId: pid,
+            OwnProcessId: (uint)Environment.ProcessId);
+
+        // IsEligible is fail-closed: zero/!IsWindow/shell/class/own-process all reject.
+        return ForegroundWindowEligibility.IsEligible(candidate) ? hwnd : null;
+    }
+
+    /// <inheritdoc />
+    public void Minimize(IntPtr hwnd)
+    {
+        if (!NativeMethods.IsWindow(hwnd)) return;
+        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
+    }
+
+    /// <inheritdoc />
+    public void MaximizeOrRestore(IntPtr hwnd)
+    {
+        if (!NativeMethods.IsWindow(hwnd)) return;
+        var op = WindowStateOps.DecideWindowOp(
+            isZoomed: NativeMethods.IsZoomed(hwnd),
+            isIconic: NativeMethods.IsIconic(hwnd));
+        NativeMethods.ShowWindow(hwnd, op == WindowStateOp.Maximize
+            ? NativeMethods.SW_MAXIMIZE
+            : NativeMethods.SW_RESTORE);
+    }
+
+    /// <inheritdoc />
+    public bool CloseWindow(IntPtr hwnd)
+    {
+        if (!NativeMethods.IsWindow(hwnd)) return false;
+        // WM_CLOSE is graceful: DefWindowProc derives it from SC_CLOSE. For a modal dialog
+        // it posts IDCANCEL (like Esc) — closes the dialog, NOT the owning app.
+        return NativeMethods.PostMessage(hwnd, NativeMethods.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+    }
 }

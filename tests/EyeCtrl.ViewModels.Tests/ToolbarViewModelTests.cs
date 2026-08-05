@@ -11,10 +11,10 @@ public class ToolbarViewModelTests
     private readonly EyeCtrlSettings _settings = new();
 
     [Fact]
-    public void InitializesWith8Buttons()
+    public void InitializesWith11Buttons()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        Check.That(vm.Buttons.Count).IsEqualTo(8);
+        Check.That(vm.Buttons.Count).IsEqualTo(11);
     }
 
     [Fact]
@@ -157,5 +157,42 @@ public class ToolbarViewModelTests
         vm.Receive(new GazeCursorMovedMessage(center, dwellUs));
 
         Check.That(paused).IsTrue();
+    }
+
+    // Window-management toolbar region (Task 6): dwelling each new button id fires the matching
+    // WindowActionRequestedMessage. Mirrors GazeDwellOnPositionedButton_ActivatesIt above — the
+    // View reports positions per id, the VM creates dwell targets per id, so a missing dispatch
+    // case would let the dwell complete silently with no message.
+    [Theory]
+    [InlineData("Minimize", WindowAction.Minimize)]
+    [InlineData("MaximizeRestore", WindowAction.MaximizeRestore)]
+    [InlineData("Close", WindowAction.Close)]
+    public void OnTargetActivated_WindowButton_SendsWindowActionMessage(string id, WindowAction expected)
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+
+        WindowAction? received = null;
+        messenger.Register<WindowActionRequestedMessage>(this, (_, msg) => received = msg.Action);
+
+        // OnTargetActivated is protected; drive it via Receive on a positioned button, mirroring
+        // GazeDwellOnPositionedButton_ActivatesIt (ToolbarViewModelTests.cs:144-160).
+        var center = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition(id, center);
+        var dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
+        vm.Receive(new GazeCursorMovedMessage(center, 0));
+        vm.Receive(new GazeCursorMovedMessage(center, dwellUs));
+
+        Check.That(received).IsEqualTo(expected);
+    }
+
+    [Fact]
+    public void ToolbarViewModel_ContainsWindowActionButtons()
+    {
+        // Pins Step 3 (VM array) independently of the dispatch switch — UpdateButtonScreenPosition
+        // would create a target for any id, so the dwell test alone can't catch a missing array entry.
+        var vm = new ToolbarViewModel(_settings, new WeakReferenceMessenger());
+        Check.That(vm.Buttons.Select(b => b.Id).ToArray())
+             .Contains(new[] { "Minimize", "MaximizeRestore", "Close" });
     }
 }

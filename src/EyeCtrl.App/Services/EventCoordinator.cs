@@ -538,6 +538,10 @@ public class EventCoordinator : IEventCoordinator
                     case CalibrationState.Collecting:
                     case CalibrationState.Training:
                         _context.GazeEngine.SuppressFixation = true;
+                        // Deactivate toolbar dwell while gaze is being collected at calibration
+                        // targets — they can land on screen edges/corners where a docked toolbar
+                        // lives, and would otherwise dwell-activate a hidden/stale button position.
+                        _toolbarVisibility.SetActive(false);
                         // Hide the cursor circle so it doesn't compete with the calibration dot.
                         cursorCircle.Hide();
                         calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
@@ -546,13 +550,22 @@ public class EventCoordinator : IEventCoordinator
                     case CalibrationState.Active:
                     case CalibrationState.Failed:
                         _context.GazeEngine.SuppressFixation = false;
+                        // Re-activate toolbar dwell. NOTE: CalibrationState.Active means
+                        // "calibration COMPLETE and transform applied" (success), NOT "in progress"
+                        // — wiring it to SetActive(false) would permanently kill toolbar dwell on
+                        // configs where ShowToolbar() never fires (floating toolbar / mouse
+                        // provider — auto-hide disabled, no recovery short of restart).
+                        _toolbarVisibility.SetActive(true);
                         // Restore the cursor circle so the user can aim at Retry/Accept.
                         if (_context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
                         calWindow.Show();
                         break;
                     default:
+                        // CalibrationState.Idle / CalibrationState.Cancelled — calibration is over
+                        // (not in progress), so toolbar dwell resumes.
                         _context.GazeEngine.SuppressFixation = false;
+                        _toolbarVisibility.SetActive(true);
                         if (_context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.DismissCalibration();
                         break;
@@ -633,7 +646,7 @@ public class EventCoordinator : IEventCoordinator
             // where the transform extrapolates outside the domain it was fit to.
             toScreen: p => _context.CalibrationService.CurrentTransform?.Apply(p) ?? p);
 
-        var vis = new ToolbarVisibilityAdapter(_context.OverlayManager, _context.Dispatcher);
+        var vis = new ToolbarVisibilityAdapter(_context.OverlayManager, _context.Dispatcher, _context.ToolbarVM);
         controller.Attach(vis);
 
         _toolbarAutoHide = controller;

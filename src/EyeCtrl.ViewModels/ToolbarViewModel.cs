@@ -28,6 +28,13 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     // dwell target; later reports only move it, so accumulated dwell state is preserved.
     private readonly HashSet<string> _positionedButtons = new();
 
+    // Activity gate for dwell processing. Toggled by the auto-hide lifecycle (hide → false,
+    // show/ForceShow → true) and calibration (Collecting/Training → false, terminal states → true)
+    // via SetActive. When false, Receive short-circuits before feeding the detector, so a hidden or
+    // calibrating toolbar cannot dwell from former screen positions (spec §4 BLOCKER C.2). Initial
+    // state is true — the toolbar starts visible and dwellable.
+    private bool _dwellingActive = true;
+
     [ObservableProperty] private bool _isPaused;
 
     private SelectionMode _currentSelectionMode = SelectionMode.None;
@@ -94,7 +101,32 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
     public override void Receive(GazeCursorMovedMessage message)
     {
+        if (!_dwellingActive) return;
         DwellDetector.Update(message.Position, message.TimestampMicroseconds);
+    }
+
+    /// <summary>
+    /// Activates/deactivates dwell processing for the toolbar. Called by the auto-hide
+    /// lifecycle (hide → false, show/ForceShow → true) and calibration (Collecting/Training → false,
+    /// Active/Failed/Cancelled/Idle → true). When deactivated, gaze samples are not fed to the detector
+    /// and any in-progress dwell state is reset (preventing both hidden-toolbar fires and stale-
+    /// timestamp instant activation on resume).
+    ///
+    /// Refcount invariant (spec §4): hide and calibration are mutually exclusive today — calibration
+    /// only starts from controller-state Visible and Feed can't transition while calibration is active
+    /// (ToolbarAutoHideController derives its gate from CalibrationService.IsSessionActive, NOT from
+    /// CalibrationStateChangedMessage like this wiring). This flag is therefore a single bool, not a
+    /// refcount. If that non-overlap invariant ever breaks, switch to a refcount here.
+    ///
+    /// Telemetry bias: ResetAllState fires TargetProgress(id,0) but NOT an Abandoned DwellOutcome,
+    /// so a mid-flight dwell at hide/calibration-start drops out of struggle telemetry. Intentional —
+    /// both numerator and denominator of ScoreAbandonment drop together; impact negligible.
+    /// </summary>
+    public void SetActive(bool active)
+    {
+        _dwellingActive = active;
+        if (!active)
+            DwellDetector.ResetAllState();
     }
 
     public void Receive(StateChangedMessage message)

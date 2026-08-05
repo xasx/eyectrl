@@ -227,6 +227,15 @@ public sealed class ToolbarAutoHideController
         return _state;
     }
 
+    // Deliberately on raw tracker coordinates while the rect test in Feed maps through the
+    // calibration transform: off-screen gaze lies outside the domain the transform was fit to, and
+    // extrapolating there is less trustworthy than not mapping at all.
+    //
+    // The residual is worth naming rather than leaving implicit: the summon threshold and the rect
+    // edge are then measured in different spaces, so the point where a summon triggers sits a
+    // calibration-offset away from where the toolbar visually ends. Small in practice — Load rejects
+    // any transform that deviates far from identity — but it is the same class of mismatch Fix 4
+    // removed from the rect test, not an absence of one.
     private bool IsPastDockedEdge(GazePoint s)
     {
         if (!s.IsValid) return false; // invalid samples never summon (per spec)

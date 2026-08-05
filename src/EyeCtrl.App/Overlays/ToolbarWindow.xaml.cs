@@ -36,7 +36,8 @@ public partial class ToolbarWindow : OverlayWindow
         ButtonPanel.Children.Clear();
         _targetsInitialized = false;
 
-        // id + symbol (Unicode)
+        // id + symbol (Unicode). The window-actions region ids + glyphs come from the single
+        // source of truth in WindowActionButtons so the View and VM never drift apart.
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause",    "\u23F8"),    // ⏸ Pause
@@ -44,34 +45,22 @@ public partial class ToolbarWindow : OverlayWindow
             ("Keyboard", "\u2328"),    // ⌨ Keyboard
             ("Settings", "\u2699"),    // ⚙ Gear
             ("ResetAdaptation", "\u21BA"),  // ↺ Reset struggle-adaptation (§8.6 always-reachable escape)
-            ("Minimize", "\u2581"),
-            ("MaximizeRestore", "\u25A1"),
-            ("Close", "\u2715"),
         };
+        if (showWindowActions)
+            buttons = buttons.Concat(WindowActionButtons.All).ToArray();
 
         foreach (var (id, symbol) in buttons)
         {
-            // The window-action region (Minimize/MaximizeRestore/Close) is gated by the
-            // ShowWindowActions setting. Toggling it off removes the region from the View here,
-            // AND the VM removes their dwell targets in SetWindowActionsVisible — both halves
-            // are required or a removed Close stays dwellable at its last screen position
-            // (the hidden-toolbar hazard).
-            if (!showWindowActions && IsWindowActionId(id))
-                continue;
+            // The window-actions region is excluded from the array above when ShowWindowActions is
+            // off, removing it from the View here. The VM drops their dwell targets in
+            // SetWindowActionsVisible — both halves are required or a removed Close stays
+            // dwellable at its last screen position (the hidden-toolbar hazard).
             AddButton(id, symbol);
         }
 
         if (_providerType.HasValue)
             AddIndicatorElement(_providerType.Value);
     }
-
-    /// <summary>
-    /// Whether <paramref name="id"/> is one of the three window-action region buttons gated by
-    /// ShowWindowActions. Centralised so Initialize and the rebind path agree on the region's
-    /// membership.
-    /// </summary>
-    internal static bool IsWindowActionId(string id) =>
-        id == "Minimize" || id == "MaximizeRestore" || id == "Close";
 
     private void AddButton(string id, string symbol)
     {
@@ -157,6 +146,12 @@ public partial class ToolbarWindow : OverlayWindow
 
     public void SetMode(bool isDocked, string edge)
     {
+        // Force layout so ActualWidth reflects the current button count (Initialize may have
+        // changed it). With SizeToContent="WidthAndHeight" the width isn't re-measured until the
+        // next layout pass, so without this the centering math below reads a stale width and the
+        // toolbar sits off-center until the next SetMode call.
+        UpdateLayout();
+
         var screen = SystemParameters.WorkArea;
 
         if (isDocked)
@@ -215,6 +210,14 @@ public partial class ToolbarWindow : OverlayWindow
             }
         }
 
+        // Don't latch until every container has been laid out — a gaze dispatch at Normal
+        // priority (9) can outrank the Render (7) layout pass, leaving ActualWidth == 0 and
+        // collapsing all targets onto (0,0). Retry on the next frame instead.
+        foreach (var (_, (container, _, _)) in _buttonVisuals)
+        {
+            if (container.ActualWidth == 0)
+                return;  // not laid out yet; don't latch
+        }
         _targetsInitialized = true;
     }
 

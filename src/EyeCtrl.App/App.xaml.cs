@@ -309,6 +309,12 @@ public partial class App : Application
             // which registers for GazeCursorMovedMessage to feed gaze into overlays.
             // Subscription lives for the process lifetime (eyeCare + gazeEngine are app-lifetime
             // singletons), so no explicit unsubscribe is needed.
+            //
+            // ORDERING: this subscription must stay AHEAD of the GazeQualityBridge one at the end of
+            // this method. Handlers run in registration order, and the bridge asks eye care whether
+            // its fatigue score is fresh *for the sample being handled* — an answer that is only yes
+            // once this handler has stamped it. Registered the other way round, every reading is
+            // stale and adaptation silently sees a fatigue score of 0 forever.
             var eyeCare = _serviceProvider.GetRequiredService<IEyeCareService>();
             gazeEngine.GazeSampled += sample =>
             {
@@ -334,6 +340,10 @@ public partial class App : Application
             // Gaze-quality telemetry. The bridge substitutes 0 for a stale fatigue score, so a
             // faulting eye-care handler degrades to the documented "disabled" value rather than
             // freezing its last reading into adaptation.
+            //
+            // ORDERING: must stay AFTER the eye-care subscription above, which is what makes the
+            // score fresh for this sample. Moving this line earlier does not fail loudly — it just
+            // reports 0 fatigue for the rest of the process. See the note at that subscription.
             var gazeQuality = _serviceProvider.GetRequiredService<GazeQualityBridge>();
             gazeEngine.GazeSampled += gazeQuality.OnGazeSample;
         }

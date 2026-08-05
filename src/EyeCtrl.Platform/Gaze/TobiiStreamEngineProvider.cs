@@ -2,6 +2,7 @@
 namespace EyeCtrl.Platform.Gaze;
 
 using System.Threading;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
@@ -27,6 +28,15 @@ public class TobiiStreamEngineProvider : IGazeProvider
     private readonly ManualResetEventSlim _stopSignal = new(false);
     private volatile bool _pollThreadExited = true;
     private string? _lastErrorMessage;
+
+    // A managed fault in the pipeline repeats on every sample, and the backoff below caps at 5 s, so
+    // an ungated log here would write a stack trace every 5 s for as long as the app runs. Rate-limit
+    // it the same way the fan-out does — the suppressed count is also what distinguishes a one-off
+    // blip from a pipeline that is broken for good.
+    private readonly HandlerFaultReporter _faults;
+
+    private const string CallbackFault =
+        "Gaze callback threw; treating it as a device error and reconnecting";
 
     // Must keep a reference to prevent GC from collecting the delegate
     private tobii_gaze_point_callback_t? _gazeCallback;
@@ -78,6 +88,10 @@ public class TobiiStreamEngineProvider : IGazeProvider
         _screenWidth = screenWidth;
         _screenHeight = screenHeight;
         _logger = logger;
+        _faults = new HandlerFaultReporter(
+            (message, ex) => logger.LogError(ex, "{FaultMessage}", message),
+            () => Environment.TickCount64 / 1000,
+            windowSeconds: 30);
     }
 
     public void Start()
@@ -319,20 +333,18 @@ public class TobiiStreamEngineProvider : IGazeProvider
                 // fault re-enters managed code here. This thread is IsBackground = true, and an
                 // unhandled exception on it terminates the process — which for this app costs the
                 // user their only input channel. GazeEngine guards its own handlers, so reaching
-                // this catch means a fault in the pipeline itself; treat it as a device error and
-                // fall into the existing backoff rather than spinning.
+                // this catch means a fault in the pipeline itself.
+                //
+                // Treating it as a device error and reconnecting is not just a convenient reuse of
+                // the backoff: the exception unwound through Stream Engine's native frame while it
+                // was dispatching callbacks, so the device's internal dispatch state is unknown and
+                // continuing to poll it is the less defensible option. IsConnected therefore goes
+                // false, which is honest — no gaze is reaching the pipeline either way.
                 //
                 // The catch is OUTSIDE the lock on purpose: the backoff below must not hold _lock,
-                // or Stop() cannot make progress.
-                try
-                {
-                    _logger.LogError(ex, "Gaze callback threw; treating as a device error and backing off");
-                }
-                catch
-                {
-                    // The log call must not itself escape this catch: LogError runs on the
-                    // IsBackground poll thread, where any escaping exception terminates the process.
-                }
+                // or Stop() cannot make progress. Reporting is rate-limited and swallows a broken
+                // logger, so nothing here can escape onto this thread.
+                _faults.Report(CallbackFault, ex);
                 hasError = true;
             }
 

@@ -226,6 +226,59 @@ public class GazeEngineFanOutIsolationTests
         Check.That(logger.Faults).HasSize(1);
     }
 
+    [Fact]
+    public void Unsubscribing_DropsTheFaultBookkeeping_SoTheEntryDoesNotOutliveTheHandler()
+    {
+        // AdaptationCoordinator subscribes and unsubscribes on every adaptation Enable toggle. The
+        // reporter's dictionary is keyed on the handler and has no expiry, so the remove accessor is
+        // what keeps it from growing one entry per toggle. Observable through the rate limiter:
+        // re-subscribing inside the same window reports again, which only happens if the entry went.
+        var logger = new CapturingLogger();
+        var provider = new FakeGazeProvider();
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        using var engine = new GazeEngine(provider, new FakeInputSimulator(), settings, logger: logger);
+        engine.Start();
+
+        void Throwing(GazePoint _) => throw new InvalidOperationException("boom");
+
+        engine.GazeSampled += Throwing;
+        provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
+        Check.That(logger.Faults).HasSize(1);
+
+        engine.GazeSampled -= Throwing;
+        engine.GazeSampled += Throwing;
+        provider.SimulateGaze(new GazePoint(100, 200, 1_000_001, IsValid: true));
+
+        // Same wall-clock window throughout, so a surviving entry would have suppressed this one.
+        Check.That(logger.Faults).HasSize(2);
+    }
+
+    [Fact]
+    public void UnsubscribingOneOfTwoIdenticalHandlers_KeepsTheSurvivorRateLimited()
+    {
+        // The counterpart: one equal subscription is still live, so its window must NOT be reset —
+        // otherwise a duplicate-subscribe/unsubscribe pair becomes a way to defeat the rate limit.
+        var logger = new CapturingLogger();
+        var provider = new FakeGazeProvider();
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        using var engine = new GazeEngine(provider, new FakeInputSimulator(), settings, logger: logger);
+        engine.Start();
+
+        void Throwing(GazePoint _) => throw new InvalidOperationException("boom");
+
+        engine.GazeSampled += Throwing;
+        engine.GazeSampled += Throwing;
+        provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
+        Check.That(logger.Faults).HasSize(1); // two faults, one window
+
+        engine.GazeSampled -= Throwing;      // one copy remains
+        provider.SimulateGaze(new GazePoint(100, 200, 1_000_001, IsValid: true));
+
+        Check.That(logger.Faults).HasSize(1);
+    }
+
     private sealed class CapturingLogger : ILogger<GazeEngine>
     {
         public readonly List<Exception> Faults = [];

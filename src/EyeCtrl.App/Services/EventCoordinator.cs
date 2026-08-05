@@ -541,7 +541,7 @@ public class EventCoordinator : IEventCoordinator
                         // Deactivate toolbar dwell while gaze is being collected at calibration
                         // targets — they can land on screen edges/corners where a docked toolbar
                         // lives, and would otherwise dwell-activate a hidden/stale button position.
-                        _toolbarVisibility.SetActive(false);
+                        _toolbarVisibility?.SetActive(false);
                         // Hide the cursor circle so it doesn't compete with the calibration dot.
                         cursorCircle.Hide();
                         calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
@@ -555,7 +555,7 @@ public class EventCoordinator : IEventCoordinator
                         // — wiring it to SetActive(false) would permanently kill toolbar dwell on
                         // configs where ShowToolbar() never fires (floating toolbar / mouse
                         // provider — auto-hide disabled, no recovery short of restart).
-                        _toolbarVisibility.SetActive(true);
+                        _toolbarVisibility?.SetActive(true);
                         // Restore the cursor circle so the user can aim at Retry/Accept.
                         if (_context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
@@ -565,7 +565,7 @@ public class EventCoordinator : IEventCoordinator
                         // CalibrationState.Idle / CalibrationState.Cancelled — calibration is over
                         // (not in progress), so toolbar dwell resumes.
                         _context.GazeEngine.SuppressFixation = false;
-                        _toolbarVisibility.SetActive(true);
+                        _toolbarVisibility?.SetActive(true);
                         if (_context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.DismissCalibration();
                         break;

@@ -10,11 +10,18 @@ public class ToolbarViewModelTests
     private readonly WeakReferenceMessenger _messenger = new();
     private readonly EyeCtrlSettings _settings = new();
 
-    [Fact]
-    public void InitializesWith11Buttons()
+    // Buttons must match what the View renders at startup: the window-actions region is included
+    // only when ShowWindowActions is on. Without the ctor's setting gate, Buttons would report 11
+    // while the View rendered 8 — a misleading source of truth. Uses a fresh settings instance per
+    // case so the ShowWindowActions mutation can't bleed between Theory data points.
+    [Theory]
+    [InlineData(true, 11)]
+    [InlineData(false, 8)]
+    public void InitializesWithButtonsMatchingShowWindowActions(bool showWindowActions, int expectedCount)
     {
-        var vm = new ToolbarViewModel(_settings, _messenger);
-        Check.That(vm.Buttons.Count).IsEqualTo(11);
+        var settings = new EyeCtrlSettings { Toolbar = { ShowWindowActions = showWindowActions } };
+        var vm = new ToolbarViewModel(settings, _messenger);
+        Check.That(vm.Buttons.Count).IsEqualTo(expectedCount);
     }
 
     [Fact]

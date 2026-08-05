@@ -1,6 +1,7 @@
 namespace EyeCtrl.Platform.Gaze;
 
 using EyeCtrl.Core;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using System.Runtime.InteropServices;
@@ -16,13 +17,12 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
 
     private Timer? _timer;
     private readonly int _intervalMs;
-    private readonly ILogger? _logger;
-    // TickCount64 value when the last fault report was written; 0 means "never logged". Successive
-    // ticks may land on different pool threads (the one-shot timer re-arms after each tick), so the
-    // field is read and written through Volatile.Read/Write to make the write visible without
-    // leaning on the timer queue's internal synchronization (C# cannot declare a `long` volatile).
-    // One line per 30 s window, matching the per-handler window Fix 1 uses.
-    private long _lastFaultLogTicks;
+    // Shared with the gaze fan-out rather than hand-rolled: successive ticks land on different pool
+    // threads (the one-shot timer re-arms after each tick), and the reporter's lock is what makes its
+    // window bookkeeping visible across that handoff. One line per 30 s window.
+    private readonly HandlerFaultReporter _faults;
+
+    private const string SubscriberFault = "Gaze subscriber threw during a mouse-provider tick";
 
     public event Action<GazePoint>? GazePointReceived;
     public bool IsConnected { get; private set; }
@@ -33,7 +33,10 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
     public MouseGazeProvider(int pollIntervalMs = 30, ILogger? logger = null)
     {
         _intervalMs = pollIntervalMs;
-        _logger = logger;
+        _faults = new HandlerFaultReporter(
+            (message, ex) => logger?.LogError(ex, "{FaultMessage}", message),
+            () => Environment.TickCount64 / 1000,
+            windowSeconds: 30);
     }
 
     public void Start()
@@ -70,24 +73,9 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
         {
             // OnTick is a System.Threading.Timer callback, so it runs on a pooled thread where an
             // unhandled exception terminates the process. The finally below already re-arms the
-            // timer; this catch is what stops the fault from being fatal.
-            // Rate-limited like Fix 1's handler reporting: a subscriber throwing every tick must
-            // cost one log line per window, not one per tick.
-            long now = Environment.TickCount64;
-            long lastFault = Volatile.Read(ref _lastFaultLogTicks);
-            if (lastFault == 0 || now - lastFault >= 30_000)
-            {
-                Volatile.Write(ref _lastFaultLogTicks, now);
-                try
-                {
-                    _logger?.LogError(ex, "Gaze subscriber threw during a mouse-provider tick");
-                }
-                catch
-                {
-                    // The log call is the one thing this catch invokes; a broken logger must not
-                    // re-open the escape the catch closes.
-                }
-            }
+            // timer; this catch is what stops the fault from being fatal. The reporter rate-limits
+            // and swallows a broken logger, so nothing here can re-open the escape this catch closes.
+            _faults.Report(SubscriberFault, ex);
         }
         finally
         {

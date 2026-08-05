@@ -822,6 +822,10 @@ public partial class SettingsWindow : OverlayWindow
                     () => _settings.Toolbar.IsDocked,
                     v => { _settings.Toolbar.IsDocked = v; ApplyAndSave(); },
                     cat, r, _dwellMs)),
+                () => Add(new DwellToggle(_viewModel, "t_winactions", "Show Window Actions",
+                    () => _settings.Toolbar.ShowWindowActions,
+                    v => { _settings.Toolbar.ShowWindowActions = v; ApplyAndSave(); },
+                    cat, r, _dwellMs)),
                 () => Add(new DwellComboBox(_viewModel, "t_edge", "Docked Edge",
                     ["Top", "Bottom", "Left", "Right"],
                     () => _settings.Toolbar.DockedEdge,
@@ -839,6 +843,7 @@ public partial class SettingsWindow : OverlayWindow
                         _settings.Toolbar.IsDocked = t.IsDocked;
                         _settings.Toolbar.DockedEdge = t.DockedEdge;
                         _settings.Toolbar.Size = t.Size;
+                        _settings.Toolbar.ShowWindowActions = t.ShowWindowActions;
                         ApplyAndSave();
                         RebuildContent();
                     }),

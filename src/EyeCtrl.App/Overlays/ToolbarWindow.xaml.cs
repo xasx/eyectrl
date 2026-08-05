@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -27,7 +28,7 @@ public partial class ToolbarWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void Initialize(double buttonSize, int dwellTimeMs)
+    public void Initialize(double buttonSize, int dwellTimeMs, bool showWindowActions)
     {
         _buttonSize = buttonSize;
         _buttonVisuals.Clear();
@@ -48,11 +49,28 @@ public partial class ToolbarWindow : OverlayWindow
         };
 
         foreach (var (id, symbol) in buttons)
+        {
+            // The window-action region (Minimize/MaximizeRestore/Close) is gated by the
+            // ShowWindowActions setting. Toggling it off removes the region from the View here,
+            // AND the VM removes their dwell targets in SetWindowActionsVisible — both halves
+            // are required or a removed Close stays dwellable at its last screen position
+            // (the hidden-toolbar hazard).
+            if (!showWindowActions && IsWindowActionId(id))
+                continue;
             AddButton(id, symbol);
+        }
 
         if (_providerType.HasValue)
             AddIndicatorElement(_providerType.Value);
     }
+
+    /// <summary>
+    /// Whether <paramref name="id"/> is one of the three window-action region buttons gated by
+    /// ShowWindowActions. Centralised so Initialize and the rebind path agree on the region's
+    /// membership.
+    /// </summary>
+    internal static bool IsWindowActionId(string id) =>
+        id == "Minimize" || id == "MaximizeRestore" || id == "Close";
 
     private void AddButton(string id, string symbol)
     {
@@ -221,6 +239,11 @@ public partial class ToolbarWindow : OverlayWindow
         }
     }
 
+    // Ids whose ToolbarButtonViewModel.PropertyChanged we've already wired up. The bind path is
+    // idempotent on this set — see BindButton. Re-binding on every snapshot change (size/dock/edge
+    // saves re-run Initialize) without this guard would stack one handler per save per button.
+    private readonly HashSet<string> _boundIds = new();
+
     /// <summary>
     /// Subscribes to each ToolbarButtonViewModel.PropertyChanged to drive
     /// progress bar visuals from the ViewModel's dwell state.
@@ -229,36 +252,80 @@ public partial class ToolbarWindow : OverlayWindow
     public void BindToViewModel()
     {
         if (DataContext is not ToolbarViewModel vm) return;
-        foreach (var btn in vm.Buttons)
-        {
-            var id = btn.Id;
 
-            // Apply current symbol so the initial label/background match the actual mode
-            // (the ViewModel may already have received the startup SelectionModeChangedMessage
-            // before BindToViewModel is called).
-            if (_buttonVisuals.TryGetValue(id, out var currentVisuals))
+        // Bind every button currently in the VM (the startup set) — once. Subsequent add/remove
+        // mutations from SetWindowActionsVisible flow through CollectionChanged below, which binds
+        // newly-added buttons and unbinds removed ones. This is the fix for the rebind problem
+        // (round-1/round-2 MAJOR): a fresh ToolbarButtonViewModel created by toggle-on would
+        // render and dwell but never update its progress bar, because nobody re-subscribed
+        // PropertyChanged after the prior toggle-off removed it from vm.Buttons.
+        foreach (var btn in vm.Buttons)
+            BindButton(btn);
+
+        vm.Buttons.CollectionChanged += OnButtonsCollectionChanged;
+    }
+
+    private void OnButtonsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        // Drives off the VM's own add/remove in SetWindowActionsVisible. On Add we bind the
+        // freshly-created button; on Remove we drop it from _boundIds so a later re-add (with a
+        // new ToolbarButtonViewModel instance) re-subscribes instead of being silently skipped.
+        if (e.Action == NotifyCollectionChangedAction.Reset)
+        {
+            _boundIds.Clear();
+            return;
+        }
+        if (e.OldItems != null)
+        {
+            foreach (ToolbarButtonViewModel btn in e.OldItems)
+                _boundIds.Remove(btn.Id);
+        }
+        if (e.NewItems != null)
+        {
+            foreach (ToolbarButtonViewModel btn in e.NewItems)
+                BindButton(btn);
+        }
+    }
+
+    /// <summary>
+    /// Subscribes one button's PropertyChanged to its progress bar/symbol visuals. Idempotent:
+    /// a repeat call for an already-bound id no-ops (guarded by <see cref="_boundIds"/>), so this
+    /// is safe to call from CollectionChanged on every add and from BindToViewModel at startup
+    /// without double-subscribing. The handler reads <c>_buttonVisuals[id]</c> at event time, so
+    /// it stays correct after Initialize rebuilds the visuals dictionary (size/dock/edge saves).
+    /// </summary>
+    private void BindButton(ToolbarButtonViewModel btn)
+    {
+        var id = btn.Id;
+        if (!_boundIds.Add(id))
+            return; // already bound
+
+        // Apply current symbol so the initial label/background match the actual mode (the
+        // ViewModel may already have received the startup SelectionModeChangedMessage before
+        // BindToViewModel is called, or — for a re-added window-action button — carry the
+        // post-toggle state).
+        if (_buttonVisuals.TryGetValue(id, out var currentVisuals))
+        {
+            currentVisuals.Label.Text = btn.Symbol;
+            if (id == "SelectionMode")
+                SetSelectionModeState(SelectionModeGlyphs.ToMode(btn.Symbol));
+        }
+
+        btn.PropertyChanged += (_, e) =>
+        {
+            if (!_buttonVisuals.TryGetValue(id, out var visuals))
+                return;
+
+            if (e.PropertyName == nameof(ToolbarButtonViewModel.DwellProgress))
             {
-                currentVisuals.Label.Text = btn.Symbol;
+                visuals.ProgressBar.Width = btn.DwellProgress * _buttonSize;
+            }
+            else if (e.PropertyName == nameof(ToolbarButtonViewModel.Symbol))
+            {
+                visuals.Label.Text = btn.Symbol;
                 if (id == "SelectionMode")
                     SetSelectionModeState(SelectionModeGlyphs.ToMode(btn.Symbol));
             }
-
-            btn.PropertyChanged += (_, e) =>
-            {
-                if (!_buttonVisuals.TryGetValue(id, out var visuals))
-                    return;
-
-                if (e.PropertyName == nameof(ToolbarButtonViewModel.DwellProgress))
-                {
-                    visuals.ProgressBar.Width = btn.DwellProgress * _buttonSize;
-                }
-                else if (e.PropertyName == nameof(ToolbarButtonViewModel.Symbol))
-                {
-                    visuals.Label.Text = btn.Symbol;
-                    if (id == "SelectionMode")
-                        SetSelectionModeState(SelectionModeGlyphs.ToMode(btn.Symbol));
-                }
-            };
-        }
+        };
     }
 }

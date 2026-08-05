@@ -136,6 +136,13 @@ public class EventCoordinator : IEventCoordinator
             _context.Dispatcher.BeginInvoke(() => HandleTaskSwitcherSelection(msg)));
         _context.Messenger.Register<EventCoordinator, QuickActionSelectionMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() => ExecuteQuickAction(msg.Action)));
+        // Window actions: NO BeginInvoke. The toolbar dwell chain is already on the UI dispatcher,
+        // so Messenger delivery runs on the same tick as dwell completion. Querying the foreground
+        // HWND inline (spec §4 BLOCKER A.1) avoids a deferred hop that could let the foreground
+        // change between dwell completion and the eligibility query. Contrast with the Task Switcher
+        // registration above, whose HWND rides the message and is therefore safe to defer.
+        _context.Messenger.Register<EventCoordinator, WindowActionRequestedMessage>(this, (_, msg) =>
+            HandleWindowAction(msg.Action));
     }
 
     private void HandleTaskSwitcherSelection(TaskSwitcherSelectionMessage msg)
@@ -145,6 +152,40 @@ public class EventCoordinator : IEventCoordinator
         // HideOverlay is public on the VM so the coordinator can dismiss after a selection
         // (in addition to the toggle path inside Receive).
         _context.OverlayManager.TaskSwitcher.HideOverlay();
+    }
+
+    /// <summary>
+    /// Routes a toolbar window-action dwell (Minimize/MaximizeRestore/Close) to the foreground
+    /// window. The foreground HWND is queried once, synchronously, at op-fire time
+    /// (spec §4 BLOCKER A.1) — the registration has no BeginInvoke, so this runs on the same
+    /// tick as the dwell completion and hits exactly the window the user was looking at.
+    /// </summary>
+    private void HandleWindowAction(WindowAction action)
+    {
+        if (_context == null) return;
+
+        var hwnd = _context.WindowManager.TryGetEligibleForegroundWindow();
+        if (hwnd is null)
+        {
+            // Foreground was the shell, this process, zero, or an invalid/destroyed window.
+            Log.Information("Window-action {Action} skipped: no eligible foreground window", action);
+            return;
+        }
+
+        switch (action)
+        {
+            case WindowAction.Minimize:
+                _context.WindowManager.Minimize(hwnd.Value);
+                break;
+            case WindowAction.MaximizeRestore:
+                _context.WindowManager.MaximizeOrRestore(hwnd.Value);
+                break;
+            case WindowAction.Close:
+                var posted = _context.WindowManager.CloseWindow(hwnd.Value);
+                if (!posted)
+                    Log.Information("Window-action Close: PostMessage(WM_CLOSE) returned false (UIPI-blocked by elevated foreground?)");
+                break;
+        }
     }
 
     /// <summary>

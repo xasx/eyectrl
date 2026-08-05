@@ -244,4 +244,133 @@ public class ToolbarViewModelTests
         vm.Receive(new GazeCursorMovedMessage(center, 200_000));
         Check.That(fired).IsFalse();
     }
+
+    // ── Task 9: ShowWindowActions live-reconciliation ──────────────────────────────────
+    //
+    // SetWindowActionsVisible(false) must remove the three window-action buttons from Buttons
+    // AND _buttonLookup, AND drop any positioned dwell target so a gaze resting where Close used
+    // to be cannot fire it on the now-current foreground window (the hidden-toolbar hazard,
+    // applied to per-id region removal). The reset of the toolbar (Pause/SelectionMode/…)
+    // must be untouched.
+
+    [Fact]
+    public void SetWindowActionsVisible_False_RemovesAllThreeFromButtonsAndLookup()
+    {
+        var vm = new ToolbarViewModel(_settings, _messenger);
+
+        vm.SetWindowActionsVisible(false);
+
+        Check.That(vm.Buttons.Select(b => b.Id))
+             .Not.Contains(new[] { "Minimize", "MaximizeRestore", "Close" });
+        // Buttons count drops from 11 → 8 (only the window-action trio is removed).
+        Check.That(vm.Buttons.Count).IsEqualTo(8);
+    }
+
+    [Fact]
+    public void SetWindowActionsVisible_False_RemovedIdsAreNotDwellable()
+    {
+        // Close is no-confirm — a gaze pass over where Close *used to be* must not fire it after
+        // the toggle-off. Position Close (creating its dwell target), then remove the region and
+        // confirm the gaze sample no longer activates.
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+
+        var center = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Close", center);
+        vm.SetWindowActionsVisible(false);
+
+        WindowAction? received = null;
+        messenger.Register<WindowActionRequestedMessage>(this, (_, msg) => received = msg.Action);
+
+        var dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
+        vm.Receive(new GazeCursorMovedMessage(center, 0));
+        vm.Receive(new GazeCursorMovedMessage(center, dwellUs));
+
+        Check.That(received).IsNull();
+    }
+
+    [Fact]
+    public void SetWindowActionsVisible_True_AfterRemoval_ReaddsAllThree()
+    {
+        var vm = new ToolbarViewModel(_settings, _messenger);
+
+        vm.SetWindowActionsVisible(false);
+        vm.SetWindowActionsVisible(true);
+
+        // Re-added with the canonical symbols (round-trips through SymbolFor).
+        Check.That(vm.Buttons.Select(b => b.Id).ToArray())
+             .Contains(new[] { "Minimize", "MaximizeRestore", "Close" });
+        Check.That(vm.Buttons.Count).IsEqualTo(11);
+
+        var close = vm.Buttons.First(b => b.Id == "Close");
+        Check.That(close.Symbol).IsEqualTo("\u2715");
+    }
+
+    [Fact]
+    public void SetWindowActionsVisible_True_WhenAlreadyPresent_IsIdempotent()
+    {
+        // Region starts present (default). Calling with true again must not double-add — the
+        // safety-critical invariant is that each id appears exactly once in Buttons/_buttonLookup,
+        // so a dwell progress broadcast hits exactly one target.
+        var vm = new ToolbarViewModel(_settings, _messenger);
+
+        vm.SetWindowActionsVisible(true);
+        vm.SetWindowActionsVisible(true);
+
+        Check.That(vm.Buttons.Count(b => b.Id == "Close")).IsEqualTo(1);
+        Check.That(vm.Buttons.Count).IsEqualTo(11);
+    }
+
+    [Fact]
+    public void SetWindowActionsVisible_False_WhenAlreadyAbsent_IsIdempotent()
+    {
+        // Mirrors the True idempotent case from the other direction: removing an already-removed
+        // region must not throw or corrupt state.
+        var vm = new ToolbarViewModel(_settings, _messenger);
+
+        vm.SetWindowActionsVisible(false);
+        vm.SetWindowActionsVisible(false);
+
+        Check.That(vm.Buttons.Count).IsEqualTo(8);
+    }
+
+    [Fact]
+    public void SetWindowActionsVisible_False_LeavesCoreButtonsIntact()
+    {
+        // The toggle must not perturb the always-on region (Pause/SelectionMode/Keyboard/…).
+        // A regression that nukes the whole Buttons collection would break the toolbar even with
+        // the region off.
+        var vm = new ToolbarViewModel(_settings, _messenger);
+
+        vm.SetWindowActionsVisible(false);
+
+        Check.That(vm.Buttons.Select(b => b.Id).ToArray())
+             .Contains(new[] { "Pause", "SelectionMode", "Keyboard", "Settings", "ResetAdaptation" });
+    }
+
+    [Fact]
+    public void SetWindowActionsVisible_False_DropsPositionedButtonSoReaddStartsFresh()
+    {
+        // Position Close, toggle off (which drops _positionedButtons[id] + DwellTarget), toggle
+        // on, then position Close again. The second UpdateButtonScreenPosition must take the
+        // first-position path (AddTarget), proving _positionedButtons was cleared on removal —
+        // if it had leaked, AddTarget would be skipped and the re-added Close would have no target.
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+
+        var center = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Close", center);
+        vm.SetWindowActionsVisible(false);
+        vm.SetWindowActionsVisible(true);
+
+        WindowAction? received = null;
+        messenger.Register<WindowActionRequestedMessage>(this, (_, msg) => received = msg.Action);
+
+        vm.UpdateButtonScreenPosition("Close", center);
+        var dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
+        vm.Receive(new GazeCursorMovedMessage(center, 0));
+        vm.Receive(new GazeCursorMovedMessage(center, dwellUs));
+
+        Check.That(received).IsEqualTo(WindowAction.Close);
+    }
 }

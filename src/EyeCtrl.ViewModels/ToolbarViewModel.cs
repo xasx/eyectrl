@@ -158,6 +158,57 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// <summary>For testing: simulate a button activation without gaze dwell.</summary>
     public void SimulateButtonActivated(string buttonId) => OnTargetActivated(buttonId);
 
+    // The three window-action region buttons gated by ShowWindowActions. Held in a static array so
+    // SetWindowActionsVisible and the ctor's symbol table agree on region membership.
+    private static readonly string[] WindowActionIds = { "Minimize", "MaximizeRestore", "Close" };
+
+    /// <summary>
+    /// Adds or removes the three window-action buttons (and their dwell targets) at runtime.
+    /// Removal is atomic per id: DwellTarget + _positionedButtons + _buttonLookup + Buttons,
+    /// else an invisible Close stays dwellable at its last screen position (the hidden-toolbar
+    /// hazard — same shape as Task 7's auto-hide gate, here applied to a per-id region removal).
+    /// Called from EventCoordinator AFTER the View has rebuilt for the new button set, so the
+    /// VM mutation runs against the post-rebuild state. The View's Buttons.CollectionChanged
+    /// handler binds the freshly-created ToolbarButtonViewModel instances.
+    /// </summary>
+    public void SetWindowActionsVisible(bool visible)
+    {
+        foreach (var id in WindowActionIds)
+        {
+            if (visible)
+            {
+                if (_buttonLookup.ContainsKey(id)) continue; // already present
+                var btn = new ToolbarButtonViewModel(id, symbol: SymbolFor(id));
+                Buttons.Add(btn);
+                _buttonLookup[id] = btn;
+                // _positionedButtons is deliberately NOT pre-populated — the target is created
+                // lazily when the View reports the position (same pattern as the ctor), so a
+                // not-yet-rendered region button cannot be dwell-activated from a stale position.
+            }
+            else
+            {
+                // Atomic per-id removal across all four bookkeeping items. Order matters only in
+                // that Buttons.Remove fires CollectionChanged last so the View's unbind handler
+                // runs against a button whose target is already gone.
+                if (_buttonLookup.TryGetValue(id, out var btn))
+                {
+                    Buttons.Remove(btn);
+                    _buttonLookup.Remove(id);
+                }
+                _positionedButtons.Remove(id);
+                DwellDetector.RemoveTarget(id);
+            }
+        }
+    }
+
+    private static string SymbolFor(string id) => id switch
+    {
+        "Minimize" => "\u2581",
+        "MaximizeRestore" => "\u25A1",
+        "Close" => "\u2715",
+        _ => "?"
+    };
+
     protected override void OnTargetActivated(string targetId)
     {
         if (_buttonLookup.TryGetValue(targetId, out var btn))

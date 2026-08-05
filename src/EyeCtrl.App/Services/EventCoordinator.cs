@@ -1246,7 +1246,7 @@ public class EventCoordinator : IEventCoordinator
         var toolbarSnapshot = ToolbarSnapshot.Capture(s);
         if (_toolbarSnapshot != toolbarSnapshot)
         {
-            _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
+            _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs, s.Toolbar.ShowWindowActions);
             _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
 
             // Re-evaluate enablement (IsDocked may have flipped to false → disable + force-show),
@@ -1256,6 +1256,14 @@ public class EventCoordinator : IEventCoordinator
             _toolbarAutoHide?.UpdateEdge(s.Toolbar.DockedEdge);
             _toolbarVisibility?.PositionIndicator(s.Toolbar.DockedEdge);
             RefreshToolbarRect();
+
+            // Reconcile the VM AFTER the View has rebuilt for the new button set. The View's
+            // CollectionChanged handler (subscribed in BindToViewModel) binds the freshly-added
+            // ToolbarButtonViewModel instances; on removal it unbinds so a later re-add binds anew.
+            // SetWindowActionsVisible(false) atomically drops Buttons + _buttonLookup +
+            // _positionedButtons + DwellTarget per id, else an invisible Close stays dwellable
+            // at its last screen position (the hidden-toolbar hazard).
+            _context.ToolbarVM.SetWindowActionsVisible(s.Toolbar.ShowWindowActions);
 
             _toolbarSnapshot = toolbarSnapshot;
         }

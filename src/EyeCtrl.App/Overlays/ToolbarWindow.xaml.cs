@@ -42,6 +42,9 @@ public partial class ToolbarWindow : OverlayWindow
             ("Keyboard", "\u2328"),    // ⌨ Keyboard
             ("Settings", "\u2699"),    // ⚙ Gear
             ("ResetAdaptation", "\u21BA"),  // ↺ Reset struggle-adaptation (§8.6 always-reachable escape)
+            ("Minimize", "\u2581"),
+            ("MaximizeRestore", "\u25A1"),
+            ("Close", "\u2715"),
         };
 
         foreach (var (id, symbol) in buttons)

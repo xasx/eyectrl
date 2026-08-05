@@ -73,6 +73,9 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             ("TaskSwitcher", "\uD83E\uDE9F"),  // 🪟 (surrogate pair, same as PinNote's non-BMP pattern)
             ("QuickActions", "\u26A1"),  // ⚡
             ("ResetAdaptation", "\u21BA"),  // ↺ reset struggle-adaptation to baseline (§8.6 escape)
+            ("Minimize", "\u2581"),        // ▁ U+2581 (BMP — avoids Supplementary-Plane tofu)
+            ("MaximizeRestore", "\u25A1"), // □ U+25A1
+            ("Close", "\u2715"),           // ✕ U+2715
         };
 
         foreach (var (id, symbol) in buttons)
@@ -141,6 +144,9 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             case "TaskSwitcher": Messenger.Send(new TaskSwitcherToggledMessage()); break;
             case "QuickActions": Messenger.Send(new QuickActionsToggledMessage()); break;
             case "ResetAdaptation": Messenger.Send(new ResetAdaptationMessage()); break;
+            case "Minimize":        Messenger.Send(new WindowActionRequestedMessage(WindowAction.Minimize)); break;
+            case "MaximizeRestore": Messenger.Send(new WindowActionRequestedMessage(WindowAction.MaximizeRestore)); break;
+            case "Close":           Messenger.Send(new WindowActionRequestedMessage(WindowAction.Close)); break;
         }
     }
 

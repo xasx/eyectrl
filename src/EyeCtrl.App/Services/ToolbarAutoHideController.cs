@@ -115,6 +115,29 @@ public sealed class ToolbarAutoHideController
         }
     }
 
+    /// <summary>
+    /// Re-asserts the controller's current visibility + dwell activity. Call when an external
+    /// dwell suppressor (calibration) ends, so re-activation respects a hide that occurred while
+    /// the suppressor held Feed in early-return. Without this, a terminal calibration state
+    /// (Active/Failed/Idle) blind-activates dwell even when the toolbar has since auto-hidden —
+    /// leaving Close dwellable with no toolbar visible.
+    /// </summary>
+    /// <remarks>
+    /// State-aware counterpart to a blind <see cref="IToolbarVisibility.SetActive"/>(true). When the
+    /// controller is Hidden (and enabled, not suspended), re-asserts the hide so dwell stays
+    /// deactivated AND the toolbar stays hidden; otherwise activates dwell. This is what makes the
+    /// auto-hide controller the single source of truth for re-activation instead of the calibration
+    /// handler at <see cref="EventCoordinator"/>.
+    /// </remarks>
+    public void ReassertVisibility()
+    {
+        if (_visibility == null) return;
+        if (_state == State.Hidden && _enabled && !_suspended)
+            _visibility.HideToolbar(_paused);   // re-asserts hide AND SetActive(false)
+        else
+            _visibility.SetActive(true);
+    }
+
     /// <summary>Refreshes the cached toolbar rect (call on the UI thread after layout/dock changes).</summary>
     public void UpdateToolbarRect(PhysicalRect rect) => _toolbarRect = rect;
 

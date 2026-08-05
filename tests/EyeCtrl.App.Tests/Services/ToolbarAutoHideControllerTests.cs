@@ -459,10 +459,12 @@ public class ToolbarAutoHideControllerTests
         public int HideCalls;
         public int ForceShowCalls;
         public bool LastHidePaused;
+        public List<bool> SetActiveCalls { get; } = new();
 
         public void ShowToolbar() => ShowCalls++;
         public void HideToolbar(bool paused) { HideCalls++; LastHidePaused = paused; }
         public void ForceShow() => ForceShowCalls++;
         public void PositionIndicator(string edge) { }
+        public void SetActive(bool active) => SetActiveCalls.Add(active);
     }
 }

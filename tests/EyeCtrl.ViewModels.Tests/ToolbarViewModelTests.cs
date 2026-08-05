@@ -195,4 +195,53 @@ public class ToolbarViewModelTests
         Check.That(vm.Buttons.Select(b => b.Id).ToArray())
              .Contains(new[] { "Minimize", "MaximizeRestore", "Close" });
     }
+
+    // Target-lifecycle contract (Task 7): a hidden/calibrating toolbar must not dwell — Close is
+    // no-confirm, so a gaze pass over where Close *used to be* must not fire it on the current
+    // foreground window. SetActive(false) gates Receive AND clears in-progress dwell state.
+    [Fact]
+    public void SetActive_False_HiddenToolbarDoesNotDwell()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+
+        var center = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", center);
+        vm.SetActive(false);  // hidden
+
+        bool fired = false;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => fired = true);
+
+        var dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
+        vm.Receive(new GazeCursorMovedMessage(center, 0));
+        vm.Receive(new GazeCursorMovedMessage(center, dwellUs));
+
+        Check.That(fired).IsFalse();
+    }
+
+    // No instant-activation on resume — ResetAllState cleared the stale EnteredTimestamp on hide,
+    // so a single sample immediately after reactivation cannot complete a dwell.
+    [Fact]
+    public void SetActive_True_AfterHide_DoesNotInstantlyActivate()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+
+        var center = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", center);
+
+        // Partially dwell, then hide mid-dwell.
+        vm.Receive(new GazeCursorMovedMessage(center, 0));
+        vm.Receive(new GazeCursorMovedMessage(center, 100_000)); // partial (100ms < 700ms dwell)
+        vm.SetActive(false);
+        vm.SetActive(true);
+
+        bool fired = false;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => fired = true);
+
+        // A single sample immediately after resume must NOT complete a dwell — the stale
+        // EnteredTimestamp was cleared by ResetAllState on hide.
+        vm.Receive(new GazeCursorMovedMessage(center, 200_000));
+        Check.That(fired).IsFalse();
+    }
 }

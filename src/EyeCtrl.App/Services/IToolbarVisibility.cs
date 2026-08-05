@@ -24,4 +24,11 @@ public interface IToolbarVisibility
 
     /// <summary>Repositions the pause indicator along the given docked edge ("Top"/"Bottom"/"Left"/"Right").</summary>
     void PositionIndicator(string edge);
+
+    /// <summary>
+    /// Activates or deactivates toolbar dwell processing. Hide/ForceShow/calibration call this.
+    /// When deactivated, in-progress dwell state is reset (DwellDetector.ResetAllState) so the
+    /// next activation cannot fire from a stale timestamp.
+    /// </summary>
+    void SetActive(bool active);
 }

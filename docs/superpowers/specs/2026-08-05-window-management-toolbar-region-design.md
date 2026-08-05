@@ -147,14 +147,18 @@ Round 1 proved the hidden toolbar can still fire dwell: `ToolbarViewModel.Receiv
 **v3 fix: the correct primitive already exists — `DwellDetector.ResetAllState()` (`:86-97`).** Its doc comment describes this use case verbatim: *"prevent a stale `EnteredTimestamp` from causing a spurious immediate activation when Update resumes after a pause."* It clears `IsGazeInside`/`EnteredTimestamp` on every target **without removing the targets**, so `_positionedButtons`/`_targetsInitialized`/`_targets` all stay coherent and no re-layout is needed.
 
 The contract:
+- **Initial state:** the activity flag is `true` (dwell active) — set at VM construction, before the first `GazeSampled` subscription.
 - **Hide:** set an activity flag false on the toolbar VM **and** call `DwellDetector.ResetAllState()`. The flag gates `ToolbarViewModel.Receive` (`:92-95`) so no further samples feed the detector; `ResetAllState` prevents the stale-timestamp instant-activation on resume.
 - **Show:** clear the activity flag (re-enable `Receive`). Targets are still present with correct positions (never removed), so dwell resumes correctly on the next gaze sample.
+- **ForceShow (round-3 MAJOR — reachable from the settings-open path itself, via `TrayIconManager` → `ToolbarVisibilityAdapter.ForceShow`):** same as Show — clear the activity flag. `ForceShow` is the tray "Show toolbar" fallback (`App.xaml.cs:223-229`); it must not leave dwell deactivated.
 
 **Where the flag lives (round-2 asked; v3 pins it):** on `ToolbarViewModel` (e.g. `bool _dwellingActive`). `ToolbarVisibilityAdapter` currently holds only `IOverlayManager` (`:12-19`) and has no VM reference — **inject `ToolbarViewModel` into `ToolbarVisibilityAdapter`** (or expose the toggle through a new `IToolbarVisibility.SetActive(bool)` method implemented by the adapter, which already marshals onto the dispatcher). Pick one at implementation; the spec's load-bearing requirement is that `HideToolbar`/`ShowToolbar` reach the VM's flag + the detector's `ResetAllState`.
 
 This is a **toolbar-wide** behavior change (it affects *all* toolbar buttons — today a hidden toolbar can fire Pause/Settings/etc. too). That's a pre-existing bug worth fixing as part of this feature. **The §3 no-confirm Close argument is conditional on this contract being implemented.**
 
 **Calibration (round-2 C.1 — new lifecycle event):** while calibration is active, `ToolbarAutoHideController.Feed` returns early (`:153`) — so a *visible* toolbar neither hides nor updates state, and `GazeEngine.cs:240-242` keeps firing `CursorMoved` unconditionally ("the cursor circle + toolbar receive gaze"). Calibration deliberately walks gaze to screen edges/corners (where a docked toolbar lives), so Close stays dwell-live during it. For window actions the own-process guard saves it incidentally (CalibrationWindow activates itself → is foreground → rejected), but that mitigation is undocumented and evaporates if focus is elsewhere. **Decision: the contract deactivates toolbar dwell during calibration too** (treat calibration-active the same as hidden: flag false + `ResetAllState`). State this in `EventCoordinator`'s calibration handler (`:490-519`).
+
+**Calibration/hide refcount invariant (round-3 C.3):** both hide and calibration clear the flag, so naively "calibration-end reactivates" could reactivate a still-hidden toolbar. This is unreachable today and the invariant is emergent, not enforced: calibration can only start from controller-state `Visible` (`ToolbarAutoHideController._state`, `:48`), and `Feed` cannot transition while `_calibrationActive` (`:151-154`) — so the two deactivation sources cannot overlap. **Pin this with one sentence in the implementation** ("the flag is a single bool, not a refcount; the non-overlap of hide and calibration is an invariant of `ToolbarAutoHideController`, not of the flag") so a future change that breaks the non-overlap doesn't silently re-enable dwell. If overlap ever becomes possible, switch to a refcount.
 
 **Telemetry note (round-2 F.1):** `ResetAllState()` fires `TargetProgress(id, 0)` but does **not** emit an `Abandoned` `DwellOutcome`. A dwell in progress when hide fires vanishes from struggle telemetry (neither Activated nor Abandoned). Documented, intentional bias (toolbar abandon-rate under-count). One line in §9.
 
@@ -198,7 +202,7 @@ So the window-actions region is **always available** as long as the toolbar exis
 |---|---|---|
 | 3 toolbar buttons (View) | `ToolbarWindow.xaml.cs:39-46` | Add `("Minimize","▁")`, `("MaximizeRestore","□")`, `("Close","✕")` to `(Id,Symbol)`; **`Initialize` widened to take `ShowWindowActions`** (§5). |
 | 3 toolbar buttons (VM) | `ToolbarViewModel.cs:66-76` | Matching entries + **atomic add/remove on flag toggle** (§5 reconciliation). |
-| Target-lifecycle | `ToolbarViewModel.cs:92-95`, `ToolbarVisibilityAdapter.cs:27-38` | **Hide deactivates dwell (ClearTargets/SetActive(false)); show reactivates after layout** (§4 BLOCKER C.2). |
+| Target-lifecycle | `ToolbarViewModel.cs:92-95`, `ToolbarVisibilityAdapter.cs:27-48` | **Hide/ForceShow/calibration via `IToolbarVisibility.SetActive(bool)` + `DwellDetector.ResetAllState()`** (§4). Activity flag on the VM gates `Receive`; `ResetAllState` clears dwell state without removing targets. Initial flag = true. |
 | Dispatch cases | `ToolbarViewModel.cs:131-144` | 3 new `case`s sending `WindowActionRequestedMessage`. |
 | Message + enum | `InteractionMessages.cs`, `EyeCtrl.Core/Models/WindowAction.cs` (new) | `WindowActionRequestedMessage(WindowAction)`; `WindowAction { Minimize, MaximizeRestore, Close }` — **pinned to Core.Models** (round-1 D NIT). |
 | Recipient | `EventCoordinator.cs` | Messenger registration → `HandleWindowAction` **directly (no BeginInvoke)** (§4 BLOCKER A.1). |
@@ -236,6 +240,8 @@ Unit tests (NFluent, no display, private nested fakes):
 - **Drift tests (round-1 MAJOR B.3):** `ToolbarViewModelTests` (expects 8 logical buttons → 11) + two `AppLaunchTests` UI tests — `Toolbar_HasFourButtons` (`:38-50`) and `Toolbar_ButtonsHaveCorrectIds` (`:52-71`, hardcoded 4-id list). **Both are already stale today** (the View renders 5, not 4 — `ResetAdaptation` was added), so the correct update is 5→8 rendered + a 4→8 id list, not 4→7. Say so or the implementer encodes the wrong baseline.
 
 Manual smoke matrix (round-1 ask, not unit-testable): desktop foreground, taskbar, Start/shell frames, UWP, IME states, modal dialog, fullscreen (F11) window, elevated app.
+
+**Telemetry bias (round-3 C.4):** `ResetAllState()` does not emit an `Abandoned` `DwellOutcome`, so a toolbar dwell in progress at hide/calibration-start vanishes from struggle telemetry. Impact is negligible (both numerator and denominator of `ScoreAbandonment` drop together; mid-dwell-at-autohide is near-impossible given the 5s off-rect anchor run), but document the bias in the implementation note alongside the §4 telemetry paragraph so the under-count is understood, not discovered later.
 
 UI tests (`Category=UI`): not gating — Win32 ops need a real foreground window; cover via unit fakes + the smoke matrix.
 

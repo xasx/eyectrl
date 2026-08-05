@@ -202,8 +202,11 @@ public class AppBootstrapper
             System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "",
             Path.Combine(appDataDir, "calibration.json"),
             // Recorded so the next load matches on EDID rather than the \\.\DISPLAYn index, which
-            // Windows renumbers on dock changes/driver updates/reboots.
-            MonitorIdentity.GetHardwareId(System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "")));
+            // Windows renumbers on dock changes/driver updates/reboots. Deferred, not captured: the
+            // view model is an app-lifetime singleton, so evaluating this here would pin whichever
+            // monitor was primary at startup onto every later recalibration.
+            () => MonitorIdentity.GetHardwareId(
+                System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "")));
         services.AddSingleton<TargetHighlightOverlayViewModel>();
         services.AddSingleton<DragTrailViewModel>();
         services.AddSingleton<EdgeButtonBarViewModel>();

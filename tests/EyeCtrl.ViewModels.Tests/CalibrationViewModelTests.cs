@@ -36,6 +36,29 @@ public class CalibrationViewModelTests
     }
 
     [Fact]
+    public void MonitorHardwareId_IsNotResolvedAtConstruction()
+    {
+        // The view model is an app-lifetime singleton, so a hardware id read here names whichever
+        // monitor was primary at startup. CalibrationService.Load prefers the id over the device
+        // name, so persisting a stale one rejects a good calibration on the next launch — the exact
+        // failure the id was added to prevent. It must be read when the session completes instead.
+        int resolutions = 0;
+
+        var vm = new CalibrationViewModel(
+            _settings,
+            _calibrationService,
+            _messenger,
+            _provider,
+            new PhysicalPoint(1920, 1080),
+            "test-monitor",
+            calibrationFilePath: null,
+            monitorHardwareId: () => { resolutions++; return "AUOC5AC"; });
+
+        Check.That(vm).IsNotNull();
+        Check.That(resolutions).IsEqualTo(0);
+    }
+
+    [Fact]
     public void ReceiveCalibrationRequested_StartsSession_StateBecomesCollecting()
     {
         var vm = CreateVm();

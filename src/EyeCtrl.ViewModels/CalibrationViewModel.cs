@@ -19,7 +19,12 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     private readonly string _monitorDeviceName;
     // Persisted alongside the device name so a later load survives display renumbering; empty when the
     // platform could not read the monitor's EDID, which falls the match back to the device name.
-    private readonly string _monitorHardwareId;
+    //
+    // Resolved when the session completes, NOT when this view model is constructed. A hardware id
+    // captured at startup names the monitor that was primary then, and CalibrationService.Load
+    // prefers the id over the device name — so persisting a stale one would reject a perfectly good
+    // calibration on the next launch, the exact failure the id exists to prevent.
+    private readonly Func<string> _monitorHardwareId;
     private readonly string _calibrationFilePath;
     private readonly SynchronizationContext? _syncContext;
 
@@ -46,7 +51,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         PhysicalPoint screenSize,
         string monitorDeviceName,
         string? calibrationFilePath = null,
-        string monitorHardwareId = "")
+        Func<string>? monitorHardwareId = null)
         : base(messenger)
     {
         _settings = settings;
@@ -54,7 +59,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         _gazeProvider = gazeProvider;
         _screenSize = screenSize;
         _monitorDeviceName = monitorDeviceName;
-        _monitorHardwareId = monitorHardwareId;
+        _monitorHardwareId = monitorHardwareId ?? (static () => string.Empty);
         _calibrationFilePath = calibrationFilePath ?? System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "EyeCtrl", "calibration.json");
@@ -154,7 +159,9 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
 
         try
         {
-            var data = _calibrationService.CompleteSession(_screenSize, _monitorDeviceName, _monitorHardwareId);
+            // Resolved here, against the display that is primary now — see the field's remark.
+            var data = _calibrationService.CompleteSession(
+                _screenSize, _monitorDeviceName, _monitorHardwareId());
             var errorPx = data.ComputeMeanErrorPixels();
             MeanErrorPixels = errorPx;
             QualityPercent = data.ComputeQualityPercent();

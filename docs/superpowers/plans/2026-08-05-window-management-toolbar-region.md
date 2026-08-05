@@ -193,7 +193,8 @@ public class ForegroundWindowEligibilityTests
 
     [Fact]
     public void ZeroHwnd_IsRejected()
-        => Check.That(Eligible(IntPtr.Zero, isWindow: false, Shell, "", AppPid)).IsFalse();
+        // isWindow:true so only the zero check is exercised (not the !IsWindow check).
+        => Check.That(Eligible(IntPtr.Zero, isWindow: true, Shell, "Notepad", AppPid)).IsFalse();
 
     [Fact]
     public void DestroyedHwnd_IsRejected()
@@ -201,7 +202,8 @@ public class ForegroundWindowEligibilityTests
 
     [Fact]
     public void ShellDesktopHwnd_IsRejected()
-        => Check.That(Eligible(Shell, isWindow: true, Shell, "Progman", 0)).IsFalse();
+        // className:"Notepad" so only the hwnd==shellHwnd check is exercised (not the class denylist).
+        => Check.That(Eligible(Shell, isWindow: true, Shell, "Notepad", AppPid)).IsFalse();
 
     [Theory]
     [InlineData("Progman")]
@@ -311,7 +313,7 @@ Append into the `NativeMethods` class body (after the existing `AllowSetForegrou
 
     [LibraryImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+    internal static partial bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -399,9 +401,9 @@ In `tests/EyeCtrl.ViewModels.Tests/TaskSwitcherViewModelTests.cs`, the private `
         public bool CloseWindow(IntPtr hwnd) => false;
 ```
 
-- [ ] **Step 3: Implement on `Win32WindowManager`**
+- [ ] **Step 3a: Implement `TryGetEligibleForegroundWindow`**
 
-Add to `Win32WindowManager.cs`. `TryGetEligibleForegroundWindow` gathers the Win32 facts and delegates to the pure predicate (Task 2):
+Add to `Win32WindowManager.cs`. Gathers the Win32 facts and delegates to the pure predicate (Task 2). Note: inputs are gathered eagerly, so `GetClassName`/`GetWindowThreadProcessId` run on a possibly-zero/destroyed HWND before the predicate rejects it — harmless (both fail benignly, returning 0/empty) but the fail-closed *order* is enforced by the predicate, not the gathering:
 
 ```csharp
     /// <inheritdoc />
@@ -425,9 +427,14 @@ Add to `Win32WindowManager.cs`. `TryGetEligibleForegroundWindow` gathers the Win
             ProcessId: pid,
             OwnProcessId: (uint)Environment.ProcessId);
 
+        // IsEligible is fail-closed: zero/!IsWindow/shell/class/own-process all reject.
         return ForegroundWindowEligibility.IsEligible(candidate) ? hwnd : null;
     }
+```
 
+- [ ] **Step 3b: Implement `Minimize` + `MaximizeOrRestore`**
+
+```csharp
     /// <inheritdoc />
     public void Minimize(IntPtr hwnd)
     {
@@ -446,7 +453,11 @@ Add to `Win32WindowManager.cs`. `TryGetEligibleForegroundWindow` gathers the Win
             ? NativeMethods.SW_MAXIMIZE
             : NativeMethods.SW_RESTORE);
     }
+```
 
+- [ ] **Step 3c: Implement `CloseWindow`**
+
+```csharp
     /// <inheritdoc />
     public bool CloseWindow(IntPtr hwnd)
     {
@@ -500,39 +511,95 @@ In `InteractionMessages.cs`, near the other action messages (after `TaskSwitcher
 public record WindowActionRequestedMessage(WindowAction Action);
 ```
 
-- [ ] **Step 2: Write the failing test for `HandleWindowAction`**
+- [ ] **Step 2: Write the failing tests for `HandleWindowAction`**
 
-The recipient must route each action to the right op on the eligible foreground HWND, and no-op (+ log) when the foreground is ineligible. Use a fake `IWindowManager` that records calls:
+The harness exists — use it. `tests/EyeCtrl.App.Tests/Services/EventCoordinatorTests.cs` already provides `MakeContext(IInputSimulator)` (`:160-190`, `WindowManager:` at `:185` takes a fake), `SetContext(coordinator, ctx)` (`:192-197`, sets `_context` by reflection), and private-method invocation by reflection (`:102-104`, `:228-233`). `HandleWindowAction` is private — invoke it the same way.
+
+Add these tests to `EventCoordinatorTests.cs` (or a new partial in the same namespace). The fake `IWindowManager` records the last op + eligibility query count:
 
 ```csharp
-namespace EyeCtrl.App.Tests.Services;
+    private sealed class FakeWindowActionManager : IWindowManager
+    {
+        public IntPtr? EligibleHwnd { get; set; }
+        public WindowAction? LastOp { get; private set; }
+        public int EligibilityQueries { get; private set; }
+        public bool ClosePosted { get; private set; } = true;
 
-using EyeCtrl.Core.Interfaces;
-using EyeCtrl.Core.Models;
+        public IReadOnlyList<AppWindow> EnumerateOpenWindows() => Array.Empty<AppWindow>();
+        public void BringToFront(IntPtr hwnd) { }
+        public IntPtr? TryGetEligibleForegroundWindow()
+        {
+            EligibilityQueries++;
+            return EligibleHwnd;
+        }
+        public void Minimize(IntPtr hwnd) => LastOp = WindowAction.Minimize;
+        public void MaximizeOrRestore(IntPtr hwnd) => LastOp = WindowAction.MaximizeRestore;
+        public bool CloseWindow(IntPtr hwnd) { LastOp = WindowAction.Close; return ClosePosted; }
+    }
 
-// Minimal fake: records the last op + whether eligibility was queried.
-// (Full EventCoordinator construction is heavy; if a test harness already exists
-// for EventCoordinator recipients, prefer extending it. Otherwise test HandleWindowAction
-// as a unit by extracting it to take an IWindowManager + ILogger parameter, OR test via
-// the recipient registration with a constructed context. See TaskSwitcherViewModelTests
-// for the fake-IWindowManager pattern.)
+    private static void InvokeHandleAction(EventCoordinator coord, WindowAction action)
+    {
+        // Mirror the reflection pattern at EventCoordinatorTests.cs:102-104 / :228-233
+        var mi = typeof(EventCoordinator).GetMethod("HandleWindowAction",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        mi.Invoke(coord, new object[] { action });
+    }
 
-public class HandleWindowActionTests
-{
-    // Sketch: assert that WindowAction.Minimize → fake.Minimize(lastForegroundHwnd),
-    // MaximizeRestore → fake.MaximizeOrRestore, Close → fake.CloseWindow.
-    // Assert that when TryGetEligibleForegroundWindow returns null, NO op is called.
-    // (The exact test harness depends on EventCoordinator's existing test setup —
-    // check tests/EyeCtrl.App.Tests/Services/ for the established pattern and mirror it.
-    // The key assertions are the three routing cases + the null-eligibility no-op.)
-}
+    [Theory]
+    [InlineData(WindowAction.Minimize)]
+    [InlineData(WindowAction.MaximizeRestore)]
+    [InlineData(WindowAction.Close)]
+    public void HandleWindowAction_RoutesToTheRightOp(WindowAction action)
+    {
+        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
+        var coord = new EventCoordinator();
+        SetContext(coord, MakeContextWithWindowManager(fake));
+
+        InvokeHandleAction(coord, action);
+
+        Check.That(fake.LastOp).IsEqualTo(action);
+        Check.That(fake.EligibilityQueries).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void HandleWindowAction_IneligibleForeground_NoOpsAndLogs()
+    {
+        var fake = new FakeWindowActionManager { EligibleHwnd = null };
+        var coord = new EventCoordinator();
+        SetContext(coord, MakeContextWithWindowManager(fake));
+
+        InvokeHandleAction(coord, WindowAction.Close);
+
+        Check.That(fake.LastOp).IsNull();
+    }
+
+    /// <summary>
+    /// Pins the spec §4 BLOCKER A.1 fix: the recipient is synchronous (no BeginInvoke), so the
+    /// foreground HWND is queried once, at op-fire time, and the op hits exactly that window.
+    /// A queued hop would allow the foreground to change between dwell completion and the query.
+    /// </summary>
+    [Fact]
+    public void HandleWindowAction_QueriesForegroundOnce_Synchronously()
+    {
+        // The fake's EligibilityQueries counter is the proxy for "no deferred re-query":
+        // one synchronous call → exactly one query. (If a BeginInvoke were re-introduced, the
+        // test would still see one query — but combined with the registration snippet in Step 3
+        // having no BeginInvoke, the pair pins the contract.)
+        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
+        var coord = new EventCoordinator();
+        SetContext(coord, MakeContextWithWindowManager(fake));
+
+        InvokeHandleAction(coord, WindowAction.Minimize);
+
+        Check.That(fake.EligibilityQueries).IsEqualTo(1);
+    }
 ```
 
-> **Note:** `EventCoordinator` has substantial constructor dependencies. Before writing the real test, check `tests/EyeCtrl.App.Tests/Services/` for an existing `EventCoordinatorTests` harness. If one exists, extend it. If not, the cleanest seam is to extract `HandleWindowAction` to a small testable helper that takes `(IWindowManager, ILogger)` — but **do not over-extract**; the spec wants it as a method on `EventCoordinator`. Prefer the existing-test-harness route.
+If `MakeContext` doesn't already accept a window-manager override, add a small `MakeContextWithWindowManager(IWindowManager)` helper to the test class that calls `MakeContext` then returns a context with `WindowManager:` swapped (mirror how `MakeContext(IInputSimulator)` overrides the simulator at `:160-190`). **Do not extract `HandleWindowAction` to a testable helper** — the spec requires it as a method on `EventCoordinator; the reflection pattern in this test class is the established way to test private methods here.
 
 - [ ] **Step 3: Register the recipient in `EventCoordinator`**
 
-Near the `TaskSwitcherSelectionMessage` registration (`:135-136`). **Critical: no `BeginInvoke`** — call `HandleWindowAction` directly (the spec's BLOCKER A.1 fix):
+Near the `TaskSwitcherSelectionMessage` registration (`:135-136`). **Critical: no `BeginInvoke`** — call `HandleWindowAction` directly (the spec's BLOCKER A.1 fix; contrast with the Task Switcher registration right above it which DOES use `BeginInvoke`, harmlessly, because its HWND rides the message):
 
 ```csharp
         _context.Messenger.Register<EventCoordinator, WindowActionRequestedMessage>(this, (_, msg) =>
@@ -541,7 +608,7 @@ Near the `TaskSwitcherSelectionMessage` registration (`:135-136`). **Critical: n
 
 - [ ] **Step 4: Implement `HandleWindowAction`**
 
-Add as a method on `EventCoordinator` (near `HandleTaskSwitcherSelection`, `:141`):
+Add as a method on `EventCoordinator` (near `HandleTaskSwitcherSelection`, `:141`). Use Serilog's static `Log` (already imported, `using Serilog;` at `:22`, used at `:478`, `:486`, `:1210`) — **not** an `ILogger<T>` (none is injected here). The spec §2/§3/§9 mandate logging at `Information` on the null + UIPI-blocked paths:
 
 ```csharp
     private void HandleWindowAction(WindowAction action)
@@ -552,8 +619,7 @@ Add as a method on `EventCoordinator` (near `HandleTaskSwitcherSelection`, `:141
         if (hwnd is null)
         {
             // Foreground was the shell, this process, zero, or an invalid/destroyed window.
-            // No-op; the user's dwell completed but there is nothing safe to act on.
-            // (Logging at Information per spec §3 — add if an ILogger<EventCoordinator> is available.)
+            Log.Information("Window-action {Action} skipped: no eligible foreground window", action);
             return;
         }
 
@@ -567,7 +633,8 @@ Add as a method on `EventCoordinator` (near `HandleTaskSwitcherSelection`, `:141
                 break;
             case WindowAction.Close:
                 var posted = _context.WindowManager.CloseWindow(hwnd.Value);
-                // posted == false means UIPI-blocked (elevated target). Log at Information if logger available.
+                if (!posted)
+                    Log.Information("Window-action Close: PostMessage(WM_CLOSE) returned false (UIPI-blocked by elevated foreground?)");
                 break;
         }
     }
@@ -575,15 +642,15 @@ Add as a method on `EventCoordinator` (near `HandleTaskSwitcherSelection`, `:141
 
 Confirm `_context.WindowManager` exists — it does (`HandleTaskSwitcherSelection` uses `_context.WindowManager.BringToFront`, `:144`). Add `using EyeCtrl.Core.Models;` if `WindowAction` isn't already imported.
 
-- [ ] **Step 5: Build + run the new test**
+- [ ] **Step 5: Build + run the new tests**
 
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~HandleWindowActionTests"`
-Expected: PASS.
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~HandleWindowAction"`
+Expected: PASS (3 routing + 1 null-eligibility + 1 synchronous-query = 5 tests). Verify the whole `EyeCtrl.App.Tests` project still builds (`dotnet build tests/EyeCtrl.App.Tests`).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs src/EyeCtrl.App/Services/EventCoordinator.cs tests/EyeCtrl.App.Tests/Services/HandleWindowActionTests.cs
+git add src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs src/EyeCtrl.App/Services/EventCoordinator.cs tests/EyeCtrl.App.Tests/Services/EventCoordinatorTests.cs
 git commit -m "feat(window-mgmt): WindowActionRequestedMessage + synchronous HandleWindowAction recipient"
 ```
 
@@ -591,9 +658,9 @@ git commit -m "feat(window-mgmt): WindowActionRequestedMessage + synchronous Han
 
 ## Task 6: Toolbar buttons + dispatch (View + VM arrays)
 
-Add the three buttons to both arrays (View renders them; VM creates them) and the three dispatch cases in `OnTargetActivated`. Gate on `ShowWindowActions` (Task 9 adds the settings field + reconciliation; for now read `true` — the field is added before this ships, but the button additions can land first with a TODO-free inline check against a field that Task 9 introduces).
+Add the three buttons to both arrays (View renders them; VM creates them) and the three dispatch cases in `OnTargetActivated`.
 
-> **Ordering note:** This task adds the buttons assuming `ShowWindowActions` exists. The cleanest sequencing is to do Task 9 (settings field + snapshot) immediately after this one, before any end-to-end test. But the button arrays + dispatch cases are independent enough to commit on their own.
+> **Ordering note:** Task 6 does NOT reference `ShowWindowActions` — it adds the three buttons unconditionally. Task 9 (settings toggle + reconciliation) is what gates them. Task 6 compiles standalone; execute it before Task 9.
 
 **Files:**
 - Modify: `src/EyeCtrl.ViewModels/ToolbarViewModel.cs` (`:66-76` array, `:131-144` switch)
@@ -605,7 +672,7 @@ Add the three buttons to both arrays (View renders them; VM creates them) and th
 
 - [ ] **Step 1: Write the failing test for dispatch**
 
-Test that dwelling each of the three new ids sends the right `WindowActionRequestedMessage`. Use a `WeakReferenceMessenger`, register a recipient, drive `OnTargetActivated` directly (the established pattern in `ToolbarViewModelTests.cs:144-160`):
+Test that dwelling each of the three new ids sends the right `WindowActionRequestedMessage`, AND that the VM array actually contains the three buttons (the dwell test alone passes with just the dispatch switch — `UpdateButtonScreenPosition` (`:41-58`) creates a target for any id; the array assertion pins Step 3). Use the established single-generic `Register<TMessage>(this, …)` form (`ToolbarViewModelTests.cs:153`) — **not** `Register<TRecipient, TMessage>` (CommunityToolkit constrains `TRecipient : class`; a struct violates CS0452):
 
 ```csharp
     [Theory]
@@ -618,10 +685,10 @@ Test that dwelling each of the three new ids sends the right `WindowActionReques
         var vm = new ToolbarViewModel(_settings, messenger);
 
         WindowAction? received = null;
-        messenger.Register<Recipient, WindowActionRequestedMessage>(default, (_, msg) => received = msg.Action);
+        messenger.Register<WindowActionRequestedMessage>(this, (_, msg) => received = msg.Action);
 
         // OnTargetActivated is protected; drive it via Receive on a positioned button, mirroring
-        // GazeDwellOnPositionedButton_ActivatesIt. Position the button then dwell at its center.
+        // GazeDwellOnPositionedButton_ActivatesIt (ToolbarViewModelTests.cs:144-160).
         var center = new PhysicalPoint(500, 500);
         vm.UpdateButtonScreenPosition(id, center);
         var dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
@@ -630,14 +697,24 @@ Test that dwelling each of the three new ids sends the right `WindowActionReques
 
         Check.That(received).IsEqualTo(expected);
     }
+
+    [Fact]
+    public void ToolbarViewModel_ContainsWindowActionButtons()
+    {
+        // Pins Step 3 (VM array) independently of the dispatch switch — UpdateButtonScreenPosition
+        // would create a target for any id, so the dwell test alone can't catch a missing array entry.
+        var vm = new ToolbarViewModel(_settings, new WeakReferenceMessenger());
+        Check.That(vm.Buttons.Select(b => b.Id).ToArray())
+             .Contains(new[] { "Minimize", "MaximizeRestore", "Close" });
+    }
 ```
 
-(`Recipient` is a tiny placeholder `readonly struct Recipient;` for the messenger registration, or use the existing pattern in the test file.) Add `using EyeCtrl.Core.Models;` + `using EyeCtrl.ViewModels.Messages;` to the test file.
+Add `using EyeCtrl.Core.Models;` + `using EyeCtrl.ViewModels.Messages;` + `using EyeCtrl.ViewModels;` to the test file.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~OnTargetActivated_WindowButton"`
-Expected: FAIL — the ids aren't in the VM's button array, so `UpdateButtonScreenPosition` won't find them / dwell won't fire them.
+Run: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~OnTargetActivated_WindowButton|FullyQualifiedName~ToolbarViewModel_ContainsWindowAction"`
+Expected: FAIL — the dispatch switch (`:131-144`) lacks the three cases (dwell test), and the VM `Buttons` collection lacks the three ids (array test).
 
 - [ ] **Step 3: Add the three buttons to the VM array**
 
@@ -701,7 +778,7 @@ This is the safety fix that makes no-confirm Close defensible. Without it, a hid
 
 - [ ] **Step 1: Write failing tests**
 
-Two tests. First, the safety case — a hidden toolbar must not dwell:
+Two tests. First, the safety case — a hidden toolbar must not dwell. Use the single-generic `Register<TMessage>(this, …)` form (the established pattern at `ToolbarViewModelTests.cs:153`) — **not** `Register<TRecipient, TMessage>` (CS0452; `TRecipient : class`):
 
 ```csharp
     [Fact]
@@ -715,7 +792,7 @@ Two tests. First, the safety case — a hidden toolbar must not dwell:
         vm.SetActive(false);  // hidden
 
         bool fired = false;
-        messenger.Register<Recipient, PauseToggledMessage>(default, (_, _) => fired = true);
+        messenger.Register<PauseToggledMessage>(this, (_, _) => fired = true);
 
         var dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
         vm.Receive(new GazeCursorMovedMessage(center, 0));
@@ -739,12 +816,12 @@ Second, no instant-activation on resume — `ResetAllState` cleared the stale ti
 
         // Partially dwell, then hide mid-dwell.
         vm.Receive(new GazeCursorMovedMessage(center, 0));
-        vm.Receive(new GazeCursorMovedMessage(center, 100_000)); // partial
+        vm.Receive(new GazeCursorMovedMessage(center, 100_000)); // partial (100ms < 700ms dwell)
         vm.SetActive(false);
         vm.SetActive(true);
 
         bool fired = false;
-        messenger.Register<Recipient, PauseToggledMessage>(default, (_, _) => fired = true);
+        messenger.Register<PauseToggledMessage>(this, (_, _) => fired = true);
 
         // A single sample immediately after resume must NOT complete a dwell — the stale
         // EnteredTimestamp was cleared by ResetAllState on hide.
@@ -760,17 +837,21 @@ Expected: FAIL — `SetActive` doesn't exist.
 
 - [ ] **Step 3: Add the activity flag to `ToolbarViewModel`**
 
-Add a field + a public `SetActive` method. Initial state is `true` (dwell active). Gate `Receive`:
+Add a field + a public `SetActive` method. Initial state is `true` (dwell active). Gate `Receive`. **Telemetry note (spec §9):** `ResetAllState()` emits `TargetProgress(id,0)` but no `Abandoned` `DwellOutcome`, so a dwell in flight at hide/calibration-start vanishes from struggle telemetry — add a one-line comment documenting this intentional bias:
 
 ```csharp
     private bool _dwellingActive = true;
 
     /// <summary>
     /// Activates/deactivates dwell processing for the toolbar. Called by the auto-hide
-    /// lifecycle (hide → false, show/ForceShow → true) and calibration (start → false,
-    /// end → true). When deactivated, gaze samples are not fed to the detector and any
-    /// in-progress dwell state is reset (preventing both hidden-toolbar fires and stale-
+    /// lifecycle (hide → false, show/ForceShow → true) and calibration (Collecting/Training → false,
+    /// Active/Failed/Cancelled → true). When deactivated, gaze samples are not fed to the detector
+    /// and any in-progress dwell state is reset (preventing both hidden-toolbar fires and stale-
     /// timestamp instant activation on resume).
+    ///
+    /// Telemetry bias: ResetAllState fires TargetProgress(id,0) but NOT an Abandoned DwellOutcome,
+    /// so a mid-flight dwell at hide/calibration-start drops out of struggle telemetry. Intentional —
+    /// both numerator and denominator of ScoreAbandonment drop together; impact negligible.
     /// </summary>
     public void SetActive(bool active)
     {
@@ -790,7 +871,7 @@ Gate `Receive` (`:92-95`) — replace the unconditional `DwellDetector.Update`:
     }
 ```
 
-- [ ] **Step 4: Add `SetActive` to `IToolbarVisibility` + implement on the adapter**
+- [ ] **Step 4a: Add `SetActive` to `IToolbarVisibility` + the adapter**
 
 `IToolbarVisibility.cs` — add:
 ```csharp
@@ -802,7 +883,7 @@ Gate `Receive` (`:92-95`) — replace the unconditional `DwellDetector.Update`:
     void SetActive(bool active);
 ```
 
-`ToolbarVisibilityAdapter.cs` — the adapter holds only `IOverlayManager` + `Dispatcher`. To reach the VM, inject `ToolbarViewModel` into the adapter constructor:
+`ToolbarVisibilityAdapter.cs` — add `using EyeCtrl.ViewModels;` (currently only `System.Windows.Threading` + `EyeCtrl.App.Overlays`), inject `ToolbarViewModel`:
 
 ```csharp
 public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
@@ -824,38 +905,61 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
 }
 ```
 
-Update the adapter's construction site (search for `new ToolbarVisibilityAdapter(` — it's in `EventCoordinator.SetupToolbarAutoHide`, `:590`) to pass the VM: `new ToolbarVisibilityAdapter(_context.OverlayManager, _context.Dispatcher, _context.ToolbarVM)`.
+- [ ] **Step 4b: Wire Show/Hide/ForceShow + update the single ctor site**
 
-Then wire the existing `HideToolbar`/`ShowToolbar`/`ForceShow` to also call `SetActive`. In `ToolbarVisibilityAdapter`:
+In `ToolbarVisibilityAdapter`:
 - `ShowToolbar()` body: after `_overlays.Toolbar.Show()`, add `_toolbarVm.SetActive(true);`
 - `HideToolbar(bool paused)` body: before `_overlays.Toolbar.Hide()`, add `_toolbarVm.SetActive(false);`
 - `ForceShow()` body: after `_overlays.Toolbar.Show()`, add `_toolbarVm.SetActive(true);`
 
-(The adapter already marshals to the dispatcher, so `SetActive` runs on the UI thread alongside the show/hide.)
+Update the adapter's construction site — `new ToolbarVisibilityAdapter(` has exactly ONE call site, `EventCoordinator.SetupToolbarAutoHide:590`. Pass the VM: `new ToolbarVisibilityAdapter(_context.OverlayManager, _context.Dispatcher, _context.ToolbarVM)`. (No DI registration to update — the adapter is hand-constructed, not in `AppBootstrapper`.)
 
-- [ ] **Step 5: Wire calibration**
+- [ ] **Step 4c: Update the `FakeVisibility` test fake (compile fix — BLOCKER)**
 
-In `EventCoordinator`'s calibration handler (`:490-519`), on calibration start call `SetActive(false)` on the toolbar visibility seam, and on calibration end/cancel call `SetActive(true)`. The calibration handler already toggles cursor circle / fixation suppression — add the toolbar-dwell deactivation alongside. Save the `ToolbarVisibilityAdapter` (or `IToolbarVisibility`) reference in `_context` or as a field so the calibration handler can reach it.
+Adding `SetActive` to `IToolbarVisibility` breaks the private `FakeVisibility` fake at `tests/EyeCtrl.App.Tests/Services/ToolbarAutoHideControllerTests.cs:395` (the parallel of the `FakeWindowManager` fix in Task 4). Add the method:
 
-> **Calibration/hide refcount invariant (spec §4):** hide and calibration cannot overlap (calibration only starts from controller-state `Visible`; `Feed` can't transition while `_calibrationActive`). The flag is a single bool, not a refcount. Add a one-line code comment at the `SetActive` definition stating this invariant, so a future change that breaks the non-overlap doesn't silently re-enable dwell.
+```csharp
+        public List<bool> SetActiveCalls { get; } = new();
+        public void SetActive(bool active) => SetActiveCalls.Add(active);
+```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [ ] **Step 5: Wire calibration (the `CalibrationState` mapping is the trap)**
 
-Run: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~SetActive_"`
-Expected: PASS (2 tests).
+`EventCoordinator` already holds `_toolbarVisibility` (assigned at `:592`, used at `:89` and `:1192`) — **reuse that field**, do NOT add a new one or change `EventCoordinationContext`.
+
+The calibration handler is `CalibrationStateChangedMessage` (`:490-519`) switching on `CalibrationState`. **Read `CalibrationState` (`EyeCtrl.Core/Calibration/CalibrationState.cs`) before writing the arms — the enum names are a trap:** `Active` means *"calibration is complete and the transform is applied"* (success), **not** "in progress." An implementer reading `case CalibrationState.Active:` as "calibration active" would call `SetActive(false)` on *success*, leaving the toolbar permanently un-dwellable on configs where `ShowToolbar()` never fires (floating toolbar / mouse provider — auto-hide disabled) — no recovery short of restart. The correct mapping mirrors how the existing arms set `SuppressFixation`:
+
+- `CalibrationState.Collecting` → `_toolbarVisibility.SetActive(false)` (gaze is being collected at targets, including screen edges/corners where a docked toolbar lives)
+- `CalibrationState.Training` → `SetActive(false)` (still in session)
+- `CalibrationState.Active` (success/done) → `SetActive(true)`
+- `CalibrationState.Failed` → `SetActive(true)`
+- `CalibrationState.Cancelled` → `SetActive(true)`
+- `CalibrationState.Idle` / `default` → `SetActive(true)`
+
+Add the `SetActive` call inside each existing arm of the calibration switch, alongside the cursor-circle / fixation-suppression logic already there.
+
+> **Calibration/hide refcount invariant (spec §4):** hide and calibration cannot overlap — calibration only starts from controller-state `Visible` (`ToolbarAutoHideController._state`, `:48`), and `Feed` can't transition while `_calibrationActive` (`:151-154`). The flag is a single bool, not a refcount. **Note the asymmetry:** `ToolbarAutoHideController` derives its calibration gate from `_context.CalibrationService.IsSessionActive` (`:588`), while this wiring derives from `CalibrationStateChangedMessage` — two sources for one condition. The non-overlap is an invariant of *the controller's* source, not the message's. Add a one-line code comment at the `SetActive` definition stating this, so a future change that breaks the non-overlap doesn't silently re-enable dwell. If overlap ever becomes possible, switch to a refcount.
+
+- [ ] **Step 6: Build + run tests to verify they pass**
+
+Run: `dotnet build EyeCtrl.slnx -clp:ErrorsOnly` (verify the WHOLE solution builds — `FakeVisibility` is in `EyeCtrl.App.Tests`, so `dotnet test tests/EyeCtrl.ViewModels.Tests` alone won't catch it).
+Then: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~SetActive_"` + `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarAutoHideControllerTests"`
+Expected: build 0 errors; both test runs PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/EyeCtrl.ViewModels/ToolbarViewModel.cs src/EyeCtrl.App/Services/IToolbarVisibility.cs src/EyeCtrl.App/Services/ToolbarVisibilityAdapter.cs src/EyeCtrl.App/Services/EventCoordinator.cs tests/EyeCtrl.ViewModels.Tests/ToolbarViewModelTests.cs
+git add src/EyeCtrl.ViewModels/ToolbarViewModel.cs src/EyeCtrl.App/Services/IToolbarVisibility.cs src/EyeCtrl.App/Services/ToolbarVisibilityAdapter.cs src/EyeCtrl.App/Services/EventCoordinator.cs tests/EyeCtrl.ViewModels.Tests/ToolbarViewModelTests.cs tests/EyeCtrl.App.Tests/Services/ToolbarAutoHideControllerTests.cs
 git commit -m "feat(window-mgmt): target-lifecycle contract — hide/calibration deactivates toolbar dwell (ResetAllState + activity flag)"
 ```
 
 ---
 
-## Task 8: Manual smoke matrix (no automated test)
+## Task 8: Manual smoke matrix (no automated test) — MANUAL GATE
 
-The Win32 ops need a real foreground window; they're covered by the Task 4/5 unit fakes + this manual matrix. **Run this before considering the feature done.**
+> ⚠️ **Manual gate — requires explicit go-ahead from the user; do NOT execute autonomously.** This task launches the app, drives real dwells, and closes real foreground windows on a machine whose only input channel is eye tracking. A mis-dwelled Close hits whatever is foreground. Run the Close rows last. Bound the session (quit the app when done).
+
+The Win32 ops need a real foreground window; they're covered by the Task 4/5 unit fakes + this manual matrix. **Run before considering the feature done, and after Task 10** (so drift tests are green and the settings toggle is present).
 
 **Files:** none (verification only — record results in the PR description)
 
@@ -864,28 +968,43 @@ The Win32 ops need a real foreground window; they're covered by the Task 4/5 uni
 Run: `dotnet build EyeCtrl.slnx -clp:ErrorsOnly`
 Expected: 0 errors.
 
-- [ ] **Step 2: Run the app with a mouse-gaze provider**
+- [ ] **Step 2: Pass A — mouse-gaze provider (op correctness)**
+
+`--test-mode` forces `MouseGazeProvider` (`AppBootstrapper.cs:87-88`) → `ActiveProviderType == Mouse` → `providerIsRealTracker == false` → auto-hide is **disabled** (`enabled = false` at `EventCoordinator.cs:574`), `_autoHideGazeHandler` never subscribes, the toolbar never hides, and the tray "Show toolbar" callback is `null` (`App.xaml.cs:223-229`). So Pass A tests only the op routing — the toolbar stays visible throughout.
 
 Run: `dotnet run --project src/EyeCtrl.App -- --test-mode`
 
-- [ ] **Step 3: Smoke matrix — verify each case**
-
-For each: summon the toolbar (gaze past the docked edge), dwell the button, observe.
+Verify the **op-correctness** rows (toolbar is visible; dwell each button):
 
 | Case | Expected |
 |------|----------|
 | Normal app foreground → Minimize | Window minimizes |
 | Normal app foreground → MaximizeRestore (normal) | Window maximizes |
 | Maximized foreground → MaximizeRestore | Window restores |
-| Normal app foreground → Close | App's save-changes prompt (or closes gracefully) |
 | Desktop focused (click desktop first) → Minimize | **No-op** (shell rejected); nothing happens |
+| **Taskbar focused** → Minimize | **No-op** (Shell_TrayWnd rejected) |
+| **Start menu / shell frame foreground** → Minimize | **No-op** (shell class rejected) |
+| **UWP app foreground** → Minimize | Minimizes (or no-op if suspended/cloaked — document which) |
+| **IME (e.g. typing in a CJK IME candidate window) foreground** → Minimize | **No-op** or minimizes the IME's owner — document observed behavior |
 | Console window foreground → Close | Console closes (documented: no save prompt) |
 | Owned modal dialog foreground → Close | Dialog closes, **owning app stays open** |
 | `MB_OK` message box foreground → Close | Warning sound, box stays (documented; `PostMessage` returns true) |
 | Elevated app foreground → Close | **No-op** (UIPI-blocked); logged |
-| Toolbar auto-hidden → gaze over former Close position | **No dwell fires** (Task 7 contract) |
-| Mid-dwell, then auto-hide → re-show | Progress reset; no instant activation on re-show |
-| Start calibration → gaze over toolbar | **No dwell fires** during calibration |
+| **Fullscreen (F11) app foreground → MaximizeRestore** | Document observed behavior (spec §8 defers the guard — note if it wedges) |
+| Normal app foreground → Close | App's save-changes prompt (or closes gracefully) |
+
+- [ ] **Step 3: Pass B — real Tobii tracker (auto-hide + calibration rows)**
+
+The load-bearing Task 7 rows (hidden-toolbar-doesn't-dwell, no-instant-activation-on-resume, calibration-deactivation) **require auto-hide to be active**, which needs a real tracker (`providerIsRealTracker == true`). Run with the Tobii provider (no `--test-mode`), docked toolbar (the default).
+
+| Case | Expected |
+|------|----------|
+| Summon by looking past the docked edge → toolbar appears | Toolbar slides in (~400ms summon delay) |
+| Look away (off-toolbar) > hide delay (~5s) → toolbar hides | Toolbar hides |
+| **Toolbar auto-hidden → gaze over former Close position** | **No dwell fires** (Task 7 contract — the safety case) |
+| **Mid-dwell on a button, then auto-hide → re-summon → resume gaze** | Progress reset; **no instant activation** on re-show (ResetAllState cleared the timestamp) |
+| **Start calibration → gaze over the (visible) toolbar's buttons** | **No dwell fires** during calibration (Task 7 calibration deactivation) |
+| **Calibration completes (CalibrationState.Active) → gaze over toolbar** | Dwell re-activated (SetActive(true) on Active/Failed/Cancelled) |
 
 - [ ] **Step 4: Record results in the PR description; commit any fixups**
 
@@ -917,7 +1036,7 @@ Adds the settings toggle (default true) and the runtime add/remove path. **Must 
     [ObservableProperty] private bool _showWindowActions = true;
 ```
 
-`SettingsSnapshots.cs` — add `ShowWindowActions` to the `ToolbarSnapshot` record (mirror the existing `IsDocked`/`DockedEdge`/`Size` fields).
+`SettingsSnapshots.cs` — add `ShowWindowActions` to the `ToolbarSnapshot` record (mirror the existing `IsDocked`/`DockedEdge`/`Size` fields). Also add a `ShowWindowActions` case to `SettingsSnapshotsTests.ToolbarSnapshot_OnlyToolbarFieldsMatter` (`:83`) so a future `Capture` omission is caught (the test exists precisely for this class of bug).
 
 - [ ] **Step 2: Widen `ToolbarWindow.Initialize` + update call sites**
 
@@ -979,13 +1098,32 @@ The VM must add/remove the three buttons' bookkeeping atomically. Removal is the
     };
 ```
 
-- [ ] **Step 4: Notify the VM from the live-settings block**
+- [ ] **Step 4: Notify the VM from the live-settings block + rebind new buttons in the View**
 
-In `EventCoordinator`'s `ToolbarSnapshot`-handling block (`:1187-1203`), after `Initialize` + `SetMode`, call `_context.ToolbarVM.SetWindowActionsVisible(snapshot.ShowWindowActions);`. (The View rebuild happens via `Initialize`; the VM add/remove happens via this call — both driven by the same snapshot change.)
+Two consumers change on a toggle:
 
-- [ ] **Step 5: Settings UI — checkbox + Reset copy**
+**(a) VM** — In `EventCoordinator`'s `ToolbarSnapshot`-handling block (`:1187-1203`), after `Initialize` + `SetMode`, call `_context.ToolbarVM.SetWindowActionsVisible(snapshot.ShowWindowActions);`. (The View rebuild happens via `Initialize`; the VM add/remove happens via this call — both driven by the same snapshot change.)
 
-In `SettingsWindow.xaml.cs:730-764` (`BuildToolbarPages`), add a "Show window actions" checkbox bound to `ShowWindowActions`, and add the field to the Reset-copy list (`:753-757` copies `IsDocked`/`DockedEdge`/`Size` — add a 4th line for `ShowWindowActions`). The XAML for the checkbox follows the existing toolbar-checkbox pattern in the same file.
+**(b) View — the rebind problem (round-1 MAJOR).** `ToolbarWindow.BindToViewModel()` is called exactly once, from `App.xaml.cs:460`, and `+=`-subscribes `PropertyChanged` per item in `vm.Buttons` *at that moment* (`:227-261`). `SetWindowActionsVisible(true)` after a prior removal creates **new** `ToolbarButtonViewModel` instances that nobody subscribes → the buttons render and dwell but their progress bar never updates (on this input modality that reads as "the button is broken"). Naively re-calling `BindToViewModel()` double-subscribes every other button (no `-=` anywhere).
+
+**Fix: an idempotent per-button bind path.** Add a `BindButton(ToolbarButtonViewModel btn)` method to `ToolbarWindow` that does the `PropertyChanged += ...` subscription for one button (extract the per-item body from `BindToViewModel`'s loop, `:227-261`). Then either:
+- have `SetWindowActionsVisible` (VM) raise a `Buttons.CollectionChanged` event the View subscribes to (once, in `BindToViewModel`) and calls `BindButton(e.ItemsAdded)` / unbinds on removal; **or**
+- simpler: since the snapshot block already re-runs `Initialize` (which rebuilds `_buttonVisuals`/`ButtonPanel.Children` and resets `_targetsInitialized`), have `Initialize`'s re-render loop call `BindButton` for each current VM button after the View array is rebuilt.
+
+Pick the simpler one at implementation; the load-bearing requirement is that a newly-added button's `DwellProgress` reaches its progress `Rectangle`. Test: toggle off then on, dwell a re-added button, assert the progress bar advanced (or at least that the subscription exists — a unit test can assert `btn.DwellProgress = 0.5` propagates to the View's recorded visual state).
+
+- [ ] **Step 5: Settings UI — `DwellToggle`, not XAML**
+
+`SettingsWindow.xaml.cs:730-765` (`BuildToolbarPages`) has **no XAML and no checkboxes** — it builds controls in code: `DwellToggle` / `DwellComboBox` / `DwellSlider` / `DwellButton`. The correct primitive for a bool toggle is `DwellToggle`, mirroring `"t_dock"` at `:738-741`. Add:
+
+```csharp
+    Add(new DwellToggle(_viewModel, "t_winactions", "Show Window Actions",
+        () => _settings.Toolbar.ShowWindowActions,
+        v => { _settings.Toolbar.ShowWindowActions = v; ApplyAndSave(); },
+        cat, r, _dwellMs));
+```
+
+(`cat`, `r`, `_dwellMs` are the existing layout locals in `BuildToolbarPages` — mirror the `t_dock` row's argument pattern.) Add `ShowWindowActions` to the Reset-copy path at `:756-758` (which currently copies `IsDocked`/`DockedEdge`/`Size` — add a 4th line).
 
 - [ ] **Step 6: Write tests**
 
@@ -1020,8 +1158,7 @@ The test at `:13-18` asserts 8 logical buttons. After Task 6 the VM has 11 (8 + 
 
 - [ ] **Step 3: Run the affected tests**
 
-Run: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~ToolbarViewModelTests"` then `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AppLaunchTests" --filter "Category=UI"` (the AppLaunch tests are UI tests — `Category=UI`; they need a display session, so run them locally, not in CI).
-Expected: PASS.
+Run: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~ToolbarViewModelTests"` then `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AppLaunchTests&Category=UI"` (single `--filter` with `&` — two `--filter` args don't AND; the second overrides the first). The `AppLaunchTests` are UI tests (`Category=UI`, class-level trait at `:9`) and need a display session — run locally, not in CI. Note these tests are **environmental**: they fail headless with "Toolbar_Window did not appear within 15s" on clean `main` too, so a red result here isn't necessarily a regression.
 
 - [ ] **Step 4: Commit**
 
@@ -1032,19 +1169,21 @@ git commit -m "test(window-mgmt): update toolbar-count drift tests for +3 window
 
 ---
 
-## Self-Review (completed)
+## Self-Review (completed, revised after round-1 plan review)
 
 **Spec coverage:**
 - §2 (targeting/eligibility) → Tasks 2, 4 ✓
-- §3 (action set, DecideWindowOp, op semantics, no-confirm Close) → Tasks 1, 4, 7 (Close conditional on 7) ✓
-- §4 (placement, dispatch, synchronous recipient, target-lifecycle, auto-hide) → Tasks 5, 6, 7 ✓
-- §5 (ShowWindowActions + reconciliation) → Task 9 ✓
+- §3 (action set, DecideWindowOp, op semantics, no-confirm Close, logging) → Tasks 1, 4, 5 (Serilog `Log.Information`), 7 (Close conditional on 7) ✓
+- §4 (placement, dispatch, synchronous recipient, target-lifecycle, auto-hide, calibration, telemetry bias) → Tasks 5, 6, 7 ✓
+- §5 (ShowWindowActions + reconciliation, rebind) → Task 9 ✓
 - §6 (toolbar-disabled — no such state exists; documented) → no task needed (Global Constraint) ✓
 - §7 (seams table) → every row maps to a task ✓
-- §8 (edge cases) → covered by Task 8 smoke matrix + Task 7 safety ✓
-- §9 (tests) → distributed across tasks; Task 8 smoke matrix ✓
-- §11 (failure-mapping) → no task (it's a rationale section); the "no InteractionManager changes" Global Constraint enforces it ✓
+- §8 (edge cases incl. fullscreen/taskbar/Start/UWP/IME/console/dialog/MB_OK/elevated) → Task 8 smoke matrix (Pass A + Pass B) ✓
+- §9 (tests incl. the synchronous-recipient regression + telemetry-bias note) → Task 5 (regression test), Task 7 (telemetry comment), Task 8 (smoke matrix), distributed unit tests ✓
+- §11 (failure-mapping) → no task (rationale section); the "no InteractionManager changes" Global Constraint enforces it ✓
 
-**Placeholder scan:** Task 5 Step 2's test harness note is a real gap — `EventCoordinator`'s test setup needs to be discovered at execution time (the plan says to check `tests/EyeCtrl.App.Tests/Services/` for the established pattern). This is the one place the plan can't pre-render exact code; the implementer must inspect first. Flagged, not hidden.
+**Placeholder scan:** the round-1 "Task 5 harness discovery" gap is **closed** — `EventCoordinatorTests.cs:160-233` (`MakeContext`/`SetContext`/reflection) is cited by name and the test is pre-rendered. No remaining placeholders; every code step contains actual code.
 
-**Type consistency:** `WindowAction`/`WindowStateOp`/`WindowStateOps.DecideWindowOp`/`ForegroundWindowCandidate`/`ForegroundWindowEligibility.IsEligible`/`WindowActionRequestedMessage`/`SetActive`/`SetWindowActionsVisible`/`TryGetEligibleForegroundWindow` — all defined once, used consistently. `WindowActionIds` in Task 9 matches the three ids in Task 6.
+**Type consistency:** `WindowAction`/`WindowStateOp`/`WindowStateOps.DecideWindowOp`/`ForegroundWindowCandidate`/`ForegroundWindowEligibility.IsEligible`/`WindowActionRequestedMessage`/`SetActive`/`SetWindowActionsVisible`/`TryGetEligibleForegroundWindow`/`BindButton` — all defined once, used consistently. `WindowActionIds` in Task 9 matches the three ids in Task 6.
+
+**Round-1 review fixes applied:** BLOCKERs (Register<TRecipient>→Register<TMessage>(this) in 3 snippets; FakeVisibility added to Task 7; §9 synchronous-recipient regression test added to Task 5); MAJORs (Task 5 pre-rendered via EventCoordinatorTests harness + Serilog Log; Task 7 CalibrationState mapping pinned Collecting/Training→false vs Active/Failed/Cancelled→true + _toolbarVisibility reuse + build-the-whole-solution step + using; Task 8 split into mouse/real-tracker passes + 5 missing smoke rows + manual-gate warning; Task 9 rebind BindButton mechanism + DwellToggle not XAML; SettingsSnapshotsTests case); MINORs/NITs (Task 2 test isolation; Task 3 uint msg; Task 4 step split + eager-gather comment; Task 10 single-filter + environmental note).

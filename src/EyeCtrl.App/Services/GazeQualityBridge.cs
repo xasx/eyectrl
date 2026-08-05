@@ -16,6 +16,12 @@ using EyeCtrl.EyeCare;
 /// <para>
 /// Runs on the gaze thread. Must stay cheap: no I/O, no locks, no dispatcher-synchronous work.
 /// </para>
+/// <para>
+/// Depends on subscription order: the eye-care handler must be registered on <c>GazeSampled</c>
+/// before this one, or <see cref="IEyeCareService.TryGetFatigueScore"/> never sees the sample as
+/// fresh and every summary carries fatigue 0. That is a silent degradation, not a crash, so
+/// <c>App.OnStartup</c> carries the matching note at both subscription sites.
+/// </para>
 /// </remarks>
 public sealed class GazeQualityBridge
 {

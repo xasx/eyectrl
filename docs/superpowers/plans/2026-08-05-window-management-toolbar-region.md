@@ -582,9 +582,7 @@ Add these tests to `EventCoordinatorTests.cs` (or a new partial in the same name
     public void HandleWindowAction_QueriesForegroundOnce_Synchronously()
     {
         // The fake's EligibilityQueries counter is the proxy for "no deferred re-query":
-        // one synchronous call → exactly one query. (If a BeginInvoke were re-introduced, the
-        // test would still see one query — but combined with the registration snippet in Step 3
-        // having no BeginInvoke, the pair pins the contract.)
+        // one synchronous call → exactly one query.
         var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
         var coord = new EventCoordinator();
         SetContext(coord, MakeContextWithWindowManager(fake));
@@ -593,9 +591,32 @@ Add these tests to `EventCoordinatorTests.cs` (or a new partial in the same name
 
         Check.That(fake.EligibilityQueries).IsEqualTo(1);
     }
+
+    /// <summary>
+    /// Pins the spec §4 BLOCKER A.1 fix end-to-end: drive the REAL messenger path, not the
+    /// private method by reflection. If a BeginInvoke is re-introduced in the registration
+    /// (Step 3), the handler runs on a queued dispatch that never pumps in a unit test, so
+    /// fake.LastOp stays null when Send returns. A synchronous registration fires inline →
+    /// LastOp is set before Send returns. This is the discriminating test; the
+    /// QueriesForegroundOnce test above only pins query count.
+    /// </summary>
+    [Fact]
+    public void WindowActionRecipient_IsSynchronous_FiresBeforeSendReturns()
+    {
+        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
+        var messenger = new WeakReferenceMessenger();
+        var coord = MakeCoordinatorWithMessenger(messenger, fake); // see helper below
+
+        // Send drives the registration. Synchronous → LastOp set now; queued → still null.
+        messenger.Send(new WindowActionRequestedMessage(WindowAction.Minimize));
+
+        Check.That(fake.LastOp).IsEqualTo(WindowAction.Minimize);
+    }
 ```
 
-If `MakeContext` doesn't already accept a window-manager override, add a small `MakeContextWithWindowManager(IWindowManager)` helper to the test class that calls `MakeContext` then returns a context with `WindowManager:` swapped (mirror how `MakeContext(IInputSimulator)` overrides the simulator at `:160-190`). **Do not extract `HandleWindowAction` to a testable helper** — the spec requires it as a method on `EventCoordinator; the reflection pattern in this test class is the established way to test private methods here.
+`MakeCoordinatorWithMessenger` constructs an `EventCoordinator` whose `_context` carries the given `messenger` + fake window manager, then invokes the private setup method that contains the `Register<EventCoordinator, WindowActionRequestedMessage>(…)` line (Step 3) by reflection — mirroring how existing tests invoke private methods. **Caveat (round-2 MAJOR):** that setup method also touches `_context.TaskSwitcherVM.PropertyChanged` (`:122`), which is `null!` in `MakeContext` — if invoking it throws NRE, the setup method isn't unit-testable in isolation. In that case, **fall back to the weaker `QueriesForegroundOnce` test above** (which pins query count but not synchrony) and mark §9 in the Self-Review coverage table as *"partially covered — the synchronous registration is spec-pinned + code-reviewed; the BeginInvoke-regression is not unit-guarded because the setup method can't be invoked in isolation"*. Do NOT mark §9 as ✓ without the discriminating test.
+
+If `MakeContext` doesn't already accept a window-manager override, add a small `MakeContextWithWindowManager(IWindowManager)` helper to the test class that calls `MakeContext` then returns a context with `WindowManager:` swapped (mirror how `MakeContext(IInputSimulator)` overrides the simulator at `:160-190`). **Do not extract `HandleWindowAction` to a testable helper** — the spec requires it as a method on `EventCoordinator`; the reflection pattern in this test class is the established way to test private methods here.
 
 - [ ] **Step 3: Register the recipient in `EventCoordinator`**
 
@@ -958,6 +979,8 @@ git commit -m "feat(window-mgmt): target-lifecycle contract — hide/calibration
 ## Task 8: Manual smoke matrix (no automated test) — MANUAL GATE
 
 > ⚠️ **Manual gate — requires explicit go-ahead from the user; do NOT execute autonomously.** This task launches the app, drives real dwells, and closes real foreground windows on a machine whose only input channel is eye tracking. A mis-dwelled Close hits whatever is foreground. Run the Close rows last. Bound the session (quit the app when done).
+>
+> **⏭️ SKIP UNTIL AFTER TASK 10 IS COMMITTED.** This task is numbered 8 but executes LAST — run it after the drift tests (Task 10) are green and the settings toggle (Task 9) is in. Executing it in document order (between 7 and 9) runs against an incomplete feature.
 
 The Win32 ops need a real foreground window; they're covered by the Task 4/5 unit fakes + this manual matrix. **Run before considering the feature done, and after Task 10** (so drift tests are green and the settings toggle is present).
 
@@ -1023,7 +1046,7 @@ Adds the settings toggle (default true) and the runtime add/remove path. **Must 
 - Modify: `src/EyeCtrl.App/Services/OverlayManager.cs:107` + `EventCoordinator.cs:1190` (call sites)
 - Modify: `src/EyeCtrl.ViewModels/ToolbarViewModel.cs` (`SetWindowActionsVisible`)
 - Modify: `src/EyeCtrl.App/Services/EventCoordinator.cs` (notify VM from the snapshot block, `:1187-1203`)
-- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (checkbox + Reset copy, `:730-764`)
+- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (DwellToggle + Reset copy, `:730-765`)
 
 **Interfaces:**
 - Consumes: Tasks 1-7.
@@ -1100,27 +1123,31 @@ The VM must add/remove the three buttons' bookkeeping atomically. Removal is the
 
 - [ ] **Step 4: Notify the VM from the live-settings block + rebind new buttons in the View**
 
-Two consumers change on a toggle:
+Two consumers change on a toggle, and **ordering matters** (round-2 MAJOR):
 
-**(a) VM** — In `EventCoordinator`'s `ToolbarSnapshot`-handling block (`:1187-1203`), after `Initialize` + `SetMode`, call `_context.ToolbarVM.SetWindowActionsVisible(snapshot.ShowWindowActions);`. (The View rebuild happens via `Initialize`; the VM add/remove happens via this call — both driven by the same snapshot change.)
+**(a) VM** — In `EventCoordinator`'s `ToolbarSnapshot`-handling block (`:1187-1203`), call `_context.ToolbarVM.SetWindowActionsVisible(snapshot.ShowWindowActions);` **AFTER** `Initialize` + `SetMode` (so the View has already rebuilt for the new button set). The VM add/remove then runs against the post-rebuild state.
 
-**(b) View — the rebind problem (round-1 MAJOR).** `ToolbarWindow.BindToViewModel()` is called exactly once, from `App.xaml.cs:460`, and `+=`-subscribes `PropertyChanged` per item in `vm.Buttons` *at that moment* (`:227-261`). `SetWindowActionsVisible(true)` after a prior removal creates **new** `ToolbarButtonViewModel` instances that nobody subscribes → the buttons render and dwell but their progress bar never updates (on this input modality that reads as "the button is broken"). Naively re-calling `BindToViewModel()` double-subscribes every other button (no `-=` anywhere).
+**(b) View — the rebind problem (round-1 MAJOR; round-2 narrowed the fix).** `ToolbarWindow.BindToViewModel()` is called exactly once, from `App.xaml.cs:460`, and `+=`-subscribes `PropertyChanged` per item in `vm.Buttons` *at that moment* (`:227-261`). `SetWindowActionsVisible(true)` after a prior removal creates **new** `ToolbarButtonViewModel` instances that nobody subscribes → the buttons render and dwell but their progress bar never updates (on this input modality that reads as "the button is broken"). Naively re-calling `BindToViewModel()` double-subscribes every other button (no `-=` anywhere).
 
-**Fix: an idempotent per-button bind path.** Add a `BindButton(ToolbarButtonViewModel btn)` method to `ToolbarWindow` that does the `PropertyChanged += ...` subscription for one button (extract the per-item body from `BindToViewModel`'s loop, `:227-261`). Then either:
-- have `SetWindowActionsVisible` (VM) raise a `Buttons.CollectionChanged` event the View subscribes to (once, in `BindToViewModel`) and calls `BindButton(e.ItemsAdded)` / unbinds on removal; **or**
-- simpler: since the snapshot block already re-runs `Initialize` (which rebuilds `_buttonVisuals`/`ButtonPanel.Children` and resets `_targetsInitialized`), have `Initialize`'s re-render loop call `BindButton` for each current VM button after the View array is rebuilt.
+**Fix: an idempotent per-button bind path, called AFTER `SetWindowActionsVisible`.** Add a `BindButton(ToolbarButtonViewModel btn)` method to `ToolbarWindow` that does the `PropertyChanged += ...` subscription for one button (extract the per-item body from `BindToViewModel`'s loop, `:227-261`) and **tracks already-bound ids in a `HashSet<string> _boundIds`**, no-opping on repeats. Do NOT put the bind call inside `Initialize` — two reasons (round-2): (1) ordering — at `Initialize` time the VM still holds the old button set, so newly-added buttons don't exist yet; (2) `Initialize` runs on every toolbar-snapshot change (size/dock/edge), so binding all current buttons there re-subscribes every already-bound button on each save.
+
+Two viable call sites for `BindButton`, pick one:
+- **`Buttons.CollectionChanged`** — the View subscribes once (in `BindToViewModel`) to `vm.Buttons.CollectionChanged`; on `Add`, `BindButton(e.ItemsAdded)`; on `Remove`, unbind. Drives off the VM's own add/remove in `SetWindowActionsVisible`.
+- **explicit rebind after the snapshot block** — after Step 4(a)'s `SetWindowActionsVisible` call, the coordinator invokes `Toolbar.BindNewButtons()` (a public method on `ToolbarWindow` that iterates `vm.Buttons` and calls `BindButton` for any id not in `_boundIds`). Idempotent because of the `_boundIds` guard.
+
+Either way the load-bearing requirement: a newly-added button's `DwellProgress` reaches its progress `Rectangle`, and no existing button double-subscribes.
 
 Pick the simpler one at implementation; the load-bearing requirement is that a newly-added button's `DwellProgress` reaches its progress `Rectangle`. Test: toggle off then on, dwell a re-added button, assert the progress bar advanced (or at least that the subscription exists — a unit test can assert `btn.DwellProgress = 0.5` propagates to the View's recorded visual state).
 
 - [ ] **Step 5: Settings UI — `DwellToggle`, not XAML**
 
-`SettingsWindow.xaml.cs:730-765` (`BuildToolbarPages`) has **no XAML and no checkboxes** — it builds controls in code: `DwellToggle` / `DwellComboBox` / `DwellSlider` / `DwellButton`. The correct primitive for a bool toggle is `DwellToggle`, mirroring `"t_dock"` at `:738-741`. Add:
+`SettingsWindow.xaml.cs:730-765` (`BuildToolbarPages`) has **no XAML and no checkboxes** — it builds controls in code: `DwellToggle` / `DwellComboBox` / `DwellSlider` / `DwellButton`. The correct primitive for a bool toggle is `DwellToggle`, mirroring `"t_dock"` at `:738-741`. Add (wrapped in a lambda — `BuildToolbarPages` builds a `List<List<Action>>` of deferred `Add` calls, mirroring `t_dock` at `:738`; a bare `Add(...)` statement won't compile in that context):
 
 ```csharp
-    Add(new DwellToggle(_viewModel, "t_winactions", "Show Window Actions",
+    () => Add(new DwellToggle(_viewModel, "t_winactions", "Show Window Actions",
         () => _settings.Toolbar.ShowWindowActions,
         v => { _settings.Toolbar.ShowWindowActions = v; ApplyAndSave(); },
-        cat, r, _dwellMs));
+        cat, r, _dwellMs)),
 ```
 
 (`cat`, `r`, `_dwellMs` are the existing layout locals in `BuildToolbarPages` — mirror the `t_dock` row's argument pattern.) Add `ShowWindowActions` to the Reset-copy path at `:756-758` (which currently copies `IsDocked`/`DockedEdge`/`Size` — add a 4th line).
@@ -1129,6 +1156,7 @@ Pick the simpler one at implementation; the load-bearing requirement is that a n
 
 - `ToolbarViewModelTests`: toggle true→false removes all three from `Buttons` + `_buttonLookup`; the removed ids are no longer dwellable (position a removed id, dwell, no activation). Toggle false→true re-adds them.
 - A settings test asserting `ShowWindowActions` defaults true.
+- **Rebind test (round-2 MINOR — was missing from this list):** toggle off then on, set a re-added button's `DwellProgress = 0.5`, assert it propagates to the View's recorded visual state (the `BindButton` subscription from Step 4(b)). Without `BindButton`, the re-added button renders + dwells but its progress bar never updates — this test catches that.
 
 - [ ] **Step 7: Run tests + commit**
 
@@ -1145,16 +1173,19 @@ git commit -m "feat(window-mgmt): ShowWindowActions settings toggle + live-recon
 The pre-existing tests that pin toolbar counts break once the 3 buttons land.
 
 **Files:**
-- Modify: `tests/EyeCtrl.ViewModels.Tests/ToolbarViewModelTests.cs:13-18` (8 → 11)
-- Modify: `tests/EyeCtrl.App.Tests/Tests/AppLaunchTests.cs:38-50` + `:52-71` (5 → 8; both already stale at 4)
+- Modify: `tests/EyeCtrl.ViewModels.Tests/ToolbarViewModelTests.cs:13-18` (8 → 11; rename method)
+- Modify: `tests/EyeCtrl.App.Tests/Tests/AppLaunchTests.cs:38-49` + `:51-71` (4 → 8 count; 4 → 8 id list)
 
-- [ ] **Step 1: Update `ToolbarViewModelTests` count**
+- [ ] **Step 1: Update `ToolbarViewModelTests` count + rename**
 
-The test at `:13-18` asserts 8 logical buttons. After Task 6 the VM has 11 (8 + Minimize/MaximizeRestore/Close). Update to 11.
+The test at `:14-18` (method `InitializesWith8Buttons`) asserts 8 logical buttons. After Task 6 the VM has 11 (8 + Minimize/MaximizeRestore/Close). Update the literal to 11 **and rename the method to `InitializesWith11Buttons`** — the name is itself a drift-tripwire (round-2 MINOR); leaving `InitialisesWith8Buttons` asserting 11 defeats the test's purpose.
 
-- [ ] **Step 2: Update `AppLaunchTests` (TWO tests)**
+- [ ] **Step 2: Update `AppLaunchTests` (TWO tests) — fix the pre-existing gap too**
 
-`Toolbar_HasFourButtons` (`:38-50`) and `Toolbar_ButtonsHaveCorrectIds` (`:52-71`, hardcoded 4-id list) — **both are already stale today** (the View renders 5, not 4 — `ResetAdaptation` was added). After Task 6 the View renders 8 (5 + 3 window buttons; *if* `ShowWindowActions=true`, which is the default). Update the count 5 → 8 and extend the id list with `Minimize`, `MaximizeRestore`, `Close`.
+`Toolbar_HasFourButtons` (`:38-49`) and `Toolbar_ButtonsHaveCorrectIds` (`:51-71`, hardcoded 4-id list: Pause, SelectionMode, Keyboard, Settings). **Both are already stale today** — the View renders 5 (`ResetAdaptation` was added) but the tests still assert 4. The id list is **missing `ResetAdaptation`** (the pre-existing gap, `:58-64`). After Task 6 the View renders 8 (5 + 3 window buttons, with `ShowWindowActions=true` default). So:
+
+- **Count:** 4 → 8.
+- **Id list:** add `ResetAdaptation` (the pre-existing gap) **plus** the three new ids → 8 entries total. The round-2 reviewer flagged that "add 3 to 4" produces 7 and `Toolbar_ButtonsHaveCorrectIds` loops the expected list without a count check, so `ResetAdaptation` would stay permanently unpinned — fix the gap while you're here.
 
 - [ ] **Step 3: Run the affected tests**
 
@@ -1179,7 +1210,7 @@ git commit -m "test(window-mgmt): update toolbar-count drift tests for +3 window
 - §6 (toolbar-disabled — no such state exists; documented) → no task needed (Global Constraint) ✓
 - §7 (seams table) → every row maps to a task ✓
 - §8 (edge cases incl. fullscreen/taskbar/Start/UWP/IME/console/dialog/MB_OK/elevated) → Task 8 smoke matrix (Pass A + Pass B) ✓
-- §9 (tests incl. the synchronous-recipient regression + telemetry-bias note) → Task 5 (regression test), Task 7 (telemetry comment), Task 8 (smoke matrix), distributed unit tests ✓
+- §9 (tests incl. the synchronous-recipient regression + telemetry-bias note) → Task 5 (regression test, **caveat**: the `Send`-path test is the strong guard; if the setup method can't be invoked in isolation, fall back to the query-count test and downgrade this entry to "partially covered — design-reviewed, not regression-guarded"), Task 7 (telemetry comment), Task 8 (smoke matrix), distributed unit tests ✓
 - §11 (failure-mapping) → no task (rationale section); the "no InteractionManager changes" Global Constraint enforces it ✓
 
 **Placeholder scan:** the round-1 "Task 5 harness discovery" gap is **closed** — `EventCoordinatorTests.cs:160-233` (`MakeContext`/`SetContext`/reflection) is cited by name and the test is pre-rendered. No remaining placeholders; every code step contains actual code.

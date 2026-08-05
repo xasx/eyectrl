@@ -250,3 +250,38 @@ The second is required because that project is not in `EyeCtrl.slnx`. No `sample
 - **Silently-discarded calibration — ALREADY FIXED; was Fix 4 in an earlier draft of this spec.** Work in the main checkout (uncommitted as of 2026-08-03) supersedes it and goes further than this spec had proposed. `CalibrationService.Load` now logs both the screen-size and the monitor mismatch naming *both* sides; adds a `LastLoadRejection` sentence for the UI, so an inert calibration is distinguishable from never having calibrated; and adds EDID-derived `MonitorHardwareId` matching (`src/EyeCtrl.Platform/Interop/MonitorIdentity.cs`, with tests) so display renumbering no longer discards a calibration at all — the stable-identity question this spec had explicitly deferred as needing its own decision. Its own comment records the symptom: *"this path used to `return` silently, which is how an inert calibration could survive weeks unnoticed."*
 
   **This is what pulled [Problem 4](#problem-4--the-toolbar-rect-test-uses-uncalibrated-coordinates) into scope.** Calibrations that previously failed to load will now load successfully, so raw and calibrated coordinates stop coinciding — which is exactly the condition under which the uncalibrated toolbar hit-test starts misbehaving. Fix 4 is a no-op until that happens, so the safe order is to land it first; see [Sequencing](#sequencing).
+
+## Review dispositions (2026-08-05)
+
+Findings from the PR #78 review, and what each one changed. The suite was 1742 headless before
+this pass and 1750 after (+7 Core, +1 ViewModels; the two Platform tests were rewritten, not added).
+
+| # | Finding | Disposition |
+|---|---------|-------------|
+| 1 | `PollLoop`'s catch logs an unrate-limited stack trace every backoff iteration — one per 5 s, indefinitely, on a managed fault that repeats per sample | **Fixed.** Routed through `HandlerFaultReporter`, keyed on the fault-site message. Matches the 30 s window Fix 1 uses and the `IsError` dedup already in that file. |
+| 2 | `CalibrationViewModel` captures the monitor hardware id at DI-resolve time | **Fixed.** The parameter is now `Func<string>`, resolved in `CompleteSession`. |
+| 3 | Fix 3 makes the eye-care/bridge subscription order load-bearing, and violating it fails silently | **Documented, not enforced.** Comments at both subscription sites and on `GazeQualityBridge`. Not testable without refactoring `App.OnStartup`; see below. |
+| 4 | The reporter's dictionary has no fence across the mouse provider's thread handoff | **Fixed.** The reporter is now locked, which also let `MouseGazeProvider` drop its hand-rolled limiter. |
+| 5 | Dictionary grows one entry per faulting subscription instance | **Fixed.** `Forget(Delegate)` from both remove accessors, but only once the *last* equal subscription is gone — otherwise an unsubscribe of a duplicate would reset a live handler's window. |
+| 5 | `HandlerFaultReporter` is Core-internal, so Platform duplicated it | **Fixed.** Public, with a second `Report(context, exception)` overload for fixed fault sites. Both providers now share it. |
+| 5 | `MouseGazeProviderFaultTests` sleep a fixed 200 ms against a 10 ms timer | **Fixed.** Bounded poll-until-condition; also removes the two xUnit1051 warnings. |
+| 5 | `IsPastDockedEdge` still mixes coordinate spaces | **Documented, deliberately not changed.** Mapping off-screen gaze would extrapolate outside the transform's fitted domain. The residual — summon threshold and rect edge measured in different spaces — is now named in the comment rather than left implicit. |
+| 5 | `_lastFaultLogTicks == 0` doubles as a sentinel and a legal clock value | **Gone.** The field no longer exists; the reporter keys on presence in a dictionary. |
+
+### Why the PollLoop fault still triggers a reconnect
+
+The review asked whether aliasing a managed fault to a device error is right, given it forces
+`IsConnected = false` and a reconnect against hardware that is fine. Keeping it, with the reasoning
+now in the comment: the exception unwound through Stream Engine's native frame *while it was
+dispatching callbacks*, so the device's internal dispatch state is unknown, and continuing to poll
+it is the less defensible option. `IsConnected = false` is also honest — no gaze is reaching the
+pipeline either way. What was actually wrong was the logging volume, which is what changed.
+
+### The ordering constraint in Problem 3 is documented, not tested
+
+`GazeQualityBridge` is only correct if eye care's `GazeSampled` handler is registered first.
+`GazeEngine` guarantees registration order (`HandlersRun_InRegistrationOrder`), but nothing pins the
+order of the two subscriptions in `App.OnStartup`, which is not reachable from a headless test.
+Making it structural — the bridge invoking eye care itself rather than trusting it already ran —
+would remove the constraint, at the cost of reshaping the App wiring. Deferred, and left as the one
+finding from this review with no mechanical guard behind it.

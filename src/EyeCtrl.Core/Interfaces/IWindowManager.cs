@@ -2,8 +2,10 @@ namespace EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 
 /// <summary>
-/// Enumerates top-level desktop windows and brings a window to the foreground.
-/// Used by the Task Switcher to populate its tile list and to activate a selected window.
+/// Enumerates top-level desktop windows, brings a window to the foreground, and
+/// performs window-management actions (minimize / maximize-or-restore / close) on
+/// the foreground window. Used by the Task Switcher and the toolbar's
+/// window-actions region.
 /// </summary>
 public interface IWindowManager
 {
@@ -20,4 +22,21 @@ public interface IWindowManager
     /// </summary>
     /// <param name="hwnd">Win32 window handle of the window to activate.</param>
     void BringToFront(IntPtr hwnd);
+
+    /// <summary>
+    /// Returns the foreground window's HWND if it is eligible for window-management actions
+    /// (not the shell, not this process, still a valid window), or <c>null</c> if ineligible.
+    /// Fail-closed: callers must no-op on <c>null</c>. Read at op-fire time, not stashed.
+    /// </summary>
+    IntPtr? TryGetEligibleForegroundWindow();
+
+    /// <summary>Minimizes the window. Fire-and-forget after the eligibility guard.</summary>
+    void Minimize(IntPtr hwnd);
+
+    /// <summary>Maximizes a normal window or restores a maximized/minimized one.</summary>
+    void MaximizeOrRestore(IntPtr hwnd);
+
+    /// <summary>Closes the window gracefully via WM_CLOSE (the app's save-changes prompt fires).</summary>
+    /// <returns><c>true</c> if the message was posted; UIPI-blocked sends to elevated windows return <c>false</c>.</returns>
+    bool CloseWindow(IntPtr hwnd);
 }

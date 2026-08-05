@@ -129,5 +129,10 @@ public class TaskSwitcherViewModelTests
         public IReadOnlyList<AppWindow> EnumerateOpenWindows() => _windows;
 
         public void BringToFront(IntPtr hwnd) { }
+
+        public IntPtr? TryGetEligibleForegroundWindow() => null;
+        public void Minimize(IntPtr hwnd) { }
+        public void MaximizeOrRestore(IntPtr hwnd) { }
+        public bool CloseWindow(IntPtr hwnd) => false;
     }
 }

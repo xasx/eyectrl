@@ -550,12 +550,17 @@ public class EventCoordinator : IEventCoordinator
                     case CalibrationState.Active:
                     case CalibrationState.Failed:
                         _context.GazeEngine.SuppressFixation = false;
-                        // Re-activate toolbar dwell. NOTE: CalibrationState.Active means
-                        // "calibration COMPLETE and transform applied" (success), NOT "in progress"
-                        // — wiring it to SetActive(false) would permanently kill toolbar dwell on
-                        // configs where ShowToolbar() never fires (floating toolbar / mouse
-                        // provider — auto-hide disabled, no recovery short of restart).
-                        _toolbarVisibility?.SetActive(true);
+                        // Re-activate toolbar dwell via the auto-hide controller, which is
+                        // state-aware: it re-asserts a hide if the toolbar auto-hid while Feed was
+                        // suppressed (calibration suppresses Feed on IsSessionActive, which flips
+                        // false at CompleteSession — before the terminal CalibrationState arrives).
+                        // NOTE: CalibrationState.Active means "calibration COMPLETE and transform
+                        // applied" (success), NOT "in progress" — wiring it to SetActive(false)
+                        // would permanently kill toolbar dwell on configs where ShowToolbar() never
+                        // fires (floating toolbar / mouse provider — auto-hide disabled, no
+                        // recovery short of restart). ReassertVisibility preserves that: when
+                        // auto-hide is disabled (_enabled == false) the else-branch activates.
+                        _toolbarAutoHide?.ReassertVisibility();
                         // Restore the cursor circle so the user can aim at Retry/Accept.
                         if (_context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
@@ -563,9 +568,10 @@ public class EventCoordinator : IEventCoordinator
                         break;
                     default:
                         // CalibrationState.Idle / CalibrationState.Cancelled — calibration is over
-                        // (not in progress), so toolbar dwell resumes.
+                        // (not in progress), so toolbar dwell resumes — but only if the toolbar
+                        // hasn't since auto-hidden (same state-aware path as the Active/Failed case).
                         _context.GazeEngine.SuppressFixation = false;
-                        _toolbarVisibility?.SetActive(true);
+                        _toolbarAutoHide?.ReassertVisibility();
                         if (_context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.DismissCalibration();
                         break;

@@ -442,6 +442,105 @@ public class ToolbarAutoHideControllerTests
         Check.That(vis.HideCalls).IsEqualTo(0);
     }
 
+    // ── ReassertVisibility regression: the calibration-failure close hazard ──
+    // Reproduces the exact sequence from the bug report: calibration completes → Feed resumes
+    // (IsSessionActive flips false) → off-toolbar gaze hides the toolbar (SetActive(false) via the
+    // adapter) → the terminal calibration state arrives "late" (Active/Failed/Idle). The old wiring
+    // blind-activated SetActive(true) here, leaving Close dwellable with no toolbar. ReassertVisibility
+    // must instead observe the controller's own Hidden state and re-assert the hide.
+
+    [Fact]
+    public void ReassertVisibility_AfterHideDuringCalibrationGap_DoesNotReActivateDwell()
+    {
+        // calibrationActive is a live Func the controller polls each Feed — flip it mid-test, exactly
+        // as CalibrationService.IsSessionActive does when CompleteSession runs.
+        var calibrating = true;
+        var sut = NewController(calibrationActive: () => calibrating);
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+
+        // Calibration ends: Feed is no longer suppressed. Off-toolbar gaze now hides the toolbar.
+        calibrating = false;
+        sut.Feed(CreateSample(960, 500, valid: true), 0);
+        sut.Feed(CreateSample(960, 500, valid: true), 5_001_000); // past HIDE_DELAY → hides
+        Check.That(vis.HideCalls).IsEqualTo(1);
+        Check.That(sut.StateName).IsEqualTo("Hidden");
+
+        // The terminal calibration state arrives. Old code: _toolbarVisibility?.SetActive(true) → BUG.
+        // New code: _toolbarAutoHide?.ReassertVisibility() → re-asserts hide, dwell stays deactivated.
+        sut.ReassertVisibility();
+
+        Check.That(vis.HideCalls).IsEqualTo(2);   // hide re-asserted
+        Check.That(vis.SetActiveCalls).IsEmpty(); // no blind activation
+        Check.That(sut.StateName).IsEqualTo("Hidden");
+    }
+
+    // ── ReassertVisibility (calibration-recovery path; the safety fix) ──
+    // ReassertVisibility is the state-aware replacement for a blind SetActive(true) after a
+    // calibration suppressor ends. It must NOT re-activate dwell when the toolbar auto-hid while
+    // Feed was suppressed — that is the exact Close-dwellable-with-no-toolbar hazard.
+
+    [Fact]
+    public void ReassertVisibility_WhenHidden_ReAssertsHideAndDoesNotActivateDwell()
+    {
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.HideForTest(vis); // toolbar is HIDDEN (e.g. auto-hid during a calibration failure gap)
+
+        sut.ReassertVisibility();
+
+        // THE safety-fix assertion: when hidden, re-assert the hide (HideToolbar — which the real
+        // adapter routes through SetActive(false)-before-Hide) and do NOT blind-activate. The fake's
+        // HideToolbar is a simple recorder (it does not itself call SetActive), so SetActive(true)
+        // not firing is observed directly as an empty SetActiveCalls list.
+        Check.That(vis.HideCalls).IsEqualTo(2);        // HideForTest + the re-assert
+        Check.That(vis.SetActiveCalls).IsEmpty();      // no blind SetActive(true)
+    }
+
+    [Fact]
+    public void ReassertVisibility_WhenVisible_ActivatesDwell()
+    {
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis); // starts VISIBLE
+
+        sut.ReassertVisibility();
+
+        // Visible → activate dwell, no hide.
+        Check.That(vis.SetActiveCalls.Count).IsEqualTo(1);
+        Check.That(vis.SetActiveCalls[0]).IsTrue();
+        Check.That(vis.HideCalls).IsEqualTo(0);
+        Check.That(vis.ShowCalls).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ReassertVisibility_WhenDisabled_ActivatesDwell()
+    {
+        // _enabled == false (floating toolbar / mouse provider): the else-branch must activate so
+        // the CalibrationState.Active "complete" trap fix is preserved (no permanent dwell kill).
+        var sut = NewController(enabled: false);
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.HideForTest(vis); // state set Hidden directly; _enabled is false so Feed is inert
+
+        sut.ReassertVisibility();
+
+        Check.That(vis.SetActiveCalls.Count).IsEqualTo(1);
+        Check.That(vis.SetActiveCalls[0]).IsTrue();
+        Check.That(vis.HideCalls).IsEqualTo(1); // only HideForTest — disabled wins over the hide branch
+    }
+
+    [Fact]
+    public void ReassertVisibility_BeforeAttach_IsNoOp()
+    {
+        // Defensive: Attach hasn't wired _visibility yet. Must not throw (the caller —
+        // EventCoordinator — invokes ReassertVisibility unconditionally on the terminal states).
+        var sut = NewController();
+
+        sut.ReassertVisibility(); // no exception
+    }
+
     // ── helpers ──
 
     private static ToolbarAutoHideController NewController(bool enabled = true, string edge = Edge,

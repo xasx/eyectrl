@@ -17,9 +17,11 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
     private Timer? _timer;
     private readonly int _intervalMs;
     private readonly ILogger? _logger;
-    // TickCount64 value when the last fault report was written; 0 means "never logged". Read and
-    // written on the timer thread only, so a plain field suffices. One line per 30 s window,
-    // matching the per-handler window Fix 1 uses.
+    // TickCount64 value when the last fault report was written; 0 means "never logged". Successive
+    // ticks may land on different pool threads (the one-shot timer re-arms after each tick), so the
+    // field is read and written through Volatile.Read/Write to make the write visible without
+    // leaning on the timer queue's internal synchronization (C# cannot declare a `long` volatile).
+    // One line per 30 s window, matching the per-handler window Fix 1 uses.
     private long _lastFaultLogTicks;
 
     public event Action<GazePoint>? GazePointReceived;
@@ -72,9 +74,10 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
             // Rate-limited like Fix 1's handler reporting: a subscriber throwing every tick must
             // cost one log line per window, not one per tick.
             long now = Environment.TickCount64;
-            if (_lastFaultLogTicks == 0 || now - _lastFaultLogTicks >= 30_000)
+            long lastFault = Volatile.Read(ref _lastFaultLogTicks);
+            if (lastFault == 0 || now - lastFault >= 30_000)
             {
-                _lastFaultLogTicks = now;
+                Volatile.Write(ref _lastFaultLogTicks, now);
                 try
                 {
                     _logger?.LogError(ex, "Gaze subscriber threw during a mouse-provider tick");

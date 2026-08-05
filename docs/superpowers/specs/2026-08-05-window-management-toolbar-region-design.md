@@ -15,9 +15,9 @@ Add **Minimize**, **Maximize/Restore** (toggle), and **Close** for the foregroun
 
 ## §1 Goal & scope
 
-Add three gaze-dwellable buttons — Minimize `─`, Maximize/Restore `☐`, Close `✕` — to the toolbar, acting on the foreground window via three new `IWindowManager` operations.
+Add three gaze-dwellable buttons — Minimize `▁`, Maximize/Restore `□`, Close `✕` — to the toolbar, acting on the foreground window via three new `IWindowManager` operations (plus `TryGetEligibleForegroundWindow`, §2).
 
-**In scope:** 3 new toolbar buttons (View array + VM array + VM dispatch cases); 1 new message + 1 recipient in `EventCoordinator`; 3 new `IWindowManager` ops (`Minimize`/`MaximizeOrRestore`/`CloseWindow`) backed by new P/Invokes; a `ToolbarSettings.ShowWindowActions` toggle (default true); a shell/self-window guard; handling for the toolbar-disabled case.
+**In scope:** 3 new toolbar buttons (View array + VM array + VM dispatch cases); 1 new message + 1 recipient in `EventCoordinator`; 4 new `IWindowManager` methods (`TryGetEligibleForegroundWindow` + `Minimize`/`MaximizeOrRestore`/`CloseWindow`) backed by new P/Invokes; a `ToolbarSettings.ShowWindowActions` toggle (default true); a shell/self-window guard; a target-lifecycle contract (hide/calibration deactivate toolbar dwell).
 
 **Out of scope:** Show Desktop (global Win+D — a different *kind* of action, not per-foreground-window; deferred to its own future toolbar button), a window-picker grid, multi-monitor cursor handling (gap #7), the action-menu sub-menu (abandoned — see §0 + postmortem).
 
@@ -55,14 +55,11 @@ Implemented as one synchronous call chain (no stash, no async hop — BLOCKER A.
   - `isZoomed && isIconic` → Restore (minimized-from-maximized → un-minimize; `IsIconic` first) *(v2: was a duplicate of row 2 — corrected)*
 - **Close** → `PostMessage(hwnd, WM_CLOSE)` (graceful; `DefWindowProc` derives from `SC_CLOSE`; the app's own "save changes?" prompt fires). Only called when `hwnd != IntPtr.Zero` (§2 fail-closed).
 
-**Close behavior — no confirm, conditional on the target-lifecycle fix (§4).** No-confirm matches every other toolbar button (Pause/Settings/TaskSwitcher fire on dwell, no confirms). The argument that "stable position + auto-hide makes accidental fire unlikely" **only holds if the hidden toolbar cannot dwell** — round-1 review proved it can today (`ToolbarViewModel.Receive` drops the base-class `IsVisible` gate, `:92-95`; `ToolbarViewModelTests.cs:144-160` activates with `IsVisible` never set true). **v2 makes no-confirm conditional on the §4 target-lifecycle contract being implemented:** hide must deactivate dwell, so a hidden toolbar cannot fire Close. `WM_CLOSE` remains the backstop (preserves the app's save-changes prompt). **Caveats:** `ConsoleWindowClass` hosts terminate with no prompt; "minimize-to-tray-on-X" apps actually close; Close on a modal dialog closes the dialog, not its owner (§2).
+**Close behavior — no confirm, conditional on the target-lifecycle fix (§4).** No-confirm matches every other toolbar button (Pause/Settings/TaskSwitcher fire on dwell, no confirms). The argument that "stable position + auto-hide makes accidental fire unlikely" **only holds if the hidden toolbar cannot dwell** — round-1 review proved it can today (`ToolbarViewModel.Receive` drops the base-class `IsVisible` gate, `:92-95`; `ToolbarViewModelTests.cs:144-160` activates with `IsVisible` never set true). **v2 makes no-confirm conditional on the §4 target-lifecycle contract being implemented:** hide must deactivate dwell, so a hidden toolbar cannot fire Close. `WM_CLOSE` remains the backstop (preserves the app's save-changes prompt). **Caveats:** `ConsoleWindowClass` hosts terminate with no prompt; "minimize-to-tray-on-X" apps actually close; Close on a modal dialog closes the dialog, not its owner (§2); an `MB_OK` message box (greyed X) sounds a warning and does not close, yet `PostMessage` returns `true` → logs as success while nothing happened *(round-2 C.4)*.
 
-## §3 Action set
-
-- **Minimize** → `ShowWindow(hwnd, SW_MINIMIZE)`
 ### Op return semantics
 
-- `PostMessage` returns `bool` — UIPI-blocked sends to elevated windows return `false`; that *is* a meaningful failure → **log at `Information`**.
+- `PostMessage` returns `bool` — UIPI-blocked sends to elevated windows return `false`; that *is* a meaningful failure → **log at `Information`**. (Caveat above: `MB_OK` boxes return `true` without closing.)
 - `ShowWindow` return does **not** mean success/failure (zero = "was previously hidden") → **do not interpret as failure**. After the §2 eligibility guard, call fire-and-forget.
 - `Minimize`/`MaximizeOrRestore` return `void`; `CloseWindow` returns the meaningful `PostMessage` result.
 
@@ -139,36 +136,35 @@ case "MaximizeRestore": Messenger.Send(new WindowActionRequestedMessage(WindowAc
 case "Close":           Messenger.Send(new WindowActionRequestedMessage(WindowAction.Close)); break;
 ```
 
-### Target-lifecycle contract — hide deactivates dwell *(v2: BLOCKER C.2)*
+### Target-lifecycle contract — hide deactivates dwell *(v3: BLOCKER C.2 — correct primitive)*
 
-Round 1 proved the hidden toolbar can still fire dwell: `ToolbarViewModel.Receive` **overrides** the base class and drops the `IsVisible` gate (`:92-95` calls `DwellDetector.Update` unconditionally; the base `DwellOverlayViewModelBase.Receive` gates on `IsVisible`, `:33-37`). `ToolbarViewModelTests.cs:144-160` confirms activation with `IsVisible` never set true. After auto-hide hides the WPF window (`ToolbarVisibilityAdapter.HideToolbar` only calls `Toolbar.Hide()`, not touching dwell targets), the targets persist at their former screen positions — so a user whose gaze passes where Close used to be could close the current foreground window **without the toolbar being visible**. This deletes the "auto-hide makes accidental fire unlikely" argument that no-confirm Close rests on (§3).
+Round 1 proved the hidden toolbar can still fire dwell: `ToolbarViewModel.Receive` **overrides** the base class and drops the `IsVisible` gate (`:92-95` calls `DwellDetector.Update` unconditionally; the base `DwellOverlayViewModelBase.Receive` gates on `IsVisible`, `:33-37`). `ToolbarViewModelTests.cs:144-160` confirms activation with `IsVisible` never set true. (Note: `ToolbarViewModel.IsVisible` is *never assigned by anyone* — that's why the override exists. Do not "restore the base-class gate"; introduce a new flag.)
 
-**v2 fix:** add a target-lifecycle contract so dwell tracks visibility:
+**v2's fix was wrong (round-2 BLOCKER).** v2 said "hide → `DwellDetector.ClearTargets()`, show → recreate targets from `UpdateButtonScreenPosition`." Verified broken two ways:
+1. **`ClearTargets()` + show does NOT recreate targets.** `_positionedButtons` (`ToolbarViewModel.cs:29`) is a `HashSet` written once at `:43` (`Add`) and **never cleared**. After `ClearTargets()`, every id is still in the set, so the show-time position report takes the `else` branch → `UpdateTargetCenter` → `TryGetValue` on the now-empty `_targets` → **silent no-op**. And `UpdateTargetPositions` (`ToolbarWindow.xaml.cs:175-198`) is gated by `_targetsInitialized`, which is reset **only** in `Initialize`/`SetMode` — neither Show nor Hide touches it, so show fires zero position reports. **Net effect: after the first auto-hide, every toolbar button (Pause, Settings, …) becomes permanently un-dwellable until app restart** — strictly worse than the bug being fixed.
+2. **The `SetActive(false)` alternative re-introduces instant activation.** If it only gates `Receive` (stops feeding samples) without resetting `EnteredTimestamp`, the first sample after re-show computes `elapsed = now − staleEntered` → fires immediately — the exact hazard documented at `DwellDetector.cs:80-85`.
 
-- **Hide:** `ToolbarVisibilityAdapter.HideToolbar` (or the controller's `HideToolbar` call) must set the toolbar VM inactive and **reset detector state** (`DwellDetector.ClearTargets()` or a new `SetActive(false)` that stops feeding samples). Targets must not fire while the window is hidden.
-- **Show:** `ShowToolbar` must reactivate the VM **after** the WPF window is shown, and re-collect fresh layout positions (targets are recreated from `UpdateButtonScreenPosition` reports, which fire after layout — `ToolbarWindow.xaml.cs:179-197`).
+**v3 fix: the correct primitive already exists — `DwellDetector.ResetAllState()` (`:86-97`).** Its doc comment describes this use case verbatim: *"prevent a stale `EnteredTimestamp` from causing a spurious immediate activation when Update resumes after a pause."* It clears `IsGazeInside`/`EnteredTimestamp` on every target **without removing the targets**, so `_positionedButtons`/`_targetsInitialized`/`_targets` all stay coherent and no re-layout is needed.
 
-This is a toolbar-wide behavior change (it affects *all* toolbar buttons, not just the new ones — today a hidden toolbar can fire Pause/Settings/etc. too). That's arguably a pre-existing bug worth fixing as part of this feature; if scoped narrowly to the window-actions buttons only, state it. **Either way, the §3 no-confirm Close argument is conditional on this contract being implemented** — flag it as a blocker for the Close-without-confirm decision.
+The contract:
+- **Hide:** set an activity flag false on the toolbar VM **and** call `DwellDetector.ResetAllState()`. The flag gates `ToolbarViewModel.Receive` (`:92-95`) so no further samples feed the detector; `ResetAllState` prevents the stale-timestamp instant-activation on resume.
+- **Show:** clear the activity flag (re-enable `Receive`). Targets are still present with correct positions (never removed), so dwell resumes correctly on the next gaze sample.
 
-**Test (round-1 ask):** dwell at the former Close position while the toolbar is hidden → no activation. Plus: hide mid-dwell → progress resets; show → fresh dwell required.
+**Where the flag lives (round-2 asked; v3 pins it):** on `ToolbarViewModel` (e.g. `bool _dwellingActive`). `ToolbarVisibilityAdapter` currently holds only `IOverlayManager` (`:12-19`) and has no VM reference — **inject `ToolbarViewModel` into `ToolbarVisibilityAdapter`** (or expose the toggle through a new `IToolbarVisibility.SetActive(bool)` method implemented by the adapter, which already marshals onto the dispatcher). Pick one at implementation; the spec's load-bearing requirement is that `HideToolbar`/`ShowToolbar` reach the VM's flag + the detector's `ResetAllState`.
+
+This is a **toolbar-wide** behavior change (it affects *all* toolbar buttons — today a hidden toolbar can fire Pause/Settings/etc. too). That's a pre-existing bug worth fixing as part of this feature. **The §3 no-confirm Close argument is conditional on this contract being implemented.**
+
+**Calibration (round-2 C.1 — new lifecycle event):** while calibration is active, `ToolbarAutoHideController.Feed` returns early (`:153`) — so a *visible* toolbar neither hides nor updates state, and `GazeEngine.cs:240-242` keeps firing `CursorMoved` unconditionally ("the cursor circle + toolbar receive gaze"). Calibration deliberately walks gaze to screen edges/corners (where a docked toolbar lives), so Close stays dwell-live during it. For window actions the own-process guard saves it incidentally (CalibrationWindow activates itself → is foreground → rejected), but that mitigation is undocumented and evaporates if focus is elsewhere. **Decision: the contract deactivates toolbar dwell during calibration too** (treat calibration-active the same as hidden: flag false + `ResetAllState`). State this in `EventCoordinator`'s calibration handler (`:490-519`).
+
+**Telemetry note (round-2 F.1):** `ResetAllState()` fires `TargetProgress(id, 0)` but does **not** emit an `Abandoned` `DwellOutcome`. A dwell in progress when hide fires vanishes from struggle telemetry (neither Activated nor Abandoned). Documented, intentional bias (toolbar abandon-rate under-count). One line in §9.
+
+**Tests:** dwell at former Close position while hidden → no activation (the round-1 ask, now actually achievable); hide mid-dwell → `ResetAllState` fires, progress resets to 0; show → fresh dwell required (no instant activation); calibration start mid-dwell → same reset.
 
 ### Auto-hide — rect-only, no controller change (unchanged)
 
-`ToolbarAutoHideController` is rect-only (`:116,159`); adding buttons auto-widens the cached rect (toolbar is `SizeToContent`), picked up via the existing `RefreshToolbarRect`/`CaptureToolbarRect` calls. The window region hides and summons together with the rest of the toolbar. Zero controller change. (The target-lifecycle contract above is in the VM/adapter, not the controller.)
+`ToolbarAutoHideController` is rect-only (`:116,159`); adding buttons auto-widens the cached rect (toolbar is `SizeToContent`), picked up via the existing `RefreshToolbarRect`/`CaptureToolbarRect` calls. The window region hides and summons together with the rest of the toolbar. Zero controller change. (The target-lifecycle contract above is in the VM/adapter + calibration handler, not the controller.)
 
-## §5 Settings — `ShowWindowActions` toggle
-
-`ToolbarSettings` (`src/EyeCtrl.Core/Settings/ToolbarSettings.cs`) currently has only `IsDocked`, `DockedEdge`, `Size`. Add:
-
-```csharp
-[ObservableProperty] private bool _showWindowActions = true;
-```
-
-Gating: both the View array (`ToolbarWindow.xaml.cs:39-46`) and the VM array (`ToolbarViewModel.cs:66-76`) skip the three window buttons when `!settings.Toolbar.ShowWindowActions`. (The arrays are built in `Initialize`/the constructor, both of which have settings access.) Default `true` so existing users get the region; users who don't want it turn it off.
-
-**Settings UI:** there's no per-button toolbar UI today (the settings page offers only toolbar Reset, `SettingsWindow.xaml.cs`). A checkbox for "Show window actions" in the toolbar section is the minimal addition; out of scope to spec the XAML in detail, but the gate is the load-bearing part.
-
-## §5 Settings — `ShowWindowActions` toggle *(v2: live-reconciliation contract — MAJOR B.1)*
+## §5 Settings — `ShowWindowActions` toggle *(v2: live-reconciliation; v3: removal mechanism explicit)*
 
 `ToolbarSettings` (`src/EyeCtrl.Core/Settings/ToolbarSettings.cs`) currently has only `IsDocked`, `DockedEdge`, `Size`. Add:
 
@@ -176,16 +172,17 @@ Gating: both the View array (`ToolbarWindow.xaml.cs:39-46`) and the VM array (`T
 [ObservableProperty] private bool _showWindowActions = true;
 ```
 
-**v1 said "gate the two static arrays on the bool" — that is not implementable** (round-1 MAJOR B.1): `ToolbarWindow.Initialize(double buttonSize, int dwellTimeMs)` (`:31-53`) takes **no settings**; its callers pass only size and dwell (`OverlayManager.cs:105-109`, `EventCoordinator.cs:1187-1201`). `ToolbarViewModel` is a singleton built once in its constructor (`AppBootstrapper.cs:175-180`), where it creates its IDs, lookup entries, and dwell-target eligibility (`:60-90`). There is no live-settings path that rebuilds the toolbar for a new `ShowWindowActions` value: `ToolbarSnapshot` (`SettingsSnapshots.cs:40-43`) omits the flag, and clearing visuals doesn't remove VM targets (`ToolbarWindow.xaml.cs:34-36` clears `_buttonVisuals`/`ButtonPanel.Children`; `ToolbarViewModel.cs:41-57` keeps `_buttonLookup`/dwell targets until explicitly removed).
+v1 said "gate the two static arrays on the bool" — **not implementable** (round-1 MAJOR B.1): `ToolbarWindow.Initialize(double buttonSize, int dwellTimeMs)` (`:31-53`) takes **no settings**; `ToolbarViewModel` is a singleton built once (`AppBootstrapper.cs:175-180`); no live-settings path rebuilds the toolbar.
 
-**v2 contract (the live-reconciliation):**
-1. Add `ShowWindowActions` to `ToolbarSnapshot` (so the live-settings route picks up changes).
-2. Pass the flag into `ToolbarWindow.Initialize` (widen its signature, or read from a settings snapshot the View already holds) — gate the View `(Id,Symbol)` array on it.
-3. In `ToolbarViewModel`, add/remove the three VM buttons, their `_buttonLookup` entries, their positioned IDs, and their `DwellTarget`s **atomically** when the flag changes (not just at construction). Reset dwell state on removal; bind newly created buttons on addition.
-4. Re-run positioning after the next layout pass (`UpdateTargetPositions`, `ToolbarWindow.xaml.cs:179-197`) so new buttons get fresh screen positions before becoming dwellable.
-5. Settings-UI: a checkbox in the toolbar section + the Reset copy path (`SettingsWindow.xaml.cs:730-764`).
+**Contract (the live-reconciliation):**
+1. Add `ShowWindowActions` to `ToolbarSnapshot` (`SettingsSnapshots.cs:40-43`) so the live-settings route picks up changes.
+2. **Notification path (round-2 B.1 — was unnamed):** the live-settings handler in `EventCoordinator` (the block that builds `ToolbarSnapshot` and calls `OverlayManager.Toolbar.Initialize` + `SetMode`, `:1187-1203`) must also notify the VM. Add a `ToolbarViewModel.SetWindowActionsVisible(bool)` method (or a new message) called from that block.
+3. **View half:** widen `ToolbarWindow.Initialize` to take `showWindowActions` (gate the `(Id,Symbol)` array). Update **both** call sites: `OverlayManager.cs:107` and `EventCoordinator.cs:1190`. `SetMode` (called right after `Initialize` at `:1191`) resets `_targetsInitialized` → triggers `UpdateTargetPositions` on the next gaze frame → fresh position reports. Say this dependency explicitly (round-2 B.1 item 4), don't imply a callable `UpdateTargetPositions` seam (it's private, `:175-198`).
+4. **VM half — removal must be explicit (round-2 B.1 item 2: true→false is the C.2 bug again).** `SetWindowActionsVisible(false)` must, for each of the three ids: `DwellDetector.RemoveTarget(id)` + `_positionedButtons.Remove(id)` + `_buttonLookup.Remove(id)` + `Buttons.Remove(btn)`. Without `RemoveTarget` + `_positionedButtons.Remove`, the targets stay dwellable at their last screen positions while invisible — an invisible Close, the same hazard as the hidden-toolbar bug. `SetWindowActionsVisible(true)` re-adds all four (button + lookup + positioned-set membership so the next position report takes the `Add` branch → `AddTarget`).
+5. **Centering:** adding/removing buttons changes `ActualWidth`; docked centering is `Left = (screen.Width - ActualWidth)/2` (`ToolbarWindow.xaml.cs:146`), so all buttons shift. The `SetMode` call after `Initialize` (`:1191`) recomputes this — make that dependency explicit.
+6. **Settings UI:** a checkbox in the toolbar section + the Reset copy path (`SettingsWindow.xaml.cs:730-764`, `BuildToolbarPages` copies `IsDocked`/`DockedEdge`/`Size` at `:753-757` — needs a 4th line for `ShowWindowActions`).
 
-**For the startup-only happy path** (the common case — flag is default `true`, never toggled), the two array additions are sufficient: the View reports rendered IDs, the VM lazily creates targets from those reports. The reconciliation machinery matters only when the user toggles the flag at runtime.
+**For the startup-only happy path** (flag default `true`, never toggled), the two array additions suffice. The reconciliation machinery matters only when the user toggles at runtime.
 
 ## §6 Toolbar-disabled case *(v2: corrected — MAJOR C.3)*
 
@@ -236,7 +233,7 @@ Unit tests (NFluent, no display, private nested fakes):
 - **Target-lifecycle (round-1 BLOCKER C.2):** dwell at former Close position while toolbar hidden → no activation; hide mid-dwell → progress resets; show → fresh dwell required.
 - **`ShowWindowActions` reconciliation (round-1 MAJOR B.1):** toggle false→true adds 3 targets + lookup + visuals atomically and re-positions; true→false removes them and clears dwell state; default is true.
 - **`FakeWindowManager` update (round-1 MAJOR B.3):** `TaskSwitcherViewModelTests.FakeWindowManager` implements the 4 new `IWindowManager` methods (no-op/stub) so the existing Task Switcher tests still compile.
-- **Drift tests (round-1 MAJOR B.3):** `ToolbarViewModelTests` (currently expects 8 logical buttons) + the UI test `AppLaunchTests` (asserts 4 rendered buttons) — update both for the +3 window buttons when `ShowWindowActions=true`.
+- **Drift tests (round-1 MAJOR B.3):** `ToolbarViewModelTests` (expects 8 logical buttons → 11) + two `AppLaunchTests` UI tests — `Toolbar_HasFourButtons` (`:38-50`) and `Toolbar_ButtonsHaveCorrectIds` (`:52-71`, hardcoded 4-id list). **Both are already stale today** (the View renders 5, not 4 — `ResetAdaptation` was added), so the correct update is 5→8 rendered + a 4→8 id list, not 4→7. Say so or the implementer encodes the wrong baseline.
 
 Manual smoke matrix (round-1 ask, not unit-testable): desktop foreground, taskbar, Start/shell frames, UWP, IME states, modal dialog, fullscreen (F11) window, elevated app.
 
@@ -246,7 +243,7 @@ UI tests (`Category=UI`): not gating — Win32 ops need a real foreground window
 
 - **Show Desktop** (global Win+D): a different *kind* of action (global, not per-foreground-window). Its own future toolbar button, sharing `WindowActionRequestedMessage`/`WindowAction` (add a `ShowDesktop` enum member) + a `Win32InputSimulator.SendModifiedKeyPress` path.
 - **Window-picker grid:** reuses `IWindowManager` ops; targeting would need `EnumerateOpenWindows` (already there) — separate feature.
-- **Standalone corner bar fallback (B1)** when the toolbar is disabled: shares `WindowActionRequestedMessage` + ops.
+- **Standalone corner bar fallback (B1)** if a future toolbar-enabled setting hides the toolbar entirely: shares `WindowActionRequestedMessage` + ops. (Today no such setting exists — §6.)
 - **Fullscreen (F11) guard:** add `MonitorFromWindow`+`GetMonitorInfo` if fullscreen-toggle wedging is reported.
 
 ## §11 Why this design converges where the sub-menu didn't
@@ -255,7 +252,7 @@ For reviewers familiar with the 5-round postmortem: the table below maps each re
 
 | Sub-menu failure (rounds 1-5) | B2 status |
 |---|---|
-| `WindowFromPoint` self-hits EyeCtrl's own menu (rounds 1, 3) | Avoided on B2's route — no `WindowFromPoint` on the window-action path. *(Caveat: `ExternalDwellService` still uses `WindowFromPoint`+`GA_ROOT` at `:329-340` — that's a separate surface, untouched. §11 is scoped to the window-action route.)* |
+| `WindowFromPoint` self-hits EyeCtrl's own menu (rounds 1, 3) | Avoided on B2's route — no `WindowFromPoint` on the window-action path. *(Two other surfaces still use it — `ExternalDwellService` `:329-340` and `ControlFinder` `:181,194` — both untouched. §11 is scoped to the window-action route, not an exhaustive inventory.)* |
 | Stash race (`ResetToFreeLook` clears before dispatch reads, round 4-5) | Avoided — no stash; `TryGetEligibleForegroundWindow` queried **synchronously** in the recipient, no `BeginInvoke` hop (§4 BLOCKER A.1 fix) |
 | `Progman` passes filters → destructive Explorer close (round 2) | Covered — `GetShellWindow`+class denylist on the single foreground HWND (§2) |
 | `EnumWindows` Z-order undocumented (round 2) | N/A on this route — no enumeration |
@@ -272,8 +269,6 @@ For reviewers familiar with the 5-round postmortem: the table below maps each re
 The contract surface is: 1 new message, 1 new enum, 3 new toolbar-button entries (×2 arrays + atomic reconciliation), 3 new dispatch cases, 1 synchronous recipient, 4 new `IWindowManager` methods, 8 new P/Invokes, 1 settings field + snapshot, 1 target-lifecycle contract. Still far smaller than the abandoned sub-menu's ~15 changes across `InteractionManager`/`InteractionState`/`ActionMenuViewModel`/`ActionRequestedMessage`/`ShowActionMenuMessage`/`GazeEngineAdapter`/`EventCoordinator` + two message types — and none touching `InteractionManager`.
 
 ## §12 Change log
-- **2026-08-05 v2 (after B2 round-1 review, 3 BLOCKERs + 5 MAJORs):** all verified first-hand. BLOCKER A.1 (async hop before foreground read) → drop the `BeginInvoke`, call `HandleWindowAction` directly (toolbar dwell is already on the UI thread). BLOCKER C.1 (`GetForegroundWindow` NULL + `IsWindow` omitted + guard placement) → fail-closed `TryGetEligibleForegroundWindow` on `IWindowManager`, returns `IntPtr?`, includes zero/IsWindow/shell/class/own-process checks. BLOCKER C.2 (hidden toolbar still dwells — `ToolbarViewModel.Receive` drops the `IsVisible` gate) → target-lifecycle contract (hide deactivates/ClearTargets, show reactivates); **no-confirm Close is now explicitly conditional on this contract.** MAJOR A.2 (`WS_EX_NOACTIVATE` is not a valid safety guarantee — Calibration/Note opt into focus) → own-process is mandatory, not defense-in-depth. MAJOR A.3 (foreground can be an owned dialog) → explicit per-op policy: operate on the dialog, not its owner. MAJOR B.1 (`ShowWindowActions` not implementable by gating static arrays) → live-reconciliation contract via `ToolbarSnapshot` + atomic add/remove + re-position. MAJOR B.2 (`DecideWindowOp` at namespace scope is invalid C#; truth-table row 4 duplicated) → wrapped in `WindowStateOps` static class; row 4 corrected to `(true,true)`. MAJOR B.3 (adding `IWindowManager` methods breaks `FakeWindowManager` + drift tests) → §7/§9 list the fake update + `ToolbarViewModelTests`/`AppLaunchTests` updates. §6 corrected (no "toolbar disabled" state exists). §11 two rows reworded (NOACTIVATE claim, GA_ROOT row). NITs fixed: `WindowAction` pinned to Core.Models; glyphs unified to §4's (`▁`/`□`/`✕`); §0 scoped to "no point-resolution logic on this route"; "messenger registration" wording.
-- **2026-08-05 v1:** initial B2 design. Supersedes the sub-menu spec (rounds 1-5 — see postmortem).
-
-## §12 Change log
-- **2026-08-05:** initial B2 design. Supersedes the sub-menu spec (`2026-08-04-window-management-actions-design.md`, rounds 1-5 — see `docs/superpowers/POSTMORTEM-window-mgmt-spec-rounds-1-5.md`). Decisions: no-confirm Close (matches toolbar); single MaxRestore toggle; scope guards = settings toggle + shell/self guard + toolbar-disabled handling + defer Show Desktop. Verified the integration map against current code (toolbar button arrays, dispatch switch, auto-hide rect-only, no existing `GetForegroundWindow`).
+- **2026-08-05 v3 (after B2 round-2 review, 1 BLOCKER + 3 MAJORs):** round-2 confirmed A.1/C.1/A.2/A.3/B.2/B.3 all genuinely closed (owned-dialog WM_CLOSE claim verified against MS docs). BLOCKER C.2 (target-lifecycle) was **not** closed by v2: `ClearTargets()` + show does not recreate targets (`_positionedButtons` never cleared → `UpdateTargetCenter` no-ops; `_targetsInitialized` never reset on show → no position reports), which would permanently disable every toolbar dwell button after the first auto-hide; and the `SetActive(false)` alternative re-introduces instant-activation-on-show. **v3 fix: use the correct primitive `DwellDetector.ResetAllState()` (`:86-97`, whose doc describes exactly this) + an activity flag on `ToolbarViewModel` gating `Receive`; targets stay in place, no re-layout.** Inject `ToolbarViewModel` into `ToolbarVisibilityAdapter` (or an `IToolbarVisibility.SetActive`). Calibration added as a lifecycle event (deactivate dwell during calibration too). B.1 VM-removal mechanism made explicit (`RemoveTarget` + `_positionedButtons.Remove` + `_buttonLookup.Remove` + `Buttons.Remove`, else true→false leaves an invisible Close); notification path named (`SetWindowActionsVisible` from the `ToolbarSnapshot` block); `Initialize` call sites + `SetMode` centering dependency stated. Deleted the duplicated v1 §3/§5/§12 sections (editing blunder — v1 §5 specified the design v2 rejects). Fixed: §1 glyphs unified to `▁`/`□`/`✕`; §1/§10 "toolbar-disabled" stale references removed; `MB_OK` message-box caveat added; §11 WindowFromPoint caveat notes two surfaces (ExternalDwellService + ControlFinder).
+- **2026-08-05 v2 (after B2 round-1 review, 3 BLOCKERs + 5 MAJORs):** synchronous recipient (drop `BeginInvoke`); fail-closed `TryGetEligibleForegroundWindow`; target-lifecycle contract (v3 corrected the primitive); `DecideWindowOp` in `WindowStateOps`; `ShowWindowActions` live-reconciliation; `FakeWindowManager` + drift tests listed; NOACTIVATE-not-a-guarantee; owned-dialog policy; §6 corrected.
+- **2026-08-05 v1:** initial B2 design. Supersedes the sub-menu spec (rounds 1-5 — see `docs/superpowers/POSTMORTEM-window-mgmt-spec-rounds-1-5.md`).

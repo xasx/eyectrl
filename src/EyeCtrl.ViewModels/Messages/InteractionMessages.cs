@@ -144,3 +144,11 @@ public record TaskSwitcherToggledMessage;
 /// <summary>Sent by a Task Switcher tile when the user selects a window.</summary>
 /// <param name="Hwnd">Handle of the window to bring to front.</param>
 public record TaskSwitcherSelectionMessage(IntPtr Hwnd);
+
+/// <summary>
+/// Sent by the toolbar's window-actions region when the user dwells Minimize/MaximizeRestore/Close.
+/// The recipient queries the foreground window synchronously (no HWND on the message —
+/// <see cref="EyeCtrl.Core.Interfaces.IWindowManager.TryGetEligibleForegroundWindow"/> is read
+/// at op-fire time in the same tick as the dwell completion).
+/// </summary>
+public record WindowActionRequestedMessage(WindowAction Action);

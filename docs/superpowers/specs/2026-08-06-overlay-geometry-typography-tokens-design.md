@@ -19,7 +19,7 @@ oversight.
 
 That deferral was correct, and it named what closing it needs: decisions. This spec makes them,
 and extends the scope to typography, which is more fragmented than the radii ever were —
-**17 distinct font sizes across 67 sites**, against zero tokens.
+**16 distinct font sizes across 60 live sites**, against zero tokens.
 
 Two properties of this application shape every decision below:
 
@@ -43,8 +43,9 @@ Two properties of this application shape every decision below:
 | Corner radii | 4 tokens; migrate 30 literal sites |
 | Font family | 1 token; migrate 1 literal; wire an app-wide default |
 | Font weights | 2 tokens; migrate 17 sites |
-| Font sizes | 6-token text ramp; migrate 46 text sites; delete 4 dead consts |
+| Font sizes | 5-token text ramp with a 12px floor; migrate 46 text sites; delete 4 dead consts |
 | Glyph/label sizing | 4 ratio constants; convert 14 container-proportional sites (2 more already correct) |
+| Layout | **One scoped exception:** `TrackStatusWindow.Height` 110 → 116 (§8.6) |
 | Theme layer | `ITheme` / `ThemeBase` / `Tokens` / `OverlayStyles.xaml` / `ThemeResourceApplier` |
 | Validator | `tools/palette_validate.py` — gate 1's non-colour tail |
 | Guards | 1 new drift guard, 1 new behavioural pin, 3 existing tests extended, 1 generalised |
@@ -61,8 +62,11 @@ scoring UI, `EyeCtrl.Supervisor`, `EyeCtrl.Sdk.WinUI.Sample`.
 
 ### Explicitly out of scope
 
-- **Layout.** Where the clip analysis in §8.5 shows a growth is unsafe, the token assignment
-  changes — never the padding or the control size.
+- **Layout, with exactly one measured exception.** `TrackStatusWindow.Height` 110 → 116, because
+  the 12px ramp floor overflows it by 1.88px and it is the only fixed-size, non-resizable window
+  in the app (§8.6 carries the arithmetic). Everywhere else, where a growth is unsafe **the token
+  assignment changes** — never the padding or the control size. This exception is named here so it
+  cannot expand quietly into a second one.
 - **`EyeCtrl.Supervisor`.** It has one `CornerRadius="4"` at `UI/SupervisorSetupWindow.xaml:41`
   and 15 `FontSize`/`FontFamily` sites. The parent §8 excludes it and it is not in the guard's
   scanned projects.
@@ -242,7 +246,7 @@ cannot affect them either way. See §7.4.
 
 ## 6. Token Design
 
-### 6.1 `ITheme` additions — 13 primitives
+### 6.1 `ITheme` additions — 12 primitives
 
 ```csharp
 // ── Geometry ────────────────────────────────────────────────────────────
@@ -256,8 +260,7 @@ string     FontFamilyStandard { get; } // "Segoe UI Variable Text, Segoe UI"
 FontWeight FontWeightMedium   { get; } // SemiBold
 FontWeight FontWeightStrong   { get; } // Bold
 
-double FontSizeCaption   { get; }      // 10
-double FontSizeBody      { get; }      // 12
+double FontSizeBody      { get; }      // 12  — the ramp floor; see §8.4
 double FontSizeBodyLarge { get; }      // 14
 double FontSizeSubtitle  { get; }      // 18
 double FontSizeTitle     { get; }      // 24
@@ -291,7 +294,7 @@ reason — overlays rebuild at gaze rate.
 ### 6.3 `Tokens` and `OverlayStyles.xaml`
 
 `Tokens` gains a forwarding property per member, matching the existing file exactly.
-`OverlayStyles.xaml` gains one `<x:Static>` entry per token — 13 primitives plus 5 derived
+`OverlayStyles.xaml` gains one `<x:Static>` entry per token — 12 primitives plus 5 derived
 values — under the property names verbatim, which is what `{StaticResource}` lookups already use.
 
 ### 6.4 `ThemeResourceApplier.Apply` is generalised
@@ -384,23 +387,31 @@ every site individually and reconciles to 66 rows.
 
 ### 8.4 The text ramp — 46 sites
 
-Six tokens. A deliberate **6px gap between 18 and 24**: a scale whose steps are 2px apart is a
-list, not a scale, and reproducing 14/16/18 as three tokens would have the guard enforce the
-fragmentation this document exists to remove.
+**Five tokens, with a 12px floor.** A deliberate **6px gap between 18 and 24**: a scale whose steps
+are 2px apart is a list, not a scale, and reproducing 14/16/18 as three tokens would have the guard
+enforce the fragmentation this document exists to remove.
 
 | Token | px | Absorbs | Sites | Movement |
 |---|---|---|---|---|
-| `FontSizeCaption` | 10 | 9, 10, 11 | 15 | **9→10 raises 6**; 11→10 lowers 3; 10 unchanged at 6 |
-| `FontSizeBody` | 12 | 12, 13 | 7 | 13→12 lowers 1; 12 unchanged at 6 |
+| `FontSizeBody` | 12 | 9, 10, 11, 12, 13 | 22 | **9→12 raises 6; 10→12 raises 6; 11→12 raises 3**; 13→12 lowers 1; 12 unchanged at 6 |
 | `FontSizeBodyLarge` | 14 | 14 | 3 | unchanged |
 | `FontSizeSubtitle` | 18 | 16, 18 | 6 | 16→18 raises 3; 18 unchanged at 3 |
 | `FontSizeTitle` | 24 | 22, 24 | 12 | 22→24 raises 7; 24 unchanged at 5 |
 | `FontSizeDisplay` | 34 | 32, 34, 36 | 3 | 32→34 raises 1; 36→34 lowers 1; 34 unchanged at 1 |
 
-Every movement is ±1 or ±2 px. Totals: **17 sites grow, 5 shrink, 24 unchanged** — 46.
+Totals: **26 sites grow, 2 shrink, 18 unchanged** — 46. Largest movement is **+3px** (9→12).
 
-`9 → 10` is the one change that improves rather than consolidates — it raises the smallest text in
-the product, on a machine driven by the eyes. See §13.
+**Why the floor is 12 and not 10.** A 10px floor was the first proposal, and it merely consolidated:
+`9 → 10` raised six sites by a pixel. **12 is a legibility decision, not a consolidation** — the
+smallest text in the product goes from 9px to 12px, a 33 % increase, on a machine driven entirely
+by the eyes and shipping an eye-strain module. It is the only change in this document that makes
+the product materially easier to use.
+
+`FontSizeCaption` therefore does not exist. At 12 it would have been identical to `FontSizeBody`,
+and two named tokens holding one value is the same fragmentation in a different coat: the guard
+cannot tell them apart and nothing stops them drifting. The ramp is five steps.
+
+The cost is one layout change, to the one fixed-size window in the app — see §8.6 and §2.
 
 ### 8.5 The container-ratio rule — 16 sites
 
@@ -466,22 +477,49 @@ against container sizes read from source:
 
 | Site | Container | Change | Line height | Verdict |
 |---|---|---|---|---|
-| `TrackStatusWindow` — 6 text sites | **fixed 160×110**, padding 8 | 10 → 10 | 13.3 unchanged | **Safe — nothing moves.** The only rigidly bounded window in the app, and no size in it changes. |
+| **`TrackStatusWindow` — 6 sites** | **fixed 160×110**, `Padding="8"`, `ResizeMode="NoResize"` | 10 → 12 | 13.30 → 15.96 | **✗ Overflows by 1.88px.** Resolved by the window-height change below — the one scoped layout exception. |
+| `NoteWindow.xaml.cs:87` "PINNED NOTE" | title bar `Height = 24`, `Margin(8,4,0,0)` | 10 → 12 | 13.30 → 15.96 | Safe. 15.96 + 4 = 19.96 in 24 — 4.04 slack. |
+| `EyeCareBannerWindow.xaml:32,39` "snooze"/"start" | 64×64 grid in a fixed 80px strip, `Margin="0,0,0,-16"` | 9 → 12 | 11.97 → 15.96 | **⚠ Flagged.** Already hangs below its grid on a negative margin; now grows 3.99px further, not the 1.33 a 10px floor implied. `Border` does not clip by default so it renders rather than truncates, but this is the site the 12px floor stresses most. Needs visual confirmation. |
+| `DragTrailOverlay.xaml.cs:177` `CreateIcon` | none — no size set | 16 → 18 | 21.28 → 23.94 | **⚠ Flagged.** A gaze-drag affordance grows 2px. Needs visual confirmation; falls back to `BodyLarge` (14) if it reads too heavy. |
+| `CalibrationWindow.xaml:46,61` hints | centred, full-screen overlay | 11 → 12 | 14.63 → 15.96 | Safe — unbounded. |
+| `EyeCareBannerWindow.xaml:24` subtitle | in the 80px strip | 11 → 12 | 14.63 → 15.96 | Safe. Two-line stack ≈ 40px in 80px. |
+| `EyeCareBannerWindow.xaml:22` message | vertically centred in the 80px strip | 16 → 18 | 21.28 → 23.94 | Safe, per the same stack. |
 | `QuickActionsGridWindow.xaml:57` tile label | 120×120 tile, **wrapping** | 14 → 14 | unchanged | **Safe — unchanged.** The wrapping risk this analysis was written to catch does not materialise. |
 | `DwellSlider.cs:87` value text | **fixed `Width = 140`** | 24 → 24 | unchanged | Safe — unchanged. |
-| `EyeCareBannerWindow.xaml:32,39` "snooze"/"start" | 64×64 grid in a fixed 80px strip, `Margin="0,0,0,-16"` | 9 → 10 | 11.97 → 13.30 | **⚠ Flagged.** Already hangs below its grid by negative margin; grows 1.33px further. `Border` does not clip by default so it renders rather than truncates, but needs visual confirmation. |
-| `DragTrailOverlay.xaml.cs:177` `CreateIcon` | none — no size set | 16 → 18 | 21.28 → 23.94 | **⚠ Flagged.** A gaze-drag affordance grows 2px. Needs visual confirmation; falls back to `BodyLarge` (14) if it reads too heavy. |
-| `EyeCareBannerWindow.xaml:22` message | vertically centred in the 80px strip | 16 → 18 | 21.28 → 23.94 | Safe. The two-line stack totals ≈ 39px in 80px. |
+| `TaskSwitcherWindow.xaml:25,35` | card, auto height | 12 → 12, 14 → 14 | unchanged | Safe. |
 | `DwellToggle`, `DwellLabel`, `DwellComboBox`, `SettingsWindow.xaml.cs:299` | auto-width, ≥ 70px tall | 22 → 24 | 29.26 → 31.92 | Safe. Width is auto so it grows; 31.92 < 70. |
-| `EyeCareExerciseWindow` summary card | auto-sized, `Padding="28,18"` | 9→10, 13→12, 22→24 | grows | Safe — the card sizes to content. |
+| `EyeCareExerciseWindow` summary card | auto-sized, `Padding="28,18"` | 9→12, 13→12, 22→24 | grows ≈ 12px | Safe — the card sizes to content. |
 | `SplashWindow.xaml:14` title | `SizeToContent="WidthAndHeight"` | 36 → 34 | shrink | Safe. |
 | `CalibrationWindow.xaml:36` ✓ | centred, full-screen overlay | 32 → 34 | grows 2px | Safe — unbounded. |
 | `SettingsWindow.xaml.cs:273,415` glyphs | 100 / 80 px fixed containers | ratio | 30 → 32 | Safe — §8.5 sizes them from the container that bounds them, so the ratio cannot exceed it. |
 | `KeyboardWindow`, `EmojiGridManager` labels | key/cell, setting-driven | ratio | ≈ unchanged | Safe, and fixes the multiplier bug in §8.5. |
 
-**Two flagged sites**, both needing visual confirmation during implementation rather than a layout
-change. Where a flagged site does not fit, **the token assignment changes** — padding and control
-sizes stay untouched per §2.
+#### The one scoped layout change: `TrackStatusWindow.Height` 110 → 116
+
+Measured content height against the 94px its `Padding="8"` leaves inside a 110px window:
+
+| Caption size | "Track Status" + 4 | Canvas | Distance row + 4 | Quality row | Total | vs 94 |
+|---|---|---|---|---|---|---|
+| 10 (today) | 17.30 | 40 | 17.30 | 13.30 | 87.90 | 6.10 slack |
+| 11 | 18.63 | 40 | 18.63 | 14.63 | 91.89 | 2.11 slack |
+| **12** | 19.96 | 40 | 19.96 | 15.96 | **95.88** | **1.88 over** |
+
+At 110px the bottom row clips by 1.88px, cutting the descender from "Quality" and from a value
+such as "Unknown". **`Height` becomes 116**, giving 100px of content space and 4.12px slack.
+
+This is a deliberate, single, named exception to §2's layout exclusion, taken because the
+alternative is surrendering the legibility improvement over 1.88px. It is scoped tightly: one
+property on one window, justified by the measurement above, and it changes nothing else. Two
+alternatives were considered and rejected — an 11px floor (fits, but is an odd step in an even
+ramp and would not merge with `Body`), and shrinking the 60×40 eye-dot canvas to 36 (buys text
+size by shrinking a diagnostic the user reads to check tracker position).
+
+Horizontal fit is unaffected: "Quality: Unknown" measures 78.18px at 10 and 93.82 at 12, against
+144px available.
+
+**Two flagged sites** remain, both needing visual confirmation during implementation rather than a
+layout change. Where a flagged site does not fit, **the token assignment changes** — no further
+padding or control-size edits, per §2.
 
 Note what the ratio rule bought here: the two `SettingsWindow` glyphs were the highest-risk
 entries when they were headed for `Display` (34), a +4px growth inside an 80px button. Sizing them
@@ -520,19 +558,20 @@ Font sizes and weights are set per element, not inherited, so they migrate site 
 
 `tools/palette_validate.py`:
 
-1. **`NON_COLOUR_TOKENS`** grows from 1 name to 14: the thickness, 4 radii, 6 font sizes, 2 font
+1. **`NON_COLOUR_TOKENS`** grows from 1 name to 13: the thickness, 4 radii, 5 font sizes, 2 font
    weights and the font family. Without this, the token loop at line 295 would try to parse `"8"`
    as a colour.
-2. **Each of the three theme dicts** gains 13 quoted entries, in the same quoted-string form
+2. **Each of the three theme dicts** gains 12 quoted entries, in the same quoted-string form
    `BorderThicknessStandard` already uses, so `ThemeParityTests.ParseTheme` keeps working
    unchanged.
 3. **Gate 1's non-colour tail** gains, next to the existing thickness check:
    - every radius ≥ 0 — `CornerRadius(-1)` throws per §4.1, so this is a real failure mode
    - `CornerRadiusSmall ≤ Standard ≤ Large`
    - `CornerRadiusCircle ≥ CornerRadiusLarge` — the sentinel must outrank the real steps
-   - `FontSizeCaption ≤ Body ≤ BodyLarge ≤ Subtitle ≤ Title ≤ Display`
-   - **`FontSizeCaption ≥ 9`** — a genuine accessibility floor: no theme may set text smaller
-     than today's smallest
+   - `FontSizeBody ≤ BodyLarge ≤ Subtitle ≤ Title ≤ Display`
+   - **`FontSizeBody ≥ 12`** — a genuine accessibility floor, pinned at the ramp floor this
+     spec chose. No theme may reintroduce text smaller than the 12px §8.4 settled on, which is
+     the guarantee that makes the 9→12 raise permanent rather than one release's decision
    - `FontFamilyStandard` non-empty
 
 The gate count stays at ten. `python tools/palette_validate.py` must exit 0.
@@ -550,7 +589,7 @@ verification greps for that, never for "Failed".
 | Test | Addition |
 |---|---|
 | `ThemeShapeTests` | Per theme: radius ordering and non-negativity; font-size ordering and the ≥ 9 floor; `FontStandard.Source == FontFamilyStandard`; `FontStandard` returns the same reference twice (cached, per §6.2). |
-| `TokenDictionaryTests` | Each of the 13 primitives and 5 derived values resolves from `OverlayStyles.xaml` and equals its `Tokens` counterpart. Generalised over reflection rather than 18 hand-written cases. |
+| `TokenDictionaryTests` | Each of the 12 primitives and 5 derived values resolves from `OverlayStyles.xaml` and equals its `Tokens` counterpart. Generalised over reflection rather than 17 hand-written cases. |
 | `ThemeResourceApplierTests` | `Apply` publishes every `ITheme` property except `Name`. |
 
 ### 10.2 Generalised
@@ -647,11 +686,11 @@ the two flagged sites in §8.5 is requested, not assumed.
 
 | Risk | Mitigation |
 |---|---|
-| **112 mechanical edit sites** — 30 radii, 46 font sizes, 17 weights, 14 ratio conversions, 1 family literal, 4 const deletions. The largest surface in this codebase's history of style passes. | The whitelist guard makes completeness machine-checked rather than reviewed. An unmigrated site fails the build. |
+| **112 mechanical edit sites plus one window height** — 30 radii, 46 font sizes, 17 weights, 14 ratio conversions, 1 family literal, 4 const deletions, `TrackStatusWindow.Height`. The largest surface in this codebase's history of style passes. | The whitelist guard makes completeness machine-checked rather than reviewed. An unmigrated site fails the build. |
 | **`CornerRadiusCircle` relies on undocumented WPF normalisation.** | §10.3 pins it across sizes and DPIs. A future WPF change breaks a test, not the UI. |
 | **Two flagged clip sites** (§8.5). | Both are identified with the specific measurement needed. Where one does not fit, the token assignment changes — never the layout. |
 | **The type ramp changes what the user reads all day.** | Every move is enumerated in §8.3 with its site count and direction, and the specimens are rendered at true scale in `docs/design/corner-radius-comparison.html` for approval by eye before implementation. |
-| **`ITheme` grows from 23 members to 36 primitives + 5 derived.** It stops being a palette and becomes a design-system interface. | Consistent with its own stated intent to be "non-colour-capable from the start", and kept navigable by the `// ── section ──` grouping the file already uses. If it grows again, splitting a metrics interface out is the natural next step — noted, not done. |
+| **`ITheme` grows from 23 members to 35 primitives + 5 derived.** It stops being a palette and becomes a design-system interface. | Consistent with its own stated intent to be "non-colour-capable from the start", and kept navigable by the `// ── section ──` grouping the file already uses. If it grows again, splitting a metrics interface out is the natural next step — noted, not done. |
 | **Theme-varying costs three identical declarations per token** and 13 validator entries per theme, for values no theme currently differentiates. | Accepted deliberately (decision 5). §10.2's generalisation absorbs the per-token test cost so the marginal price of the *next* token is zero. |
 | **Combining geometry with the type ramp** means one plan mixes provably-safe edits with ones justified by measurement. | Accepted deliberately (decision 10). The plan orders tasks so the token layer and the radius migration land before any size change, keeping the risky work last and separately revertible. |
 | **No visual regression tests exist**, and UI tests cannot be run unprompted. | Verification is headless tests, the measured probes in §4, and the comparison HTML. Stated plainly rather than papered over. |
@@ -683,21 +722,21 @@ grep -rn 'FontSize' --include=*.xaml --include=*.cs src/EyeCtrl.App src/EyeCtrl.
 
 | # | Site | Now | Kind | Becomes |
 |---|---|---|---|---|
-| 1 | `EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml:32` | 9 | T | `Caption` 10 ⚠ |
-| 2 | `EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml:39` | 9 | T | `Caption` 10 ⚠ |
-| 3 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:48` | 9 | T | `Caption` 10 |
-| 4 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:52` | 9 | T | `Caption` 10 |
-| 5 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:56` | 9 | T | `Caption` 10 |
-| 6 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:59` | 9 | T | `Caption` 10 |
-| 7 | `EyeCtrl.App/Overlays/NoteWindow.xaml.cs:87` | 10 | T | `Caption` — |
-| 8 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:10` | 10 | T | `Caption` — |
-| 9 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:18` | 10 | T | `Caption` — |
-| 10 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:19` | 10 | T | `Caption` — |
-| 11 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:22` | 10 | T | `Caption` — |
-| 12 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:23` | 10 | T | `Caption` — |
-| 13 | `EyeCtrl.App/Overlays/CalibrationWindow.xaml:46` | 11 | T | `Caption` 10 |
-| 14 | `EyeCtrl.App/Overlays/CalibrationWindow.xaml:61` | 11 | T | `Caption` 10 |
-| 15 | `EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml:24` | 11 | T | `Caption` 10 |
+| 1 | `EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml:32` | 9 | T | `Body` 12 ⚠ |
+| 2 | `EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml:39` | 9 | T | `Body` 12 ⚠ |
+| 3 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:48` | 9 | T | `Body` 12 |
+| 4 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:52` | 9 | T | `Body` 12 |
+| 5 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:56` | 9 | T | `Body` 12 |
+| 6 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:59` | 9 | T | `Body` 12 |
+| 7 | `EyeCtrl.App/Overlays/NoteWindow.xaml.cs:87` | 10 | T | `Body` 12 |
+| 8 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:10` | 10 | T | `Body` 12 |
+| 9 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:18` | 10 | T | `Body` 12 |
+| 10 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:19` | 10 | T | `Body` 12 |
+| 11 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:22` | 10 | T | `Body` 12 |
+| 12 | `EyeCtrl.App/Overlays/TrackStatusWindow.xaml:23` | 10 | T | `Body` 12 |
+| 13 | `EyeCtrl.App/Overlays/CalibrationWindow.xaml:46` | 11 | T | `Body` 12 |
+| 14 | `EyeCtrl.App/Overlays/CalibrationWindow.xaml:61` | 11 | T | `Body` 12 |
+| 15 | `EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml:24` | 11 | T | `Body` 12 |
 | 16 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:24` | 12 | T | `Body` — |
 | 17 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:44` | 12 | T | `Body` — |
 | 18 | `EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs:545` | 12 | T | `Body` — |
@@ -761,14 +800,37 @@ Within the 66: 60 rows carry a live literal value, 4 are the dead consts, and 2 
 **Edit count.** All 46 T rows need an edit even where the value is unchanged, because a literal
 must become a token for the guard to pass. Of the 16 C rows, rows 48–49 already read a ratio and
 need none, giving 14. Plus 4 deletions. That is the **46 / 14 / 4** in §2's scope table, and the
-46 T reconciles with §8.4's per-token sum (15 + 7 + 3 + 6 + 12 + 3).
+46 T reconciles with §8.4's per-token sum (22 + 3 + 6 + 12 + 3).
 
 ---
 
-## 14. Open Question for Review
+## 14. Resolved: the ramp floor is 12, not 10
 
-**The `9 → 10` caption raise is the only change here that improves legibility rather than merely
-consolidating.** Six sites gain 1px. If a larger caption is wanted — 11 or 12 — that is a
-different `FontSizeCaption` value and a different clip analysis for `EyeCareBannerWindow`'s
-negative-margin labels, which are the one site already overflowing. Worth deciding before
-implementation, not after.
+Recorded because the reasoning matters more than the number, and because it is the one place this
+spec accepts a layout change.
+
+A 10px floor was proposed first and was **only a consolidation**: it raised six 9px sites by a
+single pixel and lowered three 11px sites, netting almost nothing. **12 was chosen instead**, which
+makes the smallest text in the product 33 % larger and is the only change in this document that
+makes the application materially easier to use. It also collapsed `FontSizeCaption` into
+`FontSizeBody`, taking the ramp from six tokens to five — two names holding one value would have
+been the same fragmentation in a different coat.
+
+The cost is one measured overflow. `TrackStatusWindow` is the only fixed-size, non-resizable window
+in the app, and at a 12px floor its content exceeds the 94px its padding leaves by **1.88px**,
+clipping the descenders on the bottom row. §8.6 carries the arithmetic. Resolution: **`Height`
+110 → 116**, a single property on a single window, named in §2 so it cannot expand into a second
+exception. Rejected alternatives: an 11px floor (fits with 2.11px slack, but is an odd step in an
+even ramp and would not merge with `Body`), and shrinking the 60×40 eye-dot canvas to 36 (buys text
+size by shrinking a tracking diagnostic the user reads to check head position).
+
+**Still open for review, and not decidable from measurement:**
+
+1. **`Segoe UI Variable Text`** was chosen from a description. §4.2 proves it is a metrically
+   identical drop-in that cannot clip anything, but it changes every glyph in the application.
+   The specimens are rendered at true scale in §9 of
+   `docs/design/corner-radius-comparison.html` — worth looking at before 46 text sites move.
+2. **The two ⚠ sites in §8.6** — `EyeCareBannerWindow`'s "snooze"/"start" labels, which already
+   hang below their grid on a negative margin and now grow 3.99px further, and
+   `DragTrailOverlay`'s icon at 16 → 18. Both need a look during implementation. Neither is
+   resolved by a layout change: if a site does not fit, its token assignment changes.

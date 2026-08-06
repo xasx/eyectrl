@@ -522,30 +522,58 @@ visible regression, and backwards: <code>ToolbarWindow</code> already gets this 
 <strong>text ramp</strong> from a <strong>glyph ratio rule</strong>, which is a structural
 distinction that does not exist in the codebase today.</p>
 
-<h3>Draft text ramp — six steps, for discussion not approval yet</h3>
+<h3>Final text ramp — five steps, 12px floor <span class="tag">decided</span></h3>
 <table>
-  <tr><th>Token</th><th>px</th><th>Absorbs</th><th>Effect</th></tr>
-  <tr><td class="n">FontSizeCaption</td><td class="n">10</td><td class="n">9, 10, 11</td><td>9→10 <span style="color:var(--success)">raises the smallest text</span>; 11→10 shrinks 3 hint lines</td></tr>
-  <tr><td class="n">FontSizeBody</td><td class="n">12</td><td class="n">12, 13</td><td>13→12 on one EyeCare title</td></tr>
-  <tr><td class="n">FontSizeBodyLarge</td><td class="n">14</td><td class="n">14</td><td>unchanged</td></tr>
-  <tr><td class="n">FontSizeSubtitle</td><td class="n">18</td><td class="n">16, 18</td><td>16→18 on key labels and 4 text sites</td></tr>
-  <tr><td class="n">FontSizeTitle</td><td class="n">24</td><td class="n">22, 24</td><td>22→24 on the dwell controls (12 sites)</td></tr>
-  <tr><td class="n">FontSizeDisplay</td><td class="n">34</td><td class="n">30, 32, 34, 36</td><td>36→34 on the splash title</td></tr>
+  <tr><th>Token</th><th>px</th><th>Absorbs</th><th>Sites</th><th>Effect</th></tr>
+  <tr><td class="n">FontSizeBody</td><td class="n">12</td><td class="n">9, 10, 11, 12, 13</td><td class="n">22</td><td><span style="color:var(--success)">9→12 raises the smallest text by 33 %</span>; 10→12 and 11→12 follow; 13→12 shrinks one</td></tr>
+  <tr><td class="n">FontSizeBodyLarge</td><td class="n">14</td><td class="n">14</td><td class="n">3</td><td>unchanged</td></tr>
+  <tr><td class="n">FontSizeSubtitle</td><td class="n">18</td><td class="n">16, 18</td><td class="n">6</td><td>16→18 at 3 sites</td></tr>
+  <tr><td class="n">FontSizeTitle</td><td class="n">24</td><td class="n">22, 24</td><td class="n">12</td><td>22→24 on the dwell controls</td></tr>
+  <tr><td class="n">FontSizeDisplay</td><td class="n">34</td><td class="n">32, 34, 36</td><td class="n">3</td><td>32→34 up, 36→34 down</td></tr>
 </table>
+<p><strong>26 sites grow, 2 shrink, 18 unchanged.</strong> There is no
+<code>FontSizeCaption</code>: at 12 it would have equalled <code>FontSizeBody</code>, and two
+names holding one value is the same fragmentation in a different coat. The 20/28/30 values leave
+the ramp entirely through the container-ratio rule below.</p>
+
+<div class="note">
+  <strong>The clip risks this section originally warned about mostly evaporated</strong> — but only
+  after every site was measured, which is why the warning was right to be there. Measured with the
+  1.33× line height:
+  <ul style="color:var(--text-secondary)">
+    <li><strong>QuickActions tile label</strong> — stays at 14. The wrapping risk never
+      materialises.</li>
+    <li><strong>Dwell controls 22→24</strong> — auto-width, ≥70px tall. 31.92 fits in 70.</li>
+    <li><strong>Keyboard key labels</strong> — leave the ramp for a container ratio, which also
+      fixes a real bug: enlarging the keys today gives bigger keys with the same small letters.</li>
+    <li><strong>Settings glyphs</strong> — were the worst case at +4px inside an 80px button;
+      sizing them from their own container removes the risk rather than measuring it.</li>
+  </ul>
+</div>
 
 <div class="note bad">
-  <strong>Every one of those moves needs a clip check, and that is the real cost.</strong> Unlike
-  the family swap, growing text can overflow a fixed box. The exposed cases:
-  <ul style="color:var(--text-secondary)">
-    <li><strong>QuickActions tile label</strong> — 14 px, wrapping, inside a 120×120 tile. Any
-      growth risks a third line.</li>
-    <li><strong>TrackStatus</strong> — five 10 px lines in a small auto-sized window.</li>
-    <li><strong>Dwell controls at 22→24</strong> — 12 sites in 80 px-high boxes with 20 px padding.</li>
-    <li><strong>Keyboard key label 16→18</strong> — inside a 70 px key, so almost certainly safe,
-      but the wide keys (<code>ABC</code>, modifiers) carry longer strings.</li>
-  </ul>
-  Fixing a clip means changing padding or control size — which is <em>exactly</em> what §8 excludes
-  as layout. So the ramp cannot be verified by reasoning alone; it needs per-site measurement.
+  <strong>One genuine overflow, and one accepted layout change.</strong>
+  <code>TrackStatusWindow</code> is <code>160×110</code> with <code>ResizeMode="NoResize"</code> —
+  the only rigidly bounded window in the app — and holds six of the sites that move.
+  <table style="margin-top:10px">
+    <tr><th>Floor</th><th>"Track Status"</th><th>Canvas</th><th>Distance</th><th>Quality</th><th>Total</th><th>vs 94px</th></tr>
+    <tr><td class="n">10 (today)</td><td class="n">17.30</td><td class="n">40</td><td class="n">17.30</td><td class="n">13.30</td><td class="n">87.90</td><td style="color:var(--success)">6.10 slack</td></tr>
+    <tr><td class="n">11</td><td class="n">18.63</td><td class="n">40</td><td class="n">18.63</td><td class="n">14.63</td><td class="n">91.89</td><td style="color:var(--success)">2.11 slack</td></tr>
+    <tr><td class="n">12</td><td class="n">19.96</td><td class="n">40</td><td class="n">19.96</td><td class="n">15.96</td><td class="n">95.88</td><td style="color:var(--danger)">1.88 over</td></tr>
+  </table>
+  At 110px the bottom row clips by 1.88px, cutting the descender from "Quality" and from a value
+  like "Unknown". Resolved by <code>Height</code> <strong>110 → 116</strong> — one property, one
+  window, named in the spec's §2 so it cannot expand into a second exception. Rejected: an 11px
+  floor (fits, but is an odd step in an even ramp and would not merge with <code>Body</code>), and
+  shrinking the 60×40 eye-dot canvas to 36 (buys text size by shrinking a tracking diagnostic).
+</div>
+
+<div class="note warn">
+  <strong>Two sites still need your eye during implementation.</strong>
+  <code>EyeCareBannerWindow</code>'s "snooze"/"start" labels already hang below their grid on a
+  <code>Margin="0,0,0,-16"</code> and now grow 3.99px further; <code>DragTrailOverlay</code>'s
+  drag icon goes 16→18. Neither is fixed by a layout change — if a site does not fit, its token
+  assignment changes.
 </div>
 
 <h2>11. Where this leaves the work</h2>
@@ -559,8 +587,11 @@ distinction that does not exist in the codebase today.</p>
   <tr><td>Validator</td><td>→ gate 1's non-colour tail; "ten gates" stays true</td></tr>
   <tr><td>Font family</td><td>→ <code>"Segoe UI Variable Text, Segoe UI"</code>, verified drop-in</td></tr>
   <tr><td>Font weights</td><td>→ two tokens, 17 sites, zero visual change</td></tr>
-  <tr><td>Font sizes</td><td>→ six-step ramp <em>plus</em> a glyph-ratio rule — §10 above</td></tr>
+  <tr><td>Font sizes</td><td>→ five-step ramp, <strong>12px floor</strong> <em>plus</em> a container-ratio rule — §10 above</td></tr>
+  <tr><td>The one layout change</td><td>→ <code>TrackStatusWindow.Height</code> 110 → 116, from the measured 1.88px overflow</td></tr>
 </table>
+<p>Full design, with all 66 <code>FontSize</code> sites classified individually:
+<code>docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md</code>.</p>
 
 </div>
 </body>

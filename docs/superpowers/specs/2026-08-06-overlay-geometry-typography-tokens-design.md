@@ -1,7 +1,7 @@
 # Overlay Geometry and Typography Tokens — Design
 
 **Date:** 2026-08-06
-**Status:** Design, awaiting review
+**Status:** Reviewed — source-verified round 1 complete; corrections applied (§15)
 **Closes:** `docs/design/overlay-unification-spec.md` §8 "Deferred, with reason"
 **Supersedes:** §4.2 and §4.3 of that spec, which proposed token sets that were never implemented
 and are insufficient as written.
@@ -43,8 +43,8 @@ Two properties of this application shape every decision below:
 | Corner radii | 4 tokens; migrate 30 literal sites |
 | Font family | 1 token; migrate 1 literal; wire an app-wide default |
 | Font weights | 2 tokens; migrate 17 sites |
-| Font sizes | 5-token text ramp with a 12px floor; migrate 46 text sites; delete 4 dead consts |
-| Glyph/label sizing | 4 ratio constants; convert 14 container-proportional sites (2 more already correct) |
+| Font sizes | 5-token text ramp with a 12px floor; migrate 45 text sites; delete 4 dead consts |
+| Glyph/label sizing | 5 ratio constants; convert 15 container-proportional sites (2 more already correct) |
 | Layout | **One scoped exception:** `TrackStatusWindow.Height` 110 → 116 (§8.6) |
 | Theme layer | `ITheme` / `ThemeBase` / `Tokens` / `OverlayStyles.xaml` / `ThemeResourceApplier` |
 | Validator | `tools/palette_validate.py` — gate 1's non-colour tail |
@@ -177,14 +177,23 @@ element is square:
 | 44×44 @ 192 dpi | radius 22 | **0** |
 | 66×66, 100×100, 30×30 @ 96 dpi | radius size/2 | **0** each |
 
-On a **non-square** element it is an inscribed *ellipse*, not a stadium — the opaque area
-converges on π/4 = 0.7854 of the box rather than a pill's much higher fraction:
+On a **non-square** element it is an inscribed *ellipse*, not a stadium. Coverage is measured as
+the fraction of pixels with **alpha > 128** — the 50 % cutoff, which is the correct way to count a
+rasterised area and reproduces the analytic value exactly:
 
-| Element | Stadium (r = min/2) | `9999` | Inscribed ellipse |
+| Element | Stadium (r = min/2) | `9999` | Inscribed ellipse (π/4) |
 |---|---|---|---|
-| 120×40 | 0.9200 | 0.7671 | 0.7854 |
-| 150×70 | 0.8915 | 0.7737 | 0.7854 |
-| 80×44 | 0.8682 | 0.7665 | 0.7854 |
+| 120×40 | 0.9285 | **0.7854** | 0.7854 |
+
+**The threshold must be stated, because the number is meaningless without it.** An earlier draft
+published 0.7671 for this cell and a reviewer independently measured 0.8094; both were correct for
+their own cutoff, and neither matched π/4:
+
+| alpha > | 0 | 128 | 200 | 254 |
+|---|---|---|---|---|
+| fraction | 0.8094 | **0.7854** | 0.7671 | 0.7527 |
+
+§10.3 therefore asserts a tolerance band around π/4 at the 50 % cutoff, never a bare fraction.
 
 Also: `CornerRadius(-1)` throws `ArgumentException`; `double.MaxValue / 4` renders without
 throwing.
@@ -201,7 +210,8 @@ it to a rectangle silently yields an ellipse. §5 decision 3 names it `CornerRad
 | font file | `SEGOEUI.TTF` | `SEGUIVAR.TTF` |
 | reported family / face | Segoe UI / Normal | Segoe UI Variable / **Text** |
 | version | 5.71 | 2.03 |
-| glyph count | 5394 | 2530 |
+| glyph count (`GlyphTypeface.GlyphCount`) | 5394 | 2530 |
+| mapped characters (`CharacterToGlyphMap.Count`) | 3996 | 2417 |
 
 It is genuinely rendered, not silently substituted: **29–72 % of inked pixels differ** across
 five strings at 9–34px, against **95.6 %** for a true control (Segoe UI vs Arial).
@@ -214,8 +224,24 @@ families, which §8.5's clip arithmetic uses.
 only.
 
 WPF also honours a comma-separated fallback list: `"Not A Real Font, Segoe UI"` resolves to
-Segoe UI. An unresolvable *single* name falls back to **Arial**, not to the system font — which
-is why declaring the chain has value.
+Segoe UI.
+
+**What an unresolvable *single* name does is genuinely undefined, and that is the point.** Measured
+three ways, which disagree:
+
+- `Typeface.TryGetGlyphTypeface` returns **False** — no glyph face resolves at all.
+- `FontFamily.FamilyNames` reports **Arial**.
+- Rendering at a fixed origin is pixel-identical to **nothing**: vs Arial 590 differing px,
+  vs Segoe UI 535, vs Segoe UI Variable Text 631, vs Tahoma 651, for one 14px string.
+  `SystemFonts.MessageFontFamily` is Segoe UI on this machine, but the render does not match it
+  either.
+
+An earlier draft of this spec claimed the fallback "is Arial", generalising the `FamilyNames`
+reading into a rendering claim it had not tested. A reviewer then claimed it is Segoe UI, on the
+grounds that 535 is the smallest of the four — unsound by the same standard, since 535 is not 0.
+The defensible statement is that WPF composites a fallback matching no single installed face, so
+**the degradation path is undefined rather than merely surprising.** That is a stronger reason to
+declare the chain than the original claim was.
 
 ### 4.3 The glyph-coverage drop costs nothing
 
@@ -238,7 +264,7 @@ cannot affect them either way. See §7.4.
 | 5 | Theme-varying or invariant | **Theme-varying, on `ITheme`** | Extends the precedent `ITheme`'s own doc comment sets out. All three themes declare identical values today; the mechanism exists so a future `Contrast` revision can change geometry without touching a single overlay. Consequence in §11. |
 | 6 | Contrast's values | **Identical to the others** | No measurement says high contrast wants different geometry, and `Contrast`'s structural claim is already carried by `BorderThicknessStandard = 2` and a 21:1 border. Changing an accessibility theme on aesthetic reasoning alone would be unjustified. |
 | 7 | Where the validator checks them | **Gate 1's non-colour tail** | Follows the existing placement of `BorderThicknessStandard`. Keeps "ten gates" true across the spec, the style guide and test comments — no doc churn for a numbering change. |
-| 8 | Font family value | **`"Segoe UI Variable Text, Segoe UI"`** | §4.2 verifies it resolves, renders differently, and is metrically identical, so it is a zero-risk change. The chain declares the degradation path, which matters because §4.2 shows the bare-name fallback is Arial. |
+| 8 | Font family value | **`"Segoe UI Variable Text, Segoe UI"`** | §4.2 verifies it resolves, renders differently, and is metrically identical, so it is a zero-risk change. The chain pins Segoe UI as the fallback explicitly, which matters because §4.2 shows an unresolvable bare name produces a composite matching no single installed face — an undefined degradation path, not a predictable one. |
 | 9 | Typography depth | **Family + weights + a real size ramp + a glyph-ratio rule** | A family-only pass would leave 17 sizes fragmented and simply re-create the deferral this document exists to close. |
 | 10 | Slicing | **One combined spec and plan** | Chosen over splitting geometry from the type ramp. The trade-off is recorded in §11: the plan mixes provably-safe mechanical edits with changes that needed measurement to justify. |
 
@@ -303,7 +329,14 @@ Today it reflects over `SolidColorBrush` properties and hard-codes the thickness
 publish **every `ITheme` property except `Name`** under its own property name, still by
 reflection, plus the two existing thickness keys which are not `ITheme` properties. This preserves
 the property the current doc comment claims — a token added to the interface cannot be forgotten
-here — which hard-coding 18 new keys would quietly break.
+here — which hard-coding 17 new keys would quietly break.
+
+**Exclude `Name` by name, not by type.** `FontFamilyStandard` is also a `string` on `ITheme`, so a
+type-based filter would drop it. And note which key carries which type, because two are easy to
+confuse: `FontFamilyStandard` is published by the applier as the **raw string**, while the derived
+`FontFamily` object reaches XAML as **`FontStandard`** via `{x:Static}` in `OverlayStyles.xaml`.
+A consumer writing `{StaticResource FontFamilyStandard}` where it wants a `FontFamily` would get a
+`string`. The plan must assert both keys and both types in `TokenDictionaryTests`.
 
 ### 6.5 No markup extension is needed, and the resulting inconsistency
 
@@ -311,6 +344,15 @@ here — which hard-coding 18 new keys would quietly break.
 `ITheme`, leaving XAML with only a `double` it cannot convert. The radii do not have that problem:
 their derived `CornerRadius` values are `Tokens` members, so a plain `<x:Static>` reads them —
 the same mechanism `BrushAccentDim10` already uses.
+
+**This was verified, not reasoned about.** `CornerRadius` is a struct, exactly like `Thickness`,
+so the analogy with the reference-type `BrushAccentDim10` was not sufficient evidence. A probe
+built a `ResourceDictionary` containing `<x:Static x:Key="StandardCornerRadius" Member="…"/>` and
+the `FontFamily` equivalent, then loaded a root element via `XamlReader.Load` binding
+`Border.CornerRadius="{StaticResource StandardCornerRadius}"` and
+`TextBlock.FontFamily="{StaticResource FontStandard}"`. Both resolved — `8,8,8,8` and
+`"Segoe UI Variable Text, Segoe UI"` — with no throw, while the `Thickness`-from-`double` case
+stayed a raw `double` as its own doc comment records. §10.1 covers both keys permanently.
 
 This leaves **two different derivation styles in one dictionary**, which is a genuine
 inconsistency and is recorded here rather than left for a reviewer to find. The thickness path is
@@ -381,11 +423,11 @@ and several of those containers change size at runtime. `ToolbarWindow` already 
 treatment with `_buttonSize * ButtonSymbolSizeRatio`. Snapping those onto a text ramp would resize
 icons relative to the boxes they sit in — a visible regression, and backwards.
 
-So the work splits: **46 text sites** take the ramp in §8.4, **16 container-proportional sites**
+So the work splits: **45 text sites** take the ramp in §8.4, **17 container-proportional sites**
 take the ratio rule in §8.5, and **4 dead consts** are deleted per §8.7. Appendix A classifies
 every site individually and reconciles to 66 rows.
 
-### 8.4 The text ramp — 46 sites
+### 8.4 The text ramp — 45 sites
 
 **Five tokens, with a 12px floor.** A deliberate **6px gap between 18 and 24**: a scale whose steps
 are 2px apart is a list, not a scale, and reproducing 14/16/18 as three tokens would have the guard
@@ -395,11 +437,11 @@ enforce the fragmentation this document exists to remove.
 |---|---|---|---|---|
 | `FontSizeBody` | 12 | 9, 10, 11, 12, 13 | 22 | **9→12 raises 6; 10→12 raises 6; 11→12 raises 3**; 13→12 lowers 1; 12 unchanged at 6 |
 | `FontSizeBodyLarge` | 14 | 14 | 3 | unchanged |
-| `FontSizeSubtitle` | 18 | 16, 18 | 6 | 16→18 raises 3; 18 unchanged at 3 |
+| `FontSizeSubtitle` | 18 | 16, 18 | 5 | 16→18 raises 2; 18 unchanged at 3 |
 | `FontSizeTitle` | 24 | 22, 24 | 12 | 22→24 raises 7; 24 unchanged at 5 |
 | `FontSizeDisplay` | 34 | 32, 34, 36 | 3 | 32→34 raises 1; 36→34 lowers 1; 34 unchanged at 1 |
 
-Totals: **26 sites grow, 2 shrink, 18 unchanged** — 46. Largest movement is **+3px** (9→12).
+Totals: **25 sites grow, 2 shrink, 18 unchanged** — 45. Largest movement is **+3px** (9→12).
 
 **Why the floor is 12 and not 10.** A 10px floor was the first proposal, and it merely consolidated:
 `9 → 10` raised six sites by a pixel. **12 is a legibility decision, not a consolidation** — the
@@ -413,9 +455,9 @@ cannot tell them apart and nothing stops them drifting. The ramp is five steps.
 
 The cost is one layout change, to the one fixed-size window in the app — see §8.6 and §2.
 
-### 8.5 The container-ratio rule — 16 sites
+### 8.5 The container-ratio rule — 17 sites
 
-A `ContainerRatio` static class in `EyeCtrl.Controls` holds four ratios. **Named for containers,
+A `ContainerRatio` static class in `EyeCtrl.Controls` holds five ratios. **Named for containers,
 not glyphs**, because the rule covers keyboard letters and prediction words as well as icons —
 "glyph" would be inaccurate for those.
 
@@ -424,6 +466,7 @@ the rule describes practice rather than inventing one:
 
 | Ratio | Value | Observed ratios it covers |
 |---|---|---|
+| `Badge` | 0.60 | 0.615 — a glyph in a circular badge under ~32px, where 0.45 would be illegible |
 | `Dominant` | 0.45 | 0.455 — the glyph *is* the control |
 | `Large` | 0.40 | 0.400, 0.375 — includes today's `ButtonSymbolSizeRatio = 0.4` verbatim |
 | `Medium` | 0.32 | 0.344, 0.343, 0.314, 0.300 |
@@ -433,6 +476,7 @@ Per-site results:
 
 | Site | Container | Ratio | Today → New |
 |---|---|---|---|
+| `DragTrailOverlay.xaml.cs:177` ✊/✋ | 26 (`CreateButtonBg` ellipse) | `Badge` | 16 → 15.6 |
 | `QuickActionsGridWindow.xaml:26` ✕ | 44 (fixed) | `Dominant` | 20 → 19.8 |
 | `ToolbarWindow.xaml.cs:70` | 80 (setting) | `Large` | already 0.4 — **no change** |
 | `ToolbarWindow.xaml.cs:113` | 80 (setting) | `Large` | already 0.4 — **no change** |
@@ -463,24 +507,47 @@ Two mechanical notes:
   the *same small letters*. Under the ratio rule the labels scale with the setting. This is the
   one accessibility improvement in the typography half beyond `9 → 10`.
 
-**Three sites that look like glyphs but take the ramp**, because they have no container to be a
-ratio of: `CalibrationWindow.xaml:36` (✓ at 32, centred in a full-screen overlay) →
-`Display`; `DragTrailOverlay.xaml.cs:177` (`CreateIcon`, 16, no size set) → `Subtitle`, a +2px
-growth flagged in §8.6; `KeyboardWindow.xaml.cs:545` (modifier indicator, 12) → `Body`,
-unchanged. Forcing a ratio where there is no container would mean inventing one.
+**`DragTrailOverlay` earned the fifth ratio, and finding it caught a latent bug.** An earlier
+draft classified `CreateIcon` (`:177`) as text on the grounds that it sets no size — which is true
+of the `TextBlock` but false of the layout. `PositionButton` (`:195-199`) centres the icon and the
+26×26 `CreateButtonBg` ellipse on the *same* logical point:
+
+```csharp
+Canvas.SetLeft(bg,   logicalPos.X - 13);   // half of 26
+Canvas.SetLeft(icon, logicalPos.X - 8);    // half of 16 — the font size, hard-coded
+```
+
+So the icon **is** bounded, at 16/26 = 0.615, and the ramp would have grown it to 18 inside a 26px
+circle. Worse, the `-8` offset is half the font size written as a literal: any size change
+**silently de-centres the glyph**, by 1px in each axis at 18. That is a defect the ramp would have
+introduced and no test would have caught.
+
+Under `Badge` the size becomes 15.6 (−0.4px) and **`PositionButton` must derive its offset from the
+icon's measured size rather than the literal `-8`**, which removes the latent de-centring as well.
+This site therefore leaves §8.6's flag list entirely.
+
+**Two sites genuinely have no container and take the ramp:**
+`CalibrationWindow.xaml:36` (✓ at 32, centred in a full-screen overlay) → `Display`, and
+`KeyboardWindow.xaml.cs:545` (modifier indicator at 12, in an auto-sizing `Border` with no
+Width/Height) → `Body`, unchanged. Forcing a ratio where nothing bounds the glyph would mean
+inventing a container.
 
 ### 8.6 Clip analysis
 
 The family swap needs no analysis: §4.2 measured identical advance widths and line heights, so no
-string's box changes. Size growth does. Using the measured **1.33 × font size** line height
-against container sizes read from source:
+string's box changes. Size growth does.
+
+**The line-height model is `1.33 × font size`, and it was verified against the right API.** The
+ratio was first taken from `FormattedText.Height`, which is not what WPF uses to lay out a
+`TextBlock`. A reviewer re-measured `TextBlock.DesiredSize.Height` after
+`Measure(new Size(∞, ∞))` at 9/10/11/12/13/14/18/24/34 px and got exactly **1.3300** at every
+size, so the two agree and every verdict below stands on the layout API rather than a proxy for it.
 
 | Site | Container | Change | Line height | Verdict |
 |---|---|---|---|---|
 | **`TrackStatusWindow` — 6 sites** | **fixed 160×110**, `Padding="8"`, `ResizeMode="NoResize"` | 10 → 12 | 13.30 → 15.96 | **✗ Overflows by 1.88px.** Resolved by the window-height change below — the one scoped layout exception. |
 | `NoteWindow.xaml.cs:87` "PINNED NOTE" | title bar `Height = 24`, `Margin(8,4,0,0)` | 10 → 12 | 13.30 → 15.96 | Safe. 15.96 + 4 = 19.96 in 24 — 4.04 slack. |
-| `EyeCareBannerWindow.xaml:32,39` "snooze"/"start" | 64×64 grid in a fixed 80px strip, `Margin="0,0,0,-16"` | 9 → 12 | 11.97 → 15.96 | **⚠ Flagged.** Already hangs below its grid on a negative margin; now grows 3.99px further, not the 1.33 a 10px floor implied. `Border` does not clip by default so it renders rather than truncates, but this is the site the 12px floor stresses most. Needs visual confirmation. |
-| `DragTrailOverlay.xaml.cs:177` `CreateIcon` | none — no size set | 16 → 18 | 21.28 → 23.94 | **⚠ Flagged.** A gaze-drag affordance grows 2px. Needs visual confirmation; falls back to `BodyLarge` (14) if it reads too heavy. |
+| `EyeCareBannerWindow.xaml:32,39` "snooze"/"start" | 64×64 grid in a fixed 80px strip, `Margin="0,0,0,-16"` | 9 → 12 | 11.97 → 15.96 | **⚠ Flagged — the one site the 12px floor genuinely stresses.** See the arithmetic below. |
 | `CalibrationWindow.xaml:46,61` hints | centred, full-screen overlay | 11 → 12 | 14.63 → 15.96 | Safe — unbounded. |
 | `EyeCareBannerWindow.xaml:24` subtitle | in the 80px strip | 11 → 12 | 14.63 → 15.96 | Safe. Two-line stack ≈ 40px in 80px. |
 | `EyeCareBannerWindow.xaml:22` message | vertically centred in the 80px strip | 16 → 18 | 21.28 → 23.94 | Safe, per the same stack. |
@@ -517,7 +584,28 @@ size by shrinking a diagnostic the user reads to check tracker position).
 Horizontal fit is unaffected: "Quality: Unknown" measures 78.18px at 10 and 93.82 at 12, against
 144px available.
 
-**Two flagged sites** remain, both needing visual confirmation during implementation rather than a
+#### The remaining flag: `EyeCareBannerWindow`'s "snooze"/"start" labels
+
+These sit in a 64×64 `Grid` whose `Ellipse` fills it, with
+`VerticalAlignment="Bottom" Margin="0,0,0,-16"` — so the label's *bottom* is pinned 16px below the
+grid, and growing the font pushes its *top* upward, toward the ring:
+
+| Size | Label box height | Gap between ring bottom and label box top |
+|---|---|---|
+| 9 (today) | 11.97 | 16 − 11.97 = **4.03px** |
+| 12 | 15.96 | 16 − 15.96 = **0.04px** |
+
+The box top effectively grazes the ring. The *visible* gap is larger than that, because a Segoe UI
+box carries internal leading above the cap height — roughly 3px at 12px — so the glyph tops should
+still clear the ring. **That margin is too thin to settle by arithmetic**, which is why this is the
+one site flagged for a look rather than declared safe.
+
+If it does collide, the resolution is **not** a second layout exception. The options, in order:
+give these two labels `FontSizeBody` with the ring's own `ContainerRatio` instead (they are inside
+a 64px badge, so §8.5's rule already applies to them), or accept the contact. Changing the `-16`
+would be a second layout edit and §2 forbids it.
+
+**One flagged site** remains, needing visual confirmation during implementation rather than a
 layout change. Where a flagged site does not fit, **the token assignment changes** — no further
 padding or control-size edits, per §2.
 
@@ -559,8 +647,8 @@ Font sizes and weights are set per element, not inherited, so they migrate site 
 `tools/palette_validate.py`:
 
 1. **`NON_COLOUR_TOKENS`** grows from 1 name to 13: the thickness, 4 radii, 5 font sizes, 2 font
-   weights and the font family. Without this, the token loop at line 295 would try to parse `"8"`
-   as a colour.
+   weights and the font family. Without this, the token dict comprehension at lines 294-295 would
+   try to parse `"8"` as a colour.
 2. **Each of the three theme dicts** gains 12 quoted entries, in the same quoted-string form
    `BorderThicknessStandard` already uses, so `ThemeParityTests.ParseTheme` keeps working
    unchanged.
@@ -610,7 +698,10 @@ the CI subset.
   pixel-identically to `size / 2`.
 - A non-square border at `CornerRadiusCircle` differs from its stadium equivalent, with an opaque
   fraction near π/4 — pinning the *restriction*, so the token's documented limitation is enforced
-  rather than merely written down.
+  rather than merely written down. **Coverage is counted at alpha > 128 and asserted as a band
+  (π/4 ± 0.01), never as a bare fraction** — §4.1 shows the value swings from 0.75 to 0.81 with the
+  threshold alone, so a hard-coded fraction would encode the measurement method as if it were the
+  behaviour.
 - The real 44×44 `CloseButton` in `QuickActionsGridWindow.xaml`, loaded via pack URI, has
   `Width == Height` and carries the token. This is what stops a future resize silently turning
   the circle into an ellipse.
@@ -636,6 +727,13 @@ So this guard inverts the test. It finds **every** occurrence of `CornerRadius`,
 
 Everything else is an offender, including a computed argument. There is no forgotten form, because
 forms are not enumerated.
+
+**The known-token list is derived by reflection over `Tokens` and `ContainerRatio`, never
+hard-coded.** A whitelist's own failure mode is its allow-list going stale: a hard-coded list of
+member names would silently start rejecting a newly added token, or keep accepting a renamed one.
+Reflecting over the two static classes means the guard cannot disagree with the token surface it
+guards. (A misspelled `Tokens.` member is a C# compile error, and a misspelled XAML resource key is
+already covered by `OverlayResourceResolutionTests`, so those two holes are shut elsewhere.)
 
 Two further points taken from the existing guard's recorded weaknesses:
 
@@ -686,7 +784,7 @@ the two flagged sites in §8.5 is requested, not assumed.
 
 | Risk | Mitigation |
 |---|---|
-| **112 mechanical edit sites plus one window height** — 30 radii, 46 font sizes, 17 weights, 14 ratio conversions, 1 family literal, 4 const deletions, `TrackStatusWindow.Height`. The largest surface in this codebase's history of style passes. | The whitelist guard makes completeness machine-checked rather than reviewed. An unmigrated site fails the build. |
+| **112 mechanical edit sites plus one window height** — 30 radii, 45 font sizes, 17 weights, 15 ratio conversions, 1 family literal, 4 const deletions, `TrackStatusWindow.Height`. The largest surface in this codebase's history of style passes. | The whitelist guard makes completeness machine-checked rather than reviewed. An unmigrated site fails the build. |
 | **`CornerRadiusCircle` relies on undocumented WPF normalisation.** | §10.3 pins it across sizes and DPIs. A future WPF change breaks a test, not the UI. |
 | **Two flagged clip sites** (§8.5). | Both are identified with the specific measurement needed. Where one does not fit, the token assignment changes — never the layout. |
 | **The type ramp changes what the user reads all day.** | Every move is enumerated in §8.3 with its site count and direction, and the specimens are rendered at true scale in `docs/design/corner-radius-comparison.html` for approval by eye before implementation. |
@@ -749,7 +847,6 @@ grep -rn 'FontSize' --include=*.xaml --include=*.cs src/EyeCtrl.App src/EyeCtrl.
 | 25 | `EyeCtrl.App/Overlays/TaskSwitcherWindow.xaml:35` | 14 | T | `BodyLarge` — |
 | 26 | `EyeCtrl.App/Overlays/CalibrationWindow.xaml:29` | 16 | T | `Subtitle` 18 |
 | 27 | `EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml:22` | 16 | T | `Subtitle` 18 |
-| 28 | `EyeCtrl.App/Overlays/DragTrailOverlay.xaml.cs:177` | 16 | T | `Subtitle` 18 ⚠ |
 | 29 | `EyeCtrl.App/Overlays/CalibrationWindow.xaml:40` | 18 | T | `Subtitle` — |
 | 30 | `EyeCtrl.App/Overlays/DriftNoticeWindow.xaml:18` | 18 | T | `Subtitle` — |
 | 31 | `EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml:22` | 18 | T | `Subtitle` — |
@@ -768,6 +865,7 @@ grep -rn 'FontSize' --include=*.xaml --include=*.cs src/EyeCtrl.App src/EyeCtrl.
 | 44 | `EyeCtrl.App/Overlays/CalibrationWindow.xaml:36` | 32 | T | `Display` 34 |
 | 45 | `EyeCtrl.App/Views/SettingsWindow.xaml:23` | 34 | T | `Display` — |
 | 46 | `EyeCtrl.App/Overlays/SplashWindow.xaml:14` | 36 | T | `Display` 34 |
+| 46 | `EyeCtrl.App/Overlays/DragTrailOverlay.xaml.cs:177` | 16 | C | `Badge` × 26 = 15.6 |
 | 47 | `EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml:26` | 20 | C | `Dominant` × 44 = 19.8 |
 | 48 | `EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs:70` | ratio | C | `Large` — already correct |
 | 49 | `EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs:113` | ratio | C | `Large` — already correct |
@@ -789,18 +887,21 @@ grep -rn 'FontSize' --include=*.xaml --include=*.cs src/EyeCtrl.App src/EyeCtrl.
 | 65 | `EyeCtrl.App/Views/SettingsWindow.xaml.cs:38` | 24 | D | deleted |
 | 66 | `EyeCtrl.App/Views/SettingsWindow.xaml.cs:42` | 30 | D | deleted |
 
-**Totals: 46 T, 16 C, 4 D = 66 rows.** ⚠ marks the three clip-flagged sites from §8.6 (the
-`EyeCareBannerWindow` pair counts as two).
+**Totals: 45 T, 17 C, 4 D = 66 rows.** ⚠ marks the two clip-flagged rows from §8.6 — the
+`EyeCareBannerWindow` pair.
+
+Row numbering is not contiguous after the review moved `DragTrailOverlay.xaml.cs:177` from T to C;
+the row count is what reconciles, not the ordinals.
 
 **Reconciliation with the raw grep's 68 occurrences.** 66 rows + `DwellArcButton.cs:41` and `:115`,
 which are the parameter default and its use — the mechanism for row 62's const, not separate sites.
 Within the 66: 60 rows carry a live literal value, 4 are the dead consts, and 2 (rows 48–49) are
 `ToolbarWindow`'s already-correct ratios.
 
-**Edit count.** All 46 T rows need an edit even where the value is unchanged, because a literal
-must become a token for the guard to pass. Of the 16 C rows, rows 48–49 already read a ratio and
-need none, giving 14. Plus 4 deletions. That is the **46 / 14 / 4** in §2's scope table, and the
-46 T reconciles with §8.4's per-token sum (22 + 3 + 6 + 12 + 3).
+**Edit count.** All 45 T rows need an edit even where the value is unchanged, because a literal
+must become a token for the guard to pass. Of the 17 C rows, `ToolbarWindow.xaml.cs:70` and `:113`
+already read a ratio and need none, giving 15. Plus 4 deletions. That is the **45 / 15 / 4** in §2's
+scope table, and the 45 T reconciles with §8.4's per-token sum (22 + 3 + 5 + 12 + 3).
 
 ---
 
@@ -829,8 +930,89 @@ size by shrinking a tracking diagnostic the user reads to check head position).
 1. **`Segoe UI Variable Text`** was chosen from a description. §4.2 proves it is a metrically
    identical drop-in that cannot clip anything, but it changes every glyph in the application.
    The specimens are rendered at true scale in §9 of
-   `docs/design/corner-radius-comparison.html` — worth looking at before 46 text sites move.
+   `docs/design/corner-radius-comparison.html` — worth looking at before 45 text sites move.
 2. **The two ⚠ sites in §8.6** — `EyeCareBannerWindow`'s "snooze"/"start" labels, which already
    hang below their grid on a negative margin and now grow 3.99px further, and
    `DragTrailOverlay`'s icon at 16 → 18. Both need a look during implementation. Neither is
    resolved by a layout change: if a site does not fit, its token assignment changes.
+
+---
+
+## 15. Review Round 1 — What Changed
+
+An independent reviewer verified this spec against source with their own headless WPF probe. Their
+report is summarised here because two of my claims were wrong, one of their corrections was also
+wrong, and one of their observations found a defect this spec would have introduced.
+
+### Confirmed, and worth stating because they were the load-bearing risks
+
+- **§6.5's `<x:Static>` mechanism.** Verified by probe: a `CornerRadius` struct and a `FontFamily`
+  both resolve through `{StaticResource}` from a `ResourceDictionary`. This was the one thing I had
+  argued by analogy rather than tested, and I flagged it as Priority 1 for exactly that reason. It
+  holds — **no `UniformCornerRadiusExtension` is needed.**
+- **§8.6's `TrackStatusWindow` arithmetic**, re-derived independently: four `StackPanel` children
+  and no fifth, no `BorderThickness` on the `Border`, 95.88 total against 94 available, 4.12px slack
+  at 116. The layout exception is justified.
+- **The 1.33× line-height model**, re-measured against `TextBlock.DesiredSize.Height` rather than
+  the `FormattedText.Height` proxy I used. Exactly 1.3300 at every size tested — so §8.6 now rests
+  on the layout API, not a stand-in for it.
+- **All inventories and reconciliations**: 30 radius literals, 68 `FontSize` occurrences over 16
+  values, 17 `FontWeight`, the four dead consts, and every arithmetic sum.
+- **§1's "radius cannot affect targeting"**, traced to `DwellTarget.cs:13-15` and `:91-98`
+  (`DistanceSquaredTo(Center) <= Radius²`), and **§3.4's 25 `OverlayWindow` subclasses.**
+
+### Corrected — two of my claims were wrong
+
+1. **The font-fallback claim (§4.2, §5 decision 8).** I wrote that an unresolvable family name
+   "falls back to Arial", generalising a `FontFamily.FamilyNames` reading into a rendering claim I
+   never tested. The reviewer countered that the fallback is Segoe UI, because their pixel diff
+   against Segoe UI was the smallest of four candidates. **Both are wrong.** Re-measured at a fixed
+   origin, the unresolvable family is pixel-identical to *nothing* — Arial 590, Segoe UI 535,
+   Variable Text 631, Tahoma 651 differing pixels — and `TryGetGlyphTypeface` returns `False`. 535
+   is not 0, so "closest wins" fails by the same standard my claim did. §4.2 now states all three
+   disagreeing measurements and concludes the degradation path is **undefined**, which is a better
+   reason to declare the chain than the original claim was.
+2. **§4.1's non-square opaque fractions.** My 0.7671 and the reviewer's 0.8094 are both correct —
+   for different alpha cutoffs, neither of which either of us stated. At the 50 % cutoff the value
+   is **0.7854, exactly π/4**. §4.1 now publishes that figure with the threshold and a sensitivity
+   table, and §10.3 asserts a band rather than a fraction.
+
+### Not a discrepancy
+
+The reviewer measured 3996 / 2417 "glyphs" against my 5394 / 2530. Different APIs:
+`GlyphTypeface.GlyphCount` versus `CharacterToGlyphMap.Count`. Both are now in §4.2's table,
+labelled.
+
+### The finding that changed the design
+
+**`DragTrailOverlay.xaml.cs:177` was misclassified, and the ramp would have introduced a bug.** I
+called it text because its `TextBlock` sets no size. The reviewer noticed the adjacent 26×26
+`CreateButtonBg` ellipse. `PositionButton` centres both on the same point — `bg` at `pos − 13`,
+`icon` at `pos − 8` — so the icon *is* bounded at 16/26 = 0.615, and `-8` is **half the font size
+written as a literal**. Growing it to 18 would have put an 18px glyph in a 26px circle *and*
+de-centred it by 1px in each axis, silently, with no test able to catch it.
+
+Consequences: a fifth ratio `ContainerRatio.Badge = 0.60`; the site moves from the ramp to §8.5 at
+15.6px; `PositionButton` must derive its offset from the measured icon size; and the site leaves
+§8.6's flag list. Counts shift to **45 T / 17 C / 4 D**, and `FontSizeSubtitle` drops to 5 sites.
+
+This is the strongest argument in the review for a per-site classification appendix: the error was
+invisible at the level of "a fifth of sites are container-proportional" and only surfaced when one
+row was checked against its layout code.
+
+### Adopted from the review
+
+- **§10.4's whitelist derives its known-token list by reflection** over `Tokens` and
+  `ContainerRatio` rather than hard-coding member names. The reviewer's point stands: a whitelist's
+  own failure mode is a stale allow-list, and reflection means the guard cannot disagree with the
+  surface it guards.
+- **§6.4 now records the key-versus-type trap** they spotted: `FontFamilyStandard` publishes a raw
+  `string`, while the derived `FontFamily` reaches XAML as `FontStandard`. Both get asserted.
+- **§9's line reference** corrected to the 294-295 dict comprehension.
+
+### Still open
+
+`EyeCareBannerWindow`'s "snooze"/"start" labels remain the single flagged site, now with the
+arithmetic in §8.6: the label box top goes from 4.03px clear of the ring to 0.04px. Internal
+leading should keep the glyph tops clear, but that is too thin to settle on paper. The `Segoe UI
+Variable Text` specimens also still want a look before implementation.

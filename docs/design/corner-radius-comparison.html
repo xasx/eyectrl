@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EyeCtrl — Corner-radius decision aid</title>
+<style>
+  :root {
+    --surface-dark:   #1A1A2E;
+    --surface-medium: #2A2A44;
+    --surface-light:  #3A3A5E;
+    --surface-key:    #2A2A3E;
+    --surface-key-mod:#3E3E64;
+    --surface-key-sw: #38527F;
+    --surface-pred:   #2F5340;
+    --border-subtle:  #616BA0;
+    --text-primary:   #D6DEF5;
+    --text-secondary: #9AA4C8;
+    --text-dim:       #868FB5;
+    --accent:         #A5F3FC;
+    --success:        #7EE787;
+    --warning:        #E8A33C;
+    --danger:         #FF5C7A;
+    --page:           #12121F;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 80px;
+    background: var(--page); color: var(--text-primary);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+  header { border-bottom: 1px solid var(--border-subtle); padding: 34px 0 22px; margin-bottom: 30px; }
+  h1 { font-size: 25px; margin: 0 0 6px; font-weight: 600; }
+  h2 { font-size: 18px; margin: 46px 0 4px; font-weight: 600; }
+  h2 .tag { font-size: 11px; font-weight: 400; color: var(--text-dim);
+            border: 1px solid var(--border-subtle); border-radius: 3px;
+            padding: 2px 7px; margin-left: 10px; vertical-align: middle; }
+  h3 { font-size: 14px; margin: 26px 0 8px; font-weight: 600; color: var(--text-secondary); }
+  p  { max-width: 96ch; color: var(--text-secondary); margin: 8px 0; }
+  p strong, li strong { color: var(--text-primary); }
+  code { font-family: 'Cascadia Code','Consolas',monospace; color: var(--accent); font-size: .92em; }
+  .lede { color: var(--text-secondary); max-width: 96ch; }
+  .note { border-left: 3px solid var(--accent); background: #1A1A2E80;
+          padding: 11px 16px; margin: 16px 0; color: var(--text-secondary); max-width: 104ch; }
+  .warn { border-left-color: var(--warning); }
+  .bad  { border-left-color: var(--danger); }
+
+  table { border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 14px 6px 0; border-bottom: 1px solid #2A2A44; }
+  th { color: var(--text-dim); font-weight: 600; font-size: 11.5px;
+       text-transform: uppercase; letter-spacing: .04em; }
+  td.n { font-family: 'Cascadia Code','Consolas',monospace; }
+
+  /* side-by-side comparison frame */
+  .pair { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; margin: 14px 0 4px; }
+  .cell { background: var(--page); border: 1px solid #2A2A44; border-radius: 6px; padding: 16px; }
+  .cell > .cap { font-family: 'Cascadia Code','Consolas',monospace; font-size: 11px;
+                 color: var(--text-dim); margin-bottom: 12px; letter-spacing: .02em; }
+  .cell.now  > .cap::before { content: "TODAY  "; color: var(--text-secondary); }
+  .cell.next > .cap::before { content: "PROPOSED  "; color: var(--accent); }
+  .cell.broken > .cap::before { content: "BREAKS  "; color: var(--danger); }
+
+  /* faithful mock parts — sizes are the real WPF values (device-independent px) */
+  .kbd-shell { background: var(--surface-dark); border: 1px solid var(--border-subtle);
+               padding: 8px; display: inline-block; }
+  .kbd-row { display: flex; }
+  .key { width: 70px; height: 70px; margin: 2px; background: var(--surface-key);
+         display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .key.mod { background: var(--surface-key-mod); }
+  .key.sw  { background: var(--surface-key-sw); }
+  .key.wide { width: 144px; }
+  .pred { height: 70px; min-width: 120px; margin: 3px; padding: 0 16px;
+          background: var(--surface-pred); display: flex; align-items: center;
+          justify-content: center; font-size: 16px; }
+
+  .tile { width: 120px; height: 120px; margin: 4px; background: var(--surface-medium);
+          border: 1px solid var(--border-subtle); display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 4px; }
+  .tile .ico { font-size: 28px; }
+  .tile .lbl { font-size: 14px; }
+  .swatch { width: 90px; height: 75px; margin: 4px; border: 3px solid transparent; }
+  .swatch.sel { border-color: var(--text-primary); }
+
+  .combo-opt { margin: 0 8px 8px 0; border: 1px solid #4a5a8a; display: inline-block; }
+  .combo-btn { min-width: 150px; height: 70px; padding: 0 20px; background: var(--surface-medium);
+               display: flex; align-items: center; justify-content: center; font-size: 22px; }
+
+  .care-card { background: var(--surface-light); border: 1px solid var(--border-subtle);
+               padding: 18px 28px; display: inline-flex; flex-direction: column; align-items: center; }
+  .care-card .t { font-size: 13px; color: var(--success); margin-bottom: 6px; }
+  .care-card .n { font-size: 12px; margin-bottom: 12px; }
+  .care-card .stats { display: flex; gap: 18px; }
+  .care-card .stat { text-align: center; }
+  .care-card .stat b { font-size: 22px; color: var(--accent); display: block; font-weight: 700; }
+  .care-card .stat span { font-size: 9px; color: var(--text-dim); }
+
+  .hl-backdrop { width: 300px; padding: 18px; background: #E8E8EC; }
+  .hl-fake-btn { height: 30px; background: #fff; border: 1px solid #b9b9c4;
+                 border-radius: 3px; color: #333; font-size: 12px;
+                 display: flex; align-items: center; padding: 0 10px; width: 132px; }
+  .hl-ring { border: 3px solid var(--accent); box-shadow: 0 0 0 2px #0A0A14;
+             width: 140px; height: 38px; }
+  .hl-ring.sm { width: 26px; height: 26px; }
+
+  .close-btn { width: 44px; height: 44px; background: var(--surface-medium);
+               border: 1px solid var(--border-subtle); display: flex;
+               align-items: center; justify-content: center; font-size: 20px; }
+
+  .note-win { width: 280px; background: var(--surface-dark); border: 1px solid var(--border-subtle);
+              overflow: hidden; }
+  .note-bar { height: 24px; background: var(--surface-medium); font-size: 10px;
+              color: var(--text-secondary); padding: 4px 0 0 8px; }
+  .note-body { height: 96px; padding: 10px; font-size: 12px; color: var(--text-dim); }
+
+  .toolbar { background: var(--surface-dark); border: 1px solid var(--border-subtle);
+             padding: 4px; display: inline-flex; }
+  .tb-btn { width: 80px; height: 80px; margin: 4px; background: var(--surface-medium);
+            display: flex; align-items: center; justify-content: center; font-size: 34px; }
+
+  .dwell-btn { width: 100px; height: 80px; background: var(--surface-medium);
+               display: flex; align-items: center; justify-content: center; font-size: 22px;
+               margin-right: 8px; }
+  .dwell-tog { height: 80px; padding: 0 20px; background: #4A8F5C;
+               display: inline-flex; align-items: center; font-size: 22px; font-weight: 600; }
+
+  .ck { list-style: none; padding-left: 0; max-width: 100ch; }
+  .ck li { border-left: 2px solid var(--surface-light); padding: 4px 0 4px 14px; margin-bottom: 14px;
+           color: var(--text-secondary); }
+  .ck li b { color: var(--text-primary); }
+  .zoom { display: inline-block; transform: scale(3); transform-origin: top left;
+          image-rendering: pixelated; }
+  .zoombox { height: 170px; width: 250px; overflow: hidden; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Corner-radius unification — decision aid</h1>
+  <p class="lede">
+    Every mock below is drawn at the <strong>real size taken from source</strong> (device-independent
+    pixels, so view at 100&nbsp;% browser zoom for true scale) using the Midnight palette. Alpha is
+    dropped — the two <code>0xFA</code> surfaces are shown opaque — because this page is about
+    geometry, not contrast. Purpose: decide the four open questions
+    <code>overlay-unification-spec.md</code> §8 left open, before any XAML is touched.
+  </p>
+  <p class="lede">
+    <strong>Radius is purely cosmetic in this app.</strong> Gaze targets are registered as a
+    centre point plus a physical radius (<code>DwellTarget</code>), not as the
+    <code>Border</code>'s geometry — so no value on this page can change how easy anything is to
+    hit. That removes the accessibility risk from the decision and leaves it a visual one.
+  </p>
+</header>
+
+<h2>0. What is in use today <span class="tag">verified on this branch</span></h2>
+<p>31 hard-coded sites across <code>src/EyeCtrl.App</code> and <code>src/EyeCtrl.Controls</code>,
+seven distinct values. The proposal collapses them to three plus a pill rule.</p>
+
+<table>
+  <tr><th>Today</th><th>Sites</th><th>Where</th><th>Proposed</th></tr>
+  <tr><td class="n">2</td><td class="n">1</td><td>TargetHighlight ring</td><td class="n">4 &nbsp;<span style="color:var(--text-dim)">Small</span></td></tr>
+  <tr><td class="n">4</td><td class="n">4</td><td>Toolbar shell + buttons, DwellFeedback bar</td><td class="n">4 &nbsp;<span style="color:var(--text-dim)">Small — unchanged</span></td></tr>
+  <tr><td class="n">6</td><td class="n">11</td><td>keys, prediction chips, emoji cells, tiles, swatches, combo wrapper, note, drift notice</td><td class="n">8 &nbsp;<span style="color:var(--text-dim)">Standard</span></td></tr>
+  <tr><td class="n">8</td><td class="n">11</td><td>container roots, DwellButton, DwellToggle, emoji skin-tone, Settings cards</td><td class="n">8 &nbsp;<span style="color:var(--text-dim)">Standard — unchanged</span></td></tr>
+  <tr><td class="n">12</td><td class="n">2</td><td>Splash, Settings modal card</td><td class="n">12 &nbsp;<span style="color:var(--text-dim)">Large — unchanged</span></td></tr>
+  <tr><td class="n">14</td><td class="n">1</td><td>EyeCare summary card</td><td class="n">12 &nbsp;<span style="color:var(--text-dim)">Large</span></td></tr>
+  <tr><td class="n">22</td><td class="n">1</td><td>QuickActions close button (44×44)</td><td class="n">pill / circle</td></tr>
+</table>
+
+<div class="note">
+  <strong>One site is asymmetric</strong> — <code>NoteWindow.xaml.cs:83</code> uses
+  <code>new CornerRadius(6, 6, 0, 0)</code>, a top-only radius for the note's title bar. A single
+  <code>CornerRadius</code> resource cannot be partially overridden, so §7 below shows what it
+  looks like and what the options are.
+</div>
+
+<h2>1. Key caps — <code>6</code> vs <code>8</code> <span class="tag">the §8 open question</span></h2>
+<p>A 70×70 key (<code>BaseKeySize = 70</code>) with 2px margin, inside the keyboard root
+(<code>CornerRadius="8"</code>, <code>Padding="8"</code>). This is the largest cluster: 11 of 31
+sites move together.</p>
+
+<div class="pair">
+  <div class="cell now">
+    <div class="cap">key 6 · root 8</div>
+    <div class="kbd-shell" style="border-radius:8px">
+      <div class="kbd-row">
+        <div class="key" style="border-radius:6px">Q</div>
+        <div class="key" style="border-radius:6px">W</div>
+        <div class="key" style="border-radius:6px">E</div>
+        <div class="key mod" style="border-radius:6px">⇧</div>
+      </div>
+      <div class="kbd-row">
+        <div class="key sw wide" style="border-radius:6px">ABC</div>
+        <div class="key" style="border-radius:6px">R</div>
+        <div class="key" style="border-radius:6px">T</div>
+      </div>
+      <div class="kbd-row">
+        <div class="pred" style="border-radius:6px">hello</div>
+        <div class="pred" style="border-radius:6px">help</div>
+      </div>
+    </div>
+  </div>
+  <div class="cell next">
+    <div class="cap">key 8 · root 8</div>
+    <div class="kbd-shell" style="border-radius:8px">
+      <div class="kbd-row">
+        <div class="key" style="border-radius:8px">Q</div>
+        <div class="key" style="border-radius:8px">W</div>
+        <div class="key" style="border-radius:8px">E</div>
+        <div class="key mod" style="border-radius:8px">⇧</div>
+      </div>
+      <div class="kbd-row">
+        <div class="key sw wide" style="border-radius:8px">ABC</div>
+        <div class="key" style="border-radius:8px">R</div>
+        <div class="key" style="border-radius:8px">T</div>
+      </div>
+      <div class="kbd-row">
+        <div class="pred" style="border-radius:8px">hello</div>
+        <div class="pred" style="border-radius:8px">help</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>The same corner at 3× so the 2px is actually visible</h3>
+<div class="pair">
+  <div class="cell now"><div class="cap">6</div>
+    <div class="zoombox"><div class="zoom">
+      <div class="key" style="border-radius:6px;margin:0">Q</div>
+    </div></div>
+  </div>
+  <div class="cell next"><div class="cap">8</div>
+    <div class="zoombox"><div class="zoom">
+      <div class="key" style="border-radius:8px;margin:0">Q</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="note warn">
+  <strong>The concentric argument cuts against both.</strong> The usual design rule is
+  <em>child radius = parent radius − padding</em>. The keyboard root is <code>8</code> with
+  <code>Padding="8"</code>, so the geometrically concentric key radius would be <code>0</code>.
+  Neither <code>6</code> nor <code>8</code> is principled here — which is an argument for
+  choosing whichever needs fewer tokens, i.e. <code>8</code>.
+</div>
+
+<h2>2. Tiles, swatches, and the nesting inversion</h2>
+<p>QuickActions tile is 120×120 at <code>6</code>; its container root is <code>8</code>. The
+colour swatch is 90×75 at <code>6</code> — a deliberate override of
+<code>DwellButton</code>'s <code>8</code>.</p>
+
+<div class="pair">
+  <div class="cell now"><div class="cap">tile 6 · swatch 6</div>
+    <div style="display:flex;align-items:flex-start">
+      <div class="tile" style="border-radius:6px"><div class="ico">📋</div><div class="lbl">Paste</div></div>
+      <div>
+        <div class="swatch sel" style="border-radius:6px;background:#A5F3FC"></div>
+        <div class="swatch" style="border-radius:6px;background:#7EE787"></div>
+      </div>
+    </div>
+  </div>
+  <div class="cell next"><div class="cap">tile 8 · swatch 8</div>
+    <div style="display:flex;align-items:flex-start">
+      <div class="tile" style="border-radius:8px"><div class="ico">📋</div><div class="lbl">Paste</div></div>
+      <div>
+        <div class="swatch sel" style="border-radius:8px;background:#A5F3FC"></div>
+        <div class="swatch" style="border-radius:8px;background:#7EE787"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>The inversion worth fixing regardless</h3>
+<p><code>DwellComboBox.cs:140</code> wraps a <code>DwellButton</code> (radius <code>8</code>,
+150×70) in an outer <code>Border</code> of radius <code>6</code> — the wrapper is
+<em>less</em> rounded than its own child, so the child's corner pokes through the parent's.
+Unifying on one value removes this by construction.</p>
+
+<div class="pair">
+  <div class="cell now"><div class="cap">outer 6 wrapping inner 8</div>
+    <div class="combo-opt" style="border-radius:6px">
+      <div class="combo-btn" style="border-radius:8px">Midnight</div>
+    </div>
+  </div>
+  <div class="cell next"><div class="cap">outer 8 · inner 8</div>
+    <div class="combo-opt" style="border-radius:8px">
+      <div class="combo-btn" style="border-radius:8px">Midnight</div>
+    </div>
+  </div>
+</div>
+
+<h2>3. Shared dwell controls stay at <code>8</code> <span class="tag">no change</span></h2>
+<p>§4.2 called <code>4</code> "small inline elements", but <code>DwellButton</code> (100×80) and
+<code>DwellToggle</code> (h 80) are <code>8</code> today and are not small. Shown so the
+<code>4</code> reading can be rejected on sight rather than by argument.</p>
+
+<div class="pair">
+  <div class="cell now"><div class="cap">8 — today, and proposed</div>
+    <div style="display:flex;align-items:center">
+      <div class="dwell-btn" style="border-radius:8px">Reset</div>
+      <div class="dwell-tog" style="border-radius:8px">Auto-hide  ON</div>
+    </div>
+  </div>
+  <div class="cell broken"><div class="cap">4 — if "small inline" were taken literally</div>
+    <div style="display:flex;align-items:center">
+      <div class="dwell-btn" style="border-radius:4px">Reset</div>
+      <div class="dwell-tog" style="border-radius:4px">Auto-hide  ON</div>
+    </div>
+  </div>
+</div>
+
+<h2>4. EyeCare summary card — <code>14</code> vs <code>12</code></h2>
+<p>The one site at <code>14</code>. Auto-sized, <code>Padding="28,18"</code>.</p>
+
+<div class="pair">
+  <div class="cell now"><div class="cap">14</div>
+    <div class="care-card" style="border-radius:14px">
+      <div class="t">✓ Nice work</div><div class="n">Distance focus</div>
+      <div class="stats">
+        <div class="stat"><b>92%</b><span>accuracy</span></div>
+        <div class="stat"><b>18s</b><span>held</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="cell next"><div class="cap">12 — same as Splash and the Settings modal card</div>
+    <div class="care-card" style="border-radius:12px">
+      <div class="t">✓ Nice work</div><div class="n">Distance focus</div>
+      <div class="stats">
+        <div class="stat"><b>92%</b><span>accuracy</span></div>
+        <div class="stat"><b>18s</b><span>held</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>5. Target highlight ring — <code>2</code> vs <code>4</code></h2>
+<p>Drawn over live desktop content, so shown on a light backdrop with its
+<code>StrokeHalo</code>. Size varies with whatever UI element is being highlighted, so both a
+button-sized and a small-icon-sized case are shown — the small case is where a bigger radius
+would show most.</p>
+
+<div class="pair">
+  <div class="cell now"><div class="cap">2</div>
+    <div class="hl-backdrop">
+      <div class="hl-fake-btn">Save as…</div>
+      <div class="hl-ring" style="border-radius:2px;margin-top:-34px;margin-left:-4px"></div>
+      <div style="height:22px"></div>
+      <div class="hl-ring sm" style="border-radius:2px"></div>
+    </div>
+  </div>
+  <div class="cell next"><div class="cap">4</div>
+    <div class="hl-backdrop">
+      <div class="hl-fake-btn">Save as…</div>
+      <div class="hl-ring" style="border-radius:4px;margin-top:-34px;margin-left:-4px"></div>
+      <div style="height:22px"></div>
+      <div class="hl-ring sm" style="border-radius:4px"></div>
+    </div>
+  </div>
+</div>
+<p>Real Windows controls use a 2–4px radius, so either value reads as "a ring around a control".
+<code>4</code> lets the value disappear into the <code>Small</code> token; keeping <code>2</code>
+means a fourth token or a permanent exemption.</p>
+
+<h2>6. The circular close button — why the pill needs its own rule</h2>
+<p><code>QuickActionsGridWindow.xaml:21-24</code>: a 44×44 <code>Border</code> at radius
+<code>22</code>. Exactly half the size, so it is a <strong>circle</strong>, not a pill — the
+name in §8 is loose. Forcing it to <code>8</code> is the one change that genuinely breaks.</p>
+
+<div class="pair">
+  <div class="cell now"><div class="cap">22 on 44×44 — a circle</div>
+    <div class="close-btn" style="border-radius:22px">✕</div>
+  </div>
+  <div class="cell broken"><div class="cap">8 — reads as a square button</div>
+    <div class="close-btn" style="border-radius:8px">✕</div>
+  </div>
+  <div class="cell next"><div class="cap">a large value, clamped by the renderer</div>
+    <div class="close-btn" style="border-radius:9999px">✕</div>
+  </div>
+</div>
+
+<div class="note bad">
+  <strong>The third cell is a claim that needs verifying before it becomes a token.</strong>
+  CSS definitely clamps <code>border-radius: 9999px</code> to half the box, which is why it looks
+  right above — <em>this page is CSS, not WPF</em>. Whether WPF's <code>Border</code> normalises an
+  over-large <code>CornerRadius</code> the same way has not been checked against WPF here, and
+  the spec must not assume it. Three ways to settle it, in the order I'd prefer them:
+  <ol style="color:var(--text-secondary)">
+    <li><strong>Prove it headlessly</strong> — render a 44×44 <code>Border</code> at radius
+      <code>22</code> and at <code>9999</code> to a <code>RenderTargetBitmap</code> on an STA test
+      thread and compare corner pixels. If they match, <code>CornerRadiusPill = 9999</code> becomes
+      a real size-independent token. No window is shown and no input is simulated.</li>
+    <li><strong>Derive it at the site</strong> — the button is a fixed 44px, so
+      <code>22</code> is really <code>44 / 2</code>. Keep the literal and add a guard test that
+      parses the XAML and asserts <code>radius × 2 == Width</code>, so a resize cannot silently
+      leave it wrong.</li>
+    <li><strong>Exempt it</strong> — one documented literal in the guard's <code>Exempt</code>
+      dictionary with the reason "circle, radius is half of a fixed 44px". Cheapest, and honest,
+      but it protects nothing if the size changes.</li>
+  </ol>
+</div>
+
+<h2>7. The asymmetric one — note title bar</h2>
+<p><code>NoteWindow.xaml.cs:83</code>: <code>new CornerRadius(6, 6, 0, 0)</code>. The bar sits at
+the top of a 280px-wide note whose own background border is a symmetric <code>6</code>. Both
+values move together, so the shape is preserved either way; the question is only whether a
+token can express it.</p>
+
+<div class="pair">
+  <div class="cell now"><div class="cap">body 6 · bar (6,6,0,0)</div>
+    <div class="note-win" style="border-radius:6px">
+      <div class="note-bar" style="border-radius:6px 6px 0 0">PINNED NOTE</div>
+      <div class="note-body">Ask about the physio appointment on Thursday.</div>
+    </div>
+  </div>
+  <div class="cell next"><div class="cap">body 8 · bar (8,8,0,0)</div>
+    <div class="note-win" style="border-radius:8px">
+      <div class="note-bar" style="border-radius:8px 8px 0 0">PINNED NOTE</div>
+      <div class="note-body">Ask about the physio appointment on Thursday.</div>
+    </div>
+  </div>
+</div>
+<p>Because this site is C# and not XAML, it can read the token directly —
+<code>new CornerRadius(t, t, 0, 0)</code> where <code>t</code> is the standard token. No new
+resource, no exemption, and the asymmetry stays derived from the one value. The XAML-only
+limitation ("a <code>CornerRadius</code> resource cannot be partially overridden") never
+applies here.</p>
+
+<h2>8. Unchanged for reference — Toolbar at <code>4</code></h2>
+<p>Shell and its 80px buttons both <code>4</code>. The compact edge-docked bar is the case
+<code>Small</code> exists for, and nothing about it changes.</p>
+<div class="pair">
+  <div class="cell now"><div class="cap">4 — today, and proposed</div>
+    <div class="toolbar" style="border-radius:4px">
+      <div class="tb-btn" style="border-radius:4px">⏸</div>
+      <div class="tb-btn" style="border-radius:4px">⊕</div>
+      <div class="tb-btn" style="border-radius:4px">⌨</div>
+      <div class="tb-btn" style="border-radius:4px">⚙</div>
+    </div>
+  </div>
+</div>
+
+<h2 id="type">9. Typography — the family swap <span class="tag">measured, not asserted</span></h2>
+<p>Both families are installed on this machine and both resolve in WPF. Measured with
+<code>FormattedText</code> and <code>RenderTargetBitmap</code> on a headless STA thread:</p>
+
+<table>
+  <tr><th></th><th>Segoe UI</th><th>Segoe UI Variable Text</th></tr>
+  <tr><td>font file</td><td class="n">SEGOEUI.TTF</td><td class="n">SEGUIVAR.TTF</td></tr>
+  <tr><td>reported family / face</td><td class="n">Segoe UI / Normal</td><td class="n">Segoe UI Variable / Text</td></tr>
+  <tr><td>version</td><td class="n">5.71</td><td class="n">2.03</td></tr>
+  <tr><td>glyph count</td><td class="n">5394</td><td class="n">2530</td></tr>
+  <tr><td>advance widths &amp; line height</td><td class="n" colspan="2">identical at 9, 10, 12, 14, 22, 24, 34 px — <strong>0.0 % delta</strong></td></tr>
+  <tr><td>rasterised difference</td><td class="n" colspan="2">29–72 % of inked pixels (control: Segoe UI vs Arial = 95.6 %)</td></tr>
+  <tr><td>app symbols lost</td><td class="n" colspan="2">0 of 36 checked</td></tr>
+</table>
+
+<div class="note">
+  <strong>Metrically identical means this is a true drop-in.</strong> No text can reflow, wrap
+  differently, or clip, because every string occupies exactly the same box. The change is confined
+  to glyph shapes.
+</div>
+
+<div class="note warn">
+  <strong>What the glyph count actually revealed.</strong> 22 of the 36 symbols the UI draws —
+  ⏸ ⊕ ⌨ ⚙ ✓ ✕ ✊ ✋ ▶ ◀ ★ ☐ ☑ ↩ ↺ ↻ ⋯ ⚠ ✦ ◉ ﹢ and the astral emoji — are
+  <em>absent from Segoe UI too</em>. They already render today via WPF's undeclared per-glyph font
+  fallback, so the family token cannot affect them either way. Worth recording as a latent
+  fragility (the toolbar's icons come from whatever font Windows picks), but it is a separate
+  item — a declared symbol-font token — not part of this work.
+</div>
+
+<h3>Specimens at the app's real sizes</h3>
+<p>Left column is what you see today. This page can only show what the browser resolves, which is
+the same two font files WPF loads.</p>
+<div class="pair">
+  <div class="cell now"><div class="cap">Segoe UI</div>
+    <div style="font-family:'Segoe UI'">
+      <div style="font-size:9px">accuracy &middot; steadiness &middot; reaction ms</div>
+      <div style="font-size:10px">PINNED NOTE &middot; Quality: Unknown</div>
+      <div style="font-size:12px">Distance focus — hold your gaze steady</div>
+      <div style="font-size:14px">Paste from clipboard</div>
+      <div style="font-size:18px">Recalibration may help</div>
+      <div style="font-size:22px">Auto-hide&nbsp;&nbsp;ON</div>
+      <div style="font-size:24px;font-weight:600">Gaze &amp; Dwell</div>
+      <div style="font-size:34px;font-weight:700">EyeCtrl Settings</div>
+    </div>
+  </div>
+  <div class="cell next"><div class="cap">Segoe UI Variable Text</div>
+    <div style="font-family:'Segoe UI Variable Text'">
+      <div style="font-size:9px">accuracy &middot; steadiness &middot; reaction ms</div>
+      <div style="font-size:10px">PINNED NOTE &middot; Quality: Unknown</div>
+      <div style="font-size:12px">Distance focus — hold your gaze steady</div>
+      <div style="font-size:14px">Paste from clipboard</div>
+      <div style="font-size:18px">Recalibration may help</div>
+      <div style="font-size:22px">Auto-hide&nbsp;&nbsp;ON</div>
+      <div style="font-size:24px;font-weight:600">Gaze &amp; Dwell</div>
+      <div style="font-size:34px;font-weight:700">EyeCtrl Settings</div>
+    </div>
+  </div>
+</div>
+
+<h2>10. Typography — the size scale <span class="tag">the part that needs its own slice</span></h2>
+<p>67 <code>FontSize</code> sites, <strong>17 distinct values</strong> (9, 10, 11, 12, 13, 14, 16,
+18, 20, 22, 24, 28, 30, 32, 34, 36 plus 3 computed). More fragmented than the radii were. But the
+list is not one scale — it is two things tangled together.</p>
+
+<h3>Why a single ramp would be wrong</h3>
+<p>Roughly half these sites are <strong>glyphs sized to fit their container</strong>, not text:</p>
+<table>
+  <tr><th>Site</th><th>Size</th><th>Container</th><th>Ratio</th></tr>
+  <tr><td>QuickActions close ✕</td><td class="n">20</td><td class="n">44 px button</td><td class="n">0.45</td></tr>
+  <tr><td>Keyboard key label</td><td class="n">16</td><td class="n">70 px key</td><td class="n">0.23</td></tr>
+  <tr><td>Emoji cell</td><td class="n">28</td><td class="n">70 px cell</td><td class="n">0.40</td></tr>
+  <tr><td>Emoji skin-tone</td><td class="n">36</td><td class="n">105 px cell</td><td class="n">0.34</td></tr>
+  <tr><td>QuickActions tile icon</td><td class="n">28</td><td class="n">120 px tile</td><td class="n">0.23</td></tr>
+  <tr><td>Toolbar symbol</td><td class="n">computed</td><td class="n">80 px button</td><td class="n">already a ratio</td></tr>
+</table>
+<p>Snapping those onto a <em>text</em> ramp resizes icons relative to the boxes they sit in — a
+visible regression, and backwards: <code>ToolbarWindow</code> already gets this right with
+<code>_buttonSize * ButtonSymbolSizeRatio</code>. So the scale work has to separate a
+<strong>text ramp</strong> from a <strong>glyph ratio rule</strong>, which is a structural
+distinction that does not exist in the codebase today.</p>
+
+<h3>Draft text ramp — six steps, for discussion not approval yet</h3>
+<table>
+  <tr><th>Token</th><th>px</th><th>Absorbs</th><th>Effect</th></tr>
+  <tr><td class="n">FontSizeCaption</td><td class="n">10</td><td class="n">9, 10, 11</td><td>9→10 <span style="color:var(--success)">raises the smallest text</span>; 11→10 shrinks 3 hint lines</td></tr>
+  <tr><td class="n">FontSizeBody</td><td class="n">12</td><td class="n">12, 13</td><td>13→12 on one EyeCare title</td></tr>
+  <tr><td class="n">FontSizeBodyLarge</td><td class="n">14</td><td class="n">14</td><td>unchanged</td></tr>
+  <tr><td class="n">FontSizeSubtitle</td><td class="n">18</td><td class="n">16, 18</td><td>16→18 on key labels and 4 text sites</td></tr>
+  <tr><td class="n">FontSizeTitle</td><td class="n">24</td><td class="n">22, 24</td><td>22→24 on the dwell controls (12 sites)</td></tr>
+  <tr><td class="n">FontSizeDisplay</td><td class="n">34</td><td class="n">30, 32, 34, 36</td><td>36→34 on the splash title</td></tr>
+</table>
+
+<div class="note bad">
+  <strong>Every one of those moves needs a clip check, and that is the real cost.</strong> Unlike
+  the family swap, growing text can overflow a fixed box. The exposed cases:
+  <ul style="color:var(--text-secondary)">
+    <li><strong>QuickActions tile label</strong> — 14 px, wrapping, inside a 120×120 tile. Any
+      growth risks a third line.</li>
+    <li><strong>TrackStatus</strong> — five 10 px lines in a small auto-sized window.</li>
+    <li><strong>Dwell controls at 22→24</strong> — 12 sites in 80 px-high boxes with 20 px padding.</li>
+    <li><strong>Keyboard key label 16→18</strong> — inside a 70 px key, so almost certainly safe,
+      but the wide keys (<code>ABC</code>, modifiers) carry longer strings.</li>
+  </ul>
+  Fixing a clip means changing padding or control size — which is <em>exactly</em> what §8 excludes
+  as layout. So the ramp cannot be verified by reasoning alone; it needs per-site measurement.
+</div>
+
+<h2>11. Where this leaves the work</h2>
+<p>Decided so far, all four §8 questions plus both typography questions:</p>
+<table>
+  <tr><th>Decision</th><th>Outcome</th></tr>
+  <tr><td>Key caps 6 vs 8</td><td>→ <code>8</code>, three radius tokens</td></tr>
+  <tr><td>Strays 2 and 14</td><td>→ <code>4</code> and <code>12</code></td></tr>
+  <tr><td>The circle</td><td>→ <code>CornerRadiusCircle = 9999</code>, verified pixel-identical to <code>size/2</code> on squares at 96/144/192 dpi</td></tr>
+  <tr><td>Theme axis</td><td>→ theme-varying on <code>ITheme</code>; all three themes declare identical values for now</td></tr>
+  <tr><td>Validator</td><td>→ gate 1's non-colour tail; "ten gates" stays true</td></tr>
+  <tr><td>Font family</td><td>→ <code>"Segoe UI Variable Text, Segoe UI"</code>, verified drop-in</td></tr>
+  <tr><td>Font weights</td><td>→ two tokens, 17 sites, zero visual change</td></tr>
+  <tr><td>Font sizes</td><td>→ six-step ramp <em>plus</em> a glyph-ratio rule — §10 above</td></tr>
+</table>
+
+</div>
+</body>
+</html>

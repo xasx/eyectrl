@@ -48,6 +48,22 @@ public class TokenValueTests
     }
 
     [Fact]
+    public void EveryTokenForwarder_ReturnsTheCurrentThemesValue()
+    {
+        // Tokens_ExposesEveryMemberOfITheme proves a forwarder EXISTS; this proves it
+        // forwards. Without it, `=> 13.0` or `=> Current.FontSizeBodyLarge` in place of
+        // `=> Current.FontSizeBody` passes the entire suite.
+        foreach (var member in typeof(ITheme).GetProperties()
+                     .Where(p => p.Name != nameof(ITheme.Name)))
+        {
+            var forwarder = typeof(Tokens).GetProperty(member.Name);
+            Check.WithCustomMessage(
+                    $"Tokens.{member.Name} must forward Current, not restate a value.")
+                .That(forwarder!.GetValue(null)).IsEqualTo(member.GetValue(Tokens.Current));
+        }
+    }
+
+    [Fact]
     public void DefaultTheme_IsMidnight()
     {
         // Tests and any pre-startup code path must see the shipping palette.

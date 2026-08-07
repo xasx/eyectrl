@@ -30,7 +30,9 @@ public static class Tokens
     /// Makes <paramref name="theme"/> active. Call once, during startup, on the UI
     /// thread and before any overlay window or dwell control is constructed —
     /// afterwards the value is only ever read, so cross-thread reads are safe
-    /// (colours are structs, brushes are frozen).
+    /// (colours are structs, brushes are frozen, and <see cref="ITheme.FontStandard"/>
+    /// is a shared <see cref="FontFamily"/>, which cannot be frozen — treat it as
+    /// read-only).
     /// </summary>
     /// <param name="theme">The theme to activate.</param>
     public static void Activate(ITheme theme) => Current = theme;

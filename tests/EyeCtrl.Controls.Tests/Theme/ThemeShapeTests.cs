@@ -121,6 +121,17 @@ public class ThemeShapeTests
 
     [Theory]
     [MemberData(nameof(AllThemes))]
+    public void FontWeights_AreOrderedAndClearTheEmphasisStep(ITheme theme)
+    {
+        Check.WithCustomMessage(
+                "FontWeightMedium is the 600 emphasis step, not FontWeights.Medium (500).")
+            .That(theme.FontWeightMedium.ToOpenTypeWeight()).IsGreaterOrEqualThan(600);
+        Check.That(theme.FontWeightStrong.ToOpenTypeWeight())
+            .IsStrictlyGreaterThan(theme.FontWeightMedium.ToOpenTypeWeight());
+    }
+
+    [Theory]
+    [MemberData(nameof(AllThemes))]
     public void FontFamily_IsDeclaredAndResolves(ITheme theme)
     {
         Check.That(theme.FontFamilyStandard).IsNotEmpty();

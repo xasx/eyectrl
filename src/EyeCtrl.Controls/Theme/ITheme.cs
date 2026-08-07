@@ -124,9 +124,9 @@ public interface ITheme
     SolidColorBrush BrushAccentDim10 { get; }
 
     /// <summary>
-    /// The one non-colour theme-varying token (§4.4). Midnight and Ember use 1;
-    /// Contrast uses 2, because high-contrast structure is carried by the border
-    /// rather than by fill steps.
+    /// The first non-colour theme-varying token (§4.4); see the geometry and
+    /// typography blocks below. Midnight and Ember use 1; Contrast uses 2, because
+    /// high-contrast structure is carried by the border rather than by fill steps.
     /// </summary>
     double BorderThicknessStandard { get; }
 

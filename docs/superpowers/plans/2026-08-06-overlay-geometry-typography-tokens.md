@@ -66,7 +66,13 @@ These are not optional and getting them wrong wastes a whole task.
 
 ## Task Order and Why
 
-Tasks 1–6 build the token layer and the guard **before** any site moves, so every migration has something to migrate *onto* and something that fails if it is missed. Tasks 7–9 do radii (provably invisible — §1 of the spec establishes radius cannot affect gaze targeting). Tasks 10–11 do family and weights (zero visual change). Tasks 12–15 do the type ramp and container ratios, the only visible changes. Task 16 is the single layout edit. The risky work is last and separately revertible.
+Tasks 1–6 build the token layer and the guard **before** any site moves, so every migration has
+something to migrate *onto* and something that fails if it is missed. Tasks 7–9 migrate radii
+alongside the type values in the same files (provably invisible for radii — §1 of the spec
+establishes radius cannot affect gaze targeting). Task 10 wires the font family. Tasks 11–12 finish
+the type ramp and convert the container ratios, the only visible changes. Task 13 is the single
+layout edit, Task 14 the docs, Task 15 the verification. The risky work is last and separately
+revertible.
 
 ---
 
@@ -550,7 +556,11 @@ git commit -m "feat(theme): gate the 12 non-colour tokens in gate 1's tail"
 
 - [ ] **Step 1: Write the failing tests**
 
-**Replace** `TokenDictionaryTests.Dictionary_ExposesBorderThickness` and `Dictionary_ExposesTheThicknessFormDerivedFromTheToken` with a generalised pair, and add the derived-radius test:
+**Replace only `TokenDictionaryTests.Dictionary_ExposesBorderThickness`** with the generalised test
+below, then add the two new ones. **Keep `Dictionary_ExposesTheThicknessFormDerivedFromTheToken`
+exactly as it is** — `StandardBorderThickness` is produced by `UniformThicknessExtension` and is not
+a `Tokens` property, so the generalised test cannot see it. Deleting it would leave the dictionary's
+`StandardBorderThickness` *value* unasserted by anything.
 
 ```csharp
     [StaFact]
@@ -692,8 +702,8 @@ In `src/EyeCtrl.Controls/Theme/ThemeResourceApplier.cs`, replace the `Apply` met
             .Select(p => (p.Name, p.GetValue(theme)!));
 
     /// <summary>
-    /// Every brush the theme exposes. Kept as its own accessor because existing tests and
-    /// callers use it.
+    /// Every brush the theme exposes. Kept as its own accessor for callers that want only the
+    /// brushes; nothing outside this class calls it today.
     /// </summary>
     /// <param name="theme">The theme to read.</param>
     /// <returns>Key/brush pairs.</returns>
@@ -838,7 +848,7 @@ public class CornerRadiusClampTests
         { 30, 96 }, { 44, 96 }, { 45, 96 }, { 66, 96 }, { 100, 96 }, { 44, 144 }, { 44, 192 },
     };
 
-    [Theory]
+    [StaTheory]
     [MemberData(nameof(SquareCases))]
     public void OnASquare_TheCircleToken_RendersIdenticallyToHalfTheSize(double size, double dpi)
     {
@@ -852,7 +862,7 @@ public class CornerRadiusClampTests
             .That(DifferingPixels(half, token)).IsEqualTo(0);
     }
 
-    [Fact]
+    [StaFact]
     public void OnANonSquare_TheCircleToken_IsAnEllipseNotAStadium()
     {
         // Pins the token's documented RESTRICTION, so misuse is caught rather than merely
@@ -901,7 +911,13 @@ public class CornerRadiusClampTests
 }
 ```
 
-> `[Theory]`/`[Fact]`, not `[StaFact]`: `RenderTargetBitmap` needs an STA thread. **If these fail with a threading exception, change `[Theory]` to `[StaTheory]` and `[Fact]` to `[StaFact]`** — `Xunit.StaFact` 3.0.13 is already referenced by this project and other tests in it use `[StaFact]`.
+> **Attributes matter here and there is no choice to make.** `RenderTargetBitmap` and even
+> `new Border` require an STA thread — an MTA `[Fact]` throws
+> `InvalidOperationException` ("the calling thread must be STA") inside
+> `FrameworkElement..ctor`. Use **`[StaTheory]`** on `OnASquare_TheCircleToken_RendersIdenticallyToHalfTheSize`
+> and **`[StaFact]`** on `OnANonSquare_TheCircleToken_IsAnEllipseNotAStadium`. Both exist in the
+> pinned `Xunit.StaFact` 3.0.13, and `OverlayResourceResolutionTests.cs:74` already uses
+> `[StaTheory]`. `TheOneCircleConsumer_IsSquare` is a plain `[Fact]` — it only parses a file.
 
 - [ ] **Step 2: Run to verify it passes (it pins existing behaviour)**
 
@@ -1079,7 +1095,12 @@ git commit -m "feat(theme): add ContainerRatio for container-proportional glyph 
 - Create: `tests/EyeCtrl.App.Tests/RawGeometryLiteralTests.cs`
 - Modify: `tests/EyeCtrl.App.Tests/RawColourLiteralTests.cs`
 
-- [ ] **Step 1: Extract the shared scanner**
+- [ ] **Step 1: Extract the shared scanner, and delete the duplicate in Task 4's test**
+
+Task 4 shipped a private `RepoRoot()` in `CornerRadiusClampTests` because this helper did not exist
+yet. **Delete `CornerRadiusClampTests.RepoRoot` now** and have
+`TheOneCircleConsumer_IsSquare` call `SourceScanner.RepoRoot().FullName` instead — two copies of a
+repo-root walker is the same drift this extraction exists to prevent.
 
 Duplicating a comment stripper whose behaviour is subtly documented — the `(?<!:)//` rule that keeps `pack://` intact — is how two guards drift apart.
 
@@ -1205,6 +1226,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.Controls.Theme;
 using NFluent;
 using Xunit;
@@ -1292,12 +1314,35 @@ public class RawGeometryLiteralTests
     };
 
     /// <summary>
-    /// The four property names whose values must be tokens. Matched case-sensitively — these
-    /// are fixed C#/XAML identifiers. <c>BorderThickness</c> is not here: it was migrated by
-    /// the parent spec's §4.4 and is guarded by TokenDictionaryTests.
+    /// A geometry or type assignment **and its value**, captured together.
+    ///
+    /// Capturing the value is the whole design. An earlier draft of this guard matched the
+    /// property name alone and then scanned 200 characters forward for any token reference,
+    /// which cleared a literal whenever an unrelated token happened to sit nearby. Measured
+    /// against the real tree it flagged **0 of 6** literals in QuickActionsGridWindow.xaml —
+    /// including the <c>CornerRadius="22"</c> circle site, cleared by a neighbouring
+    /// <c>{StaticResource BrushSurfaceMedium}</c> — and 3 of 7 in TrackStatusWindow.xaml. Dense
+    /// object initialisers are the dominant form in EyeCtrl.App/Overlays, so the window
+    /// approach caught almost nothing while looking rigorous.
+    ///
+    /// <c>(?![>=])</c> stops <c>=&gt;</c> and <c>==</c> parsing as assignment, so an
+    /// expression-bodied member such as <c>public static FontFamily FontStandard =&gt; ...</c>
+    /// is not read as a value. The unquoted value class excludes <c>,</c> <c>;</c> <c>)</c> but
+    /// deliberately **not** newlines, so the wrapped form
+    /// <c>CornerRadius = new CornerRadius(\n Tokens.X, Tokens.X, 0, 0)</c> still captures its
+    /// first argument.
+    ///
+    /// <c>BorderThickness</c> is absent on purpose: it was migrated by the parent spec's §4.4
+    /// and is guarded by TokenDictionaryTests.
+    ///
+    /// **Known limitation, recorded rather than hidden:** a value supplied other than by
+    /// assignment — a <c>&lt;Setter Property="FontSize" Value="12"/&gt;</c>, or a positional
+    /// constructor argument — is not matched. No such site exists in the two scanned projects
+    /// today; if one is introduced, widen this pattern.
     /// </summary>
-    private static readonly Regex Occurrence = new(
-        @"\b(CornerRadius|FontFamily|FontSize|FontWeight)\b", RegexOptions.Compiled);
+    private static readonly Regex Assignment = new(
+        @"\b(?<prop>CornerRadius|FontFamily|FontSize|FontWeight)\s*=(?![>=])\s*(?:""(?<v>[^""]*)""|(?<v>[^,;\)]+))",
+        RegexOptions.Compiled);
 
     /// <summary>
     /// Every allowed reference form, built from the actual token surface. Reflection, not a
@@ -1320,19 +1365,28 @@ public class RawGeometryLiteralTests
         foreach (var f in typeof(ContainerRatio).GetFields(BindingFlags.Public | BindingFlags.Static))
             names.Add($"ContainerRatio.{f.Name}");
 
+        // One glyph size reaches XAML through {x:Static} on a window's static property, because
+        // a DataTemplate is instantiated per item and cannot multiply by a ratio inline (Task
+        // 12). Reflected over the app assembly rather than hard-coded, so renaming that property
+        // cannot silently re-open the hole this guard exists to close.
+        foreach (var type in typeof(OverlayWindow).Assembly.GetTypes())
+            foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Static))
+                if (prop.PropertyType == typeof(double))
+                    names.Add($"{type.Name}.{prop.Name}");
+
         return names;
     }
 
     /// <summary>
-    /// True if the 200 characters following an occurrence contain an allowed reference. The
-    /// window has to span an assignment that may wrap across lines, e.g.
-    /// <c>CornerRadius = new CornerRadius(Tokens.CornerRadiusStandard, ...)</c>.
+    /// True if the captured value references the token surface. **Only the value is examined,
+    /// never its surroundings** — that is what stops a neighbouring token from clearing a
+    /// literal.
     /// </summary>
-    private static bool IsTokenBacked(string text, int index, IReadOnlyCollection<string> allowed)
-    {
-        var window = text.Substring(index, Math.Min(200, text.Length - index));
-        return allowed.Any(a => window.Contains(a, StringComparison.Ordinal));
-    }
+    /// <param name="value">The captured right-hand side of the assignment.</param>
+    /// <param name="allowed">Allowed reference forms, from <see cref="AllowedReferences"/>.</param>
+    /// <returns>True if the value is token-backed.</returns>
+    private static bool IsTokenBacked(string value, IReadOnlyCollection<string> allowed) =>
+        allowed.Any(a => value.Contains(a, StringComparison.Ordinal));
 
     [Fact]
     public void NoUIFile_WritesAGeometryOrTypeValueOutsideTheTokens()
@@ -1344,9 +1398,9 @@ public class RawGeometryLiteralTests
         {
             if (Exempt.ContainsKey(relative)) continue;
 
-            var bad = Occurrence.Matches(text)
-                .Where(m => !IsTokenBacked(text, m.Index, allowed))
-                .Select(m => $"{m.Value}@{m.Index}")
+            var bad = Assignment.Matches(text)
+                .Where(m => !IsTokenBacked(m.Groups["v"].Value, allowed))
+                .Select(m => $"{m.Groups["prop"].Value}={m.Groups["v"].Value.Trim()}")
                 .Distinct()
                 .ToList();
 
@@ -1380,7 +1434,8 @@ public class RawGeometryLiteralTests
                 continue;
             }
 
-            var any = Occurrence.Matches(text).Any(m => !IsTokenBacked(text, m.Index, allowed));
+            var any = Assignment.Matches(text)
+                .Any(m => !IsTokenBacked(m.Groups["v"].Value, allowed));
             if (!any)
                 stale.Add($"{relative}: fully migrated — drop the exemption");
         }
@@ -1401,7 +1456,13 @@ Expected: PASS. If `NoUIFile_WritesAGeometryOrTypeValueOutsideTheTokens` fails, 
 
 - [ ] **Step 5: Mutation-prove the guard**
 
-A guard that has never failed is not known to work. Following `9e252e1`'s method, create `src/EyeCtrl.App/Overlays/GuardProbe.cs` containing every escaping form:
+A guard that has never failed is not known to work — and a probe that tests the wrong shape is
+worse, because it certifies a broken guard. **The first version of this probe put each bad form in
+its own method with no neighbouring token reference, which the window-scanning guard caught 8/8
+while missing 0/6 real literals in `QuickActionsGridWindow.xaml`.** So the probe must reproduce the
+dense object-initialiser shape that dominates `EyeCtrl.App/Overlays`.
+
+Following `9e252e1`'s method, create `src/EyeCtrl.App/Overlays/GuardProbe.cs`:
 
 ```csharp
 namespace EyeCtrl.App.Overlays;
@@ -1411,6 +1472,7 @@ using System.Windows.Controls;
 
 internal static class GuardProbe
 {
+    // ── Isolated forms: each bad value with nothing else around it. ─────────────
     internal static Border BareLiteral() => new() { CornerRadius = new CornerRadius(7) };
 
     internal static Border ComputedArgument(double x) => new() { CornerRadius = new CornerRadius(x * 2) };
@@ -1420,10 +1482,56 @@ internal static class GuardProbe
     internal static TextBlock LiteralSize() => new() { FontSize = 13 };
 
     internal static TextBlock LiteralWeight() => new() { FontWeight = FontWeights.Bold };
+
+    // ── The shape that actually matters: bad values sitting NEXT TO good token
+    // references, in the dense initialiser form used throughout the overlays. A
+    // guard that scans for a nearby token instead of examining the value itself
+    // passes every case above and fails every case below. ──────────────────────
+    internal static TextBlock LiteralSizeBesideAToken() => new()
+    {
+        FontSize = 13,
+        Foreground = Tokens.BrushTextPrimary,
+        FontWeight = Tokens.FontWeightMedium,
+    };
+
+    internal static Border LiteralRadiusBesideAToken() => new()
+    {
+        CornerRadius = new CornerRadius(22),
+        Background = Tokens.BrushSurfaceMedium,
+        BorderBrush = Tokens.BrushBorderSubtle,
+    };
+
+    internal static TextBlock ComputedSizeBesideAToken(double n) => new()
+    {
+        FontSize = n * 0.4,
+        Foreground = Tokens.BrushTextPrimary,
+    };
+
+    internal static TextBlock RawFamilyBesideAToken() => new()
+    {
+        FontFamily = new FontFamily("Arial"),
+        FontSize = Tokens.FontSizeBody,
+    };
 }
 ```
 
-Run the guard and confirm it **fails**, and that the message **names `GuardProbe.cs`** and lists all five occurrences. The computed-argument case is the one `RawColourLiteralTests`-style blacklists miss — confirm it is caught. Then **delete the probe file** and re-run to confirm green.
+Run the guard and confirm it **fails**, that the message **names `GuardProbe.cs`**, and that it
+lists **all nine** bad values. Check specifically that:
+
+- the four `...BesideAToken` cases are caught. These are the ones the window-scanning draft
+  missed, and they are the shape real overlay code takes. **If any of them is cleared, the guard is
+  still broken — stop and fix it before migrating anything.**
+- `ComputedArgument` and `ComputedSizeBesideAToken` are caught. A computed value is the hole a
+  blacklist cannot close, and the reason this guard is a whitelist (spec §10.4).
+- `FontSize = Tokens.FontSizeBody` inside `RawFamilyBesideAToken` is **not** reported — a good
+  value next to a bad one must still pass, or the guard cries wolf.
+
+Then **delete the probe file** and re-run to confirm green.
+
+**Sanity-check the guard against the real tree before moving on.** With the `Exempt` list as
+written, the guard should be green; temporarily empty `Exempt` and confirm it now reports a large
+number of files including `QuickActionsGridWindow.xaml` with **all six** of its values, then restore
+the list. If emptying `Exempt` reports few or no findings, the value capture is not working.
 
 - [ ] **Step 6: Commit**
 
@@ -1526,6 +1634,7 @@ git commit -m "refactor(controls): read radii, sizes and weights from tokens"
 | `Overlays/SplashWindow.xaml:14` | `FontWeight="SemiBold"` | `FontWeight="{StaticResource FontWeightMedium}"` |
 | `Overlays/EyeCareExerciseWindow.xaml:39` | `CornerRadius="14"` | `CornerRadius="{StaticResource LargeCornerRadius}"` |
 | `Overlays/EyeCareExerciseWindow.xaml:22` | `FontSize="18"` | `FontSize="{StaticResource FontSizeSubtitle}"` |
+| `Overlays/EyeCareExerciseWindow.xaml:22` | `FontWeight="SemiBold"` | `FontWeight="{StaticResource FontWeightMedium}"` |
 | `Overlays/EyeCareExerciseWindow.xaml:24,44` | `FontSize="12"` | `FontSize="{StaticResource FontSizeBody}"` |
 | `Overlays/EyeCareExerciseWindow.xaml:42` | `FontSize="13"` | `FontSize="{StaticResource FontSizeBody}"` |
 | `Overlays/EyeCareExerciseWindow.xaml:47,51,55` | `FontSize="22"` | `FontSize="{StaticResource FontSizeTitle}"` |
@@ -1547,7 +1656,20 @@ git commit -m "refactor(controls): read radii, sizes and weights from tokens"
 | `Views/SettingsWindow.xaml:23` | `FontWeight="Bold"` | `FontWeight="{StaticResource FontWeightStrong}"` |
 | `Views/SettingsWindow.xaml:58` | `CornerRadius="12"` | `CornerRadius="{StaticResource LargeCornerRadius}"` |
 | `Views/SettingsWindow.xaml:64` | `FontSize="24"` | `FontSize="{StaticResource FontSizeTitle}"` |
+| `Views/SettingsWindow.xaml:65` | `FontWeight="SemiBold"` | `FontWeight="{StaticResource FontWeightMedium}"` |
 
+> **Weight sites are easy to miss because the tables above are organised by radius and size.**
+> Spec §8.2 counts **17** `FontWeight` sites. Two of them —
+> `EyeCareExerciseWindow.xaml:22` and `SettingsWindow.xaml:65` — were absent from an earlier
+> draft of this table and would have shipped unmigrated, because the ramp rows next to them
+> make the file look done. After finishing this task, confirm the count:
+>
+> ```bash
+> grep -rn 'FontWeight="[A-Za-z]' src/EyeCtrl.App src/EyeCtrl.Controls
+> ```
+>
+> Expected: no output.
+>
 > Line numbers drift as you edit. Re-grep per file rather than trusting them: `grep -n 'CornerRadius\|FontSize\|FontWeight\|FontFamily' <file>`.
 
 - [ ] **Step 1: Apply every substitution above**
@@ -1770,7 +1892,18 @@ Add `using EyeCtrl.Controls.Theme;` to `OverlayWindow.cs`.
 
 - [ ] **Step 4: Fix the startup ordering (spec §16, `m2`)**
 
-`SplashWindow` is constructed at `App.xaml.cs:114`, before `ThemeStartup.Apply` at `:127`, so it would read Midnight's font rather than the chosen theme's. Harmless while all three themes share one family, latent otherwise. **Move the theme activation before the splash construction.** In `App.xaml.cs`, relocate the `ThemeStartup.Apply(settings, Resources);` call so it runs *before* `splash = new SplashWindow();`, and add:
+`SplashWindow` is constructed at `App.xaml.cs:114`, before `ThemeStartup.Apply` at `:127`, so it
+would read Midnight's font rather than the chosen theme's. Harmless while all three themes share one
+family, latent otherwise.
+
+**The move is definite: relocate both `InitializeSettingsAndLogging()` (`:120`) and
+`ThemeStartup.Apply(settings, Resources);` (`:127`) above the splash block.** `Apply` needs
+`settings`, which is why the settings call moves with it; `InitializeSettingsAndLogging` touches only
+settings, Serilog and the exception handlers, and has no splash dependency. `InitializeDpi(splash)`
+is the only consumer that genuinely needs the splash to exist first, and it stays where it is.
+`ThemeStartupTests` does not encode the current order, so nothing else has to change.
+
+Add above the relocated call:
 
 ```csharp
         // Theme must be active before ANY window is constructed: OverlayWindow's constructor
@@ -1864,13 +1997,17 @@ A default parameter cannot reference another argument, so make it nullable. In `
         Brush? fill = null, Brush? stroke = null, Brush? arcBrush = null, Brush? symbolBrush = null,
         double arcThickness = DefaultArcThickness, double arcInset = DefaultArcInset,
         double? fontSize = null)
-    {
-        ...
-        var dia = radius * 2;
+```
+
+**`dia` already exists** — `var dia = radius * 2;` is declared at `DwellArcButton.cs:47`. Do not
+re-declare it. Immediately after it, add:
+
+```csharp
         var symbolSize = fontSize ?? dia * ContainerRatio.Small;
 ```
 
-Delete `public const double DefaultSymbolFontSize = 22;` at `:15` and use `symbolSize` at `:115`.
+Then change `FontSize = fontSize,` at `:115` to `FontSize = symbolSize,`, and delete
+`public const double DefaultSymbolFontSize = 22;` at `:15`.
 
 - [ ] **Step 3: The two XAML glyph sites**
 
@@ -2158,7 +2295,17 @@ grep -rn 'CornerRadius="[0-9]' src/EyeCtrl.App src/EyeCtrl.Controls
 grep -rn 'FontSize="[0-9]\|FontSize = [0-9]' src/EyeCtrl.App src/EyeCtrl.Controls
 ```
 
-Expected: no output from either. `EyeCtrl.Supervisor` is out of scope and is not scanned.
+```bash
+grep -rn 'FontWeight="[A-Za-z]\|FontWeight = FontWeights\.' src/EyeCtrl.App src/EyeCtrl.Controls
+```
+
+```bash
+grep -rn 'FontFamily="[A-Za-z]\|new FontFamily("' src/EyeCtrl.App src/EyeCtrl.Controls
+```
+
+Expected: no output from any of the four. An earlier draft checked only radius and size, which is
+how two `FontWeight` sites went missing from the task tables — the greps have to cover every
+property the guard covers. `EyeCtrl.Supervisor` is out of scope and is not scanned.
 
 - [ ] **Step 6: Scope check with GitNexus**
 

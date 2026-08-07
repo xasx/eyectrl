@@ -153,6 +153,11 @@ public class ThemeShapeTests
     {
         // Spec §5 decision 6: the mechanism is theme-varying, the values are not — yet.
         // If a theme deliberately diverges later, delete this test and say why in the commit.
+        //
+        // This is not made redundant by ThemeParityTests: parity proves C# and the
+        // validator AGREE, and the validator's gates check only ordering plus the 12px
+        // floor. This is the only guard on what they agree ON, and on the three themes
+        // agreeing with each other.
         foreach (var theme in ThemeRegistry.All)
         {
             Check.That(theme.CornerRadiusSmall).IsEqualTo(4.0);

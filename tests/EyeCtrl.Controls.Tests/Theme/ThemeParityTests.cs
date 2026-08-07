@@ -113,15 +113,18 @@ public class ThemeParityTests
     {
         // Reflected rather than listed. The hand-written predecessor covered one token;
         // adding twelve more by hand is exactly the omission this suite exists to prevent.
-        // Derived values are deliberately NOT on ITheme (spec §6.6), so they are not gated
-        // here — they restate the primitives beside them.
+        // Two ITheme members are derived rather than declared, so there is nothing for the
+        // validator to hold: FontStandard (from FontFamilyStandard) and BrushAccentDim10.
+        // FontStandard is excluded by NAME, not by type, so a future FontFamily-typed
+        // *primitive* would still be gated. The four derived CornerRadius structs live on
+        // Tokens rather than ITheme (spec §6.6).
         var expected = ParseTheme(ValidatorSource(), themeName);
         var theme = ThemeRegistry.Resolve(themeName);
 
         var gated = typeof(ITheme).GetProperties()
             .Where(p => p.PropertyType != typeof(Color)
                      && p.PropertyType != typeof(SolidColorBrush)
-                     && p.PropertyType != typeof(FontFamily)
+                     && p.Name != nameof(ITheme.FontStandard)
                      && p.Name != nameof(ITheme.Name))
             .ToList();
 
@@ -149,7 +152,9 @@ public class ThemeParityTests
             {
                 // string directly; FontWeight and anything else via ToString(),
                 // which yields "SemiBold" / "Bold" — what the validator stores.
-                var actualText = actual as string ?? actual.ToString()!;
+                var actualText = actual as string
+                    ?? (actual as IFormattable)?.ToString(null, CultureInfo.InvariantCulture)
+                    ?? actual.ToString()!;
                 Check.WithCustomMessage(
                         $"{themeName}.{property.Name} is '{actualText}' in C# but "
                         + $"'{expectedText}' in tools/palette_validate.py")

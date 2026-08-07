@@ -1,7 +1,7 @@
 # Overlay Geometry and Typography Tokens — Design
 
 **Date:** 2026-08-06
-**Status:** Reviewed — source-verified round 1 complete; corrections applied (§15)
+**Status:** Reviewed — source-verified rounds 1 and 2 complete; corrections applied (§15, §16)
 **Closes:** `docs/design/overlay-unification-spec.md` §8 "Deferred, with reason"
 **Supersedes:** §4.2 and §4.3 of that spec, which proposed token sets that were never implemented
 and are insufficient as written.
@@ -43,7 +43,7 @@ Two properties of this application shape every decision below:
 | Corner radii | 4 tokens; migrate 30 literal sites |
 | Font family | 1 token; migrate 1 literal; wire an app-wide default |
 | Font weights | 2 tokens; migrate 17 sites |
-| Font sizes | 5-token text ramp with a 12px floor; migrate 45 text sites; delete 4 dead consts |
+| Font sizes | 5-token text ramp with a 12px floor; migrate 45 text sites; delete 8 dead consts (§8.7) |
 | Glyph/label sizing | 5 ratio constants; convert 15 container-proportional sites (2 more already correct) |
 | Layout | **One scoped exception:** `TrackStatusWindow.Height` 110 → 116 (§8.6) |
 | Theme layer | `ITheme` / `ThemeBase` / `Tokens` / `OverlayStyles.xaml` / `ThemeResourceApplier` |
@@ -63,12 +63,14 @@ scoring UI, `EyeCtrl.Supervisor`, `EyeCtrl.Sdk.WinUI.Sample`.
 ### Explicitly out of scope
 
 - **Layout, with exactly one measured exception.** `TrackStatusWindow.Height` 110 → 116, because
-  the 12px ramp floor overflows it by 1.88px and it is the only fixed-size, non-resizable window
-  in the app (§8.6 carries the arithmetic). Everywhere else, where a growth is unsafe **the token
+  the 12px ramp floor overflows it by 1.88px and it is the only window whose ramp-affected content
+  overflows its fixed size (§8.6 carries the arithmetic). It is not the app's only fixed-size window
+  — `QuickActionsGridWindow` (400×600), `EyeCareBannerWindow` (`Height="120"`) and
+  `TaskSwitcherWindow` are all fixed or non-resizable — it is the only one that does not fit. Everywhere else, where a growth is unsafe **the token
   assignment changes** — never the padding or the control size. This exception is named here so it
   cannot expand quietly into a second one.
 - **`EyeCtrl.Supervisor`.** It has one `CornerRadius="4"` at `UI/SupervisorSetupWindow.xaml:41`
-  and 15 `FontSize`/`FontFamily` sites. The parent §8 excludes it and it is not in the guard's
+  and 17 `FontSize`/`FontFamily` sites across two files (15 there, 2 in `UI/FallenBackDialog.xaml`). The parent §8 excludes it and it is not in the guard's
   scanned projects.
 - **A declared symbol font.** §7.4 records a genuine latent fragility found while measuring —
   22 of the app's UI symbols come from undeclared per-glyph font fallback — but fixing it means
@@ -105,9 +107,13 @@ Two facts the parent spec's §8 did not have:
 
 - **`NoteWindow.xaml.cs:83` is asymmetric** — `new CornerRadius(6, 6, 0, 0)`, the note title bar.
   It is the only asymmetric site, and it is C#, not XAML.
-- **`DwellComboBox.cs:140` inverts its nesting** — an outer `Border` at radius `6` wrapping a
-  `DwellButton` at radius `8`, so the child's corner protrudes through the parent's.
-  `DwellColorPicker.cs:122` similarly overrides `DwellButton`'s `8` down to `6`.
+- **`DwellComboBox.cs:140` nests non-concentrically** — an outer `Border` at radius `6` wrapping a
+  `DwellButton` at radius `8`. The child is cut *deeper* than its parent, so the child's corner
+  recedes inside the parent's tighter one. An earlier draft called this the child "protruding
+  through" the parent, which is backwards: protrusion would need child < parent, and `Border` does
+  not clip in any case. The defect is the non-concentric nesting itself.
+  `DwellColorPicker.cs:122` is a plain override of `DwellButton`'s `8` down to `6`, with no nesting
+  involved.
 
 ### 3.2 Typography
 
@@ -199,8 +205,10 @@ their own cutoff, and neither matched π/4:
 
 §10.3 therefore asserts a tolerance band around π/4 at the 50 % cutoff, never a bare fraction.
 
-Also: `CornerRadius(-1)` throws `ArgumentException`; `double.MaxValue / 4` renders without
-throwing.
+Also: **assigning** a negative radius throws `ArgumentException` — the `CornerRadius(-1)`
+*constructor* does not; the `Border.CornerRadius` dependency-property validate callback does. An
+earlier draft attributed the throw to the constructor. The distinction matters for §9's gate, which
+guards the value before it ever reaches a `Border`. `double.MaxValue / 4` renders without throwing.
 
 **Consequence.** The token is a **circle** token, valid only on square elements. The parent §8
 predicted the name `CornerRadiusPill`; that name would be actively misleading, because applying
@@ -287,8 +295,8 @@ double CornerRadiusCircle   { get; }   // 9999  fully round — SQUARE elements 
 
 // ── Typography ──────────────────────────────────────────────────────────
 string     FontFamilyStandard { get; } // "Segoe UI Variable Text, Segoe UI"
-FontWeight FontWeightMedium   { get; } // SemiBold
-FontWeight FontWeightStrong   { get; } // Bold
+FontWeight FontWeightMedium   { get; } // SemiBold (600) — NB *not* FontWeights.Medium, which is 500
+FontWeight FontWeightStrong   { get; } // Bold (700)
 
 double FontSizeBody      { get; }      // 12  — the ramp floor; see §8.4
 double FontSizeBodyLarge { get; }      // 14
@@ -331,16 +339,55 @@ values — under the property names verbatim, which is what `{StaticResource}` l
 
 Today it reflects over `SolidColorBrush` properties and hard-codes the thickness pair. It becomes:
 publish **every `ITheme` property except `Name`** under its own property name, still by
-reflection, plus the two existing thickness keys which are not `ITheme` properties. This preserves
-the property the current doc comment claims — a token added to the interface cannot be forgotten
-here — which hard-coding 17 new keys would quietly break.
+reflection, **plus the five derived keys and the derived `StandardBorderThickness`, written
+explicitly.** The reflection half preserves the property the current doc comment claims — a token
+added to the interface cannot be forgotten here. The explicit half is not optional; §6.6 explains why.
 
-**Exclude `Name` by name, not by type.** `FontFamilyStandard` is also a `string` on `ITheme`, so a
-type-based filter would drop it. And note which key carries which type, because two are easy to
-confuse: `FontFamilyStandard` is published by the applier as the **raw string**, while the derived
-`FontFamily` object reaches XAML as **`FontStandard`** via `{x:Static}` in `OverlayStyles.xaml`.
-A consumer writing `{StaticResource FontFamilyStandard}` where it wants a `FontFamily` would get a
-`string`. The plan must assert both keys and both types in `TokenDictionaryTests`.
+**Exclude `Name` by name, not by type**, and publish only the non-`Color` properties and the
+brushes. `FontFamilyStandard` is also a `string` on `ITheme`, so a type-based filter would drop it;
+conversely "every property except `Name`" would publish 22 raw `Color`s under keys the dictionary
+never declares and no XAML consumes.
+
+**One correction to an earlier draft of this section:** it said "the two existing thickness keys
+which are not `ITheme` properties". Only one of them is off-interface.
+`BorderThicknessStandard` **is** on `ITheme` (`ITheme.cs:130`), so reflection publishes it;
+`StandardBorderThickness` is the derived form and is written explicitly. That is exactly the
+distinction §6.6 turns on, so describing it wrongly mattered.
+
+Note which key carries which type, because two are easy to confuse: `FontFamilyStandard` is
+published as the **raw string**, while the derived `FontFamily` object is **`FontStandard`**. A
+consumer writing `{StaticResource FontFamilyStandard}` where it wants a `FontFamily` does not
+silently receive a string — it throws `XamlParseException` at load, because no type converter runs on
+a `StaticResource` assignment. `OverlayResourceResolutionTests` already catches that class of error.
+`TokenDictionaryTests` must still assert both keys and both types.
+
+### 6.6 The derived values must be published by `Apply`, or they freeze to Midnight
+
+The five derived values in §6.2 are **not** on `ITheme` — they are `ThemeBase`/`Tokens` members, so
+`Apply`'s reflection over the interface will not see them. Left there, they reach XAML only through
+`{x:Static}`, which resolves **when WPF parses the dictionary** — during `Application` construction,
+before `App.OnStartup` can choose a theme, with `Tokens.Current` still at its Midnight default
+(`Tokens.cs:26`). A geometry-varying theme would then render **Midnight's radii and font in XAML
+while C# read the active theme's through `Tokens`** — one token, two consumers, divergent values.
+
+This is exactly the failure `ThemeResourceApplier` exists to prevent; its own doc comment
+(`ThemeResourceApplier.cs:13-17`) says so, and it is why the derived `StandardBorderThickness` is
+already written explicitly at `:53-55` rather than left to `{x:Static}`. **The five new derived keys
+get the same treatment.** No current theme reveals the bug — all three declare identical geometry
+(§5 decision 6) — but decision 5's whole rationale is that a theme *can* differ later, and the
+mechanism would be broken the first time one did.
+
+**The repo already enforces this.** `ThemeResourceApplierTests.Apply_CoversEveryKeyTheDictionaryDeclares`
+(`ThemeResourceApplierTests.cs:71-89`) diffs `OverlayStyles.xaml`'s declared keys against the keys
+`Apply` writes, and fails on any the applier misses — with a comment describing precisely this
+freeze. Adding §6.3's five `<x:Static>` entries without extending `Apply` turns that test **red**.
+§10.1 names it.
+
+**Why not put the derived five on `ITheme`**, matching the derived *brushes*, which are on the
+interface? Because §10.2 generalises the parity test over every non-`Color` `ITheme` property, and
+that would demand `tools/palette_validate.py` entries for values that are pure restatements of the
+primitives beside them. Keeping derivations off the interface holds §9 at 13 gated tokens and mirrors
+the one derived value that already exists.
 
 ### 6.5 No markup extension is needed, and the resulting inconsistency
 
@@ -413,7 +460,7 @@ stay undocumented.
 ### 8.1 Family
 
 `FontFamilyStandard = "Segoe UI Variable Text, Segoe UI"`. `CalibrationWindow.xaml:30`'s literal
-is deleted; the value arrives by inheritance from §8.6.
+is deleted; the value arrives by inheritance from §8.8.
 
 ### 8.2 Weights
 
@@ -428,7 +475,8 @@ treatment with `_buttonSize * ButtonSymbolSizeRatio`. Snapping those onto a text
 icons relative to the boxes they sit in — a visible regression, and backwards.
 
 So the work splits: **45 text sites** take the ramp in §8.4, **17 container-proportional sites**
-take the ratio rule in §8.5, and **4 dead consts** are deleted per §8.7. Appendix A classifies
+take the ratio rule in §8.5, and **8 dead consts** are deleted per §8.7 — the 4 dead font-size ones
+plus 4 dead layout ones found beside them. Appendix A classifies
 every site individually and reconciles to 66 rows.
 
 ### 8.4 The text ramp — 45 sites
@@ -474,7 +522,7 @@ the rule describes practice rather than inventing one:
 | `Dominant` | 0.45 | 0.455 — the glyph *is* the control |
 | `Large` | 0.40 | 0.400, 0.375 — includes today's `ButtonSymbolSizeRatio = 0.4` verbatim |
 | `Medium` | 0.32 | 0.344, 0.343, 0.314, 0.300 |
-| `Small` | 0.23 | 0.233, 0.233, 0.229, 0.229, 0.220 — five sites |
+| `Small` | 0.23 | 0.233, 0.233, 0.229, 0.229, 0.229, 0.220 — six sites |
 
 Per-site results:
 
@@ -485,12 +533,12 @@ Per-site results:
 | `ToolbarWindow.xaml.cs:70` | 80 (setting) | `Large` | already 0.4 — **no change** |
 | `ToolbarWindow.xaml.cs:113` | 80 (setting) | `Large` | already 0.4 — **no change** |
 | `EmojiGridManager.cs:140` emoji cell | 70 (setting) | `Large` | 28 → 28.0 |
-| `SettingsWindow.xaml.cs:415` pagination ◀▶ | 80 (`PaginationButtonHeight`) | `Large` | 30 → 32 |
+| `SettingsWindow.xaml.cs:415` pagination ◀▶ | 80 (literal at `:406`) | `Large` | 30 → 32 |
 | `EmojiGridManager.cs:322` category | 70 (setting) | `Medium` | 22 → 22.4 |
 | `EmojiGridManager.cs:419` skin tone | 105 (setting × 1.5) | `Medium` | 36 → **33.6** |
 | `EyeCareBannerWindow.xaml:30` ✕ | 64 (fixed) | `Medium` | 22 → 20.5 |
 | `EyeCareBannerWindow.xaml:37` ▶ | 64 (fixed) | `Medium` | 22 → 20.5 |
-| `SettingsWindow.xaml.cs:273` tab icon | 100 (`TabContainerHeight`) | `Medium` | 30 → 32 |
+| `SettingsWindow.xaml.cs:273` tab icon | 100 (literal at `:282`) | `Medium` | 30 → 32 |
 | `QuickActionsGridWindow.xaml:54` tile icon | 120 (fixed) | `Small` | 28 → 27.6 |
 | `KeyboardWindow.xaml.cs:183` key label | `_keySize` 70 (setting) | `Small` | 16 → 16.1 |
 | `KeyboardWindow.xaml.cs:441` prediction | `_keySize` 70 (setting) | `Small` | 16 → 16.1 |
@@ -498,8 +546,10 @@ Per-site results:
 | `NoteWindow.xaml.cs:257` button symbol | 60 (`NoteButtonRadius` × 2) | `Small` | 14 → 13.8 |
 | `DwellArcButton.cs:15` default | 100 (`ButtonRadius` 50 × 2) | `Small` | 22 → 23.0 |
 
-Largest change is **−2.4px** (skin tone 36 → 33.6); next is ±2 on the two Settings glyphs and
-−1.5 on the banner pair. All others move under 0.5px.
+Largest change is **−2.4px** (skin tone 36 → 33.6); then ±2 on the two Settings glyphs, −1.5 on the
+banner pair, and **+1.0 on `DwellArcButton`'s default** (22 → 23.0), which reaches
+`ActionMenuWindow.xaml.cs:187` and `GlassBackdropWindow.xaml.cs:224`. Every remaining site moves
+under 0.5px.
 
 Two mechanical notes:
 
@@ -509,7 +559,7 @@ Two mechanical notes:
 - **`KeyboardWindow` and `EmojiGridManager` gain a behavioural fix.** `_keySize` is
   `BaseKeySize * keySizeMultiplier`, so today enlarging the keys produces bigger keys carrying
   the *same small letters*. Under the ratio rule the labels scale with the setting. This is the
-  one accessibility improvement in the typography half beyond `9 → 10`.
+  one accessibility improvement in the typography half beyond the `9 → 12` floor.
 
 **`DragTrailOverlay` earned the fifth ratio, and finding it caught a latent bug.** An earlier
 draft classified `CreateIcon` (`:177`) as text on the grounds that it sets no size — which is true
@@ -526,8 +576,24 @@ circle. Worse, the `-8` offset is half the font size written as a literal: any s
 **silently de-centres the glyph**, by 1px in each axis at 18. That is a defect the ramp would have
 introduced and no test would have caught.
 
-Under `Badge` the size becomes 15.6 (−0.4px) and **`PositionButton` must derive its offset from the
-icon's measured size rather than the literal `-8`**, which removes the latent de-centring as well.
+Under `Badge` the size becomes 15.6 (−0.4px), and **`PositionButton`'s offset must be derived from
+the same size**: `-(size / 2)`, i.e. `-7.8`, replacing the literal `-8`.
+
+Two points about that fix, because an earlier draft said only "derive from the icon's measured size",
+which is both under-specified and subtly wrong:
+
+- **Do not centre on the measured box.** `DesiredSize.Height` is 1.33 × the font size (§8.6), so
+  offsetting by half of *that* would move the glyph ≈2.6px from where it sits today — a visible
+  change presented as pure defect removal. Today's `-8` is half the *font size*, and `-(size / 2)`
+  preserves that relationship exactly while making it track the token.
+- **`DesiredSize` is unusable here in any case.** `PositionButton` (`:195-201`) is `static` and
+  receives a `TextBlock` that has not been measured, so `DesiredSize` is `(0,0)` until layout runs.
+  Deriving from the size constant needs no measurement pass at all, which is the second reason to
+  prefer it.
+
+`Draw`'s grab-icon offset (`:130-131`, a literal `-10` for the same glyph) needs the same derivation,
+or one overlay ends up positioning its two icons by different rules.
+
 This site therefore leaves §8.6's flag list entirely.
 
 **Two sites genuinely have no container and take the ramp:**
@@ -549,7 +615,7 @@ size, so the two agree and every verdict below stands on the layout API rather t
 
 | Site | Container | Change | Line height | Verdict |
 |---|---|---|---|---|
-| **`TrackStatusWindow` — 6 sites** | **fixed 160×110**, `Padding="8"`, `ResizeMode="NoResize"` | 10 → 12 | 13.30 → 15.96 | **✗ Overflows by 1.88px.** Resolved by the window-height change below — the one scoped layout exception. |
+| **`TrackStatusWindow` — 5 sites** | **fixed 160×110**, `Padding="8"`, `ResizeMode="NoResize"` | 10 → 12 | 13.30 → 15.96 | **✗ Overflows by 1.88px.** Resolved by the window-height change below — the one scoped layout exception. |
 | `NoteWindow.xaml.cs:87` "PINNED NOTE" | title bar `Height = 24`, `Margin(8,4,0,0)` | 10 → 12 | 13.30 → 15.96 | Safe. 15.96 + 4 = 19.96 in 24 — 4.04 slack. |
 | `EyeCareBannerWindow.xaml:32,39` "snooze"/"start" | 64×64 grid in a fixed 80px strip, `Margin="0,0,0,-16"` | 9 → 12 | 11.97 → 15.96 | **Safe by measurement** — glyph ink keeps 5–7px of clearance from the dwell ring. See below; an earlier draft flagged this on a figure that measured the wrong thing. |
 | `CalibrationWindow.xaml:46,61` hints | centred, full-screen overlay | 11 → 12 | 14.63 → 15.96 | Safe — unbounded. |
@@ -559,7 +625,7 @@ size, so the two agree and every verdict below stands on the layout API rather t
 | `DwellSlider.cs:87` value text | **fixed `Width = 140`** | 24 → 24 | unchanged | Safe — unchanged. |
 | `TaskSwitcherWindow.xaml:25,35` | card, auto height | 12 → 12, 14 → 14 | unchanged | Safe. |
 | `DwellToggle`, `DwellLabel`, `DwellComboBox`, `SettingsWindow.xaml.cs:299` | auto-width, ≥ 70px tall | 22 → 24 | 29.26 → 31.92 | Safe. Width is auto so it grows; 31.92 < 70. |
-| `EyeCareExerciseWindow` summary card | auto-sized, `Padding="28,18"` | 9→12, 13→12, 22→24 | grows ≈ 12px | Safe — the card sizes to content. |
+| `EyeCareExerciseWindow` summary card | auto-sized, `Padding="28,18"` | 9→12, 13→12, 22→24 | grows +9.31px (analytic) | Safe — the card sizes to content. |
 | `SplashWindow.xaml:14` title | `SizeToContent="WidthAndHeight"` | 36 → 34 | shrink | Safe. |
 | `CalibrationWindow.xaml:36` ✓ | centred, full-screen overlay | 32 → 34 | grows 2px | Safe — unbounded. |
 | `SettingsWindow.xaml.cs:273,415` glyphs | 100 / 80 px fixed containers | ratio | 30 → 32 | Safe — §8.5 sizes them from the container that bounds them, so the ratio cannot exceed it. |
@@ -630,6 +696,20 @@ from their own container removes the risk instead of measuring it.
 are **deleted**. Tokenising a dead const would preserve a value no code consults while making the
 guard's whitelist report the file as clean.
 
+**Four more dead consts sit beside them**, found in round 2 when the spec was caught citing two of
+them as if they were live: `TabContainerHeight = 100` (:36), `PaginationCounterMinWidth = 80` (:39),
+`PaginationButtonWidth = 100` (:40) and `PaginationButtonHeight = 80` (:41). Each occurs once — its
+own declaration — and the containers they appear to describe are literals at `:282` and `:405-406`.
+
+These are layout values, not tokens, so they are outside §2's remit in every sense **except that
+deleting them changes nothing**: no code reads them, so no layout moves. Removing four dead consts
+while leaving four identical ones in the same file would be arbitrary, so all **eight** go in one
+task. §8.5's ratio table now cites the literals that actually bound those glyphs.
+
+Note that §10.4's guard cannot catch this class of staleness — it scans `CornerRadius`, `FontFamily`,
+`FontSize` and `FontWeight`, not `Width`/`Height` literals. The dead layout consts were found by
+reading, and a future one would be too.
+
 Their live counterparts — the duplicated literals at `:273`, `:299`, `:382`, `:415` — are migrated
 by §8.4 and §8.5 like any other site. The plan must delete the consts in the same task that
 migrates those four literals, so the file never ends up with the const retained "just in case".
@@ -686,9 +766,9 @@ verification greps for that, never for "Failed".
 
 | Test | Addition |
 |---|---|
-| `ThemeShapeTests` | Per theme: radius ordering and non-negativity; font-size ordering and the ≥ 9 floor; `FontStandard.Source == FontFamilyStandard`; `FontStandard` returns the same reference twice (cached, per §6.2). |
+| `ThemeShapeTests` | Per theme: radius ordering and non-negativity; font-size ordering and the **≥ 12** floor, matching §9's gate exactly — a C# floor of 9 would pass a theme the validator rejects, which is the disagreement §10.2 exists to prevent; `FontStandard.Source == FontFamilyStandard`; `FontStandard` returns the same reference twice (cached, per §6.2). |
 | `TokenDictionaryTests` | Each of the 12 primitives and 5 derived values resolves from `OverlayStyles.xaml` and equals its `Tokens` counterpart. Generalised over reflection rather than 17 hand-written cases. |
-| `ThemeResourceApplierTests` | `Apply` publishes every `ITheme` property except `Name`. |
+| `ThemeResourceApplierTests` | `Apply` publishes every non-`Color` `ITheme` property, the brushes, and the six derived keys. **`Apply_CoversEveryKeyTheDictionaryDeclares` (`:71-89`) already enforces this** — it diffs the dictionary's declared keys against what `Apply` writes, so §6.3's five new `<x:Static>` entries turn it red until §6.6's tail is extended. It is the guard that catches the §6.6 freeze, and it exists today. |
 
 ### 10.2 Generalised
 
@@ -786,7 +866,8 @@ trigger is `branches: [main]`), so local verification is the only gate here. `de
 before committing, per `CLAUDE.md`.
 
 No UI test is run and the app is not launched without explicit permission. Visual confirmation of
-the two flagged sites in §8.5 is requested, not assumed.
+any site §8.6 leaves open is requested, not assumed. As of round 2 there are none — §8.6's last
+flag was resolved by measurement — so the only visual approval outstanding is the font specimens.
 
 ---
 
@@ -794,9 +875,9 @@ the two flagged sites in §8.5 is requested, not assumed.
 
 | Risk | Mitigation |
 |---|---|
-| **112 mechanical edit sites plus one window height** — 30 radii, 45 font sizes, 17 weights, 15 ratio conversions, 1 family literal, 4 const deletions, `TrackStatusWindow.Height`. The largest surface in this codebase's history of style passes. | The whitelist guard makes completeness machine-checked rather than reviewed. An unmigrated site fails the build. |
+| **116 mechanical edit sites plus one window height** — 30 radii, 45 font sizes, 17 weights, 15 ratio conversions, 1 family literal, 8 const deletions, `TrackStatusWindow.Height`. The largest surface in this codebase's history of style passes. | The whitelist guard makes completeness machine-checked rather than reviewed. An unmigrated site fails the build. |
 | **`CornerRadiusCircle` relies on undocumented WPF normalisation.** | §10.3 pins it across sizes and DPIs. A future WPF change breaks a test, not the UI. |
-| **Two flagged clip sites** (§8.5). | Both are identified with the specific measurement needed. Where one does not fit, the token assignment changes — never the layout. |
+| **Clip risk from the ramp.** | Every §8.6 verdict is now "unchanged" or measured; **no site is left flagged.** Where a future growth is unsafe, the token assignment changes — never the layout. |
 | **The type ramp changes what the user reads all day.** | Every move is enumerated in §8.3 with its site count and direction, and the specimens are rendered at true scale in `docs/design/corner-radius-comparison.html` for approval by eye before implementation. |
 | **`ITheme` grows from 23 members to 35 primitives + 5 derived.** It stops being a palette and becomes a design-system interface. | Consistent with its own stated intent to be "non-colour-capable from the start", and kept navigable by the `// ── section ──` grouping the file already uses. If it grows again, splitting a metrics interface out is the natural next step — noted, not done. |
 | **Theme-varying costs three identical declarations per token** and 13 validator entries per theme, for values no theme currently differentiates. | Accepted deliberately (decision 5). §10.2's generalisation absorbs the per-token test cost so the marginal price of the *next* token is zero. |
@@ -810,7 +891,7 @@ the two flagged sites in §8.5 is requested, not assumed.
 | File | Change |
 |---|---|
 | `docs/design/overlay-unification-spec.md` §3.3 | Radius audit corrected: 30 literal sites over 7 values, not the 9-row table it lists. |
-| … §3.4 | Typography audit corrected: 68 `FontSize` occurrences = 60 live literal sites over 16 values + 4 dead consts + the ratio mechanism; 17 `FontWeight` sites. The claim "everything inherits the WPF default (Segoe UI)" is replaced by §4.2's measurement, including that a bare unresolvable name falls back to Arial, not to the system font. |
+| … §3.4 | Typography audit corrected: 68 `FontSize` occurrences = 60 live literal sites over 16 values + 4 dead consts + the ratio mechanism; 17 `FontWeight` sites. The claim "everything inherits the WPF default (Segoe UI)" is replaced by §4.2's measurement, including that an unresolvable bare name has an **undefined** degradation path — three measurements disagree and none identifies a single face — which is why the family token declares a chain. |
 | … §4.2 | Replaced by §6.1's four radius tokens. Records that the three proposed tokens were insufficient and why. |
 | … §4.3 | Replaced by §8. Records the reversal of the font-size exclusion and its justification. |
 | … §8 | "Deferred, with reason" becomes "Delivered" with a pointer here. The `CornerRadiusPill` prediction is corrected to `CornerRadiusCircle` with §4.1's measurement as the reason. |
@@ -897,11 +978,12 @@ grep -rn 'FontSize' --include=*.xaml --include=*.cs src/EyeCtrl.App src/EyeCtrl.
 | 65 | `EyeCtrl.App/Views/SettingsWindow.xaml.cs:38` | 24 | D | deleted |
 | 66 | `EyeCtrl.App/Views/SettingsWindow.xaml.cs:42` | 30 | D | deleted |
 
-**Totals: 45 T, 17 C, 4 D = 66 rows.** ⚠ marks the two clip-flagged rows from §8.6 — the
-`EyeCareBannerWindow` pair.
+**Totals: 45 T, 17 C, 4 D = 66 rows.** No row carries a ⚠ any more: §8.6's last flag — the
+`EyeCareBannerWindow` pair — was resolved by measuring glyph ink rather than the layout box.
 
-Row numbering is not contiguous after the review moved `DragTrailOverlay.xaml.cs:177` from T to C;
-the row count is what reconciles, not the ordinals.
+Row ordinals are not contiguous and one number is used twice, both because round 1 moved
+`DragTrailOverlay.xaml.cs:177` from T to C. **The row count reconciles; the ordinals are not
+identifiers.**
 
 **Reconciliation with the raw grep's 68 occurrences.** 66 rows + `DwellArcButton.cs:41` and `:115`,
 which are the parameter default and its use — the mechanism for row 62's const, not separate sites.
@@ -927,8 +1009,9 @@ makes the application materially easier to use. It also collapsed `FontSizeCapti
 `FontSizeBody`, taking the ramp from six tokens to five — two names holding one value would have
 been the same fragmentation in a different coat.
 
-The cost is one measured overflow. `TrackStatusWindow` is the only fixed-size, non-resizable window
-in the app, and at a 12px floor its content exceeds the 94px its padding leaves by **1.88px**,
+The cost is one measured overflow. `TrackStatusWindow` is the only window whose ramp-affected
+content overflows its fixed size, and at a 12px floor its content exceeds the 94px its padding
+leaves by **1.88px**,
 clipping the descenders on the bottom row. §8.6 carries the arithmetic. Resolution: **`Height`
 110 → 116**, a single property on a single window, named in §2 so it cannot expand into a second
 exception. Rejected alternatives: an 11px floor (fits with 2.11px slack, but is an odd step in an
@@ -937,14 +1020,17 @@ size by shrinking a tracking diagnostic the user reads to check head position).
 
 **Still open for review, and not decidable from measurement:**
 
-1. **`Segoe UI Variable Text`** was chosen from a description. §4.2 proves it is a metrically
-   identical drop-in that cannot clip anything, but it changes every glyph in the application.
-   The specimens are rendered at true scale in §9 of
-   `docs/design/corner-radius-comparison.html` — worth looking at before 45 text sites move.
-2. **The two ⚠ sites in §8.6** — `EyeCareBannerWindow`'s "snooze"/"start" labels, which already
-   hang below their grid on a negative margin and now grow 3.99px further, and
-   `DragTrailOverlay`'s icon at 16 → 18. Both need a look during implementation. Neither is
-   resolved by a layout change: if a site does not fit, its token assignment changes.
+**`Segoe UI Variable Text`** was chosen from a description. §4.2 proves it is a metrically identical
+drop-in that cannot clip anything, but it changes every glyph in the application. The specimens are
+rendered at true scale in §9 of `docs/design/corner-radius-comparison.html` — worth looking at before
+45 text sites move. **This is the only outstanding item.**
+
+An earlier version of this section listed two ⚠ clip sites as open. Both are closed:
+`EyeCareBannerWindow`'s labels were resolved by measuring glyph ink instead of the layout box
+(§8.6), and `DragTrailOverlay`'s icon moved to a container ratio at 15.6px rather than growing to 18
+(§8.5). This section went stale because round 1's corrections landed in §8.5 and §8.6 without
+updating the cross-references — round 2 caught it in four places (here, §10.6, §11 and Appendix A's
+legend).
 
 ---
 
@@ -1039,3 +1125,98 @@ presented in a place that implies it was observed.
 The `Segoe UI Variable Text` specimens want a look before implementation — it is the one decision
 here that touches every glyph in the application and the one I would least like to reverse
 afterwards.
+
+---
+
+## 16. Review Round 2 — What Changed
+
+Round 2 re-checked every source claim by hand and re-derived every measurement with an independent
+probe. **All round-1 measurements held exactly** — the TrackStatus 87.90/95.88, the 1.33× ratio, the
+ink-clearance 5.04/7.04, the π/4 threshold table, the square clamp identity, and the whole of
+Appendix A's reconciliation. Two of the three dropped §4.1 rows were re-derived (150×70 → 0.7830,
+80×44 → 0.7830), both inside §10.3's band, so dropping them cost nothing.
+
+What it found instead was one design hole and a spec that had gone internally inconsistent.
+
+### The hole: derived values freeze to Midnight (§6.6, new)
+
+I suspected this when writing the round-2 prompt and made it Priority 1. It is confirmed, and it is
+worse than I suspected: **the repo already has a test that would go red.**
+`ThemeResourceApplierTests.Apply_CoversEveryKeyTheDictionaryDeclares` (`:71-89`) diffs the
+dictionary's declared keys against what `Apply` writes, with a comment describing exactly this
+freeze. Adding §6.3's five `<x:Static>` entries without extending `Apply` fails it at implementation
+time.
+
+The reviewer demonstrated the freeze in the real topology — merged dictionary inside a real
+`Application`, primitives written at top level, theme switched: `{StaticResource CornerRadiusStandard}`
+tracked to the new theme while `{StaticResource StandardCornerRadius}` and
+`{StaticResource FontStandard}` stayed at their parse-time values. With the derived keys also written,
+both tracked.
+
+§6.6 now states the mechanism, the fix (extend `Apply`'s explicit tail, mirroring the derived
+`StandardBorderThickness` that is already there for this reason), and why the alternative — putting
+the derived five on `ITheme` — is worse: §10.2's parity generalisation would then demand validator
+entries for values that merely restate the primitives beside them.
+
+It also corrected §6.4, which claimed "the two existing thickness keys **which are not `ITheme`
+properties**". `BorderThicknessStandard` *is* on `ITheme` (`ITheme.cs:130`); only the derived
+`StandardBorderThickness` is off it. Getting that backwards mattered, because it is the exact
+distinction the hole turns on.
+
+### The inconsistency: four stale cross-references
+
+Round 1's corrections landed in §8.5 and §8.6 without updating anything that pointed at them. §14
+still listed two ⚠ clip sites as open, §10.6 and §11 still referred to "the two flagged sites in
+§8.5" (they were in §8.6, and none remain), and Appendix A's legend still described a ⚠ marker no row
+carried. A reader could not tell what was actually open. All four are repaired; **the only
+outstanding item is the font specimens.**
+
+Also stale: §12 would have written the disproved Arial claim into the parent spec, the one thing §4.2
+and §15 exist to correct.
+
+### Two errors that came from citing without reading
+
+1. **§8.5 cited dead consts as container sizes.** `TabContainerHeight = 100` and
+   `PaginationButtonHeight = 80` are declaration-only; the real containers are literals at `:282` and
+   `:405-406`. The ratio *values* were right, the citations pointed at code nothing reads.
+2. **That exposed four more dead consts** in the same file, beside §8.7's four dead font consts.
+   All eight are now deleted in one task — deleting four and leaving four identical ones would be
+   arbitrary. §8.7 also records that §10.4's guard cannot catch this class: it scans `CornerRadius`,
+   `FontFamily`, `FontSize` and `FontWeight`, not `Width`/`Height` literals.
+
+### Corrections to specific claims
+
+- **§8.5's "all others move under 0.5px" was wrong** — `DwellArcButton`'s default moves +1.0px
+  (22 → 23.0), reaching two call sites. Its `Small` row also listed five observed ratios where the
+  table has six sites, three of them at 0.229.
+- **§4.1's `CornerRadius(-1)` throw was mis-attributed.** The constructor does not throw; the
+  `Border.CornerRadius` validate callback does. §9's gate still has a real failure mode to guard.
+- **§8.6's `TrackStatusWindow` row said 6 sites; it has 5.**
+- **§3.1 described the nesting inversion backwards.** With child r8 inside parent r6 the child
+  recedes; protrusion would require child < parent, and `Border` does not clip anyway. The defect is
+  the non-concentric nesting itself. `DwellColorPicker.cs:122` has no nesting at all.
+- **§10.1's `≥ 9` font floor contradicted §9's `≥ 12` gate** — two guards disagreeing by design, the
+  disease §10.2 exists to cure.
+- **"The only fixed-size, non-resizable window in the app" was literally false** —
+  `QuickActionsGridWindow`, `EyeCareBannerWindow` and `TaskSwitcherWindow` are all fixed or
+  non-resizable. The true claim is narrower: the only one whose ramp-affected content *overflows*.
+- **§8.1 pointed at §8.6 for the font wiring**, which is §8.8. §2's Supervisor count was 15, not 17.
+  §8.6's EyeCare growth was "≈ 12px"; analytic is +9.31. `FontWeightMedium` is `SemiBold` (600), not
+  WPF's `FontWeights.Medium` (500) — now noted, since the name invites the confusion.
+
+### m10, which changed the fix rather than the prose
+
+§8.5 said `PositionButton` should "derive its offset from the icon's measured size". Round 2 showed
+that is under-specified *and* wrong in effect: `DesiredSize.Height` is 1.33 × the font size, so
+box-centring would shift the glyph ≈2.6px from where it sits today — a visible change I had presented
+as pure defect removal. And `DesiredSize` is `(0,0)` there anyway, since `PositionButton` is `static`
+and receives an unmeasured `TextBlock`. The fix is `-(size / 2)`, which preserves today's geometry
+exactly. The sibling `-10` offset at `:130-131` needs it too.
+
+### The pattern worth naming
+
+Round 1 corrected two claims of mine; round 2 corrected two more, plus the two I caught myself in
+`f9ac2b0`. Six of those eight were the same failure: **a number or relationship derived by reasoning,
+placed where it reads as observed** — Arial, 0.9285, "roughly 3px", "under 0.5px", the dead-const
+citations, and box-centring. The measurements themselves have held every time they were re-derived.
+The lesson for the plan is that the risk is not in the probes; it is in the prose around them.

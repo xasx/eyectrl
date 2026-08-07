@@ -1,5 +1,6 @@
 namespace EyeCtrl.Controls.Theme;
 
+using System.Windows;
 using System.Windows.Media;
 
 /// <summary>
@@ -134,4 +135,33 @@ public static class Tokens
 
     /// <inheritdoc cref="ITheme.BorderThicknessStandard"/>
     public static double BorderThicknessStandard => Current.BorderThicknessStandard;
+
+    /// <inheritdoc cref="ITheme.CornerRadiusSmall"/>
+    public static double CornerRadiusSmall => Current.CornerRadiusSmall;
+    /// <inheritdoc cref="ITheme.CornerRadiusStandard"/>
+    public static double CornerRadiusStandard => Current.CornerRadiusStandard;
+    /// <inheritdoc cref="ITheme.CornerRadiusLarge"/>
+    public static double CornerRadiusLarge => Current.CornerRadiusLarge;
+    /// <inheritdoc cref="ITheme.CornerRadiusCircle"/>
+    public static double CornerRadiusCircle => Current.CornerRadiusCircle;
+
+    /// <inheritdoc cref="ITheme.FontFamilyStandard"/>
+    public static string FontFamilyStandard => Current.FontFamilyStandard;
+    /// <inheritdoc cref="ITheme.FontStandard"/>
+    public static FontFamily FontStandard => Current.FontStandard;
+    /// <inheritdoc cref="ITheme.FontWeightMedium"/>
+    public static FontWeight FontWeightMedium => Current.FontWeightMedium;
+    /// <inheritdoc cref="ITheme.FontWeightStrong"/>
+    public static FontWeight FontWeightStrong => Current.FontWeightStrong;
+
+    /// <inheritdoc cref="ITheme.FontSizeBody"/>
+    public static double FontSizeBody => Current.FontSizeBody;
+    /// <inheritdoc cref="ITheme.FontSizeBodyLarge"/>
+    public static double FontSizeBodyLarge => Current.FontSizeBodyLarge;
+    /// <inheritdoc cref="ITheme.FontSizeSubtitle"/>
+    public static double FontSizeSubtitle => Current.FontSizeSubtitle;
+    /// <inheritdoc cref="ITheme.FontSizeTitle"/>
+    public static double FontSizeTitle => Current.FontSizeTitle;
+    /// <inheritdoc cref="ITheme.FontSizeDisplay"/>
+    public static double FontSizeDisplay => Current.FontSizeDisplay;
 }

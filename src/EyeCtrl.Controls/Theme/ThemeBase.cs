@@ -1,5 +1,6 @@
 namespace EyeCtrl.Controls.Theme;
 
+using System.Windows;
 using System.Windows.Media;
 
 /// <summary>
@@ -79,6 +80,33 @@ public abstract class ThemeBase : ITheme
     /// <inheritdoc />
     public abstract double BorderThicknessStandard { get; }
 
+    /// <inheritdoc />
+    public abstract double CornerRadiusSmall { get; }
+    /// <inheritdoc />
+    public abstract double CornerRadiusStandard { get; }
+    /// <inheritdoc />
+    public abstract double CornerRadiusLarge { get; }
+    /// <inheritdoc />
+    public abstract double CornerRadiusCircle { get; }
+
+    /// <inheritdoc />
+    public abstract string FontFamilyStandard { get; }
+    /// <inheritdoc />
+    public abstract FontWeight FontWeightMedium { get; }
+    /// <inheritdoc />
+    public abstract FontWeight FontWeightStrong { get; }
+
+    /// <inheritdoc />
+    public abstract double FontSizeBody { get; }
+    /// <inheritdoc />
+    public abstract double FontSizeBodyLarge { get; }
+    /// <inheritdoc />
+    public abstract double FontSizeSubtitle { get; }
+    /// <inheritdoc />
+    public abstract double FontSizeTitle { get; }
+    /// <inheritdoc />
+    public abstract double FontSizeDisplay { get; }
+
     private SolidColorBrush? _surfaceDark;
     private SolidColorBrush? _surfaceMedium;
     private SolidColorBrush? _surfaceLight;
@@ -102,6 +130,7 @@ public abstract class ThemeBase : ITheme
     private SolidColorBrush? _toggleOff;
     private SolidColorBrush? _modalBackdrop;
     private SolidColorBrush? _accentDim10;
+    private FontFamily? _fontStandard;
 
     /// <inheritdoc />
     public SolidColorBrush BrushSurfaceDark => _surfaceDark ??= Frozen(SurfaceDark);
@@ -149,6 +178,9 @@ public abstract class ThemeBase : ITheme
     public SolidColorBrush BrushModalBackdrop => _modalBackdrop ??= Frozen(ModalBackdrop);
     /// <inheritdoc />
     public SolidColorBrush BrushAccentDim10 => _accentDim10 ??= Dimmed(Accent, 0.10);
+
+    /// <inheritdoc />
+    public FontFamily FontStandard => _fontStandard ??= new FontFamily(FontFamilyStandard);
 
     /// <inheritdoc />
     public override string ToString() => Name;

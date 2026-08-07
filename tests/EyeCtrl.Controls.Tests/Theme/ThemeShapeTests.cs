@@ -2,6 +2,7 @@ namespace EyeCtrl.Controls.Tests.Theme;
 
 using System.Linq;
 using System.Reflection;
+using System.Windows;
 using System.Windows.Media;
 using EyeCtrl.Controls.Theme;
 using NFluent;
@@ -86,5 +87,75 @@ public class ThemeShapeTests
         // A new SolidColorBrush per access would allocate in the render path.
         Check.That(MidnightTheme.Instance.BrushAccent)
              .IsSameReferenceAs(MidnightTheme.Instance.BrushAccent);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void CornerRadii_AreOrderedAndNonNegative(ITheme theme)
+    {
+        // Mirrors the validator's gate-1 non-colour tail. A negative radius throws
+        // when it reaches Border.CornerRadius (spec §4.1), so 0 is a real floor.
+        Check.That(theme.CornerRadiusSmall).IsGreaterOrEqualThan(0.0);
+        Check.That(theme.CornerRadiusStandard).IsGreaterOrEqualThan(theme.CornerRadiusSmall);
+        Check.That(theme.CornerRadiusLarge).IsGreaterOrEqualThan(theme.CornerRadiusStandard);
+        Check.WithCustomMessage(
+                "CornerRadiusCircle is a fully-round sentinel and must outrank every real step.")
+            .That(theme.CornerRadiusCircle).IsGreaterOrEqualThan(theme.CornerRadiusLarge);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void FontSizes_AreOrderedAndClearTheAccessibilityFloor(ITheme theme)
+    {
+        // 12 is the ramp floor spec §8.4 chose, and §9 gates it in the validator.
+        // Keep this number identical to the validator's or the two guards disagree.
+        Check.WithCustomMessage(
+                $"{theme.Name} sets body text below the 12px floor, which is the guarantee "
+                + "that makes the 9->12 raise permanent rather than one release's decision.")
+            .That(theme.FontSizeBody).IsGreaterOrEqualThan(12.0);
+        Check.That(theme.FontSizeBodyLarge).IsGreaterOrEqualThan(theme.FontSizeBody);
+        Check.That(theme.FontSizeSubtitle).IsGreaterOrEqualThan(theme.FontSizeBodyLarge);
+        Check.That(theme.FontSizeTitle).IsGreaterOrEqualThan(theme.FontSizeSubtitle);
+        Check.That(theme.FontSizeDisplay).IsGreaterOrEqualThan(theme.FontSizeTitle);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void FontFamily_IsDeclaredAndResolves(ITheme theme)
+    {
+        Check.That(theme.FontFamilyStandard).IsNotEmpty();
+        Check.WithCustomMessage(
+                "FontStandard must derive from FontFamilyStandard, never restate it.")
+            .That(theme.FontStandard.Source).IsEqualTo(theme.FontFamilyStandard);
+    }
+
+    [Fact]
+    public void FontStandard_IsCachedNotRebuiltPerAccess()
+    {
+        // Same reasoning as BrushesAreCachedNotRebuiltPerAccess: overlays rebuild at gaze rate.
+        Check.That(MidnightTheme.Instance.FontStandard)
+             .IsSameReferenceAs(MidnightTheme.Instance.FontStandard);
+    }
+
+    [Fact]
+    public void AllThreeThemes_DeclareIdenticalGeometryAndType()
+    {
+        // Spec §5 decision 6: the mechanism is theme-varying, the values are not — yet.
+        // If a theme deliberately diverges later, delete this test and say why in the commit.
+        foreach (var theme in ThemeRegistry.All)
+        {
+            Check.That(theme.CornerRadiusSmall).IsEqualTo(4.0);
+            Check.That(theme.CornerRadiusStandard).IsEqualTo(8.0);
+            Check.That(theme.CornerRadiusLarge).IsEqualTo(12.0);
+            Check.That(theme.CornerRadiusCircle).IsEqualTo(9999.0);
+            Check.That(theme.FontSizeBody).IsEqualTo(12.0);
+            Check.That(theme.FontSizeBodyLarge).IsEqualTo(14.0);
+            Check.That(theme.FontSizeSubtitle).IsEqualTo(18.0);
+            Check.That(theme.FontSizeTitle).IsEqualTo(24.0);
+            Check.That(theme.FontSizeDisplay).IsEqualTo(34.0);
+            Check.That(theme.FontFamilyStandard).IsEqualTo("Segoe UI Variable Text, Segoe UI");
+            Check.That(theme.FontWeightMedium).IsEqualTo(FontWeights.SemiBold);
+            Check.That(theme.FontWeightStrong).IsEqualTo(FontWeights.Bold);
+        }
     }
 }

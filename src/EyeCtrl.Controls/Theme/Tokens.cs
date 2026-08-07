@@ -147,6 +147,15 @@ public static class Tokens
     /// <inheritdoc cref="ITheme.CornerRadiusCircle"/>
     public static double CornerRadiusCircle => Current.CornerRadiusCircle;
 
+    /// <summary><see cref="ITheme.CornerRadiusSmall"/> as a uniform WPF CornerRadius.</summary>
+    public static CornerRadius SmallCornerRadius => new(Current.CornerRadiusSmall);
+    /// <summary><see cref="ITheme.CornerRadiusStandard"/> as a uniform WPF CornerRadius.</summary>
+    public static CornerRadius StandardCornerRadius => new(Current.CornerRadiusStandard);
+    /// <summary><see cref="ITheme.CornerRadiusLarge"/> as a uniform WPF CornerRadius.</summary>
+    public static CornerRadius LargeCornerRadius => new(Current.CornerRadiusLarge);
+    /// <summary><see cref="ITheme.CornerRadiusCircle"/> as a uniform WPF CornerRadius.</summary>
+    public static CornerRadius CircleCornerRadius => new(Current.CornerRadiusCircle);
+
     /// <inheritdoc cref="ITheme.FontFamilyStandard"/>
     public static string FontFamilyStandard => Current.FontFamilyStandard;
     /// <inheritdoc cref="ITheme.FontStandard"/>

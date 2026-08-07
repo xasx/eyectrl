@@ -4,9 +4,9 @@ using System.Windows;
 using System.Windows.Media;
 
 /// <summary>
-/// Derives every brush in <see cref="ITheme"/> from that theme's colours, so a
-/// concrete theme declares 22 colours, one thickness, and 12 geometry/typography
-/// values, and nothing else.
+/// Derives every brush in <see cref="ITheme"/> from that theme's colours, and the
+/// <see cref="ITheme.FontStandard"/> object from its family string, so a concrete theme
+/// declares 22 colours, one thickness, and 12 geometry/typography values, and nothing else.
 ///
 /// Brushes are built on first access rather than in the constructor: a constructor
 /// would have to call the abstract colour getters before the derived type is fully

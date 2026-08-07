@@ -75,11 +75,57 @@ public class TokenDictionaryTests
     }
 
     [StaFact]
-    public void Dictionary_ExposesBorderThickness()
+    public void EveryNonBrushToken_IsExposedAndMatches()
     {
         var dict = Load();
-        Check.That(dict.Contains("BorderThicknessStandard")).IsTrue();
-        Check.That(dict["BorderThicknessStandard"]).IsEqualTo(Tokens.BorderThicknessStandard);
+
+        foreach (var property in typeof(Tokens).GetProperties(BindingFlags.Public | BindingFlags.Static)
+                     .Where(p => p.PropertyType != typeof(SolidColorBrush)
+                              && p.PropertyType != typeof(Color)
+                              && p.Name != nameof(Tokens.Current)))
+        {
+            var key = property.Name;
+            Check.WithCustomMessage($"OverlayStyles.xaml is missing key '{key}'")
+                .That(dict.Contains(key)).IsTrue();
+            Check.WithCustomMessage(
+                    $"'{key}' must be DERIVED from Tokens via {{x:Static}}, never restated.")
+                .That(dict[key]).IsEqualTo(property.GetValue(null));
+        }
+    }
+
+    [StaFact]
+    public void Dictionary_ExposesTheFourCornerRadiusForms()
+    {
+        // WPF cannot convert a double resource to a CornerRadius, so the CornerRadius
+        // form must be its own key. Verified resolvable through {StaticResource} in the
+        // real merged-dictionary topology (spec §6.5) — no markup extension needed.
+        var dict = Load();
+        foreach (var (key, expected) in new (string, CornerRadius)[]
+                 {
+                     ("SmallCornerRadius", new CornerRadius(Tokens.CornerRadiusSmall)),
+                     ("StandardCornerRadius", new CornerRadius(Tokens.CornerRadiusStandard)),
+                     ("LargeCornerRadius", new CornerRadius(Tokens.CornerRadiusLarge)),
+                     ("CircleCornerRadius", new CornerRadius(Tokens.CornerRadiusCircle)),
+                 })
+        {
+            Check.WithCustomMessage(
+                    $"OverlayStyles.xaml must expose {key}, or every "
+                    + $"CornerRadius=\"{{StaticResource {key}}}\" throws at load.")
+                .That(dict.Contains(key)).IsTrue();
+            Check.That(dict[key]).IsEqualTo(expected);
+        }
+    }
+
+    [StaFact]
+    public void Dictionary_ExposesBothFontKeysWithTheRightTypes()
+    {
+        // FontFamilyStandard is the raw string; FontStandard is the FontFamily object.
+        // Using the wrong one throws XamlParseException at load — no type converter runs
+        // on a StaticResource assignment (spec §6.4).
+        var dict = Load();
+        Check.That(dict["FontFamilyStandard"]).IsInstanceOf<string>();
+        Check.That(dict["FontStandard"]).IsInstanceOf<FontFamily>();
+        Check.That(((FontFamily)dict["FontStandard"]!).Source).IsEqualTo(Tokens.FontFamilyStandard);
     }
 
     [StaFact]

@@ -6,7 +6,7 @@ using System.Windows;
 using System.Windows.Media;
 
 /// <summary>
-/// Writes a theme's brushes and thickness into a <see cref="ResourceDictionary"/>,
+/// Writes a theme's brushes, geometry and typography into a <see cref="ResourceDictionary"/>,
 /// so the 106 {StaticResource Brush*} lookups across the overlay XAML resolve to
 /// that theme.
 ///
@@ -28,12 +28,24 @@ public static class ThemeResourceApplier
     public const string UniformThicknessKey = "StandardBorderThickness";
 
     /// <summary>
-    /// Every brush the theme exposes, paired with the resource key it is published
-    /// under. Reflected over <see cref="ITheme"/> rather than listed, so a token
-    /// added to the interface cannot be forgotten here.
+    /// Every value the theme publishes, paired with its resource key. Reflected over
+    /// <see cref="ITheme"/> rather than listed, so a token added to the interface cannot be
+    /// forgotten here. <c>Name</c> is excluded by name, not by type — <c>FontFamilyStandard</c>
+    /// is also a string. Raw <see cref="Color"/>s are excluded because no XAML consumes them.
     /// </summary>
     /// <param name="theme">The theme to read.</param>
-    /// <returns>Key/brush pairs, in interface declaration order.</returns>
+    /// <returns>Key/value pairs, in interface declaration order.</returns>
+    public static IEnumerable<(string Key, object Value)> EnumeratePublishedValues(ITheme theme) =>
+        typeof(ITheme).GetProperties()
+            .Where(p => p.PropertyType != typeof(Color) && p.Name != nameof(ITheme.Name))
+            .Select(p => (p.Name, p.GetValue(theme)!));
+
+    /// <summary>
+    /// Every brush the theme exposes. Kept as its own accessor for callers that want only the
+    /// brushes; nothing outside this class calls it today.
+    /// </summary>
+    /// <param name="theme">The theme to read.</param>
+    /// <returns>Key/brush pairs.</returns>
     public static IEnumerable<(string Key, SolidColorBrush Brush)> EnumerateBrushes(ITheme theme) =>
         typeof(ITheme).GetProperties()
             .Where(p => p.PropertyType == typeof(SolidColorBrush))
@@ -42,16 +54,27 @@ public static class ThemeResourceApplier
     /// <summary>
     /// Writes <paramref name="theme"/> into <paramref name="target"/>, replacing any
     /// existing entries under the same keys.
+    ///
+    /// The reflected half covers everything on <see cref="ITheme"/>. The explicit tail covers
+    /// the *derived* values, which are not interface members and would otherwise reach XAML
+    /// only through <c>{x:Static}</c> — resolved at parse time, before a theme is chosen, and
+    /// therefore frozen to Midnight. See the design spec §6.6;
+    /// <c>Apply_CoversEveryKeyTheDictionaryDeclares</c> fails if this tail falls behind
+    /// <c>OverlayStyles.xaml</c>.
     /// </summary>
     /// <param name="target">The dictionary to write into — normally <c>Application.Resources</c>.</param>
     /// <param name="theme">The theme to publish.</param>
     public static void Apply(ResourceDictionary target, ITheme theme)
     {
-        foreach (var (key, brush) in EnumerateBrushes(theme))
-            target[key] = brush;
+        foreach (var (key, value) in EnumeratePublishedValues(theme))
+            target[key] = value;
 
         var t = theme.BorderThicknessStandard;
-        target[ThicknessKey] = t;
         target[UniformThicknessKey] = new Thickness(t, t, t, t);
+
+        target["SmallCornerRadius"] = new CornerRadius(theme.CornerRadiusSmall);
+        target["StandardCornerRadius"] = new CornerRadius(theme.CornerRadiusStandard);
+        target["LargeCornerRadius"] = new CornerRadius(theme.CornerRadiusLarge);
+        target["CircleCornerRadius"] = new CornerRadius(theme.CornerRadiusCircle);
     }
 }

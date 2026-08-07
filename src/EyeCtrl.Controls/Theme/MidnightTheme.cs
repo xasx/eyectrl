@@ -1,5 +1,6 @@
 namespace EyeCtrl.Controls.Theme;
 
+using System.Windows;
 using System.Windows.Media;
 
 /// <summary>
@@ -68,4 +69,35 @@ public sealed class MidnightTheme : ThemeBase
 
     /// <inheritdoc />
     public override double BorderThicknessStandard => 1.0;
+
+    // ── Geometry and typography: identical in all three themes (spec §5 decision 6).
+    // Theme-varying by mechanism so a future revision can diverge without touching a
+    // single overlay; no measurement today says any theme wants different geometry.
+
+    /// <inheritdoc />
+    public override double CornerRadiusSmall => 4.0;
+    /// <inheritdoc />
+    public override double CornerRadiusStandard => 8.0;
+    /// <inheritdoc />
+    public override double CornerRadiusLarge => 12.0;
+    /// <inheritdoc />
+    public override double CornerRadiusCircle => 9999.0;
+
+    /// <inheritdoc />
+    public override string FontFamilyStandard => "Segoe UI Variable Text, Segoe UI";
+    /// <inheritdoc />
+    public override FontWeight FontWeightMedium => FontWeights.SemiBold;
+    /// <inheritdoc />
+    public override FontWeight FontWeightStrong => FontWeights.Bold;
+
+    /// <inheritdoc />
+    public override double FontSizeBody => 12.0;
+    /// <inheritdoc />
+    public override double FontSizeBodyLarge => 14.0;
+    /// <inheritdoc />
+    public override double FontSizeSubtitle => 18.0;
+    /// <inheritdoc />
+    public override double FontSizeTitle => 24.0;
+    /// <inheritdoc />
+    public override double FontSizeDisplay => 34.0;
 }

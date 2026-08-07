@@ -1,5 +1,6 @@
 namespace EyeCtrl.Controls.Theme;
 
+using System.Windows;
 using System.Windows.Media;
 
 /// <summary>
@@ -128,4 +129,46 @@ public interface ITheme
     /// rather than by fill steps.
     /// </summary>
     double BorderThicknessStandard { get; }
+
+    // ── Geometry ────────────────────────────────────────────────────────────
+    /// <summary>Compact bars and thin outlines: the toolbar, the dwell-feedback bar.</summary>
+    double CornerRadiusSmall { get; }
+    /// <summary>The default: overlay container roots, cards, keys, tiles, dwell controls.</summary>
+    double CornerRadiusStandard { get; }
+    /// <summary>Prominent cards and modal dialogs: splash, the settings card.</summary>
+    double CornerRadiusLarge { get; }
+    /// <summary>
+    /// Fully round. **Valid on square elements only.** WPF clamps an over-large
+    /// CornerRadius to an inscribed *ellipse*, so on a non-square Border this produces
+    /// an ellipse, never a stadium — measured in spec §4.1 and pinned by
+    /// CornerRadiusClampTests. On a square element it renders pixel-identically to
+    /// size / 2 at every size and DPI tested.
+    /// </summary>
+    double CornerRadiusCircle { get; }
+
+    // ── Typography ──────────────────────────────────────────────────────────
+    /// <summary>
+    /// Family name, or a comma-separated fallback chain. A chain is deliberate: an
+    /// unresolvable bare name has an undefined degradation path (spec §4.2).
+    /// </summary>
+    string FontFamilyStandard { get; }
+    /// <summary>Emphasis weight. SemiBold (600) — *not* FontWeights.Medium, which is 500.</summary>
+    FontWeight FontWeightMedium { get; }
+    /// <summary>Strong weight. Bold (700).</summary>
+    FontWeight FontWeightStrong { get; }
+
+    /// <summary>The ramp floor. Captions, body text, list rows. Gated at >= 12 (§9).</summary>
+    double FontSizeBody { get; }
+    /// <summary>Slightly emphasised body: tile labels, secondary rows.</summary>
+    double FontSizeBodyLarge { get; }
+    /// <summary>Section and notice text.</summary>
+    double FontSizeSubtitle { get; }
+    /// <summary>Headings and dwell-control labels.</summary>
+    double FontSizeTitle { get; }
+    /// <summary>The largest step: splash and window titles.</summary>
+    double FontSizeDisplay { get; }
+
+    // ── Derived (implemented by ThemeBase; see §6.2 and §6.6) ───────────────
+    /// <summary><see cref="FontFamilyStandard"/> as a cached WPF object.</summary>
+    FontFamily FontStandard { get; }
 }

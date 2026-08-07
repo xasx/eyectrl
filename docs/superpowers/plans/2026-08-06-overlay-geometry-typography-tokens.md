@@ -1365,14 +1365,26 @@ public class RawGeometryLiteralTests
         foreach (var f in typeof(ContainerRatio).GetFields(BindingFlags.Public | BindingFlags.Static))
             names.Add($"ContainerRatio.{f.Name}");
 
-        // One glyph size reaches XAML through {x:Static} on a window's static property, because
-        // a DataTemplate is instantiated per item and cannot multiply by a ratio inline (Task
-        // 12). Reflected over the app assembly rather than hard-coded, so renaming that property
-        // cannot silently re-open the hole this guard exists to close.
+        // Exactly one glyph size has to reach XAML through {x:Static}: the tile icon inside
+        // QuickActionsGridWindow's ItemTemplate, because a DataTemplate is instantiated per item
+        // and cannot multiply by a ratio inline (Task 12). Every other glyph site assigns from
+        // code-behind and needs no entry here.
+        //
+        // Scoped to OverlayWindow SUBCLASSES, not the whole assembly. Reflecting over every type
+        // would silently enrol any future public static double in EyeCtrl.App — measured, that
+        // already admits three unrelated NoteLayout properties — and a guard whose trust surface
+        // grows on its own is the wrong shape. Window classes are where {x:Static} consumers can
+        // legitimately live, so that is the boundary.
+        //
+        // Still reflection rather than a hard-coded member name: a rename then produces a *false
+        // positive* on the migrated site, which fails loudly, instead of a silent hole.
         foreach (var type in typeof(OverlayWindow).Assembly.GetTypes())
+        {
+            if (!typeof(OverlayWindow).IsAssignableFrom(type)) continue;
             foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Static))
                 if (prop.PropertyType == typeof(double))
                     names.Add($"{type.Name}.{prop.Name}");
+        }
 
         return names;
     }
@@ -1452,7 +1464,16 @@ public class RawGeometryLiteralTests
 dotnet test EyeCtrl.slnx --filter "FullyQualifiedName~RawGeometryLiteralTests|FullyQualifiedName~RawColourLiteralTests" --nologo
 ```
 
-Expected: PASS. If `NoUIFile_WritesAGeometryOrTypeValueOutsideTheTokens` fails, a file with literals is missing from `Exempt` — add it with a `PENDING Task N` reason matching the task that will migrate it. If `EveryExemption_...` fails, a listed file has nothing left to exempt — delete that entry.
+Expected: PASS. If `NoUIFile_WritesAGeometryOrTypeValueOutsideTheTokens` fails, a file with literals
+is missing from `Exempt` — add it with a `PENDING Task N` reason matching the task that will migrate
+it. If `EveryExemption_...` fails, a listed file has nothing left to exempt — delete that entry.
+
+> **The report counts distinct values, not sites**, because of the `.Distinct()` call. A file with
+> seven literals over three distinct values reports three entries — `TrackStatusWindow.xaml` does
+> exactly that (`CornerRadius=8`, `FontSize=10`, `FontWeight=Bold` covering 7 sites), and
+> `EyeCareExerciseWindow.xaml` reports 8 covering 16. **No file or site is hidden by this** — every
+> non-token-backed value fails the test; only the message text collapses. Do not read a lower entry
+> count as an under-catch.
 
 - [ ] **Step 5: Mutation-prove the guard**
 
@@ -1467,8 +1488,14 @@ Following `9e252e1`'s method, create `src/EyeCtrl.App/Overlays/GuardProbe.cs`:
 ```csharp
 namespace EyeCtrl.App.Overlays;
 
+// System.Windows.Media is REQUIRED, not optional: EyeCtrl.App sets
+// <UseWindowsForms>true</UseWindowsForms>, so an unqualified FontFamily binds to
+// System.Drawing.FontFamily and the file fails with CS0029. EyeCtrl.Controls.Theme is
+// required for the Tokens reads in the ...BesideAToken cases.
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 
 internal static class GuardProbe
 {
@@ -1516,7 +1543,9 @@ internal static class GuardProbe
 ```
 
 Run the guard and confirm it **fails**, that the message **names `GuardProbe.cs`**, and that it
-lists **all nine** bad values. Check specifically that:
+reports **8 distinct values covering all 9 bad sites** — `FontSize=13` appears in both
+`LiteralSize()` and `LiteralSizeBesideAToken()` and collapses to one entry, because the report
+de-duplicates by value. Check specifically that:
 
 - the four `...BesideAToken` cases are caught. These are the ones the window-scanning draft
   missed, and they are the shape real overlay code takes. **If any of them is cleared, the guard is
@@ -2009,48 +2038,63 @@ re-declare it. Immediately after it, add:
 Then change `FontSize = fontSize,` at `:115` to `FontSize = symbolSize,`, and delete
 `public const double DefaultSymbolFontSize = 22;` at `:15`.
 
-- [ ] **Step 3: The two XAML glyph sites**
+- [ ] **Step 3: The four XAML glyph sites**
 
-`QuickActionsGridWindow.xaml:26` (`FontSize="20"` on the 44px close button) and `:54` (`FontSize="28"` on the 120px tile icon), plus `EyeCareBannerWindow.xaml:30,37` (`FontSize="22"` in 64px grids). Their containers are fixed in XAML, so set the size in code-behind after `InitializeComponent`:
+Four sites set a glyph size in XAML: `QuickActionsGridWindow.xaml:26` (`FontSize="20"`, the 44px close
+button) and `:54` (`FontSize="28"`, the 120px tile icon), plus `EyeCareBannerWindow.xaml:30,37`
+(`FontSize="22"`, in 64px dwell rings). XAML cannot express a multiplication, so each needs either a
+code-behind assignment or `{x:Static}`.
 
-```csharp
-        // Glyph sizes are a ratio of the box that bounds them, not a step on the type ramp
-        // (spec §8.5). Set here because XAML cannot express the multiplication.
-        const double CloseButtonSize = 44;
-        const double TileSize = 120;
-        CloseGlyph.FontSize = CloseButtonSize * ContainerRatio.Dominant;
-        // Tile icons are created per item; set in the ItemsControl's Loaded handler.
-```
+**Only one of the four needs `{x:Static}`. Use code-behind for the other three.**
 
-**Use `{x:Static}` rather than `x:Name` plus code-behind assignment.** A `DataTemplate` is instantiated once per item, so there is no single element to assign to — and `x:Static` works identically inside and outside a template.
+`{x:Static}` is unavoidable for the tile icon, which lives in an `ItemTemplate`: a `DataTemplate` is
+instantiated once per item, so there is no single element to assign to. The other three —
+`QuickActionsGridWindow.xaml:26` and `EyeCareBannerWindow.xaml:30,37` — are ordinary named elements,
+and a plain assignment keeps them out of the guard's allow-list entirely. **Fewer allowed forms is a
+stronger guard**, and the allow-list is the guard's trust surface.
 
-In `src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml.cs`, add:
+**The template case** — in `src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml.cs`, add:
 
 ```csharp
     private const double CloseButtonSize = 44;
     private const double TileSize = 120;
 
-    /// <summary>Close-button glyph size: a ratio of the 44px button that bounds it (spec §8.5).</summary>
-    public static double CloseGlyphSize => CloseButtonSize * ContainerRatio.Dominant;
-
-    /// <summary>Tile icon size: a ratio of the 120px tile that bounds it (spec §8.5).</summary>
+    /// <summary>
+    /// Tile icon size: a ratio of the 120px tile that bounds it (spec §8.5). Public and static
+    /// because it is consumed by {x:Static} from inside the ItemTemplate, which cannot reach an
+    /// instance member. It is the ONLY glyph size that needs this — see RawGeometryLiteralTests's
+    /// allow-list, which admits public static doubles on OverlayWindow subclasses for exactly
+    /// this one case.
+    /// </summary>
     public static double TileIconSize => TileSize * ContainerRatio.Small;
 ```
 
-Then in `QuickActionsGridWindow.xaml`, replace `FontSize="20"` at `:26` with `FontSize="{x:Static overlays:QuickActionsGridWindow.CloseGlyphSize}"`, and `FontSize="28"` at `:54` with `FontSize="{x:Static overlays:QuickActionsGridWindow.TileIconSize}"`. The `overlays:` prefix is already declared on the root element.
+and in `QuickActionsGridWindow.xaml` replace `FontSize="28"` at `:54` with
+`FontSize="{x:Static overlays:QuickActionsGridWindow.TileIconSize}"`. The `overlays:` prefix is
+already declared on the root element.
 
-Leave the `Width="44" Height="44"` literals at `:22` alone — they are layout, which §2 excludes, and `CornerRadiusClampTests.TheOneCircleConsumer_IsSquare` already couples them to the circle token by parsing the XAML.
+**The three code-behind cases.** Give each `TextBlock` an `x:Name`, delete its `FontSize` attribute,
+and assign after `InitializeComponent()`:
 
-Do the same for the banner in `src/EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml.cs`:
+- `QuickActionsGridWindow.xaml:26` → `x:Name="CloseGlyph"`, then in the constructor:
 
-```csharp
-    private const double RingSize = 64;
+  ```csharp
+      CloseGlyph.FontSize = CloseButtonSize * ContainerRatio.Dominant;
+  ```
 
-    /// <summary>Dwell-ring glyph size: a ratio of the 64px ring that bounds it (spec §8.5).</summary>
-    public static double RingGlyphSize => RingSize * ContainerRatio.Medium;
-```
+- `EyeCareBannerWindow.xaml:30` → `x:Name="SnoozeGlyph"` and `:37` → `x:Name="StartGlyph"`, then in
+  that window's constructor:
 
-and replace both `FontSize="22"` occurrences (`:30`, `:37`) with `FontSize="{x:Static local:EyeCareBannerWindow.RingGlyphSize}"` — note this file's root element uses the `local:` prefix, not `overlays:`.
+  ```csharp
+      // Ring glyphs are a ratio of the 64px dwell ring that bounds them (spec §8.5).
+      const double RingSize = 64;
+      SnoozeGlyph.FontSize = RingSize * ContainerRatio.Medium;
+      StartGlyph.FontSize = RingSize * ContainerRatio.Medium;
+  ```
+
+Leave the `Width="44" Height="44"` literals at `QuickActionsGridWindow.xaml:22` alone — they are
+layout, which §2 excludes, and `CornerRadiusClampTests.TheOneCircleConsumer_IsSquare` already couples
+them to the circle token by parsing the XAML.
 
 - [ ] **Step 4: `DragTrailOverlay` — the ratio *and* the offset**
 
@@ -2288,7 +2332,7 @@ Expected: `0`. Any remaining `PENDING` means a file was never migrated and is st
 - [ ] **Step 5: Confirm no literal survived**
 
 ```bash
-grep -rn 'CornerRadius="[0-9]' src/EyeCtrl.App src/EyeCtrl.Controls
+grep -rn 'CornerRadius="[0-9]\|new CornerRadius([0-9]' src/EyeCtrl.App src/EyeCtrl.Controls
 ```
 
 ```bash
@@ -2310,8 +2354,12 @@ property the guard covers. `EyeCtrl.Supervisor` is out of scope and is not scann
 - [ ] **Step 6: Scope check with GitNexus**
 
 ```bash
-node .gitnexus/run.cjs analyze
+npx gitnexus analyze
 ```
+
+`AGENTS.md` documents `node .gitnexus/run.cjs analyze` as the preferred form, but **that file does
+not exist on a fresh checkout of this branch** — use the fallback above, which `AGENTS.md` and
+`CLAUDE.md` both name. If npm 11 crashes on it, `npm i -g gitnexus` first (issue #1939).
 
 Then run `detect_changes({scope: "compare", base_ref: "main"})` and confirm the affected symbols are the theme layer, the overlay windows and the dwell controls — nothing in the gaze pipeline, adaptation, or prediction.
 

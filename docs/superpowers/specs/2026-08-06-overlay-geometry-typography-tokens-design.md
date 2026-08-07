@@ -181,9 +181,13 @@ On a **non-square** element it is an inscribed *ellipse*, not a stadium. Coverag
 the fraction of pixels with **alpha > 128** — the 50 % cutoff, which is the correct way to count a
 rasterised area and reproduces the analytic value exactly:
 
-| Element | Stadium (r = min/2) | `9999` | Inscribed ellipse (π/4) |
+| Element | Stadium (r = min/2), measured | `9999`, measured | Inscribed ellipse, analytic |
 |---|---|---|---|
-| 120×40 | 0.9285 | **0.7854** | 0.7854 |
+| 120×40 | 0.9279 | **0.7854** | 0.7854 (π/4) |
+
+(The stadium's analytic area is 0.9285; the 0.9279 above is what rasterises at this threshold. An
+earlier draft printed the analytic 0.9285 in the measured column — a number computed, not observed,
+sitting in a table of observations.)
 
 **The threshold must be stated, because the number is meaningless without it.** An earlier draft
 published 0.7671 for this cell and a reviewer independently measured 0.8094; both were correct for
@@ -547,7 +551,7 @@ size, so the two agree and every verdict below stands on the layout API rather t
 |---|---|---|---|---|
 | **`TrackStatusWindow` — 6 sites** | **fixed 160×110**, `Padding="8"`, `ResizeMode="NoResize"` | 10 → 12 | 13.30 → 15.96 | **✗ Overflows by 1.88px.** Resolved by the window-height change below — the one scoped layout exception. |
 | `NoteWindow.xaml.cs:87` "PINNED NOTE" | title bar `Height = 24`, `Margin(8,4,0,0)` | 10 → 12 | 13.30 → 15.96 | Safe. 15.96 + 4 = 19.96 in 24 — 4.04 slack. |
-| `EyeCareBannerWindow.xaml:32,39` "snooze"/"start" | 64×64 grid in a fixed 80px strip, `Margin="0,0,0,-16"` | 9 → 12 | 11.97 → 15.96 | **⚠ Flagged — the one site the 12px floor genuinely stresses.** See the arithmetic below. |
+| `EyeCareBannerWindow.xaml:32,39` "snooze"/"start" | 64×64 grid in a fixed 80px strip, `Margin="0,0,0,-16"` | 9 → 12 | 11.97 → 15.96 | **Safe by measurement** — glyph ink keeps 5–7px of clearance from the dwell ring. See below; an earlier draft flagged this on a figure that measured the wrong thing. |
 | `CalibrationWindow.xaml:46,61` hints | centred, full-screen overlay | 11 → 12 | 14.63 → 15.96 | Safe — unbounded. |
 | `EyeCareBannerWindow.xaml:24` subtitle | in the 80px strip | 11 → 12 | 14.63 → 15.96 | Safe. Two-line stack ≈ 40px in 80px. |
 | `EyeCareBannerWindow.xaml:22` message | vertically centred in the 80px strip | 16 → 18 | 21.28 → 23.94 | Safe, per the same stack. |
@@ -584,30 +588,36 @@ size by shrinking a diagnostic the user reads to check tracker position).
 Horizontal fit is unaffected: "Quality: Unknown" measures 78.18px at 10 and 93.82 at 12, against
 144px available.
 
-#### The remaining flag: `EyeCareBannerWindow`'s "snooze"/"start" labels
+#### `EyeCareBannerWindow`'s "snooze"/"start" labels — resolved by measuring the glyphs, not the box
 
 These sit in a 64×64 `Grid` whose `Ellipse` fills it, with
 `VerticalAlignment="Bottom" Margin="0,0,0,-16"` — so the label's *bottom* is pinned 16px below the
-grid, and growing the font pushes its *top* upward, toward the ring:
+grid and growing the font pushes its *top* upward, toward the ring.
 
-| Size | Label box height | Gap between ring bottom and label box top |
+An earlier draft flagged this site on the layout box alone:
+
+| Size | Label box height | Ring bottom → **box** top |
 |---|---|---|
-| 9 (today) | 11.97 | 16 − 11.97 = **4.03px** |
+| 9 (today) | 11.97 | 16 − 11.97 = 4.03px |
 | 12 | 15.96 | 16 − 15.96 = **0.04px** |
 
-The box top effectively grazes the ring. The *visible* gap is larger than that, because a Segoe UI
-box carries internal leading above the cap height — roughly 3px at 12px — so the glyph tops should
-still clear the ring. **That margin is too thin to settle by arithmetic**, which is why this is the
-one site flagged for a look rather than declared safe.
+0.04px reads alarming, and it is the wrong measurement — the box top is invisible. What matters is
+the first inked row. Measured by rendering each `TextBlock` and scanning for it:
 
-If it does collide, the resolution is **not** a second layout exception. The options, in order:
-give these two labels `FontSizeBody` with the ring's own `ContainerRatio` instead (they are inside
-a 64px badge, so §8.5's rule already applies to them), or accept the contact. Changing the `-16`
-would be a second layout edit and §2 forbids it.
+| Text | Size | Box height | First inked row | Ring bottom → **ink** |
+|---|---|---|---|---|
+| "snooze" | 9 | 11.97 | 5 | 9.03px |
+| "snooze" | 12 | 15.96 | 7 | **7.04px** |
+| "start" | 9 | 11.97 | 4 | 8.03px |
+| "start" | 12 | 15.96 | 5 | **5.04px** |
 
-**One flagged site** remains, needing visual confirmation during implementation rather than a
-layout change. Where a flagged site does not fit, **the token assignment changes** — no further
-padding or control-size edits, per §2.
+"snooze" is all x-height so its ink starts 7px down; "start" has the `t` ascender so it starts 5px
+down. Visible clearance therefore falls from 8–9px to **5–7px** — comfortable, not marginal. The
+figures are identical in `Segoe UI Variable Text`, consistent with §4.2's metric identity.
+
+**No site is left flagged.** Every clip verdict in the table above is now either "unchanged" or
+measured. Where a future growth is unsafe, **the token assignment changes** — no further padding or
+control-size edits beyond the one `TrackStatusWindow` height, per §2.
 
 Note what the ratio rule bought here: the two `SettingsWindow` glyphs were the highest-risk
 entries when they were headed for `Display` (34), a +4px growth inside an 80px button. Sizing them
@@ -1010,9 +1020,22 @@ row was checked against its layout code.
   `string`, while the derived `FontFamily` reaches XAML as `FontStandard`. Both get asserted.
 - **§9's line reference** corrected to the 294-295 dict comprehension.
 
+### Found while applying the review — two of my own round-1 edits were defective
+
+1. **§4.1's stadium column contained an analytic number in a measured table.** I wrote 0.9285,
+   which is `(80·40 + π·20²)/(120·40)` — computed, not observed. Measured at the stated alpha > 128
+   threshold it is **0.9279**. The column now says which is which.
+2. **§8.6's "roughly 3px of internal leading" was a guess, and it was wrong in the safe
+   direction.** Measured by rendering the `TextBlock` and scanning for the first inked row, leading
+   is **5px for "start" and 7px for "snooze"** at 12px. Visible clearance from the dwell ring is
+   therefore 5–7px, not the 0.04px the box-edge arithmetic implied. **The last flagged site is
+   resolved** — no site in §8.6 is flagged any more.
+
+The pattern in both is the same one that produced the Arial error: a number derived by reasoning,
+presented in a place that implies it was observed.
+
 ### Still open
 
-`EyeCareBannerWindow`'s "snooze"/"start" labels remain the single flagged site, now with the
-arithmetic in §8.6: the label box top goes from 4.03px clear of the ring to 0.04px. Internal
-leading should keep the glyph tops clear, but that is too thin to settle on paper. The `Segoe UI
-Variable Text` specimens also still want a look before implementation.
+The `Segoe UI Variable Text` specimens want a look before implementation — it is the one decision
+here that touches every glyph in the application and the one I would least like to reverse
+afterwards.

@@ -9,9 +9,13 @@ using Xunit;
 /// <summary>
 /// Guards the shape of the <see cref="Tokens"/> facade.
 ///
-/// Token *values* are no longer pinned here: they live in tools/palette_validate.py
+/// Token *values* are no longer pinned here: colour values live in tools/palette_validate.py
 /// (which runs the ten gates against them) and are checked against the C# themes by
 /// ThemeParityTests. Restating them here as well would have been a third copy.
+///
+/// The geometry and type ramp values additionally carry a deliberate value freeze in
+/// ThemeShapeTests.AllThreeThemes_DeclareIdenticalGeometryAndType, because the validator's
+/// gates check only their ordering (plus a 12px floor), never the exact numbers.
 /// </summary>
 public class TokenValueTests
 {

@@ -178,12 +178,13 @@ MARKER_SURFACE_FLOOR = 3.0
 MARKER_SEPARATION_FLOOR = 15.0
 MARKER_HALO_FLOOR = 7.0
 
-# Tokens that are not colours. Theme-varying but parsed as numbers or strings, so they
-# are excluded from every colour gate; parse() raises on anything listed here that it
-# still sees. BorderThicknessStandard was the first: high-contrast convention is a 2px
-# outline because structure there is carried by the border rather than by fill steps
-# (gate 1), while the tuned palettes use 1px. The geometry and typography tokens joined
-# it in spec §9. Any future non-colour token must be added here or parse() will reject it.
+# Tokens that are not colours: numbers and strings, so they are excluded from every
+# colour gate. BorderThicknessStandard was the first, and is the only one that actually
+# varies per theme: high-contrast convention is a 2px outline because structure there is
+# carried by the border rather than by fill steps (gate 1), while the tuned palettes use
+# 1px. The geometry and typography tokens joined it in spec §9; they are identical in all
+# three themes today, theme-varying only by mechanism. Any future non-colour token must be
+# added here or parse() will reject it.
 NON_COLOUR_TOKENS = {
     "BorderThicknessStandard",
     "CornerRadiusSmall", "CornerRadiusStandard", "CornerRadiusLarge", "CornerRadiusCircle",
@@ -333,7 +334,7 @@ def check(label: str, value: float, floor: float, note: str = "") -> None:
 
 
 def validate_theme(name: str, palette: dict) -> None:
-    """Runs all eight gates against one theme. Appends to the module failure list."""
+    """Runs all ten gates against one theme. Appends to the module failure list."""
     tok = {k: parse(v) for k, v in palette.items()
            if not k.startswith("_") and k not in NON_COLOUR_TOKENS}
     core = parse(palette["_core"])
@@ -377,7 +378,7 @@ def validate_theme(name: str, palette: dict) -> None:
           f"{r_small} -> {r_std}")
     check(f"[{name}] radius ramp Standard<=Large", r_large - r_std, 0.0,
           f"{r_std} -> {r_large}")
-    check(f"[{name}] CornerRadiusCircle outranks Large", r_circle - r_large, 0.0,
+    check(f"[{name}] radius Circle outranks Large", r_circle - r_large, 0.0,
           f"{r_circle} is the fully-round sentinel")
 
     f_body = float(palette["FontSizeBody"])
@@ -387,10 +388,14 @@ def validate_theme(name: str, palette: dict) -> None:
     f_disp = float(palette["FontSizeDisplay"])
     check(f"[{name}] FontSizeBody floor", f_body, 12.0,
           "px — the accessibility floor; keep identical to ThemeShapeTests")
-    check(f"[{name}] type ramp Body<=BodyLarge", f_bodyl - f_body, 0.0, f"{f_body} -> {f_bodyl}")
-    check(f"[{name}] type ramp BodyLarge<=Subtitle", f_sub - f_bodyl, 0.0, f"{f_bodyl} -> {f_sub}")
-    check(f"[{name}] type ramp Subtitle<=Title", f_title - f_sub, 0.0, f"{f_sub} -> {f_title}")
-    check(f"[{name}] type ramp Title<=Display", f_disp - f_title, 0.0, f"{f_title} -> {f_disp}")
+    check(f"[{name}] type ramp Body<=BodyLarge", f_bodyl - f_body, 0.0,
+          f"{f_body} -> {f_bodyl}")
+    check(f"[{name}] type ramp BodyLarge<=Subtitle", f_sub - f_bodyl, 0.0,
+          f"{f_bodyl} -> {f_sub}")
+    check(f"[{name}] type ramp Subtitle<=Title", f_title - f_sub, 0.0,
+          f"{f_sub} -> {f_title}")
+    check(f"[{name}] type ramp Title<=Display", f_disp - f_title, 0.0,
+          f"{f_title} -> {f_disp}")
     check(f"[{name}] FontFamilyStandard declared",
           1.0 if palette["FontFamilyStandard"].strip() else 0.0, 1.0,
           palette["FontFamilyStandard"])

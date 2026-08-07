@@ -49,4 +49,34 @@
          2 for a high-contrast theme propagates without touching any overlay (§4.4). -->
     <theme:UniformThickness x:Key="StandardBorderThickness"
                             Value="{x:Static theme:Tokens.BorderThicknessStandard}"/>
+
+    <!-- Geometry. Raw doubles for code and the validator; the CornerRadius forms for XAML,
+         which cannot convert a double resource. Both are pulled from Tokens with {x:Static}
+         so there is exactly one literal per value, in the theme classes.
+         NOTE: {x:Static} resolves at PARSE time, before a theme is chosen — so every key
+         here must also be written by ThemeResourceApplier.Apply, or it silently stays on
+         Midnight. Apply_CoversEveryKeyTheDictionaryDeclares enforces that. See spec §6.6. -->
+    <x:Static x:Key="CornerRadiusSmall"    Member="theme:Tokens.CornerRadiusSmall"/>
+    <x:Static x:Key="CornerRadiusStandard" Member="theme:Tokens.CornerRadiusStandard"/>
+    <x:Static x:Key="CornerRadiusLarge"    Member="theme:Tokens.CornerRadiusLarge"/>
+    <x:Static x:Key="CornerRadiusCircle"   Member="theme:Tokens.CornerRadiusCircle"/>
+
+    <x:Static x:Key="SmallCornerRadius"    Member="theme:Tokens.SmallCornerRadius"/>
+    <x:Static x:Key="StandardCornerRadius" Member="theme:Tokens.StandardCornerRadius"/>
+    <x:Static x:Key="LargeCornerRadius"    Member="theme:Tokens.LargeCornerRadius"/>
+    <x:Static x:Key="CircleCornerRadius"   Member="theme:Tokens.CircleCornerRadius"/>
+
+    <!-- Typography. FontFamilyStandard is the raw chain string; FontStandard is the
+         FontFamily object. Assigning the wrong one throws at load — no type converter
+         runs on a StaticResource assignment. -->
+    <x:Static x:Key="FontFamilyStandard" Member="theme:Tokens.FontFamilyStandard"/>
+    <x:Static x:Key="FontStandard"       Member="theme:Tokens.FontStandard"/>
+    <x:Static x:Key="FontWeightMedium"   Member="theme:Tokens.FontWeightMedium"/>
+    <x:Static x:Key="FontWeightStrong"   Member="theme:Tokens.FontWeightStrong"/>
+
+    <x:Static x:Key="FontSizeBody"      Member="theme:Tokens.FontSizeBody"/>
+    <x:Static x:Key="FontSizeBodyLarge" Member="theme:Tokens.FontSizeBodyLarge"/>
+    <x:Static x:Key="FontSizeSubtitle"  Member="theme:Tokens.FontSizeSubtitle"/>
+    <x:Static x:Key="FontSizeTitle"     Member="theme:Tokens.FontSizeTitle"/>
+    <x:Static x:Key="FontSizeDisplay"   Member="theme:Tokens.FontSizeDisplay"/>
 </ResourceDictionary>

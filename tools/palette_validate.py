@@ -45,6 +45,18 @@ THEMES = {
         "ToggleOff":          "#2E2E42",
         "ModalBackdrop":      "#B3000000",
         "BorderThicknessStandard": "1",
+        "CornerRadiusSmall":       "4",
+        "CornerRadiusStandard":    "8",
+        "CornerRadiusLarge":       "12",
+        "CornerRadiusCircle":      "9999",
+        "FontFamilyStandard":      "Segoe UI Variable Text, Segoe UI",
+        "FontWeightMedium":        "SemiBold",
+        "FontWeightStrong":        "Bold",
+        "FontSizeBody":            "12",
+        "FontSizeBodyLarge":       "14",
+        "FontSizeSubtitle":        "18",
+        "FontSizeTitle":           "24",
+        "FontSizeDisplay":         "34",
         "_core":              "#1A1A2E",
     },
     "Ember": {
@@ -74,6 +86,18 @@ THEMES = {
         "ToggleOff":          "#342C21",
         "ModalBackdrop":      "#B3000000",
         "BorderThicknessStandard": "1",
+        "CornerRadiusSmall":       "4",
+        "CornerRadiusStandard":    "8",
+        "CornerRadiusLarge":       "12",
+        "CornerRadiusCircle":      "9999",
+        "FontFamilyStandard":      "Segoe UI Variable Text, Segoe UI",
+        "FontWeightMedium":        "SemiBold",
+        "FontWeightStrong":        "Bold",
+        "FontSizeBody":            "12",
+        "FontSizeBodyLarge":       "14",
+        "FontSizeSubtitle":        "18",
+        "FontSizeTitle":           "24",
+        "FontSizeDisplay":         "34",
         "_core":              "#211B14",
     },
     # Situational theme for glare, bright rooms or tired eyes — not an all-day
@@ -112,6 +136,18 @@ THEMES = {
         "ToggleOff":          "#000000",
         "ModalBackdrop":      "#E6000000",
         "BorderThicknessStandard": "2",
+        "CornerRadiusSmall":       "4",
+        "CornerRadiusStandard":    "8",
+        "CornerRadiusLarge":       "12",
+        "CornerRadiusCircle":      "9999",
+        "FontFamilyStandard":      "Segoe UI Variable Text, Segoe UI",
+        "FontWeightMedium":        "SemiBold",
+        "FontWeightStrong":        "Bold",
+        "FontSizeBody":            "12",
+        "FontSizeBodyLarge":       "14",
+        "FontSizeSubtitle":        "18",
+        "FontSizeTitle":           "24",
+        "FontSizeDisplay":         "34",
         "_core":              "#000000",
     },
 }
@@ -142,12 +178,19 @@ MARKER_SURFACE_FLOOR = 3.0
 MARKER_SEPARATION_FLOOR = 15.0
 MARKER_HALO_FLOOR = 7.0
 
-# Tokens that are not colours. Theme-varying but parsed as numbers, so they are
-# excluded from every colour gate. BorderThicknessStandard is the only one:
-# high-contrast convention is a 2px outline because structure there is carried by
-# the border rather than by fill steps (see gate 1), while the tuned palettes use
-# 1px. Any future non-colour token must be added here or parse() will reject it.
-NON_COLOUR_TOKENS = {"BorderThicknessStandard"}
+# Tokens that are not colours. Theme-varying but parsed as numbers or strings, so they
+# are excluded from every colour gate; parse() raises on anything listed here that it
+# still sees. BorderThicknessStandard was the first: high-contrast convention is a 2px
+# outline because structure there is carried by the border rather than by fill steps
+# (gate 1), while the tuned palettes use 1px. The geometry and typography tokens joined
+# it in spec §9. Any future non-colour token must be added here or parse() will reject it.
+NON_COLOUR_TOKENS = {
+    "BorderThicknessStandard",
+    "CornerRadiusSmall", "CornerRadiusStandard", "CornerRadiusLarge", "CornerRadiusCircle",
+    "FontFamilyStandard", "FontWeightMedium", "FontWeightStrong",
+    "FontSizeBody", "FontSizeBodyLarge", "FontSizeSubtitle", "FontSizeTitle",
+    "FontSizeDisplay",
+}
 
 # Worst realistic desktop behind a translucent overlay: a white document.
 WORST_DESKTOP = "#FFFFFF"
@@ -320,6 +363,37 @@ def validate_theme(name: str, palette: dict) -> None:
     check(f"[{name}] BorderThicknessStandard", thickness, 1.0,
           f"px — border carries the boundary at "
           f"{contrast(tok['BorderSubtle'], worst):.2f}:1")
+
+    # Non-colour geometry and type. check() is a ">= floor" assertion, so orderings are
+    # expressed as differences. Radii live here rather than in a new gate so that "ten
+    # gates" stays true across the spec, the style guide and the test comments (§9).
+    r_small = float(palette["CornerRadiusSmall"])
+    r_std = float(palette["CornerRadiusStandard"])
+    r_large = float(palette["CornerRadiusLarge"])
+    r_circle = float(palette["CornerRadiusCircle"])
+    check(f"[{name}] CornerRadiusSmall >= 0", r_small, 0.0,
+          "a negative radius throws when it reaches Border.CornerRadius")
+    check(f"[{name}] radius ramp Small<=Standard", r_std - r_small, 0.0,
+          f"{r_small} -> {r_std}")
+    check(f"[{name}] radius ramp Standard<=Large", r_large - r_std, 0.0,
+          f"{r_std} -> {r_large}")
+    check(f"[{name}] CornerRadiusCircle outranks Large", r_circle - r_large, 0.0,
+          f"{r_circle} is the fully-round sentinel")
+
+    f_body = float(palette["FontSizeBody"])
+    f_bodyl = float(palette["FontSizeBodyLarge"])
+    f_sub = float(palette["FontSizeSubtitle"])
+    f_title = float(palette["FontSizeTitle"])
+    f_disp = float(palette["FontSizeDisplay"])
+    check(f"[{name}] FontSizeBody floor", f_body, 12.0,
+          "px — the accessibility floor; keep identical to ThemeShapeTests")
+    check(f"[{name}] type ramp Body<=BodyLarge", f_bodyl - f_body, 0.0, f"{f_body} -> {f_bodyl}")
+    check(f"[{name}] type ramp BodyLarge<=Subtitle", f_sub - f_bodyl, 0.0, f"{f_bodyl} -> {f_sub}")
+    check(f"[{name}] type ramp Subtitle<=Title", f_title - f_sub, 0.0, f"{f_sub} -> {f_title}")
+    check(f"[{name}] type ramp Title<=Display", f_disp - f_title, 0.0, f"{f_title} -> {f_disp}")
+    check(f"[{name}] FontFamilyStandard declared",
+          1.0 if palette["FontFamilyStandard"].strip() else 0.0, 1.0,
+          palette["FontFamilyStandard"])
 
     print()
     print("GATE 2 - text legibility against the WORST composited surface")

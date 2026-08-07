@@ -1,6 +1,7 @@
 namespace EyeCtrl.Controls.Tests.Theme;
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -108,18 +109,53 @@ public class ThemeParityTests
 
     [Theory]
     [MemberData(nameof(ThemeNames))]
-    public void BorderThickness_MatchesTheValidator(string themeName)
+    public void EveryNonColourToken_MatchesTheValidator(string themeName)
     {
+        // Reflected rather than listed. The hand-written predecessor covered one token;
+        // adding twelve more by hand is exactly the omission this suite exists to prevent.
+        // Derived values are deliberately NOT on ITheme (spec §6.6), so they are not gated
+        // here — they restate the primitives beside them.
         var expected = ParseTheme(ValidatorSource(), themeName);
         var theme = ThemeRegistry.Resolve(themeName);
 
-        Check.WithCustomMessage(
-                $"{themeName} must declare BorderThicknessStandard in the validator — "
-                + "it is the one non-colour theme-varying token (§4.4).")
-            .That(expected.ContainsKey("BorderThicknessStandard")).IsTrue();
+        var gated = typeof(ITheme).GetProperties()
+            .Where(p => p.PropertyType != typeof(Color)
+                     && p.PropertyType != typeof(SolidColorBrush)
+                     && p.PropertyType != typeof(FontFamily)
+                     && p.Name != nameof(ITheme.Name))
+            .ToList();
 
-        Check.That(theme.BorderThicknessStandard)
-             .IsEqualTo(double.Parse(expected["BorderThicknessStandard"]));
+        Check.WithCustomMessage("Reflected no non-colour tokens — wrong filter")
+            .That(gated).Not.IsEmpty();
+
+        foreach (var property in gated)
+        {
+            Check.WithCustomMessage(
+                    $"tools/palette_validate.py has no '{property.Name}' for {themeName}. "
+                    + "Every non-colour ITheme token must be gated, or it ships unvalidated. "
+                    + "Add it to the theme dict AND to NON_COLOUR_TOKENS.")
+                .That(expected.ContainsKey(property.Name)).IsTrue();
+
+            var actual = property.GetValue(theme)!;
+            var expectedText = expected[property.Name];
+
+            if (property.PropertyType == typeof(double))
+            {
+                Check.WithCustomMessage($"{themeName}.{property.Name} disagrees with the validator")
+                    .That((double)actual)
+                    .IsEqualTo(double.Parse(expectedText, CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                // string directly; FontWeight and anything else via ToString(),
+                // which yields "SemiBold" / "Bold" — what the validator stores.
+                var actualText = actual as string ?? actual.ToString()!;
+                Check.WithCustomMessage(
+                        $"{themeName}.{property.Name} is '{actualText}' in C# but "
+                        + $"'{expectedText}' in tools/palette_validate.py")
+                    .That(actualText).IsEqualTo(expectedText);
+            }
+        }
     }
 
     [Fact]

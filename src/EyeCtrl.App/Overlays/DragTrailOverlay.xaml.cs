@@ -14,8 +14,9 @@ public partial class DragTrailOverlay : OverlayWindow
     private const double TrailThickness = 2;
     private const double SettleRingThickness = 3;
 
-    /// <summary>The grab/release button disc diameter.</summary>
-    private const double ButtonDiameter = 26;
+    /// <summary>The grab/release button disc diameter. <c>internal</c> for the reason recorded
+    /// on <see cref="IconSize"/>.</summary>
+    internal const double ButtonDiameter = 26;
 
     /// <summary>
     /// The grab/release glyph size, a ratio of the 26px badge that bounds it.
@@ -24,9 +25,11 @@ public partial class DragTrailOverlay : OverlayWindow
     /// assignment in <see cref="CreateIcon"/> deliberately repeats the expression rather than
     /// reading this const: RawGeometryLiteralTests examines an assignment's own value, and
     /// <c>FontSize = IconSize</c> references no token, so it would be flagged. The two must stay
-    /// in step — change one and change the other, or the glyph stops being centred.
+    /// in step or the glyph stops being centred — and because a comment is the only thing that
+    /// can say so at the assignment site, both are <c>internal</c> so
+    /// <c>GlyphSizeCouplingTests</c> can assert the equality instead of trusting the comment.
     /// </summary>
-    private const double IconSize = ButtonDiameter * ContainerRatio.Badge;
+    internal const double IconSize = ButtonDiameter * ContainerRatio.Badge;
 
     private readonly Line _trailLineHalo;
     private readonly Line _trailLine;

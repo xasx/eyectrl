@@ -183,13 +183,18 @@ public partial class KeyboardWindow : OverlayWindow
                     // Sized from the key that bounds it, so raising KeySizeMultiplier now grows
                     // the letter with the key instead of leaving it at a fixed 16.
                     //
-                    // Clamped at Tokens.FontSizeBody because KeySizeMultiplier bottoms out at
-                    // 0.5 (KeyboardSettings), which puts a 35px key's label at 8.05px — below
-                    // the 12px ramp floor design spec §8.4 established. The clamp keeps the
-                    // glyph legible while proportional scaling still applies above roughly
-                    // 0.75x. FontSizeBody *is* that floor, so the clamp is coupled to the very
-                    // token that defines it rather than to a hand-written 12.
-                    FontSize = Math.Max(_keySize * ContainerRatio.Small, Tokens.FontSizeBody),
+                    // Clamped at Legibility.MinimumGlyphFontSize because KeySizeMultiplier
+                    // bottoms out at 0.5 (KeyboardSettings), which puts a 35px key's label at
+                    // 8.05px — below the 12px accessibility floor design spec §8.4 established.
+                    // The clamp keeps the glyph legible while proportional scaling still applies
+                    // above roughly 0.75x.
+                    //
+                    // The floor is its own named constant rather than Tokens.FontSizeBody. Both
+                    // are 12 today, but FontSizeBody is a step on the type ramp and the guards
+                    // gate it >= 12, not == 12 — so raising body text to 14 would silently grow
+                    // this glyph, and three others, at the bottom of the multiplier range. A
+                    // minimum also has no business being theme-dependent.
+                    FontSize = Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
@@ -448,10 +453,11 @@ public partial class KeyboardWindow : OverlayWindow
                 Text = result.Word,
                 Foreground = GetPredictionForeground(result.Type),
                 // Sized from the prediction cell, which is _keySize tall (see the Border below),
-                // clamped at Tokens.FontSizeBody for the reason recorded at the key-label site:
-                // KeySizeMultiplier's 0.5 floor would otherwise put this at 8.05px, under the
-                // 12px ramp floor (§8.4). Proportional scaling still applies above ~0.75x.
-                FontSize = Math.Max(_keySize * ContainerRatio.Small, Tokens.FontSizeBody),
+                // clamped at Legibility.MinimumGlyphFontSize for the reason recorded at the
+                // key-label site: KeySizeMultiplier's 0.5 floor would otherwise put this at
+                // 8.05px, under the 12px accessibility floor (§8.4). Proportional scaling still
+                // applies above ~0.75x.
+                FontSize = Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center
             };

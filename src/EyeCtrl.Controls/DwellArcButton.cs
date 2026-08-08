@@ -25,6 +25,10 @@ public class DwellArcButton
     ///
     /// Named rather than written inline so RawGeometryLiteralTests's bare-number rule does not
     /// flag the <c>FontSize</c> expression that reads it.
+    ///
+    /// Both arms are asserted by <c>DwellArcButtonGlyphSizeTests</c>. They have to be: the
+    /// expression is token-backed whichever ratio each arm picks, so that guard passes if the arms
+    /// are swapped or the branch collapses onto one ratio.
     /// </summary>
     private const double BadgeDiameterThreshold = 64;
 

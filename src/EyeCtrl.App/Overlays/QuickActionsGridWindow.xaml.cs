@@ -16,11 +16,20 @@ using EyeCtrl.ViewModels;
 /// </summary>
 public partial class QuickActionsGridWindow : OverlayWindow
 {
-    /// <summary>The close button's diameter, declared in XAML as Width/Height 44.</summary>
-    private const double CloseButtonSize = 44;
+    /// <summary>
+    /// The close button's diameter, declared in XAML as Width/Height 44.
+    ///
+    /// <c>internal</c> rather than <c>private</c> so <c>GlyphSizeCouplingTests</c> can assert the
+    /// coupling instead of restating the 44: nothing else ties this const to the XAML attribute,
+    /// so the two could drift silently and the glyph would stop filling its button.
+    /// </summary>
+    internal const double CloseButtonSize = 44;
 
-    /// <summary>The action tile's edge length, declared in the ItemTemplate as Width/Height 120.</summary>
-    private const double TileSize = 120;
+    /// <summary>
+    /// The action tile's edge length, declared in the ItemTemplate as Width/Height 120.
+    /// <c>internal</c> for the same reason as <see cref="CloseButtonSize"/>.
+    /// </summary>
+    internal const double TileSize = 120;
 
     /// <summary>
     /// Tile icon size: a ratio of the 120px tile that bounds it (spec §8.5). Public and static
@@ -123,9 +132,12 @@ public partial class QuickActionsGridWindow : OverlayWindow
     {
         if (_vm == null) return;
 
-        const double cell = 128;      // 120 tile + 4+4 tile margin
-        const double outerPad = 24;   // outer Grid Margin (12 per side)
-        const double closeRow = 52;   // 44 close button + spacing
+        // Derived from the two consts above rather than restated: written as 128 and 52 these
+        // duplicated TileSize and CloseButtonSize a hundred lines up in the same class, so
+        // changing either size would have left the window sized for the old one.
+        const double cell = TileSize + 8;            // tile + 4+4 tile margin
+        const double outerPad = 24;                  // outer Grid Margin (12 per side)
+        const double closeRow = CloseButtonSize + 8; // close button + spacing
 
         int cols = Math.Max(1, _vm.GridColumns);
         int rows = _vm.Tiles.Count == 0 ? 0 : (int)Math.Ceiling((double)_vm.Tiles.Count / cols);

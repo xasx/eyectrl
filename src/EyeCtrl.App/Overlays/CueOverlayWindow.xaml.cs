@@ -53,7 +53,14 @@ public partial class CueOverlayWindow : OverlayWindow, ICuePresenter
     }
 
     /// <inheritdoc />
-    public void Hide()
+    /// <remarks>
+    /// Declared <c>new</c>: this deliberately shadows the non-virtual <see cref="Window.Hide"/> so the
+    /// <see cref="ICuePresenter"/> contract can carry the fade-cancelling variant. Consumers reach it through
+    /// the interface (<c>AdaptationCueService</c> holds an <see cref="ICuePresenter"/>), which binds here;
+    /// a call through a <see cref="Window"/>-typed reference would get the base method and skip the fade
+    /// cancellation, so do not introduce one. Matches <c>EdgeButtonBarWindow.Hide</c>.
+    /// </remarks>
+    public new void Hide()
     {
         // Cancel any in-progress fade: bump the generation so a stale Completed handler is a no-op, stop the
         // animation (resetting Opacity to the XAML-rest value 0), and hide the window. Idempotent. The

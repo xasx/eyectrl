@@ -50,11 +50,18 @@ public class OverlayFontTests
     [StaFact]
     public void TheFontChain_ResolvesToARealGlyphTypeface()
     {
-        // Closes the gap spec §4.2 measured but nothing guarded: a typo in the chain string
-        // does not throw. WPF composites a fallback matching no single installed face, so the
-        // app would render the *undefined* degradation path while the token looked deliberate.
-        // A resolvable chain is the assertion; WHICH member resolves is deliberately not,
-        // because falling back from Segoe UI Variable Text to Segoe UI is the chain working.
+        // Guards that the chain resolves to A real installed face, hence a real GlyphTypeface,
+        // hence the stable LineSpacing ratio (1.330078125) that a later task's layout arithmetic
+        // depends on — measured identical for both SEGUIVAR.TTF (Segoe UI Variable Text) and
+        // SEGOEUI.TTF (Segoe UI), so falling back from one to the other is the chain working,
+        // not a regression, and is deliberately not what this asserts.
+        //
+        // This is NOT a spelling guard: TryGetGlyphTypeface returned True for
+        // "Segoe UI Varible Text, Segoo UI" (both names typo'd) too, resolving to SEGOEUI.TTF —
+        // WPF near-matches a mangled family name instead of failing it. Only wholesale garbage
+        // ("Qwertyuiop Nonexistent", "", "####") returns False, and only that case moves
+        // LineSpacing (to 1.14990234375). A typo in the chain is byte-identical to the chain
+        // working as far as this assertion can see.
         var typeface = new Typeface(Tokens.FontStandard, FontStyles.Normal,
             FontWeights.Normal, FontStretches.Normal);
 
@@ -63,6 +70,19 @@ public class OverlayFontTests
                 + "Check every family name in it for typos — an unresolvable chain silently "
                 + "renders WPF's composite fallback (design spec §4.2).")
             .That(typeface.TryGetGlyphTypeface(out _)).IsTrue();
+    }
+
+    [StaFact]
+    public void ADerivedWindow_InheritsTheFontFamilyFromOverlayWindow()
+    {
+        // The other tests above only construct bare OverlayWindow; base-constructor-first is a
+        // C# guarantee, but spec §8.8's claim is that the assignment reaches all *derived*
+        // window classes, so this proves it on one. GlassBackdropWindow is picked because its
+        // XAML has no {StaticResource} lookups (plain Canvas, no Style), so — like the bare
+        // OverlayWindow tests above — it constructs cleanly with no Application and needs no
+        // WpfApplicationGate; GlassBackdropWindowTests already constructs it the same way.
+        var window = new GlassBackdropWindow();
+        Check.That(window.FontFamily.Source).IsEqualTo(Tokens.FontFamilyStandard);
     }
 
     [Fact]

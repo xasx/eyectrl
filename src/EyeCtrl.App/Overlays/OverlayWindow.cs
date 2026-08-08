@@ -31,9 +31,9 @@ public class OverlayWindow : Window
     private const uint SWP_NOACTIVATE = 0x0010;
 
     /// <summary>
-    /// Gives every overlay the themed font family. All 25 window classes in this assembly
-    /// derive from OverlayWindow, so this single assignment reaches the whole UI (design
-    /// spec §8.8).
+    /// Gives every overlay the themed font family. Every window class in this assembly
+    /// derives from OverlayWindow (see <c>NoWindowClass_BypassesOverlayWindow</c>), so this
+    /// single assignment reaches the whole UI (design spec §8.8).
     ///
     /// A base constructor rather than TextElement.FontFamilyProperty.OverrideMetadata: that
     /// is process-wide and can only be called once, which collides across tests in one
@@ -42,6 +42,10 @@ public class OverlayWindow : Window
     ///
     /// Read from Tokens rather than a resource lookup because Tokens is static and needs no
     /// WPF Application — see Tokens' own doc comment.
+    ///
+    /// This assignment sets a LOCAL value, which outranks a Style setter — an implicit Style
+    /// that later sets FontFamily on a derived OverlayWindow would be silently ignored here,
+    /// unlike FontSize/FontWeight set the same way.
     /// </summary>
     public OverlayWindow()
     {

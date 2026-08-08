@@ -15,7 +15,6 @@ public partial class ToolbarWindow : OverlayWindow
     // UI Layout Constants
     private const int ProgressBarHeight = 4; // Height of dwell progress bar
     private const int ButtonMargin = 2; // Margin between toolbar buttons
-    private const int BorderCornerRadius = 4; // Corner radius for button containers
     private const double ButtonSymbolSizeRatio = 0.4; // Button symbol font size as ratio of button size
 
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
@@ -78,7 +77,7 @@ public partial class ToolbarWindow : OverlayWindow
             Height = _buttonSize,
             Margin = new Thickness(ButtonMargin),
             Background = Tokens.BrushSurfaceMedium,
-            CornerRadius = new CornerRadius(BorderCornerRadius),
+            CornerRadius = Tokens.SmallCornerRadius,
             Child = new Grid
             {
                 Children = { label, progressBar }
@@ -121,7 +120,7 @@ public partial class ToolbarWindow : OverlayWindow
             Height = _buttonSize,
             Margin = new Thickness(ButtonMargin),
             Background = Tokens.BrushSurfaceDark,
-            CornerRadius = new CornerRadius(BorderCornerRadius),
+            CornerRadius = Tokens.SmallCornerRadius,
             Child = label
         };
 

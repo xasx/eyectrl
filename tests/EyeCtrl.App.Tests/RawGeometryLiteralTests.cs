@@ -86,12 +86,13 @@ public class RawGeometryLiteralTests
         // Task 8 (App XAML) migrated; the two below still carry glyph sizes Task 12 owns:
         ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml"] = "PENDING Task 12",
         ["src/EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml"] = "PENDING Task 12",
-        // Task 9 (App code-behind):
-        ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] = "PENDING Task 9",
-        ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] = "PENDING Task 9",
-        ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] = "PENDING Task 9",
-        ["src/EyeCtrl.App/Overlays/EmojiGridManager.cs"] = "PENDING Task 9",
-        ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] = "PENDING Task 9",
+        // Task 9 (App code-behind) migrated CornerRadius/FontSize(body)/FontWeight onto Tokens;
+        // each of the five still carries a glyph/icon FontSize literal that Task 12 owns:
+        ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] = "PENDING Task 12",
+        ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] = "PENDING Task 12",
+        ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] = "PENDING Task 12",
+        ["src/EyeCtrl.App/Overlays/EmojiGridManager.cs"] = "PENDING Task 12",
+        ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] = "PENDING Task 12",
         ["src/EyeCtrl.App/Overlays/DragTrailOverlay.xaml.cs"] = "PENDING Task 12",
     };
 

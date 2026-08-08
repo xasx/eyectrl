@@ -66,7 +66,7 @@ public class NoteWindow : OverlayWindow
         {
             Width = LayoutConstants.NoteWindowWidth, Height = Height,
             Background = Tokens.BrushSurfaceDark,
-            CornerRadius = new CornerRadius(6),
+            CornerRadius = Tokens.StandardCornerRadius,
             BorderBrush = GetBorderBrush(),
             BorderThickness = GetBorderThickness(),
             // StrokeHalo is the palette's near-black; at 0.4 opacity it is indistinguishable
@@ -80,11 +80,14 @@ public class NoteWindow : OverlayWindow
         {
             Height = TitleBarHeight, Width = LayoutConstants.NoteWindowWidth,
             Background = Tokens.BrushSurfaceMedium,
-            CornerRadius = new CornerRadius(6, 6, 0, 0)
+            // Top-only radius: the title bar sits flush against the note body below it.
+            // Derived from the same token, so it cannot drift from the body's corners.
+            CornerRadius = new CornerRadius(
+                Tokens.CornerRadiusStandard, Tokens.CornerRadiusStandard, 0, 0)
         };
         var titleLabel = new TextBlock
         {
-            Text = "PINNED NOTE", FontSize = 10,
+            Text = "PINNED NOTE", FontSize = Tokens.FontSizeBody,
             Foreground = Tokens.BrushTextSecondary,
             Margin = new Thickness(8, 4, 0, 0)
         };
@@ -121,7 +124,7 @@ public class NoteWindow : OverlayWindow
                 Foreground = Tokens.BrushTextPrimary,
                 BorderBrush = Tokens.BrushAccent,
                 BorderThickness = new Thickness(1),
-                FontSize = 12,
+                FontSize = Tokens.FontSizeBody,
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
@@ -136,7 +139,7 @@ public class NoteWindow : OverlayWindow
                 Width = TextAreaWidth - 20,
                 MaxWidth = TextAreaWidth - 20,
                 Margin = new Thickness(10, 10, 0, 0),
-                FontSize = 12,
+                FontSize = Tokens.FontSizeBody,
                 Foreground = Tokens.BrushAccentWarning,
                 TextWrapping = TextWrapping.Wrap
             };

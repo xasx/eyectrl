@@ -148,7 +148,7 @@ public class EmojiGridManager
                     Height = keySize,
                     Margin = new Thickness(2),
                     Background = new SolidColorBrush(EmojiGridBackgroundColor),
-                    CornerRadius = new CornerRadius(6),
+                    CornerRadius = Tokens.StandardCornerRadius,
                     Child = emojiChild
                 };
 
@@ -315,7 +315,7 @@ public class EmojiGridManager
             Height = keySize,
             Margin = new Thickness(2),
             Background = brush,
-            CornerRadius = new CornerRadius(6),
+            CornerRadius = Tokens.StandardCornerRadius,
             Child = new TextBlock
             {
                 Text = icon,
@@ -427,7 +427,7 @@ public class EmojiGridManager
                 Height = keySize * 1.5,
                 Margin = new Thickness(4),
                 Background = new SolidColorBrush(isActive ? KeyColorHighlight : KeyColorNormal),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = Tokens.StandardCornerRadius,
                 Child = skinChild
             };
 
@@ -463,7 +463,7 @@ public class EmojiGridManager
             Height = keySize,
             Margin = new Thickness(2),
             Background = new SolidColorBrush(KeyColorSwitch),
-            CornerRadius = new CornerRadius(6),
+            CornerRadius = Tokens.StandardCornerRadius,
             Child = label
         };
 

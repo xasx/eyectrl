@@ -192,7 +192,7 @@ public partial class KeyboardWindow : OverlayWindow
                     Height = _keySize,
                     Margin = new Thickness(2),
                     Background = keyBrush,
-                    CornerRadius = new CornerRadius(6),
+                    CornerRadius = Tokens.StandardCornerRadius,
                     Child = label
                 };
                 _keyBrushes[id] = keyBrush;
@@ -493,7 +493,7 @@ public partial class KeyboardWindow : OverlayWindow
                 Margin = new Thickness(3),
                 Padding = new Thickness(16, 0, 16, 0),
                 Background = brush,
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = Tokens.StandardCornerRadius,
                 Child = labelOrStack
             };
 
@@ -542,7 +542,7 @@ public partial class KeyboardWindow : OverlayWindow
             Child = new TextBlock
             {
                 Text = symbol,
-                FontSize = 12,
+                FontSize = Tokens.FontSizeBody,
                 Foreground = Tokens.BrushTextDim,
                 Margin = new Thickness(4, 0, 0, 0)
             }

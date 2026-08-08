@@ -8,7 +8,11 @@
         Background="{StaticResource BrushSurfaceDark}"
         Topmost="True"
         WindowStartupLocation="CenterScreen">
-    <Grid ColumnDefinitions="220, *">
+    <!-- Sidebar column is 240, not 220: at the live type ramp the widest tab label
+         ("Quick Actions") measures a right edge of 233.86 DIP, which spilled onto the content
+         column at 220. Guarded by SettingsTabLabelFitTests, which re-measures every label
+         against the width parsed out of this very attribute. -->
+    <Grid ColumnDefinitions="240, *">
 
         <!-- Left: Sidebar with tab buttons -->
         <Grid Grid.Column="0" Background="{StaticResource BrushSurfaceMedium}" RowDefinitions="Auto, *">

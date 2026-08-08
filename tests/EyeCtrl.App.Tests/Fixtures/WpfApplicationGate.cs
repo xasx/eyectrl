@@ -66,6 +66,16 @@ internal static class WpfApplicationGate
 /// subject is load-time resource resolution.
 ///
 /// <para>
+/// That guarantee is INTRA-collection only. A class outside this collection that spins its own
+/// STA thread — <c>ExternalDwellServiceTests</c> does — can still win the singleton-creation race
+/// and leave <c>Application.Current.Dispatcher</c> bound to a thread that has already exited, which
+/// is the same mismatch reached from outside. It is not a regression (<c>Xunit.StaFact</c>'s
+/// per-test STA thread dies too) and WPF tolerates it for the same reason, but do not read this
+/// collection as pinning the Application's thread. Closing that properly would need an
+/// assembly-level fixture owning a long-lived STA thread.
+/// </para>
+///
+/// <para>
 /// What this does NOT cover: it does not serialise against <c>ThemeStartupTests</c>, which is
 /// <c>[Collection("ActiveTheme")]</c> and mutates <c>Tokens.Current</c> concurrently with tests in
 /// this collection. That residual is accepted rather than closed, because

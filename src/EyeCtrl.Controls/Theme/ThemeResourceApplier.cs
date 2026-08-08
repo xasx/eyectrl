@@ -6,9 +6,9 @@ using System.Windows;
 using System.Windows.Media;
 
 /// <summary>
-/// Writes a theme's brushes, geometry and typography into a <see cref="ResourceDictionary"/>,
-/// so the 106 {StaticResource Brush*} lookups across the overlay XAML resolve to
-/// that theme.
+/// Writes a theme's brushes, thickness, geometry and typography into a
+/// <see cref="ResourceDictionary"/>, so the 106 {StaticResource Brush*} lookups across the
+/// overlay XAML resolve to that theme.
 ///
 /// OverlayStyles.xaml pulls the same values through {x:Static}, but those resolve
 /// when WPF parses the dictionary — which happens during Application construction,
@@ -16,13 +16,17 @@ using System.Windows.Media;
 /// independent of that ordering. Applied to Application.Resources at the top level,
 /// these entries take precedence over the merged dictionary's.
 ///
-/// Keys are the ITheme brush property names verbatim (BrushAccent, BrushSurfaceDark,
-/// …), which is exactly what OverlayStyles.xaml uses.
+/// Keys are the ITheme property names verbatim, plus four derived CornerRadius keys and
+/// StandardBorderThickness.
 /// </summary>
 public static class ThemeResourceApplier
 {
-    /// <summary>The XAML resource key holding the raw pixel value of the border thickness.</summary>
-    public const string ThicknessKey = "BorderThicknessStandard";
+    /// <summary>
+    /// The XAML resource key holding the raw pixel value of the border thickness. Written by
+    /// the reflected loop under its property name, not by this const — the const exists for
+    /// callers that want to reference the key symbolically.
+    /// </summary>
+    public const string ThicknessKey = nameof(ITheme.BorderThicknessStandard);
 
     /// <summary>The XAML resource key holding the uniform <see cref="Thickness"/> form.</summary>
     public const string UniformThicknessKey = "StandardBorderThickness";
@@ -34,7 +38,8 @@ public static class ThemeResourceApplier
     /// is also a string. Raw <see cref="Color"/>s are excluded because no XAML consumes them.
     /// </summary>
     /// <param name="theme">The theme to read.</param>
-    /// <returns>Key/value pairs, in interface declaration order.</returns>
+    /// <returns>Key/value pairs; order unspecified — irrelevant here, since keys are distinct
+    /// and writes are independent.</returns>
     public static IEnumerable<(string Key, object Value)> EnumeratePublishedValues(ITheme theme) =>
         typeof(ITheme).GetProperties()
             .Where(p => p.PropertyType != typeof(Color) && p.Name != nameof(ITheme.Name))
@@ -42,7 +47,8 @@ public static class ThemeResourceApplier
 
     /// <summary>
     /// Every brush the theme exposes. Kept as its own accessor for callers that want only the
-    /// brushes; nothing outside this class calls it today.
+    /// brushes; currently unused — <see cref="Apply"/> uses <see cref="EnumeratePublishedValues"/>
+    /// instead — but retained as the brush-only projection for external consumers.
     /// </summary>
     /// <param name="theme">The theme to read.</param>
     /// <returns>Key/brush pairs.</returns>

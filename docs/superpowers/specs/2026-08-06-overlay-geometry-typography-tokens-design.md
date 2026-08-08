@@ -324,6 +324,10 @@ CornerRadius CircleCornerRadius   => new(CornerRadiusCircle);
 FontFamily   FontStandard         => _font ??= new FontFamily(FontFamilyStandard);   // cached
 ```
 
+The four `CornerRadius` lines are on `Tokens`, not `ThemeBase` — `Tokens.Current` is typed
+`ITheme`, so a `ThemeBase` member would be unreachable through it. Only `FontStandard` is a
+`ThemeBase` member (see §6.6); `Tokens` then forwards it, as it does every other member.
+
 Naming mirrors the established `BorderThicknessStandard` (raw `double`) /
 `StandardBorderThickness` (WPF type) pair. `CornerRadius` is a struct, so the four need no
 caching or freezing; `FontStandard` is cached on first access like the brushes, for the same

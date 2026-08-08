@@ -87,4 +87,29 @@ public class ThemeResourceApplierTests
                 + "switch would not reach them: " + string.Join(", ", missing))
             .That(missing).IsEmpty();
     }
+
+    [Fact]
+    public void Apply_DerivesEachCornerRadiusFromItsOwnPrimitive()
+    {
+        // Apply's reflected half cannot produce a wrong value: the key IS the property name.
+        // The derived tail is a hand-written key->expression mapping, and this is the only
+        // thing that checks it. Without this test a Small/Large swap ships green.
+        var theme = ContrastTheme.Instance;
+        var target = new ResourceDictionary();
+        ThemeResourceApplier.Apply(target, theme);
+
+        var gated = typeof(ITheme).GetProperties()
+            .Where(p => p.Name.StartsWith("CornerRadius", StringComparison.Ordinal))
+            .ToList();
+
+        Check.WithCustomMessage("Reflected no CornerRadius primitives — wrong filter")
+            .That(gated).Not.IsEmpty();
+
+        foreach (var p in gated)
+        {
+            var key = p.Name["CornerRadius".Length..] + "CornerRadius";  // Small -> SmallCornerRadius
+            Check.WithCustomMessage($"Apply writes '{key}' from the wrong primitive.")
+                .That(target[key]).IsEqualTo(new CornerRadius((double)p.GetValue(theme)!));
+        }
+    }
 }

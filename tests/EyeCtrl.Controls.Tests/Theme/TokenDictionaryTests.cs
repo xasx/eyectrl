@@ -99,6 +99,12 @@ public class TokenDictionaryTests
         // WPF cannot convert a double resource to a CornerRadius, so the CornerRadius
         // form must be its own key. Verified resolvable through {StaticResource} in the
         // real merged-dictionary topology (spec §6.5) — no markup extension needed.
+        //
+        // It is also the SOLE guard that each Tokens.<X>CornerRadius derives from its own
+        // CornerRadius<X> primitive rather than some other one: EveryNonBrushToken_IsExposedAndMatches
+        // compares dict[key] against Tokens.<key>, so both sides move together and a swapped
+        // derivation would not fail it. Mutate the derivation and this is the only one of 83
+        // Controls tests that fails.
         var dict = Load();
         foreach (var (key, expected) in new (string, CornerRadius)[]
                  {
@@ -121,9 +127,17 @@ public class TokenDictionaryTests
     {
         // FontFamilyStandard is the raw string; FontStandard is the FontFamily object.
         // Using the wrong one throws XamlParseException at load — no type converter runs
-        // on a StaticResource assignment (spec §6.4).
+        // on a StaticResource assignment (spec §6.4). Documents that two-key hazard
+        // explicitly; it is not the only thing catching it — EveryNonBrushToken_IsExposedAndMatches
+        // would already catch a swapped Member= path, and the .Source assertion duplicates
+        // ThemeShapeTests.FontFamily_IsDeclaredAndResolves.
         var dict = Load();
+        Check.WithCustomMessage("OverlayStyles.xaml is missing key 'FontFamilyStandard'")
+            .That(dict.Contains("FontFamilyStandard")).IsTrue();
         Check.That(dict["FontFamilyStandard"]).IsInstanceOf<string>();
+
+        Check.WithCustomMessage("OverlayStyles.xaml is missing key 'FontStandard'")
+            .That(dict.Contains("FontStandard")).IsTrue();
         Check.That(dict["FontStandard"]).IsInstanceOf<FontFamily>();
         Check.That(((FontFamily)dict["FontStandard"]!).Source).IsEqualTo(Tokens.FontFamilyStandard);
     }

@@ -1,12 +1,11 @@
 namespace EyeCtrl.App.Tests;
 
 using System;
-using System.IO;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.Controls.Theme;
 using NFluent;
 using Xunit;
@@ -122,28 +121,54 @@ public class CornerRadiusClampTests
             .That(CoveredFraction(token)).IsCloseTo(Math.PI / 4, 0.01);
     }
 
-    [Fact]
-    public void CloseButton_IsSquare()
+    [StaFact]
+    public void TheOneCircleConsumer_IsSquare()
     {
-        // QuickActionsGridWindow's CloseButton is the intended consumer of the square-only
-        // circle token — it's 44x44 today. The token coupling itself isn't asserted here
-        // because the site still holds a literal CornerRadius="22" rather than the
-        // CircleCornerRadius resource; that assertion arrives with the migration (Task 8).
-        // For now this only pins the precondition that assertion will depend on: the button
-        // stays square.
-        var path = Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App",
-            "Overlays", "QuickActionsGridWindow.xaml");
-        Check.WithCustomMessage($"QuickActionsGridWindow.xaml not found at {path}.")
-            .That(File.Exists(path)).IsTrue();
-        var xaml = File.ReadAllText(path);
+        // QuickActionsGridWindow's CloseButton is the one consumer of the square-only circle
+        // token. Task 8 replaced its literal CornerRadius="22" with the CircleCornerRadius
+        // resource, so the coupling this test's name claims is now ASSERTED here rather than
+        // deferred: the button must stay square AND must keep reading the token. Either half
+        // alone guards nothing — a square button off the token gains nothing from the clamp
+        // pinned above, and a non-square button on the token silently becomes an ellipse.
+        //
+        // Constructs the window instead of regex-parsing the XAML: that reads the EFFECTIVE
+        // values, so it is immune to attribute reordering and also sees a radius or size
+        // arriving from a Style. The Application-with-tokens setup is shared with
+        // OverlayResourceResolutionTests, which constructs this same window.
+        //
+        // Nothing calls Show(). Constructing a Window parses its XAML, which is all this needs,
+        // and this suite must never take over the screen of a user whose only input is gaze.
+        OverlayResourceResolutionTests.EnsureApplicationWithTokens();
 
-        var match = Regex.Match(
-            xaml, @"x:Name=""CloseButton""[\s\S]{0,400}?Width=""(?<w>[\d.]+)""\s+Height=""(?<h>[\d.]+)""");
+        var window = new QuickActionsGridWindow();
+        try
+        {
+            var button = window.FindName("CloseButton") as Border;
+            Check.WithCustomMessage(
+                    "QuickActionsGridWindow no longer has a Border named CloseButton.")
+                .That(button).IsNotNull();
 
-        Check.WithCustomMessage("Could not find CloseButton's Width and Height in the XAML.")
-            .That(match.Success).IsTrue();
-        Check.WithCustomMessage(
-                "CloseButton must stay square, or CornerRadiusCircle renders an ellipse on it.")
-            .That(match.Groups["w"].Value).IsEqualTo(match.Groups["h"].Value);
+            Check.WithCustomMessage(
+                    "CloseButton must stay square, or CornerRadiusCircle renders an ellipse on "
+                    + "it rather than a circle — see §4.1 and the theory above. Measured "
+                    + $"{button!.Width}x{button.Height}.")
+                .That(button.Width).IsEqualTo(button.Height);
+
+            // Compared against Tokens rather than a concrete theme because
+            // OverlayStyles.xaml declares the key as {x:Static theme:Tokens.CircleCornerRadius}
+            // — this is the very member the resource is pulled from. Reading the mutable
+            // Tokens.Current cannot destabilise it the way it could in the theory above: all
+            // three themes declare CornerRadiusCircle = 9999, so whichever theme a concurrent
+            // ThemeStartupTests has activated, the expected value is the same.
+            Check.WithCustomMessage(
+                    "CloseButton must read its radius from the CircleCornerRadius token, not a "
+                    + "literal. Expected " + Tokens.CircleCornerRadius
+                    + $" but found {button.CornerRadius}.")
+                .That(button.CornerRadius).IsEqualTo(Tokens.CircleCornerRadius);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 }

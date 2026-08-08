@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Media;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Controls.Theme;
 using NFluent;
@@ -36,11 +38,20 @@ using Xunit;
 /// token satisfy a font property — <c>FontSize = Tokens.CornerRadiusSmall</c> passed, and so
 /// did <c>FontSize="{StaticResource BrushAccent}"</c>, which then throws
 /// <c>XamlParseException</c> at load. <see cref="OverlayResourceResolutionTests"/> catches the
-/// XAML half for the overlays it can construct, but not for <c>SettingsWindow</c> (7
+/// XAML half for the overlays it can construct, but not for <c>SettingsWindow</c> (8
 /// non-optional constructor dependencies), so a type-wrong key written there would first
 /// surface as a runtime throw in front of a user whose only input channel is an eye tracker.
-/// The partition is derived from the member **names** by reflection for the same reason the
-/// list itself is: a hard-coded partition can disagree with the surface it guards.
+/// The partition is derived by reflection for the same reason the list itself is: a hard-coded
+/// partition can disagree with the surface it guards.
+///
+/// **The partition keys off the member's reflected CLR TYPE as well as its name**, because the
+/// name-only version was not type-safe within the typography group: it pooled every member
+/// beginning with "Font" and offered the pool to all three font properties, so
+/// <c>FontSize="{StaticResource FontWeightStrong}"</c> and
+/// <c>FontWeight="{StaticResource FontFamilyStandard}"</c> both passed — and both throw
+/// <c>XamlParseException</c> at load. Type alone cannot replace the name either: <c>FontSize</c>
+/// takes a <c>double</c> and so do the four raw <c>Tokens.CornerRadius*</c> doubles. See
+/// <see cref="AllowedByProperty"/> for how the two halves divide the work.
 ///
 /// No <see cref="RegexOptions.IgnorePatternWhitespace"/> — RawColourLiteralTests documents
 /// how that mode makes whitespace inside a pattern silently insignificant.
@@ -101,11 +112,12 @@ public class RawGeometryLiteralTests
     /// expression-bodied member such as <c>public static FontFamily FontStandard =&gt; ...</c>
     /// is not read as a value.
     ///
-    /// The unquoted value class excludes <c>,</c> <c>;</c> <c>)</c> <c>{</c> <c>}</c> <c>&gt;</c>
-    /// but deliberately **not** newlines, so the wrapped form
+    /// The unquoted value class excludes <c>,</c> <c>;</c> <c>{</c> <c>}</c> <c>&gt;</c> and the
+    /// two parentheses — the parentheses only because the balanced alternative beside it consumes
+    /// them in matched pairs — but deliberately **not** newlines, so the wrapped form
     /// <c>CornerRadius = new CornerRadius(\n Tokens.X, Tokens.X, 0, 0)</c> — the exact shape
-    /// Task 9 writes for the note title bar — still captures its first argument. Excluding
-    /// newlines was measured: the capture becomes <c>new CornerRadius(</c>, which references no
+    /// Task 9 writes for the note title bar — is captured entire. Excluding newlines was
+    /// measured: the capture becomes <c>new CornerRadius(</c>, which references no
     /// token, and a legitimately-migrated site is flagged.
     ///
     /// <c>{</c> and <c>}</c> are excluded because without them a <c>switch</c> expression
@@ -128,17 +140,35 @@ public class RawGeometryLiteralTests
     /// constructor argument — is not matched. No such site exists in the two scanned projects
     /// today; if one is introduced, widen this pattern.
     ///
-    /// **Second known limitation, also recorded rather than hidden.** Because the capture stops
-    /// at the first <c>,</c>, a literal in a *later* argument of a call whose earlier argument
-    /// is token-backed is still cleared: <c>Math.Max(dia * ContainerRatio.Small, 12)</c> passes
-    /// while <c>Math.Max(12, dia * ContainerRatio.Small)</c> is flagged. The truncation cannot
-    /// simply be removed, because the legitimate wrapped form above ends
-    /// <c>Tokens.X, Tokens.X, 0, 0)</c> and a wider capture would flag it on those zeroes. No
-    /// site of this shape exists or is planned; it is left open deliberately rather than closed
-    /// by a rule that would fail a form the plan prescribes.
+    /// **The capture is paren-balanced, and that is what closes the later-argument hole.** An
+    /// earlier version stopped the value at the first <c>,</c> and at the first <c>)</c>, so a
+    /// literal in a *later* argument of a call whose *earlier* argument was token-backed was
+    /// cleared outright: <c>FontSize = Math.Max(Tokens.FontSizeBody, 99)</c> captured only
+    /// <c>Math.Max(Tokens.FontSizeBody</c> and passed. That shape is not hypothetical — it is
+    /// what the four clamped glyph sites write
+    /// (<c>Math.Max(keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize)</c>), so
+    /// somebody writing the bare <c>12</c> instead of the named const would have been waved
+    /// through at a site the codebase actively edits.
+    ///
+    /// The alternation now consumes a whole parenthesised argument list as part of the value but
+    /// still stops at a comma **at nesting depth zero**. That distinction is the entire point,
+    /// and it is what keeps the fix from reintroducing the far worse hole the value capture
+    /// exists to close:
+    /// <list type="bullet">
+    /// <item><c>Math.Max(a, b)</c> is one value, comma and all, so both arguments are checked;</item>
+    /// <item><c>FontSize = someLocal, FontFamily = Tokens.FontStandard</c> is still two
+    /// assignments — measured, the first captures <c>someLocal</c> and nothing more, so the
+    /// neighbour's token cannot vouch for it.</item>
+    /// </list>
+    /// Measured across the whole scanned tree, exactly six sites capture differently than under
+    /// the truncating version, and five of them merely gain their closing <c>)</c> or their
+    /// (token-backed) second argument. The sixth is the wrapped <c>CornerRadius</c> form below,
+    /// which is why <see cref="BareNumber"/> exempts a standalone zero — see its doc comment for
+    /// that trade and what it costs.
     /// </summary>
     private static readonly Regex Assignment = new(
-        @"\b(?<prop>CornerRadius|FontFamily|FontSize|FontWeight)\s*=(?![>=])\s*(?:""(?<v>[^""]*)""|(?<v>[^,;\)\{\}>]+))",
+        @"\b(?<prop>CornerRadius|FontFamily|FontSize|FontWeight)\s*=(?![>=])\s*"
+        + @"(?:""(?<v>[^""]*)""|(?<v>(?:[^,;()\{\}>]|\((?>[^()]+|\((?<d>)|\)(?<-d>))*(?(d)(?!))\))+))",
         RegexOptions.Compiled);
 
     /// <summary>
@@ -160,8 +190,23 @@ public class RawGeometryLiteralTests
     /// <c>80 * ContainerRatio.Large</c>. That is the intended verdict: those are magic numbers,
     /// and Task 12 already prescribes a named local const for the latter two. Hoist the number
     /// into a named const and the ratio expression passes.
+    ///
+    /// **A standalone <c>0</c> is exempt, and that exemption is a priced trade, not an oversight.**
+    /// Once <see cref="Assignment"/> became paren-balanced it captures whole argument lists, and
+    /// the one legitimate site in the tree that changed shape is the note title bar's
+    /// <c>new CornerRadius(Tokens.CornerRadiusStandard, Tokens.CornerRadiusStandard, 0, 0)</c> —
+    /// the asymmetric form the parent spec prescribes. Without the exemption a correctly-migrated,
+    /// spec-mandated site fails on those zeroes.
+    ///
+    /// What it costs: <c>Math.Max(token, 0)</c> now passes, as would any token-backed expression
+    /// whose only literal is a bare zero. That is a much smaller surface than the one the balance
+    /// change closed, because zero is not a magic size — it means "none". An expression whose
+    /// *whole* value is <c>0</c> is still an offender: it references no token, so it fails the
+    /// first half of <see cref="IsOffender"/> regardless of this rule. The exemption is deliberately
+    /// narrow: only a <c>0</c> not adjoined by another digit, a letter or a dot, so <c>0.5</c>,
+    /// <c>07</c> and <c>0x20</c> are all still flagged.
     /// </summary>
-    private static readonly Regex BareNumber = new(@"(?<![\w.])\d", RegexOptions.Compiled);
+    private static readonly Regex BareNumber = new(@"(?<![\w.])(?!0(?![\w.]))\d", RegexOptions.Compiled);
 
     /// <summary>Collapses whitespace so a wrapped value reports on one line.</summary>
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
@@ -182,27 +227,55 @@ public class RawGeometryLiteralTests
         // already covers the derived keys (SmallCornerRadius, FontStandard, ...) because they
         // are Tokens properties — no second list to keep in step.
         //
-        // The group a member belongs to is decided by its NAME, not by a hand-written list:
-        // anything containing "CornerRadius" is a radius, anything starting with "Font" is
-        // typography, and everything else — every colour, every brush, BorderThicknessStandard —
-        // belongs to no group here and so satisfies none of the four properties. A member added
-        // to Tokens under either naming convention is enrolled automatically; one added under
-        // neither is admitted nowhere, which fails loudly at its first use rather than silently
-        // widening the trust surface.
-        var corner = new List<string>();
-        var font = new List<string>();
+        // **A member is admitted by its ROLE *and* its CLR TYPE, and it takes both.** Name alone
+        // was the original rule and it was not type-safe: every member whose name began with
+        // "Font" landed in one pooled typography group offered to all three font properties, so
+        // FontSize="{StaticResource FontWeightStrong}" and FontWeight="{StaticResource
+        // FontFamilyStandard}" both passed — each of which is invalid XAML that throws
+        // XamlParseException at load, in front of a user whose only input channel is an eye
+        // tracker. Type alone does not work either: FontSize takes a double and so do the four
+        // raw Tokens.CornerRadius* doubles, so a pure type partition re-admits
+        // FontSize = Tokens.CornerRadiusSmall — one of the exact cases the partition was added
+        // to reject. So the role narrows by name (what the member is FOR) and the type narrows
+        // within it (what a WPF setter will actually accept).
+        //
+        // Role, from the name, exactly as before: anything containing "CornerRadius" is a radius,
+        // anything starting with "Font" is typography, and everything else — every colour, every
+        // brush, BorderThicknessStandard — belongs to no role and so satisfies none of the four
+        // properties. A member added to Tokens under either convention is enrolled automatically;
+        // one added under neither is admitted nowhere, which fails loudly at its first use rather
+        // than silently widening the trust surface. Both halves are still reflected, never
+        // hard-coded: a hard-coded partition can disagree with the surface it guards.
+        var radius = new List<PropertyInfo>();
+        var typography = new List<PropertyInfo>();
         foreach (var p in typeof(Tokens).GetProperties(BindingFlags.Public | BindingFlags.Static))
         {
             if (p.Name == nameof(Tokens.Current)) continue;
 
-            var group = p.Name.Contains("CornerRadius", StringComparison.Ordinal) ? corner
-                : p.Name.StartsWith("Font", StringComparison.Ordinal) ? font
-                : null;
-            if (group is null) continue;
-
-            group.Add($"Tokens.{p.Name}");
-            group.Add($"{{StaticResource {p.Name}}}");
+            if (p.Name.Contains("CornerRadius", StringComparison.Ordinal)) radius.Add(p);
+            else if (p.Name.StartsWith("Font", StringComparison.Ordinal)) typography.Add(p);
         }
+
+        // Both reference forms of every member of a role whose CLR type one of these WPF setters
+        // accepts.
+        //
+        // Border.CornerRadius takes a CornerRadius, which covers the four derived
+        // Tokens.XxxCornerRadius keys directly; the four raw Tokens.CornerRadiusXxx doubles are
+        // admitted too because the C# form of that assignment is
+        // `new CornerRadius(Tokens.CornerRadiusStandard, ...)`, where the double IS the value the
+        // capture sees. FontSize takes a double. FontWeight takes a FontWeight — a double there
+        // does not even compile in C# and throws in XAML. FontFamily takes a FontFamily, plus
+        // string for the XAML converter path, which is what the FontFamilyStandard resource key
+        // is: the raw chain string rather than the constructed family.
+        static List<string> Forms(IEnumerable<PropertyInfo> role, params Type[] accepted) =>
+            role.Where(p => accepted.Contains(p.PropertyType))
+                .SelectMany(p => new[] { $"Tokens.{p.Name}", $"{{StaticResource {p.Name}}}" })
+                .ToList();
+
+        var corner = Forms(radius, typeof(CornerRadius), typeof(double));
+        var fontSize = Forms(typography, typeof(double));
+        var fontWeight = Forms(typography, typeof(FontWeight));
+        var fontFamily = Forms(typography, typeof(FontFamily), typeof(string));
 
         // ContainerRatio members are const, so they are fields rather than properties. A ratio
         // is a font size divided by its container, so it belongs to FontSize and to nothing
@@ -239,9 +312,9 @@ public class RawGeometryLiteralTests
         return new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
         {
             ["CornerRadius"] = corner,
-            ["FontFamily"] = font,
-            ["FontWeight"] = font,
-            ["FontSize"] = font.Concat(fontSizeOnly).ToList(),
+            ["FontFamily"] = fontFamily,
+            ["FontWeight"] = fontWeight,
+            ["FontSize"] = fontSize.Concat(fontSizeOnly).ToList(),
         };
     }
 
@@ -258,12 +331,49 @@ public class RawGeometryLiteralTests
     /// True if the captured value references the token surface. **Only the value is examined,
     /// never its surroundings** — that is what stops a neighbouring token from clearing a
     /// literal.
+    ///
+    /// A reference must appear **complete**, not as a substring. Plain <c>Contains</c> was the
+    /// original rule and it let any longer identifier ending in an allowed one satisfy the
+    /// guard: a <c>LegacyTokens.FontSizeBody</c>, a <c>MyTokens.FontSizeBody</c>, anything at all
+    /// suffixed with a real form. That is a whitelist accepting a name it never enrolled, which
+    /// is the one thing a whitelist must not do. Requiring a boundary on both sides costs nothing
+    /// real: no site in the tree writes a fully-qualified <c>Theme.Tokens.X</c>, and the one
+    /// occurrence of that spelling is inside a comment, which the scanner strips.
     /// </summary>
     /// <param name="value">The captured right-hand side of the assignment.</param>
     /// <param name="allowed">Allowed reference forms for the property being assigned.</param>
     /// <returns>True if the value is token-backed.</returns>
     private static bool IsTokenBacked(string value, IReadOnlyCollection<string> allowed) =>
-        allowed.Any(a => value.Contains(a, StringComparison.Ordinal));
+        allowed.Any(a => ContainsCompleteReference(value, a));
+
+    /// <summary>
+    /// True if <paramref name="reference"/> occurs in <paramref name="value"/> as a whole
+    /// reference rather than as the tail of a longer one.
+    ///
+    /// A dot counts as a preceding word character, which is the whole point: it is what
+    /// distinguishes <c>Tokens.FontSizeBody</c> from <c>LegacyTokens.FontSizeBody</c> and from
+    /// any other type that happens to expose a member of the same name.
+    /// </summary>
+    /// <param name="value">The captured value.</param>
+    /// <param name="reference">One allowed reference form.</param>
+    /// <returns>True if the complete reference is present.</returns>
+    private static bool ContainsCompleteReference(string value, string reference)
+    {
+        static bool IsNamePart(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+        for (var i = value.IndexOf(reference, StringComparison.Ordinal);
+             i >= 0;
+             i = value.IndexOf(reference, i + 1, StringComparison.Ordinal))
+        {
+            var before = i == 0 ? ' ' : value[i - 1];
+            var afterAt = i + reference.Length;
+            var after = afterAt >= value.Length ? ' ' : value[afterAt];
+
+            if (!IsNamePart(before) && before != '.' && !IsNamePart(after)) return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// True if this assignment is an offender: its value either fails to reference a reference
@@ -395,8 +505,9 @@ public class RawGeometryLiteralTests
 
         const string collapsed =
             "The allow-list collapsed. Tokens' or ContainerRatio's shape changed — check the "
-            + "BindingFlags, whether the members are still properties/fields, and whether their "
-            + "names still carry the 'CornerRadius'/'Font' prefixes the partition keys off.";
+            + "BindingFlags, whether the members are still properties/fields, whether their "
+            + "names still carry the 'CornerRadius'/'Font' prefixes the partition's ROLE half "
+            + "keys off, and whether their CLR types still match the ones its TYPE half accepts.";
 
         Check.WithCustomMessage(collapsed).That(allowed.Count).IsStrictlyGreaterThan(30);
 
@@ -411,6 +522,14 @@ public class RawGeometryLiteralTests
             .That(IsTokenBacked("_keySize * ContainerRatio.Small", byProp["FontSize"])).IsTrue();
         Check.WithCustomMessage("The FontWeight tokens no longer resolve.")
             .That(IsTokenBacked("Tokens.FontWeightStrong", byProp["FontWeight"])).IsTrue();
+        Check.WithCustomMessage("The FontFamily token no longer resolves.")
+            .That(IsTokenBacked("Tokens.FontStandard", byProp["FontFamily"])).IsTrue();
+        Check.WithCustomMessage(
+                "The raw CornerRadius doubles no longer resolve for CornerRadius. They must: the "
+                + "C# form of that assignment passes them to new CornerRadius(...), so the double "
+                + "is what the value capture sees.")
+            .That(IsTokenBacked(
+                "new CornerRadius(Tokens.CornerRadiusStandard)", byProp["CornerRadius"])).IsTrue();
 
         // Negatives, so the test cannot pass by IsTokenBacked returning true for everything —
         // and so the type partition itself is pinned, not merely present.
@@ -426,5 +545,136 @@ public class RawGeometryLiteralTests
             .That(IsTokenBacked("Tokens.FontSizeBody", byProp["CornerRadius"])).IsFalse();
         Check.WithCustomMessage("A container ratio satisfies CornerRadius again.")
             .That(IsTokenBacked("ContainerRatio.Small", byProp["CornerRadius"])).IsFalse();
+    }
+
+    /// <summary>
+    /// Every reference form that is the RIGHT role but the WRONG CLR type, one per guarded
+    /// property, plus the substring case. Each of these passed before the partition keyed off the
+    /// reflected type, and each is a value that either does not compile or throws at XAML load.
+    /// </summary>
+    [Fact]
+    public void TheTypePartition_RejectsATokenOfTheWrongClrType()
+    {
+        var byProp = AllowedByProperty();
+
+        // FontSize wants a double. A FontWeight, a FontFamily and the raw family string are all
+        // "Font"-named and were all pooled into it before.
+        Reject("FontSize", "{StaticResource FontWeightStrong}");
+        Reject("FontSize", "Tokens.FontWeightMedium");
+        Reject("FontSize", "Tokens.FontStandard");
+        Reject("FontSize", "Tokens.FontFamilyStandard");
+
+        // FontWeight wants a FontWeight. A double there does not compile in C#; the family string
+        // is the reviewer's second example and throws at load.
+        Reject("FontWeight", "{StaticResource FontFamilyStandard}");
+        Reject("FontWeight", "Tokens.FontSizeBody");
+        Reject("FontWeight", "Tokens.FontStandard");
+
+        // FontFamily wants a FontFamily (or the string the XAML converter accepts).
+        Reject("FontFamily", "Tokens.FontSizeTitle");
+        Reject("FontFamily", "{StaticResource FontWeightStrong}");
+
+        // CornerRadius wants a CornerRadius, or one of the four radius doubles. Nothing from the
+        // typography role, whatever its type.
+        Reject("CornerRadius", "Tokens.FontSizeDisplay");
+        Reject("CornerRadius", "{StaticResource FontStandard}");
+
+        // The name/type collision the partition cannot resolve by type alone: FontSize and the
+        // four raw CornerRadius keys are all doubles, so only the role separates them. Both
+        // directions are pinned, because a partition rebuilt on type alone breaks exactly here.
+        Reject("FontSize", "Tokens.CornerRadiusCircle");
+        Reject("CornerRadius", "Tokens.FontSizeBody");
+
+        // Substring matching: a type that merely ENDS in an allowed reference is not that
+        // reference. Nothing in the tree is named this today — the point is that the whitelist
+        // must not accept a name it never enrolled.
+        Reject("FontSize", "LegacyTokens.FontSizeBody");
+        Reject("CornerRadius", "OtherTokens.StandardCornerRadius");
+        Reject("FontSize", "MyContainerRatio.Small");
+
+        void Reject(string property, string value) =>
+            Check.WithCustomMessage(
+                    $"`{property} = {value}` satisfies the allow-list. It is the wrong CLR type "
+                    + "for that property (or not the reference it resembles), so it is either a "
+                    + "compile error or a XamlParseException at load — in front of a user whose "
+                    + "only input channel is an eye tracker.")
+                .That(IsTokenBacked(value, byProp[property])).IsFalse();
+    }
+
+    /// <summary>
+    /// The value capture, pinned at the three shapes that pull against each other: a literal in a
+    /// later call argument (must flag), a neighbouring assignment (must NOT vouch), and the
+    /// spec-prescribed wrapped <c>CornerRadius</c> (must NOT flag). Getting any one of these
+    /// wrong is what every previous draft of <see cref="Assignment"/> did.
+    /// </summary>
+    [Fact]
+    public void TheValueCapture_ReadsWholeArgumentLists_ButStopsAtTheNextAssignment()
+    {
+        // The hole this closed. Before the capture balanced parentheses it stopped at the first
+        // comma, so the token in argument one cleared whatever argument two held.
+        Check.WithCustomMessage(
+                "A raw literal in a later call argument is being cleared by a token in an earlier "
+                + "one. This is live: the four clamped glyph sites all write "
+                + "Math.Max(<size> * ContainerRatio.X, Legibility.MinimumGlyphFontSize), and a "
+                + "bare 12 written there instead of the const must not pass.")
+            .That(Flags("FontSize = Math.Max(Tokens.FontSizeBody, 99),")).IsTrue();
+        Check.WithCustomMessage("The argument order should not matter.")
+            .That(Flags("FontSize = Math.Max(99, Tokens.FontSizeBody),")).IsTrue();
+
+        // The real site the shape above imitates must still pass.
+        Check.WithCustomMessage(
+                "A correctly-migrated clamped glyph site is now flagged. Both arguments are "
+                + "named, so there is nothing to report.")
+            .That(Flags(
+                "FontSize = Math.Max(_keySize * ContainerRatio.Small, "
+                + "Legibility.MinimumGlyphFontSize),")).IsFalse();
+
+        // The hole NOT reopened. A wider capture that ignored nesting depth would let the
+        // neighbouring assignment's token clear this one — measured at 0 of 6 real literals found
+        // in one file, back when an earlier draft scanned a fixed window instead.
+        Check.WithCustomMessage(
+                "A neighbouring assignment's token is vouching for this one again. The capture "
+                + "must stop at a comma at nesting depth ZERO; only commas inside a parenthesised "
+                + "argument list belong to the value.")
+            .That(Flags("FontSize = someLocal, FontFamily = Tokens.FontStandard,")).IsTrue();
+        Check.WithCustomMessage("A bare literal beside a token-backed neighbour must still flag.")
+            .That(Flags("FontSize = 12, FontFamily = Tokens.FontStandard,")).IsTrue();
+
+        // The form the parent spec prescribes for the note title bar, wrapped exactly as it is
+        // written there. Flagging this would be a false positive at a site the plan mandates.
+        Check.WithCustomMessage(
+                "The spec-prescribed asymmetric CornerRadius is being flagged on its trailing "
+                + "zeroes. BareNumber exempts a standalone 0 for precisely this form.")
+            .That(Flags(
+                "CornerRadius = new CornerRadius(\n    Tokens.CornerRadiusStandard,"
+                + "\n    Tokens.CornerRadiusStandard, 0, 0),")).IsFalse();
+
+        // ...and the price of that exemption, recorded rather than hidden. A zero alongside a
+        // token passes. It is the narrowest form of the hole that was closed above, and zero is
+        // not a magic size: this fixture exists so the cost is a decision on record instead of a
+        // surprise.
+        Check.WithCustomMessage(
+                "Math.Max(token, 0) is now flagged. That is stricter than intended, and it means "
+                + "the standalone-zero exemption has changed shape — re-check the wrapped "
+                + "CornerRadius fixture above, which depends on it.")
+            .That(Flags("FontSize = Math.Max(Tokens.FontSizeBody, 0),")).IsFalse();
+        Check.WithCustomMessage("The zero exemption must not extend to 0.5, 07 or 0x20.")
+            .That(Flags("FontSize = Math.Max(Tokens.FontSizeBody, 0.5),")).IsTrue();
+
+        // A value that is nothing but a zero references no token, so the first half of IsOffender
+        // still catches it — the exemption above never makes a bare value legal on its own.
+        Check.WithCustomMessage("A bare 0 as the whole value must still be an offender.")
+            .That(Flags("FontSize = 0,")).IsTrue();
+    }
+
+    /// <summary>
+    /// Runs the real guard over a snippet: true if any assignment in it is reported.
+    /// </summary>
+    /// <param name="snippet">A fragment of source as it would appear after comment stripping.</param>
+    /// <returns>True if the guard flags it.</returns>
+    private static bool Flags(string snippet)
+    {
+        var allowed = AllowedByProperty();
+        return Assignment.Matches(snippet).Any(m => IsOffender(m, allowed));
     }
 }

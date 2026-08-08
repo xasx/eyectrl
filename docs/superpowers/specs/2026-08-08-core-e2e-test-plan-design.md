@@ -161,14 +161,21 @@ One smoke per area: toolbar, keyboard → real text, settings persistence round-
 (change a setting, restart, assert it held), zoom / manual selection entry, quick
 actions, eye care, adaptation, pause, tray.
 
-**Task switcher is excluded, because it is unreachable.** `ToolbarViewModel` defines five
-buttons including `TaskSwitcher` (`src/EyeCtrl.ViewModels/ToolbarViewModel.cs:73`) with a
-working handler that sends `TaskSwitcherToggledMessage` (line 141), but
-`ToolbarWindow.xaml.cs` renders only four and omits it
-(`src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs:41-44`). The view and the view-model have
-drifted. `AppLaunchTests.Toolbar_HasFourButtons` asserts the count of four, so the drift is
-currently *encoded as expected behaviour*. This is a product bug to fix separately; the
-smoke test can be written once a button exists.
+**Task switcher — fixed before this plan starts.** `ToolbarViewModel` defines eight buttons
+(`src/EyeCtrl.ViewModels/ToolbarViewModel.cs:66-76`); `ToolbarWindow.Initialize` rendered
+five, omitting `Calibrate`, `TaskSwitcher` and `QuickActions`. Two of those three are
+reachable elsewhere — `Calibrate` from the settings window
+(`src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:1207`) and `QuickActions` from the hot-edge
+summon controller (`src/EyeCtrl.App/Services/EventCoordinator.cs:704`) — so their absence
+from the toolbar is a design choice. `TaskSwitcher` had no other sender anywhere, making the
+feature unreachable; its button has been added.
+
+The reason it went unnoticed generalises, and matters for this plan: the only test that
+counted toolbar buttons was `Category=UI`, skipped by default, and its expected count was
+itself stale by one. A skipped test is not a guard. `ToolbarButtonDriftTests` now enforces
+both directions headlessly — every rendered button must have a view-model entry and an
+activation case, and every view-model button must be rendered or carry a recorded
+alternative entry point.
 
 ## Execution
 

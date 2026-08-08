@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using EyeCtrl.Controls.Theme;
 
 public class OverlayWindow : Window
 {
@@ -28,6 +29,24 @@ public class OverlayWindow : Window
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOACTIVATE = 0x0010;
+
+    /// <summary>
+    /// Gives every overlay the themed font family. All 25 window classes in this assembly
+    /// derive from OverlayWindow, so this single assignment reaches the whole UI (design
+    /// spec §8.8).
+    ///
+    /// A base constructor rather than TextElement.FontFamilyProperty.OverrideMetadata: that
+    /// is process-wide and can only be called once, which collides across tests in one
+    /// runner. And it runs before the derived class's InitializeComponent, so a deliberate
+    /// FontFamily in a window's XAML still wins.
+    ///
+    /// Read from Tokens rather than a resource lookup because Tokens is static and needs no
+    /// WPF Application — see Tokens' own doc comment.
+    /// </summary>
+    public OverlayWindow()
+    {
+        FontFamily = Tokens.FontStandard;
+    }
 
     public bool IsClickThrough { get; init; }
 

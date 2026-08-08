@@ -327,12 +327,13 @@ public class EmojiGridManager
             Child = new TextBlock
             {
                 Text = icon,
-                // Clamped at Tokens.FontSizeBody: KeySizeMultiplier bottoms out at 0.5
-                // (KeyboardSettings), which puts this tab's icon at 11.20px in a 35px cell —
-                // below the 12px ramp floor design spec §8.4 established. FontSizeBody *is*
-                // that floor, so the clamp reads from the token that defines it rather than
-                // from a hand-written 12. Proportional scaling still applies above ~0.54x.
-                FontSize = Math.Max(keySize * ContainerRatio.Medium, Tokens.FontSizeBody),
+                // Clamped at Legibility.MinimumGlyphFontSize: KeySizeMultiplier bottoms out at
+                // 0.5 (KeyboardSettings), which puts this tab's icon at 11.20px in a 35px cell —
+                // below the 12px accessibility floor design spec §8.4 established. Read from the
+                // named minimum rather than from Tokens.FontSizeBody: the two are both 12 today,
+                // but the ramp step is gated >= 12, not == 12, so raising body text would
+                // silently grow this glyph. Proportional scaling still applies above ~0.54x.
+                FontSize = Math.Max(keySize * ContainerRatio.Medium, Legibility.MinimumGlyphFontSize),
                 Foreground = Tokens.BrushTextPrimary,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -465,10 +466,11 @@ public class EmojiGridManager
         {
             Text = text,
             Foreground = Tokens.BrushTextPrimary,
-            // Clamped at Tokens.FontSizeBody for the reason recorded at AddCategoryTab:
-            // KeySizeMultiplier's 0.5 floor would otherwise put this label at 8.05px, under the
-            // 12px ramp floor (§8.4). Proportional scaling still applies above ~0.75x.
-            FontSize = Math.Max(keySize * ContainerRatio.Small, Tokens.FontSizeBody),
+            // Clamped at Legibility.MinimumGlyphFontSize for the reason recorded at
+            // AddCategoryTab: KeySizeMultiplier's 0.5 floor would otherwise put this label at
+            // 8.05px, under the 12px accessibility floor (§8.4). Proportional scaling still
+            // applies above ~0.75x.
+            FontSize = Math.Max(keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };

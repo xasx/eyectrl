@@ -215,8 +215,10 @@ public class RawGeometryLiteralTests
         // QuickActionsGridWindow's ItemTemplate, because a DataTemplate is instantiated per item
         // and cannot multiply by a ratio inline (Task 12). Every other glyph site assigns from
         // code-behind and needs no entry here. It is a size, so like the ratios it is offered to
-        // FontSize alone. (Task 12 has not landed yet, so this loop finds nothing today; the
-        // mechanism is kept live so that when TileIconSize appears it needs no test change.)
+        // FontSize alone. (Task 12 has landed, so this loop finds exactly one member today:
+        // QuickActionsGridWindow.TileIconSize, which is the only public static double property on
+        // any OverlayWindow subclass. It needed no test change, which was the point of keeping
+        // the mechanism live while it was still empty.)
         //
         // Scoped to OverlayWindow SUBCLASSES, not the whole assembly. Reflecting over every type
         // would silently enrol any future public static double in EyeCtrl.App — measured, that
@@ -365,11 +367,18 @@ public class RawGeometryLiteralTests
     [Fact]
     public void TheAllowList_IsPopulatedAndAcceptsRealTokenReferences()
     {
-        // A TRUNCATED allow-list would leave both guards above green while protecting nothing:
-        // ContainerRatio has zero usages in src/, so losing all five of its forms is invisible
-        // to them. (A total collapse is now caught by NoUIFile_, since src/EyeCtrl.Controls has
-        // token-backed sites — but partial loss is not.) The breakage would otherwise first
-        // appear as baffling failures midway through a migration task. This fails loudly instead.
+        // Why this test still earns its place now that the migration has landed. When it was
+        // written, ContainerRatio had zero usages in src/, so losing all five of its forms was
+        // invisible to both guards above. That is no longer the state: src/ reads ContainerRatio
+        // 19 times across 9 files (counted outside comments), and every one of the five ratios is
+        // read by at least one of them, so dropping any ratio form now DOES fail NoUIFile_ — as a
+        // wall of false positives at correctly-migrated sites, naming the sites rather than the
+        // cause. This test names the cause.
+        //
+        // The type PARTITION is a different matter, and this is the only guard on it at any
+        // granularity. A partition that wrongly pools the groups only ever WIDENS trust, so it
+        // produces no failure anywhere else: NoUIFile_ reports fewer offenders, not more. The
+        // negatives at the bottom of this test are what catch it.
         //
         // The union floor below is a coarse smoke test only, not a precision instrument: it sits
         // comfortably above every measured truncation, so it trips on a wholesale collapse and

@@ -299,22 +299,27 @@ public partial class SettingsWindow : OverlayWindow
                             FontSize = Tokens.FontSizeTitle,
                             FontWeight = Tokens.FontWeightMedium,
                             VerticalAlignment = VerticalAlignment.Center,
-                            // The sidebar column is a fixed 220 DIP and the longest label
-                            // ("Quick Actions") already overruns it: measured, its right edge
-                            // sits at 231.1 with a 30px icon and at 233.9 once the icon is
-                            // sized from the container (32px), so the ratio migration widens
-                            // the spill by 2.8px rather than closing it.
+                            // KNOWN, DEFERRED: the longest tab label overruns the sidebar, and
+                            // nothing here fixes it. The sidebar column is a fixed 220 DIP
+                            // (SettingsWindow.xaml:11) and "Quick Actions" measures a right edge
+                            // of 233.86 — it was 231.11 before the icon grew from 30px to a
+                            // container-derived 32px, so the ratio migration widened the spill by
+                            // 2.75px rather than closing it.
                             //
-                            // RECORDED HONESTLY: this attribute is INERT as the tree stands.
-                            // The parent is a horizontal StackPanel, which hands every child
-                            // its full desired width, so the label is never width-constrained
-                            // and has nothing to trim against — measured right edge is 233.9
-                            // with and without it. It becomes live the moment the label is
-                            // constrained; replacing this StackPanel with a two-column
-                            // Grid("Auto,*") and keeping this line brings the right edge to
-                            // 192.0, inside the sidebar. That is a layout change (§2 excludes
-                            // layout from this migration) and is left for its own task.
-                            TextTrimming = TextTrimming.CharacterEllipsis
+                            // A TextTrimming.CharacterEllipsis was tried here and REMOVED because
+                            // it is provably inert, measured twice: this label's parent is a
+                            // horizontal StackPanel, which measures children with infinite width
+                            // in the stacking direction, so the label is never width-constrained
+                            // and has nothing to trim against — ActualWidth is 149.92 and the
+                            // right edge 233.86 with and without it. Left in place it would read,
+                            // at the call site, as if the label truncated. It does not.
+                            //
+                            // It becomes live the moment the label IS width-constrained.
+                            // Replacing this StackPanel with a two-column Grid("Auto,*") and
+                            // adding the trimming back brings the right edge to 192.0, inside the
+                            // sidebar (also measured). That is the real fix, it is a layout
+                            // change, and §2 excludes layout from this migration — so it is
+                            // deliberately out of scope here and left for its own task.
                         }
                     }
                 }

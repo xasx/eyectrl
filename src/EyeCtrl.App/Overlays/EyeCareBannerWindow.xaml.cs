@@ -10,6 +10,16 @@ using EyeCtrl.Core.Services;
 
 public partial class EyeCareBannerWindow : OverlayWindow
 {
+    /// <summary>
+    /// The dwell ring's diameter, declared in XAML as the two rings' Grid Width/Height 64.
+    ///
+    /// Class-level and <c>internal</c> rather than a local inside the constructor: as a method
+    /// local it was unreachable from any test, so nothing tied it to the XAML attribute or
+    /// recorded which ratio the glyphs inside it take. <c>GlyphSizeCouplingTests</c> now asserts
+    /// both.
+    /// </summary>
+    internal const double RingSize = 64;
+
     private const double StartCenterFromRightDip = 52;
     private const double SnoozeCenterFromRightDip = 132;
     private const double ButtonCenterFromTopDip = 40;
@@ -29,7 +39,6 @@ public partial class EyeCareBannerWindow : OverlayWindow
 
         // Ring glyphs are a ratio of the 64px dwell ring that bounds them (spec §8.5). Assigned
         // here because XAML cannot multiply, and a plain assignment needs no allow-list entry.
-        const double RingSize = 64;
         SnoozeGlyph.FontSize = RingSize * ContainerRatio.Medium;
         StartGlyph.FontSize = RingSize * ContainerRatio.Medium;
 

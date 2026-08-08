@@ -58,8 +58,12 @@ public static class ContainerRatio
     /// button 14/60, arc button 22/100 (at the 50px-radius callers) — all 0.220 to 0.233.
     ///
     /// Not covered: <c>DwellArcButton</c>'s 40px-diameter callers (the edge bar's drag/back
-    /// buttons, which default to a 20px radius) observe 22/40 = 0.55 — no bucket fits. Left
-    /// unresolved here; a later task migrates those sites.
+    /// buttons, which default to a 20px radius) observe 22/40 = 0.55 — no bucket fits. Those
+    /// sites are resolved, but NOT by adding a bucket for them: they take
+    /// <see cref="Badge"/> instead, selected by <c>DwellArcButton.BadgeDiameterThreshold</c>,
+    /// which routes any diameter under 64px to <see cref="Badge"/> and everything at or above it
+    /// to this ratio. See that const's doc comment for why a bucket would have been wrong —
+    /// 40 × 0.23 = 9.2px is below the accessibility floor on the affordance that cancels a drag.
     /// </summary>
     public const double Small = 0.23;
 }

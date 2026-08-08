@@ -5,9 +5,9 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" IsClickThrough="True" ResizeMode="NoResize"
         Width="160" Height="110">
-    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="8" Padding="8">
+    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
         <StackPanel>
-            <TextBlock Text="Track Status" Foreground="{StaticResource BrushTextPrimary}" FontSize="10" FontWeight="Bold" Margin="0,0,0,4"/>
+            <TextBlock Text="Track Status" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}" FontWeight="{StaticResource FontWeightStrong}" Margin="0,0,0,4"/>
             <!-- Track box with eye dots -->
             <Canvas Width="60" Height="40" HorizontalAlignment="Left" Margin="0,0,8,0">
                 <Border Width="60" Height="40" BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}" Background="{StaticResource BrushSurfaceMedium}"/>
@@ -15,12 +15,12 @@
                 <Ellipse x:Name="RightEyeDot" Width="6" Height="6" Fill="{StaticResource BrushAccentSuccess}"/>
             </Canvas>
             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                <TextBlock Text="Distance: " Foreground="{StaticResource BrushTextPrimary}" FontSize="10"/>
-                <TextBlock x:Name="DistanceText" Text="—" Foreground="{StaticResource BrushTextPrimary}" FontSize="10"/>
+                <TextBlock Text="Distance: " Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"/>
+                <TextBlock x:Name="DistanceText" Text="—" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Quality: " Foreground="{StaticResource BrushTextPrimary}" FontSize="10"/>
-                <TextBlock x:Name="QualityText" Text="Unknown" Foreground="{StaticResource BrushAccentWarning}" FontSize="10"/>
+                <TextBlock Text="Quality: " Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"/>
+                <TextBlock x:Name="QualityText" Text="Unknown" Foreground="{StaticResource BrushAccentWarning}" FontSize="{StaticResource FontSizeBody}"/>
             </StackPanel>
         </StackPanel>
     </Border>

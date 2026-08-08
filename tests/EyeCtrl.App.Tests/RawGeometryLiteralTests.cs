@@ -83,20 +83,9 @@ public class RawGeometryLiteralTests
         // token-backed; assigning `fontSize ?? dia * ContainerRatio.Small` inline satisfies
         // the guard, whereas hoisting it into a local does not.
         ["src/EyeCtrl.Controls/DwellArcButton.cs"] = "PENDING Task 12",
-        // Task 8 (App XAML):
-        ["src/EyeCtrl.App/Overlays/TargetHighlightWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/DwellFeedbackOverlay.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/DriftNoticeWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/TaskSwitcherWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/SplashWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Overlays/CalibrationWindow.xaml"] = "PENDING Task 8",
-        ["src/EyeCtrl.App/Views/SettingsWindow.xaml"] = "PENDING Task 8",
+        // Task 8 (App XAML) migrated; the two below still carry glyph sizes Task 12 owns:
+        ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml"] = "PENDING Task 12",
+        ["src/EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml"] = "PENDING Task 12",
         // Task 9 (App code-behind):
         ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] = "PENDING Task 9",
         ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] = "PENDING Task 9",

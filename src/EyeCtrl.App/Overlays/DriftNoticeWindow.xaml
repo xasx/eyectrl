@@ -12,10 +12,10 @@
                 Background="{StaticResource BrushSurfaceDark}"
                 BorderBrush="{StaticResource BrushBorderSubtle}"
                 BorderThickness="{StaticResource StandardBorderThickness}"
-                CornerRadius="6" Padding="18,10" Opacity="0">
+                CornerRadius="{StaticResource StandardCornerRadius}" Padding="18,10" Opacity="0">
             <TextBlock x:Name="Message"
                        AutomationProperties.AutomationId="DriftNotice_Message"
-                       Foreground="{StaticResource BrushTextPrimary}" FontSize="18" TextAlignment="Center"
+                       Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}" TextAlignment="Center"
                        Text="Tracking may have drifted — consider re-calibrating"/>
         </Border>
     </Grid>

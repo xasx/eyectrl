@@ -5,13 +5,13 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         WindowStartupLocation="CenterScreen" Topmost="True" ShowInTaskbar="False"
         SizeToContent="WidthAndHeight">
-    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="12" Padding="40,30">
+    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource LargeCornerRadius}" Padding="40,30">
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
             <Image Source="/Assets/eyectrl.ico"
                    Width="64" Height="64"
                    HorizontalAlignment="Center" Margin="0,0,0,16"/>
             <TextBlock Text="EyeCtrl"
-                       Foreground="{StaticResource BrushTextPrimary}" FontSize="36" FontWeight="SemiBold"
+                       Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeDisplay}" FontWeight="{StaticResource FontWeightMedium}"
                        HorizontalAlignment="Center" Margin="0,0,0,16"/>
             <ProgressBar IsIndeterminate="True"
                          Width="200" Height="4"

@@ -17,10 +17,10 @@
             <Border x:Name="CloseButton" Grid.Row="0"
                     Height="100" Width="100"
                     HorizontalAlignment="Right" Margin="8"
-                    CornerRadius="8" Background="{StaticResource BrushAccentDanger}"
+                    CornerRadius="{StaticResource StandardCornerRadius}" Background="{StaticResource BrushAccentDanger}"
                     Cursor="Hand">
                 <TextBlock Text="✕" Foreground="{StaticResource BrushSurfaceDark}"
-                           FontSize="34" FontWeight="Bold"
+                           FontSize="{StaticResource FontSizeDisplay}" FontWeight="{StaticResource FontWeightStrong}"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"/>
             </Border>
@@ -55,14 +55,14 @@
             <Border x:Name="ModalContent"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    CornerRadius="12"
+                    CornerRadius="{StaticResource LargeCornerRadius}"
                     Background="{StaticResource BrushSurfaceLight}"
                     Padding="40,30"
                     MinWidth="400">
                 <StackPanel HorizontalAlignment="Center">
                     <TextBlock x:Name="ModalMessage"
-                               Foreground="{StaticResource BrushTextPrimary}" FontSize="24"
-                               FontWeight="SemiBold"
+                               Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeTitle}"
+                               FontWeight="{StaticResource FontWeightMedium}"
                                TextAlignment="Center"
                                TextWrapping="Wrap"
                                Margin="0,0,0,24"/>

@@ -26,24 +26,24 @@
         </Canvas>
 
         <!-- Progress text -->
-        <TextBlock x:Name="ProgressText" Foreground="{StaticResource BrushTextPrimary}" FontSize="16"
-                   FontFamily="Segoe UI" HorizontalAlignment="Center"
+        <TextBlock x:Name="ProgressText" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"
+                   HorizontalAlignment="Center"
                    VerticalAlignment="Top" Margin="0,30,0,0" Visibility="Collapsed"/>
 
         <!-- Completion display -->
         <StackPanel x:Name="CompletionPanel" Visibility="Collapsed"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
-            <TextBlock x:Name="CompletionSymbol" Text="&#x2713;" FontSize="32"
+            <TextBlock x:Name="CompletionSymbol" Text="&#x2713;" FontSize="{StaticResource FontSizeDisplay}"
                        HorizontalAlignment="Center" Margin="0,0,0,12"
                        Foreground="{StaticResource BrushAccentSuccess}"/>
             <TextBlock x:Name="CompletionTitle" Text="Calibration complete"
-                       Foreground="{StaticResource BrushTextPrimary}" FontSize="18"
+                       Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"
                        HorizontalAlignment="Center" Margin="0,0,0,4"/>
             <TextBlock x:Name="CompletionError" Text=""
-                       Foreground="{StaticResource BrushAccentWarning}" FontSize="14"
+                       Foreground="{StaticResource BrushAccentWarning}" FontSize="{StaticResource FontSizeBodyLarge}"
                        HorizontalAlignment="Center" Margin="0,0,0,12"/>
             <TextBlock x:Name="CompletionHint" Text="Auto-dismissing in 3s..."
-                       Foreground="{StaticResource BrushTextDim}" FontSize="11"
+                       Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
                        HorizontalAlignment="Center" Margin="0,0,0,12" Visibility="Collapsed"/>
             <!-- Retry / Accept buttons for poor results -->
             <StackPanel x:Name="RetryPanel" Orientation="Horizontal"
@@ -58,7 +58,7 @@
         </StackPanel>
 
         <!-- Cancel hint -->
-        <TextBlock x:Name="CancelHint" Foreground="{StaticResource BrushTextDim}" FontSize="11"
+        <TextBlock x:Name="CancelHint" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
                    Margin="0,0,20,20" Visibility="Collapsed"
                    Text="Press Esc to cancel"/>

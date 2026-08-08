@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests;
 
 using System;
+using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -11,7 +13,8 @@ using Xunit;
 
 /// <summary>
 /// Pins the WPF behaviour <see cref="ITheme.CornerRadiusCircle"/> rests on, measured in
-/// design spec §4.1: an over-large CornerRadius clamps to an inscribed ellipse.
+/// docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md §4.1: an
+/// over-large CornerRadius clamps to an inscribed ellipse.
 ///
 /// On a SQUARE element that is a circle, rendering pixel-identically to size / 2 — which is
 /// what makes the token size-independent, and what lets QuickActionsGridWindow's 44x44 close
@@ -50,7 +53,8 @@ public class CornerRadiusClampTests
 
     private static int DifferingPixels(byte[] a, byte[] b)
     {
-        if (a.Length != b.Length) return int.MaxValue;
+        if (a.Length != b.Length)
+            throw new InvalidOperationException($"Bitmaps differ in size: {a.Length} vs {b.Length} bytes.");
         var n = 0;
         for (var i = 0; i < a.Length; i += 4)
             if (a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] || a[i + 3] != b[i + 3])
@@ -60,7 +64,8 @@ public class CornerRadiusClampTests
 
     /// <summary>
     /// Fraction of pixels at least half covered. The 50% cutoff is the correct way to count a
-    /// rasterised area and is the only one that reproduces the analytic value — spec §4.1
+    /// rasterised area and is the only one that reproduces the analytic value —
+    /// docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md §4.1
     /// records the same shape measuring 0.8094 / 0.7854 / 0.7671 / 0.7527 at cutoffs of
     /// 0 / 128 / 200 / 254, so a bare fraction without its threshold is meaningless.
     /// </summary>
@@ -82,13 +87,22 @@ public class CornerRadiusClampTests
     public void OnASquare_TheCircleToken_RendersIdenticallyToHalfTheSize(double size, double dpi)
     {
         var half = Render(size, size, size / 2, dpi);
-        var token = Render(size, size, Tokens.CornerRadiusCircle, dpi);
+        // Reads a concrete theme instance rather than the ambient Tokens.Current: this test
+        // shares the EyeCtrl.App.Tests assembly with ThemeStartupTests, which mutates
+        // Tokens.Current via Tokens.Activate(...) and relies on its [Collection("ActiveTheme")]
+        // to serialise that mutation against every other theme test. This test isn't in that
+        // collection and could run concurrently with it, so it must not read the mutable
+        // static — the WPF clamp being pinned here doesn't depend on which theme is active.
+        var token = Render(size, size, MidnightTheme.Instance.CornerRadiusCircle, dpi);
 
+        var differing = DifferingPixels(half, token);
         Check.WithCustomMessage(
                 $"A {size}x{size} Border at CornerRadiusCircle must render exactly as one at "
                 + $"{size / 2} ({dpi} dpi). If this fails, WPF no longer clamps an over-large "
-                + "CornerRadius and the token is not size-independent — see design spec §4.1.")
-            .That(DifferingPixels(half, token)).IsEqualTo(0);
+                + "CornerRadius and the token is not size-independent — see "
+                + "docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md "
+                + $"§4.1. ({differing} of {half.Length / 4} pixels differ)")
+            .That(differing).IsEqualTo(0);
     }
 
     [StaFact]
@@ -97,7 +111,7 @@ public class CornerRadiusClampTests
         // Pins the token's documented RESTRICTION, so misuse is caught rather than merely
         // discouraged in a doc comment.
         var stadium = Render(120, 40, 20, 96);
-        var token = Render(120, 40, Tokens.CornerRadiusCircle, 96);
+        var token = Render(120, 40, MidnightTheme.Instance.CornerRadiusCircle, 96);
 
         Check.WithCustomMessage("A 120x40 at the Circle token must NOT match its stadium form.")
             .That(DifferingPixels(stadium, token)).IsStrictlyGreaterThan(0);
@@ -109,16 +123,21 @@ public class CornerRadiusClampTests
     }
 
     [Fact]
-    public void TheOneCircleConsumer_IsSquare()
+    public void CloseButton_IsSquare()
     {
-        // The token is only valid on a square element. QuickActionsGridWindow's close button
-        // is 44x44 today; if someone resizes it non-uniformly the circle silently becomes an
-        // ellipse, so couple the two facts here.
-        var xaml = System.IO.File.ReadAllText(
-            System.IO.Path.Combine(RepoRoot(), "src", "EyeCtrl.App", "Overlays",
-                "QuickActionsGridWindow.xaml"));
+        // QuickActionsGridWindow's CloseButton is the intended consumer of the square-only
+        // circle token — it's 44x44 today. The token coupling itself isn't asserted here
+        // because the site still holds a literal CornerRadius="22" rather than the
+        // CircleCornerRadius resource; that assertion arrives with the migration (Task 8).
+        // For now this only pins the precondition that assertion will depend on: the button
+        // stays square.
+        var path = Path.Combine(RepoRoot(), "src", "EyeCtrl.App", "Overlays",
+            "QuickActionsGridWindow.xaml");
+        Check.WithCustomMessage($"QuickActionsGridWindow.xaml not found at {path}.")
+            .That(File.Exists(path)).IsTrue();
+        var xaml = File.ReadAllText(path);
 
-        var match = System.Text.RegularExpressions.Regex.Match(
+        var match = Regex.Match(
             xaml, @"x:Name=""CloseButton""[\s\S]{0,400}?Width=""(?<w>[\d.]+)""\s+Height=""(?<h>[\d.]+)""");
 
         Check.WithCustomMessage("Could not find CloseButton's Width and Height in the XAML.")
@@ -130,9 +149,9 @@ public class CornerRadiusClampTests
 
     private static string RepoRoot()
     {
-        var dir = new System.IO.DirectoryInfo(System.IO.Path.GetDirectoryName(
+        var dir = new DirectoryInfo(Path.GetDirectoryName(
             typeof(CornerRadiusClampTests).Assembly.Location)!);
-        while (dir is not null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "EyeCtrl.slnx")))
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "EyeCtrl.slnx")))
             dir = dir.Parent;
         Check.That(dir).IsNotNull();
         return dir!.FullName;

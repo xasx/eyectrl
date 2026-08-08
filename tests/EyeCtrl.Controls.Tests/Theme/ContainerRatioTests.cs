@@ -1,5 +1,7 @@
 namespace EyeCtrl.Controls.Tests.Theme;
 
+using System.Linq;
+using System.Reflection;
 using EyeCtrl.Controls.Theme;
 using NFluent;
 using Xunit;
@@ -47,5 +49,29 @@ public class ContainerRatioTests
         Check.That(120 * ContainerRatio.Small).IsCloseTo(28.0, 0.5);    // 27.6
         Check.That(60 * ContainerRatio.Small).IsCloseTo(14.0, 0.5);     // 13.8
         Check.That(100 * ContainerRatio.Small).IsCloseTo(22.0, 1.5);    // 23.0
+    }
+
+    [Fact]
+    public void EveryRatio_JoinsTheOrderedChainAndIsDistinct()
+    {
+        // The hand-written chain above only covers the five that exist today. This makes a
+        // sixth ratio declare itself: it must be distinct, inside (0, 1), and in descending
+        // order. Spec §8.4 rejected a duplicate-valued token as "the same fragmentation in a
+        // different coat"; that rule applies to ratios too, and nothing else enforces it.
+        var values = typeof(ContainerRatio)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Select(f => (double)f.GetRawConstantValue()!)
+            .ToList();
+
+        Check.WithCustomMessage("Reflected no ratios — wrong BindingFlags or they stopped being const.")
+            .That(values).Not.IsEmpty();
+        Check.WithCustomMessage("Two ratios holding one value is fragmentation in a different coat.")
+            .That(values).ContainsNoDuplicateItem();
+        Check.That(values).ContainsExactly(values.OrderByDescending(v => v));
+        foreach (var v in values)
+        {
+            Check.That(v).IsStrictlyGreaterThan(0.0);
+            Check.That(v).IsStrictlyLessThan(1.0);
+        }
     }
 }

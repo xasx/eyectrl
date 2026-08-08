@@ -257,7 +257,10 @@ public class NoteWindow : OverlayWindow
 
             var label = new TextBlock
             {
-                Text = symbol, FontSize = 14, Foreground = new SolidColorBrush(color),
+                Text = symbol,
+                // Sized from the 60px button disc that bounds it (ButtonDiameter above).
+                FontSize = ButtonDiameter * ContainerRatio.Small,
+                Foreground = new SolidColorBrush(color),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };

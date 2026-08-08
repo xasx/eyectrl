@@ -14,6 +14,20 @@ public partial class DragTrailOverlay : OverlayWindow
     private const double TrailThickness = 2;
     private const double SettleRingThickness = 3;
 
+    /// <summary>The grab/release button disc diameter.</summary>
+    private const double ButtonDiameter = 26;
+
+    /// <summary>
+    /// The grab/release glyph size, a ratio of the 26px badge that bounds it.
+    ///
+    /// This const exists for the CENTRING OFFSETS below, which divide it by two. The FontSize
+    /// assignment in <see cref="CreateIcon"/> deliberately repeats the expression rather than
+    /// reading this const: RawGeometryLiteralTests examines an assignment's own value, and
+    /// <c>FontSize = IconSize</c> references no token, so it would be flagged. The two must stay
+    /// in step — change one and change the other, or the glyph stops being centred.
+    /// </summary>
+    private const double IconSize = ButtonDiameter * ContainerRatio.Badge;
+
     private readonly Line _trailLineHalo;
     private readonly Line _trailLine;
     private readonly Ellipse _settleRingHalo;
@@ -127,8 +141,8 @@ public partial class DragTrailOverlay : OverlayWindow
         _trailLine.X2 = _trailLineHalo.X2 = cursorLogical.X;
         _trailLine.Y2 = _trailLineHalo.Y2 = cursorLogical.Y;
 
-        Canvas.SetLeft(_grabIcon, cursorLogical.X - 10);
-        Canvas.SetTop(_grabIcon, cursorLogical.Y - 10);
+        Canvas.SetLeft(_grabIcon, cursorLogical.X - (IconSize / 2));
+        Canvas.SetTop(_grabIcon, cursorLogical.Y - (IconSize / 2));
 
         var releaseLogical = new Point(DpiHelper.PhysicalToLogicalX(releasePos.X), DpiHelper.PhysicalToLogicalY(releasePos.Y));
         PositionButton(_releaseBg, _releaseIcon, releaseLogical);
@@ -174,7 +188,8 @@ public partial class DragTrailOverlay : OverlayWindow
         return new TextBlock
         {
             Text = glyph,
-            FontSize = 16,
+            // Must equal IconSize — see its doc comment for why the expression is repeated.
+            FontSize = ButtonDiameter * ContainerRatio.Badge,
             Foreground = foreground,
             IsHitTestVisible = false
         };
@@ -184,7 +199,7 @@ public partial class DragTrailOverlay : OverlayWindow
     {
         return new Ellipse
         {
-            Width = 26, Height = 26,
+            Width = ButtonDiameter, Height = ButtonDiameter,
             Fill = fill,
             Stroke = stroke,
             StrokeThickness = 1.5,
@@ -194,9 +209,12 @@ public partial class DragTrailOverlay : OverlayWindow
 
     private static void PositionButton(Ellipse bg, TextBlock icon, Point logicalPos)
     {
-        Canvas.SetLeft(bg, logicalPos.X - 13);
-        Canvas.SetTop(bg, logicalPos.Y - 13);
-        Canvas.SetLeft(icon, logicalPos.X - 8);
-        Canvas.SetTop(icon, logicalPos.Y - 8);
+        Canvas.SetLeft(bg, logicalPos.X - (ButtonDiameter / 2));
+        Canvas.SetTop(bg, logicalPos.Y - (ButtonDiameter / 2));
+        // Half the FONT SIZE, not half DesiredSize: DesiredSize.Height is 1.33x the font
+        // size, so box-centring would shift the glyph ~2.6px from where it sits today.
+        // DesiredSize is also (0,0) here — this is static and the TextBlock is unmeasured.
+        Canvas.SetLeft(icon, logicalPos.X - (IconSize / 2));
+        Canvas.SetTop(icon, logicalPos.Y - (IconSize / 2));
     }
 }

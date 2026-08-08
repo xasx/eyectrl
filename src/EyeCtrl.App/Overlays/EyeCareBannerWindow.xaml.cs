@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Overlays;
 
 using System.Windows;
 using System.Windows.Threading;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -25,6 +26,13 @@ public partial class EyeCareBannerWindow : OverlayWindow
     public EyeCareBannerWindow(int dwellMs = 700, IStruggleTelemetrySink? sink = null)
     {
         InitializeComponent();
+
+        // Ring glyphs are a ratio of the 64px dwell ring that bounds them (spec §8.5). Assigned
+        // here because XAML cannot multiply, and a plain assignment needs no allow-list entry.
+        const double RingSize = 64;
+        SnoozeGlyph.FontSize = RingSize * ContainerRatio.Medium;
+        StartGlyph.FontSize = RingSize * ContainerRatio.Medium;
+
         IsClickThrough = true; // set here (read in OverlayWindow.OnSourceInitialized), NOT in XAML
         _dwellMs = dwellMs;
         _dwell = new DwellDetector(cooldownMs: 0, context: DwellContext.EyeCare, sink: sink);

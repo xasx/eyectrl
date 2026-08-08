@@ -28,6 +28,16 @@ public partial class SettingsWindow : OverlayWindow
     private const double PagBtnRadius = 60;
     private const double ModalBtnRadius = 70;
 
+    // ── Container sizes that glyph sizes derive from ──
+    // Re-added after commit 691a494 dropped them as dead. They are NOT dead now: the tab icon
+    // and pagination symbol are sized as a ratio of the container that bounds them, so the
+    // number must live in exactly one place or the two drift apart again — which is how they
+    // came to be dead in the first place. Each is wired to the Border that uses it.
+    private const double TabContainerHeight = 100;
+    private const double PaginationButtonWidth = 100;
+    private const double PaginationButtonHeight = 80;
+    private const double ModalButtonHeight = 80;
+
     // Window sizing
     private const double WindowSizeRatio = 0.9; // Settings window size as fraction of screen
 
@@ -260,7 +270,7 @@ public partial class SettingsWindow : OverlayWindow
             {
                 Text = icon,
                 Foreground = Tokens.BrushTextPrimary,
-                FontSize = 30,
+                FontSize = TabContainerHeight * ContainerRatio.Medium,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 12, 0)
             };
@@ -269,7 +279,7 @@ public partial class SettingsWindow : OverlayWindow
             var tabBrush = new SolidColorBrush(TabInactive);
             var border = new Border
             {
-                Height = 100,
+                Height = TabContainerHeight,
                 Margin = new Thickness(4),
                 CornerRadius = Tokens.StandardCornerRadius,
                 Background = tabBrush,
@@ -288,7 +298,23 @@ public partial class SettingsWindow : OverlayWindow
                             Foreground = Tokens.BrushTextPrimary,
                             FontSize = Tokens.FontSizeTitle,
                             FontWeight = Tokens.FontWeightMedium,
-                            VerticalAlignment = VerticalAlignment.Center
+                            VerticalAlignment = VerticalAlignment.Center,
+                            // The sidebar column is a fixed 220 DIP and the longest label
+                            // ("Quick Actions") already overruns it: measured, its right edge
+                            // sits at 231.1 with a 30px icon and at 233.9 once the icon is
+                            // sized from the container (32px), so the ratio migration widens
+                            // the spill by 2.8px rather than closing it.
+                            //
+                            // RECORDED HONESTLY: this attribute is INERT as the tree stands.
+                            // The parent is a horizontal StackPanel, which hands every child
+                            // its full desired width, so the label is never width-constrained
+                            // and has nothing to trim against — measured right edge is 233.9
+                            // with and without it. It becomes live the moment the label is
+                            // constrained; replacing this StackPanel with a two-column
+                            // Grid("Auto,*") and keeping this line brings the right edge to
+                            // 192.0, inside the sidebar. That is a layout change (§2 excludes
+                            // layout from this migration) and is left for its own task.
+                            TextTrimming = TextTrimming.CharacterEllipsis
                         }
                     }
                 }
@@ -392,8 +418,8 @@ public partial class SettingsWindow : OverlayWindow
         var pagBrush = new SolidColorBrush(BtnBase);
         var btn = new Border
         {
-            Width = 100,
-            Height = 80,
+            Width = PaginationButtonWidth,
+            Height = PaginationButtonHeight,
             Margin = new Thickness(4),
             CornerRadius = Tokens.StandardCornerRadius,
             Background = pagBrush,
@@ -402,7 +428,7 @@ public partial class SettingsWindow : OverlayWindow
             {
                 Text = text,
                 Foreground = Tokens.BrushTextPrimary,
-                FontSize = 30,
+                FontSize = PaginationButtonHeight * ContainerRatio.Large,
                 FontWeight = Tokens.FontWeightStrong,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -1443,7 +1469,7 @@ public partial class SettingsWindow : OverlayWindow
         var border = new Border
         {
             Width = wide ? 460 : 170,
-            Height = 80,
+            Height = ModalButtonHeight,
             Margin = wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
             CornerRadius = Tokens.StandardCornerRadius,
             Background = modalBrush,

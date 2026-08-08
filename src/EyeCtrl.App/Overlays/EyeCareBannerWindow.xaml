@@ -24,17 +24,19 @@
                                Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBody}" Margin="0,2,0,0"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <!-- Two large dwell circles: Start (accept) and Snooze -->
+                    <!-- Two large dwell circles: Start (accept) and Snooze. The ✕/▶ glyph sizes
+                         are set in the constructor as a ratio of the 64px ring — XAML cannot
+                         express the multiplication. -->
                     <Grid Margin="0,0,16,0" Width="64" Height="64">
                         <Ellipse x:Name="SnoozeRing" Stroke="{StaticResource BrushTextDim}" StrokeThickness="2" StrokeDashArray="3 3"/>
-                        <TextBlock Text="✕" Foreground="{StaticResource BrushTextSecondary}" FontSize="22"
+                        <TextBlock x:Name="SnoozeGlyph" Text="✕" Foreground="{StaticResource BrushTextSecondary}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <TextBlock Text="snooze" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
                     </Grid>
                     <Grid Width="64" Height="64">
                         <Ellipse x:Name="StartRing" Stroke="{StaticResource BrushAccent}" StrokeThickness="2" StrokeDashArray="3 3"/>
-                        <TextBlock Text="▶" Foreground="{StaticResource BrushAccent}" FontSize="22"
+                        <TextBlock x:Name="StartGlyph" Text="▶" Foreground="{StaticResource BrushAccent}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <TextBlock Text="start" Foreground="{StaticResource BrushAccent}" FontSize="{StaticResource FontSizeBody}"
                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>

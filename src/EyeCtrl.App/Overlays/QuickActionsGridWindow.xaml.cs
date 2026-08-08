@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
@@ -15,12 +16,33 @@ using EyeCtrl.ViewModels;
 /// </summary>
 public partial class QuickActionsGridWindow : OverlayWindow
 {
+    /// <summary>The close button's diameter, declared in XAML as Width/Height 44.</summary>
+    private const double CloseButtonSize = 44;
+
+    /// <summary>The action tile's edge length, declared in the ItemTemplate as Width/Height 120.</summary>
+    private const double TileSize = 120;
+
+    /// <summary>
+    /// Tile icon size: a ratio of the 120px tile that bounds it (spec §8.5). Public and static
+    /// because it is consumed by {x:Static} from inside the ItemTemplate, which cannot reach an
+    /// instance member. It is the ONLY glyph size that needs this — see RawGeometryLiteralTests's
+    /// allow-list, which admits public static doubles on OverlayWindow subclasses for exactly
+    /// this one case.
+    /// </summary>
+    public static double TileIconSize => TileSize * ContainerRatio.Small;
+
     private QuickActionsGridViewModel? _vm;
 
     /// <summary>Creates the window and applies non-click-through, non-focusable overlay flags.</summary>
     public QuickActionsGridWindow()
     {
         InitializeComponent();
+
+        // The close glyph fills the whole button, so it takes the Dominant ratio. Assigned here
+        // rather than in XAML because XAML cannot multiply; a plain assignment also keeps this
+        // site off the guard's {x:Static} allow-list, which only the templated tile icon needs.
+        CloseGlyph.FontSize = CloseButtonSize * ContainerRatio.Dominant;
+
         SetOverlayInteraction(clickThrough: false, focusable: false);
     }
 

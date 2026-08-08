@@ -15,7 +15,7 @@ public partial class ToolbarWindow : OverlayWindow
     // UI Layout Constants
     private const int ProgressBarHeight = 4; // Height of dwell progress bar
     private const int ButtonMargin = 2; // Margin between toolbar buttons
-    private const double ButtonSymbolSizeRatio = 0.4; // Button symbol font size as ratio of button size
+    // The local 0.4 symbol ratio moved to ContainerRatio.Large, which this file's 0.4 defined.
 
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
     private double _buttonSize;
@@ -66,7 +66,7 @@ public partial class ToolbarWindow : OverlayWindow
         {
             Text = symbol,
             Foreground = Tokens.BrushTextPrimary,
-            FontSize = _buttonSize * ButtonSymbolSizeRatio,
+            FontSize = _buttonSize * ContainerRatio.Large,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -109,7 +109,7 @@ public partial class ToolbarWindow : OverlayWindow
         {
             Text = symbol,
             Foreground = Tokens.BrushTextPrimary,
-            FontSize = _buttonSize * ButtonSymbolSizeRatio,
+            FontSize = _buttonSize * ContainerRatio.Large,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };

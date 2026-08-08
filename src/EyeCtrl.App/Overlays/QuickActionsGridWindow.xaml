@@ -23,7 +23,9 @@
                         CornerRadius="{StaticResource CircleCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
                         BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}">
                     <Grid>
-                        <TextBlock Text="&#x2715;" FontSize="20" Foreground="{StaticResource BrushTextPrimary}"
+                        <!-- FontSize is set in the constructor from CloseButtonSize × the
+                             container ratio — XAML cannot express the multiplication. -->
+                        <TextBlock x:Name="CloseGlyph" Text="&#x2715;" Foreground="{StaticResource BrushTextPrimary}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <ProgressBar Minimum="0" Maximum="1"
                                      Value="{Binding CloseDwellProgress}"
@@ -51,7 +53,7 @@
                                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                                         <!-- Icon per action type. -->
                                         <TextBlock Text="{Binding Icon}"
-                                                   FontSize="28" HorizontalAlignment="Center"
+                                                   FontSize="{x:Static overlays:QuickActionsGridWindow.TileIconSize}" HorizontalAlignment="Center"
                                                    Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,4"/>
                                         <TextBlock Text="{Binding Action.Label}"
                                                    FontSize="{StaticResource FontSizeBodyLarge}" Foreground="{StaticResource BrushTextPrimary}"

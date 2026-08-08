@@ -180,7 +180,9 @@ public partial class KeyboardWindow : OverlayWindow
                 {
                     Text = key.Label,
                     Foreground = Tokens.BrushTextPrimary,
-                    FontSize = 16,
+                    // Sized from the key that bounds it, so raising KeySizeMultiplier now grows
+                    // the letter with the key instead of leaving it at a fixed 16.
+                    FontSize = _keySize * ContainerRatio.Small,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
@@ -438,7 +440,8 @@ public partial class KeyboardWindow : OverlayWindow
             {
                 Text = result.Word,
                 Foreground = GetPredictionForeground(result.Type),
-                FontSize = 16,
+                // Sized from the prediction cell, which is _keySize tall (see the Border below).
+                FontSize = _keySize * ContainerRatio.Small,
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center
             };

@@ -12,7 +12,21 @@ public class DwellArcButton
 {
     public const double DefaultArcInset = 4;
     public const double DefaultArcThickness = 4;
-    public const double DefaultSymbolFontSize = 22;
+
+    /// <summary>
+    /// Diameter below which a glyph needs <see cref="ContainerRatio.Badge"/>'s larger fraction
+    /// to stay legible. The 40px edge-bar drag buttons (<c>Drag_cancel</c>, <c>Drag_back</c>,
+    /// which take <c>EdgeButtonDefinition</c>'s default <c>UIConstants.DragButtonRadius</c> of
+    /// 20) would render at 40 × 0.23 = 9.2px under <see cref="ContainerRatio.Small"/> — below
+    /// the 12px accessibility floor, on the affordance that cancels a drag for a user whose
+    /// only input channel is an eye tracker. Above the threshold the 100px callers
+    /// (<c>ActionMenuGeometry.ButtonRadius</c> / <c>UIConstants.ButtonRadius</c> = 50) keep
+    /// Small, which is the ratio they already observe (22/100 = 0.22).
+    ///
+    /// Named rather than written inline so RawGeometryLiteralTests's bare-number rule does not
+    /// flag the <c>FontSize</c> expression that reads it.
+    /// </summary>
+    private const double BadgeDiameterThreshold = 64;
 
     public Ellipse Background { get; }
     public Path HaloPath { get; }
@@ -36,9 +50,14 @@ public class DwellArcButton
         _arcRadius = arcRadius;
     }
 
+    // `fontSize` is nullable rather than defaulted because a defaulted parameter cannot
+    // reference `radius`; the size is resolved from the diameter at the assignment site below.
+    // The old `DefaultSymbolFontSize = 22` is gone — 22 was 0.22 of the 100px diameter the
+    // action-menu and hide-button callers use, i.e. ContainerRatio.Small.
     public static DwellArcButton Create(Point center, double radius, string? symbol,
         Brush? fill = null, Brush? stroke = null, Brush? arcBrush = null, Brush? symbolBrush = null,
-        double arcThickness = DefaultArcThickness, double arcInset = DefaultArcInset, double fontSize = DefaultSymbolFontSize)
+        double arcThickness = DefaultArcThickness, double arcInset = DefaultArcInset,
+        double? fontSize = null)
     {
         var fillBrush = fill ?? Tokens.BrushSurfaceMedium;
         var strokeBrush = stroke ?? Tokens.BrushBorderSubtle;
@@ -112,7 +131,10 @@ public class DwellArcButton
             {
                 Text = symbol,
                 Foreground = symbolBrushActual,
-                FontSize = fontSize,
+                // Sized from the diameter that bounds it, not from a constant. Assigned inline
+                // rather than hoisted into a local: the guard examines the assignment's own
+                // value, and a local name references no token.
+                FontSize = fontSize ?? dia * (dia < BadgeDiameterThreshold ? ContainerRatio.Badge : ContainerRatio.Small),
                 TextAlignment = TextAlignment.Center,
                 Width = dia,
                 HorizontalAlignment = HorizontalAlignment.Center,

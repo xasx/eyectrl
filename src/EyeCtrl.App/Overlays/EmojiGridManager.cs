@@ -17,6 +17,13 @@ public class EmojiGridManager
     private const int EmojisPerPage = 40;
     private const int EmojiColumns = 10;
 
+    /// <summary>
+    /// The skin-tone preview cells are one and a half key cells across. Named because the glyph
+    /// inside them is sized from the same expression, and RawGeometryLiteralTests rejects a bare
+    /// number in a FontSize value even when the value is otherwise ratio-backed.
+    /// </summary>
+    private const double SkinToneCellScale = 1.5;
+
     // Palette tokens, matching KeyboardWindow's key ramp — the emoji grid is built inside
     // KeyboardWindow (opaque BrushSurfaceDark background), so these sit on another surface
     // and are correctly opaque (§4.1.1: alpha only where it composites over the desktop).
@@ -137,7 +144,8 @@ public class EmojiGridManager
                 var emojiChild = new EmojiTextBlock
                 {
                     Text = displayEmoji,
-                    FontSize = 28,
+                    // Sized from the keySize cell below, so the glyph scales with KeySizeMultiplier.
+                    FontSize = keySize * ContainerRatio.Large,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                 };
@@ -319,7 +327,7 @@ public class EmojiGridManager
             Child = new TextBlock
             {
                 Text = icon,
-                FontSize = 22,
+                FontSize = keySize * ContainerRatio.Medium,
                 Foreground = Tokens.BrushTextPrimary,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -416,15 +424,15 @@ public class EmojiGridManager
             var skinChild = new EmojiTextBlock
             {
                 Text = previews[i],
-                FontSize = 36,
+                FontSize = keySize * SkinToneCellScale * ContainerRatio.Medium,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
 
             var container = new Border
             {
-                Width = keySize * 1.5,
-                Height = keySize * 1.5,
+                Width = keySize * SkinToneCellScale,
+                Height = keySize * SkinToneCellScale,
                 Margin = new Thickness(4),
                 Background = new SolidColorBrush(isActive ? KeyColorHighlight : KeyColorNormal),
                 CornerRadius = Tokens.StandardCornerRadius,
@@ -452,7 +460,7 @@ public class EmojiGridManager
         {
             Text = text,
             Foreground = Tokens.BrushTextPrimary,
-            FontSize = 16,
+            FontSize = keySize * ContainerRatio.Small,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };

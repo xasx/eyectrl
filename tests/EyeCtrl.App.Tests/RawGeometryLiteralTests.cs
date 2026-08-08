@@ -51,10 +51,11 @@ public class RawGeometryLiteralTests
     /// Files allowed to contain literals, each with the reason. A path listed here is exempt
     /// in full, so prefer migrating over listing.
     ///
-    /// **During the migration this list holds the not-yet-migrated files, and nothing else.**
-    /// Each entry tagged PENDING is removed by the task that migrates that file;
-    /// <see cref="EveryExemption_NamesAFileThatStillHasALiteral"/> then fails if one lingers
-    /// after its literals are gone. By the end of Task 12 the list is empty.
+    /// **The migration is finished and this list is empty.** While it ran, the list held the
+    /// not-yet-migrated files and nothing else, one entry per file, each dropped by the task
+    /// that migrated it; <see cref="EveryExemption_NamesAFileThatStillHasALiteral"/> fails if
+    /// one lingers after its literals are gone, which is what forced them out. The last nine
+    /// went with Task 12, so an entry appearing here now is a regression rather than a step.
     ///
     /// **The token-declaration files need no permanent exemption, which was measured rather
     /// than assumed.** The plan provisioned seven — ITheme, ThemeBase, Tokens, the three
@@ -71,29 +72,17 @@ public class RawGeometryLiteralTests
     /// </summary>
     private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
     {
-        // ── PENDING migration. Remove each as its task lands. ───────────────────
-        // DwellArcButton is exempt on a FALSE POSITIVE, not on a literal. What the guard
-        // reports is `FontSize=fontSize` at :115 — a pass-through parameter, not a value. The
-        // file's *actual* literal is `public const double DefaultSymbolFontSize = 22;` at :15,
-        // which this guard structurally CANNOT see: `\bFontSize\s*=` cannot match there
-        // because FontSize is preceded by the `l` of `Symbol`, so there is no word boundary.
-        // Task 12 must therefore not read a green guard as "nothing left here" — it deletes
-        // that const and resolves the size from `dia * ContainerRatio.Small`. Note also that
-        // Task 12's own replacement, `FontSize = symbolSize`, is a local and is *still* not
-        // token-backed; assigning `fontSize ?? dia * ContainerRatio.Small` inline satisfies
-        // the guard, whereas hoisting it into a local does not.
-        ["src/EyeCtrl.Controls/DwellArcButton.cs"] = "PENDING Task 12",
-        // Task 8 (App XAML) migrated; the two below still carry glyph sizes Task 12 owns:
-        ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml"] = "PENDING Task 12",
-        ["src/EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml"] = "PENDING Task 12",
-        // Task 9 (App code-behind) migrated CornerRadius/FontSize(body)/FontWeight onto Tokens;
-        // each of the five still carries a glyph/icon FontSize literal that Task 12 owns:
-        ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] = "PENDING Task 12",
-        ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] = "PENDING Task 12",
-        ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] = "PENDING Task 12",
-        ["src/EyeCtrl.App/Overlays/EmojiGridManager.cs"] = "PENDING Task 12",
-        ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] = "PENDING Task 12",
-        ["src/EyeCtrl.App/Overlays/DragTrailOverlay.xaml.cs"] = "PENDING Task 12",
+        // EMPTY, and that is the finished state. Task 12 migrated the last nine files onto
+        // ContainerRatio, so every scanned file's geometry and typography values now come from
+        // the token surface. Any new entry is a regression, not a step in a migration: it means
+        // a literal was written and waved through. Prefer migrating the value.
+        //
+        // A note for whoever considers adding one back: DwellArcButton's remaining site,
+        // `FontSize = fontSize ?? dia * (dia < BadgeDiameterThreshold ? ...)`, passes because
+        // the capture stops at the first `)` and what precedes it is ratio-backed with no bare
+        // digit. Hoisting that expression into a local would break it — a local name references
+        // no token. The same is true of DragTrailOverlay's IconSize, which is why that file
+        // repeats its expression at the FontSize site instead of reading the const.
     };
 
     /// <summary>
@@ -348,8 +337,9 @@ public class RawGeometryLiteralTests
     public void EveryExemption_NamesAFileThatStillHasALiteral()
     {
         // Stops the allow-list rotting: an exemption for a file with nothing left to exempt
-        // is protecting nothing and would hide a future literal. This is also what forces the
-        // PENDING entries to be removed as the migration tasks land.
+        // is protecting nothing and would hide a future literal. This is also what forced each
+        // migration task to drop its own entry as it landed. Vacuously true now that the
+        // dictionary is empty, and that is the finished state, not a gap.
         var allowed = AllowedByProperty();
         var byPath = SourceScanner.ScannedFiles().ToDictionary(f => f.Relative, f => f.Text,
             StringComparer.OrdinalIgnoreCase);

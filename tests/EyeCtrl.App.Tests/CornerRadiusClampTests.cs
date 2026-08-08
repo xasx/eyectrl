@@ -131,8 +131,8 @@ public class CornerRadiusClampTests
         // CircleCornerRadius resource; that assertion arrives with the migration (Task 8).
         // For now this only pins the precondition that assertion will depend on: the button
         // stays square.
-        var path = Path.Combine(RepoRoot(), "src", "EyeCtrl.App", "Overlays",
-            "QuickActionsGridWindow.xaml");
+        var path = Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App",
+            "Overlays", "QuickActionsGridWindow.xaml");
         Check.WithCustomMessage($"QuickActionsGridWindow.xaml not found at {path}.")
             .That(File.Exists(path)).IsTrue();
         var xaml = File.ReadAllText(path);
@@ -145,15 +145,5 @@ public class CornerRadiusClampTests
         Check.WithCustomMessage(
                 "CloseButton must stay square, or CornerRadiusCircle renders an ellipse on it.")
             .That(match.Groups["w"].Value).IsEqualTo(match.Groups["h"].Value);
-    }
-
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(Path.GetDirectoryName(
-            typeof(CornerRadiusClampTests).Assembly.Location)!);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "EyeCtrl.slnx")))
-            dir = dir.Parent;
-        Check.That(dir).IsNotNull();
-        return dir!.FullName;
     }
 }

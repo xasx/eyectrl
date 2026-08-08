@@ -387,54 +387,188 @@
 <!-- ═══ 2. TYPOGRAPHY ═══ -->
 <div>
 <h2>2. Typography</h2>
+<div class="callout">
+  <strong>Typography is now tokenised — family, two weights and a five-step size ramp.</strong>
+  Delivered by
+  <code>docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md</code>,
+  which supersedes this document's §4.3 family-only proposal: that would have left
+  <strong>16 distinct sizes across 60 live sites</strong> fragmented, and a drift guard added
+  over that state would have <em>enforced</em> the fragmentation. All values are theme-varying on
+  <code>ITheme</code>; all three themes declare the same ones today.
+</div>
+
+<h3>Family — a chain, not a name</h3>
 <div class="type-samples">
-  <div class="type-row"><div class="spec">FontFamily<br><code>Segoe UI</code></div>
-    <div class="specimen" style="font-weight:600;font-size:27px;">EyeCtrl Heading — Segoe UI Semibold</div></div>
+  <div class="type-row"><div class="spec">FontFamilyStandard<br><code>Segoe UI Variable Text,<br>Segoe UI</code></div>
+    <div class="specimen" style="font-weight:600;font-size:27px;">EyeCtrl Heading — Segoe UI Variable Text Semibold</div></div>
+  <div class="type-row"><div class="spec">FontStandard<br><code>FontFamily</code> object</div>
+    <div class="specimen" style="font-size:14px;color:var(--text-secondary);">The derived, cached form — what XAML binds to. The raw string key is <code>FontFamilyStandard</code>; asking for it where a <code>FontFamily</code> is wanted throws at load rather than failing silently.</div></div>
+</div>
+
+<h3 style="margin-top:18px;">The ramp — five steps, floor 12</h3>
+<div class="type-samples">
+  <div class="type-row"><div class="spec">FontSizeBody · 12<br>absorbs 9,10,11,12,13</div>
+    <div class="specimen" style="font-size:12px;">Distance: 62cm &nbsp;•&nbsp; Quality: Good &nbsp;•&nbsp; snooze &nbsp;•&nbsp; PINNED NOTE &nbsp;•&nbsp; 22 sites</div></div>
+  <div class="type-row"><div class="spec">FontSizeBodyLarge · 14<br>absorbs 14</div>
+    <div class="specimen" style="font-size:14px;">Tile labels, calibration progress, task-switcher titles — 3 sites, unchanged</div></div>
+  <div class="type-row"><div class="spec">FontSizeSubtitle · 18<br>absorbs 16, 18</div>
+    <div class="specimen" style="font-size:18px;">Exercise name · banner message · drift notice — 5 sites</div></div>
+  <div class="type-row"><div class="spec">FontSizeTitle · 24<br>absorbs 22, 24</div>
+    <div class="specimen" style="font-size:24px;">Dwell controls, settings values — 12 sites</div></div>
+  <div class="type-row"><div class="spec">FontSizeDisplay · 34<br>absorbs 32, 34, 36</div>
+    <div class="specimen" style="font-size:34px;">Splash &amp; headings</div></div>
+</div>
+<p class="note" style="margin-top:12px;">
+  <strong>25 sites grow, 2 shrink, 18 are unchanged</strong> — 45 in total, largest movement +3px.
+  The <strong>6px gap between 18 and 24 is deliberate</strong>: a scale whose steps are 2px apart
+  is a list, not a scale. <strong>The 12px floor is the one change that makes the product
+  materially easier to use</strong> — the smallest text goes from 9px to 12px, a 33% increase, on a
+  machine driven entirely by the eyes. It is pinned by the validator (gate 1's non-colour tail
+  asserts <code>FontSizeBody ≥ 12</code>) and by <code>ThemeShapeTests</code>, so no theme can
+  reintroduce 9px text. There is no <code>FontSizeCaption</code>: at 12 it would have duplicated
+  <code>FontSizeBody</code>, and two names holding one value is the same fragmentation in a
+  different coat.
+</p>
+<p class="note">
+  <strong>Not every glyph takes the ramp.</strong> 17 sites size a glyph or label to fit a
+  <em>container</em>, several of those containers being settings-driven. Those use
+  <code>ContainerRatio</code> — <code>Badge</code> 0.60, <code>Dominant</code> 0.45,
+  <code>Large</code> 0.40, <code>Medium</code> 0.32, <code>Small</code> 0.23 — each of which is a
+  ratio the existing code had already converged on independently. This also fixes a real bug:
+  raising <code>KeySizeMultiplier</code> used to give bigger keys carrying the <em>same small
+  letters</em>. Those four keyboard/emoji sites are clamped at <code>FontSizeBody</code>, because
+  the multiplier's 0.5 floor would otherwise drive them to 8.05–11.20px, under the ramp floor.
+</p>
+
+<h3 style="margin-top:18px;">Weights — two</h3>
+<div class="type-samples">
+  <div class="type-row"><div class="spec">FontWeightMedium<br><code>SemiBold</code> (600) · 9 sites</div>
+    <div class="specimen" style="font-size:18px;font-weight:600;">Section headings, banner message, dwell labels</div></div>
+  <div class="type-row"><div class="spec">FontWeightStrong<br><code>Bold</code> (700) · 8 sites</div>
+    <div class="specimen" style="font-size:18px;font-weight:700;">Track Status · summary metrics · settings title</div></div>
+</div>
+<p class="note" style="margin-top:12px;">
+  <strong>Zero visual change</strong> — the values are exactly today's 9 SemiBold and 8 Bold.
+  <code>FontWeightMedium</code> is <code>SemiBold</code> (600), <em>not</em>
+  <code>FontWeights.Medium</code>, which is 500.
+</p>
+
+<h3 style="margin-top:18px;">Colour roles</h3>
+<div class="type-samples">
   <div class="type-row"><div class="spec">TextPrimary<br><code data-tok="textPrimary"></code></div>
     <div class="specimen" style="font-size:16px;">The quick brown fox jumps over the lazy dog. 1234567890</div></div>
   <div class="type-row"><div class="spec">TextSecondary<br><code data-tok="textSecondary"></code></div>
     <div class="specimen" style="font-size:14px;color:var(--text-secondary);">Secondary information, hints, keyboard shortcuts, metadata.</div></div>
   <div class="type-row"><div class="spec">TextDim<br><code data-tok="textDim"></code></div>
     <div class="specimen" style="font-size:13px;color:var(--text-dim);">Disabled state, placeholder text, deprecated options.</div></div>
-  <div class="type-row"><div class="spec">Dwell Button<br>24px Bold</div>
-    <div class="specimen" style="font-size:23px;font-weight:700;">+ &nbsp; − &nbsp; ☑ Enable &nbsp; ✕ Cancel</div></div>
-  <div class="type-row"><div class="spec">Keyboard Key<br>16px Regular</div>
+</div>
+
+<h3 style="margin-top:18px;">In situ</h3>
+<div class="type-samples">
+  <div class="type-row"><div class="spec">Dwell control<br><code>FontSizeTitle</code> · Strong</div>
+    <div class="specimen" style="font-size:24px;font-weight:700;">+ &nbsp; − &nbsp; ☑ Enable &nbsp; ✕ Cancel</div></div>
+  <div class="type-row"><div class="spec">Keyboard key<br><code>ContainerRatio.Small</code><br>× key size</div>
     <div class="specimen" style="font-size:16px;">Q W E R T Y &nbsp; Space &nbsp; ↵ Enter &nbsp; ⌫ Backspace</div></div>
-  <div class="type-row"><div class="spec">Overlay Subtext<br>11px Regular</div>
-    <div class="specimen" style="font-size:11px;color:var(--text-secondary);">Snooze &nbsp;•&nbsp; Start &nbsp;•&nbsp; Press Esc to cancel &nbsp;•&nbsp; Auto-dismissing in 3s…</div></div>
-  <div class="type-row"><div class="spec">Symbols / Icons<br>22–34px</div>
+  <div class="type-row"><div class="spec">Overlay subtext<br><code>FontSizeBody</code> · 12<br><span style="color:var(--accent-success)">was 9–11</span></div>
+    <div class="specimen" style="font-size:12px;color:var(--text-secondary);">snooze &nbsp;•&nbsp; start &nbsp;•&nbsp; Look at the dot and hold still &nbsp;•&nbsp; Quality: Unknown</div></div>
+  <div class="type-row"><div class="spec">Symbols / icons<br><code>ContainerRatio</code><br>× container</div>
     <div class="specimen" style="font-size:27px;">⏸ &nbsp; ⊕ &nbsp; ⌨ &nbsp; ⚙ &nbsp; ✕ &nbsp; ▶ &nbsp; ✓ &nbsp; ☑ &nbsp; ☐</div></div>
 </div>
 <p class="note" style="margin-top:13px;">
-  <code>FontFamily="Segoe UI"</code> becomes an explicit application default. One declaration already
-  exists — <code>CalibrationWindow.xaml:30</code> — contradicting the audit's claim that no font
-  family is set anywhere; it is removed as redundant once the app-wide default lands.
+  <strong>The old audit claim "no font family is set anywhere" was false</strong> —
+  <code>CalibrationWindow.xaml:30</code> carried <code>FontFamily="Segoe UI"</code> the whole time.
+  That literal is now deleted and the family arrives from <em>one</em> assignment in
+  <code>OverlayWindow</code>'s constructor, which every one of the 25 window classes in
+  <code>EyeCtrl.App</code> derives from. No <code>OverrideMetadata</code> — that is process-wide and
+  single-shot, so it collides across tests in one runner — and a deliberate XAML override still wins,
+  because the base constructor runs before <code>InitializeComponent</code>.
+</p>
+<div class="callout warn">
+  <strong>The family is a chain because an unresolvable bare name degrades along an
+  <em>undefined</em> path.</strong> Measured three ways, the three disagree:
+  <code>Typeface.TryGetGlyphTypeface</code> reports no face,
+  <code>FontFamily.FamilyNames</code> reports Arial, and the render matches <em>nothing</em>
+  installed (535–651 differing pixels against each of Arial, Segoe UI, Segoe UI Variable Text and
+  Tahoma, for one 14px string). An earlier draft's "<strong>falls back to Arial</strong>" was
+  disproved — do not repeat it. Note also that
+  <strong><code>TryGetGlyphTypeface</code> is not a spelling guard</strong>: it returns
+  <em>true</em> for a typo'd family, near-matching <code>"Segoe UI Varible Text, Segoo UI"</code>
+  onto <code>SEGOEUI.TTF</code>. Only wholesale garbage returns false. What is protected either way
+  is the line-spacing ratio — <strong>1.330078125</strong> for the chain, for
+  <code>Segoe UI Variable Text</code> alone and for <code>Segoe UI</code> alone — which is why
+  <code>TrackStatusFitTests</code> reads it live rather than hard-coding <code>1.33</code>.
+  <br><br>
+  <code>Segoe UI Variable Text</code> is a <strong>metric-compatible drop-in</strong>: advance widths
+  and line heights agree with Segoe UI to 0.01px at 9, 10, 12, 14, 22, 24 and 34px, so the swap
+  cannot reflow, re-wrap or clip anything. It changes glyph shapes only.
+</div>
+<p class="note">
+  <strong>One latent fragility, recorded not fixed.</strong> 22 of the app's UI symbols — ⏸ ⊕ ⌨ ⚙
+  ✓ ✕ ✊ ✋ ▶ ◀ ★ ☐ ☑ ↩ ↺ ↻ ⋯ ⚠ ✦ ◉ ﹢ and the astral emoji — are absent from Segoe UI <em>and</em>
+  from Segoe UI Variable Text, so they render through WPF's undeclared per-glyph fallback in whatever
+  face Windows picks. The family token cannot affect them either way. Fixing it means choosing a
+  symbol font, which is its own decision.
 </p>
 </div>
 
 <!-- ═══ 3. CORNER RADII ═══ -->
 <div>
 <h2>3. Corner Radii</h2>
+<div class="callout">
+  <strong>Delivered — four tokens, 30 literal sites migrated.</strong> This section previously read
+  "radius unification is deferred, not delivered": seven values in use (2, 4, 6, 8, 12, 14, 22)
+  against three tokens covering only 4, 8 and 12, with 22, 14 and the eleven 6s unmapped, and closing
+  it needing "a <code>CornerRadiusPill</code> token and a decision on 6 vs 8 for key caps". Both are
+  now settled by
+  <code>docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md</code>:
+  <strong>6 → 8</strong> (11 sites, on "fewer tokens wins" — neither value is principled by the
+  concentric rule), <strong>2 → 4</strong>, <strong>14 → 12</strong>, and 22 becomes a token rather
+  than a number. Every remaining literal fails the build: <code>RawGeometryLiteralTests</code> is a
+  <em>whitelist</em> guard, allowing only values that reach the token surface.
+</div>
 <div class="callout warn">
-  <strong>Radius unification is deferred, not delivered.</strong> Seven distinct radii are in use —
-  2, 4, 6, 8, 12, 14, 22 — against the three tokens below, and no migration step changes any of them.
-  The 22px on <code>QuickActionsGridWindow.xaml:23</code> is a pill radius on a 44px button and would
-  visibly break if forced to 8; 14 (<code>EyeCareExerciseWindow.xaml:39</code>) and the several 6s in
-  <code>KeyboardWindow.xaml.cs</code>, <code>NoteWindow.xaml.cs</code>, <code>DwellComboBox.cs</code>
-  and <code>DwellColorPicker.cs</code> are also unmapped. Closing this needs a
-  <code>CornerRadiusPill</code> token and a decision on 6 vs 8 for key caps.
+  <strong>The predicted name was wrong, and the reason matters.</strong> The token is
+  <code>CornerRadiusCircle</code>, <em>not</em> <code>CornerRadiusPill</code>. Measured headlessly:
+  WPF clamps an over-large <code>CornerRadius</code> to an <strong>inscribed ellipse</strong>, not a
+  stadium. On a <em>square</em> element <code>9999</code> renders pixel-identically to
+  <code>size / 2</code> — 0 differing pixels at 30/44/45/66/100px and 96/144/192 dpi — but on a
+  120×40 element the covered fraction is π/4, the ellipse, not the stadium's ≈0.93. A token named
+  <em>Pill</em> would have invited a silent ellipse on the first non-square element it touched. It is
+  documented square-only and pinned by <code>CornerRadiusClampTests</code>, which also asserts that
+  the one element carrying it — <code>QuickActionsGridWindow</code>'s 44×44 close button — still has
+  <code>Width == Height</code>.
 </div>
 <div class="corner-samples">
   <div class="corner-card"><div class="corner-box" style="border-radius:4px;"></div>
-    <div class="label">4px — Small<br>Toolbar, inline chips</div></div>
+    <div class="label">4 — Small<br><code>SmallCornerRadius</code><br>Toolbar, dwell feedback,<br>target highlight (was 2)</div></div>
   <div class="corner-card"><div class="corner-box" style="border-radius:8px;"></div>
-    <div class="label">8px — Standard ★<br>Overlays, buttons, cards</div></div>
+    <div class="label">8 — Standard ★<br><code>StandardCornerRadius</code><br>22 sites — overlays, keys,<br>tiles, controls (11 were 6)</div></div>
   <div class="corner-card"><div class="corner-box" style="border-radius:12px;"></div>
-    <div class="label">12px — Large<br>Splash, modal dialogs</div></div>
+    <div class="label">12 — Large<br><code>LargeCornerRadius</code><br>Splash, modal card,<br>EyeCare summary (was 14)</div></div>
   <div class="corner-card" style="display:flex;align-items:center;gap:12px;">
-    <div style="width:62px;height:62px;border-radius:50%;background:var(--surface-medium);border:1px solid var(--border-subtle);"></div>
-    <div class="label" style="text-align:left;">∞ — Circle<br>Gaze indicators,<br>dwell ring buttons</div></div>
+    <div style="width:62px;height:62px;border-radius:50%;background:var(--surface-medium);border:var(--border-width) solid var(--border-subtle);"></div>
+    <div class="label" style="text-align:left;">9999 — Circle<br><code>CircleCornerRadius</code><br><strong>Square elements only</strong><br>QuickActions close button</div></div>
 </div>
+<p class="note" style="margin-top:14px;">
+  Each token exists in two forms, mirroring the established
+  <code>BorderThicknessStandard</code> / <code>StandardBorderThickness</code> pair: a raw
+  <code>double</code> (<code>CornerRadiusSmall</code>, …) and a derived <code>CornerRadius</code>
+  struct (<code>SmallCornerRadius</code>, …) — the latter is what a <code>Border</code> binds to. The
+  derived forms are published by <code>ThemeResourceApplier.Apply</code>, <strong>not</strong> left to
+  parse-time <code>{x:Static}</code>: <code>x:Static</code> resolves while WPF parses the dictionary,
+  before <code>App.OnStartup</code> can pick a theme, so a geometry-varying theme would render
+  Midnight's radii in XAML while C# read the active theme's.
+  <code>ThemeResourceApplierTests.Apply_CoversEveryKeyTheDictionaryDeclares</code> enforces it.
+</p>
+<p class="note">
+  <strong>Two facts the original per-overlay audit missed</strong>, both because it read XAML only
+  while most radii are set in C#: one site is <em>asymmetric</em>
+  (<code>NoteWindow.xaml.cs:83</code>, the note title bar — and being C#, the "a single resource
+  cannot be partially overridden" worry never applied), and one pair nested
+  <em>non-concentrically</em> (<code>DwellComboBox.cs:140</code> wrapped a radius-8
+  <code>DwellButton</code> in a radius-6 <code>Border</code>, cutting the child deeper than its
+  parent). The 6 → 8 decision removes the second by construction.
+</p>
 </div>
 
 <!-- ═══ 4. HALO ═══ -->
@@ -587,9 +721,14 @@
     <tr><td>ToggleOn</td><td><code>BrushToggleOn</code></td><td class="num">#4A8F5C</td><td class="num">#67874C</td><td class="num">#00FF00</td><td>Toggles enabled, modal Yes</td></tr>
     <tr><td>ToggleOff</td><td><code>BrushToggleOff</code></td><td class="num">#2E2E42</td><td class="num">#342C21</td><td class="num">#000000</td><td>Toggles disabled</td></tr>
     <tr><td>ModalBackdrop</td><td><code>BrushModalBackdrop</code></td><td class="num" colspan="2" style="text-align:center;">#B3000000 — shared</td><td class="num">#E6000000</td><td>Modal dim, calibration backdrop</td></tr>
-    <tr><td>CornerRadiusSmall / Standard / Large</td><td><code>CornerRadius*</code></td><td class="num" colspan="3" style="text-align:center;">4 / 8 / 12</td><td>See §3 — unification deferred</td></tr>
-    <tr><td>BorderThicknessStandard</td><td><code>BorderThicknessStandard</code></td><td class="num">1</td><td class="num">1</td><td class="num">2</td><td>All container borders</td></tr>
-    <tr><td>FontPrimary</td><td><code>FontPrimary</code></td><td class="num" colspan="3" style="text-align:center;">Segoe UI</td><td>Application default</td></tr>
+    <tr><td>BorderThicknessStandard</td><td><code>BorderThicknessStandard</code> · <code>StandardBorderThickness</code></td><td class="num">1</td><td class="num">1</td><td class="num">2</td><td>All container borders</td></tr>
+    <tr><td>CornerRadiusSmall</td><td><code>CornerRadiusSmall</code> · <code>SmallCornerRadius</code></td><td class="num" colspan="3" style="text-align:center;">4 — all three themes</td><td>Toolbar, dwell feedback, target highlight</td></tr>
+    <tr><td>CornerRadiusStandard</td><td><code>CornerRadiusStandard</code> · <code>StandardCornerRadius</code></td><td class="num" colspan="3" style="text-align:center;">8 — all three themes</td><td>22 sites: containers, keys, tiles, controls</td></tr>
+    <tr><td>CornerRadiusLarge</td><td><code>CornerRadiusLarge</code> · <code>LargeCornerRadius</code></td><td class="num" colspan="3" style="text-align:center;">12 — all three themes</td><td>Splash, modal card, EyeCare summary</td></tr>
+    <tr><td>CornerRadiusCircle</td><td><code>CornerRadiusCircle</code> · <code>CircleCornerRadius</code></td><td class="num" colspan="3" style="text-align:center;">9999 — all three themes</td><td><strong>Square elements only</strong> — see §3</td></tr>
+    <tr><td>FontFamilyStandard</td><td><code>FontFamilyStandard</code> · <code>FontStandard</code></td><td class="num" colspan="3" style="text-align:center;">Segoe UI Variable Text, Segoe UI</td><td>Whole app, via <code>OverlayWindow</code>'s ctor</td></tr>
+    <tr><td>FontWeightMedium / Strong</td><td><code>FontWeightMedium</code> · <code>FontWeightStrong</code></td><td class="num" colspan="3" style="text-align:center;">SemiBold (600) / Bold (700)</td><td>9 / 8 sites</td></tr>
+    <tr><td>FontSizeBody … Display</td><td><code>FontSizeBody</code> · <code>BodyLarge</code> · <code>Subtitle</code> · <code>Title</code> · <code>Display</code></td><td class="num" colspan="3" style="text-align:center;">12 / 14 / 18 / 24 / 34 — all three themes</td><td>45 text sites; <code>Body</code> is a gated ≥12 floor</td></tr>
   </tbody>
 </table>
 </div>
@@ -763,7 +902,7 @@ Ring.<span class="att">StrokeThickness</span> = t;</pre>
 
 <div style="margin-top:36px;padding-top:20px;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-dim);">
   <span>EyeCtrl Design System v2.2</span>
-  <span>3 themes · 20 tokens · 9 validated gates · ~38 files to migrate</span>
+  <span>3 themes · 22 colours + 13 non-colour tokens · 10 validated gates</span>
   <span>python tools/palette_validate.py</span>
 </div>
 

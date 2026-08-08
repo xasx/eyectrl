@@ -117,21 +117,110 @@ filled shape.
 
 ### 3.3 Corner Radii
 
-| Overlay | Current Radius |
+**Corrected — the original nine-row table undercounted by more than a factor of three.**
+It listed one row per *overlay*, which is the wrong unit: a radius is a property of a
+`Border`, and most of them are set in C# code-behind rather than in the XAML a
+per-overlay sweep reads. The nine rows resolve to at most **eight** distinct code sites
+(and one of the nine — "DwellSlider buttons `8` (inherited from DwellButton)" — is not a
+site at all, but a note about inheritance). **Twenty-two of the thirty were missing.**
+
+The verified inventory, re-derived at merge base `2d3b1ae`:
+
+| | Count |
 |---|---|
-| Keyboard | `6` |
-| Toolbar | `4` |
-| QuickActionsGrid | `8` |
-| Splash | `12` |
-| TrackStatus | `8` |
-| EyeCareExercise summary | `14` |
-| DwellButton | `8` |
-| DwellToggle | `8` |
-| DwellSlider buttons | `8` (inherited from DwellButton) |
+| `CornerRadius` lines in `src/EyeCtrl.App` + `src/EyeCtrl.Controls` | **32** |
+| …of which carry a literal value | **30** |
+| …of which read `ToolbarWindow.xaml.cs`'s `BorderCornerRadius` const | 2 |
+| Distinct values | **7** — `2`, `4`, `6`, `8`, `12`, `14`, `22` |
+
+Literal sites per value: `2` → 1, `4` → 3, `6` → 11, `8` → 11, `12` → 2, `14` → 1,
+`22` → 1. Re-derive with:
+
+```bash
+git grep -n CornerRadius 2d3b1ae -- src/EyeCtrl.App src/EyeCtrl.Controls
+```
+
+The **full per-site table** lives in §3.1 of
+`docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md`, which
+is the spec that closes §8. (Note that spec's §3.1 "Sites" column reads `4` for the value
+`4`, counting the const's two consumers alongside its three literal sites; `30` is the
+reconciled total and the figure to trust.)
+
+**Two facts the original audit lacked**, both because it never looked at C#:
+
+- **One site is asymmetric.** `NoteWindow.xaml.cs:83` is `new CornerRadius(6, 6, 0, 0)` —
+  the note's title bar. It is the only asymmetric site in the app, and it is C#, not XAML,
+  which is why §8's worry about "a single `CornerRadius` resource cannot be partially
+  overridden" turned out not to bite.
+- **One pair nests non-concentrically.** `DwellComboBox.cs:140` puts an outer `Border` at
+  radius `6` around a `DwellButton` at radius `8`, so the child's corner is cut *deeper*
+  than its parent's. `DwellColorPicker.cs:122` separately overrides `DwellButton`'s `8`
+  down to `6` with no nesting involved.
 
 ### 3.4 Typography
 
-No font family is explicitly set anywhere — everything inherits the WPF default (`Segoe UI`). Font sizes vary widely (9px–36px). This is acceptable since different overlays serve different purposes, but the lack of a declared default means a system font change could cascade unexpectedly.
+**Corrected on two counts.** "No font family is explicitly set anywhere" was simply false —
+`CalibrationWindow.xaml:30` carried `FontFamily="Segoe UI"` the whole time, which §5 step 29
+already flagged as a contradiction. And "everything inherits the WPF default (`Segoe UI`)"
+names a face that WPF does not actually promise. The verified inventory at merge base
+`2d3b1ae`:
+
+| | Count |
+|---|---|
+| `FontFamily` literals | **1** — `Overlays/CalibrationWindow.xaml:30` |
+| `FontSize` lines | **68**, decomposing as below |
+| … live literal sites | **60**, across **16** values: 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 30, 32, 34, 36 |
+| … dead `private const`s in `Views/SettingsWindow.xaml.cs` | **4** (`:35`, `:37`, `:38`, `:42` — each occurring only in its own declaration) |
+| … computed occurrences, being 2 real sites | **4** (`ToolbarWindow.xaml.cs:70,113` and `DwellArcButton.cs:41,115`) |
+| `FontWeight` sites | **17** — `SemiBold` 9, `Bold` 8 |
+
+Re-derive with:
+
+```bash
+git grep -n 'FontSize\|FontWeight\|FontFamily' 2d3b1ae -- src/EyeCtrl.App src/EyeCtrl.Controls
+```
+
+Every one of the 68 is classified per site in Appendix A of
+`docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md`.
+
+**The sites are not one population**, which is the finding that mattered. Appendix A of the
+successor spec classifies **66 rows** — 45 text, 17 container-proportional, 4 dead consts —
+and reconciles them to the 68 grep hits. Of the **60 live literal** sites, 45 are text and 15
+are container-proportional; the 17 total includes `ToolbarWindow.xaml.cs:70,113`, whose sizes
+are *computed* rather than literal, which is why the literal split is 45 + 15 and the
+row split is 45 + 17.
+
+A container-proportional site sizes a glyph or label to fit its box, and several of those
+boxes are settings-driven — so the size is computed at runtime, not declared.
+`ToolbarWindow` had already invented the right mechanism for its own two
+(`_buttonSize * ButtonSymbolSizeRatio`). Snapping those sites onto a text ramp would have
+resized icons relative to the boxes they sit in — a visible regression, and backwards.
+
+**"Everything inherits the WPF default (`Segoe UI`)" is replaced by a measurement.** WPF's
+inherited default is the *system message font*, not a fixed face
+(`SystemFonts.MessageFontFamily`, which is Segoe UI on this machine but is a system
+setting). And what happens when a declared family fails to resolve is **undefined**, not
+merely surprising: for a wholesale-nonsense family name, measured three ways, the three
+disagree — `Typeface.TryGetGlyphTypeface` reports no face, `FontFamily.FamilyNames` reports
+Arial, and the actual render is pixel-identical to *nothing* installed (535–651 differing
+pixels against each of Arial, Segoe UI, Segoe UI Variable Text and Tahoma for one 14px
+string).
+An earlier draft of the successor spec generalised the `FamilyNames` reading into
+"**falls back to Arial**"; that claim was disproved and must not be repeated. Because no
+single face can be named as the fallback, the token declares the chain explicitly rather
+than trusting a bare name — see §4.3.
+
+**Related, and worth knowing before trusting a font name in this repo:**
+`Typeface.TryGetGlyphTypeface` is **not** a spelling guard. Measured, it
+returns `true` for a typo'd family — WPF near-matches
+`"Segoe UI Varible Text, Segoo UI"` onto `SEGOEUI.TTF` (5394 glyphs) — and returns
+`false` only for wholesale garbage (`"Qwertyuiop Nonexistent"`, `""`, `"####"`, all of
+which also move `LineSpacing` to `1.14990234375`). The shipped chain resolves to
+`SEGUIVAR.TTF` (2530 glyphs). What survives either way is the line-spacing ratio:
+**1.330078125** for the chain, for `"Segoe UI Variable Text"` alone and for `"Segoe UI"`
+alone — which is why the layout arithmetic in `TrackStatusFitTests` can read it live
+instead of hard-coding `1.33`. The full record is in `OverlayFontTests`
+(`TheFontChain_ResolvesToARealGlyphTypeface`).
 
 ### 3.5 App.xaml
 
@@ -362,19 +451,53 @@ definition. Options if it matters in practice are to fade *colour* or *size* rat
 than opacity, or to raise `MinPeakOpacity` — recorded here rather than left implied
 by the ≥ 10.97 figure above, which assumes a fully-opaque fill.
 
-### 4.2 Corner Radii
+### 4.2 Corner Radii — **superseded**
 
-| Context | Value | Token |
-|---|---|---|
-| Overlay containers | `8` | `CornerRadiusStandard` |
-| Small inline elements | `4` | `CornerRadiusSmall` |
-| Modal cards | `12` | `CornerRadiusLarge` |
+**Superseded by
+`docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md` §6.1.**
+Neither §4.2 nor §4.3 was ever implemented, and both were insufficient as written. Both are
+kept, superseded rather than deleted, as the record of what was proposed and why it was not
+enough.
 
-**Rationale:** `8` is the most common current value and works at every scale from a 30px gaze indicator to a full-screen keyboard. `4` covers the Toolbar's current look (compact edge-docked bar). `12` is reserved for prominent cards like the splash screen and modal dialogs.
+This section proposed three tokens — `CornerRadiusStandard` `8`, `CornerRadiusSmall` `4`,
+`CornerRadiusLarge` `12` — on the rationale that `8` "is the most common current value and
+works at every scale," `4` "covers the Toolbar's current look," and `12` is "reserved for
+prominent cards."
 
-### 4.3 Typography
+**Why that was insufficient.** Three tokens cover `4`, `8` and `12` against the **seven**
+values §3.3 actually measures. `2`, `6`, `14` and `22` had no home, which is precisely
+what §8 recorded when it deferred the migration rather than shipping a partial map. The
+successor spec resolves all four by decision — `2 → 4`, `6 → 8` (11 sites), `14 → 12`,
+and `22` becomes a fourth token, `CornerRadiusCircle`, rather than a fixed number (see the
+§8 delivery note for why the name is not `CornerRadiusPill`).
 
-Set `FontFamily="Segoe UI"` as an explicit application-level default so a system change doesn't silently alter the UI. Individual overlays keep their existing font sizes — those are functional, not decorative.
+### 4.3 Typography — **superseded**
+
+**Superseded by
+`docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md` §8.**
+
+This section proposed a **family-only** pass: set `FontFamily="Segoe UI"` as an
+application-level default, and leave every overlay's font sizes alone because "those are
+functional, not decorative."
+
+**Why that was insufficient.** A family token would have left **16 distinct sizes across
+60 live sites** (§3.4) fragmented, with nothing to stop the next one being written — and a
+drift guard added over that state would have *enforced* the fragmentation rather than
+removing it. The successor spec therefore delivers family **plus** two weight tokens, a
+five-step size ramp with a 12px accessibility floor, and a container-ratio rule for the 17
+sites that size a glyph to its box. It also reverses this document's "font size changes are
+out of scope" (§8), deliberately and with the concern stated: the scale cannot be unified
+without moving some sizes.
+
+Two details of the family value that this section could not have known:
+
+- The value is the **chain** `"Segoe UI Variable Text, Segoe UI"`, not a bare name, because
+  §3.4 measured that an unresolvable bare name degrades along an **undefined** path.
+- `Segoe UI Variable Text` is metrically identical to `Segoe UI` — advance widths and line
+  heights agree to 0.01px at 9, 10, 12, 14, 22, 24 and 34px — so the swap cannot reflow,
+  re-wrap or clip anything. It changes glyph shapes only. `CalibrationWindow.xaml:30`'s
+  literal is deleted; the value arrives by inheritance from one assignment in
+  `OverlayWindow`'s constructor, pinned by `OverlayFontTests`.
 
 ### 4.4 Thickness
 
@@ -628,6 +751,8 @@ and `EyeCareExerciseWindow` where it is on the `Window`.
     none, so its edge is undefined against the desktop); text (15):
     `Foreground="White"` → `BrushTextPrimary`. Leave `CornerRadius="6"` — radius
     unification is deferred (§8), but note this file adds a fourth instance of it.
+    **Superseded:** §8 is no longer a deferral. This site is now
+    `{StaticResource StandardCornerRadius}` (`6 → 8`).
 
 ### Phase 5: Transparent overlays — halo pass (6 files)
 
@@ -672,7 +797,8 @@ arbitrary desktop content (§9.5).
 
 - `EdgeButtonBarWindow.xaml` + `.cs` — inherits accent **and halo** from `DwellArcButton` (Phase 1)
 - `GlassBackdropWindow.xaml` + `.cs` — fully dynamic; no hardcoded colours
-- `TargetHighlightWindow.xaml` — opacity-driven; `CornerRadius="2"` left as-is (§8)
+- `TargetHighlightWindow.xaml` — opacity-driven; `CornerRadius="2"` left as-is (§8).
+  **Superseded:** now `{StaticResource SmallCornerRadius}` (`2 → 4`), per §8's delivery note
 - `DragTrailOverlay.xaml` + `.cs` — the trail line now reads `DragSettings.TrailColor`
   via `Configure` (wired in `EventCoordinator.OnDragStarted`); the settle/release greens
   and release background are on tokens. (An earlier draft wrongly claimed the files needed
@@ -772,14 +898,40 @@ sub-setting from defaults and would discard unrelated tuning; prefer the picker.
 
 Genuinely excluded from this work:
 
-- Layout changes (margins, padding, control sizes)
-- Font size changes
+- Layout changes (margins, padding, control sizes) — **amended:** the geometry/typography
+  successor spec takes exactly one named exception, `TrackStatusWindow.Height` 110 → 116
+- Font size changes — **reversed** by that spec's §8; see §4.3 above for why
 - Light mode
 - Animation curves / timing
 - Settings **file format** (Phase 2 changes four default *values*, not the schema)
 - EyeCare scoring UI
-- Supervisor UI (`EyeCtrl.Supervisor`)
+- Supervisor UI (`EyeCtrl.Supervisor`) — see the decision recorded below
 - WinUI SDK sample (`EyeCtrl.Sdk.WinUI.Sample`)
+
+**The Supervisor exclusion is a decision, not an oversight — and it means the *product*
+is not uniformly themed.** `EyeCtrl.Supervisor` is a separate `WinExe`
+(`src/EyeCtrl.Supervisor/EyeCtrl.Supervisor.csproj`) that *does* reference
+`EyeCtrl.Controls`, so it could read `Tokens`. It does not. Its two window classes —
+`UI/FallenBackDialog.xaml.cs:21` and `UI/SupervisorSetupWindow.xaml.cs:31` — derive from
+`Window`, not `OverlayWindow`, so they miss both the palette and the one-assignment font
+default, and they keep the system font. Between them they hold **22 geometry and typography
+literals** (19 in `SupervisorSetupWindow.xaml`, 3 in `FallenBackDialog.xaml`; re-derive with
+`grep -rn "CornerRadius\|FontSize\|FontFamily\|FontWeight" src/EyeCtrl.Supervisor/UI`).
+`src/EyeCtrl.Supervisor` is therefore **deliberately absent** from the drift guard's
+`ScannedProjects` (`tests/EyeCtrl.App.Tests/SourceScanner.cs:29`, which records the reason in
+its own doc comment so the omission cannot be read as an oversight and quietly widened).
+
+Two consequences worth stating plainly rather than leaving implied:
+
+- The successor spec's §3.4 claim that "all **25** window classes derive from
+  `OverlayWindow`" is scoped to **`EyeCtrl.App`** and is correct as written — it is pinned
+  by `OverlayInventoryDriftTests` (which also holds §1's count to reflection) and by
+  `OverlayFontTests.NoWindowClass_BypassesOverlayWindow`. Neither guard sees another
+  assembly, by design.
+- `FallenBackDialog` is what the user sees **when something has already gone wrong**. It is
+  the one unthemed surface in the product that appears at the worst moment. Bringing the
+  supervisor UI onto the tokens is a small, self-contained follow-up; it is recorded here so
+  that it is a choice rather than a gap.
 
 **No longer out of scope.** Earlier drafts excluded "new controls or behaviors,"
 which would have barred the §4.1.3 halo. The halo is a rendering change and it is
@@ -788,16 +940,70 @@ fall to 1.37:1 over light desktop content (§9.5). Under the §2 constraint that
 dwell feedback be "instant, high-contrast, and unambiguous," shipping a palette
 that leaves them unguaranteed would miss the point of the exercise.
 
-**Deferred, with reason.** Corner-radius unification is *not* delivered by this
-pass, and §4.2's three tokens are insufficient for it. Seven distinct radii are in
-use — `2`, `4`, `6`, `8`, `12`, `14`, `22` — against tokens covering only `4`, `8`
-and `12`. The `22` on `QuickActionsGridWindow.xaml:23` is a pill radius on a 44px
-button and would visibly break if forced to `8`; `14`
-(`EyeCareExerciseWindow.xaml:39`) and the `6` used by `KeyboardWindow.xaml.cs:197`,
-`NoteWindow.xaml.cs:68`, `DwellComboBox.cs:139` and `DwellColorPicker.cs:97` are
-also unmapped. No migration step above changes a radius, so radii remain exactly
-as fragmented as before. Closing this needs a `CornerRadiusPill` token and a
-decision on `6` vs `8` for key caps — a follow-up to §4.2, not a silent edit here.
+**Was deferred; now delivered.** This paragraph originally read "Deferred, with reason":
+corner-radius unification was *not* delivered by this pass, §4.2's three tokens were
+insufficient for it (seven values in use against tokens covering `4`, `8` and `12`), the
+`22` on `QuickActionsGridWindow.xaml:23` "would visibly break if forced to `8`", and `6`
+versus `8` for key caps was an open question rather than an oversight. That deferral was
+correct, and it named what closing it needed: decisions. (Its site citations have since
+drifted — the `6`s it pointed at are now `KeyboardWindow.xaml.cs:195,496`,
+`NoteWindow.xaml.cs:69,83`, `DwellComboBox.cs:140` and `DwellColorPicker.cs:122`; §3.3 above
+carries the re-derivable inventory instead of a hand-kept list.)
+
+**The decisions are made and the work is done.** See
+`docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md`, which
+extends the token layer with 12 non-colour primitives (4 radii, 1 family, 2 weights, 5 font
+sizes) plus 5 derived values, migrates every literal site in `EyeCtrl.App` and
+`EyeCtrl.Controls`, and closes the loop with a *whitelist* drift guard —
+`RawGeometryLiteralTests` — that permits only values reaching the token surface, so an
+unmigrated site fails the build instead of relying on a reviewer to spot it.
+
+Three corrections this document owes to that work:
+
+- **The predicted token name was wrong, in a way that mattered.** This section anticipated
+  `CornerRadiusPill`. Measured headlessly, WPF clamps an over-large `CornerRadius` to an
+  inscribed **ellipse**, not a stadium: on a *square* element `CornerRadius = 9999` renders
+  pixel-identically to `size / 2` (0 differing pixels at 30/44/45/66/100px and 96/144/192
+  dpi), but on a 120×40 element the covered fraction is π/4 — the ellipse — not the
+  stadium's ≈0.93. A token called *Pill* would therefore have invited a silently
+  wrong ellipse on any non-square element. The token is **`CornerRadiusCircle`** (`9999`),
+  documented square-only, and the WPF behaviour it rests on is pinned by
+  `CornerRadiusClampTests` — including a check that the real 44×44 `CloseButton` carrying it
+  still has `Width == Height` — so a future WPF change or a resize breaks a test rather than
+  the UI. Coverage there is asserted as a band around π/4 at the alpha > 128 cutoff, never as
+  a bare fraction: the measured value swings from 0.75 to 0.81 with the threshold alone.
+- **`6` vs `8` resolved to `8`**, moving 11 sites. Neither value is principled by the
+  concentric rule (a radius-8 root with 8px padding implies `0` for its child), so the
+  tie-break was "fewer tokens" — which also removes §3.3's non-concentric nesting by
+  construction.
+- **The asymmetric-radius worry did not bite.** "A single `CornerRadius` resource cannot be
+  partially overridden" is true in XAML and irrelevant here, because the app's only
+  asymmetric site is C# (§3.3), and now reads
+  `new CornerRadius(Tokens.CornerRadiusStandard, Tokens.CornerRadiusStandard, 0, 0)`.
+
+**Two defects the successor plan's own census would have shipped**, recorded because both
+were caught during implementation rather than review, and both are the same mistake — a size
+treated as a constant when something upstream makes it a variable:
+
+- **`DwellArcButton.Create` has three callers, not the two the census named.**
+  `EdgeButtonBarWindow.xaml.cs:83` passes a *variable* radius —
+  `EdgeButtonState.RadiusLogical`, defaulting to `UIConstants.DragButtonRadius = 20.0`.
+  Under the prescribed `Small` ratio (0.23) the two live drag controls (`Drag_cancel` ✕ and
+  `Drag_back` ↩, both built in `EventCoordinator`) would have gone from 22px to **9.2px** —
+  a legibility regression delivered by a legibility change. Resolved by a size-conditional
+  default: `Badge` (0.60) below a 64px diameter, giving **24px** at diameter 40; `Small` at
+  or above it.
+- **`KeySizeMultiplier` makes four glyph sizes runtime-variable.** It is user-facing, ranges
+  `0.5`–`2.0` (`KeyboardSettings.cs:58`) and is offered for accessibility — so a
+  container-proportional glyph in a `BaseKeySize = 70` cell is not sized once but per
+  setting. At the `0.5` floor the three `Small` sites compute to **8.05px** and the `Medium`
+  category tab to **11.20px**, all below the ramp's 12px floor, i.e. the setting could undo
+  the accessibility improvement it exists to serve. Resolved by clamping each at
+  `Tokens.FontSizeBody` — reading the token that *defines* the floor rather than a
+  hand-written `12` (`KeyboardWindow.xaml.cs:192,454`; `EmojiGridManager.cs:335,471`).
+
+Both are instances of what §6 already names in the colour context: an exclusion — or here, a
+census — must be justified against every path into the file, not against its headline case.
 
 ---
 

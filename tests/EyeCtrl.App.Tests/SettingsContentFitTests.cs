@@ -4,11 +4,15 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Xml.Linq;
 using EyeCtrl.App.Views;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using NFluent;
@@ -308,6 +312,170 @@ public class SettingsContentFitTests
                 + "its designed {1:F2}. The content-width cap has become an unconditional resize.",
                 width, SettingsWindow.PickerButtonWidth))
             .That(width).IsEqualTo(SettingsWindow.PickerButtonWidth);
+    }
+
+    [StaFact]
+    public void TheSidebarAndTheContentColumn_AreStillJointlySatisfiable()
+    {
+        // What the two fit suites do NOT say on their own. SettingsTabLabelFitTests pushes the
+        // sidebar wider; this file's cap gives the content column whatever is left. Both read the
+        // same live ColumnDefinitions attribute, so a widening moves both at once and
+        // ThePickerButton_FitsTheContentColumn_OnANarrowDisplay does fail once the sidebar eats
+        // enough — but it fails reporting an overrun, which reads as "the button is too wide" when
+        // the cause is "the sidebar is". This says which, and how much room is actually left.
+        //
+        // The mechanism: ConstrainToContentWidth's floor is MinimumDwellableWidth, which exists so
+        // a control is never drawn narrower than the dwell circle it registers. Once the content
+        // column falls below that floor the floor wins, the cap stops capping, and controls hang
+        // off the window again — the exact failure the cap was added to fix, reintroduced from the
+        // other side.
+        var root = Xml();
+        var available = WindowWidthFor(NarrowDisplayWidthDip)
+            - SidebarWidth(root)
+            - Margin(root, "ContentArea").Left - Margin(root, "ContentArea").Right
+            - Margin(root, "ContentPanel").Left - Margin(root, "ContentPanel").Right;
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "The {0:F0} DIP sidebar leaves only {1:F2} DIP of content column on a {2:F0} DIP "
+                + "display, at or below the {3:F2} DIP MinimumDwellableWidth floor. Below that "
+                + "floor ConstrainToContentWidth stops constraining — it returns the floor instead "
+                + "of the available width — so every fixed-width control hangs off the window "
+                + "again. Widen SettingsWindow.WindowSizeRatio, narrow the margins, or shorten the "
+                + "tab labels so SettingsTabLabelFitTests needs less sidebar. Do not lower the "
+                + "floor: it is hit geometry, not aesthetics.",
+                SidebarWidth(root), available, NarrowDisplayWidthDip,
+                SettingsWindow.MinimumDwellableWidth))
+            .That(available).IsStrictlyGreaterThan(SettingsWindow.MinimumDwellableWidth);
+    }
+
+    [StaFact]
+    public void TheWidestSeparatorLabel_FitsTheContentColumn()
+    {
+        // DwellLabel is attached by its own Add overload, which does NOT cap it: a label is a bare
+        // TextBlock with no Border root, and it registers no dwell target, so nothing about it can
+        // move hit geometry out from under a visual. That makes an overrun cosmetic — but cosmetic
+        // on a settings page the user reads with their eyes, and this branch raised the label from
+        // FontSize 22 to Tokens.FontSizeTitle (24), so it is a shape this work made worse and
+        // should therefore measure rather than assume.
+        //
+        // The widest label in the file is a run of box-drawing characters used as a rule. Its
+        // length is read out of the source, not restated, so lengthening the rule fails here
+        // instead of silently overflowing.
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var runs = Regex.Matches(source, @"new string\('\\u2500',\s*(\d+)\)")
+            .Select(m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture))
+            .ToList();
+
+        Check.WithCustomMessage(
+                "SettingsWindow.xaml.cs no longer builds a box-drawing separator label. If the "
+                + "rules were replaced by a Border or removed, delete this test; if they merely "
+                + "moved or changed character, repoint the pattern.")
+            .That(runs).Not.IsEmpty();
+
+        var root = Xml();
+        var available = WindowWidthFor(NarrowDisplayWidthDip)
+            - SidebarWidth(root)
+            - Margin(root, "ContentArea").Left - Margin(root, "ContentArea").Right
+            - Margin(root, "ContentPanel").Left - Margin(root, "ContentPanel").Right;
+
+        var longest = runs.Max();
+        var label = new DwellLabel(new string('\u2500', longest));
+
+        // SettingsWindow is an OverlayWindow, whose constructor sets FontFamily = Tokens.FontStandard
+        // and lets it inherit down. Without replicating that the measurement runs in the system
+        // font and reports a width the application never produces.
+        var host = new StackPanel();
+        TextElement.SetFontFamily(host, Tokens.FontStandard);
+        label.Attach(host);
+        host.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var wanted = label.Root.DesiredSize.Width;
+
+        // Measured: 850.17 DIP wanted against a 416.00 DIP column \u2014 the rule is more than twice
+        // the room. It is also NOT a regression: at the FontSize 22 this branch replaced it wanted
+        // 779 DIP, so it has overrun a narrow column all along, and on the 1920 DIP display this
+        // application is actually used on the column is 1424 DIP and it fits outright.
+        //
+        // It is nonetheless benign, and this is the part worth pinning rather than the number.
+        // U+2500 draws a horizontal stroke across its whole advance width, so a run of them cut at
+        // the column edge renders as a rule that spans the column \u2014 which is what a rule is for.
+        // The one thing that would NOT be benign is the oversized child dragging the layout with
+        // it, so that is what is asserted: the Grid's star column bounds the StackPanel, the panel
+        // keeps the column's width, and a layout clip stops the ink at that edge.
+        var panel = BuildContentTree(WindowWidthFor(NarrowDisplayWidthDip), out var outer);
+        var probe = new DwellLabel(new string('\u2500', longest));
+        probe.Attach(panel);
+        outer.Measure(new Size(outer.Width, outer.Height));
+        outer.Arrange(new Rect(0, 0, outer.Width, outer.Height));
+        outer.UpdateLayout();
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "The {0}-character separator label wants {1:F2} DIP and has widened the content "
+                + "panel to {2:F2} DIP, past the {3:F2} DIP column. An over-wide decorative label "
+                + "must not drag the layout: everything else on the page is positioned relative to "
+                + "this panel, so a panel that grows to fit its widest child pushes real controls "
+                + "off the window. If the panel stopped being bounded by a star column, cap the "
+                + "label in Add(DwellLabel) the way Add(DwellControl) caps its controls.",
+                longest, wanted, panel.ActualWidth, available))
+            .That(panel.ActualWidth).IsLessOrEqualThan(available);
+
+        // The clip is what turns "850 DIP of text in a 416 DIP column" into a drawn rule rather
+        // than ink over the sidebar. WPF installs it automatically once RenderSize exceeds the
+        // arrange slot \u2014 no ClipToBounds required, the same mechanism TrackStatusFitTests measures.
+        // Asserted on whichever element actually overflows its slot, because which one that is
+        // depends on how StackPanel arranges an over-wide child, and that is WPF's business.
+        var clipped = LayoutInformation.GetLayoutClip(probe.Root)
+            ?? LayoutInformation.GetLayoutClip(panel);
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "Nothing clips the {0:F2} DIP separator label down to the {1:F2} DIP content "
+                + "column, so its ink now runs past the panel \u2014 over the sidebar, or off the "
+                + "window. WPF installs this layout clip on its own when RenderSize exceeds the "
+                + "arrange slot; losing it means something above gained an unbounded width.",
+                wanted, available))
+            .That(clipped).IsNotNull();
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "The layout clip is {0:F2} DIP wide, wider than the {1:F2} DIP content column, so "
+                + "it is not what is holding the label inside the column.",
+                clipped!.Bounds.Width, available))
+            .That(clipped.Bounds.Width).IsLessOrEqualThan(available);
+    }
+
+    /// <summary>
+    /// Rebuilds SettingsWindow.xaml's content area \u2014 the two-column root Grid, the content Grid at
+    /// column 1, and <c>ContentPanel</c> \u2014 at a given window width, from the live XAML.
+    /// </summary>
+    /// <param name="windowWidth">The window's width in DIP.</param>
+    /// <param name="outer">The root Grid, for measuring and arranging.</param>
+    /// <returns>The content panel that settings controls are dropped into.</returns>
+    private static StackPanel BuildContentTree(double windowWidth, out Grid outer)
+    {
+        const double windowHeight = 900;
+        var root = Xml();
+
+        outer = new Grid { Width = windowWidth, Height = windowHeight };
+        outer.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(SidebarWidth(root)) });
+        outer.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var contentArea = new Grid { Margin = Margin(root, "ContentArea") };
+        contentArea.RowDefinitions.Add(
+            new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        contentArea.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetColumn(contentArea, 1);
+        outer.Children.Add(contentArea);
+
+        var panel = new StackPanel { Margin = Margin(root, "ContentPanel") };
+        TextElement.SetFontFamily(panel, Tokens.FontStandard);
+        Grid.SetRow(panel, 0);
+        contentArea.Children.Add(panel);
+        return panel;
     }
 
     [StaFact]

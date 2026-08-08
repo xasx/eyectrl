@@ -13,9 +13,16 @@ using NFluent;
 using Xunit;
 
 /// <summary>
-/// Repo-wide guard: no corner radius, font family, font size or font weight may be written
-/// as a literal in UI source. Every one must come from
+/// Source guard: no corner radius, font family, font size or font weight may be written
+/// as a literal in the scanned UI projects. Every one must come from
 /// <see cref="EyeCtrl.Controls.Theme.Tokens"/> or <see cref="ContainerRatio"/>.
+///
+/// **"Scanned", not "repo-wide".** <see cref="SourceScanner.ScannedProjects"/> covers
+/// <c>src/EyeCtrl.App</c> and <c>src/EyeCtrl.Controls</c> and nothing else;
+/// <c>src/EyeCtrl.Supervisor</c> is a real WPF surface carrying roughly 22 literal sites and is
+/// excluded by decision, not by oversight. This summary said "repo-wide" until a reviewer read it
+/// as a coverage claim — which is exactly the risk, since the whole value of a whitelist guard is
+/// that a green run means something precise.
 ///
 /// **This is a whitelist, and that is the whole point.** <see cref="RawColourLiteralTests"/>
 /// enumerates *bad* forms, and commit 9e252e1 records the two holes that follow from it:
@@ -665,6 +672,55 @@ public class RawGeometryLiteralTests
         // still catches it — the exemption above never makes a bare value legal on its own.
         Check.WithCustomMessage("A bare 0 as the whole value must still be an offender.")
             .That(Flags("FontSize = 0,")).IsTrue();
+    }
+
+    /// <summary>
+    /// The two branching shapes, pinned. <see cref="Assignment"/>'s doc comment explains why it
+    /// excludes <c>{</c> and <c>}</c> — a <c>switch</c> expression otherwise captured across the
+    /// newline into its first arm, so one token arm vouched for every literal one — but nothing
+    /// held that behaviour in place. A reviewer asked whether a multi-arm switch with mixed arms
+    /// was covered; it is, and now it is also pinned rather than merely reasoned about.
+    ///
+    /// **A fully token-backed switch is flagged too, and that is a known false positive.** The
+    /// capture stops at the <c>{</c>, so what it examines is <c>kind switch</c> — which references
+    /// nothing, whatever the arms hold. Loud is the right direction for a whitelist, and no
+    /// switch-assigned site exists in the scanned projects today, but somebody who writes one will
+    /// hit this and deserves to find the remedy here rather than deduce it: use a ternary, which
+    /// the capture reads whole. Hoisting the switch into a local does NOT work — a local name is
+    /// not a token reference.
+    /// </summary>
+    [Fact]
+    public void TheValueCapture_FlagsASwitchExpression_AndReadsATernaryWhole()
+    {
+        // The hole the {} exclusion closed. One token arm must not clear the literal ones.
+        Check.WithCustomMessage(
+                "A switch expression with a raw literal arm is passing. The capture must stop at "
+                + "the opening brace: without that it runs across the newline into the first arm, "
+                + "and a single token arm then vouches for every literal arm after it.")
+            .That(Flags(
+                "FontSize = kind switch\n{\n    0 => Tokens.FontSizeTitle,\n"
+                + "    1 => 11,\n    _ => Tokens.FontSizeBody\n},")).IsTrue();
+
+        // The same shape with nothing wrong in it. Still flagged — see the doc comment above.
+        Check.WithCustomMessage(
+                "A fully token-backed switch expression stopped being flagged. That is a LOOSENING, "
+                + "not a fix: it means the capture now reads past the opening brace, which is the "
+                + "exact hole the case above pins. If a real site needs this shape, rewrite the "
+                + "site as a ternary — do not widen the capture.")
+            .That(Flags(
+                "FontSize = kind switch\n{\n    0 => Tokens.FontSizeTitle,\n"
+                + "    _ => Tokens.FontSizeBody\n},")).IsTrue();
+
+        // The remedy the message above prescribes, so it is verified advice rather than a guess.
+        Check.WithCustomMessage(
+                "A fully token-backed ternary is being flagged. It is the shape the switch failure "
+                + "message tells people to use, so it has to work.")
+            .That(Flags(
+                "FontSize = compact ? Tokens.FontSizeBody : Tokens.FontSizeTitle,")).IsFalse();
+        Check.WithCustomMessage(
+                "A ternary with a raw literal arm is passing. BareNumber is what catches this — a "
+                + "value may reference a token AND still write a size.")
+            .That(Flags("FontSize = compact ? 11 : Tokens.FontSizeBody,")).IsTrue();
     }
 
     /// <summary>

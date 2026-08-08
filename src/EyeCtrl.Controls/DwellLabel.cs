@@ -29,7 +29,7 @@ public class DwellLabel
         {
             Text = text,
             Foreground = Tokens.BrushTextSecondary,
-            FontSize = 22,
+            FontSize = Tokens.FontSizeTitle,
             Margin = new Thickness(0, 8, 0, 2)
         };
     }

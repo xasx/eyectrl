@@ -119,7 +119,7 @@ public class DwellColorPicker : IDwellComposite
                 width: 90, height: 75);
 
             btn.Root.Margin = new Thickness(4);
-            btn.Root.CornerRadius = new CornerRadius(6);
+            // No radius override: swatches now share DwellButton's CornerRadiusStandard.
             btn.Root.Background = new SolidColorBrush(color);
             btn.Root.BorderThickness = new Thickness(3);
             btn.Root.BorderBrush = hex.Equals(get(), StringComparison.OrdinalIgnoreCase)

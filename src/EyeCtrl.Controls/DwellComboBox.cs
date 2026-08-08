@@ -109,8 +109,8 @@ public class DwellComboBox : IDwellComposite
             var text = new TextBlock
             {
                 Foreground = Tokens.BrushTextPrimary,
-                FontSize = 22,
-                FontWeight = FontWeights.SemiBold,
+                FontSize = Tokens.FontSizeTitle,
+                FontWeight = Tokens.FontWeightMedium,
                 VerticalAlignment = VerticalAlignment.Center
             };
 
@@ -137,7 +137,7 @@ public class DwellComboBox : IDwellComposite
             var optionBorder = new Border
             {
                 Margin = new Thickness(0, 0, 8, 8),
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = Tokens.StandardCornerRadius,
                 BorderBrush = new SolidColorBrush(BtnBase),
                 BorderThickness = new Thickness(1),
                 Child = btn.Root

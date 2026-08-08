@@ -84,8 +84,8 @@ public class DwellSlider : IDwellComposite
         {
             Text = FormatVal(get()),
             Foreground = Tokens.BrushTextPrimary,
-            FontSize = 24,
-            FontWeight = FontWeights.SemiBold,
+            FontSize = Tokens.FontSizeTitle,
+            FontWeight = Tokens.FontWeightMedium,
             Width = 140,
             TextAlignment = TextAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center

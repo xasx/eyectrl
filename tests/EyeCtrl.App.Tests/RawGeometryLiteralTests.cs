@@ -29,8 +29,8 @@ using Xunit;
 /// never hard-coded: a whitelist's own failure mode is a stale allow-list, and reflecting
 /// means this guard cannot disagree with the surface it guards.
 /// <see cref="TheAllowList_IsPopulatedAndAcceptsRealTokenReferences"/> pins that surface,
-/// because nothing in src/ is token-backed yet: an allow-list that collapsed to nothing would
-/// leave both guards below green while protecting nothing at all.
+/// because the migration to token-backed src/ is still under way: an allow-list that collapsed
+/// to nothing would leave both guards below green while protecting nothing at all.
 ///
 /// **The allow-list is partitioned by property group, not pooled.** A flat pool let a colour
 /// token satisfy a font property — <c>FontSize = Tokens.CornerRadiusSmall</c> passed, and so
@@ -385,8 +385,8 @@ public class RawGeometryLiteralTests
     [Fact]
     public void TheAllowList_IsPopulatedAndAcceptsRealTokenReferences()
     {
-        // Nothing in src/ is token-backed yet — all 111 current matches are raw literals, and
-        // ContainerRatio has zero usages — so an empty or truncated allow-list would leave both
+        // The migration has begun; most matches are still raw literals, and ContainerRatio has
+        // zero usages in src/ — so an empty or truncated allow-list would leave both
         // guards above green while protecting nothing. The breakage would first appear as
         // baffling failures midway through Task 7. This fails loudly instead.
         //

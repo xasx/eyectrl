@@ -69,6 +69,7 @@ public class DwellButton : DwellControl
         Root.Width = width;
         Root.Height = height;
         Root.Margin = new Thickness(4, 0, 4, 0);
+        // Also the swatch radius: DwellColorPicker deliberately no longer overrides this.
         Root.CornerRadius = Tokens.StandardCornerRadius;
         _brush = new SolidColorBrush(baseColor);
         Root.Background = _brush;

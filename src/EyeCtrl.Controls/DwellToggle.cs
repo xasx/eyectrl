@@ -57,8 +57,8 @@ public class DwellToggle : DwellControl
 
         _text = new TextBlock
         {
-            FontSize = 22,
-            FontWeight = FontWeights.SemiBold,
+            FontSize = Tokens.FontSizeTitle,
+            FontWeight = Tokens.FontWeightMedium,
             Foreground = Tokens.BrushTextPrimary,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -68,7 +68,7 @@ public class DwellToggle : DwellControl
         Root.Height = 80;
         Root.Margin = new Thickness(0, 4, 0, 12);
         Root.Padding = new Thickness(20, 0, 20, 0);
-        Root.CornerRadius = new CornerRadius(8);
+        Root.CornerRadius = Tokens.StandardCornerRadius;
         Root.HorizontalAlignment = HorizontalAlignment.Left;
         Root.Cursor = Cursors.Hand;
         Root.Child = _text;

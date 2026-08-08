@@ -69,7 +69,7 @@ public class DwellButton : DwellControl
         Root.Width = width;
         Root.Height = height;
         Root.Margin = new Thickness(4, 0, 4, 0);
-        Root.CornerRadius = new CornerRadius(8);
+        Root.CornerRadius = Tokens.StandardCornerRadius;
         _brush = new SolidColorBrush(baseColor);
         Root.Background = _brush;
         Root.Cursor = Cursors.Hand;
@@ -80,8 +80,8 @@ public class DwellButton : DwellControl
             // (AccentWarning/AccentDanger) need dark text to clear WCAG, so the caller
             // passes a textBrush for those.
             Foreground = textBrush ?? Tokens.BrushTextPrimary,
-            FontSize = 24,
-            FontWeight = FontWeights.Bold,
+            FontSize = Tokens.FontSizeTitle,
+            FontWeight = Tokens.FontWeightStrong,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };

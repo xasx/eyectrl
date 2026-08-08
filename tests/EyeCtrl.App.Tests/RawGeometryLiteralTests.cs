@@ -72,13 +72,6 @@ public class RawGeometryLiteralTests
     private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
     {
         // ── PENDING migration. Remove each as its task lands. ───────────────────
-        // Task 7 (Controls radii + ramp):
-        ["src/EyeCtrl.Controls/DwellButton.cs"] = "PENDING Task 7",
-        ["src/EyeCtrl.Controls/DwellToggle.cs"] = "PENDING Task 7",
-        ["src/EyeCtrl.Controls/DwellComboBox.cs"] = "PENDING Task 7",
-        ["src/EyeCtrl.Controls/DwellColorPicker.cs"] = "PENDING Task 7",
-        ["src/EyeCtrl.Controls/DwellLabel.cs"] = "PENDING Task 7",
-        ["src/EyeCtrl.Controls/DwellSlider.cs"] = "PENDING Task 7",
         // DwellArcButton is exempt on a FALSE POSITIVE, not on a literal. What the guard
         // reports is `FontSize=fontSize` at :115 — a pass-through parameter, not a value. The
         // file's *actual* literal is `public const double DefaultSymbolFontSize = 22;` at :15,

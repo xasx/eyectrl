@@ -7,6 +7,6 @@
         ResizeMode="NoResize" Visibility="Collapsed">
     <Border x:Name="HighlightBorder"
             Background="Transparent"
-            CornerRadius="2"
+            CornerRadius="{StaticResource SmallCornerRadius}"
             Opacity="0"/>
 </overlays:OverlayWindow>

@@ -19,9 +19,9 @@
             <Grid Margin="20,0">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Left">
                     <TextBlock x:Name="MessageText" Text="👁 Time for an eye break"
-                               Foreground="{StaticResource BrushTextPrimary}" FontSize="16" FontWeight="SemiBold"/>
+                               Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}" FontWeight="{StaticResource FontWeightMedium}"/>
                     <TextBlock x:Name="SubText" Text="You've been fixating for a while"
-                               Foreground="{StaticResource BrushTextSecondary}" FontSize="11" Margin="0,2,0,0"/>
+                               Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBody}" Margin="0,2,0,0"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <!-- Two large dwell circles: Start (accept) and Snooze -->
@@ -29,14 +29,14 @@
                         <Ellipse x:Name="SnoozeRing" Stroke="{StaticResource BrushTextDim}" StrokeThickness="2" StrokeDashArray="3 3"/>
                         <TextBlock Text="✕" Foreground="{StaticResource BrushTextSecondary}" FontSize="22"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock Text="snooze" Foreground="{StaticResource BrushTextDim}" FontSize="9"
+                        <TextBlock Text="snooze" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
                     </Grid>
                     <Grid Width="64" Height="64">
                         <Ellipse x:Name="StartRing" Stroke="{StaticResource BrushAccent}" StrokeThickness="2" StrokeDashArray="3 3"/>
                         <TextBlock Text="▶" Foreground="{StaticResource BrushAccent}" FontSize="22"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock Text="start" Foreground="{StaticResource BrushAccent}" FontSize="9"
+                        <TextBlock Text="start" Foreground="{StaticResource BrushAccent}" FontSize="{StaticResource FontSizeBody}"
                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
                     </Grid>
                 </StackPanel>

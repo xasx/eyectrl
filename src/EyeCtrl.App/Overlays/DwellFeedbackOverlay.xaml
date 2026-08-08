@@ -4,7 +4,7 @@
     xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
     WindowStyle="None" AllowsTransparency="True" Background="Transparent"
     Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize">
-    <Border x:Name="ProgressBorder" CornerRadius="4" BorderThickness="2"
+    <Border x:Name="ProgressBorder" CornerRadius="{StaticResource SmallCornerRadius}" BorderThickness="2"
             BorderBrush="{StaticResource BrushAccent}" Background="{StaticResource BrushAccentDim10}" Visibility="Hidden">
         <Grid>
             <Rectangle x:Name="ProgressFill" HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}" />

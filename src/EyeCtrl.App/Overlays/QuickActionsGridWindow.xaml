@@ -8,7 +8,7 @@
                         Background="Transparent" Topmost="True"
                         ShowInTaskbar="False">
     <Grid>
-        <Border x:Name="RootBorder" Background="{StaticResource BrushSurfaceDark}" CornerRadius="8"
+        <Border x:Name="RootBorder" Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}"
                 BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}">
             <Grid Margin="12">
                 <Grid.RowDefinitions>
@@ -20,7 +20,7 @@
                      DwellButtonStyle resource in this app. Dwell progress binds to CloseDwellProgress. -->
                 <Border x:Name="CloseButton" Grid.Row="0"
                         Width="44" Height="44" HorizontalAlignment="Right"
-                        CornerRadius="22" Background="{StaticResource BrushSurfaceMedium}"
+                        CornerRadius="{StaticResource CircleCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
                         BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}">
                     <Grid>
                         <TextBlock Text="&#x2715;" FontSize="20" Foreground="{StaticResource BrushTextPrimary}"
@@ -44,7 +44,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:QuickActionTileViewModel}">
                             <Border x:Name="TileBorder" Width="120" Height="120"
-                                    CornerRadius="6" Background="{StaticResource BrushSurfaceMedium}"
+                                    CornerRadius="{StaticResource StandardCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
                                     BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}"
                                     Margin="4">
                                 <Grid>
@@ -54,7 +54,7 @@
                                                    FontSize="28" HorizontalAlignment="Center"
                                                    Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,4"/>
                                         <TextBlock Text="{Binding Action.Label}"
-                                                   FontSize="14" Foreground="{StaticResource BrushTextPrimary}"
+                                                   FontSize="{StaticResource FontSizeBodyLarge}" Foreground="{StaticResource BrushTextPrimary}"
                                                    TextWrapping="Wrap" TextAlignment="Center"
                                                    Margin="6"/>
                                         <ProgressBar Minimum="0" Maximum="1"

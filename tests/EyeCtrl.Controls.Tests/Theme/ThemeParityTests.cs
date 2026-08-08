@@ -113,8 +113,10 @@ public class ThemeParityTests
     {
         // Reflected rather than listed. The hand-written predecessor covered one token;
         // adding twelve more by hand is exactly the omission this suite exists to prevent.
-        // Two ITheme members are derived rather than declared, so there is nothing for the
-        // validator to hold: FontStandard (from FontFamilyStandard) and BrushAccentDim10.
+        // Two ITheme members have no validator entry to hold: FontStandard (derived from
+        // FontFamilyStandard) and BrushAccentDim10 (derived from Accent — the one brush with
+        // no Color counterpart). The other 22 brushes are swept up by the same SolidColorBrush
+        // clause; each mirrors a colour EveryColour_MatchesTheValidator already gates.
         // FontStandard is excluded by NAME, not by type, so a future FontFamily-typed
         // *primitive* would still be gated. The four derived CornerRadius structs live on
         // Tokens rather than ITheme (spec §6.6).
@@ -150,8 +152,11 @@ public class ThemeParityTests
             }
             else
             {
-                // string directly; FontWeight and anything else via ToString(),
-                // which yields "SemiBold" / "Bold" — what the validator stores.
+                // string is used directly. Everything else goes through IFormattable with the
+                // invariant culture — FontWeight implements it, but named weights resolve
+                // before the format provider is consulted, so the output is still "SemiBold" /
+                // "Bold" (what the validator stores), not a culture-sensitive rendering. Falls
+                // back to plain ToString() only for a type with neither.
                 var actualText = actual as string
                     ?? (actual as IFormattable)?.ToString(null, CultureInfo.InvariantCulture)
                     ?? actual.ToString()!;

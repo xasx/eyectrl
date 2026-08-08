@@ -55,7 +55,10 @@
          so there is exactly one literal per value, in the theme classes.
          NOTE: {x:Static} resolves at PARSE time, before a theme is chosen — so every key
          here must also be written by ThemeResourceApplier.Apply, or it silently stays on
-         Midnight. Apply_CoversEveryKeyTheDictionaryDeclares enforces that. See spec §6.6. -->
+         Midnight. Apply_CoversEveryKeyTheDictionaryDeclares enforces that. See spec §6.6.
+         Today all three themes declare identical geometry and type, so "stays on Midnight"
+         is a mechanism statement, not a currently-observable bug — only
+         BorderThicknessStandard (Contrast = 2) actually differs. -->
     <x:Static x:Key="CornerRadiusSmall"    Member="theme:Tokens.CornerRadiusSmall"/>
     <x:Static x:Key="CornerRadiusStandard" Member="theme:Tokens.CornerRadiusStandard"/>
     <x:Static x:Key="CornerRadiusLarge"    Member="theme:Tokens.CornerRadiusLarge"/>
@@ -68,7 +71,9 @@
 
     <!-- Typography. FontFamilyStandard is the raw chain string; FontStandard is the
          FontFamily object. Assigning the wrong one throws at load — no type converter
-         runs on a StaticResource assignment. -->
+         runs on a StaticResource assignment. Same parse-time-freeze hazard as the Geometry
+         NOTE above applies here too — every key must also be written by
+         ThemeResourceApplier.Apply. -->
     <x:Static x:Key="FontFamilyStandard" Member="theme:Tokens.FontFamilyStandard"/>
     <x:Static x:Key="FontStandard"       Member="theme:Tokens.FontStandard"/>
     <x:Static x:Key="FontWeightMedium"   Member="theme:Tokens.FontWeightMedium"/>

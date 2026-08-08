@@ -31,16 +31,6 @@ public partial class SettingsWindow : OverlayWindow
     // Window sizing
     private const double WindowSizeRatio = 0.9; // Settings window size as fraction of screen
 
-    // UI dimensions
-    private const int TabIconFontSize = 30;
-    private const int TabContainerHeight = 100;
-    private const int TabSymbolFontSize = 22;
-    private const int PaginationCounterFontSize = 24;
-    private const int PaginationCounterMinWidth = 80;
-    private const int PaginationButtonWidth = 100;
-    private const int PaginationButtonHeight = 80;
-    private const int PaginationSymbolFontSize = 30;
-
     // Expression-bodied properties (not fields): Tokens now forwards to the active ITheme
     // (ITheme slice), so these must re-evaluate on access rather than snapshot Midnight at
     // type-init. ModalYes/ModalNo are gone — Task 12's modal generalization moved modal
@@ -281,7 +271,7 @@ public partial class SettingsWindow : OverlayWindow
             {
                 Height = 100,
                 Margin = new Thickness(4),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = Tokens.StandardCornerRadius,
                 Background = tabBrush,
                 Cursor = System.Windows.Input.Cursors.Hand,
                 Child = new StackPanel
@@ -296,8 +286,8 @@ public partial class SettingsWindow : OverlayWindow
                         {
                             Text = label,
                             Foreground = Tokens.BrushTextPrimary,
-                            FontSize = 22,
-                            FontWeight = FontWeights.SemiBold,
+                            FontSize = Tokens.FontSizeTitle,
+                            FontWeight = Tokens.FontWeightMedium,
                             VerticalAlignment = VerticalAlignment.Center
                         }
                     }
@@ -379,8 +369,8 @@ public partial class SettingsWindow : OverlayWindow
         {
             Text = $"{_viewModel.Settings.CurrentPage + 1} / {_viewModel.Settings.TotalPages}",
             Foreground = Tokens.BrushTextPrimary,
-            FontSize = 24,
-            FontWeight = FontWeights.SemiBold,
+            FontSize = Tokens.FontSizeTitle,
+            FontWeight = Tokens.FontWeightMedium,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(20, 0, 20, 0),
             MinWidth = 80,
@@ -405,7 +395,7 @@ public partial class SettingsWindow : OverlayWindow
             Width = 100,
             Height = 80,
             Margin = new Thickness(4),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = Tokens.StandardCornerRadius,
             Background = pagBrush,
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
@@ -413,7 +403,7 @@ public partial class SettingsWindow : OverlayWindow
                 Text = text,
                 Foreground = Tokens.BrushTextPrimary,
                 FontSize = 30,
-                FontWeight = FontWeights.Bold,
+                FontWeight = Tokens.FontWeightStrong,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -1455,15 +1445,15 @@ public partial class SettingsWindow : OverlayWindow
             Width = wide ? 460 : 170,
             Height = 80,
             Margin = wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = Tokens.StandardCornerRadius,
             Background = modalBrush,
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
             {
                 Text = text,
                 Foreground = foreground,
-                FontSize = 24,
-                FontWeight = FontWeights.Bold,
+                FontSize = Tokens.FontSizeTitle,
+                FontWeight = Tokens.FontWeightStrong,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = TextAlignment.Center,

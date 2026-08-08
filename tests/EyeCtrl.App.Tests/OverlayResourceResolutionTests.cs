@@ -130,8 +130,11 @@ public class OverlayResourceResolutionTests
         // stop covering a second unqualified clr-namespace added later — it would resolve
         // against this test assembly and fail with a type-not-found XamlParseException — so
         // this rewrites every clr-namespace that has no assembly= qualifier yet.
+        // Both quote styles: XAML permits single-quoted attribute values, and matching only
+        // double quotes here would leave a single-quoted namespace silently unqualified while
+        // the guard below also failed to notice it.
         loadable = Regex.Replace(
-            loadable, @"clr-namespace:([\w.]+)(?="")", "clr-namespace:$1;assembly=EyeCtrl.App");
+            loadable, @"clr-namespace:([\w.]+)(?=[""'])", "clr-namespace:$1;assembly=EyeCtrl.App");
 
         Check.WithCustomMessage(
                 "x:Class survived the strip; the parse below would fail for the wrong reason.")
@@ -140,7 +143,7 @@ public class OverlayResourceResolutionTests
                 "A clr-namespace with no assembly= qualifier survived the rewrite; it would "
                 + "resolve against this test assembly rather than EyeCtrl.App, and the parse "
                 + "below would fail for the wrong reason.")
-            .That(Regex.IsMatch(loadable, "clr-namespace:[\\w.]+\"")).IsFalse();
+            .That(Regex.IsMatch(loadable, "clr-namespace:[\\w.]+[\"']")).IsFalse();
 
         Window? w = null;
         try

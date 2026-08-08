@@ -195,6 +195,42 @@ red run; concurrent suites collide on machine-global pipe names; and
 `ExternalDwellServiceTests` fails 8/8 when run alone because it depends on another test
 in the same host having populated `Application.Current.Resources`.
 
+### Verified baseline
+
+Recorded from an actual run, not derived. `dotnet test --filter "Category!=UI"` at commit
+`c1ad9bb`, Debug, on a quiet box (no competing `dotnet`/`testhost`/`EyeCtrl` processes),
+2026-08-08. Exit code 0, ~25 s wall clock.
+
+| Assembly | Passed | Skipped | Failed |
+|---|---:|---:|---:|
+| EyeCtrl.Core.Tests | 1065 | 1 | 0 |
+| EyeCtrl.App.Tests | 349 | 0 | 0 |
+| EyeCtrl.ViewModels.Tests | 257 | 0 | 0 |
+| EyeCtrl.Controls.Tests | 66 | 0 | 0 |
+| EyeCtrl.Platform.Tests | 55 | 0 | 0 |
+| EyeCtrl.EyeCare.Tests | 48 | 0 | 0 |
+| EyeCtrl.Supervisor.Tests | 45 | 0 | 0 |
+| EyeCtrl.LM.Tests | 20 | 0 | 0 |
+| EyeCtrl.Sdk.Abstractions.Tests | 18 | 0 | 0 |
+| EyeCtrl.Sdk.Wpf.Tests | 3 | 0 | 0 |
+| EyeCtrl.Sdk.WinUI.Tests | 3 | 0 | 0 |
+| **Total (11 assemblies)** | **1929** | **1** | **0** |
+
+The single skip is `SettingsPropertyValidationTests.Validation_PerformsQuickly`, a
+timing-sensitive test skipping itself.
+
+`EyeCtrl.Benchmarks.Tests` is **not** in this figure — it sits outside the solution file
+deliberately and CI runs it as a separate step (`.github/workflows/ci.yml:57`). A full
+CI-equivalent local run needs that second command as well.
+
+Counts were read from the German per-assembly summary counters
+(`Fehler: 0, erfolgreich: N, …`), with a separate check for zero `Fehler <FQN>` per-test
+failure lines. Parsing this output for the English word "Failed" reports green on a red
+run.
+
+So the plan builds on a clean floor: the e2e gap is an absence of tests, not a backlog of
+failing ones.
+
 ### New project
 
 Tier 1 lives in a new `tests/EyeCtrl.E2E.Tests` with its own `Category=E2E` trait, not

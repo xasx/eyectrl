@@ -44,7 +44,7 @@ Two properties of this application shape every decision below:
 | Font family | 1 token; migrate 1 literal; wire an app-wide default |
 | Font weights | 2 tokens; migrate 17 sites |
 | Font sizes | 5-token text ramp with a 12px floor; migrate 45 text sites; delete 8 dead consts (§8.7) |
-| Glyph/label sizing | 5 ratio constants; convert 15 container-proportional sites (2 more already correct) |
+| Glyph/label sizing | 5 ratio constants; convert **17** container-proportional sites |
 | Layout | **One scoped exception:** `TrackStatusWindow.Height` 110 → 116 (§8.6) |
 | Theme layer | `ITheme` / `ThemeBase` / `Tokens` / `OverlayStyles.xaml` / `ThemeResourceApplier` |
 | Validator | `tools/palette_validate.py` — gate 1's non-colour tail |
@@ -534,8 +534,8 @@ Per-site results:
 |---|---|---|---|
 | `DragTrailOverlay.xaml.cs:177` ✊/✋ | 26 (`CreateButtonBg` ellipse) | `Badge` | 16 → 15.6 |
 | `QuickActionsGridWindow.xaml:26` ✕ | 44 (fixed) | `Dominant` | 20 → 19.8 |
-| `ToolbarWindow.xaml.cs:70` | 80 (setting) | `Large` | already 0.4 — **no change** |
-| `ToolbarWindow.xaml.cs:113` | 80 (setting) | `Large` | already 0.4 — **no change** |
+| `ToolbarWindow.xaml.cs:70` | 80 (setting) | `Large` | 0.4 → 0.4 — **no size change, but an edit is required** |
+| `ToolbarWindow.xaml.cs:113` | 80 (setting) | `Large` | 0.4 → 0.4 — **no size change, but an edit is required** |
 | `EmojiGridManager.cs:140` emoji cell | 70 (setting) | `Large` | 28 → 28.0 |
 | `SettingsWindow.xaml.cs:415` pagination ◀▶ | 80 (literal at `:406`) | `Large` | 30 → 32 |
 | `EmojiGridManager.cs:322` category | 70 (setting) | `Medium` | 22 → 22.4 |
@@ -647,6 +647,13 @@ Measured content height against the 94px its `Padding="8"` leaves inside a 110px
 
 At 110px the bottom row clips by 1.88px, cutting the descender from "Quality" and from a value
 such as "Unknown". **`Height` becomes 116**, giving 100px of content space and 4.12px slack.
+
+**The clip is WPF's automatic *layout* clip, not `ClipToBounds`** — WPF installs one whenever an
+element's `RenderSize` exceeds the slot it was arranged into, with no opt-in required. Stated
+because two reviewers independently reasoned that nothing could clip *because* `ClipToBounds` is
+false: it is false everywhere here (`ClipToBounds` appears exactly once in `src/`,
+`NoteWindow.xaml.cs:48`, set to `false`, and never in `TrackStatusWindow.xaml`), and that is
+irrelevant to the overflow. An intermediate note claiming the window does not clip is retracted.
 
 This is a deliberate, single, named exception to §2's layout exclusion, taken because the
 alternative is surrendering the legibility improvement over 1.88px. It is scoped tightly: one
@@ -879,7 +886,7 @@ flag was resolved by measurement — so the only visual approval outstanding is 
 
 | Risk | Mitigation |
 |---|---|
-| **116 mechanical edit sites plus one window height** — 30 radii, 45 font sizes, 17 weights, 15 ratio conversions, 1 family literal, 8 const deletions, `TrackStatusWindow.Height`. The largest surface in this codebase's history of style passes. | The whitelist guard makes completeness machine-checked rather than reviewed. An unmigrated site fails the build. |
+| **118 mechanical edit sites plus one window height** — 30 radii, 45 font sizes, 17 weights, 17 ratio conversions, 1 family literal, 8 const deletions, `TrackStatusWindow.Height`. (Was stated as 116 with 15 ratio conversions; see §13's edit-count correction.) The largest surface in this codebase's history of style passes. | The whitelist guard makes completeness machine-checked rather than reviewed. An unmigrated site fails the build. |
 | **`CornerRadiusCircle` relies on undocumented WPF normalisation.** | §10.3 pins it across sizes and DPIs. A future WPF change breaks a test, not the UI. |
 | **Clip risk from the ramp.** | Every §8.6 verdict is now "unchanged" or measured; **no site is left flagged.** Where a future growth is unsafe, the token assignment changes — never the layout. |
 | **The type ramp changes what the user reads all day.** | Every move is enumerated in §8.3 with its site count and direction, and the specimens are rendered at true scale in `docs/design/corner-radius-comparison.html` for approval by eye before implementation. |
@@ -962,8 +969,8 @@ grep -rn 'FontSize' --include=*.xaml --include=*.cs src/EyeCtrl.App src/EyeCtrl.
 | 46 | `EyeCtrl.App/Overlays/SplashWindow.xaml:14` | 36 | T | `Display` 34 |
 | 46 | `EyeCtrl.App/Overlays/DragTrailOverlay.xaml.cs:177` | 16 | C | `Badge` × 26 = 15.6 |
 | 47 | `EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml:26` | 20 | C | `Dominant` × 44 = 19.8 |
-| 48 | `EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs:70` | ratio | C | `Large` — already correct |
-| 49 | `EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs:113` | ratio | C | `Large` — already correct |
+| 48 | `EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs:70` | ratio | C | `Large` — same *value*, still an edit |
+| 49 | `EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs:113` | ratio | C | `Large` — same *value*, still an edit |
 | 50 | `EyeCtrl.App/Overlays/EmojiGridManager.cs:140` | 28 | C | `Large` × 70 = 28.0 |
 | 51 | `EyeCtrl.App/Views/SettingsWindow.xaml.cs:415` | 30 | C | `Large` × 80 = 32 |
 | 52 | `EyeCtrl.App/Overlays/EmojiGridManager.cs:322` | 22 | C | `Medium` × 70 = 22.4 |
@@ -995,9 +1002,23 @@ Within the 66: 60 rows carry a live literal value, 4 are the dead consts, and 2 
 `ToolbarWindow`'s already-correct ratios.
 
 **Edit count.** All 45 T rows need an edit even where the value is unchanged, because a literal
-must become a token for the guard to pass. Of the 17 C rows, `ToolbarWindow.xaml.cs:70` and `:113`
-already read a ratio and need none, giving 15. Plus 4 deletions. That is the **45 / 15 / 4** in §2's
-scope table, and the 45 T reconciles with §8.4's per-token sum (22 + 3 + 5 + 12 + 3).
+must become a token for the guard to pass. **All 17 C rows need one too**, giving
+**45 / 17 / 4** — the figure in §2's scope table — and the 45 T reconciles with §8.4's per-token
+sum (22 + 3 + 5 + 12 + 3).
+
+**Correction.** An earlier version of this paragraph excluded `ToolbarWindow.xaml.cs:70` and
+`:113` as "already read a ratio", giving 15, and Appendix A annotated them "already correct".
+Both were wrong: those two sites read a **private local const**,
+`ButtonSymbolSizeRatio = 0.4` declared at `:19` of that same file, not
+`ContainerRatio.Large`. A local name references no token, so §10.4's whitelist guard flags
+them — and they were the sole justification for that file's exemption entry, which is why the
+error surfaced as a red guard rather than as a quiet omission. The *value* is unchanged (0.4 is
+what `ContainerRatio.Large` was derived from); the *edit* is not optional. The correct count is
+**17**.
+
+The mistake is instructive: "already correct" was read off the rendered value instead of the
+expression that produces it, which is exactly the substitution §10.4 was designed to make
+impossible.
 
 ---
 

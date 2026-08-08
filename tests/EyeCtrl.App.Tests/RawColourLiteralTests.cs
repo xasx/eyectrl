@@ -25,13 +25,6 @@ using Xunit;
 /// </summary>
 public class RawColourLiteralTests
 {
-    /// <summary>Projects whose colours must come from <c>EyeCtrl.Controls.Theme.Tokens</c>.</summary>
-    private static readonly string[] ScannedProjects =
-    [
-        "src/EyeCtrl.App",
-        "src/EyeCtrl.Controls",
-    ];
-
     /// <summary>
     /// Files allowed to contain raw colours, each with the reason. Keep this list short and
     /// keep the reasons specific — "it is fine" is not a reason. A path listed here is
@@ -64,19 +57,6 @@ public class RawColourLiteralTests
         RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace);
 
     /// <summary>
-    /// Comments are not live code — a comment explaining which colour was *replaced* must not
-    /// fail the guard. Strips XAML comments, C# block comments, and C# line comments; <c>//</c>
-    /// preceded by <c>:</c> is left alone so <c>pack://</c> and <c>http://</c> inside string
-    /// literals do not truncate the rest of the line.
-    /// </summary>
-    private static string StripComments(string text) =>
-        Regex.Replace(
-            Regex.Replace(
-                Regex.Replace(text, "<!--.*?-->", " ", RegexOptions.Singleline),
-                @"/\*.*?\*/", " ", RegexOptions.Singleline),
-            @"(?<!:)//[^\n]*", " ");
-
-    /// <summary>
     /// <c>Brushes.</c> and <c>Colors.</c> also match field names like <c>_keyBrushes.Clear()</c>
     /// or <c>_predictionBrushes.Count</c>. Require the match to start at a type-name boundary,
     /// i.e. not be preceded by an identifier character, <c>_</c> or <c>.</c>.
@@ -88,47 +68,23 @@ public class RawColourLiteralTests
         return char.IsLetterOrDigit(prev) || prev is '_' or '.';
     }
 
-    private static DirectoryInfo RepoRoot()
-    {
-        var dir = new DirectoryInfo(Path.GetDirectoryName(
-            typeof(RawColourLiteralTests).Assembly.Location)!);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "EyeCtrl.slnx")))
-            dir = dir.Parent;
-        Check.That(dir).IsNotNull();
-        return dir!;
-    }
-
     [Fact]
     public void NoUIFile_ContainsARawColourOutsideThePalette()
     {
-        var root = RepoRoot().FullName;
         var offenders = new List<string>();
 
-        foreach (var project in ScannedProjects)
+        foreach (var (relative, text) in SourceScanner.ScannedFiles())
         {
-            var dir = Path.Combine(root, project.Replace('/', Path.DirectorySeparatorChar));
-            if (!Directory.Exists(dir)) continue;
+            if (Exempt.ContainsKey(relative)) continue;
 
-            foreach (var file in Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories))
-            {
-                if (!file.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
-                    && !file.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase)) continue;
-                if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")) continue;
+            var found = RawColour.Matches(text)
+                .Where(m => !IsFieldAccess(text, m))
+                .Select(m => m.Value)
+                .Distinct()
+                .ToList();
 
-                var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
-                if (Exempt.ContainsKey(relative)) continue;
-
-                var text = StripComments(File.ReadAllText(file));
-                var found = RawColour.Matches(text)
-                    .Where(m => !IsFieldAccess(text, m))
-                    .Select(m => m.Value)
-                    .Distinct()
-                    .ToList();
-
-                if (found.Count > 0)
-                    offenders.Add($"{relative}: {string.Join(", ", found)}");
-            }
+            if (found.Count > 0)
+                offenders.Add($"{relative}: {string.Join(", ", found)}");
         }
 
         Check.WithCustomMessage(
@@ -143,7 +99,7 @@ public class RawColourLiteralTests
     {
         // Stops the allow-list rotting: an exemption for a file that no longer has a raw
         // colour is silently protecting nothing, and would hide a future one.
-        var root = RepoRoot().FullName;
+        var root = SourceScanner.RepoRoot().FullName;
         var stale = new List<string>();
 
         foreach (var (relative, _) in Exempt)
@@ -155,7 +111,7 @@ public class RawColourLiteralTests
                 continue;
             }
 
-            var text = StripComments(File.ReadAllText(path));
+            var text = SourceScanner.StripComments(File.ReadAllText(path));
             var any = RawColour.Matches(text).Any(m => !IsFieldAccess(text, m));
             if (!any)
                 stale.Add($"{relative}: no raw colour left — drop the exemption");

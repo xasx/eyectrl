@@ -53,6 +53,13 @@ public class OverlayResourceResolutionTests
     /// (ViewModel/Settings/Services/Messenger/CalibrationService), so it cannot be
     /// constructed headlessly; its keys are covered by the literal-scan guards instead.
     /// NoteWindow is excluded: it is a code-only overlay with no .xaml file.
+    ///
+    /// TargetHighlightWindow was silently absent with no stated reason, which mattered because
+    /// it is one of only two Task 8 files this suite did not cover (SettingsWindow above being
+    /// the other): a type-wrong {StaticResource} written into it during Task 8 would pass every
+    /// headless test and first throw when the user opened the window. It has a parameterless
+    /// constructor, so it is now listed. **SettingsWindow remains the only gap**, and the
+    /// property-partitioned allow-list in RawGeometryLiteralTests is what covers it statically.
     /// </summary>
     public static TheoryData<Type> MigratedOverlays() =>
     [
@@ -60,7 +67,7 @@ public class OverlayResourceResolutionTests
         typeof(SplashWindow), typeof(TrackStatusWindow), typeof(TaskSwitcherWindow),
         typeof(EyeCareBannerWindow), typeof(EyeCareExerciseWindow),
         typeof(CalibrationWindow), typeof(PauseIndicatorWindow),
-        typeof(DriftNoticeWindow),
+        typeof(DriftNoticeWindow), typeof(TargetHighlightWindow),
         // Plan B haloed overlays
         typeof(CursorCircleWindow), typeof(ActivationButtonWindow),
         typeof(ManualSelectionGazeIndicatorWindow), typeof(ScrollOverlayWindow),

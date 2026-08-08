@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 /// <summary>
@@ -14,7 +15,17 @@ using System.Text.RegularExpressions;
 /// </summary>
 internal static class SourceScanner
 {
-    /// <summary>Projects whose UI values must come from EyeCtrl.Controls.Theme.</summary>
+    /// <summary>
+    /// Projects whose UI values must come from EyeCtrl.Controls.Theme.
+    ///
+    /// <c>src/EyeCtrl.Supervisor</c> is **deliberately** absent, not overlooked. Its
+    /// <c>UI/</c> folder is a real WPF surface carrying roughly 22 geometry and typography
+    /// literal sites, and it does reference <c>EyeCtrl.Controls</c>, so it *could* read
+    /// <c>Tokens</c> — but the parent plan's Task 15 Step 5 states that
+    /// "EyeCtrl.Supervisor is out of scope and is not scanned". Recorded here so a future
+    /// reader does not read the omission as an oversight and widen the scan without
+    /// revisiting that decision.
+    /// </summary>
     public static readonly string[] ScannedProjects =
     [
         "src/EyeCtrl.App",
@@ -63,13 +74,32 @@ internal static class SourceScanner
     /// fail a guard. Strips XAML comments, C# block comments, and C# line comments;
     /// <c>//</c> preceded by <c>:</c> is left alone so <c>pack://</c> and <c>http://</c>
     /// inside string literals do not truncate the rest of the line.
+    ///
+    /// **Line structure is preserved.** A multi-line XAML or block comment is replaced by a
+    /// space *plus one newline per newline it contained*, not by a bare space. The bare-space
+    /// version collapsed every such comment onto one line, which shifted the line number of
+    /// everything after it — silently wrong by the height of each comment. Line numbers are a
+    /// reported diagnostic in <see cref="RawGeometryLiteralTests"/>, and an off-by-N line
+    /// number costs more than no line number at all. The leading space is kept so that a
+    /// comment *inside* an identifier (<c>Font/*x*/Size</c>) still cannot fuse into one token.
+    /// The line-comment rule needs no such treatment: <c>[^\n]*</c> never consumes the
+    /// newline that ends the comment.
     /// </summary>
     /// <param name="text">Raw file contents.</param>
-    /// <returns>The text with comments replaced by spaces.</returns>
+    /// <returns>The text with comments blanked out, keeping every line break.</returns>
     public static string StripComments(string text) =>
         Regex.Replace(
             Regex.Replace(
-                Regex.Replace(text, "<!--.*?-->", " ", RegexOptions.Singleline),
-                @"/\*.*?\*/", " ", RegexOptions.Singleline),
+                Regex.Replace(text, "<!--.*?-->", BlankKeepingLines, RegexOptions.Singleline),
+                @"/\*.*?\*/", BlankKeepingLines, RegexOptions.Singleline),
             @"(?<!:)//[^\n]*", " ");
+
+    /// <summary>
+    /// Replaces a stripped comment with a space followed by as many newlines as it spanned, so
+    /// that every line after it keeps its original number.
+    /// </summary>
+    /// <param name="m">The stripped comment.</param>
+    /// <returns>The line-count-preserving replacement.</returns>
+    private static string BlankKeepingLines(Match m) =>
+        " " + new string('\n', m.Value.Count(c => c == '\n'));
 }

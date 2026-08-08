@@ -33,7 +33,17 @@ public partial class SettingsWindow : OverlayWindow
     // and pagination symbol are sized as a ratio of the container that bounds them, so the
     // number must live in exactly one place or the two drift apart again — which is how they
     // came to be dead in the first place. Each is wired to the Border that uses it.
-    private const double TabContainerHeight = 100;
+
+    /// <summary>
+    /// The tab Border's height, and the container the tab icon's size is a ratio of.
+    ///
+    /// <c>internal</c> for the same reason as <c>QuickActionsGridWindow.CloseButtonSize</c>:
+    /// SettingsTabLabelFitTests re-measures the tab labels against the sidebar column and must
+    /// derive the icon size from this exact const rather than restate it. SettingsWindow itself
+    /// cannot be constructed in a test (eight non-optional dependencies), so the test rebuilds the
+    /// tab's element tree, and every input it feeds that tree has to come from production.
+    /// </summary>
+    internal const double TabContainerHeight = 100;
     private const double PaginationButtonWidth = 100;
     private const double PaginationButtonHeight = 80;
     private const double ModalButtonHeight = 80;
@@ -299,12 +309,29 @@ public partial class SettingsWindow : OverlayWindow
                             FontSize = Tokens.FontSizeTitle,
                             FontWeight = Tokens.FontWeightMedium,
                             VerticalAlignment = VerticalAlignment.Center,
-                            // KNOWN, DEFERRED: the longest tab label overruns the sidebar, and
-                            // nothing here fixes it. The sidebar column is a fixed 220 DIP
-                            // (SettingsWindow.xaml:11) and "Quick Actions" measures a right edge
-                            // of 233.86 — it was 231.11 before the icon grew from 30px to a
-                            // container-derived 32px, so the ratio migration widened the spill by
-                            // 2.75px rather than closing it.
+                            // FIXED by widening the sidebar column to 240 DIP
+                            // (SettingsWindow.xaml). **This branch caused the spill; it did not
+                            // inherit it.** Measured headlessly with the real glyphs, at the
+                            // sidebar's 220 DIP, for "Quick Actions":
+                            //
+                            //   pre-branch  (icon 30, label 22, no FontFamily override)  218.61
+                            //   post-branch (icon 32, label Tokens.FontSizeTitle = 24)   233.86
+                            //
+                            // So it sat 1.39px INSIDE the column before and 13.86px outside
+                            // after. The dominant term is this label going 22 -> 24, worth
+                            // +12.50px; the icon's 30 -> TabContainerHeight * Medium (32) adds
+                            // only +2.75px, and retargeting the family at "Segoe UI Variable
+                            // Text, Segoe UI" moves it by under 0.6px either way. An earlier
+                            // version of this comment claimed a pre-branch 231.11 and blamed the
+                            // icon alone — no configuration measures 231.11, and the label was
+                            // the larger half.
+                            //
+                            // At 240 every label clears the column, the tightest being
+                            // "Quick Actions" with 6.14px spare. It still overhangs its own tab
+                            // Border (which now ends at x=228) by 5.86px, and that is ACCEPTED:
+                            // the text stays fully legible against the sidebar's own fill, and
+                            // 240 strictly improves the highlight too — at 220 "Dwell Times" and
+                            // "Quick Actions" both overhung a Border ending at x=208.
                             //
                             // A TextTrimming.CharacterEllipsis was tried here and REMOVED because
                             // it is provably inert, measured twice: this label's parent is a
@@ -312,14 +339,21 @@ public partial class SettingsWindow : OverlayWindow
                             // in the stacking direction, so the label is never width-constrained
                             // and has nothing to trim against — ActualWidth is 149.92 and the
                             // right edge 233.86 with and without it. Left in place it would read,
-                            // at the call site, as if the label truncated. It does not.
+                            // at the call site, as if the label truncated. It does not. That is
+                            // still true and is why the attribute is still absent.
                             //
-                            // It becomes live the moment the label IS width-constrained.
-                            // Replacing this StackPanel with a two-column Grid("Auto,*") and
-                            // adding the trimming back brings the right edge to 192.0, inside the
-                            // sidebar (also measured). That is the real fix, it is a layout
-                            // change, and §2 excludes layout from this migration — so it is
-                            // deliberately out of scope here and left for its own task.
+                            // The alternative was to make it live: a two-column Grid("Auto,*")
+                            // here plus the trimming back, which brings every right edge to
+                            // exactly 192.0 — inside the 220 column. It was REJECTED on the
+                            // measurement, because 192.0 is the slot edge, not the text's: the
+                            // constrained slots are 108.06 / 125.03 / 108.06 DIP against text
+                            // needing 131.12 / 140.22 / 149.92, so "Dwell Times", "Action Menu"
+                            // and "Quick Actions" would all render ellipsized. Trading three
+                            // unreadable tab names for 20px of a paginated, auto-sized content
+                            // column is the wrong trade for a user who navigates this window by
+                            // gaze. The robustness that fix bought is supplied instead by
+                            // SettingsTabLabelFitTests, which re-measures every label against the
+                            // column width parsed from the XAML and fails on any future resize.
                         }
                     }
                 }

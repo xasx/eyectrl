@@ -327,7 +327,12 @@ public class EmojiGridManager
             Child = new TextBlock
             {
                 Text = icon,
-                FontSize = keySize * ContainerRatio.Medium,
+                // Clamped at Tokens.FontSizeBody: KeySizeMultiplier bottoms out at 0.5
+                // (KeyboardSettings), which puts this tab's icon at 11.20px in a 35px cell —
+                // below the 12px ramp floor design spec §8.4 established. FontSizeBody *is*
+                // that floor, so the clamp reads from the token that defines it rather than
+                // from a hand-written 12. Proportional scaling still applies above ~0.54x.
+                FontSize = Math.Max(keySize * ContainerRatio.Medium, Tokens.FontSizeBody),
                 Foreground = Tokens.BrushTextPrimary,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -460,7 +465,10 @@ public class EmojiGridManager
         {
             Text = text,
             Foreground = Tokens.BrushTextPrimary,
-            FontSize = keySize * ContainerRatio.Small,
+            // Clamped at Tokens.FontSizeBody for the reason recorded at AddCategoryTab:
+            // KeySizeMultiplier's 0.5 floor would otherwise put this label at 8.05px, under the
+            // 12px ramp floor (§8.4). Proportional scaling still applies above ~0.75x.
+            FontSize = Math.Max(keySize * ContainerRatio.Small, Tokens.FontSizeBody),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };

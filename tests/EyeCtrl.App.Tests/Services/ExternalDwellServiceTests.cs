@@ -8,6 +8,7 @@ using System.Threading;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Contracts;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
@@ -55,7 +56,22 @@ public class ExternalDwellServiceTests
         Exception? captured = null;
         var thread = new Thread(() =>
         {
-            try { action(); }
+            try
+            {
+                // NewService constructs a DwellFeedbackOverlay, whose XAML reads
+                // {StaticResource SmallCornerRadius} (migrated off a literal CornerRadius="4" in
+                // Task 8). That StaticResource lookup needs the OverlayStyles.xaml token
+                // dictionary already merged into Application.Current.Resources — this class has
+                // no window/theme test of its own to guarantee that, so it used to rely on
+                // OverlayResourceResolutionTests/CornerRadiusClampTests having merged it first as
+                // a side effect of running earlier. That ordering was never guaranteed: it held
+                // only while those two classes ran unconstrained across many parallel STA
+                // threads, making an early winner near-certain by sheer volume. Serialising them
+                // into one collection (see WpfApplicationGate) removed that lucky head start, so
+                // this call makes the dependency explicit instead of leaning on load order.
+                WpfApplicationGate.EnsureApplicationWithTokens();
+                action();
+            }
             catch (Exception ex) { captured = ex; }
             finally { done.Set(); }
         });

@@ -9,7 +9,11 @@ using NFluent;
 using Xunit;
 
 /// <summary>
-/// Repo-wide guard: no raw colour may appear in UI source outside the palette.
+/// Source guard: no raw colour may appear in the scanned UI projects outside the palette.
+///
+/// "Scanned", not "repo-wide": <see cref="SourceScanner.ScannedProjects"/> covers
+/// <c>src/EyeCtrl.App</c> and <c>src/EyeCtrl.Controls</c> only, and <c>src/EyeCtrl.Supervisor</c>
+/// is excluded by decision rather than oversight. A green run says nothing about it.
 ///
 /// This exists because every other guard is keyed on the wrong thing.
 /// <c>OverlayInventoryDriftTests</c> enumerates <c>OverlayWindow</c> subclasses, so a class

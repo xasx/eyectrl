@@ -7,8 +7,13 @@ using System.Linq;
 using System.Text.RegularExpressions;
 
 /// <summary>
-/// Shared file-walking and comment-stripping for the repo-wide source guards
+/// Shared file-walking and comment-stripping for the source guards
 /// (<see cref="RawColourLiteralTests"/> and <see cref="RawGeometryLiteralTests"/>).
+///
+/// **Not repo-wide, and the difference is load-bearing.** <see cref="ScannedProjects"/> holds
+/// two projects, not every project in the solution; <c>src/EyeCtrl.Supervisor</c> in particular
+/// is a real WPF surface that is deliberately excluded — see that field for why. Both guards
+/// used to describe themselves as repo-wide, which overstated what a green run means.
 ///
 /// Extracted rather than copied: the comment stripper's behaviour is subtle — see
 /// <see cref="StripComments"/> — and two independent copies would drift.

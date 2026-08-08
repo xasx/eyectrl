@@ -58,6 +58,14 @@ public class DwellArcButton
     // reference `radius`; the size is resolved from the diameter at the assignment site below.
     // The old `DefaultSymbolFontSize = 22` is gone — 22 was 0.22 of the 100px diameter the
     // action-menu and hide-button callers use, i.e. ContainerRatio.Small.
+    //
+    // It is also an unguarded hole in RawGeometryLiteralTests, recorded here rather than left to
+    // be rediscovered: that guard matches `FontSize = <value>` assignments, so a caller writing
+    // `fontSize: 22` passes a raw size in through an ARGUMENT and is never seen. Accepted, not
+    // overlooked — all three callers (ActionMenuWindow, EdgeButtonBarWindow, GlassBackdropWindow)
+    // omit the parameter entirely and take the ratio, which is the point of it defaulting to null.
+    // If a caller ever does pass it, pass a ContainerRatio expression, and widen the guard to
+    // named arguments rather than treating this comment as permission.
     public static DwellArcButton Create(Point center, double radius, string? symbol,
         Brush? fill = null, Brush? stroke = null, Brush? arcBrush = null, Brush? symbolBrush = null,
         double arcThickness = DefaultArcThickness, double arcInset = DefaultArcInset,

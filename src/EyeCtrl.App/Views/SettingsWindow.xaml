@@ -11,8 +11,14 @@
     <!-- Sidebar column is 240, not 220: at the live type ramp the widest tab label
          ("Quick Actions") measures a right edge of 233.86 DIP, which spilled onto the content
          column at 220. Guarded by SettingsTabLabelFitTests, which re-measures every label
-         against the width parsed out of this very attribute. -->
-    <Grid ColumnDefinitions="240, *">
+         against the width parsed out of this very attribute.
+
+         The sidebar is ABSOLUTE, so every DIP it takes comes off the content column. This grid
+         and the two margins below are therefore the whole of the content area's width
+         arithmetic, and SettingsWindow.ContentAvailableWidth reads all three off these very
+         elements rather than restating them — see SettingsContentFitTests, which re-derives the
+         same three numbers from this file and measures a picker button against them. -->
+    <Grid x:Name="RootGrid" ColumnDefinitions="240, *">
 
         <!-- Left: Sidebar with tab buttons -->
         <Grid Grid.Column="0" Background="{StaticResource BrushSurfaceMedium}" RowDefinitions="Auto, *">
@@ -34,8 +40,11 @@
                         Margin="8" VerticalAlignment="Top"/>
         </Grid>
 
-        <!-- Right: Content area with pagination -->
-        <Grid Grid.Column="1" Margin="16" RowDefinitions="*, Auto">
+        <!-- Right: Content area with pagination.
+             This Margin and ContentPanel's are the two nested insets ContentAvailableWidth
+             subtracts; naming the element is what lets the code read them instead of repeating
+             the number. -->
+        <Grid x:Name="ContentArea" Grid.Column="1" Margin="16" RowDefinitions="*, Auto">
 
             <!-- Hidden UIA anchor for Settings_Panel_Content — StackPanel is not exposed
                  in the UIA control view; only TextBlock nodes are visible to FlaUI. -->

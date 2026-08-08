@@ -49,7 +49,35 @@ public partial class SettingsWindow : OverlayWindow
     private const double ModalButtonHeight = 80;
 
     // Window sizing
-    private const double WindowSizeRatio = 0.9; // Settings window size as fraction of screen
+    //
+    // internal for the same reason as TabContainerHeight: SettingsContentFitTests re-derives the
+    // content area's width at a hypothetical narrow display and must scale the screen by the very
+    // ratio production uses, not by a copy of it.
+    internal const double WindowSizeRatio = 0.9; // Settings window size as fraction of screen
+
+    /// <summary>
+    /// The width of a quick-action picker button.
+    ///
+    /// A named const rather than a literal at the call site because
+    /// <see cref="SettingsContentFitTests"/> measures this exact button against the content
+    /// column: it is the widest control the settings content area ever holds, so it is the one
+    /// that clips first. Widening it is a layout decision that has to be re-measured, and a
+    /// literal buried in <see cref="ChunkPickerPages"/> hides that.
+    /// </summary>
+    internal const double PickerButtonWidth = 460;
+
+    /// <summary>
+    /// The narrowest a content-area dwell control may ever be squeezed to.
+    ///
+    /// Not an aesthetic floor — a hit-geometry one. <see cref="DwellControl.UpdatePosition"/>
+    /// registers a target as its Root's *centre* plus <see cref="ControlBtnRadius"/> (converted
+    /// to physical pixels), so the gaze-activatable region is a circle of that radius about the
+    /// centre, independent of how wide the Border is drawn. Narrower than the diameter and the
+    /// circle starts sticking out past the button's own visual on both sides: the user would be
+    /// activating a control at a point where nothing is drawn. So the constraint below never
+    /// shrinks a control past the hit circle it owns, even on an absurdly narrow display.
+    /// </summary>
+    internal const double MinimumDwellableWidth = ControlBtnRadius * 2;
 
     // Expression-bodied properties (not fields): Tokens now forwards to the active ITheme
     // (ITheme slice), so these must re-evaluate on access rather than snapshot Midnight at
@@ -1219,7 +1247,7 @@ public partial class SettingsWindow : OverlayWindow
                 var (label, onPick) = itemAt(i);
                 var id = $"{idPrefix}_{i}";
                 actions.Add(() => Add(new DwellButton(_viewModel, id, label, onPick,
-                    BtnBase, cat, r, _dwellMs, width: 460, height: 80)));
+                    BtnBase, cat, r, _dwellMs, width: PickerButtonWidth, height: 80)));
             }
             pages.Add(actions);
         }
@@ -1290,12 +1318,76 @@ public partial class SettingsWindow : OverlayWindow
 
     // ────── Shared helpers ──────
 
+    /// <summary>
+    /// How much horizontal room a control dropped into <c>ContentPanel</c> actually gets.
+    ///
+    /// Read off the live elements — the sidebar column declared by <c>RootGrid</c>, and the two
+    /// nested <c>Margin="16"</c> insets of <c>ContentArea</c> and <c>ContentPanel</c> — so the
+    /// arithmetic cannot fall out of step with the XAML that decides it. Restating any of the
+    /// three here is how the sidebar's 220 -> 240 widening silently ate 20 DIP of content column
+    /// with nothing noticing.
+    ///
+    /// <c>Width</c>, not <c>ActualWidth</c>: content is built during construction, before the
+    /// window has ever been laid out, so <c>ActualWidth</c> is still 0 at that point.
+    /// </summary>
+    private double ContentAvailableWidth
+    {
+        get
+        {
+            // The window is sized from the primary screen in the constructor and never resized;
+            // if that ever stops being true, decline to constrain rather than compute nonsense.
+            if (double.IsNaN(Width) || double.IsInfinity(Width) || Width <= 0)
+                return double.PositiveInfinity;
+
+            return Width
+                - RootGrid.ColumnDefinitions[0].Width.Value
+                - ContentArea.Margin.Left - ContentArea.Margin.Right
+                - ContentPanel.Margin.Left - ContentPanel.Margin.Right;
+        }
+    }
+
+    /// <summary>
+    /// Caps <paramref name="root"/> so it cannot be drawn wider than the content column can show.
+    ///
+    /// <c>MaxWidth</c> rather than a rewritten <c>Width</c>: WPF's min/max clamp wins over an
+    /// explicit <c>Width</c>, so a control keeps its designed width on any display roomy enough
+    /// for it and only gives ground on one that is not. Every fixed width in this file
+    /// (<see cref="PickerButtonWidth"/> down to the 300 DIP reset buttons) was chosen against a
+    /// wide screen, and at 0.9 x an 800 DIP display the content column is 416 DIP — measured, the
+    /// 460 picker button then hangs 52 DIP past the panel and 16 DIP off the window edge.
+    ///
+    /// **This does not move any hit geometry out from under its visual.** The dwell target is the
+    /// Root's centre plus a fixed physical radius, and a symmetric narrowing leaves the centre
+    /// where it is; the clamp only ever removes visual that had nothing under it. The
+    /// <see cref="MinimumDwellableWidth"/> floor keeps the drawn button at least as wide as the
+    /// circle it registers.
+    /// </summary>
+    /// <param name="root">The control's root Border.</param>
+    /// <param name="availableWidth">Room in the content column, from <see cref="ContentAvailableWidth"/>.</param>
+    internal static void ConstrainToContentWidth(Border root, double availableWidth)
+    {
+        if (double.IsNaN(availableWidth) || double.IsInfinity(availableWidth)) return;
+
+        // The Border's own margin sits outside its width, so it has to come off the budget or the
+        // control clears the panel by exactly the margin it declared.
+        root.MaxWidth = Math.Max(
+            MinimumDwellableWidth,
+            availableWidth - root.Margin.Left - root.Margin.Right);
+    }
+
     private void Add(DwellControl control)
     {
+        ConstrainToContentWidth(control.Root, ContentAvailableWidth);
         control.Attach(ContentPanel);
         _activeItems.Add(control);
     }
 
+    // Composites are deliberately NOT capped, for two reasons. IDwellComposite owns its own panel
+    // and exposes no single root to cap — only its Children, whose Roots are laid out inside a row
+    // it controls. And they do not need it: the widest is DwellSlider's row, two default-width
+    // (100 DIP) buttons around a 140 DIP value block, about 316 DIP all in, which clears the
+    // 416 DIP content column of the narrowest display measured in SettingsContentFitTests. If a
+    // composite ever grows past that, cap it inside the composite where its layout lives.
     private void Add(IDwellComposite composite)
     {
         composite.Attach(ContentPanel);

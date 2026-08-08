@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels.Messages;
@@ -14,6 +15,12 @@ public class EyeCareHooksTests
     [Trait("Category", "UI")]
     public void ShowSummary_SetsTextBlocks()
     {
+        // EyeCareExerciseWindow.xaml reads {StaticResource ...} tokens (Task 8 migration), so the
+        // OverlayStyles.xaml dictionary must be merged into Application.Current before
+        // construction — see WpfApplicationGate. This test predates that migration and never
+        // established the precondition itself.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
         // Construct the exercise window and verify summary card text blocks are populated.
         // This is a UI smoke test — it needs a display (STA thread + WPF dispatcher).
         var window = new EyeCareExerciseWindow();
@@ -40,6 +47,11 @@ public class EyeCareHooksTests
     [Trait("Category", "UI")]
     public void GazeMessage_RoutedToExerciseWindow()
     {
+        // Same precondition as ShowSummary_SetsTextBlocks above: both EyeCareBannerWindow.xaml
+        // and EyeCareExerciseWindow.xaml read StaticResource tokens now, so the dictionary must
+        // be merged before either is constructed.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
         var messenger = new WeakReferenceMessenger();
         var banner = new EyeCareBannerWindow();
         var exerciseWindow = new EyeCareExerciseWindow();

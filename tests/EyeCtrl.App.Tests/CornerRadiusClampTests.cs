@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Controls.Theme;
 using NFluent;
 using Xunit;
@@ -22,7 +23,12 @@ using Xunit;
 ///
 /// Renders to a RenderTargetBitmap on an STA thread. No window is shown and no input is
 /// simulated — safe to run headless, and it carries no UI category so CI runs it.
+///
+/// <see cref="TheOneCircleConsumer_IsSquare"/> constructs a window and therefore shares the WPF
+/// <see cref="Application"/> singleton (and the collection serialising access to it) with
+/// <see cref="OverlayResourceResolutionTests"/> — see <see cref="WpfApplicationGate"/>.
 /// </summary>
+[Collection("WpfApplication")]
 public class CornerRadiusClampTests
 {
     private static byte[] Render(double w, double h, double radius, double dpi)
@@ -134,11 +140,12 @@ public class CornerRadiusClampTests
         // Constructs the window instead of regex-parsing the XAML: that reads the EFFECTIVE
         // values, so it is immune to attribute reordering and also sees a radius or size
         // arriving from a Style. The Application-with-tokens setup is shared with
-        // OverlayResourceResolutionTests, which constructs this same window.
+        // OverlayResourceResolutionTests, which constructs this same window — see
+        // WpfApplicationGate.
         //
         // Nothing calls Show(). Constructing a Window parses its XAML, which is all this needs,
         // and this suite must never take over the screen of a user whose only input is gaze.
-        OverlayResourceResolutionTests.EnsureApplicationWithTokens();
+        WpfApplicationGate.EnsureApplicationWithTokens();
 
         var window = new QuickActionsGridWindow();
         try
@@ -148,10 +155,22 @@ public class CornerRadiusClampTests
                     "QuickActionsGridWindow no longer has a Border named CloseButton.")
                 .That(button).IsNotNull();
 
+            // Border.Width/Height default to NaN when unset, and NFluent's structural equality
+            // routes through Equals, where double.NaN.Equals(double.NaN) is true — so the
+            // IsEqualTo(button.Height) check two lines down would stay green even if
+            // Width="44" Height="44" were deleted from the XAML entirely, leaving an
+            // auto-sized (and therefore almost never square) Border. On such a Border,
+            // CornerRadiusCircle still renders — just as a pill, not a circle, which is the
+            // exact defect this test exists to catch. This assertion closes that gap.
+            Check.WithCustomMessage(
+                    "CloseButton has no explicit size, so it auto-sizes — and CircleCornerRadius on a "
+                    + "non-square element renders a pill, not a circle.")
+                .That(double.IsNaN(button!.Width)).IsFalse();
+
             Check.WithCustomMessage(
                     "CloseButton must stay square, or CornerRadiusCircle renders an ellipse on "
                     + "it rather than a circle — see §4.1 and the theory above. Measured "
-                    + $"{button!.Width}x{button.Height}.")
+                    + $"{button.Width}x{button.Height}.")
                 .That(button.Width).IsEqualTo(button.Height);
 
             // Compared against Tokens rather than a concrete theme because

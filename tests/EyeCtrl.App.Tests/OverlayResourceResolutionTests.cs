@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Tests.Fixtures;
 using NFluent;
 using Xunit;
 
@@ -21,51 +22,13 @@ using Xunit;
 /// both are reported here by name.
 ///
 /// Requires STA plus an Application whose resources include the merged token
-/// dictionary, mirroring what App.xaml sets up at runtime.
+/// dictionary, mirroring what App.xaml sets up at runtime. Shares that Application (and the
+/// collection serialising access to it) with <see cref="CornerRadiusClampTests"/> — see
+/// <see cref="WpfApplicationGate"/>.
 /// </summary>
+[Collection("WpfApplication")]
 public class OverlayResourceResolutionTests
 {
-    private static readonly object ApplicationGate = new();
-
-    /// <summary>
-    /// Creates the process-wide <see cref="Application"/> with the token dictionary merged in,
-    /// once. Also used by <see cref="CornerRadiusClampTests"/>, which constructs
-    /// QuickActionsGridWindow for the same reason — hence internal rather than private, so
-    /// there is exactly one copy of this setup. The lock is what makes a second caller safe:
-    /// <c>new Application()</c> throws if one already exists, and xUnit may run the two classes
-    /// in parallel because neither is in a serialising collection.
-    /// </summary>
-    internal static void EnsureApplicationWithTokens()
-    {
-        lock (ApplicationGate)
-        {
-            if (Application.Current is null)
-            {
-                // OnExplicitShutdown so this singleton Application never tears the test
-                // host down when the overlay windows we construct are closed; otherwise
-                // NoteManagerTests.CreateNote_ShowsWindow (which runs later in the same
-                // AppDomain and calls Window.Show) reports the window as not visible.
-                _ = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            }
-
-            const string uri =
-                "pack://application:,,,/EyeCtrl.Controls;component/Theme/OverlayStyles.xaml";
-
-            var already = Application.Current!.Resources.MergedDictionaries
-                .Any(d => d.Source?.ToString() == uri);
-
-            if (!already)
-                Application.Current.Resources.MergedDictionaries.Add(
-                    new ResourceDictionary { Source = new Uri(uri, UriKind.Absolute) });
-
-            // StandardBorderThickness needs no special handling: it is declared in
-            // OverlayStyles.xaml via UniformThicknessExtension, so merging the dictionary above
-            // is enough. It previously lived in App.OnStartup, which forced this method to
-            // REPLICATE production wiring — meaning a change to App.OnStartup would leave this
-            // test green.
-        }
-    }
-
     /// <summary>
     /// Overlays whose XAML references {StaticResource} token brushes. Covers the Plan A
     /// filled overlays plus the Plan B haloed overlays (which each gained 2-6 brush keys).
@@ -104,7 +67,7 @@ public class OverlayResourceResolutionTests
     [MemberData(nameof(MigratedOverlays))]
     public void Overlay_LoadsWithoutUnresolvedResourceKeys(Type overlayType)
     {
-        EnsureApplicationWithTokens();
+        WpfApplicationGate.EnsureApplicationWithTokens();
 
         Window? w = null;
         try
@@ -149,7 +112,7 @@ public class OverlayResourceResolutionTests
     [StaFact]
     public void SettingsWindowXaml_ResolvesEveryStaticResource()
     {
-        EnsureApplicationWithTokens();
+        WpfApplicationGate.EnsureApplicationWithTokens();
 
         var path = Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml");
@@ -157,14 +120,27 @@ public class OverlayResourceResolutionTests
             .That(File.Exists(path)).IsTrue();
 
         var xaml = File.ReadAllText(path);
-        var loadable = Regex.Replace(xaml, @"\s+x:Class=""[^""]*""", string.Empty);
+        // Handles spaces around "=" and single-quoted values too, not just the exact
+        // x:Class="..." shape the file happens to use today.
+        var loadable = Regex.Replace(xaml, @"\s+x:Class\s*=\s*(?:""[^""]*""|'[^']*')", string.Empty);
         // A clr-namespace with no assembly= resolves against the assembly that is loading the
-        // XAML — this test assembly, not EyeCtrl.App — so the root element's namespace is made
-        // explicit. Compiled XAML needs no such qualification, which is why the file omits it.
-        loadable = loadable.Replace(
-            "clr-namespace:EyeCtrl.App.Overlays\"",
-            "clr-namespace:EyeCtrl.App.Overlays;assembly=EyeCtrl.App\"",
-            StringComparison.Ordinal);
+        // XAML — this test assembly, not EyeCtrl.App — so every unqualified clr-namespace's
+        // value is made explicit. Compiled XAML needs no such qualification, which is why the
+        // file omits it. A plain string.Replace on today's one known namespace would silently
+        // stop covering a second unqualified clr-namespace added later — it would resolve
+        // against this test assembly and fail with a type-not-found XamlParseException — so
+        // this rewrites every clr-namespace that has no assembly= qualifier yet.
+        loadable = Regex.Replace(
+            loadable, @"clr-namespace:([\w.]+)(?="")", "clr-namespace:$1;assembly=EyeCtrl.App");
+
+        Check.WithCustomMessage(
+                "x:Class survived the strip; the parse below would fail for the wrong reason.")
+            .That(loadable).Not.Contains("x:Class");
+        Check.WithCustomMessage(
+                "A clr-namespace with no assembly= qualifier survived the rewrite; it would "
+                + "resolve against this test assembly rather than EyeCtrl.App, and the parse "
+                + "below would fail for the wrong reason.")
+            .That(Regex.IsMatch(loadable, "clr-namespace:[\\w.]+\"")).IsFalse();
 
         Window? w = null;
         try
@@ -207,7 +183,10 @@ public class OverlayResourceResolutionTests
     /// <summary>
     /// Builds the failure message: names the overlay, and names the key — the missing one when
     /// the key does not exist, otherwise every key in the file whose resolved value cannot be
-    /// assigned to the property it is written on.
+    /// assigned to the property it is written on. <see cref="IsResourceFault"/> also matches
+    /// XamlParseException for causes this scan cannot pin at all (an unknown type, a failed
+    /// converter, malformed markup); when neither the missing-key nor the type-mismatch scan
+    /// finds anything, the message says exactly that instead of guessing a type mismatch.
     ///
     /// The key is recovered by re-resolving the file's references against the live dictionary
     /// rather than mined out of the exception, because the exception names the *property* and
@@ -235,14 +214,21 @@ public class OverlayResourceResolutionTests
                 + "Check the spelling against OverlayStyles.xaml.";
 
         var mismatched = TypeMismatchedResourceKeys(xaml);
-        var named = mismatched.Count > 0
-            ? string.Join("; ", mismatched)
-            : "(could not pin the key by scanning the file — see the underlying error)";
+        if (mismatched.Count == 0)
+            // IsResourceFault matches any XamlParseException in the chain, which is the wrapper
+            // for essentially every XAML load failure — unknown type, failed converter,
+            // malformed markup, a botched x:Class strip — not only a type-mismatched
+            // StaticResource. Neither branch above could pin a cause, so this must not claim
+            // one: asserting "WRONG TYPE" here would confidently misdirect whoever debugs it
+            // next, when the scan simply found nothing to name.
+            return $"{label} failed to load, and neither a missing resource key nor a type "
+                + "mismatch could be pinned by scanning its XAML. Underlying error: "
+                + $"{ex.GetType().Name}: {ex.Message}";
 
         return $"{label} assigns a resource of the WRONG TYPE. Every key it names exists, so "
             + "this is not a spelling mistake — WPF runs no type converter on a StaticResource "
             + "assignment, so the value must already be the property's type. Offending: "
-            + $"{named}. Underlying error: {ex.GetType().Name}: {ex.Message}";
+            + $"{string.Join("; ", mismatched)}. Underlying error: {ex.GetType().Name}: {ex.Message}";
     }
 
     /// <summary>Matches a <c>Property="{StaticResource Key}"</c> attribute.</summary>

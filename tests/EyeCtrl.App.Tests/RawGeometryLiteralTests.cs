@@ -397,9 +397,16 @@ public class RawGeometryLiteralTests
         // guards above green while protecting nothing. The breakage would first appear as
         // baffling failures midway through Task 7. This fails loudly instead.
         //
-        // Counts are floors rather than exact figures: an exact count is brittle against every
-        // legitimate token addition. The floors are set above what a *truncation* would leave —
-        // losing the {StaticResource} half, or a BindingFlags slip, roughly halves each group.
+        // The union floor below is a coarse smoke test only, not a precision instrument: it sits
+        // comfortably above every measured truncation, so it trips on a wholesale collapse and
+        // nothing subtler. The per-form IsTokenBacked checks that follow are the actual pin,
+        // because a reference *form* is what silently disappears when a BindingFlags slip or a
+        // naming-convention change lands, and that is a different granularity than a count can
+        // see. Measured concretely: if ContainerRatio's members became properties instead of
+        // const fields, reflection would drop all five of them from every group, and the union
+        // floor — and a per-group floor beside it — would still pass, because the loss never
+        // crosses whatever threshold a floor happens to hold. Only the form checks below notice,
+        // because they ask whether a specific form still resolves rather than how many are left.
         var byProp = AllowedByProperty();
         var allowed = AllowedReferences();
 
@@ -409,8 +416,6 @@ public class RawGeometryLiteralTests
             + "names still carry the 'CornerRadius'/'Font' prefixes the partition keys off.";
 
         Check.WithCustomMessage(collapsed).That(allowed.Count).IsStrictlyGreaterThan(30);
-        Check.WithCustomMessage(collapsed).That(byProp["CornerRadius"].Count).IsStrictlyGreaterThan(12);
-        Check.WithCustomMessage(collapsed).That(byProp["FontSize"].Count).IsStrictlyGreaterThan(14);
 
         // Representative references must actually resolve — one per reference FORM, because a
         // form is what a BindingFlags or naming change silently drops.

@@ -9,6 +9,7 @@ internal static class AppExePathResolver
     /// <summary>
     /// Resolves the EyeCtrl.App.exe path. Env var wins if it points to an existing file;
     /// otherwise assumes the app exe sits next to the supervisor exe.
+    /// TODO(installer): the installer will supply the canonical path.
     /// </summary>
     public static string Resolve()
     {

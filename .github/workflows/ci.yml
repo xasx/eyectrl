@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-test:
-    name: Build & Unit Tests
+    name: Build, Unit Tests & Coverage
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -74,53 +74,15 @@ jobs:
       - name: Build
         run: dotnet build EyeCtrl.slnx
 
-      - name: Run unit tests
-        run: dotnet test --filter "Category!=UI" --no-build
-
-      - name: Run generator tests (benchmark correctness)
-        run: dotnet test tests/EyeCtrl.Benchmarks.Tests
-
-  coverage:
-    name: Code Coverage
-    runs-on: windows-latest
-    needs: build-and-test
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'global.json') }}
-          restore-keys: nuget-${{ runner.os }}-
-
-      - name: Provision WinUI AppxPackage tooling at the path the build probes
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $dll = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio' -Recurse -Filter 'Microsoft.Build.Packaging.Pri.Tasks.dll' -ErrorAction SilentlyContinue |
-                 Where-Object { $_.FullName -match 'v18\.0\\AppxPackage' } | Select-Object -First 1
-          if (-not $dll) { throw "Could not locate VS v18.0 AppxPackage tooling on the runner" }
-          $srcDir = Split-Path $dll.FullName
-          $dstDir = 'C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VisualStudio\v18.0\AppxPackage'
-          New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
-          Copy-Item -Path (Join-Path $srcDir '*') -Destination $dstDir -Recurse -Force
-
-      - name: Build
-        run: dotnet build EyeCtrl.slnx
-
-      - name: Collect coverage
+      - name: Run unit tests with coverage collection
         run: |
           dotnet test --filter "Category!=UI" --no-build `
             --collect:"XPlat Code Coverage" `
             --results-directory ./coverage-results `
             --settings coverage.runsettings
+
+      - name: Run generator tests (benchmark correctness)
+        run: dotnet test tests/EyeCtrl.Benchmarks.Tests
 
       - name: Generate coverage report
         uses: danielpalme/ReportGenerator-GitHub-Action@v5

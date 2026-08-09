@@ -8,6 +8,10 @@ public sealed class ProcessController
     private IProcessHandle? _process;
     public IProcessHandle? BoundProcess => _process;
 
+    /// <summary>
+    /// Captured at launch/adopt. RESERVED for a future strict-mode <see cref="Ipc.ClientIdentityBinder"/>
+    /// upgrade (PID-reuse protection via creation-time comparison). Currently captured-but-unread.
+    /// </summary>
     public DateTime? StartTimeUtc { get; private set; }
     public string? ExePath { get; private set; }
 
@@ -48,17 +52,26 @@ public sealed class ProcessController
         if (paused) psi.ArgumentList.Add("--paused");
         _process = _processFactory(psi);
         StartTimeUtc = _process?.StartTime;
+        if (_process != null)
+            ExePath = _process.ExePath ?? exePath;
     }
 
     /// <summary>
     /// Binds an externally-launched process by PID. Returns false if the PID is not running / cannot be opened.
+    /// <para><see cref="Process.GetProcessById(int)"/> throws <see cref="ArgumentException"/> if the
+    /// process isn't running; <see cref="Process.MainModule"/> can throw on a 64/32-bit bitness
+    /// mismatch or access denied — both are swallowed by the try/catch.</para>
     /// </summary>
     public bool Adopt(int pid)
     {
         ReleasePrevious();
         KillInitiated = false;
         _process = _adoptFactory(pid);
-        StartTimeUtc = _process?.StartTime;
+        if (_process != null)
+        {
+            ExePath = _process.ExePath;
+            StartTimeUtc = _process.StartTime;
+        }
         return _process != null;
     }
 

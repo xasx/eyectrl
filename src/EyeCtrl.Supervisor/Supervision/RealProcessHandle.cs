@@ -20,6 +20,7 @@ internal sealed class RealProcessHandle : IProcessHandle
 
     public int Id => _handle.Id;
     public bool HasExited => _handle.HasExited;
+    public string? ExePath => _handle.MainModule?.FileName;
     public DateTime? StartTime
     {
         get

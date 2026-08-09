@@ -1,6 +1,5 @@
 namespace EyeCtrl.Platform.Tests.Services;
 
-using System.Runtime.InteropServices;
 using EyeCtrl.Platform.Services;
 using NFluent;
 using Xunit;
@@ -10,18 +9,19 @@ public class Win32WindowManagerFilterTests
     [Fact]
     public void IsCandidateWindow_NullHandle_ReturnsFalse()
     {
-        var result = Win32WindowManager.IsCandidateWindow(IntPtr.Zero, out var title);
+        // IntPtr.Zero is not a real window — the predicate must reject it without touching Win32.
+        var result = Win32WindowManager.IsCandidateWindow(nint.Zero, out var title);
 
         Check.That(result).IsFalse();
     }
 
     [Fact]
-    public void IsCandidateWindow_IsPurePredicate_DoesNotThrow()
+    public void IsCandidateWindow_InvalidHandle_ReturnsFalse()
     {
-        // The predicate should handle any IntPtr without throwing (defense-in-depth).
-        var result = Win32WindowManager.IsCandidateWindow(new IntPtr(0x1234), out var title);
+        // A fabricated handle is not a real window. The predicate should reject it
+        // (or at minimum not throw) — it does NOT call EnumWindows, so it's safe headless.
+        var result = Win32WindowManager.IsCandidateWindow(new nint(0x1234), out var title);
 
-        // Result may be true or false depending on the mock Win32 state, but it must not throw.
-        Check.That(result || !result).IsTrue();
+        Check.That(result).IsFalse();
     }
 }

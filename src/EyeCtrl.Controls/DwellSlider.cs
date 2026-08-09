@@ -133,6 +133,9 @@ public class DwellSlider : IDwellComposite
         _valueText.Text = FormatVal(v);
     }
 
-    private string FormatVal(double v) =>
-        _decimals == 0 ? ((int)v).ToString() : v.ToString($"F{_decimals}");
+    private string FormatVal(double v) => Format(_decimals, v);
+
+    internal static string Format(int decimals, double v) =>
+        decimals == 0 ? ((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                      : v.ToString($"F{decimals}", System.Globalization.CultureInfo.InvariantCulture);
 }

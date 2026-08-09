@@ -25,37 +25,9 @@ public class Win32WindowManager : IWindowManager
         var windows = new List<AppWindow>();
         NativeMethods.EnumWindows((hWnd, _) =>
         {
-            if (!NativeMethods.IsWindowVisible(hWnd))
+            if (!IsCandidateWindow(hWnd, out var title))
                 return true;
 
-            // Exclude tool windows (all EyeCtrl overlays have WS_EX_TOOLWINDOW)
-            var exStyle = NativeMethods.GetWindowLong(hWnd, NativeMethods.GWL_EXSTYLE);
-            if ((exStyle & NativeMethods.WS_EX_TOOLWINDOW) != 0)
-                return true;
-
-            // Exclude child windows (only top-level windows with no owner)
-            if (NativeMethods.GetWindow(hWnd, NativeMethods.GW_OWNER) != IntPtr.Zero)
-                return true;
-
-            // Exclude cloaked windows: suspended UWP apps and ApplicationFrameWindow "ghosts"
-            // pass IsWindowVisible but are not actually shown. Only trust the result on S_OK.
-            if (NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DWMWA_CLOAKED,
-                    out int cloaked, sizeof(int)) == 0 && cloaked != 0)
-                return true;
-
-            // Get title — use char[] buffer (not StringBuilder; [LibraryImport] doesn't support it).
-            // Use GetWindowText's return (chars actually copied), not GetWindowTextLength, so a
-            // title that shrank between the two calls doesn't leave trailing '\0's in the string.
-            var length = NativeMethods.GetWindowTextLength(hWnd);
-            if (length == 0)
-                return true;
-            var buffer = new char[length + 1];
-            int copied = NativeMethods.GetWindowText(hWnd, buffer, buffer.Length);
-            var title = new string(buffer, 0, copied);
-            if (string.IsNullOrWhiteSpace(title))
-                return true;
-
-            // Get process
             NativeMethods.GetWindowThreadProcessId(hWnd, out var processId);
             string processName = "";
             try
@@ -73,6 +45,41 @@ public class Win32WindowManager : IWindowManager
         }, IntPtr.Zero);
 
         return windows;
+    }
+
+    internal static bool IsCandidateWindow(IntPtr hWnd, out string title)
+    {
+        title = "";
+
+        if (!NativeMethods.IsWindowVisible(hWnd))
+            return false;
+
+        // Exclude tool windows (all EyeCtrl overlays have WS_EX_TOOLWINDOW)
+        var exStyle = NativeMethods.GetWindowLong(hWnd, NativeMethods.GWL_EXSTYLE);
+        if ((exStyle & NativeMethods.WS_EX_TOOLWINDOW) != 0)
+            return false;
+
+        // Exclude child windows (only top-level windows with no owner)
+        if (NativeMethods.GetWindow(hWnd, NativeMethods.GW_OWNER) != IntPtr.Zero)
+            return false;
+
+        // Exclude cloaked windows: suspended UWP apps and ApplicationFrameWindow "ghosts"
+        // pass IsWindowVisible but are not actually shown. Only trust the result on S_OK.
+        if (NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DWMWA_CLOAKED,
+                out int cloaked, sizeof(int)) == 0 && cloaked != 0)
+            return false;
+
+        // Get title — use char[] buffer (not StringBuilder; [LibraryImport] doesn't support it).
+        var length = NativeMethods.GetWindowTextLength(hWnd);
+        if (length == 0)
+            return false;
+        var buffer = new char[length + 1];
+        int copied = NativeMethods.GetWindowText(hWnd, buffer, buffer.Length);
+        title = new string(buffer, 0, copied);
+        if (string.IsNullOrWhiteSpace(title))
+            return false;
+
+        return true;
     }
 
     /// <summary>

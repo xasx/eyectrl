@@ -78,8 +78,6 @@ internal sealed class SupervisorApp : Application
     // There is no installer yet (separate workstream — spec "Out-of-Scope: installer authoring").
     // For now: prefer the EYECTRL_APP_EXE env var, else assume the app exe sits next to the
     // supervisor exe in the same install directory. The installer will supply the real path.
-    private const string AppExeEnvVar = "EYECTRL_APP_EXE";
-
     // Dependency-injected supervision state (all constructed in Initialize()).
     private SupervisionStateMachine _sm = null!;
     private ProcessController _pc = null!;
@@ -129,7 +127,7 @@ internal sealed class SupervisorApp : Application
         _settings = _settingsService.Load();
 
         // Resolve the app exe path (env override > sibling-of-supervisor-exe default).
-        _appExePath = ResolveAppExePath();
+        _appExePath = AppExePathResolver.Resolve();
         Log.Information("App exe path resolved to {AppExePath}.", _appExePath);
 
         // 3. Construct the supervision components.
@@ -481,8 +479,7 @@ internal sealed class SupervisorApp : Application
     {
         var proc = _pc.BoundProcess;
         if (proc == null) return;
-        proc.EnableRaisingEvents = true;
-        proc.Exited += (_, _) =>
+        proc.Exited += () =>
         {
             // Exited fires on a background thread — marshal to UI before touching the state machine.
             Dispatcher.BeginInvoke(new Action(() =>
@@ -500,7 +497,7 @@ internal sealed class SupervisorApp : Application
                 HandleInput(new ProcessExited(DateTime.UtcNow));
             }));
         };
-        // Race guard: if the process already exited between Adopt()/Launch() and EnableRaisingEvents,
+        // Race guard: if the process already exited between Adopt()/Launch() and the event wire,
         // the Exited event won't fire. Check now and feed ProcessExited immediately.
         if (proc.HasExited)
         {
@@ -604,25 +601,7 @@ internal sealed class SupervisorApp : Application
         _tray.SetStatusText(text);
     }
 
-    // ---- App-exe path resolution -------------------------------------------------------
-
-    /// <summary>
-    /// Resolves the EyeCtrl.App.exe path. Env var <see cref="AppExeEnvVar"/> wins; otherwise assume
-    /// the app exe sits next to the supervisor exe in the same install directory. TODO(installer):
-    /// the installer will supply the canonical path.
-    /// </summary>
-    private static string ResolveAppExePath()
-    {
-        var env = Environment.GetEnvironmentVariable(AppExeEnvVar);
-        if (!string.IsNullOrWhiteSpace(env) && File.Exists(env))
-        {
-            return Path.GetFullPath(env);
-        }
-
-        // Default: sibling of the supervisor exe — EyeCtrl.App.exe next to EyeCtrl.Supervisor.exe.
-        var supervisorDir = AppContext.BaseDirectory;
-        return Path.GetFullPath(Path.Combine(supervisorDir, "EyeCtrl.App.exe"));
-    }
+    // ---- App-exe path resolution (see AppExePathResolver) ------------------------------
 
     protected override void OnExit(ExitEventArgs e)
     {

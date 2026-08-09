@@ -9,4 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\EyeCtrl.Core\EyeCtrl.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="EyeCtrl.Controls.Tests" />
+  </ItemGroup>
 </Project>

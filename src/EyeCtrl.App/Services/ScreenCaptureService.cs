@@ -19,17 +19,13 @@ public static class ScreenCaptureService
     /// </summary>
     public static BitmapSource? CaptureRegion(PhysicalPoint center, int radius)
     {
-        var captureX = (int)center.X - radius;
-        var captureY = (int)center.Y - radius;
-        var captureSize = radius * 2;
-
-        if (captureSize <= 0) return null;
-
-        // Clamp to screen bounds
         var screenWidth = (int)DpiHelper.LogicalToPhysicalX(SystemParameters.PrimaryScreenWidth);
         var screenHeight = (int)DpiHelper.LogicalToPhysicalY(SystemParameters.PrimaryScreenHeight);
-        captureX = Math.Max(0, Math.Min(captureX, screenWidth - captureSize));
-        captureY = Math.Max(0, Math.Min(captureY, screenHeight - captureSize));
+
+        var region = CaptureRegionMath.Compute((int)center.X, (int)center.Y, radius, screenWidth, screenHeight);
+        if (region == null) return null;
+
+        var (captureX, captureY, captureSize) = region.Value;
 
         using var bitmap = new Bitmap(captureSize, captureSize);
         using (var g = Graphics.FromImage(bitmap))

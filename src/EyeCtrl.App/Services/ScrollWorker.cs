@@ -74,21 +74,16 @@ public class ScrollWorker : IDisposable
         {
             if (!_running) return;
 
-            const double lerpFactor = 0.3;
-            _currentVx += (_targetVx - _currentVx) * lerpFactor;
-            _currentVy += (_targetVy - _currentVy) * lerpFactor;
-
-            if (Math.Abs(_targetVx) < 0.01 && Math.Abs(_currentVx) < 0.01) _currentVx = 0;
-            if (Math.Abs(_targetVy) < 0.01 && Math.Abs(_currentVy) < 0.01) _currentVy = 0;
-
-            double deltaX = _currentVx * TickIntervalMs / 1000.0 + _remainderX;
-            double deltaY = _currentVy * TickIntervalMs / 1000.0 + _remainderY;
-
-            int intDeltaX = (int)Math.Truncate(deltaX);
-            int intDeltaY = (int)Math.Truncate(deltaY);
-
-            _remainderX = deltaX - intDeltaX;
-            _remainderY = deltaY - intDeltaY;
+            ScrollPhysics.Tick(
+                ref _currentVx,
+                ref _currentVy,
+                _targetVx,
+                _targetVy,
+                ref _remainderX,
+                ref _remainderY,
+                TickIntervalMs,
+                out int intDeltaX,
+                out int intDeltaY);
 
             if (intDeltaX != 0 || intDeltaY != 0)
             {

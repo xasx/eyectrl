@@ -43,6 +43,24 @@ public class HeartbeatRestartPayloadTests
     /// </summary>
     private readonly string _pipeName = "eyectrl_watch_test_" + Guid.NewGuid().ToString("N");
 
+    /// <summary>
+    /// Probe budget for the tests that assert a probe SUCCEEDS. Production's 500ms
+    /// (<see cref="HeartbeatPublisher.DefaultProbeWait"/>) is a UI-responsiveness budget, not a
+    /// latency guarantee: the send completes across several thread-pool hops, and on a pool with
+    /// no idle worker each hop waits ~500ms for thread injection. Starving the pool reproduces
+    /// the CI failure exactly — the probe gives up at 513ms and the payload lands at 774ms —
+    /// and it does so identically with <c>maxNumberOfServerInstances</c> raised to 8, so the
+    /// pipe instance count is not involved. Asserting <c>IsTrue</c> on a 500ms wall-clock
+    /// deadline is betting on scheduler luck; matching the 5s receive timeout below removes the
+    /// bet without weakening what the tests check — they still call the real
+    /// <see cref="HeartbeatPublisher.TryReachSupervisor"/>, gate and all.
+    ///
+    /// Deliberately NOT passed to the tests that assert a probe FAILS: those cannot flake in the
+    /// true direction (nothing is listening, or publishing is off and no I/O happens at all), and
+    /// leaving them on the production budget keeps them fast.
+    /// </summary>
+    private static readonly TimeSpan GenerousProbeWait = TimeSpan.FromSeconds(5);
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -106,7 +124,8 @@ public class HeartbeatRestartPayloadTests
     {
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
 
-        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
+        using var publisher = new HeartbeatPublisher(
+            supervised: true, pipeName: _pipeName, probeWait: GenerousProbeWait);
         var reachable = publisher.TryReachSupervisor();
 
         Check.That(reachable).IsTrue();
@@ -137,7 +156,11 @@ public class HeartbeatRestartPayloadTests
         // comes — the supervisor arms its 5s deadline and force-kills a healthy app.
         var probe = ReceiveOneAsync(TimeSpan.FromSeconds(5));
 
-        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
+        // Generous budget: this test needs the probe's payload to actually land, so the probe
+        // must wait for its own send rather than abandoning it after 500ms and leaving delivery
+        // to chance.
+        using var publisher = new HeartbeatPublisher(
+            supervised: true, pipeName: _pipeName, probeWait: GenerousProbeWait);
         _ = publisher.TryReachSupervisor();
         var probePayload = await probe;
         Check.That(probePayload!.ShuttingDown).IsFalse();
@@ -162,14 +185,27 @@ public class HeartbeatRestartPayloadTests
     {
         // A session that started unsupervised can be upgraded when the user chooses to
         // start a supervisor. Until then the probe must stay false — see below.
-        using var publisher = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
+        using var publisher = new HeartbeatPublisher(
+            supervised: false, pipeName: _pipeName, probeWait: GenerousProbeWait);
         Check.That(publisher.TryReachSupervisor()).IsFalse();
 
+        // Note the payload asserted below is the PROBE's. EnablePublishing itself sends nothing:
+        // the writer loop's first act is to await _sendSignal, which starts at count 0 and is
+        // only released by Stamp/SignalShuttingDown, neither of which this test calls.
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
         publisher.EnablePublishing();
 
         Check.That(publisher.TryReachSupervisor()).IsTrue();
         Check.That(await received).IsNotNull();
+    }
+
+    [Fact]
+    public void DefaultProbeWait_StaysAtTheUiResponsivenessBudget()
+    {
+        // The tests above deliberately run on a wider budget than production, so nothing else
+        // would notice if this were tightened — and tightening it makes a live supervisor more
+        // likely to read as absent, silently downgrading restarts to the self-restart path.
+        Check.That(HeartbeatPublisher.DefaultProbeWait).IsEqualTo(TimeSpan.FromMilliseconds(500));
     }
 
     [Fact]

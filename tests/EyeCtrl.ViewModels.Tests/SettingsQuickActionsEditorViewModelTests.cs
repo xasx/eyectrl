@@ -49,6 +49,21 @@ public class SettingsQuickActionsEditorViewModelTests
     }
 
     [Fact]
+    public void AddWindowAction_CreatesAndPersistsWindowAction()
+    {
+        var store = new FakeStore();
+        Vm(store).AddWindowAction("Close Window", "Close");
+
+        // Add() persists immediately, like every other add-path — asserting through store.Saved
+        // (not the VM collection) proves the write reached the store.
+        Check.That(store.Saved).HasSize(1);
+        Check.That(store.Saved[0].Type).IsEqualTo(QuickActionType.WindowAction);
+        Check.That(store.Saved[0].Label).IsEqualTo("Close Window");
+        Check.That(store.Saved[0].Payload).IsEqualTo("Close");
+        Check.That(store.Saved[0].Enabled).IsTrue();
+    }
+
+    [Fact]
     public void AddApp_CreatesLaunchWindowsAppWithAumidAndName()
     {
         var store = new FakeStore();

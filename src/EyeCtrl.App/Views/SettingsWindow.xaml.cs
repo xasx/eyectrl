@@ -1119,38 +1119,24 @@ public partial class SettingsWindow : OverlayWindow
         return new List<List<Action>> { page };
     }
 
-    private List<List<Action>> BuildQaShortcutPages()
-    {
-        var editor = _viewModel.QuickActionsEditor;
-
-        return ChunkPickerPages(QuickActionPresets.KeyboardShortcuts.Count, "qa_ks", i =>
+    // Picker pages over a static (Label, Payload) preset table; picking adds the action and returns to the list.
+    // BuildQaAppPages is deliberately not folded in here — it reads a live list and has an empty state.
+    private List<List<Action>> BuildQaPresetPages(
+        IReadOnlyList<(string Label, string Payload)> presets, string idPrefix, Action<string, string> add) =>
+        ChunkPickerPages(presets.Count, idPrefix, i =>
         {
-            var (label, chord) = QuickActionPresets.KeyboardShortcuts[i];
-            return (label, () => { editor.AddKeyboardShortcut(label, chord); GoToQaView(QaView.List); });
+            var (label, payload) = presets[i];
+            return (label, () => { add(label, payload); GoToQaView(QaView.List); });
         });
-    }
 
-    private List<List<Action>> BuildQaMediaPages()
-    {
-        var editor = _viewModel.QuickActionsEditor;
+    private List<List<Action>> BuildQaShortcutPages() =>
+        BuildQaPresetPages(QuickActionPresets.KeyboardShortcuts, "qa_ks", _viewModel.QuickActionsEditor.AddKeyboardShortcut);
 
-        return ChunkPickerPages(QuickActionPresets.MediaControls.Count, "qa_md", i =>
-        {
-            var (label, command) = QuickActionPresets.MediaControls[i];
-            return (label, () => { editor.AddMediaControl(label, command); GoToQaView(QaView.List); });
-        });
-    }
+    private List<List<Action>> BuildQaMediaPages() =>
+        BuildQaPresetPages(QuickActionPresets.MediaControls, "qa_md", _viewModel.QuickActionsEditor.AddMediaControl);
 
-    private List<List<Action>> BuildQaWindowActionPages()
-    {
-        var editor = _viewModel.QuickActionsEditor;
-
-        return ChunkPickerPages(QuickActionPresets.WindowActions.Count, "qa_win", i =>
-        {
-            var (label, payload) = QuickActionPresets.WindowActions[i];
-            return (label, () => { editor.AddWindowAction(label, payload); GoToQaView(QaView.List); });
-        });
-    }
+    private List<List<Action>> BuildQaWindowActionPages() =>
+        BuildQaPresetPages(QuickActionPresets.WindowActions, "qa_win", _viewModel.QuickActionsEditor.AddWindowAction);
 
     private List<List<Action>> BuildQaAppPages()
     {

@@ -45,17 +45,13 @@ public static class ThemeResourceApplier
             .Where(p => p.PropertyType != typeof(Color) && p.Name != nameof(ITheme.Name))
             .Select(p => (p.Name, p.GetValue(theme)!));
 
-    /// <summary>
-    /// Every brush the theme exposes. Kept as its own accessor for callers that want only the
-    /// brushes; currently unused — <see cref="Apply"/> uses <see cref="EnumeratePublishedValues"/>
-    /// instead — but retained as the brush-only projection for external consumers.
-    /// </summary>
-    /// <param name="theme">The theme to read.</param>
-    /// <returns>Key/brush pairs.</returns>
-    public static IEnumerable<(string Key, SolidColorBrush Brush)> EnumerateBrushes(ITheme theme) =>
-        typeof(ITheme).GetProperties()
-            .Where(p => p.PropertyType == typeof(SolidColorBrush))
-            .Select(p => (p.Name, (SolidColorBrush)p.GetValue(theme)!));
+    // `EnumerateBrushes` used to sit here — the brush-only projection, superseded when Apply
+    // moved to EnumeratePublishedValues. It was kept on the grounds that it was "retained for
+    // external consumers", which was not true of anything: this assembly ships inside the app,
+    // not as a package, and a repo-wide search found the declaration and no call site. Dead code
+    // justified by a hypothetical consumer is worse than dead code, because the comment stops the
+    // next reader from checking. If a brush-only projection is ever wanted again, it is one
+    // `.Where(p => p.PropertyType == typeof(SolidColorBrush))` over EnumeratePublishedValues.
 
     /// <summary>
     /// Writes <paramref name="theme"/> into <paramref name="target"/>, replacing any

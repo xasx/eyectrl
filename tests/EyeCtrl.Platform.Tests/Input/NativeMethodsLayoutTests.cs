@@ -1,5 +1,7 @@
-namespace EyeCtrl.Platform.Input;
+namespace EyeCtrl.Platform.Tests.Input;
 
+using System.Runtime.InteropServices;
+using EyeCtrl.Platform.Input;
 using NFluent;
 using Xunit;
 
@@ -35,28 +37,23 @@ public class NativeMethodsLayoutTests
     {
         // INPUTUNION overlays MOUSEINPUT and KEYBDINPUT at FieldOffset(0).
         // Its size must be at least the max of the two to avoid truncation.
-        var unionSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUTUNION>();
-        var mouseSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.MOUSEINPUT>();
-        var keySize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.KEYBDINPUT>();
+        var unionSize = Marshal.SizeOf<NativeMethods.INPUTUNION>();
+        var mouseSize = Marshal.SizeOf<NativeMethods.MOUSEINPUT>();
+        var keySize = Marshal.SizeOf<NativeMethods.KEYBDINPUT>();
 
-        Check.That(unionSize).IsStrictlyGreaterThan(mouseSize - 1);
-        Check.That(unionSize).IsStrictlyGreaterThan(keySize - 1);
+        Check.That(unionSize).IsGreaterOrEqualThan(mouseSize);
+        Check.That(unionSize).IsGreaterOrEqualThan(keySize);
     }
 
     [Fact]
-    public void Input_SizeIsExpectedOnX64()
+    public void Input_SizeMatchesWin32()
     {
-        // INPUT = uint (4 bytes) + INPUTUNION. On x64, INPUTUNION is max(MOUSEINPUT, KEYBDINPUT)
-        // plus padding. The expected size on x64 is 40 bytes (matches Win32 INPUT struct).
-        var size = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>();
-        var unionSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUTUNION>();
+        // SendInput rejects a cbSize that isn't the OS's own sizeof(INPUT), so this is the one
+        // number in the interop layer that must be exact: 40 bytes on any 64-bit architecture
+        // (uint type + 8-byte-aligned union), 28 on 32-bit. Asserted unconditionally rather than
+        // gated on architecture — a skipped assertion catches nothing.
+        var expected = IntPtr.Size == 8 ? 40 : 28;
 
-        // INPUT = uint + INPUTUNION, with padding for alignment
-        Check.That(size).IsStrictlyGreaterThan(unionSize);
-        // On x64: 40; on arm64: 40 (both use the same layout). Catch a marshalling regression.
-        if (System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.X64)
-        {
-            Check.That(size).IsEqualTo(40);
-        }
+        Check.That(Marshal.SizeOf<NativeMethods.INPUT>()).IsEqualTo(expected);
     }
 }

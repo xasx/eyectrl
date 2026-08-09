@@ -20,7 +20,22 @@ internal sealed class RealProcessHandle : IProcessHandle
 
     public int Id => _handle.Id;
     public bool HasExited => _handle.HasExited;
-    public string? ExePath => _handle.MainModule?.FileName;
+
+    /// <summary>
+    /// The bound process's image path, or null when it cannot be read. <see cref="Process.MainModule"/>
+    /// throws on a 64/32-bit bitness mismatch or access denied, and once the process has exited — the
+    /// guard here is what lets <see cref="ProcessController.Adopt"/> stay non-throwing, since Adopt is
+    /// called from a Dispatcher callback where an escape would tear down the supervisor.
+    /// </summary>
+    public string? ExePath
+    {
+        get
+        {
+            try { return _handle.MainModule?.FileName; }
+            catch { return null; }
+        }
+    }
+
     public DateTime? StartTime
     {
         get

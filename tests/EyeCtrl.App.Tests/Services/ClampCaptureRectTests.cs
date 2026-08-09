@@ -41,8 +41,12 @@ public class ClampCaptureRectTests
     {
         var result = CaptureRegionMath.Compute(1900, 400, 50, 1920, 1080);
 
+        // Unclamped this would start at x=1850 and run to 1950. The clamp slides it left so the
+        // right edge sits exactly on the screen edge — assert the position, not just "in bounds",
+        // which a clamp that collapsed x to 0 would also satisfy.
         Check.That(result).IsNotNull();
-        Check.That(result!.Value.x + result.Value.size).IsStrictlyLessThan(1921);
+        Check.That(result!.Value.x).IsEqualTo(1820);
+        Check.That(result.Value.size).IsEqualTo(100);
     }
 
     [Fact]

@@ -29,13 +29,15 @@ public class ProcessControllerTests
     }
 
     [Fact]
-    public void Launch_SetsStartTimeAndExePath()
+    public void Launch_SetsStartTimeAndRecordsRequestedExePath()
     {
+        // Launch records the path it was HANDED — it does not ask the handle. Adopt is the path
+        // that has to interrogate the OS, because there the caller only has a PID.
         var controller = CreateController(out var handle);
         handle.StartTime = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
-        handle.ExePath = @"C:\App\EyeCtrl.App.exe";
+        handle.ExePath = @"C:\Somewhere\Else.exe";
 
-        controller.Launch("test.exe", paused: false);
+        controller.Launch(@"C:\App\EyeCtrl.App.exe", paused: false);
 
         Check.That(controller.StartTimeUtc).IsEqualTo(handle.StartTime);
         Check.That(controller.ExePath).IsEqualTo(@"C:\App\EyeCtrl.App.exe");
@@ -132,16 +134,51 @@ public class ProcessControllerTests
     }
 
     [Fact]
-    public void ForceKill_RaisesEvent_TriggersExitedCallback()
+    public void ForceKill_ThenExited_KeepsKillInitiated()
     {
+        // The contract Program.WireProcessExited depends on: the Exited that arrives BECAUSE of a
+        // supervisor-initiated kill must still find KillInitiated set, so the handler suppresses it
+        // instead of booking a second crash strike. Only Launch/Adopt clear the flag.
         var controller = CreateController(out var handle);
         controller.Launch("test.exe", paused: false);
-        var exited = false;
-        handle.Exited += () => exited = true;
+        controller.ForceKill();
 
         handle.RaiseExited();
 
-        Check.That(exited).IsTrue();
+        Check.That(controller.KillInitiated).IsTrue();
+    }
+
+    [Fact]
+    public void Launch_DisposesPreviousHandle()
+    {
+        // ReleasePrevious must free the prior OS handle before the field is overwritten.
+        var first = new FakeProcessHandle(1, hasExited: false);
+        var second = new FakeProcessHandle(2, hasExited: false);
+        var handles = new[] { first, second };
+        var next = 0;
+        var controller = new ProcessController(_ => handles[next++], _ => null);
+
+        controller.Launch("test.exe", paused: false);
+        controller.Launch("test.exe", paused: false);
+
+        Check.That(first.DisposeCalled).IsTrue();
+        Check.That(second.DisposeCalled).IsFalse();
+        Check.That(controller.BoundProcess).IsSameReferenceAs(second);
+    }
+
+    [Fact]
+    public void Launch_WhenNoProcessStarted_LeavesNothingBound()
+    {
+        // Process.Start is documented to return null when no new process was started; the factory
+        // is null-tolerant so that surfaces as "nothing bound", not a NullReferenceException.
+        var controller = new ProcessController(_ => null, _ => null);
+
+        controller.Launch("test.exe", paused: false);
+
+        Check.That(controller.BoundProcess).IsNull();
+        Check.That(controller.IsAlive).IsFalse();
+        Check.That(controller.StartTimeUtc).IsNull();
+        Check.That(controller.ExePath).IsEqualTo("test.exe");
     }
 
     private static ProcessController CreateController(out FakeProcessHandle handle, bool hasExited = false, FakeProcessHandle? adoptResult = null)
@@ -157,6 +194,7 @@ public class ProcessControllerTests
     private class FakeProcessHandle : IProcessHandle
     {
         public bool KillCalled { get; private set; }
+        public bool DisposeCalled { get; private set; }
 
         public FakeProcessHandle(int id, bool hasExited)
         {
@@ -171,7 +209,7 @@ public class ProcessControllerTests
         public event Action? Exited;
 
         public void Kill(bool entireProcessTree) => KillCalled = true;
-        public void Dispose() { }
+        public void Dispose() => DisposeCalled = true;
 
         public void RaiseExited() => Exited?.Invoke();
     }

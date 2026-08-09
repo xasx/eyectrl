@@ -21,12 +21,14 @@ using System.Windows.Media;
 /// </summary>
 public static class ThemeResourceApplier
 {
-    /// <summary>
-    /// The XAML resource key holding the raw pixel value of the border thickness. Written by
-    /// the reflected loop under its property name, not by this const — the const exists for
-    /// callers that want to reference the key symbolically.
-    /// </summary>
-    public const string ThicknessKey = nameof(ITheme.BorderThicknessStandard);
+    // `ThicknessKey = nameof(ITheme.BorderThicknessStandard)` used to sit here, for the raw pixel
+    // value. Deleted for the same reason as EnumerateBrushes below it, and it is worth naming the
+    // shared pattern: its doc comment said the const existed "for callers that want to reference
+    // the key symbolically", and there were none — the reflected loop writes that key under its
+    // property name and reads nothing from here. Both members were dead code kept alive by a
+    // sentence describing a consumer that does not exist, which is the form of dead code that
+    // survives longest, because the justification reads like an answer and stops the next person
+    // looking. UniformThicknessKey below is the opposite case and stays: Apply genuinely uses it.
 
     /// <summary>The XAML resource key holding the uniform <see cref="Thickness"/> form.</summary>
     public const string UniformThicknessKey = "StandardBorderThickness";

@@ -245,7 +245,7 @@ public class AppRestartCoordinatorTests
     [Fact]
     public void SupervisorProbe_RunsOffTheUiThread_AndShutsDownOnIt()
     {
-        // The supervised probe can wait up to ProbeWait (500ms). Same rule as the
+        // The supervised probe can wait up to HeartbeatPublisher.DefaultProbeWait (500ms). Same rule as the
         // self-restart: the dispatcher must never block on IPC, or gaze processing
         // freezes while the user is waiting for a restart they asked for.
         var settings = new EyeCtrlSettings();

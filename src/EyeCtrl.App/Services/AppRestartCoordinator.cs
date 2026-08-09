@@ -130,7 +130,8 @@ public sealed class AppRestartCoordinator
     /// not expect it to reach across a process boundary.
     ///
     /// <b>Runs on the dispatcher</b> (the dwell handler asks it synchronously), so its probe
-    /// is bounded by the publisher's <c>ProbeWait</c> (500ms): a live supervisor answers in
+    /// is bounded by the publisher's <see cref="HeartbeatPublisher.DefaultProbeWait"/> (500ms —
+    /// the production publisher passes no override): a live supervisor answers in
     /// milliseconds, and an absent one must not freeze the user's gaze control while they
     /// wait for a modal. The restart path itself never probes on the dispatcher — see
     /// <see cref="HandleRestart"/>.

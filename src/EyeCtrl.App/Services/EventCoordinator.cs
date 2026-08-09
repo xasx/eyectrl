@@ -135,7 +135,18 @@ public class EventCoordinator : IEventCoordinator
         _context.Messenger.Register<EventCoordinator, TaskSwitcherSelectionMessage>(this, (_, msg) =>
             _context.Dispatcher.BeginInvoke(() => HandleTaskSwitcherSelection(msg)));
         _context.Messenger.Register<EventCoordinator, QuickActionSelectionMessage>(this, (_, msg) =>
-            _context.Dispatcher.BeginInvoke(() => ExecuteQuickAction(msg.Action)));
+        {
+            // Window actions resolve the foreground HWND SYNCHRONOUSLY, on the same tick as the
+            // dwell completion (B2 spec §4 BLOCKER A.1) — the quick-actions dwell chain already
+            // runs on the UI dispatcher, so a deferred re-query could target a window the user
+            // was never looking at. The HWND then rides to the executor, exactly as
+            // TaskSwitcherSelectionMessage carries its own. Every other action type is
+            // window-independent and keeps the deferred hop unchanged.
+            IntPtr? hwnd = msg.Action.Type == QuickActionType.WindowAction
+                ? _context.WindowManager.TryGetEligibleForegroundWindow()
+                : null;
+            _context.Dispatcher.BeginInvoke(() => ExecuteQuickAction(msg.Action, hwnd));
+        });
         // Window actions: NO BeginInvoke. The toolbar dwell chain is already on the UI dispatcher,
         // so Messenger delivery runs on the same tick as dwell completion. Querying the foreground
         // HWND inline (spec §4 BLOCKER A.1) avoids a deferred hop that could let the foreground
@@ -192,7 +203,7 @@ public class EventCoordinator : IEventCoordinator
     /// Executes the user-selected Quick Action, dispatching by <see cref="QuickActionType"/>.
     /// Errors are caught and logged so a failing action never tears down the gaze thread.
     /// </summary>
-    private void ExecuteQuickAction(QuickAction action)
+    private void ExecuteQuickAction(QuickAction action, IntPtr? windowActionHwnd = null)
     {
         if (_context == null) return;
         try
@@ -218,6 +229,9 @@ public class EventCoordinator : IEventCoordinator
                     break;
                 case QuickActionType.MediaControl:
                     ExecuteMediaControl(action.Payload);
+                    break;
+                case QuickActionType.WindowAction:
+                    ExecuteWindowAction(action.Payload, windowActionHwnd);
                     break;
                 default:
                     Log.Warning("Unknown QuickActionType: {Type}", action.Type);
@@ -306,6 +320,53 @@ public class EventCoordinator : IEventCoordinator
         };
         if (vk != 0)
             _context.InputSimulator.SendKeyPress(vk, isExtendedKey: true);
+    }
+
+    /// <summary>
+    /// Applies a window-management quick action to <paramref name="hwnd"/>. The HWND is resolved by
+    /// the <see cref="QuickActionSelectionMessage"/> recipient synchronously on the dwell-completion
+    /// tick and passed in here — this method must NEVER re-query the foreground, or a foreground
+    /// change during the dispatcher hop could redirect Close to a different window (B2 spec §4
+    /// BLOCKER A.1). Mirrors how TaskSwitcherSelectionMessage carries its HWND.
+    /// </summary>
+    /// <param name="payload">The <see cref="WindowAction"/> enum member name from the stored action.</param>
+    /// <param name="hwnd">The eligible foreground window, or null if none was eligible.</param>
+    /// <remarks>
+    /// Exception safety is INHERITED from the caller: this runs inside <c>ExecuteQuickAction</c>'s
+    /// try/catch. Both failure paths here return after logging rather than throwing, so that catch
+    /// is not exercised today — but if this method is ever called from anywhere else, it needs its
+    /// own guard, or a Win32 fault would escape onto the dispatcher.
+    /// </remarks>
+    private void ExecuteWindowAction(string payload, IntPtr? hwnd)
+    {
+        if (_context == null) return;
+
+        if (!Enum.TryParse<WindowAction>(payload, out var windowAction))
+        {
+            Log.Warning("QuickAction: unknown window action payload '{Payload}'", payload);
+            return;
+        }
+
+        if (hwnd is null)
+        {
+            // Foreground was the shell, this process, zero, or an invalid/destroyed window.
+            Log.Information("Window-action {Action} skipped: no eligible foreground window", windowAction);
+            return;
+        }
+
+        switch (windowAction)
+        {
+            case WindowAction.Minimize:
+                _context.WindowManager.Minimize(hwnd.Value);
+                break;
+            case WindowAction.MaximizeRestore:
+                _context.WindowManager.MaximizeOrRestore(hwnd.Value);
+                break;
+            case WindowAction.Close:
+                if (!_context.WindowManager.CloseWindow(hwnd.Value))
+                    Log.Information("Window-action Close: PostMessage(WM_CLOSE) returned false (UIPI-blocked by elevated foreground?)");
+                break;
+        }
     }
 
     private void UpdateTrackStatusVisibility()

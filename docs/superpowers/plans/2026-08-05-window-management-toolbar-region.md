@@ -1,5 +1,13 @@
 # Window-Management Toolbar Region Implementation Plan
 
+> **SUPERSEDED (2026-08-09).** This plan implemented the three window actions as a region on the
+> fixed auto-hiding toolbar. That surface was removed — the actions now live on the user-customizable
+> Quick Actions toolbar. See `docs/superpowers/plans/2026-08-09-window-actions-quick-actions-migration.md`.
+> Do not execute this plan: `WindowActionRequestedMessage`, `WindowActionButtons`,
+> `SetWindowActionsVisible`, `HandleWindowAction` and the `ShowWindowActions` setting no longer exist.
+> The Win32 layer it specifies (`IWindowManager`, `ForegroundWindowEligibility`, `WindowStateOps`,
+> the P/Invokes) DID ship and is still current.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Minimize, Maximize/Restore, and Close buttons to the existing auto-hiding toolbar, acting on the foreground window.

@@ -1,5 +1,10 @@
 # Design: Window-management actions (gap #2)
 
+> **SUPERSEDED (2026-08-09).** This v1 design put window actions in the action menu; it was replaced
+> by the toolbar-region design (`2026-08-05-window-management-toolbar-region-design.md`), whose
+> placement decision was in turn superseded by the move to the Quick Actions toolbar. See
+> `docs/superpowers/plans/2026-08-09-window-actions-quick-actions-migration.md` for the shipped design.
+
 **Date:** 2026-08-04 · **Status:** Design (pre-implementation) — **revision 5, after four review rounds**
 **Branch:** `feat/window-management-actions` (off `main` @ `b590a87`)
 **Gap source:** `docs/COMPETITIVE_FEATURE_ANALYSIS.md` §Tier-1 #2

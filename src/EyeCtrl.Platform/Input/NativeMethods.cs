@@ -126,7 +126,7 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool AllowSetForegroundWindow(uint dwProcessId);
 
-    // ── Window-management (toolbar window-actions region) ──
+    // ── Window-management (Quick Actions toolbar) ──
 
     [LibraryImport("user32.dll")]
     internal static partial IntPtr GetForegroundWindow();
@@ -172,7 +172,7 @@ internal static partial class NativeMethods
     // ApplicationFrameWindow ghosts) — visible + top-level to EnumWindows but not really shown.
     internal const int DWMWA_CLOAKED = 14;
 
-    // ShowWindow nCmdShow values + WM_CLOSE for the window-actions region.
+    // ShowWindow nCmdShow values + WM_CLOSE for the Quick Actions toolbar's window-management actions.
     internal const int SW_MINIMIZE = 6;
     internal const int SW_MAXIMIZE = 3;
     internal const int SW_RESTORE = 9;

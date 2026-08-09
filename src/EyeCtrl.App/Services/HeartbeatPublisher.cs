@@ -36,6 +36,13 @@ public sealed class HeartbeatPublisher : IDisposable
     /// removes the contention at the source. Defaults to the production name.
     /// </summary>
     private readonly string _pipeName;
+
+    /// <summary>
+    /// How long <see cref="TryReachSupervisor"/> may block the caller. See
+    /// <see cref="DefaultProbeWait"/> for why production uses 500ms and why tests must not.
+    /// </summary>
+    private readonly TimeSpan _probeWait;
+
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
 
     // I1: camelCase JSON to match every other emitter in the codebase AND the supervisor's deserializer.
@@ -80,9 +87,16 @@ public sealed class HeartbeatPublisher : IDisposable
     /// GUID-suffixed name so concurrent test classes never contend for the machine-global
     /// single-instance production name.
     /// </param>
-    public HeartbeatPublisher(bool supervised, string? pipeName = null)
+    /// <param name="probeWait">
+    /// How long <see cref="TryReachSupervisor"/> may block its caller. Defaults to
+    /// <see cref="DefaultProbeWait"/>; tests that assert a *successful* probe pass a generous
+    /// value, because 500ms is a UI-responsiveness budget and not a latency guarantee — see
+    /// <see cref="DefaultProbeWait"/>.
+    /// </param>
+    public HeartbeatPublisher(bool supervised, string? pipeName = null, TimeSpan? probeWait = null)
     {
         _pipeName = pipeName ?? DefaultPipeName;
+        _probeWait = probeWait ?? DefaultProbeWait;
         if (supervised) EnablePublishing();
     }
 
@@ -148,7 +162,7 @@ public sealed class HeartbeatPublisher : IDisposable
     /// announce a shutdown that never arrives — arming the supervisor's 5s clean-exit
     /// deadline and getting a healthy app force-killed.
     ///
-    /// The caller's wait is bounded by <see cref="ProbeWait"/>, not by the 2s connect
+    /// The caller's wait is bounded by <see cref="DefaultProbeWait"/>, not by the 2s connect
     /// timeout: <see cref="AppRestartCoordinator.ShouldOfferSupervisor"/> runs this on the
     /// dispatcher, and a live supervisor answers in single-digit milliseconds. Anything
     /// slower is not a supervisor worth freezing the user's gaze control for — a stale
@@ -172,17 +186,17 @@ public sealed class HeartbeatPublisher : IDisposable
         try
         {
             var send = SendOneAsync(probe, CancellationToken.None);
-            if (send.Wait(ProbeWait))
+            if (send.Wait(_probeWait))
             {
                 return send.Result;
             }
 
             // The probe gave up before the send completed. The send may still fault in the
-            // background (e.g. WriteAsync throwing after connect succeeded but past ProbeWait);
+            // background (e.g. WriteAsync throwing after connect succeeded but past the wait);
             // observe its exception so it can never surface as an unobserved-task exception.
             // SendOneAsync's own connect-timeout branch already observes a connect fault; this
             // covers a fault on the write path that races past the probe's wait. Matches the
-            // doc comment on ProbeWait ("its faulted outcome is observed").
+            // doc comment on DefaultProbeWait ("its faulted outcome is observed").
             _ = send.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
             return false;
         }
@@ -198,8 +212,21 @@ public sealed class HeartbeatPublisher : IDisposable
     /// bring-up poll interval (Task 13). The probe's connect may run past this in the
     /// background — it is bounded by <see cref="ConnectTimeout"/> and its faulted outcome
     /// is observed there — but the caller never waits on it.
+    ///
+    /// <para>This is a UI-responsiveness budget, NOT a latency guarantee, and the difference
+    /// is load-bearing for tests. <see cref="SendOneAsync"/> completes across several
+    /// thread-pool hops (the work item inside <c>ConnectAsync</c>, the <c>WhenAny</c>
+    /// continuation, the write completion); when the pool has no idle worker, each hop waits
+    /// on hill-climbing thread injection — roughly 500ms apiece. Under a starved pool the
+    /// probe therefore reads false while the very same payload still lands ~270ms later
+    /// (diagnostic run, 2026-08-09: probe gave up at 513ms, payload arrived at 774ms). That is
+    /// correct production behaviour — a supervisor that slow is not worth freezing gaze
+    /// control for, and false falls through to self-restart, the safe direction — but it means
+    /// a test asserting a *successful* probe must pass its own generous <c>probeWait</c>
+    /// rather than betting on this number. Two such tests flaked on loaded CI runners before
+    /// the budget was made injectable.</para>
     /// </summary>
-    private static readonly TimeSpan ProbeWait = TimeSpan.FromMilliseconds(500);
+    public static readonly TimeSpan DefaultProbeWait = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
     /// Starts publishing heartbeats, if not already. Idempotent.

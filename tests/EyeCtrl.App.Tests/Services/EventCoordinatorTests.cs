@@ -280,15 +280,27 @@ public class EventCoordinatorTests
         Check.That(fake.LastOp).IsNull();
     }
 
-    [Fact]
-    public void ExecuteWindowAction_UnparseablePayload_NoOps()
+    [Theory]
+    [InlineData("NotAWindowAction")]  // Enum.TryParse fails outright
+    [InlineData("7")]                 // Enum.TryParse SUCCEEDS — undefined member; see the caveat
+    public void ExecuteWindowAction_RejectedPayload_NoOps(string payload)
     {
-        // A corrupt quickactions.json must not fire an arbitrary op.
+        // A corrupt or hand-edited quickactions.json must not fire an arbitrary op. The two cases
+        // reach the guard differently: Enum.TryParse also accepts NUMERIC strings, so "7" parses
+        // true into an undefined WindowAction, and only the Enum.IsDefined half rejects it.
+        //
+        // CAVEAT — this does NOT pin the Enum.IsDefined clause, despite appearances. Verified by
+        // mutation: deleting `|| !Enum.IsDefined(windowAction)` leaves BOTH cases green, because an
+        // undefined value falls through the arm-less switch and fires nothing either way.
+        // IsDefined's only observable effect is the Log.Warning, and nothing in this suite captures
+        // Serilog output. What the "7" case does guard is that no op fires for a numeric payload —
+        // it would catch a regression adding a `default:` arm that did real work, or a switch arm
+        // for an undefined value. Treat IsDefined itself as review-verified, not test-verified.
         var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
         var coord = new EventCoordinator();
         SetContext(coord, MakeContextWithWindowManager(fake));
 
-        InvokeExecuteWindowAction(coord, "NotAWindowAction", new IntPtr(0x1234));
+        InvokeExecuteWindowAction(coord, payload, new IntPtr(0x1234));
 
         Check.That(fake.LastOp).IsNull();
     }

@@ -119,8 +119,8 @@ public class ToolbarViewModelTests
         Check.That(seen[count]).IsEqualTo(seen[0]);
     }
 
-    // The View (ToolbarWindow) renders only four buttons — Pause, SelectionMode, Keyboard,
-    // Settings — and reports each one's real on-screen center via UpdateButtonScreenPosition.
+    // The View (ToolbarWindow) renders five buttons — Pause, SelectionMode, Keyboard, Settings,
+    // ResetAdaptation — and reports each one's real on-screen center via UpdateButtonScreenPosition.
     // The remaining three logical buttons (Calibrate, TaskSwitcher, QuickActions) are never
     // rendered and never positioned, so they must never become live gaze targets. Regression
     // guard for the "(0,0) placeholder" orphan bug: a gaze target created at the origin lets a
@@ -131,10 +131,10 @@ public class ToolbarViewModelTests
         var messenger = new WeakReferenceMessenger();
         var vm = new ToolbarViewModel(_settings, messenger);
 
-        // Simulate the View reporting real positions for the four rendered buttons only
+        // Simulate the View reporting real positions for the five rendered buttons only
         // (as ToolbarWindow.UpdateTargetPositions does once layout completes).
         var awayFromOrigin = new PhysicalPoint(500, 500);
-        foreach (var id in new[] { "Pause", "SelectionMode", "Keyboard", "Settings" })
+        foreach (var id in new[] { "Pause", "SelectionMode", "Keyboard", "Settings", "ResetAdaptation" })
             vm.UpdateButtonScreenPosition(id, awayFromOrigin);
 
         bool unrenderedButtonFired = false;

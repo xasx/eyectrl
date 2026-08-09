@@ -203,7 +203,7 @@ public class EventCoordinator : IEventCoordinator
     /// Executes the user-selected Quick Action, dispatching by <see cref="QuickActionType"/>.
     /// Errors are caught and logged so a failing action never tears down the gaze thread.
     /// </summary>
-    private void ExecuteQuickAction(QuickAction action, IntPtr? windowActionHwnd = null)
+    private void ExecuteQuickAction(QuickAction action, IntPtr? windowActionHwnd)
     {
         if (_context == null) return;
         try
@@ -332,16 +332,16 @@ public class EventCoordinator : IEventCoordinator
     /// <param name="payload">The <see cref="WindowAction"/> enum member name from the stored action.</param>
     /// <param name="hwnd">The eligible foreground window, or null if none was eligible.</param>
     /// <remarks>
-    /// Exception safety is INHERITED from the caller: this runs inside <c>ExecuteQuickAction</c>'s
-    /// try/catch. Both failure paths here return after logging rather than throwing, so that catch
-    /// is not exercised today — but if this method is ever called from anywhere else, it needs its
-    /// own guard, or a Win32 fault would escape onto the dispatcher.
+    /// Runs inside <c>ExecuteQuickAction</c>'s try/catch; a caller from anywhere else would need its own guard.
     /// </remarks>
     private void ExecuteWindowAction(string payload, IntPtr? hwnd)
     {
         if (_context == null) return;
 
-        if (!Enum.TryParse<WindowAction>(payload, out var windowAction))
+        // Enum.TryParse also accepts numeric strings, so a corrupt payload like "7" would parse into
+        // an undefined WindowAction, fall through the switch and no-op silently. IsDefined keeps the
+        // single diagnostic below as the only exit for anything unroutable.
+        if (!Enum.TryParse(payload, out WindowAction windowAction) || !Enum.IsDefined(windowAction))
         {
             Log.Warning("QuickAction: unknown window action payload '{Payload}'", payload);
             return;

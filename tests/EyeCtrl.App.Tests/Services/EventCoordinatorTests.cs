@@ -357,8 +357,9 @@ public class EventCoordinatorTests
     [Fact]
     public void ExecuteWindowAction_NullHwnd_NoOps()
     {
-        // Fail-closed: the caller resolved no eligible foreground window.
-        var fake = new FakeWindowActionManager { EligibleHwnd = null };
+        // Fail-closed: the caller resolved no eligible foreground window. EligibleHwnd is set even
+        // though the method never reads it — the null ARGUMENT must win regardless.
+        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
         var coord = new EventCoordinator();
         SetContext(coord, MakeContextWithWindowManager(fake));
 
@@ -392,6 +393,27 @@ public class EventCoordinatorTests
 
         InvokeExecuteWindowAction(coord, "Close", new IntPtr(0x1234));
 
+        Check.That(fake.EligibilityQueries).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ExecuteQuickAction_WindowAction_ForwardsTheResolvedHwnd()
+    {
+        // EligibleHwnd = null proves the passed argument wins — if the arm ever re-resolved
+        // instead of forwarding, LastOp would stay null.
+        var fake = new FakeWindowActionManager { EligibleHwnd = null };
+        var coord = new EventCoordinator();
+        SetContext(coord, MakeContextWithWindowManager(fake));
+
+        typeof(EventCoordinator)
+            .GetMethod("ExecuteQuickAction", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(coord, new object?[]
+            {
+                new QuickAction { Type = QuickActionType.WindowAction, Label = "test", Payload = "Minimize" },
+                new IntPtr(0x1234)
+            });
+
+        Check.That(fake.LastOp).IsEqualTo(WindowAction.Minimize);
         Check.That(fake.EligibilityQueries).IsEqualTo(0);
     }
 

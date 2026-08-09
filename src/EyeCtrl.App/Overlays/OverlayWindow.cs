@@ -67,6 +67,12 @@ public class OverlayWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+
+        // This is the ONLY place every overlay gets its interaction flags. A subclass constructor
+        // cannot do it — SetOverlayInteraction early-returns until the HWND exists, and the HWND
+        // is not created until Show(). The focusable:false here is what gives all overlays
+        // WS_EX_NOACTIVATE, i.e. what stops them stealing the foreground; do not weaken it
+        // without checking the callers that resolve the user's real foreground window.
         SetOverlayInteraction(clickThrough: IsClickThrough, focusable: false);
 
         if (ExcludeFromScreenCapture)

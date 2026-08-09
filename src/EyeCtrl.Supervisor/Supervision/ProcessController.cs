@@ -47,6 +47,7 @@ public sealed class ProcessController
         var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
         if (paused) psi.ArgumentList.Add("--paused");
         _process = _processFactory(psi);
+        StartTimeUtc = _process?.StartTime;
     }
 
     /// <summary>
@@ -57,6 +58,7 @@ public sealed class ProcessController
         ReleasePrevious();
         KillInitiated = false;
         _process = _adoptFactory(pid);
+        StartTimeUtc = _process?.StartTime;
         return _process != null;
     }
 

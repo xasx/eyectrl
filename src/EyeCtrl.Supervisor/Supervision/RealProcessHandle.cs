@@ -8,24 +8,31 @@ using System.Diagnostics;
 internal sealed class RealProcessHandle : IProcessHandle
 {
     private readonly Process _handle;
-
-    private readonly Action _raiseExited;
+    private readonly EventHandler _raiseExited;
 
     public RealProcessHandle(Process process)
     {
         _handle = process;
-        _raiseExited = () => Exited?.Invoke();
+        _raiseExited = (_, _) => Exited?.Invoke();
         _handle.EnableRaisingEvents = true;
-        _handle.Exited += (_, _) => _raiseExited();
+        _handle.Exited += _raiseExited;
     }
 
     public int Id => _handle.Id;
     public bool HasExited => _handle.HasExited;
+    public DateTime? StartTime
+    {
+        get
+        {
+            try { return _handle.StartTime.ToUniversalTime(); }
+            catch { return null; }
+        }
+    }
     public event Action? Exited;
     public void Kill(bool entireProcessTree) => _handle.Kill(entireProcessTree);
     public void Dispose()
     {
-        _handle.Exited -= (_, _) => _raiseExited();
+        _handle.Exited -= _raiseExited;
         _handle.Dispose();
     }
 }

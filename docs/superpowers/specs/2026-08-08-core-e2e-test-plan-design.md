@@ -13,11 +13,20 @@ screen coordinate.
 
 The existing end-to-end layer is `tests/EyeCtrl.App.Tests`, using FlaUI + UIA3, gated
 behind `[Trait("Category", "UI")]` and the `EYECTRL_UI_TESTS=1` opt-in
-(`tests/EyeCtrl.App.Tests/Fixtures/AppFixture.cs:44`). It is five classes and thirteen
-tests, and every assertion is structural: a window exists, the toolbar has four buttons,
-the cursor circle has an ellipse, a dwell toggles pause, the settings window has eight
-tabs. Useful as a smoke layer. It says nothing about clicks, coordinates, typing, drag,
-or scroll.
+(`tests/EyeCtrl.App.Tests/Fixtures/AppFixture.cs:44`). It is six classes and seventeen
+test methods (`AppLaunchTests` 4, `AppStartupSafetyTests` 3, `KeyboardTests` 3,
+`SettingsTests` 3, `EyeCareHooksTests` 2, `ToolbarTests` 2), and every assertion is
+structural: a window exists, the toolbar renders an expected set of buttons, the cursor
+circle has an ellipse, a dwell toggles pause, the settings window has a given number of
+tabs. Useful as a smoke layer. It says nothing about clicks, coordinates, typing, drag, or
+scroll.
+
+Because these tests are skipped unless `EYECTRL_UI_TESTS=1`, their expectations rot
+silently. Two were already stale when this plan was written: the toolbar button count (see
+§ tier 2) and `SettingsTests.SettingsWindow_HasEightTabs`, which still expects eight while
+`SettingsWindow._tabDefs` declares eleven
+(`src/EyeCtrl.App/Views/SettingsWindow.xaml.cs:167-178`). Treat every existing `Category=UI`
+expectation as unverified until it has been run.
 
 Two absences matter most for a daily driver:
 
@@ -63,17 +72,36 @@ and it is resolved in two layers that can disagree.
 | `ActionMenuVisible` otherwise | `FixationPoint` |
 | `ManualSelectionActionMenuVisible` | `ManualSelectionDwellPoint` |
 
-Then `EventCoordinator.HandleActionRequested` **overrides** it
+A **third** component decides whether that choice survives.
+`GazeEngineAdapter.OnActionRequested` computes the `IsPreciseTarget` flag
+(`src/EyeCtrl.App/Services/GazeEngineAdapter.cs:196-201`):
+
+```csharp
+var isPrecise = _interactionManager.CurrentState == InteractionState.ManualSelectionActionMenuVisible
+             || (_interactionManager.CurrentState == InteractionState.ActionMenuVisible
+                 && _interactionManager.SelectionMode == SelectionMode.AutoSelection);
+```
+
+Then `EventCoordinator.HandleActionRequested` applies it
 (`src/EyeCtrl.App/Services/EventCoordinator.cs:1374`):
 
 ```csharp
 var pt = msg.IsPreciseTarget ? msg.Point : (_context.GazeEngine.StableCentroid ?? msg.Point);
 ```
 
-So for the non-precise path the click uses `GazeEngine.StableCentroid`, discarding the
-`FixationPoint` the state machine chose. The two are computed by different components
-from different histories. Whether they agree in practice is an open question that only
-an end-to-end coordinate assertion can answer.
+Combining all three, the click point by selection mode is:
+
+| `SelectionMode` | `IsPreciseTarget` | Click lands at |
+|---|---|---|
+| `ManualSelection` | true | `ManualSelectionDwellPoint` — the precise dwell |
+| `AutoSelection` | true | `AutoSelectionTarget.CenterPoint` — the snapped control centre |
+| `None` | **false** | **`GazeEngine.StableCentroid`** — *not* `FixationPoint` |
+
+So `None` is the only mode where the override fires, and it discards the `FixationPoint`
+the state machine chose in favour of a centroid computed by a different component from a
+different history. Whether the two agree in practice is an open question that only an
+end-to-end coordinate assertion can answer — and it is the reason J1 below asserts against
+the centroid rather than the fixation point.
 
 ## Architecture
 
@@ -132,11 +160,11 @@ startup".
 
 | # | Journey | Asserts | Pins |
 |---|---|---|---|
-| J1 | Left click, `SelectionMode=None` | Exactly one LeftDown/LeftUp pair at the fixation point | The flagship path |
-| J2 | As J1, but the gaze path to the radial button is far from the target | Click still lands at the fixation point, not at the menu button | `StableCentroid` override, EventCoordinator:1374 |
-| J3 | Right click / double click | RightDown+RightUp; two Left pairs within the system double-click time | EventCoordinator:1394-1395 |
-| J4 | `AutoSelection`, gaze deliberately off-centre of a UIA button | Click lands at the **control centre**, not the gaze point | InteractionManager:135-136 |
-| J5 | `ManualSelection` zoom → precise dwell → click | Click lands at `ManualSelectionDwellPoint`, *not* overridden by `StableCentroid` | The `IsPreciseTarget=true` branch |
+| J1 | Left click, `SelectionMode=None` | Exactly one LeftDown/LeftUp pair, at `StableCentroid` — and record how far that is from `FixationPoint` | The flagship path + the override |
+| J2 | As J1, but the gaze path to the radial button is far from the target | Click lands on the intended target, not at the menu button — i.e. the centroid tracked the target, not the menu traversal | `StableCentroid` override, EventCoordinator:1374 |
+| J3 | Right click / double click | RightDown+RightUp; and the target reports a genuine **double-click**, not two singles | EventCoordinator:1394-1395 + Win32InputSimulator:50-54 |
+| J4 | `AutoSelection`, gaze deliberately off-centre of a UIA button | Click lands at the **control centre**, and is *not* replaced by the centroid | InteractionManager:135-136 + `IsPreciseTarget=true` |
+| J5 | `ManualSelection` zoom → precise dwell → click | Click lands at `ManualSelectionDwellPoint`, *not* overridden by `StableCentroid` | The other `IsPreciseTarget=true` branch |
 | J6 | Drag | LeftDown at origin, movement, LeftUp at destination | EventCoordinator:832 + `InteractionManager.CompleteDrag` |
 | J7 | Scroll mode (joystick) | Wheel events at the anchor with correct sign, and they **stop on exit** | `ScrollWorker` |
 | J8 | Discrete ScrollUp/Down/Left/Right | Wheel and h-wheel deltas with correct sign | EventCoordinator:1397-1400 |
@@ -147,13 +175,25 @@ startup".
 J10 and J11 are the highest-value tests in the set and the two that must not be dropped
 for schedule.
 
+J3's double-click assertion is sharper than it looks. `Win32InputSimulator.DoubleClick` is
+literally two back-to-back `LeftClick` calls with no timing control at all
+(`src/EyeCtrl.Platform/Input/Win32InputSimulator.cs:50-54`) — nothing consults
+`GetDoubleClickTime`, and nothing guarantees the pair falls inside it once dwell, dispatch
+and `SendInput` latency are in the path. Whether the OS actually registers a double-click is
+therefore an open empirical question, not an implementation detail. Assert on the target
+receiving a genuine double-click, not on two single clicks arriving.
+
 ### Coordinate tolerance
 
-`SendInput` normalises to a 0–65535 grid and `DpiHelper` scaling sits in the path, so
-assertions use a tolerance rather than exact equality. **Start at ±2 physical pixels and
-pin the real figure from the first green run.** Do not encode a tolerance that has not
-been observed; if the true error is larger, that is a finding about the pipeline, not a
-number to quietly widen.
+`Win32InputSimulator` maps through `IMouseCoordinateMapper` and normalises to a 0–65535
+absolute grid (`src/EyeCtrl.Platform/Input/Win32InputSimulator.cs:218`), so a round trip is
+lossy at the sub-pixel level and assertions need a tolerance rather than exact equality.
+(`DpiHelper` is *not* in the simulator path — it appears nowhere in that file. Scaling
+enters earlier, where physical points are produced.)
+
+**Start at ±2 physical pixels and pin the real figure from the first green run.** Do not
+encode a tolerance that has not been observed; if the true error is larger, that is a
+finding about the pipeline, not a number to quietly widen.
 
 ## Tier 2 breadth
 
@@ -204,9 +244,13 @@ in the same host having populated `Application.Current.Resources`.
 
 ### Verified baseline
 
-Recorded from an actual run, not derived. `dotnet test --filter "Category!=UI"` at commit
-`c1ad9bb`, Debug, on a quiet box (no competing `dotnet`/`testhost`/`EyeCtrl` processes),
-2026-08-08. Exit code 0, ~25 s wall clock.
+Recorded from an actual run, not derived. `dotnet test --filter "Category!=UI"`, Debug, on
+a quiet box (no competing `dotnet`/`testhost`/`EyeCtrl` processes), 2026-08-08. Exit code 0,
+~25 s wall clock.
+
+The run was made on `c1ad9bb`, a commit on the local `main` that is **not** an ancestor of
+this branch — it was cherry-picked here as `22f12b3`, which carries identical content. Cite
+`22f12b3` when working from this branch; `c1ad9bb` will not resolve in its history.
 
 | Assembly | Passed | Skipped | Failed |
 |---|---:|---:|---:|

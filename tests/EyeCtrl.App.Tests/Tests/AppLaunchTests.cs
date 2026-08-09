@@ -36,18 +36,18 @@ public class AppLaunchTests
     }
 
     [Fact]
-    public void Toolbar_HasEightButtons()
+    public void Toolbar_HasFiveButtons()
     {
         var toolbar = _fixture.FindWindow("Toolbar_Window");
         Check.That(toolbar).IsNotNull();
 
         var buttons = _fixture.FindElements(toolbar!, "Toolbar_Button_");
 
-        // ToolbarWindow.Initialize renders exactly eight buttons (Pause, SelectionMode, Keyboard,
-        // Settings, ResetAdaptation, plus Minimize/MaximizeRestore/Close when ShowWindowActions=true,
-        // which is the default); the optional provider indicator carries no "Toolbar_Button_"
-        // AutomationId, so it is not counted here.
-        Check.That(buttons.Length).IsEqualTo(8);
+        // ToolbarWindow.Initialize renders exactly five buttons (Pause, SelectionMode, Keyboard,
+        // Settings, ResetAdaptation); the optional provider indicator carries no "Toolbar_Button_"
+        // AutomationId, so it is not counted here. The window-action trio moved to the Quick
+        // Actions toolbar (2026-08-09 migration).
+        Check.That(buttons.Length).IsEqualTo(5);
     }
 
     [Fact]
@@ -57,18 +57,14 @@ public class AppLaunchTests
         Check.That(toolbar).IsNotNull();
 
         // Must match the ids rendered by ToolbarWindow.Initialize (AutomationId = Toolbar_Button_{id}).
-        // Order matches the View's buttons array; Minimize/MaximizeRestore/Close are gated by
-        // ShowWindowActions=true (the default).
+        // Order matches the View's buttons array.
         var expectedIds = new[]
         {
             "Toolbar_Button_Pause",
             "Toolbar_Button_SelectionMode",
             "Toolbar_Button_Keyboard",
             "Toolbar_Button_Settings",
-            "Toolbar_Button_ResetAdaptation",
-            "Toolbar_Button_Minimize",
-            "Toolbar_Button_MaximizeRestore",
-            "Toolbar_Button_Close"
+            "Toolbar_Button_ResetAdaptation"
         };
 
         foreach (var id in expectedIds)

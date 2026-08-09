@@ -20,11 +20,74 @@ using Xunit;
 /// methods concurrently; a unique name per test instance removes the
 /// <c>IOException: All pipe instances are busy</c> contention at the source, with no
 /// dependence on xUnit's collection-parallelism controls (which proved unreliable on CI).
-/// The collection is retained only to group the related classes.
+/// The collection also carries <see cref="ThreadPoolFloorFixture"/>, which every pipe test depends
+/// on to reach the wire at all — see that type for why.
 /// </summary>
 [CollectionDefinition("HeartbeatPipe")]
-public sealed class HeartbeatPipeCollection
+public sealed class HeartbeatPipeCollection : ICollectionFixture<ThreadPoolFloorFixture>
 {
+}
+
+/// <summary>
+/// Raises the thread-pool minimum-worker floor for the test process.
+///
+/// <para>Every send in <see cref="HeartbeatPublisher"/> needs a pool WORKER before a single byte
+/// reaches the pipe: <c>NamedPipeClientStream.ConnectAsync</c> queues the blocking connect as a
+/// work item. At the stock floor a pool whose workers are all busy grows only by hill-climbing
+/// injection — roughly one thread per 500ms — so that one work item can sit in the global queue
+/// for seconds. <see cref="HeartbeatPublisher.SignalShuttingDown"/> gives its flush 2s and
+/// <see cref="HeartbeatPublisher.TryReachSupervisor"/> gives its probe <c>probeWait</c>; past
+/// that the payload is abandoned, and no assertion about what reached the wire can hold.</para>
+///
+/// <para>That is what turned <c>SignalShuttingDown_WithRestart_PutsBothFlagsOnTheWire</c> red on a
+/// docs-only commit (CI run 31339802092, "no payload arrived on the pipe"): the suite's eleven test
+/// assemblies run concurrently on one hosted runner, and the pipe never saw a connection inside the
+/// test's 5s window — on a commit that touched only AGENTS.md and CLAUDE.md, so nothing about the
+/// product had changed. The
+/// exposure was predicted when the probe budget was made injectable — the residual noted there was
+/// "a stall long enough to push the connect past ConnectTimeout still makes the send report false
+/// ... the same exposure the never-flaking SignalShuttingDown tests carry".</para>
+///
+/// <para>Measured under a deliberately starved pool (512 blocking work items queued to the GLOBAL
+/// queue from a non-pool thread, <c>DOTNET_PROCESSOR_COUNT=2</c>, 2026-08-10): the connect completes
+/// at ~700ms at the stock floor versus ~21ms with the floor raised — 33x lower, leaving two orders
+/// of magnitude of headroom under the 2s flush budget, from one process-wide setting. Capping the
+/// pool's MAXIMUM instead (the same harness with <c>SetMaxThreads(2, 2)</c>) reproduces the CI
+/// failure exactly and deterministically — <c>WaitForConnection TIMED OUT</c>, payload null, 3 of 3
+/// runs — which is what identified the connect work item as the thing being starved.</para>
+///
+/// <para>This relaxes nothing the tests check and moves no production budget: the flush stays at
+/// 2s, and <see cref="HeartbeatPublisher.DefaultProbeWait"/> stays at 500ms (pinned by
+/// <c>DefaultProbeWait_StaysAtTheUiResponsivenessBudget</c>). It removes an artefact of the test
+/// host — a pool starved by hundreds of unrelated concurrent tests — that the app does not have,
+/// because production calls these methods from the WPF dispatcher of a process that is not running
+/// a test suite.</para>
+///
+/// <para>A floor is not a reservation: the pool creates a worker only when work is queued and no
+/// worker is idle, so the value below caps demand-driven growth rather than starting threads.</para>
+/// </summary>
+public sealed class ThreadPoolFloorFixture
+{
+    /// <summary>Workers the pool may create on demand before hill-climbing throttles growth.</summary>
+    public const int Floor = 128;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ThreadPoolFloorFixture"/> class, raising the
+    /// pool floor. Throws rather than degrading quietly: if the floor is not in effect the pipe
+    /// tests are back to betting on thread injection, and the failure to look at is this one — not
+    /// a payload that mysteriously never arrived.
+    /// </summary>
+    public ThreadPoolFloorFixture()
+    {
+        ThreadPool.GetMinThreads(out var workers, out var completionPorts);
+        // Never lower an existing floor: another fixture may have raised it further.
+        if (!ThreadPool.SetMinThreads(Math.Max(workers, Floor), Math.Max(completionPorts, Floor)))
+        {
+            throw new InvalidOperationException(
+                $"Could not raise the thread-pool floor to {Floor}; the heartbeat pipe tests would " +
+                "be left racing hill-climbing thread injection.");
+        }
+    }
 }
 
 /// <summary>
@@ -80,6 +143,18 @@ public class HeartbeatRestartPayloadTests
         using var reader = new StreamReader(server, Encoding.UTF8);
         var line = await reader.ReadLineAsync();
         return line is null ? null : JsonSerializer.Deserialize<HeartbeatPayload>(line, JsonOptions);
+    }
+
+    [Fact]
+    public void ThreadPoolFloor_IsInEffect_ForThisCollection()
+    {
+        // Drift guard, not a tautology: the floor is what keeps every other test in this file off
+        // hill-climbing thread injection (see ThreadPoolFloorFixture). The fixture throws if it
+        // cannot apply the floor, but nothing else would notice if the collection stopped
+        // declaring ICollectionFixture at all — and the symptom then is a payload that
+        // intermittently never arrives, which reads as a product bug rather than a lost fixture.
+        ThreadPool.GetMinThreads(out var workers, out _);
+        Check.That(workers).IsGreaterOrEqualThan(ThreadPoolFloorFixture.Floor);
     }
 
     [Fact]

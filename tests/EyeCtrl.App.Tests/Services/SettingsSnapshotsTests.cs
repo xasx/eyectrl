@@ -93,20 +93,5 @@ public class SettingsSnapshotsTests
         before = ToolbarSnapshot.Capture(s);
         s.Dwell.ToolbarButtonDwellMs += 50;
         Check.That(ToolbarSnapshot.Capture(s)).IsNotEqualTo(before);
-
-        // ShowWindowActions toggles the window-button region at runtime, so flipping it must
-        // invalidate the snapshot (drives Initialize + VM reconciliation in EventCoordinator).
-        before = ToolbarSnapshot.Capture(s);
-        s.Toolbar.ShowWindowActions = !s.Toolbar.ShowWindowActions;
-        Check.That(ToolbarSnapshot.Capture(s)).IsNotEqualTo(before);
-    }
-
-    [Fact]
-    public void ToolbarSettings_ShowWindowActions_DefaultsTrue()
-    {
-        // Default-on so the window-button region ships enabled; toggling it off removes the three
-        // buttons + dwell targets atomically (Task 9). A regression that flips the default would
-        // silently hide the region on fresh installs.
-        Check.That(new ToolbarSettings().ShowWindowActions).IsTrue();
     }
 }

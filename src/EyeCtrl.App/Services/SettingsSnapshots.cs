@@ -37,8 +37,8 @@ public sealed record KeyboardStackSnapshot(
         s.Dwell.DwellCooldownMs);
 }
 
-public sealed record ToolbarSnapshot(double Size, bool IsDocked, string DockedEdge, int ToolbarButtonDwellMs, bool ShowWindowActions)
+public sealed record ToolbarSnapshot(double Size, bool IsDocked, string DockedEdge, int ToolbarButtonDwellMs)
 {
     public static ToolbarSnapshot Capture(EyeCtrlSettings s) =>
-        new(s.Toolbar.Size, s.Toolbar.IsDocked, s.Toolbar.DockedEdge, s.Dwell.ToolbarButtonDwellMs, s.Toolbar.ShowWindowActions);
+        new(s.Toolbar.Size, s.Toolbar.IsDocked, s.Toolbar.DockedEdge, s.Dwell.ToolbarButtonDwellMs);
 }

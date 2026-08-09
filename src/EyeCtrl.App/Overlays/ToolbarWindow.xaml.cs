@@ -29,15 +29,14 @@ public partial class ToolbarWindow : OverlayWindow
         InitializeComponent();
     }
 
-    public void Initialize(double buttonSize, int dwellTimeMs, bool showWindowActions)
+    public void Initialize(double buttonSize, int dwellTimeMs)
     {
         _buttonSize = buttonSize;
         _buttonVisuals.Clear();
         ButtonPanel.Children.Clear();
         _targetsInitialized = false;
 
-        // id + symbol (Unicode). The window-actions region ids + glyphs come from the single
-        // source of truth in WindowActionButtons so the View and VM never drift apart.
+        // id + symbol (Unicode)
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause",    "\u23F8"),    // ⏸ Pause
@@ -46,15 +45,9 @@ public partial class ToolbarWindow : OverlayWindow
             ("Settings", "\u2699"),    // ⚙ Gear
             ("ResetAdaptation", "\u21BA"),  // ↺ Reset struggle-adaptation (§8.6 always-reachable escape)
         };
-        if (showWindowActions)
-            buttons = buttons.Concat(WindowActionButtons.All).ToArray();
 
         foreach (var (id, symbol) in buttons)
         {
-            // The window-actions region is excluded from the array above when ShowWindowActions is
-            // off, removing it from the View here. The VM drops their dwell targets in
-            // SetWindowActionsVisible — both halves are required or a removed Close stays
-            // dwellable at its last screen position (the hidden-toolbar hazard).
             AddButton(id, symbol);
         }
 
@@ -257,12 +250,11 @@ public partial class ToolbarWindow : OverlayWindow
     {
         if (DataContext is not ToolbarViewModel vm) return;
 
-        // Bind every button currently in the VM (the startup set) — once. Subsequent add/remove
-        // mutations from SetWindowActionsVisible flow through CollectionChanged below, which binds
-        // newly-added buttons and unbinds removed ones. This is the fix for the rebind problem
-        // (round-1/round-2 MAJOR): a fresh ToolbarButtonViewModel created by toggle-on would
-        // render and dwell but never update its progress bar, because nobody re-subscribed
-        // PropertyChanged after the prior toggle-off removed it from vm.Buttons.
+        // Bind every button currently in the VM (the startup set) — once. Any later add/remove
+        // mutation of vm.Buttons flows through CollectionChanged below, which binds newly-added
+        // buttons and unbinds removed ones, so a freshly-created ToolbarButtonViewModel always
+        // gets its PropertyChanged subscription (otherwise it would render and dwell but never
+        // update its progress bar).
         foreach (var btn in vm.Buttons)
             BindButton(btn);
 
@@ -271,9 +263,9 @@ public partial class ToolbarWindow : OverlayWindow
 
     private void OnButtonsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        // Drives off the VM's own add/remove in SetWindowActionsVisible. On Add we bind the
-        // freshly-created button; on Remove we drop it from _boundIds so a later re-add (with a
-        // new ToolbarButtonViewModel instance) re-subscribes instead of being silently skipped.
+        // Drives off the VM's own add/remove on Buttons. On Add we bind the freshly-created
+        // button; on Remove we drop it from _boundIds so a later re-add (with a new
+        // ToolbarButtonViewModel instance) re-subscribes instead of being silently skipped.
         if (e.Action == NotifyCollectionChangedAction.Reset)
         {
             _boundIds.Clear();
@@ -306,8 +298,7 @@ public partial class ToolbarWindow : OverlayWindow
 
         // Apply current symbol so the initial label/background match the actual mode (the
         // ViewModel may already have received the startup SelectionModeChangedMessage before
-        // BindToViewModel is called, or — for a re-added window-action button — carry the
-        // post-toggle state).
+        // BindToViewModel is called, or a re-added button may carry post-mutation state).
         if (_buttonVisuals.TryGetValue(id, out var currentVisuals))
         {
             currentVisuals.Label.Text = btn.Symbol;

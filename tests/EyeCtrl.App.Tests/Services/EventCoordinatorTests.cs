@@ -194,7 +194,7 @@ public class EventCoordinatorTests
     /// <summary>
     /// Builds a context whose <see cref="EventCoordinationContext.WindowManager"/> is the given fake
     /// (mirrors how <see cref="MakeContext"/> overrides the simulator). All other dependencies stay
-    /// null! — only enough to exercise <c>HandleWindowAction</c>.
+    /// null! — only enough to exercise <c>ExecuteWindowAction</c>.
     /// </summary>
     private static EventCoordinationContext MakeContextWithWindowManager(IWindowManager windowManager)
     {
@@ -243,93 +243,6 @@ public class EventCoordinatorTests
         typeof(EventCoordinator)
             .GetMethod("ExecuteKeyboardShortcut", BindingFlags.NonPublic | BindingFlags.Instance)!
             .Invoke(coordinator, new object[] { chord });
-    }
-
-    // Mirror the reflection pattern used by ExecuteKeyboardShortcut / ExecuteMediaControl above.
-    private static void InvokeHandleWindowAction(EventCoordinator coordinator, WindowAction action)
-    {
-        typeof(EventCoordinator)
-            .GetMethod("HandleWindowAction", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .Invoke(coordinator, new object[] { action });
-    }
-
-    [Theory]
-    [InlineData(WindowAction.Minimize)]
-    [InlineData(WindowAction.MaximizeRestore)]
-    [InlineData(WindowAction.Close)]
-    public void HandleWindowAction_RoutesToTheRightOp(WindowAction action)
-    {
-        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
-        var coord = new EventCoordinator();
-        SetContext(coord, MakeContextWithWindowManager(fake));
-
-        InvokeHandleWindowAction(coord, action);
-
-        Check.That(fake.LastOp).IsEqualTo(action);
-        Check.That(fake.EligibilityQueries).IsEqualTo(1);
-    }
-
-    [Fact]
-    public void HandleWindowAction_IneligibleForeground_NoOpsAndLogs()
-    {
-        var fake = new FakeWindowActionManager { EligibleHwnd = null };
-        var coord = new EventCoordinator();
-        SetContext(coord, MakeContextWithWindowManager(fake));
-
-        InvokeHandleWindowAction(coord, WindowAction.Close);
-
-        Check.That(fake.LastOp).IsNull();
-    }
-
-    /// <summary>
-    /// Pins the spec §4 BLOCKER A.1 fix at the method level: the foreground HWND is queried exactly
-    /// once, synchronously, at op-fire time. A deferred re-query would let the foreground change
-    /// between dwell completion and the query.
-    /// </summary>
-    [Fact]
-    public void HandleWindowAction_QueriesForegroundOnce_Synchronously()
-    {
-        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
-        var coord = new EventCoordinator();
-        SetContext(coord, MakeContextWithWindowManager(fake));
-
-        InvokeHandleWindowAction(coord, WindowAction.Minimize);
-
-        Check.That(fake.EligibilityQueries).IsEqualTo(1);
-    }
-
-    /// <summary>
-    /// Pins the spec §4 BLOCKER A.1 fix end-to-end through the REAL messenger path: drives the
-    /// production <see cref="EventCoordinator.Initialize"/> so the WindowActionRequestedMessage
-    /// registration under test is the one in production (not a copy). The registration has NO
-    /// BeginInvoke, so the handler fires inline during Send → fake.LastOp is set before Send
-    /// returns. If a BeginInvoke is re-introduced into the registration, the handler queues a
-    /// dispatcher hop that never pumps in a unit test, fake.LastOp stays null, and this test fails.
-    ///
-    /// CAVEAT: Initialize touches live overlay windows / VMs that are null! in MakeContext and NRE
-    /// long before reaching the registration. If Initialize can't be driven in isolation (the brief's
-    /// admitted-uncertainty), this test is skipped via Skip and the §9 contract falls back to
-    /// <see cref="HandleWindowAction_QueriesForegroundOnce_Synchronously"/> (method-level query
-    /// count) + design review of the registration line. See task-5-report.md for the observed
-    /// outcome. The Skip reason is the fallback signal.
-    /// </summary>
-    [Fact(Skip = "Initialize NREs at ScrollModeController..ctor (null! context member) before reaching the " +
-        "registration; the production setup method can't be driven in isolation. §9 falls back to " +
-        "HandleWindowAction_QueriesForegroundOnce_Synchronously (method-level query count) + design " +
-        "review of the registration line. See task-5-report.md.")]
-    public void WindowActionRecipient_IsSynchronous_FiresBeforeSendReturns()
-    {
-        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
-        var messenger = new WeakReferenceMessenger();
-        var coord = new EventCoordinator();
-
-        // Drive the REAL Initialize (contains the production registration). SetContext is NOT used —
-        // Initialize assigns _context itself.
-        coord.Initialize(MakeContextWithWindowManager(fake) with { Messenger = messenger });
-
-        messenger.Send(new WindowActionRequestedMessage(WindowAction.Minimize));
-
-        Check.That(fake.LastOp).IsEqualTo(WindowAction.Minimize);
     }
 
     private static void InvokeExecuteWindowAction(EventCoordinator coordinator, string payload, IntPtr? hwnd)

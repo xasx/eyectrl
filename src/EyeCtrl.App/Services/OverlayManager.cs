@@ -104,7 +104,7 @@ public class OverlayManager : IOverlayManager
 
         // Initialize overlays with their specific APIs
         CursorCircle.UpdateAppearance(settings.Cursor);
-        Toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs, settings.Toolbar.ShowWindowActions);
+        Toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
         Toolbar.SetProviderIndicator(providerType);
 
         // Track status overlay (click-through, top-right). Capability-gated inside the VM.

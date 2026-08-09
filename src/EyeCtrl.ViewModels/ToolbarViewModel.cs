@@ -70,9 +70,6 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         _buttonDwellRadiusPhysical = DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2);
         _toolbarButtonDwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
-        // Core (always-on) buttons. The window-actions region (Minimize/MaximizeRestore/Close) is
-        // appended from the single source of truth in WindowActionButtons only when the setting is
-        // on, so Buttons matches what the View actually renders at startup.
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause", "\u23F8"),
@@ -84,8 +81,6 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             ("QuickActions", "\u26A1"),  // ⚡
             ("ResetAdaptation", "\u21BA"),  // ↺ reset struggle-adaptation to baseline (§8.6 escape)
         };
-        if (settings.Toolbar.ShowWindowActions)
-            buttons = buttons.Concat(WindowActionButtons.All).ToArray();
 
         foreach (var (id, symbol) in buttons)
         {
@@ -160,50 +155,6 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// <summary>For testing: simulate a button activation without gaze dwell.</summary>
     public void SimulateButtonActivated(string buttonId) => OnTargetActivated(buttonId);
 
-    // The three window-action region buttons gated by ShowWindowActions. The ids + glyphs live in
-    // WindowActionButtons (single source of truth) so the ctor, SetWindowActionsVisible, and the
-    // View all agree on region membership and symbols.
-    private static readonly HashSet<string> WindowActionIds = WindowActionButtons.Ids;
-
-    /// <summary>
-    /// Adds or removes the three window-action buttons (and their dwell targets) at runtime.
-    /// Removal is atomic per id: DwellTarget + _positionedButtons + _buttonLookup + Buttons,
-    /// else an invisible Close stays dwellable at its last screen position (the hidden-toolbar
-    /// hazard — same shape as Task 7's auto-hide gate, here applied to a per-id region removal).
-    /// Called from EventCoordinator AFTER the View has rebuilt for the new button set, so the
-    /// VM mutation runs against the post-rebuild state. The View's Buttons.CollectionChanged
-    /// handler binds the freshly-created ToolbarButtonViewModel instances.
-    /// </summary>
-    public void SetWindowActionsVisible(bool visible)
-    {
-        foreach (var id in WindowActionIds)
-        {
-            if (visible)
-            {
-                if (_buttonLookup.ContainsKey(id)) continue; // already present
-                var btn = new ToolbarButtonViewModel(id, symbol: WindowActionButtons.SymbolFor(id));
-                Buttons.Add(btn);
-                _buttonLookup[id] = btn;
-                // _positionedButtons is deliberately NOT pre-populated — the target is created
-                // lazily when the View reports the position (same pattern as the ctor), so a
-                // not-yet-rendered region button cannot be dwell-activated from a stale position.
-            }
-            else
-            {
-                // Atomic per-id removal across all four bookkeeping items. Order matters only in
-                // that Buttons.Remove fires CollectionChanged last so the View's unbind handler
-                // runs against a button whose target is already gone.
-                if (_buttonLookup.TryGetValue(id, out var btn))
-                {
-                    Buttons.Remove(btn);
-                    _buttonLookup.Remove(id);
-                }
-                _positionedButtons.Remove(id);
-                DwellDetector.RemoveTarget(id);
-            }
-        }
-    }
-
     protected override void OnTargetActivated(string targetId)
     {
         if (_buttonLookup.TryGetValue(targetId, out var btn))
@@ -222,9 +173,6 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             case "TaskSwitcher": Messenger.Send(new TaskSwitcherToggledMessage()); break;
             case "QuickActions": Messenger.Send(new QuickActionsToggledMessage()); break;
             case "ResetAdaptation": Messenger.Send(new ResetAdaptationMessage()); break;
-            case "Minimize":        Messenger.Send(new WindowActionRequestedMessage(WindowAction.Minimize)); break;
-            case "MaximizeRestore": Messenger.Send(new WindowActionRequestedMessage(WindowAction.MaximizeRestore)); break;
-            case "Close":           Messenger.Send(new WindowActionRequestedMessage(WindowAction.Close)); break;
         }
     }
 

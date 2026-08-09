@@ -1,5 +1,11 @@
 # Design: Window-management actions (gap #2) — toolbar region (B2)
 
+> **SUPERSEDED (2026-08-09), §4 placement only.** The three actions moved to the user-customizable
+> Quick Actions toolbar — see `docs/superpowers/plans/2026-08-09-window-actions-quick-actions-migration.md`.
+> This spec's §1–§3 and §7–§8 (eligibility, Win32 ops, `WM_CLOSE` semantics, the shell/self guard)
+> remain accurate and are implemented as specified. §4 (toolbar region), §5 (`ShowWindowActions`),
+> and §6 are obsolete. The surface comparison in §2 never evaluated Quick Actions.
+
 **Date:** 2026-08-05 · **Status:** Design (pre-implementation)
 **Branch:** `feat/window-management-actions` (off `main` @ `b590a87`)
 **Gap source:** `docs/COMPETITIVE_FEATURE_ANALYSIS.md` §Tier-1 #2

@@ -93,5 +93,13 @@ public class SettingsSnapshotsTests
         before = ToolbarSnapshot.Capture(s);
         s.Dwell.ToolbarButtonDwellMs += 50;
         Check.That(ToolbarSnapshot.Capture(s)).IsNotEqualTo(before);
+
+        before = ToolbarSnapshot.Capture(s);
+        s.Toolbar.IsDocked = !s.Toolbar.IsDocked;
+        Check.That(ToolbarSnapshot.Capture(s)).IsNotEqualTo(before);
+
+        before = ToolbarSnapshot.Capture(s);
+        s.Toolbar.Size = 96;
+        Check.That(ToolbarSnapshot.Capture(s)).IsNotEqualTo(before);
     }
 }

@@ -45,6 +45,10 @@ public partial class SettingsQuickActionsEditorViewModel : ObservableObject
     public void AddMediaControl(string label, string command)
         => Add(QuickActionType.MediaControl, label, command);
 
+    /// <summary>Adds a window-action (payload is the WindowAction enum name) and saves.</summary>
+    public void AddWindowAction(string label, string payload)
+        => Add(QuickActionType.WindowAction, label, payload);
+
     /// <summary>Adds a launch-Windows-app action (payload is the AUMID; label is the app name) and saves.</summary>
     public void AddApp(InstalledApp app)
         => Add(QuickActionType.LaunchWindowsApp, app.DisplayName, app.Aumid);

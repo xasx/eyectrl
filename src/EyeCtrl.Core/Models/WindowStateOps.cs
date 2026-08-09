@@ -10,8 +10,8 @@ public enum WindowStateOp
 }
 
 /// <summary>
-/// Pure deciding logic for the Maximize/Restore toolbar button. No Win32 dependency —
-/// the caller reads <c>IsZoomed</c>/<c>IsIconic</c> and passes the booleans here.
+/// Pure deciding logic for the Maximize/Restore Quick Actions toolbar button. No Win32
+/// dependency — the caller reads <c>IsZoomed</c>/<c>IsIconic</c> and passes the booleans here.
 /// </summary>
 public static class WindowStateOps
 {

@@ -1,6 +1,6 @@
 namespace EyeCtrl.Core.Models;
 
-/// <summary>Window-management actions fired from the toolbar's window-actions region.</summary>
+/// <summary>Window-management actions fired from the Quick Actions toolbar.</summary>
 public enum WindowAction
 {
     /// <summary>Minimize the target window.</summary>

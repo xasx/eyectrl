@@ -4,8 +4,9 @@ using EyeCtrl.Core.Models;
 /// <summary>
 /// Enumerates top-level desktop windows, brings a window to the foreground, and
 /// performs window-management actions (minimize / maximize-or-restore / close) on
-/// the foreground window. Used by the Task Switcher and the toolbar's
-/// window-actions region.
+/// the foreground window. Used by the Task Switcher (<c>EnumerateOpenWindows</c> /
+/// <c>BringToFront</c>) and by the window-management actions on the Quick Actions
+/// toolbar.
 /// </summary>
 public interface IWindowManager
 {

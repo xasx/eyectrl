@@ -42,7 +42,12 @@ public class QuickActionTests
     public void QuickActionType_AllValues_AreDistinct()
     {
         var values = Enum.GetValues<QuickActionType>();
-        Check.That(values).HasSize(6);
+        // Count is deliberately hardcoded: this is a drift guard, so adding a QuickActionType
+        // member must be a conscious decision. 7th member is WindowAction (Minimize /
+        // MaximizeRestore / Close on the foreground window), added in the 2026-08-09 migration
+        // that moved those actions off the fixed toolbar onto the user-customizable
+        // Quick Actions toolbar.
+        Check.That(values).HasSize(7);
         Check.That(values.Distinct().Count()).IsEqualTo(values.Length);
     }
 }

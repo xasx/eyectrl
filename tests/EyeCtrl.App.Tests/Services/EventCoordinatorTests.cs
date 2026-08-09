@@ -3,7 +3,6 @@ namespace EyeCtrl.App.Tests.Services;
 using System;
 using System.ComponentModel;
 using System.Reflection;
-using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;

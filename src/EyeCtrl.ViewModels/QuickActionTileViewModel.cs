@@ -43,6 +43,13 @@ public partial class QuickActionTileViewModel : ObservableObject
                 "VolumeMute" => "\uD83D\uDD07", // 🔇
                 _ => "\u266B"                // ♫ fallback
             },
+            QuickActionType.WindowAction => action.Payload switch
+            {
+                "Minimize" => "\u2581",        // ▁
+                "MaximizeRestore" => "\u25A1", // □
+                "Close" => "\u2715",           // ✕
+                _ => "\u25A3"                  // ▣ fallback
+            },
             _ => "\u26A1"                      // ⚡ fallback
         };
     }

@@ -332,6 +332,69 @@ public class EventCoordinatorTests
         Check.That(fake.LastOp).IsEqualTo(WindowAction.Minimize);
     }
 
+    private static void InvokeExecuteWindowAction(EventCoordinator coordinator, string payload, IntPtr? hwnd)
+    {
+        typeof(EventCoordinator)
+            .GetMethod("ExecuteWindowAction", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(coordinator, new object?[] { payload, hwnd });
+    }
+
+    [Theory]
+    [InlineData("Minimize", WindowAction.Minimize)]
+    [InlineData("MaximizeRestore", WindowAction.MaximizeRestore)]
+    [InlineData("Close", WindowAction.Close)]
+    public void ExecuteWindowAction_RoutesPayloadToTheRightOp(string payload, WindowAction expected)
+    {
+        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
+        var coord = new EventCoordinator();
+        SetContext(coord, MakeContextWithWindowManager(fake));
+
+        InvokeExecuteWindowAction(coord, payload, new IntPtr(0x1234));
+
+        Check.That(fake.LastOp).IsEqualTo(expected);
+    }
+
+    [Fact]
+    public void ExecuteWindowAction_NullHwnd_NoOps()
+    {
+        // Fail-closed: the caller resolved no eligible foreground window.
+        var fake = new FakeWindowActionManager { EligibleHwnd = null };
+        var coord = new EventCoordinator();
+        SetContext(coord, MakeContextWithWindowManager(fake));
+
+        InvokeExecuteWindowAction(coord, "Close", null);
+
+        Check.That(fake.LastOp).IsNull();
+    }
+
+    [Fact]
+    public void ExecuteWindowAction_UnparseablePayload_NoOps()
+    {
+        // A corrupt quickactions.json must not fire an arbitrary op.
+        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
+        var coord = new EventCoordinator();
+        SetContext(coord, MakeContextWithWindowManager(fake));
+
+        InvokeExecuteWindowAction(coord, "NotAWindowAction", new IntPtr(0x1234));
+
+        Check.That(fake.LastOp).IsNull();
+    }
+
+    [Fact]
+    public void ExecuteWindowAction_DoesNotQueryForegroundItself()
+    {
+        // The HWND is resolved by the message recipient on the dwell tick and passed in, so the
+        // executor must never re-query — a re-query after the dispatcher hop is exactly the
+        // foreground-change gap this design closes.
+        var fake = new FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
+        var coord = new EventCoordinator();
+        SetContext(coord, MakeContextWithWindowManager(fake));
+
+        InvokeExecuteWindowAction(coord, "Close", new IntPtr(0x1234));
+
+        Check.That(fake.EligibilityQueries).IsEqualTo(0);
+    }
+
     private sealed class FakeInputSimulator : IInputSimulator
     {
         public ModifiedKeyPress? LastModifiedKeyPress { get; private set; }

@@ -42,7 +42,7 @@ public partial class QuickActionsGridWindow : OverlayWindow
 
     private QuickActionsGridViewModel? _vm;
 
-    /// <summary>Creates the window and applies non-click-through, non-focusable overlay flags.</summary>
+    /// <summary>Creates the window; overlay interaction flags are applied once the HWND exists.</summary>
     public QuickActionsGridWindow()
     {
         InitializeComponent();
@@ -52,7 +52,17 @@ public partial class QuickActionsGridWindow : OverlayWindow
         // site off the guard's {x:Static} allow-list, which only the templated tile icon needs.
         CloseGlyph.FontSize = CloseButtonSize * ContainerRatio.Dominant;
 
-        SetOverlayInteraction(clickThrough: false, focusable: false);
+        // Deliberately no SetOverlayInteraction call here: it would be a no-op. That method
+        // early-returns while the HWND is still IntPtr.Zero, and the HWND is not created until
+        // Show(). The flags are applied by OverlayWindow.OnSourceInitialized, which runs after
+        // HWND creation and passes (clickThrough: IsClickThrough — false here, since this window
+        // never sets it — and focusable: false).
+        //
+        // The focusable:false half is load-bearing, not cosmetic: it sets WS_EX_NOACTIVATE, so
+        // showing the grid never steals the foreground. Any quick action that acts on "the window
+        // the user was just in" resolves the foreground window and must skip windows owned by
+        // EyeCtrl itself; if this grid could activate, those actions would target the grid and
+        // silently do nothing. Keep OnSourceInitialized as the single place that applies the flags.
     }
 
     /// <summary>

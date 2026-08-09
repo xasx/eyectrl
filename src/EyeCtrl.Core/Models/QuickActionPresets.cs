@@ -38,4 +38,16 @@ public static class QuickActionPresets
         ("Volume Down", "VolumeDown"),
         ("Mute", "VolumeMute"),
     };
+
+    /// <summary>
+    /// Foreground-window management actions: display label + payload. The payload is the
+    /// <see cref="WindowAction"/> enum member name, parsed by
+    /// <c>EventCoordinator.ExecuteWindowAction</c> (covered by tests).
+    /// </summary>
+    public static IReadOnlyList<(string Label, string Payload)> WindowActions { get; } = new[]
+    {
+        ("Minimize Window", "Minimize"),
+        ("Maximize / Restore", "MaximizeRestore"),
+        ("Close Window", "Close"),
+    };
 }

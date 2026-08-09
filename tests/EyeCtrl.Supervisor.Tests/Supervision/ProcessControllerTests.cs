@@ -129,6 +129,7 @@ public class ProcessControllerTests
 
         public int Id { get; }
         public bool HasExited { get; set; }
+        public DateTime? StartTime { get; set; }
         public event Action? Exited;
 
         public void Kill(bool entireProcessTree) => KillCalled = true;

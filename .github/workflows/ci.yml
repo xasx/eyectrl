@@ -139,9 +139,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $cobertura = Get-ChildItem './coverage-results' -Recurse -Filter 'coverage.cobertura.xml' | Select-Object -First 1
-          if (-not $cobertura) { throw "No coverage file found" }
-          $xml = [xml](Get-Content $cobertura.FullName)
+          $cobertura = './coverage-report/Cobertura.xml'
+          if (-not (Test-Path $cobertura)) { throw "Merged coverage file not found at $cobertura" }
+          $xml = [xml](Get-Content $cobertura)
           $lineRate = [double]$xml.coverage.'line-rate'
           $branchRate = [double]$xml.coverage.'branch-rate'
           $linePct = [math]::Round($lineRate * 100, 1)

@@ -9,6 +9,7 @@ public interface IProcessHandle
 {
     int Id { get; }
     bool HasExited { get; }
+    DateTime? StartTime { get; }
     event Action Exited;
     void Kill(bool entireProcessTree);
     void Dispose();

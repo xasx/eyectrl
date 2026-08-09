@@ -14,6 +14,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Deliberately the first thing after checkout, ahead of the WinUI provisioning and the
+      # build. The palette gates take about a second, need nothing from .NET, and a failure here
+      # means a shipped theme is unreadable — so it should not wait several minutes behind a
+      # build to say so.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # tools/palette_validate.py runs ten gates over all three themes (Midnight, Ember, Contrast):
+      # WCAG contrast, CIEDE2000 separation, Vienot dichromat simulation, and a non-colour tail
+      # covering the radius ramp, the type ramp and the 12px legibility floor.
+      #
+      # This is NOT redundant with `dotnet test`, and the distinction is the whole reason for the
+      # step. Several Controls tests (ThemeParityTests, LegibilityFloorTests) already parse this
+      # file and assert the C# tokens carry the same VALUES — so C#/Python drift is caught. What no
+      # test does is run the gates themselves: whether those values are actually readable. A theme
+      # edit that moved both languages in step would sail through the suite while shipping text a
+      # user cannot see. Until now the gates ran only when somebody remembered, which is not a gate.
+      #
+      # Stdlib only, by design (see the script's docstring), so there is nothing to install.
+      - name: Validate theme palettes
+        run: python tools/palette_validate.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

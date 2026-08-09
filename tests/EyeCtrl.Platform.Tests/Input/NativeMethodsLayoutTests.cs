@@ -39,8 +39,8 @@ public class NativeMethodsLayoutTests
         var mouseSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.MOUSEINPUT>();
         var keySize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.KEYBDINPUT>();
 
-        Check.That(unionSize).IsGreaterThan(mouseSize - 1);
-        Check.That(unionSize).IsGreaterThan(keySize - 1);
+        Check.That(unionSize).IsStrictlyGreaterThan(mouseSize - 1);
+        Check.That(unionSize).IsStrictlyGreaterThan(keySize - 1);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class NativeMethodsLayoutTests
         var unionSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUTUNION>();
 
         // INPUT = uint + INPUTUNION, with padding for alignment
-        Check.That(size).IsGreaterThan(unionSize);
+        Check.That(size).IsStrictlyGreaterThan(unionSize);
         // On x64: 40; on arm64: 40 (both use the same layout). Catch a marshalling regression.
         if (System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.X64)
         {

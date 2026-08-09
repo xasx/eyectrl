@@ -90,14 +90,20 @@ public partial class CalibrationWindow : OverlayWindow
         switch (state)
         {
             case CalibrationState.Collecting:
-                // Mouse passes through (never blocks the screen), but keep keyboard focus so Esc cancels.
-                SetOverlayInteraction(clickThrough: true, focusable: true);
                 Backdrop.Visibility = Visibility.Visible;
                 TargetCanvas.Visibility = Visibility.Visible;
                 CompletionPanel.Visibility = Visibility.Collapsed;
                 ProgressText.Visibility = Visibility.Visible;
                 CancelHint.Visibility = Visibility.Visible;
                 Show();
+                // Mouse passes through (never blocks the screen), but keep keyboard focus so Esc
+                // cancels. MUST come after Show(): SetOverlayInteraction early-returns while the
+                // HWND is IntPtr.Zero, and the window is only ever constructed — never shown — at
+                // startup, so on the FIRST calibration the HWND is created by this very Show().
+                // Called before it, this no-opped and OverlayWindow.OnSourceInitialized then
+                // applied focusable:false, leaving the first run unfocusable: Activate() below was
+                // blocked by WS_EX_NOACTIVATE and Esc did nothing, despite the visible hint.
+                SetOverlayInteraction(clickThrough: true, focusable: true);
                 Activate();
                 var idx = _viewModel?.CurrentTargetIndex ?? 0;
                 var total = _viewModel?.TotalTargets ?? 0;
@@ -142,8 +148,11 @@ public partial class CalibrationWindow : OverlayWindow
         StopPulse();
 
         // Make the window opaque + focusable + hit-testable so Retry/Accept and Esc work.
-        SetOverlayInteraction(clickThrough: false, focusable: true);
+        // After Show() for the same reason as the Collecting case above — Failed can be reached
+        // without a preceding Collecting (a session that never starts), so the HWND is not
+        // guaranteed to exist by the time we get here.
         Show();
+        SetOverlayInteraction(clickThrough: false, focusable: true);
         Activate();
         Focus();
 

@@ -5,8 +5,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.Core.Models;
@@ -43,16 +41,6 @@ public sealed class HeartbeatPipeServer : IDisposable
 {
     /// <summary>Distinct from the existing <c>eyectrl_dwell</c> channel (ExternalDwellService).</summary>
     public const string PipeName = "eyectrl_watch";
-
-    // CamelCase to match the app's HeartbeatPublisher emitter; case-insensitive so either PascalCase
-    // or camelCase on the wire deserializes correctly. JsonStringEnumConverter included for safety
-    // (HeartbeatPayload currently has no enums, but this keeps the options aligned with the app).
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter() },
-    };
 
     private readonly ClientIdentityBinder _binder;
     private readonly object _stateLock = new();
@@ -156,7 +144,7 @@ public sealed class HeartbeatPipeServer : IDisposable
                 if (line == null) break;
 
                 HeartbeatPayload? payload;
-                try { payload = JsonSerializer.Deserialize<HeartbeatPayload>(line, JsonOptions); }
+                try { payload = HeartbeatPayloadParser.TryParse(line); }
                 catch { continue; } // malformed JSON line: skip, keep the connection alive
                 if (payload == null) continue;
 

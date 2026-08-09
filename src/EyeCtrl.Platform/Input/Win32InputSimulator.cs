@@ -67,11 +67,8 @@ public class Win32InputSimulator : IInputSimulator
 
     public void Scroll(PhysicalPoint point, int deltaX, int deltaY)
     {
-        // Clamp delta values to prevent overflow when multiplied by 120
-        // Max safe value: int.MaxValue / 120 = 17,895,697
-        const int maxSafeDelta = 17_000_000;
-        deltaX = Math.Clamp(deltaX, -maxSafeDelta, maxSafeDelta);
-        deltaY = Math.Clamp(deltaY, -maxSafeDelta, maxSafeDelta);
+        deltaX = ClampScrollDelta(deltaX);
+        deltaY = ClampScrollDelta(deltaY);
 
         if (deltaY != 0)
         {
@@ -143,42 +140,7 @@ public class Win32InputSimulator : IInputSimulator
 
     public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey)
     {
-        // Build list of modifier VK codes to press
-        var modifierVks = new List<ushort>();
-        if (modifiers.Contains(ModifierKey.Ctrl))
-            modifierVks.Add(NativeMethods.VK_CONTROL);
-        if (modifiers.Contains(ModifierKey.Alt))
-            modifierVks.Add(NativeMethods.VK_MENU);
-        if (modifiers.Contains(ModifierKey.Win))
-            modifierVks.Add(NativeMethods.VK_LWIN);
-        if (modifiers.Contains(ModifierKey.Shift))
-            modifierVks.Add(NativeMethods.VK_SHIFT);
-
-        // Build input array: modifier downs + key down + key up + modifier ups (reverse)
-        var inputs = new NativeMethods.INPUT[modifierVks.Count * 2 + 2];
-        int idx = 0;
-
-        // Modifier key-downs (extended key flag for Win key)
-        foreach (var vk in modifierVks)
-        {
-            uint flags = vk == NativeMethods.VK_LWIN ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
-            inputs[idx++] = CreateKeyboardInput(vk, flags);
-        }
-
-        // Main key (with extended key flag if specified)
-        uint mainKeyFlags = isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
-        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, mainKeyFlags);
-        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, mainKeyFlags | NativeMethods.KEYEVENTF_KEYUP);
-
-        // Modifier key-ups (reverse order, with extended key flag)
-        for (int i = modifierVks.Count - 1; i >= 0; i--)
-        {
-            uint flags = modifierVks[i] == NativeMethods.VK_LWIN
-                ? NativeMethods.KEYEVENTF_KEYUP | NativeMethods.KEYEVENTF_EXTENDEDKEY
-                : NativeMethods.KEYEVENTF_KEYUP;
-            inputs[idx++] = CreateKeyboardInput(modifierVks[i], flags);
-        }
-
+        var inputs = BuildModifiedKeySequence(modifiers, virtualKeyCode, isExtendedKey);
         NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
     }
 
@@ -237,6 +199,53 @@ public class Win32InputSimulator : IInputSimulator
                 Keyboard = new NativeMethods.KEYBDINPUT { VirtualKey = vk, Flags = flags }
             }
         };
+    }
+
+    internal static int ClampScrollDelta(int value)
+    {
+        // Clamp delta values to prevent overflow when multiplied by 120.
+        // Max safe value: int.MaxValue / 120 = 17,895,697.
+        const int maxSafeDelta = 17_000_000;
+        return Math.Clamp(value, -maxSafeDelta, maxSafeDelta);
+    }
+
+    internal static NativeMethods.INPUT[] BuildModifiedKeySequence(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey)
+    {
+        var modifierVks = new List<ushort>();
+        if (modifiers.Contains(ModifierKey.Ctrl))
+            modifierVks.Add(NativeMethods.VK_CONTROL);
+        if (modifiers.Contains(ModifierKey.Alt))
+            modifierVks.Add(NativeMethods.VK_MENU);
+        if (modifiers.Contains(ModifierKey.Win))
+            modifierVks.Add(NativeMethods.VK_LWIN);
+        if (modifiers.Contains(ModifierKey.Shift))
+            modifierVks.Add(NativeMethods.VK_SHIFT);
+
+        var inputs = new NativeMethods.INPUT[modifierVks.Count * 2 + 2];
+        int idx = 0;
+
+        // Modifier key-downs (extended key flag for Win key)
+        foreach (var vk in modifierVks)
+        {
+            uint flags = vk == NativeMethods.VK_LWIN ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
+            inputs[idx++] = CreateKeyboardInput(vk, flags);
+        }
+
+        // Main key (with extended key flag if specified)
+        uint mainKeyFlags = isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
+        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, mainKeyFlags);
+        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, mainKeyFlags | NativeMethods.KEYEVENTF_KEYUP);
+
+        // Modifier key-ups (reverse order, with extended key flag)
+        for (int i = modifierVks.Count - 1; i >= 0; i--)
+        {
+            uint flags = modifierVks[i] == NativeMethods.VK_LWIN
+                ? NativeMethods.KEYEVENTF_KEYUP | NativeMethods.KEYEVENTF_EXTENDEDKEY
+                : NativeMethods.KEYEVENTF_KEYUP;
+            inputs[idx++] = CreateKeyboardInput(modifierVks[i], flags);
+        }
+
+        return inputs;
     }
 
     private static readonly int s_inputSize = Marshal.SizeOf<NativeMethods.INPUT>();

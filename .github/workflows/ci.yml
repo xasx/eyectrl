@@ -79,3 +79,75 @@ jobs:
 
       - name: Run generator tests (benchmark correctness)
         run: dotnet test tests/EyeCtrl.Benchmarks.Tests
+
+  coverage:
+    name: Code Coverage
+    runs-on: windows-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'global.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Provision WinUI AppxPackage tooling at the path the build probes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio' -Recurse -Filter 'Microsoft.Build.Packaging.Pri.Tasks.dll' -ErrorAction SilentlyContinue |
+                 Where-Object { $_.FullName -match 'v18\.0\\AppxPackage' } | Select-Object -First 1
+          if (-not $dll) { throw "Could not locate VS v18.0 AppxPackage tooling on the runner" }
+          $srcDir = Split-Path $dll.FullName
+          $dstDir = 'C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VisualStudio\v18.0\AppxPackage'
+          New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+          Copy-Item -Path (Join-Path $srcDir '*') -Destination $dstDir -Recurse -Force
+
+      - name: Build
+        run: dotnet build EyeCtrl.slnx
+
+      - name: Collect coverage
+        run: |
+          dotnet test --filter "Category!=UI" --no-build `
+            --collect:"XPlat Code Coverage" `
+            --results-directory ./coverage-results `
+            --settings coverage.runsettings
+
+      - name: Generate coverage report
+        uses: danielpalme/ReportGenerator-GitHub-Action@v5
+        with:
+          reports: './coverage-results/**/coverage.cobertura.xml'
+          targetdir: './coverage-report'
+          reporttypes: 'HtmlSummary;Cobertura;MarkdownSummary'
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ./coverage-report
+
+      - name: Check coverage threshold
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cobertura = Get-ChildItem './coverage-results' -Recurse -Filter 'coverage.cobertura.xml' | Select-Object -First 1
+          if (-not $cobertura) { throw "No coverage file found" }
+          $xml = [xml](Get-Content $cobertura.FullName)
+          $lineRate = [double]$xml.coverage.'line-rate'
+          $branchRate = [double]$xml.coverage.'branch-rate'
+          $linePct = [math]::Round($lineRate * 100, 1)
+          $branchPct = [math]::Round($branchRate * 100, 1)
+          Write-Host "Line coverage: $linePct%"
+          Write-Host "Branch coverage: $branchPct%"
+          if ($lineRate -lt 0.50) { throw "Line coverage $linePct% is below 50% threshold" }
+          if ($branchRate -lt 0.45) { throw "Branch coverage $branchPct% is below 45% threshold" }
+          Write-Host "Coverage thresholds met"

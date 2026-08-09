@@ -155,7 +155,7 @@ public class ControlFinder : IControlFinder
         return null;
     }
 
-    private static IEnumerable<System.Windows.Point> EnumerateRingPoints(System.Windows.Point origin, int radius)
+    internal static IEnumerable<System.Windows.Point> EnumerateRingPoints(System.Windows.Point origin, int radius)
     {
         yield return new System.Windows.Point(origin.X - radius, origin.Y - radius);
         yield return new System.Windows.Point(origin.X,          origin.Y - radius);
@@ -167,7 +167,7 @@ public class ControlFinder : IControlFinder
         yield return new System.Windows.Point(origin.X + radius, origin.Y + radius);
     }
 
-    private static double DistanceSquaredToRect(System.Windows.Point point, PhysicalRect rect)
+    internal static double DistanceSquaredToRect(System.Windows.Point point, PhysicalRect rect)
     {
         var nearest = new PhysicalPoint(
             Math.Clamp(point.X, rect.X, rect.X + rect.Width),

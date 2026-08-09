@@ -45,7 +45,7 @@ public sealed class ClientIdentityBinder
             if (!ProcessIdentity.GetNamedPipeClientProcessId(pipe, out uint pid) || pid == 0) return null;
             if (!ProcessIdentity.ProcessIdToSessionId(pid, out uint session)) return null;
             // I2: enforce same-session (spec "same Windows session as the supervisor").
-            if (session != _ownSessionId) return null;
+            if (!IdentityChecks.IsSameSession(session, _ownSessionId)) return null;
 
             using var ph = ProcessIdentity.OpenProcess(ProcessIdentity.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
             if (ph.IsInvalid) return null;
@@ -54,7 +54,7 @@ public sealed class ClientIdentityBinder
             var buf = new char[1024]; uint size = (uint)buf.Length;
             if (!ProcessIdentity.QueryFullProcessImageName(ph.DangerousGetHandle(), 0, buf, ref size)) return null;
             string exe = new string(buf, 0, (int)size);
-            if (!string.Equals(exe, _expectedExePath, StringComparison.OrdinalIgnoreCase)) return null;
+            if (!IdentityChecks.ExePathMatches(exe, _expectedExePath)) return null;
 
             // Creation time (PID-reuse guard): read the live process's creation time so it can be
             // returned in the identity. The COMPARISON is only done in strict mode (when we have an
@@ -63,7 +63,7 @@ public sealed class ClientIdentityBinder
             if (!ProcessIdentity.GetProcessTimes(ph.DangerousGetHandle(), out var c, out _, out _, out _)) return null;
             var creation = DateTime.FromFileTimeUtc(((long)c.HighDateTime << 32) | (uint)c.LowDateTime);
             if (_expectedCreation.HasValue &&
-                Math.Abs((creation - _expectedCreation.Value).TotalSeconds) > 2) return null;
+                !IdentityChecks.CreationTimeWithinTolerance(creation, _expectedCreation.Value)) return null;
 
             return new ClientIdentity(pid, session, exe, creation);
         }

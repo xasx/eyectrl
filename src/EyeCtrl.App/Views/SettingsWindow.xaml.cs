@@ -123,7 +123,7 @@ public partial class SettingsWindow : OverlayWindow
     private List<List<Action>> _pages = new();
     private readonly List<object> _activeItems = new(); // DwellControl | IDwellComposite
 
-    private enum QaView { List, PickType, PickShortcut, PickMedia, PickApp }
+    private enum QaView { List, PickType, PickShortcut, PickMedia, PickApp, PickWindowAction }
     private QaView _qaView = QaView.List;
 
     // Switch the Quick Actions sub-view and rebuild. RebuildContent() rebuilds _pages for the new
@@ -1111,6 +1111,7 @@ public partial class SettingsWindow : OverlayWindow
         QuickActionType.LaunchWindowsApp => "▦",       // BMP launch-app glyph (grid tiles use 🪟 separately)
         QuickActionType.LaunchUrl => "@",
         QuickActionType.MediaControl => "♫",           // ♫
+        QuickActionType.WindowAction => "▣",            // ▣
         _ => "⚡",                                      // ⚡
     };
 
@@ -1120,6 +1121,7 @@ public partial class SettingsWindow : OverlayWindow
         QaView.PickShortcut => BuildQaShortcutPages(),
         QaView.PickMedia => BuildQaMediaPages(),
         QaView.PickApp => BuildQaAppPages(),
+        QaView.PickWindowAction => BuildQaWindowActionPages(),
         _ => BuildQaListPages(),
     };
 
@@ -1195,6 +1197,8 @@ public partial class SettingsWindow : OverlayWindow
             () => GoToQaView(QaView.PickMedia), BtnBase, cat, r, _dwellMs, width: 420, height: 90)));
         page.Add(() => Add(new DwellButton(_viewModel, "qa_type_app", "▦  Launch App",
             () => GoToQaView(QaView.PickApp), BtnBase, cat, r, _dwellMs, width: 420, height: 90)));
+        page.Add(() => Add(new DwellButton(_viewModel, "qa_type_window", "▣  Window Action",
+            () => GoToQaView(QaView.PickWindowAction), BtnBase, cat, r, _dwellMs, width: 420, height: 90)));
         return new List<List<Action>> { page };
     }
 
@@ -1217,6 +1221,17 @@ public partial class SettingsWindow : OverlayWindow
         {
             var (label, command) = QuickActionPresets.MediaControls[i];
             return (label, () => { editor.AddMediaControl(label, command); GoToQaView(QaView.List); });
+        });
+    }
+
+    private List<List<Action>> BuildQaWindowActionPages()
+    {
+        var editor = _viewModel.QuickActionsEditor;
+
+        return ChunkPickerPages(QuickActionPresets.WindowActions.Count, "qa_win", i =>
+        {
+            var (label, payload) = QuickActionPresets.WindowActions[i];
+            return (label, () => { editor.AddWindowAction(label, payload); GoToQaView(QaView.List); });
         });
     }
 

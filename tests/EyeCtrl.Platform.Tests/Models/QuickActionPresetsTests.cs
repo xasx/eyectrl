@@ -50,4 +50,27 @@ public class QuickActionPresetsTests
         var actual = QuickActionPresets.MediaControls.Select(m => m.Command).ToList();
         Check.That(actual).ContainsExactly(expected);
     }
+
+    // Every WindowActions payload must round-trip to a WindowAction enum member, because
+    // EventCoordinator.ExecuteWindowAction parses the payload with Enum.TryParse<WindowAction>.
+    // A typo here would ship a preset that silently no-ops (logs a warning, does nothing).
+    [Fact]
+    public void WindowActions_PayloadsAllParseToWindowActionEnum()
+    {
+        Check.That(QuickActionPresets.WindowActions).Not.IsEmpty();
+
+        foreach (var (_, payload) in QuickActionPresets.WindowActions)
+            Check.That(Enum.TryParse<WindowAction>(payload, out _)).IsTrue();
+    }
+
+    [Fact]
+    public void WindowActions_CoversEveryWindowActionMember()
+    {
+        // Drift guard: adding a WindowAction member without a preset would leave it unreachable
+        // from the only surface that can fire it.
+        var covered = QuickActionPresets.WindowActions.Select(w => w.Payload).ToArray();
+
+        foreach (var member in Enum.GetNames<WindowAction>())
+            Check.That(covered).Contains(member);
+    }
 }

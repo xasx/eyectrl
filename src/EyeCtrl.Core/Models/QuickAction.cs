@@ -14,7 +14,9 @@ public enum QuickActionType
     /// <summary>Open a URL in the default browser.</summary>
     LaunchUrl,
     /// <summary>Play/pause, volume, or other media transport control.</summary>
-    MediaControl
+    MediaControl,
+    /// <summary>Minimize, maximize/restore, or close the foreground window.</summary>
+    WindowAction
 }
 
 /// <summary>A user-configurable action shown on the Quick Actions toolbar.</summary>

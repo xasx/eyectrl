@@ -84,13 +84,13 @@ EyeCtrl is a gaze control platform for Windows that turns an eye tracker (Tobii 
 |---|---|---|
 | `EyeCtrl.Core` | `net10.0` | Domain logic, gaze pipeline, prediction, settings model. Zero UI / OS dependencies. |
 | `EyeCtrl.Platform` | `net10.0-windows` | `unsafe` Win32 (`SendInput`), Tobii Stream Engine SDK (conditional, only when DLLs are present). |
-| `EyeCtrl.ViewModels` | `net10.0-windows` | MVVM with `CommunityToolkit.Mvvm` v8.4.0. `[ObservableProperty]` source generators, `WeakReferenceMessenger` for pub/sub. |
+| `EyeCtrl.ViewModels` | `net10.0` | MVVM with `CommunityToolkit.Mvvm` v8.4.0. `[ObservableProperty]` source generators, `WeakReferenceMessenger` for pub/sub. |
 | `EyeCtrl.App` | `net10.0-windows`, `WinExe`, `UseWPF`+`UseWindowsForms` | WPF entry point, DI wiring, overlay windows, settings UI, tray icon, **ExternalDwellService** (named-pipe server). |
 | `EyeCtrl.LM` | `net10.0` | ONNX neural language model predictor (`SmallLMPredictor`) and tokenizer (`LMTokenizer`). Implements `ILanguageModelPredictor` from Core. |
 | `EyeCtrl.Contracts` | `net8.0` | Shared wire-format records (`WireMessage`, `SdkRect`). Zero dependencies. Used by both App (server) and SDK (client). |
 | `EyeCtrl.Sdk.Abstractions` | `net8.0` | Framework-agnostic SDK surface: `IDwellElementAdapter`, `DwellClient` (named-pipe client), `OutboundRectTracker`. |
 | `EyeCtrl.Sdk.Wpf` | `net8.0-windows` | WPF attached properties (`Dwell.Enabled`, `Dwell.Mode`). `WpfElementAdapter` bridges WPF elements to `IDwellElementAdapter`. |
-| `EyeCtrl.Sdk.WinUI` | `net8.0-windows10.0.22621` | WinUI 3 attached properties. `WinUiElementAdapter` resolves HWNDs via `XamlRoot.ContentIslandEnvironment`. Per-dispatcher rect-refresh timers via `AdapterGroupTracker`. |
+| `EyeCtrl.Sdk.WinUI` | `net8.0-windows10.0.19041` | WinUI 3 attached properties. `WinUiElementAdapter` resolves HWNDs via `XamlRoot.ContentIslandEnvironment`. Per-dispatcher rect-refresh timers via `AdapterGroupTracker`. |
 
 ---
 
@@ -114,7 +114,7 @@ Communities are auto-detected functional clusters. Numbers are total symbols acr
 | **Input** | 12 | 0.53 | `IInputSimulator` ↔ `Win32InputSimulator`, `MouseCoordinateMapper`, `MouseGazeProvider` (test-mode gaze source). |
 | **StreamEngineGazeTracker** | 11 | 1.0 | Tobii Stream Engine wrapper (`TOBII_AVAILABLE`-guarded). |
 | **SDK** | 45 | 0.90 | Named-pipe IPC layer: `Contracts` (wire messages), `Sdk.Abstractions` (`DwellClient`, `IDwellElementAdapter`), `Sdk.Wpf` (`Dwell` attached properties), `Sdk.WinUI` (`Dwell` attached properties + `AdapterGroupTracker`). |
-| **Tests** | 244 | — | xUnit 2.9 + NFluent 3.1.0 assertions. Private nested fakes (no mocking library). Per-test class instantiation, no `IClassFixture`. |
+| **Tests** | 244 | — | xUnit v3 (3.2.2) + NFluent 3.1.0 assertions. Private nested fakes (no mocking library). Per-test class instantiation, no `IClassFixture`. |
 
 ### Hub Symbols (most-referenced in the graph)
 
@@ -680,8 +680,8 @@ eyectrl/
 │   │   ├── GazeEngine.cs       # Central gaze pipeline
 │   │   ├── Processing/         # DwellDetector, filters, fixation tracking
 │   │   ├── Prediction/         # Word prediction, LM, dictionaries
-│   │   ├── Settings/           # Configuration models & validation
-│   │   ├── Services/           # DpiHelper, SettingsService
+│   │   ├── Settings/           # Configuration models, validation, SettingsService
+│   │   ├── Services/           # DpiHelper, SingleInstanceGuard
 │   │   ├── Models/             # GazePoint, PhysicalPoint, etc.
 │   │   ├── Keyboard/           # Keyboard layout definitions
 │   │   ├── Interfaces/         # Core interfaces

@@ -135,13 +135,13 @@ Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter * --job short   # all benchmarks
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Bigram*         # specific class
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *SmallLM*        # ML benchmarks (skips gracefully if no ONNX model)
-dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze*               # all gaze benchmarks (7 classes: filters, detectors, DwellDetector, GazeEngine + WithFatigue, FatigueMonitor params + steady-state)
+dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Gaze*               # all gaze benchmarks (10 classes: filters, detectors, DwellDetector, GazeEngine + WithFatigue, FatigueMonitor params + steady-state, observer fan-out + fault containment)
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *GazeFatigue*        # fatigue monitor micro-benchmarks only
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *WithEyeCare*         # eye-care-wired pipeline integration only
 dotnet run --project benchmarks/EyeCtrl.Benchmarks -c Release -- --filter *Adaptation*          # struggle-adaptation: monitor/controller tick + pipeline enabled-vs-disabled
 ```
 
-16 benchmark classes, 70 benchmarks total — covering WordPredictor, BigramModel, PhraseModel, SentenceCompletionIndex, FuzzyEditDistance, CapitalizationHelper, CasingHelper, PredictionOrchestrator, SmallLMPredictor, LMTokenizer (prediction), the gaze processing pipeline (DirectFilter, SmoothedFilter, OneEuroFilter, FixationDetector, FixationCentroidTracker, GapInterpolator, DwellDetector, end-to-end GazeEngine), the eye-care gaze subscriber (FatigueMonitor O(window) scan, EyeCareService pipeline integration), and struggle adaptation (StruggleMonitor.Assess over a filled evidence window, AdaptationController tick + relax ramp, and the pipeline with telemetry wired at adaptation off/on against a bare-pipeline baseline).
+18 benchmark classes, 74 benchmarks total — covering WordPredictor, BigramModel, PhraseModel, SentenceCompletionIndex, FuzzyEditDistance, CapitalizationHelper, CasingHelper, PredictionOrchestrator, SmallLMPredictor, LMTokenizer (prediction), the gaze processing pipeline (DirectFilter, SmoothedFilter, OneEuroFilter, FixationDetector, FixationCentroidTracker, GapInterpolator, DwellDetector, end-to-end GazeEngine), the gaze-observer fan-out and its contained-fault path (per-observer try/catch, consecutive-fault counter, slow-observer watchdog, throw-frequency sweep), the eye-care gaze subscriber (FatigueMonitor O(window) scan, EyeCareService pipeline integration), and struggle adaptation (StruggleMonitor.Assess over a filled evidence window, AdaptationController tick + relax ramp, and the pipeline with telemetry wired at adaptation off/on against a bare-pipeline baseline).
 
 SmallLM benchmarks require ONNX model + tokenizer files in `%APPDATA%/EyeCtrl/models` (overridable via `EYECTRL_MODEL_DIR` env var). The `Program.cs` pre-flight check excludes the class entirely if no model is present.
 
@@ -163,7 +163,7 @@ Serilog, initialized in `LoggingInitializer.Initialize()`. Logs to `%APPDATA%/Ey
 | `src/EyeCtrl.App/Services/AppBootstrapper.cs` | DI container setup (`BuildServiceProvider()`) |
 | `src/EyeCtrl.App/Services/EventCoordinator.cs` | Event coordination (dwell, zoom, action menu) |
 | `src/EyeCtrl.Core/GazeEngine.cs` | Core gaze pipeline |
-| `src/EyeCtrl.Core/Services/SettingsService.cs` | JSON settings persistence with validation |
+| `src/EyeCtrl.Core/Settings/SettingsService.cs` | JSON settings persistence with validation |
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

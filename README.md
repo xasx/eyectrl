@@ -177,7 +177,7 @@ See [AGENTS.md](AGENTS.md) for detailed build commands, testing conventions, dep
 | `src/EyeCtrl.App/Services/AppBootstrapper.cs` | Dependency-injection composition root |
 | `src/EyeCtrl.App/Services/EventCoordinator.cs` | Dwell, zoom, keyboard, and action-menu coordination |
 | `src/EyeCtrl.Core/GazeEngine.cs` | Core gaze-processing pipeline |
-| `src/EyeCtrl.Core/Services/SettingsService.cs` | JSON settings persistence and validation |
+| `src/EyeCtrl.Core/Settings/SettingsService.cs` | JSON settings persistence and validation |
 | `src/EyeCtrl.Supervisor/Program.cs` | Supervisor startup and watchdog orchestration |
 | `src/EyeCtrl.Supervisor/Supervision/SupervisionStateMachine.cs` | Crash-recovery state transitions |
 | `src/EyeCtrl.Contracts/` | External SDK named-pipe contracts |

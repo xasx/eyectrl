@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.ViewModels.Tests;
+namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
@@ -11,10 +11,13 @@ public class ToolbarViewModelTests
     private readonly EyeCtrlSettings _settings = new();
 
     [Fact]
-    public void InitializesWith8Buttons()
+    public void InitializesWithTheEightCoreButtons()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        Check.That(vm.Buttons.Count).IsEqualTo(8);
+
+        Check.That(vm.Buttons.Select(b => b.Id)).ContainsExactly(
+            "Pause", "SelectionMode", "Keyboard", "Calibrate",
+            "Settings", "TaskSwitcher", "QuickActions", "ResetAdaptation");
     }
 
     [Fact]

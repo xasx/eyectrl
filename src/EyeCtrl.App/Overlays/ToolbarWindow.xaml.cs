@@ -1,6 +1,5 @@
 namespace EyeCtrl.App.Overlays;
 
-using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -235,9 +234,11 @@ public partial class ToolbarWindow : OverlayWindow
         }
     }
 
-    // Ids whose ToolbarButtonViewModel.PropertyChanged we've already wired up. The bind path is
-    // idempotent on this set — see BindButton. Re-binding on every snapshot change (size/dock/edge
-    // saves re-run Initialize) without this guard would stack one handler per save per button.
+    // Ids whose ToolbarButtonViewModel.PropertyChanged we've already wired up. Buttons is
+    // populated once in the ViewModel's constructor and never mutated afterwards, so this is a
+    // cheap guard against BindToViewModel being called more than once rather than a rebind
+    // mechanism. (It previously backed runtime add/remove of the window-actions region, which
+    // moved to the Quick Actions toolbar in the 2026-08-09 migration.)
     private readonly HashSet<string> _boundIds = new();
 
     /// <summary>
@@ -249,45 +250,17 @@ public partial class ToolbarWindow : OverlayWindow
     {
         if (DataContext is not ToolbarViewModel vm) return;
 
-        // Bind every button currently in the VM (the startup set) — once. Any later add/remove
-        // mutation of vm.Buttons flows through CollectionChanged below, which binds newly-added
-        // buttons and unbinds removed ones, so a freshly-created ToolbarButtonViewModel always
-        // gets its PropertyChanged subscription (otherwise it would render and dwell but never
-        // update its progress bar).
+        // Bind the VM's buttons — the constructor-populated set, which never changes afterwards.
         foreach (var btn in vm.Buttons)
             BindButton(btn);
-
-        vm.Buttons.CollectionChanged += OnButtonsCollectionChanged;
-    }
-
-    private void OnButtonsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        // Drives off the VM's own add/remove on Buttons. On Add we bind the freshly-created
-        // button; on Remove we drop it from _boundIds so a later re-add (with a new
-        // ToolbarButtonViewModel instance) re-subscribes instead of being silently skipped.
-        if (e.Action == NotifyCollectionChangedAction.Reset)
-        {
-            _boundIds.Clear();
-            return;
-        }
-        if (e.OldItems != null)
-        {
-            foreach (ToolbarButtonViewModel btn in e.OldItems)
-                _boundIds.Remove(btn.Id);
-        }
-        if (e.NewItems != null)
-        {
-            foreach (ToolbarButtonViewModel btn in e.NewItems)
-                BindButton(btn);
-        }
     }
 
     /// <summary>
     /// Subscribes one button's PropertyChanged to its progress bar/symbol visuals. Idempotent:
-    /// a repeat call for an already-bound id no-ops (guarded by <see cref="_boundIds"/>), so this
-    /// is safe to call from CollectionChanged on every add and from BindToViewModel at startup
-    /// without double-subscribing. The handler reads <c>_buttonVisuals[id]</c> at event time, so
-    /// it stays correct after Initialize rebuilds the visuals dictionary (size/dock/edge saves).
+    /// a repeat call for an already-bound id no-ops (guarded by <see cref="_boundIds"/>), so a
+    /// second BindToViewModel call cannot double-subscribe. The handler reads
+    /// <c>_buttonVisuals[id]</c> at event time, so it stays correct after Initialize rebuilds the
+    /// visuals dictionary (size/dock/edge saves).
     /// </summary>
     private void BindButton(ToolbarButtonViewModel btn)
     {
@@ -297,7 +270,7 @@ public partial class ToolbarWindow : OverlayWindow
 
         // Apply current symbol so the initial label/background match the actual mode (the
         // ViewModel may already have received the startup SelectionModeChangedMessage before
-        // BindToViewModel is called, or a re-added button may carry post-mutation state).
+        // BindToViewModel is called).
         if (_buttonVisuals.TryGetValue(id, out var currentVisuals))
         {
             currentVisuals.Label.Text = btn.Symbol;

@@ -1,10 +1,14 @@
 namespace EyeCtrl.App.Tests;
 
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Xml.Linq;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Controls.Theme;
@@ -125,6 +129,101 @@ public class CornerRadiusClampTests
                 "Coverage should sit on the inscribed ellipse's pi/4, confirming an ellipse "
                 + "rather than a stadium. Counted at the 50% alpha cutoff.")
             .That(CoveredFraction(token)).IsCloseTo(Math.PI / 4, 0.01);
+    }
+
+    /// <summary>
+    /// The squareness rule, enforced over EVERY consumer rather than the one this branch knew
+    /// about. <see cref="TheOneCircleConsumer_IsSquare"/> below names <c>QuickActionsGridWindow</c>
+    /// and <c>CloseButton</c> in its own source, so a SECOND consumer added tomorrow — on a
+    /// 120x40 Border, say — inherits no guard at all and silently renders the ellipse the theory
+    /// above proves it becomes.
+    ///
+    /// Source-scanned rather than constructed, deliberately. Constructing gives effective values
+    /// and is the better instrument, which is why the named test keeps doing it; but it can only
+    /// reach windows a test can instantiate, and the whole point here is to cover the consumer
+    /// nobody has thought about yet. The two are complementary: this one is broad and shallow,
+    /// that one narrow and exact.
+    /// </summary>
+    [StaFact]
+    public void EveryCircleTokenConsumer_DeclaresASquare()
+    {
+        var wpf = XNamespace.Get("http://schemas.microsoft.com/winfx/2006/xaml/presentation");
+        var root = SourceScanner.RepoRoot().FullName;
+        var offenders = new List<string>();
+        var consumers = 0;
+
+        foreach (var project in SourceScanner.ScannedProjects)
+        {
+            var dir = Path.Combine(root, project.Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(dir)) continue;
+
+            foreach (var file in Directory.EnumerateFiles(dir, "*.xaml", SearchOption.AllDirectories))
+            {
+                if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                    || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+                    continue;
+
+                var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
+                var doc = XDocument.Parse(File.ReadAllText(file));
+
+                // Matches both reference forms — {StaticResource CircleCornerRadius} and an
+                // {x:Static} path ending in it — because either resolves to the same 9999.
+                foreach (var element in doc.Descendants()
+                             .Where(e => (string?)e.Attribute("CornerRadius") is { } v
+                                         && v.Contains("CircleCornerRadius", StringComparison.Ordinal)))
+                {
+                    consumers++;
+                    var w = (string?)element.Attribute("Width");
+                    var h = (string?)element.Attribute("Height");
+                    var name = (string?)element.Attribute(
+                                   XNamespace.Get("http://schemas.microsoft.com/winfx/2006/xaml") + "Name")
+                               ?? element.Name.LocalName;
+
+                    if (w is null || h is null)
+                        offenders.Add(
+                            $"{relative}: <{element.Name.LocalName} {name}> takes CircleCornerRadius "
+                            + $"but declares Width={w ?? "(none)"} Height={h ?? "(none)"} — an "
+                            + "auto-sized element is almost never square");
+                    else if (w != h)
+                        offenders.Add(
+                            $"{relative}: <{element.Name.LocalName} {name}> is {w}x{h}, not square");
+                }
+            }
+        }
+
+        // A scan that finds nothing proves nothing. If the last consumer really did go away, this
+        // test has no subject left and should be deleted along with the token's square-only
+        // restriction — not left passing vacuously.
+        Check.WithCustomMessage(
+                "No element in the scanned projects consumes CircleCornerRadius, so this guard is "
+                + "checking an empty set. Either the reference form changed (it looks for "
+                + "CornerRadius=\"...CircleCornerRadius...\") or the token lost its last consumer.")
+            .That(consumers).IsStrictlyGreaterThan(0);
+
+        Check.WithCustomMessage(
+                "CircleCornerRadius is a SQUARE-ONLY token: WPF clamps an over-large radius to an "
+                + "inscribed ELLIPSE, not a stadium (§4.1, and the theory above measures it). On a "
+                + "non-square element it therefore renders an ellipse, which is never what the "
+                + "author meant. Make the element square, or use LargeCornerRadius.\n  "
+                + string.Join("\n  ", offenders))
+            .That(offenders).IsEmpty();
+
+        // Code-behind cannot be checked this way — a Border sized at runtime has no attribute to
+        // read — so rather than let such a site pass unexamined, refuse it outright and say why.
+        var codeSites = SourceScanner.ScannedFiles()
+            .Where(f => f.Relative.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            .Where(f => f.Text.Contains("CircleCornerRadius", StringComparison.Ordinal))
+            .Select(f => f.Relative)
+            .Where(r => !r.Contains("/Theme/", StringComparison.Ordinal))
+            .ToList();
+
+        Check.WithCustomMessage(
+                "CircleCornerRadius is now assigned from code-behind, where this guard cannot read "
+                + "a declared size and so cannot tell whether the element is square. Either size "
+                + "the element in XAML so the scan above covers it, or add a constructed test like "
+                + "TheOneCircleConsumer_IsSquare that reads its effective Width and Height.\n  "
+                + string.Join("\n  ", codeSites))
+            .That(codeSites).IsEmpty();
     }
 
     [StaFact]

@@ -18,6 +18,22 @@ using Xunit;
 /// Shares a collection with <see cref="ThemeResourceApplierTests"/> so the two
 /// pack-URI loaders never race to construct the one permitted WPF Application —
 /// see <see cref="WpfPackSchemeCollection"/>.
+///
+/// **The completeness these two tests demand is why unreferenced keys exist, and they are not
+/// dead weight.** Measured on this branch: 16 of OverlayStyles.xaml's 41 keys have no
+/// <c>{StaticResource}</c> or <c>{DynamicResource}</c> consumer anywhere in src, and nothing in
+/// src looks a resource up by string either (no <c>Resources[...]</c>, <c>FindResource</c> or
+/// <c>TryFindResource</c> call exists), so they are genuinely unreachable *as resources* today.
+/// Ten are keyboard, toggle and marker brushes that their surfaces currently set from C# via
+/// <c>Tokens.</c>; the rest are the raw doubles and the family string, whose XAML-consumable
+/// forms are separate keys.
+///
+/// A reviewer proposed deleting them. They must not be: <see cref="EveryTokenBrush_IsExposedAndMatches"/>
+/// and <see cref="EveryNonBrushToken_IsExposedAndMatches"/> require a key for EVERY
+/// <see cref="Tokens"/> member, so deleting any of them turns this file red. That is deliberate —
+/// the dictionary is a complete XAML view of the token surface, not a list of what happens to be
+/// referenced this week, so an overlay author can reach for any token without first having to
+/// declare it. Recorded here so the observation is not rediscovered and acted on.
 /// </summary>
 [Collection("WpfPackScheme")]
 public class TokenDictionaryTests

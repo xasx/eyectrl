@@ -725,6 +725,35 @@ Their live counterparts — the duplicated literals at `:273`, `:299`, `:382`, `
 by §8.4 and §8.5 like any other site. The plan must delete the consts in the same task that
 migrates those four literals, so the file never ends up with the const retained "just in case".
 
+#### 8.7.1 What actually happened — three of the eight came back, and one was added
+
+**Recorded after implementation, because the section above is now half wrong about the outcome.**
+Deleting all eight was right at the time it was written and it is what the task did (commit
+`691a494`). §8.5's ratio migration then needed a container size to multiply, and three of the
+deleted consts *were* that size. They were re-added, and the file now stands at:
+
+| Const | Outcome | Why |
+|---|---|---|
+| `TabIconFontSize`, `TabSymbolFontSize`, `PaginationCounterFontSize`, `PaginationSymbolFontSize` | **deleted, stayed deleted** | Dead font sizes. §8.5 sizes these glyphs from their container instead, so there was nothing to bring back. |
+| `PaginationCounterMinWidth` | **deleted, stayed deleted** | Genuinely unread; no ratio derives from it. |
+| `TabContainerHeight`, `PaginationButtonWidth`, `PaginationButtonHeight` | **deleted, then re-added** | Each is the container a §8.5 ratio multiplies. The number has to live in exactly one place or the const and its Border drift apart — which is precisely how they became dead the first time. Each is now wired to the Border that uses it. |
+| `ModalButtonHeight` | **newly introduced** | Not one of the eight; it was an inline literal. Promoted to a const for the same reason as the three above. |
+
+So the honest count is five deleted, three restored with live consumers, one added — not eight
+deleted. The section above stands as the reasoning that was correct when the decision was taken;
+this subsection records where the implementation departed from it and why, rather than editing the
+history to look like it was foreseen.
+
+Two consequences worth carrying forward:
+
+- **"Dead const" and "container const" look identical at a glance.** The difference is whether a
+  ratio somewhere multiplies it, and that reference can sit hundreds of lines away. Before
+  deleting a layout const, search for its name — not just its declaration.
+- **`TabContainerHeight` is `internal`, not `private`**, as are `PickerButtonWidth` and
+  `WindowSizeRatio`. `SettingsWindow` has eight non-optional constructor dependencies and cannot be
+  instantiated in a test, so `SettingsTabLabelFitTests` and `SettingsContentFitTests` rebuild its
+  element tree and must feed that tree production's own numbers rather than copies of them.
+
 ### 8.8 Application-wide wiring
 
 `OverlayWindow`'s constructor sets `FontFamily = Tokens.FontStandard`. Per §3.4 all 25 window

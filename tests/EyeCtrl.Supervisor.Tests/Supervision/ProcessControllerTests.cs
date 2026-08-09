@@ -10,7 +10,7 @@ public class ProcessControllerTests
     public void Launch_ClearsKillInitiated()
     {
         var controller = CreateController(out var handle);
-        controller.ForceKill(); // sets KillInitiated = true
+        controller.ForceKill();
 
         controller.Launch("test.exe", paused: false);
 
@@ -26,6 +26,19 @@ public class ProcessControllerTests
         controller.Launch("test.exe", paused: true);
 
         Check.That(controller.BoundProcess).IsSameReferenceAs(handle);
+    }
+
+    [Fact]
+    public void Launch_SetsStartTimeAndExePath()
+    {
+        var controller = CreateController(out var handle);
+        handle.StartTime = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        handle.ExePath = @"C:\App\EyeCtrl.App.exe";
+
+        controller.Launch("test.exe", paused: false);
+
+        Check.That(controller.StartTimeUtc).IsEqualTo(handle.StartTime);
+        Check.That(controller.ExePath).IsEqualTo(@"C:\App\EyeCtrl.App.exe");
     }
 
     [Fact]
@@ -45,7 +58,7 @@ public class ProcessControllerTests
         FakeProcessHandle handle = new(12345, false);
         var controller = new ProcessController(
             _ => handle,
-            _ => null!); // adopt factory always returns null
+            _ => null!);
 
         var result = controller.Adopt(99999);
 
@@ -54,10 +67,21 @@ public class ProcessControllerTests
     }
 
     [Fact]
+    public void Adopt_PopulatesExePath()
+    {
+        var controller = CreateController(out var handle);
+        handle.ExePath = @"C:\App\EyeCtrl.App.exe";
+
+        controller.Adopt(12345);
+
+        Check.That(controller.ExePath).IsEqualTo(@"C:\App\EyeCtrl.App.exe");
+    }
+
+    [Fact]
     public void Adopt_ClearsKillInitiated()
     {
         var controller = CreateController(out var handle);
-        controller.ForceKill(); // sets KillInitiated = true
+        controller.ForceKill();
 
         controller.Adopt(12345);
 
@@ -107,6 +131,19 @@ public class ProcessControllerTests
         Check.That(controller.IsAlive).IsFalse();
     }
 
+    [Fact]
+    public void ForceKill_RaisesEvent_TriggersExitedCallback()
+    {
+        var controller = CreateController(out var handle);
+        controller.Launch("test.exe", paused: false);
+        var exited = false;
+        handle.Exited += () => exited = true;
+
+        handle.RaiseExited();
+
+        Check.That(exited).IsTrue();
+    }
+
     private static ProcessController CreateController(out FakeProcessHandle handle, bool hasExited = false, FakeProcessHandle? adoptResult = null)
     {
         handle = new FakeProcessHandle(12345, hasExited);
@@ -129,6 +166,7 @@ public class ProcessControllerTests
 
         public int Id { get; }
         public bool HasExited { get; set; }
+        public string? ExePath { get; set; }
         public DateTime? StartTime { get; set; }
         public event Action? Exited;
 

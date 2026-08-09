@@ -70,6 +70,8 @@ public class Win32WindowManager : IWindowManager
             return false;
 
         // Get title — use char[] buffer (not StringBuilder; [LibraryImport] doesn't support it).
+        // Use GetWindowText's return (chars actually copied), not GetWindowTextLength, so a
+        // title that shrank between the two calls doesn't leave trailing '\0's in the string.
         var length = NativeMethods.GetWindowTextLength(hWnd);
         if (length == 0)
             return false;

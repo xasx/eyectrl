@@ -23,9 +23,9 @@ public class NamedPipeSecurityBuilderTests
     {
         var security = new NamedPipeSecurityBuilder().BuildCurrentUserOnly();
         var rules = security.GetAccessRules(true, true, typeof(SecurityIdentifier));
-        var rule = (PipeAccessRule)rules[0];
+        var rule = (PipeAccessRule)rules[0]!;
 
-        Check.That(rule.IdentityReference).IsEqualTo(WindowsIdentity.GetCurrent().User);
+        Check.That(rule.IdentityReference).IsEqualTo(WindowsIdentity.GetCurrent().User!);
         Check.That(rule.PipeAccessRights.HasFlag(PipeAccessRights.ReadWrite)).IsTrue();
         Check.That(rule.AccessControlType).IsEqualTo(AccessControlType.Allow);
     }

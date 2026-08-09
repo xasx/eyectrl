@@ -6,22 +6,29 @@ using Xunit;
 
 public class Win32WindowManagerFilterTests
 {
+    // Only the null handle is asserted on. A fabricated non-zero handle (0x1234 and friends) is
+    // *probably* not a window, but HWND values are assigned by the window manager and nothing
+    // rules out a collision on a busy desktop — a test that can fail for a reason unrelated to
+    // its name is worse than no test. Everything past the IsWindowVisible gate needs a real
+    // window, which means a UI test.
+
     [Fact]
     public void IsCandidateWindow_NullHandle_ReturnsFalse()
     {
-        // IntPtr.Zero is not a real window — the predicate must reject it without touching Win32.
-        var result = Win32WindowManager.IsCandidateWindow(nint.Zero, out var title);
+        // IsWindowVisible(NULL) is false, so the predicate rejects at the first gate.
+        var result = Win32WindowManager.IsCandidateWindow(nint.Zero, out _);
 
         Check.That(result).IsFalse();
     }
 
     [Fact]
-    public void IsCandidateWindow_InvalidHandle_ReturnsFalse()
+    public void IsCandidateWindow_Rejected_YieldsEmptyTitle()
     {
-        // A fabricated handle is not a real window. The predicate should reject it
-        // (or at minimum not throw) — it does NOT call EnumWindows, so it's safe headless.
-        var result = Win32WindowManager.IsCandidateWindow(new nint(0x1234), out var title);
+        // The out-param contract: callers read `title` only when the predicate returns true, but
+        // it must still be a non-null empty string on the reject path (EnumerateOpenWindows passes
+        // it straight into AppWindow).
+        Win32WindowManager.IsCandidateWindow(nint.Zero, out var title);
 
-        Check.That(result).IsFalse();
+        Check.That(title).IsEqualTo(string.Empty);
     }
 }

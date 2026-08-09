@@ -6,13 +6,13 @@ using Xunit;
 
 public class DwellComboBoxValidationTests
 {
-    [Fact]
+    // [StaFact] like its sibling: the length guard happens to run before any WPF object is
+    // constructed today, but a plain [Fact] would start failing with a threading exception rather
+    // than a clean assertion the moment that ordering changes.
+    [StaFact]
     public void Constructor_MismatchedArrayLengths_ThrowsArgumentException()
     {
-        ArgumentException? ex = null;
-        try
-        {
-            var combo = new DwellComboBox(
+        Check.ThatCode(() => new DwellComboBox(
                 new FakeDwellRegistrar(),
                 "prefix",
                 "label",
@@ -22,14 +22,8 @@ public class DwellComboBoxValidationTests
                 _ => { },
                 DwellCategory.Control,
                 40,
-                800);
-        }
-        catch (ArgumentException e)
-        {
-            ex = e;
-        }
-
-        Check.That(ex).IsNotNull();
+                800))
+            .Throws<ArgumentException>();
     }
 
     [StaFact]

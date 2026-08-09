@@ -24,11 +24,13 @@ public sealed class ProcessController
     /// </summary>
     public bool KillInitiated { get; private set; }
 
-    private readonly Func<ProcessStartInfo, IProcessHandle> _processFactory;
+    private readonly Func<ProcessStartInfo, IProcessHandle?> _processFactory;
     private readonly Func<int, IProcessHandle?> _adoptFactory;
 
     public ProcessController()
-        : this(psi => new RealProcessHandle(Process.Start(psi)!),
+        // Process.Start is documented to return null when no new process was started; the null-tolerant
+        // factory signature keeps that out of Launch rather than turning it into a NullReferenceException.
+        : this(psi => Process.Start(psi) is { } started ? new RealProcessHandle(started) : null,
                pid =>
                {
                    try { return new RealProcessHandle(Process.GetProcessById(pid)); }
@@ -37,7 +39,7 @@ public sealed class ProcessController
     {
     }
 
-    public ProcessController(Func<ProcessStartInfo, IProcessHandle> processFactory, Func<int, IProcessHandle?> adoptFactory)
+    public ProcessController(Func<ProcessStartInfo, IProcessHandle?> processFactory, Func<int, IProcessHandle?> adoptFactory)
     {
         _processFactory = processFactory;
         _adoptFactory = adoptFactory;
@@ -47,21 +49,29 @@ public sealed class ProcessController
     {
         ReleasePrevious();
         KillInitiated = false;
+        // The path we were handed IS the launched image; no need to ask the OS for it (and
+        // Process.MainModule on a just-started process is one more thing that can throw).
         ExePath = exePath;
         var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
         if (paused) psi.ArgumentList.Add("--paused");
         _process = _processFactory(psi);
         StartTimeUtc = _process?.StartTime;
-        if (_process != null)
-            ExePath = _process.ExePath ?? exePath;
     }
 
     /// <summary>
     /// Binds an externally-launched process by PID. Returns false if the PID is not running / cannot be opened.
-    /// <para><see cref="Process.GetProcessById(int)"/> throws <see cref="ArgumentException"/> if the
-    /// process isn't running; <see cref="Process.MainModule"/> can throw on a 64/32-bit bitness
-    /// mismatch or access denied — both are swallowed by the try/catch.</para>
     /// </summary>
+    /// <remarks>
+    /// <para>Must not throw: the caller is a <c>Dispatcher.BeginInvoke</c> heartbeat callback
+    /// (<c>Program.OnHeartbeatReceived</c>), where an escaping exception becomes a
+    /// DispatcherUnhandledException and tears down the supervisor itself. Both hazards are contained
+    /// below the call: <see cref="Process.GetProcessById(int)"/> throws <see cref="ArgumentException"/>
+    /// if the process isn't running — swallowed by the adopt factory; <see cref="Process.MainModule"/>
+    /// throws on a 64/32-bit bitness mismatch or access denied — swallowed by
+    /// <c>RealProcessHandle.ExePath</c>, which yields null instead. A null <see cref="ExePath"/> is
+    /// acceptable because the binder does its own exe-path authentication via
+    /// <c>QueryFullProcessImageName</c>.</para>
+    /// </remarks>
     public bool Adopt(int pid)
     {
         ReleasePrevious();

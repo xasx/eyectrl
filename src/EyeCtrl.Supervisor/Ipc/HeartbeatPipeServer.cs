@@ -144,7 +144,7 @@ public sealed class HeartbeatPipeServer : IDisposable
                 if (line == null) break;
 
                 HeartbeatPayload? payload;
-                try { payload = HeartbeatPayloadParser.TryParse(line); }
+                try { payload = HeartbeatPayloadParser.Parse(line); }
                 catch { continue; } // malformed JSON line: skip, keep the connection alive
                 if (payload == null) continue;
 

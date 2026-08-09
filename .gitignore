@@ -13,11 +13,10 @@ packages/
 ## Test Results
 TestResults/
 
-## Code coverage
-coverage-results/
-coverage-report/
-coverage_report/
-coverage_results/
+## Code coverage — the CI job writes coverage-results/ + coverage-report/ at the repo root,
+## and local runs tend to spawn variants of both names.
+coverage-*/
+coverage_*/
 
 ## Build artifacts
 *.DotSettings.user

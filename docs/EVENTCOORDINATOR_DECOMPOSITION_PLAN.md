@@ -138,8 +138,16 @@ refs), rather than scattered through a 1,654-line file.
 
 ## Phased migration (extract one cluster per PR)
 
-Each phase is independently shippable. The orchestrator façade (`IEventCoordinator`) is unchanged at
-every step, so **no caller or test needs to change until phase 7**. Run `dotnet test` after each phase.
+Each phase is independently shippable. The orchestrator preserves the concrete `EventCoordinator`
+public surface at every step (all 8 members above), so **no production caller changes** at any phase.
+However, `tests/EyeCtrl.App.Tests/Services/EventCoordinatorTests.cs` reaches into the implementation
+by reflection — it invokes `SetupQuickActionsSummon` and reads `_quickActionsSettingsHandler`
+(cluster 5), invokes `ExecuteKeyboardShortcut` / `ExecuteMediaControl` / `ExecuteWindowAction` /
+`ExecuteQuickAction` (cluster 2), and mutates `_context` directly. Those private members move when
+their cluster is extracted, so **each phase also migrates the test cases that target the extracted
+members**: they shift from reflecting on `EventCoordinator` to calling the new sub-coordinator
+directly (which is the plan's goal anyway — each coordinator independently unit-testable). Run
+`dotnet test` after each phase.
 
 **Ordering rationale:** start with the cluster that has the fewest cross-cluster dependencies (drag),
 then the most self-contained (quick-actions), then the purely imperative dispatchers, leaving the
@@ -150,7 +158,7 @@ modal-state flags.
 |------|--------|------|------|----------------|
 | 1 | `DragCoordinator` (cluster 4) | 0.5 d | Low | Fewest shared fields; clean events; contains its own escape-key hook + trail overlay lifecycle |
 | 2 | `QuickActionsCoordinator` (cluster 5) | 0.5 d | Low | Self-contained controller + one VM; only touches shared state via suspend calls |
-| 3 | `InputActionDispatcher` (cluster 2) | 1 d | Low | Pure message → `IInputSimulator`/`IWindowManager` translation; no overlay state |
+| 3 | `InputActionDispatcher` (cluster 2) | 1 d | Low | Message → `IInputSimulator`/`IWindowManager` translation — **not** state-free: `HandleActionRequested` reads `GazeEngine.StableCentroid`, uses `NoteManager`, and toggles the `TargetHighlight` VM+window (1450–1488). Slice: input + window managers, gaze engine, note manager, target-highlight |
 | 4 | `ToolbarLifecycleCoordinator` (cluster 6) | 1 d | Med | Owns auto-hide + gaze routing; introduces `Suspend()`/`Resume()` — must precede `KeyboardCoordinator`, whose `SetKeyboardVisible` (`EventCoordinator.cs:1547`) calls `_toolbarAutoHide?.SetSuspended` |
 | 5 | `KeyboardCoordinator` (cluster 3) | 1 d | Med | Owns `_keyboardVisible` + `PredictionStackFactory` + `LoadKeyboard`; uses `ToolbarLifecycle`'s `Suspend()`/`Resume()` (phase 4); introduces the `KeyboardState` shared flag |
 | 6 | `OverlayBindingCoordinator` (cluster 1) | 1 d | Med | Largest cluster; pure VM→window glue once modal flags are shared |
@@ -163,10 +171,19 @@ modal-state flags.
 
 ## Sequencing constraint: `Initialize` ordering
 
-`EventCoordinator.Initialize` (95–150) currently calls the `Setup*` methods in a specific order with
-real dependencies — e.g. `SetupGazeRouting` reads flags set by keyboard/settings, and
-`SetupToolbarAutoHide` must run before `ShowOverlays` caches the toolbar rect (see the comment at
-640–698). The orchestrator must preserve this order:
+`EventCoordinator.Initialize` (95–150) currently interleaves all concerns in one sequence — property
+handlers, *all* message handlers, gaze routing, toolbar auto-hide, quick actions, backdrop, drag —
+itself a symptom of the god-object. The orchestrator regroups these into per-coordinator `Initialize()`
+calls, which necessarily reorders them. That is safe because **all of this runs in `App.OnStartup`
+before `gazeEngine.Start()`** (step 15): no gaze samples arrive during setup, so there is no runtime
+race between coordinators. Two hard constraints to preserve regardless of grouping:
+
+1. Overlay VM→window property handlers are wired **before** the first gaze sample.
+2. `ToolbarAutoHide`'s rect capture is deferred to `DispatcherPriority.Loaded` (`1298–1305`) — keep
+   that deferral (the toolbar is unmeasured until laid out).
+
+The grouping below is a starting point, not a literal port — verify each coordinator's `Initialize`
+against the current call site and keep the two constraints above:
 
 ```
 OverlayBindingCoordinator.Initialize()   // wires VM→window BEFORE gaze starts
@@ -178,8 +195,9 @@ InputActionDispatcher.Initialize()
 SettingsUiCoordinator.Initialize()
 ```
 
-Capture the current call order from `Initialize` verbatim and reproduce it in the orchestrator; do
-not reorder.
+This is a regrouping, not a verbatim port of the current interleaved `Initialize` — the current order
+is not itself sacred (it exists because everything sits in one method); only the two constraints above
+are.
 
 ---
 
@@ -203,7 +221,10 @@ not reorder.
       `Orchestrator`, `Initialize`, `LoadKeyboard`, `Dispose`, `SetModelServices`,
       `SetRestartCoordinator`, `ForceShowToolbar`) — `App.xaml.cs:42` holds the concrete type, not the
       interface, so this is the surface that must survive unchanged for zero caller edits.
-- [ ] All existing `EyeCtrl.App.Tests` pass unmodified (the integration safety net).
+- [ ] All existing test *cases* keep passing, but cases that reflectively target members being
+      extracted (`SetupQuickActionsSummon`, `_quickActionsSettingsHandler`, the `Execute*` helpers,
+      `_context`) migrate with their phase to call the new sub-coordinator directly. No behavior is
+      lost or left untested.
 - [ ] Each sub-coordinator has at least one unit test exercising its primary message/property path.
 - [ ] The new layering test (`tests/EyeCtrl.Architecture.Tests`) still passes — the split is all
       within `EyeCtrl.App`, so no cross-project invariant is touched.

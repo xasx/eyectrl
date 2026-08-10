@@ -284,7 +284,7 @@ public class HeartbeatRestartPayloadTests
     }
 
     [Fact]
-    public void TryReachSupervisor_IsFalseWhileNotPublishing_EvenWithAServerListening()
+    public async Task TryReachSupervisor_IsFalseWhileNotPublishing_EvenWithAServerListening()
     {
         // Load-bearing, and not an optimisation: a successful probe ADOPTS this app into
         // the supervisor's Supervising state (Program.cs:270-278). With no periodic
@@ -295,7 +295,13 @@ public class HeartbeatRestartPayloadTests
         using var publisher = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
         Check.That(publisher.TryReachSupervisor()).IsFalse();
 
+        // Semantics preserved from the original blocking form: the assertion passes when the receive
+        // either does not settle inside 3 s or settles with nothing. ReceiveOneAsync self-bounds at 2 s
+        // and returns null on timeout, so "settled with null" is the expected path; the outer 3 s is
+        // only a margin. The short-circuit means a never-settling receive is never awaited.
+        var settled = await Task.WhenAny(
+            received, Task.Delay(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken)) == received;
         Check.WithCustomMessage("nothing should have been sent")
-            .That(received.Wait(TimeSpan.FromSeconds(3)) && received.Result is not null).IsFalse();
+            .That(settled && await received is not null).IsFalse();
     }
 }

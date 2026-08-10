@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Tests;
 
+using System;
+using System.Linq;
 using EyeCtrl.App.Tests.Fixtures;
 
 /// <summary>
@@ -37,8 +39,14 @@ public class SettingsTests
         _fixture.MoveCursorAway();
     }
 
+    /// <summary>
+    /// The expected ids are kept in sync with <c>SettingsWindow._tabDefs</c> by
+    /// <c>SettingsTabDriftTests</c>, which runs headlessly. This test only runs when UI tests are
+    /// opted in, so on its own it cannot be trusted to notice product drift — it previously expected
+    /// eight tabs including <c>ManualSelection</c> and <c>Theme</c>, neither of which still exists.
+    /// </summary>
     [Fact]
-    public async Task SettingsWindow_HasEightTabs()
+    public async Task SettingsWindow_RendersExactlyTheExpectedTabs()
     {
         // Ensure settings is open
         var settings = _fixture.FindWindow("Settings_Window");
@@ -56,19 +64,27 @@ public class SettingsTests
         {
             "Settings_Tab_Cursor",
             "Settings_Tab_Dwell",
-            "Settings_Tab_ManualSelection",
+            "Settings_Tab_Selection",
+            "Settings_Tab_Actions",
             "Settings_Tab_Layout",
             "Settings_Tab_Keyboard",
+            "Settings_Tab_Models",
             "Settings_Tab_Toolbar",
-            "Settings_Tab_Theme",
-            "Settings_Tab_General"
+            "Settings_Tab_Calibration",
+            "Settings_Tab_General",
+            "Settings_Tab_QuickActions"
         };
 
-        foreach (var tabId in expectedTabs)
-        {
-            var tab = _fixture.FindElement(settings!, tabId);
-            Check.That(tab).IsNotNull();
-        }
+        var actualTabs = _fixture.FindElements(settings!, "Settings_Tab_")
+            .Select(e => e.Properties.AutomationId.Value)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        Check.WithCustomMessage(
+                "Rendered settings tabs drifted from the expected set. Rendered: "
+                + string.Join(", ", actualTabs))
+            .That(actualTabs)
+            .ContainsExactly(expectedTabs.OrderBy(id => id, StringComparer.Ordinal).ToArray());
 
         _fixture.MoveCursorAway();
     }

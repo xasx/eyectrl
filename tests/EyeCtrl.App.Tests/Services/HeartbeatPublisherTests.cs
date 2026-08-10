@@ -55,6 +55,9 @@ public class HeartbeatPublisherTests
             _pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
         var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Captured outside Task.Run so the listener observes the test's token regardless of how
+        // TestContext flows across the pool hop.
+        var testToken = TestContext.Current.CancellationToken;
         _ = Task.Run(async () =>
         {
             try
@@ -63,13 +66,16 @@ public class HeartbeatPublisherTests
                 // connects (e.g. a send that strands before the write). 10s is far beyond any
                 // legitimate connect and turns a missing connection into a test failure (the
                 // TaskCompletionSource is set to the cancellation exception) rather than a CI hang.
-                using var listenCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                // Linked to the test token so cancelling the run also unblocks this listener; the
+                // 10s bound is preserved via CancelAfter.
+                using var listenCts = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+                listenCts.CancelAfter(TimeSpan.FromSeconds(10));
                 await server.WaitForConnectionAsync(listenCts.Token);
                 using var reader = new StreamReader(server, Encoding.UTF8, false, 1024, leaveOpen: true);
                 received.TrySetResult(await reader.ReadLineAsync() ?? "");
             }
             catch (Exception ex) { received.TrySetException(ex); }
-        });
+        }, testToken);
 
         using var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
 
@@ -94,7 +100,8 @@ public class HeartbeatPublisherTests
         // captured for diagnosis, not asserted.
         _ = sw.Elapsed;
 
-        var completed = await Task.WhenAny(received.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        var completed = await Task.WhenAny(
+            received.Task, Task.Delay(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
         Check.That(completed == received.Task).IsTrue(); // payload delivered
         var line = await received.Task;                  // completed above; await avoids a blocking .Result
         Check.That(line).Contains("shuttingDown", "true");

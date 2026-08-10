@@ -34,13 +34,16 @@ public partial class ToolbarWindow : OverlayWindow
         ButtonPanel.Children.Clear();
         _targetsInitialized = false;
 
-        // id + symbol (Unicode)
+        // id + symbol (Unicode). Every id here must exist in ToolbarViewModel's button list and have
+        // a case in its OnTargetActivated switch; ToolbarButtonDriftTests enforces that, and records
+        // why the ids deliberately absent from this list are absent.
         var buttons = new (string Id, string Symbol)[]
         {
             ("Pause",    "\u23F8"),    // ⏸ Pause
             ("SelectionMode",     "\u2295"),    // ⊕ Magnify/ManualSelection
             ("Keyboard", "\u2328"),    // ⌨ Keyboard
             ("Settings", "\u2699"),    // ⚙ Gear
+            ("TaskSwitcher", "\uD83E\uDE9F"),  // 🪟 Window switcher (surrogate pair, matching the VM)
             ("ResetAdaptation", "\u21BA"),  // ↺ Reset struggle-adaptation (§8.6 always-reachable escape)
         };
 

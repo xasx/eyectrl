@@ -33,7 +33,7 @@ public class SingleInstanceHandoffTests
         });
         thread.Start();
 
-        Check.That(started.Wait(TimeSpan.FromSeconds(5))).IsTrue(); // it is queued
+        Check.That(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)).IsTrue(); // it is queued
         Check.That(acquired).IsFalse();                            // and still waiting
 
         first.Dispose();                                           // the parent's OnExit

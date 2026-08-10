@@ -226,7 +226,8 @@ public class ModelDownloadServiceTests
             service.ProgressChanged += p => events.Add(p);
 
             var ok = await service.DownloadModelAsync(
-                "custom-x", "custom-x.onnx", "http://localhost/model.onnx", expectedSha);
+                "custom-x", "custom-x.onnx", "http://localhost/model.onnx", expectedSha,
+                cancellationToken: TestContext.Current.CancellationToken);
 
             Check.That(ok).IsTrue();
             Check.That(File.ReadAllBytes(Path.Combine(tempDir, "custom-x.onnx")))
@@ -284,18 +285,22 @@ public class ModelDownloadServiceTests
                 }));
             using var service = new ModelDownloadService(tempDir, client);
 
-            var task = service.DownloadTokenizerAsync("360M", "http://localhost/tokenizer.json", "");
+            // The test token is an ADDITIONAL cancellation source only — the assertion below still
+            // depends on service.CancelDownload() being what cancels the download.
+            var task = service.DownloadTokenizerAsync("360M", "http://localhost/tokenizer.json", "",
+                cancellationToken: TestContext.Current.CancellationToken);
 
             var start = Environment.TickCount64;
             while (!service.IsDownloading)
             {
                 Check.That(Environment.TickCount64 - start).IsStrictlyLessThan(2000);
-                await Task.Delay(10);
+                await Task.Delay(10, TestContext.Current.CancellationToken);
             }
 
             service.CancelDownload();
 
-            var completed = await Task.WhenAny(task, Task.Delay(5000));
+            var completed = await Task.WhenAny(
+                task, Task.Delay(5000, TestContext.Current.CancellationToken));
             Check.That(completed).IsSameReferenceAs(task);
 
             OperationCanceledException? oce = null;
@@ -327,7 +332,8 @@ public class ModelDownloadServiceTests
 
             var ok = await service.DownloadModelAsync(
                 "custom-x", "custom-x.onnx", "http://localhost/model.onnx",
-                expectedSha256: "deadbeef");
+                expectedSha256: "deadbeef",
+                cancellationToken: TestContext.Current.CancellationToken);
 
             Check.That(ok).IsFalse();
             Check.That(File.Exists(Path.Combine(tempDir, "custom-x.onnx"))).IsFalse();

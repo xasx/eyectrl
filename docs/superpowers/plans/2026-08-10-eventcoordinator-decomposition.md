@@ -275,8 +275,8 @@ internal sealed class QuickActionsCoordinator : IDisposable
 {
     private EventCoordinationContext? _context;
     private QuickActionsSummonController? _summon;
-    private Action<GazePoint>? _gazeHandler;
-    private PropertyChangedEventHandler? _settingsHandler;
+    private Action<GazePoint>? _quickActionsGazeHandler;       // keep the SOURCE name — moved bodies use it verbatim
+    private PropertyChangedEventHandler? _quickActionsSettingsHandler;
     private bool _disposed;
 
     public void Initialize(EventCoordinationContext context)
@@ -300,8 +300,8 @@ internal sealed class QuickActionsCoordinator : IDisposable
     public void Dispose()
     {
         if (_disposed || _context is null) { _disposed = true; return; }
-        if (_gazeHandler != null) _context.GazeEngine.GazeSampled -= _gazeHandler;
-        if (_settingsHandler != null) _context.Settings.QuickActions.PropertyChanged -= _settingsHandler;
+        if (_quickActionsGazeHandler != null) _context.GazeEngine.GazeSampled -= _quickActionsGazeHandler;
+        if (_quickActionsSettingsHandler != null) _context.Settings.QuickActions.PropertyChanged -= _quickActionsSettingsHandler;
         _context.Messenger.UnregisterAll(this);
         _disposed = true;
     }
@@ -352,7 +352,10 @@ public class QuickActionsCoordinatorTests
 
 > The old test's reflection (`GetMethod("SetupQuickActionsSummon")`, `GetField("_quickActionsSettingsHandler")`, `GetField("_suspended")` on the controller) is replaced by: the `InjectSummonForTesting` seam, the settings handler driven by **setting the property** (`[ObservableProperty]` raises the change itself — there is no `OnPropertyChange` method), and a typed `IsSuspended` accessor. No reflection remains.
 
-- [ ] **Step 5: Lift shared test helpers.** Move `MakeContext`/`MakeContextWithWindowManager`/the three fakes **and the `record ModifiedKeyPress` (:410, the assertions read it)** from `EventCoordinatorTests.cs` into a new `tests/EyeCtrl.App.Tests/Services/TestFakes.cs` (static class). **Critical (B7):** in `TestFakes.MakeContext`, change `Messenger: null!` → `Messenger: new WeakReferenceMessenger()` — migrated tests call `coordinator.Initialize(ctx)`, which `Register`s on the messenger and NREs on null. Add a `MakeContext(EyeCtrlSettings settings)` overload for the QuickActions test. Update `EventCoordinatorTests.cs` to call `TestFakes.MakeContext(...)`.
+- [ ] **Step 5: Lift shared test helpers into `TestFakes`.** Create `tests/EyeCtrl.App.Tests/Services/TestFakes.cs` as **`internal static class TestFakes`** in `namespace EyeCtrl.App.Tests.Services`, containing:
+  - `internal static EventCoordinationContext MakeContext(IInputSimulator input)` and `MakeContextWithWindowManager(IWindowManager wm)` — **and `Messenger: new WeakReferenceMessenger()`** (was `null!`; migrated tests call `coordinator.Initialize(ctx)` which `Register`s on the messenger and NREs on null). Plus `MakeContext(EyeCtrlSettings settings)` for the QuickActions test.
+  - The three fakes move in as **`internal sealed`** nested types: `TestFakes.FakeInputSimulator`, `TestFakes.FakeWindowActionManager`, `TestFakes.FakeInstalledAppProvider`, and **`TestFakes.ModifiedKeyPress`** (`internal sealed record`, :410 — the assertions read it).
+  - Then in **`EventCoordinatorTests.cs`**: add `using EyeCtrl.App.Tests.Services;` and replace **every** fake construction + helper call — `new FakeInputSimulator()` → `new TestFakes.FakeInputSimulator()`, `new FakeWindowActionManager()` → `new TestFakes.FakeWindowActionManager()`, `new FakeInstalledAppProvider()` → `new TestFakes.FakeInstalledAppProvider()`, `MakeContext(...)`/`MakeContextWithWindowManager(...)` → `TestFakes.MakeContext(...)`, and `ModifiedKeyPress` → `TestFakes.ModifiedKeyPress`. The reviewer flags unqualified constructions at lines 82, 100, 200, 260, 274, 299, 314, 328 — qualify them all, or this task's own build gate fails. Only after every reference is qualified, delete the now-empty private nested declarations from `EventCoordinatorTests`. The new coordinator test files also `using EyeCtrl.App.Tests.Services;` and use the `TestFakes.` prefix.
 
 - [ ] **Step 6: Build + test + commit.**
 
@@ -421,7 +424,7 @@ internal sealed class InputActionDispatcher : IDisposable
   - const `DefaultScrollAmount` (35), `BackspaceVirtualKeyCode`/`EnterVirtualKeyCode`/`TabVirtualKeyCode`/`SpaceVirtualKeyCode` (31–34)
   - The four message registrations currently in `EventCoordinator.Initialize`/`SetupMessageHandlers` for KeyActivated (446–447), PredictionSelected (450–451), SpecialKey (454–455), ActionRequested (458–459) — remove from EC (they're now in `InputActionDispatcher.Initialize` above).
 
-- [ ] **Step 3: Wire orchestrator.** Field `_inputDispatcher`; construct + `Initialize` in `EC.Initialize`; `_inputDispatcher?.Dispose()` in `EC.Dispose`. Remove the 4 now-duplicated message registrations from `EC.SetupMessageHandlers` and the inline `TaskSwitcherSelectionMessage`/`QuickActionSelectionMessage` registrations (Task 2 already moved the latter).
+- [ ] **Step 3: Wire orchestrator.** Field `_inputDispatcher`; construct + `Initialize` in `EC.Initialize`; `_inputDispatcher?.Dispose()` in `EC.Dispose`. Remove the 4 now-duplicated message registrations from `EC.SetupMessageHandlers` and the inline `TaskSwitcherSelectionMessage` registration (135–136). The `QuickActionSelectionMessage` registration (137–149) is **owned by T3** — it is in the `InputActionDispatcher.Initialize` shell above; T2 deliberately retained it on the facade, so remove it from `EC.Initialize` now (handoff: retain in T2 → move + remove-from-facade in T3).
 
 - [ ] **Step 4: Migrate the 7 tests.** Delete from `EventCoordinatorTests.cs`: `ExecuteKeyboardShortcut_…` (78–91), `ExecuteMediaControl_…` (93–112), `ExecuteWindowAction_RoutesPayload…` (254–267), `ExecuteWindowAction_NullHwnd_NoOps` (269–281), `ExecuteWindowAction_RejectedPayload_NoOps` (283–306), `ExecuteWindowAction_DoesNotQueryForegroundItself` (308–321), `ExecuteQuickAction_WindowAction_ForwardsTheResolvedHwnd` (323–342). Delete helpers `ExecuteKeyboardShortcut`, `InvokeExecuteWindowAction`, `SetContext`. Create `Coordinators/InputActionDispatcherTests.cs`.
 
@@ -448,7 +451,7 @@ public class InputActionDispatcherTests
 
   | Test | Arrange change | Act change |
   |---|---|---|
-  | `ExecuteMediaControl_EveryPreset_ProducesAnExtendedKeyPress` | `var d = new InputActionDispatcher(); d.Initialize(TestFakes.MakeContext(new TestFakes.FakeInputSimulator()));` inside the loop | `typeof(EventCoordinator).GetMethod("ExecuteMediaControl")…Invoke(coordinator, new[]{command})` → `d.ExecuteMediaControl(command)` |
+  | `ExecuteMediaControl_EveryPreset_ProducesAnExtendedKeyPress` | inside the loop: `var input = new TestFakes.FakeInputSimulator(); var d = new InputActionDispatcher(); d.Initialize(TestFakes.MakeContext(input));` (the assertion reads `input.LastKeyPress` — keep the `input` binding) | `typeof(EventCoordinator).GetMethod("ExecuteMediaControl")…Invoke(coordinator, new[]{command})` → `d.ExecuteMediaControl(command)` |
   | `ExecuteWindowAction_RoutesPayloadToTheRightOp` | `var d = new InputActionDispatcher(); d.Initialize(TestFakes.MakeContextWithWindowManager(fake));` | `InvokeExecuteWindowAction(coord,…)` → `d.ExecuteWindowAction(payload, hwnd)` |
   | `ExecuteWindowAction_NullHwnd_NoOps` | same as above | same as above |
   | `ExecuteWindowAction_RejectedPayload_NoOps` | same as above | same as above |
@@ -537,6 +540,7 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
   - `EC.ForceShowToolbar` (84–93): body → `if (_context == null) return; _context.Dispatcher.BeginInvoke(() => _toolbar?.ForceShow());`
   - Replace every remaining `_toolbarAutoHide?.X` / `_toolbarVisibility?.X` on EC with the `_toolbar?.X` seam. At T4 those live in: `OnSettingsChanged` (1280–1284: `UpdateEnabled`/`UpdateEdge`/`PositionIndicator`); `ShowSettingsWindow`/`OnSettingsWindowClosed`/`SetKeyboardVisible` (`SetSuspended`→`SetAutoHideSuspended`); and the **calibration handler** (564 `SetActive(false)`, 583/594 `ReassertVisibility()`) — the calibration handler itself stays on EC until T6, but its toolbar refs flip to seams now.
   - `OnSettingsChanged`'s toolbar-rect refresh: replace the inline deferred `CaptureToolbarRect()`/`UpdateToolbarRect(...)` block with `_toolbar?.RefreshToolbarRect()` (no-arg — the `DispatcherPriority.Loaded` deferral + capture now live inside it, so EC must not rebuild a `PhysicalRect` itself).
+  - **Complete the modal-flag migration HERE (B6 — avoids both a stale-flag window and a compile break).** Rewrite **every** read and write of `_keyboardVisible` / `_settingsOpen` on EC to `_modal.KeyboardVisible` / `_modal.SettingsOpen`, then **delete the two old fields**. The 8 sites: reads at `:621`, `:629` (gaze-routing early-out, which stays on EC until T8), `:439` (keyboard-toggle handler), `:1025` (cursor show guard); writes at `:1549` (`SetKeyboardVisible`), `:1212`/`:1252`/`:1312` (`ShowSettingsWindow` / catch / `OnSettingsWindowClosed`). The writer methods themselves stay on EC until T5/T7 move them — but they already reference `_modal` from this task onward, and every later coordinator that takes `_modal` shares the **same object**, so there is no stale-flag window. After T4, the names `_keyboardVisible` / `_settingsOpen` no longer exist anywhere.
 
 - [ ] **Step 5: Build + test + commit.**
 
@@ -579,7 +583,9 @@ internal sealed class KeyboardCoordinator : IDisposable
     private readonly ToolbarLifecycleCoordinator _toolbar;
     private readonly PredictionStackFactory _predictionFactory = new();
     private KeyboardStackSnapshot? _keyboardSnapshot;
-    private string? _appDataDir;
+    private string? _appDataDir;            // owned HERE — set in Initialize (moved from EC.Initialize :98)
+    private ModelRegistryService? _modelRegistry;  // for PredictionStackFactory.Rebuild in LoadKeyboard
+    private bool _disposed;
 
     public WordPredictor? WordPredictor => _predictionFactory.Current?.WordPredictor;
     public PredictionOrchestrator? Orchestrator => _predictionFactory.Current;
@@ -591,11 +597,17 @@ internal sealed class KeyboardCoordinator : IDisposable
     public void Initialize(EventCoordinationContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
+        _appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
         /* … KeyboardToggled/Show/Hide registrations + skin-tone hookup, moved in Step 2 … */
     }
 
+    public void SetModelServices(ModelRegistryService registry, ModelManagementService management) => _modelRegistry = registry;
+    // (_downloadService is write-only dead — silently dropped; EC.SetModelServices keeps its 3-arg public signature.)
+
+    // LoadKeyboard: 4 args now (appDataDir is the field). Body is EC.LoadKeyboard 1490–1537 verbatim,
+    // INCLUDING the _appDataDir InvalidOperationException guard (moved here from EC :1498).
     public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
-        IInputSimulator inputSimulator, SettingsService settingsService, string appDataDir) { /* body of EC.LoadKeyboard */ }
+        IInputSimulator inputSimulator, SettingsService settingsService) { /* body of EC.LoadKeyboard */ }
 
     /// <summary>Seam consumed by SettingsUiCoordinator (T7): reload the keyboard iff the
     /// layout-affecting settings changed, so T7 doesn't read `_keyboardSnapshot`. Returns true if reloaded.</summary>
@@ -603,7 +615,7 @@ internal sealed class KeyboardCoordinator : IDisposable
     {
         var snap = KeyboardStackSnapshot.Capture(settings);
         if (_keyboardSnapshot == snap) return false;
-        LoadKeyboard(_context!.OverlayManager.Keyboard, settings, input, ss, _appDataDir!);
+        LoadKeyboard(_context!.OverlayManager.Keyboard, settings, input, ss);
         return true;
     }
 
@@ -622,8 +634,8 @@ internal sealed class KeyboardCoordinator : IDisposable
 ```
 
 - [ ] **Step 2: Move verbatim**, with targeted edits:
-  - `SetKeyboardVisible` (1543–1569): replace `_keyboardVisible = visible` → `_modal.KeyboardVisible = visible`; replace `_toolbarAutoHide?.SetSuspended(visible)` → `_toolbar.SetAutoHideSuspended(visible)`; replace `_quickActionsSummon?.SetSuspended(visible)` → `_quickActions.SetSummonSuspended(visible)`.
-  - `KeyboardToggledMessage` handler (438–439) reads `!_keyboardVisible` → `!_modal.KeyboardVisible` (the `:439` read — completes the flag-rewrite set: reads {439, 621, 629, 1025}, writes {1212, 1252, 1312, 1549}).
+  - `SetKeyboardVisible` (1543–1569): the `_keyboardVisible` write is **already** `_modal.KeyboardVisible` (rewritten in T4). In T5 only: replace `_toolbarAutoHide?.SetSuspended(visible)` → `_toolbar.SetAutoHideSuspended(visible)` and `_quickActionsSummon?.SetSuspended(visible)` → `_quickActions.SetSummonSuspended(visible)`.
+  - `KeyboardToggledMessage` handler (438–439): its `:439` read is **already** `_modal.KeyboardVisible` (rewritten in T4) — move verbatim into `Initialize`.
   - `OnEmojiSkinToneChanged` (1571–1577) — unchanged (writes `_keyboardSnapshot`, settings).
   - `HandleKeyActivation`/`HandlePredictionSelected`/`HandleSpecialKey` — **NO**, those moved to InputActionDispatcher (Task 3). KeyboardCoordinator owns only visibility + LoadKeyboard + skin tone.
   - Fields `_predictionFactory` (47), `_keyboardSnapshot` (48), `_appDataDir` (51), `_keyboardVisible` (41 — REMOVED, now `_modal.KeyboardVisible`).
@@ -634,8 +646,8 @@ internal sealed class KeyboardCoordinator : IDisposable
   - Field `private KeyboardCoordinator? _keyboard;`
   - `Initialize` (≈ :104): `_keyboard = new KeyboardCoordinator(_modal, _quickActions!, _toolbar!); _keyboard.Initialize(context);`. **Construct coordinators in task order (1→7): Drag, QuickActions, InputDispatcher, Toolbar, Keyboard, OverlayBinding, SettingsUi** — this satisfies every ctor dependency (Keyboard needs QuickActions T2 + Toolbar T4; OverlayBinding needs Toolbar T4; SettingsUi needs Keyboard T5). All `Initialize` calls complete before `gazeEngine.Start()`, so "property handlers wired before first sample" holds regardless of internal order.
   - Re-expose on EC: `public WordPredictor? WordPredictor => _keyboard?.WordPredictor;` and `public PredictionOrchestrator? Orchestrator => _keyboard?.Orchestrator;` (replaces the direct `_predictionFactory` fields on EC).
-  - `EC.LoadKeyboard` (1490–1537) → **keep the four `ArgumentNullException.ThrowIfNull` guards (:1493–1496) and the `_appDataDir` `InvalidOperationException` (:1498)** in EC's forwarder. `LoadKeyboard_ThrowsArgumentNullException_WhenKeyboardIsNull` calls this on an **uninitialized** EC and expects `ArgumentNullException`; if EC just did `_keyboard!.LoadKeyboard(...)`, `_keyboard` is null → NRE, not `ArgumentNullException` → red. After the guards, forward: `_keyboard!.LoadKeyboard(keyboard, settings, inputSimulator, settingsService, _appDataDir!);` (`_appDataDir` stays on EC, set at `Initialize` :98).
-  - `EC.SetModelServices` (73–78): signature unchanged (App calls it with 3 args). `_modelRegistry` is genuinely dual-read (LoadKeyboard :1527 + the settings UI); `_modelManagementService` is read by the settings UI (T7). `_downloadService` is **write-only dead** (set :76, never read) — silently drop it. EC forwards: `_keyboard!.SetModelServices(modelRegistry, modelManagementService);` (and T7 adds `_settingsUi!.SetModelServices(modelRegistry, modelManagementService);`).
+  - `EC.LoadKeyboard` (1490–1537) → **keep only the four `ArgumentNullException.ThrowIfNull` guards (:1493–1496)** — `LoadKeyboard_ThrowsArgumentNullException_WhenKeyboardIsNull` calls this on an uninitialized EC and expects `ArgumentNullException` (not NRE from `_keyboard!`). The `_appDataDir` `InvalidOperationException` (:1498) **moves into `KeyboardCoordinator.LoadKeyboard`** (appDataDir is now KeyboardCoordinator-owned). Forward: `_keyboard!.LoadKeyboard(keyboard, settings, inputSimulator, settingsService);` (4 args). **Delete EC's `_appDataDir` field (:51) and its `Initialize` assignment (:98)** — moved into `KeyboardCoordinator.Initialize`.
+  - `EC.SetModelServices` (73–78): public signature unchanged (App calls it with 3 args). Forward `_keyboard!.SetModelServices(modelRegistry, modelManagementService);` — `_downloadService` is dead (dropped); T7 adds `_settingsUi!.SetModelServices(modelRegistry, modelManagementService);`.
 
 - [ ] **Step 4: Build + test + commit.**
 
@@ -695,7 +707,7 @@ internal sealed class OverlayBindingCoordinator : IDisposable
 ```
 
 - [ ] **Step 2: Move verbatim**, with targeted edits:
-  - `SetupPropertyChangedHandlers` (341–375) and all eight `On*VMPropertyChanged` handlers (1014–1204): the cursor show guard at 1025 (`!_settingsOpen`) → `!_modal.SettingsOpen`.
+  - `SetupPropertyChangedHandlers` (341–375) and all eight `On*VMPropertyChanged` handlers (1014–1204): move verbatim — the cursor-guard read at `:1025` is **already** `!_modal.SettingsOpen` (rewritten in T4).
   - const `ActivationButtonOffsetPixels` (30) — sole consumer is `OnActivationVMPropertyChanged` (:1045), which moves here.
   - const `RightEdgeInsetLogical` (37) — **now moves here** (consumer `OnManualSelectionVisibilityChanged` :1125 moves here); delete EC's copy (T1 deliberately left it until now).
   - `SetupBackdrop` (865–871), `ShowBackdropIfEnabled` (983–1004), `HideBackdrop` (1006–1010).
@@ -756,7 +768,7 @@ internal sealed class SettingsUiCoordinator : IDisposable
         _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
         /* … SettingsRequested/CloseSettings registrations, moved in Step 2 … */
     }
-    public void SetModelServices(ModelRegistryService r, ModelDownloadService d, ModelManagementService m) { _modelRegistry = r; _modelManagementService = m; }
+    public void SetModelServices(ModelRegistryService r, ModelManagementService m) { _modelRegistry = r; _modelManagementService = m; }
     public void SetRestartCoordinator(AppRestartCoordinator c) => _restartCoordinator = c;
 
     // … ShowSettingsWindow / OnSettingsChanged / OnSettingsWindowClosed / UpdateTrackStatusVisibility …
@@ -766,14 +778,14 @@ internal sealed class SettingsUiCoordinator : IDisposable
 ```
 
 - [ ] **Step 2: Move verbatim**, with targeted edits:
-  - `ShowSettingsWindow` (1208–1261): replace `_settingsOpen = true/false` → `_modal.SettingsOpen = true/false`; `_toolbarAutoHide?.SetSuspended` → `_toolbar.SetAutoHideSuspended`; `_quickActionsSummon?.SetSuspended` → `_quickActions.SetSummonSuspended`. The `_modelRegistry`/`_modelManagementService`/`_restartCoordinator` null-guards (:1239–1244) move with it. (`_appDataDir` is **not** touched here — only `LoadKeyboard` reads it; N4: don't say it moves.)
+  - `ShowSettingsWindow` (1208–1261): the `_settingsOpen` writes are **already** `_modal.SettingsOpen` (rewritten in T4). In T7 only: `_toolbarAutoHide?.SetSuspended` → `_toolbar.SetAutoHideSuspended`; `_quickActionsSummon?.SetSuspended` → `_quickActions.SetSummonSuspended`. The `_modelRegistry`/`_modelManagementService`/`_restartCoordinator` null-guards (:1239–1244) move with it. (`_appDataDir` is **not** touched here — owned by KeyboardCoordinator.)
   - Field `_toolbarSnapshot` (:49) — read in `OnSettingsChanged` (:1273, :1286) to gate toolbar re-init; add it to this coordinator's fields.
   - `OnSettingsChanged` (1263–1296): the **keyboard-rebuild branch (1289–1293)** reads `_keyboardSnapshot` — that field is owned by `KeyboardCoordinator` (T5). Replace the branch with `_keyboard.ReloadIfChanged(s, _context.InputSimulator, _context.SettingsService)` (new T5 seam: compares KeyboardCoordinator's own `_keyboardSnapshot`, reloads if changed, returns whether it did). The **toolbar branch (1272–1287)** calls `_toolbar.UpdateEnabled/UpdateEdge/PositionIndicator` + `_toolbar.RefreshToolbarRect()` (no-arg).
-  - `OnSettingsWindowClosed` (1307–1317): same `_modal.SettingsOpen`/suspend edits.
+  - `OnSettingsWindowClosed` (1307–1317): the `_settingsOpen` write is already `_modal.SettingsOpen` (T4); in T7 only the suspend seams (`_toolbar.SetAutoHideSuspended(false)`, `_quickActions.SetSummonSuspended(false)`).
   - `UpdateTrackStatusVisibility` (331–339) + its `TrackStatus.PropertyChanged` hookup (112–116).
-  - `SettingsRequestedMessage`/`CloseSettingsMessage` registrations (442–469) — move into `Initialize`.
+  - `SettingsRequestedMessage` registration (**442–443**) and `CloseSettingsMessage` registration (**462–469**) — move into `Initialize`. *(Cite them separately: the inclusive 442–469 range contains T3's input registrations at 446–459 — B9.)*
 
-- [ ] **Step 3: Wire orchestrator.** Field `_settingsUi`; construct (needs `_modal`, `_quickActions`, `_toolbar`, `_keyboard`) + Initialize in `EC.Initialize` (last); `_settingsUi?.Dispose()` in `EC.Dispose` (first — close settings before tearing down). `EC.SetModelServices` → `_settingsUi!.SetModelServices(...) + _keyboard!.SetModelServices(...)` (model registry is needed by both LoadKeyboard and the settings model-listing UI — split or share; share: SettingsUi holds registry for the UI, Keyboard holds it for LoadKeyboard, EC.SetModelServices forwards to both). `EC.SetRestartCoordinator` → `_settingsUi!.SetRestartCoordinator(...)`.
+- [ ] **Step 3: Wire orchestrator.** Field `_settingsUi`; construct (needs `_modal`, `_quickActions`, `_toolbar`, `_keyboard`) + Initialize in `EC.Initialize` (last); `_settingsUi?.Dispose()` in `EC.Dispose` (first — close settings before tearing down). `EC.SetModelServices(r, d, m)` → `_keyboard!.SetModelServices(r, m); _settingsUi!.SetModelServices(r, m);` (2-arg on both — the dead `_downloadService` `d` is dropped; the same app-lifetime registry is shared, which is sound). `EC.SetRestartCoordinator` → `_settingsUi!.SetRestartCoordinator(...)`. **After this task `SetupMessageHandlers` (377–605) is empty — delete the method and remove its call from `EC.Initialize` (B8).** This is the last registration to leave the facade, so its source method goes now (analogous to T1 deleting `SetupDragHandlers`).
 
 - [ ] **Step 4: Build + test + commit.**
 
@@ -786,9 +798,9 @@ git commit -am "refactor(eventcoordinator): extract SettingsUiCoordinator (clust
 
 ## Task 8: Final cleanup — `EventCoordinator` ≤ 200 lines
 
-After Tasks 1–7, `EventCoordinator.cs` holds the orchestrator shell: fields (the 7 coordinator refs + `_modal` + `_context` + `_appDataDir` + `_scrollModeController` + `_disposed`), the 8 public members (forwarding), `Initialize` (construct + Init each coordinator in task order), `Dispose` (dispose in reverse), and the leftover gaze-routing lambda from T4. T8 folds that lambda in and clears the last dead fields.
+After Tasks 1–7, `EventCoordinator.cs` holds the orchestrator shell: fields (the 7 coordinator refs + `_modal` + `_context` + `_scrollModeController` + `_disposed` — note `_appDataDir` moved to `KeyboardCoordinator` in T5), the 8 public members (forwarding), `Initialize` (construct + Init each coordinator in task order), `Dispose` (dispose in reverse), and the leftover gaze-routing lambda from T4. T8 folds that lambda in and clears the last dead fields.
 
-- [ ] **Step 1: Fold the leftover gaze routing into `ToolbarLifecycleCoordinator`.** Move `_gazeMovedHandler` (the lambda routing gaze to toolbar/keyboard/settings-window, deferred in T4) from EC into `ToolbarLifecycleCoordinator`. Its reads of `_keyboardVisible`/`_settingsOpen` become `_modal.KeyboardVisible`/`_modal.SettingsOpen`. The handler routes to `_context.OverlayManager.Toolbar.UpdateGaze` and `_context.OverlayManager.Keyboard.UpdateGaze` (both reachable via the context — no coordinator involved) and to `_settingsWindow.UpdateGaze`. The last is owned by `SettingsUiCoordinator` — expose **`internal void UpdateGazeIfVisible(PhysicalPoint point, long timestamp)`** on `SettingsUiCoordinator` (no-op if `_settingsWindow` is null/closed) and call it from the gaze routing. (A `Func<bool>` does **not** suffice — you need the window itself to call `UpdateGaze`.) Field `_toolbarInitialized` (:43) moves with the gaze routing. EC's `SetupGazeRouting` then deletes entirely.
+- [ ] **Step 1: Fold the leftover gaze routing into `ToolbarLifecycleCoordinator`.** Move `_gazeMovedHandler` (the lambda, :614–635), its field (`:46`), `_toolbarInitialized` (`:43`), the `CursorMoved += _gazeMovedHandler` subscription (`:637`), and its `Dispose` unsubscribe (`:1623–1626`) — the last into `ToolbarLifecycle.Dispose` (which currently only removes `_autoHideGazeHandler`). The handler's reads are already `_modal.*` (T4), so the body moves verbatim. It routes to `_context.OverlayManager.Toolbar.UpdateGaze` + `_context.OverlayManager.Keyboard.UpdateGaze` (both via the context — no coordinator involved) and to the settings window. The settings window is owned by `SettingsUiCoordinator`, which is constructed **after** ToolbarLifecycle in task order — so it cannot be a ctor param. Add **`internal SettingsUiCoordinator? _settingsUi;`** + **`internal void AttachSettingsUi(SettingsUiCoordinator s) => _settingsUi = s;`** to `ToolbarLifecycleCoordinator`, call `AttachSettingsUi(...)` from `EC.Initialize` immediately after `_settingsUi` is constructed, and have the gaze routing call `_settingsUi?.UpdateGazeIfVisible(point, timestamp)` (expose that `internal void` no-op-if-closed method on `SettingsUiCoordinator`). (A `Func<bool>` does not suffice — you need the window to call `UpdateGaze`.) EC's `SetupGazeRouting` then deletes entirely.
 
 - [ ] **Step 2: Delete dead fields/consts** from EC: `_predictionFactory`, `_keyboardSnapshot`, `_keyboardVisible`, `_settingsOpen`, `_settingsWindow`, `_toolbarAutoHide`, `_toolbarVisibility`, `_autoHideGazeHandler`, `_quickActionsSummon`, `_quickActionsGazeHandler`, `_quickActionsSettingsHandler`, `_dragTrailOverlay`, `_dragGrabOrigin`, `_disposeEscapeHook`, `_glassBackdrop`, `_modelRegistry`/`_downloadService`/`_modelManagementService` (moved to Keyboard/Settings), `_restartCoordinator`, all the VK consts, `RightEdgeInsetLogical`. Run `dotnet build` — any remaining reference is a missed move; fix it.
 
@@ -829,4 +841,4 @@ Open a PR for `refactor/eventcoordinator-decomposition` → `main` (squash-merge
 
 - **Messenger `Register` owner change**: each coordinator registers with *itself* as recipient; its `Dispose` calls `Messenger.UnregisterAll(this)`. A missed `UnregisterAll` → leaked handler. After each task, grep `Register<` and confirm every recipient has a matching `UnregisterAll` in its `Dispose`.
 - **`Initialize` order**: construct coordinators in **task order (1→7): Drag, QuickActions, InputDispatcher, Toolbar, Keyboard, OverlayBinding, SettingsUi** — topologically valid (OverlayBinding needs Toolbar T4; Keyboard needs QuickActions T2 + Toolbar T4; SettingsUi needs Keyboard T5) and all run before `gazeEngine.Start()` (which `App.OnStartup` calls after `Initialize`). "Property handlers before first sample" is satisfied by being inside `Initialize`, not by being first.
-- **Shared flags**: every read/write of the old `_keyboardVisible`/`_settingsOpen` fields must become `_modal.KeyboardVisible`/`_modal.SettingsOpen`. After Task 7, grep `eventcoordinator` for the old field names — zero hits expected.
+- **Shared flags**: the `_keyboardVisible`/`_settingsOpen` → `_modal.*` migration is **complete in Task 4** (all 4 reads + 4 writes at once, then the old fields deleted). Doing it incrementally (T5/T7) would either break the retained gaze handler's compile (fields gone) or leave it reading stale values (fields kept but writers moved). After **T4**, grep the branch for `_keyboardVisible`/`_settingsOpen` — zero hits expected.

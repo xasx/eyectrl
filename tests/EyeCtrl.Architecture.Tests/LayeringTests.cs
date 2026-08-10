@@ -206,6 +206,34 @@ public class LayeringTests
         ExpectUsageRefs("EyeCtrl.Sdk.Wpf", new[] { "EyeCtrl.Sdk.Abstractions", "EyeCtrl.Contracts" });
     }
 
+    [Fact]
+    public void Sdk_WinUI_Couples_Only_To_Abstractions_And_Contracts()
+    {
+        // Sdk.WinUI is NOT referenced by this test project (it would pull WinUI 3 / AppxPackage
+        // build tooling), so its DLL is absent from the test bin and cannot be read via the
+        // UsageReferences map. Locate the assembly the solution built — CI builds the full solution
+        // before testing (`dotnet build EyeCtrl.slnx` then `--no-build`), and a local full build does
+        // too — and read its IL AssemblyRef table directly, giving WinUI the same usage-level coverage
+        // WPF gets. If the DLL is absent, FAIL with guidance rather than pass vacuously; CI never hits
+        // this (it always builds first), it only triggers on a cold single-project test run.
+        // (WinUiElementAdapter uses both Contracts and Sdk.Abstractions types, so its direct IL set
+        // must be {Contracts, Sdk.Abstractions}, matching WPF.)
+        var dll = Directory.EnumerateFiles(
+                Path.Combine(FindRepoRoot(), "src", "EyeCtrl.Sdk.WinUI", "bin"),
+                "EyeCtrl.Sdk.WinUI.dll", SearchOption.AllDirectories)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+
+        Check.WithCustomMessage(
+            "EyeCtrl.Sdk.WinUI.dll not found under src/EyeCtrl.Sdk.WinUI/bin — run " +
+            "`dotnet build EyeCtrl.slnx` first so the WinUI usage gate has an assembly to read.")
+            .That(dll is null ? new[] { "missing Sdk.WinUI assembly" } : Array.Empty<string>()).IsEmpty();
+
+        AssertUsageRefs("EyeCtrl.Sdk.WinUI (IL)",
+            new[] { "EyeCtrl.Sdk.Abstractions", "EyeCtrl.Contracts" },
+            ReadEyeCtrlReferences(dll!));
+    }
+
     // ─── Guard: every assembly the usage gate asserts on was actually discovered ───
 
     [Fact]
@@ -236,21 +264,23 @@ public class LayeringTests
         return UsageReferences[assemblyName];
     }
 
-    private static void ExpectUsageRefs(string assemblyName, string[] allowed)
+    private static void ExpectUsageRefs(string assemblyName, string[] allowed) =>
+        AssertUsageRefs(assemblyName, allowed, UsageRefsOf(assemblyName));
+
+    private static void AssertUsageRefs(string label, string[] allowed, IReadOnlySet<string> actual)
     {
-        var actual = UsageRefsOf(assemblyName);
         var allowedSet = new HashSet<string>(allowed, StringComparer.OrdinalIgnoreCase);
 
         var extra = actual.Except(allowedSet, StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
         var missing = allowedSet.Except(actual, StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
 
         Check.WithCustomMessage(
-            $"'{assemblyName}' must couple to exactly [{string.Join(", ", allowed)}] among EyeCtrl.*, " +
+            $"'{label}' must couple to exactly [{string.Join(", ", allowed)}] among EyeCtrl.*, " +
             $"but coupled to [{string.Join(", ", actual.OrderBy(s => s))}]. Unexpected: [{string.Join(", ", extra)}].")
             .That(extra).IsEmpty();
 
         Check.WithCustomMessage(
-            $"'{assemblyName}' was expected to also couple to [{string.Join(", ", missing)}] but did not.")
+            $"'{label}' was expected to also couple to [{string.Join(", ", missing)}] but did not.")
             .That(missing).IsEmpty();
     }
 

@@ -7,9 +7,10 @@
 
 ## Verdict
 
-**A well-layered, actively-maintained gaze-control platform with sound foundational invariants that
-are enforced *only* by convention. The layering is clean and acyclic; the chief debts are two runaway
-god-objects in the App layer and the absence of any automated guard for the very invariants the
+**A well-layered, actively-maintained gaze-control platform whose foundational invariants were, at
+assessment time, enforced *only* by convention (this cycle adds the first automated gate for the
+dependency-direction rules — see §3 / rec #1). The layering is clean and acyclic; the chief debts are
+two runaway god-objects in the App layer and thin automated enforcement of the very invariants the
 project prides itself on.** No correctness, safety, or security regression is indicated today; the
 risks are maintainability of the coordination core and thin coverage on the public SDK surface.
 
@@ -19,7 +20,7 @@ risks are maintainability of the coordination core and thin coverage on the publ
 
 | | |
 |---|---|
-| **Projects** | 12 src + 11 test + benchmarks/samples/tools. Solution is `EyeCtrl.slnx` (new .NET solution format). |
+| **Projects** | 12 src + 11 test projects in the assessed baseline (this branch adds `EyeCtrl.Architecture.Tests`, the 12th) + benchmarks/samples/tools. Solution is `EyeCtrl.slnx` (new .NET solution format). |
 | **Scale** | 362 C# files / 28 XAML in `src/`; 11,768 graph symbols; ~1,853 test methods by attribute count (1,654 `[Fact]` + 84 `[StaFact]` + 115 `[Theory]`; `[Theory]` cases expand further at runtime; reflects `main` pre-this-branch). |
 | **SDK / TFM** | .NET 10.0.102 (`global.json`). **Two TFM islands**: `Contracts`/`Sdk.*` are `net8.0`-family (third-party consumer compat); everything else `net10.0(-windows)`. |
 | **Import cycles** | **0** circular file imports (GitNexus `check`: clean). |
@@ -86,14 +87,16 @@ and larger** — 1,630 lines of code-behind with magic-number constants (`Contro
 `ColorSwatchRadius=35`, `TabBtnRadius=85`, …). The hotspot map has *inverted* since the last review:
 the two biggest files are now `EventCoordinator` and `SettingsWindow`, both > 1.6k lines.
 
-### 🟡 P2 — The 11 architectural invariants are documented, not enforced
+### 🟡 P2 — (baseline) the architectural invariants were documented, not enforced
 
-There is **no layering test anywhere** — no NetArchTest / ArchUnitNET / BannedApiAnalyzers
-(grep-confirmed across all `*.csproj`/`*.props`). The dependency-direction invariants — `Core never
-references Platform` and `ViewModels never references Platform` (`ARCHITECTURE.md` §1
-dependency-direction prose) and `Supervisor never references App` (§7 invariant #10) — hold *today*
-only because the csproj graph happens to encode them and reviewers happen to catch regressions. A
-single ill-advised `<ProjectReference>` addition would silently violate them. The doc
+**At assessment time** there was **no layering test anywhere** — no NetArchTest / ArchUnitNET /
+BannedApiAnalyzers (grep-confirmed across all `*.csproj`/`*.props`). The dependency-direction
+invariants — `Core never references Platform` and `ViewModels never references Platform`
+(`ARCHITECTURE.md` §1 dependency-direction prose) and `Supervisor never references App` (§7 invariant
+#10) — held only because the csproj graph happened to encode them and reviewers happened to catch
+regressions; a single ill-advised `<ProjectReference>` addition would silently violate them. **The
+gate added this cycle (now on this branch) closes that gap for both declared references and actual IL
+coupling.** The doc
 named `ARCHITECTURAL_VALIDATION_SYSTEM.md` is **misleadingly named** — it validates *settings values*,
 not architecture.
 

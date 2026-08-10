@@ -20,7 +20,7 @@ risks are maintainability of the coordination core and thin coverage on the publ
 | | |
 |---|---|
 | **Projects** | 12 src + 11 test + benchmarks/samples/tools. Solution is `EyeCtrl.slnx` (new .NET solution format). |
-| **Scale** | 362 C# files / 28 XAML in `src/`; 11,768 graph symbols; ~1,853 tests (1,654 `[Fact]` + 84 `[StaFact]` + 115 `[Theory]`). |
+| **Scale** | 362 C# files / 28 XAML in `src/`; 11,768 graph symbols; ~1,853 test methods by attribute count (1,654 `[Fact]` + 84 `[StaFact]` + 115 `[Theory]`; `[Theory]` cases expand further at runtime; reflects `main` pre-this-branch). |
 | **SDK / TFM** | .NET 10.0.102 (`global.json`). **Two TFM islands**: `Contracts`/`Sdk.*` are `net8.0`-family (third-party consumer compat); everything else `net10.0(-windows)`. |
 | **Import cycles** | **0** circular file imports (GitNexus `check`: clean). |
 | **Activity** | 819 commits in the last 60 days — very active; recent commits are driving coverage up (`Controls 47→76%`, `Platform 42→49%`) and refreshing docs. |
@@ -35,8 +35,11 @@ Contracts ◄── Sdk.Abstractions ◄── Sdk.Wpf / Sdk.WinUI      (SDK cha
 ```
 
 `EyeCtrl.Core.csproj` has **zero `ProjectReference`** (only `CommunityToolkit.Mvvm` +
-`Microsoft.Extensions.Logging.Abstractions` packages). It is the true foundation. Every leaf invariant
-documented in `ARCHITECTURE.md §7` was re-verified against the csproj graph for this assessment.
+`Microsoft.Extensions.Logging.Abstractions` packages). It is the true foundation. Every
+dependency-direction invariant in `ARCHITECTURE.md` (the §1 prose and §7 invariants #8/#9/#10) was
+re-verified against the csproj graph; the runtime/design invariants (§7 #1 physical pixels, #2
+UI-thread serialization, #4 singleton DI, #6 settings-driven) are not csproj-checkable and were
+confirmed by reading the code, not the graph.
 
 ---
 
@@ -65,13 +68,14 @@ documented in `ARCHITECTURE.md §7` was re-verified against the csproj graph for
 
 ## 3. Concerns (prioritized)
 
-### 🔴 P1 — `EventCoordinator.cs` is a runaway god-object (1,654 lines, 32 handlers)
+### 🔴 P1 — `EventCoordinator.cs` is a runaway god-object (1,654 lines, 32 non-trivial methods)
 
 The March 2026 review (`docs/ARCHITECTURE_ISSUES_SUMMARY.md`) tracked `App.xaml.cs` as the god-object
 (Issue #1). That was fixed — `App.xaml.cs` shrank **771 → 709 → 541**. But the gravity migrated:
 `EventCoordinator` is now the **largest file in the codebase**, wiring ~8 view models plus drag,
 quick-actions, media, window-actions, keyboard, emoji, prediction, calibration, and settings through
-**32 distinct `Handle*/On*` methods**. The old review never flagged it. This is the single biggest
+**21 `Handle*`/`On*` handler methods — 32 non-trivial methods total, counting 7 `Setup*` and 4
+`Execute*` helpers**. The old review never flagged it. This is the single biggest
 maintainability debt today. A concrete decomposition plan is in
 [`docs/EVENTCOORDINATOR_DECOMPOSITION_PLAN.md`](./EVENTCOORDINATOR_DECOMPOSITION_PLAN.md).
 
@@ -85,10 +89,11 @@ the two biggest files are now `EventCoordinator` and `SettingsWindow`, both > 1.
 ### 🟡 P2 — The 11 architectural invariants are documented, not enforced
 
 There is **no layering test anywhere** — no NetArchTest / ArchUnitNET / BannedApiAnalyzers
-(grep-confirmed across all `*.csproj`/`*.props`). The invariants in `ARCHITECTURE.md §7` ("Core never
-references Platform", "Supervisor never references App", "ViewModels never references Platform") hold
-*today* only because the csproj graph happens to encode them and reviewers happen to catch
-regressions. A single ill-advised `<ProjectReference>` addition would silently violate them. The doc
+(grep-confirmed across all `*.csproj`/`*.props`). The dependency-direction invariants — `Core never
+references Platform` and `ViewModels never references Platform` (`ARCHITECTURE.md` §1
+dependency-direction prose) and `Supervisor never references App` (§7 invariant #10) — hold *today*
+only because the csproj graph happens to encode them and reviewers happen to catch regressions. A
+single ill-advised `<ProjectReference>` addition would silently violate them. The doc
 named `ARCHITECTURAL_VALIDATION_SYSTEM.md` is **misleadingly named** — it validates *settings values*,
 not architecture.
 
@@ -123,10 +128,11 @@ Contracts/SDK change must weigh. Worth a one-line note in `AGENTS.md` (currently
 | Doc | Status |
 |---|---|
 | `AGENTS.md` "Architecture" table | **Stale** — lists **6** projects; reality is **12** src projects. Missing: `Controls`, `Contracts`, `Sdk.Abstractions`, `Sdk.Wpf`, `Sdk.WinUI`, `Supervisor`. |
+| `AGENTS.md` "Key Files" table (≈ line 90) | **Stale** — still calls `App.xaml.cs` the "central wiring hub (DI, overlay lifecycle)"; that wiring moved to `src/EyeCtrl.App/Services/` (`AppBootstrapper`, `EventCoordinator`, `OverlayManager`). |
 | `ARCHITECTURE.md` (root) | **Stale-generated** — header says "744 files / 9053 symbols / 142 commits behind"; reality is **926 files / 11,768 symbols / 5 behind**. Narrative is still ~accurate; every count is wrong. Needs a regen from the live graph. |
 | `docs/ARCHITECTURE_ISSUES_SUMMARY.md` | **~4.5 months stale** (2026-03-29). Its hotspot targets (`App.xaml.cs` 709) are inverted vs. today (541, down; `EventCoordinator` 1,654, up). Treat as history, not current state. |
 | `docs/ARCHITECTURAL_VALIDATION_SYSTEM.md` | Accurate but **misleadingly named** (settings validation, not layering). |
-| Invariants (`ARCHITECTURE.md §7`) | All 11 **verified true** against the current csproj graph. |
+| Invariants (`ARCHITECTURE.md`) | **Dependency-direction** invariants (§1 prose, §7 #8/#9/#10) verified against the csproj graph; the runtime/design invariants (§7 #1, #2, #4, #6) are not csproj-checkable — confirmed by reading code, not the graph. |
 
 ---
 
@@ -146,7 +152,8 @@ Contracts/SDK change must weigh. Worth a one-line note in `AGENTS.md` (currently
 1. **Automated layering test** (P2, ~0.5 day) — *done this cycle*
    (`tests/EyeCtrl.Architecture.Tests`). Converts the csproj-level invariants from convention into a
    CI gate. Extend it over time with namespace-level rules.
-2. **Decompose `EventCoordinator`** (P1) — split the 32 handlers into focused coordinators
+2. **Decompose `EventCoordinator`** (P1) — split the 32 non-trivial methods (21 `Handle*`/`On*`
+   handlers + `Setup*`/`Execute*` helpers) into focused coordinators
    (`OverlayBindingCoordinator`, `DragCoordinator`, `QuickActionsCoordinator`, `KeyboardCoordinator`,
    `InputActionDispatcher`, `SettingsUiCoordinator`, `ToolbarLifecycleCoordinator`) behind a thin
    orchestrator. Full plan:

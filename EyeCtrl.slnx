@@ -14,6 +14,7 @@
     <Project Path="src/EyeCtrl.Supervisor/EyeCtrl.Supervisor.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/EyeCtrl.Architecture.Tests/EyeCtrl.Architecture.Tests.csproj" />
     <Project Path="tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj" />
     <Project Path="tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj" />
     <Project Path="tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj" />

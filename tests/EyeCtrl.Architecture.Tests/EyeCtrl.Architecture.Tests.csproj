@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- net10.0-windows lets this project reference every -windows src project.
+         UseWPF is not required: the tests read PE metadata via MetadataReader and touch no WPF
+         types, so there is no XAML/WPF activation at build or run. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference every src project EXCEPT EyeCtrl.Sdk.WinUI. Sdk.WinUI pulls WinUI 3 /
+         WindowsAppSDK and its AppxPackage MSBuild tooling into any consumer; referencing it here
+         would make this fast metadata test depend on VS AppxPackage tooling. Its invariant is
+         verified instead by parsing its csproj (ProjectReference is the sole acquisition path). -->
+    <ProjectReference Include="..\..\src\EyeCtrl.Core\EyeCtrl.Core.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Platform\EyeCtrl.Platform.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.ViewModels\EyeCtrl.ViewModels.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Controls\EyeCtrl.Controls.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.EyeCare\EyeCtrl.EyeCare.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.LM\EyeCtrl.LM.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Sdk.Wpf\EyeCtrl.Sdk.Wpf.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.App\EyeCtrl.App.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Supervisor\EyeCtrl.Supervisor.csproj" />
+  </ItemGroup>
+
+</Project>

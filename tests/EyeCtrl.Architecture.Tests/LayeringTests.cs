@@ -55,7 +55,10 @@ public class LayeringTests
         var srcDir = Path.Combine(FindRepoRoot(), "src");
 
         var actualByProject = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var csproj in Directory.EnumerateFiles(srcDir, "*.csproj", SearchOption.AllDirectories))
+        foreach (var csproj in Directory.EnumerateFiles(srcDir, "*.csproj", SearchOption.AllDirectories)
+                     // Exclude obj//bin so a future toolchain that drops a build-generated csproj under
+                     // obj/ (e.g. WPF's _wpftmp) can't trip the gate spuriously.
+                     .Where(p => { var n = p.Replace('\\', '/'); return !n.Contains("/obj/", StringComparison.OrdinalIgnoreCase) && !n.Contains("/bin/", StringComparison.OrdinalIgnoreCase); }))
             actualByProject[Path.GetFileNameWithoutExtension(csproj)] = ReadProjectReferenceNames(csproj);
 
         var discrepancies = new List<string>();
@@ -267,6 +270,11 @@ public class LayeringTests
     private static void ExpectUsageRefs(string assemblyName, string[] allowed) =>
         AssertUsageRefs(assemblyName, allowed, UsageRefsOf(assemblyName));
 
+    /// <summary>Asserts the assembly couples to EXACTLY the allowed EyeCtrl.* set — exact both ways.
+    /// A NEW forbidden coupling fails (extra); a REMOVED legitimate coupling also fails (missing)
+    /// until you update the allowed set in the caller. That edit is the intended flow when a refactor
+    /// legitimately changes which assembly a type is used from — update the expectation here, don't
+    /// weaken the check.</summary>
     private static void AssertUsageRefs(string label, string[] allowed, IReadOnlySet<string> actual)
     {
         var allowedSet = new HashSet<string>(allowed, StringComparer.OrdinalIgnoreCase);

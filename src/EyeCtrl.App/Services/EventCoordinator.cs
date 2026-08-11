@@ -1,25 +1,13 @@
 namespace EyeCtrl.App.Services;
 
 using System;
-using System.IO;
-using System.Windows.Interop;
-using EyeCtrl.App;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services.Coordinators;
-using EyeCtrl.App.Views;
-using EyeCtrl.Platform.Input;
-using EyeCtrl.Core;
-using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
-using EyeCtrl.Core.Keyboard;
-using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
-using EyeCtrl.ViewModels;
-using EyeCtrl.ViewModels.Messages;
 using CommunityToolkit.Mvvm.Messaging;
-using Serilog;
 
 /// <summary>
 /// Coordinates event handlers between ViewModels, overlay windows, and the core engine.
@@ -28,13 +16,12 @@ using Serilog;
 public class EventCoordinator : IEventCoordinator
 {
     private EventCoordinationContext? _context;
-    // Shared modal flags — read on the gaze thread (SetupGazeRouting's early-out), written on the UI
-    // thread. The volatility lives on ModalInteractionState itself; this single object is shared with
-    // the keyboard/settings sub-coordinators (T5/T7) so there is no stale-flag window.
+    // Shared modal flags — written on the UI thread, read on the gaze thread (now inside
+    // ToolbarLifecycleCoordinator.SetupGazeRouting). The volatility lives on ModalInteractionState
+    // itself; this single object is shared with the keyboard/settings sub-coordinators (T5/T7) so
+    // there is no stale-flag window.
     private readonly ModalInteractionState _modal = new();
-    private volatile bool _toolbarInitialized;
     private bool _disposed;
-    private Action<PhysicalPoint, long>? _gazeMovedHandler;
     private ScrollModeController? _scrollModeController;
     private ToolbarLifecycleCoordinator? _toolbar;
     private QuickActionsCoordinator? _quickActions;
@@ -78,7 +65,6 @@ public class EventCoordinator : IEventCoordinator
 
         // SetupMessageHandlers is gone — every messenger registration now lives in the coordinator
         // that owns the handler (cluster 1/3/6/7: overlay, keyboard, toolbar, settings).
-        SetupGazeRouting();
         _toolbar = new ToolbarLifecycleCoordinator(_modal);
         _toolbar.Initialize(context);
         _overlay = new OverlayBindingCoordinator(_modal, _toolbar);
@@ -101,40 +87,12 @@ public class EventCoordinator : IEventCoordinator
         // coordinator, so all three must be initialized before it.
         _settingsUi = new SettingsUiCoordinator(_modal, _quickActions, _toolbar, _keyboard);
         _settingsUi.Initialize(context);
-    }
 
-    private void SetupGazeRouting()
-    {
-        if (_context == null) return;
-
-        var toolbar = _context.OverlayManager.Toolbar;
-        var keyboard = _context.OverlayManager.Keyboard;
-
-        _gazeMovedHandler = (point, timestamp) =>
-        {
-            // Perf: skip the per-sample UI-thread dispatch when nothing consumes it. The toolbar
-            // only needs the first sample (to lazily init its target positions); after that its
-            // dwell is driven by GazeCursorMovedMessage on the messenger, not this route. The
-            // keyboard and settings window need gaze only while open. Flags are volatile and read
-            // on the gaze thread; a one-frame-stale read at worst delays a dispatch by a frame.
-            if (_toolbarInitialized && !_modal.KeyboardVisible && !_modal.SettingsOpen)
-                return;
-
-            _context.Dispatcher.BeginInvoke(() =>
-            {
-                toolbar.UpdateGaze(point, timestamp);
-                _toolbarInitialized = true;
-
-                if (_modal.KeyboardVisible && keyboard.IsVisible)
-                    keyboard.UpdateGaze(point, timestamp);
-
-                // The _settingsWindow reference moved to SettingsUiCoordinator (cluster 7); route
-                // the sample through its seam (visibility check lives inside).
-                _settingsUi?.UpdateSettingsGazeIfVisible(point, timestamp);
-            });
-        };
-
-        _context.GazeEngine.CursorMoved += _gazeMovedHandler;
+        // Hand the settings sub-coordinator to the toolbar sub-coordinator: the per-sample gaze
+        // route (which lives on ToolbarLifecycleCoordinator after the T8 fold) forwards to the
+        // settings window through this seam. Done after _settingsUi is constructed — ToolbarLifecycle
+        // is constructed earlier in task order.
+        _toolbar.AttachSettingsUi(_settingsUi);
     }
 
     public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
@@ -174,8 +132,10 @@ public class EventCoordinator : IEventCoordinator
         _keyboard?.Dispose();
         _keyboard = null;
 
-        // Dispose the toolbar sub-coordinator (handles its own gaze-handler unsubscribe + message
-        // cleanup, including the StateChangedMessage registration that moved there in cluster 6).
+        // Dispose the toolbar sub-coordinator (handles its own gaze-handler unsubscribe — both
+        // the auto-hide GazeSampled handler and the per-sample CursorMoved route that moved there
+        // in cluster 8 — plus message cleanup, including the StateChangedMessage registration that
+        // moved there in cluster 6).
         _toolbar?.Dispose();
         _toolbar = null;
 
@@ -193,12 +153,6 @@ public class EventCoordinator : IEventCoordinator
         {
             _disposed = true;
             return;
-        }
-
-        // Unsubscribe from GazeEngine events
-        if (_gazeMovedHandler != null)
-        {
-            _context.GazeEngine.CursorMoved -= _gazeMovedHandler;
         }
 
         // Dispose the drag sub-coordinator (handles its own event/message cleanup).

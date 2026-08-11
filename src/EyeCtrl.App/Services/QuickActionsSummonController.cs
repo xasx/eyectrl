@@ -52,6 +52,9 @@ public sealed class QuickActionsSummonController
     /// <summary>Current state of the machine (thread-safe read).</summary>
     public SummonState State => (SummonState)Volatile.Read(ref _state);
 
+    /// <summary>Whether the controller is currently suspended. Test-visible read of <see cref="_suspended"/>.</summary>
+    internal bool IsSuspended => _suspended;
+
     /// <summary>
     /// Raised on Idle→Summoned. EventCoordinator marshals this to the UI thread
     /// and sends QuickActionsToggledMessage (mirrors ToolbarAutoHideController's

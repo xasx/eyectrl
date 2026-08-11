@@ -84,10 +84,10 @@ internal sealed class SettingsUiCoordinator : IDisposable
     /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
     public void SetRestartCoordinator(AppRestartCoordinator coordinator) => _restartCoordinator = coordinator;
 
-    /// <summary>Gaze-routing seam (consumed by EventCoordinator.SetupGazeRouting until T8 folds gaze
-    /// routing in): forwards the sample to the settings window iff it is open and visible. The
-    /// visibility check lives here because the <c>_settingsWindow</c> reference moved out of EC with
-    /// this coordinator.</summary>
+    /// <summary>Gaze-routing seam (consumed by ToolbarLifecycleCoordinator.SetupGazeRouting after
+    /// the cluster-8 fold): forwards the sample to the settings window iff it is open and visible.
+    /// The visibility check lives here because the <c>_settingsWindow</c> reference moved out of EC
+    /// with this coordinator.</summary>
     internal void UpdateSettingsGazeIfVisible(PhysicalPoint point, long timestamp)
     {
         if (_settingsWindow?.IsVisible ?? false)

@@ -7,8 +7,9 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// Owns the toolbar lifecycle surface of <see cref="EventCoordinator"/>: the auto-hide controller,
-/// the visibility adapter, toolbar-rect capture, and the StateChangedMessage → auto-hide-pause mirror.
-/// Extracted from <c>EventCoordinator</c> as part of the sub-coordinator decomposition (cluster 6).
+/// the visibility adapter, toolbar-rect capture, the StateChangedMessage → auto-hide-pause mirror,
+/// and the per-sample gaze route (toolbar lazy-init + keyboard/settings forwarding). Extracted from
+/// <c>EventCoordinator</c> as part of the sub-coordinator decomposition (clusters 6 + 8).
 /// </summary>
 internal sealed class ToolbarLifecycleCoordinator : IDisposable
 {
@@ -19,9 +20,25 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
     private ToolbarAutoHideController? _autoHide;
     private ToolbarVisibilityAdapter? _visibility;
     private Action<GazePoint>? _autoHideGazeHandler; // held so Dispose can unsubscribe (the lambda captures the controller local, not this field)
+    // Per-sample CursorMoved route: toolbar (lazy first sample), keyboard (while open), settings
+    // window (while open). Moved here from EventCoordinator.SetupGazeRouting as part of the cluster-8
+    // final cleanup. Held so Dispose can -= it.
+    private Action<PhysicalPoint, long>? _gazeMovedHandler;
+    // True once the toolbar has received its first gaze sample and lazily initialized its target
+    // positions. The per-sample early-out below keys off this.
+    private volatile bool _toolbarInitialized;
+    // SettingsUiCoordinator is constructed AFTER this coordinator in Initialize task order, so it
+    // cannot be a ctor param. EC calls AttachSettingsUi immediately after constructing it, before
+    // the first gaze sample.
+    internal SettingsUiCoordinator? _settingsUi;
     private bool _disposed;
 
     public ToolbarLifecycleCoordinator(ModalInteractionState modal) => _modal = modal;
+
+    /// <summary>Wires the settings-UI sub-coordinator so the per-sample gaze route can forward to
+    /// its open window. Called once from EventCoordinator.Initialize after SettingsUiCoordinator is
+    /// constructed (which happens after this coordinator).</summary>
+    internal void AttachSettingsUi(SettingsUiCoordinator settings) => _settingsUi = settings;
 
     public void Initialize(EventCoordinationContext context)
     {
@@ -33,6 +50,45 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
             _autoHide?.SetPaused(msg.NewState == InteractionState.Paused));
 
         SetupToolbarAutoHide();
+        SetupGazeRouting();
+    }
+
+    /// <summary>Subscribes the per-sample CursorMoved route. Targets: toolbar (lazy first-sample
+    /// init; afterwards its dwell is driven by GazeCursorMovedMessage on the messenger), keyboard
+    /// (while open), and the settings window (while open, via the SettingsUiCoordinator seam).
+    /// Moved here from EventCoordinator as part of the cluster-8 final cleanup.</summary>
+    private void SetupGazeRouting()
+    {
+        if (_context == null) return;
+
+        var toolbar = _context.OverlayManager.Toolbar;
+        var keyboard = _context.OverlayManager.Keyboard;
+
+        _gazeMovedHandler = (point, timestamp) =>
+        {
+            // Perf: skip the per-sample UI-thread dispatch when nothing consumes it. The toolbar
+            // only needs the first sample (to lazily init its target positions); after that its
+            // dwell is driven by GazeCursorMovedMessage on the messenger, not this route. The
+            // keyboard and settings window need gaze only while open. Flags are volatile and read
+            // on the gaze thread; a one-frame-stale read at worst delays a dispatch by a frame.
+            if (_toolbarInitialized && !_modal.KeyboardVisible && !_modal.SettingsOpen)
+                return;
+
+            _context.Dispatcher.BeginInvoke(() =>
+            {
+                toolbar.UpdateGaze(point, timestamp);
+                _toolbarInitialized = true;
+
+                if (_modal.KeyboardVisible && keyboard.IsVisible)
+                    keyboard.UpdateGaze(point, timestamp);
+
+                // Route the sample to the settings window iff it is open (the visibility check lives
+                // inside UpdateSettingsGazeIfVisible, which is a no-op when no window is constructed).
+                _settingsUi?.UpdateSettingsGazeIfVisible(point, timestamp);
+            });
+        };
+
+        _context.GazeEngine.CursorMoved += _gazeMovedHandler;
     }
 
     /// <summary>Suspend/resume the auto-hide dwell (called by Keyboard/Settings coordinators when a
@@ -149,6 +205,7 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
     {
         if (_disposed || _context is null) { _disposed = true; return; }
         if (_autoHideGazeHandler != null) _context.GazeEngine.GazeSampled -= _autoHideGazeHandler;
+        if (_gazeMovedHandler != null) _context.GazeEngine.CursorMoved -= _gazeMovedHandler;
         _context.Messenger.UnregisterAll(this);
         _disposed = true;
     }

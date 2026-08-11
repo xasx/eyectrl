@@ -41,13 +41,9 @@ public class EventCoordinator : IEventCoordinator
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
     private Action<PhysicalPoint, long>? _gazeMovedHandler;
-    private readonly PredictionStackFactory _predictionFactory = new();
-    private KeyboardStackSnapshot? _keyboardSnapshot;
     private ToolbarSnapshot? _toolbarSnapshot;
     private GlassBackdropWindow? _glassBackdrop;
-    private string? _appDataDir;
     private ModelRegistryService? _modelRegistry;
-    private ModelDownloadService? _downloadService;
     private ModelManagementService? _modelManagementService;
     private AppRestartCoordinator? _restartCoordinator;
     private ScrollModeController? _scrollModeController;
@@ -55,18 +51,21 @@ public class EventCoordinator : IEventCoordinator
     private QuickActionsCoordinator? _quickActions;
     private DragCoordinator? _dragCoordinator;
     private InputActionDispatcher? _inputDispatcher;
+    private KeyboardCoordinator? _keyboard;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
     /// </summary>
-    public WordPredictor? WordPredictor => _predictionFactory.Current?.WordPredictor;
-    public PredictionOrchestrator? Orchestrator => _predictionFactory.Current;
+    public WordPredictor? WordPredictor => _keyboard?.WordPredictor;
+    public PredictionOrchestrator? Orchestrator => _keyboard?.Orchestrator;
 
     public void SetModelServices(ModelRegistryService modelRegistry, ModelDownloadService modelDownload, ModelManagementService modelManagement)
     {
+        // EC keeps the 3-arg public signature (App.xaml.cs calls it with 3 args). The download
+        // service is dead and dropped at the seam; only the registry reaches KeyboardCoordinator.
         _modelRegistry = modelRegistry;
-        _downloadService = modelDownload;
         _modelManagementService = modelManagement;
+        _keyboard?.SetModelServices(modelRegistry, modelManagement);
     }
 
     /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
@@ -82,7 +81,6 @@ public class EventCoordinator : IEventCoordinator
     public void Initialize(EventCoordinationContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
-        _appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
 
         _scrollModeController = new ScrollModeController(context);
 
@@ -93,10 +91,11 @@ public class EventCoordinator : IEventCoordinator
         _toolbar.Initialize(context);
         _quickActions = new QuickActionsCoordinator();
         _quickActions.Initialize(context);
+        _keyboard = new KeyboardCoordinator(_modal, _quickActions, _toolbar);
+        _keyboard.Initialize(context);
         SetupBackdrop();
         _dragCoordinator = new DragCoordinator();
         _dragCoordinator.Initialize(context);
-        _context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
 
         UpdateTrackStatusVisibility();
         _context.Settings.TrackStatus.PropertyChanged += (_, e) =>
@@ -232,9 +231,7 @@ public class EventCoordinator : IEventCoordinator
                 }
             }));
 
-        // Keyboard toggle
-        _context.Messenger.Register<EventCoordinator, KeyboardToggledMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(!_modal.KeyboardVisible, manageSuppression: true)));
+        // Keyboard toggle moved to KeyboardCoordinator (cluster 3).
 
         // Settings window
         _context.Messenger.Register<EventCoordinator, SettingsRequestedMessage>(this, (_, _) =>
@@ -313,21 +310,7 @@ public class EventCoordinator : IEventCoordinator
                     im.OnManualSelectionBack();
             }));
 
-        // ShowKeyboardRequestMessage -> show keyboard for text input
-        _context.Messenger.Register<EventCoordinator, ShowKeyboardRequestMessage>(this, (_, msg) =>
-        {
-            if (_context?.OverlayManager.Keyboard == null) return;
-            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(true, manageSuppression: false));
-            Log.Debug("Keyboard shown for text input (target handle: {Handle})", msg.TargetHandle);
-        });
-
-        // HideKeyboardRequestMessage -> hide keyboard
-        _context.Messenger.Register<EventCoordinator, HideKeyboardRequestMessage>(this, (_, _) =>
-        {
-            if (_context?.OverlayManager.Keyboard == null) return;
-            _context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false, manageSuppression: false));
-            Log.Debug("Keyboard hidden");
-        });
+        // ShowKeyboardRequestMessage / HideKeyboardRequestMessage moved to KeyboardCoordinator (cluster 3).
 
         // Calibration: show/hide overlay on state change, suppress interaction during capture
         _context.Messenger.Register<EventCoordinator, CalibrationStateChangedMessage>(this, (_, msg) =>
@@ -727,11 +710,9 @@ public class EventCoordinator : IEventCoordinator
             _toolbarSnapshot = toolbarSnapshot;
         }
 
-        var keyboardSnapshot = KeyboardStackSnapshot.Capture(s);
-        if (_keyboardSnapshot != keyboardSnapshot)
-        {
-            LoadKeyboard(_context.OverlayManager.Keyboard, s, _context.InputSimulator, _context.SettingsService);
-        }
+        // The keyboard snapshot compare + reload now lives on KeyboardCoordinator (cluster 3),
+        // exposed as the ReloadIfChanged seam that SettingsUiCoordinator (T7) will consume.
+        _keyboard?.ReloadIfChanged(s, _context.InputSimulator, _context.SettingsService);
 
         Log.Information("Settings saved");
     }
@@ -751,91 +732,22 @@ public class EventCoordinator : IEventCoordinator
     public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
         IInputSimulator inputSimulator, SettingsService settingsService)
     {
+        // Keep the four argument-null guards: LoadKeyboard_ThrowsArgumentNullException_WhenKeyboardIsNull
+        // calls this on an UNINITIALIZED EventCoordinator and expects ArgumentNullException —
+        // without these guards, the forward would dereference _keyboard (null pre-Initialize) and
+        // throw NullReferenceException instead. The _appDataDir InvalidOperationException guard moved
+        // INTO KeyboardCoordinator.LoadKeyboard (the field moved with it).
         ArgumentNullException.ThrowIfNull(keyboard);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(inputSimulator);
         ArgumentNullException.ThrowIfNull(settingsService);
 
-        if (string.IsNullOrWhiteSpace(_appDataDir))
-            throw new InvalidOperationException("EventCoordinator must be initialized before calling LoadKeyboard.");
-
-        var layoutName = settings.Keyboard.ActiveLayout.ToLowerInvariant();
-        var layoutPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-            "Resources", "Layouts", $"{layoutName}.json");
-
-        if (File.Exists(layoutPath))
-        {
-            var layout = KeyboardLayoutLoader.Load(layoutPath);
-            keyboard.LoadLayout(layout,
-                settings.Keyboard.KeySizeMultiplier,
-                settings.Dwell.KeyboardKeyDwellMs,
-                settings.Dwell.KeyboardPredictionDwellMs,
-                settings.Dwell.DwellCooldownMs);
-
-            var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
-            var recentPath = Path.Combine(_appDataDir!, "recent_emojis.json");
-            keyboard.SetEmojiData(emojiPath, recentPath);
-            keyboard.SetSkinTone(settings.Keyboard.EmojiSkinTone);
-        }
-
-        if (settings.Keyboard.PredictionEnabled && string.IsNullOrEmpty(settings.Keyboard.LanguagePack))
-        {
-            settings.Keyboard.LanguagePack = LanguageDetector.Detect();
-            settingsService.SaveDebounced(settings);
-            Log.Information("Auto-detected language: {Lang}", settings.Keyboard.LanguagePack);
-        }
-
-        var orchestrator = _predictionFactory.Rebuild(settings, AppDomain.CurrentDomain.BaseDirectory, _appDataDir!, _modelRegistry);
-        keyboard.SetOrchestrator(orchestrator);
-
-        keyboard.SetScreenEdge(settings.Keyboard.ScreenEdge);
-        keyboard.SetSettings(settings);
-
-        var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
-        keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
-
-        _keyboardSnapshot = KeyboardStackSnapshot.Capture(settings);
+        _keyboard!.LoadKeyboard(keyboard, settings, inputSimulator, settingsService);
     }
 
-    // manageSuppression: true for the toolbar toggle (deliberately pauses fixation while the
-    // keyboard is up); false for the text-field auto-show/hide request path, which must NOT touch
-    // SuppressFixation (it may be owned elsewhere, e.g. note editing, and typing shouldn't pause
-    // fixation for the rest of the app).
-    private void SetKeyboardVisible(bool visible, bool manageSuppression)
-    {
-        if (_context == null) return;
-
-        _toolbar?.SetAutoHideSuspended(visible);
-        _quickActions?.SetSummonSuspended(visible);
-        _modal.KeyboardVisible = visible;
-        Log.Information("Keyboard {State}", visible ? "shown" : "hidden");
-
-        if (visible)
-        {
-            _context.OverlayManager.Keyboard.Show();
-            if (manageSuppression)
-            {
-                _context.GazeEngine.SuppressFixation = true;
-                _context.InteractionManager.OnFixationEnded();
-            }
-            _context.Messenger.Send(new ShowKeyboardMessage());
-        }
-        else
-        {
-            _context.OverlayManager.Keyboard.Hide();
-            if (manageSuppression)
-                _context.GazeEngine.SuppressFixation = false;
-            _context.Messenger.Send(new HideKeyboardMessage());
-        }
-    }
-
-    private void OnEmojiSkinToneChanged(int tone)
-    {
-        if (_context == null) return;
-        _context.Settings.Keyboard.EmojiSkinTone = tone;
-        _context.SettingsService.SaveDebounced(_context.Settings);
-        _keyboardSnapshot = KeyboardStackSnapshot.Capture(_context.Settings);
-    }
+    // SetKeyboardVisible / OnEmojiSkinToneChanged moved to KeyboardCoordinator (cluster 3) —
+    // they own the _modal.KeyboardVisible write, the toolbar/quick-actions suspend calls, and the
+    // _keyboardSnapshot refresh.
 
     #endregion
 
@@ -843,10 +755,10 @@ public class EventCoordinator : IEventCoordinator
     {
         if (_disposed) return;
 
-        // The prediction factory is field-initialized (never null) and its Dispose is idempotent;
-        // dispose it regardless of whether Initialize ran — a constructed-but-uninitialized
-        // coordinator (_context == null) must still release it rather than skip disposal.
-        _predictionFactory.Dispose();
+        // Dispose the keyboard sub-coordinator (handles its own SkinToneChanged unsubscribe,
+        // message cleanup, and PredictionStackFactory disposal — the factory moved here in cluster 3).
+        _keyboard?.Dispose();
+        _keyboard = null;
 
         // Dispose the toolbar sub-coordinator (handles its own gaze-handler unsubscribe + message
         // cleanup, including the StateChangedMessage registration that moved there in cluster 6).
@@ -895,7 +807,7 @@ public class EventCoordinator : IEventCoordinator
         // Unregister all message handlers
         _context.Messenger.UnregisterAll(this);
 
-        _context.OverlayManager.Keyboard.SkinToneChanged -= OnEmojiSkinToneChanged;
+        // SkinToneChanged -= moved to KeyboardCoordinator.Dispose (cluster 3).
 
         _scrollModeController?.Dispose();
 

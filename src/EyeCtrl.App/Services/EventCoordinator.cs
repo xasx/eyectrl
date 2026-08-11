@@ -29,7 +29,8 @@ public class EventCoordinator : IEventCoordinator
     private QuickActionDispatcher? _quickActionDispatcher;
     private KeyboardInteractionDispatcher? _keyboardInteractionDispatcher;
     private KeyboardCoordinator? _keyboard;
-    private OverlayBindingCoordinator? _overlay;
+    private OverlayVmBindingCoordinator? _overlayVm;
+    private OverlayMessageCoordinator? _overlayMessage;
     private SettingsUiCoordinator? _settingsUi;
 
     /// <summary>
@@ -68,8 +69,14 @@ public class EventCoordinator : IEventCoordinator
         // that owns the handler (cluster 1/3/6/7: overlay, keyboard, toolbar, settings).
         _toolbar = new ToolbarLifecycleCoordinator(_modal);
         _toolbar.Initialize(context);
-        _overlay = new OverlayBindingCoordinator(_modal, _toolbar);
-        _overlay.Initialize(context);
+        // Overlay surface split (T10) along the stimulus axis: VmBinding owns the property-change-
+        // driven VM→window bindings + the glass backdrop; Message owns the message-driven overlay
+        // registrations and reaches back into VmBinding for the one shared HideBackdrop seam.
+        // VmBinding is constructed first — Message depends on it.
+        _overlayVm = new OverlayVmBindingCoordinator(_modal);
+        _overlayVm.Initialize(context);
+        _overlayMessage = new OverlayMessageCoordinator(_toolbar, _overlayVm);
+        _overlayMessage.Initialize(context);
         _quickActions = new QuickActionsCoordinator();
         _quickActions.Initialize(context);
         _keyboard = new KeyboardCoordinator(_modal, _quickActions, _toolbar);
@@ -78,7 +85,7 @@ public class EventCoordinator : IEventCoordinator
         _dragCoordinator.Initialize(context);
 
         // Task Switcher visibility binding + the overlay VM PropertyChanged handlers moved to
-        // OverlayBindingCoordinator (cluster 1) — they are pure VM→window glue.
+        // OverlayVmBindingCoordinator (cluster 1) — they are pure VM→window glue.
 
         // The input-action surface was split (T9) along the quick-actions-vs-keyboard/interaction
         // seam: QuickActionDispatcher owns Execute*/task-switcher/quick-action selection, and
@@ -151,11 +158,14 @@ public class EventCoordinator : IEventCoordinator
         _quickActions?.Dispose();
         _quickActions = null;
 
-        // Dispose the overlay-binding sub-coordinator (handles its own VM PropertyChanged
-        // unsubscribes + TaskSwitcherVM, message cleanup, and glass backdrop hide — the bindings
-        // and backdrop/cleanup moved there in cluster 1).
-        _overlay?.Dispose();
-        _overlay = null;
+        // Dispose the overlay sub-coordinators (T10 split). Message first — it only unregisters its
+        // messenger handlers; VmBinding owns the glass backdrop window, so it goes last among the
+        // two (and also unsubscribes the 8 overlay VMs + TaskSwitcherVM). The bindings and backdrop
+        // cleanup moved here in cluster 1.
+        _overlayMessage?.Dispose();
+        _overlayMessage = null;
+        _overlayVm?.Dispose();
+        _overlayVm = null;
 
         if (_context == null)
         {
@@ -179,7 +189,7 @@ public class EventCoordinator : IEventCoordinator
 
         _scrollModeController?.Dispose();
 
-        // _glassBackdrop cleanup moved to OverlayBindingCoordinator.Dispose (cluster 1).
+        // _glassBackdrop cleanup moved to OverlayVmBindingCoordinator.Dispose (cluster 1).
 
         _disposed = true;
     }

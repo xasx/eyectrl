@@ -5,18 +5,19 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 
 /// <summary>
-/// Tests for <see cref="InputActionDispatcher"/>. Migrated from <c>EventCoordinatorTests</c> — the
-/// methods are now <c>internal</c> on the dispatcher, so the tests call them directly instead of via
-/// reflection. Every <c>Check.That(...)</c> assertion is preserved verbatim from the originals;
-/// only the arrange/act plumbing changed (no reflection, no <c>SetContext</c> helper).
+/// Tests for <see cref="QuickActionDispatcher"/>. Migrated from <c>InputActionDispatcherTests</c>
+/// as part of the T9 split — the methods keep their names/signatures and are still
+/// <c>internal</c> on the dispatcher, so the tests call them directly. Every
+/// <c>Check.That(...)</c> assertion is preserved verbatim from the originals; only the
+/// arrange/act plumbing changed (the constructor name).
 /// </summary>
-public class InputActionDispatcherTests
+public class QuickActionDispatcherTests
 {
     [Fact]
     public void ExecuteKeyboardShortcut_CharacterRequiringShift_MergesRequiredModifier()
     {
         var input = new TestFakes.FakeInputSimulator();
-        var d = new InputActionDispatcher();
+        var d = new QuickActionDispatcher();
         d.Initialize(TestFakes.MakeContext(input));
         d.ExecuteKeyboardShortcut("Ctrl+!");   // internal, directly callable
         Check.That(input.LastModifiedKeyPress!.VirtualKeyCode).IsEqualTo((ushort)0x31);
@@ -31,7 +32,7 @@ public class InputActionDispatcherTests
         foreach (var (label, command) in EyeCtrl.Core.Models.QuickActionPresets.MediaControls)
         {
             var input = new TestFakes.FakeInputSimulator();
-            var d = new InputActionDispatcher();
+            var d = new QuickActionDispatcher();
             d.Initialize(TestFakes.MakeContext(input));
 
             d.ExecuteMediaControl(command);
@@ -50,7 +51,7 @@ public class InputActionDispatcherTests
     public void ExecuteWindowAction_RoutesPayloadToTheRightOp(string payload, WindowAction expected)
     {
         var fake = new TestFakes.FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
-        var d = new InputActionDispatcher();
+        var d = new QuickActionDispatcher();
         d.Initialize(TestFakes.MakeContextWithWindowManager(fake));
 
         d.ExecuteWindowAction(payload, new IntPtr(0x1234));
@@ -64,7 +65,7 @@ public class InputActionDispatcherTests
         // Fail-closed: the caller resolved no eligible foreground window. EligibleHwnd is set even
         // though the method never reads it — the null ARGUMENT must win regardless.
         var fake = new TestFakes.FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
-        var d = new InputActionDispatcher();
+        var d = new QuickActionDispatcher();
         d.Initialize(TestFakes.MakeContextWithWindowManager(fake));
 
         d.ExecuteWindowAction("Close", null);
@@ -89,7 +90,7 @@ public class InputActionDispatcherTests
         // it would catch a regression adding a `default:` arm that did real work, or a switch arm
         // for an undefined value. Treat IsDefined itself as review-verified, not test-verified.
         var fake = new TestFakes.FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
-        var d = new InputActionDispatcher();
+        var d = new QuickActionDispatcher();
         d.Initialize(TestFakes.MakeContextWithWindowManager(fake));
 
         d.ExecuteWindowAction(payload, new IntPtr(0x1234));
@@ -104,7 +105,7 @@ public class InputActionDispatcherTests
         // executor must never re-query — a re-query after the dispatcher hop is exactly the
         // foreground-change gap this design closes.
         var fake = new TestFakes.FakeWindowActionManager { EligibleHwnd = new IntPtr(0x1234) };
-        var d = new InputActionDispatcher();
+        var d = new QuickActionDispatcher();
         d.Initialize(TestFakes.MakeContextWithWindowManager(fake));
 
         d.ExecuteWindowAction("Close", new IntPtr(0x1234));
@@ -118,7 +119,7 @@ public class InputActionDispatcherTests
         // EligibleHwnd = null proves the passed argument wins — if the arm ever re-resolved
         // instead of forwarding, LastOp would stay null.
         var fake = new TestFakes.FakeWindowActionManager { EligibleHwnd = null };
-        var d = new InputActionDispatcher();
+        var d = new QuickActionDispatcher();
         d.Initialize(TestFakes.MakeContextWithWindowManager(fake));
 
         d.ExecuteQuickAction(new QuickAction { Type = QuickActionType.WindowAction, Label = "test", Payload = "Minimize" }, new IntPtr(0x1234));

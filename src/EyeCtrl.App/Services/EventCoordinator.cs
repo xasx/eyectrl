@@ -26,7 +26,8 @@ public class EventCoordinator : IEventCoordinator
     private ToolbarLifecycleCoordinator? _toolbar;
     private QuickActionsCoordinator? _quickActions;
     private DragCoordinator? _dragCoordinator;
-    private InputActionDispatcher? _inputDispatcher;
+    private QuickActionDispatcher? _quickActionDispatcher;
+    private KeyboardInteractionDispatcher? _keyboardInteractionDispatcher;
     private KeyboardCoordinator? _keyboard;
     private OverlayBindingCoordinator? _overlay;
     private SettingsUiCoordinator? _settingsUi;
@@ -79,8 +80,14 @@ public class EventCoordinator : IEventCoordinator
         // Task Switcher visibility binding + the overlay VM PropertyChanged handlers moved to
         // OverlayBindingCoordinator (cluster 1) — they are pure VM→window glue.
 
-        _inputDispatcher = new InputActionDispatcher();
-        _inputDispatcher.Initialize(context);
+        // The input-action surface was split (T9) along the quick-actions-vs-keyboard/interaction
+        // seam: QuickActionDispatcher owns Execute*/task-switcher/quick-action selection, and
+        // KeyboardInteractionDispatcher owns key activation/prediction/special-key/action-requested.
+        // They are independent (no shared state, no cross-calls) so construction order is free.
+        _quickActionDispatcher = new QuickActionDispatcher();
+        _quickActionDispatcher.Initialize(context);
+        _keyboardInteractionDispatcher = new KeyboardInteractionDispatcher();
+        _keyboardInteractionDispatcher.Initialize(context);
 
         // SettingsUiCoordinator is constructed LAST (7th): it consumes the suspend seams on the
         // toolbar/quick-actions coordinators and the ReloadIfChanged seam on the keyboard
@@ -159,8 +166,10 @@ public class EventCoordinator : IEventCoordinator
         // Dispose the drag sub-coordinator (handles its own event/message cleanup).
         _dragCoordinator?.Dispose();
 
-        // Dispose the input-action sub-coordinator (handles its own message cleanup).
-        _inputDispatcher?.Dispose();
+        // Dispose the input-action sub-coordinators (each handles its own message cleanup — each
+        // registers as itself, so each UnregisterAll(this) is correctly keyed).
+        _quickActionDispatcher?.Dispose();
+        _keyboardInteractionDispatcher?.Dispose();
 
         // Unregister all message handlers (defensive: after cluster 7, EC itself registers nothing —
         // every registration lives in a sub-coordinator — but this stays as a safety net.)

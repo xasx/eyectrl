@@ -121,9 +121,10 @@ public class EventCoordinator : IEventCoordinator
     {
         if (_disposed) return;
 
-        // Dispose the settings sub-coordinator FIRST: it closes the settings window if open, which
-        // unsuspends the toolbar/quick-actions while those coordinators are still alive to receive it.
-        // (Handles its own message cleanup — the SettingsRequested/CloseSettings registrations.)
+        // Dispose the settings sub-coordinator FIRST: it closes the settings window (if open) with
+        // its Closed handler detached first, so OnSettingsWindowClosed does NOT re-fire and touch the
+        // suspend state of the coordinators being torn down below. (Handles its own message cleanup
+        // — the SettingsRequested/CloseSettings registrations.)
         _settingsUi?.Dispose();
         _settingsUi = null;
 

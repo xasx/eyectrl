@@ -30,7 +30,8 @@ public sealed class ToolbarAutoHideController
     // ── Runtime state ──
     // _suspended / _paused / _enabled / _state are written on the UI thread (SetSuspended / SetPaused /
     // UpdateEnabled / ResetToVisible) and read in Feed() (gaze thread) → marked volatile, mirroring
-    // EventCoordinator's _keyboardVisible / _settingsOpen. The two anchor fields below are written by UI-thread resets
+    // the ModalInteractionState.KeyboardVisible / .SettingsOpen flags (read in SetupGazeRouting's
+    // early-out). The two anchor fields below are written by UI-thread resets
     // (SetSuspended/UpdateEnabled) and by Feed on the gaze thread; long is wider than 32 bits so C#
     // forbids `volatile long` (CS0677) — accesses go through Volatile.Read/Volatile.Write instead,
     // which provides the same acquire/release semantics the comment intended.
@@ -40,7 +41,7 @@ public sealed class ToolbarAutoHideController
     // _toolbarRect, _edge, and _edgeKey are written on the UI thread (UpdateToolbarRect/UpdateEdge)
     // and read on the gaze thread; they're not marked volatile. A torn read of the 32-byte rect or a
     // stale edge would at worst cause a one-sample-stale decision (acceptable — the same one-frame-stale
-    // rationale EventCoordinator uses for its _keyboardVisible/_settingsOpen flags).
+    // rationale ModalInteractionState uses for its KeyboardVisible/SettingsOpen flags).
     //
     // Sentinel discipline: long.MinValue means "unseeded / not counting". Do NOT use 0 — real
     // tracker timestamps carry an arbitrary large epoch (TobiiStreamEngineProvider monotonic µs),

@@ -20,6 +20,7 @@ public class QuickActionDispatcherTests
         var d = new QuickActionDispatcher();
         d.Initialize(TestFakes.MakeContext(input));
         d.ExecuteKeyboardShortcut("Ctrl+!");   // internal, directly callable
+        Check.That(input.LastModifiedKeyPress).IsNotNull();
         Check.That(input.LastModifiedKeyPress!.VirtualKeyCode).IsEqualTo((ushort)0x31);
         Check.That(input.LastModifiedKeyPress.Modifiers).Contains(ModifierKey.Shift);
         Check.That(input.LastModifiedKeyPress.Modifiers).Contains(ModifierKey.Ctrl);

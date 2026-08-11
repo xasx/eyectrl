@@ -89,7 +89,7 @@ internal sealed class QuickActionsCoordinator : IDisposable
         // Resolve actual summon edge (avoid conflict with main toolbar)
         var actualEdge = ComputeActualSummonEdge(s.SummonEdge);
 
-        // Match the toolbar's screen-size source (EventCoordinator.cs:452): WPF SystemParameters
+        // Match the toolbar's screen-size source (ToolbarLifecycleCoordinator.SetupToolbarAutoHide): WPF SystemParameters
         // are logical DIPs, so ×ScaleX/×ScaleY yields physical px. Do NOT use WinForms
         // Screen.Bounds — it is ALREADY physical under PerMonitorV2, so ×ScaleX double-scales
         // (would break Right/Bottom summon edges on scaled displays; the default "Left" hides it).

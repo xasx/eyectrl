@@ -76,10 +76,10 @@ internal sealed class KeyboardCoordinator : IDisposable
         context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
     }
 
-    /// <summary>Stores the model registry for the next <see cref="LoadKeyboard"/> rebuild.
-    /// The download service is dead (write-only) and dropped; EC keeps the 3-arg public signature
-    /// because App.xaml.cs calls it with 3 args.</summary>
-    public void SetModelServices(ModelRegistryService registry, ModelManagementService management) => _modelRegistry = registry;
+    /// <summary>Stores the model registry for the next <see cref="LoadKeyboard"/> rebuild. Keyboard
+    /// only needs the registry; EC fans <c>management</c> to SettingsUi separately. EC's public
+    /// <c>SetModelServices</c> keeps its 3-arg signature because App.xaml.cs calls it that way.</summary>
+    public void SetModelServices(ModelRegistryService registry) => _modelRegistry = registry;
 
     // 4 args (appDataDir is the field). Body moved verbatim from EventCoordinator.LoadKeyboard,
     // INCLUDING the _appDataDir InvalidOperationException guard (which moved here with the field).
@@ -139,7 +139,8 @@ internal sealed class KeyboardCoordinator : IDisposable
     {
         var snap = KeyboardStackSnapshot.Capture(settings);
         if (_keyboardSnapshot == snap) return false;
-        LoadKeyboard(_context!.OverlayManager.Keyboard, settings, input, ss);
+        if (_context is null) return false; // defensive — the seam is only reachable post-Initialize
+        LoadKeyboard(_context.OverlayManager.Keyboard, settings, input, ss);
         return true;
     }
 

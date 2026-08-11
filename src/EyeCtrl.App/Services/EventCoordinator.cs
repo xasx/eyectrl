@@ -42,10 +42,10 @@ public class EventCoordinator : IEventCoordinator
     public void SetModelServices(ModelRegistryService modelRegistry, ModelDownloadService modelDownload, ModelManagementService modelManagement)
     {
         // EC keeps the 3-arg public signature (App.xaml.cs calls it with 3 args). The download
-        // service is dead and dropped at the seam; the registry+management are forwarded to both
-        // KeyboardCoordinator (for the prediction-stack rebuild) and SettingsUiCoordinator (for the
-        // settings-window construction).
-        _keyboard?.SetModelServices(modelRegistry, modelManagement);
+        // service is dead and dropped at the seam. KeyboardCoordinator takes only the registry
+        // (for the prediction-stack rebuild); SettingsUiCoordinator takes registry+management (for
+        // the settings-window construction).
+        _keyboard?.SetModelServices(modelRegistry);
         _settingsUi?.SetModelServices(modelRegistry, modelManagement);
     }
 

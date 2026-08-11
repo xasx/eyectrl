@@ -8,14 +8,20 @@ public class SettingsUiCoordinatorTests
     // The ctor needs a ModalInteractionState, a QuickActionsCoordinator, a
     // ToolbarLifecycleCoordinator, and a KeyboardCoordinator. None of these are touched by the
     // lifecycle contract tests below (they never call Initialize), so plain constructed instances
-    // suffice — the same shape the sibling coordinator tests use.
-    private static SettingsUiCoordinator NewCoordinator() =>
-        new(new ModalInteractionState(),
+    // suffice — the same shape the sibling coordinator tests use. ONE shared ModalInteractionState
+    // is threaded through every coordinator that takes one, matching the production wiring and
+    // avoiding a trap for future flag-propagation tests (distinct instances would silently mask a
+    // coordinator that failed to observe a sibling's flag flip).
+    private static SettingsUiCoordinator NewCoordinator()
+    {
+        var modal = new ModalInteractionState();
+        return new(modal,
             new QuickActionsCoordinator(),
-            new ToolbarLifecycleCoordinator(new ModalInteractionState()),
-            new KeyboardCoordinator(new ModalInteractionState(),
+            new ToolbarLifecycleCoordinator(modal),
+            new KeyboardCoordinator(modal,
                 new QuickActionsCoordinator(),
-                new ToolbarLifecycleCoordinator(new ModalInteractionState())));
+                new ToolbarLifecycleCoordinator(modal)));
+    }
 
     [Fact]
     public void Initialize_ThrowsArgumentNullException_WhenContextIsNull()

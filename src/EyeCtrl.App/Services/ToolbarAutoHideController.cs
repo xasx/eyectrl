@@ -274,8 +274,10 @@ public sealed class ToolbarAutoHideController
     }
 
     // ── Test-only helpers (used by ToolbarAutoHideControllerTests) ──
-    // (InternalsVisibleTo is not declared from EyeCtrl.App; these are public test hooks instead.
-    //  Acceptable for a controller whose entire purpose is testable state transitions.)
+    // (InternalsVisibleTo("EyeCtrl.App.Tests") IS declared from EyeCtrl.App now, so internal hooks
+    //  are available — see QuickActionsSummonController.IsSuspended. These pre-existing helpers
+    //  remain public for back-compat with the tests that drive them. Acceptable for a controller
+    //  whose entire purpose is testable state transitions.)
 
     public void HideForTest(IToolbarVisibility vis)
     {

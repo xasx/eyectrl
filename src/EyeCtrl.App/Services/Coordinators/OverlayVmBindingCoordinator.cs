@@ -42,13 +42,6 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
     {
         if (_context == null) return;
 
-        var cursorCircle = _context.OverlayManager.CursorCircle;
-        var activationButton = _context.OverlayManager.ActivationButton;
-        var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
-        var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
-        var actionMenu = _context.OverlayManager.ActionMenu;
-        var toolbar = _context.OverlayManager.Toolbar;
-
         // CursorCircle: VM.Position -> window position, VM.IsVisible -> show/hide
         _context.CursorVM.PropertyChanged += OnCursorVMPropertyChanged;
 

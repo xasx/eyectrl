@@ -99,10 +99,6 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
     /// Wraps <see cref="ToolbarVisibilityAdapter.SetActive"/>.</summary>
     public void SetActive(bool active) => _visibility?.SetActive(active);
 
-    /// <summary>Mirrors InteractionManager.Paused into the auto-hide controller.
-    /// Wraps <see cref="ToolbarAutoHideController.SetPaused"/>.</summary>
-    public void SetPaused(bool paused) => _autoHide?.SetPaused(paused);
-
     /// <summary>Tray fallback: force-show the toolbar regardless of auto-hide state. Flips the
     /// visibility adapter AND resets the controller to Visible so it doesn't immediately re-hide.</summary>
     public void ForceShow()

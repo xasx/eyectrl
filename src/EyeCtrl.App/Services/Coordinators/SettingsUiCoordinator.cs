@@ -217,7 +217,10 @@ internal sealed class SettingsUiCoordinator : IDisposable
         {
             _settingsWindow.Closed -= OnSettingsWindowClosed;
             _settingsWindow.SettingsChanged -= OnSettingsChanged;
-            _settingsWindow.Close();
+            // Suppress a throw during shutdown so it can't cascade out of EventCoordinator.Dispose
+            // and skip the user-dictionary save + other App.OnExit saves.
+            try { _settingsWindow.Close(); }
+            catch (Exception ex) { Log.Warning(ex, "Suppressed error closing settings window during shutdown"); }
             _settingsWindow = null;
         }
 

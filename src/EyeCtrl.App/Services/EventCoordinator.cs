@@ -33,13 +33,8 @@ public class EventCoordinator : IEventCoordinator
     // the keyboard/settings sub-coordinators (T5/T7) so there is no stale-flag window.
     private readonly ModalInteractionState _modal = new();
     private volatile bool _toolbarInitialized;
-    private SettingsWindow? _settingsWindow;
     private bool _disposed;
     private Action<PhysicalPoint, long>? _gazeMovedHandler;
-    private ToolbarSnapshot? _toolbarSnapshot;
-    private ModelRegistryService? _modelRegistry;
-    private ModelManagementService? _modelManagementService;
-    private AppRestartCoordinator? _restartCoordinator;
     private ScrollModeController? _scrollModeController;
     private ToolbarLifecycleCoordinator? _toolbar;
     private QuickActionsCoordinator? _quickActions;
@@ -47,6 +42,7 @@ public class EventCoordinator : IEventCoordinator
     private InputActionDispatcher? _inputDispatcher;
     private KeyboardCoordinator? _keyboard;
     private OverlayBindingCoordinator? _overlay;
+    private SettingsUiCoordinator? _settingsUi;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -57,14 +53,15 @@ public class EventCoordinator : IEventCoordinator
     public void SetModelServices(ModelRegistryService modelRegistry, ModelDownloadService modelDownload, ModelManagementService modelManagement)
     {
         // EC keeps the 3-arg public signature (App.xaml.cs calls it with 3 args). The download
-        // service is dead and dropped at the seam; only the registry reaches KeyboardCoordinator.
-        _modelRegistry = modelRegistry;
-        _modelManagementService = modelManagement;
+        // service is dead and dropped at the seam; the registry+management are forwarded to both
+        // KeyboardCoordinator (for the prediction-stack rebuild) and SettingsUiCoordinator (for the
+        // settings-window construction).
         _keyboard?.SetModelServices(modelRegistry, modelManagement);
+        _settingsUi?.SetModelServices(modelRegistry, modelManagement);
     }
 
     /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
-    public void SetRestartCoordinator(AppRestartCoordinator coordinator) => _restartCoordinator = coordinator;
+    public void SetRestartCoordinator(AppRestartCoordinator coordinator) => _settingsUi?.SetRestartCoordinator(coordinator);
 
     /// <summary>Tray fallback: force-show the toolbar regardless of auto-hide state.</summary>
     public void ForceShowToolbar()
@@ -79,7 +76,8 @@ public class EventCoordinator : IEventCoordinator
 
         _scrollModeController = new ScrollModeController(context);
 
-        SetupMessageHandlers();
+        // SetupMessageHandlers is gone — every messenger registration now lives in the coordinator
+        // that owns the handler (cluster 1/3/6/7: overlay, keyboard, toolbar, settings).
         SetupGazeRouting();
         _toolbar = new ToolbarLifecycleCoordinator(_modal);
         _toolbar.Initialize(context);
@@ -92,52 +90,17 @@ public class EventCoordinator : IEventCoordinator
         _dragCoordinator = new DragCoordinator();
         _dragCoordinator.Initialize(context);
 
-        UpdateTrackStatusVisibility();
-        _context.Settings.TrackStatus.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(_context.Settings.TrackStatus.Enabled))
-                _context.Dispatcher.BeginInvoke(UpdateTrackStatusVisibility);
-        };
-
         // Task Switcher visibility binding + the overlay VM PropertyChanged handlers moved to
         // OverlayBindingCoordinator (cluster 1) — they are pure VM→window glue.
 
         _inputDispatcher = new InputActionDispatcher();
         _inputDispatcher.Initialize(context);
-    }
 
-    private void UpdateTrackStatusVisibility()
-    {
-        if (_context == null) return;
-        var trackStatusWindow = _context.OverlayManager.TrackStatus;
-        if (_context.Settings.TrackStatus.Enabled)
-            trackStatusWindow.StartTracking();
-        else
-            trackStatusWindow.StopTracking();
-    }
-
-    private void SetupMessageHandlers()
-    {
-        if (_context == null) return;
-
-        // ManualSelection / action-menu / backdrop-dismiss / calibration registrations moved to
-        // OverlayBindingCoordinator (cluster 1) — they are overlay glue.
-
-        // Settings window
-        _context.Messenger.Register<EventCoordinator, SettingsRequestedMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() => ShowSettingsWindow()));
-
-        // CloseSettings -> close settings window
-        _context.Messenger.Register<EventCoordinator, CloseSettingsMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() =>
-            {
-                if (_settingsWindow != null)
-                {
-                    _settingsWindow.Close();
-                }
-            }));
-
-        // ShowKeyboardRequestMessage / HideKeyboardRequestMessage moved to KeyboardCoordinator (cluster 3).
+        // SettingsUiCoordinator is constructed LAST (7th): it consumes the suspend seams on the
+        // toolbar/quick-actions coordinators and the ReloadIfChanged seam on the keyboard
+        // coordinator, so all three must be initialized before it.
+        _settingsUi = new SettingsUiCoordinator(_modal, _quickActions, _toolbar, _keyboard);
+        _settingsUi.Initialize(context);
     }
 
     private void SetupGazeRouting()
@@ -165,114 +128,13 @@ public class EventCoordinator : IEventCoordinator
                 if (_modal.KeyboardVisible && keyboard.IsVisible)
                     keyboard.UpdateGaze(point, timestamp);
 
-                if (_settingsWindow?.IsVisible ?? false)
-                    _settingsWindow.UpdateGaze(point, timestamp);
+                // The _settingsWindow reference moved to SettingsUiCoordinator (cluster 7); route
+                // the sample through its seam (visibility check lives inside).
+                _settingsUi?.UpdateSettingsGazeIfVisible(point, timestamp);
             });
         };
 
         _context.GazeEngine.CursorMoved += _gazeMovedHandler;
-    }
-
-    #region Message Handlers
-
-    private void ShowSettingsWindow()
-    {
-        if (_context == null || _settingsWindow != null) return;
-
-        _modal.SettingsOpen = true;
-        _toolbar?.SetAutoHideSuspended(true);
-        _quickActions?.SetSummonSuspended(true);
-        _context.OverlayManager.CursorCircle.Hide();
-
-        try
-        {
-            // Create SettingsViewModels
-            var settingsVM = new SettingsViewModel(
-                _context.Settings,
-                _context.SettingsService,
-                _context.Messenger);
-
-            var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
-                _context.QuickActionsStore, _context.InstalledAppProvider);
-            quickActionsEditor.Load();
-
-            var settingsWindowVM = new SettingsWindowViewModel(
-                settingsVM,
-                quickActionsEditor,
-                _context.Messenger,
-                _context.Settings.Dwell);
-
-            _settingsWindow = new SettingsWindow(
-                settingsWindowVM,
-                _context.Settings,
-                _context.SettingsService,
-                _modelRegistry ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
-                _modelManagementService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
-                _context.Messenger,
-                _context.CalibrationService,
-                _restartCoordinator ?? throw new InvalidOperationException(
-                    "Restart coordinator not set; SetRestartCoordinator must be called at startup."));
-
-            _settingsWindow.SettingsChanged += OnSettingsChanged;
-            _settingsWindow.Closed += OnSettingsWindowClosed;
-            _settingsWindow.Show();
-        }
-        catch
-        {
-            _modal.SettingsOpen = false;
-            // Window construction threw before Show() — OnSettingsWindowClosed will never fire, so
-            // undo the suspend we set alongside _modal.SettingsOpen = true above.
-            _toolbar?.SetAutoHideSuspended(false);
-            _quickActions?.SetSummonSuspended(false);
-            if (_context.CursorVM.IsVisible)
-                _context.OverlayManager.CursorCircle.Show();
-            throw;
-        }
-    }
-
-    private void OnSettingsChanged(EyeCtrlSettings s)
-    {
-        if (_context == null) return;
-
-        _context.OverlayManager.CursorCircle.UpdateAppearance(s.Cursor);
-        _context.InteractionManager.SelectionMode = s.SelectionMode;
-        _context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
-        _context.Messenger.Send(new SelectionModeChangedMessage(s.SelectionMode));
-
-        var toolbarSnapshot = ToolbarSnapshot.Capture(s);
-        if (_toolbarSnapshot != toolbarSnapshot)
-        {
-            _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
-            _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
-
-            // Re-evaluate enablement (IsDocked may have flipped to false → disable + force-show),
-            // refresh the cached edge, and reposition the pause indicator along the new edge.
-            bool nowEnabled = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse && s.Toolbar.IsDocked;
-            _toolbar?.UpdateEnabled(nowEnabled);
-            _toolbar?.UpdateEdge(s.Toolbar.DockedEdge);
-            _toolbar?.PositionIndicator(s.Toolbar.DockedEdge);
-            _toolbar?.RefreshToolbarRect();
-
-            _toolbarSnapshot = toolbarSnapshot;
-        }
-
-        // The keyboard snapshot compare + reload now lives on KeyboardCoordinator (cluster 3),
-        // exposed as the ReloadIfChanged seam that SettingsUiCoordinator (T7) will consume.
-        _keyboard?.ReloadIfChanged(s, _context.InputSimulator, _context.SettingsService);
-
-        Log.Information("Settings saved");
-    }
-
-    private void OnSettingsWindowClosed(object? sender, EventArgs e)
-    {
-        if (_context == null) return;
-
-        _settingsWindow = null;
-        _modal.SettingsOpen = false;
-        _toolbar?.SetAutoHideSuspended(false);
-        _quickActions?.SetSummonSuspended(false);
-        if (_context.CursorVM.IsVisible)
-            _context.OverlayManager.CursorCircle.Show();
     }
 
     public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
@@ -291,15 +153,21 @@ public class EventCoordinator : IEventCoordinator
         _keyboard!.LoadKeyboard(keyboard, settings, inputSimulator, settingsService);
     }
 
-    // SetKeyboardVisible / OnEmojiSkinToneChanged moved to KeyboardCoordinator (cluster 3) —
-    // they own the _modal.KeyboardVisible write, the toolbar/quick-actions suspend calls, and the
-    // _keyboardSnapshot refresh.
-
-    #endregion
+    // ShowSettingsWindow / OnSettingsChanged / OnSettingsWindowClosed / UpdateTrackStatusVisibility
+    // moved to SettingsUiCoordinator (cluster 7) — they own the _modal.SettingsOpen write, the
+    // toolbar/quick-actions suspend calls, the toolbar-snapshot-gated re-init, and the settings-
+    // window construction. SetKeyboardVisible / OnEmojiSkinToneChanged moved to KeyboardCoordinator
+    // (cluster 3).
 
     public void Dispose()
     {
         if (_disposed) return;
+
+        // Dispose the settings sub-coordinator FIRST: it closes the settings window if open, which
+        // unsuspends the toolbar/quick-actions while those coordinators are still alive to receive it.
+        // (Handles its own message cleanup — the SettingsRequested/CloseSettings registrations.)
+        _settingsUi?.Dispose();
+        _settingsUi = null;
 
         // Dispose the keyboard sub-coordinator (handles its own SkinToneChanged unsubscribe,
         // message cleanup, and PredictionStackFactory disposal — the factory moved here in cluster 3).
@@ -333,20 +201,14 @@ public class EventCoordinator : IEventCoordinator
             _context.GazeEngine.CursorMoved -= _gazeMovedHandler;
         }
 
-        // Unsubscribe from settings window events if present
-        if (_settingsWindow != null)
-        {
-            _settingsWindow.SettingsChanged -= OnSettingsChanged;
-            _settingsWindow.Closed -= OnSettingsWindowClosed;
-        }
-
         // Dispose the drag sub-coordinator (handles its own event/message cleanup).
         _dragCoordinator?.Dispose();
 
         // Dispose the input-action sub-coordinator (handles its own message cleanup).
         _inputDispatcher?.Dispose();
 
-        // Unregister all message handlers
+        // Unregister all message handlers (defensive: after cluster 7, EC itself registers nothing —
+        // every registration lives in a sub-coordinator — but this stays as a safety net.)
         _context.Messenger.UnregisterAll(this);
 
         // SkinToneChanged -= moved to KeyboardCoordinator.Dispose (cluster 3).
@@ -355,7 +217,6 @@ public class EventCoordinator : IEventCoordinator
 
         // _glassBackdrop cleanup moved to OverlayBindingCoordinator.Dispose (cluster 1).
 
-        _settingsWindow = null;
         _disposed = true;
     }
 }

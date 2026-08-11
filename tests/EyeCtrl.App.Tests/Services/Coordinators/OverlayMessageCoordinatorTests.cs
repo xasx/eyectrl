@@ -3,13 +3,19 @@ namespace EyeCtrl.App.Tests.Services.Coordinators;
 using EyeCtrl.App.Services.Coordinators;
 using Xunit;
 
-public class OverlayBindingCoordinatorTests
+public class OverlayMessageCoordinatorTests
 {
-    // The ctor needs a ModalInteractionState and a ToolbarLifecycleCoordinator. Neither is touched
-    // by the lifecycle contract tests below (they never call Initialize), so plain constructed
-    // instances suffice — the same shape the sibling coordinator tests use.
-    private static OverlayBindingCoordinator NewCoordinator() =>
-        new(new ModalInteractionState(), new ToolbarLifecycleCoordinator(new ModalInteractionState()));
+    // The ctor needs a ToolbarLifecycleCoordinator (calibration SetActive/ReassertVisibility seams)
+    // and the VmBinding sibling (the HideBackdrop seam). None are touched by the lifecycle contract
+    // tests below (they never call Initialize), so plain constructed instances suffice — the same
+    // shape the sibling coordinator tests use.
+    private static OverlayMessageCoordinator NewCoordinator()
+    {
+        var modal = new ModalInteractionState();
+        var toolbar = new ToolbarLifecycleCoordinator(modal);
+        var vmBinding = new OverlayVmBindingCoordinator(modal);
+        return new OverlayMessageCoordinator(toolbar, vmBinding);
+    }
 
     [Fact]
     public void Initialize_ThrowsArgumentNullException_WhenContextIsNull()

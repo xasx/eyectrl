@@ -29,6 +29,13 @@ internal sealed class DragCoordinator : IDisposable
             _context.Dispatcher.BeginInvoke(() => OnDragDrop(m)));
         _context.Messenger.Register<DragCoordinator, DragCancelMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(OnDragCancel));
+
+        // DragDismissManualSelectionMessage is intentionally NOT registered here. Only
+        // DragTrailViewModel reacts to it (transitions DragSubState back to FreeDrag). The old
+        // EventCoordinator handler invoked a defensive ManualSelection overlay hide inside
+        // ScrollModeController, which was a no-op because Dragging and ManualSelectionActive are
+        // mutually exclusive InteractionStates — so consuming the message here would discard it
+        // without effect. (The Drag_back button at OnDragTrailVMPropertyChanged still sends it.)
         ComponentDispatcher.ThreadFilterMessage += OnThreadFilterMessage;
         _disposeEscapeHook = () => ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
     }

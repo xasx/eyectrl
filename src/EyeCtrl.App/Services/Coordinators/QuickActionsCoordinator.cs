@@ -7,12 +7,23 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
+/// <summary>
+/// Owns the quick-actions hot-edge summon surface of <see cref="EventCoordinator"/>: the
+/// <see cref="QuickActionsSummonController"/> lifecycle, the gaze feed, the effective-summon-edge
+/// resolution (conflict avoidance against the docked toolbar), and the bidirectional
+/// controller↔grid-VM visibility sync. Exposes <see cref="SetSummonSuspended"/> as the seam the
+/// keyboard/settings coordinators call when a modal opens. Extracted from <c>EventCoordinator</c> as
+/// part of the sub-coordinator decomposition (cluster 5).
+/// </summary>
 internal sealed class QuickActionsCoordinator : IDisposable
 {
     private EventCoordinationContext? _context;
     private QuickActionsSummonController? _summon;
     private Action<GazePoint>? _quickActionsGazeHandler;       // keep the SOURCE name — moved bodies use it verbatim
     private PropertyChangedEventHandler? _quickActionsSettingsHandler;
+    // True once the toolbar-settings + grid-VM PropertyChanged handlers are attached (create path
+    // only). Gates the matching detach in Dispose.
+    private bool _vmSubscriptionsAttached;
     private bool _disposed;
 
     public void Initialize(EventCoordinationContext context)
@@ -138,39 +149,63 @@ internal sealed class QuickActionsCoordinator : IDisposable
 
         _summon = controller;
 
+        // Both subscriptions below use NAMED handlers so Dispose can -= them. They were anonymous
+        // lambdas before the decomposition and were never detached; each one rooted this coordinator
+        // through a settings object / VM that outlives EventCoordinator. (Same technique the T10
+        // split applied to TaskSwitcherVM.PropertyChanged.) Assigning _summon above first lets the
+        // handlers read the field instead of capturing the `controller` local.
+        //
         // React to toolbar edge changes — re-evaluate conflict (not just pass-through)
-        _context.Settings.Toolbar.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(ToolbarSettings.DockedEdge))
-            {
-                UpdateQuickActionsEffectiveEdge();
-                _summon?.UpdateEdge(gridVM.EffectiveSummonEdge);
-            }
-        };
+        _context.Settings.Toolbar.PropertyChanged += OnToolbarSettingsPropertyChanged;
 
         // H1 fix — bidirectional controller↔VM sync. Subscribe to grid VM IsVisible so that
         // toolbar-button shows (which set IsVisible=true without going through the controller)
         // and any other VM-driven show/hide keep the controller honest.
-        gridVM.PropertyChanged += (_, e) =>
+        gridVM.PropertyChanged += OnGridVmPropertyChanged;
+
+        // Gate the Dispose-side detach: these two run only on the create-a-controller path, so a
+        // suspend-only Initialize (or InjectSummonForTesting, whose context leaves Settings/GridVM
+        // null!) must not have Dispose dereference them.
+        _vmSubscriptionsAttached = true;
+    }
+
+    private void OnToolbarSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+        if (e.PropertyName == nameof(ToolbarSettings.DockedEdge))
         {
-            if (e.PropertyName != nameof(QuickActionsGridViewModel.IsVisible)) return;
-            _context.Dispatcher.BeginInvoke(() =>
+            UpdateQuickActionsEffectiveEdge();
+            _summon?.UpdateEdge(_context.QuickActionsGridVM.EffectiveSummonEdge);
+        }
+    }
+
+    private void OnGridVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+        if (e.PropertyName != nameof(QuickActionsGridViewModel.IsVisible)) return;
+
+        var gridVM = _context.QuickActionsGridVM;
+        _context.Dispatcher.BeginInvoke(() =>
+        {
+            // _summon is assigned before this handler is subscribed and never nulled, so it is
+            // non-null in practice; the local keeps the dispatched closure independent of the field.
+            var controller = _summon;
+            if (controller == null) return;
+
+            if (gridVM.IsVisible)
             {
-                if (gridVM.IsVisible)
-                {
-                    // Only mark VM-driven shows (toolbar button, etc.), which leave the controller
-                    // Idle. A hot-edge summon already set it to Summoned WITH the dismiss timer
-                    // armed; calling EnterSummoned again would clear _summonOpened and kill
-                    // auto-dismiss. So sync only when the controller didn't initiate the show.
-                    if (controller.State == QuickActionsSummonController.SummonState.Idle)
-                        controller.EnterSummoned();
-                }
-                else
-                {
-                    controller.ResetToIdle();
-                }
-            });
-        };
+                // Only mark VM-driven shows (toolbar button, etc.), which leave the controller
+                // Idle. A hot-edge summon already set it to Summoned WITH the dismiss timer
+                // armed; calling EnterSummoned again would clear _summonOpened and kill
+                // auto-dismiss. So sync only when the controller didn't initiate the show.
+                if (controller.State == QuickActionsSummonController.SummonState.Idle)
+                    controller.EnterSummoned();
+            }
+            else
+            {
+                controller.ResetToIdle();
+            }
+        });
     }
 
     private string ComputeActualSummonEdge(string configuredEdge)
@@ -190,6 +225,11 @@ internal sealed class QuickActionsCoordinator : IDisposable
         if (_disposed || _context is null) { _disposed = true; return; }
         if (_quickActionsGazeHandler != null) _context.GazeEngine.GazeSampled -= _quickActionsGazeHandler;
         if (_quickActionsSettingsHandler != null) _context.Settings.QuickActions.PropertyChanged -= _quickActionsSettingsHandler;
+        if (_vmSubscriptionsAttached)
+        {
+            _context.Settings.Toolbar.PropertyChanged -= OnToolbarSettingsPropertyChanged;
+            _context.QuickActionsGridVM.PropertyChanged -= OnGridVmPropertyChanged;
+        }
         _context.Messenger.UnregisterAll(this);
         _disposed = true;
     }

@@ -83,7 +83,11 @@ public sealed class ToolbarAutoHideController
         visibility.PositionIndicator(_edge);
     }
 
-    // ── Configuration setters (called from EventCoordinator on the UI thread) ──
+    /// <summary>Whether the controller is currently suspended. Test-visible read of <see cref="_suspended"/>
+    /// (mirrors <see cref="QuickActionsSummonController.IsSuspended"/>).</summary>
+    internal bool IsSuspended => _suspended;
+
+    // ── Configuration setters (called from ToolbarLifecycleCoordinator on the UI thread) ──
 
     public void SetPaused(bool paused)
     {

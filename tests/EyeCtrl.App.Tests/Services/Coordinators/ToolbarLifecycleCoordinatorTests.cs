@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.Core.Models;
 using Xunit;
 
 public class ToolbarLifecycleCoordinatorTests
@@ -26,4 +28,49 @@ public class ToolbarLifecycleCoordinatorTests
         var c = new ToolbarLifecycleCoordinator(new ModalInteractionState());
         c.Dispose(); c.Dispose();
     }
+
+    [Fact]
+    public void Ctor_RejectsNullModalState()
+    {
+        Check.ThatCode(() => new ToolbarLifecycleCoordinator(null!)).Throws<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void SetAutoHideSuspended_ForwardsToTheController()
+    {
+        // The seam Keyboard/Settings call when a modal opens. Pinned directly because the fan-out now
+        // crosses an object boundary that a `?.` on the wrong field would silently swallow.
+        var c = new ToolbarLifecycleCoordinator(new ModalInteractionState());
+        c.InjectAutoHideForTesting(NewAutoHide());
+
+        c.SetAutoHideSuspended(true);
+        Check.That(c.IsAutoHideSuspended).IsTrue();
+
+        c.SetAutoHideSuspended(false);
+        Check.That(c.IsAutoHideSuspended).IsFalse();
+    }
+
+    [Fact]
+    public void ControllerSeams_BeforeInitialize_AreNoOps()
+    {
+        // The tray fallback (App → EventCoordinator.ForceShowToolbar → ForceShow) and the calibration
+        // handler reach these before/independently of SetupToolbarAutoHide, and EventCoordinator.Dispose
+        // nulls its reference — so every seam must tolerate a null controller/adapter rather than throw
+        // into the gaze or tray path.
+        var c = new ToolbarLifecycleCoordinator(new ModalInteractionState());
+
+        c.SetAutoHideSuspended(true);
+        c.SetActive(false);
+        c.ForceShow();
+        c.UpdateEnabled(true);
+        c.UpdateEdge("bottom");
+        c.ReassertVisibility();
+        c.PositionIndicator("bottom");
+        c.RefreshToolbarRect();
+    }
+
+    private static ToolbarAutoHideController NewAutoHide() => new(
+        enabled: true, edge: "bottom", screenW: 1920, screenH: 1080,
+        toolbarRect: new PhysicalRect(0, 1040, 1920, 40),
+        hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50);
 }

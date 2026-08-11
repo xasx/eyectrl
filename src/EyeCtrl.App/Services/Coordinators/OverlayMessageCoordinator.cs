@@ -24,8 +24,10 @@ internal sealed class OverlayMessageCoordinator : IDisposable
 
     public OverlayMessageCoordinator(ToolbarLifecycleCoordinator toolbar, OverlayVmBindingCoordinator vmBinding)
     {
-        _toolbar = toolbar;
-        _vmBinding = vmBinding;
+        // Both are dereferenced unconditionally by the calibration handler (_toolbar.SetActive /
+        // ReassertVisibility) and the backdrop seam (_vmBinding.HideBackdrop).
+        _toolbar = toolbar ?? throw new ArgumentNullException(nameof(toolbar));
+        _vmBinding = vmBinding ?? throw new ArgumentNullException(nameof(vmBinding));
     }
 
     public void Initialize(EventCoordinationContext context)

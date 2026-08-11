@@ -33,4 +33,10 @@ public class OverlayVmBindingCoordinatorTests
         c.Dispose();
         c.Dispose();
     }
+
+    [Fact]
+    public void Ctor_RejectsNullModalState()
+    {
+        Check.ThatCode(() => new OverlayVmBindingCoordinator(null!)).Throws<ArgumentNullException>();
+    }
 }

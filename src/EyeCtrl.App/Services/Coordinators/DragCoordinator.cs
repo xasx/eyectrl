@@ -10,6 +10,13 @@ using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using CommunityToolkit.Mvvm.Messaging;
 
+/// <summary>
+/// Owns the drag surface of <see cref="EventCoordinator"/>: the <c>DragStarted</c> hook that presses
+/// the mouse and raises the trail overlay, the drop/cancel message registrations, the drag-trail VM
+/// binding (including the right-edge cancel/back buttons), and the WM_KEYDOWN/VK_ESCAPE thread filter
+/// that cancels an in-flight drag. Extracted from <c>EventCoordinator</c> as part of the
+/// sub-coordinator decomposition (cluster 4).
+/// </summary>
 internal sealed class DragCoordinator : IDisposable
 {
     private const double RightEdgeInsetLogical = 30;

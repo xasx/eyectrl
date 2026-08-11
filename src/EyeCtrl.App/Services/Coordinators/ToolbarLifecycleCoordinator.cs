@@ -29,11 +29,20 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
     private volatile bool _toolbarInitialized;
     // SettingsUiCoordinator is constructed AFTER this coordinator in Initialize task order, so it
     // cannot be a ctor param. EC calls AttachSettingsUi immediately after constructing it, before
-    // the first gaze sample.
-    internal SettingsUiCoordinator? _settingsUi;
+    // the first gaze sample. Private: AttachSettingsUi is the only writer, SetupGazeRouting the only
+    // reader — nothing outside this class touches the field.
+    private SettingsUiCoordinator? _settingsUi;
     private bool _disposed;
 
-    public ToolbarLifecycleCoordinator(ModalInteractionState modal) => _modal = modal;
+    public ToolbarLifecycleCoordinator(ModalInteractionState modal) =>
+        _modal = modal ?? throw new ArgumentNullException(nameof(modal));
+
+    // Test seams (production never calls these): inject a pre-built controller so the suspend/resume
+    // path can be exercised without the SystemParameters/DpiHelper/live-window creation path in
+    // SetupToolbarAutoHide, and read back the suspended state without reflection. Mirrors
+    // QuickActionsCoordinator.InjectSummonForTesting / IsSummonSuspended.
+    internal void InjectAutoHideForTesting(ToolbarAutoHideController autoHide) => _autoHide = autoHide;
+    internal bool IsAutoHideSuspended => _autoHide?.IsSuspended ?? true;
 
     /// <summary>Wires the settings-UI sub-coordinator so the per-sample gaze route can forward to
     /// its open window. Called once from EventCoordinator.Initialize after SettingsUiCoordinator is

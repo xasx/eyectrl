@@ -19,6 +19,7 @@ using Serilog;
 internal sealed class QuickActionDispatcher : IDisposable
 {
     private EventCoordinationContext? _context;
+    private bool _disposed;
 
     public void Initialize(EventCoordinationContext context)
     {
@@ -213,5 +214,10 @@ internal sealed class QuickActionDispatcher : IDisposable
         }
     }
 
-    public void Dispose() => _context?.Messenger.UnregisterAll(this);
+    public void Dispose()
+    {
+        if (_disposed || _context is null) { _disposed = true; return; }
+        _context.Messenger.UnregisterAll(this);
+        _disposed = true;
+    }
 }

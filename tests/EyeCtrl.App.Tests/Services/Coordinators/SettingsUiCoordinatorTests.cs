@@ -45,4 +45,18 @@ public class SettingsUiCoordinatorTests
         c.Dispose();
         c.Dispose();
     }
+
+    [Fact]
+    public void Ctor_RejectsNullCollaborators()
+    {
+        var modal = new ModalInteractionState();
+        var quickActions = new QuickActionsCoordinator();
+        var toolbar = new ToolbarLifecycleCoordinator(modal);
+        var keyboard = new KeyboardCoordinator(modal, quickActions, toolbar);
+
+        Check.ThatCode(() => new SettingsUiCoordinator(null!, quickActions, toolbar, keyboard)).Throws<ArgumentNullException>();
+        Check.ThatCode(() => new SettingsUiCoordinator(modal, null!, toolbar, keyboard)).Throws<ArgumentNullException>();
+        Check.ThatCode(() => new SettingsUiCoordinator(modal, quickActions, null!, keyboard)).Throws<ArgumentNullException>();
+        Check.ThatCode(() => new SettingsUiCoordinator(modal, quickActions, toolbar, null!)).Throws<ArgumentNullException>();
+    }
 }

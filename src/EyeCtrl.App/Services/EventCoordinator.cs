@@ -45,12 +45,40 @@ public class EventCoordinator : IEventCoordinator
         // service is dead and dropped at the seam. KeyboardCoordinator takes only the registry
         // (for the prediction-stack rebuild); SettingsUiCoordinator takes registry+management (for
         // the settings-window construction).
-        _keyboard?.SetModelServices(modelRegistry);
-        _settingsUi?.SetModelServices(modelRegistry, modelManagement);
+        //
+        // Fail LOUD when called before Initialize. The sub-coordinators that store these only exist
+        // post-Initialize, so a null-conditional forward would DROP the services silently and the
+        // mis-order would resurface much later as ShowSettingsWindow's "Model services not
+        // initialized" — on a user-visible UI path, far from the cause. (The pre-decomposition code
+        // stored them in EC's own fields, so it tolerated either order; this guard replaces that
+        // tolerance with a startup-time failure.)
+        RequireInitialized(nameof(SetModelServices));
+        _keyboard!.SetModelServices(modelRegistry);
+        _settingsUi!.SetModelServices(modelRegistry, modelManagement);
     }
 
     /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
-    public void SetRestartCoordinator(AppRestartCoordinator coordinator) => _settingsUi?.SetRestartCoordinator(coordinator);
+    public void SetRestartCoordinator(AppRestartCoordinator coordinator)
+    {
+        // Same fail-loud rationale as SetModelServices above.
+        RequireInitialized(nameof(SetRestartCoordinator));
+        _settingsUi!.SetRestartCoordinator(coordinator);
+    }
+
+    /// <summary>
+    /// Guards the sub-coordinator forwards that carry startup state (model services, restart
+    /// coordinator, keyboard load). Throws when <see cref="Initialize"/> has not run, so a
+    /// startup-order mistake surfaces at startup instead of silently dropping the hand-off.
+    /// </summary>
+    private void RequireInitialized(string member)
+    {
+        // Disposed is checked too: Dispose nulls the sub-coordinator fields but leaves _context set,
+        // so an _context-only check would pass and then NullReference on the forward below.
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_context == null)
+            throw new InvalidOperationException(
+                $"EventCoordinator must be initialized before calling {member}.");
+    }
 
     /// <summary>Tray fallback: force-show the toolbar regardless of auto-hide state.</summary>
     public void ForceShowToolbar()
@@ -115,12 +143,17 @@ public class EventCoordinator : IEventCoordinator
         // Keep the four argument-null guards: LoadKeyboard_ThrowsArgumentNullException_WhenKeyboardIsNull
         // calls this on an UNINITIALIZED EventCoordinator and expects ArgumentNullException —
         // without these guards, the forward would dereference _keyboard (null pre-Initialize) and
-        // throw NullReferenceException instead. The _appDataDir InvalidOperationException guard moved
-        // INTO KeyboardCoordinator.LoadKeyboard (the field moved with it).
+        // throw NullReferenceException instead.
         ArgumentNullException.ThrowIfNull(keyboard);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(inputSimulator);
         ArgumentNullException.ThrowIfNull(settingsService);
+
+        // KeyboardCoordinator carries its own _appDataDir InvalidOperationException guard (the field
+        // moved there with the method), but that guard is UNREACHABLE from an uninitialized EC —
+        // _keyboard itself is null until Initialize runs. Without this check the pre-decomposition
+        // "must be initialized" diagnostic would degrade to a bare NullReferenceException.
+        RequireInitialized(nameof(LoadKeyboard));
 
         _keyboard!.LoadKeyboard(keyboard, settings, inputSimulator, settingsService);
     }

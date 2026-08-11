@@ -602,7 +602,9 @@ internal sealed class KeyboardCoordinator : IDisposable
     }
 
     public void SetModelServices(ModelRegistryService registry, ModelManagementService management) => _modelRegistry = registry;
-    // (_downloadService is write-only dead — silently dropped; EC.SetModelServices keeps its 3-arg public signature.)
+    // (_downloadService is NOT carried onto KeyboardCoordinator — it is assigned at startup but never
+    // read anywhere in the codebase, so dropping it loses no behavior. EC.SetModelServices keeps its
+    // 3-arg public signature because App.xaml.cs calls it that way.)
 
     // LoadKeyboard: 4 args now (appDataDir is the field). Body is EC.LoadKeyboard 1490–1537 verbatim,
     // INCLUDING the _appDataDir InvalidOperationException guard (moved here from EC :1498).

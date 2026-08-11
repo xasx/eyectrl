@@ -39,4 +39,15 @@ public class OverlayMessageCoordinatorTests
         c.Dispose();
         c.Dispose();
     }
+
+    [Fact]
+    public void Ctor_RejectsNullCollaborators()
+    {
+        var modal = new ModalInteractionState();
+        var toolbar = new ToolbarLifecycleCoordinator(modal);
+        var vmBinding = new OverlayVmBindingCoordinator(modal);
+
+        Check.ThatCode(() => new OverlayMessageCoordinator(null!, vmBinding)).Throws<ArgumentNullException>();
+        Check.ThatCode(() => new OverlayMessageCoordinator(toolbar, null!)).Throws<ArgumentNullException>();
+    }
 }

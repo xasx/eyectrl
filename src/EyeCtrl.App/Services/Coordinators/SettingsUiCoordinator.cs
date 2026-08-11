@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
 using System;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App;
 using EyeCtrl.App.Services;
@@ -39,10 +40,12 @@ internal sealed class SettingsUiCoordinator : IDisposable
     public SettingsUiCoordinator(ModalInteractionState modal, QuickActionsCoordinator quickActions,
         ToolbarLifecycleCoordinator toolbar, KeyboardCoordinator keyboard)
     {
-        _modal = modal;
-        _quickActions = quickActions;
-        _toolbar = toolbar;
-        _keyboard = keyboard;
+        // All four are required collaborators dereferenced unconditionally (the suspend seams and the
+        // ReloadIfChanged seam), so reject nulls at the ctor rather than at first use.
+        _modal = modal ?? throw new ArgumentNullException(nameof(modal));
+        _quickActions = quickActions ?? throw new ArgumentNullException(nameof(quickActions));
+        _toolbar = toolbar ?? throw new ArgumentNullException(nameof(toolbar));
+        _keyboard = keyboard ?? throw new ArgumentNullException(nameof(keyboard));
     }
 
     public void Initialize(EventCoordinationContext context)
@@ -66,11 +69,16 @@ internal sealed class SettingsUiCoordinator : IDisposable
             }));
 
         UpdateTrackStatusVisibility();
-        context.Settings.TrackStatus.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(context.Settings.TrackStatus.Enabled))
-                context.Dispatcher.BeginInvoke(UpdateTrackStatusVisibility);
-        };
+        // Named handler (was an anonymous lambda that was never detached — it kept this coordinator
+        // alive through the settings object, which outlives EventCoordinator). Dispose -= it.
+        context.Settings.TrackStatus.PropertyChanged += OnTrackStatusSettingsPropertyChanged;
+    }
+
+    private void OnTrackStatusSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_context == null) return;
+        if (e.PropertyName == nameof(TrackStatusSettings.Enabled))
+            _context.Dispatcher.BeginInvoke(UpdateTrackStatusVisibility);
     }
 
     /// <summary>Stores the model services for the next <see cref="ShowSettingsWindow"/> construction.
@@ -226,6 +234,7 @@ internal sealed class SettingsUiCoordinator : IDisposable
 
         if (_context != null)
         {
+            _context.Settings.TrackStatus.PropertyChanged -= OnTrackStatusSettingsPropertyChanged;
             _context.Messenger.UnregisterAll(this);
         }
     }

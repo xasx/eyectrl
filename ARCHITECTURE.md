@@ -132,7 +132,7 @@ Communities are auto-detected functional clusters (Leiden algorithm). Top 20 of 
 
 | Area | Symbols | Cohesion | Purpose |
 |---|---:|---:|---|
-| **Services** | 612 | 79% | App-layer composition: `AppBootstrapper`, `EventCoordinator`, `GazeEngineAdapter`, `OverlayManager`, `TrayIconManager`, `ExternalDwellService`, model registry/download. |
+| **Services** | 612 | 79% | App-layer composition: `AppBootstrapper`, `EventCoordinator` + its `Services/Coordinators/` sub-coordinators, `GazeEngineAdapter`, `OverlayManager`, `TrayIconManager`, `ExternalDwellService`, model registry/download. (Symbol count predates the EventCoordinator decomposition.) |
 | **Prediction** | 368 | 86% | Word prediction: `WordPredictor`, `BigramModel`, `PhraseModel`, `SentenceCompletionIndex`, `FuzzyEditDistance`, `CapitalizationHelper`, `PredictionOrchestrator`, `SmallLMPredictor`. |
 | **Adaptation** | 246 | 73% | Struggle-driven adaptation: `StruggleMonitor`, `AdaptationController`, live fixation-tolerance widening. |
 | **Processing** | 210 | 67% | Gaze signal processing: `FixationDetector`, `FixationCentroidTracker`, `GapInterpolator`, `OneEuroFilter`, `DwellDetector`, `DwellTarget`, `GazeFilterFactory`. |
@@ -295,12 +295,12 @@ FreeLook ──fixation──► Fixation ──activation dwell──► Action
 * **Paused** — All interaction suspended (cursor still follows gaze for toolbar access).
 
 ### 4.5 Action Selection
-`src/EyeCtrl.App/Services/EventCoordinator.cs`
+`src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs`
 
 ```
 ActionMenuViewModel action dwell
   └── Messenger.Send(ActionRequestedMessage)
-        └── EventCoordinator.HandleActionRequested()
+        └── KeyboardInteractionDispatcher.HandleActionRequested()
               └── IInputSimulator.LeftClick / RightClick / DoubleClick / Drag / Scroll
                     └── Win32InputSimulator → SendInput P/Invoke
 ```
@@ -337,7 +337,7 @@ KeyboardViewModel.ProcessKeyGaze(key)
 
 [Prediction dwell]
   └── Messenger.Send(PredictionSelectedMessage)
-        └── EventCoordinator.HandlePredictionSelected()
+        └── KeyboardInteractionDispatcher.HandlePredictionSelected()
               ├── SendKeyPress(Backspace) × deleteCount
               └── SendText(word + " ")
 ```
@@ -358,7 +358,7 @@ InteractionManager.OnActivationButtonDwelled() [ManualSelection enabled]
 [Precise dwell within magnified area]
   └── ManualSelectionDwellService detects dwell
         └── Messenger.Send(ManualSelectionDwellCompletedMessage)
-              └── EventCoordinator → coordinate conversion
+              └── OverlayMessageCoordinator → coordinate conversion
                     └── InteractionManager.OnManualSelectionDwell()
                           ├── State → ManualSelectionActionMenuVisible
                           └── ShowActionMenu at precise point
@@ -433,15 +433,15 @@ Dwell.Enabled="True"                           ExternalDwellService
   * `DwellDetector.AddTarget` — every setting row is a dwell-clickable target.
   * `SettingsWindowViewModel.GetActions` / `GetDetector` — bind view-model getters to the row.
 * Live edits call into `SettingsService.Save` on exit (`App.OnExit`) and selectively persist via `EyeCtrlSettings.PropertyChanged` subscribers.
-* Model registry/download/management services (small-LM) are exposed via `_eventCoordinator.SetModelServices(...)` so the settings UI can list / fetch / delete ONNX models.
+* Model registry/download/management services (small-LM) are exposed via `_eventCoordinator.SetModelServices(...)` so the settings UI can list / fetch / delete ONNX models. `EventCoordinator` fans them to `KeyboardCoordinator` (registry, for the prediction-stack rebuild) and `SettingsUiCoordinator` (registry + management, for the window construction); it must be called **after** `Initialize` or it throws.
 
 **Graph-verified trace** (`Initialize → SettingsTabViewModel`, 6 steps) — the cross-community flow wiring messaging, opening settings, constructing tab VMs:
 
 | Step | Symbol | File |
 |------|--------|------|
 | 1 | `EventCoordinator.Initialize` | `src/EyeCtrl.App/Services/EventCoordinator.cs` |
-| 2 | `EventCoordinator.SetupMessageHandlers` | `src/EyeCtrl.App/Services/EventCoordinator.cs` |
-| 3 | `EventCoordinator.ShowSettingsWindow` | `src/EyeCtrl.App/Services/EventCoordinator.cs` |
+| 2 | `SettingsUiCoordinator.Initialize` (registers `SettingsRequestedMessage`) | `src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs` |
+| 3 | `SettingsUiCoordinator.ShowSettingsWindow` | `src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs` |
 | 4 | `SettingsViewModel` (ctor) | `src/EyeCtrl.ViewModels/SettingsViewModel.cs` |
 | 5 | `SettingsViewModel.BuildTabs` | `src/EyeCtrl.ViewModels/SettingsViewModel.cs` |
 | 6 | `SettingsTabViewModel` (ctor) | `src/EyeCtrl.ViewModels/SettingsTabViewModel.cs` |
@@ -782,7 +782,7 @@ flowchart TB
 | **MVVM + Messenger** | `EyeCtrl.ViewModels` | `WeakReferenceMessenger` for decoupled VM communication |
 | **Factory** | `GazeProviderFactory.cs` | Select gaze provider at runtime |
 | **Strategy** | `GazeFilterFactory.cs` | Select filter (One-Euro, Direct, Smoothed) per settings |
-| **Observer** | `EventCoordinator.cs` | PropertyChanged handlers on all overlay VMs |
+| **Observer** | `Coordinators/OverlayVmBindingCoordinator.cs` | PropertyChanged handlers on all overlay VMs |
 | **Adapter** | `GazeEngineAdapter.cs` | Bridge between Core engine and App layer |
 | **Observer (fan-out)** | `GazeEngine` | Copy-on-write handler arrays with `HandlerFaultReporter` fault containment |
 | **State machine** | `InteractionManager` / `SupervisionStateMachine` | Interaction modes (App) / watchdog phases (Supervisor) |
@@ -798,7 +798,7 @@ flowchart TB
 | Goal | Start here |
 |---|---|
 | Understand the runtime pipeline | `src/EyeCtrl.App/App.xaml.cs` (`OnStartup` → `InitializeDpi` → `InitializeSettingsAndLogging` → `AppBootstrapper.BuildServiceProvider`) → `src/EyeCtrl.Core/GazeEngine.cs` |
-| See how events flow to overlays | `src/EyeCtrl.App/Services/GazeEngineAdapter.cs` → `src/EyeCtrl.App/Services/EventCoordinator.cs` |
+| See how events flow to overlays | `src/EyeCtrl.App/Services/GazeEngineAdapter.cs` → `src/EyeCtrl.App/Services/EventCoordinator.cs` (thin orchestrator) → `src/EyeCtrl.App/Services/Coordinators/` (the handlers themselves) |
 | Tweak dwell / fixation | `src/EyeCtrl.Core/Processing/DwellDetector.cs` and `src/EyeCtrl.Core/Processing/FixationDetector.cs` |
 | Understand adaptation | `src/EyeCtrl.Core/Adaptation/` (`StruggleMonitor`, `AdaptationController`) |
 | Understand eye care | `src/EyeCtrl.EyeCare/` (Scheduler, FatigueMonitor, Exercises) |
@@ -843,6 +843,9 @@ eyectrl/
 │   │   ├── App.xaml.cs         # Entry point, overlay lifecycle
 │   │   ├── Services/           # EventCoordinator, AppBootstrapper, GazeEngineAdapter,
 │   │   │                       #   ExternalDwellService, HeartbeatPublisher, ScrollModeController
+│   │   │   └── Coordinators/   # EventCoordinator sub-coordinators (overlay VM-binding + message,
+│   │   │                       #   toolbar lifecycle, keyboard, quick actions, drag, settings UI,
+│   │   │                       #   input dispatchers, shared ModalInteractionState)
 │   │   ├── Overlays/           # Transparent overlay windows + DwellFeedbackOverlay + eye-care windows
 │   │   ├── Views/              # Settings window & other views
 │   │   ├── Controls/           # WPF custom controls (DwellControl)

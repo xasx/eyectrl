@@ -27,7 +27,9 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
 
     public OverlayVmBindingCoordinator(ModalInteractionState modal)
     {
-        _modal = modal;
+        // Dereferenced by the cursor-visibility guard (OnCursorVMPropertyChanged reads
+        // _modal.SettingsOpen), so reject null at the ctor rather than on the first gaze frame.
+        _modal = modal ?? throw new ArgumentNullException(nameof(modal));
     }
 
     public void Initialize(EventCoordinationContext context)

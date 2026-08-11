@@ -44,4 +44,28 @@ public class QuickActionsCoordinatorTests
                                                             // synchronously → the settings handler → SetSuspended(false)
         Check.That(controller.IsSuspended).IsFalse();
     }
+
+    [Fact]
+    public void SetSummonSuspended_ForwardsToTheController()
+    {
+        // The seam Keyboard/Settings call when a modal opens — the quick-actions half of the fan-out
+        // asserted end-to-end in KeyboardCoordinatorTests.ApplyModalKeyboardState_FansOutTo...
+        var controller = new QuickActionsSummonController("left", 1920, 1080, 400, 5000);
+        var coord = new QuickActionsCoordinator();
+        coord.InjectSummonForTesting(controller);
+
+        coord.SetSummonSuspended(true);
+        Check.That(coord.IsSummonSuspended).IsTrue();
+
+        coord.SetSummonSuspended(false);
+        Check.That(coord.IsSummonSuspended).IsFalse();
+    }
+
+    [Fact]
+    public void IsSummonSuspended_ReadsTrue_WhenNoControllerExists()
+    {
+        // Fail-closed default: with no controller (mouse mode, or QuickActions disabled) the summon is
+        // effectively suspended, so the seam must not report "live".
+        Check.That(new QuickActionsCoordinator().IsSummonSuspended).IsTrue();
+    }
 }

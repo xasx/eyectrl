@@ -20,6 +20,7 @@ using Serilog;
 internal sealed class KeyboardInteractionDispatcher : IDisposable
 {
     private EventCoordinationContext? _context;
+    private bool _disposed;
     private const int DefaultScrollAmount = 3;
     private const int BackspaceVirtualKeyCode = 0x08;
     private const int EnterVirtualKeyCode = 0x0D;
@@ -211,5 +212,10 @@ internal sealed class KeyboardInteractionDispatcher : IDisposable
         }
     }
 
-    public void Dispose() => _context?.Messenger.UnregisterAll(this);
+    public void Dispose()
+    {
+        if (_disposed || _context is null) { _disposed = true; return; }
+        _context.Messenger.UnregisterAll(this);
+        _disposed = true;
+    }
 }

@@ -107,6 +107,10 @@ public partial class SettingsWindow : OverlayWindow
 
     private readonly SettingsPageContext _ctx;
     private readonly CursorPageSource _cursorSource;
+    private readonly DwellPageSource _dwellSource;
+    private readonly SelectionPageSource _selectionSource;
+    private readonly KeyboardPageSource _keyboardSource;
+    private readonly ToolbarPageSource _toolbarSource;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
@@ -259,6 +263,10 @@ public partial class SettingsWindow : OverlayWindow
             ShowModal, ShowError, ApplyAndSave, RebuildContent, a => Dispatcher.Invoke(a), Close,
             () => System.Windows.Clipboard.GetText() ?? "");
         _cursorSource = new CursorPageSource(_ctx);
+        _dwellSource = new DwellPageSource(_ctx);
+        _selectionSource = new SelectionPageSource(_ctx);
+        _keyboardSource = new KeyboardPageSource(_ctx);
+        _toolbarSource = new ToolbarPageSource(_ctx);
 
         // Build UI
         BuildTabButtons();
@@ -548,127 +556,9 @@ public partial class SettingsWindow : OverlayWindow
         _cursorSource.Build().Select(RenderPage).ToList();
 
 
-    private List<List<Action>> BuildDwellPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
+    private List<List<Action>> BuildDwellPages() => _dwellSource.Build().Select(RenderPage).ToList();
 
-        return
-        [
-            [
-                () => Add(new DwellSlider(_viewModel, "d_fix", "Fixation Detection (ms)",
-                    50, 500, 25, 0,
-                    () => _settings.Dwell.FixationDetectionMs,
-                    v => { _settings.Dwell.FixationDetectionMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "d_act", "Activation Button (ms)",
-                    200, 1500, 50, 0,
-                    () => _settings.Dwell.ActivationButtonDwellMs,
-                    v => { _settings.Dwell.ActivationButtonDwellMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "d_menu", "Action Menu (ms)",
-                    200, 1500, 50, 0,
-                    () => _settings.Dwell.ActionMenuDwellMs,
-                    v => { _settings.Dwell.ActionMenuDwellMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "d_ManualSelection", "ManualSelection Action Menu (ms)",
-                    200, 1500, 50, 0,
-                    () => _settings.Dwell.ManualSelectionActionMenuDwellMs,
-                    v => { _settings.Dwell.ManualSelectionActionMenuDwellMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-            ],
-            [
-                () => Add(new DwellSlider(_viewModel, "d_tool", "Toolbar / Settings (ms)",
-                    200, 1500, 50, 0,
-                    () => _settings.Dwell.ToolbarButtonDwellMs,
-                    v => { _settings.Dwell.ToolbarButtonDwellMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "d_key", "Keyboard Key (ms)",
-                    100, 1000, 25, 0,
-                    () => _settings.Dwell.KeyboardKeyDwellMs,
-                    v => { _settings.Dwell.KeyboardKeyDwellMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "d_pred", "Prediction (ms)",
-                    100, 1000, 25, 0,
-                    () => _settings.Dwell.KeyboardPredictionDwellMs,
-                    v => { _settings.Dwell.KeyboardPredictionDwellMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "d_rad", "Fixation Radius (px)",
-                    20, 120, 5, 0,
-                    () => _settings.Dwell.FixationRadiusPixels,
-                    v => { _settings.Dwell.FixationRadiusPixels = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "d_cooldown", "Dwell Cooldown (ms)",
-                    0, 1000, 50, 0,
-                    () => _settings.Dwell.DwellCooldownMs,
-                    v => { _settings.Dwell.DwellCooldownMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellButton(_viewModel, "d_reset", "Reset Dwell Settings",
-                    () => ShowModal("Reset Dwell settings to defaults?", () =>
-                    {
-                        var d = new DwellSettings();
-                        _settings.Dwell.FixationDetectionMs = d.FixationDetectionMs;
-                        _settings.Dwell.ActivationButtonDwellMs = d.ActivationButtonDwellMs;
-                        _settings.Dwell.ActionMenuDwellMs = d.ActionMenuDwellMs;
-                        _settings.Dwell.ManualSelectionActionMenuDwellMs = d.ManualSelectionActionMenuDwellMs;
-                        _settings.Dwell.ToolbarButtonDwellMs = d.ToolbarButtonDwellMs;
-                        _settings.Dwell.KeyboardKeyDwellMs = d.KeyboardKeyDwellMs;
-                        _settings.Dwell.KeyboardPredictionDwellMs = d.KeyboardPredictionDwellMs;
-                        _settings.Dwell.FixationRadiusPixels = d.FixationRadiusPixels;
-                        _settings.Dwell.DwellCooldownMs = d.DwellCooldownMs;
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
-            ]
-        ];
-    }
-
-    private List<List<Action>> BuildSelectionPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
-
-        return
-        [
-            [
-                () => Add(new DwellComboBox(_viewModel, "s_mode", "Selection Mode",
-                    ["None", "Manual Selection", "Auto Selection"],
-                    ["None", "ManualSelection", "AutoSelection"],
-                    () => _settings.SelectionMode.ToString(),
-                    v =>
-                    {
-                        _settings.SelectionMode = Enum.Parse<EyeCtrl.Core.Models.SelectionMode>(v);
-                        ApplyAndSave();
-                    },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "s_rad", "Circle Radius (px)",
-                    50, 300, 10, 0,
-                    () => _settings.ManualSelection.CircleRadiusPixels,
-                    v => { _settings.ManualSelection.CircleRadiusPixels = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "s_mag", "Magnification Level",
-                    1.5, 5, 0.5, 1,
-                    () => _settings.ManualSelection.MagnificationLevel,
-                    v => { _settings.ManualSelection.MagnificationLevel = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "s_grace", "Grace Period (ms)",
-                    0, 2000, 50, 0,
-                    () => _settings.ManualSelection.ManualSelectionGracePeriodMs,
-                    v => { _settings.ManualSelection.ManualSelectionGracePeriodMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellColorPicker(_viewModel, "s_highlight", "Highlight Color",
-                    () => _settings.AutoSelection.HighlightColor,
-                    v => { _settings.AutoSelection.HighlightColor = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "s_highlightThickness", "Highlight Thickness",
-                    1, 10, 1, 0,
-                    () => _settings.AutoSelection.HighlightThickness,
-                    v => { _settings.AutoSelection.HighlightThickness = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-            ]
-        ];
-    }
+    private List<List<Action>> BuildSelectionPages() => _selectionSource.Build().Select(RenderPage).ToList();
 
     private List<List<Action>> BuildActionMenuPages()
     {
@@ -717,97 +607,9 @@ public partial class SettingsWindow : OverlayWindow
         ];
     }
 
-    private List<List<Action>> BuildKeyboardPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
+    private List<List<Action>> BuildKeyboardPages() => _keyboardSource.Build().Select(RenderPage).ToList();
 
-        return
-        [
-            [
-                () => Add(new DwellComboBox(_viewModel, "k_layout", "Active Layout",
-                    ["QWERTY", "QWERTZ", "AZERTY"],
-                    () => _settings.Keyboard.ActiveLayout,
-                    v => { _settings.Keyboard.ActiveLayout = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "k_size", "Key Size Multiplier",
-                    0.5, 2.0, 0.1, 1,
-                    () => _settings.Keyboard.KeySizeMultiplier,
-                    v => { _settings.Keyboard.KeySizeMultiplier = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellToggle(_viewModel, "k_pred", "Word Prediction",
-                    () => _settings.Keyboard.PredictionEnabled,
-                    v => { _settings.Keyboard.PredictionEnabled = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellComboBox(_viewModel, "k_lang", "Dictionary Language",
-                    ["English", "French", "Spanish", "German", "Polish"],
-                    ["en",      "fr",     "es",      "de",     "pl"],
-                    () => string.IsNullOrEmpty(_settings.Keyboard.LanguagePack) ? "en"
-                                   : _settings.Keyboard.LanguagePack,
-                    v => { _settings.Keyboard.LanguagePack = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellToggle(_viewModel, "k_sound", "Click Sound",
-                    () => _settings.Keyboard.ClickSoundEnabled,
-                    v => { _settings.Keyboard.ClickSoundEnabled = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellComboBox(_viewModel, "k_edge", "Screen Edge",
-                    ["Bottom", "Top"],
-                    () => _settings.Keyboard.ScreenEdge,
-                    v => { _settings.Keyboard.ScreenEdge = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellButton(_viewModel, "k_reset", "Reset Keyboard Settings",
-                    () => ShowModal("Reset Keyboard settings to defaults?", () =>
-                    {
-                        var k = new KeyboardSettings();
-                        _settings.Keyboard.ActiveLayout = k.ActiveLayout;
-                        _settings.Keyboard.KeySizeMultiplier = k.KeySizeMultiplier;
-                        _settings.Keyboard.PredictionEnabled = k.PredictionEnabled;
-                        _settings.Keyboard.LanguagePack = "";
-                        _settings.Keyboard.ScreenEdge = k.ScreenEdge;
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
-            ]
-        ];
-    }
-
-    private List<List<Action>> BuildToolbarPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
-
-        return
-        [
-            [
-                () => Add(new DwellToggle(_viewModel, "t_dock", "Dock to Screen Edge",
-                    () => _settings.Toolbar.IsDocked,
-                    v => { _settings.Toolbar.IsDocked = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellComboBox(_viewModel, "t_edge", "Docked Edge",
-                    ["Top", "Bottom", "Left", "Right"],
-                    () => _settings.Toolbar.DockedEdge,
-                    v => { _settings.Toolbar.DockedEdge = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "t_size", "Button Size",
-                    32, 120, 4, 0,
-                    () => _settings.Toolbar.Size,
-                    v => { _settings.Toolbar.Size = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellButton(_viewModel, "t_reset", "Reset Toolbar Settings",
-                    () => ShowModal("Reset Toolbar settings to defaults?", () =>
-                    {
-                        var t = new ToolbarSettings();
-                        _settings.Toolbar.IsDocked = t.IsDocked;
-                        _settings.Toolbar.DockedEdge = t.DockedEdge;
-                        _settings.Toolbar.Size = t.Size;
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
-            ]
-        ];
-    }
+    private List<List<Action>> BuildToolbarPages() => _toolbarSource.Build().Select(RenderPage).ToList();
 
     private List<List<Action>> BuildModelsPages()
     {

@@ -1,0 +1,54 @@
+namespace EyeCtrl.App.Views.Settings;
+
+internal sealed class DwellPageSource : ISettingsPageSource
+{
+    private readonly SettingsPageContext _ctx;
+    public DwellPageSource(SettingsPageContext ctx) => _ctx = ctx;
+
+    public IReadOnlyList<PageSpec> Build()
+    {
+        var d = _ctx.Settings.Dwell;
+        return
+        [
+            new PageSpec([
+                new SliderSpec("d_fix", "Fixation Detection (ms)", 50, 500, 25, 0,
+                    () => d.FixationDetectionMs, v => { d.FixationDetectionMs = (int)v; _ctx.ApplyAndSave(); }),
+                new SliderSpec("d_act", "Activation Button (ms)", 200, 1500, 50, 0,
+                    () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                new SliderSpec("d_menu", "Action Menu (ms)", 200, 1500, 50, 0,
+                    () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                new SliderSpec("d_ManualSelection", "ManualSelection Action Menu (ms)", 200, 1500, 50, 0,
+                    () => d.ManualSelectionActionMenuDwellMs, v => { d.ManualSelectionActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+            ]),
+            new PageSpec([
+                new SliderSpec("d_tool", "Toolbar / Settings (ms)", 200, 1500, 50, 0,
+                    () => d.ToolbarButtonDwellMs, v => { d.ToolbarButtonDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                new SliderSpec("d_key", "Keyboard Key (ms)", 100, 1000, 25, 0,
+                    () => d.KeyboardKeyDwellMs, v => { d.KeyboardKeyDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                new SliderSpec("d_pred", "Prediction (ms)", 100, 1000, 25, 0,
+                    () => d.KeyboardPredictionDwellMs, v => { d.KeyboardPredictionDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                new SliderSpec("d_rad", "Fixation Radius (px)", 20, 120, 5, 0,
+                    () => d.FixationRadiusPixels, v => { d.FixationRadiusPixels = v; _ctx.ApplyAndSave(); }),
+                new SliderSpec("d_cooldown", "Dwell Cooldown (ms)", 0, 1000, 50, 0,
+                    () => d.DwellCooldownMs, v => { d.DwellCooldownMs = (int)v; _ctx.ApplyAndSave(); }),
+                new ButtonSpec("d_reset", "Reset Dwell Settings",
+                    () => _ctx.ShowModal("Reset Dwell settings to defaults?", () =>
+                    {
+                        var def = new Core.Settings.DwellSettings();
+                        d.FixationDetectionMs = def.FixationDetectionMs;
+                        d.ActivationButtonDwellMs = def.ActivationButtonDwellMs;
+                        d.ActionMenuDwellMs = def.ActionMenuDwellMs;
+                        d.ManualSelectionActionMenuDwellMs = def.ManualSelectionActionMenuDwellMs;
+                        d.ToolbarButtonDwellMs = def.ToolbarButtonDwellMs;
+                        d.KeyboardKeyDwellMs = def.KeyboardKeyDwellMs;
+                        d.KeyboardPredictionDwellMs = def.KeyboardPredictionDwellMs;
+                        d.FixationRadiusPixels = def.FixationRadiusPixels;
+                        d.DwellCooldownMs = def.DwellCooldownMs;
+                        _ctx.ApplyAndSave();
+                        _ctx.RebuildContent();
+                    }),
+                    ButtonKind.Reset, Width: 300, Height: 80),
+            ]),
+        ];
+    }
+}

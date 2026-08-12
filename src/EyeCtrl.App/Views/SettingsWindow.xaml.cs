@@ -14,6 +14,7 @@ using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Views.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
@@ -21,9 +22,11 @@ public partial class SettingsWindow : OverlayWindow
 {
     // ────── Constants ──────
 
-    private const double ControlBtnRadius = 50;
-    // Colour swatches are 90×75 px; 35 px keeps adjacent hit areas from overlapping.
-    private const double ColorSwatchRadius = 35;
+    // internal: page sources reference the control-radius standard (every content dwell target but
+    // the colour swatches uses it). Not test-coupled today; promoted for the extraction.
+    internal const double ControlBtnRadius = 50;
+    // internal: CursorPageSource passes the swatch radius; SelectionPageSource passes the control radius.
+    internal const double ColorSwatchRadius = 35;
     private const double TabBtnRadius = 85;
     private const double PagBtnRadius = 60;
     private const double ModalBtnRadius = 70;
@@ -101,6 +104,9 @@ public partial class SettingsWindow : OverlayWindow
     private readonly CalibrationService _calibrationService;
     private readonly AppRestartCoordinator _restartCoordinator;
     private readonly int _dwellMs;
+
+    private readonly SettingsPageContext _ctx;
+    private readonly CursorPageSource _cursorSource;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
@@ -244,6 +250,15 @@ public partial class SettingsWindow : OverlayWindow
             _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
             _viewModel.Dispose();
         };
+
+        // Spec pipeline: page sources build declarative specs; RenderSpec renders them. The context
+        // bag carries the view-delegate seam (ShowModal etc.) so sources stay WPF-free.
+        _ctx = new SettingsPageContext(
+            _settings, _viewModel, _registryService, _modelManagementService,
+            _calibrationService, _messenger, _restartCoordinator, _dwellMs,
+            ShowModal, ShowError, ApplyAndSave, RebuildContent, a => Dispatcher.Invoke(a), Close,
+            () => System.Windows.Clipboard.GetText() ?? "");
+        _cursorSource = new CursorPageSource(_ctx);
 
         // Build UI
         BuildTabButtons();
@@ -529,62 +544,9 @@ public partial class SettingsWindow : OverlayWindow
             : new();
     }
 
-    private List<List<Action>> BuildCursorPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
+    private List<List<Action>> BuildCursorPages() =>
+        _cursorSource.Build().Select(RenderPage).ToList();
 
-        return
-        [
-            [
-                () => Add(new DwellComboBox(_viewModel, "c_filter", "Filter Mode",
-                    Enum.GetNames<GazeFilterMode>(),
-                    () => _settings.Cursor.FilterMode.ToString(),
-                    v => { _settings.Cursor.FilterMode = Enum.Parse<GazeFilterMode>(v); ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "c_smooth", "Smoothing Factor",
-                    0, 1, 0.1, 1,
-                    () => _settings.Cursor.SmoothingFactor,
-                    v => { _settings.Cursor.SmoothingFactor = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "c_snap", "Snap Radius (px)",
-                    10, 100, 5, 0,
-                    () => _settings.Cursor.SnapRadiusPixels,
-                    v => { _settings.Cursor.SnapRadiusPixels = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellColorPicker(_viewModel, "c_color", "Circle Color",
-                    () => _settings.Cursor.CircleColor,
-                    v => { _settings.Cursor.CircleColor = v; ApplyAndSave(); },
-                    cat, DpiHelper.LogicalToPhysicalX(ColorSwatchRadius), _dwellMs)),
-            ],
-            [
-                () => Add(new DwellSlider(_viewModel, "c_opacity", "Circle Opacity",
-                    0.1, 1, 0.1, 1,
-                    () => _settings.Cursor.CircleOpacity,
-                    v => { _settings.Cursor.CircleOpacity = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "c_thick", "Circle Thickness",
-                    1, 6, 0.5, 1,
-                    () => _settings.Cursor.CircleThickness,
-                    v => { _settings.Cursor.CircleThickness = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellButton(_viewModel, "c_reset", "Reset Cursor Settings",
-                    () => ShowModal("Reset Cursor settings to defaults?", () =>
-                    {
-                        var defaults = new CursorSettings();
-                        _settings.Cursor.FilterMode = defaults.FilterMode;
-                        _settings.Cursor.SmoothingFactor = defaults.SmoothingFactor;
-                        _settings.Cursor.SnapRadiusPixels = defaults.SnapRadiusPixels;
-                        _settings.Cursor.CircleColor = defaults.CircleColor;
-                        _settings.Cursor.CircleOpacity = defaults.CircleOpacity;
-                        _settings.Cursor.CircleThickness = defaults.CircleThickness;
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
-            ]
-        ];
-    }
 
     private List<List<Action>> BuildDwellPages()
     {
@@ -1375,6 +1337,63 @@ public partial class SettingsWindow : OverlayWindow
             MinimumDwellableWidth,
             availableWidth - root.Margin.Left - root.Margin.Right);
     }
+
+    // ────── Spec rendering (the imperative bridge that a future MVVM step deletes) ──────
+
+    /// <summary>
+    /// Maps a <see cref="ButtonKind"/> to its (fill, label-brush) pair. Extracted and
+    /// <c>internal static</c> so a headless test can pin it: <c>ResetBase</c> and <c>DeleteBase</c>
+    /// are BOTH <c>Tokens.AccentWarning</c>, so swapping those two arms is invisible on screen —
+    /// only the label-brush differs (surface-dark vs primary), which the test asserts.
+    /// </summary>
+    internal static (Color Fill, System.Windows.Media.Brush? Text) FillFor(ButtonKind kind) => kind switch
+    {
+        ButtonKind.Reset  => (ResetBase, Tokens.BrushSurfaceDark),
+        ButtonKind.Delete => (DeleteBase, Tokens.BrushSurfaceDark),
+        _                 => (BtnBase,   null),
+    };
+
+    /// <summary>
+    /// Maps one declarative <paramref name="row"/> onto its <see cref="DwellControl"/> and places it
+    /// via the <see cref="Add(DwellControl)"/>/<see cref="Add(IDwellComposite)"/>/<see cref="Add(DwellLabel)"/>
+    /// overloads. The single WPF-coupled point of the spec pipeline; the per-tab sources are pure.
+    /// </summary>
+    private void RenderSpec(SettingsRowSpec row)
+    {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        var cat = DwellCategory.Control;
+        switch (row)
+        {
+            case SliderSpec s:
+                Add(new DwellSlider(_viewModel, s.Id, s.Label, s.Min, s.Max, s.Step, s.Decimals,
+                    s.Get, s.Set, cat, r, _dwellMs));
+                break;
+            case ToggleSpec t:
+                Add(new DwellToggle(_viewModel, t.Id, t.Label, t.Get, t.Set, cat, r, _dwellMs));
+                break;
+            case ComboBoxSpec c:
+                Add(new DwellComboBox(_viewModel, c.Id, c.Label, c.Display,
+                    c.Code ?? c.Display, c.Get, c.Set, cat, r, _dwellMs));
+                break;
+            case ColorPickerSpec cp:
+                Add(new DwellColorPicker(_viewModel, cp.Id, cp.Label, cp.Get, cp.Set, cat,
+                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), _dwellMs));
+                break;
+            case ButtonSpec b:
+                var (fill, textBrush) = FillFor(b.Kind);
+                Add(new DwellButton(_viewModel, b.Id, b.Label, b.OnActivate, fill, cat, r, _dwellMs,
+                    width: b.Width, height: b.Height, textBrush: textBrush));
+                break;
+            case LabelSpec l:
+                Add(new DwellLabel(l.Text()));
+                break;
+            default:
+                throw new InvalidOperationException($"Unknown settings row spec: {row?.GetType().Name}");
+        }
+    }
+
+    /// <summary>Compiles one page of specs to the Action list <c>_pages</c> holds today (Phase 1 only; deleted in Task 9).</summary>
+    private List<Action> RenderPage(PageSpec page) => page.Rows.Select(row => (Action)(() => RenderSpec(row))).ToList();
 
     private void Add(DwellControl control)
     {

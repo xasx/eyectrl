@@ -115,6 +115,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly LayoutPageSource _layoutSource;
     private readonly GeneralPageSource _generalSource;
     private readonly CalibrationPageSource _calibrationSource;
+    private readonly ModelsPageSource _modelsSource;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
@@ -275,6 +276,7 @@ public partial class SettingsWindow : OverlayWindow
         _layoutSource = new LayoutPageSource(_ctx);
         _generalSource = new GeneralPageSource(_ctx);
         _calibrationSource = new CalibrationPageSource(_ctx);
+        _modelsSource = new ModelsPageSource(_ctx);
 
         // Build UI
         BuildTabButtons();
@@ -576,170 +578,8 @@ public partial class SettingsWindow : OverlayWindow
 
     private List<List<Action>> BuildToolbarPages() => _toolbarSource.Build().Select(RenderPage).ToList();
 
-    private List<List<Action>> BuildModelsPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
-
-        var page1 = new List<Action>();
-
-        var downloadedModels = _registryService.SelectableModels;
-        if (downloadedModels.Count == 0)
-        {
-            page1.Add(() => Add(new DwellLabel("No models downloaded. Download one below.")));
-        }
-        else
-        {
-            var displayNames = downloadedModels.Select(m => m.DisplayName).ToList();
-            var modelIds = downloadedModels.Select(m => m.Id).ToList();
-            page1.Add(() => Add(new DwellComboBox(_viewModel, "md_active", "Active Model",
-                displayNames.Prepend("Off").ToArray(),
-                modelIds.Prepend("Off").ToArray(),
-                () => _registryService.ActiveModelId ?? "Off",
-                v =>
-                {
-                    _modelManagementService.SetActiveModel(v);
-                    ApplyAndSave();
-                },
-                cat, r, _dwellMs)));
-        }
-
-        page1.Add(() => Add(new DwellLabel(new string('\u2500', 50))));
-
-        var allEntries = _registryService.Registry.Values.OrderBy(e => e.SizeBytes).ToList();
-        foreach (var entry in allEntries)
-        {
-            var entryId = entry.Id;
-            var displayName = entry.DisplayName;
-            var sizeText = FormatSize(entry.SizeBytes);
-
-            if (_registryService.IsModelDownloaded(entryId))
-            {
-                page1.Add(() => Add(new DwellLabel($"  {displayName}  {sizeText}  \u2713 Downloaded")));
-            }
-            else
-            {
-                page1.Add(() =>
-                {
-                    var label = $"{displayName}  {sizeText}  [Download]";
-                    Add(new DwellButton(_viewModel, $"md_dl_{entryId}", label,
-                        () =>
-                        {
-                            if (_modelManagementService.IsDownloading)
-                                return;
-                            ShowModal($"Download {displayName} ({sizeText})?", () =>
-                                _ = DownloadBundledModelAsync(entryId, entry.Url, entry.Sha256,
-                                    entry.TokenizerUrl, entry.TokenizerSha256));
-                        },
-                        BtnBase, cat, r, _dwellMs, width: 400, height: 60));
-                });
-            }
-        }
-
-        page1.Add(() => Add(new DwellLabel(new string('\u2500', 50))));
-
-        page1.Add(() => Add(new DwellButton(_viewModel, "md_add", "\uff0b Add Custom Model (paste URL)",
-            () => DownloadCustomModelFromClipboard(),
-            BtnBase, cat, r, _dwellMs, width: 300, height: 60)));
-
-        var manageableModels = _registryService.DownloadedModels;
-        if (manageableModels.Count > 0)
-        {
-            page1.Add(() => Add(new DwellButton(_viewModel, "md_manage", "Manage models...",
-                () => _viewModel.Settings.NextPage(),
-                BtnBase, cat, r, _dwellMs, width: 300, height: 60)));
-        }
-
-        var page2 = new List<Action>();
-        if (manageableModels.Count > 0)
-        {
-            foreach (var entry in manageableModels)
-            {
-                var entryId = entry.Id;
-                var displayName = entry.DisplayName;
-                var sizeText = FormatSize(entry.SizeBytes);
-                page2.Add(() => Add(new DwellButton(_viewModel, $"md_del_{entryId}", $"{displayName}  {sizeText}  \uD83D\uDDD1 Delete",
-                    () => ShowModal($"Delete {displayName}? This cannot be undone.", () =>
-                    {
-                        _modelManagementService.DeleteModel(entryId);
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    DeleteBase, cat, r, _dwellMs, width: 400, height: 60, textBrush: Tokens.BrushSurfaceDark)));
-            }
-
-            page2.Add(() => Add(new DwellButton(_viewModel, "md_back", "Back to models",
-                () => _viewModel.Settings.PreviousPage(),
-                BtnBase, cat, r, _dwellMs, width: 300, height: 60)));
-        }
-
-        return page2.Count > 0 ? [page1, page2] : [page1];
-    }
-
-    private static string FormatSize(long bytes)
-    {
-        if (bytes >= 1_073_741_824) return $"{bytes / 1_073_741_824.0:F1} GB";
-        if (bytes >= 1_048_576) return $"{bytes / 1_048_576:F0} MB";
-        if (bytes >= 1024) return $"{bytes / 1024:F0} KB";
-        return $"{bytes} B";
-    }
-
-    private async Task DownloadBundledModelAsync(string modelId, string url, string sha256,
-        string tokenizerUrl, string tokenizerSha256)
-    {
-        try
-        {
-            var result = await _modelManagementService.DownloadBundledModelAsync(
-                modelId, url, sha256, tokenizerUrl, tokenizerSha256);
-            Dispatcher.Invoke(() =>
-            {
-                if (!result.IsSuccess)
-                    ShowError(result.Error ?? "Download failed.");
-                RebuildContent();
-            });
-        }
-        catch (Exception ex)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                ShowError($"Download failed: {ex.Message}");
-                RebuildContent();
-            });
-        }
-    }
-
-    private void DownloadCustomModelFromClipboard()
-    {
-        var url = System.Windows.Clipboard.GetText()?.Trim() ?? "";
-        if (string.IsNullOrEmpty(url) || !url.StartsWith("https://"))
-        {
-            ShowError("Copy a valid HTTPS model URL to clipboard first, then dwell this button.");
-            return;
-        }
-
-        if (_modelManagementService.IsDownloading)
-        {
-            ShowError("Another download is already in progress.");
-            return;
-        }
-
-        var displayName = ModelManagementService.DeriveModelName(url);
-        ShowModal($"Download custom model \"{displayName}\" from clipboard URL?", () =>
-        {
-            _ = Task.Run(async () =>
-            {
-                var result = await _modelManagementService.DownloadCustomModelAsync(url);
-                Dispatcher.Invoke(() =>
-                {
-                    if (!result.IsSuccess)
-                        ShowError(result.Error ?? "Download failed.");
-                    else
-                        ApplyAndSave();
-                    RebuildContent();
-                });
-            });
-        });
-    }
+    private List<List<Action>> BuildModelsPages() =>
+        _modelsSource.Build().Select(RenderPage).ToList();
 
     private void ShowError(string message)
     {

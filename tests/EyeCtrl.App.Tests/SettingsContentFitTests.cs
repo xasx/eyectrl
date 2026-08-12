@@ -361,15 +361,17 @@ public class SettingsContentFitTests
         //
         // The widest label in the file is a run of box-drawing characters used as a rule. Its
         // length is read out of the source, not restated, so lengthening the rule fails here
-        // instead of silently overflowing.
+        // instead of silently overflowing. The rules moved out of SettingsWindow.xaml.cs into
+        // ModelsPageSource as part of the settings-tab decomposition, so the source-read now
+        // targets that file (the measurement logic below is unchanged).
         var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
-            "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+            "src", "EyeCtrl.App", "Views", "Settings", "Sources", "ModelsPageSource.cs"));
         var runs = Regex.Matches(source, @"new string\('\\u2500',\s*(\d+)\)")
             .Select(m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture))
             .ToList();
 
         Check.WithCustomMessage(
-                "SettingsWindow.xaml.cs no longer builds a box-drawing separator label. If the "
+                "ModelsPageSource.cs no longer builds a box-drawing separator label. If the "
                 + "rules were replaced by a Border or removed, delete this test; if they merely "
                 + "moved or changed character, repoint the pattern.")
             .That(runs).Not.IsEmpty();

@@ -1,5 +1,15 @@
 # SettingsWindow Refactoring Plan
 
+> **STATUS: Superseded (2026-08-12).** This plan was realized in two phases that departed from the
+> custom-control-library approach documented below. Its Phase 1 (custom dwell-enabled controls)
+> shipped earlier as `src/EyeCtrl.Controls/Dwell*.cs` (e.g. `DwellSlider`, `DwellToggle`,
+> `DwellButton`, `DwellComboBox`, `DwellColorPicker`). Its Phase 2 (page builders) shipped as
+> declarative page-specs under `src/EyeCtrl.App/Views/Settings/` (`SettingsRowSpec`/`PageSpec`
+> records, one `*PageSource.cs` per tab in `Sources/`), with `SettingsWindow` rendering every row
+> through a single `RenderSpec` — the throwaway `List<Action>` bridge that mapped specs to closures
+> has been collapsed, so `_pages` now holds `PageSpec` directly and the spec is the canonical form.
+> A full XAML/MVVM binding migration remains a possible future step but was not the path taken.
+
 **Current State:** 1190 lines
 **Target:** ~400-500 lines (60% reduction)
 **Status:** Planning Phase

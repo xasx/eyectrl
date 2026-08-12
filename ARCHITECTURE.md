@@ -429,7 +429,7 @@ Dwell.Enabled="True"                           ExternalDwellService
 `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs`
 
 * Tab buttons are built once (`BuildTabButtons`).
-* Each tab has a `BuildXxxPages` process (Cursor, Keyboard, Toolbar, Theme, Calibration, General, Dwell, Selection, ActionMenu, Layout, QaList) — GitNexus indexed 9–11 such cross-community flows. They all fan out to:
+* Each tab's content is built by a declarative page source in `src/EyeCtrl.App/Views/Settings/Sources/*PageSource.cs` (an `ISettingsPageSource` returning `IReadOnlyList<PageSpec>`). The thin `BuildXxxPages` forwarders in `SettingsWindow` delegate to the matching source, and `_pages` holds the `PageSpec` lists directly. `RenderCurrentPage` walks each page's `Rows` through the single `RenderSpec` bridge (the only WPF-coupled point), which fans out to:
   * `DwellDetector.AddTarget` — every setting row is a dwell-clickable target.
   * `SettingsWindowViewModel.GetActions` / `GetDetector` — bind view-model getters to the row.
 * Live edits call into `SettingsService.Save` on exit (`App.OnExit`) and selectively persist via `EyeCtrlSettings.PropertyChanged` subscribers.

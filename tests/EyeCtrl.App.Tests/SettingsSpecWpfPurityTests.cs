@@ -10,8 +10,12 @@ using Xunit;
 /// Source guard: the Settings spec layer (<c>src/EyeCtrl.App/Views/Settings/**/*.cs</c>) must stay
 /// free of WPF coupling. The whole point of the SettingsWindow decomposition is that page sources
 /// are pure data + delegates and every WPF/Dispatcher touch is injected through
-/// <see cref="EyeCtrl.App.Views.Settings.SettingsPageContext"/> by the shell. The only WPF-bearing
-/// file in the Settings area is <c>SettingsWindow.xaml.cs</c> itself, which is the shell.
+/// <see cref="EyeCtrl.App.Views.Settings.SettingsPageContext"/> by the shell.
+///
+/// <para>Scope: the scan walks <c>Views/Settings/</c> only. The shell <c>SettingsWindow.xaml.cs</c>
+/// lives at <c>Views/</c> — outside this tree — so it is excluded by path, not by <see cref="IsExempt"/>.
+/// <see cref="ExemptFileName"/>/<see cref="IsExempt"/> is a defensive guard kept in case the shell
+/// is ever moved into <c>Views/Settings/</c>; today it never matches.</para>
 ///
 /// <para>This matches the repo's existing source-guard idiom
 /// (<see cref="RawGeometryLiteralTests"/>, <see cref="ContainerRatioCensusTests"/>): walk the
@@ -19,7 +23,10 @@ using Xunit;
 /// for the <c>using System.Windows</c> import specifically — the precise thing an accidental WPF
 /// dependency introduces — rather than the substring <c>System.Windows</c>, which appears inside
 /// the <c>SettingsPageContext</c> doc comment as <c>&lt;c&gt;System.Windows.Clipboard&lt;/c&gt;</c>
-/// and would false-positive.</para>
+/// and would false-positive. <b>Accepted limitation:</b> this catches the common accidental import
+/// but not aliases (<c>using W = System.Windows.Application;</c>) or fully-qualified calls
+/// (<c>System.Windows.Clipboard.GetText()</c>) — the cost of avoiding brittle substring matching.
+/// A green run means "no <c>using System.Windows</c> import," not "no WPF coupling of any form."</para>
 /// </summary>
 public class SettingsSpecWpfPurityTests
 {

@@ -11,9 +11,11 @@ public class ModelsPageSourceTests
     [Fact]
     public void Build_EmptyRegistry_DoesNotThrow_AndHasAddButton()
     {
+        using var scope = ModelTestFakes.Create();
+        var registry = scope.EmptyRegistry();
         var ctx = TestSettingsPageContext.Build(
-            registry: ModelTestFakes.EmptyRegistry(),
-            modelManagement: ModelTestFakes.NoOpManagement());
+            registry: registry,
+            modelManagement: scope.NoOpManagement(registry));
         var rows = new ModelsPageSource(ctx).Build().Single().Rows;
 
         Check.That(rows.OfType<LabelSpec>().First().Text()).Contains("No models downloaded");
@@ -26,7 +28,8 @@ public class ModelsPageSourceTests
     [Fact]
     public void Build_DownloadedBundled_RendersActiveComboAndDeletePage()
     {
-        var (registry, mgmt) = ModelTestFakes.WithDownloadedBundled();
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithDownloadedBundled();
         var ctx = TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt);
 
         var pages = new ModelsPageSource(ctx).Build();

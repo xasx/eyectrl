@@ -1,0 +1,41 @@
+namespace EyeCtrl.App.Views.Settings;
+
+/// <summary>
+/// Declarative description of one row on a settings page. Pure data + delegates, no WPF types:
+/// <see cref="EyeCtrl.App.Views.SettingsWindow.RenderSpec"/> is the single place that maps a spec
+/// onto an <see cref="EyeCtrl.Controls.DwellControl"/>. This data shape is what a future full-MVVM
+/// migration binds to (it becomes the row view-model collection); only the renderer is throwaway.
+/// </summary>
+public abstract record SettingsRowSpec(string Id, string Label);
+
+/// <summary>A stepped numeric value with a live read/write binding to a setting.</summary>
+/// <param name="Decimals">Decimal places shown (mirrors <c>DwellSlider</c>'s <c>decimals</c> arg).</param>
+public sealed record SliderSpec(
+    string Id, string Label, double Min, double Max, double Step, int Decimals,
+    Func<double> Get, Action<double> Set) : SettingsRowSpec(Id, Label);
+
+public sealed record ToggleSpec(
+    string Id, string Label, Func<bool> Get, Action<bool> Set) : SettingsRowSpec(Id, Label);
+
+/// <param name="Code">Value codes; <c>null</c> means the display strings are also the codes.</param>
+public sealed record ComboBoxSpec(
+    string Id, string Label, string[] Display, string[]? Code,
+    Func<string> Get, Action<string> Set) : SettingsRowSpec(Id, Label);
+
+/// <param name="RadiusLogical">Hit radius in logical DIP (Cursor uses the swatch radius, Selection the control radius).</param>
+public sealed record ColorPickerSpec(
+    string Id, string Label, Func<string> Get, Action<string> Set, double RadiusLogical)
+    : SettingsRowSpec(Id, Label);
+
+public enum ButtonKind { Default, Reset, Delete }
+
+/// <summary>An action button (reset / download / delete / nav). Width/Height are per-call (they vary).</summary>
+public sealed record ButtonSpec(
+    string Id, string Label, Action OnActivate, ButtonKind Kind, double Width, double Height)
+    : SettingsRowSpec(Id, Label);
+
+/// <param name="Text">Deferred so dynamic labels (calibration status) re-evaluate on each rebuild.</param>
+public sealed record LabelSpec(Func<string> Text) : SettingsRowSpec("", "");
+
+/// <summary>One page of the paginated content area; rendered top-to-bottom into <c>ContentPanel</c>.</summary>
+public sealed record PageSpec(IReadOnlyList<SettingsRowSpec> Rows);

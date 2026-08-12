@@ -27,11 +27,10 @@ using CommunityToolkit.Mvvm.Messaging;
 /// registered recipients rather than a hand-rolled <see cref="IMessenger"/> spy — fewer moving
 /// parts, and it exercises the same delivery path the shell does.</para>
 /// </summary>
-internal sealed class RecordingSettingsPageContext : IDisposable
+internal sealed class RecordingSettingsPageContext
 {
     private readonly WeakReferenceMessenger _messenger = new();
     private readonly List<string> _log = new();
-    private bool _disposed;
 
     public RecordingSettingsPageContext(
         EyeCtrlSettings? settings = null,
@@ -91,12 +90,5 @@ internal sealed class RecordingSettingsPageContext : IDisposable
         LastModalMessage = message;
         LastModalOnYes = onYes;
         // Intentionally does NOT invoke onYes: the test decides whether the user confirms.
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        _messenger.UnregisterAll(this);
     }
 }

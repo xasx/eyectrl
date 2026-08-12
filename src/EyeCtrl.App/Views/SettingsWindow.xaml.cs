@@ -113,6 +113,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly ToolbarPageSource _toolbarSource;
     private readonly ActionMenuPageSource _actionMenuSource;
     private readonly LayoutPageSource _layoutSource;
+    private readonly GeneralPageSource _generalSource;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
@@ -271,6 +272,7 @@ public partial class SettingsWindow : OverlayWindow
         _toolbarSource = new ToolbarPageSource(_ctx);
         _actionMenuSource = new ActionMenuPageSource(_ctx);
         _layoutSource = new LayoutPageSource(_ctx);
+        _generalSource = new GeneralPageSource(_ctx);
 
         // Build UI
         BuildTabButtons();
@@ -742,83 +744,7 @@ public partial class SettingsWindow : OverlayWindow
         ShowModal(message, () => { });
     }
 
-    private List<List<Action>> BuildGeneralPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
-
-        return
-        [
-            [
-                () => Add(new DwellComboBox(_viewModel, "g_theme", "Theme (restart to apply)",
-                    ThemeSettings.ValidNames,
-                    () => _settings.Theme.Name,
-                    v => { _settings.Theme.Name = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellToggle(_viewModel, "g_boot", "Start on Windows Boot",
-                    () => _settings.General.StartOnBoot,
-                    v => { _settings.General.StartOnBoot = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellToggle(_viewModel, "g_pause", "Start Paused",
-                    () => _settings.General.StartPaused,
-                    v => { _settings.General.StartPaused = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellToggle(_viewModel, "g_track", "Show Track Status",
-                    () => _settings.TrackStatus.Enabled,
-                    v => { _settings.TrackStatus.Enabled = v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellButton(_viewModel, "g_restart", "↻ Restart Now",
-                    () =>
-                    {
-                        // Only offer what is installed and not already running.
-                        if (_restartCoordinator.ShouldOfferSupervisor())
-                        {
-                            _viewModel.ShowModal(
-                                "Restart EyeCtrl now?\n"
-                                + "A supervisor is installed. It restarts EyeCtrl if it ever "
-                                + "fails, and can recover a restart that goes wrong.\n"
-                                + "Starting it turns supervision on and leaves it on.",
-                                [
-                                    new ModalChoice("restart_supervised", "↻ Restart with supervisor",
-                                        ModalChoiceKind.Affirmative,
-                                        () => _messenger.Send(new RestartAppRequestedMessage(StartSupervisor: true))),
-                                    new ModalChoice("restart_plain", "↻ Restart without",
-                                        ModalChoiceKind.Neutral,
-                                        () => _messenger.Send(new RestartAppRequestedMessage())),
-                                    new ModalChoice("restart_cancel", "✕ Cancel",
-                                        ModalChoiceKind.Negative, null),
-                                ]);
-                        }
-                        else
-                        {
-                            ShowModal(
-                                "Restart EyeCtrl now?",
-                                () => _messenger.Send(new RestartAppRequestedMessage()));
-                        }
-                    },
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80,
-                    textBrush: Tokens.BrushSurfaceDark)),
-                () => Add(new DwellButton(_viewModel, "g_reset", "Reset General Settings",
-                    () => ShowModal("Reset General settings to defaults?", () =>
-                    {
-                        var g = new GeneralSettings();
-                        _settings.General.StartOnBoot = g.StartOnBoot;
-                        _settings.General.StartPaused = g.StartPaused;
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
-                () => Add(new DwellButton(_viewModel, "g_resetall", "\u26A0 Reset ALL Settings",
-                    () => ShowModal("Reset ALL settings to defaults?\nThis cannot be undone.", () =>
-                    {
-                        _viewModel.Settings.ResetAllSettings();
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
-            ]
-        ];
-    }
+    private List<List<Action>> BuildGeneralPages() => _generalSource.Build().Select(RenderPage).ToList();
 
     private const int QaActionsPerPage = 4;      // action rows per List page (pages 2+)
     private const int QaPresetsPerPage = 6;      // preset/app buttons per picker page

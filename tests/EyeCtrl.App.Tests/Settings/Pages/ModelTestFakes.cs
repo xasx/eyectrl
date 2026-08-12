@@ -7,45 +7,68 @@ using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// Builds real <see cref="ModelRegistryService"/>/<see cref="ModelManagementService"/> instances for
-/// <see cref="ModelsPageSourceTests"/> against a unique temp dir per call. The construction shape
-/// mirrors <c>ModelManagementServiceTests.BuildServices</c> (manifest + download service ctor args);
-/// the page source reads the public surface of these services, so fakes that reimplement it would
-/// only restate the production behaviour and drift. A unique temp dir per call avoids the
-/// machine-global path contention <c>AGENTS.md</c> warns about (parallel test runs, sibling worktrees).
+/// <see cref="ModelsPageSourceTests"/> against a unique temp dir, and cleans it up. The construction
+/// shape mirrors <c>ModelManagementServiceTests.BuildServices</c> (manifest + download service ctor
+/// args); the page source reads the public surface of these services, so fakes that reimplement it
+/// would only restate the production behaviour and drift. A unique temp dir per scope avoids the
+/// machine-global path contention <c>AGENTS.md</c> warns about (parallel test runs, sibling
+/// worktrees).
 /// </summary>
 internal static class ModelTestFakes
 {
+    /// <summary>Creates a fresh scope owning a unique temp dir. Dispose it to delete the dir.</summary>
+    public static ModelTestScope Create() => ModelTestScope.Create();
+}
+
+/// <summary>
+/// Owns one unique temp directory for a single test and the model services bound to it, so the
+/// directory is deletable when the test ends. The previous static helpers created a dir per call
+/// and never deleted any of them (a new leak every run), and <c>NoOpManagement()</c> built a second
+/// unrelated registry on top of it. One scope = one dir = one cleanup.
+/// </summary>
+internal sealed class ModelTestScope : IDisposable
+{
+    private bool _disposed;
+
+    private ModelTestScope(string dir) => Dir = dir;
+
+    /// <summary>A unique temp dir created for this scope; deleted on <see cref="Dispose"/>.</summary>
+    public string Dir { get; }
+
+    /// <summary>Creates a scope with a fresh unique temp dir.</summary>
+    internal static ModelTestScope Create()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "eyectrl_models_test_" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        return new ModelTestScope(dir);
+    }
+
     /// <summary>
     /// A registry with an empty manifest and no model files on disk: <c>SelectableModels</c>,
     /// <c>DownloadedModels</c> empty; the page renders the "no models" empty state and the
     /// add-custom button only.
     /// </summary>
-    public static ModelRegistryService EmptyRegistry() =>
-        BuildRegistry(NewTempDir(), new ModelManifest(), new EyeCtrlSettings());
+    public ModelRegistryService EmptyRegistry() =>
+        BuildRegistry(new ModelManifest(), new EyeCtrlSettings());
 
     /// <summary>
-    /// A <see cref="ModelManagementService"/> wired to <paramref name="registry"/> (or a fresh
+    /// A <see cref="ModelManagementService"/> wired to <paramref name="registry"/> (or this scope's
     /// <see cref="EmptyRegistry"/> when omitted) with a no-network <see cref="ModelDownloadService"/>.
     /// Used by tests that exercise <c>Build()</c> only; the download service is never invoked
     /// because the tests never trigger a download.
     /// </summary>
-    public static ModelManagementService NoOpManagement(ModelRegistryService? registry = null)
-    {
-        registry ??= EmptyRegistry();
-        var dir = Path.GetDirectoryName(registry.GetModelPath("probe"))!;
-        return new ModelManagementService(registry, new ModelDownloadService(dir), new EyeCtrlSettings());
-    }
+    public ModelManagementService NoOpManagement(ModelRegistryService? registry = null) =>
+        new(registry ?? EmptyRegistry(), new ModelDownloadService(Dir), new EyeCtrlSettings());
 
     /// <summary>
-    /// A registry + management pair sharing one temp dir, with one bundled model marked as
+    /// A registry + management pair sharing this scope's dir, with one bundled model marked as
     /// downloaded (both <c>.onnx</c> and <c>.tokenizer.json</c> files dropped onto disk so
     /// <c>IsModelDownloaded</c>/<c>RefreshIsDownloaded</c> see them). Drives the page's
     /// downloaded-state branch: active-model combo, manage button, and the delete page.
     /// </summary>
-    public static (ModelRegistryService registry, ModelManagementService mgmt) WithDownloadedBundled(
+    public (ModelRegistryService registry, ModelManagementService mgmt) WithDownloadedBundled(
         string id = "135M")
     {
-        var dir = NewTempDir();
         var manifest = new ModelManifest
         {
             Models =
@@ -68,21 +91,24 @@ internal static class ModelTestFakes
         var onnx = ModelConstants.ModelFileNames.TryGetValue(id, out var named)
             ? named
             : $"{id.ToLowerInvariant()}.onnx";
-        File.WriteAllBytes(Path.Combine(dir, onnx), new byte[1]);
-        File.WriteAllBytes(Path.Combine(dir, onnx.Replace(".onnx", ".tokenizer.json")), new byte[1]);
+        File.WriteAllBytes(Path.Combine(Dir, onnx), new byte[1]);
+        File.WriteAllBytes(Path.Combine(Dir, onnx.Replace(".onnx", ".tokenizer.json")), new byte[1]);
 
-        var registry = BuildRegistry(dir, manifest, settings);
-        var mgmt = new ModelManagementService(registry, new ModelDownloadService(dir), settings);
+        var registry = BuildRegistry(manifest, settings);
+        var mgmt = new ModelManagementService(registry, new ModelDownloadService(Dir), settings);
         return (registry, mgmt);
     }
 
-    private static ModelRegistryService BuildRegistry(string dir, ModelManifest manifest, EyeCtrlSettings settings) =>
-        new(dir, manifest, settings);
+    private ModelRegistryService BuildRegistry(ModelManifest manifest, EyeCtrlSettings settings) =>
+        new(Dir, manifest, settings);
 
-    private static string NewTempDir()
+    public void Dispose()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "eyectrl_models_test_" + Guid.NewGuid());
-        Directory.CreateDirectory(dir);
-        return dir;
+        if (_disposed) return;
+        _disposed = true;
+        // Best-effort: a leftover dir is annoying but not fatal, and a failed delete (e.g. a file
+        // handle still open) must not fail the test.
+        try { Directory.Delete(Dir, recursive: true); }
+        catch { /* ignored */ }
     }
 }

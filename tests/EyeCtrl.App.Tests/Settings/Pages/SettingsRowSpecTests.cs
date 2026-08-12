@@ -17,7 +17,7 @@ public class SettingsRowSpecTests
     }
 
     [Fact]
-    public void ComboBoxSpec_NullCode_FallsBackToDisplayAtRender()
+    public void ComboBoxSpec_NullCode_HasDisplayOnly()
     {
         var combo = new ComboBoxSpec("c", "L", new[] { "A", "B" }, null, () => "A", _ => { });
         Check.That(combo.Code).IsNull();

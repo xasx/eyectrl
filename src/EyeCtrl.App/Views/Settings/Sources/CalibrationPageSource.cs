@@ -47,6 +47,9 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
             return $"Last calibration: {data.CalibratedAt.LocalDateTime:g}  \u00B7  "
                 + $"{data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)";
         }
+        // A calibration that exists on disk but was refused at startup is otherwise indistinguishable
+        // from never having calibrated — both leave CurrentData null and gaze running raw. Surface the
+        // rejection reason so drifting dwell has a visible explanation without reading the log.
         var rejection = _ctx.Calibration.LastLoadRejection;
         return rejection == null ? "Last calibration: none" : $"Last calibration: {rejection}";
     }

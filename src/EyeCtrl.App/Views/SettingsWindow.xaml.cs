@@ -136,13 +136,13 @@ public partial class SettingsWindow : OverlayWindow
     private readonly Dictionary<string, double> _modalBlendFactors = new();
     private SolidColorBrush? _closeButtonBrush;
 
-    private List<List<Action>> _pages = new();
+    private IReadOnlyList<PageSpec> _pages = Array.Empty<PageSpec>();
     private readonly List<object> _activeItems = new(); // DwellControl | IDwellComposite
 
     public event Action<EyeCtrlSettings>? SettingsChanged;
 
-    private readonly (string Id, string Icon, string Label, Func<List<List<Action>>> PageBuilder)[] _tabDefs;
-    private readonly Dictionary<string, Func<List<List<Action>>>> _pageBuilders = new();
+    private readonly (string Id, string Icon, string Label, Func<IReadOnlyList<PageSpec>> PageBuilder)[] _tabDefs;
+    private readonly Dictionary<string, Func<IReadOnlyList<PageSpec>>> _pageBuilders = new();
 
     public SettingsWindow(
         SettingsWindowViewModel viewModel,
@@ -462,8 +462,8 @@ public partial class SettingsWindow : OverlayWindow
         var currentPage = _viewModel.Settings.CurrentPage;
         if (currentPage < _pages.Count)
         {
-            foreach (var builder in _pages[currentPage])
-                builder();
+            foreach (var row in _pages[currentPage].Rows)
+                RenderSpec(row);
         }
     }
 
@@ -541,42 +541,40 @@ public partial class SettingsWindow : OverlayWindow
 
     // ────── Page builders per tab ──────
 
-    private List<List<Action>> BuildPages()
+    private IReadOnlyList<PageSpec> BuildPages()
     {
         return _pageBuilders.TryGetValue(_viewModel.Settings.CurrentTabName, out var pageBuilder)
             ? pageBuilder.Invoke()
-            : new();
+            : Array.Empty<PageSpec>();
     }
 
-    private List<List<Action>> BuildCursorPages() =>
-        _cursorSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildCursorPages() => _cursorSource.Build();
 
 
-    private List<List<Action>> BuildDwellPages() => _dwellSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildDwellPages() => _dwellSource.Build();
 
-    private List<List<Action>> BuildSelectionPages() => _selectionSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildSelectionPages() => _selectionSource.Build();
 
-    private List<List<Action>> BuildActionMenuPages() => _actionMenuSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildActionMenuPages() => _actionMenuSource.Build();
 
-    private List<List<Action>> BuildLayoutPages() => _layoutSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildLayoutPages() => _layoutSource.Build();
 
-    private List<List<Action>> BuildKeyboardPages() => _keyboardSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildKeyboardPages() => _keyboardSource.Build();
 
-    private List<List<Action>> BuildToolbarPages() => _toolbarSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildToolbarPages() => _toolbarSource.Build();
 
-    private List<List<Action>> BuildModelsPages() =>
-        _modelsSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildModelsPages() => _modelsSource.Build();
 
     private void ShowError(string message)
     {
         ShowModal(message, () => { });
     }
 
-    private List<List<Action>> BuildGeneralPages() => _generalSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildGeneralPages() => _generalSource.Build();
 
-    private List<List<Action>> BuildQuickActionsPages() => _qaSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildQuickActionsPages() => _qaSource.Build();
 
-    private List<List<Action>> BuildCalibrationPages() => _calibrationSource.Build().Select(RenderPage).ToList();
+    private IReadOnlyList<PageSpec> BuildCalibrationPages() => _calibrationSource.Build();
 
     // ────── Shared helpers ──────
 
@@ -690,9 +688,6 @@ public partial class SettingsWindow : OverlayWindow
                 throw new InvalidOperationException($"Unknown settings row spec: {row?.GetType().Name}");
         }
     }
-
-    /// <summary>Compiles one page of specs to the Action list <c>_pages</c> holds today (Phase 1 only; deleted in Task 9).</summary>
-    private List<Action> RenderPage(PageSpec page) => page.Rows.Select(row => (Action)(() => RenderSpec(row))).ToList();
 
     private void Add(DwellControl control)
     {

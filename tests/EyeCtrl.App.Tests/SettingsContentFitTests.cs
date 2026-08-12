@@ -184,8 +184,9 @@ public class SettingsContentFitTests
         Grid.SetRow(panel, 0);
         contentArea.Children.Add(panel);
 
-        // A real DwellButton, built the way ChunkPickerPages builds one. Its Root.Margin and its
-        // width plumbing then come from production rather than from a copy of them here.
+        // A real DwellButton, built the way QuickActionsPageSource's ChunkPresets builds one. Its
+        // Root.Margin and its width plumbing then come from production rather than from a copy of
+        // them here.
         var button = new DwellButton(
             new NullRegistrar(), "fit_probe", "Some Preset Label", () => { },
             default, DwellCategory.Control, radiusPhysical: 50, dwellMs: 500,

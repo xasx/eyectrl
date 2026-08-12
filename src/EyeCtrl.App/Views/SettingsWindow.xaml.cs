@@ -114,6 +114,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly ActionMenuPageSource _actionMenuSource;
     private readonly LayoutPageSource _layoutSource;
     private readonly GeneralPageSource _generalSource;
+    private readonly CalibrationPageSource _calibrationSource;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
@@ -273,6 +274,7 @@ public partial class SettingsWindow : OverlayWindow
         _actionMenuSource = new ActionMenuPageSource(_ctx);
         _layoutSource = new LayoutPageSource(_ctx);
         _generalSource = new GeneralPageSource(_ctx);
+        _calibrationSource = new CalibrationPageSource(_ctx);
 
         // Build UI
         BuildTabButtons();
@@ -906,67 +908,7 @@ public partial class SettingsWindow : OverlayWindow
         return pages;
     }
 
-    private List<List<Action>> BuildCalibrationPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
-        var cal = _settings.Calibration;
-
-        return
-        [
-            [
-                () => Add(new DwellSlider(_viewModel, "cal_points", "Calibration Points",
-                    3, 16, 1, 0,
-                    () => cal.PointCount,
-                    v => { cal.PointCount = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "cal_samples", "Samples per Point",
-                    5, 100, 5, 0,
-                    () => cal.SamplesPerPoint,
-                    v => { cal.SamplesPerPoint = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "cal_hold", "Target Hold (ms)",
-                    200, 3000, 100, 0,
-                    () => cal.TargetHoldMs,
-                    v => { cal.TargetHoldMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellSlider(_viewModel, "cal_settle", "Settle Window (ms)",
-                    0, 500, 25, 0,
-                    () => cal.SettleWindowMs,
-                    v => { cal.SettleWindowMs = (int)v; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-            ],
-            [
-                () => Add(new DwellLabel(CalibrationStatusText())),
-                () => Add(new DwellButton(_viewModel, "cal_run", "Calibrate Now",
-                    () => { Close(); _messenger.Send(new CalibrationRequestedMessage()); },
-                    BtnBase, cat, r, _dwellMs, width: 300, height: 80)),
-                () => Add(new DwellButton(_viewModel, "cal_clear", "Clear Calibration",
-                    () => ShowModal("Clear saved calibration?", () =>
-                    {
-                        _messenger.Send(new CalibrationClearRequestedMessage());
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
-            ]
-        ];
-    }
-
-    private string CalibrationStatusText()
-    {
-        var data = _calibrationService.CurrentData;
-        if (data != null)
-        {
-            return $"Last calibration: {data.CalibratedAt.LocalDateTime:g}  ·  "
-                + $"{data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)";
-        }
-
-        // A calibration that exists on disk but was refused at startup is otherwise indistinguishable
-        // from never having calibrated — both leave CurrentData null and gaze running raw. Say which,
-        // and why, so drifting dwell has a visible explanation without reading the log.
-        var rejection = _calibrationService.LastLoadRejection;
-        return rejection == null ? "Last calibration: none" : $"Last calibration: {rejection}";
-    }
+    private List<List<Action>> BuildCalibrationPages() => _calibrationSource.Build().Select(RenderPage).ToList();
 
     // ────── Shared helpers ──────
 

@@ -10,7 +10,7 @@ using CommunityToolkit.Mvvm.Messaging;
 /// <summary>
 /// Everything a <see cref="ISettingsPageSource"/> needs to build its specs: the settings/services it
 /// reads, and the view-bound delegates it invokes from action callbacks. The view-bound delegates
-/// (ShowModal/ShowError/ApplyAndSave/RebuildContent/Invoke) are the seam that keeps page sources
+/// (ShowModal/ShowError/ApplyAndSave/RebuildContent/Invoke/Close/ReadClipboard) are the seam that keeps page sources
 /// free of WPF/Dispatcher coupling — the shell supplies them.
 /// </summary>
 internal sealed class SettingsPageContext

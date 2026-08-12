@@ -565,11 +565,6 @@ public partial class SettingsWindow : OverlayWindow
 
     private IReadOnlyList<PageSpec> BuildModelsPages() => _modelsSource.Build();
 
-    private void ShowError(string message)
-    {
-        ShowModal(message, () => { });
-    }
-
     private IReadOnlyList<PageSpec> BuildGeneralPages() => _generalSource.Build();
 
     private IReadOnlyList<PageSpec> BuildQuickActionsPages() => _qaSource.Build();
@@ -897,6 +892,11 @@ public partial class SettingsWindow : OverlayWindow
     {
         // Delegate to ViewModel
         _viewModel.ShowModal(message, onYes);
+    }
+
+    private void ShowError(string message)
+    {
+        ShowModal(message, () => { });
     }
 
     /// <summary>Builds one modal button.</summary>

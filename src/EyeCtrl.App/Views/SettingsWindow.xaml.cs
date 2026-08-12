@@ -111,6 +111,8 @@ public partial class SettingsWindow : OverlayWindow
     private readonly SelectionPageSource _selectionSource;
     private readonly KeyboardPageSource _keyboardSource;
     private readonly ToolbarPageSource _toolbarSource;
+    private readonly ActionMenuPageSource _actionMenuSource;
+    private readonly LayoutPageSource _layoutSource;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
@@ -267,6 +269,8 @@ public partial class SettingsWindow : OverlayWindow
         _selectionSource = new SelectionPageSource(_ctx);
         _keyboardSource = new KeyboardPageSource(_ctx);
         _toolbarSource = new ToolbarPageSource(_ctx);
+        _actionMenuSource = new ActionMenuPageSource(_ctx);
+        _layoutSource = new LayoutPageSource(_ctx);
 
         // Build UI
         BuildTabButtons();
@@ -560,52 +564,9 @@ public partial class SettingsWindow : OverlayWindow
 
     private List<List<Action>> BuildSelectionPages() => _selectionSource.Build().Select(RenderPage).ToList();
 
-    private List<List<Action>> BuildActionMenuPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
+    private List<List<Action>> BuildActionMenuPages() => _actionMenuSource.Build().Select(RenderPage).ToList();
 
-        return
-        [
-            [
-                () => Add(new DwellButton(_viewModel, "am_reset", "Reset Action Menu Settings",
-                    () => ShowModal("Reset Action Menu settings to defaults?", () =>
-                    {
-                        var a = new ActionMenuSettings();
-                        _settings.ActionMenu.VisibleActions = new List<InteractionAction>(a.VisibleActions);
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
-            ]
-        ];
-    }
-
-    private List<List<Action>> BuildLayoutPages()
-    {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        var cat = DwellCategory.Control;
-
-        return
-        [
-            [
-                () => Add(new DwellComboBox(_viewModel, "lay_pos", "Position",
-                    ["At Gaze", "At Center"],
-                    () => _settings.ViewPosition == ViewPosition.AtGaze ? "At Gaze" : "At Center",
-                    v => { _settings.ViewPosition = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; ApplyAndSave(); },
-                    cat, r, _dwellMs)),
-                () => Add(new DwellButton(_viewModel, "lay_reset", "Reset Layout Settings",
-                    () => ShowModal("Reset Layout settings to defaults?", () =>
-                    {
-                        var d = new EyeCtrlSettings();
-                        _settings.ViewPosition = d.ViewPosition;
-                        ApplyAndSave();
-                        RebuildContent();
-                    }),
-                    ResetBase, cat, r, _dwellMs, width: 300, height: 80, textBrush: Tokens.BrushSurfaceDark)),
-            ]
-        ];
-    }
+    private List<List<Action>> BuildLayoutPages() => _layoutSource.Build().Select(RenderPage).ToList();
 
     private List<List<Action>> BuildKeyboardPages() => _keyboardSource.Build().Select(RenderPage).ToList();
 

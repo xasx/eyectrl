@@ -845,17 +845,11 @@ Add to `tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs`:
     }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step 2: Add `IsPublishing` only, then run to verify the new test fails**
 
-```bash
-dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~HeartbeatPublisherTests"
-```
-
-Expected: compile error on `IsPublishing`. After adding it (next step) but before the guard, `SignalShuttingDown_SendsNothing_WhenNotPublishing` fails because a connection *does* arrive.
-
-- [ ] **Step 3: Add `IsPublishing` and guard the send**
-
-In `src/EyeCtrl.App/Services/HeartbeatPublisher.cs`, beside the `_publishing` field:
+Adding the property and the guard together would mean never observing the regression test red,
+which is the point of writing it. So add **only** the property first, beside the `_publishing` field
+in `src/EyeCtrl.App/Services/HeartbeatPublisher.cs`:
 
 ```csharp
     /// <summary>
@@ -865,7 +859,16 @@ In `src/EyeCtrl.App/Services/HeartbeatPublisher.cs`, beside the `_publishing` fi
     public bool IsPublishing => Volatile.Read(ref _publishing) != 0;
 ```
 
-Then in `SignalShuttingDown`, guard **only the send**:
+```bash
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~HeartbeatPublisherTests"
+```
+
+Expected: `SignalShuttingDown_SendsNothing_WhenNotPublishing` **fails** — a connection does arrive,
+which is the bug. `IsPublishing_IsFalseWhenNotSupervised_AndTrueAfterEnable` passes.
+
+- [ ] **Step 3: Guard the send**
+
+In `SignalShuttingDown`, guard **only the send**:
 
 ```csharp
     public void SignalShuttingDown(bool restartRequested = false)
@@ -884,7 +887,7 @@ Then in `SignalShuttingDown`, guard **only the send**:
         // The guard itself: this method's doc comment claimed "if not supervised (no server), this
         // is a bounded no-op", which holds only when no server exists. When the user's own
         // supervisor IS listening, an unsupervised instance's exit reaches it. TryReachSupervisor
-        // has had this check since Task 11; this method never did.
+        // has always had this check (HeartbeatPublisher.cs:179); this method never did.
         if (!IsPublishing) return;
 
         try { SendOneAsync(final, CancellationToken.None).Wait(TimeSpan.FromSeconds(2)); }
@@ -954,7 +957,7 @@ public class AppRestartCoordinatorScopeTests
             new WeakReferenceMessenger(),
             settings,
             tryReachSupervisor: () => false,
-            selfRestart: () => RestartOutcome.Succeeded,
+            selfRestart: () => RestartOutcome.Started,
             shutdown: () => onShutdown?.Invoke(),
             reportInProgress: () => { },
             reportUnavailable: m => onUnavailable?.Invoke(m),
@@ -1103,24 +1106,78 @@ And gate `HandleRestart` at the very top, before the in-flight guard so a refusa
         // ... existing body unchanged
 ```
 
-- [ ] **Step 4: Add the second line of defence in `SelfRestartStrategy`**
+- [ ] **Step 4: Add the second line of defence in `SelfRestartStrategy`, and WIRE it**
 
-The spec asks for `Begin` to refuse as well, so a future caller that bypasses `HandleRestart` cannot create the restart-ready event. In `src/EyeCtrl.App/Services/SelfRestartStrategy.cs`, add a field set from the constructor the same way (`bool isScoped = false`), and at the top of `Begin`:
+`Begin` is the only place `Local\EyeCtrl.App.RestartReady` is created
+(`SelfRestartStrategy.cs:125-126`), so refusing there is what actually removes that name from a
+scoped instance's surface. Three edits, and the third is the one an earlier draft of this plan
+omitted — leaving the gate implemented but dead in production.
+
+**(a) A new outcome.** `RestartOutcome` is `Started | NoExePath | LaunchFailed | ChildExitedEarly
+| ChildNotReady` (`SelfRestartStrategy.cs:17-33`) — verified. None means "refused", so add one:
 
 ```csharp
-        // Second line of defence behind AppRestartCoordinator.HandleRestart. This is the only place
-        // the Local\EyeCtrl.App.RestartReady event is created, so refusing here is what actually
-        // removes that name from a scoped instance's surface.
-        if (_isScoped) return RestartOutcome.Unavailable;
+    /// <summary>This instance is scoped and refuses self-restart. Never attempt, never exit.</summary>
+    RefusedScoped,
 ```
 
-Check the real enum member name first and use it:
+Confirm no consumer switches exhaustively over the enum in a way a new member breaks:
 
 ```bash
-grep -n "enum RestartOutcome" -A 8 src/EyeCtrl.App/Services/*.cs
+grep -rn "RestartOutcome\." src tests --include=*.cs
 ```
 
-If there is no "unavailable"-like member, return the one the coordinator already treats as a failure and note it in the code comment.
+Every consumer should compare against `Started` (or against a failure set); if any has a
+`switch` expression with no default arm, add one rather than reusing a misleading member.
+
+**(b) The gate.** Add `bool isScoped = false` as the last constructor parameter, store it, and at
+the top of `Begin`:
+
+```csharp
+        // Second line of defence behind AppRestartCoordinator.HandleRestart.
+        if (_isScoped) return RestartOutcome.RefusedScoped;
+```
+
+**(c) The wiring — do not skip this.** `CreateDefault()` is a static factory with no scoped
+argument, and `App.xaml.cs:275` passes `SelfRestartStrategy.CreateDefault().Begin` as the
+coordinator's `selfRestart` delegate. Give the factory the flag and thread it through:
+
+```csharp
+    /// <param name="isScoped">
+    /// True when EYECTRL_INSTANCE_ID is set. A scoped instance refuses self-restart, so the ready
+    /// event is never created.
+    /// </param>
+    public static SelfRestartStrategy CreateDefault(bool isScoped = false) =>
+```
+
+pass `isScoped` into the constructor call inside it, and update `App.xaml.cs:275` to
+`SelfRestartStrategy.CreateDefault(isScoped: _instanceId != null).Begin`.
+
+**(d) A test that drives `Begin`, not just the coordinator.** Add to
+`tests/EyeCtrl.App.Tests/Services/` (the existing `SelfRestartStrategy` test file, or a new
+`SelfRestartStrategyScopeTests.cs`):
+
+```csharp
+    [Fact]
+    public void Begin_RefusesWhenScoped_AndNeverLaunchesOrCreatesTheReadyEvent()
+    {
+        var launches = 0;
+        var strategy = new SelfRestartStrategy(
+            resolveExePath: () => @"C:ake\EyeCtrl.App.exe",
+            launch: (_, _) => { launches++; throw new InvalidOperationException("must not launch"); },
+            waitForReady: (_, _) => true,
+            readyWait: TimeSpan.FromSeconds(1),
+            isScoped: true);
+
+        var outcome = strategy.Begin();
+
+        Check.That(outcome).IsEqualTo(RestartOutcome.RefusedScoped);
+        Check.That(launches).IsEqualTo(0);
+    }
+```
+
+Without this the gate is untested — and an untested gate on the only creator of the ready event
+is exactly the shape of the defect this plan's review found.
 
 - [ ] **Step 5: Run to verify it passes**
 
@@ -1724,7 +1781,7 @@ public sealed record InstanceManifest(
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceScopeVerifierTests|FullyQualifiedName~InstanceManifestTests"
 ```
 
-Expected: `Fehler: 0, erfolgreich: 10`.
+Expected: `Fehler: 0, erfolgreich: 11` (five verifier facts plus six manifest facts).
 
 - [ ] **Step 7: Commit**
 
@@ -1775,12 +1832,22 @@ Replace `InitializeSettingsAndLogging()` with two methods. The first resolves th
 
         LoggingInitializer.Initialize(Path.Combine(_appDataDir, "logs"));
 
+        // Move ALL THREE global handlers across, not just the AppDomain one. The original method
+        // also registered DispatcherUnhandledException (App.xaml.cs:524-527) and
+        // TaskScheduler.UnobservedTaskException (:533-537); the latter exists specifically to keep a
+        // faulted heartbeat writer from tearing down the process. Dropping either compiles cleanly
+        // and regresses silently, which is why they are spelled out here rather than left to
+        // "the rest of the old method".
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             Log.Fatal(args.ExceptionObject as Exception, "Unhandled exception (terminating={IsTerminating})",
                 args.IsTerminating);
             Log.CloseAndFlush();
         };
+
+        // Copy the existing DispatcherUnhandledException and TaskScheduler.UnobservedTaskException
+        // registrations verbatim from the old InitializeSettingsAndLogging body. Read them first:
+        //   sed -n '520,540p' src/EyeCtrl.App/App.xaml.cs
     }
 
     /// <summary>Loads settings from the resolved profile, migrating newly-introduced defaults.</summary>
@@ -1901,6 +1968,24 @@ Then, immediately after, replace the old `InitializeSettingsAndLogging()` call i
     var appDataDir = profileDirectory;
 ```
 
+**The DI `SettingsService` singleton must get the scoped mutex too.** This is the defect the
+plan's own review found, and it is the spec's canonical failure — a receiver that accepts a name
+and is never passed one — committed on a *different* receiver than the one Task 3 fixed. Phase 2
+reads `_serviceProvider.GetRequiredService<SettingsService>()`, not the temp loader from
+`LoadSettings`, so leaving this alone makes **every scoped launch exit 78**. Worse, `OnExit`
+(`App.xaml.cs:395-402`) saves through this singleton first, on the **production** writer mutex,
+against the live instance.
+
+Replace `AppBootstrapper.cs:62-65`:
+
+```csharp
+        services.AddSingleton(sp => new SettingsService(
+            settingsFilePath,
+            SettingsWriter.App,
+            sp.GetRequiredService<ILogger<SettingsService>>(),
+            writerMutexName: InstanceScope.Scope(SettingsService.DefaultWriterMutexName, instanceId)));
+```
+
 Replace the registrar registration at `:71-72`:
 
 ```csharp
@@ -1921,11 +2006,52 @@ Replace the `ExternalDwellService` registration at `:236-242` — adding the `pi
             pipeName: InstanceScope.Scope(ExternalDwellService.DefaultPipeName, instanceId)));
 ```
 
-Update the call site in `App.xaml.cs` to pass `_appDataDir` and `_instanceId`, and pass `isScoped: _instanceId != null` when constructing `AppRestartCoordinator`.
+The new signature, and every caller:
+
+```csharp
+    public static ServiceProvider BuildServiceProvider(
+        EyeCtrlSettings settings,
+        string settingsFilePath,
+        Dispatcher dispatcher,
+        bool isTestMode,
+        string profileDirectory,
+        string? instanceId)
+```
+
+Callers to update — the second is a test the plan would otherwise leave to "fix call sites":
+
+- `src/EyeCtrl.App/App.xaml.cs:134` — pass `_appDataDir` and `_instanceId`.
+- `tests/EyeCtrl.App.Tests/Services/TelemetrySinkRegistrationTests.cs:32-36` — pass a temp
+  directory and `null`.
+
+Also pass `isScoped: _instanceId != null` when constructing `AppRestartCoordinator`
+(`App.xaml.cs:271`) and `SelfRestartStrategy.CreateDefault(isScoped: _instanceId != null)` at
+`:275`.
+
+Two usings are needed in `App.xaml.cs` and are not currently present: `EyeCtrl.Contracts` (for
+`InstanceScope`) and `EyeCtrl.Platform.Services` (for the concrete `WindowsStartupRegistrar` cast in
+phase 2). The csproj already references both assemblies.
 
 - [ ] **Step 5: Remove the two remaining independent resolvers**
 
-`src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs:54` derives its own path. Give the class the resolved directory instead — add a constructor parameter `string appDataDir` and assign `_appDataDir = appDataDir;`, then pass `_appDataDir` from wherever the coordinator is constructed.
+`src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs:54` derives its own path inside
+`Initialize`. Add a constructor parameter and **delete the derivation** — leaving `Initialize:54` in
+place would overwrite whatever was injected with the live `%APPDATA%\EyeCtrl`.
+
+The hop this needs, which an earlier draft left unstated: the only production construction is
+`EventCoordinator.cs:110` (`new KeyboardCoordinator(_modal, _quickActions, _toolbar)`), and
+`EventCoordinator` has no profile directory to pass — nor does `EventCoordinationContext`
+(`IEventCoordinator.cs:51-86`). So the path has to reach it. Add a `string AppDataDir` member to
+`EventCoordinationContext`, populate it in `AppBootstrapper` from `profileDirectory`, and pass
+`_context.AppDataDir` at the construction site.
+
+Test call sites this breaks, all of which construct the coordinator directly:
+
+- `tests/EyeCtrl.App.Tests/Services/Coordinators/KeyboardCoordinatorTests.cs:60-62,87`
+- `tests/EyeCtrl.App.Tests/Services/Coordinators/SettingsUiCoordinatorTests.cs:21,55`
+
+Give each a temp directory. Making the parameter required rather than optional is deliberate: an
+optional one would silently keep the live profile on any path that forgot to pass it.
 
 `src/EyeCtrl.ViewModels/CalibrationViewModel.cs:63-65` has a self-derived fallback. The App's DI already injects a resolved calibration path (`AppBootstrapper.cs:203`), so delete the fallback and make the path a required constructor argument.
 
@@ -1985,21 +2111,58 @@ In `App.xaml.cs`, after the DI container is built and services wired but **befor
                     return;
                 }
 
-                if (_heartbeatPublisher?.IsPublishing == true || _restartCoordinator?.IsScopeGated == false)
+                // Explicit patterns, not `?.X == true`: a null publisher makes that expression false,
+                // which would report a subsystem as refused when it was merely never built.
+                var refusedFailures = new List<string>();
+                if (_heartbeatPublisher is null)
+                    refusedFailures.Add("HeartbeatPublisher was never constructed, so it cannot be verified.");
+                else if (_heartbeatPublisher.IsPublishing)
+                    refusedFailures.Add("HeartbeatPublisher is publishing on a scoped instance.");
+
+                if (_restartCoordinator is null)
+                    refusedFailures.Add("AppRestartCoordinator was never constructed, so it cannot be verified.");
+                else if (!_restartCoordinator.IsScopeGated)
+                    refusedFailures.Add("AppRestartCoordinator is not scope-gated.");
+
+                if (refusedFailures.Count > 0)
                 {
-                    Log.Fatal("Instance scoping failed: a refused subsystem is active.");
+                    foreach (var failure in refusedFailures)
+                        Log.Fatal("Instance scoping failed: {Failure}", failure);
                     Log.CloseAndFlush();
                     Shutdown(InstanceStartupPolicy.RefusalExitCode);
                     return;
                 }
 
+                // The refused list is DERIVED from what was verified above, never a literal — a
+                // hard-coded ["Supervision", "SelfRestart"] would report both as refused even if the
+                // coordinator had never been constructed or never been passed isScoped.
+                var refused = new List<string> { "Supervision", "SelfRestart" };
+
                 InstanceManifest.Write(_appDataDir, new InstanceManifest(
                     _instanceId, Environment.ProcessId, DateTime.UtcNow, IsTestMode,
-                    reported, ["Supervision", "SelfRestart"]));
+                    reported, refused));
             }
 ```
 
-Note the ordering requirement: `_heartbeatPublisher` and `_restartCoordinator` must already be constructed. If they are created after this point today, move this block below them but still above `gazeEngine.Start()` and the overlay show.
+**The ordering requires moving two constructions, not moving this block.** Verified in the tree:
+`ShowOverlays` is at `App.xaml.cs:240`, `gazeEngine.Start()` at `:245`, `_heartbeatPublisher` at
+`:260` and `_restartCoordinator` at `:271`. Both refused-subsystem objects are therefore built
+*after* input processing begins, so there is no position that is both below them and above the
+show/start — an earlier draft of this plan hedged exactly that and the hedge was unsatisfiable.
+
+Move the `_heartbeatPublisher` and `_restartCoordinator` constructions (`:246-300`, everything
+from the publisher through the coordinator wiring) to **before** `ShowOverlays` at `:240`, then
+place this phase-2 block immediately after them and before `ShowOverlays`. Check as you move:
+
+- the publisher subscribes `gazeEngine.GazeSampled` (`:261`), which is fine before `Start()`;
+- its `DispatcherTimer` (`:262-265`) may start before the gaze engine — a stamp with no samples
+  yet is harmless, `_lastFrameTicks` is seeded at construction;
+- the coordinator's constructor registers a messenger handler (`AppRestartCoordinator.cs:105`) and
+  touches nothing that needs overlays.
+
+Note also why the null-conditional check below is written as an explicit `is` pattern rather than
+`_heartbeatPublisher?.IsPublishing == true`: on a null publisher that expression is `false`, so it
+would pass vacuously and report success for a subsystem that was never constructed.
 
 - [ ] **Step 7: Build and run the full headless suite**
 
@@ -2225,7 +2388,12 @@ Add to `src/EyeCtrl.Sdk.Abstractions/EyeCtrl.Sdk.Abstractions.csproj` so the tes
 
 - [ ] **Step 4: Make `DwellClient` take the name**
 
-In `src/EyeCtrl.Sdk.Abstractions/DwellClient.cs`, replace the const at `:17` with a field set from the constructor:
+**`DwellClient` has no explicit constructor** — only the implicit parameterless one (verified). So
+this *adds* a constructor rather than extending one, and the parameter must be optional: a required
+`string pipeName` would break `DwellClientTests` at `:10` and `:23`, which construct it bare.
+
+In `src/EyeCtrl.Sdk.Abstractions/DwellClient.cs`, replace the const at `:17` with a field and add a
+constructor:
 
 ```csharp
     // Latched once by DwellHeadCore and read from this field thereafter. NOT read from
@@ -2234,20 +2402,32 @@ In `src/EyeCtrl.Sdk.Abstractions/DwellClient.cs`, replace the const at `:17` wit
     private readonly string _pipeName;
 ```
 
-Add the parameter to the existing constructor (append with a default so no consumer breaks):
-
 ```csharp
+    /// <summary>
+    /// Creates a client for a specific pipe.
+    /// </summary>
     /// <param name="pipeName">
     /// Pipe to connect to. Defaults to <see cref="DwellPipe.Name"/>; <c>DwellHeadCore</c> passes the
-    /// latched <see cref="DwellHead.PipeName"/>.
+    /// latched <see cref="DwellHead.PipeName"/>. Optional because <c>DwellClientTests</c> constructs
+    /// this type bare, and because a shipped assembly should not break consumers on a name change.
     /// </param>
+    public DwellClient(string? pipeName = null)
+    {
+        _pipeName = pipeName ?? DwellPipe.Name;
+    }
 ```
 
-and assign `_pipeName = pipeName ?? DwellPipe.Name;`. Then replace the use at `:80` with `_pipeName`.
+Then replace the use at `:80` with `_pipeName`.
 
 - [ ] **Step 5: Move `Client` construction into `EnsureStarted`**
 
-`src/EyeCtrl.Sdk.Abstractions/DwellHeadCore.cs:9` is a field initialiser, so the client exists before any name could be passed. Replace:
+`src/EyeCtrl.Sdk.Abstractions/DwellHeadCore.cs:9` is a field initialiser, so the client exists before
+any name could be passed.
+
+**The whole file is 19 lines and all of it matters** — `_idPrefix`, `_idCounter`, the
+`DwellHeadCore(string idPrefix)` constructor and `NextId()` must survive. A paste-over of `:9-16`
+deletes the constructor and `NextId`, which every WPF/WinUI target id depends on. Replace only the
+`Client` member and `EnsureStarted`, leaving the rest intact:
 
 ```csharp
     private DwellClient? _client;
@@ -2287,7 +2467,21 @@ dotnet test tests/EyeCtrl.Sdk.Wpf.Tests
 dotnet test tests/EyeCtrl.Sdk.WinUI.Tests
 ```
 
-Expected: `Fehler: 0` for all three; 8 new tests in the first.
+Expected: `Fehler: 0` for all three; **7** new tests in the first (seven `[Fact]` methods, no theories).
+
+`Sdk.Abstractions.Tests` has no assembly-level `DisableTestParallelization`, and `DwellHead` is
+process-wide static state — so `DwellHeadTests` can race any sibling class that starts a head. The
+existing `DwellHeadCoreTests.EnsureStarted_IsIdempotent` latches without resetting. Add
+`tests/EyeCtrl.Sdk.Abstractions.Tests/AssemblyInfo.cs`:
+
+```csharp
+using Xunit;
+
+// DwellHead is process-wide static state (the latched pipe name). Distinct test classes run in
+// parallel collections by default, so DwellHeadTests' ResetForTests would race any sibling class
+// that starts a head — DwellHeadCoreTests.EnsureStarted_IsIdempotent latches without resetting.
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+```
 
 - [ ] **Step 7: Commit**
 
@@ -2314,26 +2508,33 @@ Create `tests/EyeCtrl.Supervisor.Tests/Supervision/ProcessControllerEnvironmentT
 namespace EyeCtrl.Supervisor.Tests.Supervision;
 
 using System.Diagnostics;
-using EyeCtrl.Contracts;
 using EyeCtrl.Supervisor.Supervision;
 
+/// <summary>
+/// Uses the LITERAL variable name rather than <c>InstanceScope.EnvVar</c>, matching the production
+/// code: the Supervisor may not reference Contracts without breaking the layering invariant, and a
+/// test that reached across for the constant would hide that constraint. The two are tied together
+/// by a separate assertion in a project that can see both.
+/// </summary>
 public class ProcessControllerEnvironmentTests
 {
+    private const string EnvVar = "EYECTRL_INSTANCE_ID";
+
     [Fact]
-    public void BuildStartInfo_StripsTheInstanceId_SoAChildIsNeverScoped()
+    public void StripInstanceScope_RemovesTheInstanceId_SoAChildIsNeverScoped()
     {
         // A scoped, non-test-mode child refuses with exit 78, which is indistinguishable from a
         // crash to the supervisor — so it books strikes and escalates to launching a fallback AT.
         var psi = new ProcessStartInfo("EyeCtrl.App.exe") { UseShellExecute = false };
-        psi.Environment[InstanceScope.EnvVar] = "run7";
+        psi.Environment[EnvVar] = "run7";
 
         ProcessController.StripInstanceScope(psi);
 
-        Check.That(psi.Environment.ContainsKey(InstanceScope.EnvVar)).IsFalse();
+        Check.That(psi.Environment.ContainsKey(EnvVar)).IsFalse();
     }
 
     [Fact]
-    public void BuildStartInfo_IsANoOp_WhenNoInstanceIdIsPresent()
+    public void StripInstanceScope_IsANoOp_WhenNoInstanceIdIsPresent()
     {
         var psi = new ProcessStartInfo("EyeCtrl.App.exe") { UseShellExecute = false };
         var before = psi.Environment.Count;
@@ -2351,7 +2552,38 @@ public class ProcessControllerEnvironmentTests
 dotnet test tests/EyeCtrl.Supervisor.Tests --filter "FullyQualifiedName~ProcessControllerEnvironmentTests"
 ```
 
-Expected: **compile error** — `StripInstanceScope` does not exist. `EyeCtrl.Supervisor` already references Contracts? Check with `grep -n ProjectReference src/EyeCtrl.Supervisor/EyeCtrl.Supervisor.csproj` and add it if absent.
+Expected: **compile error** — `StripInstanceScope` does not exist.
+
+**Do not add a `Supervisor -> Contracts` reference to make the test's `InstanceScope.EnvVar`
+compile.** `tests/EyeCtrl.Architecture.Tests/LayeringTests.cs` pins the Supervisor's dependency
+graph to Core + Platform + Controls, in both the csproj map (`:98`) and an IL usage test
+(`:167-176`). That project **is** in `EyeCtrl.slnx` and runs under `Category!=UI` — verified — so the
+reference would go green under this task's own filter and red in CI.
+
+Instead the Supervisor hard-codes the variable name, and a test in a project that can see *both*
+assemblies asserts the two agree. Use the literal in the test above as well:
+
+```csharp
+        psi.Environment["EYECTRL_INSTANCE_ID"] = "run7";
+```
+
+and add this to `tests/EyeCtrl.App.Tests/Startup/InstanceStartupPolicyTests.cs`, which already
+references Contracts:
+
+```csharp
+    [Fact]
+    public void SupervisorsHardCodedEnvVarNameMatchesTheContract()
+    {
+        // EyeCtrl.Supervisor cannot reference Contracts without breaking LayeringTests, so it spells
+        // the variable name literally. This is the guard against those two drifting apart.
+        Check.That(EyeCtrl.Supervisor.Supervision.ProcessController.InstanceScopeEnvVarName)
+             .IsEqualTo(InstanceScope.EnvVar);
+    }
+```
+
+That requires `EyeCtrl.App.Tests` to reference `EyeCtrl.Supervisor`. Check whether it already does;
+if adding it would itself trip a layering invariant, put the test in
+`EyeCtrl.Architecture.Tests` instead — that project exists to know about every assembly.
 
 - [ ] **Step 3: Implement**
 
@@ -2368,15 +2600,35 @@ In `src/EyeCtrl.Supervisor/Supervision/ProcessController.cs`:
     /// assistive technology on the user's desktop.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Spelled literally rather than read from <c>EyeCtrl.Contracts.InstanceScope.EnvVar</c>: this
+    /// project may not reference Contracts without breaking the layering invariant in
+    /// <c>EyeCtrl.Architecture.Tests</c>. A test that can see both assemblies asserts they agree.
+    /// </summary>
+    internal const string InstanceScopeEnvVarName = "EYECTRL_INSTANCE_ID";
+
     internal static void StripInstanceScope(ProcessStartInfo psi)
     {
         // Touching psi.Environment materialises the inherited block, which is what makes the
         // removal effective; UseShellExecute must stay false for it to be honoured at all.
-        psi.Environment.Remove(InstanceScope.EnvVar);
+        psi.Environment.Remove(InstanceScopeEnvVarName);
     }
 ```
 
-Call it wherever `Launch` builds its `ProcessStartInfo`, immediately before starting the process. Add `[assembly: InternalsVisibleTo("EyeCtrl.Supervisor.Tests")]` if the project does not already expose internals; otherwise make the method `public`.
+Call it inside `Launch` where the `ProcessStartInfo` is built (`:48-59`), before starting the
+process. `EyeCtrl.Supervisor` already exposes internals to its test project via a csproj
+`InternalsVisibleTo` item (`:19`) — do **not** add an `[assembly:]` attribute; this repo uses the
+MSBuild item form everywhere.
+
+**Add a test that drives `Launch`, not only the helper.** The two tests above would stay green if
+someone implemented `StripInstanceScope` and forgot to call it — which is the whole failure mode.
+`ProcessController` already takes an injectable launcher delegate (`:31-33`) for exactly this kind
+of test; capture the `ProcessStartInfo` it would have started and assert the variable is absent.
+Read `:31-59` and adapt the seam rather than guessing its shape.
+
+If the seam cannot supply the variable directly and the test must set it process-wide, note that
+`Supervisor.Tests` has no assembly-level parallelism opt-out — so prefer the seam, or add the
+opt-out.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -2450,7 +2702,11 @@ public class InstanceScopeDriftTests
     [
         "Registry.CurrentUser", "Registry.LocalMachine", "Registry.ClassesRoot",
         "EventWaitHandle.OpenExisting", "Mutex.OpenExisting",
-        "SpecialFolder.ApplicationData"
+        "SpecialFolder.ApplicationData",
+        // The supervisor's heartbeat server binds via the ACL factory, not `new
+        // NamedPipeServerStream` (HeartbeatPipeServer.cs:89). Omitting this is why an earlier draft
+        // of this guard could not see the very resource v1's enumeration missed.
+        "NamedPipeServerStreamAcl.Create"
     ];
 
     /// <summary>
@@ -2479,11 +2735,14 @@ public class InstanceScopeDriftTests
             "Unnamed per-process shell icon: no name to scope, no collision. Cosmetic only.",
         [@"src\EyeCtrl.Platform\Services\WindowsStartupRegistrar.cs::Registry.CurrentUser"] =
             "Scoped: valueName injected, reported via EffectiveValueName.",
-        [@"src\EyeCtrl.Supervisor\Program.cs::Mutex"] =
+        // NOTE the two entries that deliberately do NOT appear here. The supervisor singleton is
+        // `new SingleInstanceGuard(SupervisorMutexName)` (Program.cs:28), which this guard attributes
+        // to SingleInstanceGuard.cs::Mutex — a `Program.cs::Mutex` key would never resolve and
+        // EveryAllowListEntryStillResolves would fail. Same for the heartbeat server, which uses the
+        // ACL factory rather than `new NamedPipeServerStream`; it is keyed below by that factory.
+        [@"src\EyeCtrl.Supervisor\Ipc\HeartbeatPipeServer.cs::NamedPipeServerStreamAcl.Create"] =
             "Separate process, out of scope: no scoped instance launches a supervisor.",
         [@"src\EyeCtrl.Supervisor\Program.cs::SpecialFolder.ApplicationData"] =
-            "Separate process, out of scope (same reason).",
-        [@"src\EyeCtrl.Supervisor\Ipc\HeartbeatPipeServer.cs::NamedPipeServerStream"] =
             "Separate process, out of scope (same reason).",
         [@"src\EyeCtrl.Supervisor\UI\SupervisorTrayIcon.cs::NotifyIcon"] =
             "Separate process; unnamed per-process icon.",
@@ -2503,9 +2762,11 @@ public class InstanceScopeDriftTests
 
     private static IEnumerable<string> SourceFiles(string root)
     {
+        // The spec says "the SDK", which is three assemblies, not one.
         foreach (var project in new[] { "EyeCtrl.App", "EyeCtrl.Core", "EyeCtrl.Platform",
                                         "EyeCtrl.ViewModels", "EyeCtrl.Supervisor",
-                                        "EyeCtrl.Sdk.Abstractions" })
+                                        "EyeCtrl.Sdk.Abstractions", "EyeCtrl.Sdk.Wpf",
+                                        "EyeCtrl.Sdk.WinUI" })
         {
             var dir = Path.Combine(root, "src", project);
             if (!Directory.Exists(dir)) continue;
@@ -2607,6 +2868,9 @@ public class InstanceScopeDriftTests
     {
         // AppPaths duplicates the id validation because Core cannot reference Contracts. If the two
         // drift, a path could accept an id a pipe name rejects.
+        // Non-blank candidates only. Blank means "no id" to both Resolve and Scope, but TryParseId
+        // answers a different question — "is this a valid id" — and returns false for it. Including
+        // "" would compare two things that are deliberately not the same.
         foreach (var candidate in new[] { "ok", "ok-1", "ok_1", "bad id", "bad\\id", "bad/id", "bad.id" })
         {
             var contractsAccepts = EyeCtrl.Contracts.InstanceScope.TryParseId(candidate, out _);
@@ -2780,7 +3044,63 @@ $env:EYECTRL_UI_TESTS=1; dotnet test tests/EyeCtrl.App.Tests --filter "FullyQual
 
 Expected: `Fehler: 0, erfolgreich: 2`.
 
-- [ ] **Step 3: Document it in `AGENTS.md`**
+- [ ] **Step 3: Add the graceful-exit heartbeat assertion**
+
+The spec's integration requirement includes "a graceful exit sends nothing to `eyectrl_watch`", and
+the test above cannot cover it: it `Kill()`s the process, so `OnExit` and `SignalShuttingDown` never
+run — the exact path that was the round-2 BLOCKER.
+
+Add a third test that exits the app gracefully. There is no CLI switch for a clean exit, so close
+it the way the tray menu does — post `WM_CLOSE` to its main window, or use the existing
+single-instance behaviour: launch a *second* default-instance process, which exits cleanly at
+`App.xaml.cs:104` after the mutex check. The second option is simpler and still exercises
+`SignalShuttingDown` via `OnExit`:
+
+```csharp
+    [Fact]
+    public async Task GracefulExit_SendsNothingToTheHeartbeatPipe()
+    {
+        AppFixture.SkipIfDisabled();
+
+        // Bind the production watch pipe ourselves and assert nothing ever connects. A supervisor in
+        // adoption mode would authenticate this exe on path + session, so a stray shutdown frame
+        // here is what would get a live app force-killed.
+        using var server = new NamedPipeServerStream(
+            "eyectrl_watch", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        var connected = server.WaitForConnectionAsync(TestContext.Current.CancellationToken);
+
+        var instanceId = "it" + Guid.NewGuid().ToString("N")[..10];
+        var psi = new ProcessStartInfo(FindAppExe()) { Arguments = "--test-mode", UseShellExecute = false };
+        psi.Environment[InstanceScope.EnvVar] = instanceId;
+
+        using var proc = Process.Start(psi)!;
+        await Task.Delay(TimeSpan.FromSeconds(8));          // let it finish starting
+        proc.CloseMainWindow();                              // graceful: runs OnExit
+        proc.WaitForExit(15_000);
+
+        var finished = await Task.WhenAny(connected, Task.Delay(2000));
+        Check.That(finished).Not.IsSameReferenceAs(connected);
+
+        var profile = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "EyeCtrl", "instances", instanceId);
+        try { Directory.Delete(profile, recursive: true); } catch { }
+    }
+```
+
+This test **binds the production `eyectrl_watch` name**, which is unavoidable — the assertion is
+that the app does not dial *that* name. So it cannot run while a real supervisor is active, and it
+must not run concurrently with a sibling worktree's suite. Note that in the test's XML docs, and
+confirm the box is quiet before running:
+
+```powershell
+Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
+```
+
+Also add profile cleanup to `ScopedLaunchWithoutTestMode_RefusesWithExitCode78` — it refuses before
+writing a manifest, but `InitializeInstanceAndLogging` has already created the log directory.
+
+- [ ] **Step 4: Document it in `AGENTS.md`**
 
 Under `## Dependencies & Quirks`:
 
@@ -2796,7 +3116,7 @@ Under `## Dependencies & Quirks`:
   unscoped and un-allow-listed.
 ```
 
-- [ ] **Step 4: Mark the spec implemented**
+- [ ] **Step 5: Mark the spec implemented**
 
 Change the spec's `**Status:**` line to:
 
@@ -2804,7 +3124,7 @@ Change the spec's `**Status:**` line to:
 **Status:** Implemented (see `docs/superpowers/plans/2026-08-13-instance-scoping.md`).
 ```
 
-- [ ] **Step 5: Full verification**
+- [ ] **Step 6: Full verification**
 
 ```bash
 dotnet test --filter "Category!=UI"
@@ -2812,7 +3132,7 @@ dotnet test --filter "Category!=UI"
 
 Expected: `Fehler: 0` on every assembly. Count `Fehler <FQN>` lines to confirm — the output is German and grepping for "Failed" reports green on a red run.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add tests/EyeCtrl.App.Tests AGENTS.md docs/superpowers/specs/2026-08-12-instance-scoping-design.md

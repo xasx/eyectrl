@@ -1580,7 +1580,7 @@ Phase 2 reads names back off the constructed objects. It is the only check that 
 - Test: `tests/EyeCtrl.App.Tests/Startup/InstanceScopeVerifierTests.cs`
 - Test: `tests/EyeCtrl.App.Tests/Startup/InstanceManifestTests.cs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/EyeCtrl.App.Tests/Startup/InstanceScopeVerifierTests.cs`:
 
@@ -1766,7 +1766,7 @@ public class InstanceManifestTests
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceScopeVerifierTests|FullyQualifiedName~InstanceManifestTests"
@@ -1774,7 +1774,7 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceScopeVe
 
 Expected: **compile errors** — none of the three types exist.
 
-- [ ] **Step 3: Write `InstanceResource`**
+- [x] **Step 3: Write `InstanceResource`**
 
 Create `src/EyeCtrl.App/Startup/InstanceResource.cs`:
 
@@ -1796,7 +1796,7 @@ namespace EyeCtrl.App.Startup;
 public sealed record InstanceResource(string Name, bool Scoped, string EffectiveValue);
 ```
 
-- [ ] **Step 4: Write `InstanceScopeVerifier`**
+- [x] **Step 4: Write `InstanceScopeVerifier`**
 
 Create `src/EyeCtrl.App/Startup/InstanceScopeVerifier.cs`:
 
@@ -1871,7 +1871,7 @@ public static class InstanceScopeVerifier
 }
 ```
 
-- [ ] **Step 5: Write `InstanceManifest`**
+- [x] **Step 5: Write `InstanceManifest`**
 
 Create `src/EyeCtrl.App/Startup/InstanceManifest.cs`:
 
@@ -1923,7 +1923,7 @@ public sealed record InstanceManifest(
 }
 ```
 
-- [ ] **Step 6: Run to verify they pass**
+- [x] **Step 6: Run to verify they pass**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceScopeVerifierTests|FullyQualifiedName~InstanceManifestTests"
@@ -1931,7 +1931,29 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceScopeVe
 
 Expected: `Fehler: 0, erfolgreich: 11` (five verifier facts plus six manifest facts).
 
-- [ ] **Step 7: Commit**
+**Correction (2026-08-13): 16 landed, not 11.** Five facts were added, each pinning a behaviour the
+sketch specified in prose but left unasserted — and two of them pin decisions the sketch did not
+make at all:
+
+- `ADefaultForAnUnwatchedResource_IsIgnored_NotTreatedAsAFailure` — the `defaults` map is consulted
+  only for resources that are actually reported. Undecided in the sketch; without it, a stale key
+  would manufacture a failure and the map would become a second list to keep in sync with the
+  expected list.
+- `AnUnscopedResourceIsReported_EvenWhenItAlsoMatchesItsDefault` — pins the `continue` between the
+  two checks. An unscoped resource *usually* also equals its default, so without the ordering the
+  reader gets "was never passed one" and goes hunting for a missing constructor argument when the
+  flag itself is what is false.
+- `ExtraReportedResources_AreNotFailures` — verification is driven by the expected list.
+- `RoundTrips_TheScopedFlag_WhichIsWhatTheHarnessAsserts` — the integration test's entire assertion
+  is "no resource has `scoped: false`". A flag that failed to round-trip would read false for
+  everything (loud) or true for everything (silent, and the worse direction).
+- `Write_OverwritesAStaleManifest` — `WriteAllText` truncates, which the sketch relied on without
+  saying so. A scoped profile can survive a run whose teardown failed, and a stale manifest would
+  satisfy the harness's file-exists wait while describing a dead process.
+
+Full headless suite: `EyeCtrl.App.Tests` 492 → 508, every other assembly unchanged, `Fehler: 0`.
+
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Startup tests/EyeCtrl.App.Tests/Startup

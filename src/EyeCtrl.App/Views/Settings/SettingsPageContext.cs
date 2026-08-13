@@ -22,7 +22,6 @@ internal sealed class SettingsPageContext
     public CalibrationService Calibration { get; }
     public IMessenger Messenger { get; }
     public AppRestartCoordinator Restart { get; }
-    public int DwellMs { get; }
 
     /// <param name="showModal"><c>(message, onYes)</c> — the two-button Yes/No modal. A thin wrapper
     /// over <see cref="ViewModel"/><c>.ShowModal(message, onYes)</c>; kept on the context for
@@ -42,7 +41,6 @@ internal sealed class SettingsPageContext
         EyeCtrlSettings settings, SettingsWindowViewModel viewModel,
         ModelRegistryService registry, ModelManagementService modelManagement,
         CalibrationService calibration, IMessenger messenger, AppRestartCoordinator restart,
-        int dwellMs,
         Action<string, Action> showModal, Action<string> showError,
         Action applyAndSave, Action rebuildContent, Action<Action> invoke, Action close,
         Func<string> readClipboard)
@@ -54,7 +52,6 @@ internal sealed class SettingsPageContext
         Calibration = calibration;
         Messenger = messenger;
         Restart = restart;
-        DwellMs = dwellMs;
         ShowModal = showModal;
         ShowError = showError;
         ApplyAndSave = applyAndSave;

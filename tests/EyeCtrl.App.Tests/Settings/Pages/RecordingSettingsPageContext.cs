@@ -53,7 +53,7 @@ internal sealed class RecordingSettingsPageContext
             viewModel!, registry!, modelManagement!,
             calibration ?? new CalibrationService(),
             _messenger,
-            restart: null!, dwellMs: 500,
+            restart: null!,
             showModal: CaptureModal,
             showError: _ => { },
             applyAndSave: () => { ApplyAndSaveCount++; _log.Add(ApplyAndSaveEntry); },

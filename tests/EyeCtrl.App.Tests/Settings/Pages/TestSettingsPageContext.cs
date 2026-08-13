@@ -29,7 +29,7 @@ internal static class TestSettingsPageContext
         viewModel!, registry!, modelManagement!,
         calibration ?? new CalibrationService(),
         messenger!,
-        restart: null!, dwellMs: 500,
+        restart: null!,
         showModal: showModal ?? ((_, _) => { }),
         showError: _ => { },
         applyAndSave: () => { }, rebuildContent: () => { }, invoke: _ => { },

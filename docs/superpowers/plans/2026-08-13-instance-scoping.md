@@ -990,14 +990,22 @@ git commit -m "fix(heartbeat): stop SignalShuttingDown dialling the pipe when no
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Services/AppRestartCoordinator.cs:77-106,140-141`
-- Test: `tests/EyeCtrl.App.Tests/Services/AppRestartCoordinatorScopeTests.cs`
+- Modify: `src/EyeCtrl.App/Services/SelfRestartStrategy.cs`
+- Test: `tests/EyeCtrl.App.Tests/AppRestartCoordinatorScopeTests.cs`
+- Test: `tests/EyeCtrl.App.Tests/SelfRestartStrategyTests.cs`
 
-- [ ] **Step 1: Write the failing test**
+> **Correction (2026-08-13).** This task originally placed its new test under
+> `tests/EyeCtrl.App.Tests/Services/` in namespace `EyeCtrl.App.Tests.Services`. Both existing
+> restart test files — `AppRestartCoordinatorTests.cs` and `SelfRestartStrategyTests.cs` — live at
+> the **project root** in namespace `EyeCtrl.App.Tests`. The new tests were co-located with them.
+> Step 4(d) below had the same error, calling the strategy's test file a `Services/` file.
 
-Create `tests/EyeCtrl.App.Tests/Services/AppRestartCoordinatorScopeTests.cs`:
+- [x] **Step 1: Write the failing test**
+
+Create `tests/EyeCtrl.App.Tests/AppRestartCoordinatorScopeTests.cs`:
 
 ```csharp
-namespace EyeCtrl.App.Tests.Services;
+namespace EyeCtrl.App.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
@@ -1074,6 +1082,21 @@ public class AppRestartCoordinatorScopeTests
     }
 
     [Fact]
+    public void Scoped_HandleRestart_RefusesEveryTime_NotJustOnce()
+    {
+        // Added during implementation. The refusal returns BEFORE the in-flight latch, and nothing
+        // else pins that ordering: a gate placed after the latch refuses once and then goes silent
+        // for the rest of the session, because the refusal path never re-arms _restartInFlight.
+        var messages = 0;
+        var c = Build(isScoped: true, new EyeCtrlSettings(), onUnavailable: _ => messages++);
+
+        c.HandleRestart(startSupervisor: false);
+        c.HandleRestart(startSupervisor: false);
+
+        Check.That(messages).IsEqualTo(2);
+    }
+
+    [Fact]
     public void Scoped_ShouldOfferSupervisor_IsFalse_EvenThoughOneIsInstalled()
     {
         var c = Build(isScoped: true, new EyeCtrlSettings());
@@ -1093,15 +1116,22 @@ public class AppRestartCoordinatorScopeTests
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AppRestartCoordinatorScopeTests"
 ```
 
-Expected: **compile error** — no `isScoped` parameter and no `IsScopeGated`.
+Expected: **compile error** — no `isScoped` parameter and no `IsScopeGated`. Confirmed: `CS1739`
+on both constructors, `CS1061` on `IsScopeGated`, `CS0117` on `RestartOutcome.RefusedScoped`.
 
-- [ ] **Step 3: Add the gate**
+- [x] **Step 3: Add the gate**
+
+> Impact analysis on `HandleRestart` before editing: **HIGH** risk, 24 impacted symbols, 2 affected
+> execution flows (`OnStartup`, `OnDragStarted`), 3 modules. The rating reflects it being a hub
+> reached through the constructor's messenger registration; only 1 caller is direct. The edit is
+> additive behind `isScoped = false`, so unscoped behaviour is unchanged — which the two
+> `Unscoped_*` tests above pin.
 
 In `src/EyeCtrl.App/Services/AppRestartCoordinator.cs`, add a field and append the constructor parameter (appending keeps existing call sites compiling):
 
@@ -1162,7 +1192,7 @@ And gate `HandleRestart` at the very top, before the in-flight guard so a refusa
         // ... existing body unchanged
 ```
 
-- [ ] **Step 4: Add the second line of defence in `SelfRestartStrategy`, and WIRE it**
+- [x] **Step 4: Add the second line of defence in `SelfRestartStrategy`, and WIRE it**
 
 `Begin` is the only place `Local\EyeCtrl.App.RestartReady` is created
 (`SelfRestartStrategy.cs:125-126`), so refusing there is what actually removes that name from a
@@ -1185,6 +1215,19 @@ grep -rn "RestartOutcome\." src tests --include=*.cs
 
 Every consumer should compare against `Started` (or against a failure set); if any has a
 `switch` expression with no default arm, add one rather than reusing a misleading member.
+
+**Correction (2026-08-13): checking only for a *breaking* consumer was not enough.**
+`SelfRestartStrategy.Describe` switches over the enum and *does* have a `_ =>` arm, so it compiles
+untouched — and therefore describes `RefusedScoped` as `"Restart failed. EyeCtrl is still
+running."`, which is wrong for something declined on purpose. Its test,
+`EveryFailureOutcome_HasAUserFacingExplanation`, is a hand-enumerated `[InlineData]` theory, so it
+does not cover the new member either, and the generic arm would have satisfied it if it did. Both
+were fixed: an explicit `RefusedScoped` arm, a new `[InlineData]` row, a
+`RefusedScoped_IsDescribedAsADecision_NotAFailure` fact, and an
+`EveryOutcome_IsCoveredByTheDescriptionTheory` fact that derives the set from
+`Enum.GetValues<RestartOutcome>()` so the next member cannot slip through the same gap. A default
+arm is what let the hand enumeration go stale silently — the exact failure mode Task 11 exists to
+mechanise.
 
 **(b) The gate.** Add `bool isScoped = false` as the last constructor parameter, store it, and at
 the top of `Begin`:
@@ -1209,44 +1252,77 @@ coordinator's `selfRestart` delegate. Give the factory the flag and thread it th
 pass `isScoped` into the constructor call inside it, and update `App.xaml.cs:275` to
 `SelfRestartStrategy.CreateDefault(isScoped: _instanceId != null).Begin`.
 
-**(d) A test that drives `Begin`, not just the coordinator.** Add to
-`tests/EyeCtrl.App.Tests/Services/` (the existing `SelfRestartStrategy` test file, or a new
-`SelfRestartStrategyScopeTests.cs`):
+> **Correction (2026-08-13): the `App.xaml.cs` half of (c) cannot be done in this task.**
+> `_instanceId` is introduced by **Task 8 Step 2**; referencing it here does not compile, and
+> declaring the field early only to leave it unassigned trades a compile error for a `CS0649`
+> warning on a field that is null by construction. Task 8 Step 4 already specifies both wirings
+> (`AppRestartCoordinator(..., isScoped: _instanceId != null)` at `:271` and
+> `SelfRestartStrategy.CreateDefault(isScoped: _instanceId != null)` at `:275`), so the factory
+> parameter lands here and the call sites land there.
+>
+> **This leaves exactly the "implemented but dead in production" state 4(c) warns about, held open
+> across one task.** Task 8 Step 7 must not be signed off until this returns two hits:
+>
+> ```bash
+> grep -n "isScoped: _instanceId != null" src/EyeCtrl.App/App.xaml.cs
+> ```
+
+**(d) A test that drives `Begin`, not just the coordinator.** Add to the existing
+`tests/EyeCtrl.App.Tests/SelfRestartStrategyTests.cs` (project root — see the correction at the top
+of this task). Rather than the standalone constructor call originally sketched here, give that
+file's existing `Build` helper an `isScoped = false` parameter and reuse it, so the scoped and
+unscoped cases differ in exactly one argument and the existing `launchLog` seam proves nothing was
+launched:
 
 ```csharp
     [Fact]
     public void Begin_RefusesWhenScoped_AndNeverLaunchesOrCreatesTheReadyEvent()
     {
-        var launches = 0;
-        var strategy = new SelfRestartStrategy(
-            resolveExePath: () => @"C:ake\EyeCtrl.App.exe",
-            launch: (_, _) => { launches++; throw new InvalidOperationException("must not launch"); },
-            waitForReady: (_, _) => true,
-            readyWait: TimeSpan.FromSeconds(1),
-            isScoped: true);
+        var log = new List<string>();
 
-        var outcome = strategy.Begin();
+        var outcome = Build(launchLog: log, isScoped: true).Begin();
 
         Check.That(outcome).IsEqualTo(RestartOutcome.RefusedScoped);
-        Check.That(launches).IsEqualTo(0);
+        Check.That(log).IsEmpty();
+    }
+
+    [Fact]
+    public void Begin_IsUnaffectedWhenNotScoped()
+    {
+        // Guards against the refusal being applied unconditionally.
+        Check.That(Build(isScoped: false).Begin()).IsEqualTo(RestartOutcome.Started);
     }
 ```
+
+> **Correction (2026-08-13).** The block above previously stood up a bare `new SelfRestartStrategy`
+> with its own four seams, and its exe-path literal was corrupt: the file held `@"C:` + a literal
+> form-feed byte + `ake\EyeCtrl.App.exe"`, a `\f` eaten when this plan was written. It rendered as
+> `C:ake\...` in every viewer and could not be matched by a string edit at all. Reusing the test
+> file's existing `Build` helper (given an `isScoped = false` parameter) is both correct and
+> better: the scoped and unscoped cases then differ in exactly one argument, and the existing
+> `launchLog` seam already proves nothing was launched without needing a throwing lambda.
 
 Without this the gate is untested — and an untested gate on the only creator of the ready event
 is exactly the shape of the defect this plan's review found.
 
-- [ ] **Step 5: Run to verify it passes**
+- [x] **Step 5: Run to verify it passes**
 
 ```bash
-dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AppRestartCoordinator"
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AppRestartCoordinator|FullyQualifiedName~SelfRestartStrategy"
 ```
 
-Expected: `Fehler: 0`; the six new tests pass and the existing `AppRestartCoordinator` tests are unchanged.
+Expected: `Fehler: 0`; the new tests pass and the existing restart tests are unchanged.
 
-- [ ] **Step 6: Commit**
+**Correction (2026-08-13): the count.** This step predicted "six new tests". The task added
+**twelve**: seven in `AppRestartCoordinatorScopeTests` (the six planned plus
+`Scoped_HandleRestart_RefusesEveryTime_NotJustOnce`) and five around `SelfRestartStrategy` (two
+`Begin` facts, one `[InlineData]` row, and the two `Describe` facts from the 4(a) correction).
+Full headless suite: `EyeCtrl.App.Tests` 467 → 479, every other assembly unchanged, `Fehler: 0`.
+
+- [x] **Step 6: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Services/AppRestartCoordinator.cs src/EyeCtrl.App/Services/SelfRestartStrategy.cs tests/EyeCtrl.App.Tests/Services/AppRestartCoordinatorScopeTests.cs
+git add src/EyeCtrl.App/Services/AppRestartCoordinator.cs src/EyeCtrl.App/Services/SelfRestartStrategy.cs tests/EyeCtrl.App.Tests/AppRestartCoordinatorScopeTests.cs tests/EyeCtrl.App.Tests/SelfRestartStrategyTests.cs
 git commit -m "feat(restart): refuse restart and supervisor bring-up on a scoped instance"
 ```
 

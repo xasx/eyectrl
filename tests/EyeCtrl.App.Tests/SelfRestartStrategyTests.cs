@@ -26,7 +26,8 @@ public class SelfRestartStrategyTests
         FakeChild? child = null,
         bool launchThrows = false,
         bool readySignalled = true,
-        List<string>? launchLog = null) =>
+        List<string>? launchLog = null,
+        bool isScoped = false) =>
         new(
             resolveExePath: () => exePath,
             launch: (path, args) =>
@@ -40,7 +41,30 @@ public class SelfRestartStrategyTests
             // real named event — exercising it headlessly would mean standing up a second
             // process, so the outcome is made injectable instead.
             waitForReady: (_, _) => readySignalled,
-            readyWait: TimeSpan.FromSeconds(1));
+            readyWait: TimeSpan.FromSeconds(1),
+            isScoped: isScoped);
+
+    [Fact]
+    public void Begin_RefusesWhenScoped_AndNeverLaunchesOrCreatesTheReadyEvent()
+    {
+        // Second line of defence behind AppRestartCoordinator.HandleRestart. Begin is the ONLY
+        // creator of Local\EyeCtrl.App.RestartReady, so refusing here is what actually removes that
+        // machine-global name from a scoped instance's surface — the coordinator gate alone would
+        // leave it reachable by any future caller of Begin.
+        var log = new List<string>();
+
+        var outcome = Build(launchLog: log, isScoped: true).Begin();
+
+        Check.That(outcome).IsEqualTo(RestartOutcome.RefusedScoped);
+        Check.That(log).IsEmpty();
+    }
+
+    [Fact]
+    public void Begin_IsUnaffectedWhenNotScoped()
+    {
+        // Guards against the refusal being applied unconditionally.
+        Check.That(Build(isScoped: false).Begin()).IsEqualTo(RestartOutcome.Started);
+    }
 
     [Fact]
     public void Succeeds_WhenTheChildSignalsReady()
@@ -106,11 +130,38 @@ public class SelfRestartStrategyTests
     [InlineData(RestartOutcome.LaunchFailed)]
     [InlineData(RestartOutcome.ChildExitedEarly)]
     [InlineData(RestartOutcome.ChildNotReady)]
+    [InlineData(RestartOutcome.RefusedScoped)]
     public void EveryFailureOutcome_HasAUserFacingExplanation(RestartOutcome outcome)
     {
         // The user completed a dwell and the app is still here; "why" must be sayable.
         var reason = SelfRestartStrategy.Describe(outcome);
         Check.That(reason).IsNotEmpty();
         Check.That(reason).Contains("running");
+    }
+
+    [Fact]
+    public void EveryOutcome_IsCoveredByTheDescriptionTheory()
+    {
+        // The theory above is hand-enumerated, so a new RestartOutcome member would silently go
+        // undescribed and fall through to the generic default arm. This is the guard: it derives
+        // the set from the enum rather than from a list someone has to remember to extend.
+        var described = new[]
+        {
+            RestartOutcome.Started, RestartOutcome.NoExePath, RestartOutcome.LaunchFailed,
+            RestartOutcome.ChildExitedEarly, RestartOutcome.ChildNotReady, RestartOutcome.RefusedScoped,
+        };
+
+        Check.That(Enum.GetValues<RestartOutcome>()).IsEquivalentTo(described);
+    }
+
+    [Fact]
+    public void RefusedScoped_IsDescribedAsADecision_NotAFailure()
+    {
+        // The default arm says "Restart failed", which would be wrong for something declined on
+        // purpose. This pins the explicit arm.
+        var reason = SelfRestartStrategy.Describe(RestartOutcome.RefusedScoped);
+
+        Check.That(reason).Contains("scoped");
+        Check.That(reason).Not.Contains("Restart failed");
     }
 }

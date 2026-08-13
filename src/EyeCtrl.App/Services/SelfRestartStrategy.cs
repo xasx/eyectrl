@@ -30,6 +30,9 @@ public enum RestartOutcome
 
     /// <summary>The replacement is alive but never announced itself in time.</summary>
     ChildNotReady,
+
+    /// <summary>This instance is scoped and refuses self-restart. Never attempt, never exit.</summary>
+    RefusedScoped,
 }
 
 /// <summary>
@@ -51,6 +54,7 @@ public sealed class SelfRestartStrategy
     private readonly Func<string, string, IRestartChild> _launch;
     private readonly Func<EventWaitHandle, TimeSpan, bool> _waitForReady;
     private readonly TimeSpan _readyWait;
+    private readonly bool _isScoped;
 
     /// <summary>Creates a strategy with explicit seams (tests supply fakes).</summary>
     /// <param name="resolveExePath">Returns the running executable's path, or null.</param>
@@ -61,20 +65,35 @@ public sealed class SelfRestartStrategy
     /// waits on the real named event; tests ignore the handle and return a canned result.
     /// </param>
     /// <param name="readyWait">How long to wait for that signal.</param>
+    /// <param name="isScoped">
+    /// True when <c>EYECTRL_INSTANCE_ID</c> is set. <see cref="Begin"/> then refuses outright — the
+    /// second line of defence behind <see cref="AppRestartCoordinator.HandleRestart"/>, and the one
+    /// that matters structurally: <see cref="Begin"/> is the only creator of the machine-global
+    /// <c>Local\EyeCtrl.App.RestartReady</c> event, so refusing here is what removes that name from
+    /// a scoped instance's surface.
+    /// </param>
     public SelfRestartStrategy(
         Func<string?> resolveExePath,
         Func<string, string, IRestartChild> launch,
         Func<EventWaitHandle, TimeSpan, bool> waitForReady,
-        TimeSpan readyWait)
+        TimeSpan readyWait,
+        bool isScoped = false)
     {
         _resolveExePath = resolveExePath;
         _launch = launch;
         _waitForReady = waitForReady;
         _readyWait = readyWait;
+        _isScoped = isScoped;
     }
 
     /// <summary>The production wiring: the real apphost path, Process.Start, and the named event.</summary>
-    public static SelfRestartStrategy CreateDefault() =>
+    /// <param name="isScoped">
+    /// True when <c>EYECTRL_INSTANCE_ID</c> is set. A scoped instance refuses self-restart, so the
+    /// ready event is never created. Threaded through here because the composition root builds the
+    /// strategy via this factory, not via the constructor — a gate the factory could not set would
+    /// be implemented but dead in production.
+    /// </param>
+    public static SelfRestartStrategy CreateDefault(bool isScoped = false) =>
         new(
             // The stable single-file bundle apphost path — Assembly.Location is empty for
             // a single-file publish, which is how this app ships.
@@ -103,7 +122,8 @@ public sealed class SelfRestartStrategy
                 try { return readyEvent.WaitOne(timeout); }
                 catch { return false; }
             },
-            readyWait: RestartHandoff.ReadyWait);
+            readyWait: RestartHandoff.ReadyWait,
+            isScoped: isScoped);
 
     /// <summary>
     /// Launches a replacement and waits for it to announce itself. Blocks — see the
@@ -112,6 +132,11 @@ public sealed class SelfRestartStrategy
     /// <returns>What happened, for the caller to act on and to tell the user.</returns>
     public RestartOutcome Begin()
     {
+        // Second line of defence behind AppRestartCoordinator.HandleRestart. Before the exe-path
+        // resolution and, critically, before the `new EventWaitHandle(...RestartHandoff
+        // .ReadyEventName)` below — this method is that machine-global name's only creator.
+        if (_isScoped) return RestartOutcome.RefusedScoped;
+
         var exePath = _resolveExePath();
         if (string.IsNullOrWhiteSpace(exePath))
         {
@@ -169,6 +194,13 @@ public sealed class SelfRestartStrategy
             + "EyeCtrl is still running.",
         RestartOutcome.ChildNotReady =>
             "Restart failed: the new EyeCtrl did not start in time. "
+            + "EyeCtrl is still running.",
+        // Unreachable in production — AppRestartCoordinator.HandleRestart refuses before ever
+        // calling Begin on a scoped instance — but spelled out rather than left to the default arm,
+        // which would tell the user "Restart failed" for something that was declined on purpose.
+        RestartOutcome.RefusedScoped =>
+            "Restart is unavailable: this is a scoped instance (EYECTRL_INSTANCE_ID is set), "
+            + "which runs alone and refuses supervision and self-restart. "
             + "EyeCtrl is still running.",
         _ => "Restart failed. EyeCtrl is still running.",
     };

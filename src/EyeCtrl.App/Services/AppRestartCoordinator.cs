@@ -44,6 +44,7 @@ public sealed class AppRestartCoordinator
     private readonly Func<bool> _launchSupervisor;
     private readonly Action _enablePublishing;
     private readonly Action _persistSettings;
+    private readonly bool _isScoped;
 
     /// <summary>
     /// 0 = idle, 1 = a restart attempt is in progress. Guards against a second dwell
@@ -74,6 +75,12 @@ public sealed class AppRestartCoordinator
     /// <param name="launchSupervisor">Starts the supervisor; false on any failure.</param>
     /// <param name="enablePublishing">Turns on heartbeat publishing (the first bring-up step).</param>
     /// <param name="persistSettings">Saves settings; can throw if validation fails.</param>
+    /// <param name="isScoped">
+    /// True when <c>EYECTRL_INSTANCE_ID</c> is set. A scoped instance runs alone: it has no
+    /// supervisor to hand off to, and a self-restart child would inherit the id and re-enter the
+    /// same state. Every restart route is refused — see <see cref="HandleRestart"/>. Appended with a
+    /// default so existing call sites keep compiling and unscoped behaviour is unchanged.
+    /// </param>
     public AppRestartCoordinator(
         IMessenger messenger,
         EyeCtrlSettings settings,
@@ -87,7 +94,8 @@ public sealed class AppRestartCoordinator
         Func<bool> supervisorInstalled,
         Func<bool> launchSupervisor,
         Action enablePublishing,
-        Action persistSettings)
+        Action persistSettings,
+        bool isScoped = false)
     {
         _settings = settings;
         _tryReachSupervisor = tryReachSupervisor;
@@ -101,6 +109,7 @@ public sealed class AppRestartCoordinator
         _launchSupervisor = launchSupervisor;
         _enablePublishing = enablePublishing;
         _persistSettings = persistSettings;
+        _isScoped = isScoped;
 
         messenger.Register<RestartAppRequestedMessage>(this, (_, m) => HandleRestart(m.StartSupervisor));
     }
@@ -114,6 +123,12 @@ public sealed class AppRestartCoordinator
     /// started, and one of them would die on the single-instance mutex.
     /// </summary>
     public bool SupervisorRelaunchRequested { get; private set; }
+
+    /// <summary>
+    /// True when this instance is scoped and every restart route is therefore refused. Read back by
+    /// the app's phase-2 instance-scope check.
+    /// </summary>
+    public bool IsScopeGated => _isScoped;
 
     /// <summary>
     /// Whether the settings surface should offer to start a supervisor before restarting.
@@ -138,7 +153,9 @@ public sealed class AppRestartCoordinator
     /// </remarks>
     /// <returns>True if the offer is worth making.</returns>
     public bool ShouldOfferSupervisor() =>
-        _supervisorInstalled() && !(_settings.Supervision.Enabled && _tryReachSupervisor());
+        !_isScoped
+        && _supervisorInstalled()
+        && !(_settings.Supervision.Enabled && _tryReachSupervisor());
 
     /// <summary>
     /// Picks a strategy and runs it. Returns immediately; the work continues in the
@@ -150,6 +167,21 @@ public sealed class AppRestartCoordinator
     /// <param name="startSupervisor">True when the user chose to start a supervisor first.</param>
     public void HandleRestart(bool startSupervisor)
     {
+        // A scoped instance runs alone: it has no supervisor to hand off to, and a self-restart
+        // child would inherit EYECTRL_INSTANCE_ID and re-enter this state. Refusing here rather
+        // than only hiding the offer is what matters — ShouldOfferSupervisor removes a button, but
+        // both SettingsWindow and SettingsViewModel send RestartAppRequestedMessage regardless, and
+        // TryBringUpSupervisor calls _enablePublishing() before flipping Enabled.
+        //
+        // Before the in-flight guard, so a refusal never consumes the single attempt and go silent.
+        if (_isScoped)
+        {
+            _reportUnavailable(
+                "Restart is unavailable: this is a scoped instance (EYECTRL_INSTANCE_ID is set), "
+                + "which runs alone and refuses supervision and self-restart.");
+            return;
+        }
+
         // One restart attempt at a time (see Task 8). Re-armed on the refusal path.
         if (Interlocked.Exchange(ref _restartInFlight, 1) != 0)
         {

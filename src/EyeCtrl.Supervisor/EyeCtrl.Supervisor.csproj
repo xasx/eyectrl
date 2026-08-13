@@ -17,5 +17,11 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="EyeCtrl.Supervisor.Tests" />
+    <!-- For InstanceScopeEnvVarTests: this project cannot reference EyeCtrl.Contracts without
+         breaking LayeringTests, so ProcessController.InstanceScopeEnvVarName is a literal.
+         Architecture.Tests is the only project referencing both and so the only place the literal
+         and InstanceScope.EnvVar can be compared. Visibility only — no new ProjectReference, so
+         the pinned dependency graph is untouched. -->
+    <InternalsVisibleTo Include="EyeCtrl.Architecture.Tests" />
   </ItemGroup>
 </Project>

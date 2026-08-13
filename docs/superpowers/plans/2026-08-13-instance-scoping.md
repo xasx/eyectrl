@@ -2754,7 +2754,7 @@ git commit -m "feat(sdk): let the host name the dwell pipe, latched at first use
 - Modify: `src/EyeCtrl.Supervisor/Supervision/ProcessController.cs:48-59`
 - Test: `tests/EyeCtrl.Supervisor.Tests/Supervision/ProcessControllerEnvironmentTests.cs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Supervisor.Tests/Supervision/ProcessControllerEnvironmentTests.cs`:
 
@@ -2800,7 +2800,7 @@ public class ProcessControllerEnvironmentTests
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Supervisor.Tests --filter "FullyQualifiedName~ProcessControllerEnvironmentTests"
@@ -2839,7 +2839,7 @@ That requires `EyeCtrl.App.Tests` to reference `EyeCtrl.Supervisor`. Check wheth
 if adding it would itself trip a layering invariant, put the test in
 `EyeCtrl.Architecture.Tests` instead — that project exists to know about every assembly.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/EyeCtrl.Supervisor/Supervision/ProcessController.cs`:
 
@@ -2884,7 +2884,7 @@ If the seam cannot supply the variable directly and the test must set it process
 `Supervisor.Tests` has no assembly-level parallelism opt-out — so prefer the seam, or add the
 opt-out.
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 ```bash
 dotnet test tests/EyeCtrl.Supervisor.Tests
@@ -2892,7 +2892,44 @@ dotnet test tests/EyeCtrl.Supervisor.Tests
 
 Expected: `Fehler: 0`; 2 new tests.
 
-- [ ] **Step 5: Commit**
+### Corrections (2026-08-13)
+
+**5 tests landed, not 2**, across two projects: `Supervisor.Tests` 78 → 82, `Architecture.Tests`
+14 → 15.
+
+**(1) The drift assertion went to `Architecture.Tests`, and needed an `InternalsVisibleTo`.** Step 2
+offers `InstanceStartupPolicyTests` first, "which already references Contracts", with
+`Architecture.Tests` as fallback. `EyeCtrl.App.Tests` references App + Core + ViewModels +
+Contracts — **not Supervisor** — so the primary option needs a new ProjectReference, which
+`LayeringTests` pins. Fallback taken. But `InstanceScopeEnvVarName` is `internal` and the
+Supervisor's csproj exposed internals only to `EyeCtrl.Supervisor.Tests`, so
+`<InternalsVisibleTo Include="EyeCtrl.Architecture.Tests" />` was added. That is visibility, not a
+ProjectReference — `Architecture.Tests` already references Supervisor — so the pinned dependency
+graph is untouched, and `LayeringTests` stayed green at 15.
+
+**(2) The `Launch`-driving test needs the variable set process-wide, so `Supervisor.Tests` got the
+parallelism opt-out** the step flagged as the alternative. There is no seam: `Launch` builds its own
+`ProcessStartInfo`, and `.Environment` is materialised from the current process block on first
+access. A capturing process factory gives the psi *after* the fact, which is enough to assert on but
+not to inject through. Added `tests/EyeCtrl.Supervisor.Tests/AssemblyInfo.cs` with
+`[assembly: CollectionBehavior(DisableTestParallelization = true)]`.
+
+**(3) Added `Launch_WouldOtherwiseHaveInheritedIt`** — without it,
+`Launch_StripsTheInheritedInstanceId` cannot be distinguished from a test asserting the absence of a
+variable that was never present. It pins the premise: a psi built while the variable is set does
+carry it.
+
+**(4) Verified the guard is not vacuous**, the same way Task 11 Step 4 verifies its own. Removing
+the `StripInstanceScope(psi)` call from `Launch` reddens `Launch_StripsTheInheritedInstanceId` and
+**only** that test — the two helper tests stay green, which is exactly the "implemented but never
+called" failure this step exists to close.
+
+> **Watch out when doing that.** Restoring the file with `mv file.bak file` gives it the backup's
+> older mtime, so MSBuild's incremental build skips recompiling and the next run silently tests the
+> stale binary. That produced one confusing full-suite red here. `touch` the file after restoring,
+> and never trust a green that follows a timestamp-preserving restore.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.Supervisor tests/EyeCtrl.Supervisor.Tests

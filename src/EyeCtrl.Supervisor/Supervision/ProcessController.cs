@@ -45,6 +45,31 @@ public sealed class ProcessController
         _adoptFactory = adoptFactory;
     }
 
+    /// <summary>
+    /// Name of the instance-scoping environment variable, spelled literally rather than read from
+    /// <c>EyeCtrl.Contracts.InstanceScope.EnvVar</c>: this project may not reference Contracts
+    /// without breaking the layering invariant in <c>EyeCtrl.Architecture.Tests</c>. A test in that
+    /// project — the only one referencing both assemblies — asserts the two agree.
+    /// </summary>
+    internal const string InstanceScopeEnvVarName = "EYECTRL_INSTANCE_ID";
+
+    /// <summary>
+    /// Removes the instance-scoping variable from a child's environment.
+    /// <para>
+    /// The supervisor's own environment is inherited by the app it launches (<c>UseShellExecute</c>
+    /// is false). If it carried an instance id — a stray <c>setx</c>, a shell that set it — the
+    /// child would be scoped, would lack <c>--test-mode</c>, and would refuse with exit 78. That is
+    /// indistinguishable from a crash here, so the supervisor would book strikes and escalate
+    /// toward launching a fallback assistive technology on the user's desktop.
+    /// </para>
+    /// </summary>
+    internal static void StripInstanceScope(ProcessStartInfo psi)
+    {
+        // Touching psi.Environment materialises the inherited block, which is what makes the
+        // removal effective; UseShellExecute must stay false for it to be honoured at all.
+        psi.Environment.Remove(InstanceScopeEnvVarName);
+    }
+
     public void Launch(string exePath, bool paused)
     {
         ReleasePrevious();
@@ -54,6 +79,7 @@ public sealed class ProcessController
         ExePath = exePath;
         var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
         if (paused) psi.ArgumentList.Add("--paused");
+        StripInstanceScope(psi);
         _process = _processFactory(psi);
         StartTimeUtc = _process?.StartTime;
     }

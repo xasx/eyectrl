@@ -24,6 +24,15 @@ public class CalibrationViewModelTests
     private readonly FakeGazeProviderForTests _provider = new();
     private readonly CalibrationSettings _settings = new() { PointCount = 3, TargetHoldMs = 200 };
 
+    /// <summary>
+    /// A throwaway calibration path. The constructor argument became required when the
+    /// <c>%APPDATA%</c> fallback was removed for instance scoping — which means these tests were
+    /// previously pointed at the LIVE <c>%APPDATA%\EyeCtrl\calibration.json</c>, the file whose
+    /// corruption silently breaks dwell everywhere. Per-call GUID so nothing can collide.
+    /// </summary>
+    private static string TempCalibrationPath() => System.IO.Path.Combine(
+        System.IO.Path.GetTempPath(), "eyectrl-cal-" + Guid.NewGuid().ToString("N") + ".json");
+
     private CalibrationViewModel CreateVm()
     {
         return new CalibrationViewModel(
@@ -32,7 +41,8 @@ public class CalibrationViewModelTests
             _messenger,
             _provider,
             new PhysicalPoint(1920, 1080),
-            "test-monitor");
+            "test-monitor",
+            TempCalibrationPath());
     }
 
     [Fact]
@@ -114,7 +124,7 @@ public class CalibrationViewModelTests
 
         var vm = await Task.Run(() => new CalibrationViewModel(
             settings, service, messenger, provider,
-            new PhysicalPoint(1920, 1080), "test-monitor"));
+            new PhysicalPoint(1920, 1080), "test-monitor", TempCalibrationPath()));
 
         messenger.Send(new CalibrationRequestedMessage());
         Check.That(provider.SubscriberCount).IsEqualTo(1);
@@ -144,7 +154,7 @@ public class CalibrationViewModelTests
 
         var vm = await Task.Run(() => new CalibrationViewModel(
             settings, service, messenger, provider,
-            new PhysicalPoint(1920, 1080), "test-monitor"));
+            new PhysicalPoint(1920, 1080), "test-monitor", TempCalibrationPath()));
 
         messenger.Send(new CalibrationRequestedMessage());   // session 1: subscribe (1), 200ms hold pending
         Check.That(provider.SubscriberCount).IsEqualTo(1);

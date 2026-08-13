@@ -48,7 +48,11 @@ internal static class TestFakes
             QuickActionsGridVM: null!,
             QuickActionsStore: null!,
             WindowsAppLauncher: null!,
-            InstalledAppProvider: new FakeInstalledAppProvider());
+            InstalledAppProvider: new FakeInstalledAppProvider(),
+            // Not null!: KeyboardCoordinator.Initialize assigns straight from this, and its own
+            // guard rejects a blank value. A temp path keeps any coordinator that does touch disk
+            // out of the live profile.
+            AppDataDir: System.IO.Path.Combine(System.IO.Path.GetTempPath(), "eyectrl-tests"));
     }
 
     /// <summary>

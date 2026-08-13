@@ -51,7 +51,10 @@ internal sealed class KeyboardCoordinator : IDisposable
     public void Initialize(EventCoordinationContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
-        _appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+        // Taken from the context, NOT derived from %APPDATA%: the composition root resolves the
+        // profile once, and a scoped instance's directory is not something this class can compute.
+        // Deriving it here would quietly reach into the live profile on every scoped run.
+        _appDataDir = context.AppDataDir;
 
         var messenger = context.Messenger;
 

@@ -50,7 +50,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         IGazeProvider gazeProvider,
         PhysicalPoint screenSize,
         string monitorDeviceName,
-        string? calibrationFilePath = null,
+        string calibrationFilePath,
         Func<string>? monitorHardwareId = null)
         : base(messenger)
     {
@@ -60,9 +60,10 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         _screenSize = screenSize;
         _monitorDeviceName = monitorDeviceName;
         _monitorHardwareId = monitorHardwareId ?? (static () => string.Empty);
-        _calibrationFilePath = calibrationFilePath ?? System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "EyeCtrl", "calibration.json");
+        // Required, with no %APPDATA% fallback. The App's DI already injects a resolved path, and a
+        // fallback here would silently write the LIVE profile's calibration.json from a scoped
+        // instance — the file a bad copy of which breaks all dwell everywhere.
+        _calibrationFilePath = calibrationFilePath;
         _targetColor = settings.TargetColor;
         _syncContext = SynchronizationContext.Current;
     }

@@ -84,4 +84,13 @@ public record EventCoordinationContext(
     QuickActionsGridViewModel QuickActionsGridVM,
     IQuickActionsStore QuickActionsStore,
     IWindowsAppLauncher WindowsAppLauncher,
-    IInstalledAppProvider InstalledAppProvider);
+    IInstalledAppProvider InstalledAppProvider,
+
+    /// <summary>
+    /// The resolved per-user profile directory. Carried on the context because
+    /// <c>KeyboardCoordinator</c> needs it (recent emojis, the model-dir root) and used to derive
+    /// its own from <c>%APPDATA%</c> — which under instance scoping would reach into the live
+    /// profile. Required rather than optional on purpose: a default would silently restore exactly
+    /// that bug on any construction path that forgot to pass it.
+    /// </summary>
+    string AppDataDir);

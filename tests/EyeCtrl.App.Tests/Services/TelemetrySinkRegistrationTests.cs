@@ -33,7 +33,12 @@ public class TelemetrySinkRegistrationTests
             settings,
             settingsFilePath: Path.Combine(Path.GetTempPath(), "eyectrl-telemetry-registration-test.json"),
             dispatcher: Dispatcher.CurrentDispatcher,
-            isTestMode: true);
+            isTestMode: true,
+            // The composition root resolves the profile now, so it is passed in rather than
+            // derived. null instanceId => the default (unscoped) names, which is what this test
+            // exercises; nothing here touches the directory.
+            profileDirectory: Path.Combine(Path.GetTempPath(), "eyectrl-telemetry-registration-test"),
+            instanceId: null);
     }
 
     [Fact]

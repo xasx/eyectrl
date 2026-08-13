@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Contracts;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Services;
@@ -25,6 +26,7 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.EyeCare;
 using EyeCtrl.Platform.Gaze;
 using EyeCtrl.Platform.Input;
+using EyeCtrl.Platform.Services;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,6 +46,19 @@ public partial class App : Application
     private HeartbeatPublisher? _heartbeatPublisher;
     private AppRestartCoordinator? _restartCoordinator;
     private string _appDataDir = null!;
+
+    /// <summary>
+    /// Validated <c>EYECTRL_INSTANCE_ID</c>, or <c>null</c> for the default instance. Every scoped
+    /// name in this process is derived from it, and <c>!= null</c> is the single "am I scoped?" test.
+    /// </summary>
+    private string? _instanceId;
+
+    /// <summary>
+    /// The default instance's profile directory, resolved alongside <see cref="_appDataDir"/> from
+    /// the same single <c>%APPDATA%</c> read. Phase 2 asserts the two differ; holding it avoids
+    /// re-deriving the live path at the one moment the code is checking it did not use it.
+    /// </summary>
+    private string _liveProfileDir = null!;
 
     /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
@@ -76,31 +91,64 @@ public partial class App : Application
         IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
         var isRestartHandoff = e.Args.Contains(RestartHandoff.Argument, StringComparer.OrdinalIgnoreCase);
 
+        // ── Phase 1: may this instance run at all? ──
+        // Before the mutex, because the mutex's NAME depends on the id. Before the handoff signal,
+        // so a replacement that is going to be refused never tells its parent it is ready.
+        var decision = InstanceStartupPolicy.Evaluate(
+            Environment.GetEnvironmentVariable(InstanceScope.EnvVar), IsTestMode, isRestartHandoff);
+
+        if (decision.Outcome == InstanceStartupOutcome.Refuse && !decision.CanLog)
+        {
+            // A malformed id yields no legal instances\<id> directory, so there is no scoped log
+            // path. Initialising Serilog anyway would open the LIVE %APPDATA%\EyeCtrl\logs — writing
+            // to the profile this instance was supposed to stay out of, on the one path where the id
+            // cannot be trusted. stderr instead, and out.
+            Console.Error.WriteLine(decision.Reason);
+            Shutdown(InstanceStartupPolicy.RefusalExitCode);
+            return;
+        }
+
+        InitializeInstanceAndLogging(decision.InstanceId);
+
+        if (decision.Outcome == InstanceStartupOutcome.Refuse)
+        {
+            Log.Fatal("Refusing to start: {Reason}", decision.Reason);
+            Log.CloseAndFlush();
+            Shutdown(InstanceStartupPolicy.RefusalExitCode);
+            return;
+        }
+
         // A restart replacement announces itself BEFORE queueing for the mutex: the
         // outgoing instance is waiting for exactly this before it exits, and it still
-        // holds the mutex while it waits. Reversing the order deadlocks.
+        // holds the mutex while it waits. Reversing the order deadlocks. Unreachable while
+        // scoped — phase 1 refuses --restart-handoff — so it is never reached by an instance
+        // that might still fail validation.
         if (isRestartHandoff)
         {
             RestartHandoff.SignalReady();
         }
 
-        // Single-instance guard: a second instance exits fast. The supervisor's respawn
-        // is legitimate, but a stray double-click/race must not launch two instances
-        // fighting over the same gaze device, settings file, and dwell pipe.
+        // Single-instance guard, now under its scoped name. A second instance exits fast. The
+        // supervisor's respawn is legitimate, but a stray double-click/race must not launch two
+        // instances fighting over the same gaze device, settings file, and dwell pipe.
         // Local\ (not Global\): multi-user/RDP is a non-goal; avoids cross-session collisions.
         //
         // A restart replacement is the one case that must WAIT rather than fail fast: the
         // instance it replaces holds the mutex until the very end of its own OnExit.
-        _singleInstance = new SingleInstanceGuard();
+        _singleInstance = new SingleInstanceGuard(
+            InstanceScope.Scope(SingleInstanceGuard.DefaultMutexName, decision.InstanceId));
         if (!_singleInstance.TryAcquire(isRestartHandoff ? RestartHandoff.MutexWait : TimeSpan.Zero))
         {
             // Another instance is already running (likely the supervisor's legitimate one),
             // or — for a handoff — the outgoing instance never let go. Either way, exit:
             // one working instance beats two fighting over the gaze device.
             //
-            // Deliberately unlogged: InitializeSettingsAndLogging() has not run yet, so
-            // Serilog's static Log is still a SilentLogger and a Log.Information here would
-            // compile and then discard the line. See the note below for what that costs.
+            // Now loggable, because logging is initialised above — closing the wart the old
+            // comment here described ("deliberately unlogged; Serilog's static Log is still a
+            // SilentLogger"). Resolving the instance first is what made that possible.
+            Log.Information("Another instance already holds {MutexName}; exiting.",
+                _singleInstance.EffectiveName);
+            Log.CloseAndFlush();
             Shutdown();
             return;
         }
@@ -108,7 +156,7 @@ public partial class App : Application
         SplashWindow? splash = null;
         try
         {
-            var (settings, settingsFilePath) = InitializeSettingsAndLogging();
+            var (settings, settingsFilePath) = LoadSettings();
 
             // ── Theme ──
             // Before the DI container, because everything downstream — overlays, dwell
@@ -131,7 +179,8 @@ public partial class App : Application
             InitializeDpi(splash);
 
             // ── Build DI container ──
-            _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
+            _serviceProvider = AppBootstrapper.BuildServiceProvider(
+                settings, settingsFilePath, Dispatcher, IsTestMode, _appDataDir, _instanceId);
 
             // ── Resolve services ──
             var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
@@ -211,7 +260,8 @@ public partial class App : Application
                 quickActionsGridVm,
                 _serviceProvider.GetRequiredService<IQuickActionsStore>(),
                 _serviceProvider.GetRequiredService<IWindowsAppLauncher>(),
-                _serviceProvider.GetRequiredService<IInstalledAppProvider>());
+                _serviceProvider.GetRequiredService<IInstalledAppProvider>(),
+                _appDataDir);
             _eventCoordinator.Initialize(coordinationContext);
 
             // Warm the installed-app cache off the UI thread (the provider walks Shell AppsFolder
@@ -235,14 +285,6 @@ public partial class App : Application
                 showToolbarCallback: autoHideActive
                     ? () => _eventCoordinator?.ForceShowToolbar()
                     : null);
-
-            // ── Close splash and show persistent overlays (last, after all wiring) ──
-            ShowOverlays(splash, cursorCircle, toolbar, settings);
-
-            if (settings.General.StartPaused || IsPausedLaunch)
-                im.TogglePause();
-
-            gazeEngine.Start();
 
             // ── Heartbeat liveness (supervisor watchdog) ──
             // A DispatcherTimer stamps a HeartbeatPayload on the UI thread every ~3s. A bounded
@@ -272,7 +314,7 @@ public partial class App : Application
                 messenger,
                 settings,
                 tryReachSupervisor: () => _heartbeatPublisher?.TryReachSupervisor() ?? false,
-                selfRestart: SelfRestartStrategy.CreateDefault().Begin,
+                selfRestart: SelfRestartStrategy.CreateDefault(isScoped: _instanceId != null).Begin,
                 shutdown: () => Shutdown(),
                 reportInProgress: () =>
                 {
@@ -299,11 +341,103 @@ public partial class App : Application
                     // block performs, with the captured `supervised` flag now known true.
                     startupRegistrar.SetStartOnBoot(
                         StartOnBootPolicy.ShouldSelfRegister(supervised: true, settings.General.StartOnBoot));
-                });
+                },
+                isScoped: _instanceId != null);
 
             // Hand the coordinator to the settings window's owner so the restart button
             // can ask whether to offer the supervisor (Task 13 Step 6).
             _eventCoordinator.SetRestartCoordinator(_restartCoordinator);
+
+            // ── Phase 2: did every resource actually take its scoped name? ──
+            // Read back off the CONSTRUCTED objects. This is what catches a receiver that accepts an
+            // injectable name and is never passed one. Runs before any overlay is shown, before the
+            // gaze engine starts and before the dwell pipe server binds — i.e. before anything can
+            // act on input. (A window OBJECT already exists by now: ExternalDwellService's
+            // constructor builds a DwellFeedbackOverlay. Nothing is shown and no input is processed.)
+            //
+            // The heartbeat publisher and restart coordinator are constructed ABOVE ShowOverlays
+            // purely so this check can see them. There is no position that is both below them and
+            // above the show/start otherwise.
+            if (_instanceId != null)
+            {
+                var dwell = _serviceProvider.GetRequiredService<ExternalDwellService>();
+                var registrar = (WindowsStartupRegistrar)startupRegistrar;
+
+                var reported = new List<InstanceResource>
+                {
+                    // "Scoped" here means "not the live profile", which is the property that
+                    // actually matters and stays true when EYECTRL_APPDATA_DIR redirects elsewhere.
+                    new("ProfileDirectory", _appDataDir != _liveProfileDir, _appDataDir),
+                    new("AppSingletonMutex",
+                        _singleInstance!.EffectiveName != SingleInstanceGuard.DefaultMutexName,
+                        _singleInstance.EffectiveName),
+                    new("SettingsWriterMutex",
+                        settingsService.EffectiveWriterMutexName != SettingsService.DefaultWriterMutexName,
+                        settingsService.EffectiveWriterMutexName),
+                    new("DwellPipe",
+                        dwell.EffectivePipeName != ExternalDwellService.DefaultPipeName,
+                        dwell.EffectivePipeName),
+                    new("StartupRunValue",
+                        registrar.EffectiveValueName != WindowsStartupRegistrar.DefaultValueName,
+                        registrar.EffectiveValueName),
+                };
+
+                var expected = new[]
+                {
+                    "ProfileDirectory", "AppSingletonMutex", "SettingsWriterMutex", "DwellPipe", "StartupRunValue",
+                };
+                var defaults = new Dictionary<string, string>
+                {
+                    ["AppSingletonMutex"] = SingleInstanceGuard.DefaultMutexName,
+                    ["SettingsWriterMutex"] = SettingsService.DefaultWriterMutexName,
+                    ["DwellPipe"] = ExternalDwellService.DefaultPipeName,
+                    ["StartupRunValue"] = WindowsStartupRegistrar.DefaultValueName,
+                };
+
+                var verdict = InstanceScopeVerifier.Verify(reported, expected, defaults);
+
+                // Explicit patterns, not `?.X == true`: on a null publisher that expression is
+                // false, which would report a subsystem as refused when it was merely never built.
+                var refusedFailures = new List<string>();
+                if (_heartbeatPublisher is null)
+                    refusedFailures.Add("HeartbeatPublisher was never constructed, so it cannot be verified.");
+                else if (_heartbeatPublisher.IsPublishing)
+                    refusedFailures.Add("HeartbeatPublisher is publishing on a scoped instance.");
+
+                if (_restartCoordinator is null)
+                    refusedFailures.Add("AppRestartCoordinator was never constructed, so it cannot be verified.");
+                else if (!_restartCoordinator.IsScopeGated)
+                    refusedFailures.Add("AppRestartCoordinator is not scope-gated.");
+
+                if (!verdict.IsSatisfied || refusedFailures.Count > 0)
+                {
+                    foreach (var failure in verdict.Failures.Concat(refusedFailures))
+                        Log.Fatal("Instance scoping failed: {Failure}", failure);
+                    Log.CloseAndFlush();
+                    Shutdown(InstanceStartupPolicy.RefusalExitCode);
+                    return;
+                }
+
+                // Reached only once both checks above passed, so these two names are a statement
+                // about what was verified rather than a literal claim.
+                var refused = new List<string> { "Supervision", "SelfRestart" };
+
+                InstanceManifest.Write(_appDataDir, new InstanceManifest(
+                    _instanceId, Environment.ProcessId, DateTime.UtcNow, IsTestMode,
+                    reported, refused));
+
+                Log.Information(
+                    "Scoped instance {InstanceId} verified; manifest written to {ProfileDirectory}.",
+                    _instanceId, _appDataDir);
+            }
+
+            // ── Close splash and show persistent overlays (last, after all wiring) ──
+            ShowOverlays(splash, cursorCircle, toolbar, settings);
+
+            if (settings.General.StartPaused || IsPausedLaunch)
+                im.TogglePause();
+
+            gazeEngine.Start();
 
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
@@ -493,20 +627,29 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Resolves the app data directory (stored in <see cref="_appDataDir"/>), loads settings
-    /// while migrating newly-introduced defaults, initializes Serilog, and registers the global
-    /// (AppDomain + dispatcher) exception handlers.
+    /// Resolves the instance, derives the profile directory (stored in <see cref="_appDataDir"/>),
+    /// initializes Serilog, and registers the global (AppDomain + dispatcher + task-scheduler)
+    /// exception handlers.
+    /// <para>
+    /// Split out of settings loading so phase 1 can log its refusals, and so a refused or rejected
+    /// instance no longer loads settings — which matters because <c>SettingsService.Load</c> can
+    /// write a migrated file back, and doing that from an instance that is about to exit 78 would
+    /// touch the very profile it was refused for.
+    /// </para>
     /// </summary>
-    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging()
+    /// <param name="instanceId">Validated instance id, or <c>null</c> for the default instance.</param>
+    private void InitializeInstanceAndLogging(string? instanceId)
     {
-        _appDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
-        var settingsFilePath = Path.Combine(_appDataDir, "settings.json");
-        var tempSettingsService = new SettingsService(settingsFilePath, SettingsWriter.App);
-        var settings = tempSettingsService.Load();
+        _instanceId = instanceId;
 
-        // Migrate settings for newly-introduced features
-        settings.ActionMenu.EnsureDefaults();
+        // The ONE place this process reads %APPDATA%. AppPaths takes it as a parameter by design —
+        // that is what keeps the resolver pure and testable — so the composition root is where it
+        // has to be read. Both the live profile and this instance's profile come from this call, so
+        // phase 2 can compare them without deriving anything a second time.
+        var roamingAppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        _liveProfileDir = AppPaths.Resolve(null, roamingAppData, null);
+        _appDataDir = AppPaths.Resolve(
+            Environment.GetEnvironmentVariable(AppPaths.OverrideEnvVar), roamingAppData, instanceId);
 
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);
@@ -535,6 +678,34 @@ public partial class App : Application
             Log.Error(args.Exception, "Unobserved task exception (observed set to true to prevent crash)");
             args.SetObserved();
         };
+    }
+
+    /// <summary>
+    /// Loads settings from the resolved profile, migrating newly-introduced defaults, and forces
+    /// supervision off on a scoped instance.
+    /// </summary>
+    private (EyeCtrlSettings Settings, string SettingsFilePath) LoadSettings()
+    {
+        var settingsFilePath = Path.Combine(_appDataDir, "settings.json");
+        var tempSettingsService = new SettingsService(
+            settingsFilePath, SettingsWriter.App, logger: null,
+            writerMutexName: InstanceScope.Scope(SettingsService.DefaultWriterMutexName, _instanceId));
+        var settings = tempSettingsService.Load();
+
+        // Migrate settings for newly-introduced features
+        settings.ActionMenu.EnsureDefaults();
+
+        // Supervision is FORCED off on a scoped instance rather than refused, because the refusal
+        // could not be ordered: the flag lives only in settings, which load here — after phase 1.
+        // Forcing deletes the ordering question. This is an in-memory flip; the scoped profile is
+        // ours to write, and the live one is never opened by a scoped instance at all.
+        if (_instanceId != null && settings.Supervision.Enabled)
+        {
+            Log.Warning(
+                "Scoped instance {InstanceId}: forcing Supervision.Enabled off. A scoped instance "
+                + "runs alone and refuses supervision.", _instanceId);
+            settings.Supervision.Enabled = false;
+        }
 
         return (settings, settingsFilePath);
     }

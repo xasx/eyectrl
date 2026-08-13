@@ -1972,7 +1972,7 @@ The reordering. `OnStartup` currently acquires the singleton mutex at `:94-95` a
 - Modify: `src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs:54`
 - Modify: `src/EyeCtrl.ViewModels/CalibrationViewModel.cs:63-65`
 
-- [ ] **Step 1: Read the current startup ordering end to end**
+- [x] **Step 1: Read the current startup ordering end to end**
 
 ```bash
 sed -n '71,135p' src/EyeCtrl.App/App.xaml.cs
@@ -1981,7 +1981,7 @@ sed -n '495,515p' src/EyeCtrl.App/App.xaml.cs
 
 Note three constraints that must survive: `RestartHandoff.SignalReady()` precedes the mutex (`:79-85` documents that reversing it deadlocks); `ThemeStartup.Apply` precedes any window construction (`:119-122`); and the splash is shown at `:125-129` only when not in test mode — so a scoped instance, which requires `--test-mode`, never shows one.
 
-- [ ] **Step 2: Split settings-and-logging in two**
+- [x] **Step 2: Split settings-and-logging in two**
 
 Replace `InitializeSettingsAndLogging()` with two methods. The first resolves the instance and starts logging; the second loads settings. Both are private to `App`.
 
@@ -2056,7 +2056,7 @@ Add the field beside `_appDataDir`:
 
 Add the usings `EyeCtrl.Contracts` and `EyeCtrl.Core.Services` if absent.
 
-- [ ] **Step 3: Rewrite the top of `OnStartup`**
+- [x] **Step 3: Rewrite the top of `OnStartup`**
 
 Replace `App.xaml.cs:71-106` with:
 
@@ -2127,7 +2127,7 @@ Then, immediately after, replace the old `InitializeSettingsAndLogging()` call i
             var (settings, settingsFilePath) = LoadSettings();
 ```
 
-- [ ] **Step 4: Pass scoped names into DI**
+- [x] **Step 4: Pass scoped names into DI**
 
 `AppBootstrapper.BuildServiceProvider` needs the profile directory and the instance id rather than deriving its own. Change its signature to accept them and replace `AppBootstrapper.cs:51`:
 
@@ -2202,7 +2202,7 @@ Two usings are needed in `App.xaml.cs` and are not currently present: `EyeCtrl.C
 `InstanceScope`) and `EyeCtrl.Platform.Services` (for the concrete `WindowsStartupRegistrar` cast in
 phase 2). The csproj already references both assemblies.
 
-- [ ] **Step 5: Remove the two remaining independent resolvers**
+- [x] **Step 5: Remove the two remaining independent resolvers**
 
 `src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs:54` derives its own path inside
 `Initialize`. Add a constructor parameter and **delete the derivation** — leaving `Initialize:54` in
@@ -2233,7 +2233,7 @@ grep -rn "SpecialFolder.ApplicationData" src/ --include=*.cs
 
 Expected: `AppPaths.cs`, plus `Supervisor/Program.cs:116` (a separate process, out of scope — a scoped instance never launches one).
 
-- [ ] **Step 6: Add phase 2 and the manifest**
+- [x] **Step 6: Add phase 2 and the manifest**
 
 In `App.xaml.cs`, after the DI container is built and services wired but **before** overlays are shown and before `gazeEngine.Start()`:
 
@@ -2334,7 +2334,7 @@ Note also why the null-conditional check below is written as an explicit `is` pa
 `_heartbeatPublisher?.IsPublishing == true`: on a null publisher that expression is `false`, so it
 would pass vacuously and report success for a subsystem that was never constructed.
 
-- [ ] **Step 7: Build and run the full headless suite**
+- [x] **Step 7: Build and run the full headless suite**
 
 ```bash
 dotnet build EyeCtrl.slnx
@@ -2343,7 +2343,70 @@ dotnet test --filter "Category!=UI"
 
 Expected: `Fehler: 0` everywhere. This is the task most likely to break existing tests — `AppBootstrapper`'s signature changed and two constructors gained required arguments. Fix call sites rather than reverting the signature.
 
-- [ ] **Step 8: Commit**
+**Result: `Fehler: 0` on all 12 assemblies, every count unchanged** (this task adds no tests, only
+rewiring). `EyeCtrl.Architecture.Tests` stayed at 14 — no layering invariant was tripped, because
+`EyeCtrl.App` already referenced `EyeCtrl.Contracts`.
+
+### Corrections (2026-08-13)
+
+**(1) Step 5's expected resolver list was wrong, and it invalidates a Task 11 allow-list entry.**
+The step predicts the remaining `SpecialFolder.ApplicationData` sites are "`AppPaths.cs`, plus
+`Supervisor/Program.cs:116`". **`AppPaths` never calls it** — it takes `roamingAppData` as a
+*parameter*, which is exactly what keeps it pure and testable. So the composition root is
+necessarily where `%APPDATA%` is read. The real post-task list is:
+
+```
+src/EyeCtrl.App/App.xaml.cs:649        <- the app's single read, in InitializeInstanceAndLogging
+src/EyeCtrl.Supervisor/Program.cs:116  <- separate process, out of scope
+```
+
+Down from four sites in the app. **Task 11's allow-list must therefore key
+`src\EyeCtrl.App\App.xaml.cs::SpecialFolder.ApplicationData`, not
+`src\EyeCtrl.Core\Services\AppPaths.cs::SpecialFolder.ApplicationData`** — the latter would fail
+`EveryAllowListEntryStillResolves`.
+
+**(2) Step 5's `KeyboardCoordinator` instruction was self-contradictory, and the worse of the two
+routes.** It says both "add a constructor parameter" *and* "pass `_context.AppDataDir` at the
+construction site". Only the second is needed: `KeyboardCoordinator.Initialize(context)` already
+receives the context and already assigns `_appDataDir` there, so the change is one line
+(`_appDataDir = context.AppDataDir`). Route taken: add `string AppDataDir` to
+`EventCoordinationContext`.
+
+The constructor route would have broken **five** call sites — `KeyboardCoordinatorTests.cs:60-62,87`
+and `SettingsUiCoordinatorTests.cs:21,55` — three of which are `ArgumentNullException` guard tests
+with nothing to do with paths. The context route breaks **two**: `App.xaml.cs:203` and
+`TestFakes.cs:24`, the only two `new EventCoordinationContext` sites in the tree. It keeps the
+fail-loud property the step asked for, because a positional record member is required at every
+construction site — an optional constructor parameter is what would have silently kept the live
+profile.
+
+**(3) Step 5 missed a breaking change it causes.** Making `CalibrationViewModel`'s path required
+breaks `tests/EyeCtrl.ViewModels.Tests/CalibrationViewModelTests.cs` at three sites (`:29`, `:115`,
+`:145`), which the plan does not list. Worth more than a call-site fix: those tests were relying on
+the fallback, i.e. they were pointed at the **live** `%APPDATA%\EyeCtrl\calibration.json` — the file
+whose corruption silently breaks dwell everywhere. They now take a per-call GUID temp path.
+
+**(4) Step 6's phase-2 block re-derived the live profile inline** with
+`AppPaths.Resolve(null, Environment.GetFolderPath(...), null)`. Replaced by a `_liveProfileDir`
+field resolved from the same single `%APPDATA%` read as `_appDataDir`. Two reasons: it keeps the
+app to one `SpecialFolder.ApplicationData` site (see correction 1), and re-deriving the live path
+*inside the check that asserts the live path was not used* is the tautology phase 2 exists to
+avoid.
+
+**(5) Step 6 had two sequential shutdown blocks — merged into one.** As written, a resource-scoping
+failure logs and returns before the refused-subsystem checks ever run, so an operator fixes one
+failure only to rediscover the next on the following launch. Both sets are now evaluated and
+logged together before the single `Shutdown(78)`.
+
+**(6) Minor.** Step 2's `sed -n '520,540p'` pointer for the exception handlers is off; they occupy
+`:513-537`. Step 2's claim that `MergeForWriter` is what keeps the forced supervision flip off the
+live profile is unnecessary and unverified — a scoped instance never opens the live `settings.json`
+at all, which is the simpler and sufficient reason. The comment in the code says that instead.
+
+**(7) Step 6's registrar cast** used a second `_serviceProvider.GetRequiredService<IStartupRegistrar>()`.
+The already-resolved `startupRegistrar` local is in scope and is the same singleton; used that.
+
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/EyeCtrl.App src/EyeCtrl.ViewModels

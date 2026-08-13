@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Contracts;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
@@ -40,15 +41,30 @@ public class AppBootstrapper
     /// <param name="settingsFilePath">Path to the settings file</param>
     /// <param name="dispatcher">The UI thread dispatcher</param>
     /// <param name="isTestMode">Whether the app is running in test mode</param>
+    /// <param name="profileDirectory">
+    /// The already-resolved per-user profile directory. Passed in rather than derived here: three
+    /// call sites deriving it independently is how they drifted apart, and a scoped instance's
+    /// directory is not something this method can compute.
+    /// </param>
+    /// <param name="instanceId">
+    /// Validated <c>EYECTRL_INSTANCE_ID</c>, or <c>null</c> for the default instance. Every scoped
+    /// name registered below is derived from it via <see cref="InstanceScope.Scope"/>.
+    /// </param>
     /// <returns>Configured service provider</returns>
     public static ServiceProvider BuildServiceProvider(
         EyeCtrlSettings settings,
         string settingsFilePath,
         Dispatcher dispatcher,
-        bool isTestMode)
+        bool isTestMode,
+        string profileDirectory,
+        string? instanceId)
     {
         var services = new ServiceCollection();
-        var appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+
+        // Was: Path.Combine(Environment.GetFolderPath(ApplicationData), "EyeCtrl").
+        // The composition root resolves this once; deriving it again here is how three call sites
+        // drifted apart in the first place.
+        var appDataDir = profileDirectory;
 
         // Logging
         services.AddLogging(builder => builder.AddSerilog(dispose: true));
@@ -59,17 +75,22 @@ public class AppBootstrapper
         // Settings (singleton instances)
         // Only register root settings - sub-settings accessed via properties
         services.AddSingleton(settings);
+        // The DI singleton needs the scoped writer mutex too, not just the temp loader in
+        // App.LoadSettings: phase 2 reads THIS instance back, and OnExit saves through it.
         services.AddSingleton(sp => new SettingsService(
             settingsFilePath,
             SettingsWriter.App,
-            sp.GetRequiredService<ILogger<SettingsService>>()));
+            sp.GetRequiredService<ILogger<SettingsService>>(),
+            writerMutexName: InstanceScope.Scope(SettingsService.DefaultWriterMutexName, instanceId)));
 
         // Platform services
         services.AddSingleton<IMouseCoordinateMapper, MouseCoordinateMapper>();
         services.AddSingleton<IInputSimulator, Win32InputSimulator>();
 
-        // Startup registration
-        services.AddSingleton<IStartupRegistrar, WindowsStartupRegistrar>();
+        // Startup registration. The scoped value name is what stops a test run from deleting the
+        // default instance's autostart entry — the bug that produced this whole design.
+        services.AddSingleton<IStartupRegistrar>(_ => new WindowsStartupRegistrar(
+            InstanceScope.Scope(WindowsStartupRegistrar.DefaultValueName, instanceId)));
 
         // Window management (Task Switcher)
         services.AddSingleton<IWindowManager, Win32WindowManager>();
@@ -239,7 +260,8 @@ public class AppBootstrapper
             dispatcher,
             sp.GetRequiredService<ILogger<ExternalDwellService>>(),
             sp.GetRequiredService<IMessenger>(),
-            sink: sp.GetRequiredService<IStruggleTelemetrySink>()));
+            sink: sp.GetRequiredService<IStruggleTelemetrySink>(),
+            pipeName: InstanceScope.Scope(ExternalDwellService.DefaultPipeName, instanceId)));
 
         // NoteManager (pinned notes lifecycle)
         services.AddSingleton<INoteManager>(sp => new NoteManager(

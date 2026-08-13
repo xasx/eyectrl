@@ -3,6 +3,7 @@
 **Date:** 2026-08-12
 **Status:** Approved design, not yet implemented
 **Prerequisite for:** `docs/superpowers/plans/2026-08-10-core-e2e-test-plan.md` (supersedes its Task 1)
+**Verified against:** `main` @ `385211f3`
 **Revision:** v5 after round-4 review (0 BLOCKERs, 1 MAJOR, 4 MINORs; shape verdict: converges,
 implementable as written). See §"Revision history".
 
@@ -285,7 +286,7 @@ Everything under the profile directory follows it: `settings.json`, `logs\`,
 new `instance.json`.
 
 **All three resolvers must be wired, and phase 2 cannot tell you if one was missed.**
-`App.xaml.cs:502-503`, `AppBootstrapper.cs:51` and `EventCoordinator.cs:98` each derive the
+`App.xaml.cs:502-503`, `AppBootstrapper.cs:51` and `Coordinators/KeyboardCoordinator.cs:54` each derive the
 profile path independently. Phase 2 reads back a single `ProfileDirectory` value, so a missed
 resolver leaves `recent_emojis.json`, the user dictionary or `actions.json` in the live profile
 while the check still passes. The drift guard's `SpecialFolder.ApplicationData` rule is the

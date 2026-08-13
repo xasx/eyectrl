@@ -18,24 +18,28 @@ This plan implements **build-order steps 1–4** of the spec: the tier-0 spike, 
 
 One addition beyond the spec: **Task 1** introduces an `EYECTRL_APPDATA_DIR` override. Without it the suite runs against the user's live profile, and J1/J4/J5 need different `SelectionMode` values which [GazeEngineAdapter.cs:92](../../../src/EyeCtrl.App/Services/GazeEngineAdapter.cs:92) **persists** — a test run would silently rewrite the settings of the machine's only input method.
 
-## Corrections to the spec, verified against `main` @ `26efc7b`
+## Corrections to the spec, verified against `main` @ `385211f3`
 
-The spec was written before commits that shifted `EventCoordinator`. Use these line numbers, not the spec's:
+The design spec's `EventCoordinator` citations are stale twice over. They were already off by ~80 lines when this plan was first drafted, and since then 22 commits have **decomposed `EventCoordinator` entirely** — 1721 lines moved into ten new classes under `src/EyeCtrl.App/Services/Coordinators/`. The code is byte-identical in the cases that matter; only its address changed.
 
-| Spec says | Actually | What's there |
+| Spec says | Actually now | What's there |
 |---|---|---|
-| `EventCoordinator.cs:1374` | **[1454](../../../src/EyeCtrl.App/Services/EventCoordinator.cs:1454)** | the `IsPreciseTarget` / `StableCentroid` override |
-| `EventCoordinator.cs:1394-1395` | **[1475](../../../src/EyeCtrl.App/Services/EventCoordinator.cs:1475)** | `DoubleClick` dispatch |
-| `EventCoordinator.cs:1397-1400` | **[1477-1480](../../../src/EyeCtrl.App/Services/EventCoordinator.cs:1477)** | Scroll{Up,Down,Left,Right} dispatch |
-| `EventCoordinator.cs:832` | **[907-912](../../../src/EyeCtrl.App/Services/EventCoordinator.cs:907)** | `OnDragStarted` → `MouseDown` |
+| `EventCoordinator.cs:1374` | **[KeyboardInteractionDispatcher.cs:179](../../../src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs:179)** | the `IsPreciseTarget` / `StableCentroid` override |
+| `EventCoordinator.cs:1394-1395` | **[KeyboardInteractionDispatcher.cs:200](../../../src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs:200)** | `DoubleClick` dispatch |
+| `EventCoordinator.cs:1397-1400` | **[KeyboardInteractionDispatcher.cs:202-205](../../../src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs:202)** | Scroll{Up,Down,Left,Right} dispatch |
+| `EventCoordinator.cs:832` | **[DragCoordinator.cs:62-67](../../../src/EyeCtrl.App/Services/Coordinators/DragCoordinator.cs:62)** | `OnDragStarted` → `MouseDown` |
 | `Win32InputSimulator.cs:218` normalises to 0–65535 | **[MouseCoordinateMapper.cs:20](../../../src/EyeCtrl.Platform/Input/MouseCoordinateMapper.cs:20)** | the simulator delegates; `:218` is `BuildModifiedKeySequence` |
 
-`GazeEngineAdapter.cs:196-201`, `InteractionManager.cs:130-142`, `AppBootstrapper.cs:86-89` and `MouseGazeProvider.cs:66` are all still accurate.
+`GazeEngineAdapter.cs:196-201`, `InteractionManager.cs:130-142`, `AppBootstrapper.cs:86-89` and `MouseGazeProvider.cs:66` are unaffected by the decomposition and still accurate.
+
+**`KeyboardInteractionDispatcher` is where clicks now live**, despite the name. The class covers both keyboard input and the action-menu dispatch that was `HandleActionRequested`. Anyone tracing a click path from the design spec will look in the wrong place otherwise.
+
+Every citation below is against `385211f3`. If `EventCoordinator` or the coordinators move again, re-derive rather than trusting these — the file has been restructured twice during this plan's authorship alone.
 
 ## The mechanic the spec does not state, and every journey depends on
 
 **The activation button's dwell target is at the fixation point, not at the drawn button.**
-[ActivationButtonViewModel.cs:33-37](../../../src/EyeCtrl.ViewModels/ActivationButtonViewModel.cs:33) registers the `DwellTarget` at `message.Position` — the raw fixation point — with radius `UIConstants.ButtonRadius` (50 logical px). The `circleRadius + 55` offset at [EventCoordinator.cs:1045](../../../src/EyeCtrl.App/Services/EventCoordinator.cs:1045) is passed to `ActivationButtonWindow.ShowAt` and only moves where the button is *painted*, so it doesn't cover what the user is looking at.
+[ActivationButtonViewModel.cs:33-37](../../../src/EyeCtrl.ViewModels/ActivationButtonViewModel.cs:33) registers the `DwellTarget` at `message.Position` — the raw fixation point — with radius `UIConstants.ButtonRadius` (50 logical px). The `circleRadius + 55` offset at [OverlayVmBindingCoordinator.cs:147](../../../src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs:147) is passed to `ActivationButtonWindow.ShowAt` and only moves where the button is *painted*, so it doesn't cover what the user is looking at.
 
 Consequence: to activate, gaze **holds still**. It does not travel to the button. A path that chased the drawn button would leave the 50px fixation radius, fire `OnFixationEnded`, and drop back to `FreeLook` ([InteractionManager.cs:70-77](../../../src/EyeCtrl.Core/Processing/InteractionManager.cs:70)).
 
@@ -76,7 +80,7 @@ A full J1 costs ≈ 300 + 700 + 600 ms of dwell plus travel and margins ≈ **3.
 | Create `src/EyeCtrl.Core/Services/AppPaths.cs` | single source of truth for the app-data directory + `EYECTRL_APPDATA_DIR` override |
 | Modify `src/EyeCtrl.App/App.xaml.cs:502-503` | use `AppPaths.AppDataDir` |
 | Modify `src/EyeCtrl.App/Services/AppBootstrapper.cs:51` | use `AppPaths.AppDataDir` |
-| Modify `src/EyeCtrl.App/Services/EventCoordinator.cs:98` | use `AppPaths.AppDataDir` |
+| Modify `src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs:54` | use `AppPaths.AppDataDir` |
 
 **Recording oracle:**
 
@@ -121,7 +125,7 @@ The resolution is split into a **pure** function (`Resolve`) and a thin property
 - Test: `tests/EyeCtrl.Core.Tests/Services/AppPathsTests.cs`
 - Modify: `src/EyeCtrl.App/App.xaml.cs:502-503`
 - Modify: `src/EyeCtrl.App/Services/AppBootstrapper.cs:51`
-- Modify: `src/EyeCtrl.App/Services/EventCoordinator.cs:98`
+- Modify: `src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs:54`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2664,7 +2668,7 @@ git commit -m "test(e2e): add the app harness with a scratch profile and ring ge
 
 ## Task 10: J1 — a left click lands where the user looked
 
-The flagship. With `SelectionMode=None`, `IsPreciseTarget` is **false** ([GazeEngineAdapter.cs:198-200](../../../src/EyeCtrl.App/Services/GazeEngineAdapter.cs:198)), so [EventCoordinator.cs:1454](../../../src/EyeCtrl.App/Services/EventCoordinator.cs:1454) discards the `FixationPoint` the state machine chose and clicks at `GazeEngine.StableCentroid` instead. This is the only mode where the override fires, and whether the two agree is the spec's open question — so the test **asserts against the centroid's proxy (the hold point) and reports the observed offset**, rather than pretending to know the answer.
+The flagship. With `SelectionMode=None`, `IsPreciseTarget` is **false** ([GazeEngineAdapter.cs:198-200](../../../src/EyeCtrl.App/Services/GazeEngineAdapter.cs:198)), so [KeyboardInteractionDispatcher.cs:179](../../../src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs:179) discards the `FixationPoint` the state machine chose and clicks at `GazeEngine.StableCentroid` instead. This is the only mode where the override fires, and whether the two agree is the spec's open question — so the test **asserts against the centroid's proxy (the hold point) and reports the observed offset**, rather than pretending to know the answer.
 
 Path shape, following the mechanic established above:
 
@@ -2759,7 +2763,7 @@ public class LeftClickJourneyTests
         var offset = Math.Sqrt(dx * dx + dy * dy);
 
         // The click point is GazeEngine.StableCentroid, NOT InteractionManager.FixationPoint
-        // (EventCoordinator.cs:1454). The centroid is the mean of the slow samples during the
+        // (Coordinators/KeyboardInteractionDispatcher.cs:179). The centroid is the mean of the slow samples during the
         // hold, so the hold point is its expected value. This number IS the spec's open question
         // about whether the two agree — record it.
         _output.WriteLine($"CLICK OFFSET FROM HELD GAZE POINT: {offset:F2}px "

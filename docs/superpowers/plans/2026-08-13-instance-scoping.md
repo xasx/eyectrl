@@ -16,6 +16,33 @@
 
 ---
 
+## Status — read before starting
+
+**Tasks 1-3 are implemented, committed and green** (`2cff15cf`). Their steps are ticked below. Do
+not redo them.
+
+- `InstanceScope` in Contracts, `AppPaths` in Core, and effective-name getters plus injectable names
+  on the four receivers.
+- Verified: solution builds with 0 errors; full headless suite 1962 passed / 1 skipped /
+  `Fehler: 0` across 12 assemblies; 40 new tests (23 + 9 + 5 in Core, 3 in Platform).
+
+**Tasks 4-12 are corrected but NOT implemented.** They were revised in `dd0128b8` against a plan
+review plus what implementing Tasks 1-3 established. Nothing in them has met a compiler.
+
+Start at **Task 4**. Re-run the baseline first so you can attribute any failure:
+
+```bash
+dotnet test --filter "Category!=UI"
+```
+
+Expected: `Fehler: 0` on all 12 assemblies, 1962 passed, 1 skipped.
+
+**Task 8 is the one to be most careful with.** It reorders `OnStartup`, moves two constructions,
+changes `AppBootstrapper`'s signature and touches five test call sites. Its corrections are the
+least verified in the plan because none of its code has been compiled yet.
+
+---
+
 ## Read this before Task 1
 
 Three things about this codebase will bite an engineer who does not know them.
@@ -115,7 +142,7 @@ The one thing the app and the shipped SDK both need. Pure string handling so it 
 - Test: `tests/EyeCtrl.Core.Tests/Services/InstanceScopeTests.cs`
 - Modify: `tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj` (only if Contracts is not already referenced)
 
-- [ ] **Step 1: Record the baseline**
+- [x] **Step 1: Record the baseline**
 
 ```bash
 dotnet test --filter "Category!=UI"
@@ -123,7 +150,7 @@ dotnet test --filter "Category!=UI"
 
 Write down the `erfolgreich:` total per assembly. Expected at `385211f3`: exit code 0. Every later step compares against this.
 
-- [ ] **Step 2: Check whether Core.Tests can see Contracts**
+- [x] **Step 2: Check whether Core.Tests can see Contracts**
 
 ```bash
 grep -n "ProjectReference" tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj
@@ -135,7 +162,7 @@ grep -n "ProjectReference" tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj
     <ProjectReference Include="..\..\src\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
 ```
 
-- [ ] **Step 3: Write the failing test**
+- [x] **Step 3: Write the failing test**
 
 Create `tests/EyeCtrl.Core.Tests/Services/InstanceScopeTests.cs`:
 
@@ -231,7 +258,7 @@ public class InstanceScopeTests
 }
 ```
 
-- [ ] **Step 4: Run to verify it fails**
+- [x] **Step 4: Run to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~InstanceScopeTests"
@@ -239,7 +266,7 @@ dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~InstanceScopeT
 
 Expected: **compile error** — `InstanceScope` does not exist (`Fehler CS0246`).
 
-- [ ] **Step 5: Write the implementation**
+- [x] **Step 5: Write the implementation**
 
 Create `src/EyeCtrl.Contracts/InstanceScope.cs`:
 
@@ -323,7 +350,7 @@ public static class InstanceScope
 }
 ```
 
-- [ ] **Step 6: Run to verify it passes**
+- [x] **Step 6: Run to verify it passes**
 
 ```bash
 dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~InstanceScopeTests"
@@ -331,7 +358,7 @@ dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~InstanceScopeT
 
 Expected: `Fehler: 0, erfolgreich: 23` (nine test methods, but `[Theory]` cases count individually: 5 + 3 + 7 inline cases plus six single facts).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/EyeCtrl.Contracts/InstanceScope.cs tests/EyeCtrl.Core.Tests
@@ -348,7 +375,7 @@ The one resource that is a path rather than a name. Kept a pure function taking 
 - Create: `src/EyeCtrl.Core/Services/AppPaths.cs`
 - Test: `tests/EyeCtrl.Core.Tests/Services/AppPathsTests.cs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Core.Tests/Services/AppPathsTests.cs`:
 
@@ -434,7 +461,7 @@ public class AppPathsTests
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AppPathsTests"
@@ -442,7 +469,7 @@ dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AppPathsTests"
 
 Expected: **compile error** — `AppPaths` does not exist.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/EyeCtrl.Core/Services/AppPaths.cs`:
 
@@ -515,7 +542,7 @@ public static class AppPaths
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 ```bash
 dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AppPathsTests"
@@ -523,7 +550,7 @@ dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AppPathsTests"
 
 Expected: `Fehler: 0, erfolgreich: 9` (eight methods; one `[Theory]` contributes two cases).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.Core/Services/AppPaths.cs tests/EyeCtrl.Core.Tests
@@ -544,7 +571,7 @@ Phase 2 reads names back off constructed objects rather than re-deriving them, b
 - Test: `tests/EyeCtrl.Core.Tests/Services/ReceiverNameTests.cs`
 - Test: `tests/EyeCtrl.Platform.Tests/Services/WindowsStartupRegistrarNameTests.cs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/EyeCtrl.Core.Tests/Services/ReceiverNameTests.cs`:
 
@@ -657,7 +684,7 @@ public class WindowsStartupRegistrarNameTests
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```bash
 dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~ReceiverNameTests"
@@ -666,7 +693,7 @@ dotnet test tests/EyeCtrl.Platform.Tests --filter "FullyQualifiedName~WindowsSta
 
 Expected: **compile errors** — `EffectiveName`, `DefaultWriterMutexName`, `EffectiveWriterMutexName`, the `writerMutexName` parameter and `EffectiveValueName` do not exist.
 
-- [ ] **Step 3: Add `EffectiveName` to `SingleInstanceGuard`**
+- [x] **Step 3: Add `EffectiveName` to `SingleInstanceGuard`**
 
 In `src/EyeCtrl.Core/Services/SingleInstanceGuard.cs`, after the `_mutexName` field:
 
@@ -678,7 +705,7 @@ In `src/EyeCtrl.Core/Services/SingleInstanceGuard.cs`, after the `_mutexName` fi
     public string EffectiveName => _mutexName;
 ```
 
-- [ ] **Step 4: Make the settings writer mutex injectable**
+- [x] **Step 4: Make the settings writer mutex injectable**
 
 In `src/EyeCtrl.Core/Settings/SettingsService.cs`, add near the other constants:
 
@@ -726,7 +753,7 @@ Then replace the literal at line 178:
         using var mutex = new Mutex(false, _writerMutexName);
 ```
 
-- [ ] **Step 5: Make the Run value name injectable**
+- [x] **Step 5: Make the Run value name injectable**
 
 Replace the top of `src/EyeCtrl.Platform/Services/WindowsStartupRegistrar.cs` — the `ValueName` constant becomes a default plus an instance field:
 
@@ -762,7 +789,7 @@ Replace the top of `src/EyeCtrl.Platform/Services/WindowsStartupRegistrar.cs` �
 
 Then replace every use of `ValueName` in the file with `_valueName` — there are three, at the `SetValue`, `GetValue`/`DeleteValue` pair, and the `IsRegistered` read.
 
-- [ ] **Step 6: Expose the dwell pipe name**
+- [x] **Step 6: Expose the dwell pipe name**
 
 In `src/EyeCtrl.App/Services/ExternalDwellService.cs`, after the `_pipeName` field:
 
@@ -771,7 +798,7 @@ In `src/EyeCtrl.App/Services/ExternalDwellService.cs`, after the `_pipeName` fie
     public string EffectivePipeName => _pipeName;
 ```
 
-- [ ] **Step 7: Run to verify they pass**
+- [x] **Step 7: Run to verify they pass**
 
 ```bash
 dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~ReceiverNameTests"
@@ -780,7 +807,7 @@ dotnet test tests/EyeCtrl.Platform.Tests --filter "FullyQualifiedName~WindowsSta
 
 Expected: `Fehler: 0, erfolgreich: 5` in Core.Tests and `Fehler: 0, erfolgreich: 3` in Platform.Tests.
 
-- [ ] **Step 8: Confirm nothing else broke**
+- [x] **Step 8: Confirm nothing else broke**
 
 ```bash
 dotnet test --filter "Category!=UI"
@@ -788,7 +815,7 @@ dotnet test --filter "Category!=UI"
 
 Expected: `Fehler: 0` everywhere. Cumulative new tests after this task: 23 (Task 1) + 9 (Task 2) + 8 (this task: 5 in Core, 3 in Platform) = 40 above the baseline recorded in Task 1 Step 1.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/EyeCtrl.Core src/EyeCtrl.Platform src/EyeCtrl.App/Services/ExternalDwellService.cs tests

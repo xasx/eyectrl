@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\EyeCtrl.Core\EyeCtrl.Core.csproj" />
+    <!-- InstanceScope lives in Contracts (the only assembly the net8.0 SDK can also see). -->
+    <ProjectReference Include="..\..\src\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

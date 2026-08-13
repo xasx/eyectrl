@@ -129,7 +129,7 @@ Write down the `erfolgreich:` total per assembly. Expected at `385211f3`: exit c
 grep -n "ProjectReference" tests/EyeCtrl.Core.Tests/EyeCtrl.Core.Tests.csproj
 ```
 
-If `EyeCtrl.Contracts.csproj` is absent, add it inside the existing `ItemGroup`:
+`EyeCtrl.Contracts.csproj` **is** absent from this project as of `385211f3` — verified. Add it inside the existing `ItemGroup`:
 
 ```xml
     <ProjectReference Include="..\..\src\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
@@ -329,7 +329,7 @@ public static class InstanceScope
 dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~InstanceScopeTests"
 ```
 
-Expected: `Fehler: 0, erfolgreich: 20`.
+Expected: `Fehler: 0, erfolgreich: 23` (nine test methods, but `[Theory]` cases count individually: 5 + 3 + 7 inline cases plus six single facts).
 
 - [ ] **Step 7: Commit**
 
@@ -521,7 +521,7 @@ public static class AppPaths
 dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AppPathsTests"
 ```
 
-Expected: `Fehler: 0, erfolgreich: 10`.
+Expected: `Fehler: 0, erfolgreich: 9` (eight methods; one `[Theory]` contributes two cases).
 
 - [ ] **Step 5: Commit**
 
@@ -778,7 +778,7 @@ dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~ReceiverNameTe
 dotnet test tests/EyeCtrl.Platform.Tests --filter "FullyQualifiedName~WindowsStartupRegistrarNameTests"
 ```
 
-Expected: `Fehler: 0, erfolgreich: 5` and `Fehler: 0, erfolgreich: 3`.
+Expected: `Fehler: 0, erfolgreich: 5` in Core.Tests and `Fehler: 0, erfolgreich: 3` in Platform.Tests.
 
 - [ ] **Step 8: Confirm nothing else broke**
 
@@ -786,7 +786,7 @@ Expected: `Fehler: 0, erfolgreich: 5` and `Fehler: 0, erfolgreich: 3`.
 dotnet test --filter "Category!=UI"
 ```
 
-Expected: `Fehler: 0` everywhere. Cumulative new tests after this task: 20 (Task 1) + 10 (Task 2) + 8 (this task: 5 in Core, 3 in Platform) = 38 above the baseline recorded in Task 1 Step 1.
+Expected: `Fehler: 0` everywhere. Cumulative new tests after this task: 23 (Task 1) + 9 (Task 2) + 8 (this task: 5 in Core, 3 in Platform) = 40 above the baseline recorded in Task 1 Step 1.
 
 - [ ] **Step 9: Commit**
 

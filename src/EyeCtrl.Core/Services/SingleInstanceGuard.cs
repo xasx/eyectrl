@@ -17,6 +17,12 @@ public sealed class SingleInstanceGuard : IDisposable
     /// <summary>Creates a guard for a named mutex (injectable for per-test isolation).</summary>
     public SingleInstanceGuard(string mutexName) { _mutexName = mutexName; }
 
+    /// <summary>
+    /// The mutex name this guard binds. Read back by the app's phase-2 instance-scope check, which
+    /// verifies what was actually constructed rather than re-deriving what should have been.
+    /// </summary>
+    public string EffectiveName => _mutexName;
+
     /// <summary>True if this instance acquired the mutex (legitimate to run).</summary>
     public bool TryAcquire() => TryAcquire(TimeSpan.Zero);
 

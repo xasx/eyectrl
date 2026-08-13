@@ -35,6 +35,12 @@ public sealed class ExternalDwellService : IDisposable
     /// </summary>
     private readonly string _pipeName;
 
+    /// <summary>
+    /// The pipe name this service serves on. Read back by the app's phase-2 instance-scope check —
+    /// which is what catches this service being constructed without the <c>pipeName</c> it accepts.
+    /// </summary>
+    public string EffectivePipeName => _pipeName;
+
     private readonly ExternalDwellSettings _settings;
     private readonly GazeEngine _gazeEngine;
     private readonly Dispatcher _dispatcher;

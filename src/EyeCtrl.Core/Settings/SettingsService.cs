@@ -57,12 +57,34 @@ public class SettingsService
     /// <param name="filePath">Full path to the settings JSON file.</param>
     /// <param name="writer">Which process owns this instance — controls which sections <see cref="Save"/> may persist.</param>
     /// <param name="logger">Optional logger for diagnostic messages.</param>
-    public SettingsService(string filePath, SettingsWriter writer, ILogger<SettingsService>? logger = null)
+    /// <param name="writerMutexName">
+    /// Cross-process writer mutex name. Defaults to <see cref="DefaultWriterMutexName"/>; a scoped
+    /// instance passes a suffixed name so two instances with separate profiles do not serialise
+    /// against each other, and neither blocks the default instance's writer.
+    /// </param>
+    public SettingsService(
+        string filePath,
+        SettingsWriter writer,
+        ILogger<SettingsService>? logger = null,
+        string? writerMutexName = null)
     {
         _filePath = filePath;
         _writer = writer;
         _logger = logger;
+        _writerMutexName = writerMutexName ?? DefaultWriterMutexName;
     }
+
+    /// <summary>
+    /// Production name of the cross-process mutex serialising the read-merge-write in
+    /// <see cref="Save"/>. Was an inline literal; hoisted so it can be scoped per instance and
+    /// reported to the app's phase-2 instance-scope check.
+    /// </summary>
+    public const string DefaultWriterMutexName = @"Local\EyeCtrl.Settings.Writer";
+
+    private readonly string _writerMutexName;
+
+    /// <summary>The writer mutex name this instance binds. Read back by the phase-2 check.</summary>
+    public string EffectiveWriterMutexName => _writerMutexName;
 
     /// <summary>
     /// Saves settings to disk after a debounce delay. Repeated calls within <see cref="DebounceMs"/>
@@ -175,7 +197,7 @@ public class SettingsService
         }
 
         // Cross-process mutual exclusion so the read-merge-write sequence is atomic across writers.
-        using var mutex = new Mutex(false, @"Local\EyeCtrl.Settings.Writer");
+        using var mutex = new Mutex(false, _writerMutexName);
         bool owned = false;
         try
         {

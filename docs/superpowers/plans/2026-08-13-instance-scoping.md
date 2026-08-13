@@ -1336,7 +1336,7 @@ Pure decision logic, so the ordering constraints are testable without launching 
 - Create: `src/EyeCtrl.App/Startup/InstanceStartupPolicy.cs`
 - Test: `tests/EyeCtrl.App.Tests/Startup/InstanceStartupPolicyTests.cs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.App.Tests/Startup/InstanceStartupPolicyTests.cs`:
 
@@ -1434,7 +1434,7 @@ public class InstanceStartupPolicyTests
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceStartupPolicyTests"
@@ -1442,7 +1442,7 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceStartup
 
 Expected: **compile error** — the policy does not exist.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/EyeCtrl.App/Startup/InstanceStartupPolicy.cs`:
 
@@ -1536,7 +1536,7 @@ public static class InstanceStartupPolicy
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceStartupPolicyTests"
@@ -1544,7 +1544,23 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceStartup
 
 Expected: `Fehler: 0, erfolgreich: 9`.
 
-- [ ] **Step 5: Commit**
+**Correction (2026-08-13): 13 landed, not 9.** Four facts were added beyond the nine sketched
+above, each pinning something the sketch left unasserted:
+
+- `MalformedId_CarriesNoInstanceId_SoNoCallerCanDeriveAPathFromIt` — the implementation returns
+  `InstanceId: null` on the malformed branch, and nothing above asserted it. It matters: a leaked
+  malformed id handed to `AppPaths.Resolve` throws, turning the clean exit-78 refusal into an
+  unhandled startup crash. The record's XML doc now states this too.
+- `RunScoped_CarriesTheTrimmedId_NotTheRawValue` — `Evaluate` returns `TryParseId`'s **trimmed**
+  output, and the id goes on to become a mutex name, a pipe name and a directory segment. A caller
+  that got the raw value back would bind a name containing whitespace.
+- `EveryRefusal_ExplainsItself` — a refusal exits 78 with nothing on screen, so `Reason` is the
+  only diagnostic that exists. This asserts all three refusal branches populate it.
+- `NonRefusals_CarryNoReason` — the other half of the same contract.
+
+Full headless suite: `EyeCtrl.App.Tests` 479 → 492, every other assembly unchanged, `Fehler: 0`.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Startup/InstanceStartupPolicy.cs tests/EyeCtrl.App.Tests/Startup

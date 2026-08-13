@@ -148,7 +148,7 @@ public class SettingsPageSourceCallbackTests
     [Fact]
     public void QuickActions_PresetPicker_AddsAction_AndBackReturnsToList()
     {
-        var rec = new RecordingSettingsPageContext(viewModel: MakeQaViewModel());
+        var rec = new RecordingSettingsPageContext(viewModel: QaTestSupport.MakeViewModel());
         var editor = rec.Context.ViewModel.QuickActionsEditor;
         var src = new QuickActionsPageSource(rec.Context);
 
@@ -169,33 +169,5 @@ public class SettingsPageSourceCallbackTests
         back.OnActivate();
         var firstRow = src.Build().First().Rows[0];
         Check.That(((ToggleSpec)firstRow).Id).IsEqualTo("qa_enabled");
-    }
-
-    // Mirrors QuickActionsPageSourceTests.MakeQaViewModel (re-declared because the two fakes there
-    // are private nested). The editor needs a store + app provider to construct.
-    private static SettingsWindowViewModel MakeQaViewModel()
-    {
-        var settings = new EyeCtrlSettings();
-        var messenger = new WeakReferenceMessenger();
-        var settingsService = new SettingsService("test_qa_callback_" + Guid.NewGuid() + ".json");
-        var settingsVM = new SettingsViewModel(settings, settingsService, messenger);
-        var editor = new SettingsQuickActionsEditorViewModel(
-            new FakeQuickActionsStore(), new FakeInstalledAppProvider());
-        var vm = new SettingsWindowViewModel(settingsVM, editor, messenger, settings.Dwell);
-        editor.Load();   // production calls Load() right after constructing the editor
-        return vm;
-    }
-
-    private sealed class FakeQuickActionsStore : IQuickActionsStore
-    {
-        private readonly List<QuickAction> _actions = new();
-        public IReadOnlyList<QuickAction> LoadAll() => _actions;
-        public void Save(IReadOnlyList<QuickAction> actions) { _actions.Clear(); _actions.AddRange(actions); }
-        public QuickAction? FindById(string id) => _actions.FirstOrDefault(a => a.Id == id);
-    }
-
-    private sealed class FakeInstalledAppProvider : IInstalledAppProvider
-    {
-        public IReadOnlyList<InstalledApp> GetInstalledApps() => Array.Empty<InstalledApp>();
     }
 }

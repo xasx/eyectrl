@@ -249,7 +249,7 @@ public partial class SettingsWindow : OverlayWindow
         // bag carries the view-delegate seam (ShowModal etc.) so sources stay WPF-free.
         _ctx = new SettingsPageContext(
             _settings, _viewModel, _registryService, _modelManagementService,
-            _calibrationService, _messenger, _restartCoordinator, _dwellMs,
+            _calibrationService, _messenger, _restartCoordinator,
             ShowModal, ShowError, ApplyAndSave, RebuildContent, a => Dispatcher.Invoke(a), Close,
             () => System.Windows.Clipboard.GetText() ?? "");
         _cursorSource = new CursorPageSource(_ctx);
@@ -636,7 +636,8 @@ public partial class SettingsWindow : OverlayWindow
     /// Maps a <see cref="ButtonKind"/> to its (fill, label-brush) pair. Extracted and
     /// <c>internal static</c> so a headless test can pin it: <c>ResetBase</c> and <c>DeleteBase</c>
     /// are BOTH <c>Tokens.AccentWarning</c>, so swapping those two arms is invisible on screen —
-    /// only the label-brush differs (surface-dark vs primary), which the test asserts.
+    /// only the label-brush differs: Reset/Delete return the surface-dark brush, Default returns
+    /// null (which <c>DwellButton</c> then renders as the primary text brush). The test asserts this.
     /// </summary>
     internal static (Color Fill, System.Windows.Media.Brush? Text) FillFor(ButtonKind kind) => kind switch
     {

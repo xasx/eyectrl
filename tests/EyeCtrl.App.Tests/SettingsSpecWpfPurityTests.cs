@@ -19,14 +19,16 @@ using Xunit;
 ///
 /// <para>This matches the repo's existing source-guard idiom
 /// (<see cref="RawGeometryLiteralTests"/>, <see cref="ContainerRatioCensusTests"/>): walk the
-/// tree, strip comments so a doc reference is not a false positive, and assert. The guard checks
-/// for the <c>using System.Windows</c> import specifically — the precise thing an accidental WPF
-/// dependency introduces — rather than the substring <c>System.Windows</c>, which appears inside
-/// the <c>SettingsPageContext</c> doc comment as <c>&lt;c&gt;System.Windows.Clipboard&lt;/c&gt;</c>
-/// and would false-positive. <b>Accepted limitation:</b> this catches the common accidental import
-/// but not aliases (<c>using W = System.Windows.Application;</c>) or fully-qualified calls
-/// (<c>System.Windows.Clipboard.GetText()</c>) — the cost of avoiding brittle substring matching.
-/// A green run means "no <c>using System.Windows</c> import," not "no WPF coupling of any form."</para>
+/// tree, strip comments so a doc reference is not a false positive, and assert. The guard matches
+/// the prefix <c>using System.Windows</c>, so it catches the top-level import AND any sub-namespace
+/// import (<c>using System.Windows.Controls;</c>, <c>using System.Windows.Media;</c>, …) — the
+/// precise thing an accidental WPF dependency introduces — rather than the bare substring
+/// <c>System.Windows</c>, which appears inside the <c>SettingsPageContext</c> doc comment as
+/// <c>&lt;c&gt;System.Windows.Clipboard&lt;/c&gt;</c> and would false-positive. <b>Accepted
+/// limitation:</b> this catches imports but not aliases (<c>using W = System.Windows.Application;</c>)
+/// or fully-qualified calls (<c>System.Windows.Clipboard.GetText()</c>) — the cost of avoiding
+/// brittle substring matching. A green run means "no <c>using System.Windows…</c> import," not
+/// "no WPF coupling of any form."</para>
 /// </summary>
 public class SettingsSpecWpfPurityTests
 {

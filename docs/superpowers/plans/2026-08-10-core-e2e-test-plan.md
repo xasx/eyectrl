@@ -1,22 +1,56 @@
-# Core End-to-End Test Plan — Implementation Plan (steps 1–4)
+# Core End-to-End Test Plan — Implementation Plan (steps 1–4), v2
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the infrastructure and the first three end-to-end journeys that prove EyeCtrl dispatches a real click at the coordinate the user looked at — and dispatches nothing when it shouldn't.
+**Goal:** Build the infrastructure and the first three end-to-end journeys that prove EyeCtrl dispatches a real click at the coordinate the user's gaze resolved to — and dispatches nothing when it shouldn't.
 
-**Architecture:** A recording WPF oracle (`EyeCtrl.TestTarget`) runs full-screen and streams every real mouse event it receives over a named pipe to a new xUnit project (`EyeCtrl.E2E.Tests`). A `GazePath` driver moves the OS cursor along a saccade→fixation→hold trajectory so `MouseGazeProvider` feeds the real pipeline a signal shaped like gaze. A safety harness (cursor restore, hard wall-clock cap, physical-Esc abort, single-instance pre-flight) bounds every run. The app under test is launched against a scratch `%APPDATA%` profile so a run can never mutate the user's live configuration.
+**Architecture:** A recording WPF oracle (`EyeCtrl.TestTarget`) runs full-screen and streams every real mouse event it receives over a named pipe to a new xUnit project (`EyeCtrl.E2E.Tests`). A `GazePath` driver moves the OS cursor along a saccade→fixation→hold trajectory so `MouseGazeProvider` feeds the real pipeline a signal shaped like gaze. A safety harness (cursor restore, hard wall-clock cap, physical-Esc abort, single-instance pre-flight, machine-wide run lock) bounds every run. The app under test is launched as a **scoped instance**, so no run can touch machine state belonging to the default instance.
 
 **Tech stack:** .NET 10, WPF, xUnit v3 + NFluent, FlaUI.UIA3, `System.IO.Pipes` + `System.Text.Json`, Win32 `SendInput`/`SetCursorPos`.
 
-**Source spec:** [docs/superpowers/specs/2026-08-08-core-e2e-test-plan-design.md](../specs/2026-08-08-core-e2e-test-plan-design.md)
+**Source spec:** [2026-08-08-core-e2e-test-plan-design.md](../specs/2026-08-08-core-e2e-test-plan-design.md)
+
+**Hard prerequisite:** [2026-08-12-instance-scoping-design.md](../specs/2026-08-12-instance-scoping-design.md) must be implemented first. It **supersedes this plan's original Task 1** and is what makes a run safe to start at all.
 
 ---
 
 ## Scope
 
-This plan implements **build-order steps 1–4** of the spec: the tier-0 spike, `EyeCtrl.TestTarget` + pipe protocol, the `GazePath` driver + safety harness, and journeys **J1, J10, J11**. The remaining tier-1 journeys (J2–J9) and all of tier 2 are deliberately deferred to a follow-up plan, because their assertions depend on two numbers that do not exist until this plan produces a green run: the real coordinate tolerance (Task 7) and whether the alternate-desktop execution mode works (Task 3).
+This plan implements **build-order steps 1–4** of the spec: the tier-0 spike, `EyeCtrl.TestTarget` + pipe protocol, the `GazePath` driver + safety harness, and journeys **J1, J10, J11**. Tier-1 journeys J2–J9 and all of tier 2 are deferred to a follow-up plan, because their assertions depend on two things that do not exist until this plan produces a green run: the real coordinate tolerance (Task 6) and whether the alternate-desktop execution mode works (Task 2).
 
-One addition beyond the spec: **Task 1** introduces an `EYECTRL_APPDATA_DIR` override. Without it the suite runs against the user's live profile, and J1/J4/J5 need different `SelectionMode` values which [GazeEngineAdapter.cs:92](../../../src/EyeCtrl.App/Services/GazeEngineAdapter.cs:92) **persists** — a test run would silently rewrite the settings of the machine's only input method.
+## What changed in v2
+
+v1 was reviewed and blocked. Every finding below was source-verified; the two that changed the plan's meaning are first.
+
+| Finding | Resolution in v2 |
+|---|---|
+| **BLOCKER** — v1's Task 1 (`EYECTRL_APPDATA_DIR`) covered one of seven process-external resources. A launch also deletes `HKCU\…\Run\EyeCtrl` via `SetStartOnBoot` | Task 1 **deleted**. Superseded by the instance-scoping design, now a prerequisite. The harness sets `EYECTRL_INSTANCE_ID` and asserts `instance.json` |
+| **BLOCKER** — J1 asserted a click lands at the held gaze point in `SelectionMode.None`, which the code does not do | **J1 re-targeted to `AutoSelection`.** See §"Why J1 is no longer SelectionMode.None". The `None` defect is filed separately, not tested here |
+| **BLOCKER** — the action menu renders at screen centre by default, but v1 computed the ring around the fixation point | Ring computed around the **clamped display point**, which for the default `ViewPosition.AtCenter` is screen centre. Kept at the default rather than seeded away — it makes the assertion stronger, see below |
+| **BLOCKER** — no parallelism opt-out; journey classes could interleave cursor writes | `[assembly: CollectionBehavior(DisableTestParallelization = true)]` **and** a machine-wide run lock, since the first is process-local only |
+| **BLOCKER** — `CursorGuard` could not deliver the crash-safe restore the spec promised | Claim narrowed to in-process failures, stated honestly; the wall-clock cap remains the real net |
+| **BLOCKER** — target treated as ready when its pipe connected, before its window existed | `TargetHarness.StartAsync` gates on a UIA-visible window before any input is driven |
+| **MAJOR** — ring radius mixed logical and physical pixels, so the maths held only at 100% DPI | Radius converted through `DpiHelper.LogicalToPhysicalX`, matching `ActionMenuViewModel` |
+| **MAJOR** — Task 1's verification gate expected one `%APPDATA%` hit; there are five | Gate deleted with Task 1; the instance-scoping spec's drift guard covers it |
+| **MAJOR** — J11's timing had no margin for late `Task.Delay`, and it never checked the first menu opened | J11 asserts the intermediate state, not only the absence of clicks |
+| **MAJOR** — process cleanup killed and disposed without waiting, hiding strays | Disposers wait for exit and surface a failure to do so |
+| **MINOR** — physical-Esc hook not guaranteed armed at run start | `AbortWatch` construction blocks until the hook is installed |
+
+## Why J1 is no longer `SelectionMode.None`
+
+v1's flagship asserted that a left click in `SelectionMode.None` lands at the point the user held their gaze on. Tracing the pipeline shows it does not, and the reason is structural rather than a tolerance question:
+
+`GazeEngine` wires the centroid tracker to fixation start and end **independently of `InteractionManager` state** — `d.FixationStarted += _startTrackingHandler` and `d.FixationEnded += _centroidTracker.StopTracking` ([GazeEngine.cs:309-310](../../../src/EyeCtrl.Core/GazeEngine.cs:309)) — and no code path sets `SuppressFixation` while the action menu is open (the only writers are calibration, the keyboard, and external dwell). So when gaze travels from the target to a ring button:
+
+1. leaving the 50px fixation radius fires `FixationEnded` → `StopTracking` → `StableCentroid` becomes null;
+2. 300ms on the ring button fires `FixationStarted` → `StartTracking` → the centroid re-accumulates **at the ring button**;
+3. at 600ms the menu dwell completes and [KeyboardInteractionDispatcher.cs:179](../../../src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs:179) reads `StableCentroid` — the ring button's position, roughly a ring-radius away from the target.
+
+`SelectionMode` defaults to `None` and `ManualSelection.Enabled` defaults to `false`, so [SettingsService.cs:131](../../../src/EyeCtrl.Core/Settings/SettingsService.cs:131) does not coerce it away: a fresh install sits in this mode. **That is a product defect and it needs its own spec.** It is out of scope here, and this plan must not encode it as expected behaviour.
+
+J1 therefore uses `SelectionMode.AutoSelection`, where `IsPreciseTarget` is true ([GazeEngineAdapter.cs:198-200](../../../src/EyeCtrl.App/Services/GazeEngineAdapter.cs:198)) and the override never fires. The click lands at `AutoSelectionTarget.CenterPoint` — the snapped centre of a real UIA control. That is a better flagship anyway: the expected coordinate is an objective property of a control the oracle owns, not a statistic computed from a sample history.
+
+**And the menu being elsewhere strengthens it.** `ViewPosition` defaults to `AtCenter`, so `ActionMenuLayoutHelper.CalculateDisplayPoint` renders the ring at screen centre regardless of where the user looked ([ActionMenuLayoutHelper.cs:39-41](../../../src/EyeCtrl.ViewModels/Helpers/ActionMenuLayoutHelper.cs:39)). v1 read that as an obstacle. It is an asset: gaze target, menu, and click destination are three different places, so a click landing on the control proves the point resolution is real rather than "wherever the menu happened to be". v2 keeps the default instead of seeding `AtGaze`.
 
 ## Corrections to the spec, verified against `main` @ `385211f3`
 
@@ -73,23 +107,16 @@ A full J1 costs ≈ 300 + 700 + 600 ms of dwell plus travel and margins ≈ **3.
 
 ## File structure
 
-**Production (Task 1 only):**
-
-| File | Responsibility |
-|---|---|
-| Create `src/EyeCtrl.Core/Services/AppPaths.cs` | single source of truth for the app-data directory + `EYECTRL_APPDATA_DIR` override |
-| Modify `src/EyeCtrl.App/App.xaml.cs:502-503` | use `AppPaths.AppDataDir` |
-| Modify `src/EyeCtrl.App/Services/AppBootstrapper.cs:51` | use `AppPaths.AppDataDir` |
-| Modify `src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs:54` | use `AppPaths.AppDataDir` |
+**Production: none.** v2 touches no production code. Every production change v1 proposed now belongs to the instance-scoping prerequisite, which owns the profile directory, the mutex names, the pipe names and the `HKCU\…\Run` value together rather than one of them alone.
 
 **Recording oracle:**
 
 | File | Responsibility |
 |---|---|
 | `tests/EyeCtrl.TestTarget/EyeCtrl.TestTarget.csproj` | WPF exe, excluded from the tests' xUnit props |
-| `tests/EyeCtrl.TestTarget/TargetPipe.cs` | pipe-name constant + `RecordedEvent` wire record + `WireJson` options |
+| `tests/EyeCtrl.TestTarget/TargetPipe.cs` | pipe-name constant + `RecordedEvent` wire record + JSON options |
 | `tests/EyeCtrl.TestTarget/EventRecorder.cs` | pipe client; queues and streams JSON lines |
-| `tests/EyeCtrl.TestTarget/RecorderWindow.cs` | full-screen window; translates WPF input events to `RecordedEvent` |
+| `tests/EyeCtrl.TestTarget/RecorderWindow.cs` | full-screen window; translates WPF input events to `RecordedEvent`; hosts the UIA-discoverable snap target J1 needs |
 | `tests/EyeCtrl.TestTarget/Program.cs` | manual `Main`; parses `--pipe`, owns the WPF `Application` |
 
 **E2E suite:**
@@ -97,217 +124,26 @@ A full J1 costs ≈ 300 + 700 + 600 ms of dwell plus travel and margins ≈ **3.
 | File | Responsibility |
 |---|---|
 | `tests/EyeCtrl.E2E.Tests/EyeCtrl.E2E.Tests.csproj` | xUnit project, references TestTarget + App |
-| `tests/EyeCtrl.E2E.Tests/Infrastructure/E2EGate.cs` | opt-in env var + single-instance pre-flight |
+| `tests/EyeCtrl.E2E.Tests/Infrastructure/E2EGate.cs` | opt-in env var + single-instance pre-flight; hands out the run lock |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/TargetHarness.cs` | pipe **server**; launches the target, collects events |
-| `tests/EyeCtrl.E2E.Tests/Infrastructure/CursorGuard.cs` | save/restore cursor position |
+| `tests/EyeCtrl.E2E.Tests/Infrastructure/CursorGuard.cs` | save/restore cursor position (in-process failures only) |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/RunDeadline.cs` | hard wall-clock cap; kills registered processes |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/AbortWatch.cs` | low-level hook for a *physical* Esc |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/GazePath.cs` | saccade→hold cursor trajectories |
-| `tests/EyeCtrl.E2E.Tests/Infrastructure/AppHarness.cs` | scratch profile + `EyeCtrl.App --test-mode` lifecycle |
+| `tests/EyeCtrl.E2E.Tests/Infrastructure/AppHarness.cs` | scoped instance id + `--test-mode` lifecycle; asserts `instance.json` |
+| `tests/EyeCtrl.E2E.Tests/Infrastructure/E2ERunLock.cs` | machine-wide `Local\EyeCtrl.E2E.RunLock`, held for a journey |
+| `tests/EyeCtrl.E2E.Tests/AssemblyInfo.cs` | `[assembly: CollectionBehavior(DisableTestParallelization = true)]` |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/ActionMenuGeometry.cs` | ring-position maths mirroring `ActionMenuViewModel` |
-| `tests/EyeCtrl.E2E.Tests/Calibration/CoordinateRoundTripTests.cs` | Task 7 — pins the real tolerance |
+| `tests/EyeCtrl.E2E.Tests/Calibration/CoordinateRoundTripTests.cs` | Task 6 — pins the real tolerance |
 | `tests/EyeCtrl.E2E.Tests/Journeys/LeftClickJourneyTests.cs` | J1 |
 | `tests/EyeCtrl.E2E.Tests/Journeys/SuppressionTests.cs` | J10, J11 |
-| `tests/EyeCtrl.E2E.Tests/GazePathShapeTests.cs` | headless — Task 8 |
+| `tests/EyeCtrl.E2E.Tests/GazePathShapeTests.cs` | headless — Task 7 |
 
-**Throwaway:** `tools/DesktopIsolationSpike/` (Task 3, deleted at the end of that task).
-
----
-
-## Task 1: `EYECTRL_APPDATA_DIR` override
-
-The app-data path is currently `Path.Combine(Environment.GetFolderPath(ApplicationData), "EyeCtrl")` duplicated in three places. Centralise it and let an environment variable redirect it, matching the existing `EYECTRL_MODEL_DIR` / `EYECTRL_SUPERVISOR_EXE` convention.
-
-The resolution is split into a **pure** function (`Resolve`) and a thin property that reads the environment. Only the pure function is tested — mutating `Environment` inside a test would race every other test class in the same xUnit process.
-
-**Files:**
-- Create: `src/EyeCtrl.Core/Services/AppPaths.cs`
-- Test: `tests/EyeCtrl.Core.Tests/Services/AppPathsTests.cs`
-- Modify: `src/EyeCtrl.App/App.xaml.cs:502-503`
-- Modify: `src/EyeCtrl.App/Services/AppBootstrapper.cs:51`
-- Modify: `src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs:54`
-
-- [ ] **Step 1: Write the failing test**
-
-Create `tests/EyeCtrl.Core.Tests/Services/AppPathsTests.cs`:
-
-```csharp
-namespace EyeCtrl.Core.Tests.Services;
-
-using System.IO;
-using EyeCtrl.Core.Services;
-
-public class AppPathsTests
-{
-    [Fact]
-    public void Resolve_WithNoOverride_UsesRoamingAppDataEyeCtrl()
-    {
-        var result = AppPaths.Resolve(null, @"C:\Users\someone\AppData\Roaming");
-
-        Check.That(result).IsEqualTo(Path.Combine(@"C:\Users\someone\AppData\Roaming", "EyeCtrl"));
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void Resolve_WithBlankOverride_FallsBackToRoamingAppData(string blank)
-    {
-        var result = AppPaths.Resolve(blank, @"C:\Roaming");
-
-        Check.That(result).IsEqualTo(Path.Combine(@"C:\Roaming", "EyeCtrl"));
-    }
-
-    [Fact]
-    public void Resolve_WithOverride_UsesItVerbatim()
-    {
-        var result = AppPaths.Resolve(@"C:\scratch\e2e-profile", @"C:\Roaming");
-
-        Check.That(result).IsEqualTo(@"C:\scratch\e2e-profile");
-    }
-
-    [Fact]
-    public void Resolve_WithPaddedOverride_TrimsSurroundingWhitespace()
-    {
-        var result = AppPaths.Resolve("  C:\\scratch\\e2e  ", @"C:\Roaming");
-
-        Check.That(result).IsEqualTo(@"C:\scratch\e2e");
-    }
-
-    [Fact]
-    public void EnvVar_IsTheDocumentedName()
-    {
-        Check.That(AppPaths.EnvVar).IsEqualTo("EYECTRL_APPDATA_DIR");
-    }
-}
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-```bash
-dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AppPathsTests"
-```
-
-Expected: **compile error** — `AppPaths` does not exist. (Test output is German; a build failure surfaces as `Fehler CS0246`.)
-
-- [ ] **Step 3: Write the implementation**
-
-Create `src/EyeCtrl.Core/Services/AppPaths.cs`:
-
-```csharp
-namespace EyeCtrl.Core.Services;
-
-using System.IO;
-
-/// <summary>
-/// Single source of truth for the per-user data directory that holds <c>settings.json</c>,
-/// <c>calibration.json</c>, <c>actions.json</c>, downloaded models and the Serilog logs.
-/// <para>
-/// The <see cref="EnvVar"/> override exists so an end-to-end run can point the app at a
-/// scratch profile. Without it the suite would read — and, via
-/// <c>GazeEngineAdapter.OnSelectionModeChanged</c>, persist changes to — the live profile of
-/// the machine the user drives entirely by eye tracking. Mirrors the existing
-/// <c>EYECTRL_MODEL_DIR</c> and <c>EYECTRL_SUPERVISOR_EXE</c> overrides.
-/// </para>
-/// </summary>
-public static class AppPaths
-{
-    /// <summary>Environment variable that redirects the app data directory.</summary>
-    public const string EnvVar = "EYECTRL_APPDATA_DIR";
-
-    /// <summary>
-    /// Pure resolution, split out from <see cref="AppDataDir"/> so it can be tested without
-    /// mutating process-wide environment state (which would race sibling test classes in the
-    /// same xUnit host).
-    /// </summary>
-    /// <param name="overrideDir">Value of <see cref="EnvVar"/>, or <c>null</c> when unset.</param>
-    /// <param name="roamingAppData">Resolved <c>ApplicationData</c> special folder.</param>
-    public static string Resolve(string? overrideDir, string roamingAppData) =>
-        string.IsNullOrWhiteSpace(overrideDir)
-            ? Path.Combine(roamingAppData, "EyeCtrl")
-            : overrideDir.Trim();
-
-    /// <summary>The app data directory for this process.</summary>
-    public static string AppDataDir => Resolve(
-        Environment.GetEnvironmentVariable(EnvVar),
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
-}
-```
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-```bash
-dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~AppPathsTests"
-```
-
-Expected: `Fehler: 0, erfolgreich: 5`.
-
-- [ ] **Step 5: Replace the three hard-coded call sites**
-
-In `src/EyeCtrl.App/App.xaml.cs`, replace lines 502-503:
-
-```csharp
-        _appDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
-```
-
-with:
-
-```csharp
-        _appDataDir = AppPaths.AppDataDir;
-```
-
-In `src/EyeCtrl.App/Services/AppBootstrapper.cs`, replace line 51:
-
-```csharp
-        var appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
-```
-
-with:
-
-```csharp
-        var appDataDir = AppPaths.AppDataDir;
-```
-
-In `src/EyeCtrl.App/Services/EventCoordinator.cs`, replace line 98:
-
-```csharp
-        _appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
-```
-
-with:
-
-```csharp
-        _appDataDir = AppPaths.AppDataDir;
-```
-
-Add `using EyeCtrl.Core.Services;` to each file's using block if it is not already present (`App.xaml.cs` already has it for `SingleInstanceGuard`; check the other two and add where missing).
-
-- [ ] **Step 6: Verify no hard-coded path survives**
-
-```bash
-grep -rn 'SpecialFolder.ApplicationData' src/ --include=*.cs
-```
-
-Expected: exactly one hit, `src/EyeCtrl.Core/Services/AppPaths.cs`.
-
-- [ ] **Step 7: Run the headless suite**
-
-```bash
-dotnet test --filter "Category!=UI"
-```
-
-Expected: `Fehler: 0` on every assembly. Baseline was 1929 passed / 1 skipped; this task adds 5, so expect **1934 passed / 1 skipped**.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add src/EyeCtrl.Core/Services/AppPaths.cs tests/EyeCtrl.Core.Tests/Services/AppPathsTests.cs src/EyeCtrl.App/App.xaml.cs src/EyeCtrl.App/Services/AppBootstrapper.cs src/EyeCtrl.App/Services/EventCoordinator.cs
-git commit -m "feat(core): centralize app data dir behind an EYECTRL_APPDATA_DIR override"
-```
+**Throwaway:** `tools/DesktopIsolationSpike/` (Task 2, deleted at the end of that task).
 
 ---
 
-## Task 2: `EyeCtrl.E2E.Tests` project and the run gate
+## Task 1: `EyeCtrl.E2E.Tests` project and the run gate
 
 A separate project from `App.Tests`, per the spec: CI runs part of `App.Tests` headless and must not have to filter around a second risk class, and `App.Tests` carries the `Application.Current.Resources` cross-test coupling that makes isolation unreliable.
 
@@ -497,7 +333,130 @@ dotnet test tests/EyeCtrl.E2E.Tests
 
 Expected: `Fehler: 0, erfolgreich: 5`.
 
-- [ ] **Step 7: Confirm the new project is picked up by the headless filter**
+- [ ] **Step 7: Serialise the suite, in-process and machine-wide**
+
+Two mechanisms, because neither alone is sufficient. xUnit's opt-out is process-local, so it stops journey classes in *this* run from interleaving but does nothing about a second `dotnet test` in a sibling worktree. A named mutex covers that but cannot be relied on inside one process, since the same process can acquire it re-entrantly.
+
+Create `tests/EyeCtrl.E2E.Tests/AssemblyInfo.cs`:
+
+```csharp
+using Xunit;
+
+// Journeys drive the real OS cursor. xUnit runs distinct test classes in parallel collections by
+// default, so LeftClickJourneyTests, SuppressionTests and CoordinateRoundTripTests would each be
+// writing SetCursorPos at the same time and reading each other's writes back as gaze. There is no
+// meaningful result from an interleaved run. EyeCtrl.LM.Tests/AssemblyInfo.cs uses the same opt-out
+// for the same class of reason (native tokenizers that are not concurrency-safe).
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+```
+
+Create `tests/EyeCtrl.E2E.Tests/Infrastructure/E2ERunLock.cs`:
+
+```csharp
+namespace EyeCtrl.E2E.Tests.Infrastructure;
+
+using System.Threading;
+
+/// <summary>
+/// Machine-wide lock held for the duration of one cursor-driving journey.
+/// <para>
+/// The instance-scoping design removed the protection that used to make this unnecessary: a second
+/// unscoped app instance exited on the single-instance mutex, whereas two scoped instances both
+/// start silently. Scoping separates their <em>names</em>, not the one OS cursor they share — so
+/// serialisation has to be explicit, and it has to be machine-wide because the colliding runs are
+/// separate processes.
+/// </para>
+/// <para>
+/// Deliberately NOT instance-scoped: the whole point is that every E2E run on this machine contends
+/// for the same lock.
+/// </para>
+/// </summary>
+public sealed class E2ERunLock : IDisposable
+{
+    /// <summary>Unscoped by design — see the class remarks.</summary>
+    public const string MutexName = @"Local\EyeCtrl.E2E.RunLock";
+
+    /// <summary>
+    /// How long to queue behind another run. Must outlast a whole queued journey, not merely a slow
+    /// one: app plus target startup is ~10s and a journey is ~3.5s of dwell, so a short bound would
+    /// silently degrade this into the probe it replaces.
+    /// </summary>
+    public static readonly TimeSpan WaitBudget = TimeSpan.FromMinutes(5);
+
+    private readonly Mutex _mutex;
+    private bool _held;
+
+    private E2ERunLock(Mutex mutex) { _mutex = mutex; _held = true; }
+
+    /// <summary>
+    /// Blocks until this run owns the lock. Expiry is a hard failure, never a skip — a skipped
+    /// journey reads as "nothing to see here", which is exactly wrong when the cause is contention.
+    /// </summary>
+    public static E2ERunLock Acquire()
+    {
+        var mutex = new Mutex(initiallyOwned: false, name: MutexName);
+        bool owned;
+        try
+        {
+            owned = mutex.WaitOne(WaitBudget);
+        }
+        catch (AbandonedMutexException)
+        {
+            // A previous run was force-killed while holding it. Ownership passes to us, which is
+            // the correct outcome — the same treatment SingleInstanceGuard gives an abandoned mutex.
+            owned = true;
+        }
+
+        if (!owned)
+        {
+            mutex.Dispose();
+            throw new TimeoutException(
+                $"Another end-to-end run held {MutexName} for more than {WaitBudget.TotalMinutes:F0} "
+                + "minutes. Check for a stray EyeCtrl.App or testhost process.");
+        }
+
+        return new E2ERunLock(mutex);
+    }
+
+    public void Dispose()
+    {
+        if (_held)
+        {
+            try { _mutex.ReleaseMutex(); } catch { }
+            _held = false;
+        }
+        _mutex.Dispose();
+    }
+}
+```
+
+Add to `tests/EyeCtrl.E2E.Tests/Infrastructure/SafetyHarnessTests.cs`:
+
+```csharp
+    [Fact]
+    public void E2ERunLock_IsUnscoped_SoEveryRunOnThisMachineContends()
+    {
+        Check.That(E2ERunLock.MutexName).IsEqualTo(@"Local\EyeCtrl.E2E.RunLock");
+        Check.That(E2ERunLock.MutexName).Not.Contains("_test_");
+    }
+
+    [Fact]
+    public void E2ERunLock_ReleasesOnDispose_SoASecondAcquireSucceeds()
+    {
+        using (var first = E2ERunLock.Acquire()) { }
+        using var second = E2ERunLock.Acquire();
+
+        Check.That(second).IsNotNull();
+    }
+```
+
+```bash
+dotnet test tests/EyeCtrl.E2E.Tests --filter "FullyQualifiedName~SafetyHarnessTests"
+```
+
+Expected: the two new tests pass headlessly — neither moves the cursor.
+
+- [ ] **Step 8: Confirm the new project is picked up by the headless filter**
 
 ```bash
 dotnet test --filter "Category!=UI"
@@ -505,16 +464,16 @@ dotnet test --filter "Category!=UI"
 
 Expected: 12 assemblies now, `Fehler: 0` on all.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add tests/EyeCtrl.E2E.Tests EyeCtrl.slnx
-git commit -m "test(e2e): add the E2E test project and its opt-in + single-instance gate"
+git commit -m "test(e2e): add the E2E project, its opt-in gate and run serialisation"
 ```
 
 ---
 
-## Task 3: Tier 0 — desktop isolation spike
+## Task 2: Tier 0 — desktop isolation spike
 
 Not a test. A throwaway probe answering three questions: does WPF render on an alternate desktop object (there is no DWM composition there), can UIA read that tree, and does `SendInput` stay contained. The answer decides whether tiers 1–2 run supervised or unattended.
 
@@ -821,7 +780,7 @@ git commit -m "docs(testing): record the tier-0 desktop isolation verdict"
 
 ---
 
-## Task 4: `EyeCtrl.TestTarget` project and the wire contract
+## Task 3: `EyeCtrl.TestTarget` project and the wire contract
 
 The oracle. A WPF app that records every real mouse event it receives — button, screen coordinates, click count, wheel delta — and streams them as JSON lines over a named pipe.
 
@@ -1046,7 +1005,7 @@ namespace EyeCtrl.TestTarget;
 internal static class Program
 {
     [STAThread]
-    private static int Main(string[] args) => 0;   // filled in by Task 5
+    private static int Main(string[] args) => 0;   // filled in by Task 4
 }
 ```
 
@@ -1091,7 +1050,7 @@ git commit -m "test(e2e): add the recording target project and its pipe wire con
 
 ---
 
-## Task 5: The recorder and the harness that reads it
+## Task 4: The recorder and the harness that reads it
 
 The target's window and pipe client, plus `TargetHarness` — the server side that launches it and accumulates events.
 
@@ -1248,6 +1207,17 @@ using System.Windows.Media;
 /// </summary>
 public sealed class RecorderWindow : Window
 {
+    /// <summary>AutomationId of the snap target the harness locates via UIA.</summary>
+    public const string SnapTargetAutomationId = "E2E_Target_SnapButton";
+
+    /// <summary>
+    /// Must equal <c>ClickScript.GazeTarget</c>. Duplicated rather than shared because the target is
+    /// a separate process that must not reference the test assembly; `TargetHarness` asserts the two
+    /// agree at startup so the duplication cannot drift silently.
+    /// </summary>
+    public const int ClickScriptGazeX = 700;
+    public const int ClickScriptGazeY = 450;
+
     private readonly EventRecorder _recorder;
 
     public RecorderWindow(EventRecorder recorder)
@@ -1260,14 +1230,34 @@ public sealed class RecorderWindow : Window
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false;
         Background = new SolidColorBrush(Color.FromRgb(0x10, 0x14, 0x24));
-        Content = new TextBlock
+        AutomationProperties.SetAutomationId(this, "E2E_Target_Window");
+
+        // The snap target. AutoSelection resolves the UIA control under the gaze point and clicks
+        // its centre, so J1's expected coordinate is this button's bounding-rect centre — an
+        // objective property of the oracle rather than a statistic over gaze samples.
+        //
+        // Placed at an absolute position via a Canvas so the test can aim at a point it chooses
+        // (ClickScript.GazeTarget) and know the button is under it. Sized generously: the gaze path
+        // jitters +-1px and the fixation radius is 50px, so a small button would make the journey
+        // fragile for reasons unrelated to what it tests.
+        var snapButton = new Button
+        {
+            Content = "snap target",
+            Width = 260,
+            Height = 160
+        };
+        AutomationProperties.SetAutomationId(snapButton, SnapTargetAutomationId);
+        Canvas.SetLeft(snapButton, ClickScriptGazeX - 130);   // centred on the gaze point
+        Canvas.SetTop(snapButton, ClickScriptGazeY - 80);
+
+        var canvas = new Canvas();
+        canvas.Children.Add(new TextBlock
         {
             Text = "EyeCtrl end-to-end target — recording input",
-            Foreground = Brushes.DimGray,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        AutomationProperties.SetAutomationId(this, "E2E_Target_Window");
+            Foreground = Brushes.DimGray
+        });
+        canvas.Children.Add(snapButton);
+        Content = canvas;
 
         // Preview* so a click is recorded even if some child element would handle it.
         PreviewMouseDown += OnPreviewMouseDown;
@@ -1360,7 +1350,10 @@ using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using EyeCtrl.Core.Models;
 using EyeCtrl.TestTarget;
+using FlaUI.Core.AutomationElements;
+using FlaUI.UIA3;
 
 /// <summary>
 /// Server side of the recording channel: owns the pipe, launches <c>EyeCtrl.TestTarget.exe</c>,
@@ -1379,6 +1372,7 @@ public sealed class TargetHarness : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private Process? _process;
     private Task? _readLoop;
+    private UIA3Automation? _automation;
 
     public string PipeName { get; }
 
@@ -1426,6 +1420,59 @@ public sealed class TargetHarness : IAsyncDisposable
         await waitForConnect;
 
         _readLoop = Task.Run(() => ReadLoopAsync(_cts.Token));
+
+        // A connected pipe does NOT mean a rendered window: EventRecorder connects in its
+        // constructor, before Program builds the Application or shows anything. Returning here
+        // would let a journey drive SendInput while nothing covers the screen — the clicks would
+        // land on the user's real desktop. So gate on the window being visible in the UIA tree,
+        // and on the snap target existing, before any caller can move the cursor.
+        _automation = new UIA3Automation();
+        var window = await WaitForVisibleWindowAsync(timeout);
+        var snap = window.FindFirstDescendant(
+                       cf => cf.ByAutomationId(RecorderWindow.SnapTargetAutomationId))
+                   ?? throw new InvalidOperationException(
+                       "Recording target rendered but its snap button is not in the UIA tree.");
+
+        var rect = snap.BoundingRectangle;
+        SnapTargetCenter = new PhysicalPoint(
+            rect.X + rect.Width / 2.0, rect.Y + rect.Height / 2.0);
+
+        // Drift guard for the duplicated constant: the button is centred on the gaze point the
+        // journey aims at, so if the two ever disagree the snap resolve would miss and J1 would
+        // fail for a reason that has nothing to do with the product.
+        var expected = new PhysicalPoint(RecorderWindow.ClickScriptGazeX, RecorderWindow.ClickScriptGazeY);
+        if (SnapTargetCenter.DistanceTo(expected) > 4)
+            throw new InvalidOperationException(
+                $"Snap target centre {SnapTargetCenter} is not at the scripted gaze point {expected}. "
+                + "RecorderWindow.ClickScriptGaze* and ClickScript.GazeTarget have drifted apart.");
+    }
+
+    /// <summary>
+    /// Centre of the snap target in physical screen pixels — J1's expected click coordinate.
+    /// Populated by <see cref="StartAsync"/>.
+    /// </summary>
+    public PhysicalPoint SnapTargetCenter { get; private set; }
+
+    private async Task<AutomationElement> WaitForVisibleWindowAsync(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                var w = _automation!.GetDesktop()
+                    .FindFirstDescendant(cf => cf.ByAutomationId("E2E_Target_Window"));
+                if (w != null && w.Properties.IsOffscreen.Value == false)
+                    return w;
+            }
+            catch { /* element may be stale mid-transition; retry */ }
+
+            await Task.Delay(150);
+        }
+
+        throw new TimeoutException(
+            $"Recording target window did not become visible within {timeout.TotalSeconds}s. "
+            + "Its pipe connected, so the process is alive but not rendering — do not drive input.");
     }
 
     /// <summary>Snapshot of everything recorded so far.</summary>
@@ -1504,8 +1551,25 @@ public sealed class TargetHarness : IAsyncDisposable
             try { await _readLoop.WaitAsync(TimeSpan.FromSeconds(2)); } catch { }
         }
 
-        try { if (_process is { HasExited: false }) _process.Kill(entireProcessTree: true); } catch { }
+        // Wait for exit rather than fire-and-forget. A killed-but-not-reaped target keeps a
+        // full-screen topmost window on the user's display and holds the pipe name, and a silent
+        // failure here is exactly how a stray process outlives the run unnoticed.
+        try
+        {
+            if (_process is { HasExited: false })
+            {
+                _process.Kill(entireProcessTree: true);
+                if (!_process.WaitForExit(5_000))
+                    throw new InvalidOperationException(
+                        $"Recording target (pid {_process.Id}) did not exit within 5s of being killed. "
+                        + "A full-screen window may still be on screen.");
+            }
+        }
+        catch (InvalidOperationException) { throw; }
+        catch { /* already gone */ }
+
         _process?.Dispose();
+        _automation?.Dispose();
         _server.Dispose();
         _cts.Dispose();
     }
@@ -1539,7 +1603,7 @@ git commit -m "test(e2e): add the recording target window and its pipe harness"
 
 ---
 
-## Task 6: Safety harness
+## Task 5: Safety harness
 
 Three independent guards. The spec is explicit that the wall-clock cap is the actual safety net and the Esc hook is a convenience, because during a supervised run the user has no input at all.
 
@@ -1655,9 +1719,16 @@ namespace EyeCtrl.E2E.Tests.Infrastructure;
 using System.Runtime.InteropServices;
 
 /// <summary>
-/// Saves the cursor position on construction and puts it back on dispose — including when the
-/// test throws, which is when it matters most. The machine's owner drives it by eye tracking;
-/// leaving the cursor parked wherever a failed journey abandoned it is a real cost to them.
+/// Saves the cursor position on construction and puts it back on dispose, including when the test
+/// throws.
+/// <para>
+/// <b>Scope, stated honestly:</b> this covers in-process failures only — a failing assertion, an
+/// exception, a cancelled journey. It does NOT survive a test-host crash, an external kill, or
+/// <see cref="RunDeadline"/> expiry, because all three end the process without running finalisers.
+/// The design spec promised restoration "including on crash or abort"; nothing in-process can
+/// deliver that, and pretending otherwise would misplace trust. The wall-clock cap is the real
+/// safety net: it bounds how long a displaced cursor can persist, rather than preventing it.
+/// </para>
 /// </summary>
 public sealed partial class CursorGuard : IDisposable
 {
@@ -1840,12 +1911,25 @@ public sealed class AbortWatch : IDisposable
     private IntPtr _hook;
     private Dispatcher? _dispatcher;
 
+    private readonly ManualResetEventSlim _armed = new(false);
+
+    /// <summary>
+    /// Blocks until the hook is actually installed. Returning before that would leave a window at
+    /// the start of every run — the most likely moment for a person to reach for Esc — in which the
+    /// abort silently does nothing.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The hook could not be installed.</exception>
     public AbortWatch()
     {
         _proc = OnKey;
         _thread = new Thread(PumpLoop) { IsBackground = true, Name = "e2e-abort-watch" };
         _thread.SetApartmentState(ApartmentState.STA);
         _thread.Start();
+
+        if (!_armed.Wait(TimeSpan.FromSeconds(5)) || _hook == IntPtr.Zero)
+            throw new InvalidOperationException(
+                "Low-level keyboard hook was not installed within 5s; the physical-Esc abort would "
+                + "be inert. Refusing to start a run without it.");
     }
 
     /// <summary>Cancelled when a physical Esc is observed.</summary>
@@ -1860,6 +1944,7 @@ public sealed class AbortWatch : IDisposable
         // times it out and silently unhooks it.
         _dispatcher = Dispatcher.CurrentDispatcher;
         _hook = SetWindowsHookExW(WH_KEYBOARD_LL, _proc, IntPtr.Zero, 0);
+        _armed.Set();          // signal AFTER the hook exists, success or failure
         Dispatcher.Run();
     }
 
@@ -1885,6 +1970,7 @@ public sealed class AbortWatch : IDisposable
         }
         _dispatcher?.InvokeShutdown();
         _thread.Join(TimeSpan.FromSeconds(2));
+        _armed.Dispose();
         _cts.Dispose();
     }
 }
@@ -1917,7 +2003,7 @@ git commit -m "test(e2e): add the cursor, deadline and physical-abort safety har
 
 ---
 
-## Task 7: Pin the real coordinate tolerance
+## Task 6: Pin the real coordinate tolerance
 
 The spec says to start at ±2 physical pixels and pin the real figure from the first green run, and not to encode a tolerance that has not been observed. This task measures it **with EyeCtrl out of the loop** — just `Win32InputSimulator` → `SendInput` → the target — so the number isolates the `MouseCoordinateMapper` 0–65535 round trip from anything the gaze pipeline contributes.
 
@@ -2069,7 +2155,7 @@ git commit -m "test(e2e): pin the measured SendInput coordinate round-trip toler
 
 ---
 
-## Task 8: The `GazePath` driver
+## Task 7: The `GazePath` driver
 
 Replaces `AppFixture.SimulateDwellAt`, which teleports the cursor and holds. A teleport can satisfy `DwellDetector` while producing a centroid unlike anything the real pipeline computes — which would make J1's assertion meaningless, because J1 asserts against `StableCentroid`.
 
@@ -2316,9 +2402,9 @@ git commit -m "test(e2e): add the GazePath saccade-then-hold driver"
 
 ---
 
-## Task 9: `AppHarness` — the app under test, on a scratch profile
+## Task 8: `AppHarness` — the app under test, on a scratch profile
 
-Launches `EyeCtrl.App --test-mode` against a throwaway `%APPDATA%` directory seeded with a settings file the journeys control, so no run can read or write the user's live configuration. This is what Task 1 was for.
+Launches `EyeCtrl.App` as a **scoped instance** — `EYECTRL_INSTANCE_ID` plus the `--test-mode` that scoping requires — with a seeded settings file the journeys control. The instance-scoping prerequisite is what makes this safe: the id scopes the profile, both mutexes, the dwell pipe and the `HKCU\…\Run` value together, and forces supervision off. The harness reads back `instance.json` and refuses to drive input unless every resource reports scoped.
 
 The settings are written explicitly rather than defaulted, because J1 asserts on a specific action-menu ring geometry and that geometry is a function of `CircleSize` and `VisibleActions`.
 
@@ -2334,6 +2420,7 @@ The settings are written explicitly rather than defaulted, because J1 asserts on
 
 ```xml
     <ProjectReference Include="..\..\src\EyeCtrl.ViewModels\EyeCtrl.ViewModels.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
     <ProjectReference Include="..\..\src\EyeCtrl.App\EyeCtrl.App.csproj" />
 ```
 
@@ -2414,7 +2501,9 @@ Create `tests/EyeCtrl.E2E.Tests/Infrastructure/ActionMenuGeometry.cs`:
 namespace EyeCtrl.E2E.Tests.Infrastructure;
 
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Helpers;
 
 /// <summary>
 /// Mirrors the ring layout in <c>ActionMenuViewModel.Receive(ShowActionMenuMessage)</c>
@@ -2427,6 +2516,30 @@ public static class ActionMenuGeometry
     /// <summary>Ring radius in LOGICAL pixels: circle radius + button radius + outer gap.</summary>
     public static double RingRadiusLogical(double circleSize) =>
         circleSize / 2 + UIConstants.ButtonRadius + UIConstants.ActionMenuButtonOuterGap;
+
+    /// <summary>
+    /// Ring radius in PHYSICAL pixels — the space cursor positions live in.
+    /// <para>
+    /// The conversion is not cosmetic: <c>ActionMenuViewModel</c> runs the logical radius through
+    /// <c>DpiHelper.LogicalToPhysicalX</c> before hit-testing (ActionMenuViewModel.cs:59-60), so a
+    /// journey that fed the logical value straight into <c>SetCursorPos</c> would miss the ring
+    /// entirely on any display above 100% scaling. v1 did exactly that.
+    /// </para>
+    /// </summary>
+    public static double RingRadiusPhysical(double circleSize) =>
+        DpiHelper.LogicalToPhysicalX(RingRadiusLogical(circleSize));
+
+    /// <summary>
+    /// Where the ring is actually drawn, mirroring
+    /// <c>ActionMenuLayoutHelper.CalculateDisplayPoint</c>. With the default
+    /// <c>ViewPosition.AtCenter</c> this is screen centre regardless of where the user looked —
+    /// which is why J1 can assert a click on the control while the menu sits somewhere else.
+    /// </summary>
+    public static PhysicalPoint MenuCenter(
+        PhysicalPoint gazePoint, ViewPosition position, double circleSize,
+        double screenWidthPhysical, double screenHeightPhysical) =>
+        ActionMenuLayoutHelper.CalculateDisplayPoint(
+            gazePoint, position, circleSize, screenWidthPhysical, screenHeightPhysical);
 
     /// <summary>
     /// Center of item <paramref name="itemIndex"/> on a ring of <paramref name="itemCount"/>.
@@ -2463,7 +2576,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Windows;
+using EyeCtrl.Contracts;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using FlaUI.Core.AutomationElements;
 using FlaUI.UIA3;
 
@@ -2478,6 +2594,7 @@ using FlaUI.UIA3;
 /// </summary>
 public sealed class AppHarness : IAsyncDisposable
 {
+    private readonly string _instanceId;
     private readonly string _profileDir;
     private UIA3Automation? _automation;
     private Process? _process;
@@ -2488,11 +2605,22 @@ public sealed class AppHarness : IAsyncDisposable
     /// <summary>The <c>CircleSize</c> written into the seeded settings, for ring geometry.</summary>
     public int CircleSize { get; }
 
-    private AppHarness(string profileDir, int circleSize)
+    private AppHarness(string instanceId, string profileDir, int circleSize)
     {
+        _instanceId = instanceId;
         _profileDir = profileDir;
         CircleSize = circleSize;
     }
+
+    /// <summary>The scoped instance id passed to the app.</summary>
+    public string InstanceId => _instanceId;
+
+    /// <summary>
+    /// Where the action-menu ring is drawn, in physical pixels. With the default
+    /// <c>ViewPosition.AtCenter</c> this is screen centre — deliberately NOT the gaze point, so a
+    /// journey asserting a click on the resolved control proves more than "wherever the menu was".
+    /// </summary>
+    public PhysicalPoint MenuCenter { get; private set; }
 
     /// <summary>
     /// Mirrors <c>SettingsService.JsonOptions</c> (SettingsService.cs:27-32) exactly.
@@ -2519,7 +2647,13 @@ public sealed class AppHarness : IAsyncDisposable
     public static AppHarness Create(
         SelectionMode selectionMode = SelectionMode.None, int circleSize = 40)
     {
-        var dir = Path.Combine(Path.GetTempPath(), "eyectrl-e2e-" + Guid.NewGuid().ToString("N"));
+        // The instance id is the single switch: the instance-scoping design derives the profile
+        // directory, both mutex names, the dwell pipe and the HKCU Run value from it, and forces
+        // supervision off. Restricted to the characters InstanceScope validates.
+        var instanceId = "e2e" + Guid.NewGuid().ToString("N")[..12];
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "EyeCtrl", "instances", instanceId);
         Directory.CreateDirectory(dir);
 
         // Only the keys the journeys depend on. SettingsService fills the rest from defaults, and
@@ -2536,7 +2670,7 @@ public sealed class AppHarness : IAsyncDisposable
         File.WriteAllText(Path.Combine(dir, "settings.json"),
             JsonSerializer.Serialize(settings, SeedOptions));
 
-        return new AppHarness(dir, circleSize);
+        return new AppHarness(instanceId, dir, circleSize);
     }
 
     /// <summary>Launches the app and waits for its toolbar window to appear in the UIA tree.</summary>
@@ -2557,13 +2691,65 @@ public sealed class AppHarness : IAsyncDisposable
             Arguments = startPaused ? "--test-mode --paused" : "--test-mode",
             UseShellExecute = false
         };
-        psi.Environment["EYECTRL_APPDATA_DIR"] = _profileDir;
+        psi.Environment[InstanceScope.EnvVar] = _instanceId;
 
         _process = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start EyeCtrl.App.");
 
         await WaitForWindowAsync("Toolbar_Window", timeout);
         await Task.Delay(1000);   // WPF registers child AutomationPeers after the window appears
+
+        // Refuse to hand back a harness that cannot prove it is scoped. The manifest is written
+        // before the app shows anything, so by the time the toolbar exists it must be present.
+        await AssertScopedAsync();
+
+        MenuCenter = ActionMenuGeometry.MenuCenter(
+            new PhysicalPoint(0, 0),          // ignored for AtCenter; supplied for completeness
+            ViewPosition.AtCenter,
+            CircleSize,
+            DpiHelper.LogicalToPhysicalX(SystemParameters.PrimaryScreenWidth),
+            DpiHelper.LogicalToPhysicalY(SystemParameters.PrimaryScreenHeight));
+    }
+
+    /// <summary>
+    /// Reads <c>instance.json</c> and throws unless every resource reports scoped. This is the one
+    /// check standing between a journey and driving real input against unscoped machine state, so a
+    /// missing or partial manifest is fatal rather than a warning.
+    /// </summary>
+    private async Task AssertScopedAsync()
+    {
+        var path = Path.Combine(_profileDir, "instance.json");
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!File.Exists(path) && DateTime.UtcNow < deadline)
+            await Task.Delay(100);
+
+        if (!File.Exists(path))
+            throw new InvalidOperationException(
+                $"No instance.json in {_profileDir}. Either the instance-scoping prerequisite is not "
+                + "implemented, or the app did not honour EYECTRL_INSTANCE_ID. Do not drive input.");
+
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var root = doc.RootElement;
+
+        var reportedId = root.GetProperty("instanceId").GetString();
+        if (reportedId != _instanceId)
+            throw new InvalidOperationException(
+                $"instance.json reports id '{reportedId}', expected '{_instanceId}'.");
+
+        var unscoped = root.GetProperty("resources").EnumerateArray()
+            .Where(r => !r.GetProperty("scoped").GetBoolean())
+            .Select(r => r.GetProperty("name").GetString())
+            .ToArray();
+        if (unscoped.Length > 0)
+            throw new InvalidOperationException(
+                "Unscoped resources reported by instance.json: " + string.Join(", ", unscoped));
+
+        var refused = root.GetProperty("refused").EnumerateArray()
+            .Select(r => r.GetString()).ToArray();
+        if (!refused.Contains("Supervision") || !refused.Contains("SelfRestart"))
+            throw new InvalidOperationException(
+                "instance.json does not report Supervision and SelfRestart as refused: "
+                + string.Join(", ", refused));
     }
 
     /// <summary>The app process, for registration with <see cref="RunDeadline"/>.</summary>
@@ -2601,13 +2787,31 @@ public sealed class AppHarness : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        try { if (_process is { HasExited: false }) _process.Kill(entireProcessTree: true); } catch { }
+        try
+        {
+            if (_process is { HasExited: false })
+            {
+                _process.Kill(entireProcessTree: true);
+                if (!_process.WaitForExit(5_000))
+                    throw new InvalidOperationException(
+                        $"EyeCtrl.App (pid {_process.Id}) did not exit within 5s of being killed. "
+                        + "It may still hold its scoped mutexes and pipe.");
+            }
+        }
+        catch (InvalidOperationException) { throw; }
+        catch { /* already gone */ }
+
         _process?.Dispose();
         _automation?.Dispose();
 
-        // Best-effort: the app may still be flushing Serilog when we kill it.
+        // The app may still be flushing Serilog when killed. Only ever delete the per-instance
+        // directory, never its parent: _profileDir is %APPDATA%\EyeCtrl\instances\<id>, one level
+        // below a directory that holds the live profile.
         await Task.Delay(300);
-        try { Directory.Delete(_profileDir, recursive: true); } catch { }
+        if (_profileDir.Contains(Path.Combine("EyeCtrl", "instances")))
+        {
+            try { Directory.Delete(_profileDir, recursive: true); } catch { }
+        }
     }
 }
 ```
@@ -2666,7 +2870,7 @@ git commit -m "test(e2e): add the app harness with a scratch profile and ring ge
 
 ---
 
-## Task 10: J1 — a left click lands where the user looked
+## Task 9: J1 — a left click lands on the snapped control
 
 The flagship. With `SelectionMode=None`, `IsPreciseTarget` is **false** ([GazeEngineAdapter.cs:198-200](../../../src/EyeCtrl.App/Services/GazeEngineAdapter.cs:198)), so [KeyboardInteractionDispatcher.cs:179](../../../src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs:179) discards the `FixationPoint` the state machine chose and clicks at `GazeEngine.StableCentroid` instead. This is the only mode where the override fires, and whether the two agree is the spec's open question — so the test **asserts against the centroid's proxy (the hold point) and reports the observed offset**, rather than pretending to know the answer.
 
@@ -2705,43 +2909,32 @@ public class LeftClickJourneyTests
     public LeftClickJourneyTests(ITestOutputHelper output) => _output = output;
 
     [Fact]
-    public async Task LeftClick_InSelectionModeNone_LandsAtTheHeldGazePoint()
+    public async Task LeftClick_InAutoSelection_LandsAtTheSnappedControlCentre()
     {
         E2EGate.SkipUnlessRunnable();
 
+        using var runLock = E2ERunLock.Acquire();       // serialises against a concurrent E2E run
         using var cursor = CursorGuard.Capture();
         using var abort = new AbortWatch();
         using var deadline = new RunDeadline(TimeSpan.FromSeconds(60));
 
         await using var target = TargetHarness.Create();
-        await target.StartAsync(TimeSpan.FromSeconds(15));
+        await target.StartAsync(TimeSpan.FromSeconds(15));   // gated on a UIA-visible window
         deadline.Register(target.Process);
 
-        await using var app = AppHarness.Create(SelectionMode.None, circleSize: 40);
+        await using var app = AppHarness.Create(SelectionMode.AutoSelection, circleSize: 40);
         await app.StartAsync(TimeSpan.FromSeconds(30));
         deadline.Register(app.Process);
 
-        var gazeTarget = (X: 700, Y: 450);
-        var ringRadius = ActionMenuGeometry.RingRadiusLogical(app.CircleSize);   // 90 at CircleSize=40
-        var leftClickButton = (X: gazeTarget.X, Y: gazeTarget.Y - (int)ringRadius);
+        // The expected click point is an objective property of a control the oracle owns:
+        // the centre of its snap button, read from the UIA tree. Not a statistic derived from
+        // gaze history — see the plan's "Why J1 is no longer SelectionMode.None".
+        var expected = target.SnapTargetCenter;
+        _output.WriteLine($"snap target centre: ({expected.X:F1}, {expected.Y:F1})");
 
         target.Clear();
-
-        // 1. Look at the target and hold: 300ms fixation + 700ms activation dwell, plus margin.
-        //    The activation button's DWELL TARGET is at the fixation point itself
-        //    (ActivationButtonViewModel.cs:33-37) — gaze holds still, it does not chase the
-        //    button that is DRAWN 75px to the side.
-        await GazePath.PlayAsync(
-            GazePath.SaccadeThenHold((100, 100), gazeTarget, saccadeMs: 210, holdMs: 1200),
-            abort.Token);
-
+        await ClickScript.PlayAsync(app.CircleSize, app.MenuCenter, abort.Token);
         deadline.ThrowIfExpired();
-
-        // 2. Move to the LeftClick ring button (index 0 => straight up) and hold past the
-        //    600ms action-menu dwell.
-        await GazePath.PlayAsync(
-            GazePath.SaccadeThenHold(gazeTarget, leftClickButton, saccadeMs: 150, holdMs: 900),
-            abort.Token);
 
         var events = await target.DrainAsync(quietFor: TimeSpan.FromMilliseconds(700));
 
@@ -2758,18 +2951,28 @@ public class LeftClickJourneyTests
         Check.That(events.Where(e => e.Kind is TargetPipe.Kind.RightDown or TargetPipe.Kind.Wheel))
              .IsEmpty();
 
-        var dx = downs[0].X - gazeTarget.X;
-        var dy = downs[0].Y - gazeTarget.Y;
+        var dx = downs[0].X - expected.X;
+        var dy = downs[0].Y - expected.Y;
         var offset = Math.Sqrt(dx * dx + dy * dy);
 
-        // The click point is GazeEngine.StableCentroid, NOT InteractionManager.FixationPoint
-        // (Coordinators/KeyboardInteractionDispatcher.cs:179). The centroid is the mean of the slow samples during the
-        // hold, so the hold point is its expected value. This number IS the spec's open question
-        // about whether the two agree — record it.
-        _output.WriteLine($"CLICK OFFSET FROM HELD GAZE POINT: {offset:F2}px "
+        // In AutoSelection IsPreciseTarget is true (GazeEngineAdapter.cs:198-200), so
+        // KeyboardInteractionDispatcher.cs:179 uses msg.Point unchanged and the StableCentroid
+        // override never fires. msg.Point is AutoSelectionTarget.CenterPoint
+        // (InteractionManager.cs:135-136) — the snapped control centre.
+        _output.WriteLine($"CLICK OFFSET FROM SNAPPED CONTROL CENTRE: {offset:F2}px "
                           + $"(dx={dx:F2} dy={dy:F2}, tolerance={E2ETolerance.ClickPlacementPx})");
 
         Check.That(offset).IsStrictlyLessThan(E2ETolerance.ClickPlacementPx);
+
+        // The click must NOT have landed on the ring button. Without this, a bug that dispatched
+        // at the menu position instead of the resolved target would still pass the tolerance
+        // check whenever the two happened to be close.
+        var ring = ActionMenuGeometry.ButtonCenter(
+            app.MenuCenter, 0, 8, ActionMenuGeometry.RingRadiusPhysical(app.CircleSize));
+        var distanceFromRing = Math.Sqrt(
+            Math.Pow(downs[0].X - ring.X, 2) + Math.Pow(downs[0].Y - ring.Y, 2));
+        _output.WriteLine($"distance from the ring button: {distanceFromRing:F2}px");
+        Check.That(distanceFromRing).IsStrictlyGreaterThan(E2ETolerance.ClickPlacementPx * 4);
     }
 }
 ```
@@ -2815,7 +3018,7 @@ git commit -m "test(e2e): J1 — prove a left click lands at the held gaze point
 
 ---
 
-## Task 11: J10 — paused dispatches nothing
+## Task 10: J10 — paused dispatches nothing
 
 The spec calls J10 and J11 the highest-value tests in the set and the two that must not be dropped for schedule. A spurious click is worse than a missed one.
 
@@ -2846,25 +3049,44 @@ using EyeCtrl.E2E.Tests.Infrastructure;
 /// </summary>
 public static class ClickScript
 {
-    /// <summary>Where the journey looks and, in the unpaused case, clicks.</summary>
+    /// <summary>
+    /// Where the journey looks. Must land inside the recording target's snap button, because
+    /// AutoSelection resolves the UIA control under the gaze point.
+    /// </summary>
     public static readonly (int X, int Y) GazeTarget = (700, 450);
 
-    /// <summary>Plays the full look-hold-activate-select sequence.</summary>
-    public static async Task PlayAsync(int circleSize, CancellationToken token)
+    /// <summary>
+    /// Plays the full look-hold-activate-select sequence for <c>SelectionMode.AutoSelection</c>.
+    /// </summary>
+    /// <param name="circleSize">Cursor circle diameter; drives the ring radius.</param>
+    /// <param name="menuCenter">
+    /// Where the ring is drawn. With the default <c>ViewPosition.AtCenter</c> this is screen
+    /// centre, NOT the gaze target. Computing the ring around the gaze point was v1's third
+    /// BLOCKER — it would have dwelled empty space on any screen that is not 1400x900.
+    /// </param>
+    public static async Task PlayAsync(
+        int circleSize, PhysicalPoint menuCenter, CancellationToken token)
     {
-        var ringRadius = (int)ActionMenuGeometry.RingRadiusLogical(circleSize);
-        var leftClickButton = (X: GazeTarget.X, Y: GazeTarget.Y - ringRadius);
-
         // Hold on the target: 300ms fixation + 700ms activation dwell + margin. The activation
         // button's dwell target sits at the fixation point (ActivationButtonViewModel.cs:33-37),
-        // so gaze holds still rather than chasing the button drawn 75px to the side.
+        // so gaze holds still rather than chasing the button drawn 75px to the side. During this
+        // hold GazeEngineAdapter resolves the UIA control under the gaze point, which is what
+        // gives InteractionManager its AutoSelectionTarget.
         await GazePath.PlayAsync(
             GazePath.SaccadeThenHold((100, 100), GazeTarget, saccadeMs: 210, holdMs: 1200), token);
 
-        // LeftClick is index 0 on the default 8-item ring => straight up. Hold past the 600ms
-        // action-menu dwell.
+        // LeftClick is index 0 on the default 8-item ring => straight up from the MENU centre.
+        // Radius is PHYSICAL: ActionMenuViewModel hit-tests against DpiHelper-converted values.
+        var ring = ActionMenuGeometry.ButtonCenter(
+            menuCenter, itemIndex: 0, itemCount: 8,
+            ringRadiusPhysical: ActionMenuGeometry.RingRadiusPhysical(circleSize));
+
         await GazePath.PlayAsync(
-            GazePath.SaccadeThenHold(GazeTarget, leftClickButton, saccadeMs: 150, holdMs: 900), token);
+            GazePath.SaccadeThenHold(
+                GazeTarget,
+                ((int)Math.Round(ring.X), (int)Math.Round(ring.Y)),
+                saccadeMs: 150, holdMs: 900),
+            token);
     }
 }
 ```
@@ -2872,9 +3094,8 @@ public static class ClickScript
 Then in `LeftClickJourneyTests.cs`, replace the two `GazePath.PlayAsync(...)` calls and the `gazeTarget`/`ringRadius`/`leftClickButton` locals with:
 
 ```csharp
-        var gazeTarget = ClickScript.GazeTarget;
         target.Clear();
-        await ClickScript.PlayAsync(app.CircleSize, abort.Token);
+        await ClickScript.PlayAsync(app.CircleSize, app.MenuCenter, abort.Token);
         deadline.ThrowIfExpired();
 ```
 
@@ -2913,12 +3134,12 @@ public class SuppressionTests
         await target.StartAsync(TimeSpan.FromSeconds(15));
         deadline.Register(target.Process);
 
-        await using var app = AppHarness.Create(SelectionMode.None, circleSize: 40);
+        await using var app = AppHarness.Create(SelectionMode.AutoSelection, circleSize: 40);
         await app.StartAsync(TimeSpan.FromSeconds(30), startPaused: true);
         deadline.Register(app.Process);
 
         target.Clear();
-        await ClickScript.PlayAsync(app.CircleSize, abort.Token);
+        await ClickScript.PlayAsync(app.CircleSize, app.MenuCenter, abort.Token);
 
         var events = await target.DrainAsync(quietFor: TimeSpan.FromMilliseconds(700));
 
@@ -2942,20 +3163,31 @@ public class SuppressionTests
         await target.StartAsync(TimeSpan.FromSeconds(15));
         deadline.Register(target.Process);
 
-        await using var app = AppHarness.Create(SelectionMode.None, circleSize: 40);
+        await using var app = AppHarness.Create(SelectionMode.AutoSelection, circleSize: 40);
         await app.StartAsync(TimeSpan.FromSeconds(30));
         deadline.Register(app.Process);
 
         target.Clear();
 
-        // Hold for 550ms: past the 300ms FixationDetectionMs (so the activation button appears
-        // and its dwell begins accumulating) but well short of the 700ms ActivationButtonDwellMs
-        // needed to open the action menu. Then look away — 400px is far outside the 50px
-        // FixationRadiusPixels, so OnFixationEnded fires and the state returns to FreeLook.
+        // Hold for 550ms: past the 300ms FixationDetectionMs (so the activation button appears and
+        // its dwell begins accumulating) but well short of the 700ms ActivationButtonDwellMs needed
+        // to open the action menu.
         await GazePath.PlayAsync(
             GazePath.SaccadeThenHold((100, 100), (700, 450), saccadeMs: 210, holdMs: 550), abort.Token);
+
+        // Assert the INTERMEDIATE state, not just the absence of clicks at the end. GazePath awaits
+        // best-effort Task.Delay while MouseGazeProvider timestamps real elapsed time, so on a
+        // loaded box the 550ms hold can overrun into the 700ms dwell and open the menu. Opening a
+        // menu sends no input (InteractionManager.cs:85-110), so the final zero-events assertion
+        // would still pass — and J11 would report success while having tested nothing.
+        Check.That(app.FindWindow("ActionMenu_Window")).IsNull();
+        Check.That(app.FindWindow("ActivationButton_Window")).IsNotNull();
+
+        // Now look away. 400px is far outside the 50px FixationRadiusPixels, so OnFixationEnded
+        // fires and the state returns to FreeLook with the activation dwell abandoned. The second
+        // hold is short enough not to complete a fresh activation at the new point.
         await GazePath.PlayAsync(
-            GazePath.SaccadeThenHold((700, 450), (200, 850), saccadeMs: 210, holdMs: 900), abort.Token);
+            GazePath.SaccadeThenHold((700, 450), (200, 850), saccadeMs: 210, holdMs: 500), abort.Token);
 
         var events = await target.DrainAsync(quietFor: TimeSpan.FromMilliseconds(700));
 
@@ -3007,7 +3239,7 @@ git commit -m "test(e2e): J10 and J11 — paused and abandoned fixations dispatc
 
 ---
 
-## Task 12: Document how to run it
+## Task 11: Document how to run it
 
 **Files:**
 - Modify: `AGENTS.md`
@@ -3080,5 +3312,6 @@ Carried to a follow-up plan once the tolerance and execution mode are known:
 
 - **J2–J9** — the centroid-vs-menu-traversal test, right/double click, `AutoSelection` snapping, `ManualSelection` precise dwell, drag, joystick scroll, discrete scroll, keyboard. J9 also needs keyboard events added to `RecordedEvent`, which the `Kind` discriminator makes additive.
 - **All of tier 2** — the nine breadth smokes (toolbar, keyboard→text, settings persistence round-trip, zoom entry, quick actions, eye care, adaptation, pause, tray).
-- **Unattended execution** — gated on Task 3's verdict. If the alternate desktop does not work, every run stays supervised and needs an explicit go-ahead, which is the assumption baked into this plan.
+- **Unattended execution** — gated on Task 2's verdict. If the alternate desktop does not work, every run stays supervised and needs an explicit go-ahead, which is the assumption baked into this plan.
 - **Horizontal wheel recording** — `WM_MOUSEHWHEEL` needs an `HwndSource` hook that WPF does not surface. Only J8 needs it.
+- **The `SelectionMode.None` centroid defect.** Established statically during v1's review, not tested here: in `None`, leaving the target's fixation tears down the centroid and rebuilds it on the ring button, so the click lands roughly a ring-radius from where the user looked. `None` is the default on a fresh install. This needs its own spec and fix; a characterization test recording current behaviour belongs with that work, not with a plan whose flagship asserts correct behaviour.

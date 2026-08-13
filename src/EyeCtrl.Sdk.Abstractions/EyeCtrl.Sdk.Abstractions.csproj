@@ -12,4 +12,9 @@
   <ItemGroup>
     <ProjectReference Include="..\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- DwellHead.ResetForTests: process-wide static state needs a reset hook the shipped surface
+         must not expose. MSBuild item form, matching EyeCtrl.Supervisor. -->
+    <InternalsVisibleTo Include="EyeCtrl.Sdk.Abstractions.Tests" />
+  </ItemGroup>
 </Project>

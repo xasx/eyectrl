@@ -14,10 +14,26 @@ using EyeCtrl.Contracts;
 /// </summary>
 public sealed class DwellClient : IDisposable
 {
-    private const string PipeName = DwellPipe.Name;
+    // Latched once by DwellHeadCore and read from this field thereafter. NOT read from
+    // DwellHead.PipeName inside the reconnect loop: doing that would make a late set apply on the
+    // next reconnect, contradicting the latch contract.
+    private readonly string _pipeName;
     private const int ConnectTimeoutMs = 2000;
     private const int MinBackoffMs = 1000;
     private const int MaxBackoffMs = 30000;
+
+    /// <summary>
+    /// Creates a client for a specific pipe.
+    /// </summary>
+    /// <param name="pipeName">
+    /// Pipe to connect to. Defaults to <see cref="DwellPipe.Name"/>; <c>DwellHeadCore</c> passes the
+    /// latched <see cref="DwellHead.PipeName"/>. Optional because <c>DwellClientTests</c> constructs
+    /// this type bare, and because a shipped assembly should not break consumers on a name change.
+    /// </param>
+    public DwellClient(string? pipeName = null)
+    {
+        _pipeName = pipeName ?? DwellPipe.Name;
+    }
 
     private readonly ConcurrentDictionary<string, IDwellElementAdapter> _adapters = new();
     private readonly OutboundRectTracker _tracker = new();
@@ -77,7 +93,7 @@ public sealed class DwellClient : IDisposable
         {
             try
             {
-                _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                _pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
                 await _pipe.ConnectAsync(ConnectTimeoutMs, token);
                 lock (_writeLock)
                     _writer = new StreamWriter(_pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };

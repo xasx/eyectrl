@@ -2425,7 +2425,7 @@ git commit -m "feat(app): scope startup, force supervision off, verify and recor
 - Modify: `src/EyeCtrl.Sdk.Abstractions/DwellHeadCore.cs:9-16`
 - Test: `tests/EyeCtrl.Sdk.Abstractions.Tests/DwellHeadTests.cs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/EyeCtrl.Sdk.Abstractions.Tests/DwellHeadTests.cs`:
 
@@ -2519,7 +2519,7 @@ public class DwellHeadTests : IDisposable
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 ```bash
 dotnet test tests/EyeCtrl.Sdk.Abstractions.Tests --filter "FullyQualifiedName~DwellHeadTests"
@@ -2527,7 +2527,7 @@ dotnet test tests/EyeCtrl.Sdk.Abstractions.Tests --filter "FullyQualifiedName~Dw
 
 Expected: **compile error** — `DwellHead` does not exist.
 
-- [ ] **Step 3: Write `DwellHead`**
+- [x] **Step 3: Write `DwellHead`**
 
 Create `src/EyeCtrl.Sdk.Abstractions/DwellHead.cs`:
 
@@ -2619,7 +2619,7 @@ Add to `src/EyeCtrl.Sdk.Abstractions/EyeCtrl.Sdk.Abstractions.csproj` so the tes
   </ItemGroup>
 ```
 
-- [ ] **Step 4: Make `DwellClient` take the name**
+- [x] **Step 4: Make `DwellClient` take the name**
 
 **`DwellClient` has no explicit constructor** — only the implicit parameterless one (verified). So
 this *adds* a constructor rather than extending one, and the parameter must be optional: a required
@@ -2652,7 +2652,7 @@ constructor:
 
 Then replace the use at `:80` with `_pipeName`.
 
-- [ ] **Step 5: Move `Client` construction into `EnsureStarted`**
+- [x] **Step 5: Move `Client` construction into `EnsureStarted`**
 
 `src/EyeCtrl.Sdk.Abstractions/DwellHeadCore.cs:9` is a field initialiser, so the client exists before
 any name could be passed.
@@ -2692,7 +2692,7 @@ grep -rn "\.Client" src/EyeCtrl.Sdk.Wpf src/EyeCtrl.Sdk.WinUI --include=*.cs
 
 Expected: all uses in `Dwell.cs` follow the `EnsureStarted` call in the `Enabled` property-changed handler. If any precedes it, that call site needs `EnsureStarted()` first — do not paper over it by reverting to eager construction.
 
-- [ ] **Step 6: Run to verify**
+- [x] **Step 6: Run to verify**
 
 ```bash
 dotnet test tests/EyeCtrl.Sdk.Abstractions.Tests
@@ -2701,6 +2701,27 @@ dotnet test tests/EyeCtrl.Sdk.WinUI.Tests
 ```
 
 Expected: `Fehler: 0` for all three; **7** new tests in the first (seven `[Fact]` methods, no theories).
+
+**Correction (2026-08-13): 9 landed, not 7.** Two facts were added:
+
+- `DoesNotReadTheEnvironment` — the class doc asserts this in prose and it is the SDK's single most
+  consequential design choice; nothing tested it. It sets `EYECTRL_INSTANCE_ID` and confirms
+  `PipeName` is still `DwellPipe.Name`. Without it, "the SDK reads the environment" is a one-line
+  change that no test would notice, and the symptom in the field is dwell silently not working —
+  `DwellClient` swallows every connection failure.
+- `LatchWithoutAnySet_YieldsTheProductionName` — the default-instance path. Every other test sets a
+  name first, so nothing covered "host configures nothing at all", which is the overwhelmingly
+  common case.
+
+Result: `Sdk.Abstractions.Tests` 18 → 27, `Sdk.Wpf.Tests` and `Sdk.WinUI.Tests` unchanged at 3.
+
+**Step 5's `.Client` audit passed, and the reason is worth recording** because it is not obvious
+from the grep alone. In both `Dwell.cs` files the accesses are in `OnLoaded`, `OnUnloaded` and the
+`CreateGroup` timer tick, none of which is called directly. `OnLoaded` runs only via `Register`,
+which calls `EnsureStarted` first. `OnUnloaded` runs only via `Unregister`, which returns early
+unless `EntryProperty` is set — and that property is assigned only inside `Register`, after
+`EnsureStarted`. The timer's group is created inside `OnLoaded`. So the null-`Client` throw is
+unreachable from the shipped heads.
 
 `Sdk.Abstractions.Tests` has no assembly-level `DisableTestParallelization`, and `DwellHead` is
 process-wide static state — so `DwellHeadTests` can race any sibling class that starts a head. The
@@ -2716,7 +2737,7 @@ using Xunit;
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/EyeCtrl.Sdk.Abstractions tests/EyeCtrl.Sdk.Abstractions.Tests

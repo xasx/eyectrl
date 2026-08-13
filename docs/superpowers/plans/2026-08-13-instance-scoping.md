@@ -23,8 +23,8 @@ not redo them.
 
 - `InstanceScope` in Contracts, `AppPaths` in Core, and effective-name getters plus injectable names
   on the four receivers.
-- Verified: solution builds with 0 errors; full headless suite 1962 passed / 1 skipped /
-  `Fehler: 0` across 12 assemblies; 40 new tests (23 + 9 + 5 in Core, 3 in Platform).
+- Verified: solution builds with 0 errors; full headless suite `Fehler: 0` across 12 assemblies;
+  40 new tests (23 + 9 + 5 in Core, 3 in Platform).
 
 **Tasks 4-12 are corrected but NOT implemented.** They were revised in `dd0128b8` against a plan
 review plus what implementing Tasks 1-3 established. Nothing in them has met a compiler.
@@ -35,7 +35,29 @@ Start at **Task 4**. Re-run the baseline first so you can attribute any failure:
 dotnet test --filter "Category!=UI"
 ```
 
-Expected: `Fehler: 0` on all 12 assemblies, 1962 passed, 1 skipped.
+Expected: `Fehler: 0` on all 12 assemblies, **2227 passed, 1 skipped**.
+
+Per-assembly floor after Tasks 1-3, measured 2026-08-13 — compare against this, not against a
+single total, because a filter that silently skips an assembly still sums to something plausible:
+
+| Assembly | Passed |
+|---|---|
+| `EyeCtrl.Core.Tests` | 1115 (+1 skipped) |
+| `EyeCtrl.App.Tests` | 465 |
+| `EyeCtrl.ViewModels.Tests` | 265 |
+| `EyeCtrl.Controls.Tests` | 113 |
+| `EyeCtrl.Platform.Tests` | 85 |
+| `EyeCtrl.Supervisor.Tests` | 78 |
+| `EyeCtrl.EyeCare.Tests` | 48 |
+| `EyeCtrl.LM.Tests` | 20 |
+| `EyeCtrl.Sdk.Abstractions.Tests` | 18 |
+| `EyeCtrl.Architecture.Tests` | 14 |
+| `EyeCtrl.Sdk.Wpf.Tests` | 3 |
+| `EyeCtrl.Sdk.WinUI.Tests` | 3 |
+
+> **Correction (2026-08-13).** This header previously claimed 1962 passed. That number never
+> matched the tree — a re-run at `7db2cd6e`, before any Task 4 edit, measured 2227 across the same
+> 12 assemblies. The counts above are from that run.
 
 **Task 8 is the one to be most careful with.** It reorders `OnStartup`, moves two constructions,
 changes `AppBootstrapper`'s signature and touches five test call sites. Its corrections are the
@@ -830,9 +852,9 @@ The spec's round-2 BLOCKER. `SignalShuttingDown` dials the pipe with no publishi
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Services/HeartbeatPublisher.cs:138-151`
-- Modify: `tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs:46-95`
+- Modify: `tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs:45-108`
 
-- [ ] **Step 1: Write the failing regression test**
+- [x] **Step 1: Write the failing regression test**
 
 Add to `tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs`:
 
@@ -872,7 +894,7 @@ Add to `tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs`:
     }
 ```
 
-- [ ] **Step 2: Add `IsPublishing` only, then run to verify the new test fails**
+- [x] **Step 2: Add `IsPublishing` only, then run to verify the new test fails**
 
 Adding the property and the guard together would mean never observing the regression test red,
 which is the point of writing it. So add **only** the property first, beside the `_publishing` field
@@ -893,7 +915,11 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~HeartbeatPublis
 Expected: `SignalShuttingDown_SendsNothing_WhenNotPublishing` **fails** — a connection does arrive,
 which is the bug. `IsPublishing_IsFalseWhenNotSupervised_AndTrueAfterEnable` passes.
 
-- [ ] **Step 3: Guard the send**
+- [x] **Step 3: Guard the send**
+
+Also correct the method's own doc comment, which the plan overlooked: it claims "If not supervised
+(no server), this is a bounded no-op". That was the false premise behind the bug — it holds only
+when no server exists. Leaving it in place would leave the next reader with the same wrong model.
 
 In `SignalShuttingDown`, guard **only the send**:
 
@@ -922,9 +948,9 @@ In `SignalShuttingDown`, guard **only the send**:
     }
 ```
 
-- [ ] **Step 4: Fix the one existing test that pins the bug**
+- [x] **Step 4: Fix the one existing test that pins the bug**
 
-`SignalShuttingDown_DeliversFinalPayload_EvenUnderBlockingSyncContext` (`:46-95`) constructs with `supervised: false` and asserts delivery. It is the F2 regression guard for a dispatcher-strand bug, so its delivery assertion must survive. Add one line before `SignalShuttingDown`:
+`SignalShuttingDown_DeliversFinalPayload_EvenUnderBlockingSyncContext` (`:45-108`) constructs with `supervised: false` and asserts delivery. It is the F2 regression guard for a dispatcher-strand bug, so its delivery assertion must survive. Add one line before `SignalShuttingDown`:
 
 ```csharp
         using var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
@@ -937,7 +963,7 @@ The writer loop this starts parks on `_sendSignal.WaitAsync` with nothing stampe
 `HeartbeatRestartPayloadTests.SignalShuttingDown_*` tests: they already use `supervised: true`
 (`:174`, `:188`) and are unaffected.
 
-- [ ] **Step 5: Run to verify**
+- [x] **Step 5: Run to verify**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~HeartbeatPublisherTests"
@@ -946,7 +972,10 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~HeartbeatRestar
 
 Expected: `Fehler: 0` for both. The second should be unchanged from baseline.
 
-- [ ] **Step 6: Commit**
+Then the FULL headless suite, not just this filter. Result: `EyeCtrl.App.Tests` 465 → 467, every
+other assembly unchanged, `Fehler: 0` on all 12.
+
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Services/HeartbeatPublisher.cs tests/EyeCtrl.App.Tests/Services/HeartbeatPublisherTests.cs

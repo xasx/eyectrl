@@ -103,6 +103,12 @@ public sealed class HeartbeatPublisher : IDisposable
     /// <summary>Last stamped payload (testability + diagnostics). <c>null</c> until first <see cref="Stamp"/>.</summary>
     public HeartbeatPayload? CurrentPayload => _pending;
 
+    /// <summary>
+    /// Whether this publisher is permitted to put anything on the wire. Exposed for the app's
+    /// phase-2 instance-scope check, which asserts a scoped instance never publishes.
+    /// </summary>
+    public bool IsPublishing => Volatile.Read(ref _publishing) != 0;
+
     /// <summary>Called on the GAZE thread (GazeEngine.GazeSampled) on every sample, valid or invalid.</summary>
     public void OnGazeSample() => Interlocked.Exchange(ref _lastFrameTicks, DateTime.UtcNow.Ticks);
 
@@ -133,7 +139,11 @@ public sealed class HeartbeatPublisher : IDisposable
     /// signal the supervisor reads inside its 5s deadline). Call BEFORE disposing other services in
     /// OnExit/OnSessionEnding, and BEFORE Dispose (which cancels the writer loop). F2: this performs
     /// a SYNCHRONOUS bounded send (not via the async loop) so that a subsequent Dispose/CTS-cancel
-    /// cannot abort the final payload mid-flight. If not supervised (no server), this is a bounded no-op.
+    /// cannot abort the final payload mid-flight. When not publishing (<see cref="IsPublishing"/> is
+    /// <c>false</c>) the payload is still stamped for diagnostics but nothing goes on the wire — the
+    /// old wording, "if not supervised (no server), this is a bounded no-op", only held when no
+    /// server existed, and a user's own supervisor listening on <c>eyectrl_watch</c> would otherwise
+    /// receive an unsupervised instance's clean-exit signal and apply it to the app it supervises.
     /// </summary>
     public void SignalShuttingDown(bool restartRequested = false)
     {
@@ -143,6 +153,17 @@ public sealed class HeartbeatPublisher : IDisposable
             _pid, _startedAtUtc, false, false, lastFrame,
             ShuttingDown: true, RestartRequested: restartRequested);
         _pending = final;
+
+        // Guard the SEND, not the method. An early return here would skip _shuttingDown and
+        // _pending above and silently empty CurrentPayload, which exists for diagnostics and is
+        // asserted by SignalShuttingDown_StampsFinalPayload.
+        //
+        // The guard itself: this method's doc comment claimed "if not supervised (no server), this
+        // is a bounded no-op", which holds only when no server exists. When the user's own
+        // supervisor IS listening, an unsupervised instance's exit reaches it. TryReachSupervisor
+        // has always had this check; this method never did.
+        if (!IsPublishing) return;
+
         // Synchronous bounded flush — a fresh CancellationTokenSource (NOT _cts) so Dispose's cancel
         // can't race it. If the send can't complete in 2s (no server / slow server), give up; the
         // supervisor's heartbeat-stale path will then treat it as a crash, which is the safe default.

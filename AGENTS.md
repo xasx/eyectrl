@@ -128,6 +128,16 @@ Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
 - **Resource files** (JSON layouts, dictionaries, emojis, `click.wav`) use `<ExcludeFromSingleFile>true</ExcludeFromSingleFile>` — they must remain as loose files alongside the single-file exe.
 - **Benchmarks** live in `benchmarks/EyeCtrl.Benchmarks/` and use BenchmarkDotNet. Not part of the solution file (standalone project). The generator correctness tests (`tests/EyeCtrl.Benchmarks.Tests`) are run in CI via a dedicated `dotnet test` step that references the benchmark project directly, without adding it to the solution. See the Benchmarks section below for run instructions.
 - **Dictionary generation**: `tools/gen_dicts.py` generates word frequency dictionaries. Run manually when dictionaries need updating.
+- **`EYECTRL_INSTANCE_ID`** scopes every process-external name a self-contained app instance binds:
+  the profile directory (`%APPDATA%\EyeCtrl\instances\<id>`), the single-instance and settings-writer
+  mutexes, the dwell pipe, and the `HKCU\…\Run` value. It **requires `--test-mode`** — scoping
+  separates names, not the eye tracker, the tray or the overlays — and a scoped instance refuses
+  supervision and self-restart. Startup fails closed with exit code 78 rather than running
+  half-scoped, and writes `instance.json` into the profile so a harness can verify it. The rule lives
+  in `EyeCtrl.Contracts.InstanceScope`; `EYECTRL_APPDATA_DIR` remains an explicit path override that
+  wins over both. The SDK does **not** read the variable — a host names the dwell pipe via
+  `DwellHead.PipeName`, latched at first use. `InstanceScopeDriftTests` fails the build when a new
+  process-external side effect appears unscoped and un-allow-listed.
 
 ## Benchmarks
 

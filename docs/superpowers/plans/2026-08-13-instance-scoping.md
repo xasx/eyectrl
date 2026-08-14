@@ -26,6 +26,22 @@ not redo them.
 - Verified: solution builds with 0 errors; full headless suite `Fehler: 0` across 12 assemblies;
   40 new tests (23 + 9 + 5 in Core, 3 in Platform).
 
+**Tasks 4-12 are now implemented, committed and green** (2026-08-14). Every task was verified
+against the FULL headless suite, not just its own filter. Final state: **2288 passed, 1 skipped,
+`Fehler: 0` across 12 assemblies**, plus 3 opt-in `Category=UI` integration tests run once with an
+explicit go-ahead and a five-minute kill watchdog.
+
+Growth by assembly from the Tasks 1-3 floor: `App.Tests` 465 → 512, `Sdk.Abstractions.Tests`
+18 → 27, `Supervisor.Tests` 78 → 82, `Architecture.Tests` 14 → 15. Everything else unchanged.
+
+Each task's own section carries a **Corrections** block recording where the plan's code did not
+match the tree. Every task from 4 onward needed at least one; the load-bearing ones were Task 8's
+self-contradictory `KeyboardCoordinator` instruction, Task 8's wrong resolver expectation (which
+invalidated a Task 11 allow-list key), and Task 12's fixed-delay startup wait.
+
+<details>
+<summary>Historical: the state this header described before implementation</summary>
+
 **Tasks 4-12 are corrected but NOT implemented.** They were revised in `dd0128b8` against a plan
 review plus what implementing Tasks 1-3 established. Nothing in them has met a compiler.
 
@@ -58,6 +74,14 @@ single total, because a filter that silently skips an assembly still sums to som
 > **Correction (2026-08-13).** This header previously claimed 1962 passed. That number never
 > matched the tree — a re-run at `7db2cd6e`, before any Task 4 edit, measured 2227 across the same
 > 12 assemblies. The counts above are from that run.
+
+</details>
+
+> **Toolchain note (2026-08-14).** The .NET SDK was reinstalled partway through Task 11, moving from
+> `10.0.102` to `10.0.400`. `global.json` pins `10.0.102` with `rollForward: latestFeature`, which
+> resolves it — no pin change was needed. The baseline was re-measured on the new SDK before work
+> resumed and reproduced every per-assembly count exactly, so nothing in this plan's numbers is
+> toolchain-dependent.
 
 **Task 8 is the one to be most careful with.** It reorders `OnStartup`, moves two constructions,
 changes `AppBootstrapper`'s signature and touches five test call sites. Its corrections are the
@@ -3275,7 +3299,7 @@ git commit -m "test(app): add a Roslyn drift guard for process-external side eff
 - Modify: `AGENTS.md`
 - Modify: `docs/superpowers/specs/2026-08-12-instance-scoping-design.md`
 
-- [ ] **Step 1: Write the integration test**
+- [x] **Step 1: Write the integration test**
 
 Create `tests/EyeCtrl.App.Tests/Tests/InstanceScopingIntegrationTests.cs`:
 
@@ -3388,7 +3412,7 @@ public class InstanceScopingIntegrationTests
 }
 ```
 
-- [ ] **Step 2: Ask before running it**
+- [x] **Step 2: Ask before running it**
 
 **STOP.** This launches the real app twice and shows its overlays. It does not move the cursor. Ask for an explicit go-ahead, and confirm no other `EyeCtrl.App` is running — the second test asserts an exit code, and a default-instance collision would confuse it.
 
@@ -3398,7 +3422,28 @@ $env:EYECTRL_UI_TESTS=1; dotnet test tests/EyeCtrl.App.Tests --filter "FullyQual
 
 Expected: `Fehler: 0, erfolgreich: 2`.
 
-- [ ] **Step 3: Add the graceful-exit heartbeat assertion**
+**Result (2026-08-14): `Fehler: 0, erfolgreich: 3` in 18s** — three tests, because Step 3's
+graceful-exit test belongs to the same class. Go-ahead was given with a standing safeguard: a
+five-minute watchdog armed *before* the first launch, killing any surviving `EyeCtrl.App` and
+`testhost`. It expired with nothing to kill.
+
+Pre-flight and post-flight, both clean:
+
+| Check | Before | After |
+|---|---|---|
+| `EyeCtrl.App` / `EyeCtrl.Supervisor` / `testhost` | none | none |
+| `eyectrl_watch` / `eyectrl_dwell` pipes bound | none | none |
+| `%APPDATA%\EyeCtrl\instances\*` | — | empty (teardown worked) |
+| `HKCU\…\Run` `EyeCtrl*` values | none | none (no `EyeCtrl_it…` leftovers) |
+
+> **One honest caveat about the headline assertion.** On this machine the live
+> `HKCU\…\Run\EyeCtrl` value does not exist, so
+> `ScopedLaunch_…_LeavesTheLiveRunValueUntouched` compared `null` to `null`. The test is correct and
+> would catch the original regression on a machine with autostart enabled, but on this run it did
+> not exercise the interesting case. Anyone re-running this to *demonstrate* the fix should enable
+> "start on boot" first.
+
+- [x] **Step 3: Add the graceful-exit heartbeat assertion**
 
 The spec's integration requirement includes "a graceful exit sends nothing to `eyectrl_watch`", and
 the test above cannot cover it: it `Kill()`s the process, so `OnExit` and `SignalShuttingDown` never
@@ -3454,7 +3499,29 @@ Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
 Also add profile cleanup to `ScopedLaunchWithoutTestMode_RefusesWithExitCode78` — it refuses before
 writing a manifest, but `InitializeInstanceAndLogging` has already created the log directory.
 
-- [ ] **Step 4: Document it in `AGENTS.md`**
+### Corrections (2026-08-14)
+
+**(1) The fixed `await Task.Delay(8s)` "let it finish starting" was replaced by waiting on the
+manifest.** `instance.json` is written at the end of phase 2, which is exactly the point after which
+`SignalShuttingDown` could run — so the file is a deterministic signal for the thing the delay was
+guessing at. A fixed sleep is both slower on a fast box and flaky on a loaded one, and on a machine
+where startup exceeds 8s it would call `CloseMainWindow()` before a main window existed, making the
+test pass for the wrong reason.
+
+**(2) The graceful-exit test binds `HeartbeatPublisher.DefaultPipeName`, not the literal
+`"eyectrl_watch"`.** The plan's snippet hard-codes the string, which is a second place for the
+production name to live; if the app's constant ever changed, the test would bind an unused name and
+pass vacuously forever. That needs `using EyeCtrl.App.Services;`, which the snippet's import list
+omits.
+
+**(3) Added an assertion that all five resource names are present.** "No resource has
+`scoped: false`" is satisfied by an **empty** resources array, so on its own it cannot distinguish
+"everything scoped" from "nothing reported".
+
+**(4) `TestContext.Current.CancellationToken` on the delays and file reads**, or the xUnit1051
+analyzer warns on every one.
+
+- [x] **Step 4: Document it in `AGENTS.md`**
 
 Under `## Dependencies & Quirks`:
 
@@ -3470,7 +3537,7 @@ Under `## Dependencies & Quirks`:
   unscoped and un-allow-listed.
 ```
 
-- [ ] **Step 5: Mark the spec implemented**
+- [x] **Step 5: Mark the spec implemented**
 
 Change the spec's `**Status:**` line to:
 
@@ -3478,7 +3545,7 @@ Change the spec's `**Status:**` line to:
 **Status:** Implemented (see `docs/superpowers/plans/2026-08-13-instance-scoping.md`).
 ```
 
-- [ ] **Step 6: Full verification**
+- [x] **Step 6: Full verification**
 
 ```bash
 dotnet test --filter "Category!=UI"
@@ -3486,7 +3553,7 @@ dotnet test --filter "Category!=UI"
 
 Expected: `Fehler: 0` on every assembly. Count `Fehler <FQN>` lines to confirm — the output is German and grepping for "Failed" reports green on a red run.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tests/EyeCtrl.App.Tests AGENTS.md docs/superpowers/specs/2026-08-12-instance-scoping-design.md

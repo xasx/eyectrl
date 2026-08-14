@@ -1,7 +1,7 @@
 # Instance Scoping — Design (v5)
 
 **Date:** 2026-08-12
-**Status:** Approved design, not yet implemented
+**Status:** Implemented (see [2026-08-13-instance-scoping.md](../plans/2026-08-13-instance-scoping.md)).
 **Prerequisite for:** `docs/superpowers/plans/2026-08-10-core-e2e-test-plan.md` (supersedes its Task 1)
 **Verified against:** `main` @ `385211f3`
 **Revision:** v5 after round-4 review (0 BLOCKERs, 1 MAJOR, 4 MINORs; shape verdict: converges,

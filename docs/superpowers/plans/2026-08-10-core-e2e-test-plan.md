@@ -165,7 +165,7 @@ A full J1 costs ≈ 300 + 700 + 600 ms of dwell plus travel and margins ≈ **3.
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/RunDeadline.cs` | hard wall-clock cap; kills registered processes |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/AbortWatch.cs` | low-level hook for a *physical* Esc |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/GazePath.cs` | saccade→hold cursor trajectories |
-| `tests/EyeCtrl.E2E.Tests/Infrastructure/AppHarness.cs` | scoped instance id + `--test-mode` (for `MouseGazeProvider`, not because scoping demands it — see §"Why this harness passes `--test-mode`") lifecycle; asserts `instance.json` |
+| `tests/EyeCtrl.E2E.Tests/Infrastructure/AppHarness.cs` | scoped instance id + `--test-mode` (for `MouseGazeProvider`, not because scoping demands it — see §"Why this harness passes `--test-mode`") lifecycle; asserts `instance.json`, and pre-flights scoping via a silent `--exit-after-manifest` launch before any input-driving one |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/E2ERunLock.cs` | machine-wide `Local\EyeCtrl.E2E.RunLock`, held for a journey |
 | `tests/EyeCtrl.E2E.Tests/AssemblyInfo.cs` | `[assembly: CollectionBehavior(DisableTestParallelization = true)]` |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/ActionMenuGeometry.cs` | ring-position maths mirroring `ActionMenuViewModel` |
@@ -2441,6 +2441,8 @@ git commit -m "test(e2e): add the GazePath saccade-then-hold driver"
 
 Launches `EyeCtrl.App` as a **scoped instance** — `EYECTRL_INSTANCE_ID` plus `--test-mode`, the latter because **this harness needs `MouseGazeProvider`**, not because scoping requires it (it no longer does; see §"Why this harness passes `--test-mode`") — with a seeded settings file the journeys control. The instance-scoping prerequisite is what makes this safe: the id scopes the profile, both mutexes, the dwell pipe and the `HKCU\…\Run` value together, and forces supervision off. The harness reads back `instance.json` and refuses to drive input unless every resource reports scoped.
 
+**That refusal happens twice, and the first one is the one that matters.** `AssertScopedAsync` inside `StartAsync` runs *after* the toolbar window appears — i.e. after `ShowOverlays` and `gazeEngine.Start()` — so by then a full gaze-driven app has been live on the desktop for seconds. Refusing there is refusing after the risk. So `StartAsync` first awaits `EnsureScopingVerifiedAsync`, a once-per-process **pre-flight** that launches the app with `--exit-after-manifest` and applies the identical manifest check to it. That launch shuts down cleanly once phase 2 and the manifest are done, before any overlay is shown and before the gaze engine starts: nothing is displayed, no input is ever processed, and a broken build is caught while the cursor is still entirely the user's. Both paths call the same static `AssertScopedAsync(profileDir, instanceId)` — two copies would be two things to keep in step, and the copy that mattered would be the one nobody updated.
+
 The settings are written explicitly rather than defaulted, because J1 asserts on a specific action-menu ring geometry and that geometry is a function of `CircleSize` and `VisibleActions`.
 
 **Files:**
@@ -2621,10 +2623,18 @@ using FlaUI.UIA3;
 /// <summary>
 /// Owns the <c>EyeCtrl.App</c> process for one journey.
 /// <para>
-/// The app is launched with <c>EYECTRL_APPDATA_DIR</c> pointed at a throwaway directory seeded
-/// with a settings file this harness writes. Without that redirect the run would read — and,
-/// through <c>GazeEngineAdapter.OnSelectionModeChanged</c>, persist changes to — the live profile
-/// of the machine the user drives entirely by eye tracking.
+/// The app is launched with <c>EYECTRL_INSTANCE_ID</c>, which scopes the profile directory <b>and</b>
+/// the single-instance mutex, the settings-writer mutex, the dwell pipe and the <c>HKCU\…\Run</c>
+/// value together. Without that the run would read — and, through
+/// <c>GazeEngineAdapter.OnSelectionModeChanged</c>, persist changes to — the live profile of the
+/// machine the user drives entirely by eye tracking, and would delete that machine's autostart entry
+/// on the way past.
+/// </para>
+/// <para>
+/// (An earlier draft said <c>EYECTRL_APPDATA_DIR</c> here. That variable still exists as an explicit
+/// path override, but it relocates files <em>only</em> — every kernel name and the Run value keep
+/// their production spelling — so on its own it isolates nothing. The code below has always used the
+/// instance id; only this comment lagged.)
 /// </para>
 /// </summary>
 public sealed class AppHarness : IAsyncDisposable
@@ -2718,6 +2728,11 @@ public sealed class AppHarness : IAsyncDisposable
                 $"EyeCtrl.App.exe not found at {exe}. It should be copied there by the "
                 + "ProjectReference from EyeCtrl.E2E.Tests to EyeCtrl.App.", exe);
 
+        // Before anything that can touch the cursor. Once per process, silent, and it throws rather
+        // than returning a flag — a caller that forgot to check would be a caller driving real input
+        // on unverified scoping. See EnsureScopingVerifiedAsync.
+        await EnsureScopingVerifiedAsync(timeout);
+
         _automation = new UIA3Automation();
 
         var psi = new ProcessStartInfo
@@ -2750,30 +2765,37 @@ public sealed class AppHarness : IAsyncDisposable
             DpiHelper.LogicalToPhysicalY(SystemParameters.PrimaryScreenHeight));
     }
 
+    private async Task AssertScopedAsync() => await AssertScopedAsync(_profileDir, _instanceId);
+
     /// <summary>
     /// Reads <c>instance.json</c> and throws unless every resource reports scoped. This is the one
     /// check standing between a journey and driving real input against unscoped machine state, so a
     /// missing or partial manifest is fatal rather than a warning.
+    /// <para>
+    /// Static so the pre-flight in <see cref="EnsureScopingVerifiedAsync"/> applies the identical
+    /// check. Two copies of this logic would be two things to keep in step, and the copy that
+    /// mattered would be the one nobody updated.
+    /// </para>
     /// </summary>
-    private async Task AssertScopedAsync()
+    private static async Task AssertScopedAsync(string profileDir, string instanceId)
     {
-        var path = Path.Combine(_profileDir, "instance.json");
+        var path = Path.Combine(profileDir, "instance.json");
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (!File.Exists(path) && DateTime.UtcNow < deadline)
             await Task.Delay(100);
 
         if (!File.Exists(path))
             throw new InvalidOperationException(
-                $"No instance.json in {_profileDir}. Either the instance-scoping prerequisite is not "
+                $"No instance.json in {profileDir}. Either the instance-scoping prerequisite is not "
                 + "implemented, or the app did not honour EYECTRL_INSTANCE_ID. Do not drive input.");
 
         using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
         var root = doc.RootElement;
 
         var reportedId = root.GetProperty("instanceId").GetString();
-        if (reportedId != _instanceId)
+        if (reportedId != instanceId)
             throw new InvalidOperationException(
-                $"instance.json reports id '{reportedId}', expected '{_instanceId}'.");
+                $"instance.json reports id '{reportedId}', expected '{instanceId}'.");
 
         var unscoped = root.GetProperty("resources").EnumerateArray()
             .Where(r => !r.GetProperty("scoped").GetBoolean())
@@ -2789,6 +2811,76 @@ public sealed class AppHarness : IAsyncDisposable
             throw new InvalidOperationException(
                 "instance.json does not report Supervision and SelfRestart as refused: "
                 + string.Join(", ", refused));
+    }
+
+    private static Task? _preflight;
+    private static readonly object PreflightGate = new();
+
+    /// <summary>
+    /// Proves scoping works on this build and this machine <b>before</b> any input-driving instance
+    /// is launched. Runs once per test process; every later call awaits the same task.
+    /// <para>
+    /// Without this, the first thing to verify scoping is <see cref="AssertScopedAsync()"/> inside
+    /// <see cref="StartAsync"/> — which runs <em>after</em> the toolbar window has appeared, i.e.
+    /// after <c>ShowOverlays</c> and <c>gazeEngine.Start()</c>. By then a full gaze-driven app has
+    /// been live on the user's desktop for seconds. Refusing at that point is refusing after the
+    /// risk, not before it.
+    /// </para>
+    /// <para>
+    /// <c>--exit-after-manifest</c> is what makes the earlier check possible: the app shuts down
+    /// cleanly once phase 2 and the manifest are done, before any overlay is shown and before the
+    /// gaze engine starts. Nothing is displayed and no input is ever processed, so the pre-flight
+    /// cannot contend with the assistive software the machine's owner depends on — while still
+    /// exercising the real scoping path end to end.
+    /// </para>
+    /// </summary>
+    public static Task EnsureScopingVerifiedAsync(TimeSpan timeout)
+    {
+        lock (PreflightGate) return _preflight ??= RunPreflightAsync(timeout);
+    }
+
+    private static async Task RunPreflightAsync(TimeSpan timeout)
+    {
+        var exe = Path.Combine(AppContext.BaseDirectory, "EyeCtrl.App.exe");
+        var instanceId = "pre" + Guid.NewGuid().ToString("N")[..10];
+        var profileDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "EyeCtrl", "instances", instanceId);
+
+        // --test-mode so the pre-flight verifies the SAME configuration the journeys will launch.
+        // No --paused: --exit-after-manifest already returns before ShowOverlays and before
+        // gazeEngine.Start(), so there is no window and no input path to pause.
+        var psi = new ProcessStartInfo
+        {
+            FileName = exe,
+            Arguments = "--test-mode " + EyeCtrl.App.App.ExitAfterManifestArgument,
+            UseShellExecute = false
+        };
+        psi.Environment[InstanceScope.EnvVar] = instanceId;
+
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException("Pre-flight: failed to start EyeCtrl.App.");
+        try
+        {
+            if (!proc.WaitForExit((int)timeout.TotalMilliseconds))
+                throw new InvalidOperationException(
+                    $"Pre-flight: EyeCtrl.App did not exit within {timeout.TotalSeconds:0}s of "
+                    + $"{EyeCtrl.App.App.ExitAfterManifestArgument}. Do not drive input.");
+
+            // 0, not 78: 78 means the app itself refused because a resource was unscoped, which is
+            // exactly the condition this pre-flight exists to catch before a journey runs.
+            if (proc.ExitCode != 0)
+                throw new InvalidOperationException(
+                    $"Pre-flight: EyeCtrl.App exited {proc.ExitCode} (78 = the app refused its own "
+                    + "scoping check). Do not drive input.");
+
+            await AssertScopedAsync(profileDir, instanceId);
+        }
+        finally
+        {
+            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+            try { Directory.Delete(profileDir, recursive: true); } catch { }
+        }
     }
 
     /// <summary>The app process, for registration with <see cref="RunDeadline"/>.</summary>

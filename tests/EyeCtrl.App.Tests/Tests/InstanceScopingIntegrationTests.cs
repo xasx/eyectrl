@@ -242,6 +242,16 @@ public class InstanceScopingIntegrationTests
             // --exit-after-manifest switch, or UIA on the tray menu — and this starts covering the
             // spec's "a graceful exit sends nothing to eyectrl_watch" for real.
             //
+            // MEASURED 2026-08-14: CloseMainWindow() returns FALSE here — it closes nothing. Every
+            // window this app shows is an OverlayWindow carrying WS_EX_TOOLWINDOW
+            // (OverlayWindow.cs:113), and no MainWindow is ever assigned, so the process exposes no
+            // main window to close. Recorded because it was argued both ways: the .NET
+            // MainWindowFinder filters on owner and visibility rather than on WS_EX_TOOLWINDOW, so
+            // reading the runtime source suggests it should have succeeded. It does not. The first
+            // SkipUnless below is therefore the one that fires, and the 15s WaitForExit is never
+            // reached — which is also what made the original version of this test burn ~15s per run
+            // while asserting nothing.
+            //
             // The guarantee itself is NOT uncovered meanwhile: HeartbeatPublisherTests
             // .SignalShuttingDown_SendsNothing_WhenNotPublishing exercises the guard directly.
             Assert.SkipUnless(proc.CloseMainWindow(),

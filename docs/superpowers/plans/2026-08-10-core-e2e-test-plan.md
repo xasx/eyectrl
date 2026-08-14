@@ -8,6 +8,41 @@
 
 **Tech stack:** .NET 10, WPF, xUnit v3 + NFluent, FlaUI.UIA3, `System.IO.Pipes` + `System.Text.Json`, Win32 `SendInput`/`SetCursorPos`.
 
+## Why this harness passes `--test-mode`
+
+**Updated 2026-08-14.** Earlier revisions of this plan said the harness passes `--test-mode`
+"because scoping requires it". **That is no longer true and was never the real reason.**
+`InstanceStartupPolicy` dropped the requirement (spec amendment v5.1): a scoped instance may use any
+gaze provider, and `Evaluate` no longer takes `isTestMode` at all.
+
+The harness passes it for its own reason, which is load-bearing and unchanged: **`GazePath` injects
+gaze by moving the OS cursor**, and only `MouseGazeProvider` turns cursor position into gaze
+samples. Without `--test-mode` the app reads a real eye tracker and this harness has no way to
+script a trajectory — every journey would need a human looking at the screen. So the flag stays;
+only its justification was wrong.
+
+### What that means for when a run is safe
+
+`--test-mode` is also the configuration that **contends with the machine's assistive software**.
+`MouseGazeProvider` polls `GetCursorPos` every 30 ms and `GazeEngine.OnGazePoint` writes the cursor
+back through `SendInput`, so during a run there are three writers on one cursor: `GazePath`, the app
+under test, and (if it is running) TD Control — which is how the user of this machine controls it at
+all. A journey run is therefore **not** something that can share a session with normal use.
+
+This is not a new hazard introduced by dropping the gate; it is the hazard the gate was
+accidentally mandating everywhere. The existing safety machinery already assumes it — the
+machine-wide run lock, the cursor-restore, the physical-Esc abort and the hard wall-clock cap all
+exist because journeys own the cursor for their duration. Two additions:
+
+- **Never start a run while the machine's owner is relying on it.** Treat a journey run like
+  unplugging their mouse: get an explicit go-ahead, and keep it short.
+- **Pass `--paused` for anything that does not need simulated input.** It is the one flag that makes
+  a launch genuinely inert — `OnGazePoint` returns on `InteractionState.Paused` before `MoveCursor`
+  *and* before the fixation detector, so neither cursor movement nor a dwell-fired click is
+  possible. J10 already relies on exactly this; any future smoke-level check that only wants the app
+  up (reading `instance.json`, say) should use it too rather than a full unpaused launch. The
+  instance-scoping integration tests do.
+
 **Source spec:** [2026-08-08-core-e2e-test-plan-design.md](../specs/2026-08-08-core-e2e-test-plan-design.md)
 
 **Hard prerequisite:** [2026-08-12-instance-scoping-design.md](../specs/2026-08-12-instance-scoping-design.md) must be implemented first. It **supersedes this plan's original Task 1** and is what makes a run safe to start at all.
@@ -130,7 +165,7 @@ A full J1 costs ≈ 300 + 700 + 600 ms of dwell plus travel and margins ≈ **3.
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/RunDeadline.cs` | hard wall-clock cap; kills registered processes |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/AbortWatch.cs` | low-level hook for a *physical* Esc |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/GazePath.cs` | saccade→hold cursor trajectories |
-| `tests/EyeCtrl.E2E.Tests/Infrastructure/AppHarness.cs` | scoped instance id + `--test-mode` lifecycle; asserts `instance.json` |
+| `tests/EyeCtrl.E2E.Tests/Infrastructure/AppHarness.cs` | scoped instance id + `--test-mode` (for `MouseGazeProvider`, not because scoping demands it — see §"Why this harness passes `--test-mode`") lifecycle; asserts `instance.json` |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/E2ERunLock.cs` | machine-wide `Local\EyeCtrl.E2E.RunLock`, held for a journey |
 | `tests/EyeCtrl.E2E.Tests/AssemblyInfo.cs` | `[assembly: CollectionBehavior(DisableTestParallelization = true)]` |
 | `tests/EyeCtrl.E2E.Tests/Infrastructure/ActionMenuGeometry.cs` | ring-position maths mirroring `ActionMenuViewModel` |
@@ -2404,7 +2439,7 @@ git commit -m "test(e2e): add the GazePath saccade-then-hold driver"
 
 ## Task 8: `AppHarness` — the app under test, on a scratch profile
 
-Launches `EyeCtrl.App` as a **scoped instance** — `EYECTRL_INSTANCE_ID` plus the `--test-mode` that scoping requires — with a seeded settings file the journeys control. The instance-scoping prerequisite is what makes this safe: the id scopes the profile, both mutexes, the dwell pipe and the `HKCU\…\Run` value together, and forces supervision off. The harness reads back `instance.json` and refuses to drive input unless every resource reports scoped.
+Launches `EyeCtrl.App` as a **scoped instance** — `EYECTRL_INSTANCE_ID` plus `--test-mode`, the latter because **this harness needs `MouseGazeProvider`**, not because scoping requires it (it no longer does; see §"Why this harness passes `--test-mode`") — with a seeded settings file the journeys control. The instance-scoping prerequisite is what makes this safe: the id scopes the profile, both mutexes, the dwell pipe and the `HKCU\…\Run` value together, and forces supervision off. The harness reads back `instance.json` and refuses to drive input unless every resource reports scoped.
 
 The settings are written explicitly rather than defaulted, because J1 asserts on a specific action-menu ring geometry and that geometry is a function of `CircleSize` and `VisibleActions`.
 
@@ -2688,6 +2723,10 @@ public sealed class AppHarness : IAsyncDisposable
         var psi = new ProcessStartInfo
         {
             FileName = exe,
+            // --test-mode selects MouseGazeProvider, which is how GazePath injects gaze at all.
+            // NOT because scoping requires it — it does not (spec v5.1). See §"Why this harness
+            // passes --test-mode": this is also the configuration that contends with the machine's
+            // assistive software for the cursor, so a run must own the session.
             Arguments = startPaused ? "--test-mode --paused" : "--test-mode",
             UseShellExecute = false
         };

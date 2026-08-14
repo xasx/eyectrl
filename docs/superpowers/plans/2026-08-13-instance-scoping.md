@@ -2946,7 +2946,7 @@ This document's enumeration was wrong four times out of four, once on a row it h
 - Create: `tests/EyeCtrl.App.Tests/Startup/InstanceScopeDriftTests.cs`
 - Modify: `tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj`
 
-- [ ] **Step 1: Add the Roslyn reference**
+- [x] **Step 1: Add the Roslyn reference**
 
 The repo has never referenced Roslyn; this is the acknowledged cost of the only mechanism that sees through wrappers. In `tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj`:
 
@@ -2954,7 +2954,7 @@ The repo has never referenced Roslyn; this is the acknowledged cost of the only 
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
 ```
 
-- [ ] **Step 2: Write the guard**
+- [x] **Step 2: Write the guard**
 
 Create `tests/EyeCtrl.App.Tests/Startup/InstanceScopeDriftTests.cs`:
 
@@ -3180,7 +3180,7 @@ public class InstanceScopeDriftTests
 }
 ```
 
-- [ ] **Step 3: Run it and reconcile**
+- [x] **Step 3: Run it and reconcile**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~InstanceScopeDriftTests"
@@ -3190,13 +3190,76 @@ Expected on the first run: `EveryProcessExternalSiteIsAllowListed` **fails** wit
 
 `EveryAllowListEntryStillResolves` may also fail if a path in the list above is wrong for this tree. Correct the path; do not delete the entry.
 
-- [ ] **Step 4: Verify the guard would have caught the historical misses**
+### Result and corrections (2026-08-14)
+
+**The allow-list needed one correction, already identified in Task 8: `AppPaths.cs` → `App.xaml.cs`.**
+The guard discovers **16 site instances across 14 distinct keys**, and
+`src\EyeCtrl.Core\Services\AppPaths.cs::SpecialFolder.ApplicationData` is not among them —
+`AppPaths` takes `roamingAppData` as a parameter and never reads the special folder. Left as the
+plan had it, `EveryAllowListEntryStillResolves` would have failed. The composition root's single
+read, `src\EyeCtrl.App\App.xaml.cs::SpecialFolder.ApplicationData`, is the correct key.
+
+The complete discovered set, all fourteen allow-listed:
+
+| Key | Lines |
+|---|---|
+| `App.xaml.cs::SpecialFolder.ApplicationData` | 649 |
+| `ExternalDwellService.cs::NamedPipeServerStream` | 223 |
+| `HeartbeatPublisher.cs::NamedPipeClientStream` | 297 |
+| `RestartHandoff.cs::EventWaitHandle.OpenExisting` | 77 |
+| `SelfRestartStrategy.cs::EventWaitHandle` | 150 |
+| `TrayIconManager.cs::NotifyIcon` | 95 |
+| `SingleInstanceGuard.cs::Mutex` | 44 |
+| `SettingsService.cs::Mutex` | 200 |
+| `WindowsStartupRegistrar.cs::Registry.CurrentUser` | 48, 68 |
+| `DwellClient.cs::NamedPipeClientStream` | 96 |
+| `FallbackAtLauncher.cs::Registry.LocalMachine` | 96, 104 |
+| `HeartbeatPipeServer.cs::NamedPipeServerStreamAcl.Create` | 89 |
+| `Supervisor\Program.cs::SpecialFolder.ApplicationData` | 116 |
+| `SupervisorTrayIcon.cs::NotifyIcon` | 53 |
+
+The plan's NOTE is confirmed: no `Program.cs::Mutex` key appears — the supervisor singleton is
+`new SingleInstanceGuard(SupervisorMutexName)`, attributed to `SingleInstanceGuard.cs::Mutex`.
+
+**The scan covers twelve src projects, not the eight listed.** `EyeCtrl.Controls`, `EyeCtrl.EyeCare`,
+`EyeCtrl.LM` and `EyeCtrl.Contracts` were added. They contribute no sites today, which is exactly
+why they belong: the guard's purpose is to fail when a *new* side effect appears, and a project
+outside its sweep is a blind spot rather than a clean bill of health.
+
+**Two extra tests, 4 in total, not the 3 sketched.** `AppPathsIdLengthLimitMatchesInstanceScope`
+covers the duplicated `64` in `AppPaths` — `AppPathsIdRuleMatchesInstanceScope` only exercises the
+character rule, so a drifted length cap was invisible to it.
+
+`EveryAllowListEntryStillResolves` also had its assertion changed from `Check.That(stale).IsEmpty()`
+to the same joined-string form as its sibling, for the reason the sibling already documents: NFluent
+reports "has 3 items" without naming them, which is useless when the whole point is to say *which*
+exemption went stale.
+
+- [x] **Step 4: Verify the guard would have caught the historical misses**
 
 Temporarily remove the `SelfRestartStrategy.cs::EventWaitHandle` entry and re-run. `EveryProcessExternalSiteIsAllowListed` must fail naming that file — this is the resource v2's regex-based guard would have missed. Restore the entry.
 
 Do the same for `SettingsService.cs::Mutex`, the resource v1 missed.
 
-- [ ] **Step 5: Commit**
+**Both confirmed.** Removing each entry reddens `EveryProcessExternalSiteIsAllowListed` and names
+the exact file and line:
+
+```
+src\EyeCtrl.App\Services\SelfRestartStrategy.cs:150 -> …::EventWaitHandle
+src\EyeCtrl.Core\Settings\SettingsService.cs:200    -> …::Mutex
+```
+
+A third check was run first and matters more than either: with the allow-list filter disabled
+entirely, the guard listed all 16 site instances above. Without that, "4 tests green on the first
+run" is equally consistent with a guard that discovers **nothing** — `RepoRoot()` resolving wrong,
+or `FindSites` returning empty — and a vacuous guard passes every day until the day it is needed.
+(`EveryAllowListEntryStillResolves` would in fact have caught that particular failure, since all
+fourteen entries would read as stale; the dump proves it directly rather than by inference.)
+
+> Restore with `cp`, not `mv`. See the Task 10 note: `mv` preserves the backup's older mtime, so
+> MSBuild skips the rebuild and the next run silently tests the stale binary.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/EyeCtrl.App.Tests

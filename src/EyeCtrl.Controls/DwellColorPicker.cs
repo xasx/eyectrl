@@ -58,6 +58,20 @@ public class DwellColorPicker : IDwellComposite
     /// <summary>Swatches for the active theme. Used when no explicit preset list is passed.</summary>
     public static (string Hex, string Name)[] DefaultPresets => PresetsFor(Tokens.Current);
 
+    /// <summary>Rendered swatch cell width in logical DIPs. See <see cref="SwatchHeight"/>.</summary>
+    public const double SwatchWidth = 100;
+    /// <summary>
+    /// Rendered swatch cell height in logical DIPs. Together with the margins and the hit
+    /// radius, these four consts are what <c>SwatchTargetGeometryTests</c> checks the
+    /// non-overlap invariant against — the invariant the old hard-coded literals silently
+    /// violated when the radius was shrunk below the control target floor.
+    /// </summary>
+    public const double SwatchHeight = 80;
+    /// <summary>Horizontal gutter between swatches in the WrapPanel, in logical DIPs.</summary>
+    public const double SwatchHorizontalMargin = 6;
+    /// <summary>Vertical gutter between wrapped swatch rows, in logical DIPs.</summary>
+    public const double SwatchVerticalMargin = 14;
+
     private readonly DwellLabel _label;
     private readonly List<DwellButton> _swatches = new();
     private readonly List<Border> _swatchBorders = new();
@@ -116,9 +130,11 @@ public class DwellColorPicker : IDwellComposite
             var btn = new DwellButton(registrar, swatchId, "",
                 () => { _set(capturedHex); RefreshSelection(); },
                 color, category, radiusPhysical, dwellMs,
-                width: 90, height: 75);
+                width: SwatchWidth, height: SwatchHeight);
 
-            btn.Root.Margin = new Thickness(4);
+            btn.Root.Margin = new Thickness(
+                SwatchHorizontalMargin, SwatchVerticalMargin,
+                SwatchHorizontalMargin, SwatchVerticalMargin);
             // No radius override: swatches now share DwellButton's Tokens.StandardCornerRadius.
             btn.Root.Background = new SolidColorBrush(color);
             btn.Root.BorderThickness = new Thickness(3);

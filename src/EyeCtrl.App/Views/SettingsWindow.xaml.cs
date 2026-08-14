@@ -26,7 +26,9 @@ public partial class SettingsWindow : OverlayWindow
     // the colour swatches uses it). Not test-coupled today; promoted for the extraction.
     internal const double ControlBtnRadius = 50;
     // internal: CursorPageSource passes the swatch radius; SelectionPageSource passes the control radius.
-    internal const double ColorSwatchRadius = 35;
+    // Swatches render at DwellColorPicker.SwatchWidth x SwatchHeight with WrapPanel gutters sized so the
+    // standard control radius (100 px hit circle) fits without overlapping neighbours — see SwatchTargetGeometryTests.
+    internal const double ColorSwatchRadius = ControlBtnRadius;
     private const double TabBtnRadius = 85;
     private const double PagBtnRadius = 60;
     private const double ModalBtnRadius = 70;
@@ -769,10 +771,11 @@ public partial class SettingsWindow : OverlayWindow
 
     // Composites are deliberately NOT capped, for two reasons. IDwellComposite owns its own panel
     // and exposes no single root to cap — only its Children, whose Roots are laid out inside a row
-    // it controls. And they do not need it: the widest is DwellSlider's row, two default-width
-    // (100 DIP) buttons around a 140 DIP value block, about 316 DIP all in, which clears the
-    // 416 DIP content column of the narrowest display measured in SettingsContentFitTests. If a
-    // composite ever grows past that, cap it inside the composite where its layout lives.
+    // it controls. DwellSlider's row stays the widest at ~316 DIP, but the colour picker's swatch row is
+    // 4 × (SwatchWidth + 2 * SwatchHorizontalMargin) = 448 DIP, past the 416 DIP narrowest
+    // content column — deliberate: a WrapPanel wraps (never clips) to a second row there,
+    // and the extra height is absorbed by height-based pagination. Width overflow in a
+    // composite is therefore "wrap", never "clip".
     private void Add(IDwellComposite composite)
     {
         composite.Attach(ContentPanel);

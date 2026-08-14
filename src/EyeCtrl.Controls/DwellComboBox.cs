@@ -98,7 +98,7 @@ public class DwellComboBox : IDwellComposite
         _panel = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 2, 0, 12)
+            Margin = new Thickness(0, 0, 0, 12)
         };
 
         for (int i = 0; i < displayOptions.Length; i++)

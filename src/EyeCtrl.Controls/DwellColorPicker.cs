@@ -104,7 +104,7 @@ public class DwellColorPicker : IDwellComposite
 
         _label = new DwellLabel(label);
 
-        _panel = new WrapPanel { Margin = new Thickness(0, 2, 0, 12) };
+        _panel = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
 
         for (int i = 0; i < presets.Length; i++)
         {

@@ -651,35 +651,36 @@ public partial class SettingsWindow : OverlayWindow
     /// via the <see cref="Add(DwellControl)"/>/<see cref="Add(IDwellComposite)"/>/<see cref="Add(DwellLabel)"/>
     /// overloads. The single WPF-coupled point of the spec pipeline; the per-tab sources are pure.
     /// </summary>
-    private void RenderSpec(SettingsRowSpec row)
+    /// <summary>
+    /// Constructs the control for one row spec — the single construction path shared by
+    /// rendering (via <see cref="RenderSpec"/>) and by
+    /// <see cref="SettingsAutoPagination"/>'s measurement, so the two can never drift.
+    /// Returns a <see cref="DwellControl"/>, <see cref="IDwellComposite"/> or
+    /// <see cref="DwellLabel"/> depending on the spec.
+    /// </summary>
+    internal static object CreateControl(
+        SettingsRowSpec row, IDwellRegistrar registrar, double radiusPhysical, int dwellMs)
     {
-        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
         var cat = DwellCategory.Control;
         switch (row)
         {
             case SliderSpec s:
-                Add(new DwellSlider(_viewModel, s.Id, s.Label, s.Min, s.Max, s.Step, s.Decimals,
-                    s.Get, s.Set, cat, r, _dwellMs));
-                break;
+                return new DwellSlider(registrar, s.Id, s.Label, s.Min, s.Max, s.Step, s.Decimals,
+                    s.Get, s.Set, cat, radiusPhysical, dwellMs);
             case ToggleSpec t:
-                Add(new DwellToggle(_viewModel, t.Id, t.Label, t.Get, t.Set, cat, r, _dwellMs));
-                break;
+                return new DwellToggle(registrar, t.Id, t.Label, t.Get, t.Set, cat, radiusPhysical, dwellMs);
             case ComboBoxSpec c:
-                Add(new DwellComboBox(_viewModel, c.Id, c.Label, c.Display,
-                    c.Code ?? c.Display, c.Get, c.Set, cat, r, _dwellMs));
-                break;
+                return new DwellComboBox(registrar, c.Id, c.Label, c.Display,
+                    c.Code ?? c.Display, c.Get, c.Set, cat, radiusPhysical, dwellMs);
             case ColorPickerSpec cp:
-                Add(new DwellColorPicker(_viewModel, cp.Id, cp.Label, cp.Get, cp.Set, cat,
-                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), _dwellMs));
-                break;
+                return new DwellColorPicker(registrar, cp.Id, cp.Label, cp.Get, cp.Set, cat,
+                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs);
             case ButtonSpec b:
                 var (fill, textBrush) = FillFor(b.Kind);
-                Add(new DwellButton(_viewModel, b.Id, b.Label, b.OnActivate, fill, cat, r, _dwellMs,
-                    width: b.Width, height: b.Height, textBrush: textBrush));
-                break;
+                return new DwellButton(registrar, b.Id, b.Label, b.OnActivate, fill, cat,
+                    radiusPhysical, dwellMs, width: b.Width, height: b.Height, textBrush: textBrush);
             case LabelSpec l:
-                Add(new DwellLabel(l.Text()));
-                break;
+                return new DwellLabel(l.Text());
             default:
                 // Keep the null-CONDITIONAL. `?.` short-circuits the whole member chain, so a null
                 // row yields null rather than throwing — swapping it for `row!.GetType().Name`
@@ -688,6 +689,17 @@ public partial class SettingsWindow : OverlayWindow
                 // "Unknown settings row spec: " and trailed off, naming nothing.
                 throw new InvalidOperationException(
                     $"Unknown settings row spec: {row?.GetType().Name ?? "<null>"}");
+        }
+    }
+
+    private void RenderSpec(SettingsRowSpec row)
+    {
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        switch (CreateControl(row, _viewModel, r, _dwellMs))
+        {
+            case DwellControl control: Add(control); break;
+            case IDwellComposite composite: Add(composite); break;
+            case DwellLabel label: Add(label); break;
         }
     }
 

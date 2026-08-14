@@ -214,58 +214,39 @@ public class InstanceScopingIntegrationTests
 
         var instanceId = NewInstanceId();
         var profile = ProfileFor(instanceId);
-        var psi = new ProcessStartInfo(FindAppExe()) { Arguments = ScopedTestArgs, UseShellExecute = false };
+
+        // --exit-after-manifest is what makes this testable at all. CloseMainWindow() returns FALSE
+        // against this app — measured 2026-08-14 — because every window is an OverlayWindow carrying
+        // WS_EX_TOOLWINDOW (OverlayWindow.cs:113) and no MainWindow is ever assigned, and
+        // ShutdownMode=OnExplicitShutdown means a window close would not exit even if one closed.
+        // An earlier version of this test called CloseMainWindow() and WaitForExit() and discarded
+        // both results, so it passed while the app was still running and OnExit had never executed:
+        // "nothing connected to eyectrl_watch" was true because nothing had tried.
+        var psi = new ProcessStartInfo(FindAppExe())
+        {
+            Arguments = ScopedTestArgs + " " + App.ExitAfterManifestArgument,
+            UseShellExecute = false
+        };
         psi.Environment[InstanceScope.EnvVar] = instanceId;
 
         using var proc = Process.Start(psi)!;
         try
         {
-            // Wait on the manifest rather than a fixed delay: it is written at the end of phase 2,
-            // which is the point after which SignalShuttingDown could possibly run.
-            var manifestPath = Path.Combine(profile, InstanceManifest.FileName);
-            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
-            while (!File.Exists(manifestPath) && DateTime.UtcNow < deadline && !proc.HasExited)
-                await Task.Delay(200, TestContext.Current.CancellationToken);
+            // The app shuts itself down once phase 2 and the manifest are done, so this is a real
+            // graceful exit through OnExit — no kill, no window poking.
+            Check.That(proc.WaitForExit(30_000)).IsTrue();
+            Check.That(proc.ExitCode).IsEqualTo(0);   // 0, not 78: verification passed, then exited
 
-            Check.That(File.Exists(manifestPath)).IsTrue();
+            // It got far enough to verify and record itself, so the exit really was "after the
+            // manifest" rather than a startup failure that happened to exit cleanly.
+            Check.That(File.Exists(Path.Combine(profile, InstanceManifest.FileName))).IsTrue();
 
-            // ASSERT the preconditions, never assume them. An earlier version called
-            // CloseMainWindow() and WaitForExit() and discarded both return values, so it passed
-            // whether or not the app ever exited — and it never did: App.xaml sets
-            // ShutdownMode="OnExplicitShutdown" and nothing wires a window close to Shutdown(), so
-            // OnExit (hence SignalShuttingDown) never ran and "nothing connected" held vacuously.
-            //
-            // Skip rather than fail when no graceful exit can be provoked: the app currently has no
-            // externally reachable clean-exit trigger (the tray Exit item is the only one, and
-            // AppFixture Kills the app for the same reason). Skipping states that plainly instead
-            // of banking a false pass. Give the app an exit affordance — a test-only
-            // --exit-after-manifest switch, or UIA on the tray menu — and this starts covering the
-            // spec's "a graceful exit sends nothing to eyectrl_watch" for real.
-            //
-            // MEASURED 2026-08-14: CloseMainWindow() returns FALSE here — it closes nothing. Every
-            // window this app shows is an OverlayWindow carrying WS_EX_TOOLWINDOW
-            // (OverlayWindow.cs:113), and no MainWindow is ever assigned, so the process exposes no
-            // main window to close. Recorded because it was argued both ways: the .NET
-            // MainWindowFinder filters on owner and visibility rather than on WS_EX_TOOLWINDOW, so
-            // reading the runtime source suggests it should have succeeded. It does not. The first
-            // SkipUnless below is therefore the one that fires, and the 15s WaitForExit is never
-            // reached — which is also what made the original version of this test burn ~15s per run
-            // while asserting nothing.
-            //
-            // The guarantee itself is NOT uncovered meanwhile: HeartbeatPublisherTests
-            // .SignalShuttingDown_SendsNothing_WhenNotPublishing exercises the guard directly.
-            Assert.SkipUnless(proc.CloseMainWindow(),
-                "No externally reachable graceful-exit trigger: CloseMainWindow() closed nothing, "
-                + "and ShutdownMode=OnExplicitShutdown means a window close would not exit anyway.");
-            Assert.SkipUnless(proc.WaitForExit(15_000),
-                "The app did not exit within 15s of CloseMainWindow(), so OnExit never ran and "
-                + "this cannot distinguish a silent exit path from an absent one.");
-
-            // OnExit's first act is Log.Information("Shutdown") (App.xaml.cs). Finding that line in
-            // the scoped log directory is what distinguishes "the exit path ran and stayed silent"
-            // from "the exit path never ran".
+            // OnExit's first act is Log.Information("Shutdown"). Finding it in the scoped log is
+            // what separates "the exit path ran and stayed silent" from "the exit path never ran" —
+            // the precise failure the previous version of this test could not detect.
             Check.That(ScopedLogContains(profile, "Shutdown")).IsTrue();
 
+            // The assertion itself: SignalShuttingDown ran, and put nothing on eyectrl_watch.
             var finished = await Task.WhenAny(connected, Task.Delay(2000));
             Check.That(finished).Not.IsSameReferenceAs(connected);
         }

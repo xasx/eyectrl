@@ -142,7 +142,17 @@ Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
   `InteractionState.Paused` before `MoveCursor` and before the fixation detector, so no cursor
   movement and no dwell-fired clicks. Pass it for any launch that does not genuinely need simulated
   input; the integration tests do. Startup logs a warning on scoped + `--test-mode` without
-  `--paused`. The rule lives
+  `--paused`.
+- **`--exit-after-manifest`** shuts the app down cleanly once startup verification is complete —
+  after phase 2 and the manifest, **before** any overlay is shown and before the gaze engine starts.
+  It exists because the app otherwise has no externally reachable clean-exit trigger: the tray Exit
+  item is the only one, and `Process.CloseMainWindow()` returns `false` against this app (every
+  window is an `OverlayWindow` with `WS_EX_TOOLWINDOW`, and no `MainWindow` is ever assigned), while
+  `ShutdownMode="OnExplicitShutdown"` means a window close would not exit anyway. The exit runs the
+  real `OnExit`, so `SignalShuttingDown` executes exactly as on a tray exit — which is what lets
+  `GracefulExit_SendsNothingToTheHeartbeatPipe` verify the design's round-2 BLOCKER end to end.
+  It is also the safest way to launch this app from a test: nothing is shown and no input is ever
+  processed. The rule lives
   in `EyeCtrl.Contracts.InstanceScope`; `EYECTRL_APPDATA_DIR` remains an explicit path override that
   wins over both. **The override alone isolates nothing** — it relocates files while the mutexes,
   the dwell pipe and the Run value keep their production names, so an override-without-id launch

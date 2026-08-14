@@ -80,6 +80,27 @@ public partial class App : Application
     /// </summary>
     public static GazeProviderType ActiveProviderType { get; private set; }
 
+    /// <summary>
+    /// Test affordance: shut down cleanly as soon as startup verification is complete, before any
+    /// overlay is shown and before the gaze engine starts.
+    /// <para>
+    /// This exists because the app has no other externally reachable clean-exit trigger. The tray
+    /// menu's Exit item is the only one, and it cannot be driven from a process-level test —
+    /// <c>CloseMainWindow()</c> returns <c>false</c> here, since every window is an
+    /// <c>OverlayWindow</c> carrying <c>WS_EX_TOOLWINDOW</c> and no <c>MainWindow</c> is ever
+    /// assigned. Without this switch, "a graceful exit sends nothing to <c>eyectrl_watch</c>" — the
+    /// design's round-2 BLOCKER — cannot be verified end to end at all.
+    /// </para>
+    /// <para>
+    /// Exiting here still runs the real <see cref="OnExit"/>, which is the point: the heartbeat
+    /// publisher and restart coordinator are both constructed by then, so
+    /// <c>SignalShuttingDown</c> executes exactly as it would on a tray exit. What differs is only
+    /// how much else had been built — nothing is shown and no input is ever processed, which also
+    /// makes it the safest possible way to launch this app from a test.
+    /// </para>
+    /// </summary>
+    public const string ExitAfterManifestArgument = "--exit-after-manifest";
+
     [DllImport("user32.dll")]
     private static extern uint GetDpiForSystem();
 
@@ -90,6 +111,7 @@ public partial class App : Application
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
         IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
         var isRestartHandoff = e.Args.Contains(RestartHandoff.Argument, StringComparer.OrdinalIgnoreCase);
+        var isExitAfterManifest = e.Args.Contains(ExitAfterManifestArgument, StringComparer.OrdinalIgnoreCase);
 
         // ── Phase 1: may this instance run at all? ──
         // Before the mutex, because the mutex's NAME depends on the id. Before the handoff signal,
@@ -468,6 +490,25 @@ public partial class App : Application
                   Shutdown(InstanceStartupPolicy.RefusalExitCode);
                   return;
               }
+            }
+
+            // ── Test affordance: stop here, cleanly ──
+            // Placed AFTER phase 2 and the manifest, and BEFORE ShowOverlays and gazeEngine.Start().
+            // Nothing has been shown and no input can have been processed, but everything OnExit
+            // touches — the service provider, the heartbeat publisher, the restart coordinator, the
+            // tray icon, the event coordinator — is already constructed, so this is a real graceful
+            // exit and not a special-cased one. See ExitAfterManifestArgument.
+            if (isExitAfterManifest)
+            {
+                // The splash is normally closed by ShowOverlays, which we are skipping. Only exists
+                // outside test mode, but close it explicitly rather than leaving that to shutdown.
+                splash?.Close();
+
+                Log.Information(
+                    "{Argument}: startup verification complete; shutting down before showing any "
+                    + "overlay or starting the gaze engine.", ExitAfterManifestArgument);
+                Shutdown();
+                return;
             }
 
             // ── Close splash and show persistent overlays (last, after all wiring) ──

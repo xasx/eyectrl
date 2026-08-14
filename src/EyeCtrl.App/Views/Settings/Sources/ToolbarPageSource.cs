@@ -5,6 +5,8 @@ internal sealed class ToolbarPageSource : ISettingsPageSource
     private readonly SettingsPageContext _ctx;
     public ToolbarPageSource(SettingsPageContext ctx) => _ctx = ctx;
 
+    public bool PrefersAutoPagination => true;
+
     public IReadOnlyList<PageSpec> Build()
     {
         var t = _ctx.Settings.Toolbar;

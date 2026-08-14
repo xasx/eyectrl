@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Settings;
 
+using System.IO;
 using EyeCtrl.App.Views.Settings;
 
 public class SettingsAutoPaginationTests
@@ -113,5 +114,46 @@ public class SettingsAutoPaginationFitTests
         var h = SettingsAutoPagination.MeasurePageHeight(onePage, 416.0, RadiusPhysical, DwellMs);
 
         Check.That(h).IsStrictlyGreaterThan(400.0);
+    }
+}
+
+public class SettingsAutoPaginationWiringTests
+{
+    // SettingsWindow can't be constructed headlessly (8 ctor deps), so — in the spirit of
+    // SettingsContentFitTests.TheContentAdd_StillAppliesTheConstraint — pin by source read
+    // that RebuildContent actually routes through the chunker.
+    [Fact]
+    public void RebuildContent_CallsTheRepaginationStep()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var body = ExtractMethod(source, "private void RebuildContent()");
+
+        Check.WithCustomMessage(
+                "RebuildContent no longer calls MaybeRepaginateByHeight — the auto-pagination "
+                + "this plan added. Repoint this check at the new call, do not delete it.")
+            .That(body).Contains("MaybeRepaginateByHeight");
+    }
+
+    // The seam: static tabs opt in; the two navigation-state sources stay out.
+    [Fact]
+    public void QuickActionsAndModels_DoNotOptIn()
+    {
+        foreach (var name in new[] { "QuickActionsPageSource", "ModelsPageSource" })
+        {
+            var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Views", "Settings", "Sources", name + ".cs"));
+            Check.WithCustomMessage(name + " must NOT set PrefersAutoPagination = true: its "
+                    + "page boundaries carry navigation semantics.")
+                .That(source.Contains("PrefersAutoPagination => true")).IsFalse();
+        }
+    }
+
+    private static string ExtractMethod(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Check.That(start).IsStrictlyGreaterThan(-1);
+        var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
+        return source[start..end];
     }
 }

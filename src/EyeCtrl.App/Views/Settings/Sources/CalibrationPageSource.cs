@@ -8,6 +8,8 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
     private readonly SettingsPageContext _ctx;
     public CalibrationPageSource(SettingsPageContext ctx) => _ctx = ctx;
 
+    public bool PrefersAutoPagination => true;
+
     public IReadOnlyList<PageSpec> Build()
     {
         var cal = _ctx.Settings.Calibration;

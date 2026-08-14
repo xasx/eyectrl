@@ -13,6 +13,8 @@ internal sealed class CursorPageSource : ISettingsPageSource
     private readonly SettingsPageContext _ctx;
     public CursorPageSource(SettingsPageContext ctx) => _ctx = ctx;
 
+    public bool PrefersAutoPagination => true;
+
     public IReadOnlyList<PageSpec> Build()
     {
         var c = _ctx.Settings.Cursor;

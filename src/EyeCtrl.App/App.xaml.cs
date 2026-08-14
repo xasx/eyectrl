@@ -404,7 +404,23 @@ public partial class App : Application
               try
               {
                 var dwell = _serviceProvider.GetRequiredService<ExternalDwellService>();
-                var registrar = (WindowsStartupRegistrar)startupRegistrar;
+
+                // `as`, not a cast. A hard cast on a DI-resolved interface throws
+                // InvalidCastException the day someone registers a decorator or a fake, and while
+                // the surrounding catch would still exit 78, the log would read as an internal
+                // error rather than "phase 2 cannot see the real registrar". Same fail-closed
+                // outcome, a diagnosis instead of a stack trace.
+                if (startupRegistrar is not WindowsStartupRegistrar registrar)
+                {
+                    Log.Fatal(
+                        "Instance scoping failed: IStartupRegistrar resolved to {ActualType}, so the "
+                        + "Run value cannot be read back. Phase 2 needs the concrete "
+                        + "{ExpectedType} to report EffectiveValueName.",
+                        startupRegistrar.GetType().FullName, nameof(WindowsStartupRegistrar));
+                    Log.CloseAndFlush();
+                    Shutdown(InstanceStartupPolicy.RefusalExitCode);
+                    return;
+                }
 
                 var reported = new List<InstanceResource>
                 {
@@ -436,6 +452,11 @@ public partial class App : Application
                 {
                     "ProfileDirectory", "AppSingletonMutex", "SettingsWriterMutex", "DwellPipe", "StartupRunValue",
                 };
+                // ProfileDirectory is deliberately absent: it has no single default string to
+                // compare against. Its scoped-ness is decided by SamePath(_appDataDir,
+                // _liveProfileDir) above, which is the equivalent check expressed as a path
+                // comparison rather than a literal — a "default" entry here would have to hard-code
+                // %APPDATA%\EyeCtrl and would be wrong the moment EYECTRL_APPDATA_DIR is set.
                 var defaults = new Dictionary<string, string>
                 {
                     ["AppSingletonMutex"] = SingleInstanceGuard.DefaultMutexName,

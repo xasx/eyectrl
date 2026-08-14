@@ -30,4 +30,30 @@ public class DwellHeadCoreTests
         core.EnsureStarted();
         core.Client.Dispose();
     }
+
+    [Fact]
+    public void Client_IsUsableBeforeEnsureStarted()
+    {
+        // This assembly ships. Client was a get-only auto-property initialised eagerly, so a
+        // consumer touching it before EnsureStarted got a usable object; instance scoping moved
+        // construction later so the latched pipe name could be passed in. Creating it on demand is
+        // what keeps that from becoming a breaking change — an interim version threw here.
+        var core = new DwellHeadCore("t_");
+
+        Check.That(core.Client).IsNotNull();
+        core.Client.Dispose();
+    }
+
+    [Fact]
+    public void Client_IsTheSameInstanceEveryTime()
+    {
+        // Lazy creation must not hand out a fresh client per access: adapters are registered on the
+        // instance returned here, and a second client would silently drop them.
+        var core = new DwellHeadCore("t_");
+
+        var first = core.Client;
+
+        Check.That(core.Client).IsSameReferenceAs(first);
+        first.Dispose();
+    }
 }

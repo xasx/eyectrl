@@ -2,8 +2,8 @@ namespace EyeCtrl.App.Views.Settings;
 
 /// <summary>
 /// Declarative description of one row on a settings page. Pure data + delegates, no WPF types:
-/// <see cref="EyeCtrl.App.Views.SettingsWindow.RenderSpec"/> is the single place that maps a spec
-/// onto an <see cref="EyeCtrl.Controls.DwellControl"/>. This data shape is what a future full-MVVM
+/// <see cref="EyeCtrl.App.Views.SettingsWindow.CreateControl"/> is the single construction path that
+/// maps a spec onto an <see cref="EyeCtrl.Controls.DwellControl"/>. This data shape is what a future full-MVVM
 /// migration binds to (it becomes the row view-model collection); only the renderer is throwaway.
 /// </summary>
 public abstract record SettingsRowSpec(string Id, string Label);

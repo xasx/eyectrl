@@ -51,6 +51,8 @@ public partial class SettingsWindow : OverlayWindow
     internal const double TabContainerHeight = 100;
     private const double PaginationButtonWidth = 100;
     private const double PaginationButtonHeight = 80;
+    // Uniform (horizontal and vertical) margin MakePagButton applies to each button; PaginationReserveHeight counts 2 * this.
+    private const double PaginationButtonMargin = 4;
     private const double ModalButtonHeight = 80;
 
     // Window sizing
@@ -546,7 +548,7 @@ public partial class SettingsWindow : OverlayWindow
         {
             Width = PaginationButtonWidth,
             Height = PaginationButtonHeight,
-            Margin = new Thickness(4),
+            Margin = new Thickness(PaginationButtonMargin),
             CornerRadius = Tokens.StandardCornerRadius,
             Background = pagBrush,
             Cursor = System.Windows.Input.Cursors.Hand,
@@ -662,7 +664,7 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     private double PaginationReserveHeight =>
-        PaginationButtonHeight + PaginationPanel.Margin.Top + PaginationPanel.Margin.Bottom;
+        PaginationButtonHeight + 2 * PaginationButtonMargin + PaginationPanel.Margin.Top + PaginationPanel.Margin.Bottom;
 
     /// <summary>
     /// Caps <paramref name="root"/> so it cannot be drawn wider than the content column can show.

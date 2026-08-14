@@ -149,11 +149,56 @@ public class SettingsAutoPaginationWiringTests
         }
     }
 
+    // The height reserve must count everything the pagination row renders at: the button height,
+    // the buttons' own vertical margins, and PaginationPanel's vertical margins. Under-reserving
+    // by even the 8 DIP of button margin lets a page that exactly fills the chunk budget overflow
+    // the content cell — the one invariant this whole mechanism exists to hold.
+    [Fact]
+    public void PaginationReserveHeight_AccountsForButtonAndPanelMargins()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var body = ExtractProperty(source, "private double PaginationReserveHeight =>");
+
+        Check.WithCustomMessage(
+                "PaginationReserveHeight no longer counts 2 * PaginationButtonMargin — the "
+                + "pagination buttons' own vertical margin, which the rendered Auto row includes. "
+                + "Repoint this check at the new expression, do not delete it.")
+            .That(body).Contains("2 * PaginationButtonMargin");
+        Check.WithCustomMessage(
+                "PaginationReserveHeight no longer references PaginationPanel.Margin.Top — the "
+                + "panel's top margin is part of the row's rendered height. Repoint this check at "
+                + "the new expression, do not delete it.")
+            .That(body).Contains("PaginationPanel.Margin.Top");
+        Check.WithCustomMessage(
+                "PaginationReserveHeight no longer references PaginationPanel.Margin.Bottom — the "
+                + "panel's bottom margin is part of the row's rendered height. Repoint this check "
+                + "at the new expression, do not delete it.")
+            .That(body).Contains("PaginationPanel.Margin.Bottom");
+
+        // The count is only true if MakePagButton actually applies that margin; if its margin
+        // changed, the reserve's 2 * PaginationButtonMargin term must change with it.
+        var makePag = ExtractMethod(source, "private Border MakePagButton(string id, string text)");
+        Check.WithCustomMessage(
+                "MakePagButton no longer sizes its margin from PaginationButtonMargin — the const "
+                + "exists so the button margin and the reserve cannot drift apart. Restore "
+                + "new Thickness(PaginationButtonMargin) (or update both).")
+            .That(makePag).Contains("new Thickness(PaginationButtonMargin)");
+    }
+
     private static string ExtractMethod(string source, string signature)
     {
         var start = source.IndexOf(signature, StringComparison.Ordinal);
         Check.That(start).IsStrictlyGreaterThan(-1);
         var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
+        return source[start..end];
+    }
+
+    private static string ExtractProperty(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Check.That(start).IsStrictlyGreaterThan(-1);
+        var end = source.IndexOf(';', start);
         return source[start..end];
     }
 }

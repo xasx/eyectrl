@@ -16,26 +16,75 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 /// <c>ExternalDwellService</c> and the tray commentary in <c>SupervisorTrayIcon</c> while missing
 /// anything reached through a wrapper.
 /// </para>
+/// <para>
+/// <b>What this guard cannot see, by construction.</b> It matches spellings, so anything reaching
+/// the OS by another route is invisible and a green run must not be read as "no process-external
+/// state was added":
+/// </para>
+/// <list type="bullet">
+/// <item>P/Invoke — <c>SetWindowsHookEx</c>, <c>RegisterWindowMessage</c>, <c>GlobalAddAtom</c>,
+/// <c>CreateMutexW</c> called directly.</item>
+/// <item><c>Process.Start</c>, including anything that registers a scheduled task.</item>
+/// <item>File writes outside the profile directory (<c>Path.GetTempPath()</c> and friends).</item>
+/// <item>A watched API reached through an alias or a `using static`.</item>
+/// </list>
+/// <para>
+/// Those are accepted limits, not oversights: widening to catch them means matching on names so
+/// common the allow-list would become the code. The watch lists below are the part that <i>is</i>
+/// maintainable, and a 2026-08-14 review demonstrated two live gaps in them — see
+/// <see cref="WatchedMembers"/>.
+/// </para>
 /// </summary>
 public class InstanceScopeDriftTests
 {
-    /// <summary>Construction and member-access spellings that create process-external state.</summary>
+    /// <summary>
+    /// Construction spellings that create process-external state.
+    /// <para>
+    /// <c>MemoryMappedFile</c> is deliberately absent: it has no public constructor, so
+    /// <c>new MemoryMappedFile(…)</c> cannot compile and watching the type name here would be dead
+    /// weight that reads as coverage. Its real entry points are the statics in
+    /// <see cref="WatchedMembers"/>.
+    /// </para>
+    /// </summary>
     private static readonly string[] WatchedTypes =
     [
         "Mutex", "EventWaitHandle", "Semaphore",
         "NamedPipeServerStream", "NamedPipeClientStream",
-        "NotifyIcon", "MemoryMappedFile"
+        "NotifyIcon"
     ];
 
+    /// <summary>
+    /// Static and member-access spellings that reach process-external state.
+    /// <para>
+    /// <b>Every "open/create it another way" spelling belongs here.</b> A 2026-08-14 review put
+    /// <c>Registry.SetValue</c> and <c>Mutex.TryOpenExisting</c> into a source file and all four
+    /// tests in this class stayed green — an HKCU write and a machine-global bind, both invisible.
+    /// The <c>Try…</c> variants, the <c>…Acl.Create</c> factories and the one-shot
+    /// <c>Registry.GetValue/SetValue</c> statics were added in response.
+    /// </para>
+    /// </summary>
     private static readonly string[] WatchedMembers =
     [
         "Registry.CurrentUser", "Registry.LocalMachine", "Registry.ClassesRoot",
-        "EventWaitHandle.OpenExisting", "Mutex.OpenExisting",
-        "SpecialFolder.ApplicationData",
+        "Registry.Users", "Registry.CurrentConfig", "Registry.PerformanceData",
+        // One-shot statics that never mention a hive property. The most realistic drift vector:
+        // a single Registry.SetValue line writes HKCU without naming Registry.CurrentUser at all.
+        "Registry.SetValue", "Registry.GetValue",
+        "RegistryKey.OpenBaseKey",
+        "EventWaitHandle.OpenExisting", "Mutex.OpenExisting", "Semaphore.OpenExisting",
+        // The Try… variants bind exactly the same machine-global names, silently.
+        "EventWaitHandle.TryOpenExisting", "Mutex.TryOpenExisting", "Semaphore.TryOpenExisting",
+        "SpecialFolder.ApplicationData", "SpecialFolder.LocalApplicationData",
+        "SpecialFolder.CommonApplicationData",
         // The supervisor's heartbeat server binds via the ACL factory, not `new
         // NamedPipeServerStream` (HeartbeatPipeServer.cs). Omitting this is why an earlier draft
-        // of this guard could not see the very resource v1's enumeration missed.
-        "NamedPipeServerStreamAcl.Create"
+        // of this guard could not see the very resource v1's enumeration missed. The sibling
+        // factories are listed for the same reason, before they are needed rather than after.
+        "NamedPipeServerStreamAcl.Create",
+        "MutexAcl.Create", "EventWaitHandleAcl.Create", "SemaphoreAcl.Create",
+        // MemoryMappedFile's real entry points (see WatchedTypes).
+        "MemoryMappedFile.CreateNew", "MemoryMappedFile.CreateOrOpen",
+        "MemoryMappedFile.OpenExisting", "MemoryMappedFile.CreateFromFile"
     ];
 
     /// <summary>

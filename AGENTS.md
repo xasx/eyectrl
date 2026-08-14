@@ -109,7 +109,7 @@ SDK is .NET 10.0.102 (pinned in `global.json`).
 - **No mocking library** — use private nested fake classes (e.g., `FakeGazeProvider`, `FakeInputSimulator`)
 - Test classes are named `XxxTests` with underscore-separated PascalCase names (`ProcessGaze_MovesCursor`)
 - Test namespaces mirror the source namespace (e.g., `EyeCtrl.Core.Tests.Processing`)
-- `InternalsVisibleTo` is only declared from `EyeCtrl.Core` → `EyeCtrl.Core.Tests`
+- `InternalsVisibleTo` is declared as an **MSBuild item in the csproj**, never an `[assembly:]` attribute. Most src projects expose internals to their own `*.Tests` peer. Three exceptions are worth knowing: `EyeCtrl.Platform` → `EyeCtrl.Supervisor` and `EyeCtrl.ViewModels` → `EyeCtrl.App` are *product* grants, not test ones; and `EyeCtrl.Supervisor` → `EyeCtrl.Architecture.Tests` exists because the Supervisor may not reference `EyeCtrl.Contracts` (invariant #10 keeps its graph to Core + Platform + Controls), so it spells `EYECTRL_INSTANCE_ID` literally and `InstanceScopeEnvVarTests` — in the one project referencing both — asserts the literal matches `InstanceScope.EnvVar`. Grant visibility, not a `ProjectReference`: the latter is what `LayeringTests` pins.
 - No shared base test class or `IClassFixture` — each test creates its own dependencies
 - **Don't run two test suites on this box at once, and prefer unique pipe names in new tests.** Named pipes are machine-global, and a server created with a single instance is stolen by any other process binding the same name — a `dotnet test` in another worktree (this repo routinely has a dozen checked out), or a live `EyeCtrl.Supervisor`/`EyeCtrl.App`. The symptom is deceptive: a *different* test fails on each run, which reads as flaky product code. xUnit's `DisableParallelization` cannot help, being process-local — the only real fix is not to share the name. **`HeartbeatPublisher` and `ExternalDwellService` both take an optional `pipeName` for exactly this** — their tests pass `"eyectrl_watch_test_" + Guid` and `ExternalDwellService.DefaultPipeName + "_test_" + Guid` respectively (#76). Follow that pattern in any new pipe-using service: keep the production name in a `DefaultPipeName` const (the dwell channel's lives in `EyeCtrl.Contracts.DwellPipe.Name`, shared with the SDK's `DwellClient`) and let tests inject a GUID-suffixed one. Before debugging any pipe-test failure, confirm the box is quiet and re-run:
 
@@ -135,7 +135,9 @@ Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
   supervision and self-restart. Startup fails closed with exit code 78 rather than running
   half-scoped, and writes `instance.json` into the profile so a harness can verify it. The rule lives
   in `EyeCtrl.Contracts.InstanceScope`; `EYECTRL_APPDATA_DIR` remains an explicit path override that
-  wins over both. The SDK does **not** read the variable — a host names the dwell pipe via
+  wins over both. **The override alone isolates nothing** — it relocates files while the mutexes,
+  the dwell pipe and the Run value keep their production names, so an override-without-id launch
+  still collides with the live instance on every one of them; startup logs a warning saying so. The SDK does **not** read the variable — a host names the dwell pipe via
   `DwellHead.PipeName`, latched at first use. `InstanceScopeDriftTests` fails the build when a new
   process-external side effect appears unscoped and un-allow-listed.
 

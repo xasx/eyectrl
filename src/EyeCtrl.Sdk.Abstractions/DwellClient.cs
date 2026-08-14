@@ -35,6 +35,17 @@ public sealed class DwellClient : IDisposable
         _pipeName = pipeName ?? DwellPipe.Name;
     }
 
+    /// <summary>
+    /// Creates a client for the production pipe.
+    /// </summary>
+    /// <remarks>
+    /// Explicit rather than relying on the optional parameter above. Adding a defaulted parameter is
+    /// source-compatible but <b>not</b> binary-compatible: it removes the parameterless
+    /// <c>.ctor</c> from metadata, so a consumer already compiled against this shipped assembly
+    /// would hit <see cref="MissingMethodException"/> at runtime on <c>new DwellClient()</c>.
+    /// </remarks>
+    public DwellClient() : this(null) { }
+
     private readonly ConcurrentDictionary<string, IDwellElementAdapter> _adapters = new();
     private readonly OutboundRectTracker _tracker = new();
     private readonly object _writeLock = new();

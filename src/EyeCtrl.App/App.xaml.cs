@@ -358,8 +358,16 @@ public partial class App : Application
             // The heartbeat publisher and restart coordinator are constructed ABOVE ShowOverlays
             // purely so this check can see them. There is no position that is both below them and
             // above the show/start otherwise.
+            // Its own try/catch, NOT the method's. A throw in here — a changed DI registration
+            // making the WindowsStartupRegistrar cast fail, an unwritable profile — would otherwise
+            // land in the generic catch at the bottom of OnStartup and exit 0 via Shutdown(),
+            // which is indistinguishable from a clean exit. Exit 78 is what tells a harness that
+            // isolation could not be established, and it has to survive the failure being a crash
+            // rather than a verdict.
             if (_instanceId != null)
             {
+              try
+              {
                 var dwell = _serviceProvider.GetRequiredService<ExternalDwellService>();
                 var registrar = (WindowsStartupRegistrar)startupRegistrar;
 
@@ -367,7 +375,14 @@ public partial class App : Application
                 {
                     // "Scoped" here means "not the live profile", which is the property that
                     // actually matters and stays true when EYECTRL_APPDATA_DIR redirects elsewhere.
-                    new("ProfileDirectory", _appDataDir != _liveProfileDir, _appDataDir),
+                    //
+                    // Compared as NORMALISED paths, case-insensitively. An ordinal compare of the
+                    // raw strings fails OPEN: AppPaths returns an override verbatim, so pointing
+                    // EYECTRL_APPDATA_DIR at a case- or separator-variant of the live profile
+                    // ("c:\users\…\roaming\eyectrl") differs as a string while denoting the same
+                    // directory — and phase 2 would certify a scoped instance that is writing the
+                    // live settings.json, calibration.json and logs.
+                    new("ProfileDirectory", !SamePath(_appDataDir, _liveProfileDir), _appDataDir),
                     new("AppSingletonMutex",
                         _singleInstance!.EffectiveName != SingleInstanceGuard.DefaultMutexName,
                         _singleInstance.EffectiveName),
@@ -429,6 +444,17 @@ public partial class App : Application
                 Log.Information(
                     "Scoped instance {InstanceId} verified; manifest written to {ProfileDirectory}.",
                     _instanceId, _appDataDir);
+              }
+              catch (Exception ex)
+              {
+                  // Same exit code as a verdict of "not scoped". A harness cannot tell the
+                  // difference between "we proved isolation failed" and "we could not tell", and it
+                  // must not drive real input in either case.
+                  Log.Fatal(ex, "Instance scoping could not be verified; refusing to start.");
+                  Log.CloseAndFlush();
+                  Shutdown(InstanceStartupPolicy.RefusalExitCode);
+                  return;
+              }
             }
 
             // ── Close splash and show persistent overlays (last, after all wiring) ──
@@ -654,6 +680,20 @@ public partial class App : Application
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);
 
+        // Say so when the profile has been redirected without an instance id. That combination
+        // relocates files ONLY: the singleton mutex, the dwell pipe and the HKCU Run value all keep
+        // their production names, so this instance still collides with the live one on every
+        // process-external resource. Silence here is what would let someone believe they were
+        // isolated because their settings.json moved.
+        if (_instanceId == null && !SamePath(_appDataDir, _liveProfileDir))
+        {
+            Log.Warning(
+                "{OverrideVar} redirected the profile to {ProfileDirectory} but {InstanceVar} is not "
+                + "set. This moves files only — the single-instance mutex, dwell pipe and autostart "
+                + "value keep their production names and still collide with the default instance.",
+                AppPaths.OverrideEnvVar, _appDataDir, InstanceScope.EnvVar);
+        }
+
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             Log.Fatal(args.ExceptionObject as Exception, "Unhandled exception (terminating={IsTerminating})",
@@ -678,6 +718,32 @@ public partial class App : Application
             Log.Error(args.Exception, "Unobserved task exception (observed set to true to prevent crash)");
             args.SetObserved();
         };
+    }
+
+    /// <summary>
+    /// Whether two paths denote the same directory. Normalises separators and relative segments via
+    /// <see cref="Path.GetFullPath(string)"/> and compares case-insensitively, because Windows paths
+    /// are case-insensitive and <see cref="AppPaths.Resolve"/> returns an explicit override
+    /// verbatim. An ordinal compare of the raw strings fails OPEN, which on the one check designed
+    /// to fail closed is the wrong direction.
+    /// <para>
+    /// Falls back to a case-insensitive compare of the raw strings if a path cannot be normalised.
+    /// </para>
+    /// </summary>
+    internal static bool SamePath(string a, string b)
+    {
+        try
+        {
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException
+                                      or PathTooLongException or System.Security.SecurityException)
+        {
+            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>

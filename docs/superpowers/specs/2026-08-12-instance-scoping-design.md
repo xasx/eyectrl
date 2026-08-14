@@ -7,6 +7,45 @@
 **Revision:** v5 after round-4 review (0 BLOCKERs, 1 MAJOR, 4 MINORs; shape verdict: converges,
 implementable as written). See §"Revision history".
 
+---
+
+## Amendment v5.1 (2026-08-14) — the `--test-mode` requirement is withdrawn
+
+**Supersedes §"What the `--test-mode` requirement does and does not enforce", the
+"Scoped without `--test-mode` → exit 78" row of the startup table, and every other statement in
+this document that a scoped instance requires `--test-mode`.** Those statements described v5's
+behaviour; the implementation no longer has that gate.
+
+**Why.** v5 required `--test-mode` so that `MouseGazeProvider` would be forced, which it claimed
+"enforced" that two instances could not bind one eye tracker. The requirement optimised for the
+wrong risk. On the machine this project exists for, the user controls the PC **solely** by eye
+tracking, through Tobii Dynavox TD Control. Mouse mode means:
+
+- `MouseGazeProvider` polls `GetCursorPos` every 30 ms — so EyeCtrl's *input* is whatever TD Control
+  is doing to the cursor; and
+- `GazeEngine.OnGazePoint` then calls `IInputSimulator.MoveCursor`, writing that cursor straight
+  back via `SendInput`.
+
+A scoped `--test-mode` instance therefore *depends on* the user's assistive software driving the
+cursor while simultaneously *blocking* it — a closed 30 ms feedback loop contending with their only
+input channel. The gate mandated exactly the configuration that must not run.
+
+**What replaces it.** Nothing, at the policy level: the gaze provider is the launcher's choice, and
+`InstanceStartupPolicy.Evaluate` no longer takes `isTestMode`. Two consequences, both already
+accounted for elsewhere in this document:
+
+- *Serialising scoped instances* is the harness's job, via the run lock its own plan specifies —
+  which §"What this plan deliberately leaves out" already assigned to it, because `--test-mode`
+  never actually prevented concurrent scoped instances anyway (they still shared the cursor, the
+  overlays and the tray).
+- *Keeping a launch inert* is `--paused`, which is the property that was always doing the real work:
+  `OnGazePoint` returns on `InteractionState.Paused` **before** `MoveCursor` and before the fixation
+  detector, so neither cursor movement nor a dwell-fired click is possible. Every integration test
+  passes it, and startup logs a warning on scoped + `--test-mode` without `--paused`.
+
+The two remaining refusals are unchanged: a malformed id (which still must not initialise Serilog),
+and `--restart-handoff` on a scoped instance.
+
 ## Problem
 
 `EyeCtrl.App` binds process-external state on every launch, and nothing scopes any of it to the

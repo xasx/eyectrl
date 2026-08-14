@@ -53,9 +53,8 @@ public static class InstanceStartupPolicy
     /// caller down the logging path.
     /// </summary>
     /// <param name="rawId">Raw <see cref="InstanceScope.EnvVar"/> value, or <c>null</c>.</param>
-    /// <param name="isTestMode"><c>--test-mode</c> was passed.</param>
     /// <param name="isRestartHandoff"><c>--restart-handoff</c> was passed.</param>
-    public static InstanceStartupDecision Evaluate(string? rawId, bool isTestMode, bool isRestartHandoff)
+    public static InstanceStartupDecision Evaluate(string? rawId, bool isRestartHandoff)
     {
         // Absent is not an error: the default instance keeps today's behaviour byte for byte.
         if (string.IsNullOrWhiteSpace(rawId))
@@ -68,16 +67,20 @@ public static class InstanceStartupPolicy
                 + $"(letters, digits, '-' and '_' only, at most {InstanceScope.MaxIdLength} characters).",
                 CanLog: false);
 
-        // Scoping separates NAMES. It does not make the runtime concurrent: one eye tracker, one
-        // tray area, screen-wide overlays. --test-mode forces MouseGazeProvider, which is what turns
-        // "concurrency is unsupported" from a comment into something enforced.
-        if (!isTestMode)
-            return new(
-                InstanceStartupOutcome.Refuse, id,
-                $"{InstanceScope.EnvVar} requires --test-mode. Instance scoping separates names, not "
-                + "the eye tracker, the tray or the overlays, so a scoped instance may not run as a "
-                + "real gaze-driven app.",
-                CanLog: true);
+        // NOTE: there is deliberately no --test-mode requirement here.
+        //
+        // An earlier revision refused a scoped instance that was not in --test-mode, reasoning that
+        // forcing MouseGazeProvider kept it off the eye tracker and so turned "concurrency is
+        // unsupported" into something enforced. That optimised for the wrong risk. MouseGazeProvider
+        // polls the CURSOR and GazeEngine.OnGazePoint then moves the cursor, so a scoped test
+        // instance both depends on the user's assistive software driving the cursor and blocks it
+        // with its own SendInput — on a machine controlled solely by eye tracking, that is the one
+        // configuration guaranteed to interfere with the user's only input channel.
+        //
+        // The provider is therefore the launcher's choice. Serialising scoped instances is the
+        // harness's job (its own plan specifies a run lock), and the property that actually keeps a
+        // launch inert is --paused, which stops OnGazePoint before MoveCursor and before the
+        // fixation detector. Integration tests here pass it.
 
         // A scoped instance refuses self-restart, so it can never be a handoff replacement.
         if (isRestartHandoff)

@@ -175,26 +175,27 @@ public class InstanceScopingIntegrationTests
     }
 
     [Fact]
-    public void ScopedLaunchWithoutTestMode_RefusesWithExitCode78()
+    public void MalformedInstanceId_RefusesWithExitCode78()
     {
         AppFixture.SkipIfDisabled();
 
-        var instanceId = NewInstanceId();
+        // Replaces ScopedLaunchWithoutTestMode_RefusesWithExitCode78: the --test-mode gate was
+        // dropped, so that launch now starts normally. A malformed id is the refusal that is still
+        // safe to assert at process level — it exits before Serilog is initialised and before any
+        // window exists, so nothing is shown and no input is simulated even for an instant.
+        //
+        // Deliberately NOT re-tested with a valid id and no --test-mode: that combination is now a
+        // full gaze-driven app moving the real cursor, which must never be launched from a test on
+        // this machine.
         var psi = new ProcessStartInfo(FindAppExe()) { UseShellExecute = false };
-        psi.Environment[InstanceScope.EnvVar] = instanceId;
+        psi.Environment[InstanceScope.EnvVar] = "bad id";   // space is illegal in an instance id
 
         using var proc = Process.Start(psi)!;
-        try
-        {
-            Check.That(proc.WaitForExit(20_000)).IsTrue();
-            Check.That(proc.ExitCode).IsEqualTo(InstanceStartupPolicy.RefusalExitCode);
-        }
-        finally
-        {
-            // It refuses before writing a manifest, but InitializeInstanceAndLogging has already
-            // created the scoped log directory by then — so there is still a profile to remove.
-            try { Directory.Delete(ProfileFor(instanceId), recursive: true); } catch { }
-        }
+        Check.That(proc.WaitForExit(20_000)).IsTrue();
+        Check.That(proc.ExitCode).IsEqualTo(InstanceStartupPolicy.RefusalExitCode);
+
+        // No profile to clean up: the malformed-id branch refuses before resolving one, which is
+        // the whole point of it not being loggable.
     }
 
     [Fact]

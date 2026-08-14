@@ -130,10 +130,19 @@ Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
 - **Dictionary generation**: `tools/gen_dicts.py` generates word frequency dictionaries. Run manually when dictionaries need updating.
 - **`EYECTRL_INSTANCE_ID`** scopes every process-external name a self-contained app instance binds:
   the profile directory (`%APPDATA%\EyeCtrl\instances\<id>`), the single-instance and settings-writer
-  mutexes, the dwell pipe, and the `HKCU\…\Run` value. It **requires `--test-mode`** — scoping
-  separates names, not the eye tracker, the tray or the overlays — and a scoped instance refuses
-  supervision and self-restart. Startup fails closed with exit code 78 rather than running
-  half-scoped, and writes `instance.json` into the profile so a harness can verify it. The rule lives
+  mutexes, the dwell pipe, and the `HKCU\…\Run` value. A scoped instance refuses supervision and
+  self-restart. Startup fails closed with exit code 78 rather than running half-scoped, and writes
+  `instance.json` into the profile so a harness can verify it.
+  **The gaze provider is the launcher's choice — do not add a `--test-mode` requirement back.**
+  An earlier revision required it, reasoning that forcing `MouseGazeProvider` kept a scoped instance
+  off the eye tracker. That is backwards on this machine: mouse mode polls the cursor
+  (`GetCursorPos` every 30 ms) and `GazeEngine.OnGazePoint` writes it straight back via `SendInput`,
+  so a scoped test instance both depends on the user's assistive software driving the cursor and
+  blocks it. **`--paused` is what makes a launch inert** — `OnGazePoint` returns on
+  `InteractionState.Paused` before `MoveCursor` and before the fixation detector, so no cursor
+  movement and no dwell-fired clicks. Pass it for any launch that does not genuinely need simulated
+  input; the integration tests do. Startup logs a warning on scoped + `--test-mode` without
+  `--paused`. The rule lives
   in `EyeCtrl.Contracts.InstanceScope`; `EYECTRL_APPDATA_DIR` remains an explicit path override that
   wins over both. **The override alone isolates nothing** — it relocates files while the mutexes,
   the dwell pipe and the Run value keep their production names, so an override-without-id launch

@@ -95,7 +95,7 @@ public partial class App : Application
         // Before the mutex, because the mutex's NAME depends on the id. Before the handoff signal,
         // so a replacement that is going to be refused never tells its parent it is ready.
         var decision = InstanceStartupPolicy.Evaluate(
-            Environment.GetEnvironmentVariable(InstanceScope.EnvVar), IsTestMode, isRestartHandoff);
+            Environment.GetEnvironmentVariable(InstanceScope.EnvVar), isRestartHandoff);
 
         if (decision.Outcome == InstanceStartupOutcome.Refuse && !decision.CanLog)
         {
@@ -116,6 +116,19 @@ public partial class App : Application
             Log.CloseAndFlush();
             Shutdown(InstanceStartupPolicy.RefusalExitCode);
             return;
+        }
+
+        // Scoped + mouse mode + not paused is the one combination that actively interferes with the
+        // machine's existing assistive software: MouseGazeProvider polls the cursor that AT is
+        // driving, and OnGazePoint writes it straight back via SendInput. Allowed — the provider is
+        // the launcher's choice — but never silently.
+        if (decision.InstanceId != null && IsTestMode && !IsPausedLaunch)
+        {
+            Log.Warning(
+                "Scoped instance {InstanceId} is in --test-mode without --paused. MouseGazeProvider "
+                + "reads the cursor and the engine writes it back, so this instance will contend "
+                + "with any assistive software driving the same cursor. Add --paused unless the run "
+                + "genuinely needs simulated input.", decision.InstanceId);
         }
 
         // A restart replacement announces itself BEFORE queueing for the mutex: the

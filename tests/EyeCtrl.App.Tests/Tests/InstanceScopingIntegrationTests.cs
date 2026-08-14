@@ -12,7 +12,13 @@ using Microsoft.Win32;
 
 /// <summary>
 /// Launches the real app scoped and asserts the manifest. Category=UI because it starts a process
-/// and shows windows; it does not move the cursor.
+/// and shows windows.
+/// <para>
+/// <b>It does not move the cursor — but only because every launch passes <c>--paused</c></b>; see
+/// <see cref="ScopedTestArgs"/>. An earlier version of this file claimed "does not move the cursor"
+/// while launching unpaused in <c>--test-mode</c>, which is precisely the configuration that fights
+/// the user's assistive software for the cursor. Do not drop that flag.
+/// </para>
 /// <para>
 /// <b>GracefulExit_SendsNothingToTheHeartbeatPipe binds the PRODUCTION <c>eyectrl_watch</c> name</b>,
 /// which is unavoidable — the assertion is precisely that the app does not dial <i>that</i> name, so
@@ -29,6 +35,27 @@ public class InstanceScopingIntegrationTests
 {
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
+    /// <summary>
+    /// Arguments for every scoped launch here. <c>--paused</c> is a <b>safety</b> requirement on this
+    /// machine, not a convenience.
+    /// <para>
+    /// <c>--test-mode</c> selects <c>MouseGazeProvider</c>, which polls <c>GetCursorPos</c> every
+    /// 30 ms and feeds it to <c>GazeEngine.OnGazePoint</c> — which then calls
+    /// <c>IInputSimulator.MoveCursor</c>. The app therefore reads the cursor and writes it back in a
+    /// closed loop, and its <c>SendInput</c> calls interleave with those of the user's real
+    /// assistive software (TD Control), which drives the same cursor from their gaze. The user
+    /// controls this PC solely by eye tracking, so an unpaused test launch competes with their only
+    /// input channel.
+    /// </para>
+    /// <para>
+    /// <c>--paused</c> starts in <c>InteractionState.Paused</c>, and <c>OnGazePoint</c> returns
+    /// before <c>MoveCursor</c> in that state — and before the fixation detector, so no dwell can
+    /// fire a click either. Nothing here needs cursor movement: these tests assert a manifest, an
+    /// exit code, and pipe silence. The pause happens after phase 2, so the manifest is unaffected.
+    /// </para>
+    /// </summary>
+    private const string ScopedTestArgs = "--test-mode --paused";
+
     /// <summary>Profile directory a scoped instance resolves to, for setup and teardown.</summary>
     private static string ProfileFor(string instanceId) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -44,7 +71,7 @@ public class InstanceScopingIntegrationTests
         var instanceId = NewInstanceId();
         var profile = ProfileFor(instanceId);
 
-        var psi = new ProcessStartInfo(FindAppExe()) { Arguments = "--test-mode", UseShellExecute = false };
+        var psi = new ProcessStartInfo(FindAppExe()) { Arguments = ScopedTestArgs, UseShellExecute = false };
         psi.Environment[InstanceScope.EnvVar] = instanceId;
 
         using var proc = Process.Start(psi)!;
@@ -120,7 +147,7 @@ public class InstanceScopingIntegrationTests
 
         var instanceId = NewInstanceId();
         var profile = ProfileFor(instanceId);
-        var psi = new ProcessStartInfo(FindAppExe()) { Arguments = "--test-mode", UseShellExecute = false };
+        var psi = new ProcessStartInfo(FindAppExe()) { Arguments = ScopedTestArgs, UseShellExecute = false };
         psi.Environment[InstanceScope.EnvVar] = instanceId;
 
         using var proc = Process.Start(psi)!;
@@ -186,7 +213,7 @@ public class InstanceScopingIntegrationTests
 
         var instanceId = NewInstanceId();
         var profile = ProfileFor(instanceId);
-        var psi = new ProcessStartInfo(FindAppExe()) { Arguments = "--test-mode", UseShellExecute = false };
+        var psi = new ProcessStartInfo(FindAppExe()) { Arguments = ScopedTestArgs, UseShellExecute = false };
         psi.Environment[InstanceScope.EnvVar] = instanceId;
 
         using var proc = Process.Start(psi)!;

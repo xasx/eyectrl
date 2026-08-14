@@ -5,6 +5,8 @@ internal sealed class DwellPageSource : ISettingsPageSource
     private readonly SettingsPageContext _ctx;
     public DwellPageSource(SettingsPageContext ctx) => _ctx = ctx;
 
+    public bool PrefersAutoPagination => true;
+
     public IReadOnlyList<PageSpec> Build()
     {
         var d = _ctx.Settings.Dwell;

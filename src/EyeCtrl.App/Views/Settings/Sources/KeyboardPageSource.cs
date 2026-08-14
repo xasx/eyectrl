@@ -5,6 +5,8 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
     private readonly SettingsPageContext _ctx;
     public KeyboardPageSource(SettingsPageContext ctx) => _ctx = ctx;
 
+    public bool PrefersAutoPagination => true;
+
     public IReadOnlyList<PageSpec> Build()
     {
         var k = _ctx.Settings.Keyboard;

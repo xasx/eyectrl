@@ -5,6 +5,8 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
     private readonly SettingsPageContext _ctx;
     public ActionMenuPageSource(SettingsPageContext ctx) => _ctx = ctx;
 
+    public bool PrefersAutoPagination => true;
+
     public IReadOnlyList<PageSpec> Build()
     {
         var a = _ctx.Settings.ActionMenu;

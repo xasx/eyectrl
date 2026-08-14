@@ -143,6 +143,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private readonly (string Id, string Icon, string Label, Func<IReadOnlyList<PageSpec>> PageBuilder)[] _tabDefs;
     private readonly Dictionary<string, Func<IReadOnlyList<PageSpec>>> _pageBuilders = new();
+    private readonly Dictionary<string, ISettingsPageSource> _sources = new();
 
     public SettingsWindow(
         SettingsWindowViewModel viewModel,
@@ -263,6 +264,20 @@ public partial class SettingsWindow : OverlayWindow
         _calibrationSource = new CalibrationPageSource(_ctx);
         _modelsSource = new ModelsPageSource(_ctx);
         _qaSource = new QuickActionsPageSource(_ctx);
+
+        // One entry per tab, same ids as _pageBuilders: MaybeRepaginateByHeight looks the
+        // current tab's source up here to ask whether it opts into height re-pagination.
+        _sources["Cursor"] = _cursorSource;
+        _sources["Dwell"] = _dwellSource;
+        _sources["Selection"] = _selectionSource;
+        _sources["Actions"] = _actionMenuSource;
+        _sources["Layout"] = _layoutSource;
+        _sources["Keyboard"] = _keyboardSource;
+        _sources["Models"] = _modelsSource;
+        _sources["Toolbar"] = _toolbarSource;
+        _sources["Calibration"] = _calibrationSource;
+        _sources["General"] = _generalSource;
+        _sources["QuickActions"] = _qaSource;
 
         // Build UI
         BuildTabButtons();
@@ -446,11 +461,34 @@ public partial class SettingsWindow : OverlayWindow
         ContentPanel.Children.Clear();
 
         _pages = BuildPages();
+        _pages = MaybeRepaginateByHeight(_pages);
         _viewModel.Settings.TotalPages = _pages.Count;
         _viewModel.Settings.CurrentPage = Math.Clamp(_viewModel.Settings.CurrentPage, 0, Math.Max(0, _viewModel.Settings.TotalPages - 1));
 
         RenderCurrentPage();
         RenderPagination();
+    }
+
+    /// <summary>
+    /// Re-splits the current tab's rows into height-fitting pages when the tab's source
+    /// opts in. Declines (passes pages through) on degenerate sizing inputs, mirroring
+    /// ContentAvailableWidth.
+    /// </summary>
+    private IReadOnlyList<PageSpec> MaybeRepaginateByHeight(IReadOnlyList<PageSpec> pages)
+    {
+        if (!_sources.TryGetValue(_viewModel.Settings.CurrentTabName, out var source)
+            || !source.PrefersAutoPagination)
+            return pages;
+
+        var width = ContentAvailableWidth;
+        var height = ContentAvailableHeight;
+        if (!(width > 0) || double.IsInfinity(width) || !(height > 0) || double.IsInfinity(height))
+            return pages;
+
+        var rows = pages.SelectMany(p => p.Rows).ToList();
+        var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
+        return SettingsAutoPagination.ChunkByHeight(
+            rows, row => SettingsAutoPagination.MeasureRowHeight(row, width, r, _dwellMs), height);
     }
 
     private void RenderCurrentPage()
@@ -602,6 +640,29 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     /// <summary>
+    /// The pagination row is reserved UNCONDITIONALLY, whether or not the bar renders
+    /// (a single-page tab hides it): otherwise page count would oscillate as the bar
+    /// appears and disappears. Same pre-layout philosophy as ContentAvailableWidth —
+    /// reads <c>Height</c>, never <c>ActualHeight</c> (content is built in the ctor,
+    /// before the first layout pass).
+    /// </summary>
+    private double ContentAvailableHeight
+    {
+        get
+        {
+            if (double.IsNaN(Height) || double.IsInfinity(Height) || Height <= 0)
+                return double.PositiveInfinity;
+            return Height
+                - ContentArea.Margin.Top - ContentArea.Margin.Bottom
+                - ContentPanel.Margin.Top - ContentPanel.Margin.Bottom
+                - PaginationReserveHeight;
+        }
+    }
+
+    private double PaginationReserveHeight =>
+        PaginationButtonHeight + PaginationPanel.Margin.Top + PaginationPanel.Margin.Bottom;
+
+    /// <summary>
     /// Caps <paramref name="root"/> so it cannot be drawn wider than the content column can show.
     ///
     /// <c>MaxWidth</c> rather than a rewritten <c>Width</c>: WPF's min/max clamp wins over an
@@ -647,11 +708,6 @@ public partial class SettingsWindow : OverlayWindow
     };
 
     /// <summary>
-    /// Maps one declarative <paramref name="row"/> onto its <see cref="DwellControl"/> and places it
-    /// via the <see cref="Add(DwellControl)"/>/<see cref="Add(IDwellComposite)"/>/<see cref="Add(DwellLabel)"/>
-    /// overloads. The single WPF-coupled point of the spec pipeline; the per-tab sources are pure.
-    /// </summary>
-    /// <summary>
     /// Constructs the control for one row spec — the single construction path shared by
     /// rendering (via <see cref="RenderSpec"/>) and by
     /// <see cref="SettingsAutoPagination"/>'s measurement, so the two can never drift.
@@ -692,6 +748,13 @@ public partial class SettingsWindow : OverlayWindow
         }
     }
 
+    /// <summary>
+    /// Maps one declarative <paramref name="row"/> onto its <see cref="DwellControl"/> and places it
+    /// via the <see cref="Add(DwellControl)"/>/<see cref="Add(IDwellComposite)"/>/<see cref="Add(DwellLabel)"/>
+    /// overloads, constructing the control through <see cref="CreateControl"/> — the shared
+    /// construction path. The single WPF-coupled point of the spec pipeline; the per-tab
+    /// sources are pure.
+    /// </summary>
     private void RenderSpec(SettingsRowSpec row)
     {
         var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);

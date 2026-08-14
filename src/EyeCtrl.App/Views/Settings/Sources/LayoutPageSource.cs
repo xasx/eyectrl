@@ -7,6 +7,8 @@ internal sealed class LayoutPageSource : ISettingsPageSource
     private readonly SettingsPageContext _ctx;
     public LayoutPageSource(SettingsPageContext ctx) => _ctx = ctx;
 
+    public bool PrefersAutoPagination => true;
+
     public IReadOnlyList<PageSpec> Build()
     {
         var s = _ctx.Settings;

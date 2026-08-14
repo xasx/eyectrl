@@ -125,7 +125,7 @@ public class DwellComboBox : IDwellComposite
                     UpdateOptionSelectionStyles();
                 },
                 BtnBase, category, radiusPhysical, dwellMs,
-                width: 0, height: 70);
+                width: 0, height: 80);
 
             // Override the button's Root to use custom styling
             btn.Root.MinWidth = 150;

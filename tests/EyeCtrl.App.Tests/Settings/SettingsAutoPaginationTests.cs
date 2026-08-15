@@ -135,18 +135,27 @@ public class SettingsAutoPaginationWiringTests
             .That(body).Contains("MaybeRepaginateByHeight");
     }
 
-    // The seam: static tabs opt in; the two navigation-state sources stay out.
+    // The seam: static tabs and Models opt in; QuickActions stays out (its picker pages carry
+    // per-page qa_back_{page} ids that flattening would break). Models navigates by view state
+    // (GoTo), so its page boundaries carry no semantics and its unbounded registry rows belong
+    // in the chunker.
     [Fact]
-    public void QuickActionsAndModels_DoNotOptIn()
+    public void QuickActions_DoesNotOptIn()
     {
-        foreach (var name in new[] { "QuickActionsPageSource", "ModelsPageSource" })
-        {
-            var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
-                "src", "EyeCtrl.App", "Views", "Settings", "Sources", name + ".cs"));
-            Check.WithCustomMessage(name + " must NOT set PrefersAutoPagination = true: its "
-                    + "page boundaries carry navigation semantics.")
-                .That(source.Contains("PrefersAutoPagination => true")).IsFalse();
-        }
+        var qa = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "Settings", "Sources", "QuickActionsPageSource.cs"));
+        Check.WithCustomMessage("QuickActionsPageSource must NOT set PrefersAutoPagination = true: "
+                + "its picker pages carry per-page qa_back_{page} ids that flattening would break.")
+            .That(qa.Contains("PrefersAutoPagination => true")).IsFalse();
+
+        // Symmetric positive assertion: Models opts IN — its registry rows are unbounded and
+        // previously clipped out of reach for a gaze-only user.
+        var models = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "Settings", "Sources", "ModelsPageSource.cs"));
+        Check.WithCustomMessage("ModelsPageSource must set PrefersAutoPagination => true: its "
+                + "page 1 is unbounded (one row per registry entry) and the height chunker is "
+                + "what keeps the last rows reachable.")
+            .That(models.Contains("PrefersAutoPagination => true")).IsTrue();
     }
 
     // Drift guard for the _sources/_tabDefs seam: _sources is hand-maintained, one line per

@@ -8,8 +8,11 @@ internal interface ISettingsPageSource
     /// <summary>
     /// True when the shell may re-split this source's pages to fit the available content
     /// height (see <see cref="SettingsAutoPagination"/>). Sources that bake navigation
-    /// semantics into page boundaries — QuickActions (per-page back-button ids) and Models
-    /// ("next rebuild is the management view") — return false and keep their own paging.
+    /// semantics into page boundaries — QuickActions (per-page back-button ids) — return
+    /// false and keep their own paging.
     /// </summary>
     bool PrefersAutoPagination => false;
+
+    /// <summary>Resets any internal view/navigation state when the user leaves the tab; no-op by default.</summary>
+    void ResetView() { }
 }

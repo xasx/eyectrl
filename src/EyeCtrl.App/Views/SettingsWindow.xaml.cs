@@ -320,7 +320,11 @@ public partial class SettingsWindow : OverlayWindow
             switch (e.PropertyName)
             {
                 case nameof(SettingsViewModel.CurrentTabName):
-                    _qaSource.ResetView();
+                    // Every source resets its view state (QuickActions' picker, Models' manage
+                    // view), so re-entering a tab lands on its list view. Interface DIM: sources
+                    // without view state no-op.
+                    foreach (var source in _sources.Values)
+                        source.ResetView();
                     RebuildContent();
                     break;
                 case nameof(SettingsViewModel.CurrentPage):

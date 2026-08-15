@@ -81,6 +81,20 @@ public class SettingsAutoPaginationFitTests
     private static SliderSpec Slider(string id) =>
         new(id, id, 0, 100, 1, 0, () => 0, _ => { });
 
+    private static ToggleSpec Toggle(string id) =>
+        new(id, id, () => false, _ => { });
+
+    // Five options so the combo's option WrapPanel has room to wrap at the 416 DIP width.
+    private static ComboBoxSpec Combo(string id) =>
+        new(id, id, new[] { "Alpha", "Beta", "Gamma", "Delta", "Epsilon" }, null,
+            () => "Alpha", _ => { });
+
+    private static ColorPickerSpec Picker(string id) =>
+        new(id, id, () => "#FFFFFF", _ => { }, RadiusLogical: 50);
+
+    private static ButtonSpec Button(string id) =>
+        new(id, id, () => { }, ButtonKind.Default, Width: 200, Height: 80);
+
     // The structural guarantee this whole task exists for: every page the chunker emits,
     // re-measured through the production measurement path at the same budget, fits —
     // except a page holding exactly one oversized row, which is by design.
@@ -88,6 +102,39 @@ public class SettingsAutoPaginationFitTests
     public void EveryChunkedPage_FitsTheBudgetItWasChunkedAgainst()
     {
         var rows = Enumerable.Range(0, 10).Select(i => Slider($"s{i}")).ToList();
+        const double budget = 400.0;
+        const double width = 416.0;  // the narrowest content column SettingsContentFitTests measures
+
+        var pages = SettingsAutoPagination.ChunkByHeight(
+            rows, r => SettingsAutoPagination.MeasureRowHeight(r, width, RadiusPhysical, DwellMs), budget);
+
+        Check.That(pages.Count).IsStrictlyGreaterThan(1);           // the budget really forces a split
+        Check.That(pages.SelectMany(p => p.Rows)).HasSize(rows.Count);  // nothing lost
+        foreach (var page in pages)
+        {
+            var h = SettingsAutoPagination.MeasurePageHeight(page, width, RadiusPhysical, DwellMs);
+            if (page.Rows.Count > 1)
+                Check.That(h).IsLessOrEqualThan(budget);
+        }
+    }
+
+    // The test above pins the fit invariant for SliderSpec rows only; this one pins it across
+    // every row kind the renderer can produce. Each control measures its own way — a combo's
+    // options and a picker's swatches wrap in their panels, a button carries an explicit
+    // size — and the equivalence the chunker relies on (a page's measured height is the sum
+    // of its individually measured rows) must hold for all of them.
+    [StaFact]
+    public void EveryChunkedPage_FitsTheBudget_MixedRowTypes()
+    {
+        var rows = Enumerable.Range(0, 3).SelectMany(i => new SettingsRowSpec[]
+        {
+            Slider($"s{i}"),
+            Toggle($"t{i}"),
+            Combo($"c{i}"),
+            Picker($"p{i}"),
+            Button($"b{i}"),
+            new LabelSpec(() => $"l{i}"),
+        }).ToList();
         const double budget = 400.0;
         const double width = 416.0;  // the narrowest content column SettingsContentFitTests measures
 

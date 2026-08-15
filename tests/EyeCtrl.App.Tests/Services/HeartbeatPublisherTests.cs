@@ -126,7 +126,7 @@ public class HeartbeatPublisherTests
         pub.SignalShuttingDown();
 
         // Nothing should ever connect. Bounded wait: a pass is "no connection within the budget".
-        var finished = await Task.WhenAny(connected, Task.Delay(1500));
+        var finished = await Task.WhenAny(connected, Task.Delay(1500, TestContext.Current.CancellationToken));
 
         Check.That(finished).Not.IsSameReferenceAs(connected);
         Check.That(pub.IsPublishing).IsFalse();

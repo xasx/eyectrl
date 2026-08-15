@@ -31,7 +31,7 @@ Copied from repo conventions (AGENTS.md) and the review — every task implicitl
 - The pagination row's height is **reserved unconditionally** (`PaginationButtonHeight` + its margins), whether or not the bar renders — otherwise page count would oscillate as the bar appears/disappears.
 - A single row taller than the budget still gets its own page — never an empty page, never an infinite loop.
 - Degenerate sizing inputs (non-finite/≤0 width or height) **decline to paginate** and pass the source's pages through unchanged, mirroring `ContentAvailableWidth`'s decline-to-constrain.
-- **QuickActions and Models opt out** (`PrefersAutoPagination => false`): they bake navigation semantics into page boundaries (per-page back-button ids `qa_back_{page}`, Models' "next rebuild is the management view" flow) and already count-paginate. Their pages keeping count-based paging is pre-existing behaviour; adopting the chunker there is a recorded follow-up, not scope here.
+- **QuickActions opts out** (`PrefersAutoPagination => false`): its picker pages bake per-page back-button ids (`qa_back_{page}`) into page boundaries, and its pages are count-capped with fixed-height rows. *(Amended 2026-08-15 post-review: Models was originally listed here too, but PR review showed its unbounded model list clipped `md_add` — it was converted to a `GoTo`/`ResetView` state machine and opted IN; see commit `d6ca9e06`. Adopting the chunker in QuickActions remains a recorded follow-up.)*
 - Measurement runs on a detached `StackPanel` with `Tokens.FontStandard` applied (matching the window's inherited font — `SettingsContentFitTests` proved detached measurement works and that font inheritance must be replicated) and a no-op dwell registrar, so measuring never touches the live detector.
 
 ---
@@ -786,7 +786,7 @@ Expected: changed symbols confined to `SettingsWindow` (`RebuildContent`/`Render
 dotnet run --project src/EyeCtrl.App -- --test-mode
 ```
 Open Settings and verify:
-- **Auto-paging:** on each dense tab (Cursor, Selection, Keyboard, Toolbar, Layout, ActionMenu, General, Calibration, Dwell), the **last row of every page is fully visible**; where a tab splits, prev/next navigates and the page indicator is correct. Quick Actions and Models behave exactly as before (count-based pages, back buttons).
+- **Auto-paging:** on each dense tab (Cursor, Selection, Keyboard, Toolbar, Layout, ActionMenu, General, Calibration, Dwell), the **last row of every page is fully visible**; where a tab splits, prev/next navigates and the page indicator is correct. Quick Actions behaves exactly as before (count-based pages, back buttons); Models auto-paginates as well since `d6ca9e06` — its management view is entered via `GoTo`, not page turns (see the design-constraints amendment above).
 - **Spacing:** headings sit ~8 px above their controls; rows breathe evenly.
 - **Swatches:** visibly larger (~100×80) with generous gutters on **both** Cursor and Selection pickers; on a narrow window the picker wraps to a second row instead of clipping.
 - **Combo options** match toggle/±-button height.

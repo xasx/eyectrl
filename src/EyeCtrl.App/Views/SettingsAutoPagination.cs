@@ -85,6 +85,12 @@ internal static class SettingsAutoPagination
                 switch (SettingsWindow.CreateControl(row, new NoopDwellRegistrar(), radiusPhysical, dwellMs))
                 {
                     case DwellControl c:
+                        // Mirror the render path exactly: Add(DwellControl) applies
+                        // ConstrainToContentWidth before attaching, so a control squeezed
+                        // on a narrow display must measure under the same squeeze —
+                        // otherwise "measured == rendered" holds only for as long as
+                        // every root happens to carry an explicit Height.
+                        SettingsWindow.ConstrainToContentWidth(c.Root, availableWidth);
                         c.Attach(scratch); attached.Add(c); break;
                     case IDwellComposite comp:
                         comp.Attach(scratch); attached.Add(comp); break;

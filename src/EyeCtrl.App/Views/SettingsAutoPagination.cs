@@ -98,7 +98,7 @@ internal static class SettingsAutoPagination
                         label.Attach(scratch); attached.Add(label); break;
                     default:
                         throw new InvalidOperationException(
-                            $"Unhandled control type for row spec: {row?.GetType().Name}");
+                            $"Unhandled control type for row spec: {row.GetType().Name}");
                 }
             }
 

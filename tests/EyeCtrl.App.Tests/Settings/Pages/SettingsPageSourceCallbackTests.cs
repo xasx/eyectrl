@@ -121,15 +121,18 @@ public class SettingsPageSourceCallbackTests
 
     // 5. ModelsPageSource delete — invoking the delete button captures a confirm modal; confirming
     // runs the delete path (DeleteModel + ApplyAndSave + RebuildContent) and the model is no longer
-    // reported as downloaded. Uses the disposable ModelTestFakes scope so the temp dir is cleaned.
+    // reported as downloaded. Delete rows live in the Manage view (md_manage switches to it), so the
+    // test enters that view first. Uses the disposable ModelTestFakes scope so the temp dir is cleaned.
     [Fact]
     public void Models_Delete_OnConfirmedModal_RunsDeletePath()
     {
         using var scope = ModelTestFakes.Create();
         var (registry, mgmt) = scope.WithDownloadedBundled("135M");
         var rec = new RecordingSettingsPageContext(registry: registry, modelManagement: mgmt);
+        var src = new ModelsPageSource(rec.Context);
 
-        var del = new ModelsPageSource(rec.Context).Build()[1].Rows
+        src.Build().Single().Rows.OfType<ButtonSpec>().Single(b => b.Id == "md_manage").OnActivate();
+        var del = src.Build().Single().Rows
             .OfType<ButtonSpec>().Single(b => b.Id.StartsWith("md_del_"));
 
         del.OnActivate();
@@ -139,7 +142,8 @@ public class SettingsPageSourceCallbackTests
         rec.LastModalOnYes!();
 
         Check.That(rec.ApplyAndSaveCount).IsEqualTo(1);
-        Check.That(rec.RebuildContentCount).IsEqualTo(1);
+        // Two rebuilds: the GoTo(Manage) that revealed the delete rows, then the post-delete one.
+        Check.That(rec.RebuildContentCount).IsEqualTo(2);
         Check.That(registry.IsModelDownloaded("135M")).IsFalse();
     }
 

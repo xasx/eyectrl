@@ -78,6 +78,7 @@ public class HeartbeatPublisherTests
         }, testToken);
 
         using var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
+        pub.EnablePublishing();   // the send is now gated on this; the F2 assertion still stands
 
         var original = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(new NonPumpingSyncContext());
@@ -105,6 +106,40 @@ public class HeartbeatPublisherTests
         Check.That(completed == received.Task).IsTrue(); // payload delivered
         var line = await received.Task;                  // completed above; await avoids a blocking .Result
         Check.That(line).Contains("shuttingDown", "true");
+    }
+
+    [Fact]
+    public async Task SignalShuttingDown_SendsNothing_WhenNotPublishing()
+    {
+        // An unsupervised instance's graceful exit used to dial eyectrl_watch anyway. That matters
+        // whenever a supervisor is running while the app was launched by hand: a supervisor in
+        // adoption mode authenticates on exe path + session and skips the creation-time comparison,
+        // so the connection binds as VERIFIED; CleanExitRequested carries no PID, so the supervisor
+        // applies the clean-exit to whatever it IS supervising, and that app gets force-killed when
+        // it does not exit inside the 5s deadline.
+        using var server = new NamedPipeServerStream(
+            _pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+
+        var connected = server.WaitForConnectionAsync(TestContext.Current.CancellationToken);
+
+        using var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
+        pub.SignalShuttingDown();
+
+        // Nothing should ever connect. Bounded wait: a pass is "no connection within the budget".
+        var finished = await Task.WhenAny(connected, Task.Delay(1500));
+
+        Check.That(finished).Not.IsSameReferenceAs(connected);
+        Check.That(pub.IsPublishing).IsFalse();
+    }
+
+    [Fact]
+    public void IsPublishing_IsFalseWhenNotSupervised_AndTrueAfterEnable()
+    {
+        using var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
+        Check.That(pub.IsPublishing).IsFalse();
+
+        pub.EnablePublishing();
+        Check.That(pub.IsPublishing).IsTrue();
     }
 
     /// <summary>

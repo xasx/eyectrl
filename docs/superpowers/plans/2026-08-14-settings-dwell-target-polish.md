@@ -626,7 +626,7 @@ git commit -m "style(settings): widen heading-to-control gap, even out row rhyth
 
 **Why:** Combo options are 70 px tall vs the 80 px chrome norm (`DwellButton` default, `DwellToggle`, pagination, modal).
 
-**Accepted residual (review Minor 3):** option rows' centre-to-centre spacing is `height + optionBorder bottom margin` = 80 + 8 = **88 DIP against a 100 DIP hit diameter** — still overlapping. Options rarely wrap to a second row, and this task *improves* the ratio (78→88); fully closing it needs a 20 DIP gutter, which is recorded here as knowingly out of scope.
+**Accepted residual (review Minor 3):** option rows' centre-to-centre spacing is `height + optionBorder bottom margin + 2 × optionBorder BorderThickness` = 80 + 8 + 2×1 = **90 DIP unselected, 94 when selected (thickness 3), against a 100 DIP hit diameter** — still overlapping. Options rarely wrap to a second row, and this task *improves* the ratio (78→90); fully closing it needs a 20 DIP gutter, which is recorded here as knowingly out of scope.
 
 - [ ] **Step 1:** Edit `DwellComboBox.cs:128`:
 ```csharp

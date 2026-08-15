@@ -67,13 +67,14 @@ public class ReceiverNameTests
         try
         {
             using var held = new Mutex(initiallyOwned: true, name: name);
-            var saveFinished = Task.Run(() => svc.Save(new EyeCtrlSettings()));
+            var saveFinished = Task.Run(() => svc.Save(new EyeCtrlSettings()),
+                TestContext.Current.CancellationToken);
 
-            Check.That(saveFinished.Wait(TimeSpan.FromMilliseconds(400))).IsFalse();  // blocked
+            Check.That(saveFinished.Wait(TimeSpan.FromMilliseconds(400), TestContext.Current.CancellationToken)).IsFalse();  // blocked
 
             held.ReleaseMutex();
 
-            Check.That(saveFinished.Wait(TimeSpan.FromSeconds(5))).IsTrue();          // released
+            Check.That(saveFinished.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)).IsTrue();          // released
             await saveFinished;                                                        // observe faults
         }
         finally

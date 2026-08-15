@@ -247,7 +247,7 @@ public class InstanceScopingIntegrationTests
             Check.That(ScopedLogContains(profile, "Shutdown")).IsTrue();
 
             // The assertion itself: SignalShuttingDown ran, and put nothing on eyectrl_watch.
-            var finished = await Task.WhenAny(connected, Task.Delay(2000));
+            var finished = await Task.WhenAny(connected, Task.Delay(2000, TestContext.Current.CancellationToken));
             Check.That(finished).Not.IsSameReferenceAs(connected);
         }
         finally

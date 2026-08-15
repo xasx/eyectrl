@@ -61,7 +61,7 @@ public class CalibrationViewModelTests
             _provider,
             new PhysicalPoint(1920, 1080),
             "test-monitor",
-            calibrationFilePath: null,
+            calibrationFilePath: TempCalibrationPath(),
             monitorHardwareId: () => { resolutions++; return "AUOC5AC"; });
 
         Check.That(vm).IsNotNull();

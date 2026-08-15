@@ -5,6 +5,9 @@ namespace EyeCtrl.App.Views.Settings;
 /// <see cref="EyeCtrl.App.Views.SettingsWindow.CreateControl"/> is the single construction path that
 /// maps a spec onto an <see cref="EyeCtrl.Controls.DwellControl"/>. This data shape is what a future full-MVVM
 /// migration binds to (it becomes the row view-model collection); only the renderer is throwaway.
+/// The `Get`/`Set`/`Text` delegates must be side-effect-free: the pagination measurer constructs
+/// each row's control to measure it before rendering, so every spec's delegates run twice per
+/// rebuild.
 /// </summary>
 public abstract record SettingsRowSpec(string Id, string Label);
 

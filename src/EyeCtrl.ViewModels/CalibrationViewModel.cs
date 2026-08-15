@@ -50,7 +50,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         IGazeProvider gazeProvider,
         PhysicalPoint screenSize,
         string monitorDeviceName,
-        string? calibrationFilePath = null,
+        string calibrationFilePath,
         Func<string>? monitorHardwareId = null)
         : base(messenger)
     {
@@ -60,9 +60,13 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         _screenSize = screenSize;
         _monitorDeviceName = monitorDeviceName;
         _monitorHardwareId = monitorHardwareId ?? (static () => string.Empty);
-        _calibrationFilePath = calibrationFilePath ?? System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "EyeCtrl", "calibration.json");
+        // Required, with no %APPDATA% fallback. The App's DI already injects a resolved path
+        // (AppBootstrapper), so the fallback was never taken in production — it was a default
+        // waiting for the first caller that forgot the argument, and what it would silently write
+        // is the live profile's calibration.json. That file is uniquely unforgiving: its transform
+        // is applied to every gaze point, so a bad one breaks dwell everywhere at once with no
+        // obvious cause. Required beats convenient here.
+        _calibrationFilePath = calibrationFilePath;
         _targetColor = settings.TargetColor;
         _syncContext = SynchronizationContext.Current;
     }

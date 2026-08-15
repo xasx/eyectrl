@@ -13,6 +13,8 @@ using EyeCtrl.Core.Processing;
 /// ScrollViewer (SettingsWindow.xaml: "no ScrollViewer — paginated"), so a page taller than
 /// the content area CLIPS its last rows — an unreachable setting for a gaze-only user. This
 /// re-splits a tab's rows into pages that each fit the available height.
+/// Lives at `Views/`, not `Views/Settings/`: this is the one WPF-coupled member of the spec
+/// namespace, and `SettingsSpecWpfPurityTests` scans `Views/Settings/**` by path.
 /// </summary>
 internal static class SettingsAutoPagination
 {
@@ -90,7 +92,7 @@ internal static class SettingsAutoPagination
                         label.Attach(scratch); attached.Add(label); break;
                     default:
                         throw new InvalidOperationException(
-                            $"Unknown settings row spec: {row?.GetType().Name}");
+                            $"Unhandled control type for row spec: {row?.GetType().Name}");
                 }
             }
 

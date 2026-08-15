@@ -717,6 +717,9 @@ public partial class SettingsWindow : OverlayWindow
     /// <see cref="SettingsAutoPagination"/>'s measurement, so the two can never drift.
     /// Returns a <see cref="DwellControl"/>, <see cref="IDwellComposite"/> or
     /// <see cref="DwellLabel"/> depending on the spec.
+    /// The spec delegates (<c>Get</c>/<c>Set</c>/<c>Text</c>) are now invoked twice per
+    /// rebuild — once to measure, once to render — so their side-effect-freedom is
+    /// load-bearing.
     /// </summary>
     internal static object CreateControl(
         SettingsRowSpec row, IDwellRegistrar registrar, double radiusPhysical, int dwellMs)
@@ -761,6 +764,9 @@ public partial class SettingsWindow : OverlayWindow
             case DwellControl control: Add(control); break;
             case IDwellComposite composite: Add(composite); break;
             case DwellLabel label: Add(label); break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unhandled control type for row spec: {row?.GetType().Name}");
         }
     }
 

@@ -149,6 +149,29 @@ public class SettingsAutoPaginationWiringTests
         }
     }
 
+    // Drift guard for the _sources/_tabDefs seam: _sources is hand-maintained, one line per
+    // tab, and MaybeRepaginateByHeight looks the current tab up with TryGetValue — a tab added
+    // to _tabDefs without a matching _sources entry quietly misses, and that tab silently
+    // falls back to count-based paging (a setting can clip out of reach for a gaze-only
+    // user). Nothing red anywhere; only this check catches it.
+    [Fact]
+    public void EveryRenderedTab_HasASourcesEntry()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+
+        foreach (var id in SettingsTabDriftTests.RenderedTabIds())
+        {
+            Check.WithCustomMessage(
+                    "SettingsWindow._sources has no entry for tab \"" + id + "\" — a tab id "
+                    + "missing its _sources assignment silently falls back to count-based "
+                    + "paging, the exact failure this feature exists to prevent. Add the "
+                    + "_sources[\"" + id + "\"] = ... line (or repoint this check at the new "
+                    + "seam) — do not delete it.")
+                .That(source.Contains("_sources[\"" + id + "\"] =")).IsTrue();
+        }
+    }
+
     // The height reserve must count everything the pagination row renders at: the button height,
     // the buttons' own vertical margins, and PaginationPanel's vertical margins. Under-reserving
     // by even the 8 DIP of button margin lets a page that exactly fills the chunk budget overflow

@@ -130,13 +130,34 @@ internal sealed class ModelsPageSource : ISettingsPageSource
         {
             _ = Task.Run(async () =>
             {
-                var result = await _ctx.ModelManagement.DownloadCustomModelAsync(url);
-                _ctx.Invoke(() =>
+                // try/catch mirrors DownloadBundledAsync above, and for the same reason. This is a
+                // fire-and-forget Task.Run: an escaping exception is not merely unhandled, it is
+                // UNOBSERVED. App.xaml.cs registers a TaskScheduler.UnobservedTaskException handler
+                // that logs and marks it observed, so the process survives — and the user, who
+                // dwelled a button and is waiting, is told nothing at all. Silent failure on a
+                // user-initiated action is the worst of the available outcomes.
+                //
+                // DownloadCustomModelAsync converts its own expected failures into a Failed result
+                // rather than throwing, so this is defence in depth against the unexpected
+                // (ObjectDisposed on the workflow gate, OOM on a large model) — not a routine path.
+                try
                 {
-                    if (!result.IsSuccess) _ctx.ShowError(result.Error ?? "Download failed.");
-                    else _ctx.ApplyAndSave();
-                    _ctx.RebuildContent();
-                });
+                    var result = await _ctx.ModelManagement.DownloadCustomModelAsync(url);
+                    _ctx.Invoke(() =>
+                    {
+                        if (!result.IsSuccess) _ctx.ShowError(result.Error ?? "Download failed.");
+                        else _ctx.ApplyAndSave();
+                        _ctx.RebuildContent();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _ctx.Invoke(() =>
+                    {
+                        _ctx.ShowError($"Download failed: {ex.Message}");
+                        _ctx.RebuildContent();
+                    });
+                }
             });
         });
     }

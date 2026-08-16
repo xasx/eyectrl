@@ -103,10 +103,41 @@ public class SettingsViewModelTests
         var service = new SettingsService("test.json");
         var vm = new SettingsViewModel(settings, service, _messenger);
 
-        // Most tabs fit on one page, but verify navigation works
+        // Most tabs fit on one page, but verify navigation works. TotalPages is owned by
+        // the SettingsWindow shell (set from the real page list), so simulate it as
+        // RebuildContent would before navigating.
         vm.ShowTab("Cursor");
-        Check.That(vm.TotalPages >= 1).IsTrue();
+        vm.TotalPages = 2;
         Check.That(vm.CurrentPage).IsEqualTo(0);
+        Check.That(vm.CurrentPageItems).Not.IsEmpty();
+
+        vm.NextPage();
+        Check.That(vm.CurrentPage).IsEqualTo(1);
+
+        vm.PreviousPage();
+        Check.That(vm.CurrentPage).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void NextPage_DoesNotRecomputeTotalPages_FromTheLegacyItemSystem()
+    {
+        // The SettingsWindow shell owns TotalPages — it sets it from the real page list
+        // (RebuildContent: TotalPages = _pages.Count). The legacy UpdatePageItems recompute
+        // used to clobber it on every page advance; when the legacy count exceeded the real
+        // one, CurrentPage could advance past the last real page and RenderCurrentPage
+        // rendered nothing — empty pages with the bar still showing.
+        var settings = new EyeCtrlSettings();
+        var service = new SettingsService("test.json");
+        var vm = new SettingsViewModel(settings, service, _messenger);
+        vm.ShowTab("Cursor");
+
+        vm.TotalPages = 4;   // simulate the shell's value (4 height-chunked pages)
+        vm.CurrentPage = 0;
+
+        vm.NextPage();
+
+        Check.That(vm.CurrentPage).IsEqualTo(1);
+        Check.That(vm.TotalPages).IsEqualTo(4);
     }
 
     [Fact]

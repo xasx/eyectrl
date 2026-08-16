@@ -20,6 +20,7 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
     private bool _disposed;
 
     [ObservableProperty] private int _currentPage;
+    // Owned by the SettingsWindow shell (set from the real page list); nothing in the VM may recompute it.
     [ObservableProperty] private int _totalPages;
     [ObservableProperty] private string _currentTabName = "";
 
@@ -234,12 +235,11 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
 
     private void UpdatePageItems()
     {
+        // Deliberately does NOT touch TotalPages — that is owned by the SettingsWindow
+        // shell, which sets it from the real (height-chunked) page list. See _totalPages.
         CurrentPageItems.Clear();
         var tab = Tabs.Find(t => t.Name == CurrentTabName);
         if (tab == null) return;
-
-        TotalPages = (int)Math.Ceiling((double)tab.Items.Count / ItemsPerPage);
-        if (TotalPages == 0) TotalPages = 1;
 
         var pageItems = tab.Items.Skip(CurrentPage * ItemsPerPage).Take(ItemsPerPage);
         foreach (var item in pageItems)

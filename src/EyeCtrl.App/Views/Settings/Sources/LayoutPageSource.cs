@@ -26,7 +26,7 @@ internal sealed class LayoutPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Reset, Width: 300, Height: 80),
+                    ButtonKind.Reset, Width: 300, Height: 88),
             ]),
         ];
     }

@@ -100,7 +100,7 @@ public class DwellSlider : IDwellComposite
         _row = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 12)
+            Margin = new Thickness(0, 0, 0, 18)
         };
 
         _row.Children.Add(_minus.Root);

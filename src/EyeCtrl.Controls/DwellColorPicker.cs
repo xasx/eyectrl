@@ -59,14 +59,14 @@ public class DwellColorPicker : IDwellComposite
     public static (string Hex, string Name)[] DefaultPresets => PresetsFor(Tokens.Current);
 
     /// <summary>Rendered swatch cell width in logical DIPs. See <see cref="SwatchHeight"/>.</summary>
-    public const double SwatchWidth = 100;
+    public const double SwatchWidth = 108;
     /// <summary>
     /// Rendered swatch cell height in logical DIPs. Together with the margins and the hit
     /// radius, these four consts are what <c>SwatchTargetGeometryTests</c> checks the
     /// non-overlap invariant against — the invariant the old hard-coded literals silently
     /// violated when the radius was shrunk below the control target floor.
     /// </summary>
-    public const double SwatchHeight = 80;
+    public const double SwatchHeight = 88;
     /// <summary>Horizontal gutter between swatches in the WrapPanel, in logical DIPs.</summary>
     public const double SwatchHorizontalMargin = 6;
     /// <summary>Vertical gutter between wrapped swatch rows, in logical DIPs.</summary>
@@ -118,7 +118,7 @@ public class DwellColorPicker : IDwellComposite
 
         _label = new DwellLabel(label);
 
-        _panel = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
+        _panel = new WrapPanel { Margin = new Thickness(0, 0, 0, 18) };
 
         for (int i = 0; i < presets.Length; i++)
         {

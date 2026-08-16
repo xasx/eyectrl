@@ -681,7 +681,13 @@ public partial class SettingsWindow : OverlayWindow
                 Add(new DwellLabel(l.Text()));
                 break;
             default:
-                throw new InvalidOperationException($"Unknown settings row spec: {row?.GetType().Name}");
+                // Keep the null-CONDITIONAL. `?.` short-circuits the whole member chain, so a null
+                // row yields null rather than throwing — swapping it for `row!.GetType().Name`
+                // would replace this diagnostic with the NullReferenceException it looks like it is
+                // avoiding. The `??` is the actual fix: without it a null row produced
+                // "Unknown settings row spec: " and trailed off, naming nothing.
+                throw new InvalidOperationException(
+                    $"Unknown settings row spec: {row?.GetType().Name ?? "<null>"}");
         }
     }
 

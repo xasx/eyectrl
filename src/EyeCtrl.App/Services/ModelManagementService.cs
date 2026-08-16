@@ -35,7 +35,16 @@ public class ModelManagementService
         _logger = logger;
     }
 
-    public bool IsDownloading => _workflowGate.CurrentCount == 0 || _downloadService.IsDownloading;
+    /// <summary>
+    /// Whether a download workflow is in flight.
+    /// <para>
+    /// <c>virtual</c> as a testing seam. <c>ModelsPageSource.DownloadCustomFromClipboard</c> reads
+    /// this before showing its confirm modal, so a test that cannot control it also cannot reach
+    /// anything past that guard — including the download itself. See
+    /// <see cref="DownloadCustomModelAsync"/> for why the seam exists at all.
+    /// </para>
+    /// </summary>
+    public virtual bool IsDownloading => _workflowGate.CurrentCount == 0 || _downloadService.IsDownloading;
 
     /// <summary>
     /// Downloads a bundled model and its tokenizer atomically.
@@ -91,8 +100,18 @@ public class ModelManagementService
 
     /// <summary>
     /// Downloads a custom model from a URL, registers it, and optionally sets it as active.
+    /// <para>
+    /// <c>virtual</c> purely as a testing seam, and worth justifying because a production API is
+    /// widened for a test. This method converts every failure it <i>expects</i> — bad URL, busy
+    /// workflow gate, name derivation — into a <see cref="ModelDownloadResult"/> rather than
+    /// throwing. That makes its caller's <c>catch</c> unreachable from outside: there is no input
+    /// that provokes a throw, so the one branch that reports an <i>unexpected</i> failure to the
+    /// user could never be exercised. Overriding this to throw is the only way to cover it, and
+    /// that branch is what stands between a failed download and a user who dwelled a button and is
+    /// told nothing.
+    /// </para>
     /// </summary>
-    public async Task<ModelDownloadResult> DownloadCustomModelAsync(
+    public virtual async Task<ModelDownloadResult> DownloadCustomModelAsync(
         string url, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(url) || !url.StartsWith("https://"))

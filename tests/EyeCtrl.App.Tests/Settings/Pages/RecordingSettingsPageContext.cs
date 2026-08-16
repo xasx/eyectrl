@@ -31,13 +31,20 @@ internal sealed class RecordingSettingsPageContext
 {
     private readonly WeakReferenceMessenger _messenger = new();
     private readonly List<string> _log = new();
+    private readonly List<string> _errors = new();
 
+    /// <param name="clipboard">
+    /// What <see cref="SettingsPageContext.ReadClipboard"/> returns. Configurable because
+    /// <c>ModelsPageSource.DownloadCustomFromClipboard</c> reads it first and rejects anything that
+    /// is not an HTTPS URL — a fixed <c>""</c> makes every branch past that guard unreachable.
+    /// </param>
     public RecordingSettingsPageContext(
         EyeCtrlSettings? settings = null,
         SettingsWindowViewModel? viewModel = null,
         ModelRegistryService? registry = null,
         ModelManagementService? modelManagement = null,
-        CalibrationService? calibration = null)
+        CalibrationService? calibration = null,
+        string clipboard = "")
     {
         // Recipients are kept alive by `this` for the scope of the test (WeakReferenceMessenger
         // holds them weakly). Only the message types a page source actually Sends are registered —
@@ -55,17 +62,18 @@ internal sealed class RecordingSettingsPageContext
             _messenger,
             restart: null!,
             showModal: CaptureModal,
-            showError: _ => { },
+            showError: message => { _errors.Add(message); _log.Add(ErrorEntry); },
             applyAndSave: () => { ApplyAndSaveCount++; _log.Add(ApplyAndSaveEntry); },
             rebuildContent: () => { RebuildContentCount++; _log.Add(RebuildContentEntry); },
             invoke: action => action(),   // single-threaded tests: marshal is a direct call
             close: () => { CloseCount++; _log.Add(CloseEntry); },
-            readClipboard: () => "");
+            readClipboard: () => clipboard);
     }
 
     public const string ApplyAndSaveEntry = "ApplyAndSave";
     public const string RebuildContentEntry = "RebuildContent";
     public const string CloseEntry = "Close";
+    public const string ErrorEntry = "ShowError";
 
     public SettingsPageContext Context { get; }
 
@@ -84,6 +92,13 @@ internal sealed class RecordingSettingsPageContext
     /// <summary>Ordered event log shared by the view-bound delegates and the messenger, so call
     /// order across the two surfaces (e.g. Close before Send) is assertable.</summary>
     public IReadOnlyList<string> Log => _log;
+
+    /// <summary>
+    /// Messages passed to <see cref="SettingsPageContext.ShowError"/>, in order. Recorded rather
+    /// than discarded: several page-source branches exist only to report a failure to the user, so
+    /// a no-op <c>showError</c> leaves them indistinguishable from doing nothing at all.
+    /// </summary>
+    public IReadOnlyList<string> Errors => _errors;
 
     private void CaptureModal(string message, Action onYes)
     {

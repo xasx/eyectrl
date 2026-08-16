@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
@@ -99,6 +101,23 @@ internal sealed class ModelTestScope : IDisposable
         return (registry, mgmt);
     }
 
+    /// <summary>
+    /// Management whose custom download throws, for the one branch that reports an unexpected
+    /// failure to the user. <see cref="ModelManagementService.DownloadCustomModelAsync"/> turns
+    /// every failure it expects into a <c>Failed</c> result, so no input provokes a throw — this
+    /// override is the only way to reach that branch.
+    /// </summary>
+    public ThrowingManagement ManagementThatThrows(string message = "boom") =>
+        new(EmptyRegistry(), new ModelDownloadService(Dir), new EyeCtrlSettings(), message);
+
+    /// <summary>
+    /// Management that reports a download already in flight, for the busy guard.
+    /// <see cref="ModelManagementService.IsDownloading"/> is otherwise driven by a private
+    /// semaphore a test cannot hold.
+    /// </summary>
+    public BusyManagement ManagementThatIsBusy() =>
+        new(EmptyRegistry(), new ModelDownloadService(Dir), new EyeCtrlSettings());
+
     private ModelRegistryService BuildRegistry(ModelManifest manifest, EyeCtrlSettings settings) =>
         new(Dir, manifest, settings);
 
@@ -111,4 +130,30 @@ internal sealed class ModelTestScope : IDisposable
         try { Directory.Delete(Dir, recursive: true); }
         catch { /* ignored */ }
     }
+}
+
+/// <summary>Throws from <see cref="ModelManagementService.DownloadCustomModelAsync"/>.</summary>
+internal sealed class ThrowingManagement(
+    ModelRegistryService registry,
+    ModelDownloadService download,
+    EyeCtrlSettings settings,
+    string message)
+    : ModelManagementService(registry, download, settings)
+{
+    /// <summary>Always false, so the caller's busy guard does not short-circuit before the throw.</summary>
+    public override bool IsDownloading => false;
+
+    public override Task<ModelDownloadResult> DownloadCustomModelAsync(
+        string url, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(message);
+}
+
+/// <summary>Reports a download already in flight.</summary>
+internal sealed class BusyManagement(
+    ModelRegistryService registry,
+    ModelDownloadService download,
+    EyeCtrlSettings settings)
+    : ModelManagementService(registry, download, settings)
+{
+    public override bool IsDownloading => true;
 }

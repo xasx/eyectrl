@@ -96,7 +96,12 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
 
-    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    // [LibraryImport] defaults to ExactSpelling and does not append the A/W suffix the way
+    // classic [DllImport] does, so A/W-only exports must name their entry point explicitly —
+    // an undecorated "GetWindowLong"/"GetWindowTextLength" resolves to no export and throws
+    // EntryPointNotFoundException at the call site (crashed the task switcher on window
+    // enumeration).
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextLengthW")]
     internal static partial int GetWindowTextLength(IntPtr hWnd);
 
     // [LibraryImport] does not support StringBuilder (SYSLIB1051). Use [Out] char[].
@@ -113,7 +118,7 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
-    [LibraryImport("user32.dll")]
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongW")]
     internal static partial int GetWindowLong(IntPtr hWnd, int nIndex);
 
     // Window activation

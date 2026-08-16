@@ -53,7 +53,7 @@ public partial class SettingsWindow : OverlayWindow
     private const double PaginationButtonHeight = 80;
     // Uniform (horizontal and vertical) margin MakePagButton applies to each button; PaginationReserveHeight counts 2 * this.
     private const double PaginationButtonMargin = 4;
-    private const double ModalButtonHeight = 80;
+    private const double ModalButtonHeight = 88;
 
     // Window sizing
     //

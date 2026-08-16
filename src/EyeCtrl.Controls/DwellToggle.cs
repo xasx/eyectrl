@@ -65,8 +65,8 @@ public class DwellToggle : DwellControl
 
         System.Windows.Automation.AutomationProperties.SetAutomationId(_text, $"Settings_Toggle_{id}");
 
-        Root.Height = 80;
-        Root.Margin = new Thickness(0, 0, 0, 12);
+        Root.Height = 88;
+        Root.Margin = new Thickness(0, 0, 0, 18);
         Root.Padding = new Thickness(20, 0, 20, 0);
         Root.CornerRadius = Tokens.StandardCornerRadius;
         Root.HorizontalAlignment = HorizontalAlignment.Left;

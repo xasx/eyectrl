@@ -59,7 +59,7 @@ public class DwellButton : DwellControl
         double radiusPhysical,
         int dwellMs,
         double width = 100,
-        double height = 80,
+        double height = 88,
         Brush? textBrush = null)
         : base(registrar, id, category, radiusPhysical, dwellMs)
     {

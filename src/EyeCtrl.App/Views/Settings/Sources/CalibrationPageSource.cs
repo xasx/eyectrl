@@ -29,14 +29,14 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
                 new LabelSpec(StatusText),
                 new ButtonSpec("cal_run", "Calibrate Now",
                     () => { _ctx.Close(); _ctx.Messenger.Send(new CalibrationRequestedMessage()); },
-                    ButtonKind.Default, Width: 300, Height: 88),
+                    ButtonKind.Default, Width: 300, Height: 100),
                 new ButtonSpec("cal_clear", "Clear Calibration",
                     () => _ctx.ShowModal("Clear saved calibration?", () =>
                     {
                         _ctx.Messenger.Send(new CalibrationClearRequestedMessage());
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Reset, Width: 300, Height: 88),
+                    ButtonKind.Reset, Width: 300, Height: 100),
             ]),
         ];
     }

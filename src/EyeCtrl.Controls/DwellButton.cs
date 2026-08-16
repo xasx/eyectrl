@@ -59,7 +59,11 @@ public class DwellButton : DwellControl
         double radiusPhysical,
         int dwellMs,
         double width = 100,
-        double height = 88,
+        // WYSIWYG dwell floor: a settings dwell control is never drawn smaller than the hit
+        // circle it registers (100 DIP diameter at ControlBtnRadius 50), so what you dwell is
+        // what you see — for every user, regardless of size preference. Callers may draw
+        // bigger; never smaller.
+        double height = 100,
         Brush? textBrush = null)
         : base(registrar, id, category, radiusPhysical, dwellMs)
     {

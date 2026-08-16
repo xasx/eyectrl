@@ -58,7 +58,7 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
             new SliderSpec("qa_summon", "Summon Threshold (ms)", 200, 2000, 50, 0, () => qa.SummonThresholdMs, v => { qa.SummonThresholdMs = (int)v; _ctx.ApplyAndSave(); }),
             new SliderSpec("qa_dismiss", "Dismiss Timeout (ms)", 1000, 15000, 500, 0, () => qa.DismissTimeoutMs, v => { qa.DismissTimeoutMs = (int)v; _ctx.ApplyAndSave(); }),
             new SliderSpec("qa_columns", "Grid Columns", 2, 5, 1, 0, () => qa.GridColumns, v => { qa.GridColumns = (int)v; _ctx.ApplyAndSave(); }),
-            new ButtonSpec("qa_add", "\uFF0B  Add action", () => GoTo(QaView.PickType), ButtonKind.Default, Width: 360, Height: 88),
+            new ButtonSpec("qa_add", "\uFF0B  Add action", () => GoTo(QaView.PickType), ButtonKind.Default, Width: 360, Height: 100),
         ]));
 
         var actions = editor.Actions.ToList();
@@ -132,7 +132,7 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
                 var (label, onPick) = itemAt(i);
                 var id = $"{idPrefix}_{i}";
                 rows.Add(new ButtonSpec(id, label, onPick, ButtonKind.Default,
-                    Width: SettingsWindow.PickerButtonWidth, Height: 88));
+                    Width: SettingsWindow.PickerButtonWidth, Height: 100));
             }
             pages.Add(new PageSpec(rows));
         }

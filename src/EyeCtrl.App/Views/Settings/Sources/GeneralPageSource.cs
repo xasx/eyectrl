@@ -26,7 +26,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     () => s.General.StartPaused, v => { s.General.StartPaused = v; _ctx.ApplyAndSave(); }),
                 new ToggleSpec("g_track", "Show Track Status",
                     () => s.TrackStatus.Enabled, v => { s.TrackStatus.Enabled = v; _ctx.ApplyAndSave(); }),
-                new ButtonSpec("g_restart", "↻ Restart Now", OnRestart, ButtonKind.Reset, Width: 300, Height: 88),
+                new ButtonSpec("g_restart", "↻ Restart Now", OnRestart, ButtonKind.Reset, Width: 300, Height: 100),
                 new ButtonSpec("g_reset", "Reset General Settings",
                     () => _ctx.ShowModal("Reset General settings to defaults?", () =>
                     {
@@ -36,7 +36,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Reset, Width: 300, Height: 88),
+                    ButtonKind.Reset, Width: 300, Height: 100),
                 new ButtonSpec("g_resetall", "\u26A0 Reset ALL Settings",
                     () => _ctx.ShowModal("Reset ALL settings to defaults?\nThis cannot be undone.", () =>
                     {
@@ -44,7 +44,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Reset, Width: 300, Height: 88),
+                    ButtonKind.Reset, Width: 300, Height: 100),
             ]),
         ];
     }

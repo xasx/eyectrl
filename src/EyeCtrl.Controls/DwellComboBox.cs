@@ -98,7 +98,7 @@ public class DwellComboBox : IDwellComposite
         _panel = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 18)
+            Margin = new Thickness(0, 0, 0, 24)
         };
 
         for (int i = 0; i < displayOptions.Length; i++)
@@ -125,7 +125,7 @@ public class DwellComboBox : IDwellComposite
                     UpdateOptionSelectionStyles();
                 },
                 BtnBase, category, radiusPhysical, dwellMs,
-                width: 0, height: 88);
+                width: 0, height: 100);
 
             // Override the button's Root to use custom styling
             btn.Root.MinWidth = 150;

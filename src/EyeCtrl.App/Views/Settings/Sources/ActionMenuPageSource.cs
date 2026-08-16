@@ -21,7 +21,7 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Reset, Width: 300, Height: 88),
+                    ButtonKind.Reset, Width: 300, Height: 100),
             ]),
         ];
     }

@@ -21,8 +21,10 @@
          same three numbers from this file and measures a picker button against them. -->
     <Grid x:Name="RootGrid" ColumnDefinitions="240, *">
 
-        <!-- Left: Sidebar with tab buttons -->
-        <Grid Grid.Column="0" Background="{StaticResource BrushSurfaceMedium}" RowDefinitions="Auto, *">
+        <!-- Left: Sidebar with tab buttons. Row 2 paginates the tab list: the sidebar is a
+             plain non-scrolling stack, and on windows shorter than close-button + 11 tab slots
+             the bottom tabs would be clipped out of reach for a gaze user. -->
+        <Grid Grid.Column="0" Background="{StaticResource BrushSurfaceMedium}" RowDefinitions="Auto, *, Auto">
 
             <!-- Close button at top -->
             <Border x:Name="CloseButton" Grid.Row="0"
@@ -36,9 +38,15 @@
                            VerticalAlignment="Center"/>
             </Border>
 
-            <!-- Tab buttons -->
+            <!-- Current page of tab buttons -->
             <StackPanel x:Name="TabButtonPanel" Grid.Row="1"
                         Margin="8" VerticalAlignment="Top"/>
+
+            <!-- Tab-list pager (hidden while every tab fits one page) -->
+            <StackPanel x:Name="TabPagerPanel" Grid.Row="2"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        Margin="0,4,0,8"/>
         </Grid>
 
         <!-- Right: Content area with pagination.

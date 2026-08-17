@@ -191,6 +191,16 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
                     Messenger.Send(new CloseSettingsMessage());
                     return;
                 }
+                // The sidebar's tab-list pager rides the Tab category (it is sidebar chrome
+                // beside the tabs), so its ids arrive at this arm too. They must run the action
+                // the view registered — the view owns the tab-page state — and must NOT fall
+                // through to ShowTab: ShowTab("tab_next") would switch to a nonexistent tab.
+                if (id is "tab_prev" or "tab_next")
+                {
+                    if (_tabActions.TryGetValue(id, out var pagerAction))
+                        pagerAction.Invoke();
+                    return;
+                }
                 _settingsViewModel.ShowTab(id);
                 ActiveTabId = id;
                 if (_tabActions.TryGetValue(id, out var tabAction))

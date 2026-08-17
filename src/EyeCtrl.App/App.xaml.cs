@@ -505,8 +505,10 @@ public partial class App : Application
         var tempSettingsService = new SettingsService(settingsFilePath, SettingsWriter.App);
         var settings = tempSettingsService.Load();
 
-        // Migrate settings for newly-introduced features
-        settings.ActionMenu.EnsureDefaults();
+        // Migrate settings for newly-introduced features. Once-only: the action list is
+        // user-editable in Settings since 2026-08-17, so re-adding defaults every startup
+        // would undo a removal the user made there.
+        settings.ActionMenu.EnsureDefaultsOnce();
 
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);

@@ -28,4 +28,31 @@ public class ActionMenuSettingsMigrationTests
 
         Check.That(settings.VisibleActions.Count).IsEqualTo(count);
     }
+
+    [Fact]
+    public void EnsureDefaultsOnce_Migrates_ThenSetsTheFlag()
+    {
+        var settings = new ActionMenuSettings();
+        settings.VisibleActions.Remove(InteractionAction.PinNote);
+
+        settings.EnsureDefaultsOnce();
+
+        Check.That(settings.VisibleActions).Contains(InteractionAction.PinNote);
+        Check.That(settings.DefaultsMigrated).IsTrue();
+    }
+
+    // The whole point of the flag: once migrated, the list belongs to the user. A default
+    // action the user removed (via the Settings toggles) must stay removed across restarts —
+    // the per-startup EnsureDefaults would silently put it back.
+    [Fact]
+    public void EnsureDefaultsOnce_AfterMigration_DoesNotReAddRemovedActions()
+    {
+        var settings = new ActionMenuSettings();
+        settings.EnsureDefaultsOnce();
+
+        settings.VisibleActions.Remove(InteractionAction.PinNote);
+        settings.EnsureDefaultsOnce();
+
+        Check.That(settings.VisibleActions.Contains(InteractionAction.PinNote)).IsFalse();
+    }
 }

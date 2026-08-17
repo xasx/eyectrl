@@ -640,5 +640,28 @@ public class SettingsWindowViewModelTests
         Check.That(progress > 0).IsTrue();
     }
 
+    // The sidebar's tab-list pager rides the Tab category (it is sidebar chrome next to the
+    // tabs), so its ids arrive at the same switch arm as tab ids. They must run the action the
+    // view registered — the view owns tab-page state — and must NOT fall through to ShowTab:
+    // ShowTab("tab_next") would switch to a nonexistent tab. Found when the sidebar's tab
+    // pagination was added (2026-08-17): tabs 10-11 were unreachable on small windows.
+    [Fact]
+    public void TabPagerIds_RunRegisteredAction_AndDoNotSwitchTab()
+    {
+        var vm = CreateViewModel();
+        vm.Settings.ShowTab("Cursor");
+        var activeBefore = vm.ActiveTabId;
+        var activations = new List<string>();
+        vm.Register("tab_prev", DwellCategory.Tab, 60, 600, () => activations.Add("prev"));
+        vm.Register("tab_next", DwellCategory.Tab, 60, 600, () => activations.Add("next"));
+
+        vm.SimulateActivated("tab_next", DwellCategory.Tab);
+        vm.SimulateActivated("tab_prev", DwellCategory.Tab);
+
+        Check.That(activations).ContainsExactly("next", "prev");
+        Check.That(vm.ActiveTabId).IsEqualTo(activeBefore);
+        Check.That(vm.Settings.CurrentTabName).IsEqualTo("Cursor");
+    }
+
     #endregion
 }

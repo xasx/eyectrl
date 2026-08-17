@@ -126,6 +126,15 @@ public partial class SettingsWindow : OverlayWindow
     private readonly Dictionary<string, Border> _pagButtons = new();
     private readonly Dictionary<string, Border> _modalButtons = new();
 
+    // Sidebar tab-list pagination (the sidebar cannot scroll): the current page's tab ids
+    // (registered while shown), the pager buttons, and the page arithmetic state.
+    private readonly List<string> _renderedTabIds = new();
+    private readonly Dictionary<string, Border> _tabPagerButtons = new();
+    private readonly Dictionary<string, SolidColorBrush> _tabPagerBrushes = new();
+    private int _tabsPerPage = 1;
+    private int _tabPageCount = 1;
+    private int _tabPageIndex;
+
     // One mutable brush per button, mutated in place on dwell ticks (mirrors KeyboardWindow._keyBrushes).
     // Never allocated per-tick: UpdateXxxVisuals only sets .Color, so dwell highlight has zero GC churn.
     private readonly Dictionary<string, SolidColorBrush> _tabBrushes = new();
@@ -296,6 +305,7 @@ public partial class SettingsWindow : OverlayWindow
             {
                 case nameof(SettingsWindowViewModel.TabProgress):
                     UpdateTabVisuals();
+                    UpdateTabPaginationVisuals();
                     break;
                 case nameof(SettingsWindowViewModel.PagProgress):
                     UpdatePaginationVisuals();
@@ -392,8 +402,8 @@ public partial class SettingsWindow : OverlayWindow
                             // +12.50px; the icon's 30 -> TabContainerHeight * Medium (32) adds
                             // only +2.75px, and retargeting the family at "Segoe UI Variable
                             // Text, Segoe UI" moves it by under 0.6px either way. An earlier
-                            // version of this comment claimed a pre-branch 231.11 and blamed the
-                            // icon alone — no configuration measures 231.11, and the label was
+                            // version of this comment claimed a pre-branch 231.11 and blamed
+                            // the icon alone — no configuration measures 231.11, and the label was
                             // the larger half.
                             //
                             // At 240 every label clears the column, the tightest being
@@ -432,17 +442,125 @@ public partial class SettingsWindow : OverlayWindow
             // Mouse fallback
             border.MouseLeftButtonDown += (_, _) => ShowTab(id);
 
-            // Store border + brush for visual updates
+            // Store border + brush for every tab; only the current page's borders are attached
+            // and dwell-registered (RenderTabPage). Detached borders are inert — their position
+            // updates throw and are swallowed, and their targets are unregistered.
             _tabButtons[id] = border;
             _tabBrushes[id] = tabBrush;
-            TabButtonPanel.Children.Add(border);
-
-            // Register with ViewModel for dwell detection
-            _viewModel.Register(id, DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
         }
+
+        // How many tabs one sidebar page holds at this window height, then land on the page
+        // showing the active tab (page 0 when nothing is active yet — the ctor's ShowTab
+        // follows and cannot change the page: "Cursor" IS page 0).
+        _tabsPerPage = SettingsTabPagination.TabsPerPage(
+            SidebarTabBudget, TabContainerHeight + 2 * 4);
+        _tabPageCount = SettingsTabPagination.PageCount(_tabDefs.Length, _tabsPerPage);
+        var activeIndex = Array.FindIndex(_tabDefs, t => t.Id == _viewModel.ActiveTabId);
+        _tabPageIndex = activeIndex < 0 ? 0 : SettingsTabPagination.PageOf(activeIndex, _tabsPerPage);
+
+        BuildTabPagePager();
+        RenderTabPage();
 
         // Register close button with ViewModel
         _viewModel.Register("close", DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
+    }
+
+    /// <summary>
+    /// Attaches — and dwell-registers — only the current tab page's buttons. Tabs left on
+    /// other pages are detached AND unregistered: a hidden tab with a live hit circle is a
+    /// gaze trap (a dwell "succeeds" on invisible chrome whose position update silently fails).
+    /// </summary>
+    private void RenderTabPage()
+    {
+        foreach (var id in _renderedTabIds)
+            _viewModel.Unregister(id, DwellCategory.Tab);
+        _renderedTabIds.Clear();
+        TabButtonPanel.Children.Clear();
+
+        var (start, count) = SettingsTabPagination.PageSlice(_tabDefs.Length, _tabsPerPage, _tabPageIndex);
+        for (var i = start; i < start + count; i++)
+        {
+            var (id, _, _, _) = _tabDefs[i];
+            TabButtonPanel.Children.Add(_tabButtons[id]);
+            _viewModel.Register(id, DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
+            _renderedTabIds.Add(id);
+        }
+
+        UpdateActiveTabHighlight();
+        UpdateTabPagePagerState();
+    }
+
+    private void SwitchTabPage(int page)
+    {
+        var clamped = Math.Clamp(page, 0, _tabPageCount - 1);
+        if (clamped == _tabPageIndex) return;
+        _tabPageIndex = clamped;
+        RenderTabPage();
+    }
+
+    private void BuildTabPagePager()
+    {
+        if (_tabPageCount <= 1) return;   // every tab fits one page: no pager at all
+
+        TabPagerPanel.Children.Add(MakeTabPagerButton("tab_prev", "▲", -1));
+        TabPagerPanel.Children.Add(MakeTabPagerButton("tab_next", "▼", +1));
+    }
+
+    private Border MakeTabPagerButton(string id, string glyph, int direction)
+    {
+        var brush = new SolidColorBrush(BtnBase);
+        var btn = new Border
+        {
+            Width = PaginationButtonWidth,
+            Height = PaginationButtonHeight,
+            // 14, not the content pager's 4: two 100-DIP buttons registering PagBtnRadius
+            // (60-DIP radius, 120-DIP hit circles) need ≥ 120 DIP between centres to keep the
+            // circles clear of each other; 14 + 100 + 14 = 128.
+            Margin = new Thickness(14, 4, 14, 4),
+            CornerRadius = Tokens.StandardCornerRadius,
+            Background = brush,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Child = new TextBlock
+            {
+                Text = glyph,
+                Foreground = Tokens.BrushTextPrimary,
+                FontSize = PaginationButtonHeight * ContainerRatio.Large,
+                FontWeight = Tokens.FontWeightStrong,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+
+        // Dwell and mouse converge on the same switch; the dwell path routes through the
+        // registered action (SettingsWindowViewModel special-cases these ids before ShowTab).
+        btn.MouseLeftButtonDown += (_, _) => SwitchTabPage(_tabPageIndex + direction);
+        _tabPagerButtons[id] = btn;
+        _tabPagerBrushes[id] = brush;
+        _viewModel.Register(id, DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs,
+            () => SwitchTabPage(_tabPageIndex + direction));
+        return btn;
+    }
+
+    /// <summary>
+    /// Boundary state for the tab pager: dimmed arrow at either end (matching the content
+    /// pager's opacity idiom — the target stays registered, a dwell there is just a no-op).
+    /// </summary>
+    private void UpdateTabPagePagerState()
+    {
+        if (_tabPageCount <= 1) return;
+        _tabPagerButtons["tab_prev"].Opacity = _tabPageIndex <= 0 ? 0.3 : 1.0;
+        _tabPagerButtons["tab_next"].Opacity = _tabPageIndex >= _tabPageCount - 1 ? 0.3 : 1.0;
+    }
+
+    // Same blend as the content pagination buttons (UpdatePaginationVisuals); kept in its own
+    // dict because tab-pager targets live in the Tab category, not Pagination.
+    private void UpdateTabPaginationVisuals()
+    {
+        foreach (var (id, progress) in _viewModel.TabProgress)
+        {
+            if (_tabPagerBrushes.TryGetValue(id, out var brush))
+                brush.Color = ColorBlend.Blend(BtnBase, Tokens.Accent, progress * 0.4);
+        }
     }
 
     // ────── Tab switching ──────
@@ -671,6 +789,27 @@ public partial class SettingsWindow : OverlayWindow
         PaginationButtonHeight + 2 * PaginationButtonMargin + PaginationPanel.Margin.Top + PaginationPanel.Margin.Bottom;
 
     /// <summary>
+    /// The tab pager row's height, reserved unconditionally (the row collapses while every tab
+    /// fits one page, but the budget math counts it anyway) — same philosophy as
+    /// <see cref="PaginationReserveHeight"/>: a conditional reserve makes the tab-page count
+    /// oscillate as the pager appears and disappears.
+    /// </summary>
+    private double TabPagerReserveHeight =>
+        PaginationButtonHeight + 2 * PaginationButtonMargin + TabPagerPanel.Margin.Top + TabPagerPanel.Margin.Bottom;
+
+    /// <summary>
+    /// How much vertical room the tab list has: the window height minus the close button's
+    /// block, the pager row's reserve, and the tab panel's own margins. Read off the live
+    /// elements (like <see cref="ContentAvailableWidth"/>) so the arithmetic cannot drift
+    /// from the XAML that decides it; the chunker clamps degenerate values to one tab per page.
+    /// </summary>
+    private double SidebarTabBudget =>
+        Height
+        - CloseButton.Height - CloseButton.Margin.Top - CloseButton.Margin.Bottom
+        - TabPagerReserveHeight
+        - TabButtonPanel.Margin.Top - TabButtonPanel.Margin.Bottom;
+
+    /// <summary>
     /// Caps <paramref name="root"/> so it cannot be drawn wider than the content column can show.
     ///
     /// <c>MaxWidth</c> rather than a rewritten <c>Width</c>: WPF's min/max clamp wins over an
@@ -839,8 +978,10 @@ public partial class SettingsWindow : OverlayWindow
             // Window or button not yet rendered or not in visual tree
         }
 
-        // Update tab button positions
+        // Update tab button positions (only the current tab page's borders are attached;
+        // detached ones throw and are skipped) and the tab pager's
         UpdateButtonPositions(_tabButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Tab, pos));
+        UpdateButtonPositions(_tabPagerButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Tab, pos));
 
         // Update pagination button positions
         UpdateButtonPositions(_pagButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Pagination, pos));

@@ -98,7 +98,9 @@ public class ContainerRatioCensusTests
             ],
             ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] =
             [
-                ("Large", 1, "the pagination digit, filling most of its 80px button."),
+                ("Large", 2, "the pagination digit and the tab-list pager's ▲/▼, each filling "
+                    + "most of its 80px button (the tab pager reuses the content pager's "
+                    + "button metrics)."),
                 ("Medium", 1, "the settings tab icon, which sits beside its tab label."),
             ],
             ["src/EyeCtrl.Controls/DwellArcButton.cs"] =

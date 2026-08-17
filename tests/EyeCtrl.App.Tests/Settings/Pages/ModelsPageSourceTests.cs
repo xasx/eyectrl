@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
 using System.IO;
+using System.Net.Http;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Prediction;
@@ -43,6 +44,117 @@ public class ModelsPageSourceTests
         var rows = pages[0].Rows;
         Check.That(rows.OfType<ComboBoxSpec>().Select(c => c.Id)).Contains(new[] { "md_active" });
         Check.That(rows.OfType<ButtonSpec>().Select(b => b.Id)).Contains(new[] { "md_add", "md_manage" });
+    }
+
+    // End-to-end repro of the user-visible flow "dwell Download → confirm the modal → model
+    // lands on disk", against a fake HttpClient so nothing touches the network: the reported
+    // symptom (2026-08-17, round 3) was "models do not download" with NO download-path log
+    // lines at all — the service logs every failure it reaches, so a break anywhere between
+    // the button and the service is silent. This pins the whole plumbing chain.
+    [Fact]
+    public async Task DwellDownload_ThenConfirm_DownloadsBothFiles_EndToEnd()
+    {
+        using var scope = ModelTestFakes.Create();
+        var manifest = new ModelManifest
+        {
+            Models =
+            {
+                ["135M"] = new ModelEntry
+                {
+                    DisplayName = "SmolLM2 135M", Url = "https://example.invalid/m.onnx",
+                    Sha256 = "",   // empty hash: verification skipped, so the fake bytes pass
+                    SizeBytes = 10,
+                    TokenizerUrl = "https://example.invalid/t.json", TokenizerSha256 = "",
+                },
+            },
+        };
+        var settings = new EyeCtrlSettings();
+        var registry = new ModelRegistryService(scope.Dir, manifest, settings);
+        var download = new ModelDownloadService(scope.Dir, new HttpClient(new FakeOkHandler()));
+        var mgmt = new ModelManagementService(registry, download, settings);
+        var rec = new RecordingSettingsPageContext(registry: registry, modelManagement: mgmt);
+        var src = new ModelsPageSource(rec.Context);
+
+        var button = src.Build().Single().Rows.OfType<ButtonSpec>().Single(b => b.Id == "md_dl_135M");
+        button.OnActivate();
+
+        Check.That(rec.LastModalMessage).IsNotNull();
+        Check.That(rec.LastModalMessage!).Contains("SmolLM2 135M");
+
+        rec.LastModalOnYes!();   // the user confirms the modal
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline
+               && rec.RebuildContentCount == 0 && rec.Errors.Count == 0)
+            await Task.Delay(50);
+
+        Check.WithCustomMessage(
+                "The download never completed: rebuild=" + rec.RebuildContentCount
+                + ", errors=" + (rec.Errors.Count == 0 ? "<none>" : string.Join(" | ", rec.Errors)))
+            .That(rec.RebuildContentCount).IsStrictlyGreaterThan(0);
+        Check.That(rec.Errors).IsEmpty();
+        Check.That(mgmt.CurrentDownloadId).IsNull();   // terminal path clears the in-flight state
+        Check.That(File.Exists(Path.Combine(scope.Dir, "smollm2-135m.onnx"))).IsTrue();
+        Check.That(File.Exists(Path.Combine(scope.Dir, "smollm2-135m.tokenizer.json"))).IsTrue();
+    }
+
+    private sealed class FakeOkHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 })
+            });
+    }
+
+    // The 2026-08-17 round-3 finding: downloads ran invisibly — the button kept saying
+    // "[Download]", nothing showed progress, and a busy guard silently swallowed dwells —
+    // which read to the user as "models do not download". The in-flight model now renders as
+    // a live progress line, and dwelling another model's button while busy says WHY it no-ops.
+    [Fact]
+    public void WhileDownloading_InFlightModelShowsProgressLine_AndBusyIsLoud()
+    {
+        using var scope = ModelTestFakes.Create();
+        var manifest = new ModelManifest
+        {
+            Models =
+            {
+                ["135M"] = new ModelEntry
+                {
+                    DisplayName = "SmolLM2 135M", Url = "https://example.invalid/a.onnx",
+                    Sha256 = "", SizeBytes = 1024,
+                    TokenizerUrl = "https://example.invalid/a.json", TokenizerSha256 = "",
+                },
+                ["other"] = new ModelEntry
+                {
+                    DisplayName = "Other One", Url = "https://example.invalid/b.onnx",
+                    Sha256 = "", SizeBytes = 2048,
+                    TokenizerUrl = "https://example.invalid/b.json", TokenizerSha256 = "",
+                },
+            },
+        };
+        var settings = new EyeCtrlSettings();
+        var registry = new ModelRegistryService(scope.Dir, manifest, settings);
+        var mgmt = new BusyManagement(registry, new ModelDownloadService(scope.Dir), settings);
+        mgmt.CurrentDownloadId = "135M";          // internal seam: inject a mid-download state
+        mgmt.CurrentDownloadProgress = 0.42;
+        var rec = new RecordingSettingsPageContext(registry: registry, modelManagement: mgmt);
+        var src = new ModelsPageSource(rec.Context);
+
+        var rows = src.Build().Single().Rows.ToList();
+
+        var progressLine = rows.OfType<LabelSpec>()
+            .Single(l => l.Text().Contains("⇣")).Text();
+        Check.That(progressLine).Contains("SmolLM2 135M");
+        Check.That(progressLine).Contains("42");   // 0.42 as a locale percentage
+        Check.That(rows.OfType<ButtonSpec>().Select(b => b.Id)).Not.Contains("md_dl_135M");
+
+        // The OTHER model still has its button; dwelling it while busy must SAY so.
+        var other = rows.OfType<ButtonSpec>().Single(b => b.Id == "md_dl_other");
+        other.OnActivate();
+        Check.That(rec.Errors).HasElementThatMatches(e => e.Contains("already in progress"));
+        Check.That(rec.LastModalMessage).IsNull();
     }
 
     // WYSIWYG dwell floor: no Models button may be declared shorter than the 100 DIP hit circle

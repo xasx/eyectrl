@@ -256,6 +256,10 @@ public partial class SettingsWindow : OverlayWindow
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
+            // The models source subscribed to the singleton management service's progress
+            // event; the window is recreated per open, so leaving the subscription live
+            // would accumulate one handler per settings visit.
+            _modelsSource.Detach();
             _viewModel.Dispose();
         };
 

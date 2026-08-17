@@ -23,6 +23,25 @@ public class ModelManagementService
 
     public event Action<ModelDownloadResult>? DownloadCompleted;
 
+    /// <summary>
+    /// Raised (throttled to ~2x/second, plus once per terminal state) while a download workflow
+    /// is in flight, so a UI displaying <see cref="CurrentDownloadId"/> can refresh without
+    /// being driven at network-read rate. Raised on the download's worker thread — marshal.
+    /// </summary>
+    public event Action? DownloadProgressChanged;
+
+    /// <summary>
+    /// Which model a download is currently transferring, or null when idle. Per-file: the model
+    /// transfer completes before the tokenizer one starts, and the id stays set for both.
+    /// internal set: headless page tests inject a mid-download state directly.
+    /// </summary>
+    public string? CurrentDownloadId { get; internal set; }
+
+    /// <summary>Progress of the current transfer as a 0..1 fraction.</summary>
+    public double CurrentDownloadProgress { get; internal set; }
+
+    private DateTime _lastProgressRaiseUtc = DateTime.MinValue;
+
     public ModelManagementService(
         ModelRegistryService registryService,
         ModelDownloadService downloadService,
@@ -33,6 +52,33 @@ public class ModelManagementService
         _downloadService = downloadService;
         _settings = settings;
         _logger = logger;
+        _downloadService.ProgressChanged += OnDownloadProgress;
+    }
+
+    // A multi-hundred-MB download with no visible state reads as "the button did nothing" —
+    // the 2026-08-17 round-3 finding ("models do not download… there is no progress"). The
+    // per-file IsComplete deliberately does NOT clear CurrentDownloadId: the tokenizer phase
+    // follows immediately, and the workflow is only over when Complete() runs.
+    private void OnDownloadProgress(ModelDownloadService.ModelDownloadProgress p)
+    {
+        CurrentDownloadId = p.ModelId;
+        CurrentDownloadProgress = p.Progress;
+
+        var terminal = p.IsComplete || p.IsCancelled || p.Error is not null;
+        if (!terminal && DateTime.UtcNow - _lastProgressRaiseUtc < TimeSpan.FromMilliseconds(500))
+            return;
+        _lastProgressRaiseUtc = DateTime.UtcNow;
+        DownloadProgressChanged?.Invoke();
+    }
+
+    /// <summary>Every terminal path funnels through here: announce, then clear the in-flight state.</summary>
+    private void Complete(ModelDownloadResult result)
+    {
+        DownloadCompleted?.Invoke(result);
+        CurrentDownloadId = null;
+        CurrentDownloadProgress = 0;
+        _lastProgressRaiseUtc = DateTime.MinValue;
+        DownloadProgressChanged?.Invoke();
     }
 
     /// <summary>
@@ -68,7 +114,7 @@ public class ModelManagementService
             if (!downloaded)
             {
                 var result = ModelDownloadResult.Failed("Download failed. Check the URL and try again.");
-                DownloadCompleted?.Invoke(result);
+                Complete(result);
                 return result;
             }
 
@@ -83,13 +129,13 @@ public class ModelManagementService
                     var modelPath = _registryService.GetModelPath(modelId);
                     if (File.Exists(modelPath)) File.Delete(modelPath);
                     var result = ModelDownloadResult.Failed("Tokenizer download failed. Model removed.");
-                    DownloadCompleted?.Invoke(result);
+                    Complete(result);
                     return result;
                 }
             }
 
             var success = ModelDownloadResult.Success(modelId);
-            DownloadCompleted?.Invoke(success);
+            Complete(success);
             return success;
         }
         finally
@@ -144,7 +190,7 @@ public class ModelManagementService
             if (!downloaded)
             {
                 var result = ModelDownloadResult.Failed("Download failed. Check the URL and try again.");
-                DownloadCompleted?.Invoke(result);
+                Complete(result);
                 return result;
             }
 
@@ -158,7 +204,7 @@ public class ModelManagementService
                 var modelPath = _registryService.GetModelPath(finalName);
                 if (File.Exists(modelPath)) File.Delete(modelPath);
                 var result = ModelDownloadResult.Failed("Tokenizer download failed. Model removed.");
-                DownloadCompleted?.Invoke(result);
+                Complete(result);
                 return result;
             }
 
@@ -176,7 +222,7 @@ public class ModelManagementService
             }
 
             var success = ModelDownloadResult.Success(finalName);
-            DownloadCompleted?.Invoke(success);
+            Complete(success);
             return success;
         }
         finally

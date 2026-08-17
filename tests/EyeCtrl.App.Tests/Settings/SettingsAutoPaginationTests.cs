@@ -186,6 +186,21 @@ public class SettingsAutoPaginationFitTests
         Check.That(SettingsAutoPagination.MeasureRowHeight(row, 416.0, RadiusPhysical, DwellMs))
             .IsEqualTo(124.0);
     }
+
+    // LabelSpec rows wrap by default (status text must be fully readable); the separator rule
+    // opts out because its pinned rendering is a clipped single line.
+    [StaFact]
+    public void LabelRow_ForwardsTheWrapFlag()
+    {
+        DwellLabel Render(LabelSpec spec) =>
+            (DwellLabel)SettingsWindow.CreateControl(
+                spec, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs);
+
+        Check.That(Render(new LabelSpec(() => "status")).Root.TextWrapping)
+            .IsEqualTo(System.Windows.TextWrapping.Wrap);
+        Check.That(Render(new LabelSpec(() => "────", Wrap: false)).Root.TextWrapping)
+            .IsEqualTo(System.Windows.TextWrapping.NoWrap);
+    }
 }
 
 public class SettingsAutoPaginationWiringTests

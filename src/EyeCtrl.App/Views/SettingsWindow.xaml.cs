@@ -758,7 +758,7 @@ public partial class SettingsWindow : OverlayWindow
                 button.Root.Margin = new Thickness(4, 0, 4, 24);
                 return button;
             case LabelSpec l:
-                return new DwellLabel(l.Text());
+                return new DwellLabel(l.Text(), wrap: l.Wrap);
             default:
                 // Keep the null-CONDITIONAL. `?.` short-circuits the whole member chain, so a null
                 // row yields null rather than throwing — swapping it for `row!.GetType().Name`

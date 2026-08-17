@@ -88,7 +88,14 @@ public class DwellButton : DwellControl
             FontSize = Tokens.FontSizeTitle,
             FontWeight = Tokens.FontWeightStrong,
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            // Readability: a label wider than the button's text room WRAPS to a second
+            // centered line instead of clipping mid-word. Every label that fits stays on
+            // one line — wrap only engages on overflow (found 2026-08-17: the Models
+            // download rows needed up to 561 DIP against 360 of room and clipped a third
+            // of their text).
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center
         };
 
         Root.MouseLeftButtonDown += (_, _) => _action();

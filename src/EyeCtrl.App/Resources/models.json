@@ -1,52 +1,36 @@
 {
     "models": {
         "135M": {
-            "displayName": "SmolLM2 135M",
-            "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/onnx/model.onnx",
-            "sha256": "",
-            "sizeBytes": 73400320,
-            "tokenizerUrl": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/onnx/tokenizer.json",
-            "tokenizerSha256": ""
+            "displayName": "SmolLM2 135M (fp16)",
+            "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/12fd25f77366fa6b3b4b768ec3050bf629380bac/onnx/model_fp16.onnx",
+            "sha256": "e85e706ce14a3499e1f698c0d638b430df75b5f67131d1516bd0d46b844dfb2e",
+            "sizeBytes": 270267067,
+            "tokenizerUrl": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/12fd25f77366fa6b3b4b768ec3050bf629380bac/tokenizer.json",
+            "tokenizerSha256": "9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c"
         },
         "360M": {
-            "displayName": "SmolLM2 360M",
-            "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/onnx/model.onnx",
-            "sha256": "",
-            "sizeBytes": 188743680,
-            "tokenizerUrl": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/onnx/tokenizer.json",
-            "tokenizerSha256": ""
+            "displayName": "SmolLM2 360M (fp16)",
+            "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/a10cc1512eabd3dde888204e902eca88bddb4951/onnx/model_fp16.onnx",
+            "sha256": "9b3bbb7e1435a9c52f4435b21dc77dc40b71a988ab2f0b4ce47b04b52ca9e8e8",
+            "sizeBytes": 724891911,
+            "tokenizerUrl": "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/a10cc1512eabd3dde888204e902eca88bddb4951/tokenizer.json",
+            "tokenizerSha256": "9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c"
         },
         "0.5B": {
-            "displayName": "Qwen2.5 0.5B",
-            "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/onnx/model.onnx",
-            "sha256": "",
-            "sizeBytes": 262144000,
-            "tokenizerUrl": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/onnx/tokenizer.json",
-            "tokenizerSha256": ""
+            "displayName": "Qwen2.5 0.5B (fp16)",
+            "url": "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/resolve/cc5cc01a65cc3ff17bdb73a7de33d879f62599b0/onnx/model_fp16.onnx",
+            "sha256": "4053fdbbf61bd8e0ec1abc144d57c5c10f287b36685e818e394d07273a301a20",
+            "sizeBytes": 997354499,
+            "tokenizerUrl": "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/resolve/cc5cc01a65cc3ff17bdb73a7de33d879f62599b0/tokenizer.json",
+            "tokenizerSha256": "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf"
         },
         "1.5B": {
-            "displayName": "Qwen2.5 1.5B",
-            "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/resolve/main/onnx/model.onnx",
-            "sha256": "",
-            "sizeBytes": 838860800,
-            "tokenizerUrl": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/resolve/main/onnx/tokenizer.json",
-            "tokenizerSha256": ""
-        },
-        "3.8B": {
-            "displayName": "Phi-3.5-mini (CPU)",
-            "url": "https://huggingface.co/microsoft/Phi-3.5-mini-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/model.onnx",
-            "sha256": "",
-            "sizeBytes": 2147483648,
-            "tokenizerUrl": "https://huggingface.co/microsoft/Phi-3.5-mini-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/tokenizer.json",
-            "tokenizerSha256": ""
-        },
-        "3.8B-GPU": {
-            "displayName": "Phi-3.5-mini (GPU, DirectML)",
-            "url": "https://huggingface.co/microsoft/Phi-3.5-mini-instruct-onnx/resolve/main/directml/directml-int4-awq-block-32/model.onnx",
-            "sha256": "",
-            "sizeBytes": 2147483648,
-            "tokenizerUrl": "https://huggingface.co/microsoft/Phi-3.5-mini-instruct-onnx/resolve/main/directml/directml-int4-awq-block-32/tokenizer.json",
-            "tokenizerSha256": ""
+            "displayName": "Qwen2.5 1.5B (q4f16)",
+            "url": "https://huggingface.co/onnx-community/Qwen2.5-1.5B-Instruct/resolve/6287331f475a3e20e8c879be8fd4bf3551ad9d34/onnx/model_q4f16.onnx",
+            "sha256": "19dec9f63488016185ba997d5e4492b5ac5b4f7ef1abb45243a91de958838dcd",
+            "sizeBytes": 1221878940,
+            "tokenizerUrl": "https://huggingface.co/onnx-community/Qwen2.5-1.5B-Instruct/resolve/6287331f475a3e20e8c879be8fd4bf3551ad9d34/tokenizer.json",
+            "tokenizerSha256": "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf"
         }
     }
 }

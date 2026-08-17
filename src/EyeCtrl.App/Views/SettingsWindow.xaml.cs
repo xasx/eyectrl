@@ -744,8 +744,19 @@ public partial class SettingsWindow : OverlayWindow
                     DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs);
             case ButtonSpec b:
                 var (fill, textBrush) = FillFor(b.Kind);
-                return new DwellButton(registrar, b.Id, b.Label, b.OnActivate, fill, cat,
+                var button = new DwellButton(registrar, b.Id, b.Label, b.OnActivate, fill, cat,
                     radiusPhysical, dwellMs, width: b.Width, height: b.Height, textBrush: textBrush);
+                // A standalone settings row, not a tile in someone else's panel. Pin it to the
+                // column's left axis — Stretch + the explicit Width above CENTRES in WPF, which
+                // drew these buttons at x=130 while every other row kind (toggles, headings,
+                // slider/combo rows) starts at x=0, two axes on one mixed page. And end it with
+                // the 24 DIP bottom margin every other row kind carries: DwellButton's own
+                // (4,0,4,0) margin left stacked buttons flush, their 100 DIP hit circles tangent.
+                // That default stays — toolbar/pagination/modal/composite tiles keep the layout
+                // they were designed against; only the settings-row path gets the row rhythm.
+                button.Root.HorizontalAlignment = HorizontalAlignment.Left;
+                button.Root.Margin = new Thickness(4, 0, 4, 24);
+                return button;
             case LabelSpec l:
                 return new DwellLabel(l.Text());
             default:

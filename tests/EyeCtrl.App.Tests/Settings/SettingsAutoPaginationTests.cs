@@ -1,7 +1,10 @@
 namespace EyeCtrl.App.Tests.Settings;
 
 using System.IO;
+using System.Windows;
+using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Controls;
 
 public class SettingsAutoPaginationTests
 {
@@ -161,6 +164,27 @@ public class SettingsAutoPaginationFitTests
         var h = SettingsAutoPagination.MeasurePageHeight(onePage, 416.0, RadiusPhysical, DwellMs);
 
         Check.That(h).IsStrictlyGreaterThan(400.0);
+    }
+
+    // Mixed-page rhythm: a standalone ButtonSpec row is a list ROW like a toggle or a slider row.
+    // It must sit on the column's left axis — Stretch + the explicit Width centres in WPF, which
+    // drew the 300 DIP buttons at x=130 while every other row kind starts at x=0 — and end with
+    // the 24 DIP bottom margin every other row kind carries; DwellButton's own (4,0,4,0) margin
+    // left stacked buttons flush against each other, tangent hit circles and all. Pinned through
+    // CreateControl, the one construction path render and measurement share, so the measured
+    // 124 can never drift from what renders.
+    [StaFact]
+    public void StandaloneButtonRow_SitsOnTheColumnAxis_AndEndsTheRowRhythm()
+    {
+        var row = new ButtonSpec("b", "Do it", () => { }, ButtonKind.Default, Width: 300, Height: 100);
+
+        var control = (DwellButton)SettingsWindow.CreateControl(
+            row, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs);
+
+        Check.That(control.Root.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Left);
+        Check.That(control.Root.Margin).IsEqualTo(new Thickness(4, 0, 4, 24));
+        Check.That(SettingsAutoPagination.MeasureRowHeight(row, 416.0, RadiusPhysical, DwellMs))
+            .IsEqualTo(124.0);
     }
 }
 

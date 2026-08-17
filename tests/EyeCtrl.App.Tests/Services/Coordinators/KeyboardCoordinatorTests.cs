@@ -1,8 +1,12 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 using Xunit;
 
 public class KeyboardCoordinatorTests
@@ -95,5 +99,97 @@ public class KeyboardCoordinatorTests
         Check.That(modal.KeyboardVisible).IsFalse();
         Check.That(toolbar.IsAutoHideSuspended).IsFalse();
         Check.That(quickActions.IsSummonSuspended).IsFalse();
+    }
+
+    // ---- Emoji skin-tone persistence (issue #58) -------------------------------------------
+    // EmojiGridManagerTests already covers the event-raising half (SkinToneChanged fires with a
+    // clamped value). What was untested is what happens after: that the tone reaches settings, is
+    // actually written to disk, and refreshes the reload snapshot.
+
+    [Fact]
+    public void ApplyEmojiSkinTone_WritesToneIntoSettings()
+    {
+        var settings = new EyeCtrlSettings();
+        using var temp = new TempSettingsFile();
+
+        KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 5);
+
+        Check.That(settings.Keyboard.EmojiSkinTone).IsEqualTo(5);
+    }
+
+    [Fact]
+    public void ApplyEmojiSkinTone_ReturnsSnapshotCapturedAfterTheWrite()
+    {
+        // The ordering guard. ReloadIfChanged compares the stored snapshot against a fresh capture,
+        // so a snapshot taken BEFORE the write would differ from the live settings and trigger a
+        // full keyboard + prediction-stack rebuild on the next settings-apply.
+        var settings = new EyeCtrlSettings();
+        using var temp = new TempSettingsFile();
+
+        var snapshot = KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 3);
+
+        Check.That(snapshot.EmojiSkinTone).IsEqualTo(3);
+        Check.That(snapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings));
+    }
+
+    [Fact]
+    public async Task ApplyEmojiSkinTone_PersistsToneToDisk()
+    {
+        // The half issue #58 called out as untested: the tone must survive a restart. Drives the
+        // real SettingsService against a temp file rather than asserting a call was made.
+        var settings = new EyeCtrlSettings();
+        using var temp = new TempSettingsFile();
+
+        KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 4);
+
+        var loaded = await temp.WaitForToneAsync(4, TestContext.Current.CancellationToken);
+        Check.That(loaded.Keyboard.EmojiSkinTone).IsEqualTo(4);
+    }
+
+    /// <summary>
+    /// A real <see cref="SettingsService"/> over a throwaway file. SaveDebounced is a 500ms
+    /// debounce onto the thread pool, so the assertion polls for the value the way
+    /// SettingsServiceDebounceTests does — a fixed delay flakes on a loaded runner.
+    /// </summary>
+    private sealed class TempSettingsFile : IDisposable
+    {
+        private readonly string _path = Path.Combine(
+            Path.GetTempPath(), $"eyectrl_skintone_{Guid.NewGuid()}.json");
+
+        public SettingsService Service { get; }
+
+        public TempSettingsFile() => Service = new SettingsService(_path);
+
+        public async Task<EyeCtrlSettings> WaitForToneAsync(int expected, CancellationToken ct)
+        {
+            for (var i = 0; i < 100; i++)
+            {
+                // Require the file to exist first: Load() returns defaults when it is missing, and
+                // the default tone (0) could otherwise pass as a false positive.
+                if (File.Exists(_path))
+                {
+                    var loaded = Service.Load();
+                    if (loaded.Keyboard.EmojiSkinTone == expected) return loaded;
+                }
+                await Task.Delay(50, ct);
+            }
+            return Service.Load();
+        }
+
+        public void Dispose()
+        {
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                try
+                {
+                    if (File.Exists(_path)) File.Delete(_path);
+                    break;
+                }
+                catch (IOException) when (attempt < 4)
+                {
+                    Thread.Sleep(50);
+                }
+            }
+        }
     }
 }

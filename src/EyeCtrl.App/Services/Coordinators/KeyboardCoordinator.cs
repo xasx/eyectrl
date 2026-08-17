@@ -195,12 +195,33 @@ internal sealed class KeyboardCoordinator : IDisposable
         _modal.KeyboardVisible = visible;
     }
 
+    /// <summary>
+    /// The persistence half of a skin-tone change: write the tone into settings, request the
+    /// debounced save, and return the refreshed keyboard snapshot.
+    /// </summary>
+    /// <remarks>
+    /// Split out of <see cref="OnEmojiSkinToneChanged"/> so the chain is reachable in a headless
+    /// test (issue #58) — the handler needs an <see cref="EventCoordinationContext"/>, a 26-member
+    /// record of WPF-bound objects, which is why the sibling coordinator tests never call
+    /// <see cref="Initialize"/>. Same motivation as <see cref="ApplyModalKeyboardState"/>.
+    ///
+    /// Re-capturing the snapshot is not bookkeeping: <see cref="ReloadIfChanged"/> compares against
+    /// it, so skipping the refresh would make the next settings-apply see a phantom diff and rebuild
+    /// the whole keyboard (and its prediction stack) just because the user picked a skin tone.
+    /// Capture must therefore happen AFTER the write.
+    /// </remarks>
+    internal static KeyboardStackSnapshot ApplyEmojiSkinTone(
+        EyeCtrlSettings settings, SettingsService settingsService, int tone)
+    {
+        settings.Keyboard.EmojiSkinTone = tone;
+        settingsService.SaveDebounced(settings);
+        return KeyboardStackSnapshot.Capture(settings);
+    }
+
     private void OnEmojiSkinToneChanged(int tone)
     {
         if (_context == null) return;
-        _context.Settings.Keyboard.EmojiSkinTone = tone;
-        _context.SettingsService.SaveDebounced(_context.Settings);
-        _keyboardSnapshot = KeyboardStackSnapshot.Capture(_context.Settings);
+        _keyboardSnapshot = ApplyEmojiSkinTone(_context.Settings, _context.SettingsService, tone);
     }
 
     public void Dispose()

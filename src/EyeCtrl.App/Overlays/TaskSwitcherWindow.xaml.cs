@@ -60,8 +60,8 @@ public partial class TaskSwitcherWindow : OverlayWindow
     }
 
     /// <summary>
-    /// For each tile, compute its screen center from the realized container and push it
-    /// back into the VM so the DwellDetector hit-tests against real coordinates.
+    /// For each tile, compute its real on-screen center and push it into the VM so the
+    /// DwellDetector hit-tests against true coordinates.
     /// </summary>
     private void UpdateTilePositions()
     {
@@ -76,12 +76,16 @@ public partial class TaskSwitcherWindow : OverlayWindow
             if (container is not FrameworkElement fe)
                 continue;
 
-            // Transform the container's center to window coordinates, then to physical pixels.
-            var center = fe.TransformToAncestor(this).Transform(new Point(fe.ActualWidth / 2, fe.ActualHeight / 2));
-            var physical = new PhysicalPoint(
-                DpiHelper.LogicalToPhysicalX(center.X),
-                DpiHelper.LogicalToPhysicalY(center.Y));
-            _viewModel.UpdateTilePosition(tile.Hwnd, physical);
+            // PointToScreen, like every other overlay (Keyboard, Toolbar, QuickActions,
+            // Settings): it returns PHYSICAL device pixels and folds in Windows' DPI
+            // virtualization. This window used to compute the center via
+            // TransformToAncestor + DpiHelper.LogicalToPhysicalX — the one overlay not using
+            // PointToScreen — and under a DPI-virtualized process (ScaleX telling only half
+            // the story) the targets landed far from the tiles' true screen positions: tiles
+            // visible, gaze never inside any hit circle, nothing dwellable (2026-08-17
+            // field report). See QuickActionsGridWindow's own "do NOT multiply by DpiHelper".
+            var center = fe.PointToScreen(new Point(fe.ActualWidth / 2, fe.ActualHeight / 2));
+            _viewModel.UpdateTilePosition(tile.Hwnd, new PhysicalPoint(center.X, center.Y));
         }
     }
 

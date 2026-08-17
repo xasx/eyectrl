@@ -1,5 +1,6 @@
 namespace EyeCtrl.Controls.Theme;
 
+using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 
@@ -8,26 +9,53 @@ using System.Windows.Media;
 /// <see cref="ITheme.FontStandard"/> object from its family string, so a concrete theme
 /// declares 22 colours, one thickness, and 12 geometry/typography values, and nothing else.
 ///
-/// Brushes are built on first access rather than in the constructor: a constructor
-/// would have to call the abstract colour getters before the derived type is fully
-/// constructed. The lazy form has no such ordering hazard, and a race between two
-/// threads is harmless — both produce equal frozen brushes over the same colour,
-/// and nothing in the codebase compares brushes by reference.
+/// Brushes are built on first access rather than in the constructor: a constructor would
+/// have to call the abstract colour getters before the derived type is fully constructed,
+/// which is exactly the default(Color) hazard ThemeShapeTests guards against. The lazy
+/// form has no such ordering hazard.
+///
+/// Publication is atomic (<see cref="CachedBrush"/>, <see cref="CachedFont"/>) rather
+/// than a plain <c>??=</c>. <see cref="Tokens"/> exposes one theme process-wide, so a
+/// race must still hand every caller the *same* instance: with <c>??=</c> two threads
+/// could each build a brush and one would be handed out without ever being stored,
+/// leaving callers holding two equal-but-distinct brushes. That is observable — the
+/// settings label mapping is pinned by reference identity — and it flaked under xUnit's
+/// parallel execution. A losing thread's brush is simply dropped.
 /// </summary>
 public abstract class ThemeBase : ITheme
 {
-    private static SolidColorBrush Frozen(Color c)
+    /// <summary>
+    /// Returns <paramref name="slot"/>'s brush, building and publishing a frozen brush
+    /// over <paramref name="colour"/> on first access. Safe to call concurrently: every
+    /// caller receives the one published instance.
+    /// </summary>
+    private static SolidColorBrush CachedBrush(ref SolidColorBrush? slot, Color colour, double opacity = 1.0)
     {
-        var b = new SolidColorBrush(c);
-        b.Freeze();     // shared across overlays that redraw at gaze rate
-        return b;
+        var existing = Volatile.Read(ref slot);
+        if (existing is not null)
+            return existing;
+
+        var created = new SolidColorBrush(colour) { Opacity = opacity };
+        created.Freeze();       // shared across overlays that redraw at gaze rate
+
+        // CompareExchange returns the slot's PREVIOUS value: null when we won the race,
+        // the winner's brush when we lost. Either way the result is what every other
+        // caller will see from here on.
+        return Interlocked.CompareExchange(ref slot, created, null) ?? created;
     }
 
-    private static SolidColorBrush Dimmed(Color c, double opacity)
+    /// <summary>
+    /// The <see cref="FontFamily"/> counterpart of <see cref="CachedBrush"/>. A FontFamily
+    /// cannot be frozen, so it is treated as read-only once published.
+    /// </summary>
+    private static FontFamily CachedFont(ref FontFamily? slot, string family)
     {
-        var b = new SolidColorBrush(c) { Opacity = opacity };
-        b.Freeze();
-        return b;
+        var existing = Volatile.Read(ref slot);
+        if (existing is not null)
+            return existing;
+
+        var created = new FontFamily(family);
+        return Interlocked.CompareExchange(ref slot, created, null) ?? created;
     }
 
     /// <inheritdoc />
@@ -134,54 +162,54 @@ public abstract class ThemeBase : ITheme
     private FontFamily? _fontStandard;
 
     /// <inheritdoc />
-    public SolidColorBrush BrushSurfaceDark => _surfaceDark ??= Frozen(SurfaceDark);
+    public SolidColorBrush BrushSurfaceDark => CachedBrush(ref _surfaceDark, SurfaceDark);
     /// <inheritdoc />
-    public SolidColorBrush BrushSurfaceMedium => _surfaceMedium ??= Frozen(SurfaceMedium);
+    public SolidColorBrush BrushSurfaceMedium => CachedBrush(ref _surfaceMedium, SurfaceMedium);
     /// <inheritdoc />
-    public SolidColorBrush BrushSurfaceLight => _surfaceLight ??= Frozen(SurfaceLight);
+    public SolidColorBrush BrushSurfaceLight => CachedBrush(ref _surfaceLight, SurfaceLight);
     /// <inheritdoc />
-    public SolidColorBrush BrushSurfaceKey => _surfaceKey ??= Frozen(SurfaceKey);
+    public SolidColorBrush BrushSurfaceKey => CachedBrush(ref _surfaceKey, SurfaceKey);
     /// <inheritdoc />
-    public SolidColorBrush BrushSurfaceKeyModifier => _surfaceKeyModifier ??= Frozen(SurfaceKeyModifier);
+    public SolidColorBrush BrushSurfaceKeyModifier => CachedBrush(ref _surfaceKeyModifier, SurfaceKeyModifier);
     /// <inheritdoc />
-    public SolidColorBrush BrushSurfaceKeySwitch => _surfaceKeySwitch ??= Frozen(SurfaceKeySwitch);
+    public SolidColorBrush BrushSurfaceKeySwitch => CachedBrush(ref _surfaceKeySwitch, SurfaceKeySwitch);
     /// <inheritdoc />
-    public SolidColorBrush BrushSurfaceKeyActive => _surfaceKeyActive ??= Frozen(SurfaceKeyActive);
+    public SolidColorBrush BrushSurfaceKeyActive => CachedBrush(ref _surfaceKeyActive, SurfaceKeyActive);
     /// <inheritdoc />
-    public SolidColorBrush BrushSurfacePrediction => _surfacePrediction ??= Frozen(SurfacePrediction);
+    public SolidColorBrush BrushSurfacePrediction => CachedBrush(ref _surfacePrediction, SurfacePrediction);
     /// <inheritdoc />
-    public SolidColorBrush BrushBorderSubtle => _borderSubtle ??= Frozen(BorderSubtle);
+    public SolidColorBrush BrushBorderSubtle => CachedBrush(ref _borderSubtle, BorderSubtle);
     /// <inheritdoc />
-    public SolidColorBrush BrushBorderFocus => _borderFocus ??= Frozen(BorderFocus);
+    public SolidColorBrush BrushBorderFocus => CachedBrush(ref _borderFocus, BorderFocus);
     /// <inheritdoc />
-    public SolidColorBrush BrushTextPrimary => _textPrimary ??= Frozen(TextPrimary);
+    public SolidColorBrush BrushTextPrimary => CachedBrush(ref _textPrimary, TextPrimary);
     /// <inheritdoc />
-    public SolidColorBrush BrushTextSecondary => _textSecondary ??= Frozen(TextSecondary);
+    public SolidColorBrush BrushTextSecondary => CachedBrush(ref _textSecondary, TextSecondary);
     /// <inheritdoc />
-    public SolidColorBrush BrushTextDim => _textDim ??= Frozen(TextDim);
+    public SolidColorBrush BrushTextDim => CachedBrush(ref _textDim, TextDim);
     /// <inheritdoc />
-    public SolidColorBrush BrushMarkerMove => _markerMove ??= Frozen(MarkerMove);
+    public SolidColorBrush BrushMarkerMove => CachedBrush(ref _markerMove, MarkerMove);
     /// <inheritdoc />
-    public SolidColorBrush BrushAccent => _accent ??= Frozen(Accent);
+    public SolidColorBrush BrushAccent => CachedBrush(ref _accent, Accent);
     /// <inheritdoc />
-    public SolidColorBrush BrushStrokeHalo => _strokeHalo ??= Frozen(StrokeHalo);
+    public SolidColorBrush BrushStrokeHalo => CachedBrush(ref _strokeHalo, StrokeHalo);
     /// <inheritdoc />
-    public SolidColorBrush BrushAccentSuccess => _accentSuccess ??= Frozen(AccentSuccess);
+    public SolidColorBrush BrushAccentSuccess => CachedBrush(ref _accentSuccess, AccentSuccess);
     /// <inheritdoc />
-    public SolidColorBrush BrushAccentWarning => _accentWarning ??= Frozen(AccentWarning);
+    public SolidColorBrush BrushAccentWarning => CachedBrush(ref _accentWarning, AccentWarning);
     /// <inheritdoc />
-    public SolidColorBrush BrushAccentDanger => _accentDanger ??= Frozen(AccentDanger);
+    public SolidColorBrush BrushAccentDanger => CachedBrush(ref _accentDanger, AccentDanger);
     /// <inheritdoc />
-    public SolidColorBrush BrushToggleOn => _toggleOn ??= Frozen(ToggleOn);
+    public SolidColorBrush BrushToggleOn => CachedBrush(ref _toggleOn, ToggleOn);
     /// <inheritdoc />
-    public SolidColorBrush BrushToggleOff => _toggleOff ??= Frozen(ToggleOff);
+    public SolidColorBrush BrushToggleOff => CachedBrush(ref _toggleOff, ToggleOff);
     /// <inheritdoc />
-    public SolidColorBrush BrushModalBackdrop => _modalBackdrop ??= Frozen(ModalBackdrop);
+    public SolidColorBrush BrushModalBackdrop => CachedBrush(ref _modalBackdrop, ModalBackdrop);
     /// <inheritdoc />
-    public SolidColorBrush BrushAccentDim10 => _accentDim10 ??= Dimmed(Accent, 0.10);
+    public SolidColorBrush BrushAccentDim10 => CachedBrush(ref _accentDim10, Accent, 0.10);
 
     /// <inheritdoc />
-    public FontFamily FontStandard => _fontStandard ??= new FontFamily(FontFamilyStandard);
+    public FontFamily FontStandard => CachedFont(ref _fontStandard, FontFamilyStandard);
 
     /// <inheritdoc />
     public override string ToString() => Name;

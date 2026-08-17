@@ -6,7 +6,8 @@ using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// The Cursor tab, page-for-page the former <c>SettingsWindow.BuildCursorPages</c>: filter mode,
-/// smoothing, snap, colour on page 1; opacity, thickness, reset on page 2.
+/// smoothing, colour on page 1; opacity, thickness, reset on page 2. Snap radius lives on the
+/// Selection tab with the rest of the AutoSelection knobs.
 /// </summary>
 internal sealed class CursorPageSource : ISettingsPageSource
 {
@@ -27,9 +28,6 @@ internal sealed class CursorPageSource : ISettingsPageSource
                 new SliderSpec("c_smooth", "Smoothing Factor", 0, 1, 0.1, 1,
                     () => c.SmoothingFactor,
                     v => { c.SmoothingFactor = v; _ctx.ApplyAndSave(); }),
-                new SliderSpec("c_snap", "Snap Radius (px)", 10, 100, 5, 0,
-                    () => c.SnapRadiusPixels,
-                    v => { c.SnapRadiusPixels = (int)v; _ctx.ApplyAndSave(); }),
                 new ColorPickerSpec("c_color", "Circle Color",
                     () => c.CircleColor,
                     v => { c.CircleColor = v; _ctx.ApplyAndSave(); },
@@ -48,7 +46,6 @@ internal sealed class CursorPageSource : ISettingsPageSource
                         var d = new CursorSettings();
                         c.FilterMode = d.FilterMode;
                         c.SmoothingFactor = d.SmoothingFactor;
-                        c.SnapRadiusPixels = d.SnapRadiusPixels;
                         c.CircleColor = d.CircleColor;
                         c.CircleOpacity = d.CircleOpacity;
                         c.CircleThickness = d.CircleThickness;

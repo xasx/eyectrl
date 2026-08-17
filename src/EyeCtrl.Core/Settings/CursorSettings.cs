@@ -14,8 +14,6 @@ public partial class CursorSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _oneEuroMinCutoff = 5.0;
     /// <summary>Speed coefficient (beta) for the 1€ filter. Controls responsiveness to rapid movements. Valid range: 0–5.</summary>
     [ObservableProperty] private double _oneEuroBeta = 0.5;
-    /// <summary>Snap radius in physical pixels for control snapping. Points within this distance snap to the nearest control. Valid range: 0–100.</summary>
-    [ObservableProperty] private int _snapRadiusPixels = 30;
     /// <summary>Maximum gap in milliseconds to interpolate between missing gaze samples. Valid range: 0–500.</summary>
     [ObservableProperty] private int _maxGapInterpolationMs = 150;
     /// <summary>Hex color of the gaze cursor circle (e.g., "#A5F3FC").</summary>
@@ -61,15 +59,6 @@ public partial class CursorSettings : ObservableObject, IValidatable
                 nameof(value),
                 value,
                 $"{nameof(OneEuroBeta)} must be between 0 and 5");
-    }
-
-    partial void OnSnapRadiusPixelsChanging(int value)
-    {
-        if (value < 0 || value > 100)
-            throw new ArgumentOutOfRangeException(
-                nameof(value),
-                value,
-                $"{nameof(SnapRadiusPixels)} must be between 0 and 100");
     }
 
     partial void OnMaxGapInterpolationMsChanging(int value)
@@ -124,7 +113,6 @@ public partial class CursorSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(SmoothingFactor, 0.0, 1.0, nameof(SmoothingFactor)),
             ValidationHelper.ValidateRange(OneEuroMinCutoff, 0.1, 20.0, nameof(OneEuroMinCutoff)),
             ValidationHelper.ValidateRange(OneEuroBeta, 0.0, 5.0, nameof(OneEuroBeta)),
-            ValidationHelper.ValidateRange(SnapRadiusPixels, 0, 100, nameof(SnapRadiusPixels)),
             ValidationHelper.ValidateRange(MaxGapInterpolationMs, 0, 500, nameof(MaxGapInterpolationMs)),
             ValidationHelper.ValidateHexColor(CircleColor, nameof(CircleColor)),
             ValidationHelper.ValidateRange(CircleOpacity, 0.0, 1.0, nameof(CircleOpacity)),

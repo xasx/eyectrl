@@ -13,6 +13,14 @@ public partial class AutoSelectionSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _highlightOpacity = 0.7;
     /// <summary>If <c>true</c>, falls back to the raw pixel position when no control is found nearby.</summary>
     [ObservableProperty] private bool _fallbackToPixelOnNoControl = true;
+    /// <summary>
+    /// How far, in physical pixels, the snap-to-control search probes outward from the gaze point
+    /// when no interactive control sits directly under it. Valid range: 16–96, in steps of 16 —
+    /// the search walks square rings one <c>SearchStepPixels</c> apart, so only multiples of 16
+    /// add a ring, and each added ring costs up to 8 more cross-process UIA probes against the
+    /// caller's 500&#160;ms resolution budget.
+    /// </summary>
+    [ObservableProperty] private int _snapSearchRadiusPixels = 48;
 
     partial void OnHighlightThicknessChanging(double value)
     {
@@ -32,13 +40,23 @@ public partial class AutoSelectionSettings : ObservableObject, IValidatable
                 $"{nameof(HighlightOpacity)} must be between 0.1 and 1.0");
     }
 
+    partial void OnSnapSearchRadiusPixelsChanging(int value)
+    {
+        if (value < 16 || value > 96)
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                value,
+                $"{nameof(SnapSearchRadiusPixels)} must be between 16 and 96");
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
         return ValidationHelper.CollectErrors(
             ValidationHelper.ValidateHexColor(HighlightColor, nameof(HighlightColor)),
             ValidationHelper.ValidateRange(HighlightThickness, 1.0, 10.0, nameof(HighlightThickness)),
-            ValidationHelper.ValidateRange(HighlightOpacity, 0.1, 1.0, nameof(HighlightOpacity))
+            ValidationHelper.ValidateRange(HighlightOpacity, 0.1, 1.0, nameof(HighlightOpacity)),
+            ValidationHelper.ValidateRange(SnapSearchRadiusPixels, 16, 96, nameof(SnapSearchRadiusPixels))
         );
     }
 }

@@ -1,12 +1,56 @@
 namespace EyeCtrl.Platform.Tests.Services;
 
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Services;
 using NFluent;
 using Xunit;
 
 public class ControlFinderGeometryTests
 {
+    [Fact]
+    public void EnumerateSearchRadii_DefaultSetting_YieldsThreeRings()
+    {
+        // Pins the pre-configurable behaviour: the old hard-coded SearchRadiusPixels = 48 swept
+        // rings at 16/32/48, and AutoSelectionSettings' default must still produce exactly that.
+        var radii = ControlFinder
+            .EnumerateSearchRadii(new AutoSelectionSettings().SnapSearchRadiusPixels)
+            .ToList();
+
+        Check.That(radii).ContainsExactly(16, 32, 48);
+    }
+
+    [Theory]
+    [InlineData(16, 1)]
+    [InlineData(48, 3)]
+    [InlineData(96, 6)]
+    public void EnumerateSearchRadii_RingCount_ScalesWithRadius(int maxRadius, int expectedRings)
+    {
+        Check.That(ControlFinder.EnumerateSearchRadii(maxRadius)).HasSize(expectedRings);
+    }
+
+    [Fact]
+    public void EnumerateSearchRadii_RadiiAreStepMultiples_AscendingAndWithinBound()
+    {
+        var radii = ControlFinder.EnumerateSearchRadii(96).ToList();
+
+        Check.That(radii).IsEqualTo(radii.OrderBy(r => r).ToList());
+        foreach (var radius in radii)
+        {
+            Check.That(radius % 16).IsEqualTo(0);
+            Check.That(radius).IsStrictlyLessThan(97);
+        }
+    }
+
+    [Fact]
+    public void EnumerateSearchRadii_BelowOneStep_YieldsNoRings()
+    {
+        // Not reachable through the settings UI (the slider floors at 16), but the sweep must
+        // degrade to "exact hit only" rather than throw if a value ever slips below one step.
+        Check.That(ControlFinder.EnumerateSearchRadii(0)).IsEmpty();
+        Check.That(ControlFinder.EnumerateSearchRadii(15)).IsEmpty();
+    }
+
     [Fact]
     public void EnumerateRingPoints_ReturnsEightPoints()
     {

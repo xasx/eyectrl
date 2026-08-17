@@ -3,17 +3,18 @@ namespace EyeCtrl.Platform.Services;
 using System.Windows.Automation;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Input;
 using Microsoft.Extensions.Logging;
 
 public class ControlFinder : IControlFinder
 {
     private const int SearchStepPixels = 16;
-    private const int SearchRadiusPixels = 48;
 
     private static readonly int OwnProcessId = Environment.ProcessId;
 
     private readonly ILogger<ControlFinder> _logger;
+    private readonly AutoSelectionSettings _settings;
 
     private static readonly HashSet<ControlType> InteractiveTypes = new()
     {
@@ -30,9 +31,16 @@ public class ControlFinder : IControlFinder
         ControlType.Header, ControlType.TitleBar, ControlType.ToolBar
     };
 
-    public ControlFinder(ILogger<ControlFinder> logger)
+    /// <param name="logger">Diagnostic logger.</param>
+    /// <param name="settings">
+    /// Live AutoSelection settings. Held by reference (not snapshotted) so that edits to
+    /// <see cref="AutoSelectionSettings.SnapSearchRadiusPixels"/> take effect on the next
+    /// lookup — this type is a DI singleton while the settings are user-editable at runtime.
+    /// </param>
+    public ControlFinder(ILogger<ControlFinder> logger, AutoSelectionSettings settings)
     {
         _logger = logger;
+        _settings = settings;
     }
 
     public ControlInfo? FindTarget(PhysicalPoint point)
@@ -47,7 +55,9 @@ public class ControlFinder : IControlFinder
                 return exactMatch;
             }
 
-            var nearbyMatch = FindNearestInteractiveControl(screenPoint);
+            // Read the radius per call, not per construction: this is a DI singleton and the
+            // setting is live-editable from the Selection settings page.
+            var nearbyMatch = FindNearestInteractiveControl(screenPoint, _settings.SnapSearchRadiusPixels);
             if (nearbyMatch != null)
                 return nearbyMatch;
 
@@ -115,11 +125,17 @@ public class ControlFinder : IControlFinder
     /// sweep, which matters because each <see cref="AutomationElement.FromPoint"/> is a
     /// cross-process COM call and the caller budgets only ~500ms for the whole resolution.
     /// </summary>
-    private static ControlInfo? FindNearestInteractiveControl(System.Windows.Point origin)
+    /// <param name="origin">Gaze point to search around.</param>
+    /// <param name="maxRadius">
+    /// Outermost ring radius in physical pixels, from
+    /// <see cref="AutoSelectionSettings.SnapSearchRadiusPixels"/>. Each additional ring is up to
+    /// 8 further UIA probes against that same ~500ms budget, which is why the setting is capped.
+    /// </param>
+    private static ControlInfo? FindNearestInteractiveControl(System.Windows.Point origin, int maxRadius)
     {
         var seenRects = new HashSet<PhysicalRect>();
 
-        for (var radius = SearchStepPixels; radius <= SearchRadiusPixels; radius += SearchStepPixels)
+        foreach (var radius in EnumerateSearchRadii(maxRadius))
         {
             ControlInfo? best = null;
             var bestDistance = double.MaxValue;
@@ -153,6 +169,18 @@ public class ControlFinder : IControlFinder
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Yields the ring radii the sweep will probe, innermost first: one ring per whole
+    /// <see cref="SearchStepPixels"/> that fits inside <paramref name="maxRadius"/>. Radii below
+    /// one full step yield nothing, which degrades the search to "exact hit under the gaze point
+    /// only" rather than throwing. Exposed for headless testing — the sweep itself needs UIA.
+    /// </summary>
+    internal static IEnumerable<int> EnumerateSearchRadii(int maxRadius)
+    {
+        for (var radius = SearchStepPixels; radius <= maxRadius; radius += SearchStepPixels)
+            yield return radius;
     }
 
     internal static IEnumerable<System.Windows.Point> EnumerateRingPoints(System.Windows.Point origin, int radius)

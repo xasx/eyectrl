@@ -17,6 +17,14 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
         InteractionAction.PinNote
     };
 
+    /// <summary>
+    /// Whether <see cref="EnsureDefaultsOnce"/> has already run for this settings file. Absent
+    /// from every pre-2026-08-17 file (so it loads false) and set on the first migration; from
+    /// then on the action list is user-owned — the Settings Action Menu tab edits it, and the
+    /// startup migration must not re-add a default the user deliberately removed.
+    /// </summary>
+    [ObservableProperty] private bool _defaultsMigrated;
+
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
@@ -44,5 +52,18 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
             if (!VisibleActions.Contains(action))
                 VisibleActions.Add(action);
         }
+    }
+
+    /// <summary>
+    /// Runs <see cref="EnsureDefaults"/> exactly once per settings file, then leaves the list
+    /// alone forever. The startup caller must use this, not <see cref="EnsureDefaults"/>: the
+    /// per-startup variant would silently re-add a default action the user removed via the
+    /// Settings Action Menu tab, making that tab's toggles lie across restarts.
+    /// </summary>
+    public void EnsureDefaultsOnce()
+    {
+        if (DefaultsMigrated) return;
+        EnsureDefaults();
+        DefaultsMigrated = true;
     }
 }

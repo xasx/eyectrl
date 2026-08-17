@@ -9,7 +9,7 @@ public partial class CalibrationSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _pointCount = 5;
     /// <summary>Number of gaze samples collected per calibration point. Valid range: 5–100.</summary>
     [ObservableProperty] private int _samplesPerPoint = 30;
-    /// <summary>Time in milliseconds the user must fixate on a calibration target before sampling begins. Valid range: 200–3000.</summary>
+    /// <summary>Minimum time in milliseconds a calibration target stays on screen before the session may advance. The real pacer is the user: a target advances once gaze has arrived and enough post-settle samples are collected (see CalibrationPointCollector), so this is a visible floor, not a timer. Valid range: 200–3000.</summary>
     [ObservableProperty] private int _targetHoldMs = 1000;
     /// <summary>Time in milliseconds to discard samples after gaze first enters the target area (settle period). Valid range: 0–500.</summary>
     [ObservableProperty] private int _settleWindowMs = 200;

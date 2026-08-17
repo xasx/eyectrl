@@ -218,4 +218,47 @@ public class CalibrationViewModelTests
         Check.That(completion.MeanErrorPixels).IsNull();
         Check.That(vm.State).IsEqualTo(CalibrationState.Failed);
     }
+
+    // The 2026-08-17 field report: "calibration is not usable — the points should move at the
+    // user's pace." Under the old fixed timer a target advanced after TargetHoldMs whether or
+    // not the user had found it, averaging samples from wherever gaze happened to be. Now: no
+    // advance without gaze (however long), then advance once the user has arrived and the
+    // target has its samples — past the visible floor.
+    [Fact]
+    public async Task Target_WaitsForTheUser_ThenAdvancesAtTheirPace()
+    {
+        // Constructed off the test SynchronizationContext so advances run inline on the firing
+        // thread, deterministically (same pattern as FailedCalibration below).
+        var vm = await Task.Run(CreateVm);
+
+        _messenger.Send(new CalibrationRequestedMessage());
+        var firstTarget = vm.CurrentTargetPosition;
+
+        // No gaze at all: well past the old 200 ms hold, the session must still be on target 0.
+        await Task.Delay(600, TestContext.Current.CancellationToken);
+        Check.That(vm.CurrentTargetIndex).IsEqualTo(0);
+        Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
+
+        // On-target gaze: arrival → settle → 30 samples → floor → advance. Three targets, then
+        // the session completes (on-target gaze varies and fits near-identity → Active).
+        using var stop = new CancellationTokenSource();
+        var firing = Task.Run(async () =>
+        {
+            while (!stop.IsCancellationRequested && vm.State == CalibrationState.Collecting)
+            {
+                var pos = vm.CurrentTargetPosition;
+                _provider.FireGaze(new GazePoint(pos.X, pos.Y, 0, true));
+                await Task.Delay(2, TestContext.Current.CancellationToken);
+            }
+        }, TestContext.Current.CancellationToken);
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (vm.State == CalibrationState.Collecting && DateTime.UtcNow < deadline)
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+        stop.Cancel();
+        try { await firing; } catch (OperationCanceledException) { }
+
+        Check.That(vm.CurrentTargetIndex).IsEqualTo(vm.TotalTargets);
+        Check.That(vm.State).IsEqualTo(CalibrationState.Active);
+    }
 }

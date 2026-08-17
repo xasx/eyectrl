@@ -284,13 +284,16 @@ public class CalibrationServiceTests
         service.StartSession(3, screen);
 
         service.BeginTarget(0);
+        // On-target samples (the collector's arrival gate: sample 1 establishes arrival, the
+        // rest count), then implausible junk that must be dropped before the collector.
+        var target0 = service.GetTargetPosition(0);
         for (int j = 0; j < 5; j++)
-            service.AddRawSample(new PhysicalPoint(1920, 1200)); // plausible, on-screen
+            service.AddRawSample(new PhysicalPoint(target0.X + j, target0.Y - j));
         service.AddRawSample(new PhysicalPoint(double.NaN, 0));   // junk
         service.AddRawSample(new PhysicalPoint(1_000_000, 1200)); // junk, far off-screen
         var point = service.EndTarget();
 
-        Check.That(point.SampleCount).IsEqualTo(5);
+        Check.That(point.SampleCount).IsEqualTo(4);
     }
 
     [Fact]

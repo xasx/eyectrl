@@ -57,7 +57,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Delete, Width: 400, Height: 100));
+                    ButtonKind.Delete, Width: 544, Height: 100));
             }
             manageRows.Add(new ButtonSpec("md_back", "Back to models",
                 () => GoTo(ModelsView.List), ButtonKind.Default, Width: 300, Height: 100));
@@ -81,7 +81,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                 v => { _ctx.ModelManagement.SetActiveModel(v); _ctx.ApplyAndSave(); }));
         }
 
-        page1.Add(new LabelSpec(() => new string('\u2500', 50)));
+        page1.Add(new LabelSpec(() => new string('\u2500', 50), Wrap: false));
 
         foreach (var entry in _ctx.Registry.Registry.Values.OrderBy(e => e.SizeBytes))
         {
@@ -93,6 +93,9 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             else
             {
                 var e2 = entry;
+                // 544 = the widest the 560 DIP content column holds (ConstrainToContentWidth
+                // clamps on narrower displays): one line for every bundled label except the
+                // GPU one, which wraps to two centered lines rather than clipping.
                 page1.Add(new ButtonSpec($"md_dl_{entry.Id}",
                     $"{entry.DisplayName}  {FormatSize(entry.SizeBytes)}  [Download]",
                     () =>
@@ -101,13 +104,13 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                         _ctx.ShowModal($"Download {e2.DisplayName} ({FormatSize(e2.SizeBytes)})?",
                             () => _ = DownloadBundledAsync(e2.Id, e2.Url, e2.Sha256, e2.TokenizerUrl, e2.TokenizerSha256));
                     },
-                    ButtonKind.Default, Width: 400, Height: 100));
+                    ButtonKind.Default, Width: 544, Height: 100));
             }
         }
 
-        page1.Add(new LabelSpec(() => new string('\u2500', 50)));
+        page1.Add(new LabelSpec(() => new string('\u2500', 50), Wrap: false));
         page1.Add(new ButtonSpec("md_add", "\uff0b Add Custom Model (paste URL)",
-            DownloadCustomFromClipboard, ButtonKind.Default, Width: 300, Height: 100));
+            DownloadCustomFromClipboard, ButtonKind.Default, Width: 440, Height: 100));
 
         if (manageable.Count > 0)
         {

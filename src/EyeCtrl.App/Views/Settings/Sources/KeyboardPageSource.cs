@@ -42,7 +42,7 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Reset, Width: 300, Height: 100),
+                    ButtonKind.Reset, Width: 380, Height: 100),
             ]),
         ];
     }

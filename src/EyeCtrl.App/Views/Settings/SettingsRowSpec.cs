@@ -38,7 +38,12 @@ public sealed record ButtonSpec(
     : SettingsRowSpec(Id, Label);
 
 /// <param name="Text">Deferred so dynamic labels (calibration status) re-evaluate on each rebuild.</param>
-public sealed record LabelSpec(Func<string> Text) : SettingsRowSpec("", "");
+/// <param name="Wrap">
+/// Wrap text wider than the content column to a second line (default) instead of clipping it —
+/// status text must stay fully readable for a gaze user. The Models separator rule opts out:
+/// its pinned rendering is a single line clipped at the column edge.
+/// </param>
+public sealed record LabelSpec(Func<string> Text, bool Wrap = true) : SettingsRowSpec("", "");
 
 /// <summary>One page of the paginated content area; rendered top-to-bottom into <c>ContentPanel</c>.</summary>
 public sealed record PageSpec(IReadOnlyList<SettingsRowSpec> Rows);

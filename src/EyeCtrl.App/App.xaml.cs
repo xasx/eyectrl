@@ -509,6 +509,9 @@ public partial class App : Application
         // user-editable in Settings since 2026-08-17, so re-adding defaults every startup
         // would undo a removal the user made there.
         settings.ActionMenu.EnsureDefaultsOnce();
+        // Same once-only pattern: a persisted old-default toolbar size (80) would override the
+        // new 120 (mis-dwell fix) forever without this bump.
+        settings.Toolbar.MigrateSizeOnce();
 
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);

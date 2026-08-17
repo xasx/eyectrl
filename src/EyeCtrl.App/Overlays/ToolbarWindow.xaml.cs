@@ -14,7 +14,11 @@ public partial class ToolbarWindow : OverlayWindow
 {
     // UI Layout Constants
     private const int ProgressBarHeight = 4; // Height of dwell progress bar
-    private const int ButtonMargin = 2; // Margin between toolbar buttons
+    // 12, not the old 2: buttons carry inscribed hit circles (size/2), so a 2-px margin left adjacent
+    // circles near-tangent and every slight aim error landed on a neighbour (2026-08-17 field report:
+    // "I mis dwell often"). 12 per side = 24 px between circles, the same clearance the settings
+    // window's 100-DIP dwell rows use between their 100-DIP hit circles.
+    private const int ButtonMargin = 12; // Margin between toolbar buttons
     // The local 0.4 symbol ratio moved to ContainerRatio.Large, which this file's 0.4 defined.
 
     private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();

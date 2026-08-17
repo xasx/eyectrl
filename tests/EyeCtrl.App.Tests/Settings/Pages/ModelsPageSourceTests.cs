@@ -1,8 +1,10 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
+using System.IO;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Prediction;
+using EyeCtrl.Core.Settings;
 using NFluent;
 using Xunit;
 
@@ -41,6 +43,61 @@ public class ModelsPageSourceTests
         var rows = pages[0].Rows;
         Check.That(rows.OfType<ComboBoxSpec>().Select(c => c.Id)).Contains(new[] { "md_active" });
         Check.That(rows.OfType<ButtonSpec>().Select(b => b.Id)).Contains(new[] { "md_add", "md_manage" });
+    }
+
+    // WYSIWYG dwell floor: no Models button may be declared shorter than the 100 DIP hit circle
+    // every ButtonSpec registers (DwellButton's principle: callers may draw bigger, never
+    // smaller). At 60 DIP the circle stuck out 20 DIP past the visual on both sides, and the
+    // flush stack's circles overlapped — what the user dwelled was not what they saw. Covers
+    // all five declaration sites: md_dl_* and md_add and md_manage (list view), md_del_* and
+    // md_back (manage view).
+    [Fact]
+    public void EveryModelsButton_MeetsTheDwellFloor()
+    {
+        using var scope = ModelTestFakes.Create();
+        var manifest = new ModelManifest
+        {
+            Models =
+            {
+                // Downloaded (files on disk): drives the combo + md_manage + the manage view.
+                ["135M"] = new ModelEntry
+                {
+                    DisplayName = "Downloaded One", Url = "https://example.invalid/a.onnx",
+                    Sha256 = "", SizeBytes = 1024,
+                    TokenizerUrl = "https://example.invalid/a.json", TokenizerSha256 = "",
+                },
+                // Not downloaded: drives the md_dl_* download button.
+                ["other"] = new ModelEntry
+                {
+                    DisplayName = "Other One", Url = "https://example.invalid/b.onnx",
+                    Sha256 = "", SizeBytes = 2048,
+                    TokenizerUrl = "https://example.invalid/b.json", TokenizerSha256 = "",
+                },
+            },
+        };
+        var settings = new EyeCtrlSettings();
+        var onnx = ModelConstants.ModelFileNames["135M"];
+        File.WriteAllBytes(Path.Combine(scope.Dir, onnx), new byte[1]);
+        File.WriteAllBytes(Path.Combine(scope.Dir, onnx.Replace(".onnx", ".tokenizer.json")), new byte[1]);
+        var registry = new ModelRegistryService(scope.Dir, manifest, settings);
+        var mgmt = new ModelManagementService(registry, new ModelDownloadService(scope.Dir), settings);
+        var ctx = TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt);
+        var src = new ModelsPageSource(ctx);
+
+        var listRows = src.Build().Single().Rows.OfType<ButtonSpec>().ToList();
+        Check.That(listRows.Select(b => b.Id))
+            .Contains(new[] { "md_dl_other", "md_add", "md_manage" });
+
+        src.Build().Single().Rows.OfType<ButtonSpec>().Single(b => b.Id == "md_manage").OnActivate();
+        var manageRows = src.Build().Single().Rows.OfType<ButtonSpec>().ToList();
+
+        foreach (var b in listRows.Concat(manageRows))
+        {
+            Check.WithCustomMessage(
+                    $"Button {b.Id} is declared {b.Height} DIP tall — below the 100 DIP WYSIWYG "
+                    + "dwell floor every settings dwell control must meet.")
+                .That(b.Height).IsGreaterOrEqualThan(100);
+        }
     }
 
     // View machine: dwelling md_manage switches to the Manage view (and asks the shell to rebuild);

@@ -57,10 +57,10 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Delete, Width: 400, Height: 60));
+                    ButtonKind.Delete, Width: 400, Height: 100));
             }
             manageRows.Add(new ButtonSpec("md_back", "Back to models",
-                () => GoTo(ModelsView.List), ButtonKind.Default, Width: 300, Height: 60));
+                () => GoTo(ModelsView.List), ButtonKind.Default, Width: 300, Height: 100));
             return [new PageSpec(manageRows)];
         }
 
@@ -101,18 +101,18 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                         _ctx.ShowModal($"Download {e2.DisplayName} ({FormatSize(e2.SizeBytes)})?",
                             () => _ = DownloadBundledAsync(e2.Id, e2.Url, e2.Sha256, e2.TokenizerUrl, e2.TokenizerSha256));
                     },
-                    ButtonKind.Default, Width: 400, Height: 60));
+                    ButtonKind.Default, Width: 400, Height: 100));
             }
         }
 
         page1.Add(new LabelSpec(() => new string('\u2500', 50)));
         page1.Add(new ButtonSpec("md_add", "\uff0b Add Custom Model (paste URL)",
-            DownloadCustomFromClipboard, ButtonKind.Default, Width: 300, Height: 60));
+            DownloadCustomFromClipboard, ButtonKind.Default, Width: 300, Height: 100));
 
         if (manageable.Count > 0)
         {
             page1.Add(new ButtonSpec("md_manage", "Manage models...",
-                () => GoTo(ModelsView.Manage), ButtonKind.Default, Width: 300, Height: 60));
+                () => GoTo(ModelsView.Manage), ButtonKind.Default, Width: 300, Height: 100));
         }
 
         return [new PageSpec(page1)];

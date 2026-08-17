@@ -29,6 +29,16 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     private readonly SynchronizationContext? _syncContext;
 
     private int _sessionGeneration;
+    // Ticks (Environment.TickCount64) of the current target's first display. The target is held
+    // at least TargetHoldMs (a visible floor), but advances as soon as the collector has enough
+    // post-arrival samples after that — the user's pace, not a timer's.
+    private long _targetShownAtTicks;
+
+    // Absolute per-target ceiling so a user who never finds the point cannot stall a session
+    // forever: the target then advances with whatever was collected (possibly nothing → the
+    // session's existing failure paths take over), which is exactly the old timer behavior as
+    // the degraded case.
+    private const int TargetSafetyCapMs = 10_000;
 
     [ObservableProperty] private CalibrationState _state = CalibrationState.Idle;
     [ObservableProperty] private int _currentTargetIndex;
@@ -114,38 +124,65 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         Messenger.Send(new CalibrationStateChangedMessage(State, (CurrentTargetIndex / (double)TotalTargets) * 100));
 
         _gazeProvider.GazePointReceived += OnRawGaze;
-        var holdMs = _settings.TargetHoldMs;
+        _targetShownAtTicks = Environment.TickCount64;
         var generation = _sessionGeneration;
 
-        Task.Delay(holdMs).ContinueWith(_ =>
+        // Safety cap, not the pacer: samples advance the target once the collector is complete
+        // (see OnRawGaze). This timer only fires when the user never arrives at the point.
+        var capMs = Math.Max(_settings.TargetHoldMs, TargetSafetyCapMs);
+        Task.Delay(capMs).ContinueWith(_ =>
         {
             if (IsDisposed) return;
             PostToSyncContext(() =>
             {
                 if (generation != _sessionGeneration || State != CalibrationState.Collecting) return;
-                _gazeProvider.GazePointReceived -= OnRawGaze;
-                try
-                {
-                    _calibrationService.EndTarget();
-                    CurrentTargetIndex++;
-                    ProgressPercent = (CurrentTargetIndex / (double)TotalTargets) * 100;
-                    MoveToNextTarget();
-                }
-                catch (Exception ex)
-                {
-                    _calibrationService.CancelSession();
-                    ErrorText = ex.Message;
-                    State = CalibrationState.Failed;
-                    Messenger.Send(new CalibrationStateChangedMessage(State, 100));
-                }
+                AdvanceFromCurrentTarget(CurrentTargetIndex);
             });
         });
+    }
+
+    /// <summary>
+    /// Ends the current target and moves on. Called from the gaze path (when the collector
+    /// reports enough post-arrival samples and the minimum display time has passed) and from the
+    /// safety-cap timer. <paramref name="expectedIndex"/> collapses the race between the two:
+    /// whichever runs first moves the index, and the other's post then no-ops instead of ending
+    /// the NEXT target early.
+    /// </summary>
+    private void AdvanceFromCurrentTarget(int expectedIndex)
+    {
+        if (State != CalibrationState.Collecting || CurrentTargetIndex != expectedIndex) return;
+
+        _gazeProvider.GazePointReceived -= OnRawGaze;
+        try
+        {
+            _calibrationService.EndTarget();
+            CurrentTargetIndex++;
+            ProgressPercent = (CurrentTargetIndex / (double)TotalTargets) * 100;
+            MoveToNextTarget();
+        }
+        catch (Exception ex)
+        {
+            _calibrationService.CancelSession();
+            ErrorText = ex.Message;
+            State = CalibrationState.Failed;
+            Messenger.Send(new CalibrationStateChangedMessage(State, 100));
+        }
     }
 
     private void OnRawGaze(GazePoint gaze)
     {
         if (!gaze.IsValid) return;
         _calibrationService.AddRawSample(new PhysicalPoint(gaze.X, gaze.Y));
+
+        // The user's pace: advance the moment the target has its samples, past the visible
+        // floor. Before this, a fixed timer advanced targets whether or not the user had
+        // arrived, and samples were averaged from wherever gaze happened to be.
+        if (_calibrationService.IsTargetComplete
+            && Environment.TickCount64 - _targetShownAtTicks >= _settings.TargetHoldMs)
+        {
+            var index = CurrentTargetIndex;
+            PostToSyncContext(() => AdvanceFromCurrentTarget(index));
+        }
     }
 
     private void PostToSyncContext(Action action)

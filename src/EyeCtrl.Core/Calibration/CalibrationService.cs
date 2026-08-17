@@ -94,8 +94,8 @@ public class CalibrationService
 
     /// <summary>Starts collecting gaze samples for the specified target.</summary>
     /// <param name="index">Zero-based target index in the session's target list.</param>
-    /// <param name="settleWindowMs">Time in milliseconds to discard initial settling samples.</param>
-    /// <param name="maxSamples">Maximum number of samples to collect per target.</param>
+    /// <param name="settleWindowMs">Time in milliseconds to discard samples after gaze arrives on the target.</param>
+    /// <param name="maxSamples">Number of post-settle samples to collect for this target.</param>
     /// <exception cref="InvalidOperationException">Thrown when a target is already being collected or no session is active.</exception>
     public void BeginTarget(int index, int settleWindowMs = 0, int maxSamples = int.MaxValue)
     {
@@ -104,8 +104,19 @@ public class CalibrationService
 
         _currentTargetIndex = index;
         var target = GetTargetPosition(index);
-        _currentCollector = new CalibrationPointCollector(target, settleWindowMs, maxSamples);
+        // Acceptance radius scales with the display but never drops below the collector's own
+        // default: on a 1920x1080 screen that is 120 physical px of "close enough to have
+        // arrived", on 4K ~216 — pre-calibration accuracy is what this session measures.
+        var acceptanceRadius = Math.Max(120.0, 0.10 * Math.Min(_screenSize.X, _screenSize.Y));
+        _currentCollector = new CalibrationPointCollector(
+            target, settleWindowMs, maxSamples, acceptanceRadiusPx: acceptanceRadius);
     }
+
+    /// <summary>
+    /// Whether the current target has enough post-arrival samples. The session paces itself on
+    /// this rather than on a timer — see <see cref="CalibrationPointCollector.IsComplete"/>.
+    /// </summary>
+    public bool IsTargetComplete => _currentCollector?.IsComplete ?? false;
 
     /// <summary>Adds a raw gaze sample to the current target's collector. Non-finite or far-off-screen samples are silently dropped.</summary>
     /// <param name="gaze">Raw gaze position in physical screen pixels.</param>

@@ -23,7 +23,32 @@ internal sealed class ModelsPageSource : ISettingsPageSource
 
     private readonly SettingsPageContext _ctx;
     private ModelsView _view = ModelsView.List;
-    public ModelsPageSource(SettingsPageContext ctx) => _ctx = ctx;
+    public ModelsPageSource(SettingsPageContext ctx)
+    {
+        _ctx = ctx;
+        // Live download progress (2026-08-17: downloads ran invisibly and read as broken).
+        // Progress arrives at ~2 Hz on a worker thread; rebuild only when the user is actually
+        // looking at this tab. Null-guarded: some headless contexts build without services.
+        if (_ctx.ModelManagement is not null)
+            _ctx.ModelManagement.DownloadProgressChanged += OnDownloadProgress;
+    }
+
+    /// <summary>
+    /// Unsubscribes the progress handler. The window is constructed per open while the
+    /// management service is a singleton — without this, every settings visit would add
+    /// another subscription to the surviving service. Called from SettingsWindow.Closed.
+    /// </summary>
+    internal void Detach()
+    {
+        if (_ctx.ModelManagement is not null)
+            _ctx.ModelManagement.DownloadProgressChanged -= OnDownloadProgress;
+    }
+
+    private void OnDownloadProgress()
+    {
+        if (_ctx.ViewModel?.Settings.CurrentTabName == "Models")
+            _ctx.Invoke(_ctx.RebuildContent);
+    }
 
     /// <summary>Models pages are unbounded (one row per registry entry) — the height chunker absorbs them.</summary>
     public bool PrefersAutoPagination => true;
@@ -93,6 +118,16 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             else
             {
                 var e2 = entry;
+                // In flight: a live progress line instead of the button — the download IS
+                // running, and a button that stays "[Download]" with nothing happening is what
+                // read as "models do not download". The label re-evaluates on every
+                // progress-driven rebuild (~2 Hz, see OnDownloadProgress).
+                if (e2.Id == _ctx.ModelManagement.CurrentDownloadId)
+                {
+                    page1.Add(new LabelSpec(() =>
+                        $"⇣ {e2.DisplayName}  downloading… {_ctx.ModelManagement.CurrentDownloadProgress:P0}"));
+                    continue;
+                }
                 // 544 = the widest the 560 DIP content column holds (ConstrainToContentWidth
                 // clamps on narrower displays): one line for every bundled label except the
                 // GPU one, which wraps to two centered lines rather than clipping.
@@ -100,7 +135,13 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                     $"{entry.DisplayName}  {FormatSize(entry.SizeBytes)}  [Download]",
                     () =>
                     {
-                        if (_ctx.ModelManagement.IsDownloading) return;
+                        // Not silent: a busy workflow that swallows the dwell is
+                        // indistinguishable from a broken button.
+                        if (_ctx.ModelManagement.IsDownloading)
+                        {
+                            _ctx.ShowError("Another download is already in progress.");
+                            return;
+                        }
                         _ctx.ShowModal($"Download {e2.DisplayName} ({FormatSize(e2.SizeBytes)})?",
                             () => _ = DownloadBundledAsync(e2.Id, e2.Url, e2.Sha256, e2.TokenizerUrl, e2.TokenizerSha256));
                     },

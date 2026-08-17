@@ -529,24 +529,24 @@ public class SettingsPropertyValidationTests
 
     #endregion
 
-    #region CursorSettings - SnapRadiusPixels Validation
+    #region AutoSelectionSettings - SnapSearchRadiusPixels Validation
 
     [Theory]
-    [InlineData(-1)]
-    [InlineData(101)]
-    public void SnapRadiusPixels_OutOfRange_ThrowsArgumentOutOfRange(int value)
+    [InlineData(15)]
+    [InlineData(97)]
+    public void SnapSearchRadiusPixels_OutOfRange_ThrowsArgumentOutOfRange(int value)
     {
         // Arrange
-        var settings = new CursorSettings();
+        var settings = new AutoSelectionSettings();
 
         // Act & Assert
         ArgumentOutOfRangeException? ex = null;
-        try { settings.SnapRadiusPixels = value; }
+        try { settings.SnapSearchRadiusPixels = value; }
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex!.Message).Contains("0");
-        Check.That(ex!.Message).Contains("100");
+        Check.That(ex!.Message).Contains("16");
+        Check.That(ex!.Message).Contains("96");
     }
 
     #endregion

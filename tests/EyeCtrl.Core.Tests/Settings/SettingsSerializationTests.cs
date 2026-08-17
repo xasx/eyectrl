@@ -80,8 +80,9 @@ public class SettingsSerializationTests
     [Fact]
     public void Settings_BackwardsCompatible_DeserializesExistingJson()
     {
-        // circleHighContrast was removed when high contrast became a theme; it is
-        // retained here deliberately, as an unknown member, to prove a pre-existing
+        // circleHighContrast was removed when high contrast became a theme, and
+        // snapRadiusPixels when the snap radius moved to autoSelection.snapSearchRadiusPixels.
+        // Both are retained here deliberately, as unknown members, to prove a pre-existing
         // settings.json still loads without migration code.
         var json = """
         {
@@ -103,6 +104,9 @@ public class SettingsSerializationTests
         var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions)!;
         Check.That(settings.Cursor.CircleSize).IsEqualTo(40);
         Check.That(settings.Cursor.CircleColor).IsEqualTo("#00FF00");
+        // The orphaned cursor.snapRadiusPixels is ignored, not mapped onto the new home, which
+        // therefore keeps its default rather than inheriting the stale 30.
+        Check.That(settings.AutoSelection.SnapSearchRadiusPixels).IsEqualTo(48);
     }
 
     [Fact]

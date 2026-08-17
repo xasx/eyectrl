@@ -31,6 +31,10 @@ internal sealed class SelectionPageSource : ISettingsPageSource
                     SettingsWindow.ControlBtnRadius),
                 new SliderSpec("s_highlightThickness", "Highlight Thickness", 1, 10, 1, 0,
                     () => s.AutoSelection.HighlightThickness, v => { s.AutoSelection.HighlightThickness = v; _ctx.ApplyAndSave(); }),
+                // Stepped by 16 to match ControlFinder's ring spacing: values in between buy no
+                // extra ring, and each ring that IS added costs up to 8 more UIA probes.
+                new SliderSpec("s_snapRadius", "Snap Search Radius (px)", 16, 96, 16, 0,
+                    () => s.AutoSelection.SnapSearchRadiusPixels, v => { s.AutoSelection.SnapSearchRadiusPixels = (int)v; _ctx.ApplyAndSave(); }),
             ]),
         ];
     }

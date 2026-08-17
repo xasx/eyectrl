@@ -42,4 +42,32 @@ public class AutoSelectionSettingsTests
         var s = new AutoSelectionSettings();
         Check.ThatCode(() => s.HighlightOpacity = 0).Throws<ArgumentOutOfRangeException>();
     }
+
+    [Fact]
+    public void SnapSearchRadiusPixels_DefaultsTo48()
+    {
+        // 48 was ControlFinder's hard-coded SearchRadiusPixels before the value became a setting;
+        // the default must preserve that so wiring the slider changed nothing out of the box.
+        Check.That(new AutoSelectionSettings().SnapSearchRadiusPixels).IsEqualTo(48);
+    }
+
+    [Theory]
+    [InlineData(16)]
+    [InlineData(48)]
+    [InlineData(96)]
+    public void SnapSearchRadiusPixels_WithinRange_IsValid(int value)
+    {
+        var s = new AutoSelectionSettings { SnapSearchRadiusPixels = value };
+        Check.That(s.Validate()).IsEmpty();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(15)]
+    [InlineData(97)]
+    public void SnapSearchRadiusPixels_OutOfRange_Throws(int value)
+    {
+        var s = new AutoSelectionSettings();
+        Check.ThatCode(() => s.SnapSearchRadiusPixels = value).Throws<ArgumentOutOfRangeException>();
+    }
 }

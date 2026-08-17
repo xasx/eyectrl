@@ -63,7 +63,6 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
             new SliderSettingViewModel("smoothing", "Smoothing", c.SmoothingFactor, 0, 1, 0.1, v => c.SmoothingFactor = v),
             new SliderSettingViewModel("oneEuroMin", "OneEuro Min Cutoff", c.OneEuroMinCutoff, 0.1, 20, 0.1, v => c.OneEuroMinCutoff = v),
             new SliderSettingViewModel("oneEuroBeta", "OneEuro Beta", c.OneEuroBeta, 0, 5, 0.1, v => c.OneEuroBeta = v),
-            new SliderSettingViewModel("snapRadius", "Snap Radius", c.SnapRadiusPixels, 0, 100, 1, v => c.SnapRadiusPixels = (int)v),
             new ColorSettingViewModel("circleColor", "Circle Color", c.CircleColor, v => c.CircleColor = v),
             new SliderSettingViewModel("circleOpacity", "Circle Opacity", c.CircleOpacity, 0, 1, 0.1, v => c.CircleOpacity = v),
             new SliderSettingViewModel("circleThickness", "Circle Thickness", c.CircleThickness, 1, 10, 0.5, v => c.CircleThickness = v),
@@ -107,7 +106,12 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
             _settings.AutoSelection.HighlightColor, v => _settings.AutoSelection.HighlightColor = v);
         var highlightThickness = new SliderSettingViewModel("highlightThickness", "Highlight Thickness",
             _settings.AutoSelection.HighlightThickness, 1, 10, 1, v => _settings.AutoSelection.HighlightThickness = v);
-        highlightColor.IsEnabled = highlightThickness.IsEnabled = (_settings.SelectionMode == SelectionMode.AutoSelection);
+        // Stepped by 16 to match ControlFinder's ring spacing — see AutoSelectionSettings.
+        var snapRadius = new SliderSettingViewModel("snapRadius", "Snap Search Radius (px)",
+            _settings.AutoSelection.SnapSearchRadiusPixels, 16, 96, 16,
+            v => _settings.AutoSelection.SnapSearchRadiusPixels = (int)v);
+        highlightColor.IsEnabled = highlightThickness.IsEnabled = snapRadius.IsEnabled =
+            (_settings.SelectionMode == SelectionMode.AutoSelection);
 
         Tabs.Add(new SettingsTabViewModel("Selection", "\uD83C\uDFAF", new List<SettingItemViewModel>
         {
@@ -117,7 +121,7 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
                 v =>
                 {
                     _settings.SelectionMode = Enum.Parse<SelectionMode>(v);
-                    highlightColor.IsEnabled = highlightThickness.IsEnabled =
+                    highlightColor.IsEnabled = highlightThickness.IsEnabled = snapRadius.IsEnabled =
                         (_settings.SelectionMode == SelectionMode.AutoSelection);
                 }),
             new SliderSettingViewModel("manualSelectionRadius", "Circle Radius (px)",
@@ -126,6 +130,7 @@ public partial class SettingsViewModel : ObservableObject, IRecipient<Calibratio
                 z.MagnificationLevel, 1.5, 5, 0.5, v => z.MagnificationLevel = v),
             highlightColor,
             highlightThickness,
+            snapRadius,
         }));
 
         Tabs.Add(new SettingsTabViewModel("Actions", "\u2699", new List<SettingItemViewModel>

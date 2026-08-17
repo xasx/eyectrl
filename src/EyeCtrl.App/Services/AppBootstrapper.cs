@@ -137,8 +137,11 @@ public class AppBootstrapper
         // Calibration
         services.AddSingleton(sp => new CalibrationService(sp.GetService<ILogger<CalibrationService>>()));
 
-        // ControlFinder (AutoSelection mode)
-        services.AddSingleton<IControlFinder, ControlFinder>();
+        // ControlFinder (AutoSelection mode). Takes the AutoSelection sub-settings by reference so
+        // SnapSearchRadiusPixels edits apply without rebuilding this singleton.
+        services.AddSingleton<IControlFinder>(sp => new ControlFinder(
+            sp.GetRequiredService<ILogger<ControlFinder>>(),
+            sp.GetRequiredService<EyeCtrlSettings>().AutoSelection));
 
         // Struggle-detection effective-settings provider (Phase 1b): composes bounded momentary
         // deltas onto baseline settings. Holds no deltas until the AdaptationController lands, and

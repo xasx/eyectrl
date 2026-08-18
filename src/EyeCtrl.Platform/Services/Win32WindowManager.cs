@@ -93,8 +93,24 @@ public class Win32WindowManager : IWindowManager
     public void BringToFront(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero) return;
-        NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
-        NativeMethods.SetForegroundWindow(hwnd);
+
+        // The overlays are WS_EX_NOACTIVATE, so this process never holds foreground, and the
+        // Windows foreground lock silently rejects a bare SetForegroundWindow: switcher dwell
+        // selections fired, the overlay closed, and no window came forward (2026-08-18 field
+        // diagnosis — the "tasks are not dwellable" report was really "switching never
+        // happens"). The previous AllowSetForegroundWindow(ASFW_ANY) call was a no-op: it
+        // delegates a right the caller must already hold. The ALT-press simulation is the
+        // standard grant — a process seen delivering keyboard input earns the right to set the
+        // foreground window. Down and up bracket the call, so no application receives a press.
+        NativeMethods.keybd_event((byte)NativeMethods.VK_MENU, 0, 0, 0);
+        var ok = NativeMethods.SetForegroundWindow(hwnd);
+        NativeMethods.keybd_event((byte)NativeMethods.VK_MENU, 0, NativeMethods.KEYEVENTF_KEYUP, 0);
+        if (ok) return;
+
+        // Rare fallback when even the grant is denied: a minimize/restore toggle moves the
+        // window through a shell-honored state change that also brings it forward.
+        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
+        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
     }
 
     /// <inheritdoc />

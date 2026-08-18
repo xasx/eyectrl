@@ -3,7 +3,7 @@
 Branch `polish/settings-mixed-pages` (worktree `.worktrees/settings-mixed-pages`), rebased onto
 main @ `0e60ef33`. Every fix below is committed, covered by tests, and verified by a live
 paused-launch round whose log was checked clean (zero ERR/FTL) afterwards. Suite state at the
-time of writing: 12 projects, 3296 non-UI tests, 0 failures.
+time of writing: 12 projects, 3298 non-UI tests, 0 failures.
 
 The session began as visual polish of the settings window's mixed pages and became a field-fix
 session: everything below was found either by headless measurement against the user's real
@@ -122,6 +122,37 @@ dwell-row rhythm). The user's settings.json had `size: 80` persisted (would over
 default forever), so startup runs a once-only `MigrateSizeOnce`: exactly-the-old-default bumps
 once; deliberate values are untouched; sliding back afterwards sticks.
 
+### 10. Switching failed for minimized apps (`b26a9db5`)
+**Symptom:** "not all applications can be switched to… works for Edge, Word, Task Manager. Not
+for WhatsApp, ZCode, Claude" (user, round 6).
+**Cause (found by inspecting the live window list):** the failing apps were all MINIMIZED.
+`SetForegroundWindow` reports success on an iconic window without un-minimizing it, so the
+foreground-grant fix returned true, skipped every fallback, and the window stayed on the
+taskbar.
+**Fix:** `BringToFront` restores iconic windows first (`IsIconic` → `SW_RESTORE`) — the
+textbook sequence. Verified by the user in round 7 ("switcher seems to work now").
+**Tests:** pinned in `TaskSwitcherDwellPositionTests`.
+
+### 11. Toolbar switcher glyph rendered as tofu (`b26a9db5`)
+**Symptom:** "the task switcher button on the toolbar shows a rectangle, no real icon."
+**Cause:** the glyph was the Unicode-13 window emoji (U+1FA9F) — not covered by the toolbar
+font.
+**Fix:** all three declaration sites (ToolbarWindow, ToolbarViewModel,
+QuickActionTileViewModel) use the BMP ⇄ (U+21C4). Verified by the user in round 7
+("correct icon").
+
+### 12. Tile dwell double-fired the toolbar underneath (`7ff26f82`)
+**Symptom:** "dwelling on a task also dwells the toolbar button which sits under the task
+button" (user, round 7).
+**Cause:** dwell has no z-order — the fullscreen switcher covers the toolbar visually, but
+the toolbar's detector keeps receiving every gaze sample, so a top-row tile dwell also fires
+the covered toolbar button.
+**Fix:** the switcher's IsVisible handler deactivates toolbar dwell (`SetActive(false)`,
+which also resets in-flight dwell) while the switcher is up, and on close reactivates only if
+the toolbar window is actually visible (auto-hide may have hidden it; activating a hidden
+toolbar would create gaze targets for invisible buttons).
+**Tests:** pinned in `TaskSwitcherDwellPositionTests`.
+
 ## Environment findings (load-bearing for future work)
 
 - **The app runs DPI-virtualized in the user's session.** Evidence: the test host sees the
@@ -138,8 +169,9 @@ once; deliberate values are untouched; sliding back afterwards sticks.
 
 ## Open items
 
-1. **Switcher verification round pending:** the progress bar + foreground fix (`824712cc`) need
-   one confirming live round (dwell a tile → bar fills → window actually comes forward).
+1. **Switcher verification round 8 pending:** the toolbar-gating fix (`7ff26f82`) needs one
+   confirming live round (dwell a top-row tile → only the tile fires; toolbar inert while the
+   switcher is up, alive again after).
 2. `MixedPageDiagnosticTests.cs` (the page-dump diagnostic) stays uncommitted by design.
 3. Toolbar size 120 persists to settings.json only on the next arbitrary settings save
    (migration applies in memory every launch until then) — harmless, self-resolving.
@@ -157,3 +189,5 @@ once; deliberate values are untouched; sliding back afterwards sticks.
 | 4 | 23:05 | Fixes 6–8 live; toolbar bug reported |
 | 5 | 23:24 | Toolbar enlargement ("Toolbar button works"); tiles still not dwellable |
 | diag | 00:09 | Instrumented switcher run: chain works end-to-end, 2 selections logged → fixes in `824712cc` |
+| 6 | 22:48 | Progress bar visible, overlay closes, switching works — but not for minimized apps; glyph tofu → fixes in `b26a9db5` |
+| 7 | 23:42 | "switcher seems to work now, correct icon" — but tile dwell double-fires the toolbar underneath → `7ff26f82` |

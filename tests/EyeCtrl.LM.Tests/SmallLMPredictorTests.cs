@@ -134,6 +134,19 @@ public class SmallLMPredictorTests
     }
 
     [Fact]
+    public void LastTokenLogits_ReadsTheFinalPositionRow()
+    {
+        // logits arrive as [batch=1, sequence, vocab]; only the final position predicts
+        // the next token. The vocab width is the model's, which is NOT the tokenizer's
+        // vocab count - Qwen2.5 ships 151936 logits against a 151665-entry tokenizer.
+        float[] logits = [10, 11, 12, /**/ 20, 21, 22, /**/ 30, 31, 32];
+
+        var last = SmallLMPredictor.LastTokenLogits(logits, sequenceLength: 3, vocabSize: 3);
+
+        Check.That(last).ContainsExactly(30f, 31f, 32f);
+    }
+
+    [Fact]
     public void Dispose_WithNoInflightInference_CompletesImmediately()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"lm_test_{Guid.NewGuid()}");

@@ -77,7 +77,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             ("Keyboard", "\u2328"),
             ("Calibrate", "\u2316"),
             ("Settings", "\u2699"),
-            ("TaskSwitcher", "\uD83E\uDE9F"),  // 🪟 (surrogate pair, same as PinNote's non-BMP pattern)
+            ("TaskSwitcher", "\u21C4"),  // 🪟 (BMP; the old window-emoji glyph rendered as tofu)
             ("QuickActions", "\u26A1"),  // ⚡
             ("ResetAdaptation", "\u21BA"),  // ↺ reset struggle-adaptation to baseline (§8.6 escape)
         };

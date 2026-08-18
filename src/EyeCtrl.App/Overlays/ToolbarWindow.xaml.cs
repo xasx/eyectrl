@@ -47,7 +47,7 @@ public partial class ToolbarWindow : OverlayWindow
             ("SelectionMode",     "\u2295"),    // ⊕ Magnify/ManualSelection
             ("Keyboard", "\u2328"),    // ⌨ Keyboard
             ("Settings", "\u2699"),    // ⚙ Gear
-            ("TaskSwitcher", "\uD83E\uDE9F"),  // 🪟 Window switcher (surrogate pair, matching the VM)
+            ("TaskSwitcher", "\u21C4"),  // 🪟 Window switcher (BMP; the old window-emoji glyph rendered as tofu in the toolbar font)
             ("ResetAdaptation", "\u21BA"),  // ↺ Reset struggle-adaptation (§8.6 always-reachable escape)
         };
 

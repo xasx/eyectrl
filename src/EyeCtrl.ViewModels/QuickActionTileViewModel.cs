@@ -30,7 +30,7 @@ public partial class QuickActionTileViewModel : ObservableObject
             QuickActionType.KeyboardShortcut => "\u2328",   // ⌨
             QuickActionType.CannedText => "T",              // fallback (no emoji in WPF default font)
             QuickActionType.LaunchExe => "\u229E",          // ⊞
-            QuickActionType.LaunchWindowsApp => "\uD83E\uDE9F", // 🪟 (surrogate pair)
+            QuickActionType.LaunchWindowsApp => "\u21C4", // 🪟 (BMP; the old window-emoji glyph rendered as tofu)
             QuickActionType.LaunchUrl => "@",                // fallback
             QuickActionType.MediaControl => action.Payload switch
             {

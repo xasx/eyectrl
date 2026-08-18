@@ -58,6 +58,15 @@ public class TaskSwitcherDwellPositionTests
                 "AllowSetForegroundWindow cannot grant a right the caller does not hold; for "
                 + "this process it is a no-op and its presence masks the missing ALT grant.")
             .That(body.Contains("AllowSetForegroundWindow(NativeMethods")).IsFalse();
+        // Minimized windows (2026-08-18 field follow-up: WhatsApp/ZCode/Claude stayed on the
+        // taskbar while Edge/Word/Task-Manager switched): SetForegroundWindow reports success
+        // on an iconic window WITHOUT un-minimizing it, so the success return skips every
+        // fallback and the window never appears. The restore must come first.
+        Check.WithCustomMessage(
+                "BringToFront must restore minimized windows (IsIconic → SW_RESTORE) before "
+                + "foregrounding — SetForegroundWindow alone leaves iconic windows minimized "
+                + "while reporting success.")
+            .That(body.Contains("IsIconic") && body.Contains("SW_RESTORE")).IsTrue();
     }
 
     private static string ExtractMethod(string source, string signature)

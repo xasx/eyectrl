@@ -312,9 +312,24 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
             _context.Dispatcher.BeginInvoke(() =>
             {
                 if (_context.TaskSwitcherVM.IsVisible)
+                {
+                    // The fullscreen switcher covers the toolbar, but dwell has no z-order:
+                    // without this, a top-row tile dwell also fires the toolbar button
+                    // underneath it (2026-08-18 field report). SetActive(false) also resets
+                    // any in-flight toolbar dwell.
+                    _context.ToolbarVM.SetActive(false);
                     _context.OverlayManager.TaskSwitcher.ShowFullScreen();
+                }
                 else
+                {
                     _context.OverlayManager.TaskSwitcher.HideOverlay();
+                    // Reactivate only if the toolbar is actually on screen: auto-hide may
+                    // have hidden it while the switcher was up, and activating a hidden
+                    // toolbar creates gaze targets for invisible buttons — the exact hazard
+                    // SetActive's contract exists to prevent.
+                    if (_context.OverlayManager.Toolbar.IsVisible)
+                        _context.ToolbarVM.SetActive(true);
+                }
             });
         }
     }

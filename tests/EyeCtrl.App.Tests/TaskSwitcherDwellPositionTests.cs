@@ -69,6 +69,34 @@ public class TaskSwitcherDwellPositionTests
             .That(body.Contains("IsIconic") && body.Contains("SW_RESTORE")).IsTrue();
     }
 
+    /// <summary>
+    /// Source-scan pin: while the fullscreen switcher is up, the toolbar underneath must be
+    /// dwell-deactivated — dwell has no z-order, so a top-row tile dwell would also fire the
+    /// toolbar button under it (2026-08-18 field report). On close, reactivation must be
+    /// conditional on the toolbar actually being visible (auto-hide may have hidden it).
+    /// </summary>
+    [Fact]
+    public void Switcher_DeactivatesToolbarDwell_WhileCoveringIt()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Services", "Coordinators", "OverlayVmBindingCoordinator.cs"));
+        var start = source.IndexOf("private void OnTaskSwitcherVMPropertyChanged", StringComparison.Ordinal);
+        Check.That(start).IsStrictlyGreaterThan(-1);
+        var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
+        var body = source[start..end];
+
+        Check.WithCustomMessage(
+                "Showing the switcher must ToolbarVM.SetActive(false) first — dwell has no "
+                + "z-order and the toolbar underneath keeps its targets live without it.")
+            .That(body.Contains("ToolbarVM.SetActive(false)")).IsTrue();
+        Check.WithCustomMessage(
+                "Hiding the switcher must NOT unconditionally reactivate the toolbar — "
+                + "auto-hide may have hidden it while the switcher was up, and activating a "
+                + "hidden toolbar creates gaze targets for invisible buttons. Guard the "
+                + "SetActive(true) on the toolbar window's visibility.")
+            .That(body.Contains("Toolbar.IsVisible") && body.Contains("ToolbarVM.SetActive(true)")).IsTrue();
+    }
+
     private static string ExtractMethod(string source, string signature)
     {
         var start = source.IndexOf(signature, StringComparison.Ordinal);

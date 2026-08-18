@@ -82,11 +82,19 @@ which does not know Windows' DPI virtualization (see Environment findings). Targ
 from the tiles.
 **Fix:** `fe.PointToScreen(center)` like every working overlay; pinned by source-scan
 `TaskSwitcherDwellPositionTests`.
-**Follow-up (this session, still open):** an instrumented run showed the full chain now works
-(two selections fired and the overlay closed twice), and revealed the tiles had *never* had a
-dwell-progress visual (`DwellProgress` was set but never bound in the template) — a progress
-bar is now bound (uncommitted, verified live). Two questions await the user's interpretation
-(see Open items).
+**Follow-up, completed in `824712cc` after an instrumented field run:** the diagnostics proved
+the dwell chain works end-to-end (two selections fired, overlay closed) — re-framing the
+report. Two further defects found and fixed: (1) the tiles had *never* had a dwell-progress
+visual (`DwellProgress` set but never bound) — a ProgressBar now fills at each tile's bottom;
+(2) `BringToFront` could never work: `AllowSetForegroundWindow` delegates a right the caller
+must already hold, and this non-activating overlay process never holds foreground, so
+`SetForegroundWindow` was silently rejected — selections closed the overlay and no window came
+forward. Now the ALT-press simulation earns the right (minimize/restore fallback). Both
+source-scan pinned. The run also resolved the coordinate space: gaze and `PointToScreen` both
+live in the tracker-scaled 3840×2400 space (provider multiplies normalized gaze by
+PrimaryScreen × DpiHelper.ScaleX = 2.0 on this display; PointToScreen applies the same 2×) —
+consistent by construction; the >1920 / negative samples were the user looking beyond screen
+edges, not a space mismatch. Diagnostics stripped after the diagnosis.
 
 ### 8. Calibration advanced on a timer, not the user (`c972ceed`)
 **Symptom:** "calibration is not usable. the points should move at the user's pace" (user).
@@ -130,13 +138,9 @@ once; deliberate values are untouched; sliding back afterwards sticks.
 
 ## Open items
 
-1. **Switcher interpretation (questions out to the user):** do they have a second monitor and
-   is their gaze-monitor the primary? Did windows actually come forward at the two logged
-   selections (00:09:15 / 00:09:18)? Third open wandered off-screen with no selection.
-2. **Uncommitted in the worktree:** the tile progress-bar binding (real fix, live-verified) and
-   the `switcher-diag` temporary instrumentation (VM counters + window/dispatcher logging) —
-   the instrumentation is to be stripped once #1 is answered; the progress bar gets its own
-   commit. `MixedPageDiagnosticTests.cs` (the page-dump diagnostic) stays uncommitted by design.
+1. **Switcher verification round pending:** the progress bar + foreground fix (`824712cc`) need
+   one confirming live round (dwell a tile → bar fills → window actually comes forward).
+2. `MixedPageDiagnosticTests.cs` (the page-dump diagnostic) stays uncommitted by design.
 3. Toolbar size 120 persists to settings.json only on the next arbitrary settings save
    (migration applies in memory every launch until then) — harmless, self-resolving.
 4. Long-standing deferred follow-ups unchanged: QA list page clipping, vacuous pagination
@@ -152,4 +156,4 @@ once; deliberate values are untouched; sliding back afterwards sticks.
 | 3 | 22:10 | Tab pagination ("pagination works. All tabs reachable."); bugs 6–8 reported |
 | 4 | 23:05 | Fixes 6–8 live; toolbar bug reported |
 | 5 | 23:24 | Toolbar enlargement ("Toolbar button works"); tiles still not dwellable |
-| diag | 00:09 | Instrumented switcher run: chain works end-to-end, 2 selections logged |
+| diag | 00:09 | Instrumented switcher run: chain works end-to-end, 2 selections logged → fixes in `824712cc` |

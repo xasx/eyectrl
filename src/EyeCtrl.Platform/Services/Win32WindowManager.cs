@@ -94,6 +94,14 @@ public class Win32WindowManager : IWindowManager
     {
         if (hwnd == IntPtr.Zero) return;
 
+        // Minimized first (2026-08-18 field follow-up: Edge/Word/Task-Manager switched fine but
+        // WhatsApp/ZCode/Claude — all iconic — did not): SetForegroundWindow "succeeds" on a
+        // minimized window without un-minimizing it, so the window never visibly appears and
+        // the success return skips any fallback. Restoring before foregrounding is the textbook
+        // sequence.
+        if (NativeMethods.IsIconic(hwnd))
+            NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+
         // The overlays are WS_EX_NOACTIVATE, so this process never holds foreground, and the
         // Windows foreground lock silently rejects a bare SetForegroundWindow: switcher dwell
         // selections fired, the overlay closed, and no window came forward (2026-08-18 field

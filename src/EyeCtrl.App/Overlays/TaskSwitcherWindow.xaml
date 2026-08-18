@@ -20,12 +20,25 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Margin="8" Background="{StaticResource BrushSurfaceMedium}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
-                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Image Source="{Binding Icon}" Width="32" Height="32" Margin="0,0,0,4"/>
-                                <TextBlock Text="{Binding Title}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"
-                                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                                           MaxWidth="180"/>
-                            </StackPanel>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Image Source="{Binding Icon}" Width="32" Height="32" Margin="0,0,0,4"/>
+                                    <TextBlock Text="{Binding Title}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"
+                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                               MaxWidth="180"/>
+                                </StackPanel>
+                                <!-- Dwell progress: without it a tile gives NO feedback while a
+                                     700ms dwell builds, which reads as "not dwellable" (2026-08-17
+                                     field report) — every other dwell surface in the app shows this. -->
+                                <ProgressBar Grid.Row="1" Value="{Binding DwellProgress}" Maximum="1" Minimum="0"
+                                             Height="6" Margin="0,6,0,0"
+                                             Foreground="{StaticResource BrushAccent}" Background="Transparent"
+                                             BorderThickness="0" Focusable="False" IsHitTestVisible="False"/>
+                            </Grid>
                         </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

@@ -33,6 +33,33 @@ public class TaskSwitcherDwellPositionTests
             .That(body.Contains("LogicalToPhysicalX(center")).IsFalse();
     }
 
+    /// <summary>
+    /// Source-scan pin: BringToFront must earn the foreground right before calling
+    /// SetForegroundWindow. The overlays are WS_EX_NOACTIVATE, so the process never holds
+    /// foreground and Windows' foreground lock silently rejects a bare call — switcher
+    /// selections fired, the overlay closed, and no window came forward (2026-08-18 field
+    /// diagnosis). A bare AllowSetForegroundWindow(ASFW_ANY) is the same bug again: it
+    /// delegates a right the caller must already hold.
+    /// </summary>
+    [Fact]
+    public void BringToFront_EarnsForeground_BeforeSetForegroundWindow()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.Platform", "Services", "Win32WindowManager.cs"));
+        var body = ExtractMethod(source, "public void BringToFront(IntPtr hwnd)");
+
+        Check.WithCustomMessage(
+                "BringToFront must simulate an ALT press around SetForegroundWindow (the "
+                + "standard foreground-right grant) — without it the foreground lock silently "
+                + "rejects the switch for this non-activating overlay process. Restore the "
+                + "keybd_event bracket.")
+            .That(body.Contains("keybd_event")).IsTrue();
+        Check.WithCustomMessage(
+                "AllowSetForegroundWindow cannot grant a right the caller does not hold; for "
+                + "this process it is a no-op and its presence masks the missing ALT grant.")
+            .That(body.Contains("AllowSetForegroundWindow(NativeMethods")).IsFalse();
+    }
+
     private static string ExtractMethod(string source, string signature)
     {
         var start = source.IndexOf(signature, StringComparison.Ordinal);

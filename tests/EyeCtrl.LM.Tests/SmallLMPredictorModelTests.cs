@@ -39,13 +39,14 @@ public class SmallLMPredictorModelTests
 
         Check.WithCustomMessage($"No prediction produced. Log:{Environment.NewLine}{log}")
             .That(results).IsNotNull();
-        Check.That(results!).Not.IsEmpty();
-        Check.That(results[0].Word).Not.IsEmpty();
-        Check.That(results[0].Word).Not.Contains(" ");
-        Check.That(results[0].Confidence).IsStrictlyGreaterThan(0.0);
+        var suggestions = results!;
+        Check.That(suggestions).Not.IsEmpty();
+        Check.That(suggestions[0].Word).Not.IsEmpty();
+        Check.That(suggestions[0].Word).Not.Contains(" ");
+        Check.That(suggestions[0].Confidence).IsStrictlyGreaterThan(0.0);
 
         TestContext.Current.TestOutputHelper?.WriteLine(
-            $"{Path.GetFileName(modelPath)} predicted \"{results[0].Word}\" (confidence {results[0].Confidence:F3})");
+            $"{Path.GetFileName(modelPath)} predicted \"{suggestions[0].Word}\" (confidence {suggestions[0].Confidence:F3})");
     }
 
     private static (string ModelPath, string TokenizerPath)? FindLocalModel()

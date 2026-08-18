@@ -160,4 +160,34 @@ public class DecoderIoPlanTests
     {
         Check.That(DecoderIoPlan.AttentionMask(pastLength: 4, stepLength: 1)).ContainsExactly(1L, 1L, 1L, 1L, 1L);
     }
+
+    [Fact]
+    public void Build_LogitsOfAnUnexpectedRank_Throws()
+    {
+        // RunInference reads sequence and vocabulary from Dimensions[1] and [2]. A rank-2
+        // logits output would index past the end mid-generation - straight into the broad
+        // catch that made the original defect invisible - so it is refused at load instead.
+        Check.ThatCode(() => DecoderIoPlan.Build(
+                [Ids("input_ids")],
+                [new GraphTensor("logits", TensorElementType.Float, [-1, 151936])]))
+            .Throws<NotSupportedException>();
+    }
+
+    [Fact]
+    public void Build_KnownInputInAnUnexpectedElementType_ThrowsNamingIt()
+    {
+        // The three known inputs are fed as Int64 tensors; matching them by name alone would
+        // let a differently-typed export fail at Run instead of at load.
+        NotSupportedException? caught = null;
+        try
+        {
+            DecoderIoPlan.Build(
+                [Ids("input_ids"), new GraphTensor("attention_mask", TensorElementType.Float, [-1, -1])],
+                [Logits()]);
+        }
+        catch (NotSupportedException ex) { caught = ex; }
+
+        Check.That(caught).IsNotNull();
+        Check.That(caught!.Message).Contains("attention_mask");
+    }
 }

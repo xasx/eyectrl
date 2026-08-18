@@ -57,6 +57,11 @@ internal sealed class DecoderIoPlan
             throw new NotSupportedException(
                 $"Model emits {logits.ElementType} '{LogitsOutput}'; only Float is supported.");
 
+        // The generation loop reads the sequence and vocabulary extents off axes 1 and 2.
+        if (logits.Dimensions.Length != 3)
+            throw new NotSupportedException(
+                $"Model emits rank-{logits.Dimensions.Length} '{LogitsOutput}'; expected [batch, sequence, vocabulary].");
+
         var hasInputIds = false;
         var needsAttentionMask = false;
         var needsPositionIds = false;
@@ -66,9 +71,9 @@ internal sealed class DecoderIoPlan
         {
             switch (input.Name)
             {
-                case InputIdsInput: hasInputIds = true; continue;
-                case AttentionMaskInput: needsAttentionMask = true; continue;
-                case PositionIdsInput: needsPositionIds = true; continue;
+                case InputIdsInput: RequireInt64(input); hasInputIds = true; continue;
+                case AttentionMaskInput: RequireInt64(input); needsAttentionMask = true; continue;
+                case PositionIdsInput: RequireInt64(input); needsPositionIds = true; continue;
             }
 
             if (!input.Name.StartsWith(PastPrefix, StringComparison.Ordinal))
@@ -107,6 +112,15 @@ internal sealed class DecoderIoPlan
         var mask = new long[pastLength + stepLength];
         Array.Fill(mask, 1L);
         return mask;
+    }
+
+    // input_ids, attention_mask and position_ids are all fed as Int64 tensors, so a model that
+    // names one of them but types it differently must be refused here rather than at Run.
+    private static void RequireInt64(GraphTensor input)
+    {
+        if (input.ElementType != TensorElementType.Int64)
+            throw new NotSupportedException(
+                $"Model input '{input.Name}' is {input.ElementType}; this predictor supplies Int64.");
     }
 
     // Symbolic dimensions arrive as -1. Axis 0 is the batch, and we run exactly one sequence;

@@ -21,6 +21,7 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
     private readonly bool _ownsTokenizer;
 
     private InferenceSession? _session;
+    private DecoderIoPlan? _ioPlan;
     private readonly object _lock = new();
     private readonly object _inferenceGate = new();
     private volatile bool _disposed;
@@ -114,8 +115,21 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
 
             _session = new InferenceSession(SelectedModelPath, options);
+
+            // Derive the feeding plan up front: a model this predictor cannot drive is caught at
+            // load, where the user can see it, instead of throwing on every keystroke.
+            _ioPlan = DecoderIoPlan.Build(Describe(_session.InputMetadata), Describe(_session.OutputMetadata));
+
             IsAvailable = true;
-            _logger?.LogInformation("SmallLMPredictor initialized with {Model}", _selectedModelSize);
+            _logger?.LogInformation("SmallLMPredictor initialized with {Model} ({CacheSlots} cache slots)",
+                _selectedModelSize, _ioPlan.KvSlots.Count);
+        }
+        catch (NotSupportedException ex)
+        {
+            _logger?.LogError(ex, "Model {Model} declares a graph this predictor cannot drive", _selectedModelSize);
+            _session?.Dispose();
+            _session = null;
+            IsAvailable = false;
         }
         catch (Exception ex)
         {
@@ -182,11 +196,9 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         }
     }
 
-    // TODO(perf): no KV cache — every generated token re-runs the model over the FULL
-    // sequence, making the maxNewTokens loop O(n^2). If the exported ONNX model gains
-    // past_key_values inputs/outputs, feed only the newest token per step.
     private List<PredictionResult> RunInference(InferenceSession session, string context, string? prefix)
     {
+        var plan = _ioPlan!;
         var prompt = BuildPrompt(context, prefix);
         var inputIds = _tokenizer!.Encode(prompt).ToList();
         if (inputIds.Count == 0) return [];
@@ -197,53 +209,74 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         const int maxNewTokens = 8;
         var generatedTokens = new List<long>();
         var tokenProbabilities = new List<double>();
-        var pastInputIds = inputIds.ToList();
-        var vocabSize = _tokenizer.VocabSize;
+
+        // The cache carries every token already scored, so each step after the first feeds
+        // exactly one new token instead of re-running the whole sequence.
+        var cache = plan.KvSlots.ToDictionary(slot => slot.PastName, EmptyCacheEntry, StringComparer.Ordinal);
+        var step = inputIds.ToArray();
+        var pastLength = 0;
 
         for (int i = 0; i < maxNewTokens; i++)
         {
-            var inputTensor = new DenseTensor<long>(pastInputIds.ToArray(), [1, pastInputIds.Count]);
-            var inputs = new List<NamedOnnxValue>
+            var inputs = new List<NamedOnnxValue>(3 + plan.KvSlots.Count)
             {
-                NamedOnnxValue.CreateFromTensor("input_ids", inputTensor)
+                NamedOnnxValue.CreateFromTensor(DecoderIoPlan.InputIdsInput,
+                    new DenseTensor<long>(step, [1, step.Length]))
             };
 
-            try
+            if (plan.NeedsAttentionMask)
             {
-                using var outputs = session.Run(inputs);
-                var logits = outputs.First().AsTensor<float>();
-
-                var lastTokenLogits = new float[vocabSize];
-                var offset = (pastInputIds.Count - 1) * vocabSize;
-                for (int j = 0; j < vocabSize; j++)
-                    lastTokenLogits[j] = logits.GetValue(offset + j);
-
-                var softmaxProbs = Softmax(lastTokenLogits);
-
-                var bestTokenId = 0L;
-                var bestProb = 0.0;
-                for (int j = 0; j < softmaxProbs.Length; j++)
-                {
-                    if (softmaxProbs[j] > bestProb)
-                    {
-                        bestProb = softmaxProbs[j];
-                        bestTokenId = j;
-                    }
-                }
-
-                if (_tokenizer.EosTokenId >= 0 && bestTokenId == _tokenizer.EosTokenId) break;
-
-                generatedTokens.Add(bestTokenId);
-                tokenProbabilities.Add(bestProb);
-                pastInputIds.Add(bestTokenId);
+                var mask = DecoderIoPlan.AttentionMask(pastLength, step.Length);
+                inputs.Add(NamedOnnxValue.CreateFromTensor(DecoderIoPlan.AttentionMaskInput,
+                    new DenseTensor<long>(mask, [1, mask.Length])));
             }
-            finally
+
+            if (plan.NeedsPositionIds)
             {
-                foreach (var input in inputs)
+                var positions = DecoderIoPlan.PositionIds(pastLength, step.Length);
+                inputs.Add(NamedOnnxValue.CreateFromTensor(DecoderIoPlan.PositionIdsInput,
+                    new DenseTensor<long>(positions, [1, positions.Length])));
+            }
+
+            foreach (var slot in plan.KvSlots)
+                inputs.Add(cache[slot.PastName]);
+
+            using var outputs = session.Run(inputs);
+            var produced = outputs.ToDictionary(o => o.Name, StringComparer.Ordinal);
+
+            var logits = produced[DecoderIoPlan.LogitsOutput].AsTensor<float>();
+            var sequenceLength = logits.Dimensions[1];
+            var vocabSize = logits.Dimensions[2];
+            var lastTokenLogits = LastTokenLogits(
+                logits is DenseTensor<float> dense ? dense.Buffer.Span : logits.ToArray(),
+                sequenceLength, vocabSize);
+
+            var softmaxProbs = Softmax(lastTokenLogits);
+
+            var bestTokenId = 0L;
+            var bestProb = 0.0;
+            for (int j = 0; j < softmaxProbs.Length; j++)
+            {
+                if (softmaxProbs[j] > bestProb)
                 {
-                    (input as IDisposable)?.Dispose();
+                    bestProb = softmaxProbs[j];
+                    bestTokenId = j;
                 }
             }
+
+            if (_tokenizer.EosTokenId >= 0 && bestTokenId == _tokenizer.EosTokenId) break;
+
+            generatedTokens.Add(bestTokenId);
+            tokenProbabilities.Add(bestProb);
+
+            // present.N.* becomes the next step's past_key_values.N.*. The values are copied out
+            // because `outputs` owns native memory that is released at the end of this iteration.
+            pastLength += step.Length;
+            cache = plan.KvSlots.ToDictionary(
+                slot => slot.PastName,
+                slot => CarryForward(slot, produced[slot.PresentName]),
+                StringComparer.Ordinal);
+            step = [bestTokenId];
         }
 
         if (generatedTokens.Count == 0) return [];
@@ -255,6 +288,37 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
 
         return PostProcess(generatedText, prefix, avgProb);
     }
+
+    private static List<GraphTensor> Describe(IReadOnlyDictionary<string, NodeMetadata> metadata)
+        => metadata.Select(entry => new GraphTensor(entry.Key, entry.Value.ElementDataType, entry.Value.Dimensions))
+                   .ToList();
+
+    // An empty cache: rank and static dimensions as the graph declares them, zero tokens deep.
+    private static NamedOnnxValue EmptyCacheEntry(KvSlot slot) => slot.ElementType switch
+    {
+        TensorElementType.Float16 => NamedOnnxValue.CreateFromTensor(
+            slot.PastName, new DenseTensor<Float16>(Array.Empty<Float16>(), slot.EmptyShape)),
+        _ => NamedOnnxValue.CreateFromTensor(
+            slot.PastName, new DenseTensor<float>(Array.Empty<float>(), slot.EmptyShape)),
+    };
+
+    private static NamedOnnxValue CarryForward(KvSlot slot, DisposableNamedOnnxValue present) => slot.ElementType switch
+    {
+        TensorElementType.Float16 => NamedOnnxValue.CreateFromTensor(slot.PastName, Copy<Float16>(present)),
+        _ => NamedOnnxValue.CreateFromTensor(slot.PastName, Copy<float>(present)),
+    };
+
+    private static DenseTensor<T> Copy<T>(DisposableNamedOnnxValue value)
+    {
+        var tensor = value.AsTensor<T>();
+        return new DenseTensor<T>(tensor.ToArray(), tensor.Dimensions.ToArray());
+    }
+
+    // logits arrive as [batch=1, sequence, vocab]; only the final position scores the next token.
+    // vocabSize must come from the logits tensor itself — the model's output width is not the
+    // tokenizer's vocab count (Qwen2.5 emits 151936 scores against a 151665-entry tokenizer).
+    internal static float[] LastTokenLogits(ReadOnlySpan<float> logits, int sequenceLength, int vocabSize)
+        => logits.Slice((sequenceLength - 1) * vocabSize, vocabSize).ToArray();
 
     private static double[] Softmax(float[] logits)
     {

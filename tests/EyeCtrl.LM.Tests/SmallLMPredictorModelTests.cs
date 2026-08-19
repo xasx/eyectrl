@@ -5,7 +5,7 @@ using EyeCtrl.LM;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// End-to-end inference against a real downloaded export. Skips when no model is present,
+/// End-to-end inference against every real downloaded export. Skips when none is present,
 /// so CI and clean checkouts stay green; on a machine that has downloaded one through the
 /// Models settings page, this is the only test that proves the feature actually predicts.
 /// Unit tests cannot cover it: the failure mode being guarded is a mismatch between what the
@@ -14,19 +14,29 @@ using Microsoft.Extensions.Logging;
 public class SmallLMPredictorModelTests
 {
     [Fact]
-    public void Predict_WithARealDownloadedModel_ProducesASuggestion()
+    public void Predict_WithEveryRealDownloadedModel_ProducesASuggestion()
     {
-        var model = FindLocalModel();
-        Assert.SkipWhen(model is null, "No downloaded ONNX model found in %APPDATA%\\EyeCtrl\\models.");
+        // Every model present, not just the first found. The shipped lineup splits on KV cache
+        // element type - the fp16 exports declare Float16 while the q4f16 one declares Float -
+        // so stopping at the first match can leave a whole branch of the feed unexercised.
+        var models = FindLocalModels();
+        Assert.SkipWhen(models.Count == 0, "No downloaded ONNX model found in %APPDATA%/EyeCtrl/models.");
 
-        var (modelPath, tokenizerPath) = model!.Value;
+        foreach (var (modelPath, tokenizerPath) in models)
+            AssertProducesASuggestion(modelPath, tokenizerPath);
+    }
+
+    private static void AssertProducesASuggestion(string modelPath, string tokenizerPath)
+    {
+        var name = Path.GetFileName(modelPath);
         var log = new CapturingLogger();
         using var tokenizer = new LMTokenizer(tokenizerPath);
         using var predictor = new SmallLMPredictor(
-            Path.GetDirectoryName(modelPath)!, modelSize: "360M", preferGpu: false,
-            logger: log, tokenizer: tokenizer, modelPath: modelPath, ownsTokenizer: false);
+            Path.GetDirectoryName(modelPath)!, modelSize: Path.GetFileNameWithoutExtension(modelPath),
+            preferGpu: false, logger: log, tokenizer: tokenizer, modelPath: modelPath, ownsTokenizer: false);
 
-        Check.That(predictor.IsAvailable).IsTrue();
+        Check.WithCustomMessage($"{name} did not load. Log:{Environment.NewLine}{log}")
+            .That(predictor.IsAvailable).IsTrue();
 
         predictor.Predict("The weather today is");
 
@@ -37,31 +47,32 @@ public class SmallLMPredictorModelTests
         while (DateTime.UtcNow < deadline && !log.HasError && (results = predictor.TryGetResults()) == null)
             Thread.Sleep(50);
 
-        Check.WithCustomMessage($"No prediction produced. Log:{Environment.NewLine}{log}")
+        Check.WithCustomMessage($"{name} produced no prediction. Log:{Environment.NewLine}{log}")
             .That(results).IsNotNull();
         var suggestions = results!;
-        Check.That(suggestions).Not.IsEmpty();
+        Check.WithCustomMessage($"{name} returned an empty suggestion set").That(suggestions).Not.IsEmpty();
         Check.That(suggestions[0].Word).Not.IsEmpty();
         Check.That(suggestions[0].Word).Not.Contains(" ");
         Check.That(suggestions[0].Confidence).IsStrictlyGreaterThan(0.0);
 
         TestContext.Current.TestOutputHelper?.WriteLine(
-            $"{Path.GetFileName(modelPath)} predicted \"{suggestions[0].Word}\" (confidence {suggestions[0].Confidence:F3})");
+            $"{name} predicted \"{suggestions[0].Word}\" (confidence {suggestions[0].Confidence:F3})");
     }
 
-    private static (string ModelPath, string TokenizerPath)? FindLocalModel()
+    private static List<(string ModelPath, string TokenizerPath)> FindLocalModels()
     {
         var dir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "models");
-        if (!Directory.Exists(dir)) return null;
+        if (!Directory.Exists(dir)) return [];
 
         // ModelRegistryService pairs "<name>.onnx" with "<name>.tokenizer.json".
+        var found = new List<(string, string)>();
         foreach (var onnx in Directory.EnumerateFiles(dir, "*.onnx"))
         {
             var tokenizer = onnx.Replace(".onnx", ".tokenizer.json", StringComparison.Ordinal);
-            if (File.Exists(tokenizer)) return (onnx, tokenizer);
+            if (File.Exists(tokenizer)) found.Add((onnx, tokenizer));
         }
-        return null;
+        return found;
     }
 
     private sealed class CapturingLogger : ILogger<SmallLMPredictor>

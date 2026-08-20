@@ -297,7 +297,7 @@ git commit -m "fix(controls): selecting a combo option no longer resizes it or r
 - Create: `tests/EyeCtrl.Controls.Tests/DwellSliderPlateTests.cs`
 - Modify: `tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs`
 
-**Width budget — read before writing code.** The row must fit the narrowest content column the app supports. `SettingsContentFitTests` fixes that at a 800 DIP display: `800 × 0.9 = 720` window, minus a 240 sidebar and two 16 DIP margin pairs = **416 DIP**. Today's row is `100 + 4+4 + 140 + 100 + 4+4 = 356`. The plate therefore gets **180**, giving `100 + 8 + 180 + 8 + 100 = 396` and 20 DIP of slack. Do not widen it to the 300 the mockup shows — that mockup was drawn against a 1728 DIP window.
+**Width budget — read before writing code.** The row must fit the narrowest content column the app supports. `SettingsContentFitTests` fixes that at a 800 DIP display: `800 × 0.9 = 720` window, minus a 240 sidebar and two 16 DIP margin pairs = **416 DIP**. Every element in the row carries a `(4,0,4,0)` margin, so each contributes its width plus 8. Today's row is `108 + 148 + 108 = 364`. The plate therefore gets **180**, giving `108 + 188 + 108 = 404` and 12 DIP of slack against 416. Verify this by running the guard in Step 5 rather than by trusting the arithmetic — the margins are the easy part to get wrong. Do not widen it to the 300 the mockup shows — that mockup was drawn against a 1728 DIP window.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -397,7 +397,7 @@ Add the constant and fields:
 ```csharp
     /// <summary>
     /// Plate width in DIPs. Sized so the whole row fits the narrowest content column the app
-    /// supports: 100 + 8 + 180 + 8 + 100 = 396 against 416 (a 800 DIP display at the 0.9 window
+    /// supports: 108 + 188 + 108 = 404 against 416 (a 800 DIP display at the 0.9 window
     /// ratio, less a 240 sidebar and two 16 DIP margin pairs). Guarded by
     /// SettingsContentFitTests.TheSliderRow_FitsTheContentColumn_OnANarrowDisplay.
     /// </summary>
@@ -561,7 +561,7 @@ Add to `tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs`, inside the existing
     /// The slider row is a composite, and composites are deliberately NOT capped by
     /// ConstrainToContentWidth — DwellSlider owns a horizontal StackPanel, which clips rather
     /// than wraps. So its natural width has to fit the narrowest column outright. The plate that
-    /// widened this row from 356 to 396 DIP is the reason this guard exists.
+    /// widened this row from 364 to 404 DIP is the reason this guard exists.
     /// </summary>
     [StaFact]
     public void TheSliderRow_FitsTheContentColumn_OnANarrowDisplay()

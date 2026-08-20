@@ -721,6 +721,8 @@ and `ContentAvailableHeight` likewise:
 
 Both doc-comments name `ContentPanel`'s margin as one of the two nested insets — update them to name the card's padding instead, or the next reader will go looking for a margin that is gone.
 
+**And update `SettingsContentFitTests`' own derivation, not just production's.** That suite re-derives the content column by parsing `SettingsWindow.xaml`, and its `Margin(root, name)` helper returns `default` for an element with no `Margin` attribute — **silently**. Leaving it reading `ContentPanel`'s now-absent margin would make it compute a column 32 DIP wider than the real one, and the picker guard would go on passing while guarding nothing. Read `MeasurePickerButton` and every other place that suite subtracts the inner inset, and point them at `ContentCard`'s `Padding`. The negative control (`WithoutTheConstraint_ThatSameButtonOverruns`) is the canary: if it stops failing-without-the-cap, the derivation is wrong.
+
 - [ ] **Step 6: Run**
 
 ```bash

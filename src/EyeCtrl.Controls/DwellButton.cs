@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Processing;
 
@@ -24,14 +25,23 @@ using EyeCtrl.Core.Processing;
 /// remains usable without eye-tracking.
 /// </para>
 /// <para>
-/// Dwell visual feedback: <see cref="ApplyProgress"/> blends <see cref="Root"/>
-/// background from <paramref name="baseColor"/> toward white as dwell accumulates.
+/// Dwell visual feedback: <see cref="ApplyProgress"/> sweeps <see cref="ProgressBar"/> along
+/// the button's bottom edge. The background never moves, so the label's contrast at the end
+/// of a dwell equals its contrast at rest.
 /// </para>
 /// </remarks>
 public class DwellButton : DwellControl
 {
+    /// <summary>
+    /// Height of the dwell progress bar in DIPs.
+    ///
+    /// Six rather than <c>ToolbarWindow</c>'s four: this bar sits inside a control whose whole
+    /// visual is the 100 DIP hit circle, and the toolbar's four reads thin at that scale.
+    /// Both are literal layout DIPs — there is no spacing token scale to draw from.
+    /// </summary>
+    public const double ProgressBarHeight = 6;
+
     private readonly Action _action;
-    private readonly Color _baseColor;
     // One mutable brush on Root.Background, mutated in place by ApplyProgress so dwell
     // updates at gaze rate never allocate a new brush per tick.
     private readonly SolidColorBrush _brush;
@@ -40,6 +50,10 @@ public class DwellButton : DwellControl
     // it away along with the label. Callers use Content instead.
     private readonly Grid _layout;
     private UIElement? _content;
+
+    // Mutated in place by ApplyProgress at gaze rate: one ScaleX write, no allocation.
+    private readonly Rectangle _progressBar;
+    private readonly ScaleTransform _progressScale;
 
     /// <summary>
     /// The element drawn inside the button, above the dwell progress bar.
@@ -75,6 +89,17 @@ public class DwellButton : DwellControl
     }
 
     /// <summary>
+    /// The dwell progress bar drawn along the button's bottom edge.
+    ///
+    /// A separate element rather than a wash over <see cref="DwellControl.Root"/>'s background,
+    /// for two reasons. The label's contrast no longer decays as the dwell completes (the wash
+    /// took a light label on a dark fill to 2.62:1 at full dwell). And a caller that replaces
+    /// <c>Root.Background</c> — <see cref="DwellColorPicker"/> does, for every swatch — can no
+    /// longer orphan the feedback, which is why swatches used to show no progress at all.
+    /// </summary>
+    public Rectangle ProgressBar => _progressBar;
+
+    /// <summary>
     /// Creates a <see cref="DwellButton"/>.
     /// </summary>
     /// <param name="registrar">The dwell registrar for this overlay.</param>
@@ -108,7 +133,6 @@ public class DwellButton : DwellControl
         : base(registrar, id, category, radiusPhysical, dwellMs)
     {
         _action = action;
-        _baseColor = baseColor;
 
         Root.Width = width;
         Root.Height = height;
@@ -122,6 +146,24 @@ public class DwellButton : DwellControl
         _layout = new Grid();
         _layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        _progressScale = new ScaleTransform(0, 1);
+        _progressBar = new Rectangle
+        {
+            Height = ProgressBarHeight,
+            Fill = Tokens.BrushAccent,
+            // Stretch + a ScaleX transform, not a Width: Width would need ActualWidth, which is
+            // 0 until the first layout pass — and SettingsAutoPagination measures controls that
+            // are never laid out. Scaling is layout-independent and costs one double per tick.
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            RenderTransform = _progressScale,
+            RenderTransformOrigin = new Point(0, 0.5),
+            IsHitTestVisible = false
+        };
+        Grid.SetRow(_progressBar, 1);
+        _layout.Children.Add(_progressBar);
+
         Root.Child = _layout;
 
         Content = new TextBlock
@@ -156,6 +198,6 @@ public class DwellButton : DwellControl
     /// <inheritdoc/>
     protected override void ApplyProgress(double progress)
     {
-        _brush.Color = ColorBlend.Blend(_baseColor, Tokens.Accent, progress * 0.5);
+        _progressScale.ScaleX = Math.Clamp(progress, 0, 1);
     }
 }

@@ -1,5 +1,7 @@
 # Dwell Control Anatomy Implementation Plan
 
+> **Sequence: plan 2 of 3** of the settings restyle — `dwell-progress-feedback` -> `dwell-control-anatomy` -> `settings-two-column-rows`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the four settings dwell controls the anatomy the approved Direction B design specifies — a real switch on the toggle, a non-reflowing option border, a value plate that shows where a number sits in its range, and colour swatches whose names are visible rather than hidden in a tooltip no gaze user can reach.
@@ -8,13 +10,13 @@
 
 **Tech Stack:** .NET 10.0.102 SDK, WPF (`net10.0-windows`), xUnit v3 (`xunit.v3` 3.2.2) + NFluent 3.1.0. Solution is `EyeCtrl.slnx`.
 
-**Baseline:** `main` @ `26af8928` plus **plan 2 (`2026-08-20-dwell-progress-feedback.md`) landed**. This plan consumes `DwellButton.Content`, `DwellButton.ProgressBar`, `DwellButton.ProgressBarHeight` and `DwellControl.UpdateVisualForTest`, all introduced there.
+**Baseline:** `main` @ `26af8928` plus **plan 1 (`2026-08-20-dwell-progress-feedback.md`) landed**. This plan consumes `DwellButton.Content`, `DwellButton.ProgressBar`, `DwellButton.ProgressBarHeight` and `DwellControl.UpdateVisualForTest`, all introduced there.
 
 ---
 
 ## Prerequisite
 
-**Do not start this plan until plan 2 is merged.** Every task below assumes `DwellButton` already exposes `Content` and a `ProgressBar`, and that dwell feedback no longer washes the fill. Verify:
+**Do not start this plan until plan 1 is merged.** Every task below assumes `DwellButton` already exposes `Content` and a `ProgressBar`, and that dwell feedback no longer washes the fill. Verify:
 
 ```bash
 grep -n "public UIElement? Content" src/EyeCtrl.Controls/DwellButton.cs
@@ -33,7 +35,7 @@ Both must hit. If they do not, stop — this plan will not compile.
 
 **3. Colour swatch names are unreachable.** `DwellColorPicker.cs:143` puts each preset's name in `btn.Root.ToolTip` and `:144` sets the button's content to `null`. **A tooltip requires hover. A gaze-only user has no hover.** The four swatches are therefore four unlabelled coloured rectangles, and the names ("Accent", "Green", "Amber", "Light") are effectively invisible to the one person who has to use them. Drawing the label inside the swatch is an accessibility fix wearing a cosmetic hat.
 
-**4. The toggle's ON label is 2.91:1.** `#D6DEF5` on `#4A8F5C`, under the 3:1 large-text bar — the resting value plan 2 explicitly did not fix, because fixing it needs the label off the green. Moving state into a switch puts the label on the row surface at 10.3:1 and leaves green carrying only the track, which as a non-text UI component needs 3:1 and gets 3.55:1.
+**4. The toggle's ON label is 2.91:1.** `#D6DEF5` on `#4A8F5C`, under the 3:1 large-text bar — the resting value plan 1 explicitly did not fix, because fixing it needs the label off the green. Moving state into a switch puts the label on the row surface at 10.3:1 and leaves green carrying only the track, which as a non-text UI component needs 3:1 and gets 3.55:1.
 
 ---
 
@@ -53,7 +55,7 @@ Both must hit. If they do not, stop — this plan will not compile.
 | `SettingsAutoPagination.MeasureRows` | same three-way `switch` | already has the arm |
 | `SupervisorSetupWindow.xaml.cs:85,105,115,116` | `var` + `Attach(ToggleHost)` | compiles unchanged |
 | `DwellToggleVisualTests` | subclasses it, calls `protected ApplyProgress`/`OnActivated` | **must be rewritten** (Task 5) |
-| `DwellProgressContrastTests` (from plan 2) | `toggle.Root.Background` | **must be rewritten** (Task 5) |
+| `DwellProgressContrastTests` (from plan 1) | `toggle.Root.Background` | **must be rewritten** (Task 5) |
 
 **Why the Supervisor survives it.** `src/EyeCtrl.Supervisor/UI/NoopDwellRegistrar.cs` is what those toggles register against, and grepping the whole Supervisor project for `UpdateVisual`, `UpdatePosition`, `DwellControl` or `IDwellComposite` finds nothing but that file. The Supervisor never drives a per-frame dwell loop — its controls are mouse-driven in practice — so it needs neither `Root` nor `Children`. Confirmed by reading, not assumed.
 
@@ -109,7 +111,7 @@ Both must hit. If they do not, stop — this plan will not compile.
 git fetch && git log --oneline -1 origin/main
 ```
 
-Plan 2's commits must be in the history. If main has moved beyond them, re-read the four control files before continuing — a settings-polish workstream has been landing on exactly these.
+Plan 1's commits must be in the history. If main has moved beyond them, re-read the four control files before continuing — a settings-polish workstream has been landing on exactly these.
 
 - [ ] **Step 2: Create the worktree**
 
@@ -754,7 +756,7 @@ using System.Windows.Controls;
 dotnet test tests/EyeCtrl.Controls.Tests/EyeCtrl.Controls.Tests.csproj --filter "FullyQualifiedName~DwellColorPicker"
 ```
 
-Expected: the new tests, `DwellColorPickerProgressTests` (plan 2) and `ColorPickerPresetTests` all pass.
+Expected: the new tests, `DwellColorPickerProgressTests` (plan 1) and `ColorPickerPresetTests` all pass.
 
 - [ ] **Step 5: Check the geometry guard is still honest**
 
@@ -1266,7 +1268,7 @@ Report exactly what happened, including anything that did not work. If the run w
 
 **Placeholder scan.** Every step that changes code carries the code. The one instruction to read rather than write — `RefreshSelection` in Task 4 Step 3 — says explicitly what to check and why.
 
-**Type consistency.** `DwellButton.Content`/`ProgressBar` and `DwellControl.UpdateVisualForTest` come from plan 2 and are used in Tasks 4 and 5. `DwellColorPicker.SwatchBorderThickness` is defined and used in Task 4. `DwellToggle`'s `Label`/`StateText`/`RowSurface`/`Track`/`Knob`/`Switch`/`Children`/`Toggle` are defined in Task 5 Step 3 and used in Task 5 Step 1's tests. `DwellSlider`'s `ValueText`/`MinimumText`/`MaximumText`/`RailFraction` are defined in Task 3 Step 3 and used in Step 1.
+**Type consistency.** `DwellButton.Content`/`ProgressBar` and `DwellControl.UpdateVisualForTest` come from plan 1 and are used in Tasks 4 and 5. `DwellColorPicker.SwatchBorderThickness` is defined and used in Task 4. `DwellToggle`'s `Label`/`StateText`/`RowSurface`/`Track`/`Knob`/`Switch`/`Children`/`Toggle` are defined in Task 5 Step 3 and used in Task 5 Step 1's tests. `DwellSlider`'s `ValueText`/`MinimumText`/`MaximumText`/`RailFraction` are defined in Task 3 Step 3 and used in Step 1.
 
 **Ordering dependency.** Task 5 must run last: it changes `DwellToggle`'s type and rewrites a test file Task 1 baselines. Task 3's fit guard depends on Task 3's `PlateWidth`. Do not reorder.
 

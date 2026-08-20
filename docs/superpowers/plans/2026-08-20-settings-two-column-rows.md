@@ -1,5 +1,7 @@
 # Settings Two-Column Rows Implementation Plan
 
+> **Sequence: plan 3 of 3** of the settings restyle — `dwell-progress-feedback` -> `dwell-control-anatomy` -> `settings-two-column-rows`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the settings content area from a stack of stacks into a scannable list — each setting's name and its control on one line, with enough vertical room between controls that a gaze drift cannot land on the neighbour.
@@ -8,7 +10,7 @@
 
 **Tech Stack:** .NET 10.0.102 SDK, WPF (`net10.0-windows`), xUnit v3 + NFluent 3.1.0. Solution is `EyeCtrl.slnx`.
 
-**Baseline:** `main` @ `26af8928`, plus **plans 2 and 3 landed** (`2026-08-20-dwell-progress-feedback.md`, `2026-08-20-dwell-control-anatomy.md`). This plan assumes `DwellToggle` is already an `IDwellComposite` with a switch.
+**Baseline:** `main` @ `26af8928`, plus **plans 1 and 2 landed** (`2026-08-20-dwell-progress-feedback.md`, `2026-08-20-dwell-control-anatomy.md`). This plan assumes `DwellToggle` is already an `IDwellComposite` with a switch.
 
 ---
 
@@ -19,7 +21,7 @@ grep -n "class DwellToggle : IDwellComposite" src/EyeCtrl.Controls/DwellToggle.c
 grep -n "private const double PlateWidth" src/EyeCtrl.Controls/DwellSlider.cs
 ```
 
-Both must hit. If not, plans 2 and 3 have not landed and this one will not compile.
+Both must hit. If not, plans 1 and 2 have not landed and this one will not compile.
 
 ---
 
@@ -109,7 +111,7 @@ The precedent for how much clearance is enough is the colour-swatch grid, the on
 git fetch && git log --oneline -1 origin/main
 ```
 
-Plans 2 and 3 must be in the history. If main has moved beyond them, re-read `SettingsWindow.xaml.cs` and the four composites before continuing.
+Plans 1 and 2 must be in the history. If main has moved beyond them, re-read `SettingsWindow.xaml.cs` and the four composites before continuing.
 
 - [ ] **Step 2: Create the worktree**
 
@@ -358,7 +360,7 @@ and gate both lifecycle calls:
 
 `DwellComboBox` has a convenience overload that chains to the primary constructor — add `showLabel` to it too and forward it, so both entry points behave alike.
 
-`DwellToggle` (from plan 3) has no `DwellLabel`; its name is the `_label` `TextBlock` in the row's left column. Gate that instead — in the constructor, after the row `Grid` is built:
+`DwellToggle` (from plan 2) has no `DwellLabel`; its name is the `_label` `TextBlock` in the row's left column. Gate that instead — in the constructor, after the row `Grid` is built:
 
 ```csharp
         _label.Visibility = showLabel ? Visibility.Visible : Visibility.Collapsed;

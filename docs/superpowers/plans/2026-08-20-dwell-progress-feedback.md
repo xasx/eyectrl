@@ -1,5 +1,7 @@
 # Dwell Progress Feedback Implementation Plan
 
+> **Sequence: plan 1 of 3** of the settings restyle — `dwell-progress-feedback` -> `dwell-control-anatomy` -> `settings-two-column-rows`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace `DwellButton`'s fill-wash dwell feedback with an accent progress bar, so a dwelling control's label stays legible to the end of the dwell and every dwell target actually shows progress — including the colour swatches, which today show none.

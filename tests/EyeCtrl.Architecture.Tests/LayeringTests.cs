@@ -221,11 +221,15 @@ public class LayeringTests
         // this (it always builds first), it only triggers on a cold single-project test run.
         // (WinUiElementAdapter uses both Contracts and Sdk.Abstractions types, so its direct IL set
         // must be {Contracts, Sdk.Abstractions}, matching WPF.)
-        var dll = Directory.EnumerateFiles(
-                Path.Combine(FindRepoRoot(), "src", "EyeCtrl.Sdk.WinUI", "bin"),
-                "EyeCtrl.Sdk.WinUI.dll", SearchOption.AllDirectories)
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault();
+        var binDir = Path.Combine(FindRepoRoot(), "src", "EyeCtrl.Sdk.WinUI", "bin");
+        // bin/ is absent entirely on a cold worktree, and EnumerateFiles throws
+        // DirectoryNotFoundException in that case — before FirstOrDefault could yield null, so
+        // the guidance below never rendered and the test crashed instead of failing.
+        var dll = Directory.Exists(binDir)
+            ? Directory.EnumerateFiles(binDir, "EyeCtrl.Sdk.WinUI.dll", SearchOption.AllDirectories)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault()
+            : null;
 
         Check.WithCustomMessage(
             "EyeCtrl.Sdk.WinUI.dll not found under src/EyeCtrl.Sdk.WinUI/bin — run " +

@@ -29,8 +29,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 [Collection("ExternalDwellPipe")]
 public class ExternalDwellWireContractTests
 {
-    private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
     private readonly string _pipeName = ExternalDwellService.DefaultPipeName + "_test_" + Guid.NewGuid().ToString("N");
 
     private static GazeEngine NewGazeEngine(StubGazeProvider provider) =>
@@ -158,14 +156,26 @@ public class ExternalDwellWireContractTests
             Check.That(engine.SuppressFixation).IsTrue();
 
             client.UnregisterAdapter("btn");
-            Thread.Sleep(250);   // server drops the target (bounded settle, as above)
 
-            // Re-enter the OLD rect and accumulate 100ms — far short of completing. If the server
-            // still tracked the target this would show progress (suppression true); a removed
-            // target shows nothing. This observes server state directly, because the client-side
-            // adapter removal alone would mask a lingering server target.
-            provider.Raise(new GazePoint(100, 100, t + 2_000_000, IsValid: true));
-            provider.Raise(new GazePoint(100, 100, t + 2_100_000, IsValid: true));
+            // Poll for server truth: park off-target (clearing accumulated dwell), then re-enter
+            // the OLD rect for 100ms — far short of completing. While the server still tracks the
+            // target that shows progress (suppression true); once dropped, nothing accumulates.
+            // The observation IS the barrier, so no fixed settle is needed. A re-enter that
+            // COMPLETED would release suppression either way (activation releases it too), which
+            // is why the accumulate must stay sub-completion — and the client-side adapter
+            // removal would mask a lingering server target's activation, which is why the truth
+            // channel is suppression, not Activations.
+            long probe = t + 2_000_000;
+            var probeDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(4);
+            while (true)
+            {
+                provider.Raise(new GazePoint(9000, 9000, probe, IsValid: true));
+                provider.Raise(new GazePoint(100, 100, probe + 50_000, IsValid: true));
+                provider.Raise(new GazePoint(100, 100, probe + 100_000, IsValid: true));
+                probe += 1_000_000;
+                if (!engine.SuppressFixation || DateTime.UtcNow >= probeDeadline) break;
+                Thread.Sleep(50);
+            }
             Check.That(engine.SuppressFixation).IsFalse();
 
             Thread.Sleep(300);   // grace for an activation line that must never come
@@ -182,7 +192,7 @@ public class ExternalDwellWireContractTests
         {
             var provider = new StubGazeProvider();
             using var engine = NewGazeEngine(provider);
-            var settings = new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 };
+            var settings = new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 5000 };
             using var svc1 = NewService(engine, _ => 7, settings);
             svc1.Start();
 
@@ -191,7 +201,12 @@ public class ExternalDwellWireContractTests
             client.RegisterAdapter(fake);
             client.Start();
 
-            // Phase 1: works before the restart.
+            // Phase 1: works before the restart. Cooldown 5000 is load-bearing here: with cooldown 0
+            // every retry attempt of DwellUntilActivated can emit its own activation, so a second
+            // one could still be in flight when beforeRestart is sampled below — and land during
+            // phase 2, faking a reconnect activation (a false pass, the bad direction). With the
+            // cooldown, at most ONE activation can be emitted before the loop observes it, so the
+            // sample is quiescent. svc2's detector is fresh, so phase 2 is not cooldown-blocked.
             long t = 0;
             DwellUntilActivated(provider, fake, x: 100, y: 100, ref t);
             var beforeRestart = fake.Activations;
@@ -238,15 +253,17 @@ public class ExternalDwellWireContractTests
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
 
-        // Empty line (deserializes to null), non-JSON, an unknown type discriminator, and truncated
-        // JSON. The server must swallow each per-line and keep reading — a cooperating app that
-        // emits one bad line must not lose its dwell channel.
+        // JSON null (deserializes to null → the HandleMessage(null) no-op), an empty line and
+        // non-JSON (JsonException), an unknown type discriminator, and truncated JSON. The server
+        // must swallow each per-line and keep reading — a cooperating app that emits one bad line
+        // must not lose its dwell channel.
+        await w.WriteLineAsync("null");
         await w.WriteLineAsync("");
         await w.WriteLineAsync("not json {");
         await w.WriteLineAsync("""{"type":"nonsense"}""");
         await w.WriteLineAsync("""{"type":"register","id":"trunc""");
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
-            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(250);   // let the server register the target
 
         provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
@@ -302,9 +319,12 @@ public class ExternalDwellWireContractTests
         {
             var provider = new StubGazeProvider();
             using var engine = NewGazeEngine(provider);
-            // Topmost window under the gaze (99) never matches the hwnd the client registered (7):
-            // if the hwnd did not survive the RegisterMessage, this test would gate differently.
-            using var svc = NewService(engine, _ => 99,
+            // Switchable occlusion root: 99 never matches the hwnd the client registers (7), then
+            // the positive leg flips it to 7. Without that flip the test is vacuous — "no
+            // activation, no suppression" cannot distinguish gated-out from never-registered
+            // (with no targets the service short-circuits before the root lookup).
+            long root = 99;
+            using var svc = NewService(engine, _ => root,
                 new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 });
             svc.Start();
 
@@ -315,12 +335,21 @@ public class ExternalDwellWireContractTests
 
             Thread.Sleep(400);   // connect + register settle (gating means WaitUntilRegistered cannot be used)
 
-            provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-            provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+            long t = 0;
+            provider.Raise(new GazePoint(100, 100, t, IsValid: true));
+            provider.Raise(new GazePoint(100, 100, t + 800_000, IsValid: true));
 
             Thread.Sleep(600);   // grace for an activation line that must never come
             Check.That(fake.Activations).IsEqualTo(0);
             Check.That(engine.SuppressFixation).IsFalse();
+
+            // Open the gate: the root now matches the registered hwnd, so the SAME target must
+            // activate. This is also what pins hwnd flow — if the hwnd had arrived as 0 or
+            // garbage, root 7 would not match and this leg would time out.
+            root = 7;
+            t += 2_000_000;
+            DwellUntilActivated(provider, fake, x: 100, y: 100, ref t);
+            Check.That(fake.Activations).IsStrictlyGreaterThan(0);
         });
     }
 

@@ -29,8 +29,6 @@ public sealed class ExternalDwellPipeCollection { }
 [Collection("ExternalDwellPipe")]
 public class ExternalDwellServiceTests
 {
-    private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
     /// <summary>
     /// Unique pipe name per test instance (xUnit constructs a new instance per method). Pipe names
     /// are machine-global, so binding the production name (<c>eyectrl_dwell</c>) let any other
@@ -158,7 +156,7 @@ public class ExternalDwellServiceTests
         using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
-            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(200); // let the server register the target
 
         // Toggle the feature off then back on — must NOT drop the registered target.
@@ -179,7 +177,7 @@ public class ExternalDwellServiceTests
         await client.ConnectAsync(2000);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
-            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 10, 10), Hwnd = 7 }, Json));
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 10, 10), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(100);
     }
 
@@ -211,7 +209,7 @@ public class ExternalDwellServiceTests
         using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
-            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(200);
 
         settings.Enabled = true;
@@ -296,7 +294,7 @@ public class ExternalDwellServiceTests
         using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
-            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(200);
 
         provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
@@ -316,7 +314,7 @@ public class ExternalDwellServiceTests
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
-            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(200);
 
         // Enter (t=0) then accumulate (0.1s, well under the 0.8s dwell): feedback → suppression.
@@ -340,7 +338,7 @@ public class ExternalDwellServiceTests
         using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
-            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, Json));
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(200);
 
         provider.Raise(new GazePoint(100, 100, 0, IsValid: true));

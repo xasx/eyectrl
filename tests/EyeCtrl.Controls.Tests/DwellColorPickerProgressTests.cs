@@ -21,12 +21,19 @@ public class DwellColorPickerProgressTests
     [StaFact]
     public void ASwatch_ShowsDwellProgress_DespiteItsBackgroundBeingReplaced()
     {
+        // "#A5F3FC" is passed as the sole preset, not just the selection-getter value, so it is
+        // genuinely the swatch's paint colour below — not a literal that merely looks like one.
         var hex = "#A5F3FC";
         var picker = new DwellColorPicker(
             new FakeRegistrar(), "cp", "Colour", () => hex, v => hex = v,
-            DwellCategory.Control, 50, 800);
+            DwellCategory.Control, 50, 800,
+            presets: new[] { (hex, "Test") });
 
         var swatch = picker.Children.First();
+        // DwellColorPicker no longer does this itself (Task 3 removed it) — the test performs
+        // the swap directly so the invariant (a replaced Background cannot orphan the bar) is
+        // pinned regardless of whether any caller happens to do it today.
+        swatch.Root.Background = new SolidColorBrush(Colors.Magenta);
         swatch.UpdateVisualForTest(0.5);
 
         var bar = FindBar(swatch);
@@ -36,16 +43,21 @@ public class DwellColorPickerProgressTests
     [StaFact]
     public void ASwatch_KeepsItsOwnColour_WhileDwelling()
     {
+        // Same as above: "#A5F3FC" is the sole preset, so it really is the swatch's paint colour,
+        // not merely the selection-getter's initial value.
         var hex = "#A5F3FC";
         var picker = new DwellColorPicker(
             new FakeRegistrar(), "cp", "Colour", () => hex, v => hex = v,
-            DwellCategory.Control, 50, 800);
+            DwellCategory.Control, 50, 800,
+            presets: new[] { (hex, "Test") });
 
         var swatch = picker.Children.First();
-        var before = ((SolidColorBrush)swatch.Root.Background).Color;
+        var expected = (Color)ColorConverter.ConvertFromString(hex);
+        Check.That(((SolidColorBrush)swatch.Root.Background).Color).IsEqualTo(expected);
+
         swatch.UpdateVisualForTest(1.0);
 
-        Check.That(((SolidColorBrush)swatch.Root.Background).Color).IsEqualTo(before);
+        Check.That(((SolidColorBrush)swatch.Root.Background).Color).IsEqualTo(expected);
     }
 
     private static Rectangle FindBar(DwellControl control) =>

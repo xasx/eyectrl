@@ -10,7 +10,7 @@
 
 **Tech Stack:** .NET 10.0.102 SDK, WPF (`net10.0-windows`), xUnit v3 (`xunit.v3` 3.2.2) + NFluent 3.1.0. Solution is `EyeCtrl.slnx`.
 
-**Baseline:** `main` @ `26af8928` plus **plan 1 (`2026-08-20-dwell-progress-feedback.md`) landed**. This plan consumes `DwellButton.Content`, `DwellButton.ProgressBar`, `DwellButton.ProgressBarHeight` and `DwellControl.UpdateVisualForTest`, all introduced there.
+**Baseline:** `main` @ `babbd9d1` or later, plus **plan 1 (`2026-08-20-dwell-progress-feedback.md`) landed**. This plan consumes `DwellButton.Content`, `DwellButton.ProgressBar`, `DwellButton.ProgressBarHeight` and `DwellControl.UpdateVisualForTest`, all introduced there.
 
 ---
 
@@ -116,7 +116,7 @@ Plan 1's commits must be in the history. If main has moved beyond them, re-read 
 - [ ] **Step 2: Create the worktree**
 
 ```bash
-git worktree add .worktrees/dwell-control-anatomy -b feat/dwell-control-anatomy main
+git worktree add .worktrees/dwell-control-anatomy -b feat/dwell-control-anatomy origin/main
 ```
 
 - [ ] **Step 3: Build**

@@ -10,7 +10,7 @@
 
 **Tech Stack:** .NET 10.0.102 SDK, WPF (`net10.0-windows`), xUnit v3 (`xunit.v3` 3.2.2) + NFluent 3.1.0. Solution is `EyeCtrl.slnx`. Tests are stand-alone exes; global usings `Xunit` + `NFluent` come from `tests/Directory.Build.props`.
 
-**Baseline:** written against `main` @ `26af8928`. Main moved 16 commits during the design session that produced this plan — **re-read the four control files before starting** and reconcile if they have moved again.
+**Baseline:** `main` @ `babbd9d1`. Written against `26af8928`; the one commit since (`babbd9d1 test(arch): guard WinUI usage gate against an absent bin directory`) touches none of the files this plan edits, verified with `git diff --stat 26af8928..babbd9d1 -- src/EyeCtrl.Controls/ src/EyeCtrl.App/Views/ src/EyeCtrl.Supervisor/` returning empty. Main moved 16 commits during the design session before that — **re-read the four control files before starting** and reconcile if they have moved again.
 
 ---
 
@@ -118,12 +118,12 @@ Fixing it needs the label off the green fill — the switch anatomy in the Direc
 git fetch && git log --oneline -1 origin/main
 ```
 
-Expected: `26af8928`. **If it is anything else, stop and re-read** `DwellButton.cs`, `DwellToggle.cs`, `DwellComboBox.cs` and `DwellColorPicker.cs` before continuing — this plan quotes their current bodies, and a settings-polish workstream has been landing on exactly these files.
+Expected: `babbd9d1`. **If it is anything else, do not just proceed.** Run `git diff --stat babbd9d1..origin/main -- src/EyeCtrl.Controls/ src/EyeCtrl.App/Views/ src/EyeCtrl.Supervisor/`; if that is empty the plan still applies as written, and if it is not, re-read `DwellButton.cs`, `DwellToggle.cs`, `DwellComboBox.cs` and `DwellColorPicker.cs` before continuing. This plan quotes their current bodies, and a settings-polish workstream has been landing on exactly these files.
 
 - [ ] **Step 2: Create the worktree**
 
 ```bash
-git worktree add .worktrees/dwell-progress-bar -b feat/dwell-progress-bar main
+git worktree add .worktrees/dwell-progress-bar -b feat/dwell-progress-bar origin/main
 ```
 
 - [ ] **Step 3: Build**

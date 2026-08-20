@@ -10,7 +10,7 @@
 
 **Tech Stack:** .NET 10.0.102 SDK, WPF (`net10.0-windows`), xUnit v3 + NFluent 3.1.0. Solution is `EyeCtrl.slnx`.
 
-**Baseline:** `main` @ `26af8928`, plus **plans 1 and 2 landed** (`2026-08-20-dwell-progress-feedback.md`, `2026-08-20-dwell-control-anatomy.md`). This plan assumes `DwellToggle` is already an `IDwellComposite` with a switch.
+**Baseline:** `main` @ `babbd9d1` or later, plus **plans 1 and 2 landed** (`2026-08-20-dwell-progress-feedback.md`, `2026-08-20-dwell-control-anatomy.md`). This plan assumes `DwellToggle` is already an `IDwellComposite` with a switch.
 
 ---
 
@@ -117,7 +117,7 @@ Plans 1 and 2 must be in the history. If main has moved beyond them, re-read `Se
 - [ ] **Step 2: Create the worktree**
 
 ```bash
-git worktree add .worktrees/settings-two-column -b feat/settings-two-column main
+git worktree add .worktrees/settings-two-column -b feat/settings-two-column origin/main
 ```
 
 - [ ] **Step 3: Build**

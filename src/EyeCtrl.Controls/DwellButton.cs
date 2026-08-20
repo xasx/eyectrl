@@ -16,7 +16,9 @@ using EyeCtrl.Core.Processing;
 /// directly to a panel) and inside composite controls such as
 /// <see cref="DwellSlider"/>, <see cref="DwellComboBox"/>, and
 /// <see cref="DwellColorPicker"/>. Composites may override <see cref="DwellControl.Root"/>
-/// properties (width, child content, etc.) after construction.
+/// properties (width, padding, margin) after construction; child content goes through
+/// <see cref="Content"/> — <see cref="DwellControl.Root"/>'s <c>Child</c> is
+/// <see cref="DwellButton"/>'s own layout container.
 /// <para>
 /// A mouse click fallback is wired to <see cref="DwellControl.Root"/> so the button
 /// remains usable without eye-tracking.
@@ -41,21 +43,23 @@ public class DwellButton : DwellControl
 
     /// <summary>
     /// The element drawn inside the button, above the dwell progress bar.
-    ///
+    /// <para>
     /// Replaces direct assignment to <see cref="DwellControl.Root"/>'s <c>Child</c>, which the
     /// composites used to do: <see cref="Root"/>'s child is now this control's own two-row
     /// layout, and overwriting it would silently remove the progress bar. Setting <c>null</c>
     /// clears the content and keeps the bar — that is the colour-swatch case.
+    /// </para>
     /// </summary>
     public UIElement? Content
     {
         get => _content;
         set
         {
+            if (ReferenceEquals(_content, value))
+                return;
+
             if (_content is not null)
                 _layout.Children.Remove(_content);
-
-            _content = value;
 
             if (value is not null)
             {
@@ -65,6 +69,8 @@ public class DwellButton : DwellControl
                 // future caller sets a content element that spans both rows.
                 _layout.Children.Insert(0, value);
             }
+
+            _content = value;
         }
     }
 

@@ -14,7 +14,6 @@ using EyeCtrl.Contracts;
 /// </summary>
 public sealed class DwellClient : IDisposable
 {
-    private const string PipeName = DwellPipe.Name;
     private const int ConnectTimeoutMs = 2000;
     private const int MinBackoffMs = 1000;
     private const int MaxBackoffMs = 30000;
@@ -32,6 +31,20 @@ public sealed class DwellClient : IDisposable
     private StreamWriter? _writer;
     private CancellationTokenSource? _cts;
     private volatile bool _disposed;
+
+    /// <summary>
+    /// Named pipe this client connects to. Defaults to the production <see cref="DwellPipe.Name"/>;
+    /// tests inject a unique GUID-suffixed name because pipe names are machine-global (issue #76).
+    /// </summary>
+    private readonly string _pipeName;
+
+    /// <summary>
+    /// Creates a client for the EyeCtrl dwell service's named pipe. <paramref name="pipeName"/>
+    /// defaults to <see cref="DwellPipe.Name"/> so production heads construct it bare;
+    /// wire-protocol tests pass a GUID-suffixed name to reach a private server instance instead of
+    /// racing every other process on the machine for the production pipe.
+    /// </summary>
+    public DwellClient(string? pipeName = null) => _pipeName = pipeName ?? DwellPipe.Name;
 
     /// <summary>Registers an adapter and sends its current rect. Idempotent per adapter id.</summary>
     public void RegisterAdapter(IDwellElementAdapter adapter)
@@ -77,7 +90,7 @@ public sealed class DwellClient : IDisposable
         {
             try
             {
-                _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                _pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
                 await _pipe.ConnectAsync(ConnectTimeoutMs, token);
                 lock (_writeLock)
                     _writer = new StreamWriter(_pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };

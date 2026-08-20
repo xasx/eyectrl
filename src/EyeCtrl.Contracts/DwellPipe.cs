@@ -10,8 +10,8 @@ public static class DwellPipe
 {
     /// <summary>
     /// The production pipe name the cooperating dwell app connects to. Pipe names are
-    /// machine-global, so tests override the server's name per instance instead of binding this
-    /// one — see <c>ExternalDwellService</c>'s <c>pipeName</c> parameter.
+    /// machine-global, so tests override the name per instance instead of binding this one — see
+    /// <c>ExternalDwellService</c>'s and <c>DwellClient</c>'s <c>pipeName</c> parameters.
     /// </summary>
     public const string Name = "eyectrl_dwell";
 }

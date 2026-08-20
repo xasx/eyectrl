@@ -17,6 +17,7 @@
     <ProjectReference Include="..\..\src\EyeCtrl.Core\EyeCtrl.Core.csproj" />
     <ProjectReference Include="..\..\src\EyeCtrl.ViewModels\EyeCtrl.ViewModels.csproj" />
     <ProjectReference Include="..\..\src\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

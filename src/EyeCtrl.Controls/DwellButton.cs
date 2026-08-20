@@ -51,7 +51,9 @@ public class DwellButton : DwellControl
     private readonly Grid _layout;
     private UIElement? _content;
 
-    // Mutated in place by ApplyProgress at gaze rate: one ScaleX write, no allocation.
+    // Mutated in place by ApplyProgress at gaze rate: no new brush/transform/geometry is
+    // allocated per tick (the ScaleX write itself boxes like any WPF DP set — same cost as
+    // the _brush.Color write it replaced).
     private readonly Rectangle _progressBar;
     private readonly ScaleTransform _progressScale;
 
@@ -106,7 +108,7 @@ public class DwellButton : DwellControl
     /// <param name="id">Unique target identifier within <paramref name="category"/>.</param>
     /// <param name="label">Text displayed inside the button. May be empty for icon-only buttons.</param>
     /// <param name="action">Invoked when dwell completes or the button is clicked.</param>
-    /// <param name="baseColor">Resting background colour; used as the start colour for dwell feedback.</param>
+    /// <param name="baseColor">Resting background colour. The dwell bar is drawn over it, not blended into it.</param>
     /// <param name="category">Dwell category this button is registered under.</param>
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
@@ -152,19 +154,42 @@ public class DwellButton : DwellControl
         {
             Height = ProgressBarHeight,
             Fill = Tokens.BrushAccent,
+            // Halo outline, matching the cursor ring's fix for the same problem: a flat
+            // accent fill on an accent-coloured button is invisible. Measured — the first
+            // DwellColorPicker swatch IS theme.Accent, so bar-on-fill contrast there is a
+            // literal 1.00:1, and the AccentWarning/AccentDanger semantic buttons land
+            // around 1.73:1. ColorPickerPresetTests already gates every swatch preset at
+            // >= 7:1 against its own theme's StrokeHalo (worst case 9.13:1 across all three
+            // themes), so outlining the bar in StrokeHalo guarantees it reads against every
+            // fill DwellButton is actually constructed with.
+            Stroke = Tokens.BrushStrokeHalo,
+            StrokeThickness = 1,
             // Stretch + a ScaleX transform, not a Width: Width would need ActualWidth, which is
             // 0 until the first layout pass — and SettingsAutoPagination measures controls that
             // are never laid out. Scaling is layout-independent and costs one double per tick.
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Bottom,
             RenderTransform = _progressScale,
-            RenderTransformOrigin = new Point(0, 0.5),
+            // Y is irrelevant here: ScaleY is fixed at 1, so the origin's Y component never
+            // participates in any transform this control applies. X = 0 is what matters —
+            // it is why the bar grows from the left edge instead of from its centre.
+            RenderTransformOrigin = new Point(0, 0),
             IsHitTestVisible = false
         };
         Grid.SetRow(_progressBar, 1);
         _layout.Children.Add(_progressBar);
 
         Root.Child = _layout;
+
+        // Border does not clip its Child to CornerRadius (a WPF quirk, not a bug in Root's
+        // setup above): without this, the progress bar's square corners paint accent pixels
+        // outside the rounded silhouette at both bottom corners, on every dwell. Measured via
+        // RenderTargetBitmap on a 100x100 button: (50,129), (149,129) and (50,126) were host
+        // background at rest and accent at full dwell — the ~5 DIP wedge the corner radius is
+        // supposed to cut away. SizeChanged fires only on an actual resize, so this allocates
+        // one RectangleGeometry per resize, never per gaze tick.
+        _layout.SizeChanged += (_, e) => _layout.Clip = new RectangleGeometry(
+            new Rect(e.NewSize), Tokens.CornerRadiusStandard, Tokens.CornerRadiusStandard);
 
         Content = new TextBlock
         {

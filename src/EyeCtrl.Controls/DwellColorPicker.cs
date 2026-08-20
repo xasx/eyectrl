@@ -17,8 +17,10 @@ using EyeCtrl.Core.Processing;
 /// The currently selected swatch is identified by a white border; all others have a
 /// transparent border. Border state is stored on the inner button's
 /// <see cref="DwellControl.Root"/> and does not conflict with
-/// <see cref="DwellButton.ApplyProgress"/> because <c>ApplyProgress</c> only
-/// modifies the background, not the border brush.
+/// <see cref="DwellButton.ApplyProgress"/> because <c>ApplyProgress</c> no longer
+/// touches <see cref="DwellControl.Root"/>'s background at all — it sweeps a haloed
+/// bar (<see cref="DwellButton.ProgressBar"/>) over the fill instead, so the border
+/// brush is never in contention with dwell feedback.
 /// </para>
 /// </remarks>
 public class DwellColorPicker : IDwellComposite
@@ -136,7 +138,11 @@ public class DwellColorPicker : IDwellComposite
                 SwatchHorizontalMargin, SwatchVerticalMargin,
                 SwatchHorizontalMargin, SwatchVerticalMargin);
             // No radius override: swatches now share DwellButton's Tokens.StandardCornerRadius.
-            btn.Root.Background = new SolidColorBrush(color);
+            // No Background assignment here either: DwellButton's constructor already painted
+            // Root.Background with color (baseColor == color) via its own _brush. Re-assigning
+            // it would replace that brush with an orphan SolidColorBrush ApplyProgress never
+            // touches — the exact bug (swatches showing no dwell feedback) this file's redesign
+            // set out to fix.
             btn.Root.BorderThickness = new Thickness(3);
             btn.Root.BorderBrush = hex.Equals(get(), StringComparison.OrdinalIgnoreCase)
                 ? Tokens.BrushTextPrimary : Brushes.Transparent;

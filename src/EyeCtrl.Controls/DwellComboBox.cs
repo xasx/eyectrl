@@ -132,7 +132,7 @@ public class DwellComboBox : IDwellComposite
             btn.Root.Width = double.NaN; // Auto width
             btn.Root.Margin = new Thickness(0);
             btn.Root.Padding = new Thickness(20, 0, 20, 0);
-            btn.Root.Child = text;
+            btn.Content = text;
 
             var optionBorder = new Border
             {

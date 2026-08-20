@@ -141,7 +141,7 @@ public class DwellColorPicker : IDwellComposite
             btn.Root.BorderBrush = hex.Equals(get(), StringComparison.OrdinalIgnoreCase)
                 ? Tokens.BrushTextPrimary : Brushes.Transparent;
             btn.Root.ToolTip = name;
-            btn.Root.Child = null; // No text label for colour swatches
+            btn.Content = null; // No text label for colour swatches
 
             _swatches.Add(btn);
             _swatchBorders.Add(btn.Root);

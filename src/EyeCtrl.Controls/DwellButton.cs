@@ -33,6 +33,40 @@ public class DwellButton : DwellControl
     // One mutable brush on Root.Background, mutated in place by ApplyProgress so dwell
     // updates at gaze rate never allocate a new brush per tick.
     private readonly SolidColorBrush _brush;
+    // The button's own layout container. Root.Child belongs to DwellButton from here on:
+    // Task 3 puts the progress bar in row 1, and a caller assigning Root.Child would throw
+    // it away along with the label. Callers use Content instead.
+    private readonly Grid _layout;
+    private UIElement? _content;
+
+    /// <summary>
+    /// The element drawn inside the button, above the dwell progress bar.
+    ///
+    /// Replaces direct assignment to <see cref="DwellControl.Root"/>'s <c>Child</c>, which the
+    /// composites used to do: <see cref="Root"/>'s child is now this control's own two-row
+    /// layout, and overwriting it would silently remove the progress bar. Setting <c>null</c>
+    /// clears the content and keeps the bar — that is the colour-swatch case.
+    /// </summary>
+    public UIElement? Content
+    {
+        get => _content;
+        set
+        {
+            if (_content is not null)
+                _layout.Children.Remove(_content);
+
+            _content = value;
+
+            if (value is not null)
+            {
+                Grid.SetRow(value, 0);
+                // Index 0 keeps the content behind the bar in z-order. The two occupy
+                // different rows, so they do not overlap — this only fixes paint order if a
+                // future caller sets a content element that spans both rows.
+                _layout.Children.Insert(0, value);
+            }
+        }
+    }
 
     /// <summary>
     /// Creates a <see cref="DwellButton"/>.
@@ -78,7 +112,13 @@ public class DwellButton : DwellControl
         _brush = new SolidColorBrush(baseColor);
         Root.Background = _brush;
         Root.Cursor = Cursors.Hand;
-        Root.Child = new TextBlock
+
+        _layout = new Grid();
+        _layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Root.Child = _layout;
+
+        Content = new TextBlock
         {
             Text = label,
             // Default white text suits the dark surface fills; light semantic fills

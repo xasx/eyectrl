@@ -24,7 +24,7 @@ public class DwellButtonTextWrappingTests
             new FakeRegistrar(), "t", "A long label that will not fit one line", () => { },
             Colors.Black, DwellCategory.Control, 50, 500);
 
-        var text = (TextBlock)button.Root.Child;
+        var text = (TextBlock)button.Content!;
 
         Check.That(text.TextWrapping).IsEqualTo(TextWrapping.Wrap);
         Check.That(text.TextAlignment).IsEqualTo(TextAlignment.Center);

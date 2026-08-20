@@ -38,13 +38,21 @@ public sealed class DwellClient : IDisposable
     /// </summary>
     private readonly string _pipeName;
 
+    /// <summary>Creates a client for the production <see cref="DwellPipe.Name"/> pipe.</summary>
+    /// <remarks>
+    /// Kept as a distinct parameterless constructor rather than an optional parameter on the
+    /// overload below: this assembly ships to external SDK consumers on net8.0, and an optional
+    /// parameter collapses the two into a single <c>.ctor(string)</c> in metadata, breaking
+    /// already-compiled consumers (and XAML/Activator construction) with MissingMethodException.
+    /// </remarks>
+    public DwellClient() : this(null) { }
+
     /// <summary>
-    /// Creates a client for the EyeCtrl dwell service's named pipe. <paramref name="pipeName"/>
-    /// defaults to <see cref="DwellPipe.Name"/> so production heads construct it bare;
-    /// wire-protocol tests pass a GUID-suffixed name to reach a private server instance instead of
-    /// racing every other process on the machine for the production pipe.
+    /// Creates a client for the EyeCtrl dwell service's named pipe. Production heads use the
+    /// parameterless overload; wire-protocol tests pass a GUID-suffixed name to reach a private
+    /// server instance instead of racing every other process on the machine for the production pipe.
     /// </summary>
-    public DwellClient(string? pipeName = null) => _pipeName = pipeName ?? DwellPipe.Name;
+    public DwellClient(string? pipeName) => _pipeName = pipeName ?? DwellPipe.Name;
 
     /// <summary>Registers an adapter and sends its current rect. Idempotent per adapter id.</summary>
     public void RegisterAdapter(IDwellElementAdapter adapter)

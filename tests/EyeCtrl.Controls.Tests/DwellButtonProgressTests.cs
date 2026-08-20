@@ -1,5 +1,8 @@
 namespace EyeCtrl.Controls.Tests;
 
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
@@ -55,6 +58,52 @@ public class DwellButtonProgressTests
         btn.TestOnActivated();
 
         Check.That(clicked).IsTrue();
+    }
+
+    /// <summary>
+    /// Root.Child is the button's own layout container from here on. Callers that used to
+    /// assign it (DwellComboBox, DwellColorPicker) go through Content instead — assigning
+    /// Root.Child directly would evict the progress bar along with the old label.
+    /// </summary>
+    [StaFact]
+    public void Content_IsTheLabel_AndRootChildIsTheLayoutContainer()
+    {
+        var btn = new DwellButton(
+            new FakeDwellRegistrar(), "id", "Label", () => { },
+            Tokens.SurfaceMedium, DwellCategory.Control, 40, 800);
+
+        Check.That(btn.Content).IsInstanceOf<TextBlock>();
+        Check.That(((TextBlock)btn.Content!).Text).IsEqualTo("Label");
+        Check.That(btn.Root.Child).IsInstanceOf<Grid>();
+    }
+
+    [StaFact]
+    public void Content_WhenReplaced_SwapsTheOldElementOut()
+    {
+        var btn = new DwellButton(
+            new FakeDwellRegistrar(), "id", "Label", () => { },
+            Tokens.SurfaceMedium, DwellCategory.Control, 40, 800);
+        var replacement = new TextBlock { Text = "Other" };
+
+        btn.Content = replacement;
+
+        var grid = (Grid)btn.Root.Child;
+        Check.That(grid.Children.Cast<UIElement>()).Contains(replacement);
+        Check.That(grid.Children.Cast<UIElement>().OfType<TextBlock>().Count()).IsEqualTo(1);
+    }
+
+    [StaFact]
+    public void Content_WhenClearedToNull_LeavesTheLayoutContainerIntact()
+    {
+        var btn = new DwellButton(
+            new FakeDwellRegistrar(), "id", "Label", () => { },
+            Tokens.SurfaceMedium, DwellCategory.Control, 40, 800);
+
+        btn.Content = null;
+
+        Check.That(btn.Content).IsNull();
+        Check.That(btn.Root.Child).IsInstanceOf<Grid>();
+        Check.That(((Grid)btn.Root.Child).Children.Cast<UIElement>().OfType<TextBlock>()).IsEmpty();
     }
 
     private class TestDwellButton : DwellButton

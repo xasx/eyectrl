@@ -13,16 +13,17 @@ using Xunit;
 /// <see cref="Tokens.BrushStrokeHalo"/> (Task 3 code review), not a flat accent fill — a flat
 /// fill is invisible on an accent-coloured button. Measured: the first
 /// <see cref="DwellColorPicker.PresetsFor"/> swatch IS <c>theme.Accent</c>, so bar-fill-vs-
-/// button-fill contrast there is a literal 1.00:1; the AccentWarning/AccentDanger semantic
-/// buttons (Reset/Delete/Restart) land around 1.6-2.4:1. The halo rescues exactly those cases
-/// (stroke-vs-fill 6.6-19.6:1 for the same pairs) — but the halo is weak on its own against a
-/// dark neutral surface (SurfaceMedium: stroke-vs-fill only ~1.1-1.4:1), where it is the bar's
-/// own bright fill that carries visibility (11-15:1) instead.
+/// button-fill contrast there is a literal 1.00:1; <c>SettingsWindow</c>'s AccentWarning
+/// Reset/Delete buttons and the Supervisor's hardcoded Retry/Save/Launch/Dismiss fills land
+/// around 1.0-2.4:1. The halo rescues exactly those cases (stroke-vs-fill up to ~19.6:1 for the
+/// same pairs) — but the halo is weak on its own against a dark neutral surface (SurfaceMedium:
+/// stroke-vs-fill only ~1.1-1.4:1), where it is the bar's own bright fill that carries
+/// visibility (11-15:1) instead.
 ///
 /// So the perceptible quantity is whichever of {fill, stroke} vs the button's own fill is
 /// larger — checking only the stroke would fail on SurfaceMedium buttons; checking only the
 /// fill would fail on the Accent swatch. Gates that combined quantity at >= 3:1, for every fill
-/// DwellButton is actually constructed with, in every theme.
+/// listed in <see cref="FillsFor"/>, in every theme.
 /// </summary>
 public class DwellButtonProgressBarContrastTests
 {
@@ -49,14 +50,32 @@ public class DwellButtonProgressBarContrastTests
         return data;
     }
 
-    /// <summary>Every fill a real DwellButton is constructed with, for <paramref name="theme"/>.</summary>
+    /// <summary>
+    /// Every fill a real <c>DwellButton</c> is constructed with, for <paramref name="theme"/>.
+    ///
+    /// <c>AccentDanger</c> is deliberately NOT included: <c>SettingsWindow.FillFor</c> maps
+    /// BOTH <c>ButtonKind.Reset</c> and <c>ButtonKind.Delete</c> to <c>AccentWarning</c>
+    /// (<c>ResetBase</c>/<c>DeleteBase</c>), and <c>SettingsWindow</c>'s one other AccentDanger
+    /// consumer — <c>CloseButton</c> — is a plain XAML <c>Border</c> with its own hand-rolled
+    /// dwell visual, not a <c>DwellButton</c>. No <c>DwellButton.ProgressBar</c> is drawn on
+    /// AccentDanger today, so a preset here would gate a pairing that cannot occur.
+    ///
+    /// The three literal RGB values are the Supervisor's hardcoded baseColors — read from
+    /// FallenBackDialog.xaml.cs (Retry #1E641E, Dismiss #502828) and SupervisorSetupWindow.xaml.cs
+    /// (Launch #2D5A89; its own Save button reuses #1E641E) — fixed regardless of theme, unlike
+    /// every other entry here, but still exercised against each theme's Accent/StrokeHalo since
+    /// the Supervisor links EyeCtrl.Controls and reads the same Tokens.Current.
+    /// </summary>
     private static IEnumerable<(string Name, Color Fill)> FillsFor(ITheme theme)
     {
         yield return ("SurfaceMedium (plain buttons)", theme.SurfaceMedium);
-        yield return ("AccentWarning (Reset/Restart)", theme.AccentWarning);
-        yield return ("AccentDanger (Delete)", theme.AccentDanger);
+        yield return ("AccentWarning (Reset/Delete)", theme.AccentWarning);
         foreach (var (hex, name) in DwellColorPicker.PresetsFor(theme))
             yield return ($"swatch '{name}'", (Color)ColorConverter.ConvertFromString(hex)!);
+
+        yield return ("Supervisor Retry/Save (#1E641E)", Color.FromRgb(0x1E, 0x64, 0x1E));
+        yield return ("Supervisor Dismiss (#502828)", Color.FromRgb(0x50, 0x28, 0x28));
+        yield return ("Supervisor Launch (#2D5A89)", Color.FromRgb(0x2D, 0x5A, 0x89));
     }
 
     [Theory]

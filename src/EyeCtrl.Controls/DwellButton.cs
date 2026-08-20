@@ -42,8 +42,11 @@ public class DwellButton : DwellControl
     public const double ProgressBarHeight = 6;
 
     private readonly Action _action;
-    // One mutable brush on Root.Background, mutated in place by ApplyProgress so dwell
-    // updates at gaze rate never allocate a new brush per tick.
+    // Assigned once, here, and never touched again by ApplyProgress (which writes
+    // _progressScale.ScaleX, not this). Kept as a field — rather than letting Root.Background
+    // be set inline and forgotten — so DwellButton itself owns the brush instance: no caller
+    // can replace it and orphan the dwell feedback, which is exactly the DwellColorPicker bug
+    // this plan fixed (Task 6 asserts this invariant, Root.Background is _brush, directly).
     private readonly SolidColorBrush _brush;
     // The button's own layout container. Root.Child belongs to DwellButton from here on:
     // Task 3 puts the progress bar in row 1, and a caller assigning Root.Child would throw

@@ -113,10 +113,13 @@ public class DwellButtonProgressTests
 
     /// <summary>
     /// Closes a real gap: every test above reads back the exact value ApplyProgress wrote, so
-    /// flipping RenderTransformOrigin to (0.5, 0.5) (bar grows from the centre), or
-    /// HorizontalAlignment to Left (bar collapses to zero width forever), or dropping
-    /// Grid.SetRow(_progressBar, 1), leaves them all green. This measures the actual rendered
+    /// HorizontalAlignment turning to Left (bar collapses to zero width forever), or dropping
+    /// Grid.SetRow(_progressBar, 1), leaves them all green — this measures the actual rendered
     /// width and the actual swept extent after a real layout pass, which none of them do.
+    /// RenderTransformOrigin flipping to (0.5, 0.5) (bar grows from the centre instead of the
+    /// left edge) is caught by the explicit RenderTransformOrigin.X assertion below, not by the
+    /// swept-extent measurement: RenderTransform.Value excludes the render-origin offset, so
+    /// Transform((ActualWidth, 0)).X is still exactly 50 regardless of the origin (measured).
     /// </summary>
     [StaFact]
     public void ApplyProgress_SweepsFromTheLeftEdge()
@@ -215,6 +218,36 @@ public class DwellButtonProgressTests
         var best = Math.Max(fillContrast, strokeContrast);
         Check.WithCustomMessage(
                 $"bar vs its own accent-coloured button reaches only {best:F2}:1 "
+                + $"(fill {fillContrast:F2}:1, stroke {strokeContrast:F2}:1)")
+            .That(best).IsStrictlyGreaterThan(3.0);
+    }
+
+    /// <summary>
+    /// The other tightest real case, and the one the accent test above cannot catch: on a
+    /// SurfaceMedium button (the single most common fill — plain settings buttons, slider
+    /// +/-, combo options) the bar's own accent Fill carries visibility (SurfaceMedium is dark,
+    /// accent is bright), while the halo Stroke alone is weak against it (near-black on
+    /// near-black, ~1.4:1). A regression that swapped the bar's Fill for something dark — e.g.
+    /// <c>Tokens.BrushSurfaceMedium</c> instead of <c>Tokens.BrushAccent</c> — would collapse
+    /// the fill term to ~1.0:1 and leave only the weak stroke term, failing here, while the
+    /// accent-button test above would stay green regardless (it never varies the fill colour
+    /// away from Accent). Reads the button's REAL brushes, the same way the accent test does.
+    /// </summary>
+    [StaFact]
+    public void ProgressBar_OnASurfaceMediumButton_ClearsThreeToOneAgainstItsOwnFill()
+    {
+        var btn = new TestDwellButton(new FakeDwellRegistrar(), "id", "", () => { }, Tokens.SurfaceMedium, DwellCategory.Control, 40, 800);
+
+        var barFill = ((SolidColorBrush)btn.ProgressBar.Fill).Color;
+        var buttonFill = ((SolidColorBrush)btn.Root.Background).Color;
+        var fillContrast = Contrast(barFill, buttonFill);
+        var strokeContrast = btn.ProgressBar.Stroke is SolidColorBrush strokeBrush
+            ? Contrast(strokeBrush.Color, buttonFill)
+            : 1.0; // no stroke at all -> no rescue
+
+        var best = Math.Max(fillContrast, strokeContrast);
+        Check.WithCustomMessage(
+                $"bar vs its own SurfaceMedium button reaches only {best:F2}:1 "
                 + $"(fill {fillContrast:F2}:1, stroke {strokeContrast:F2}:1)")
             .That(best).IsStrictlyGreaterThan(3.0);
     }

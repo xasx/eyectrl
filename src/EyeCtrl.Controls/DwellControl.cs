@@ -154,4 +154,14 @@ public abstract class DwellControl
         double progress = Registrar.GetProgress(DwellId, Category);
         ApplyProgress(progress);
     }
+
+    /// <summary>
+    /// Applies <paramref name="progress"/> directly, bypassing the registrar.
+    ///
+    /// <see cref="UpdateVisual"/> is the production path and reads progress from the
+    /// <see cref="Registrar"/>; this exists for composites and tests that hold a child control
+    /// and need to drive its feedback with a known value.
+    /// </summary>
+    /// <param name="progress">Dwell progress in [0, 1].</param>
+    public void UpdateVisualForTest(double progress) => ApplyProgress(progress);
 }

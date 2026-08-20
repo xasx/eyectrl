@@ -158,6 +158,7 @@ namespace EyeCtrl.Controls.Tests;
 
 using System.Linq;
 using System.Windows;
+using System.Windows.Media;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -172,20 +173,20 @@ using Xunit;
 /// </summary>
 public class DwellComboBoxSelectionTests
 {
-    private static DwellComboBox Build(ref string selected)
+    /// <summary>A three-option combo over a captured selection, "Alpha" chosen.</summary>
+    private static DwellComboBox Build()
     {
-        var captured = selected;
+        var selected = "Alpha";
         return new DwellComboBox(
             new FakeRegistrar(), "cb", "Mode", ["Alpha", "Beta", "Gamma"],
-            () => captured, v => captured = v,
+            () => selected, v => selected = v,
             DwellCategory.Control, 50, 800);
     }
 
     [StaFact]
     public void EveryOption_HasTheSameBorderThickness_RegardlessOfSelection()
     {
-        var selected = "Alpha";
-        var combo = Build(ref selected);
+        var combo = Build();
 
         var thicknesses = combo.Children
             .Select(c => ((FrameworkElement)c.Root.Parent).GetValue(System.Windows.Controls.Border.BorderThicknessProperty))
@@ -199,16 +200,18 @@ public class DwellComboBoxSelectionTests
     [StaFact]
     public void SelectionIsCarriedByColour_NotByThickness()
     {
-        var selected = "Alpha";
-        var combo = Build(ref selected);
+        var combo = Build();
 
         var borders = combo.Children
             .Select(c => (System.Windows.Controls.Border)c.Root.Parent)
             .ToList();
 
-        // Exactly one option is selected, and it differs from the others by brush alone.
-        var brushes = borders.Select(b => b.BorderBrush).ToList();
-        Check.That(brushes.Distinct().Count()).IsEqualTo(2);
+        // Compare COLOURS, not brush instances. SolidColorBrush inherits DependencyObject's
+        // reference equality — every option gets its own `new SolidColorBrush(...)`, so
+        // Distinct() over the brushes themselves counts three, not two, however they are painted.
+        var colours = borders.Select(b => ((SolidColorBrush)b.BorderBrush).Color).ToList();
+        Check.That(colours.Distinct().Count()).IsEqualTo(2);
+        Check.That(colours.Count(c => c == Tokens.ToggleOn)).IsEqualTo(1);
         Check.That(borders.Select(b => b.BorderThickness.Left).Distinct().Count()).IsEqualTo(1);
     }
 
@@ -299,7 +302,7 @@ git commit -m "fix(controls): selecting a combo option no longer resizes it or r
 - Create: `tests/EyeCtrl.Controls.Tests/DwellSliderPlateTests.cs`
 - Modify: `tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs`
 
-**Width budget — read before writing code.** The row must fit the narrowest content column the app supports. `SettingsContentFitTests` fixes that at a 800 DIP display: `800 × 0.9 = 720` window, minus a 240 sidebar and two 16 DIP margin pairs = **416 DIP**. Every element in the row carries a `(4,0,4,0)` margin, so each contributes its width plus 8. Today's row is `108 + 148 + 108 = 364`. The plate therefore gets **180**, giving `108 + 188 + 108 = 404` and 12 DIP of slack against 416. Verify this by running the guard in Step 5 rather than by trusting the arithmetic — the margins are the easy part to get wrong. Do not widen it to the 300 the mockup shows — that mockup was drawn against a 1728 DIP window.
+**Width budget — read before writing code.** The row must fit the narrowest content column the app supports. `SettingsContentFitTests` fixes that at a 800 DIP display: `800 × 0.9 = 720` window, minus a 240 sidebar and two 16 DIP margin pairs = **416 DIP**. The two stepper buttons carry `DwellButton`'s `(4,0,4,0)` margin; `_valueText` carries none (`DwellSlider.cs:83-92`). Today's row is therefore `108 + 140 + 108 = 356`. The plate replacing that text block **does** take a `(4,0,4,0)` margin in the code below, so it contributes 188: `108 + 188 + 108 = 404`, with 12 DIP of slack against 416. Verify by running the guard in Step 5 rather than trusting the arithmetic — margins are the easy part to get wrong, and an earlier revision of this very paragraph got them wrong. Do not widen it to the 300 the mockup shows — that mockup was drawn against a 1728 DIP window.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -563,7 +566,7 @@ Add to `tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs`, inside the existing
     /// The slider row is a composite, and composites are deliberately NOT capped by
     /// ConstrainToContentWidth — DwellSlider owns a horizontal StackPanel, which clips rather
     /// than wraps. So its natural width has to fit the narrowest column outright. The plate that
-    /// widened this row from 364 to 404 DIP is the reason this guard exists.
+    /// widened this row from 356 to 404 DIP is the reason this guard exists.
     /// </summary>
     [StaFact]
     public void TheSliderRow_FitsTheContentColumn_OnANarrowDisplay()
@@ -1077,7 +1080,7 @@ public class DwellToggle : IDwellComposite
             Background = _knobBrush,
             VerticalAlignment = VerticalAlignment.Center,
             // A dark ring so a light knob stays distinct from the light-ish ON track: the knob
-            // on green alone measures 2.90:1, the ring against green 4.37:1.
+            // on green alone measures 2.91:1, the ring against green 4.37:1.
             BorderThickness = new Thickness(2),
             BorderBrush = Tokens.BrushSurfaceDark
         };

@@ -60,7 +60,7 @@ This is not a new idea in this codebase — it is the house pattern everywhere e
 So this change repaints the Supervisor's setup and fallback dialogs too. That is **intended** — those windows are dwell-driven and have the same defect — but it means:
 
 - `EyeCtrl.Supervisor.Tests` must be run, not just Controls/App/ViewModels.
-- The Supervisor windows are `560x640`; nothing here changes a control's width or height, so they cannot overflow. Verify by reading, not by assuming.
+- The Supervisor windows are `560x640` (setup) and `640x320` (fallback); nothing here changes a control's width or height, so neither can overflow. Verify by reading, not by assuming.
 
 The interface boundary reported by the analysis (`ApplyProgress` has one interface-level consumer, `DwellControl.UpdateVisual`) means the traced count is a lower bound. The mitigation is that `ApplyProgress` is `protected abstract` on `DwellControl` — the compiler finds every override.
 

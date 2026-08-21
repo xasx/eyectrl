@@ -38,6 +38,22 @@ public class DwellButton : DwellControl
     /// Six rather than <c>ToolbarWindow</c>'s four: this bar sits inside a control whose whole
     /// visual is the 100 DIP hit circle, and the toolbar's four reads thin at that scale.
     /// Both are literal layout DIPs — there is no spacing token scale to draw from.
+    ///
+    /// <para>
+    /// The bar RESERVES a layout row rather than overlaying the content, so it costs the
+    /// content this many DIPs of height: on a default 100 DIP button the label's centre sits at
+    /// 47 rather than 50. That is deliberate and measured — the control's own
+    /// <c>DesiredSize</c> is unchanged (the outer box does not move; only the content row
+    /// shrinks), and the worst real label is two wrapped lines of about 64 DIP against 94 of
+    /// room, so nothing clips. Reserving keeps the bar and the label provably unable to
+    /// overlap at this scale.
+    /// </para>
+    /// <para>
+    /// A small target should make the opposite choice. Keyboard keys go down to 35 DIP and
+    /// carry a single centred glyph, where surrendering 6 DIP would shift every label for no
+    /// benefit; those overlay the bar instead. If the two ever converge on one implementation,
+    /// this is the axis they differ on — reserve for large targets, overlay for small.
+    /// </para>
     /// </summary>
     public const double ProgressBarHeight = 6;
 

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Processing;
 
@@ -13,7 +14,8 @@ using EyeCtrl.Core.Processing;
 /// <remarks>
 /// Displays the current state using a checkbox symbol (☑/☐) prepended to the label
 /// text and colours the background green (on) or dark-red (off).
-/// Dwell feedback blends the current state colour toward white as dwell accumulates.
+/// Dwell feedback sweeps a progress bar along the bottom edge; the state colour holds still,
+/// so the label's contrast on it does not decay as the dwell completes.
 /// A mouse click fallback toggles the value without requiring eye-tracking.
 /// </remarks>
 public class DwellToggle : DwellControl
@@ -28,6 +30,21 @@ public class DwellToggle : DwellControl
     // One mutable brush on Root.Background, mutated in place by RefreshVisual and
     // ApplyProgress so dwell updates at gaze rate never allocate a new brush per tick.
     private readonly SolidColorBrush _brush = new();
+
+    // Mutated in place by ApplyProgress at gaze rate: no new brush/transform/geometry is
+    // allocated per tick, mirroring DwellButton's bar.
+    private readonly Rectangle _progressBar;
+    private readonly ScaleTransform _progressScale;
+
+    /// <summary>The checkbox-and-label text block. Root's child is this control's layout container.</summary>
+    public TextBlock Label => _text;
+
+    /// <summary>
+    /// The dwell progress bar along the toggle's bottom edge. Mirrors
+    /// <see cref="DwellButton.ProgressBar"/>: the state fill stays put through the dwell, so the
+    /// label's contrast on it does not decay.
+    /// </summary>
+    public Rectangle ProgressBar => _progressBar;
 
     /// <summary>
     /// Creates a <see cref="DwellToggle"/>.
@@ -71,8 +88,39 @@ public class DwellToggle : DwellControl
         Root.CornerRadius = Tokens.StandardCornerRadius;
         Root.HorizontalAlignment = HorizontalAlignment.Left;
         Root.Cursor = Cursors.Hand;
-        Root.Child = _text;
         Root.Background = _brush;
+
+        _progressScale = new ScaleTransform(0, 1);
+        _progressBar = new Rectangle
+        {
+            Height = DwellButton.ProgressBarHeight,
+            Fill = Tokens.BrushAccent,
+            // Halo outline, matching DwellButton's fix for the same problem: a flat accent
+            // fill is invisible on an accent-adjacent background. In the Contrast theme,
+            // ToggleOn is #00FF00 and Accent is #00FFFF — bar-fill-vs-toggle-fill is ~1.09:1,
+            // i.e. imperceptible, in precisely the theme built for low vision. StrokeHalo there
+            // is #000000, which clears ~15:1 against #00FF00, so the halo is what makes the bar
+            // perceptible at all on that theme.
+            Stroke = Tokens.BrushStrokeHalo,
+            StrokeThickness = 1,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            RenderTransform = _progressScale,
+            // Y is irrelevant here: ScaleY is fixed at 1, so the origin's Y component never
+            // participates in any transform this control applies. X = 0 is what matters —
+            // it is why the bar grows from the left edge instead of from its centre.
+            RenderTransformOrigin = new Point(0, 0),
+            IsHitTestVisible = false
+        };
+
+        var layout = new Grid();
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(_text, 0);
+        Grid.SetRow(_progressBar, 1);
+        layout.Children.Add(_text);
+        layout.Children.Add(_progressBar);
+        Root.Child = layout;
 
         Root.MouseLeftButtonDown += (_, _) => Toggle();
         RefreshVisual();
@@ -87,8 +135,7 @@ public class DwellToggle : DwellControl
     /// <inheritdoc/>
     protected override void ApplyProgress(double progress)
     {
-        var baseColor = _get() ? OnColor : OffColor;
-        _brush.Color = ColorBlend.Blend(baseColor, Tokens.Accent, progress * 0.5);
+        _progressScale.ScaleX = Math.Clamp(progress, 0, 1);
     }
 
     private void Toggle()

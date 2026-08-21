@@ -100,4 +100,36 @@ public class ToggleContrastTests
         Check.WithCustomMessage($"{theme.Name}: ToggleOff must be darker than ToggleOn")
             .That(Luminance(theme.ToggleOff)).IsStrictlyLessThan(Luminance(theme.ToggleOn));
     }
+
+    /// <summary>
+    /// DwellToggle's Task-5 progress bar is drawn in the same fill-plus-halo shape as
+    /// <c>DwellButton</c>'s (see
+    /// <see cref="DwellButtonProgressBarContrastTests"/>), but ToggleOn/ToggleOff
+    /// are never <c>DwellButton</c> fills — that file's <c>FillsFor</c> deliberately does not
+    /// list them — so nothing there gates the bar against them.
+    ///
+    /// This gap is not hypothetical: in the Contrast theme, ToggleOn is #00FF00 and Accent is
+    /// #00FFFF — bar-fill-vs-toggle-fill is ~1.09:1, i.e. imperceptible, in precisely the theme
+    /// built for low vision. StrokeHalo there is #000000, clearing ~15:1 against #00FF00, which
+    /// is the only reason the bar is visible at all on that fill. Gates the same combined
+    /// quantity DwellButtonProgressBarContrastTests does — max(fill-vs-fill, stroke-vs-fill) —
+    /// against both ToggleOn and ToggleOff, in every theme.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void ProgressBar_IsPerceptibleAgainstEitherToggleFill(ITheme theme)
+    {
+        foreach (var (name, fill) in new[] { ("ToggleOn", theme.ToggleOn), ("ToggleOff", theme.ToggleOff) })
+        {
+            var fillContrast = Contrast(theme.Accent, fill);
+            var strokeContrast = Contrast(theme.StrokeHalo, fill);
+            var best = Math.Max(fillContrast, strokeContrast);
+
+            Check.WithCustomMessage(
+                    $"{theme.Name}: bar vs {name} reaches only {best:F2}:1 "
+                    + $"(fill {fillContrast:F2}:1, halo {strokeContrast:F2}:1) — the bar must "
+                    + "clear 3:1 by its own fill or its halo, or it is not perceptible.")
+                .That(best).IsStrictlyGreaterThan(3.0);
+        }
+    }
 }

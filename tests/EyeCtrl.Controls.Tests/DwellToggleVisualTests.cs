@@ -150,15 +150,34 @@ public class DwellToggleVisualTests
     /// (20,0,20,0) insets the bar 20 DIP from each edge, clear of the 8 DIP
     /// Tokens.CornerRadiusStandard corner band (measured via RenderTargetBitmap on a 100-wide
     /// toggle: bar pixels span exactly [20, 79], never touching x&lt;8 or x&gt;91). That
-    /// conclusion rests entirely on the padding staying &gt;= the corner radius; this test pins
-    /// the measurement so a padding regression is caught here rather than by silent corner
-    /// nubs. Mirrors <c>DwellButtonProgressTests.ProgressBar_AtFullDwell_StaysInsideTheRoundedSilhouette</c>.
+    /// conclusion rests entirely on the padding staying &gt;= the corner radius, so this test
+    /// asserts that inequality DIRECTLY as well as rendering the silhouette.
+    ///
+    /// The direct assertion is load-bearing, not belt-and-braces. The corner probes below sit
+    /// at x=0 and x=99, which the bar reaches only when the padding is near zero — so a
+    /// regression to any padding in roughly (0.25, 8), say 4 DIP, paints a wedge outside the
+    /// rounded silhouette while every rendered probe here still reads alpha 0, and
+    /// <see cref="ApplyProgress_SweepsFromTheLeftEdge"/> derives its expected width from the
+    /// padding so it adapts silently (measured: the whole suite stayed green at 4 DIP).
+    /// Rendering alone cannot catch this; the inequality can.
+    /// Mirrors <c>DwellButtonProgressTests.ProgressBar_AtFullDwell_StaysInsideTheRoundedSilhouette</c>.
     /// </summary>
     [StaFact]
     public void ProgressBar_AtFullDwell_StaysInsideTheRoundedSilhouette()
     {
         var state = true;
         var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
+
+        // The invariant that lets DwellToggle skip the rounded clip DwellButton needs. Asserted
+        // directly because the rendered probes below cannot see it break — see the doc above.
+        Check.WithCustomMessage(
+                $"Root.Padding is {toggle.Root.Padding.Left}/{toggle.Root.Padding.Right} DIP, under "
+                + $"the {Tokens.CornerRadiusStandard} DIP corner radius — the progress bar now reaches "
+                + "into the rounded corner band and paints outside the silhouette. Either restore the "
+                + "padding or give DwellToggle the _layout.Clip that DwellButton has.")
+            .That(Math.Min(toggle.Root.Padding.Left, toggle.Root.Padding.Right))
+            .IsGreaterOrEqualThan(Tokens.CornerRadiusStandard);
+
         // Root.Margin(0,0,0,24) would shrink the arranged box within a fixed-height rect and
         // shift pixel coordinates; zero it so probe coordinates map 1:1 onto the rendered border.
         toggle.Root.Margin = new Thickness(0);
@@ -187,6 +206,22 @@ public class DwellToggleVisualTests
                     + "progress bar (or its halo) is painting past the toggle's silhouette.")
                 .That(alpha).IsEqualTo((byte)0);
         }
+        // Absence at the corners is only half the guarantee. Every other test in this file
+        // reads a DP, a brush or a transform, so a bar that is present in the visual tree but
+        // paints NOTHING — Opacity 0, or a clip that degenerates — satisfies all of them. That
+        // is defect 2 reborn: the colour swatch that sat inert for the whole dwell and then
+        // fired, which threw nothing and so was caught by nothing.
+        //
+        // Assert the bar's fill actually reaches the screen. Colour, not alpha: the ToggleOn fill is fully opaque, so alpha at this
+        // pixel reads 255 whether or not the bar paints — measured; an alpha probe cannot see it.
+        // The bar occupies y=94..99 — halo stroke on 94 and 99, Accent fill on 95..98.
+        var (fb, fg, fr) = (pixels[96 * stride + 50 * 4], pixels[96 * stride + 50 * 4 + 1], pixels[96 * stride + 50 * 4 + 2]);
+        Check.WithCustomMessage(
+                $"pixel at (50,96) is R{fr},G{fg},B{fb}, not the Accent fill "
+                + $"R{Tokens.Accent.R},G{Tokens.Accent.G},B{Tokens.Accent.B} — the progress bar "
+                + "occupies the visual tree but paints nothing at full dwell, so a gaze user "
+                + "sees no dwell feedback at all.")
+            .That((fr, fg, fb)).IsEqualTo((Tokens.Accent.R, Tokens.Accent.G, Tokens.Accent.B));
     }
 
     /// <summary>

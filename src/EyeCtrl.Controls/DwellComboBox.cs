@@ -20,10 +20,11 @@ using EyeCtrl.Core.Processing;
 /// option's text label.
 /// </para>
 /// <para>
-/// Selection highlight is intentionally kept on the outer wrapper border rather
-/// than the inner button background so that it does not conflict with
-/// <see cref="DwellButton.ApplyProgress"/>, which overwrites the background on
-/// every frame.
+/// Selection highlight is intentionally kept on the outer wrapper border rather than the
+/// inner button background. <see cref="DwellButton.ApplyProgress"/> no longer writes that
+/// background — it sweeps <see cref="DwellButton.ProgressBar"/> — but the separation still
+/// matters: selection is persistent state, dwell progress is transient, and keeping them on
+/// different elements is what stops either from clobbering the other.
 /// </para>
 /// </remarks>
 public class DwellComboBox : IDwellComposite
@@ -201,9 +202,9 @@ public class DwellComboBox : IDwellComposite
     /// <summary>
     /// Updates the outer-border selection highlight for each option based on the
     /// currently selected code value. The outer border's <c>BorderBrush</c> and
-    /// <c>BorderThickness</c> are used so the indicator is not overwritten by
-    /// <see cref="DwellButton.ApplyProgress"/>, which only touches the inner
-    /// button background.
+    /// <c>BorderThickness</c> are used so the indicator lives on a different element from
+    /// dwell feedback, which <see cref="DwellButton.ApplyProgress"/> now renders as
+    /// <see cref="DwellButton.ProgressBar"/> inside the button.
     /// </summary>
     private void UpdateOptionSelectionStyles()
     {
@@ -219,15 +220,15 @@ public class DwellComboBox : IDwellComposite
 
     /// <summary>
     /// Updates each option's text indicator (◉ = selected, ◯ = unselected).
-    /// Does not touch background colours to avoid conflicting with
-    /// <see cref="DwellButton.ApplyProgress"/>; selection highlight is handled
-    /// separately by <see cref="UpdateOptionSelectionStyles"/>.
+    /// Does not touch background colours; selection highlight is handled separately by
+    /// <see cref="UpdateOptionSelectionStyles"/>.
     /// </summary>
     private void Refresh()
     {
         // Only update the text indicator; selection highlight is handled by UpdateOptionSelectionStyles()
-        // via the outer border's BorderBrush/BorderThickness. Touching Root.Background here would
-        // conflict with DwellButton.ApplyProgress() which overwrites it on every frame.
+        // via the outer border's BorderBrush/BorderThickness. Root.Background is DwellButton's own
+        // brush instance — replacing it here is what used to orphan the colour swatches' dwell
+        // feedback (fixed 2026-08-20), so leave it to the button.
         var active = _getCode();
         for (int j = 0; j < _options.Count; j++)
         {

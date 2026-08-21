@@ -100,6 +100,30 @@ public class DwellToggleVisualTests
         Check.That(Grid.GetRow(toggle.ProgressBar)).IsEqualTo(1);
     }
 
+    /// <summary>
+    /// Structural half of a two-part guard; <c>ToggleContrastTests
+    /// .ProgressBar_IsPerceptibleAgainstEitherToggleFill</c> is the other. That theory proves
+    /// the halo is NECESSARY — in the Contrast theme, bar-vs-ToggleOn collapses to ~1.09:1 by
+    /// fill alone, rescued to ~15:1 by the halo — but it reads theme constants directly and
+    /// never inspects a constructed toggle, so it stays green even if this control's Rectangle
+    /// stopped drawing a halo altogether. This test proves the code HAS one: it reads the
+    /// actual constructed <see cref="DwellToggle.ProgressBar"/>'s Stroke, under the ambient
+    /// theme, independent of which theme that happens to be. Neither test alone closes the
+    /// gap; together they do — the same pairing <c>DwellButtonProgressTests
+    /// .ProgressBar_OnAnAccentColouredButton_ClearsThreeToOneAgainstItsOwnFill</c> gets for
+    /// free from a single test, because that button's fill IS the accent colour (a
+    /// theme-independent 1.00:1), which no <c>DwellToggle</c> fill is.
+    /// </summary>
+    [StaFact]
+    public void ProgressBar_HasTheHaloStroke()
+    {
+        var state = true;
+        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
+
+        Check.That(toggle.ProgressBar.Stroke).IsEqualTo(Tokens.BrushStrokeHalo);
+        Check.That(toggle.ProgressBar.StrokeThickness).IsEqualTo(1.0);
+    }
+
     private static double Channel(byte c)
     {
         var v = c / 255.0;

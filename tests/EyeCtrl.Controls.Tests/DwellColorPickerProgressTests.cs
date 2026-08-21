@@ -24,8 +24,9 @@ public class DwellColorPickerProgressTests
         // "#A5F3FC" is passed as the sole preset, not just the selection-getter value, so it is
         // genuinely the swatch's paint colour below — not a literal that merely looks like one.
         var hex = "#A5F3FC";
+        var registrar = new FakeRegistrar();
         var picker = new DwellColorPicker(
-            new FakeRegistrar(), "cp", "Colour", () => hex, v => hex = v,
+            registrar, "cp", "Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800,
             presets: new[] { (hex, "Test") });
 
@@ -34,7 +35,8 @@ public class DwellColorPickerProgressTests
         // the swap directly so the invariant (a replaced Background cannot orphan the bar) is
         // pinned regardless of whether any caller happens to do it today.
         swatch.Root.Background = new SolidColorBrush(Colors.Magenta);
-        swatch.UpdateVisualForTest(0.5);
+        registrar.Progress = 0.5;
+        swatch.UpdateVisual();
 
         var bar = FindBar(swatch);
         Check.That(((ScaleTransform)bar.RenderTransform).ScaleX).IsEqualTo(0.5);
@@ -46,8 +48,9 @@ public class DwellColorPickerProgressTests
         // Same as above: "#A5F3FC" is the sole preset, so it really is the swatch's paint colour,
         // not merely the selection-getter's initial value.
         var hex = "#A5F3FC";
+        var registrar = new FakeRegistrar();
         var picker = new DwellColorPicker(
-            new FakeRegistrar(), "cp", "Colour", () => hex, v => hex = v,
+            registrar, "cp", "Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800,
             presets: new[] { (hex, "Test") });
 
@@ -55,7 +58,8 @@ public class DwellColorPickerProgressTests
         var expected = (Color)ColorConverter.ConvertFromString(hex);
         Check.That(((SolidColorBrush)swatch.Root.Background).Color).IsEqualTo(expected);
 
-        swatch.UpdateVisualForTest(1.0);
+        registrar.Progress = 1.0;
+        swatch.UpdateVisual();
 
         Check.That(((SolidColorBrush)swatch.Root.Background).Color).IsEqualTo(expected);
     }
@@ -63,11 +67,18 @@ public class DwellColorPickerProgressTests
     private static Rectangle FindBar(DwellControl control) =>
         ((DwellButton)control).ProgressBar;
 
+    /// <summary>
+    /// Reports whatever progress the test sets, so tests drive a control through its real
+    /// <see cref="DwellControl.UpdateVisual"/> path instead of needing a test-only hook on the
+    /// production type.
+    /// </summary>
     private class FakeRegistrar : IDwellRegistrar
     {
+        public double Progress { get; set; }
+
         public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
         public void Unregister(string id, DwellCategory category) { }
         public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
+        public double GetProgress(string id, DwellCategory category) => Progress;
     }
 }

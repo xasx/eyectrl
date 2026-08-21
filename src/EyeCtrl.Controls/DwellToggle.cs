@@ -103,6 +103,11 @@ public class DwellToggle : DwellControl
             // perceptible at all on that theme.
             Stroke = Tokens.BrushStrokeHalo,
             StrokeThickness = 1,
+            // Stretch + a ScaleX transform, not a Width: Width would need ActualWidth, which is
+            // 0 until the first layout pass. Scaling is layout-independent and costs one double
+            // per tick. Pinned by ApplyProgress_SweepsFromTheLeftEdge — HorizontalAlignment.Left
+            // here collapses the bar to a fixed 1 DIP dot that never moves, with every other
+            // test in this file staying green.
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Bottom,
             RenderTransform = _progressScale,

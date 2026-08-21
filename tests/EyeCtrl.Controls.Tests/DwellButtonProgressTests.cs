@@ -177,6 +177,22 @@ public class DwellButtonProgressTests
                     + "progress bar (or its halo) is painting past the button's silhouette.")
                 .That(alpha).IsEqualTo((byte)0);
         }
+        // Absence at the corners is only half the guarantee. Every other test in this file
+        // reads a DP, a brush or a transform, so a bar that is present in the visual tree but
+        // paints NOTHING — Opacity 0, or a clip that degenerates — satisfies all of them. That
+        // is defect 2 reborn: the colour swatch that sat inert for the whole dwell and then
+        // fired, which threw nothing and so was caught by nothing.
+        //
+        // Assert the bar's fill actually reaches the screen. Colour, not alpha: every pixel inside this button's silhouette is
+        // opaque whether or not the bar paints, so an alpha probe here proves nothing.
+        // The bar occupies y=94..99 — halo stroke on 94 and 99, Accent fill on 95..98.
+        var (fb, fg, fr) = (pixels[96 * stride + 50 * 4], pixels[96 * stride + 50 * 4 + 1], pixels[96 * stride + 50 * 4 + 2]);
+        Check.WithCustomMessage(
+                $"pixel at (50,96) is R{fr},G{fg},B{fb}, not the Accent fill "
+                + $"R{Tokens.Accent.R},G{Tokens.Accent.G},B{Tokens.Accent.B} — the progress bar "
+                + "occupies the visual tree but paints nothing at full dwell, so a gaze user "
+                + "sees no dwell feedback at all.")
+            .That((fr, fg, fb)).IsEqualTo((Tokens.Accent.R, Tokens.Accent.G, Tokens.Accent.B));
     }
 
     private static double Channel(byte c)

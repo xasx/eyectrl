@@ -43,10 +43,15 @@ public class DwellButton : DwellControl
 
     private readonly Action _action;
     // Assigned once, here, and never touched again by ApplyProgress (which writes
-    // _progressScale.ScaleX, not this). Kept as a field — rather than letting Root.Background
-    // be set inline and forgotten — so DwellButton itself owns the brush instance: no caller
-    // can replace it and orphan the dwell feedback, which is exactly the DwellColorPicker bug
-    // this plan fixed (Task 6 asserts this invariant, Root.Background is _brush, directly).
+    // _progressScale.ScaleX, not this). Kept as a field so DwellButton owns the brush instance
+    // rather than setting Root.Background inline and forgetting it.
+    //
+    // Note what this does and does not buy: Root is public and its Background is settable, so
+    // a caller CAN still replace this brush. What changed is that doing so no longer orphans
+    // the dwell feedback — that lives on _progressBar, a separate element — which is precisely
+    // the DwellColorPicker bug this plan fixed. Nothing asserts brush identity; the guarantee
+    // that matters is pinned by DwellColorPickerProgressTests, which replaces Root.Background
+    // and then asserts the bar still sweeps.
     private readonly SolidColorBrush _brush;
     // The button's own layout container. Root.Child belongs to DwellButton from here on:
     // Task 3 puts the progress bar in row 1, and a caller assigning Root.Child would throw

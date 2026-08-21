@@ -27,8 +27,9 @@ public class DwellToggle : DwellControl
     private readonly Func<bool> _get;
     private readonly Action<bool> _set;
     private readonly TextBlock _text;
-    // One mutable brush on Root.Background, mutated in place by RefreshVisual and
-    // ApplyProgress so dwell updates at gaze rate never allocate a new brush per tick.
+    // One mutable brush on Root.Background, written only by RefreshVisual on a state change.
+    // ApplyProgress no longer touches it — it sweeps _progressBar instead — so the state fill
+    // holds still through a dwell and the label's contrast on it does not decay.
     private readonly SolidColorBrush _brush = new();
 
     // Mutated in place by ApplyProgress at gaze rate: no new brush/transform/geometry is

@@ -43,12 +43,32 @@ public class DwellColorPickerLabelTests
     /// </summary>
     private const double TextRatioFloor = 4.5;
 
+    /// <summary>
+    /// The presets these tests drive the picker with, and the source of every expected name
+    /// below.
+    ///
+    /// Explicit rather than <c>DefaultPresets</c>: expected values must not come out of the
+    /// class under test, and <see cref="DwellColorPicker.PresetsFor"/> is part of it — a name
+    /// misspelt there would be echoed by the expectation and pass. Whether the palette offers
+    /// the right four colours is that method's own business, gated by
+    /// <c>ColorPickerPresetTests</c>; what this file owns is that whatever name a preset
+    /// carries is DRAWN. The names are deliberately not the shipped ones, so no assertion can
+    /// coincide with them by accident.
+    /// </summary>
+    private static readonly (string Hex, string Name)[] Presets =
+    [
+        ("#A5F3FC", "Ice"),
+        ("#7BE495", "Mint"),
+        ("#FFD166", "Honey"),
+        ("#D6DEF5", "Paper"),
+    ];
+
     private static DwellColorPicker Build()
     {
-        var hex = "#A5F3FC";
+        var hex = Presets[0].Hex;
         return new DwellColorPicker(
             new FakeRegistrar(), "cp", "Circle Colour", () => hex, v => hex = v,
-            DwellCategory.Control, 50, 800);
+            DwellCategory.Control, 50, 800, presets: Presets);
     }
 
     /// <summary>
@@ -104,17 +124,38 @@ public class DwellColorPickerLabelTests
         }
     }
 
-    /// <summary>The caption <see cref="TextBlock"/> inside <paramref name="swatch"/>'s content.</summary>
+    /// <summary>
+    /// The caption <see cref="TextBlock"/> inside <paramref name="swatch"/>'s content.
+    ///
+    /// Asserts its way down rather than indexing: a caller that finds no caption gets a sentence
+    /// saying so, not an <c>InvalidOperationException</c> from inside a projection. The sibling
+    /// tests explain what a missing caption MEANS, but a reader running this file's contrast
+    /// test alone should still learn what happened.
+    /// </summary>
     /// <param name="swatch">The swatch to read.</param>
     /// <returns>Its single caption.</returns>
-    private static TextBlock CaptionOf(DwellControl swatch) =>
-        ((Panel)((DwellButton)swatch).Content!).Children.OfType<TextBlock>().Single();
+    private static TextBlock CaptionOf(DwellControl swatch)
+    {
+        var content = ((DwellButton)swatch).Content as Panel;
+        Check.WithCustomMessage(
+                "the swatch's DwellButton.Content is not a Panel, so it holds no caption to "
+                + "measure — see EverySwatch_DrawsItsName.")
+            .That(content).IsNotNull();
+
+        var caption = content!.Children.OfType<TextBlock>().SingleOrDefault();
+        Check.WithCustomMessage(
+                "the swatch draws no single caption, so there is no text whose contrast could be "
+                + "measured — see EverySwatch_DrawsItsName.")
+            .That(caption).IsNotNull();
+
+        return caption!;
+    }
 
     [StaFact]
     public void EverySwatch_DrawsItsName()
     {
         var picker = Build();
-        var expected = DwellColorPicker.PresetsFor(Tokens.Current).Select(p => p.Name).ToList();
+        var expected = Presets.Select(p => p.Name).ToList();
 
         // SelectMany rather than Single(): a swatch that draws no caption must make the count
         // check below SPEAK, not throw "Sequence contains no elements" from inside a projection.
@@ -164,7 +205,7 @@ public class DwellColorPickerLabelTests
     public void TheName_IsDrawnInsideTheSwatch_NotOnlyInATooltip()
     {
         var picker = Build();
-        var names = DwellColorPicker.PresetsFor(Tokens.Current).Select(p => p.Name).ToList();
+        var names = Presets.Select(p => p.Name).ToList();
 
         var swatches = picker.Children.ToList();
         Check.That(swatches.Count).IsEqualTo(names.Count);

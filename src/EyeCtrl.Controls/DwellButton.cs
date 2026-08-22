@@ -87,7 +87,9 @@ public class DwellButton : DwellControl
     /// Replaces direct assignment to <see cref="DwellControl.Root"/>'s <c>Child</c>, which the
     /// composites used to do: <see cref="Root"/>'s child is now this control's own two-row
     /// layout, and overwriting it would silently remove the progress bar. Setting <c>null</c>
-    /// clears the content and keeps the bar — that is the colour-swatch case.
+    /// clears the content and keeps the bar, but no caller does so today: the colour swatch was
+    /// the one <c>null</c> case, and it now sets a panel holding a colour chip above its
+    /// caption — a name carried only by a tooltip is unreachable without hover.
     /// </para>
     /// </summary>
     public UIElement? Content
@@ -179,13 +181,15 @@ public class DwellButton : DwellControl
             Height = ProgressBarHeight,
             Fill = Tokens.BrushAccent,
             // Halo outline, matching the cursor ring's fix for the same problem: a flat
-            // accent fill on an accent-coloured button is invisible. Measured — the first
-            // DwellColorPicker swatch IS theme.Accent, so bar-on-fill contrast there is a
-            // literal 1.00:1, and the AccentWarning/AccentDanger semantic buttons land
-            // around 1.73:1. ColorPickerPresetTests already gates every swatch preset at
-            // >= 7:1 against its own theme's StrokeHalo (worst case 9.13:1 across all three
-            // themes), so outlining the bar in StrokeHalo guarantees it reads against every
-            // fill DwellButton is actually constructed with.
+            // accent fill on a button whose own fill is near the accent is invisible.
+            // Measured — SettingsWindow's AccentWarning Reset/Delete buttons land around
+            // 1.73:1, and they are what carry this justification today. (The starkest case is
+            // now historical: DwellColorPicker's first swatch WAS theme.Accent, a literal
+            // 1.00:1, until swatches became neutral cards carrying the preset colour on an
+            // inner chip, which left the bar on a neutral card instead.)
+            // DwellButtonProgressBarContrastTests gates the bar's perceptibility — whichever of
+            // its fill or its halo reads better — at >= 3:1 against every fill DwellButton is
+            // constructed with, in every theme.
             Stroke = Tokens.BrushStrokeHalo,
             StrokeThickness = 1,
             // Stretch + a ScaleX transform, not a Width: Width would need ActualWidth, which is

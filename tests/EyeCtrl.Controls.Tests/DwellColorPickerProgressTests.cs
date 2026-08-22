@@ -1,6 +1,7 @@
 namespace EyeCtrl.Controls.Tests;
 
 using System.Linq;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Core.Models;
@@ -15,6 +16,10 @@ using Xunit;
 /// threw, so nothing caught it.
 ///
 /// The progress bar is a separate element, immune to a background swap. These tests hold that.
+///
+/// A swatch is now a card whose own fill is a neutral surface, carrying a chip that holds the
+/// preset colour above a caption naming it — so the colour these tests follow through a dwell
+/// is the CHIP's, not the card's.
 /// </summary>
 public class DwellColorPickerProgressTests
 {
@@ -31,9 +36,11 @@ public class DwellColorPickerProgressTests
             presets: new[] { (hex, "Test") });
 
         var swatch = picker.Children.First();
-        // DwellColorPicker no longer does this itself (Task 3 removed it) — the test performs
-        // the swap directly so the invariant (a replaced Background cannot orphan the bar) is
-        // pinned regardless of whether any caller happens to do it today.
+        // DwellColorPicker does assign Root.Background itself (the card surface), but it assigns
+        // it once, in the constructor. The test swaps it again here, AFTER construction, so the
+        // invariant is pinned as a property of DwellButton — a replaced Background cannot orphan
+        // the bar, whoever replaces it and whenever — rather than as a property of what this one
+        // caller happens to paint today.
         swatch.Root.Background = new SolidColorBrush(Colors.Magenta);
         registrar.Progress = 0.5;
         swatch.UpdateVisual();
@@ -42,10 +49,14 @@ public class DwellColorPickerProgressTests
         Check.That(((ScaleTransform)bar.RenderTransform).ScaleX).IsEqualTo(0.5);
     }
 
+    /// <summary>
+    /// What the user picks is the colour, so the chip must still be showing it when the dwell
+    /// completes. The card around it is a neutral surface and says nothing about the choice.
+    /// </summary>
     [StaFact]
-    public void ASwatch_KeepsItsOwnColour_WhileDwelling()
+    public void ASwatchsChip_KeepsThePresetColour_WhileDwelling()
     {
-        // Same as above: "#A5F3FC" is the sole preset, so it really is the swatch's paint colour,
+        // Same as above: "#A5F3FC" is the sole preset, so it really is the chip's paint colour,
         // not merely the selection-getter's initial value.
         var hex = "#A5F3FC";
         var registrar = new FakeRegistrar();
@@ -56,16 +67,27 @@ public class DwellColorPickerProgressTests
 
         var swatch = picker.Children.First();
         var expected = (Color)ColorConverter.ConvertFromString(hex);
-        Check.That(((SolidColorBrush)swatch.Root.Background).Color).IsEqualTo(expected);
+        Check.That(((SolidColorBrush)FindChip(swatch).Background).Color).IsEqualTo(expected);
 
         registrar.Progress = 1.0;
         swatch.UpdateVisual();
 
-        Check.That(((SolidColorBrush)swatch.Root.Background).Color).IsEqualTo(expected);
+        Check.That(((SolidColorBrush)FindChip(swatch).Background).Color).IsEqualTo(expected);
     }
 
     private static Rectangle FindBar(DwellControl control) =>
         ((DwellButton)control).ProgressBar;
+
+    /// <summary>
+    /// The colour chip inside a swatch, reached through <see cref="DwellButton.Content"/> — the
+    /// same seam <c>DwellColorPickerLabelTests</c> reads the caption through, so both files
+    /// describe the swatch's anatomy the one way rather than through a production accessor added
+    /// for tests alone.
+    /// </summary>
+    /// <param name="control">The swatch to read.</param>
+    /// <returns>Its colour chip.</returns>
+    private static Border FindChip(DwellControl control) =>
+        ((Panel)((DwellButton)control).Content!).Children.OfType<Border>().Single();
 
     /// <summary>
     /// Reports whatever progress the test sets, so tests drive a control through its real

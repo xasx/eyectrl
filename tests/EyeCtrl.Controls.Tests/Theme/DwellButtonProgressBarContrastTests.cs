@@ -20,6 +20,10 @@ using Xunit;
 /// stroke-vs-fill only ~1.1-1.4:1), where it is the bar's own bright fill that carries
 /// visibility (11-15:1) instead.
 ///
+/// That accent-on-accent case is historical rather than live: a swatch is now a SurfaceMedium
+/// card carrying the preset colour on an inner chip, so its bar is drawn on the card. The
+/// presets stay in <see cref="FillsFor"/> anyway — see the note there.
+///
 /// So the perceptible quantity is whichever of {fill, stroke} vs the button's own fill is
 /// larger — checking only the stroke would fail on SurfaceMedium buttons; checking only the
 /// fill would fail on the Accent swatch. Gates that combined quantity at >= 3:1, for every fill
@@ -68,10 +72,19 @@ public class DwellButtonProgressBarContrastTests
     /// </summary>
     private static IEnumerable<(string Name, Color Fill)> FillsFor(ITheme theme)
     {
-        yield return ("SurfaceMedium (plain buttons)", theme.SurfaceMedium);
+        yield return ("SurfaceMedium (plain buttons and colour-swatch cards)", theme.SurfaceMedium);
         yield return ("AccentWarning (Reset/Delete)", theme.AccentWarning);
+        // Retained deliberately, though no bar is drawn on a preset any more: a swatch is a
+        // SurfaceMedium card (already listed above) carrying the preset colour on an inner chip,
+        // and the bar sits on the card. Over-gating costs nothing and these four are the exact
+        // colours a future redesign would put back under the bar; deleting them would only have
+        // to be rediscovered. They are NOT the colour-swatch coverage that matters, however —
+        // ColorPickerPresetTests gates every preset at 7:1 against StrokeHalo for the cursor
+        // ring, and that one is load-bearing.
         foreach (var (hex, name) in DwellColorPicker.PresetsFor(theme))
-            yield return ($"swatch '{name}'", (Color)ColorConverter.ConvertFromString(hex)!);
+            yield return (
+                $"swatch preset '{name}' (no bar drawn on it today — see above)",
+                (Color)ColorConverter.ConvertFromString(hex)!);
 
         yield return ("Supervisor Retry/Save (#1E641E)", Color.FromRgb(0x1E, 0x64, 0x1E));
         yield return ("Supervisor Dismiss (#502828)", Color.FromRgb(0x50, 0x28, 0x28));

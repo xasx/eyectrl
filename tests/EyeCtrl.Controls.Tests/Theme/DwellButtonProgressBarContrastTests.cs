@@ -11,23 +11,25 @@ using Xunit;
 /// <summary>
 /// DwellButton's Task-3 progress bar is a <see cref="Tokens.BrushAccent"/> fill outlined in
 /// <see cref="Tokens.BrushStrokeHalo"/> (Task 3 code review), not a flat accent fill — a flat
-/// fill is invisible on an accent-coloured button. Measured: the first
-/// <see cref="DwellColorPicker.PresetsFor"/> swatch IS <c>theme.Accent</c>, so bar-fill-vs-
-/// button-fill contrast there is a literal 1.00:1; <c>SettingsWindow</c>'s AccentWarning
-/// Reset/Delete buttons and the Supervisor's hardcoded Retry/Save/Launch/Dismiss fills land
-/// around 1.0-2.4:1. The halo rescues exactly those cases (stroke-vs-fill up to ~19.6:1 for the
-/// same pairs) — but the halo is weak on its own against a dark neutral surface (SurfaceMedium:
-/// stroke-vs-fill only ~1.1-1.4:1), where it is the bar's own bright fill that carries
-/// visibility (11-15:1) instead.
+/// fill is invisible on a button whose own fill is near the accent.
 ///
-/// That accent-on-accent case is historical rather than live: a swatch is now a SurfaceMedium
-/// card carrying the preset colour on an inner chip, so its bar is drawn on the card. The
-/// presets stay in <see cref="FillsFor"/> anyway — see the note there.
+/// Everything below is a statement about the FILL SET <see cref="FillsFor"/> gates, not about
+/// what the live UI happens to draw today. The set is deliberately a superset of that — it
+/// records which entries no longer occur, and why they stay — so these measurements do not go
+/// stale each time a control is restyled.
+///
+/// Measured over that set: its first <see cref="DwellColorPicker.PresetsFor"/> entry IS
+/// <c>theme.Accent</c>, so bar-fill-vs-button-fill contrast on it is a literal 1.00:1;
+/// <c>SettingsWindow</c>'s AccentWarning Reset/Delete buttons and the Supervisor's hardcoded
+/// Retry/Save/Launch/Dismiss fills land around 1.0-2.4:1. The halo rescues exactly those cases
+/// (stroke-vs-fill up to ~19.6:1 for the same pairs) — but the halo is weak on its own against
+/// a dark neutral surface (SurfaceMedium: stroke-vs-fill only ~1.1-1.4:1), where it is the
+/// bar's own bright fill that carries visibility (11-15:1) instead.
 ///
 /// So the perceptible quantity is whichever of {fill, stroke} vs the button's own fill is
-/// larger — checking only the stroke would fail on SurfaceMedium buttons; checking only the
-/// fill would fail on the Accent swatch. Gates that combined quantity at >= 3:1, for every fill
-/// listed in <see cref="FillsFor"/>, in every theme.
+/// larger — checking only the stroke would fail on the SurfaceMedium entry; checking only the
+/// fill would fail on the Accent-swatch entry. Gates that combined quantity at >= 3:1, for
+/// every fill listed in <see cref="FillsFor"/>, in every theme.
 /// </summary>
 public class DwellButtonProgressBarContrastTests
 {

@@ -146,6 +146,10 @@ public class DwellColorPicker : IDwellComposite
             var color = (Color)ColorConverter.ConvertFromString(hex);
             var capturedHex = hex;
 
+            // `color` is passed as baseColor but is not where the user sees it: the card fill
+            // below replaces it, and the chip is what actually shows the preset. Still passed
+            // rather than SurfaceMedium so the swatch degrades to a coloured button, not an
+            // indistinguishable grey one, if that assignment is ever lost.
             var btn = new DwellButton(registrar, swatchId, "",
                 () => { _set(capturedHex); RefreshSelection(); },
                 color, category, radiusPhysical, dwellMs,

@@ -66,21 +66,32 @@ public class KeyboardTests
         await _fixture.SimulateDwellOn(keyboardTab!);
         await Task.Delay(500, TestContext.Current.CancellationToken); // wait for tab content to rebuild
 
-        // Find the Click Sound toggle — AutomationId set by AddToggle
+        // Find the Click Sound switch.
+        //
+        // Settings_Toggle_{id} now names the STATE WORD inside DwellToggle's switch, not the row's
+        // label. Two things changed under this test when DwellToggle became a composite. The label
+        // is decorative now — dwelling it activates nothing — so the id moved onto the half that
+        // really is a dwell target. And the checkbox glyph is gone: state is carried by the word
+        // ("On"/"Off"), the knob's side and the track's fill, and the accessible name DwellToggle
+        // composes is "{label}: {state}". So this asserts the state word rather than a glyph that
+        // no longer exists.
         settings = _fixture.FindWindow("Settings_Window");
         var toggle = await _fixture.WaitForElementAsync(settings!, "Settings_Toggle_k_sound");
         var enabledText = toggle.Properties.Name.Value;
         Check.That(enabledText).Contains("Click Sound");
-        Check.That(enabledText.StartsWith("\u2611")).IsTrue(); // ☑ = enabled by default
+        Check.That(enabledText).EndsWith(": On"); // enabled by default
 
-        // Act — dwell to disable
+        // Act — dwell to disable. The state word sits inside the switch, well within the hit
+        // circle the switch registers — pinned headlessly by
+        // DwellToggleVisualTests.TheUiaAnchorsCentre_FallsInsideTheSwitchesHitCircle, because a
+        // Border carries no AutomationPeer and so cannot hold the id itself.
         await _fixture.SimulateDwellOn(toggle);
         await Task.Delay(300, TestContext.Current.CancellationToken);
 
         // Assert — toggle now shows disabled
         settings = _fixture.FindWindow("Settings_Window");
         toggle = _fixture.FindElement(settings!, "Settings_Toggle_k_sound")!;
-        Check.That(toggle.Properties.Name.Value.StartsWith("\u2610")).IsTrue(); // ☐ = disabled
+        Check.That(toggle.Properties.Name.Value).EndsWith(": Off");
 
         // Cleanup — restore to enabled
         await _fixture.SimulateDwellOn(toggle);

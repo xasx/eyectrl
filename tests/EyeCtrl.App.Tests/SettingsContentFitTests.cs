@@ -555,4 +555,234 @@ public class SettingsContentFitTests
                 + source[start..(end + 1)])
             .That(source[start..(end + 1)]).Contains("ConstrainToContentWidth");
     }
+
+    /// <summary>
+    /// Every label a toggle row is built with in the running application, read out of the page
+    /// sources rather than restated, so a new setting with a long name fails HERE instead of on
+    /// screen.
+    ///
+    /// <para>Three sources, because the app has three:</para>
+    /// <list type="bullet">
+    /// <item>the literal <c>ToggleSpec</c> labels in <c>Views/Settings/Sources</c>;</item>
+    /// <item><c>ActionMenuPageSource.FriendlyName</c>'s arms, which that page builds one toggle
+    /// per <c>InteractionAction</c> from;</item>
+    /// <item><c>QuickActionsPageSource</c>'s glyph-plus-label caption, whose label is DATA. The
+    /// bound used is a glyph plus two spaces plus the longest <see cref="QuickActionPresets"/>
+    /// label — the longest caption the application itself can generate. A label the user types is
+    /// unbounded and no enumeration can cover it, which is why
+    /// <see cref="AnUnboundedToggleLabel_CannotWidenTheRow"/> pins the MECHANISM that keeps an
+    /// arbitrary one safe instead of trying to bound it.</item>
+    /// </list>
+    /// </summary>
+    private static IReadOnlyList<string> RealToggleLabels()
+    {
+        var sources = Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "Settings", "Sources");
+        var labels = new List<string>();
+
+        foreach (var file in Directory.EnumerateFiles(sources, "*.cs", SearchOption.AllDirectories))
+        {
+            var text = File.ReadAllText(file);
+            foreach (Match m in Regex.Matches(
+                         text, @"new ToggleSpec\(\s*""[^""]*""\s*,\s*""([^""]*)"""))
+                labels.Add(m.Groups[1].Value);
+        }
+
+        var actionMenu = File.ReadAllText(Path.Combine(sources, "ActionMenuPageSource.cs"));
+        foreach (Match m in Regex.Matches(
+                     actionMenu, @"InteractionAction\.\w+\s*=>\s*""([^""]*)"""))
+            labels.Add(m.Groups[1].Value);
+
+        // A box-drawing glyph plus the two spaces the caption interpolates, over every preset the
+        // app can create an action from. Referenced, not regexed: QuickActionPresets is public.
+        var presets = QuickActionPresets.KeyboardShortcuts.Select(p => p.Label)
+            .Concat(QuickActionPresets.MediaControls.Select(p => p.Label))
+            .Concat(QuickActionPresets.WindowActions.Select(p => p.Label));
+        foreach (var preset in presets)
+            labels.Add("▦  " + preset);
+
+        return labels;
+    }
+
+    /// <summary>The row's label <see cref="TextBlock"/>, found by the text it was built with.</summary>
+    private static TextBlock? LabelBlockIn(DependencyObject row, string text)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(row))
+        {
+            if (child is TextBlock tb && tb.Text == text) return tb;
+            if (child is DependencyObject d && LabelBlockIn(d, text) is { } found) return found;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>DwellToggle</c> stopped being a <c>DwellControl</c> and became an
+    /// <c>IDwellComposite</c>, which means <c>SettingsWindow.Add</c> no longer caps it with
+    /// <c>ConstrainToContentWidth</c> — composites are deliberately uncapped. The slider row
+    /// already needed this guard for the same reason; the toggle row now needs its own, and it is
+    /// the row kind that carries arbitrary-length text.
+    ///
+    /// <para>
+    /// TWO things are asserted, and the second is the one a reader is likely to miss. The row must
+    /// fit the 416 DIP narrowest content column. And its measured HEIGHT must stay 124 — 100 for
+    /// the card plus its 24 DIP bottom margin, exactly what the control measured before this
+    /// change: <c>SettingsAutoPagination</c> decides page breaks from row heights, so a label
+    /// wrapping to two lines and growing the row would silently re-paginate every page holding a
+    /// toggle. The label's own height is checked against the card's 100 as well, since a row that
+    /// keeps its height by CLIPPING its label is not a fit either.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void TheLongestRealToggleLabel_FitsTheContentColumn_OnANarrowDisplay()
+    {
+        var root = Xml();
+        var contentArea = Margin(root, "ContentArea");
+        var contentPanel = Margin(root, "ContentPanel");
+        var available = WindowWidthFor(NarrowDisplayWidthDip)
+            - SidebarWidth(root)
+            - contentArea.Left - contentArea.Right
+            - contentPanel.Left - contentPanel.Right;
+
+        var labels = RealToggleLabels();
+        Check.WithCustomMessage(
+                "No toggle labels were found. Either the page sources stopped declaring "
+                + "ToggleSpec rows, or the patterns above went stale — a guard over an empty set "
+                + "proves nothing.")
+            .That(labels).Not.IsEmpty();
+
+        foreach (var label in labels)
+        {
+            var scratch = new StackPanel { Width = available };
+            TextElement.SetFontFamily(scratch, Tokens.FontStandard);
+            var toggle = new DwellToggle(
+                new NullRegistrar(), "fit_probe", label, () => true, _ => { },
+                DwellCategory.Control, 50, 800);
+            toggle.Attach(scratch);
+            scratch.Measure(new Size(available, double.PositiveInfinity));
+
+            var row = (FrameworkElement)scratch.Children[0];
+
+            Check.WithCustomMessage(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "The toggle row for \"{0}\" wants {1:F2} DIP against a {2:F2} DIP content "
+                    + "column on a {3:F0} DIP display. The toggle is a composite, so nothing caps "
+                    + "it — the switch would be drawn off the panel. Shorten the label, or narrow "
+                    + "DwellToggle's switch; do not narrow the sidebar, which "
+                    + "SettingsTabLabelFitTests needs.",
+                    label, row.DesiredSize.Width, available, NarrowDisplayWidthDip))
+                .That(row.DesiredSize.Width).IsLessOrEqualThan(available);
+
+            Check.WithCustomMessage(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "The toggle row for \"{0}\" measures {1:F2} DIP tall, not the 124.00 it "
+                    + "measured before DwellToggle became a composite (a 100 DIP card plus a 24 "
+                    + "DIP bottom margin). SettingsAutoPagination decides page breaks from row "
+                    + "heights, so this re-paginates every page holding a toggle.",
+                    label, scratch.DesiredSize.Height))
+                .That(scratch.DesiredSize.Height).IsEqualTo(124.0);
+
+            var text = LabelBlockIn(row, label);
+            Check.WithCustomMessage($"No TextBlock in the row carries the label \"{label}\".")
+                .That(text).IsNotNull();
+
+            Check.WithCustomMessage(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "The label \"{0}\" wraps to {1:F2} DIP of height inside a 100 DIP card, so it "
+                    + "is clipped. The row keeping its height by cutting its own text is not a "
+                    + "fit — shorten the label or widen the column.",
+                    label, text!.DesiredSize.Height))
+                .That(text.DesiredSize.Height).IsLessOrEqualThan(100.0);
+        }
+    }
+
+    /// <summary>
+    /// A Quick Action's caption carries a label the USER typed, so no enumeration can bound it —
+    /// which makes the MECHANISM the thing to pin, not any particular length.
+    ///
+    /// <para>
+    /// That mechanism is the row's STAR label column, and the first draft of this test named the
+    /// wrong one. It claimed <c>TextWrapping.Wrap</c> was what kept the switch on the panel;
+    /// measured, switching the label to <c>WrapWithOverflow</c> leaves the row's width and the
+    /// switch's position completely unchanged, because a star column is bounded by the room the
+    /// Grid actually has and WPF clips an over-wide child to its own arrange slot. Wrap earns its
+    /// place for a different reason (a long name is laid out over further lines instead of being
+    /// cut off mid-word), and this test would have been green through that mutation while claiming
+    /// to catch it.
+    /// </para>
+    /// <para>
+    /// So three things are asserted, all falsifiable by turning the label column from star to
+    /// auto: the row's width, the row's height, and — the one that is actually about
+    /// accessibility — the switch's ARRANGED right edge, since a switch pushed past the column is
+    /// a hit circle over pixels the user cannot see. Such a label does wrap to more lines than the
+    /// 100 DIP card can show and is clipped vertically; that is a cosmetic loss on text the user
+    /// typed themselves and moves no hit geometry, so it is not asserted here.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void AnUnboundedToggleLabel_CannotWidenTheRow_NorMoveTheSwitch()
+    {
+        var root = Xml();
+        var contentArea = Margin(root, "ContentArea");
+        var contentPanel = Margin(root, "ContentPanel");
+        var available = WindowWidthFor(NarrowDisplayWidthDip)
+            - SidebarWidth(root)
+            - contentArea.Left - contentArea.Right
+            - contentPanel.Left - contentPanel.Right;
+
+        // 200 characters with no break opportunity anywhere.
+        var label = new string('M', 200);
+
+        var scratch = new StackPanel { Width = available };
+        TextElement.SetFontFamily(scratch, Tokens.FontStandard);
+        var toggle = new DwellToggle(
+            new NullRegistrar(), "fit_probe", label, () => true, _ => { },
+            DwellCategory.Control, 50, 800);
+        toggle.Attach(scratch);
+        scratch.Measure(new Size(available, double.PositiveInfinity));
+
+        var row = (Border)scratch.Children[0];
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "A 200-character unbroken label widened the toggle row to {0:F2} DIP against a "
+                + "{1:F2} DIP column. A composite is not capped by ConstrainToContentWidth, so the "
+                + "label column has to be a STAR column — an auto one sizes to its child and the "
+                + "row grows without limit.",
+                row.DesiredSize.Width, available))
+            .That(row.DesiredSize.Width).IsLessOrEqualThan(available);
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "The row grew to {0:F2} DIP tall around an over-long label. The card's height is "
+                + "explicit precisely so it cannot: SettingsAutoPagination paginates on these "
+                + "numbers.",
+                scratch.DesiredSize.Height))
+            .That(scratch.DesiredSize.Height).IsEqualTo(124.0);
+
+        scratch.Arrange(new Rect(0, 0, available, scratch.DesiredSize.Height));
+        scratch.UpdateLayout();
+
+        var switchRoot = SwitchRootIn(row);
+        var origin = switchRoot.TransformToAncestor(scratch).Transform(new Point(0, 0));
+        var right = origin.X + switchRoot.ActualWidth;
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "An over-long label pushed the switch's right edge to {0:F2} DIP, past the {1:F2} "
+                + "DIP column. This is the assertion that is about accessibility rather than "
+                + "tidiness: the switch registers a hit circle about its own centre, so a switch "
+                + "drawn off the panel is a dwell target over pixels the user cannot see.",
+                right, available))
+            .That(right).IsLessOrEqualThan(available);
+    }
+
+    /// <summary>
+    /// The switch inside a toggle row: the one <see cref="Border"/> among the row Grid's DIRECT
+    /// children (the other is the label <see cref="TextBlock"/>; the track and knob are Borders too
+    /// but sit deeper). Reached through the public tree because <c>EyeCtrl.App.Tests</c> has no
+    /// <c>InternalsVisibleTo</c> into <c>EyeCtrl.Controls</c>.
+    /// </summary>
+    private static Border SwitchRootIn(Border row) =>
+        ((Grid)row.Child).Children.OfType<Border>().Single();
 }

@@ -102,33 +102,48 @@ public class ToggleContrastTests
     }
 
     /// <summary>
-    /// DwellToggle's Task-5 progress bar is drawn in the same fill-plus-halo shape as
-    /// <c>DwellButton</c>'s (see
-    /// <see cref="DwellButtonProgressBarContrastTests"/>), but ToggleOn/ToggleOff
-    /// are never <c>DwellButton</c> fills — that file's <c>FillsFor</c> deliberately does not
-    /// list them — so nothing there gates the bar against them.
+    /// Cross-theme half of a two-part guard on the switch's TRACK;
+    /// <c>DwellToggleVisualTests.TheTrackIsPerceptibleAgainstTheSwitchFill</c> is the structural
+    /// half. That test reads the real brushes off a constructed control under whichever theme
+    /// happens to be ambient, so it proves the CODE draws an outline; this theory sweeps every
+    /// theme's palette, so it proves the outline is NECESSARY and sufficient everywhere. Neither
+    /// closes the gap alone — the established pairing in this repo.
     ///
-    /// This gap is not hypothetical: in the Contrast theme, ToggleOn is #00FF00 and Accent is
-    /// #00FFFF — bar-fill-vs-toggle-fill is ~1.09:1, i.e. imperceptible, in precisely the theme
-    /// built for low vision. StrokeHalo there is #000000, clearing ~15:1 against #00FF00, which
-    /// is the only reason the bar is visible at all on that fill. Gates the same combined
-    /// quantity DwellButtonProgressBarContrastTests does — max(fill-vs-fill, stroke-vs-fill) —
-    /// against both ToggleOn and ToggleOff, in every theme.
+    /// <para>
+    /// This theory REPLACED <c>ProgressBar_IsPerceptibleAgainstEitherToggleFill</c>, which gated
+    /// the dwell bar against ToggleOn/ToggleOff. That pairing can no longer occur: the toggle is a
+    /// composite now, its one dwell target is a <c>DwellButton</c> whose fill is
+    /// <see cref="ITheme.SurfaceLight"/>, and that button draws its bar in its own layout ROW 1
+    /// while the track sits in row 0 — so the bar is never drawn on a toggle fill at all. Its
+    /// perceptibility against SurfaceLight is gated by
+    /// <see cref="DwellButtonProgressBarContrastTests"/>, which now lists that fill.
+    /// </para>
+    /// <para>
+    /// What matters instead is whether the track can be SEEN, because the track is the switch's
+    /// visible extent — the thing a gaze user aims at. Measured against SurfaceLight, the state
+    /// fills alone are ToggleOn 2.76 / 2.70 / 11.03 and ToggleOff 1.23 / 1.25 / 1.39 across
+    /// Midnight / Ember / Contrast: the ON track fails 3:1 in two of three themes and the OFF
+    /// track is invisible in all three. TextSecondary as an outline measures 4.38 / 5.38 / 12.35,
+    /// which is why the track's perceptibility is made independent of its fill. Gates the same
+    /// combined quantity the bar tests do — max(fill-vs-surface, outline-vs-surface) — against
+    /// both states, in every theme.
+    /// </para>
     /// </summary>
     [Theory]
     [MemberData(nameof(AllThemes))]
-    public void ProgressBar_IsPerceptibleAgainstEitherToggleFill(ITheme theme)
+    public void TheTrack_IsPerceptibleAgainstTheSwitchFill(ITheme theme)
     {
         foreach (var (name, fill) in new[] { ("ToggleOn", theme.ToggleOn), ("ToggleOff", theme.ToggleOff) })
         {
-            var fillContrast = Contrast(theme.Accent, fill);
-            var strokeContrast = Contrast(theme.StrokeHalo, fill);
-            var best = Math.Max(fillContrast, strokeContrast);
+            var fillContrast = Contrast(fill, theme.SurfaceLight);
+            var outlineContrast = Contrast(theme.TextSecondary, theme.SurfaceLight);
+            var best = Math.Max(fillContrast, outlineContrast);
 
             Check.WithCustomMessage(
-                    $"{theme.Name}: bar vs {name} reaches only {best:F2}:1 "
-                    + $"(fill {fillContrast:F2}:1, halo {strokeContrast:F2}:1) — the bar must "
-                    + "clear 3:1 by its own fill or its halo, or it is not perceptible.")
+                    $"{theme.Name}: the {name} track reaches only {best:F2}:1 against the switch's "
+                    + $"SurfaceLight fill (fill {fillContrast:F2}:1, outline "
+                    + $"{outlineContrast:F2}:1) — below 3:1 the switch has no visible extent, so "
+                    + "there is nothing on screen for a gaze user to aim at.")
                 .That(best).IsStrictlyGreaterThan(3.0);
         }
     }

@@ -15,9 +15,9 @@ using EyeCtrl.Core.Processing;
 /// <remarks>
 /// <para>
 /// The currently selected option is highlighted by a coloured border (green,
-/// <c>SelectedColor</c>) on the outer wrapper of each button, with a thicker
-/// border thickness. A radio-button symbol (◉/◯) is also prepended to each
-/// option's text label.
+/// <c>SelectedColor</c>) on the outer wrapper of each button. The border's THICKNESS never
+/// changes — only its brush — so selecting an option cannot resize it or re-flow the row.
+/// A radio-button symbol (◉/◯) is also prepended to each option's text label.
 /// </para>
 /// <para>
 /// Selection highlight is intentionally kept on the outer wrapper border rather than the
@@ -31,6 +31,16 @@ public class DwellComboBox : IDwellComposite
 {
     private static Color BtnBase => Tokens.SurfaceMedium;
     private static Color SelectedColor => Tokens.ToggleOn;
+
+    /// <summary>
+    /// Option border thickness, identical selected or not.
+    ///
+    /// Constant by design: a Border's thickness lays out around its child, so varying it moved
+    /// the pill and re-flowed the whole WrapPanel on every selection. Two rather than one so the
+    /// unselected outline is visible against SurfaceKey without the selected state needing to
+    /// grow to be seen.
+    /// </summary>
+    private const double OptionBorderThickness = 2;
 
     private readonly DwellLabel _label;
     private readonly List<DwellButton> _options = new();
@@ -139,8 +149,8 @@ public class DwellComboBox : IDwellComposite
             {
                 Margin = new Thickness(0, 0, 8, 8),
                 CornerRadius = Tokens.StandardCornerRadius,
-                BorderBrush = new SolidColorBrush(BtnBase),
-                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Tokens.BorderSubtle),
+                BorderThickness = new Thickness(OptionBorderThickness),
                 Child = btn.Root
             };
 
@@ -201,10 +211,10 @@ public class DwellComboBox : IDwellComposite
 
     /// <summary>
     /// Updates the outer-border selection highlight for each option based on the
-    /// currently selected code value. The outer border's <c>BorderBrush</c> and
-    /// <c>BorderThickness</c> are used so the indicator lives on a different element from
-    /// dwell feedback, which <see cref="DwellButton.ApplyProgress"/> now renders as
-    /// <see cref="DwellButton.ProgressBar"/> inside the button.
+    /// currently selected code value. Only the outer border's <c>BorderBrush</c> is written —
+    /// never its thickness, see <see cref="OptionBorderThickness"/> — so the indicator lives on
+    /// a different element from dwell feedback, which <see cref="DwellButton.ApplyProgress"/>
+    /// now renders as <see cref="DwellButton.ProgressBar"/> inside the button.
     /// </summary>
     private void UpdateOptionSelectionStyles()
     {
@@ -213,8 +223,8 @@ public class DwellComboBox : IDwellComposite
         for (int i = 0; i < _optionBorders.Count && i < _codeOptions.Length; i++)
         {
             var isSelected = _codeOptions[i] == selectedCode;
-            _optionBorders[i].BorderBrush = new SolidColorBrush(isSelected ? SelectedColor : BtnBase);
-            _optionBorders[i].BorderThickness = isSelected ? new Thickness(3) : new Thickness(1);
+            _optionBorders[i].BorderBrush = new SolidColorBrush(isSelected ? SelectedColor : Tokens.BorderSubtle);
+            // Thickness deliberately untouched — see OptionBorderThickness.
         }
     }
 

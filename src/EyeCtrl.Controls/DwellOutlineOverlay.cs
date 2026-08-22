@@ -88,17 +88,35 @@ public sealed class DwellOutlineOverlay
 
         // Stroke is drawn centred on the geometry edge, so half of it would fall outside the
         // target. RadiusX/Y follow the container's corner so the outline traces the silhouette
-        // rather than cutting across it.
+        // rather than cutting across it. All four corners, not just the bottom two: unlike a
+        // bottom-edge bar, an outline runs through every corner.
         var radius = container.CornerRadius;
-        var corner = Math.Max(radius.BottomLeft, radius.BottomRight);
+        var corner = Math.Max(
+            Math.Max(radius.TopLeft, radius.TopRight),
+            Math.Max(radius.BottomLeft, radius.BottomRight));
 
         var halo = NewOutline(Tokens.BrushStrokeHalo, corner);
         var accent = NewOutline(Tokens.BrushAccent, corner);
 
+        // A Border arranges its Child inside its Padding, so an overlay installed as that Child
+        // is inset by it — and an outline inset from the edge stops being an outline. Measured on
+        // the prediction buttons (Padding 16,0,16,0): the accent band started 16 DIP in with the
+        // halo floating inside the button, leaving a ~13% dead belt at each end and rendering
+        // differently from the unpadded keys and category tabs.
+        //
+        // So the padding moves off the container and onto a wrapper around the content only: the
+        // content sits exactly where it did, while the outline spans the target itself. Wrapping
+        // rather than setting Margin on the content keeps this working for content that is not a
+        // FrameworkElement, and leaves the caller's own element untouched.
+        var padding = container.Padding;
+        container.Padding = new Thickness(0);
+
         var layout = new Grid();
         if (content is not null)
         {
-            layout.Children.Add(content);
+            layout.Children.Add(padding == default
+                ? content
+                : new Border { Padding = padding, Child = content });
         }
 
         // Halo first, accent over it: the dark edge reads as the outline's outer boundary.

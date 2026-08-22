@@ -506,14 +506,23 @@ public class SettingsContentFitTests
         slider.Attach(scratch);
         scratch.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
 
+        // Attach adds a DwellLabel heading above the row, so the panel's width is the wider of
+        // the two. Both are reported: the row dominates today (404.00 against the heading's 188.11),
+        // but a long enough heading could become the maximum, and "narrow PlateWidth" would then
+        // be the wrong advice.
+        var heading = scratch.Children[0].DesiredSize.Width;
+        var row = scratch.Children[1].DesiredSize.Width;
+
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
-                "The slider row wants {0:F2} DIP against a {1:F2} DIP content column on a {2:F0} "
-                + "DIP display. It is a composite, so nothing caps it and its StackPanel clips "
-                + "rather than wraps — the plus button would be drawn off the panel. Narrow "
-                + "DwellSlider's PlateWidth; do not narrow the sidebar, which "
-                + "SettingsTabLabelFitTests needs.",
-                scratch.DesiredSize.Width, available, NarrowDisplayWidthDip))
+                "The slider composite wants {0:F2} DIP against a {1:F2} DIP content column on a "
+                + "{2:F0} DIP display. It is a composite, so nothing caps it and its StackPanel "
+                + "clips rather than wraps — the plus button would be drawn off the panel. The "
+                + "heading measures {3:F2} and the stepper row {4:F2}: if the ROW is the larger, "
+                + "narrow DwellSlider's PlateWidth; if the HEADING is, shorten that setting's "
+                + "label. Either way do not narrow the sidebar, which SettingsTabLabelFitTests "
+                + "needs.",
+                scratch.DesiredSize.Width, available, NarrowDisplayWidthDip, heading, row))
             .That(scratch.DesiredSize.Width).IsLessOrEqualThan(available);
     }
 

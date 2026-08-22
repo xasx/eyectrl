@@ -481,6 +481,42 @@ public class SettingsContentFitTests
         return panel;
     }
 
+    /// <summary>
+    /// The slider row is a composite, and composites are deliberately NOT capped by
+    /// ConstrainToContentWidth — DwellSlider owns a horizontal StackPanel, which clips rather
+    /// than wraps. So its natural width has to fit the narrowest column outright. The plate that
+    /// widened this row from 356 to 404 DIP is the reason this guard exists.
+    /// </summary>
+    [StaFact]
+    public void TheSliderRow_FitsTheContentColumn_OnANarrowDisplay()
+    {
+        var root = Xml();
+        var contentArea = Margin(root, "ContentArea");
+        var contentPanel = Margin(root, "ContentPanel");
+        var available = WindowWidthFor(NarrowDisplayWidthDip)
+            - SidebarWidth(root)
+            - contentArea.Left - contentArea.Right
+            - contentPanel.Left - contentPanel.Right;
+
+        var scratch = new StackPanel();
+        TextElement.SetFontFamily(scratch, Tokens.FontStandard);
+        var slider = new DwellSlider(
+            new NullRegistrar(), "sl", "Smoothing Factor", 0, 1, 0.1, 1,
+            () => 0.5, _ => { }, DwellCategory.Control, 50, 800);
+        slider.Attach(scratch);
+        scratch.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "The slider row wants {0:F2} DIP against a {1:F2} DIP content column on a {2:F0} "
+                + "DIP display. It is a composite, so nothing caps it and its StackPanel clips "
+                + "rather than wraps — the plus button would be drawn off the panel. Narrow "
+                + "DwellSlider's PlateWidth; do not narrow the sidebar, which "
+                + "SettingsTabLabelFitTests needs.",
+                scratch.DesiredSize.Width, available, NarrowDisplayWidthDip))
+            .That(scratch.DesiredSize.Width).IsLessOrEqualThan(available);
+    }
+
     [StaFact]
     public void TheContentAdd_StillAppliesTheConstraint()
     {

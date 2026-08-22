@@ -19,10 +19,9 @@ using EyeCtrl.Core.Processing;
 /// <para>
 /// The plate between the buttons carries the range as well as the value: the current value at
 /// display size, over a rail filled to that value's position in [<c>min</c>, <c>max</c>] and
-/// labelled with both ends. A bare number said none of that — nothing on screen named the
-/// range or the step, so a user dwelling (+) could not tell whether they were near an end or
-/// whether the next activation would move anything at all. The rail answers both without a
-/// word of help text.
+/// labelled with both ends. That is what tells a user dwelling (+) whether they are near an
+/// end and whether the next activation will move anything — a number on its own names neither
+/// the range nor the step, and the rail says both without a word of help text.
 /// </para>
 /// </remarks>
 public class DwellSlider : IDwellComposite
@@ -38,11 +37,13 @@ public class DwellSlider : IDwellComposite
     private const double PlateWidth = 180;
 
     /// <summary>
-    /// Plate height in DIPs, matched to the stepper buttons either side.
+    /// Plate height in DIPs. Must equal the stepper buttons' height either side, which is
+    /// <see cref="DwellButton"/>'s default — this type does not pass one.
     /// <c>SettingsAutoPagination</c> measures row heights to decide where a settings page
     /// breaks, so a plate taller than the buttons would silently re-paginate every page that
-    /// carries a slider. Pinned by
-    /// DwellSliderPlateTests.ThePlate_IsNoTallerThanTheRowItSitsIn.
+    /// carries a slider. DwellSliderPlateTests.ThePlate_IsExactlyAsTallAsItsStepperButtons
+    /// compares the two rather than either against a literal, so a change to that default
+    /// fails there instead of drifting.
     /// </summary>
     private const double PlateHeight = 100;
 
@@ -72,30 +73,30 @@ public class DwellSlider : IDwellComposite
     public IEnumerable<DwellControl> Children => [_minus, _plus];
 
     /// <summary>The current value, rendered at display size in the plate.</summary>
-    public TextBlock ValueText => _valueText;
+    internal TextBlock ValueText => _valueText;
 
     /// <summary>The minimum end-label under the rail.</summary>
-    public TextBlock MinimumText => _minText;
+    internal TextBlock MinimumText => _minText;
 
     /// <summary>The maximum end-label under the rail.</summary>
-    public TextBlock MaximumText => _maxText;
+    internal TextBlock MaximumText => _maxText;
 
     /// <summary>The surface the value and both end-labels are read against.</summary>
-    public Border Plate => _plate;
+    internal Border Plate => _plate;
 
     /// <summary>
     /// The rail's empty groove — the surface <see cref="RailFill"/> has to be visible against.
     /// </summary>
-    public Border RailTrack => _railTrack;
+    internal Border RailTrack => _railTrack;
 
     /// <summary>
     /// The filled part of the rail: stretched to the track's full width, then scaled down to
     /// <see cref="RailFraction"/> about its left edge.
     /// </summary>
-    public Rectangle RailFill => _railFill;
+    internal Rectangle RailFill => _railFill;
 
     /// <summary>How far along its range the value sits, in [0, 1]. Zero on a degenerate range.</summary>
-    public double RailFraction => _railScale.ScaleX;
+    internal double RailFraction => _railScale.ScaleX;
 
     /// <summary>
     /// Creates a <see cref="DwellSlider"/>.
@@ -141,9 +142,14 @@ public class DwellSlider : IDwellComposite
 
         _label = new DwellLabel(label);
 
+        // Read once and feed both the number and the rail. Two calls would let a non-pure getter
+        // put the plate in a state it can never reach again: a number saying one thing and a rail
+        // saying another, from the very first frame.
+        var initial = get();
+
         _valueText = new TextBlock
         {
-            Text = FormatVal(get()),
+            Text = FormatVal(initial),
             Foreground = Tokens.BrushTextPrimary,
             FontSize = Tokens.FontSizeDisplay,
             FontWeight = Tokens.FontWeightStrong,
@@ -188,10 +194,13 @@ public class DwellSlider : IDwellComposite
             RenderTransformOrigin = new Point(0, 0.5)
         };
 
-        // SmallCornerRadius rather than a raw RailHeight / 2 — RawGeometryLiteralTests requires a
-        // token here — and NOT CircleCornerRadius, which CornerRadiusClampTests reserves for
-        // square elements: on a long thin one that token inscribes an ellipse, not a stadium.
-        // WPF clamps each radius to half its own axis, so 4 draws as 4 x 2.5 on a 5 DIP track.
+        // The track and the fill above it round from different sources on purpose. A Border's
+        // CornerRadius must be token-backed (RawGeometryLiteralTests scans that property; it does
+        // not scan a Shape's RadiusX/RadiusY), and the token cannot be CircleCornerRadius, which
+        // CornerRadiusClampTests reserves for square elements — on a long thin one it inscribes
+        // an ellipse rather than a stadium. So the track takes SmallCornerRadius, which WPF
+        // clamps per axis to at most half the track's height whatever the theme sets it to, while
+        // the fill takes the exact semicircular RailHeight / 2 no token expresses.
         _railTrack = new Border
         {
             Height = RailHeight,
@@ -242,7 +251,7 @@ public class DwellSlider : IDwellComposite
         _row.Children.Add(_plate);
         _row.Children.Add(_plus.Root);
 
-        UpdateRail(get());
+        UpdateRail(initial);
     }
 
     /// <inheritdoc/>

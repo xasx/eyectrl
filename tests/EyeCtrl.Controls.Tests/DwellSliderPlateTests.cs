@@ -2,6 +2,7 @@ namespace EyeCtrl.Controls.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -13,14 +14,20 @@ using NFluent;
 using Xunit;
 
 /// <summary>
-/// The value plate must say what the bare number never did: where this value sits between its
+/// The value plate must say what a bare number cannot: where this value sits between its
 /// minimum and maximum. A gaze user dwelling "+" otherwise has no way to know they are at an end.
 /// </summary>
 public class DwellSliderPlateTests
 {
-    /// <summary>A slider over [min, max] reporting a fixed current value. Decimals: 1.</summary>
-    private static DwellSlider Build(double min, double max, double step, double current) =>
-        new(new FakeRegistrar(), "sl", "Smoothing", min, max, step, 1,
+    /// <summary>A slider over [min, max] reporting a fixed current value.</summary>
+    /// <param name="min">The range's lower end.</param>
+    /// <param name="max">The range's upper end.</param>
+    /// <param name="step">Amount one activation moves the value.</param>
+    /// <param name="current">The value the slider reports.</param>
+    /// <param name="decimals">Decimal places shown; 1 unless a case needs integers.</param>
+    private static DwellSlider Build(
+        double min, double max, double step, double current, int decimals = 1) =>
+        new(new FakeRegistrar(), "sl", "Smoothing", min, max, step, decimals,
             () => current, _ => { }, DwellCategory.Control, 50, 800);
 
     /// <summary>
@@ -30,7 +37,8 @@ public class DwellSliderPlateTests
     /// it and lets it inherit down — measuring in WPF's default face would report widths the
     /// application never produces.
     /// </summary>
-    private static StackPanel LayOut(DwellSlider slider)
+    /// <param name="slider">The composite to attach and lay out.</param>
+    private static void LayOut(DwellSlider slider)
     {
         var panel = new StackPanel();
         TextElement.SetFontFamily(panel, Tokens.FontStandard);
@@ -40,8 +48,14 @@ public class DwellSliderPlateTests
         host.Measure(new Size(600, 400));
         host.Arrange(new Rect(0, 0, 600, 400));
         host.UpdateLayout();
-        return panel;
     }
+
+    /// <summary>
+    /// Attaches <paramref name="slider"/> without laying it out — enough to register its dwell
+    /// targets, which <c>Attach</c> does and the constructor does not.
+    /// </summary>
+    /// <param name="slider">The composite to attach.</param>
+    private static void AttachOnly(DwellSlider slider) => slider.Attach(new StackPanel());
 
     private static double Channel(byte c)
     {
@@ -75,30 +89,23 @@ public class DwellSliderPlateTests
     {
         var slider = Build(0, 1, 0.1, current: 0.5);
 
-        Check.That(slider.RailFraction).IsEqualTo(0.5);
+        // Exact today, but a computed quotient: IsCloseTo so the next person copying this line
+        // for a range with a nonzero min gets a real assertion rather than a flake.
+        Check.That(slider.RailFraction).IsCloseTo(0.5, 1e-9);
     }
 
     [StaFact]
     public void Rail_AtTheMinimum_IsEmpty_AndAtTheMaximum_IsFull()
     {
-        var slider = new DwellSlider(
-            new FakeRegistrar(), "sl", "Thickness", 1, 6, 0.5, 1,
-            () => 1.0, v => { }, DwellCategory.Control, 50, 800);
-        Check.That(slider.RailFraction).IsEqualTo(0.0);
-
-        var atMax = new DwellSlider(
-            new FakeRegistrar(), "sl", "Thickness", 1, 6, 0.5, 1,
-            () => 6.0, v => { }, DwellCategory.Control, 50, 800);
-        Check.That(atMax.RailFraction).IsEqualTo(1.0);
+        Check.That(Build(1, 6, 0.5, current: 1.0).RailFraction).IsCloseTo(0.0, 1e-9);
+        Check.That(Build(1, 6, 0.5, current: 6.0).RailFraction).IsCloseTo(1.0, 1e-9);
     }
 
     [StaFact]
     public void Rail_OnADegenerateRange_DoesNotDivideByZero()
     {
         // min == max is nonsense but must not produce NaN and paint an invisible rail.
-        var slider = new DwellSlider(
-            new FakeRegistrar(), "sl", "Fixed", 3, 3, 1, 0,
-            () => 3.0, v => { }, DwellCategory.Control, 50, 800);
+        var slider = Build(3, 3, 1, current: 3.0, decimals: 0);
 
         Check.That(double.IsNaN(slider.RailFraction)).IsFalse();
         Check.That(slider.RailFraction).IsEqualTo(0.0);
@@ -122,12 +129,13 @@ public class DwellSliderPlateTests
             registrar, "sl", "Smoothing", 0, 1, 0.1, 1,
             () => value, v => value = v, DwellCategory.Control, 50, 800);
 
-        // Registration happens in Attach, not in the constructor, so the activation the
-        // registrar fires below only exists once the composite is on a panel.
-        LayOut(slider);
+        // Attach, because registration happens there and not in the constructor: without it the
+        // activation the registrar fires below does not exist. No layout pass — this test reads
+        // only the number and the scale factor, neither of which needs one.
+        AttachOnly(slider);
 
         Check.That(slider.ValueText.Text).IsEqualTo("0.5");
-        Check.That(slider.RailFraction).IsEqualTo(0.5);
+        Check.That(slider.RailFraction).IsCloseTo(0.5, 1e-9);
 
         // "_up" is the plus button; DwellSlider registers {idPrefix}_dn and {idPrefix}_up.
         registrar.Activate("sl_up");
@@ -140,7 +148,7 @@ public class DwellSliderPlateTests
                 $"the value moved to 0.6 of the way along [0, 1] but the rail is at "
                 + $"{slider.RailFraction} — the number moved and the rail did not, so the plate "
                 + "now contradicts itself.")
-            .That(slider.RailFraction).IsEqualTo(0.6);
+            .That(slider.RailFraction).IsCloseTo(0.6, 1e-9);
     }
 
     /// <summary>
@@ -166,10 +174,11 @@ public class DwellSliderPlateTests
         var slider = Build(0, 1, 0.1, current: 0.5);
         LayOut(slider);
 
-        // Recorded under Tokens.FontStandard at PlateWidth 180: a 152 DIP plate interior less
-        // the two 18 DIP end-labels and their 10 DIP gutters leaves the rail 88.26 DIP. Read
-        // rather than restated below — the point of this test is where the fill sits inside the
-        // rail, not how wide the rail came out.
+        // Recorded under Tokens.FontStandard at PlateWidth 180: of the plate's 152.00 DIP interior
+        // the rail takes 88.26, the two 10 DIP gutters 20.00, and the Auto-width end-labels the
+        // remaining 43.74 — 23.31 for "0.0" against 20.43 for "1.0", this face's digits not being
+        // tabular. Read rather than restated below: what this test is about is where the fill sits
+        // inside the rail, not how wide the rail came out.
         var width = slider.RailFill.ActualWidth;
         Check.WithCustomMessage(
                 "the rail measured no width at all, so nothing below is measuring the layout")
@@ -183,15 +192,64 @@ public class DwellSliderPlateTests
                 $"the fill's painted left edge sits {left:F2} DIP in from the track's left edge — "
                 + "it is growing from its centre, so it reads as 'the middle of the range' "
                 + "rather than 'up to here'.")
-            .That(left).IsEqualTo(0.0);
+            .That(left).IsCloseTo(0.0, 1e-9);
         Check.WithCustomMessage(
                 $"at half the range the fill paints from {left:F2} to {right:F2} of an "
                 + $"{width:F2} DIP rail; half of it is {width / 2:F2}.")
-            .That(right).IsEqualTo(width / 2);
+            .That(right).IsCloseTo(width / 2, 1e-9);
+
+        // A diagnostic rather than the guarantee — the two checks above already measure where
+        // the ink lands. This one names the property responsible, so the failure says "the
+        // anchor moved" instead of leaving the reader to infer it from two offsets.
         Check.WithCustomMessage(
                 $"RenderTransformOrigin is {slider.RailFill.RenderTransformOrigin}; its X must be "
                 + "0 or the fill is anchored somewhere other than the minimum end of the rail.")
             .That(slider.RailFill.RenderTransformOrigin.X).IsEqualTo(0.0);
+    }
+
+    /// <summary>
+    /// Every other test here uses [0, 1] — the friendliest range in the application. The plate
+    /// is fixed-width and its end-labels are <c>Auto</c> columns either side of the rail's
+    /// <c>Star</c>, so label width comes straight out of rail width: a range whose ends print
+    /// wide leaves less rail, and does so silently, because nothing clips and nothing overflows.
+    ///
+    /// The widest real range is <c>qa_dismiss</c>, "Dismiss Timeout (ms)" over 1000 … 15000 at
+    /// <c>decimals: 0</c> (src/EyeCtrl.App/Views/Settings/Sources/QuickActionsPageSource.cs:59)
+    /// — nine digits of end-label against three for [0.0, 1.0], and the widest of all 26
+    /// <c>SliderSpec</c> sites in the settings sources.
+    ///
+    /// The floor is 8x the rail's own 5 DIP height. Below roughly that aspect the rail stops
+    /// reading as a bar whose fill can be judged at a glance and starts reading as a stub, which
+    /// defeats the point of having it; it is a shape judgement, so it is stated as one rather
+    /// than dressed up as a derived quantity.
+    ///
+    /// Measured: this range leaves the rail 50.44 DIP, against the 88.26 that [0.0, 1.0] leaves
+    /// (see <see cref="Rail_GrowsFromTheLeftEdge"/>). So the widest range in the app already
+    /// spends 37.82 DIP of rail on its labels and clears the floor by 10.44 — real headroom, but
+    /// not much, which is the reason this is pinned rather than assumed.
+    /// </summary>
+    [StaFact]
+    public void Rail_OnTheWidestRealRange_StaysWideEnoughToRead()
+    {
+        const double floorDip = 40;
+
+        var slider = Build(1000, 15000, 500, current: 8000, decimals: 0);
+        LayOut(slider);
+
+        Check.That(slider.MinimumText.Text).IsEqualTo("1000");
+        Check.That(slider.MaximumText.Text).IsEqualTo("15000");
+
+        Check.WithCustomMessage(string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "Over the app's widest real range (qa_dismiss, 1000 to 15000) the rail is squeezed "
+                + "to {0:F2} DIP by its end-labels, under the {1:F0} DIP floor. The labels are Auto "
+                + "columns and the rail is the Star one, so widening the labels — a larger "
+                + "FontSizeSubtitle, wider gutters, or a wider range reaching this control — takes "
+                + "it straight off the rail. Widen DwellSlider's PlateWidth only as far as "
+                + "SettingsContentFitTests.TheSliderRow_FitsTheContentColumn_OnANarrowDisplay "
+                + "allows; otherwise shrink the gutters or the label font.",
+                slider.RailTrack.ActualWidth, floorDip))
+            .That(slider.RailTrack.ActualWidth).IsGreaterOrEqualThan(floorDip);
     }
 
     /// <summary>
@@ -235,41 +293,56 @@ public class DwellSliderPlateTests
 
     /// <summary>
     /// The plate must fit the row it replaced a bare TextBlock in. <c>SettingsAutoPagination</c>
-    /// measures row heights to decide where a page breaks, and the stepper buttons either side
-    /// are 100 DIP tall, so a plate that measures taller silently re-paginates every settings
-    /// page that carries a slider.
+    /// measures row heights to decide where a page breaks, so a plate taller than the steppers
+    /// either side would silently re-paginate every settings page that carries a slider.
+    ///
+    /// Compared against the stepper buttons themselves, not against a literal 100.
+    /// <c>DwellSlider</c> never passes <c>height</c> to <see cref="DwellButton"/>, so the row's
+    /// height is that constructor's default — and a change to the default would leave a literal
+    /// assertion green while the plate stopped matching its own row.
     ///
     /// Two halves, because the declared height alone is not the guarantee. The plate's own
-    /// <c>DesiredSize</c> is useless here — an explicit <c>Height</c> makes it 100 whatever the
-    /// content wants, and WPF then clips the overflow rather than reporting it. So the second
-    /// half re-measures the plate's content unconstrained vertically, at the plate's own inner
-    /// width, which is the only reading that can say "this no longer fits".
+    /// <c>DesiredSize</c> is useless here — an explicit <c>Height</c> makes it exactly that
+    /// whatever the content wants, and WPF then clips the overflow rather than reporting it. So
+    /// the second half re-measures the plate's content unconstrained vertically, at the plate's
+    /// own inner width, which is the only reading that can say "this no longer fits".
     /// </summary>
     [StaFact]
-    public void ThePlate_IsNoTallerThanTheRowItSitsIn()
+    public void ThePlate_IsExactlyAsTallAsItsStepperButtons()
     {
         var slider = Build(0, 1, 0.1, current: 0.5);
         LayOut(slider);
 
+        var steppers = slider.Children.ToList();
         Check.WithCustomMessage(
-                $"the plate is {slider.Plate.Height} DIP tall against the 100 DIP stepper "
-                + "buttons it sits between.")
-            .That(slider.Plate.Height).IsEqualTo(100.0);
+                "the slider no longer exposes exactly the two stepper buttons this compares the "
+                + "plate against")
+            .That(steppers.Count).IsEqualTo(2);
+
+        foreach (var stepper in steppers)
+        {
+            Check.WithCustomMessage(
+                    $"the plate is {slider.Plate.Height} DIP tall but the stepper button beside "
+                    + $"it is {stepper.Root.Height} — the row is now as tall as whichever is "
+                    + "larger, and every SettingsAutoPagination row count shifts with it.")
+                .That(slider.Plate.Height).IsEqualTo(stepper.Root.Height);
+        }
 
         var content = (FrameworkElement)slider.Plate.Child;
         var inner = slider.Plate.Width - slider.Plate.Padding.Left - slider.Plate.Padding.Right;
 
         // Measure() short-circuits on IsMeasureValid, and this content was just measured against
-        // the plate's fixed 100 DIP. Invalidate it or the call below hands back that clamped
+        // the plate's fixed height. Invalidate it or the call below hands back that clamped
         // reading and the assertion is vacuous.
         content.InvalidateMeasure();
         content.Measure(new Size(inner, double.PositiveInfinity));
 
         Check.WithCustomMessage(
                 $"the plate's content wants {content.DesiredSize.Height:F2} DIP at its {inner:F2} "
-                + "DIP inner width, more than the 100 DIP plate it is drawn in — WPF will clip it "
-                + "rather than grow the row, so the value or an end-label is now cut off.")
-            .That(content.DesiredSize.Height).IsLessOrEqualThan(100.0);
+                + $"DIP inner width, more than the {slider.Plate.Height} DIP plate it is drawn in "
+                + "— WPF will clip it rather than grow the row, so the value or an end-label is "
+                + "now cut off.")
+            .That(content.DesiredSize.Height).IsLessOrEqualThan(slider.Plate.Height);
     }
 
     /// <summary>

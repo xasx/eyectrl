@@ -38,14 +38,19 @@ public partial class KeyboardWindow : OverlayWindow
 
     private readonly DwellDetector _predictionDwellDetector;
     private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();
-    // One mutable brush per key, mutated in place by UpdateKeyVisual/ResetKeyVisual/
-    // UpdateModifierVisuals so dwell updates at gaze rate never allocate a brush per tick
-    // (mirrors _predictionBrushes). Each brush is also installed as its Container.Background.
+    // One mutable brush per key, installed as its Container.Background and mutated in place by
+    // ResetKeyVisual/UpdateModifierVisuals on a STATE change (modifier active/inactive).
+    // Dwell progress no longer touches it — that is _keyOutlines — so the surface a key's label
+    // sits on holds still for the whole dwell.
     private readonly Dictionary<string, SolidColorBrush> _keyBrushes = new();
+    // Dwell feedback is an accent outline thickening inward from each key's edge, NOT a wash
+    // over the key's fill. The wash collapsed a normal key's label from 10.42:1 to 1.08:1 at
+    // full dwell (Midnight; 1.18 Ember, 1.25 Contrast) — see DwellOutlineOverlay for why no
+    // choice of wash target repairs that on a dark key with a light label.
+    private readonly Dictionary<string, DwellOutlineOverlay> _keyOutlines = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
-    private readonly List<SolidColorBrush> _predictionBrushes = new();
-    private readonly List<Color> _predictionBaseColors = new();
+    private readonly List<DwellOutlineOverlay> _predictionOutlines = new();
 
     private KeyboardViewModel? _viewModel;
     private EmojiGridManager? _emojiManager;
@@ -206,10 +211,10 @@ public partial class KeyboardWindow : OverlayWindow
                     Height = _keySize,
                     Margin = new Thickness(2),
                     Background = keyBrush,
-                    CornerRadius = Tokens.StandardCornerRadius,
-                    Child = label
+                    CornerRadius = Tokens.StandardCornerRadius
                 };
                 _keyBrushes[id] = keyBrush;
+                _keyOutlines[id] = DwellOutlineOverlay.Attach(container, label);
 
                 System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Keyboard_Key_{id}");
 
@@ -437,8 +442,7 @@ public partial class KeyboardWindow : OverlayWindow
 
         _predictionDwellDetector.ClearTargets();
         _predictionTargetsInitialized = false;
-        _predictionBrushes.Clear();
-        _predictionBaseColors.Clear();
+        _predictionOutlines.Clear();
         PredictionBar.Children.Clear();
 
         var suggestions = _viewModel.GetSuggestionsWithContext();
@@ -480,11 +484,7 @@ public partial class KeyboardWindow : OverlayWindow
                 baseColor = Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B);
             }
 
-            // Store base color for dwell highlight blending
-            _predictionBaseColors.Add(baseColor);
-
             var brush = new SolidColorBrush(baseColor);
-            _predictionBrushes.Add(brush);
 
             // Optionally add type badge
             UIElement labelOrStack = predLabel;
@@ -512,9 +512,9 @@ public partial class KeyboardWindow : OverlayWindow
                 Margin = new Thickness(3),
                 Padding = new Thickness(16, 0, 16, 0),
                 Background = brush,
-                CornerRadius = Tokens.StandardCornerRadius,
-                Child = labelOrStack
+                CornerRadius = Tokens.StandardCornerRadius
             };
+            _predictionOutlines.Add(DwellOutlineOverlay.Attach(btn, labelOrStack));
 
             PredictionBar.Children.Add(btn);
             _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(_keySize / 2), _predictionDwellMs));
@@ -572,19 +572,11 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (!targetId.StartsWith("pred_")) return;
         if (!int.TryParse(targetId.AsSpan(5), out var index)) return;
-        if (index < 0 || index >= _predictionBrushes.Count) return;
+        if (index < 0 || index >= _predictionOutlines.Count) return;
 
-        // Linear blend from the stored base colour toward Accent as dwell progresses.
-        // (Previously this blended base→Accent by `progress` to form the target, then
-        // base→that by `progress` again — a p² ramp that muted mid-dwell.)
-        var baseColor = _predictionBaseColors[index];
-        var highlightColor = Tokens.Accent;
-
-        _predictionBrushes[index].Color = Color.FromArgb(
-            baseColor.A,
-            (byte)(baseColor.R * (1 - progress) + highlightColor.R * progress),
-            (byte)(baseColor.G * (1 - progress) + highlightColor.G * progress),
-            (byte)(baseColor.B * (1 - progress) + highlightColor.B * progress));
+        // Same reasoning as the keys: the wash here ran at full strength too, so a suggestion's
+        // label collapsed as the user read it — and predictions sit directly above the keys.
+        _predictionOutlines[index].SetProgress(progress);
     }
 
     private void OnPredictionDwelled(string targetId)
@@ -606,19 +598,23 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
 
-        var baseColor = GetKeyBaseColor(targetId);
-        // Linear blend toward Accent (see OnPredictionProgress): target is Accent itself, not a
-        // pre-blended colour, so mid-dwell is a correct linear ramp rather than the old p² curve.
-        //
-        // Alpha comes from baseColor, not a hardcoded 200. The pre-migration base colours were
-        // all FromArgb(200, ...), so forcing 200 here matched them; the token base colours are
-        // opaque, so it made a key turn slightly translucent while dwelling and snap back to
-        // opaque on reset (ResetKeyVisual assigns the token directly).
-        _keyBrushes[targetId].Color = ColorBlend.Blend(baseColor, Tokens.Accent, progress);
+        // Thicken the outline; the key's fill and label are left alone, so the label's
+        // contrast at the end of a dwell equals its contrast at rest.
+        if (_keyOutlines.TryGetValue(targetId, out var outline))
+        {
+            outline.SetProgress(progress);
+        }
     }
 
     private void ResetKeyVisual(string targetId)
     {
+        // Clear the outline first: it is independent of the fill below, so an early return on a
+        // missing brush must not leave a half-drawn outline behind.
+        if (_keyOutlines.TryGetValue(targetId, out var outline))
+        {
+            outline.SetProgress(0);
+        }
+
         if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
         if (!_keyBrushes.TryGetValue(targetId, out var brush)) return;
 
@@ -705,6 +701,7 @@ public partial class KeyboardWindow : OverlayWindow
     {
         _keyVisuals.Clear();
         _keyBrushes.Clear();
+        _keyOutlines.Clear();
         _keyDefinitions.Clear();
         _keyScreenPositions.Clear();
     }

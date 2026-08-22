@@ -236,7 +236,7 @@ public class DwellComboBox : IDwellComposite
     private void Refresh()
     {
         // Only update the text indicator; selection highlight is handled by UpdateOptionSelectionStyles()
-        // via the outer border's BorderBrush/BorderThickness. Root.Background is DwellButton's own
+        // via the outer border's BorderBrush alone. Root.Background is DwellButton's own
         // brush instance — replacing it here is what used to orphan the colour swatches' dwell
         // feedback (fixed 2026-08-20), so leave it to the button.
         var active = _getCode();

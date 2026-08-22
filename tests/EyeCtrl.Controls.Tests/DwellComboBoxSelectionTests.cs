@@ -21,9 +21,12 @@ public class DwellComboBoxSelectionTests
 {
     /// <summary>
     /// Labels short enough that every option clamps to the pill's <c>MinWidth</c> of 150 DIP,
-    /// so a measured row is driven by the border alone. "Gamma" is not: at the title font size
-    /// it needs 153.57 DIP, and the ◉ it wears when selected is 0.48 DIP wider than the ◯ it
-    /// wears otherwise — two width sources that have nothing to do with the border under test.
+    /// so a measured row is driven by the border alone — each of these pills measures exactly
+    /// 150.000 DIP wide in every selection state. "Gamma" does not clamp: at the title font size
+    /// it measures 151.570 unselected and 152.050 selected, because the ◉ it wears when selected
+    /// is 0.480 DIP wider than the ◯ it wears otherwise. Two width sources that have nothing to
+    /// do with the border under test. (Figures from a recorded unconstrained Measure of this
+    /// composite under <see cref="Tokens.FontStandard"/>.)
     /// </summary>
     private static readonly string[] NarrowOptions = ["Low", "Mid", "High"];
 
@@ -83,6 +86,20 @@ public class DwellComboBoxSelectionTests
         Check.That(colours.Distinct().Count()).IsEqualTo(2);
         Check.That(colours.Count(c => c == Tokens.ToggleOn)).IsEqualTo(1);
         Check.That(borders.Select(b => b.BorderThickness.Left).Distinct().Count()).IsEqualTo(1);
+
+        // Which two colours, named. Counting distinct colours cannot see the unselected brush
+        // regress to the button's own fill (SurfaceMedium) — an outline the same colour as the
+        // thing it outlines is no outline at all, yet it stays just as "distinct" from ToggleOn.
+        // These are the post-construction brushes: the constructor's initial BorderBrush is
+        // unobservable because UpdateOptionSelectionStyles overwrites every one of them.
+        Check.WithCustomMessage(
+                $"unselected options must outline in BorderSubtle ({Tokens.BorderSubtle}); the row "
+                + $"paints [{string.Join(", ", colours)}]")
+            .That(colours.Count(c => c == Tokens.BorderSubtle)).IsEqualTo(2);
+        Check.WithCustomMessage(
+                $"an option is outlined in the button's own fill SurfaceMedium ({Tokens.SurfaceMedium}) "
+                + "— an invisible outline")
+            .That(colours.Any(c => c == Tokens.SurfaceMedium)).IsFalse();
     }
 
     /// <summary>
@@ -104,14 +121,20 @@ public class DwellComboBoxSelectionTests
         var firstPanel = AttachAndMeasure(firstSelected);
         var lastPanel = AttachAndMeasure(lastSelected);
 
+        // COARSE BACKSTOP, NOT THE REAL CHECK. A WrapPanel's total is order-blind: whichever
+        // option grew, the sum is the same, so this passed with the 1px/3px defect live. It can
+        // only see the row's overall footprint changing (e.g. a thickness that varies with how
+        // many options exist) — never which option grew. The per-option self-comparison below is
+        // the assertion that bites.
         Check.WithCustomMessage(
-                $"row with the first option selected measures {firstPanel.DesiredSize} but with "
-                + $"the last selected it measures {lastPanel.DesiredSize} — selection re-flows the row.")
+                $"the row's total footprint is {firstPanel.DesiredSize} with the first option "
+                + $"selected but {lastPanel.DesiredSize} with the last — order-blind, so this says "
+                + "nothing about which option moved; see the per-option check below for that.")
             .That(firstPanel.DesiredSize).IsEqualTo(lastPanel.DesiredSize);
 
-        // The row's total is order-independent, so it stays put even when one pill grows and the
-        // rest slide along under the user's gaze. Compare each option against ITSELF in the two
-        // selection states — that is what moves the hit circles.
+        // The assertion that bites: compare each option against ITSELF in the two selection
+        // states. A pill that grows when chosen slides every pill after it — and every hit
+        // circle with them — under the user's gaze.
         var firstPills = OptionBorders(firstSelected);
         var lastPills = OptionBorders(lastSelected);
         for (int i = 0; i < firstPills.Count; i++)

@@ -1,252 +1,414 @@
 namespace EyeCtrl.Controls.Tests;
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using NFluent;
 using Xunit;
 
+/// <summary>
+/// <see cref="DwellToggle"/> is a COMPOSITE: a plain label the user reads, plus a switch that is
+/// the only dwell target. Both halves of that sentence are accessibility, not styling.
+///
+/// <para>
+/// Why the target moved onto the switch. <see cref="DwellControl.UpdatePosition"/> registers the
+/// hit circle at <see cref="DwellControl.Root"/>'s CENTRE, so a one-<c>DwellControl</c> row
+/// carrying a label on the left and a switch on the right would put a 100 DIP circle in the
+/// middle of a ~416 DIP row: the user would have to dwell the gap between the two, and looking at
+/// the switch — the obvious thing to look at — would miss by roughly 130 DIP. The registration
+/// tests below (<see cref="TheLabelIsNotADwellTarget"/>,
+/// <see cref="ActivationFlowsThroughTheRegistrar"/>) are what hold that.
+/// </para>
+/// <para>
+/// Why the label moved off the state fill. #D6DEF5 on the #4A8F5C ON fill measures 2.91:1 — under
+/// the 3:1 large-text bar, at rest, before any dwell — and no amount of holding the fill still
+/// fixes a resting number. On the row surface the same label measures 10.33:1
+/// (<see cref="TheLabelSitsOnTheRowSurface_AndClearsFourAndAHalfToOneThere"/>).
+/// </para>
+/// <para>
+/// Dwell feedback is the switch's own <see cref="DwellButton.ProgressBar"/>, exercised through a
+/// fake registrar and the real <see cref="DwellControl.UpdateVisual"/> rather than a test-only
+/// hook on the production type — the convention <c>DwellColorPickerProgressTests</c> and
+/// <c>DwellProgressContrastTests</c> established.
+/// </para>
+/// </summary>
 public class DwellToggleVisualTests
 {
-    [StaFact]
-    public void RefreshVisual_OnState_ShowsCheckedSymbol()
+    /// <summary>The dwell radius every toggle here is built with, in the same units as DIP at 96 dpi.</summary>
+    private const double Radius = 50;
+
+    /// <summary>
+    /// A toggle over a CAPTURED bool, so <c>Toggle()</c> really flips the value the control reads
+    /// back. A throwaway setter (<c>_ => { }</c>) would leave every assertion below checking a
+    /// state that never changed.
+    /// </summary>
+    private static DwellToggle Build(bool initial) => Build(new FakeRegistrar(), initial);
+
+    /// <summary>
+    /// As <see cref="Build(bool)"/>, but activations land in <paramref name="registrar"/> so a
+    /// test can fire one the way the overlay's dwell detector would.
+    /// </summary>
+    private static DwellToggle Build(FakeRegistrar registrar, bool initial)
     {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
-
-        var text = toggle.Label;
-        Check.That(text.Text).StartsWith("\u2611 ");
-    }
-
-    [StaFact]
-    public void RefreshVisual_OffState_ShowsUncheckedSymbol()
-    {
-        var state = false;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
-
-        var text = toggle.Label;
-        Check.That(text.Text).StartsWith("\u2610 ");
-    }
-
-    [StaFact]
-    public void Toggle_FlipsState()
-    {
-        var state = false;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
-
-        toggle.TestOnActivated();
-
-        Check.That(state).IsTrue();
-    }
-
-    [StaFact]
-    public void ApplyProgress_SweepsTheBar()
-    {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
-
-        toggle.TestApplyProgress(0.75);
-
-        Check.That(((ScaleTransform)toggle.ProgressBar.RenderTransform).ScaleX).IsEqualTo(0.75);
+        var state = initial;
+        return new DwellToggle(
+            registrar, "id", "Label", () => state, v => state = v,
+            DwellCategory.Control, Radius, 800);
     }
 
     /// <summary>
-    /// The ON fill is #4A8F5C, on which the #D6DEF5 label already sits at 2.91:1 \u2014 under the
-    /// 3:1 large-text bar before any dwell begins. Washing it toward the accent made that
-    /// worse with every frame. The fill must now hold still; lifting the resting 2.91:1 needs
-    /// the label off the green entirely, which is the switch anatomy in the next plan.
+    /// Attaches <paramref name="toggle"/> to a scratch panel and lays it out at the narrowest
+    /// content column the settings window supports, under the theme font — the same conditions
+    /// <c>SettingsAutoPagination</c> measures in. Returns the panel.
+    /// </summary>
+    private static StackPanel AttachAndLayout(DwellToggle toggle, double width = 416)
+    {
+        var panel = new StackPanel { Width = width };
+        TextElement.SetFontFamily(panel, Tokens.FontStandard);
+        toggle.Attach(panel);
+        panel.Measure(new Size(width, double.PositiveInfinity));
+        panel.Arrange(new Rect(0, 0, width, panel.DesiredSize.Height));
+        panel.UpdateLayout();
+        return panel;
+    }
+
+    // ────── Anatomy ──────
+
+    [StaFact]
+    public void TheLabelIsPlainText_AndTheSwitchIsTheOnlyTarget()
+    {
+        var toggle = Build(initial: false);
+
+        Check.That(toggle.Label.Text).IsEqualTo("Label");
+        Check.That(toggle.Children.Count()).IsEqualTo(1);
+        Check.WithCustomMessage("Children must expose the switch itself, not a copy of it.")
+            .That(ReferenceEquals(toggle.Children.Single(), toggle.Switch)).IsTrue();
+    }
+
+    /// <summary>
+    /// State must survive a colour-vision deficiency and a monochrome screen alike, so the word
+    /// is the primary carrier and the knob's side and the track's fill back it up.
     /// </summary>
     [StaFact]
-    public void ApplyProgress_NeverMovesTheStateFill()
+    public void StateIsReadableWithoutColour()
     {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
+        var toggle = Build(initial: false);
 
-        foreach (var p in new[] { 0.0, 0.5, 1.0 })
-        {
-            toggle.TestApplyProgress(p);
-            Check.WithCustomMessage($"ON fill moved at progress {p}")
-                .That(((SolidColorBrush)toggle.Root.Background).Color).IsEqualTo(Tokens.ToggleOn);
-        }
+        Check.That(toggle.StateText.Text).IsEqualTo("Off");
+        toggle.Toggle();
+        Check.That(toggle.StateText.Text).IsEqualTo("On");
     }
 
     [StaFact]
-    public void ProgressBar_HeightMatchesTheConstant()
+    public void TheKnobMovesSide_SoPositionCarriesStateToo()
     {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
+        var toggle = Build(initial: false);
 
-        Check.That(toggle.ProgressBar.Height).IsEqualTo(DwellButton.ProgressBarHeight);
+        Check.That(toggle.Knob.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Left);
+        toggle.Toggle();
+        Check.That(toggle.Knob.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Right);
     }
 
     [StaFact]
-    public void ProgressBar_IsNotHitTestVisible()
+    public void TheTrackCarriesTheStateColour()
     {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
+        var toggle = Build(initial: true);
 
-        Check.That(toggle.ProgressBar.IsHitTestVisible).IsFalse();
-    }
-
-    [StaFact]
-    public void ProgressBar_IsInRowOne()
-    {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
-
-        Check.That(Grid.GetRow(toggle.ProgressBar)).IsEqualTo(1);
-    }
-
-    [StaFact]
-    public void ProgressBar_IsBottomAligned()
-    {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
-
-        Check.That(toggle.ProgressBar.VerticalAlignment).IsEqualTo(VerticalAlignment.Bottom);
+        Check.That(((SolidColorBrush)toggle.Track.Background).Color).IsEqualTo(Tokens.ToggleOn);
+        toggle.Toggle();
+        Check.That(((SolidColorBrush)toggle.Track.Background).Color).IsEqualTo(Tokens.ToggleOff);
     }
 
     /// <summary>
-    /// Closes a real gap the other structural pins above leave open: every test above reads
-    /// back the exact value ApplyProgress wrote, so HorizontalAlignment turning to Left (the
-    /// bar collapses to a fixed-width dot that never moves) or RenderTransformOrigin flipping
-    /// to (0.5, 0) (the bar grows from the centre instead of the left edge) leaves them all
-    /// green — measured: with HorizontalAlignment.Left, ProgressBar.ActualWidth becomes 1 DIP
-    /// and stays there regardless of progress. This measures the actual rendered width and the
-    /// actual swept extent after a real layout pass, which none of them do. Mirrors
-    /// <c>DwellButtonProgressTests.ApplyProgress_SweepsFromTheLeftEdge</c>.
+    /// WYSIWYG dwell floor, restated for the switch because the switch — not the row — is what
+    /// registers now. <c>DwellButton</c>'s own doc records the rule: a settings dwell control is
+    /// never drawn smaller than the 100 DIP hit circle it registers.
     /// </summary>
     [StaFact]
-    public void ApplyProgress_SweepsFromTheLeftEdge()
+    public void TheSwitchIsNeverDrawnSmallerThanItsHitCircle()
     {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
-        toggle.Root.Width = 260;
-        var host = new Border { Child = toggle.Root, Width = 400, Height = 200 };
-        host.Measure(new Size(400, 200));
-        host.Arrange(new Rect(0, 0, 400, 200));
-        host.UpdateLayout();
+        var toggle = Build(initial: true);
 
-        // Root.Padding insets the bar from both sides; derive the expected width from it
-        // rather than hardcoding 40, so a future padding change doesn't silently desync this.
-        var expectedWidth = toggle.Root.Width - toggle.Root.Padding.Left - toggle.Root.Padding.Right;
-        Check.That(toggle.ProgressBar.ActualWidth).IsEqualTo(expectedWidth);
-
-        toggle.TestApplyProgress(0.5);
-        var swept = toggle.ProgressBar.RenderTransform.Value.Transform(
-            new Point(toggle.ProgressBar.ActualWidth, 0)).X;
-        Check.That(swept).IsEqualTo(expectedWidth / 2); // half of the real width
-        Check.That(toggle.ProgressBar.RenderTransformOrigin.X).IsEqualTo(0.0); // grows from the left
+        Check.WithCustomMessage(
+                $"the switch is drawn {toggle.Switch.Root.Width}x{toggle.Switch.Root.Height} DIP, "
+                + "inside the 100 DIP circle it registers — the user would be activating it from "
+                + "points where nothing is drawn.")
+            .That(Math.Min(toggle.Switch.Root.Width, toggle.Switch.Root.Height))
+            .IsGreaterOrEqualThan(100.0);
     }
 
     /// <summary>
-    /// Border does not clip its Child to CornerRadius. The reason DwellToggle needs no such
-    /// clip — unlike DwellButton, which gained one in Task 3 — is that Root.Padding =
-    /// (20,0,20,0) insets the bar 20 DIP from each edge, clear of the 8 DIP
-    /// Tokens.CornerRadiusStandard corner band (measured via RenderTargetBitmap on a 100-wide
-    /// toggle: bar pixels span exactly [20, 79], never touching x&lt;8 or x&gt;91). That
-    /// conclusion rests entirely on the padding staying &gt;= the corner radius, so this test
-    /// asserts that inequality DIRECTLY as well as rendering the silhouette.
+    /// The plan this task implements sized the switch at 140 DIP, which is 12 DIP NARROWER than
+    /// the content it holds: the state word's box plus its margins is 68 and the track is 84.
+    /// <c>DwellButton</c> installs a rounded clip over its layout, so the overflow would have been
+    /// silently cut rather than drawn — and every other test in this file reads a DP or a brush
+    /// and would have stayed green. Measured here instead of restated: the content is measured
+    /// unconstrained and compared against the drawn width.
+    /// </summary>
+    [StaFact]
+    public void TheSwitchIsWideEnoughForItsOwnContent()
+    {
+        var toggle = Build(initial: false);
+        var content = (FrameworkElement)toggle.Switch.Content!;
+
+        AttachAndLayout(toggle);
+        content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+        Check.WithCustomMessage(
+                $"the switch's content wants {content.DesiredSize.Width:F2} DIP but the switch is "
+                + $"drawn {toggle.Switch.Root.Width} DIP wide. DwellButton clips its layout to the "
+                + "rounded silhouette, so the overflow is cut, not drawn — the track or the state "
+                + "word loses its edge with nothing thrown.")
+            .That(content.DesiredSize.Width).IsLessOrEqualThan(toggle.Switch.Root.Width);
+    }
+
+    [StaFact]
+    public void DwellSweepsTheSwitchesProgressBar()
+    {
+        var registrar = new FakeRegistrar { Progress = 0.75 };
+        var toggle = Build(registrar, initial: true);
+
+        toggle.Switch.UpdateVisual();
+
+        Check.That(((ScaleTransform)toggle.Switch.ProgressBar.RenderTransform).ScaleX)
+            .IsEqualTo(0.75);
+
+        // The geometry claim that let Theme.ToggleContrastTests retire its
+        // ProgressBar_IsPerceptibleAgainstEitherToggleFill theory: the bar and the track occupy
+        // DIFFERENT rows of the switch's layout, so the bar is never drawn on a state fill and
+        // that pairing cannot occur. Asserted rather than assumed.
+        Check.WithCustomMessage(
+                "the dwell bar and the track are no longer in separate layout rows, so the bar can "
+                + "be drawn over the state fill again — restore the cross-theme bar-vs-ToggleOn/Off "
+                + "gate that was retired on the strength of this separation.")
+            .That(Grid.GetRow(toggle.Switch.ProgressBar)).IsEqualTo(1);
+        Check.That(Grid.GetRow((UIElement)toggle.Switch.Content!)).IsEqualTo(0);
+    }
+
+    // ────── T1: exactly one target, and it is the switch ──────
+
+    /// <summary>
+    /// The defect the whole restructure exists to prevent, and the one thing none of the anatomy
+    /// tests above can see: a stray SECOND registration — the label wired up as a target too, or
+    /// the row registered alongside its switch — leaves every one of them green.
     ///
-    /// The direct assertion is load-bearing, not belt-and-braces. The corner probes below sit
-    /// at x=0 and x=99, which the bar reaches only when the padding is near zero — so a
-    /// regression to any padding in roughly (0.25, 8), say 4 DIP, paints a wedge outside the
-    /// rounded silhouette while every rendered probe here still reads alpha 0, and
-    /// <see cref="ApplyProgress_SweepsFromTheLeftEdge"/> derives its expected width from the
-    /// padding so it adapts silently (measured: the whole suite stayed green at 4 DIP).
-    /// Rendering alone cannot catch this; the inequality can.
-    /// Mirrors <c>DwellButtonProgressTests.ProgressBar_AtFullDwell_StaysInsideTheRoundedSilhouette</c>.
+    /// Two directions are asserted, because either alone leaves a real hole. Every registration
+    /// must be a <see cref="IDwellComposite.Children"/> member, or the per-frame loop (which
+    /// iterates Children, and nothing else) never calls <see cref="DwellControl.UpdatePosition"/>
+    /// for it and the target sits at the origin forever — the (0,0) orphan-target bug. And every
+    /// Child must be registered, or it is drawn as a switch that cannot be activated.
     /// </summary>
     [StaFact]
-    public void ProgressBar_AtFullDwell_StaysInsideTheRoundedSilhouette()
+    public void TheLabelIsNotADwellTarget()
     {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
+        var registrar = new FakeRegistrar();
+        var toggle = Build(registrar, initial: false);
+        var panel = new StackPanel();
+        toggle.Attach(panel);
 
-        // The invariant that lets DwellToggle skip the rounded clip DwellButton needs. Asserted
-        // directly because the rendered probes below cannot see it break — see the doc above.
         Check.WithCustomMessage(
-                $"Root.Padding is {toggle.Root.Padding.Left}/{toggle.Root.Padding.Right} DIP, under "
-                + $"the {Tokens.CornerRadiusStandard} DIP corner radius — the progress bar now reaches "
-                + "into the rounded corner band and paints outside the silhouette. Either restore the "
-                + "padding or give DwellToggle the _layout.Clip that DwellButton has.")
-            .That(Math.Min(toggle.Root.Padding.Left, toggle.Root.Padding.Right))
-            .IsGreaterOrEqualThan(Tokens.CornerRadiusStandard);
+                "the toggle registered " + registrar.Registered.Count + " dwell targets ("
+                + string.Join(", ", registrar.Registered) + "). Exactly one is correct: the "
+                + "switch. A second target on the label — or on the row — puts a 100 DIP hit "
+                + "circle under something the user is only meant to read.")
+            .That(registrar.Registered).ContainsExactly(toggle.Switch.DwellId);
 
-        // Root.Margin(0,0,0,24) would shrink the arranged box within a fixed-height rect and
-        // shift pixel coordinates; zero it so probe coordinates map 1:1 onto the rendered border.
-        toggle.Root.Margin = new Thickness(0);
-        toggle.Root.Width = 100;
-        toggle.TestApplyProgress(1.0);
-
-        const int size = 100;
-        toggle.Root.Measure(new Size(size, size));
-        toggle.Root.Arrange(new Rect(0, 0, size, size));
-        toggle.Root.UpdateLayout();
-
-        var rtb = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
-        rtb.Render(toggle.Root);
-
-        var stride = size * 4;
-        var pixels = new byte[stride * size];
-        rtb.CopyPixels(pixels, stride, 0);
-
-        // Bottom corner wedges an 8 DIP (Tokens.CornerRadiusStandard) corner radius cuts away.
-        // Both bottom corners, since the 6 DIP bar sits entirely inside that band.
-        foreach (var (x, y) in new[] { (0, 99), (99, 99), (0, 96), (99, 96) })
-        {
-            var alpha = pixels[y * stride + x * 4 + 3];
-            Check.WithCustomMessage(
-                    $"pixel at ({x},{y}) has alpha {alpha}, outside the rounded corner — the "
-                    + "progress bar (or its halo) is painting past the toggle's silhouette.")
-                .That(alpha).IsEqualTo((byte)0);
-        }
-        // Absence at the corners is only half the guarantee. Every other test in this file
-        // reads a DP, a brush or a transform, so a bar that is present in the visual tree but
-        // paints NOTHING — Opacity 0, or a clip that degenerates — satisfies all of them. That
-        // is defect 2 reborn: the colour swatch that sat inert for the whole dwell and then
-        // fired, which threw nothing and so was caught by nothing.
-        //
-        // Assert the bar's fill actually reaches the screen. Colour, not alpha: the ToggleOn fill is fully opaque, so alpha at this
-        // pixel reads 255 whether or not the bar paints — measured; an alpha probe cannot see it.
-        // The bar occupies y=94..99 — halo stroke on 94 and 99, Accent fill on 95..98.
-        var (fb, fg, fr) = (pixels[96 * stride + 50 * 4], pixels[96 * stride + 50 * 4 + 1], pixels[96 * stride + 50 * 4 + 2]);
         Check.WithCustomMessage(
-                $"pixel at (50,96) is R{fr},G{fg},B{fb}, not the Accent fill "
-                + $"R{Tokens.Accent.R},G{Tokens.Accent.G},B{Tokens.Accent.B} — the progress bar "
-                + "occupies the visual tree but paints nothing at full dwell, so a gaze user "
-                + "sees no dwell feedback at all.")
-            .That((fr, fg, fb)).IsEqualTo((Tokens.Accent.R, Tokens.Accent.G, Tokens.Accent.B));
+                "the registered ids and the composite's Children have diverged. The overlay's "
+                + "per-frame loop iterates Children ONLY, so a registered target missing from it "
+                + "never gets a position update and stays at the origin; a Child that was never "
+                + "registered is drawn but cannot be activated.")
+            .That(toggle.Children.Select(c => c.DwellId).ToArray())
+            .ContainsExactly(registrar.Registered.ToArray());
     }
+
+    // ────── T2: the track is perceptible against the fill it actually sits on ──────
 
     /// <summary>
-    /// Structural half of a two-part guard; <c>ToggleContrastTests
-    /// .ProgressBar_IsPerceptibleAgainstEitherToggleFill</c> is the other. That theory proves
-    /// the halo is NECESSARY — in the Contrast theme, bar-vs-ToggleOn collapses to ~1.09:1 by
-    /// fill alone, rescued to ~15:1 by the halo — but it reads theme constants directly and
-    /// never inspects a constructed toggle, so it stays green even if this control's Rectangle
-    /// stopped drawing a halo altogether. This test proves the code HAS one: it reads the
-    /// actual constructed <see cref="DwellToggle.ProgressBar"/>'s Stroke, under the ambient
-    /// theme, independent of which theme that happens to be. Neither test alone closes the
-    /// gap; together they do — the same pairing <c>DwellButtonProgressTests
-    /// .ProgressBar_OnAnAccentColouredButton_ClearsThreeToOneAgainstItsOwnFill</c> gets for
-    /// free from a single test, because that button's fill IS the accent colour (a
-    /// theme-independent 1.00:1), which no <c>DwellToggle</c> fill is.
+    /// The track sits INSIDE the switch, whose fill is <see cref="Tokens.SurfaceLight"/> — not on
+    /// the row surface. Measured against SurfaceLight, the state fills alone are
+    /// ToggleOn 2.76 / 2.70 / 11.03 and ToggleOff 1.23 / 1.25 / 1.39 across
+    /// Midnight / Ember / Contrast: the ON track fails the 3:1 non-text-component bar in two of
+    /// three themes and the OFF track is effectively INVISIBLE in all three — the switch would
+    /// have no visible extent at all when off. So the track carries a
+    /// <see cref="Tokens.BrushTextSecondary"/> outline, which measures 4.38 / 5.38 / 12.35 against
+    /// SurfaceLight and makes the track's perceptibility independent of its fill.
+    ///
+    /// Gates the same combined quantity the rest of this repo does for a fill-plus-outline
+    /// element — max(fill, outline) vs the surface behind it — reading the REAL brushes off a
+    /// constructed control. The cross-theme half is
+    /// <c>Theme.ToggleContrastTests.TheTrack_IsPerceptibleAgainstTheSwitchFill</c>.
     /// </summary>
     [StaFact]
-    public void ProgressBar_HasTheHaloStroke()
+    public void TheTrackIsPerceptibleAgainstTheSwitchFill()
     {
-        var state = true;
-        var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
+        foreach (var initial in new[] { true, false })
+        {
+            var toggle = Build(initial);
 
-        Check.That(toggle.ProgressBar.Stroke).IsEqualTo(Tokens.BrushStrokeHalo);
-        Check.That(toggle.ProgressBar.StrokeThickness).IsEqualTo(1.0);
+            var switchFill = ((SolidColorBrush)toggle.Switch.Root.Background).Color;
+            var trackFill = ((SolidColorBrush)toggle.Track.Background).Color;
+            var outline = toggle.Track.BorderBrush is SolidColorBrush b
+                ? Contrast(b.Color, switchFill)
+                : 1.0; // no outline at all -> no rescue, which is the defect exactly
+            var fill = Contrast(trackFill, switchFill);
+            var best = Math.Max(fill, outline);
+
+            Check.WithCustomMessage(
+                    $"state={initial}: the track reaches only {best:F2}:1 against the switch's own "
+                    + $"fill (fill {fill:F2}:1, outline {outline:F2}:1). Below 3:1 the switch has "
+                    + "no visible extent — there is nothing on screen to aim at.")
+                .That(best).IsStrictlyGreaterThan(3.0);
+        }
     }
+
+    // ────── T3: the label's own contrast, where it now lives ──────
+
+    /// <summary>
+    /// The 2.91:1 this task exists to fix. The label is no longer drawn on the state fill at all,
+    /// so the pairing that matters is label-on-row-surface, which measures 10.33 / 12.01 / 18.42.
+    /// The bar is 4.5:1, not 3:1: <see cref="Tokens.FontSizeTitle"/> is 24 DIP, which IS WCAG
+    /// large text — but the label wraps and this asserts the stricter bar anyway, since clearing
+    /// it costs nothing here and a future font-size reduction would otherwise pass silently.
+    /// </summary>
+    [StaFact]
+    public void TheLabelSitsOnTheRowSurface_AndClearsFourAndAHalfToOneThere()
+    {
+        var toggle = Build(initial: true);
+
+        var fg = ((SolidColorBrush)toggle.Label.Foreground).Color;
+        var bg = ((SolidColorBrush)toggle.RowSurface.Background).Color;
+        var ratio = Contrast(fg, bg);
+
+        Check.WithCustomMessage(
+                $"the label reads {ratio:F2}:1 against the surface it is drawn on. On the ON state "
+                + "fill it measured 2.91:1, which is what moving it onto the row surface fixed — "
+                + "putting it back on a state fill undoes the whole point of this control.")
+            .That(ratio).IsStrictlyGreaterThan(4.5);
+
+        // The structural half: the surface under the label must not be the state fill, whatever
+        // the numbers happen to be. A theme whose ToggleOn cleared 4.5:1 would satisfy the ratio
+        // above while restoring the anatomy this task replaced.
+        Check.WithCustomMessage(
+                "the row surface now paints the state colour, so the label is back on the fill it "
+                + "was moved off.")
+            .That(bg).IsNotEqualTo(Tokens.ToggleOn);
+        Check.WithCustomMessage(
+                "the row surface now paints the OFF state colour, so the label is back on the fill "
+                + "it was moved off.")
+            .That(bg).IsNotEqualTo(Tokens.ToggleOff);
+    }
+
+    // ────── T4: the state word's own contrast ──────
+
+    /// <summary>
+    /// <see cref="Tokens.FontSizeSubtitle"/> is 18 DIP at normal weight, which is NOT WCAG large
+    /// text (that wants >= 24 DIP, or >= 18.66 DIP bold), so the state word owes 4.5:1 rather than
+    /// 3:1. Against the switch's <see cref="Tokens.SurfaceLight"/> fill,
+    /// <see cref="Tokens.BrushTextSecondary"/> measures 4.38 in Midnight and FAILS;
+    /// <see cref="Tokens.BrushTextPrimary"/> measures 8.03 / 9.52 / 15.13 and clears.
+    ///
+    /// So the word is TextPrimary in BOTH states, and <c>RefreshVisual</c> swaps no foreground at
+    /// all: state is already carried three ways (the word itself, the knob's side, the track's
+    /// fill), and a colour swap that costs legibility adds nothing to that.
+    /// </summary>
+    [StaFact]
+    public void TheStateWordClearsFourAndAHalfToOneAgainstTheSwitchFill()
+    {
+        foreach (var initial in new[] { true, false })
+        {
+            var toggle = Build(initial);
+
+            var fg = ((SolidColorBrush)toggle.StateText.Foreground).Color;
+            var bg = ((SolidColorBrush)toggle.Switch.Root.Background).Color;
+            var ratio = Contrast(fg, bg);
+
+            Check.WithCustomMessage(
+                    $"state={initial}: the word \"{toggle.StateText.Text}\" reads {ratio:F2}:1 "
+                    + $"against the switch fill at {toggle.StateText.FontSize} DIP normal weight, "
+                    + "which is not WCAG large text — the bar is 4.5:1. This word is the primary "
+                    + "carrier of state for a user who cannot rely on the track's colour.")
+                .That(ratio).IsStrictlyGreaterThan(4.5);
+        }
+    }
+
+    // ────── T5: activation through the registrar, not through Toggle() ──────
+
+    /// <summary>
+    /// Every test above drives <c>Toggle()</c> directly, so a control whose registered callback
+    /// pointed somewhere else entirely — or nowhere — would satisfy all of them. This fires the
+    /// delegate the REGISTRAR holds, which is the only path a gaze user has, and resolves it
+    /// through <see cref="IDwellComposite.Children"/> so the composite's own view of its targets
+    /// is on the hook too.
+    /// </summary>
+    [StaFact]
+    public void ActivationFlowsThroughTheRegistrar()
+    {
+        var registrar = new FakeRegistrar();
+        var toggle = Build(registrar, initial: false);
+        toggle.Attach(new StackPanel());
+
+        var target = toggle.Children.Single().DwellId;
+        Check.WithCustomMessage($"nothing is registered under the child's id '{target}'.")
+            .That(registrar.Callbacks.ContainsKey(target)).IsTrue();
+
+        registrar.Callbacks[target]();
+
+        Check.WithCustomMessage(
+                "a completed dwell on the switch did not flip the state. The registered callback "
+                + "is the only activation path a gaze user has.")
+            .That(toggle.StateText.Text).IsEqualTo("On");
+        Check.That(((SolidColorBrush)toggle.Track.Background).Color).IsEqualTo(Tokens.ToggleOn);
+        Check.That(toggle.Knob.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Right);
+    }
+
+    // ────── The UIA anchor ──────
+
+    /// <summary>
+    /// A <see cref="Border"/> has no <c>AutomationPeer</c> in WPF, so it never appears in the UIA
+    /// tree and cannot carry the <c>Settings_Toggle_{id}</c> automation id the App's UI tests find
+    /// the control by. The state word is the innermost element inside the switch that CAN carry
+    /// it — but it is not centred in the switch, so this pins the thing that actually matters:
+    /// the anchor's centre, which is where <c>AppFixture.SimulateDwellOn</c> puts the cursor, must
+    /// fall inside the hit circle the switch registers. Off by more than the radius and the UI
+    /// test dwells a point that activates nothing.
+    /// </summary>
+    [StaFact]
+    public void TheUiaAnchorsCentre_FallsInsideTheSwitchesHitCircle()
+    {
+        var toggle = Build(initial: true);
+        AttachAndLayout(toggle);
+
+        var anchor = toggle.StateText;
+        Check.WithCustomMessage(
+                "the automation id is not on the state word any more. Whatever now carries it must "
+                + "have an AutomationPeer (a Border does not) and must sit inside the switch's hit "
+                + "circle — repoint this test at it.")
+            .That(System.Windows.Automation.AutomationProperties.GetAutomationId(anchor))
+            .IsEqualTo("Settings_Toggle_id");
+
+        var root = toggle.Switch.Root;
+        var offset = anchor.TransformToAncestor(root)
+            .Transform(new Point(anchor.ActualWidth / 2, anchor.ActualHeight / 2));
+        var centre = new Point(root.ActualWidth / 2, root.ActualHeight / 2);
+        var distance = Math.Sqrt(
+            Math.Pow(offset.X - centre.X, 2) + Math.Pow(offset.Y - centre.Y, 2));
+
+        Check.WithCustomMessage(
+                $"the UIA anchor's centre is {distance:F2} DIP from the switch's centre, outside "
+                + $"the {Radius} DIP hit circle. A UI test dwelling that point — and a user aiming "
+                + "at the word — would activate nothing.")
+            .That(distance).IsStrictlyLessThan(Radius);
+    }
+
+    // ────── WCAG helpers ──────
 
     private static double Channel(byte c)
     {
@@ -264,59 +426,32 @@ public class DwellToggleVisualTests
     }
 
     /// <summary>
-    /// Reads the toggle's REAL brushes rather than assumed theme constants (that cross-theme
-    /// sweep lives in <c>ToggleContrastTests.ProgressBar_IsPerceptibleAgainstEitherToggleFill</c>).
-    ///
-    /// This does NOT catch removing the halo Stroke: under the ambient theme, Accent already
-    /// clears 3:1 against ToggleOn by Fill alone (3.13:1 in Midnight), so that gap is closed
-    /// separately by the structural <see cref="ProgressBar_HasTheHaloStroke"/>, which reads the
-    /// Stroke directly rather than inferring its effect from a contrast number.
-    ///
-    /// What this DOES catch: the bar's Fill must itself be bright enough to read against a dark
-    /// state fill. Swapping Fill from <see cref="Tokens.BrushAccent"/> to
-    /// <see cref="Tokens.BrushSurfaceMedium"/> fails this via the OFF branch, where the halo
-    /// alone reaches only ~1.49:1 against ToggleOff (Midnight) — so the Fill has to carry it.
-    /// Mirrors <c>DwellButtonProgressTests.ProgressBar_OnASurfaceMediumButton_ClearsThreeToOneAgainstItsOwnFill</c>.
+    /// Records every registration and the callback it carried, and reports whatever progress the
+    /// test sets — so these tests drive the real <see cref="DwellControl.UpdateVisual"/> and the
+    /// real activation path rather than a test-only hook on the production type.
     /// </summary>
-    [StaFact]
-    public void ProgressBarFill_ClearsThreeToOneAgainstTheStateFillItSitsOn()
+    private class FakeRegistrar : IDwellRegistrar
     {
-        foreach (var initialState in new[] { true, false })
+        public double Progress { get; set; }
+
+        public List<string> Registered { get; } = [];
+
+        public Dictionary<string, Action> Callbacks { get; } = [];
+
+        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated)
         {
-            var state = initialState;
-            var toggle = new TestDwellToggle(new FakeDwellRegistrar(), "id", "Label", () => state, v => state = v, DwellCategory.Control, 40, 800);
-
-            var barFill = ((SolidColorBrush)toggle.ProgressBar.Fill).Color;
-            var toggleFill = ((SolidColorBrush)toggle.Root.Background).Color;
-            var fillContrast = Contrast(barFill, toggleFill);
-            var strokeContrast = toggle.ProgressBar.Stroke is SolidColorBrush strokeBrush
-                ? Contrast(strokeBrush.Color, toggleFill)
-                : 1.0; // no stroke at all -> no rescue, matches the pre-halo defect exactly
-
-            var best = Math.Max(fillContrast, strokeContrast);
-            Check.WithCustomMessage(
-                    $"state={initialState}: bar vs its own toggle fill reaches only {best:F2}:1 "
-                    + $"(fill {fillContrast:F2}:1, stroke {strokeContrast:F2}:1)")
-                .That(best).IsStrictlyGreaterThan(3.0);
-        }
-    }
-
-    private class TestDwellToggle : DwellToggle
-    {
-        public TestDwellToggle(IDwellRegistrar registrar, string id, string label, Func<bool> get, Action<bool> set, DwellCategory category, double radius, int dwellMs)
-            : base(registrar, id, label, get, set, category, radius, dwellMs)
-        {
+            Registered.Add(id);
+            Callbacks[id] = onActivated;
         }
 
-        public void TestApplyProgress(double progress) => ApplyProgress(progress);
-        public void TestOnActivated() => OnActivated();
-    }
+        public void Unregister(string id, DwellCategory category)
+        {
+            Registered.Remove(id);
+            Callbacks.Remove(id);
+        }
 
-    private class FakeDwellRegistrar : IDwellRegistrar
-    {
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
         public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
+
+        public double GetProgress(string id, DwellCategory category) => Progress;
     }
 }

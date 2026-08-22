@@ -20,17 +20,21 @@ using Xunit;
 /// This is a relationship test (contrast at full dwell equals contrast at rest), not a pixel
 /// aesthetic — the exception the repo's "layout literals are not unit-tested" convention allows.
 ///
-/// The rule is stated for every <see cref="DwellControl"/>, but only two concrete subclasses
-/// exist in <c>EyeCtrl.Controls</c> today (confirmed below): <see cref="DwellButton"/> and
-/// <see cref="DwellToggle"/>. Each gets its own explicit case rather than a generically
-/// constructed one — their constructors take genuinely different arguments (an <c>Action</c>
-/// plus a resting <see cref="Color"/> for the button; a pair of getter/setter delegates for the
-/// toggle) and forcing a single generic factory over them would trade a real assertion for
-/// reflection ceremony. <see cref="KnownDwellControlSubclasses_MatchTheTestedSet"/> is the
-/// tripwire that catches a third subclass arriving without its own case here: it enumerates
+/// The rule is stated for every <see cref="DwellControl"/>, and exactly ONE concrete subclass
+/// exists in <c>EyeCtrl.Controls</c> today (confirmed below): <see cref="DwellButton"/>.
+/// <see cref="DwellToggle"/> used to be the second, and is not one any more — it became an
+/// <see cref="IDwellComposite"/> whose single target IS a <see cref="DwellButton"/>. It keeps a
+/// case here regardless, because the rule is about a LABEL and the surface under it, and the
+/// toggle still has a label: what changed is that its label now sits on a row card the switch's
+/// dwell bar has no access to, so the invariant went from observed to structural. Both cases are
+/// written out explicitly rather than generated — their constructors take genuinely different
+/// arguments (an <c>Action</c> plus a resting <see cref="Color"/>; a pair of getter/setter
+/// delegates) and a single generic factory over them would trade a real assertion for reflection
+/// ceremony. <see cref="KnownDwellControlSubclasses_MatchTheTestedSet"/> is the tripwire that
+/// catches a NEW subclass arriving without its own case: it enumerates
 /// <c>EyeCtrl.Controls</c>'s own assembly (not this test assembly, so a test-only fake
-/// subclassing <see cref="DwellControl"/> is never counted) and fails loudly, by name, if the
-/// concrete subclass set ever grows past these two.
+/// subclassing <see cref="DwellControl"/> is never counted) and fails loudly, by name, the moment
+/// the concrete subclass set changes.
 /// </summary>
 public class DwellProgressContrastTests
 {
@@ -67,6 +71,16 @@ public class DwellProgressContrastTests
             .That(atFull).IsEqualTo(atRest);
     }
 
+    /// <summary>
+    /// The toggle's label sits on its row card, and the toggle's dwell feedback is the SWITCH's
+    /// progress bar — a Rectangle in the switch's own layout, in a different subtree entirely. So
+    /// the collapse this file exists to prevent is now STRUCTURALLY impossible here rather than
+    /// merely absent, and both halves are asserted: the measured relationship (unchanged over a
+    /// full dwell, exercised through the real <see cref="DwellControl.UpdateVisual"/> path), and
+    /// the reason it cannot change — the row card paints a FROZEN theme brush, which no dwell code
+    /// can mutate even by accident. The relationship check alone would still pass if the card were
+    /// handed a control-owned mutable brush that nothing happened to write yet.
+    /// </summary>
     [StaFact]
     public void DwellToggle_LabelContrast_IsTheSameAtFullDwellAsAtRest()
     {
@@ -76,20 +90,33 @@ public class DwellProgressContrastTests
             registrar, "id", "Label", () => state, v => state = v,
             DwellCategory.Control, 50, 800);
 
-        var atRest = Contrast(Tokens.TextPrimary, ((SolidColorBrush)toggle.Root.Background).Color);
+        var surface = (SolidColorBrush)toggle.RowSurface.Background;
+        var label = (SolidColorBrush)toggle.Label.Foreground;
+
+        var atRest = Contrast(label.Color, surface.Color);
         registrar.Progress = 1.0;
-        toggle.UpdateVisual();
-        var atFull = Contrast(Tokens.TextPrimary, ((SolidColorBrush)toggle.Root.Background).Color);
+        toggle.Switch.UpdateVisual();
+        var atFull = Contrast(
+            ((SolidColorBrush)toggle.Label.Foreground).Color,
+            ((SolidColorBrush)toggle.RowSurface.Background).Color);
 
         Check.WithCustomMessage(
                 $"label contrast fell from {atRest:F2}:1 to {atFull:F2}:1 over the dwell")
             .That(atFull).IsEqualTo(atRest);
+
+        Check.WithCustomMessage(
+                "the row card's background is a mutable brush, so dwell code CAN move the surface "
+                + "the label is read against — the guarantee above drops back to a coincidence. "
+                + "Paint the card from a frozen Tokens brush.")
+            .That(surface.IsFrozen).IsTrue();
     }
 
     /// <summary>
-    /// The tripwire the type's own doc comment promises: if a third <see cref="DwellControl"/>
+    /// The tripwire the type's own doc comment promises: if a second <see cref="DwellControl"/>
     /// subclass is ever added to <c>EyeCtrl.Controls</c>, this fails by name instead of the file
-    /// silently continuing to cover only the original two. Scoped to
+    /// silently continuing to cover only <see cref="DwellButton"/>. It shrank from two names to
+    /// one when <see cref="DwellToggle"/> became an <see cref="IDwellComposite"/> — the toggle's
+    /// own case above stayed, since it still has a label on a surface. Scoped to
     /// <c>typeof(DwellControl).Assembly</c> (production code only) so a test-only fake subclass
     /// declared elsewhere in this test project is never picked up and cannot cause a false
     /// failure here.
@@ -108,9 +135,10 @@ public class DwellProgressContrastTests
                 + "contrast case in this file. Add a [StaFact] here — modelled on "
                 + "DwellButton_LabelContrast_IsTheSameAtFullDwellAsAtRest above — asserting its "
                 + "label contrast at full dwell equals its contrast at rest, then add its name "
-                + "to the expected set in this test.")
+                + "to the expected set in this test. Found: "
+                + string.Join(", ", subclasses))
             .That(subclasses)
-            .ContainsExactly("DwellButton", "DwellToggle");
+            .ContainsExactly("DwellButton");
     }
 
     /// <summary>

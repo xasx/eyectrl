@@ -75,6 +75,11 @@ public class DwellButtonProgressBarContrastTests
     private static IEnumerable<(string Name, Color Fill)> FillsFor(ITheme theme)
     {
         yield return ("SurfaceMedium (plain buttons and colour-swatch cards)", theme.SurfaceMedium);
+        // DwellToggle's switch. Added when the toggle became a composite whose one dwell
+        // target is a DwellButton on this fill — a brand-new fill for the bar that nothing
+        // gated. Accent-vs-SurfaceLight measures 8.64 / 8.10 / 12.07, so it passes on its
+        // fill alone today; the point is that it is now GATED rather than merely fine.
+        yield return ("SurfaceLight (the DwellToggle switch)", theme.SurfaceLight);
         yield return ("AccentWarning (Reset/Delete)", theme.AccentWarning);
         // Retained deliberately, though no bar is drawn on a preset any more: a swatch is a
         // SurfaceMedium card (already listed above) carrying the preset colour on an inner chip,

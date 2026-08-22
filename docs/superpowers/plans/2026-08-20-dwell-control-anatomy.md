@@ -10,13 +10,13 @@
 
 **Tech Stack:** .NET 10.0.102 SDK, WPF (`net10.0-windows`), xUnit v3 (`xunit.v3` 3.2.2) + NFluent 3.1.0. Solution is `EyeCtrl.slnx`.
 
-**Baseline:** `main` @ `babbd9d1` or later, plus **plan 1 (`2026-08-20-dwell-progress-feedback.md`) landed**. This plan consumes `DwellButton.Content`, `DwellButton.ProgressBar`, `DwellButton.ProgressBarHeight` and `DwellControl.UpdateVisualForTest`, all introduced there.
+**Baseline:** `main` @ `153f318a`. **Plan 1 is already landed** (`ebe18035..153f318a`, PR #105), so the prerequisite below is satisfied — run the greps anyway, they cost nothing. This plan consumes `DwellButton.Content`, `DwellButton.ProgressBar`, `DwellButton.ProgressBarHeight` and `DwellControl.UpdateVisualForTest`, all introduced there.
 
 ---
 
 ## Prerequisite
 
-**Do not start this plan until plan 1 is merged.** Every task below assumes `DwellButton` already exposes `Content` and a `ProgressBar`, and that dwell feedback no longer washes the fill. Verify:
+**Plan 1 is merged** (PR #105), so this is a formality rather than a gate. Every task below assumes `DwellButton` already exposes `Content` and a `ProgressBar`, and that dwell feedback no longer washes the fill. Verify:
 
 ```bash
 grep -n "public UIElement? Content" src/EyeCtrl.Controls/DwellButton.cs
@@ -699,7 +699,7 @@ Expected: `EverySwatch_DrawsItsName` fails — `Content` is `null`, so the `OfTy
 
 - [ ] **Step 3: Draw the name**
 
-In `src/EyeCtrl.Controls/DwellColorPicker.cs`, replace the block from `btn.Root.Background = ...` through `btn.Root.Child = null;` with:
+In `src/EyeCtrl.Controls/DwellColorPicker.cs`, replace the block from `btn.Root.Background = ...` through `btn.Content = null;` (`:149-150` — plan 1 changed that last line from `Root.Child` to `Content`) with:
 
 ```csharp
             // The button's own fill becomes the card behind the colour chip, so the name has a

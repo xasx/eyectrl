@@ -2,6 +2,8 @@
 
 > **Sequence: plan 1 of 3** of the settings restyle — `dwell-progress-feedback` -> `dwell-control-anatomy` -> `settings-two-column-rows`.
 
+> **STATUS: IMPLEMENTED.** Landed on `main` as `ebe18035..153f318a` via PR #105 (2026-08-21). Both defects are fixed and the guards are in place, including two the plan did not ask for: the bar is haloed and clipped to the button's rounded corners (`bd6bb2c4`), and its layout cost is pinned (`DwellBarLayoutCostTests`). Kept as the record of why the fill-wash was replaced — plans 2 and 3 both build on it. Do not execute it again; verify with the prerequisite greps at the top of plan 2.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace `DwellButton`'s fill-wash dwell feedback with an accent progress bar, so a dwelling control's label stays legible to the end of the dwell and every dwell target actually shows progress — including the colour swatches, which today show none.

@@ -10,7 +10,7 @@
 
 **Tech Stack:** .NET 10.0.102 SDK, WPF (`net10.0-windows`), xUnit v3 + NFluent 3.1.0. Solution is `EyeCtrl.slnx`.
 
-**Baseline:** `main` @ `babbd9d1` or later, plus **plans 1 and 2 landed** (`2026-08-20-dwell-progress-feedback.md`, `2026-08-20-dwell-control-anatomy.md`). This plan assumes `DwellToggle` is already an `IDwellComposite` with a switch.
+**Baseline:** `main` @ `153f318a` with **plan 1 already landed** (`ebe18035..153f318a`, PR #105), plus **plan 2 landed** (`2026-08-20-dwell-control-anatomy.md`). This plan assumes `DwellToggle` is already an `IDwellComposite` with a switch.
 
 ---
 
@@ -21,7 +21,7 @@ grep -n "class DwellToggle : IDwellComposite" src/EyeCtrl.Controls/DwellToggle.c
 grep -n "private const double PlateWidth" src/EyeCtrl.Controls/DwellSlider.cs
 ```
 
-Both must hit. If not, plans 1 and 2 have not landed and this one will not compile.
+Both must hit. If not, plan 2 has not landed and this one will not compile.
 
 ---
 

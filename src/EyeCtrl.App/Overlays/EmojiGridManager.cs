@@ -53,6 +53,11 @@ public class EmojiGridManager
 
     private readonly DwellDetector _categoryDwellDetector;
     private readonly List<SolidColorBrush> _categoryBrushes = new();
+    // Dwell feedback for the category tabs: an accent outline thickening inward. The wash it
+    // replaced blended the tile toward Accent at full strength, collapsing its icon's contrast
+    // as the user dwelt on it. _categoryBrushes now carries ACTIVE-category state only, which
+    // is the one thing that should move that fill.
+    private readonly List<DwellOutlineOverlay> _categoryOutlines = new();
     private bool _categoryTargetsInitialized;
 
     private EmojiData? _emojiData;
@@ -299,6 +304,7 @@ public class EmojiGridManager
         _categoryDwellDetector.ClearTargets();
         _categoryTargetsInitialized = false;
         _categoryBrushes.Clear();
+        _categoryOutlines.Clear();
         _categoryBar.Children.Clear();
 
         AddCategoryTab("recent", "\uD83D\uDD50");
@@ -323,22 +329,25 @@ public class EmojiGridManager
             Height = keySize,
             Margin = new Thickness(2),
             Background = brush,
-            CornerRadius = Tokens.StandardCornerRadius,
-            Child = new TextBlock
-            {
-                Text = icon,
-                // Clamped at Legibility.MinimumGlyphFontSize: KeySizeMultiplier bottoms out at
-                // 0.5 (KeyboardSettings), which puts this tab's icon at 11.20px in a 35px cell —
-                // below the 12px accessibility floor design spec §8.4 established. Read from the
-                // named minimum rather than from Tokens.FontSizeBody: the two are both 12 today,
-                // but the ramp step is gated >= 12, not == 12, so raising body text would
-                // silently grow this glyph. Proportional scaling still applies above ~0.54x.
-                FontSize = Math.Max(keySize * ContainerRatio.Medium, Legibility.MinimumGlyphFontSize),
-                Foreground = Tokens.BrushTextPrimary,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
+            CornerRadius = Tokens.StandardCornerRadius
         };
+
+        var iconBlock = new TextBlock
+        {
+            Text = icon,
+            // Clamped at Legibility.MinimumGlyphFontSize: KeySizeMultiplier bottoms out at
+            // 0.5 (KeyboardSettings), which puts this tab's icon at 11.20px in a 35px cell —
+            // below the 12px accessibility floor design spec §8.4 established. Read from the
+            // named minimum rather than from Tokens.FontSizeBody: the two are both 12 today,
+            // but the ramp step is gated >= 12, not == 12, so raising body text would
+            // silently grow this glyph. Proportional scaling still applies above ~0.54x.
+            FontSize = Math.Max(keySize * ContainerRatio.Medium, Legibility.MinimumGlyphFontSize),
+            Foreground = Tokens.BrushTextPrimary,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        _categoryOutlines.Add(DwellOutlineOverlay.Attach(btn, iconBlock));
 
         _categoryBar.Children.Add(btn);
         // Use diagonal half-length so the circular hit area covers the full square button
@@ -373,20 +382,15 @@ public class EmojiGridManager
                 : "_skinTone";
             if (tabCatId != catId) continue;
 
-            var isActive = i == GetActiveCategoryIndex();
-            var baseColor = isActive ? CategoryBarActiveColor : CategoryBarColor;
-            if (progress <= 0)
+            // The fill carries ACTIVE-category state only; dwell rides the outline over it.
+            // Keeping the two apart is what stops the icon's contrast decaying as the user dwells.
+            _categoryBrushes[i].Color = i == GetActiveCategoryIndex()
+                ? CategoryBarActiveColor
+                : CategoryBarColor;
+
+            if (i < _categoryOutlines.Count)
             {
-                _categoryBrushes[i].Color = baseColor;
-            }
-            else
-            {
-                // Linear blend toward Accent, matching KeyboardWindow. The old form built a
-                // green highlight that itself scaled with progress and then blended toward it
-                // by progress again — a p² ramp, and green where §4.1.2 reserves Accent for
-                // dwell-in-progress. Alpha is carried from baseColor rather than forced to
-                // 200, so a key does not change opacity as it dwells.
-                _categoryBrushes[i].Color = ColorBlend.Blend(baseColor, Tokens.Accent, progress);
+                _categoryOutlines[i].SetProgress(progress);
             }
             break;
         }

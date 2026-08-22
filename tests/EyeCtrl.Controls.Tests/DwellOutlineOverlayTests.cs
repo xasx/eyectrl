@@ -147,6 +147,37 @@ public class DwellOutlineOverlayTests
         Check.That(clip.Rect).IsEqualTo(new Rect(0, 0, size, size));
     }
 
+    /// <summary>
+    /// The clip and the outline radius come from the LARGEST of all four corners, not just the
+    /// bottom two. Unlike a bottom-edge bar, an outline runs through every corner. Uses a
+    /// non-uniform radius because with <c>Tokens.StandardCornerRadius</c> (uniform) the two
+    /// derivations agree and nothing could distinguish them.
+    /// </summary>
+    [StaFact]
+    public void TheClipRadius_ComesFromTheLargestCorner_NotJustTheBottomOnes()
+    {
+        const int size = 70;
+        var key = new Border
+        {
+            Width = size,
+            Height = size,
+            Background = new SolidColorBrush(Tokens.SurfaceKey),
+            // Largest corner is the TOP-left; the bottom pair is smaller.
+            CornerRadius = new CornerRadius(20, 2, 2, 2)
+        };
+        var overlay = DwellOutlineOverlay.Attach(key, null);
+
+        key.Measure(new Size(size, size));
+        key.Arrange(new Rect(0, 0, size, size));
+        key.UpdateLayout();
+
+        Check.WithCustomMessage(
+                "the clip radius ignores the top corners, so an outline traced through them "
+                + "paints past the target's silhouette.")
+            .That(((RectangleGeometry)overlay.Layout.Clip).RadiusX).IsEqualTo(20.0);
+        Check.That(overlay.Outline.RadiusX).IsEqualTo(20.0);
+    }
+
     [StaFact]
     public void TheOutline_IsAccentOverAHalo_AndIsNotHitTestable()
     {
@@ -186,6 +217,125 @@ public class DwellOutlineOverlayTests
                     + "one term or the other, or the user cannot see the dwell.")
                 .That(best).IsStrictlyGreaterThan(3.0);
         }
+    }
+
+    /// <summary>
+    /// A padded target must still be outlined at its own edge, not at its content box.
+    ///
+    /// A WPF Border arranges its Child inside its Padding, so an overlay installed as that Child
+    /// is inset by it — and an outline inset from the edge stops being an outline. Found in
+    /// review on the prediction buttons (<c>Padding(16,0,16,0)</c>): the accent band started
+    /// 16 DIP in with the halo floating inside the button, a ~13% dead belt at each end, and it
+    /// rendered differently from the unpadded keys and category tabs. Every other pixel-level
+    /// test here uses an unpadded target, which is exactly why none of them caught it.
+    /// </summary>
+    [StaFact]
+    public void APaddedTarget_IsOutlinedAtItsOwnEdge_NotAtItsContentBox()
+    {
+        const int w = 120;
+        const int h = 70;
+        var padded = new Border
+        {
+            Width = w,
+            Height = h,
+            Padding = new Thickness(16, 0, 16, 0),
+            Background = new SolidColorBrush(Tokens.SurfaceKey),
+            CornerRadius = Tokens.StandardCornerRadius
+        };
+        var label = new TextBlock
+        {
+            Text = "prediction",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var overlay = DwellOutlineOverlay.Attach(padded, label);
+        overlay.SetProgress(1.0);
+
+        padded.Measure(new Size(w, h));
+        padded.Arrange(new Rect(0, 0, w, h));
+        padded.UpdateLayout();
+
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(padded);
+        var stride = w * 4;
+        var pixels = new byte[stride * h];
+        rtb.CopyPixels(pixels, stride, 0);
+
+        Color At(int x, int y) => Color.FromRgb(
+            pixels[y * stride + x * 4 + 2], pixels[y * stride + x * 4 + 1], pixels[y * stride + x * 4]);
+
+        // A couple of DIPs in from the LEFT edge, vertically centred where no corner arc reaches:
+        // the accent must be here. If the overlay were inset by the 16 DIP padding this would
+        // still be the key's plain fill.
+        var nearEdge = At(2, h / 2);
+        Check.WithCustomMessage(
+                $"pixel at (2,{h / 2}) is R{nearEdge.R},G{nearEdge.G},B{nearEdge.B}, not the "
+                + $"Accent R{Tokens.Accent.R},G{Tokens.Accent.G},B{Tokens.Accent.B} — the outline "
+                + "is tracing the padded content box instead of the target's own edge, so a "
+                + "padded button shows a frame floating inside it rather than feedback on it.")
+            .That((nearEdge.R, nearEdge.G, nearEdge.B))
+            .IsEqualTo((Tokens.Accent.R, Tokens.Accent.G, Tokens.Accent.B));
+
+        // And the content area well inside the padding must still be the target's own fill —
+        // an outline, not a wash, and not a band parked where the padding used to be.
+        var inside = At(w / 2, h / 2);
+        Check.WithCustomMessage(
+                $"the padded target's centre is R{inside.R},G{inside.G},B{inside.B} at full dwell, "
+                + "not its own fill.")
+            .That((inside.R, inside.G, inside.B))
+            .IsEqualTo((Tokens.SurfaceKey.R, Tokens.SurfaceKey.G, Tokens.SurfaceKey.B));
+    }
+
+    /// <summary>
+    /// The padding an outlined target carried must end up around its content, not lost: the
+    /// label has to sit exactly where it did before the overlay was attached.
+    /// </summary>
+    [StaFact]
+    public void Attaching_ToAPaddedTarget_LeavesTheContentWhereItWas()
+    {
+        const int w = 160;
+        const int h = 70;
+        // ASYMMETRIC on purpose. With symmetric padding a centred label sits at the same point
+        // whether the padding is applied or dropped, so the test could not tell the difference —
+        // verified: dropping it entirely left this green. Asymmetry makes the centre move.
+        var pad = new Thickness(24, 4, 8, 12);
+
+        static Point Centre(Border host, TextBlock label, int w, int h)
+        {
+            host.Measure(new Size(w, h));
+            host.Arrange(new Rect(0, 0, w, h));
+            host.UpdateLayout();
+            var tl = label.TransformToAncestor(host).Transform(new Point(0, 0));
+            return new Point(tl.X + label.ActualWidth / 2, tl.Y + label.ActualHeight / 2);
+        }
+
+        static (Border Target, TextBlock Label) NewPadded(Thickness pad, int w, int h) => (
+            new Border
+            {
+                Width = w,
+                Height = h,
+                Padding = pad,
+                Background = new SolidColorBrush(Tokens.SurfaceKey),
+                CornerRadius = Tokens.StandardCornerRadius
+            },
+            new TextBlock
+            {
+                Text = "prediction",
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+        var (plain, plainLabel) = NewPadded(pad, w, h);
+        plain.Child = plainLabel;
+
+        var (outlined, outlinedLabel) = NewPadded(pad, w, h);
+        DwellOutlineOverlay.Attach(outlined, outlinedLabel);
+
+        Check.WithCustomMessage(
+                "attaching the overlay moved the content of a padded target — the padding must be "
+                + "re-applied around the content, not dropped.")
+            .That(Centre(outlined, outlinedLabel, w, h))
+            .IsEqualTo(Centre(plain, plainLabel, w, h));
     }
 
     /// <summary>

@@ -596,7 +596,9 @@ public partial class KeyboardWindow : OverlayWindow
 
     private void UpdateKeyVisual(string targetId, double progress)
     {
-        if (!_keyVisuals.TryGetValue(targetId, out var visuals)) return;
+        // Membership check only — the visual itself is not needed here any more, now that dwell
+        // rides _keyOutlines rather than the key's own brush.
+        if (!_keyVisuals.ContainsKey(targetId)) return;
 
         // Thicken the outline; the key's fill and label are left alone, so the label's
         // contrast at the end of a dwell equals its contrast at rest.

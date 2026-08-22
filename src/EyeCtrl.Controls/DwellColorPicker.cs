@@ -13,9 +13,16 @@ using EyeCtrl.Core.Processing;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Each swatch is a square <see cref="DwellButton"/> filled with the preset colour.
-/// The currently selected swatch is identified by a white border; all others have a
-/// transparent border. Border state is stored on the inner button's
+/// Each swatch is a <see cref="DwellButton"/> drawn as a card: its own fill is a neutral
+/// surface, and its <see cref="DwellButton.Content"/> is a chip carrying the preset colour
+/// above a caption naming it. The name is DRAWN rather than left to
+/// <see cref="FrameworkElement.ToolTip"/>, which is set as well but reachable only by hovering
+/// — and this application's user has no pointer to hover with.
+/// </para>
+/// <para>
+/// The currently selected swatch is identified by a <see cref="Tokens.BrushTextPrimary"/>
+/// border; all others carry a transparent one of the same
+/// <see cref="SwatchBorderThickness"/>. Border state is stored on the inner button's
 /// <see cref="DwellControl.Root"/> and does not conflict with
 /// <see cref="DwellButton.ApplyProgress"/> because <c>ApplyProgress</c> no longer
 /// touches <see cref="DwellControl.Root"/>'s background at all — it sweeps a haloed
@@ -73,6 +80,16 @@ public class DwellColorPicker : IDwellComposite
     public const double SwatchHorizontalMargin = 8;
     /// <summary>Vertical gutter between wrapped swatch rows, in logical DIPs.</summary>
     public const double SwatchVerticalMargin = 20;
+
+    /// <summary>
+    /// Selection-border thickness, constant in both states so choosing a swatch cannot resize it
+    /// and re-flow the WrapPanel — the same rule as DwellComboBox's OptionBorderThickness.
+    ///
+    /// <c>internal</c> rather than <c>public</c>, unlike the four geometry consts above: those
+    /// are read from <c>EyeCtrl.App.Tests</c>, which has no InternalsVisibleTo into this
+    /// assembly, whereas this one is read only from <c>EyeCtrl.Controls.Tests</c>, which does.
+    /// </summary>
+    internal const double SwatchBorderThickness = 3;
 
     private readonly DwellLabel _label;
     private readonly List<DwellButton> _swatches = new();
@@ -137,17 +154,45 @@ public class DwellColorPicker : IDwellComposite
             btn.Root.Margin = new Thickness(
                 SwatchHorizontalMargin, SwatchVerticalMargin,
                 SwatchHorizontalMargin, SwatchVerticalMargin);
-            // No radius override: swatches now share DwellButton's Tokens.StandardCornerRadius.
-            // No Background assignment here either: DwellButton's constructor already painted
-            // Root.Background with color (baseColor == color) via its own _brush. Re-assigning
-            // it would replace that brush with an orphan SolidColorBrush ApplyProgress never
-            // touches — the exact bug (swatches showing no dwell feedback) this file's redesign
-            // set out to fix.
-            btn.Root.BorderThickness = new Thickness(3);
+            // No radius override: swatches share DwellButton's Tokens.StandardCornerRadius.
+            //
+            // The button's own fill becomes the card behind the colour chip, so the name has a
+            // surface to be legible on. The chip carries the preset colour instead. Replacing
+            // Root.Background is safe: dwell feedback lives on DwellButton.ProgressBar, a
+            // separate element, so it cannot be orphaned by this assignment — the invariant
+            // DwellColorPickerProgressTests pins.
+            btn.Root.Background = Tokens.BrushSurfaceMedium;
+            btn.Root.BorderThickness = new Thickness(SwatchBorderThickness);
             btn.Root.BorderBrush = hex.Equals(get(), StringComparison.OrdinalIgnoreCase)
                 ? Tokens.BrushTextPrimary : Brushes.Transparent;
+            // Retained for whoever drives this with a mouse. It is not the name's affordance:
+            // a tooltip needs hover, and this application's user has none — which is why the
+            // caption below exists.
             btn.Root.ToolTip = name;
-            btn.Content = null; // No text label for colour swatches
+
+            var chip = new Border
+            {
+                Background = new SolidColorBrush(color),
+                CornerRadius = Tokens.SmallCornerRadius
+            };
+
+            var caption = new TextBlock
+            {
+                Text = name,
+                Foreground = Tokens.BrushTextSecondary,
+                FontSize = Tokens.FontSizeSubtitle,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+
+            var swatchContent = new DockPanel { LastChildFill = true, Margin = new Thickness(6) };
+            DockPanel.SetDock(caption, Dock.Bottom);
+            swatchContent.Children.Add(caption);
+            swatchContent.Children.Add(chip);
+
+            // Content, not Root.Child: Root's child is DwellButton's own layout, and overwriting
+            // it would remove the dwell progress bar with it.
+            btn.Content = swatchContent;
 
             _swatches.Add(btn);
             _swatchBorders.Add(btn.Root);
@@ -175,8 +220,10 @@ public class DwellColorPicker : IDwellComposite
     }
 
     /// <summary>
-    /// Updates the white selection border on the swatch that matches the current colour,
-    /// clearing the border on all others.
+    /// Paints the selection border on the swatch that matches the current colour and clears it
+    /// on all others. Swaps the BRUSH only: the thickness stays
+    /// <see cref="SwatchBorderThickness"/> in both states, because a Border's thickness lays out
+    /// outside its child and a varying one would re-flow the WrapPanel on every selection.
     /// </summary>
     private void RefreshSelection()
     {

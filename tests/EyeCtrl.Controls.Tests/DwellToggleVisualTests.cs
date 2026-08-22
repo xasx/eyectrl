@@ -5,8 +5,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -36,7 +38,9 @@ using Xunit;
 /// Dwell feedback is the switch's own <see cref="DwellButton.ProgressBar"/>, exercised through a
 /// fake registrar and the real <see cref="DwellControl.UpdateVisual"/> rather than a test-only
 /// hook on the production type — the convention <c>DwellColorPickerProgressTests</c> and
-/// <c>DwellProgressContrastTests</c> established.
+/// <c>DwellProgressContrastTests</c> established. One test renders instead of reading DPs:
+/// <see cref="TheDwellBarPaintsThroughTheWholeCard"/>, because a bar that occupies the visual
+/// tree and paints nothing satisfies every DP in this file.
 /// </para>
 /// </summary>
 public class DwellToggleVisualTests
@@ -130,18 +134,38 @@ public class DwellToggleVisualTests
     /// WYSIWYG dwell floor, restated for the switch because the switch — not the row — is what
     /// registers now. <c>DwellButton</c>'s own doc records the rule: a settings dwell control is
     /// never drawn smaller than the 100 DIP hit circle it registers.
+    ///
+    /// <para>
+    /// Measured on the ARRANGED box, not on <c>Root.Width</c>/<c>Root.Height</c>. Those are the
+    /// constructor's arguments and never change whatever the parent does — which is precisely the
+    /// failure this control's own card border introduced: measured, a bordered card handed the
+    /// switch a layout clip of 0;0;160;98 at <c>BorderThicknessStandard</c> 1 and 0;0;160;96 at 2,
+    /// and a DP-reading version of this test stayed green through both. So it reads
+    /// <c>ActualWidth</c>/<c>ActualHeight</c> after a real layout pass AND intersects them with the
+    /// layout clip, because either alone can be the thing that shrinks.
+    /// </para>
     /// </summary>
     [StaFact]
     public void TheSwitchIsNeverDrawnSmallerThanItsHitCircle()
     {
         var toggle = Build(initial: true);
+        AttachAndLayout(toggle);
+        var root = toggle.Switch.Root;
+
+        var clip = LayoutInformation.GetLayoutClip(root);
+        var drawnWidth = clip is null
+            ? root.ActualWidth
+            : Math.Min(root.ActualWidth, clip.Bounds.Width);
+        var drawnHeight = clip is null
+            ? root.ActualHeight
+            : Math.Min(root.ActualHeight, clip.Bounds.Height);
 
         Check.WithCustomMessage(
-                $"the switch is drawn {toggle.Switch.Root.Width}x{toggle.Switch.Root.Height} DIP, "
+                $"the switch is DRAWN {drawnWidth}x{drawnHeight} DIP (declared "
+                + $"{root.Width}x{root.Height}, layout clip {clip?.Bounds.ToString() ?? "none"}), "
                 + "inside the 100 DIP circle it registers — the user would be activating it from "
                 + "points where nothing is drawn.")
-            .That(Math.Min(toggle.Switch.Root.Width, toggle.Switch.Root.Height))
-            .IsGreaterOrEqualThan(100.0);
+            .That(Math.Min(drawnWidth, drawnHeight)).IsGreaterOrEqualThan(100.0);
     }
 
     /// <summary>
@@ -157,16 +181,23 @@ public class DwellToggleVisualTests
     {
         var toggle = Build(initial: false);
         var content = (FrameworkElement)toggle.Switch.Content!;
+        var root = toggle.Switch.Root;
 
         AttachAndLayout(toggle);
         content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
 
+        // The content's real budget is the box less the switch's own outline, which a Border
+        // deflates its child by. Reading the thickness off the element rather than restating it,
+        // so thickening the outline is caught here instead of quietly eating the track's edge.
+        var budget = root.Width - root.BorderThickness.Left - root.BorderThickness.Right;
+
         Check.WithCustomMessage(
-                $"the switch's content wants {content.DesiredSize.Width:F2} DIP but the switch is "
-                + $"drawn {toggle.Switch.Root.Width} DIP wide. DwellButton clips its layout to the "
-                + "rounded silhouette, so the overflow is cut, not drawn — the track or the state "
-                + "word loses its edge with nothing thrown.")
-            .That(content.DesiredSize.Width).IsLessOrEqualThan(toggle.Switch.Root.Width);
+                $"the switch's content wants {content.DesiredSize.Width:F2} DIP against a "
+                + $"{budget:F2} DIP budget ({root.Width} wide less a "
+                + $"{root.BorderThickness.Left}/{root.BorderThickness.Right} outline). DwellButton "
+                + "clips its layout to the rounded silhouette, so the overflow is cut, not drawn — "
+                + "the track or the state word loses its edge with nothing thrown.")
+            .That(content.DesiredSize.Width).IsLessOrEqualThan(budget);
     }
 
     [StaFact]
@@ -190,6 +221,41 @@ public class DwellToggleVisualTests
                 + "gate that was retired on the strength of this separation.")
             .That(Grid.GetRow(toggle.Switch.ProgressBar)).IsEqualTo(1);
         Check.That(Grid.GetRow((UIElement)toggle.Switch.Content!)).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// The switch has to be inset from the card's right edge, or its rounded corners sit on top of
+    /// the card's and the row reads as one malformed shape. Measured before the inset existed: on a
+    /// 360-wide card the switch was arranged at x = 200…360, flush against the edge, while the
+    /// label got a 20 DIP inset on the other side.
+    ///
+    /// <para>
+    /// Horizontal only, deliberately. Vertically the switch DOES span the card exactly, and must:
+    /// it may not be drawn under 100 DIP (the WYSIWYG floor
+    /// <see cref="TheSwitchIsNeverDrawnSmallerThanItsHitCircle"/> holds) and the card may not grow
+    /// past 100 without moving the 124 DIP row height every settings page is paginated on. So this
+    /// asserts the gap that is available and states why the other one is not.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void TheSwitchIsInsetFromTheCardsRightEdge()
+    {
+        var toggle = Build(initial: true);
+        var panel = AttachAndLayout(toggle);
+        var card = toggle.RowSurface;
+        var root = toggle.Switch.Root;
+
+        var switchRight = root.TransformToAncestor(panel).Transform(new Point(0, 0)).X
+                          + root.ActualWidth;
+        var cardRight = card.TransformToAncestor(panel).Transform(new Point(0, 0)).X
+                        + card.ActualWidth - card.BorderThickness.Right;
+
+        Check.WithCustomMessage(
+                $"the switch's right edge is at {switchRight:F2} DIP and the card's inner edge at "
+                + $"{cardRight:F2} — the switch is flush against (or past) the card, so their "
+                + "rounded corners overlap. The card carries no Padding, so the inset has to come "
+                + "from the switch's own Margin.")
+            .That(switchRight).IsStrictlyLessThan(cardRight);
     }
 
     // ────── T1: exactly one target, and it is the switch ──────
@@ -267,6 +333,237 @@ public class DwellToggleVisualTests
                     + "no visible extent — there is nothing on screen to aim at.")
                 .That(best).IsStrictlyGreaterThan(3.0);
         }
+    }
+
+    /// <summary>
+    /// The knob's SIDE is one of the three carriers that make this control readable without
+    /// colour, so the knob has to be visible on the track it slides along — and by its own fill it
+    /// is not: TextPrimary on ToggleOn measures 2.91 / 3.53 / 1.37 across
+    /// Midnight / Ember / Contrast. The dark <see cref="Tokens.BrushSurfaceDark"/> ring is what
+    /// carries it (4.37 / 4.18 / 15.30 on ToggleOn), so this gates max(fill, ring) at 3:1 — the
+    /// same fill-plus-outline shape the track and the dwell bar are gated with, and for the same
+    /// reason: whichever of the two reads better is what the eye actually uses.
+    ///
+    /// Cross-theme half: <c>Theme.ToggleContrastTests.TheKnob_IsPerceptibleAgainstEitherTrackFill</c>.
+    /// </summary>
+    [StaFact]
+    public void TheKnobIsPerceptibleAgainstTheTrackFill()
+    {
+        foreach (var initial in new[] { true, false })
+        {
+            var toggle = Build(initial);
+
+            var trackFill = ((SolidColorBrush)toggle.Track.Background).Color;
+            var fill = Contrast(((SolidColorBrush)toggle.Knob.Background).Color, trackFill);
+            var ring = toggle.Knob.BorderBrush is SolidColorBrush b
+                ? Contrast(b.Color, trackFill)
+                : 1.0; // no ring at all -> no rescue, which is the defect exactly
+            var best = Math.Max(fill, ring);
+
+            Check.WithCustomMessage(
+                    $"state={initial}: the knob reaches only {best:F2}:1 against the track it sits "
+                    + $"on (fill {fill:F2}:1, ring {ring:F2}:1). Below 3:1 the knob's side stops "
+                    + "carrying state, and this control is left saying it in colour alone.")
+                .That(best).IsStrictlyGreaterThan(3.0);
+        }
+    }
+
+    /// <summary>
+    /// The card's border inset must be cancelled EXACTLY, and this is the theme-independent half
+    /// of that guard.
+    ///
+    /// <para>
+    /// A <see cref="Border"/> deflates its child by its <c>BorderThickness</c>, so a bordered
+    /// 100 DIP card hands the switch a 98 DIP slot for its explicit 100 — and WPF does not split
+    /// the shortfall: <c>ComputeAlignmentOffset</c> demotes Stretch to Top, the switch is pushed
+    /// DOWN, and all of it lands on the bottom edge, where the 6 DIP dwell bar is. The row Grid's
+    /// negative vertical margin is what gives the switch its 100 back.
+    /// </para>
+    /// <para>
+    /// Asserted as an EQUALITY against the card's own thickness rather than against a literal,
+    /// because the thickness is a theme token: 1 in Midnight and Ember, 2 in Contrast. A
+    /// compensation that merely happens to match today's ambient theme would leave the Contrast
+    /// theme — the one built for low vision — short by a DIP.
+    /// </para>
+    /// <para>
+    /// This is the gate with teeth. <see cref="TheSwitchIsNeverDrawnSmallerThanItsHitCircle"/>
+    /// catches the same defect through its effect (the layout clip) and
+    /// <see cref="TheDwellBarPaintsThroughTheWholeCard"/> catches the worst of it in pixels, but
+    /// only this one is exact and only this one is blind to which theme is ambient.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void TheCardsBorderInsetIsCancelledExactly()
+    {
+        var toggle = Build(initial: true);
+        var card = toggle.RowSurface;
+        var row = (Grid)card.Child;
+
+        Check.WithCustomMessage(
+                $"the row Grid's vertical margin is {row.Margin.Top}/{row.Margin.Bottom} against a "
+                + $"card border of {card.BorderThickness.Top}/{card.BorderThickness.Bottom}. It has "
+                + "to be the exact negation, or the switch is handed a slot shorter than the 100 DIP "
+                + "circle it registers and the shortfall lands on its dwell bar.")
+            .That((row.Margin.Top, row.Margin.Bottom))
+            .IsEqualTo((-card.BorderThickness.Top, -card.BorderThickness.Bottom));
+
+        Check.WithCustomMessage(
+                $"the row Grid's horizontal margin is {row.Margin.Left}/{row.Margin.Right}, not 0. "
+                + "The cancellation is vertical only, on purpose: horizontally there is no shortfall "
+                + "to make up, and a negative margin there would push the switch out over the card's "
+                + "own outline.")
+            .That((row.Margin.Left, row.Margin.Right)).IsEqualTo((0.0, 0.0));
+    }
+
+    /// <summary>
+    /// The dwell bar's Accent has to reach the SCREEN, through the whole stack the composite puts
+    /// in its way: the card and its border, the row Grid and its negative margin, the switch and
+    /// its own outline, and the rounded clip <c>DwellButton</c> installs over its layout. Every
+    /// other test in this file reads a DP, a brush or a transform, so a bar that is present in the
+    /// visual tree and paints NOTHING satisfies all of them — the colour-swatch defect exactly.
+    ///
+    /// <para>
+    /// Matched on COLOUR, not alpha: the card's fill is opaque, so an alpha probe reads 255
+    /// whether or not the bar drew. The floor comes from
+    /// <see cref="DwellButton.ProgressBarHeight"/> less the bar's two halo rows, so it follows the
+    /// constant rather than pinning a number that would go stale.
+    /// </para>
+    /// <para>
+    /// Its LIMIT, stated because it was not obvious: this probe renders under the ambient theme,
+    /// and at <c>BorderThicknessStandard</c> 1 the bar survives even with the compensation deleted
+    /// — the switch's own 2 DIP outline has already lifted it clear of the bottom edge, so the
+    /// clip cuts padding rather than bar. Measured: 602 Accent pixels over 4 rows both with and
+    /// without the compensation at thickness 1, and 455 over 3 rows with a thickness-2 card border
+    /// and no compensation. So this test alone would NOT have caught the regression;
+    /// <see cref="TheCardsBorderInsetIsCancelledExactly"/> is the half that does, and this one
+    /// proves the pixels are really there.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void TheDwellBarPaintsThroughTheWholeCard()
+    {
+        var registrar = new FakeRegistrar { Progress = 1.0 };
+        var toggle = Build(registrar, initial: true);
+
+        // Arranged standalone at the narrowest real content column, with the bottom margin zeroed,
+        // so bitmap rows map 1:1 onto the card's own box — the same technique (and the same reason)
+        // as DwellButtonProgressTests' silhouette probe.
+        var card = toggle.RowSurface;
+        card.Margin = new Thickness(0);
+        card.Width = 416;
+        card.Measure(new Size(card.Width, card.Height));
+        card.Arrange(new Rect(0, 0, card.Width, card.Height));
+        card.UpdateLayout();
+        toggle.Switch.UpdateVisual();
+
+        var w = (int)Math.Round(card.Width);
+        var h = (int)Math.Round(card.Height);
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(card);
+
+        var stride = w * 4;
+        var pixels = new byte[stride * h];
+        rtb.CopyPixels(pixels, stride, 0);
+
+        var accent = Tokens.Accent;
+        var total = 0;
+        var rows = 0;
+        for (var y = 0; y < h; y++)
+        {
+            var inRow = 0;
+            for (var x = 0; x < w; x++)
+            {
+                var i = y * stride + x * 4;
+                if (pixels[i + 2] == accent.R && pixels[i + 1] == accent.G && pixels[i] == accent.B)
+                    inRow++;
+            }
+
+            total += inRow;
+            if (inRow > 0) rows++;
+        }
+
+        var floor = (int)DwellButton.ProgressBarHeight - 2;
+        Check.WithCustomMessage(
+                $"at full dwell the card renders {total} Accent pixels over {rows} rows, under the "
+                + $"{floor} rows a {DwellButton.ProgressBarHeight} DIP bar draws inside its halo. "
+                + "Either the bar is not reaching the screen at all — present in the tree but "
+                + "painting nothing, which no other test here can see — or something above it is "
+                + "cutting rows off the bottom. If it is the card's border, cancel its inset on the "
+                + "row Grid; do not delete the outline and do not grow the card past 100 DIP.")
+            .That(rows).IsGreaterOrEqualThan(floor);
+    }
+
+    /// <summary>
+    /// The switch is the thing the user aims at, so it must read as an object against the card it
+    /// sits on — and by fill alone it does not: <see cref="Tokens.SurfaceLight"/> on
+    /// <see cref="Tokens.SurfaceMedium"/> is a 1.23 / 1.23 / 1.14 step across
+    /// Midnight / Ember / Contrast, i.e. no boundary at all. Its
+    /// <see cref="Tokens.BrushTextSecondary"/> outline measures 5.63 / 6.79 / 15.04 there.
+    ///
+    /// <para>
+    /// This gate is why the outline exists, and it is the half that was MISSING when the card's
+    /// border was deleted to dodge a layout clip: nothing in the suite noticed the row losing its
+    /// edges, because every other test here reads a colour pair that still held. Same
+    /// max(fill, outline) shape as the track, the knob and the dwell bar.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void TheSwitchHasAPerceptibleBoundaryAgainstTheCard()
+    {
+        var toggle = Build(initial: true);
+        var root = toggle.Switch.Root;
+
+        var card = ((SolidColorBrush)toggle.RowSurface.Background).Color;
+        var fill = Contrast(((SolidColorBrush)root.Background).Color, card);
+        var outline = root.BorderThickness.Top > 0 && root.BorderBrush is SolidColorBrush b
+            ? Contrast(b.Color, card)
+            : 1.0; // no outline drawn at all -> the fill has to carry it, and it cannot
+        var best = Math.Max(fill, outline);
+
+        Check.WithCustomMessage(
+                $"the switch reaches only {best:F2}:1 against the card it sits on (fill "
+                + $"{fill:F2}:1, outline {outline:F2}:1 at thickness {root.BorderThickness.Top}). "
+                + "Below 3:1 the dwell target has no edge — the user is aiming at a smudge.")
+            .That(best).IsStrictlyGreaterThan(3.0);
+    }
+
+    /// <summary>
+    /// The row card's own boundary against the page behind it, which is
+    /// <see cref="Tokens.SurfaceDark"/>. Palette rule 1 puts this on the BORDER rather than the
+    /// fill — "the border carries the boundary; the fill only suggests depth",
+    /// docs/design/overlay-unification-spec.md:284-286 — and the numbers are why: SurfaceMedium on
+    /// SurfaceDark is a 1.23 / 1.23 / 1.14 step, while BorderSubtle on it measures
+    /// 3.35 / 3.32 / 21.00.
+    ///
+    /// <para>
+    /// The palette half of this is already gated outside the suite, by
+    /// tools/palette_validate.py:352-365 ("GATE 1 - layering"), which checks BorderSubtle against
+    /// the worst composited surface in every theme. What that cannot see is whether this CONTROL
+    /// draws a border at all — and for one commit it did not, which took the row from a delineated
+    /// object (the old full-bleed ToggleOn fill read 4.37:1 against the page) to a 1.23:1
+    /// nothing. That is the gap this test closes.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void TheRowCardHasAPerceptibleBoundaryAgainstThePage()
+    {
+        var toggle = Build(initial: false);
+        var card = toggle.RowSurface;
+
+        var page = Tokens.SurfaceDark;
+        var fill = Contrast(((SolidColorBrush)card.Background).Color, page);
+        var outline = card.BorderThickness.Top > 0 && card.BorderBrush is SolidColorBrush b
+            ? Contrast(b.Color, page)
+            : 1.0; // no border -> only the fill step is left, and it is ~1.2:1
+        var best = Math.Max(fill, outline);
+
+        Check.WithCustomMessage(
+                $"the row card reaches only {best:F2}:1 against the settings page (fill "
+                + $"{fill:F2}:1, border {outline:F2}:1 at thickness {card.BorderThickness.Top}). "
+                + "Palette rule 1 puts the boundary on the border for exactly this reason; a "
+                + "borderless card on SurfaceMedium is invisible. If the border was removed to "
+                + "stop it eating the dwell bar, cancel the inset on the row Grid instead.")
+            .That(best).IsStrictlyGreaterThan(3.0);
     }
 
     // ────── T3: the label's own contrast, where it now lives ──────
@@ -374,11 +671,24 @@ public class DwellToggleVisualTests
     /// <summary>
     /// A <see cref="Border"/> has no <c>AutomationPeer</c> in WPF, so it never appears in the UIA
     /// tree and cannot carry the <c>Settings_Toggle_{id}</c> automation id the App's UI tests find
-    /// the control by. The state word is the innermost element inside the switch that CAN carry
-    /// it — but it is not centred in the switch, so this pins the thing that actually matters:
-    /// the anchor's centre, which is where <c>AppFixture.SimulateDwellOn</c> puts the cursor, must
-    /// fall inside the hit circle the switch registers. Off by more than the radius and the UI
-    /// test dwells a point that activates nothing.
+    /// the control by. The state word is the innermost element inside the switch that CAN carry it.
+    /// <c>AppFixture.SimulateDwellOn</c> dwells an element's bounding-rect centre, so what matters
+    /// is where that centre lands.
+    ///
+    /// <para>
+    /// TWO assertions, and the first is the load-bearing one. The word's BOX is stretched across
+    /// the switch's whole content width — its glyphs are placed by Padding, which sits inside the
+    /// box — so the anchor's centre IS the switch's centre by construction rather than by an
+    /// offset that happens to fall inside the circle. An earlier draft sized the word to its text
+    /// and measured 40.11 DIP of 50: inside, but on a 20% margin that any change to the word or
+    /// the track's width would erode. Switching the Padding back to a Margin shrinks the box again
+    /// and fails the span assertion, which the distance assertion alone would not catch.
+    /// </para>
+    /// <para>
+    /// The units are sound in both directions: the fixture reads the UIA bounding rect in physical
+    /// pixels and the registered radius is <c>DpiHelper.LogicalToPhysicalX(ControlBtnRadius)</c>,
+    /// so the two scale together and comparing them in DIP here is valid.
+    /// </para>
     /// </summary>
     [StaFact]
     public void TheUiaAnchorsCentre_FallsInsideTheSwitchesHitCircle()
@@ -395,6 +705,17 @@ public class DwellToggleVisualTests
             .IsEqualTo("Settings_Toggle_id");
 
         var root = toggle.Switch.Root;
+
+        // The span is what puts the centre on the centre. Derived from the switch's own box less
+        // its own outline, not restated, so neither number can drift out from under this.
+        var contentWidth = root.ActualWidth - root.BorderThickness.Left - root.BorderThickness.Right;
+        Check.WithCustomMessage(
+                $"the UIA anchor is {anchor.ActualWidth:F2} DIP wide inside a {contentWidth:F2} DIP "
+                + "switch, so it no longer spans it and its bounding-rect centre is an offset "
+                + "rather than the switch's centre. Place the state word's glyphs with Padding "
+                + "(inside the box) rather than Margin (outside it).")
+            .That(anchor.ActualWidth).IsEqualTo(contentWidth);
+
         var offset = anchor.TransformToAncestor(root)
             .Transform(new Point(anchor.ActualWidth / 2, anchor.ActualHeight / 2));
         var centre = new Point(root.ActualWidth / 2, root.ActualHeight / 2);

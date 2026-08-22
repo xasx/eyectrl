@@ -104,10 +104,14 @@ public class ToggleContrastTests
     /// <summary>
     /// Cross-theme half of a two-part guard on the switch's TRACK;
     /// <c>DwellToggleVisualTests.TheTrackIsPerceptibleAgainstTheSwitchFill</c> is the structural
-    /// half. That test reads the real brushes off a constructed control under whichever theme
-    /// happens to be ambient, so it proves the CODE draws an outline; this theory sweeps every
-    /// theme's palette, so it proves the outline is NECESSARY and sufficient everywhere. Neither
-    /// closes the gap alone — the established pairing in this repo.
+    /// half. The division of labour is exact and worth stating, because each half is blind to what
+    /// the other sees. This theory reads the PALETTE — <c>theme.TextSecondary</c> here is the
+    /// hardcoded token, not whatever brush the control happens to draw — so it proves the outline
+    /// colour is necessary and sufficient in every theme, and it CANNOT fail on a code change:
+    /// deleting the track's BorderBrush outright leaves it green. The structural half reads the
+    /// real brushes off a constructed control under one ambient theme, so it proves the code draws
+    /// an outline at all but says nothing about the other two palettes. Neither closes the gap
+    /// alone — the established pairing in this repo.
     ///
     /// <para>
     /// This theory REPLACED <c>ProgressBar_IsPerceptibleAgainstEitherToggleFill</c>, which gated
@@ -144,6 +148,71 @@ public class ToggleContrastTests
                     + $"SurfaceLight fill (fill {fillContrast:F2}:1, outline "
                     + $"{outlineContrast:F2}:1) — below 3:1 the switch has no visible extent, so "
                     + "there is nothing on screen for a gaze user to aim at.")
+                .That(best).IsStrictlyGreaterThan(3.0);
+        }
+    }
+
+    /// <summary>
+    /// Cross-theme half for the SWITCH's own boundary against the row card it sits on, paired with
+    /// the structural <c>DwellToggleVisualTests.TheSwitchHasAPerceptibleBoundaryAgainstTheCard</c>
+    /// — palette here, real brushes there.
+    ///
+    /// <para>
+    /// <see cref="ITheme.SurfaceLight"/> on <see cref="ITheme.SurfaceMedium"/> is a
+    /// 1.23 / 1.23 / 1.14 fill step across Midnight / Ember / Contrast, so the switch has no edge
+    /// of its own by fill alone and its <c>TextSecondary</c> outline is what supplies one
+    /// (5.63 / 6.79 / 15.04). <c>BorderSubtle</c> — the right brush for the CARD, whose backdrop
+    /// is the page — would not do here: 2.72 / 2.71 / 18.42, failing two of three themes.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void TheSwitch_IsPerceptibleAgainstTheRowCard(ITheme theme)
+    {
+        var fillContrast = Contrast(theme.SurfaceLight, theme.SurfaceMedium);
+        var outlineContrast = Contrast(theme.TextSecondary, theme.SurfaceMedium);
+        var best = Math.Max(fillContrast, outlineContrast);
+
+        Check.WithCustomMessage(
+                $"{theme.Name}: the switch reaches only {best:F2}:1 against the row card "
+                + $"(fill {fillContrast:F2}:1, outline {outlineContrast:F2}:1) — below 3:1 the "
+                + "dwell target has no edge and the user is aiming at a smudge.")
+            .That(best).IsStrictlyGreaterThan(3.0);
+    }
+
+    /// <summary>
+    /// Cross-theme half for the KNOB, paired the same way with the structural
+    /// <c>DwellToggleVisualTests.TheKnobIsPerceptibleAgainstTheTrackFill</c> — palette here, real
+    /// brushes there.
+    ///
+    /// <para>
+    /// The knob's side is one of the three carriers that make toggle state readable without
+    /// colour, and by its own fill the knob is NOT visible on the ON track: TextPrimary on ToggleOn
+    /// measures 2.91 / 3.53 / 1.37 across Midnight / Ember / Contrast. The dark SurfaceDark ring
+    /// carries it instead (4.37 / 4.18 / 15.30), which is why the gated quantity is
+    /// max(fill, ring) — the same shape as the track's and the dwell bar's. The OFF state runs the
+    /// other way round: the knob's TextSecondary fill reaches 5.37 / 6.72 / 17.14 on ToggleOff
+    /// while the ring nearly vanishes into it, so neither term can be dropped.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void TheKnob_IsPerceptibleAgainstEitherTrackFill(ITheme theme)
+    {
+        foreach (var (name, track, knob) in new[]
+                 {
+                     ("ToggleOn", theme.ToggleOn, theme.TextPrimary),
+                     ("ToggleOff", theme.ToggleOff, theme.TextSecondary),
+                 })
+        {
+            var fillContrast = Contrast(knob, track);
+            var ringContrast = Contrast(theme.SurfaceDark, track);
+            var best = Math.Max(fillContrast, ringContrast);
+
+            Check.WithCustomMessage(
+                    $"{theme.Name}: the knob reaches only {best:F2}:1 against the {name} track "
+                    + $"(fill {fillContrast:F2}:1, ring {ringContrast:F2}:1) — below 3:1 the knob's "
+                    + "side stops carrying state, leaving this control to say it in colour alone.")
                 .That(best).IsStrictlyGreaterThan(3.0);
         }
     }

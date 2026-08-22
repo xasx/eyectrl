@@ -19,8 +19,10 @@ using Xunit;
 /// <c>Height - ProgressBarHeight</c> and a label centred in it sits 3 DIP higher than before.
 /// (<see cref="DwellToggle"/> used to be named here too. It has no bar of its own any more — it
 /// is a composite whose single target is a <see cref="DwellButton"/>, so it inherits this cost
-/// through that button rather than paying it separately.) The control's own <c>DesiredSize</c> is unchanged — the outer box does
-/// not move — which is why a size-equality check passes while the label has in fact shifted.
+/// through that button rather than paying it separately.)
+///
+/// The control's own <c>DesiredSize</c> is unchanged — the outer box does not move — which is
+/// why a size-equality check passes while the label has in fact shifted.
 /// Both facts are true and the second is the one a reader is likely to miss, so both are
 /// pinned here.
 ///

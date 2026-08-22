@@ -15,8 +15,10 @@ using Xunit;
 /// <see cref="DwellSliderPlateTests.PlateText_IsLegibleAgainstThePlate"/> is the other: it proves
 /// the control actually reaches for these tokens, which this file cannot see, and it reads only
 /// the ambient theme, which is the half this file supplies. The pairing is this suite's
-/// convention — compare <see cref="ToggleContrastTests.ProgressBar_IsPerceptibleAgainstEitherToggleFill"/>
-/// with <c>DwellToggleVisualTests.ProgressBar_HasTheHaloStroke</c>.
+/// convention — compare <see cref="ToggleContrastTests.TheTrack_IsPerceptibleAgainstTheSwitchFill"/>
+/// with <c>DwellToggleVisualTests.TheTrackIsPerceptibleAgainstTheSwitchFill</c>. (Both names
+/// changed when DwellToggle became a composite: its dwell bar moved inside the switch, where
+/// it is never drawn on a toggle fill, so the pairing there now gates the TRACK instead.)
 ///
 /// It is not a hypothetical split. The plan this plate was built from specified
 /// <c>TextDim</c> for the end labels; measured against <c>SurfaceMedium</c> that is 4.37:1 in

@@ -51,13 +51,35 @@ public class DwellToggle : IDwellComposite
     private const double TrackHeight = 48;
     private const double KnobSize = 34;
 
-    /// <summary>
-    /// Horizontal room the state word reserves, and the gaps either side of it. Spelled out
-    /// because <see cref="SwitchWidth"/> is derived from them below rather than guessed.
-    /// </summary>
-    private const double StateTextWidth = 40;
+    /// <summary>Gaps either side of the state word's TEXT, inside the switch.</summary>
     private const double StateTextLeftGap = 16;
     private const double StateTextRightGap = 12;
+
+    /// <summary>
+    /// The switch's own outline, in DIPs.
+    ///
+    /// <para>
+    /// The switch is a light card sitting on a slightly darker one, which is a 1.23:1 fill step —
+    /// no boundary at all. An outline is what makes it an object, and
+    /// <see cref="Tokens.BrushTextSecondary"/> is the brush that works from BOTH sides: measured,
+    /// 5.63 / 6.79 / 15.04 against the row card and 4.38 / 5.38 / 12.35 against the switch's own
+    /// fill, across Midnight / Ember / Contrast. <c>BorderSubtle</c> — right for the card, whose
+    /// backdrop is the page — fails here on both counts (2.72 / 2.71 / 18.42 against the card,
+    /// 2.12 / 2.14 / 15.13 against the fill).
+    /// </para>
+    /// <para>
+    /// A literal rather than <see cref="Tokens.BorderThicknessStandard"/>: this is the switch's
+    /// perceptibility, so it must not move with a theme's card-outline weight, and it matches the
+    /// track's and the knob's rings — the three outlines inside this control are one system.
+    /// </para>
+    /// </summary>
+    private const double SwitchOutline = 2;
+
+    /// <summary>
+    /// Gap between the switch and the card's right edge, matching the label's own 20 DIP inset on
+    /// the left. At zero the switch sat flush against the card, two rounded corners overlapping.
+    /// </summary>
+    private const double SwitchInset = 20;
 
     /// <summary>
     /// The switch button's box.
@@ -65,18 +87,17 @@ public class DwellToggle : IDwellComposite
     /// <para>
     /// Two independent floors, and the larger wins. It may never be drawn smaller than the 100 DIP
     /// hit circle it registers (<see cref="DwellButton"/>'s WYSIWYG floor). And it has to hold its
-    /// own content: <see cref="StateTextLeftGap"/> + <see cref="StateTextWidth"/> +
-    /// <see cref="StateTextRightGap"/> + <see cref="TrackWidth"/> = 152 DIP. The 152 wins, and the
-    /// 160 here leaves 8 DIP of slack. <see cref="DwellButton"/> clips its layout to the rounded
-    /// silhouette, so a switch narrower than its content would CUT the track's edge rather than
-    /// overflow visibly — nothing would throw.
-    /// <c>DwellToggleVisualTests.TheSwitchIsWideEnoughForItsOwnContent</c> measures the content
-    /// against this instead of restating the sum.
+    /// own content, which is the state word's box — <see cref="StateTextLeftGap"/>, plus the word's
+    /// text, plus the <see cref="TrackWidth"/> + <see cref="StateTextRightGap"/> its Padding
+    /// reserves for the track — inside two <see cref="SwitchOutline"/> edges.
+    /// <see cref="DwellButton"/> clips its layout to the rounded silhouette, so a switch narrower
+    /// than its content CUTS the track's edge rather than overflowing visibly, and nothing throws.
+    /// <c>DwellToggleVisualTests.TheSwitchIsWideEnoughForItsOwnContent</c> measures the real
+    /// content against the real box instead of restating either sum.
     /// </para>
     /// </summary>
     private const double SwitchWidth = 160;
 
-    private readonly string _labelText;
     private readonly Func<bool> _get;
     private readonly Action<bool> _set;
     private readonly TextBlock _label;
@@ -136,7 +157,6 @@ public class DwellToggle : IDwellComposite
         double radiusPhysical,
         int dwellMs)
     {
-        _labelText = label;
         _get = get;
         _set = set;
 
@@ -163,20 +183,29 @@ public class DwellToggle : IDwellComposite
             Foreground = Tokens.BrushTextPrimary,
             FontSize = Tokens.FontSizeSubtitle,
             VerticalAlignment = VerticalAlignment.Center,
-            TextAlignment = TextAlignment.Right,
-            Width = StateTextWidth,
-            Margin = new Thickness(StateTextLeftGap, 0, StateTextRightGap, 0)
+            // The word's BOX spans the whole switch, and its glyphs are placed in the room left of
+            // the track by PADDING, not Margin: padding sits inside the box, so it moves the text
+            // without moving the box. That is what puts the UIA anchor's centre on the switch's
+            // centre — see the automation id note below — and the right padding doubles as the
+            // track's reservation, so the two can never overlap.
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            TextAlignment = TextAlignment.Left,
+            Padding = new Thickness(StateTextLeftGap, 0, TrackWidth + StateTextRightGap, 0)
         };
 
         // The UIA identity goes HERE rather than on the switch's Root, and that is a WPF
         // constraint, not a preference: a Border has no AutomationPeer, so it never enters the UIA
         // tree and an automation id on it is unreachable — FindFirstDescendant would not see it.
-        // The state word is the innermost element inside the switch that CAN carry the id, and its
-        // centre sits well inside the switch's hit circle, so AppFixture.SimulateDwellOn lands on
-        // a point that really activates. Pinned by
-        // DwellToggleVisualTests.TheUiaAnchorsCentre_FallsInsideTheSwitchesHitCircle. The id used
-        // to sit on the ROW's label, which after this change is decorative — dwelling it would do
-        // nothing at all.
+        // The state word is the innermost element inside the switch that CAN carry the id. The
+        // mechanism is neither new nor unproven: before this control became a composite the id
+        // already sat on a TextBlock nested identically under a peer-less Border and Grid, and the
+        // App's UI test found it there. What changed is WHICH TextBlock.
+        //
+        // It used to sit on the ROW's label, which is now decorative — AppFixture.SimulateDwellOn
+        // dwells an element's bounding-rect centre, and dwelling the label's would do nothing at
+        // all. The word's box is stretched across the whole switch precisely so that centre IS the
+        // switch's centre, rather than an offset that merely happens to fall inside the hit circle.
+        // Pinned by DwellToggleVisualTests.TheUiaAnchorsCentre_FallsInsideTheSwitchesHitCircle.
         System.Windows.Automation.AutomationProperties.SetAutomationId(
             _stateText, $"Settings_Toggle_{id}");
 
@@ -193,8 +222,14 @@ public class DwellToggle : IDwellComposite
             CornerRadius = Tokens.LargeCornerRadius,
             Background = _knobBrush,
             VerticalAlignment = VerticalAlignment.Center,
-            // A dark ring, so a light knob stays distinct from the light-ish ON track: the knob on
-            // green alone measures 2.91:1, the ring against green 4.37 / 4.18 / 15.30.
+            // A dark ring, so a light knob stays distinct from the light-ish ON track: the knob's
+            // own fill on green measures 2.91 / 3.53 / 1.37, and the ring against green
+            // 4.37 / 4.18 / 15.30 — the ring is what carries it. The knob's SIDE is one of the
+            // three colour-independent state carriers, so this is gated rather than recorded, by
+            // the same structural-plus-cross-theme pair the track gets:
+            // DwellToggleVisualTests.TheKnobIsPerceptibleAgainstTheTrackFill reads the real
+            // brushes, Theme.ToggleContrastTests.TheKnob_IsPerceptibleAgainstEitherTrackFill
+            // sweeps every palette.
             BorderThickness = new Thickness(2),
             BorderBrush = Tokens.BrushSurfaceDark
         };
@@ -222,17 +257,19 @@ public class DwellToggle : IDwellComposite
             BorderBrush = Tokens.BrushTextSecondary,
             Padding = new Thickness(4, 0, 4, 0),
             VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
             Child = _knob
         };
 
-        var switchContent = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Children = { _stateText, _track }
-        };
+        // ONE cell, not a horizontal StackPanel: the state word has to span the switch for its UIA
+        // bounding rect to be centred on it, and a StackPanel would size the word to its text. The
+        // track is right-aligned over the same cell, and the word's right Padding reserves exactly
+        // the track's width, so the two cannot overlap — if a longer word ever outgrew that
+        // reservation the cell's desired width would exceed the switch and
+        // TheSwitchIsWideEnoughForItsOwnContent would fail.
+        var switchContent = new Grid();
+        switchContent.Children.Add(_stateText);
+        switchContent.Children.Add(_track);
 
         _switch = new DwellButton(
             registrar, id, "", Toggle, Tokens.SurfaceLight, category, radiusPhysical, dwellMs,
@@ -240,13 +277,55 @@ public class DwellToggle : IDwellComposite
         {
             Content = switchContent
         };
-        // DwellButton's default (4,0,4,0) is for tiles packed side by side; this one is pinned to
-        // the row's right column and the row card supplies its own inset.
-        _switch.Root.Margin = new Thickness(0);
+        // Outline the switch. Without it a SurfaceLight card on a SurfaceMedium one is a 1.23:1
+        // fill step, so the thing the user aims at has no edge; and unlike the row card the switch
+        // cannot borrow BorderSubtle for the job — see SwitchOutline for both sets of numbers.
+        // This costs the dwell bar nothing, because the bar lives INSIDE this button's own two-row
+        // layout and simply moves in with the border, exactly as DwellColorPicker's 3 DIP swatch
+        // border already does on a Root of the same explicit 100 DIP height
+        // (DwellColorPicker.cs:169).
+        _switch.Root.BorderThickness = new Thickness(SwitchOutline);
+        _switch.Root.BorderBrush = Tokens.BrushTextSecondary;
+        // DwellButton's default (4,0,4,0) is for tiles packed side by side. This one is pinned to
+        // the row's right column, and the card carries no Padding of its own, so the inset from
+        // the card's right edge has to come from here.
+        _switch.Root.Margin = new Thickness(0, 0, SwitchInset, 0);
 
         _children = [_switch];
 
-        var row = new Grid();
+        var row = new Grid
+        {
+            // Cancels the card's border inset, VERTICALLY ONLY, and this is load-bearing rather
+            // than cosmetic. A Border deflates its child by its BorderThickness, so a bordered
+            // 100 DIP card hands the switch a 98 DIP slot for its explicit 100 — and WPF does not
+            // split that loss: ComputeAlignmentOffset demotes Stretch to Top, the switch is pushed
+            // DOWN, and the whole shortfall lands on the bottom edge, which is exactly where the
+            // 6 DIP dwell bar is.
+            //
+            // Two separate costs, both measured on this control:
+            //   * The switch is drawn INSIDE the 100 DIP circle it registers — a layout clip of
+            //     0;0;160;98 at BorderThicknessStandard 1, and 0;0;160;96 at 2. That breaks the
+            //     WYSIWYG floor in every theme, and is what
+            //     DwellToggleVisualTests.TheSwitchIsNeverDrawnSmallerThanItsHitCircle catches.
+            //   * The bar loses rows once the shortfall reaches 2 DIP. Rendering the real control
+            //     and counting Accent pixels at full dwell: 602 over 4 rows with the compensation,
+            //     and 455 over 3 with a thickness-2 card border and none — a quarter of the dwell
+            //     feedback gone in the Contrast theme, the one built for low vision. At thickness 1
+            //     the bar survives uncompensated, because the switch's own SwitchOutline has
+            //     already lifted it 2 DIP off the bottom edge; only the clip above bites there.
+            //
+            // Raising the card's height would fix both, but would move the measured 124 DIP row and
+            // re-paginate every settings page holding a toggle.
+            //
+            // Vertical only, so the switch does not overpaint the card's outline horizontally. It
+            // does still cover the card's top and bottom line across its own width, and that is
+            // unavoidable: the switch may not be drawn under 100 DIP (the WYSIWYG floor) and the
+            // card may not grow past 100, so the two boxes necessarily coincide vertically. What
+            // shows there is the switch's own heavier TextSecondary outline, which continues the
+            // boundary rather than breaking it.
+            Margin = new Thickness(
+                0, -Tokens.BorderThicknessStandard, 0, -Tokens.BorderThicknessStandard)
+        };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_label, 0);
@@ -269,10 +348,17 @@ public class DwellToggle : IDwellComposite
             Margin = new Thickness(0, 0, 0, 24),
             CornerRadius = Tokens.StandardCornerRadius,
             Background = Tokens.BrushSurfaceMedium,
-            // Deliberately NO BorderThickness, matching DwellSlider's plate. A 1 DIP border sits
-            // inside the 100 DIP box, leaving the switch a 98 DIP slot for its explicit 100 —
-            // which WPF resolves by clipping 1 DIP off the top and bottom, and the bottom DIP is
-            // the switch's 6 DIP dwell bar. A card outline is not worth shaving the dwell feedback.
+            // The card's boundary, and it is the BORDER that carries it, not the fill. Palette
+            // rule 1 says so outright — "the border carries the boundary; the fill only suggests
+            // depth" (docs/design/overlay-unification-spec.md:284-286, gated by
+            // tools/palette_validate.py:352-365) — and the numbers agree: SurfaceMedium on the
+            // page's SurfaceDark is a 1.23:1 step, while BorderSubtle on it measures
+            // 3.35 / 3.32 / 21.00. Dropping this border to dodge the inset described on the row
+            // Grid above turned the row from a delineated object — the old full-bleed ToggleOn
+            // fill read 4.37:1 against the page — into nothing. The Grid's negative margin is the
+            // fix; deleting the outline was not.
+            BorderThickness = new Thickness(Tokens.BorderThicknessStandard),
+            BorderBrush = Tokens.BrushBorderSubtle,
             Child = row
         };
 
@@ -314,7 +400,7 @@ public class DwellToggle : IDwellComposite
         // The switch has no text of its own, and a Border carries no UIA name, so the accessible
         // name has to be composed here: the setting the user is looking at, plus its state.
         System.Windows.Automation.AutomationProperties.SetName(
-            _stateText, $"{_labelText}: {_stateText.Text}");
+            _stateText, $"{_label.Text}: {_stateText.Text}");
         _trackBrush.Color = on ? Tokens.ToggleOn : Tokens.ToggleOff;
         _knobBrush.Color = on ? Tokens.TextPrimary : Tokens.TextSecondary;
         _knob.HorizontalAlignment = on ? HorizontalAlignment.Right : HorizontalAlignment.Left;

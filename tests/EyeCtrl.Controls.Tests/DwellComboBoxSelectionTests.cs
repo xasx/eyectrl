@@ -235,6 +235,111 @@ public class DwellComboBoxSelectionTests
         }
     }
 
+    // ────── Whose label is it: the composite's, or the host's? ──────
+
+    /// <summary>
+    /// A combo that draws no heading of its own — the form a two-column settings row hosts.
+    /// </summary>
+    private static DwellComboBox BuildHeadless()
+    {
+        var current = "Alpha";
+        return new DwellComboBox(
+            new FakeRegistrar(), "cb", "Mode", Options,
+            () => current, v => current = v,
+            DwellCategory.Control, 50, 800, showLabel: false);
+    }
+
+    /// <summary>
+    /// A two-column settings row lays the setting's NAME out itself, in its left column, so the
+    /// composite it hosts must attach its controls and nothing else. A heading of its own would
+    /// put the same name on screen twice.
+    ///
+    /// <para>
+    /// Asserted over the HOST panel's own children: the heading is the only <c>TextBlock</c> this
+    /// composite ever parents to its host (each option's caption lives inside the WrapPanel's
+    /// buttons), so an empty top-level set is exactly "it attached no heading of its own".
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void WithShowLabelFalse_TheCompositeAttachesNoLabelOfItsOwn()
+    {
+        var panel = new StackPanel();
+
+        BuildHeadless().Attach(panel);
+
+        var headings = panel.Children.OfType<TextBlock>().Select(t => t.Text).ToList();
+        Check.WithCustomMessage(
+                $"the composite attached {headings.Count} heading(s) of its own "
+                + $"([{string.Join(", ", headings)}]) despite showLabel: false. The row that hosts "
+                + "it has already drawn the name in its left column.")
+            .That(panel.Children.OfType<TextBlock>()).IsEmpty();
+    }
+
+    /// <summary>
+    /// The other direction, and the one that protects every existing call site: the flag defaults
+    /// to <c>true</c>, so a composite nobody passed it to still draws its own heading exactly as
+    /// before.
+    /// </summary>
+    [StaFact]
+    public void ByDefault_TheCompositeStillAttachesItsOwnLabel()
+    {
+        var panel = new StackPanel();
+
+        Build("Alpha").Attach(panel);
+
+        Check.WithCustomMessage(
+                "the default form must still draw its own heading — SettingsWindow and every "
+                + "other caller passes no flag and expects the row it always got.")
+            .That(panel.Children.OfType<TextBlock>().Single().Text).IsEqualTo("Mode");
+    }
+
+    /// <summary>
+    /// <c>Detach</c> has to undo whatever <c>Attach</c> did, in either form. Both halves are
+    /// asserted: the element count BEFORE the detach (or an emptiness check would pass on a
+    /// composite that attached nothing at all), and zero after.
+    ///
+    /// <para>
+    /// <b>What this test does and does not falsify.</b> The <c>showLabel: false</c> direction is
+    /// NOT falsifiable, and saying so is the point: measured, ungating <c>Detach</c> so it always
+    /// removes the heading leaves this theory green in both forms, because
+    /// <c>UIElementCollection.Remove</c> of an element that was never parented is a silent no-op —
+    /// it neither throws nor disturbs the panel's other children. So the branch this documents
+    /// cannot be killed by any assertion over the host panel. Its real value is the pre-detach
+    /// count and the <c>showLabel: true</c> direction, where the removal IS observable. The gate
+    /// stays in the source for symmetry with <c>Attach</c>, whose own gate is observable and IS
+    /// killed by <see cref="WithShowLabelFalse_TheCompositeAttachesNoLabelOfItsOwn"/> — and
+    /// because the no-op is a framework tolerance for the never-parented case only: a label
+    /// parented to a DIFFERENT panel is a case WPF does throw on.
+    /// </para>
+    /// </summary>
+    /// <param name="showLabel">Which form to attach.</param>
+    /// <param name="attachedElements">
+    /// What that form parents to its host: the heading plus the option row, or the option row
+    /// alone.
+    /// </param>
+    [StaTheory]
+    [InlineData(true, 2)]
+    [InlineData(false, 1)]
+    public void Detach_LeavesTheHostPanelAsItFoundIt_InEitherLabelMode(
+        bool showLabel, int attachedElements)
+    {
+        var panel = new StackPanel();
+        var combo = showLabel ? Build("Alpha") : BuildHeadless();
+
+        combo.Attach(panel);
+        Check.WithCustomMessage(
+                $"with showLabel: {showLabel} the composite parented {panel.Children.Count} "
+                + $"element(s) to its host, not {attachedElements}.")
+            .That(panel.Children.Count).IsEqualTo(attachedElements);
+
+        combo.Detach(panel);
+
+        Check.WithCustomMessage(
+                "Detach left " + panel.Children.Count + " element(s) behind. A settings page "
+                + "rebuilds its rows, so anything left over is drawn twice.")
+            .That(panel.Children.Count).IsEqualTo(0);
+    }
+
     private class FakeRegistrar : IDwellRegistrar
     {
         private readonly Dictionary<string, Action> _activations = new();

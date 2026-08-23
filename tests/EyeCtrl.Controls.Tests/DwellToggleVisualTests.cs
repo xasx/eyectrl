@@ -954,6 +954,134 @@ public class DwellToggleVisualTests
         return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
     }
 
+    // ────── The headless form: the host owns the name, the card and the pitch ──────
+
+    /// <summary>
+    /// A toggle that defers its heading to the host — and with it the card, the boundary and the
+    /// row pitch, which in the two-column settings rows all belong to the row wrapper.
+    /// </summary>
+    /// <param name="registrar">Receives the switch's registration.</param>
+    private static DwellToggle BuildHeadless(FakeRegistrar registrar)
+    {
+        var state = true;
+        return new DwellToggle(
+            registrar, "id", "Label", () => state, v => state = v,
+            DwellCategory.Control, Radius, 800, showLabel: false);
+    }
+
+    /// <summary>
+    /// With <c>showLabel: false</c> this composite must attach the BARE SWITCH, not its row card.
+    /// Collapsing only the label would leave the card, the non-layout outline, the 360 DIP
+    /// MinWidth and the 24 DIP bottom margin behind — all of which a two-column row wrapper then
+    /// nests inside its own card: two boundaries around one control, and a 360 DIP floor inside a
+    /// ~400 DIP column.
+    ///
+    /// <para>
+    /// Reference identity, not a type test: <c>panel.Children[0] is Border</c> would pass on the
+    /// card as happily as on the switch, since both are Borders.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void WithShowLabelFalse_TheToggleAttachesOnlyTheBareSwitch()
+    {
+        var registrar = new FakeRegistrar();
+        var toggle = BuildHeadless(registrar);
+        var panel = new StackPanel();
+
+        toggle.Attach(panel);
+
+        Check.WithCustomMessage(
+                $"the composite parented {panel.Children.Count} elements to its host. With no "
+                + "heading of its own it owns exactly one thing: the switch.")
+            .That(panel.Children.Count).IsEqualTo(1);
+        Check.WithCustomMessage(
+                "the attached element is not the switch's own Root, so something still wraps it — "
+                + "a card the row wrapper would then draw a second boundary around.")
+            .That(ReferenceEquals(panel.Children[0], toggle.Switch.Root)).IsTrue();
+
+        // The composite contract is unchanged by the flag: one target, it is the switch, and it
+        // is registered. Attach's registration is easy to lose when its body is rewritten.
+        Check.That(toggle.Children.Count).IsEqualTo(1);
+        Check.WithCustomMessage("Children must expose the switch itself, not a copy of it.")
+            .That(ReferenceEquals(toggle.Children[0], toggle.Switch)).IsTrue();
+        Check.WithCustomMessage(
+                "the headless form registered [" + string.Join(", ", registrar.Registered)
+                + "]. Exactly the switch is correct — a switch that is drawn but never registered "
+                + "cannot be activated by gaze at all.")
+            .That(registrar.Registered).ContainsExactly(toggle.Switch.DwellId);
+    }
+
+    /// <summary>
+    /// The switch's right inset exists to hold it off the CARD's right edge (see
+    /// <see cref="TheSwitchIsInsetFromTheCardsRightEdge"/>). With no card there is nothing to be
+    /// inset from, and 20 DIP of margin inside a row wrapper's own padding would push the switch
+    /// off the column's right-hand alignment.
+    /// </summary>
+    [StaFact]
+    public void WithShowLabelFalse_TheSwitchCarriesNoCardInset()
+    {
+        var toggle = BuildHeadless(new FakeRegistrar());
+
+        Check.WithCustomMessage(
+                $"the bare switch carries a margin of {toggle.Switch.Root.Margin} — the card's "
+                + "inset, kept after the card was dropped. The host owns the inset now.")
+            .That(toggle.Switch.Root.Margin).IsEqualTo(new Thickness(0));
+    }
+
+    /// <summary>
+    /// The default form, pinned against the headless one above so neither can drift into the
+    /// other. This is what the Supervisor's setup window and every existing settings row get: the
+    /// row card, with the switch inset from its right edge.
+    /// </summary>
+    [StaFact]
+    public void ByDefault_TheToggleStillAttachesItsRowCard()
+    {
+        var toggle = Build(initial: true);
+        var panel = new StackPanel();
+
+        toggle.Attach(panel);
+
+        Check.That(panel.Children.Count).IsEqualTo(1);
+        Check.WithCustomMessage(
+                "the default form must attach its row card. SupervisorSetupWindow builds two of "
+                + "these and passes no flag, so it keeps exactly the row it always had.")
+            .That(ReferenceEquals(panel.Children[0], toggle.RowSurface)).IsTrue();
+        Check.WithCustomMessage(
+                "the card form lost the switch's inset from the card's right edge, so their "
+                + "rounded corners overlap.")
+            .That(toggle.Switch.Root.Margin.Right).IsEqualTo(20.0);
+    }
+
+    /// <summary>
+    /// <c>Detach</c> has to remove whichever root <c>Attach</c> added, and unregister either way.
+    /// The count before the detach is asserted too, so an emptiness check cannot pass on a
+    /// composite that attached nothing.
+    /// </summary>
+    /// <param name="showLabel">Which form to attach.</param>
+    [StaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Detach_RemovesWhicheverRootWasAttached(bool showLabel)
+    {
+        var registrar = new FakeRegistrar();
+        var toggle = showLabel ? Build(registrar, initial: true) : BuildHeadless(registrar);
+        var panel = new StackPanel();
+
+        toggle.Attach(panel);
+        Check.That(panel.Children.Count).IsEqualTo(1);
+
+        toggle.Detach(panel);
+
+        Check.WithCustomMessage(
+                $"with showLabel: {showLabel}, Detach left {panel.Children.Count} element(s) "
+                + "behind — it removed something other than what Attach added.")
+            .That(panel.Children.Count).IsEqualTo(0);
+        Check.WithCustomMessage(
+                "the switch is still registered after Detach, so a target lives on for a row that "
+                + "is no longer on screen.")
+            .That(registrar.Registered).IsEmpty();
+    }
+
     /// <summary>
     /// Records every registration and the callback it carried, and reports whatever progress the
     /// test sets — so these tests drive the real <see cref="DwellControl.UpdateVisual"/> and the

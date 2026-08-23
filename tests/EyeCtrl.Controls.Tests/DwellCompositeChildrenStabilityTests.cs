@@ -56,6 +56,10 @@ public class DwellCompositeChildrenStabilityTests
     public void DwellColorPicker_HandsOutTheSameChildCollectionOnEveryGet()
         => AssertStable(NewPicker(), expectedChildren: 2);   // one swatch per preset
 
+    [StaFact]
+    public void DwellToggle_HandsOutTheSameChildCollectionOnEveryGet()
+        => AssertStable(NewToggle(), expectedChildren: 1);   // the switch is the only target
+
     /// <summary>
     /// A composite added later would otherwise be free to reintroduce the collection expression
     /// with the whole suite green. Set equality against the assembly's own implementers, so a
@@ -71,7 +75,7 @@ public class DwellCompositeChildrenStabilityTests
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();
 
-        string[] covered = ["DwellColorPicker", "DwellComboBox", "DwellSlider"];
+        string[] covered = ["DwellColorPicker", "DwellComboBox", "DwellSlider", "DwellToggle"];
 
         Check.WithCustomMessage(
                 "IDwellComposite implementers and the cases in this class have diverged."
@@ -107,7 +111,7 @@ public class DwellCompositeChildrenStabilityTests
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();
 
-        string[] covered = ["DwellColorPicker", "DwellComboBox", "DwellSlider"];
+        string[] covered = ["DwellColorPicker", "DwellComboBox", "DwellSlider", "DwellToggle"];
 
         Check.WithCustomMessage(
                 "IDwellComposite implementers in src/ and the cases in this class have diverged."
@@ -272,6 +276,15 @@ public class DwellCompositeChildrenStabilityTests
             new FakeRegistrar(), "cp", "Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800,
             presets: [(hex, "Test"), ("#F87171", "Other")]);
+    }
+
+    private static DwellToggle NewToggle()
+    {
+        var on = false;
+        return new DwellToggle(
+            new FakeRegistrar(), "tg", "Start on Windows Boot",
+            () => on, v => on = v,
+            DwellCategory.Control, 50, 800);
     }
 
     private static DirectoryInfo RepoRoot()

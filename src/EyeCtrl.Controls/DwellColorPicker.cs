@@ -84,7 +84,7 @@ public class DwellColorPicker : IDwellComposite
     private readonly Action<string> _set;
 
     /// <inheritdoc/>
-    public IEnumerable<DwellControl> Children => _swatches;
+    public IReadOnlyList<DwellControl> Children => _swatches;
 
     /// <summary>
     /// Creates a <see cref="DwellColorPicker"/>.

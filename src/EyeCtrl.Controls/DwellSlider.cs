@@ -33,8 +33,18 @@ public class DwellSlider : IDwellComposite
     private readonly double _step;
     private readonly int _decimals;
 
+    /// <summary>
+    /// Cached once in the constructor, not rebuilt per get: SettingsWindow's
+    /// UpdateAllTargetPositions iterates <see cref="Children"/> for every attached composite on
+    /// every gaze frame, and the collection expression this replaced (<c>=&gt; [_minus, _plus]</c>)
+    /// materialised a fresh array each time — per-frame garbage on the gaze path, where a Gen0
+    /// collection suspends the gaze thread. DwellComboBox and DwellColorPicker reach the same
+    /// property by returning their backing <c>List&lt;DwellButton&gt;</c> field.
+    /// </summary>
+    private readonly DwellControl[] _children;
+
     /// <inheritdoc/>
-    public IEnumerable<DwellControl> Children => [_minus, _plus];
+    public IReadOnlyList<DwellControl> Children => _children;
 
     /// <summary>
     /// Creates a <see cref="DwellSlider"/>.
@@ -96,6 +106,8 @@ public class DwellSlider : IDwellComposite
 
         _plus = new DwellButton(registrar, idPrefix + "_up", "+",
             () => Adjust(_step), BtnBase, category, radiusPhysical, dwellMs);
+
+        _children = [_minus, _plus];
 
         _row = new StackPanel
         {

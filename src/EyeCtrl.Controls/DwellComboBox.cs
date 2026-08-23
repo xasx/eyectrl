@@ -44,7 +44,7 @@ public class DwellComboBox : IDwellComposite
     private readonly Action<string> _setCode;
 
     /// <inheritdoc/>
-    public IEnumerable<DwellControl> Children => _options;
+    public IReadOnlyList<DwellControl> Children => _options;
 
     /// <summary>
     /// Creates a <see cref="DwellComboBox"/> with separate display and code values.

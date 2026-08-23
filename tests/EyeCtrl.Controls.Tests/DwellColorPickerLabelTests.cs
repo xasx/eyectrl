@@ -72,6 +72,22 @@ public class DwellColorPickerLabelTests
     }
 
     /// <summary>
+    /// A picker over <see cref="Presets"/> whose selection really moves, and whose swatches
+    /// register their activations with <paramref name="registrar"/> so a test can fire one the
+    /// way the overlay's dwell detector would.
+    /// </summary>
+    /// <param name="registrar">Registrar the swatch activations land in.</param>
+    /// <param name="selected">Hex of the preset selected before the test does anything.</param>
+    /// <returns>The picker.</returns>
+    private static DwellColorPicker Build(FakeRegistrar registrar, string selected)
+    {
+        var current = selected;
+        return new DwellColorPicker(
+            registrar, "cp", "Circle Colour", () => current, v => current = v,
+            DwellCategory.Control, 50, 800, presets: Presets);
+    }
+
+    /// <summary>
     /// A picker over two explicit presets whose selection is fixed at
     /// <paramref name="selected"/>, so "which swatch is selected" is an input rather than
     /// something read back off the control.
@@ -282,11 +298,125 @@ public class DwellColorPickerLabelTests
             .That(Of(first[1].Root.BorderBrush)).IsNotEqualTo(Of(second[1].Root.BorderBrush));
     }
 
+    /// <summary>
+    /// Attaches <paramref name="picker"/> to a fresh scratch panel and measures it unconstrained,
+    /// so every swatch has a <c>DesiredSize</c> recorded from a real layout pass before the test
+    /// disturbs anything.
+    /// </summary>
+    /// <param name="picker">The picker to attach.</param>
+    /// <returns>The host panel, so the caller can re-measure the same tree.</returns>
+    private static StackPanel AttachAndMeasure(DwellColorPicker picker)
+    {
+        var host = new StackPanel();
+        picker.Attach(host);
+        host.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return host;
+    }
+
+    /// <summary>
+    /// Every other selection test in this file reads a picker whose selection was fixed at
+    /// construction, so all of them exercise the CONSTRUCTOR path — which runs once, when the
+    /// page is built. A user choosing a colour runs <c>RefreshSelection</c> instead, and that is
+    /// where a selection-dependent border thickness would live: verified by mutation, writing one
+    /// into <c>RefreshSelection</c> left every other test in this file green. So drive a real
+    /// dwell activation through the registrar and check what the user actually gets — the
+    /// selection border moves to the swatch they chose, and no swatch changes size.
+    /// </summary>
+    /// <remarks>
+    /// The thickness clause is the one that bites today, and the measurement clause is a
+    /// backstop rather than a duplicate of it. A swatch's <c>Root</c> carries an explicit
+    /// <see cref="DwellColorPicker.SwatchWidth"/>/<see cref="DwellColorPicker.SwatchHeight"/>
+    /// (pinned by <see cref="EverySwatch_KeepsTheStandardTargetGeometry"/>), and an explicit
+    /// size clamps <c>DesiredSize</c> whatever the border costs — so a re-measure cannot see a
+    /// thickness change while those two are set. It is kept because it is the invariant the user
+    /// feels, and it is what would catch this same defect on the day a swatch is allowed to size
+    /// to its content.
+    /// </remarks>
+    [StaFact]
+    public void ActivatingASwatch_MovesTheSelectionBorder_AndLeavesTheRowWhereItWas()
+    {
+        var registrar = new FakeRegistrar();
+        var picker = Build(registrar, Presets[0].Hex);
+        var host = AttachAndMeasure(picker);
+
+        var swatches = picker.Children.ToList();
+        var before = swatches.Select(s => s.Root.DesiredSize).ToList();
+
+        // The premise, asserted rather than assumed: the border has somewhere to move FROM.
+        Check.WithCustomMessage(
+                $"swatch 0 ({Presets[0].Name}) is the current colour but outlines in "
+                + $"{Of(swatches[0].Root.BorderBrush)} rather than TextPrimary "
+                + $"({Tokens.TextPrimary}) — the user cannot see which colour is in force.")
+            .That(Of(swatches[0].Root.BorderBrush)).IsEqualTo(Tokens.TextPrimary);
+
+        // Fire the dwell activation the picker registered for the third swatch, as the overlay's
+        // dwell detector would once the user had held their gaze on it long enough.
+        registrar.Activate("cp_2");
+
+        Check.WithCustomMessage(
+                $"after dwelling on swatch 2 ({Presets[2].Name}) it outlines in "
+                + $"{Of(swatches[2].Root.BorderBrush)} rather than TextPrimary "
+                + $"({Tokens.TextPrimary}) — the user gets no confirmation of the colour they "
+                + "just chose.")
+            .That(Of(swatches[2].Root.BorderBrush)).IsEqualTo(Tokens.TextPrimary);
+        Check.WithCustomMessage(
+                $"swatch 0 ({Presets[0].Name}) still outlines in "
+                + $"{Of(swatches[0].Root.BorderBrush)} after a different colour was chosen — two "
+                + "swatches look selected at once and neither one is trustworthy.")
+            .That(Of(swatches[0].Root.BorderBrush)).IsEqualTo(Colors.Transparent);
+
+        // A Border's thickness lays out OUTSIDE its child, so a thickness that varies with
+        // selection grows the chosen swatch and shifts every swatch after it.
+        var expected = new Thickness(DwellColorPicker.SwatchBorderThickness);
+        for (var i = 0; i < swatches.Count; i++)
+        {
+            Check.WithCustomMessage(
+                    $"after the activation swatch {i} ({Presets[i].Name}) reports BorderThickness "
+                    + $"{swatches[i].Root.BorderThickness} rather than {expected}. Choosing a "
+                    + "colour must not resize a swatch: the WrapPanel re-flows and every hit "
+                    + "circle on the row moves out from under the user's gaze.")
+                .That(swatches[i].Root.BorderThickness).IsEqualTo(expected);
+        }
+
+        // Re-measure the same tree. Measure() short-circuits on any element still flagged valid,
+        // and this tree is detached, so it gets no layout pass to walk the dirty flag up from the
+        // swatch the activation touched. Invalidate the path explicitly — without this the
+        // re-measure hands back the cached sizes and the comparison below is dead.
+        foreach (var swatch in swatches)
+        {
+            swatch.Root.InvalidateMeasure();
+            ((FrameworkElement)swatch.Root.Parent).InvalidateMeasure();
+        }
+
+        host.InvalidateMeasure();
+        host.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+        for (var i = 0; i < swatches.Count; i++)
+        {
+            Check.WithCustomMessage(
+                    $"swatch {i} ({Presets[i].Name}) measured {before[i]} before the activation "
+                    + $"and {swatches[i].Root.DesiredSize} after — choosing a colour moved the "
+                    + "row under the user's gaze.")
+                .That(swatches[i].Root.DesiredSize).IsEqualTo(before[i]);
+        }
+    }
+
+    /// <summary>
+    /// Records each target's activation callback, so a test can fire one the way the overlay's
+    /// dwell detector would once the user has held their gaze long enough.
+    /// </summary>
     private class FakeRegistrar : IDwellRegistrar
     {
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
+        private readonly Dictionary<string, Action> _activations = new();
+
+        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) =>
+            _activations[id] = onActivated;
+
+        public void Unregister(string id, DwellCategory category) => _activations.Remove(id);
         public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
         public double GetProgress(string id, DwellCategory category) => 0;
+
+        /// <summary>Fires the activation registered under <paramref name="id"/>.</summary>
+        public void Activate(string id) => _activations[id]();
     }
 }

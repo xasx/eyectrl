@@ -535,7 +535,7 @@ public class DwellToggleVisualTests
     /// <summary>
     /// The switch is the thing the user aims at, so it must read as an object against the card it
     /// sits on — and by fill alone it does not: <see cref="Tokens.SurfaceLight"/> on
-    /// <see cref="Tokens.SurfaceMedium"/> is a 1.23 / 1.23 / 1.14 step across
+    /// <see cref="Tokens.SurfaceMedium"/> is a 1.29 / 1.26 / 1.22 step across
     /// Midnight / Ember / Contrast, i.e. no boundary at all. Its
     /// <see cref="Tokens.BrushTextSecondary"/> outline measures 5.63 / 6.79 / 15.04 there.
     ///

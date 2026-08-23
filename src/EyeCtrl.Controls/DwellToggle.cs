@@ -71,7 +71,7 @@ public class DwellToggle : IDwellComposite
     /// The switch's own outline, in DIPs.
     ///
     /// <para>
-    /// The switch is a light card sitting on a slightly darker one, which is a 1.23:1 fill step —
+    /// The switch is a light card sitting on a slightly darker one, which is a 1.29:1 fill step —
     /// no boundary at all. An outline is what makes it an object, and
     /// <see cref="Tokens.BrushTextSecondary"/> is the brush that works from BOTH sides: measured,
     /// 5.63 / 6.79 / 15.04 against the row card and 4.38 / 5.38 / 12.35 against the switch's own
@@ -317,7 +317,7 @@ public class DwellToggle : IDwellComposite
         {
             Content = switchContent
         };
-        // Outline the switch. Without it a SurfaceLight card on a SurfaceMedium one is a 1.23:1
+        // Outline the switch. Without it a SurfaceLight card on a SurfaceMedium one is a 1.29:1
         // fill step, so the thing the user aims at has no edge; and unlike the row card the switch
         // cannot borrow BorderSubtle for the job — see SwitchOutline for both sets of numbers.
         // This costs the dwell bar nothing, because the bar lives INSIDE this button's own two-row

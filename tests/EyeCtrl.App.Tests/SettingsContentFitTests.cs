@@ -778,11 +778,13 @@ public class SettingsContentFitTests
     }
 
     /// <summary>
-    /// The switch inside a toggle row: the one <see cref="Border"/> among the row Grid's DIRECT
-    /// children (the other is the label <see cref="TextBlock"/>; the track and knob are Borders too
-    /// but sit deeper). Reached through the public tree because <c>EyeCtrl.App.Tests</c> has no
-    /// <c>InternalsVisibleTo</c> into <c>EyeCtrl.Controls</c>.
+    /// The switch inside a toggle row. The card's child is a wrapper Grid holding the label/switch
+    /// row and a non-layout outline Border; inside that row the one <see cref="Border"/> among the
+    /// DIRECT children is the switch (the other child is the label <see cref="TextBlock"/>; the
+    /// track and knob are Borders too but sit deeper). Reached through the public tree because
+    /// <c>EyeCtrl.App.Tests</c> has no <c>InternalsVisibleTo</c> into <c>EyeCtrl.Controls</c>.
     /// </summary>
     private static Border SwitchRootIn(Border row) =>
-        ((Grid)row.Child).Children.OfType<Border>().Single();
+        ((Grid)row.Child).Children.OfType<Grid>().Single()
+        .Children.OfType<Border>().Single();
 }

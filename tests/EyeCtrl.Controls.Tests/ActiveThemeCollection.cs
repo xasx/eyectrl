@@ -15,16 +15,10 @@ using Xunit;
 /// </para>
 ///
 /// <para>
-/// Why a collection and not just per-test pinning: tests within one collection never run in
-/// parallel with each other, which is the guarantee the readers here need. Do not rely on
-/// <c>DisableParallelization</c> to serialise this collection against *other* collections — see
-/// the note in EyeCtrl.App.Tests/Fixtures/WpfApplicationGate.cs, which documents that residual
-/// as accepted. A mutator placed outside this collection is therefore still a hazard; put it here.
-/// </para>
-///
-/// <para>
-/// Controls.Tests has no <c>Tokens.Activate</c> caller today. This exists so the first one added
-/// has an obvious home, and so the readers do not go back to being correct only by that absence.
+/// Do not rely on <c>DisableParallelization</c> to serialise this collection against *other*
+/// collections — EyeCtrl.App.Tests/Fixtures/WpfApplicationGate.cs documents that residual as
+/// accepted. What this leans on is the within-collection guarantee, so a mutator placed outside
+/// this collection is still a hazard; put it here.
 /// </para>
 /// </summary>
 [CollectionDefinition("ActiveTheme", DisableParallelization = true)]

@@ -153,7 +153,7 @@ public class DwellToggle : IDwellComposite
     internal DwellButton Switch => _switch;
 
     /// <inheritdoc/>
-    public IEnumerable<DwellControl> Children => _children;
+    public IReadOnlyList<DwellControl> Children => _children;
 
     /// <summary>
     /// Creates a <see cref="DwellToggle"/>.

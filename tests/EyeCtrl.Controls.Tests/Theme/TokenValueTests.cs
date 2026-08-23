@@ -17,6 +17,7 @@ using Xunit;
 /// ThemeShapeTests.AllThreeThemes_DeclareIdenticalGeometryAndType, because the validator's
 /// gates check only their ordering (plus a 12px floor), never the exact numbers.
 /// </summary>
+[Collection("ActiveTheme")]
 public class TokenValueTests
 {
     [Fact]
@@ -71,12 +72,33 @@ public class TokenValueTests
     public void DefaultTheme_IsMidnight()
     {
         // Tests and any pre-startup code path must see the shipping palette.
+        //
+        // Deliberately reads the ambient theme: this is the canary for the
+        // [Collection("ActiveTheme")] contract, so a Tokens.Activate caller that fails to
+        // restore Midnight breaks HERE, loudly, instead of skewing some later reader that
+        // happens to run after it. Do not "fix" this by activating Midnight first — that
+        // would make it assert nothing.
         Check.That(Tokens.Current.Name).IsEqualTo("Midnight");
     }
 
     [Fact]
     public void BorderThicknessStandard_IsOnePixelUnderMidnight()
     {
-        Check.That(Tokens.BorderThicknessStandard).IsEqualTo(1.0);
+        // Pins the theme rather than trusting the ambient one. Tokens.Current is
+        // process-global mutable state, so reading a Midnight-SPECIFIC value through the
+        // facade made this test's outcome depend on what ran before it — it passed only
+        // because no Controls.Tests test calls Tokens.Activate yet. Unlike
+        // DefaultTheme_IsMidnight, the ambient theme is not this test's subject: the
+        // subject is that the facade reports 1px when Midnight is the active theme.
+        var previous = Tokens.Current;
+        try
+        {
+            Tokens.Activate(MidnightTheme.Instance);
+            Check.That(Tokens.BorderThicknessStandard).IsEqualTo(1.0);
+        }
+        finally
+        {
+            Tokens.Activate(previous);
+        }
     }
 }

@@ -984,16 +984,16 @@ public partial class SettingsWindow : OverlayWindow
 
         // Update tab button positions (only the current tab page's borders are attached;
         // detached ones throw and are skipped) and the tab pager's
-        UpdateButtonPositions(_tabButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Tab, pos));
-        UpdateButtonPositions(_tabPagerButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Tab, pos));
+        UpdateButtonPositions(_tabButtons, DwellCategory.Tab);
+        UpdateButtonPositions(_tabPagerButtons, DwellCategory.Tab);
 
         // Update pagination button positions
-        UpdateButtonPositions(_pagButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Pagination, pos));
+        UpdateButtonPositions(_pagButtons, DwellCategory.Pagination);
 
         // Update modal button positions if modal is visible
         if (_viewModel.IsModalVisible)
         {
-            UpdateButtonPositions(_modalButtons, (id, pos) => _viewModel.UpdatePosition(id, DwellCategory.Modal, pos));
+            UpdateButtonPositions(_modalButtons, DwellCategory.Modal);
         }
 
         // Update new-style dwell controls
@@ -1006,8 +1006,14 @@ public partial class SettingsWindow : OverlayWindow
             }
             if (item is IDwellComposite comp)
             {
-                foreach (var child in comp.Children)
+                // INDEXED, not foreach: this runs once per gaze frame, and a foreach over an
+                // interface-typed sequence boxes an enumerator every pass — one allocation per
+                // composite per frame. Children is an IReadOnlyList precisely so this loop can
+                // index it; do not "simplify" it back to a foreach.
+                var children = comp.Children;
+                for (int i = 0; i < children.Count; i++)
                 {
+                    var child = children[i];
                     child.UpdatePosition();
                     child.UpdateVisual();
                 }
@@ -1015,9 +1021,20 @@ public partial class SettingsWindow : OverlayWindow
         }
     }
 
-    private static void UpdateButtonPositions(
-        Dictionary<string, Border> borders,
-        Action<string, PhysicalPoint> updateAction)
+    /// <summary>
+    /// Feeds each attached border's screen-space centre to the ViewModel under
+    /// <paramref name="category"/>. Borders not in the visual tree throw and are skipped.
+    /// </summary>
+    /// <remarks>
+    /// Takes the category, NOT an <c>Action</c> callback, on purpose. This runs once per gaze
+    /// frame and all four call sites passed the same shape —
+    /// <c>(id, pos) =&gt; _viewModel.UpdatePosition(id, someCategory, pos)</c> — which captures
+    /// <c>this</c>, so Roslyn cannot cache it in a static field the way it does a non-capturing
+    /// lambda: each call site allocated a fresh delegate every frame, and a Gen0 collection
+    /// suspends the gaze thread. The callback bought no flexibility a category does not, so this
+    /// removes the allocation and the indirection together. Do not reintroduce the parameter.
+    /// </remarks>
+    private void UpdateButtonPositions(Dictionary<string, Border> borders, DwellCategory category)
     {
         foreach (var (id, border) in borders)
         {
@@ -1025,7 +1042,7 @@ public partial class SettingsWindow : OverlayWindow
             {
                 var pos = border.PointToScreen(
                     new Point(border.ActualWidth / 2, border.ActualHeight / 2));
-                updateAction(id, new PhysicalPoint(pos.X, pos.Y));
+                _viewModel.UpdatePosition(id, category, new PhysicalPoint(pos.X, pos.Y));
             }
             catch (InvalidOperationException)
             {

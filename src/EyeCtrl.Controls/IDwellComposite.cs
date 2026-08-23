@@ -36,5 +36,17 @@ public interface IDwellComposite
     /// The individual dwell targets that make up this composite.
     /// Iterated by the overlay's per-frame loop for position and visual updates.
     /// </summary>
-    IEnumerable<DwellControl> Children { get; }
+    /// <remarks>
+    /// Deliberately <see cref="IReadOnlyList{T}"/> rather than <see cref="IEnumerable{T}"/>, and
+    /// the per-frame loop INDEXES it rather than <c>foreach</c>-ing it. A <c>foreach</c> over an
+    /// interface-typed sequence boxes an enumerator on every pass — one allocation per composite
+    /// per gaze frame, on a path where a Gen0 collection suspends the gaze thread. Widening this
+    /// back to <see cref="IEnumerable{T}"/> reintroduces that cost silently, because the call
+    /// site would simply fall back to <c>foreach</c> and still compile; the type is therefore
+    /// pinned by <c>DwellCompositeChildrenStabilityTests</c>.
+    ///
+    /// Implementations must return a CACHED instance (a readonly field), never build one per get:
+    /// the property itself is read once per composite per frame.
+    /// </remarks>
+    IReadOnlyList<DwellControl> Children { get; }
 }

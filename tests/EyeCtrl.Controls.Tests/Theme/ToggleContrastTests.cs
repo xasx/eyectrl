@@ -159,7 +159,7 @@ public class ToggleContrastTests
     ///
     /// <para>
     /// <see cref="ITheme.SurfaceLight"/> on <see cref="ITheme.SurfaceMedium"/> is a
-    /// 1.23 / 1.23 / 1.14 fill step across Midnight / Ember / Contrast, so the switch has no edge
+    /// 1.29 / 1.26 / 1.22 fill step across Midnight / Ember / Contrast, so the switch has no edge
     /// of its own by fill alone and its <c>TextSecondary</c> outline is what supplies one
     /// (5.63 / 6.79 / 15.04). <c>BorderSubtle</c> — the right brush for the CARD, whose backdrop
     /// is the page — would not do here: 2.72 / 2.71 / 18.42, failing two of three themes.

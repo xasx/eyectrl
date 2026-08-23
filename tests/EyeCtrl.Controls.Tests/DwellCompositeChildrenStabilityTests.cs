@@ -83,6 +83,42 @@ public class DwellCompositeChildrenStabilityTests
     }
 
     /// <summary>
+    /// The reflection census above sees one assembly — the one this suite references. An
+    /// implementer in EyeCtrl.App (or any other project) would be invisible to it, so the same
+    /// set is checked against the source of every project. None exist outside Controls today;
+    /// this is what notices the first one that does.
+    ///
+    /// Its own test rather than another assertion in the census: NFluent fails fast, and a
+    /// reflection failure would abort before this ever ran.
+    /// </summary>
+    [Fact]
+    public void NoProjectOutsideControls_ImplementsIDwellComposite()
+    {
+        var declared = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot().FullName, "src"), "*.cs",
+                SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                        && !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+            .SelectMany(p => Regex.Matches(
+                File.ReadAllText(p),
+                @"\bclass\s+(\w+)\s*:[^{]*\bIDwellComposite\b")
+                .Select(m => m.Groups[1].Value))
+            .Distinct()
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+
+        string[] covered = ["DwellColorPicker", "DwellComboBox", "DwellSlider"];
+
+        Check.WithCustomMessage(
+                "IDwellComposite implementers in src/ and the cases in this class have diverged."
+                + " in source: " + string.Join(", ", declared)
+                + " | covered: " + string.Join(", ", covered)
+                + ". An implementer this suite cannot reflect over still runs on the gaze path;"
+                + " give it a case above (and check its Children is a cached field).")
+            .That(declared).ContainsExactly(covered);
+    }
+
+    /// <summary>
     /// The indexed walk allocates nothing; the <c>foreach</c> it replaced allocates on every
     /// pass. Both are measured here so the zero above is meaningful — a lone "indexed is zero"
     /// assertion would also pass if enumerating had never cost anything in the first place.
@@ -128,7 +164,7 @@ public class DwellCompositeChildrenStabilityTests
     /// <c>foreach</c> at the call site compiles and boxes just the same.
     /// </summary>
     [Fact]
-    public void ChildrenIsIndexable_AndTheFrameLoopIndexesIt()
+    public void Children_IsAnIndexableType()
     {
         var prop = typeof(IDwellComposite).GetProperty(nameof(IDwellComposite.Children))!;
         Check.WithCustomMessage(
@@ -136,7 +172,17 @@ public class DwellCompositeChildrenStabilityTests
                 + " IReadOnlyList<DwellControl>: an IEnumerable leaves the per-frame loop no"
                 + " choice but to foreach, which boxes an enumerator per composite per frame.")
             .That(prop.PropertyType).IsEqualTo(typeof(IReadOnlyList<DwellControl>));
+    }
 
+    /// <summary>
+    /// Separate from the type pin, because the type does not imply the call site: IReadOnlyList
+    /// only makes indexing POSSIBLE, and a foreach over it still compiles and still boxes. Kept a
+    /// separate test rather than a second assertion so the revert-check can exercise both — a
+    /// fail-fast abort on the pin would otherwise hide whether this half works at all.
+    /// </summary>
+    [Fact]
+    public void TheFrameLoop_IndexesChildren_RatherThanForeachingThem()
+    {
         var source = File.ReadAllText(Path.Combine(
             RepoRoot().FullName, "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"));
 

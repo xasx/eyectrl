@@ -19,6 +19,13 @@ using Xunit;
 /// differed by nothing but the category, so the parameter became a <see cref="DwellCategory"/>
 /// and the delegate disappeared along with the indirection.
 ///
+/// Each gate is ONE assertion in ONE test on purpose. NFluent fails fast, so two assertions in
+/// one test can never both be shown to bite: reverting the source aborts on the first and the
+/// second never runs. That is not hypothetical — the call-site regex below shipped inert (it used
+/// <c>[^)]*=&gt;</c>, which stops at the lambda's own parameter-list paren and so could never match
+/// <c>(id, pos) =&gt; …</c>), and the revert-check missed it because the signature assertion sharing
+/// its test failed first. Do not merge these back together.
+///
 /// SettingsWindow cannot be constructed in this suite (it is a WPF window, and building one is
 /// exactly what the Category=UI tests are for), so the real method is held by reading its source.
 /// The runtime claim the fix rests on — that a <c>this</c>-capturing lambda argument allocates on
@@ -30,24 +37,37 @@ public class SettingsFrameLoopAllocationTests
     private const int Frames = 100;
 
     [Fact]
-    public void TheFrameLoop_PassesCategoriesNotCallbacks()
+    public void UpdateButtonPositions_TakesACategoryNotACallback()
     {
-        var source = ReadSettingsWindow();
-
         Check.WithCustomMessage(
                 "UpdateButtonPositions takes a DwellCategory, not an Action. Restoring the"
                 + " callback parameter puts a captured-this delegate allocation back on the"
                 + " per-gaze-frame path at every call site.")
             .That(Regex.IsMatch(
-                source,
+                ReadSettingsWindow(),
                 @"private void UpdateButtonPositions\(\s*Dictionary<string, Border> borders,\s*"
                 + @"DwellCategory category\s*\)"))
             .IsTrue();
+    }
 
+    /// <summary>
+    /// Belt to the signature pin's braces: that pin already makes a lambda argument a compile
+    /// error, so this is the gate that still speaks if the parameter type is widened back in the
+    /// same change that reintroduces a callback.
+    ///
+    /// The character class is <c>[^;]</c>, NOT <c>[^)]</c>. A lambda argument carries its own
+    /// parameter-list parens — <c>(id, pos) =&gt; …</c> — so a class excluding <c>)</c> stops dead
+    /// before it can reach the arrow and matches nothing, which is exactly how this shipped inert.
+    /// Scanning to the statement's semicolon spans the whole argument list instead, and survives a
+    /// call broken across lines.
+    /// </summary>
+    [Fact]
+    public void NoCallSite_PassesALambdaToUpdateButtonPositions()
+    {
         Check.WithCustomMessage(
                 "a lambda is being passed to UpdateButtonPositions again — that is the exact"
                 + " allocation this gate exists to keep out. Pass the DwellCategory instead.")
-            .That(Regex.IsMatch(source, @"UpdateButtonPositions\([^)]*=>"))
+            .That(Regex.IsMatch(ReadSettingsWindow(), @"UpdateButtonPositions\([^;]*=>"))
             .IsFalse();
     }
 
@@ -69,10 +89,13 @@ public class SettingsFrameLoopAllocationTests
                 + " moved, point this gate at its new home rather than deleting it.")
             .That(start).IsNotEqualTo(-1);
 
-        // To the next member declared at class indent — the file declares every member as
-        // "\n    private "/"\n    public ", so this slices the method body without brace counting.
+        // To the start of the next member at class indent, which is its DOC COMMENT or attribute
+        // when it has one — not the declaration line. Stopping only at the access modifier pulls
+        // the next member's /// block into the slice, where a plain "=>" in prose would trip this
+        // gate for no reason. It does not today only because the remarks on UpdateButtonPositions
+        // happen to write that arrow XML-escaped, which is luck rather than design.
         var rest = source[(start + Signature.Length)..];
-        var end = Regex.Match(rest, @"\r?\n    (private|public|internal|protected) ");
+        var end = Regex.Match(rest, @"\r?\n    (///|\[|private|public|internal|protected)");
         var body = end.Success ? rest[..end.Index] : rest;
 
         Check.WithCustomMessage(

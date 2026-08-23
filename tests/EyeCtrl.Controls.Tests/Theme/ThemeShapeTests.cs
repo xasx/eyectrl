@@ -70,7 +70,10 @@ public class ThemeShapeTests
     [MemberData(nameof(AllThemes))]
     public void BorderThickness_IsAtLeastOnePixel(ITheme theme)
     {
-        // Mirrors the validator's non-colour gate (tools/palette_validate.py:319-322).
+        // Mirrors the validator's gate-1 BorderThicknessStandard check, which is a FLOOR,
+        // not an equality: check() in tools/palette_validate.py asserts value >= 1.0, and a
+        // high-contrast theme legitimately sits above it (Contrast = 2, spec §4.4 and §10.4).
+        // Cited by gate name rather than line number, which the previous citation outlived.
         Check.That(theme.BorderThicknessStandard).IsGreaterOrEqualThan(1.0);
     }
 

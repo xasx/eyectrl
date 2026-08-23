@@ -59,6 +59,7 @@ public class DwellComboBox : IDwellComposite
     private readonly string[] _codeOptions;
     private readonly Func<string> _getCode;
     private readonly Action<string> _setCode;
+    private readonly bool _showLabel;
 
     /// <inheritdoc/>
     public IReadOnlyList<DwellControl> Children => _options;
@@ -84,6 +85,11 @@ public class DwellComboBox : IDwellComposite
     /// <param name="category">Dwell category the option buttons are registered under.</param>
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="showLabel">
+    /// Whether this composite draws its own heading above its controls. False when the host
+    /// lays the name out itself — the settings window's two-column rows put the name in their
+    /// left column, and a second copy inside the composite would duplicate it.
+    /// </param>
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="displayOptions"/> and <paramref name="codeOptions"/>
     /// have different lengths.
@@ -98,7 +104,8 @@ public class DwellComboBox : IDwellComposite
         Action<string> setCode,
         DwellCategory category,
         double radiusPhysical,
-        int dwellMs)
+        int dwellMs,
+        bool showLabel = true)
     {
         if (displayOptions.Length != codeOptions.Length)
         {
@@ -110,6 +117,7 @@ public class DwellComboBox : IDwellComposite
         _codeOptions = codeOptions;
         _getCode = getCode;
         _setCode = setCode;
+        _showLabel = showLabel;
 
         _label = new DwellLabel(label);
 
@@ -187,6 +195,11 @@ public class DwellComboBox : IDwellComposite
     /// <param name="category">Dwell category the option buttons are registered under.</param>
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="showLabel">
+    /// Whether this composite draws its own heading above its controls. False when the host
+    /// lays the name out itself — the settings window's two-column rows put the name in their
+    /// left column, and a second copy inside the composite would duplicate it.
+    /// </param>
     public DwellComboBox(
         IDwellRegistrar registrar,
         string idPrefix,
@@ -196,15 +209,19 @@ public class DwellComboBox : IDwellComposite
         Action<string> set,
         DwellCategory category,
         double radiusPhysical,
-        int dwellMs)
-        : this(registrar, idPrefix, label, options, options, get, set, category, radiusPhysical, dwellMs)
+        int dwellMs,
+        bool showLabel = true)
+        : this(registrar, idPrefix, label, options, options, get, set, category, radiusPhysical,
+               dwellMs, showLabel)
     {
     }
 
     /// <inheritdoc/>
     public void Attach(Panel parent)
     {
-        _label.Attach(parent);
+        if (_showLabel)
+            _label.Attach(parent);
+
         parent.Children.Add(_panel);
         foreach (var btn in _options)
             btn.RegisterDwell();
@@ -213,7 +230,9 @@ public class DwellComboBox : IDwellComposite
     /// <inheritdoc/>
     public void Detach(Panel parent)
     {
-        _label.Detach(parent);
+        if (_showLabel)
+            _label.Detach(parent);
+
         parent.Children.Remove(_panel);
         foreach (var btn in _options)
             btn.UnregisterDwell();

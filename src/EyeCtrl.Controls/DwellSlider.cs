@@ -68,6 +68,7 @@ public class DwellSlider : IDwellComposite
     private readonly double _max;
     private readonly double _step;
     private readonly int _decimals;
+    private readonly bool _showLabel;
 
     /// <summary>
     /// Cached once in the constructor, not rebuilt per get: SettingsWindow's
@@ -129,6 +130,11 @@ public class DwellSlider : IDwellComposite
     /// <param name="category">Dwell category the buttons are registered under.</param>
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="showLabel">
+    /// Whether this composite draws its own heading above its controls. False when the host
+    /// lays the name out itself — the settings window's two-column rows put the name in their
+    /// left column, and a second copy inside the composite would duplicate it.
+    /// </param>
     public DwellSlider(
         IDwellRegistrar registrar,
         string idPrefix,
@@ -141,7 +147,8 @@ public class DwellSlider : IDwellComposite
         Action<double> set,
         DwellCategory category,
         double radiusPhysical,
-        int dwellMs)
+        int dwellMs,
+        bool showLabel = true)
     {
         _get = get;
         _set = set;
@@ -149,6 +156,7 @@ public class DwellSlider : IDwellComposite
         _max = max;
         _step = step;
         _decimals = decimals;
+        _showLabel = showLabel;
 
         _label = new DwellLabel(label);
 
@@ -269,7 +277,9 @@ public class DwellSlider : IDwellComposite
     /// <inheritdoc/>
     public void Attach(Panel parent)
     {
-        _label.Attach(parent);
+        if (_showLabel)
+            _label.Attach(parent);
+
         parent.Children.Add(_row);
         _minus.RegisterDwell();
         _plus.RegisterDwell();
@@ -278,7 +288,9 @@ public class DwellSlider : IDwellComposite
     /// <inheritdoc/>
     public void Detach(Panel parent)
     {
-        _label.Detach(parent);
+        if (_showLabel)
+            _label.Detach(parent);
+
         parent.Children.Remove(_row);
         _minus.UnregisterDwell();
         _plus.UnregisterDwell();

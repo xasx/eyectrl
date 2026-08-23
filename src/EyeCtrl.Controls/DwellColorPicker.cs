@@ -99,6 +99,7 @@ public class DwellColorPicker : IDwellComposite
 
     private readonly Func<string> _get;
     private readonly Action<string> _set;
+    private readonly bool _showLabel;
 
     /// <inheritdoc/>
     public IReadOnlyList<DwellControl> Children => _swatches;
@@ -120,6 +121,11 @@ public class DwellColorPicker : IDwellComposite
     /// Custom colour presets. Each entry is a (hex, name) pair.
     /// Defaults to <see cref="DefaultPresets"/> when <see langword="null"/>.
     /// </param>
+    /// <param name="showLabel">
+    /// Whether this composite draws its own heading above its controls. False when the host
+    /// lays the name out itself — the settings window's two-column rows put the name in their
+    /// left column, and a second copy inside the composite would duplicate it.
+    /// </param>
     public DwellColorPicker(
         IDwellRegistrar registrar,
         string idPrefix,
@@ -129,10 +135,12 @@ public class DwellColorPicker : IDwellComposite
         DwellCategory category,
         double radiusPhysical,
         int dwellMs,
-        (string Hex, string Name)[]? presets = null)
+        (string Hex, string Name)[]? presets = null,
+        bool showLabel = true)
     {
         _get = get;
         _set = set;
+        _showLabel = showLabel;
         presets ??= DefaultPresets;
 
         _label = new DwellLabel(label);
@@ -208,7 +216,9 @@ public class DwellColorPicker : IDwellComposite
     /// <inheritdoc/>
     public void Attach(Panel parent)
     {
-        _label.Attach(parent);
+        if (_showLabel)
+            _label.Attach(parent);
+
         parent.Children.Add(_panel);
         foreach (var btn in _swatches)
             btn.RegisterDwell();
@@ -217,7 +227,9 @@ public class DwellColorPicker : IDwellComposite
     /// <inheritdoc/>
     public void Detach(Panel parent)
     {
-        _label.Detach(parent);
+        if (_showLabel)
+            _label.Detach(parent);
+
         parent.Children.Remove(_panel);
         foreach (var btn in _swatches)
             btn.UnregisterDwell();

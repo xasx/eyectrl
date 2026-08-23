@@ -345,6 +345,60 @@ public class DwellSliderPlateTests
             .That(content.DesiredSize.Height).IsLessOrEqualThan(slider.Plate.Height);
     }
 
+    // ────── Whose label is it: the composite's, or the host's? ──────
+
+    /// <summary>
+    /// A slider that draws no heading of its own — the form a two-column
+    /// settings row hosts.
+    /// </summary>
+    private static DwellSlider BuildHeadless() =>
+        new(new FakeRegistrar(), "sl", "Smoothing", 0, 10, 1, 1,
+            () => 5, _ => { }, DwellCategory.Control, 50, 800, showLabel: false);
+
+    /// <summary>
+    /// A two-column settings row lays the setting's NAME out itself, in its left column, so the
+    /// composite it hosts must attach its controls and nothing else. A heading of its own would put
+    /// the same name on screen twice.
+    ///
+    /// <para>
+    /// Counted over the HOST panel's own children: the heading is the only <c>TextBlock</c> this
+    /// composite ever parents to its host (the value and the range's end-labels live inside the plate), so an empty top-level set is
+    /// exactly "it attached no heading of its own".
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void WithShowLabelFalse_TheCompositeAttachesNoLabelOfItsOwn()
+    {
+        var panel = new StackPanel();
+
+        BuildHeadless().Attach(panel);
+
+        var headings = panel.Children.OfType<TextBlock>().Select(t => t.Text).ToList();
+        Check.WithCustomMessage(
+                $"the composite attached {headings.Count} heading(s) of its own "
+                + $"([{string.Join(", ", headings)}]) despite showLabel: false. The row that hosts "
+                + "it has already drawn the name in its left column.")
+            .That(panel.Children.OfType<TextBlock>()).IsEmpty();
+    }
+
+    /// <summary>
+    /// The other direction, and the one that protects every existing call site: the flag defaults
+    /// to <c>true</c>, so a composite nobody passed it to still draws its own heading exactly as
+    /// before.
+    /// </summary>
+    [StaFact]
+    public void ByDefault_TheCompositeStillAttachesItsOwnLabel()
+    {
+        var panel = new StackPanel();
+
+        Build(0, 10, 1, 5).Attach(panel);
+
+        Check.WithCustomMessage(
+                "the default form must still draw its own heading — SettingsWindow and every "
+                + "other caller passes no flag and expects the row it always got.")
+            .That(panel.Children.OfType<TextBlock>().Single().Text).IsEqualTo("Smoothing");
+    }
+
     /// <summary>
     /// Captures each registered activation by id so a test can fire one the way the overlay's
     /// dwell detector would.

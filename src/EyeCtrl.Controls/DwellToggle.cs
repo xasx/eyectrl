@@ -38,6 +38,17 @@ using EyeCtrl.Core.Processing;
 /// only 4.38:1 in Midnight. <c>TextPrimary</c> reaches 8.03 / 9.52 / 15.13.
 /// </para>
 /// <para>
+/// <b>Two forms.</b> By default this control draws the whole row: the name, the card both halves
+/// sit on, and that card's boundary. With <c>showLabel: false</c> it attaches the bare switch and
+/// nothing else — no heading, no card, no boundary, no <c>MinWidth</c> and no row margin — because
+/// the settings window's two-column rows draw the name in their left column and own the card, the
+/// boundary and the row pitch themselves. Building a card here as well would nest one inside the
+/// other: two boundaries around one switch, and this card's 360 DIP minimum inside a ~400 DIP
+/// column. A host using that form has to keep the switch on a <see cref="Tokens.SurfaceMedium"/>
+/// backdrop, which is what the outline figures under <see cref="SwitchOutline"/> are measured
+/// against.
+/// </para>
+/// <para>
 /// <b>Dwell feedback</b> is the switch's own <see cref="DwellButton.ProgressBar"/>, in the
 /// switch's layout row 1 — so it is never drawn over the track (row 0) and can never touch the
 /// surface the label is read against. The mouse-click fallback comes from the same place:
@@ -114,8 +125,14 @@ public class DwellToggle : IDwellComposite
     private readonly Action<bool> _set;
     private readonly TextBlock _label;
     private readonly TextBlock _stateText;
-    private readonly Border _rowSurface;
-    private readonly Border _cardOutline;
+    // Null in the headless form, which builds no card at all. See the type doc.
+    private readonly Border? _rowSurface;
+    private readonly Border? _cardOutline;
+
+    // What Attach parents to the host: the card in the default form, the switch itself in the
+    // headless one. FrameworkElement rather than Border so neither form's root has to pretend to
+    // be the other's.
+    private readonly FrameworkElement _root;
     private readonly Border _track;
     private readonly Border _knob;
     private readonly DwellButton _switch;
@@ -128,20 +145,36 @@ public class DwellToggle : IDwellComposite
     // collection expression from the getter would allocate at gaze rate.
     private readonly DwellControl[] _children;
 
-    /// <summary>The setting's name. Plain text: it is read, never dwelled.</summary>
+    /// <summary>
+    /// The setting's name. Plain text: it is read, never dwelled. Constructed in both forms —
+    /// the headless one never parents it, but <see cref="RefreshVisual"/> composes the switch's
+    /// accessible name from its text, which is the only thing that tells a screen reader which
+    /// setting the switch belongs to.
+    /// </summary>
     internal TextBlock Label => _label;
 
     /// <summary>The state word inside the switch, and the element that carries the UIA identity.</summary>
     internal TextBlock StateText => _stateText;
 
-    /// <summary>The row card both halves sit on, and the surface <see cref="Label"/> is read against.</summary>
-    internal Border RowSurface => _rowSurface;
+    /// <summary>
+    /// The row card both halves sit on, and the surface <see cref="Label"/> is read against.
+    /// Only the default form has one: the headless form's host owns the card, so this throws
+    /// there rather than handing back an empty <see cref="Border"/> an assertion could pass
+    /// against.
+    /// </summary>
+    internal Border RowSurface => _rowSurface ?? throw NoCard(nameof(RowSurface));
 
     /// <summary>
     /// The card's boundary. A separate, non-layout element rather than
     /// <see cref="RowSurface"/>'s own <c>BorderThickness</c> — see its construction for why.
+    /// Default form only, as <see cref="RowSurface"/>.
     /// </summary>
-    internal Border CardOutline => _cardOutline;
+    internal Border CardOutline => _cardOutline ?? throw NoCard(nameof(CardOutline));
+
+    private static InvalidOperationException NoCard(string member) =>
+        new($"{member} does not exist on a DwellToggle built with showLabel: false. That form "
+            + "attaches the bare switch and leaves the card, its boundary and the row pitch to "
+            + "its host.");
 
     /// <summary>The switch's track, whose fill carries the state.</summary>
     internal Border Track => _track;
@@ -166,6 +199,12 @@ public class DwellToggle : IDwellComposite
     /// <param name="category">Dwell category the switch is registered under.</param>
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="showLabel">
+    /// Whether this composite draws its own heading — and, here, the row card that heading is read
+    /// against. False when the host lays the name out itself: the settings window's two-column rows
+    /// put the name in their left column and own the card, so this control attaches nothing but the
+    /// switch. See the type doc.
+    /// </param>
     public DwellToggle(
         IDwellRegistrar registrar,
         string id,
@@ -174,7 +213,8 @@ public class DwellToggle : IDwellComposite
         Action<bool> set,
         DwellCategory category,
         double radiusPhysical,
-        int dwellMs)
+        int dwellMs,
+        bool showLabel = true)
     {
         _get = get;
         _set = set;
@@ -326,12 +366,28 @@ public class DwellToggle : IDwellComposite
         // (DwellColorPicker.cs:169).
         _switch.Root.BorderThickness = new Thickness(SwitchOutline);
         _switch.Root.BorderBrush = Tokens.BrushTextSecondary;
-        // DwellButton's default (4,0,4,0) is for tiles packed side by side. This one is pinned to
-        // the row's right column, and the card carries no Padding of its own, so the inset from
-        // the card's right edge has to come from here.
-        _switch.Root.Margin = new Thickness(0, 0, SwitchInset, 0);
+        // DwellButton's default (4,0,4,0) is for tiles packed side by side. In the default form
+        // this one is pinned to the row's right column, and the card carries no Padding of its own,
+        // so the inset from the card's right edge has to come from here. The headless form has no
+        // card to be inset from, and 20 DIP inside a host row's own padding would pull the switch
+        // off that row's right-hand alignment — so it carries no margin at all there and the host
+        // owns the inset.
+        _switch.Root.Margin = showLabel ? new Thickness(0, 0, SwitchInset, 0) : new Thickness(0);
 
         _children = [_switch];
+
+        // The headless form is complete here: the switch, and nothing around it. Everything
+        // below builds the card — the label's column, the boundary, the 360 DIP minimum and the
+        // 24 DIP row margin — all of which belong to the host in that form.
+        //
+        // _label is still constructed above, deliberately: it is never parented here, but
+        // RefreshVisual composes the switch's accessible name from its text.
+        if (!showLabel)
+        {
+            _root = _switch.Root;
+            RefreshVisual();
+            return;
+        }
 
         var row = new Grid();
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -403,20 +459,22 @@ public class DwellToggle : IDwellComposite
             Child = cardContent
         };
 
+        _root = _rowSurface;
+
         RefreshVisual();
     }
 
     /// <inheritdoc/>
     public void Attach(Panel parent)
     {
-        parent.Children.Add(_rowSurface);
+        parent.Children.Add(_root);
         _switch.RegisterDwell();
     }
 
     /// <inheritdoc/>
     public void Detach(Panel parent)
     {
-        parent.Children.Remove(_rowSurface);
+        parent.Children.Remove(_root);
         _switch.UnregisterDwell();
     }
 

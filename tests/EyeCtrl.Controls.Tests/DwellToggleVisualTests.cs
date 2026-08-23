@@ -49,6 +49,17 @@ public class DwellToggleVisualTests
     private const double Radius = 50;
 
     /// <summary>
+    /// A label past the card's line budget in any column this control is used in. Ordinary words,
+    /// not one long token: the failure mode under test is too MANY lines, and a single unbroken
+    /// word is a different (width) case, already covered by
+    /// <c>SettingsContentFitTests.AnUnboundedToggleLabel_CannotWidenTheRow_NorMoveTheSwitch</c>.
+    /// A Quick Action's caption is typed by the user, so nothing bounds its length.
+    /// </summary>
+    private const string OverlongLabel =
+        "Suppress adaptation in sensitive contexts while the caregiver is away from the room "
+        + "and the session has been running for more than an hour";
+
+    /// <summary>
     /// A toggle over a CAPTURED bool, so <c>Toggle()</c> really flips the value the control reads
     /// back. A throwaway setter (<c>_ => { }</c>) would leave every assertion below checking a
     /// state that never changed.
@@ -59,11 +70,15 @@ public class DwellToggleVisualTests
     /// As <see cref="Build(bool)"/>, but activations land in <paramref name="registrar"/> so a
     /// test can fire one the way the overlay's dwell detector would.
     /// </summary>
-    private static DwellToggle Build(FakeRegistrar registrar, bool initial)
+    private static DwellToggle Build(FakeRegistrar registrar, bool initial) =>
+        Build(registrar, initial, "Label");
+
+    /// <summary>As <see cref="Build(bool)"/>, with a caller-chosen label.</summary>
+    private static DwellToggle Build(FakeRegistrar registrar, bool initial, string label)
     {
         var state = initial;
         return new DwellToggle(
-            registrar, "id", "Label", () => state, v => state = v,
+            registrar, "id", label, () => state, v => state = v,
             DwellCategory.Control, Radius, 800);
     }
 
@@ -369,21 +384,24 @@ public class DwellToggleVisualTests
     }
 
     /// <summary>
-    /// The card's border inset must be cancelled EXACTLY, and this is the theme-independent half
-    /// of that guard.
+    /// The card's boundary must be DRAWN without being LAID OUT, and this is the theme-independent
+    /// half of that guard.
     ///
     /// <para>
     /// A <see cref="Border"/> deflates its child by its <c>BorderThickness</c>, so a bordered
     /// 100 DIP card hands the switch a 98 DIP slot for its explicit 100 — and WPF does not split
     /// the shortfall: <c>ComputeAlignmentOffset</c> demotes Stretch to Top, the switch is pushed
-    /// DOWN, and all of it lands on the bottom edge, where the 6 DIP dwell bar is. The row Grid's
-    /// negative vertical margin is what gives the switch its 100 back.
+    /// DOWN, and all of it lands on the bottom edge, where the 6 DIP dwell bar is. Measured, that
+    /// cost a layout clip of 0;0;160;98 at <c>BorderThicknessStandard</c> 1 and 0;0;160;96 at 2,
+    /// plus a quarter of the bar itself once the shortfall reached 2 DIP.
     /// </para>
     /// <para>
-    /// Asserted as an EQUALITY against the card's own thickness rather than against a literal,
-    /// because the thickness is a theme token: 1 in Midnight and Ember, 2 in Contrast. A
-    /// compensation that merely happens to match today's ambient theme would leave the Contrast
-    /// theme — the one built for low vision — short by a DIP.
+    /// A negative margin on the row cancelled the inset arithmetically and fixed both, but pushed
+    /// the switch a DIP OUTSIDE the card's line — rendered, the switch poked out of the row and
+    /// broke the card's outline where they met. So the outline is now a sibling that consumes no
+    /// layout, and the invariant is structural rather than arithmetic: the card deflates nothing,
+    /// the outline draws the boundary and takes neither layout nor hits, and nothing compensates
+    /// for an inset that no longer exists.
     /// </para>
     /// <para>
     /// This is the gate with teeth. <see cref="TheSwitchIsNeverDrawnSmallerThanItsHitCircle"/>
@@ -393,26 +411,47 @@ public class DwellToggleVisualTests
     /// </para>
     /// </summary>
     [StaFact]
-    public void TheCardsBorderInsetIsCancelledExactly()
+    public void TheCardsBoundaryConsumesNoLayout()
     {
         var toggle = Build(initial: true);
         var card = toggle.RowSurface;
-        var row = (Grid)card.Child;
+        var outline = toggle.CardOutline;
+        var wrapper = (Grid)card.Child;
+        var row = wrapper.Children.OfType<Grid>().Single();
 
         Check.WithCustomMessage(
-                $"the row Grid's vertical margin is {row.Margin.Top}/{row.Margin.Bottom} against a "
-                + $"card border of {card.BorderThickness.Top}/{card.BorderThickness.Bottom}. It has "
-                + "to be the exact negation, or the switch is handed a slot shorter than the 100 DIP "
-                + "circle it registers and the shortfall lands on its dwell bar.")
-            .That((row.Margin.Top, row.Margin.Bottom))
-            .IsEqualTo((-card.BorderThickness.Top, -card.BorderThickness.Bottom));
+                $"the card's own vertical BorderThickness is {card.BorderThickness.Top}/"
+                + $"{card.BorderThickness.Bottom} and Padding {card.Padding.Top}/"
+                + $"{card.Padding.Bottom}. Either deflates the switch's slot below the 100 DIP "
+                + "circle it registers, and WPF puts the whole shortfall on the bottom edge, where "
+                + "the dwell bar is. Draw the boundary with the non-layout outline sibling instead.")
+            .That((card.BorderThickness.Top, card.BorderThickness.Bottom,
+                    card.Padding.Top, card.Padding.Bottom))
+            .IsEqualTo((0.0, 0.0, 0.0, 0.0));
 
         Check.WithCustomMessage(
-                $"the row Grid's horizontal margin is {row.Margin.Left}/{row.Margin.Right}, not 0. "
-                + "The cancellation is vertical only, on purpose: horizontally there is no shortfall "
-                + "to make up, and a negative margin there would push the switch out over the card's "
-                + "own outline.")
-            .That((row.Margin.Left, row.Margin.Right)).IsEqualTo((0.0, 0.0));
+                $"the outline sibling draws a {outline.BorderThickness.Top} DIP border, so the card "
+                + "has no boundary at all — a SurfaceMedium card on the page is a 1.23:1 step. The "
+                + "outline is where the boundary lives now that the card itself cannot carry one.")
+            .That(outline.BorderThickness.Top).IsStrictlyGreaterThan(0.0);
+
+        Check.WithCustomMessage(
+                "the outline sibling is hit-testable, so it sits between the user and the switch it "
+                + "is painted over. It is decoration; it must never take a click.")
+            .That(outline.IsHitTestVisible).IsFalse();
+
+        Check.WithCustomMessage(
+                "the outline is no longer the last child of the card's wrapper, so it paints UNDER "
+                + "the switch and the card's line is broken where the two meet — the defect the "
+                + "sibling exists to avoid.")
+            .That(ReferenceEquals(wrapper.Children[wrapper.Children.Count - 1], outline)).IsTrue();
+
+        Check.WithCustomMessage(
+                $"the row Grid carries a vertical margin of {row.Margin.Top}/{row.Margin.Bottom}. "
+                + "There is no inset left to compensate for, and a negative margin here pushes the "
+                + "switch OUT past the card's outline — which is exactly the visual defect the "
+                + "non-layout sibling replaced.")
+            .That((row.Margin.Top, row.Margin.Bottom)).IsEqualTo((0.0, 0.0));
     }
 
     /// <summary>
@@ -430,13 +469,13 @@ public class DwellToggleVisualTests
     /// </para>
     /// <para>
     /// Its LIMIT, stated because it was not obvious: this probe renders under the ambient theme,
-    /// and at <c>BorderThicknessStandard</c> 1 the bar survives even with the compensation deleted
-    /// — the switch's own 2 DIP outline has already lifted it clear of the bottom edge, so the
-    /// clip cuts padding rather than bar. Measured: 602 Accent pixels over 4 rows both with and
-    /// without the compensation at thickness 1, and 455 over 3 rows with a thickness-2 card border
-    /// and no compensation. So this test alone would NOT have caught the regression;
-    /// <see cref="TheCardsBorderInsetIsCancelledExactly"/> is the half that does, and this one
-    /// proves the pixels are really there.
+    /// and at <c>BorderThicknessStandard</c> 1 the bar survives even when the card deflates its
+    /// child — the switch's own 2 DIP outline has already lifted the bar clear of the bottom edge,
+    /// so the clip cuts padding rather than bar. Measured, back when the card carried its own
+    /// border: 602 Accent pixels over 4 rows both with and without the compensating margin at
+    /// thickness 1, and 455 over 3 rows at thickness 2 with none. So this test alone would NOT have
+    /// caught that regression; <see cref="TheCardsBoundaryConsumesNoLayout"/> is the half that
+    /// does, and this one proves the pixels are really there.
     /// </para>
     /// </summary>
     [StaFact]
@@ -543,27 +582,196 @@ public class DwellToggleVisualTests
     /// object (the old full-bleed ToggleOn fill read 4.37:1 against the page) to a 1.23:1
     /// nothing. That is the gap this test closes.
     /// </para>
+    /// <para>
+    /// Read off <see cref="DwellToggle.CardOutline"/> rather than the card itself: the boundary is
+    /// drawn by a non-layout sibling, because the card's own BorderThickness would deflate the
+    /// switch's slot — see <see cref="TheCardsBoundaryConsumesNoLayout"/>.
+    /// </para>
     /// </summary>
     [StaFact]
     public void TheRowCardHasAPerceptibleBoundaryAgainstThePage()
     {
         var toggle = Build(initial: false);
         var card = toggle.RowSurface;
+        var line = toggle.CardOutline;
 
         var page = Tokens.SurfaceDark;
         var fill = Contrast(((SolidColorBrush)card.Background).Color, page);
-        var outline = card.BorderThickness.Top > 0 && card.BorderBrush is SolidColorBrush b
+        var outline = line.BorderThickness.Top > 0 && line.BorderBrush is SolidColorBrush b
             ? Contrast(b.Color, page)
             : 1.0; // no border -> only the fill step is left, and it is ~1.2:1
         var best = Math.Max(fill, outline);
 
         Check.WithCustomMessage(
                 $"the row card reaches only {best:F2}:1 against the settings page (fill "
-                + $"{fill:F2}:1, border {outline:F2}:1 at thickness {card.BorderThickness.Top}). "
+                + $"{fill:F2}:1, outline {outline:F2}:1 at thickness {line.BorderThickness.Top}). "
                 + "Palette rule 1 puts the boundary on the border for exactly this reason; a "
-                + "borderless card on SurfaceMedium is invisible. If the border was removed to "
-                + "stop it eating the dwell bar, cancel the inset on the row Grid instead.")
+                + "borderless card on SurfaceMedium is invisible. If the outline was removed to "
+                + "stop it eating the dwell bar, note that it no longer can — it consumes no "
+                + "layout.")
             .That(best).IsStrictlyGreaterThan(3.0);
+    }
+
+    /// <summary>
+    /// A label too long for the card must TRUNCATE, not clip. Rendered at the 416 DIP narrow
+    /// column, a four-line label was cut through the middle of its fourth row of glyphs — a setting
+    /// whose own name a gaze-only user cannot read, with no scroll and no hover to recover it.
+    ///
+    /// <para>
+    /// The reachable path is real: <c>QuickActionsPageSource.cs:73</c> builds a <c>ToggleSpec</c>
+    /// caption from a label the USER typed, so no enumeration bounds it — which is why
+    /// <c>SettingsContentFitTests.TheLongestRealToggleLabel_FitsTheContentColumn_OnANarrowDisplay</c>
+    /// was right about the labels it covered and still left this open. Not a regression this
+    /// control introduced: the pre-composite toggle had no wrapping and was width-capped, so an
+    /// over-long label clipped horizontally instead. But the wrapping is new, so the fix is here.
+    /// </para>
+    /// <para>
+    /// Two labels, and the second is the load-bearing one. The reported string is kept because it
+    /// is what was seen failing, but measured in this harness it wraps to three lines and fits — so
+    /// on its own it would pass with the height bound DELETED, which is exactly the vacuity that
+    /// caught out an earlier draft of this test. The <see cref="OverlongLabel"/> case is
+    /// unambiguously past the budget in any column this control is used in.
+    /// </para>
+    /// <para>
+    /// Everything is DERIVED from a measured line box rather than restated, and the ARRANGED height
+    /// is what is compared, never the declared <c>Height</c> — that was the trap that made the
+    /// WYSIWYG floor test vacuous.
+    /// </para>
+    /// <para>
+    /// What each assertion can actually see, since that is not obvious. The <c>MaxHeight</c> and
+    /// <c>TextTrimming</c> checks are the ones with teeth: deleting either fails here. The three
+    /// layout assertions below them (arranged height, whole line multiple, no layout clip) hold
+    /// today and would hold even with <c>MaxHeight</c> deleted, because WPF's TextBlock already
+    /// stops at whole lines when its parent constrains its height and the card's explicit Height
+    /// does constrain it — measured: 95.77 DIP over three 31.92 DIP lines, clip null, with and
+    /// without the bound. They are corroboration, not the gate, and they DO bite together with the
+    /// 124 DIP row check the moment the card stops bounding the label at all.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void TheLabelTruncatesRatherThanClipping()
+    {
+        // The real line box, under the real font, from a label that fits on one line.
+        var single = Build(initial: true);
+        AttachAndLayout(single);
+        var lineHeight = single.Label.ActualHeight;
+
+        foreach (var text in new[] { "Suppress adaptation in sensitive contexts", OverlongLabel })
+        {
+            var toggle = Build(new FakeRegistrar(), true, text);
+            var panel = AttachAndLayout(toggle);
+            var label = toggle.Label;
+            var budget = toggle.RowSurface.ActualHeight;
+            var what = $"label of {text.Length} chars";
+
+            Check.WithCustomMessage(
+                    $"{what}: the label does not trim, so an over-long name simply stops with no "
+                    + "sign that anything is missing. TextTrimming.CharacterEllipsis is what turns "
+                    + "a cut into a '…'.")
+                .That(label.TextTrimming).IsEqualTo(TextTrimming.CharacterEllipsis);
+
+            Check.WithCustomMessage(
+                    $"{what}: the label's MaxHeight is {label.MaxHeight} against a {budget:F2} DIP "
+                    + "card. WPF has no MaxLines, so a height bound is what stops the line count, "
+                    + "and it must not exceed the card or it does nothing. Leaving it unbounded "
+                    + "makes the truncation depend entirely on the parent chain happening to "
+                    + "constrain it — which today it does, and which nothing guarantees.")
+                .That(label.MaxHeight).IsLessOrEqualThan(budget);
+
+            // The bound has to admit at least one whole line, or the label is unreadable rather
+            // than merely truncated. Derived from the measured line box, so a heavier type ramp
+            // fails here.
+            Check.WithCustomMessage(
+                    $"{what}: a {lineHeight:F2} DIP line box does not fit the {label.MaxHeight} DIP "
+                    + "bound, so not one line of the label can be laid out.")
+                .That(lineHeight).IsLessOrEqualThan(label.MaxHeight);
+
+            Check.WithCustomMessage(
+                    $"{what}: the label is ARRANGED {label.ActualHeight:F2} DIP tall inside a "
+                    + $"{budget:F2} DIP card, so its last row of glyphs is bisected by the card's "
+                    + "edge. Bound the height; do not rely on the card's declared Height, which "
+                    + "stays 100 either way.")
+                .That(label.ActualHeight).IsLessOrEqualThan(budget);
+
+            // What the bound actually bought, measured rather than assumed: the text laid out to a
+            // whole number of line boxes inside the card, instead of overflowing and being cut.
+            Check.WithCustomMessage(
+                    $"{what}: the label is {label.ActualHeight:F2} DIP tall, which is not a whole "
+                    + $"multiple of its {lineHeight:F2} DIP line box — so it has been cut mid-line "
+                    + "rather than stopped at one.")
+                .That(label.ActualHeight % lineHeight).IsCloseTo(0.0, 0.01);
+
+            var clip = LayoutInformation.GetLayoutClip(label);
+            Check.WithCustomMessage(
+                    $"{what}: a layout clip of {clip?.Bounds.ToString() ?? "none"} is cutting the "
+                    + "label, which is WPF saying the text does not fit the box it was given. "
+                    + "Truncate inside the budget instead of overflowing it and being cut.")
+                .That(clip).IsNull();
+
+            Check.WithCustomMessage(
+                    $"{what}: the row measures {panel.DesiredSize.Height:F2} DIP tall, not the "
+                    + "124.00 every settings page is paginated on. A long label must not grow the "
+                    + "row.")
+                .That(panel.DesiredSize.Height).IsEqualTo(124.0);
+        }
+    }
+
+    /// <summary>
+    /// The ellipsis has to actually be DRAWN, not merely requested.
+    ///
+    /// <para>
+    /// This is the assertion that carries the fix. Without <c>TextTrimming</c> an over-long label
+    /// does not spill or clip — measured, WPF stops it at whole lines either way — it simply ENDS,
+    /// with nothing on screen to say that a setting's name continues somewhere the user cannot
+    /// reach. That is worse than a visible cut, because it is invisible. With trimming the last
+    /// line ends in an ellipsis.
+    /// </para>
+    /// <para>
+    /// Proved by rendering the same label twice, once trimming and once not, and requiring the ink
+    /// to DIFFER. Not by looking for a specific glyph: distinguishing a drawn "…" from the letters
+    /// it replaced needs either OCR or a hard-coded bitmap, and neither survives a font change. If
+    /// trimming were a no-op on this label — which it is on a short one, and which is why the
+    /// deliberately over-long label is what is used here — the two renders would be identical.
+    /// </para>
+    /// <para>
+    /// This test sets the trimming mode itself, so it is deliberately INDEPENDENT of what the
+    /// control chooses: its job is to prove that trimming has a visible effect on a label of this
+    /// length, so that the structural assertion in
+    /// <see cref="TheLabelTruncatesRatherThanClipping"/> is not gating a no-op. That assertion is
+    /// where the control's own setting is pinned.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void TheTruncatedLabelActuallyDrawsAnEllipsis()
+    {
+        var trimmed = RenderLabel(TextTrimming.CharacterEllipsis);
+        var untrimmed = RenderLabel(TextTrimming.None);
+
+        Check.WithCustomMessage(
+                "the label renders identically with and without TextTrimming, so no ellipsis is "
+                + "being drawn and an over-long setting name just stops with nothing to say so. "
+                + "Either the trimming was removed, or the label no longer overflows its line "
+                + "budget and this test has lost its subject — check OverlongLabel.")
+            .That(trimmed).Not.IsEqualTo(untrimmed);
+    }
+
+    /// <summary>Renders <see cref="OverlongLabel"/> under a given trimming mode.</summary>
+    private static byte[] RenderLabel(TextTrimming trimming)
+    {
+        var toggle = Build(new FakeRegistrar(), true, OverlongLabel);
+        toggle.Label.TextTrimming = trimming;
+        AttachAndLayout(toggle);
+
+        var label = toggle.Label;
+        var w = (int)Math.Ceiling(label.ActualWidth);
+        var h = (int)Math.Ceiling(label.ActualHeight);
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(label);
+
+        var stride = w * 4;
+        var pixels = new byte[stride * h];
+        rtb.CopyPixels(pixels, stride, 0);
+        return pixels;
     }
 
     // ────── T3: the label's own contrast, where it now lives ──────

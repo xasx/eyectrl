@@ -51,6 +51,18 @@ public class DwellToggle : IDwellComposite
     private const double TrackHeight = 48;
     private const double KnobSize = 34;
 
+    /// <summary>
+    /// The card's height, and therefore the switch's, and therefore the label's line budget.
+    ///
+    /// <para>
+    /// Fixed, not merely defaulted: <c>SettingsAutoPagination</c> decides where a settings page
+    /// breaks from measured row heights, so this plus the 24 DIP bottom margin is the 124 DIP every
+    /// page holding a toggle is paginated on. It cannot grow, which is why an over-long label has
+    /// to end somewhere — see <see cref="Label"/>'s <c>MaxHeight</c>.
+    /// </para>
+    /// </summary>
+    private const double RowHeight = 100;
+
     /// <summary>Gaps either side of the state word's TEXT, inside the switch.</summary>
     private const double StateTextLeftGap = 16;
     private const double StateTextRightGap = 12;
@@ -103,6 +115,7 @@ public class DwellToggle : IDwellComposite
     private readonly TextBlock _label;
     private readonly TextBlock _stateText;
     private readonly Border _rowSurface;
+    private readonly Border _cardOutline;
     private readonly Border _track;
     private readonly Border _knob;
     private readonly DwellButton _switch;
@@ -123,6 +136,12 @@ public class DwellToggle : IDwellComposite
 
     /// <summary>The row card both halves sit on, and the surface <see cref="Label"/> is read against.</summary>
     internal Border RowSurface => _rowSurface;
+
+    /// <summary>
+    /// The card's boundary. A separate, non-layout element rather than
+    /// <see cref="RowSurface"/>'s own <c>BorderThickness</c> — see its construction for why.
+    /// </summary>
+    internal Border CardOutline => _cardOutline;
 
     /// <summary>The switch's track, whose fill carries the state.</summary>
     internal Border Track => _track;
@@ -174,6 +193,27 @@ public class DwellToggle : IDwellComposite
             // Grid has and WPF clips an over-wide child to its own slot). What Wrap buys is that
             // the text is all still there to read.
             TextWrapping = TextWrapping.Wrap,
+            // Truncate, do not clip. QuickActionsPageSource.cs:73 builds a ToggleSpec caption from
+            // a label the USER typed, so the length is unbounded — and the card's height is not.
+            // Rendered at the 416 DIP narrow column, a four-line label was cut through the middle
+            // of its fourth row of glyphs: a setting whose own name is unreadable, with no scroll
+            // and no hover to recover it.
+            //
+            // A HEIGHT bound rather than a line count. WPF's TextBlock has no MaxLines (that is
+            // WinUI); given a MaxHeight it lays out as many lines as fit and applies TextTrimming
+            // to the last one, so the budget follows the type ramp instead of hard-coding how many
+            // lines that happens to be today. Measured under the theme font at
+            // Tokens.FontSizeTitle: a line box of 31.92 DIP, so three lines occupy 95.77 of the
+            // 100 available and the fourth — 127.69 in total — is what used to be bisected.
+            //
+            // There is no reachable home for the remainder, and that is worth stating plainly
+            // rather than papering over: a ToolTip needs hover and this application's user has none
+            // (the same reason the colour swatches grew visible captions), and a settings row has
+            // no scroll and no expand. The full text is reachable only where the user typed it, on
+            // the Quick Actions editor page — so the honest fix for a name too long to read here is
+            // to shorten it there. The ellipsis at least SAYS that it was cut.
+            MaxHeight = RowHeight,
+            TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(20, 0, 20, 0)
         };
 
@@ -273,7 +313,7 @@ public class DwellToggle : IDwellComposite
 
         _switch = new DwellButton(
             registrar, id, "", Toggle, Tokens.SurfaceLight, category, radiusPhysical, dwellMs,
-            width: SwitchWidth, height: 100)
+            width: SwitchWidth, height: RowHeight)
         {
             Content = switchContent
         };
@@ -293,45 +333,50 @@ public class DwellToggle : IDwellComposite
 
         _children = [_switch];
 
-        var row = new Grid
-        {
-            // Cancels the card's border inset, VERTICALLY ONLY, and this is load-bearing rather
-            // than cosmetic. A Border deflates its child by its BorderThickness, so a bordered
-            // 100 DIP card hands the switch a 98 DIP slot for its explicit 100 — and WPF does not
-            // split that loss: ComputeAlignmentOffset demotes Stretch to Top, the switch is pushed
-            // DOWN, and the whole shortfall lands on the bottom edge, which is exactly where the
-            // 6 DIP dwell bar is.
-            //
-            // Two separate costs, both measured on this control:
-            //   * The switch is drawn INSIDE the 100 DIP circle it registers — a layout clip of
-            //     0;0;160;98 at BorderThicknessStandard 1, and 0;0;160;96 at 2. That breaks the
-            //     WYSIWYG floor in every theme, and is what
-            //     DwellToggleVisualTests.TheSwitchIsNeverDrawnSmallerThanItsHitCircle catches.
-            //   * The bar loses rows once the shortfall reaches 2 DIP. Rendering the real control
-            //     and counting Accent pixels at full dwell: 602 over 4 rows with the compensation,
-            //     and 455 over 3 with a thickness-2 card border and none — a quarter of the dwell
-            //     feedback gone in the Contrast theme, the one built for low vision. At thickness 1
-            //     the bar survives uncompensated, because the switch's own SwitchOutline has
-            //     already lifted it 2 DIP off the bottom edge; only the clip above bites there.
-            //
-            // Raising the card's height would fix both, but would move the measured 124 DIP row and
-            // re-paginate every settings page holding a toggle.
-            //
-            // Vertical only, so the switch does not overpaint the card's outline horizontally. It
-            // does still cover the card's top and bottom line across its own width, and that is
-            // unavoidable: the switch may not be drawn under 100 DIP (the WYSIWYG floor) and the
-            // card may not grow past 100, so the two boxes necessarily coincide vertically. What
-            // shows there is the switch's own heavier TextSecondary outline, which continues the
-            // boundary rather than breaking it.
-            Margin = new Thickness(
-                0, -Tokens.BorderThicknessStandard, 0, -Tokens.BorderThicknessStandard)
-        };
+        var row = new Grid();
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_label, 0);
         Grid.SetColumn(_switch.Root, 1);
         row.Children.Add(_label);
         row.Children.Add(_switch.Root);
+
+        // The card's boundary, drawn as a SIBLING of the row rather than as the card's own
+        // BorderThickness — and that is a layout decision, not a stylistic one.
+        //
+        // A Border deflates its child by its BorderThickness, so a bordered 100 DIP card hands the
+        // switch a 98 DIP slot for its explicit 100, and WPF does not split the shortfall:
+        // ComputeAlignmentOffset demotes Stretch to Top, the switch is pushed DOWN, and all of it
+        // lands on the bottom edge — where the 6 DIP dwell bar is. Two measured costs followed: a
+        // layout clip of 0;0;160;98 at BorderThicknessStandard 1 and 0;0;160;96 at 2, breaking the
+        // WYSIWYG floor in every theme; and, once the shortfall reached 2 DIP, a quarter of the bar
+        // itself (602 Accent pixels over 4 rows down to 455 over 3, in the Contrast theme — the one
+        // built for low vision).
+        //
+        // A negative margin on the row cancelled the inset and fixed both, but pushed the switch
+        // one DIP OUTSIDE the card's border line: rendered, the switch's own outline visibly poked
+        // out of the row and broke the card's line where the two met. An IsHitTestVisible = false
+        // outline in a wrapping Grid consumes no layout at all, so nothing has to be pushed
+        // anywhere — the switch stays fully inside the card and the card's line stays continuous
+        // over it. Raising the card's height was the third option and is barred: it would move the
+        // measured 124 DIP row and re-paginate every settings page holding a toggle.
+        //
+        // The fill stays on RowSurface, so "the surface the label is read against" is still one
+        // element. Only the boundary moved. Gated by
+        // DwellToggleVisualTests.TheCardsBoundaryConsumesNoLayout.
+        _cardOutline = new Border
+        {
+            CornerRadius = Tokens.StandardCornerRadius,
+            BorderThickness = new Thickness(Tokens.BorderThicknessStandard),
+            BorderBrush = Tokens.BrushBorderSubtle,
+            IsHitTestVisible = false
+        };
+
+        // Outline last, so it paints OVER the switch's top and bottom edges where the two
+        // coincide, and the card reads as one continuous shape.
+        var cardContent = new Grid();
+        cardContent.Children.Add(row);
+        cardContent.Children.Add(_cardOutline);
 
         _rowSurface = new Border
         {
@@ -340,26 +385,22 @@ public class DwellToggle : IDwellComposite
             // 560 DIP setup window, which hosts two of these.
             HorizontalAlignment = HorizontalAlignment.Left,
             MinWidth = 360,
-            // 100 + the 24 DIP bottom margin is the row rhythm every other settings row carries,
-            // and it is exactly what this control measured before it became a composite —
-            // SettingsAutoPagination measures row heights to decide where a page breaks, so this
-            // number moving re-paginates every page holding a toggle.
-            Height = 100,
+            // RowHeight + the 24 DIP bottom margin is the row rhythm every other settings row
+            // carries, and it is exactly what this control measured before it became a composite.
+            Height = RowHeight,
             Margin = new Thickness(0, 0, 0, 24),
             CornerRadius = Tokens.StandardCornerRadius,
             Background = Tokens.BrushSurfaceMedium,
-            // The card's boundary, and it is the BORDER that carries it, not the fill. Palette
-            // rule 1 says so outright — "the border carries the boundary; the fill only suggests
-            // depth" (docs/design/overlay-unification-spec.md:284-286, gated by
-            // tools/palette_validate.py:352-365) — and the numbers agree: SurfaceMedium on the
+            // The fill only. Palette rule 1 puts the boundary on the border — "the border
+            // carries the boundary; the fill only suggests depth",
+            // docs/design/overlay-unification-spec.md:284-286, gated by
+            // tools/palette_validate.py:352-365 — and the numbers agree: SurfaceMedium on the
             // page's SurfaceDark is a 1.23:1 step, while BorderSubtle on it measures
-            // 3.35 / 3.32 / 21.00. Dropping this border to dodge the inset described on the row
-            // Grid above turned the row from a delineated object — the old full-bleed ToggleOn
-            // fill read 4.37:1 against the page — into nothing. The Grid's negative margin is the
-            // fix; deleting the outline was not.
-            BorderThickness = new Thickness(Tokens.BorderThicknessStandard),
-            BorderBrush = Tokens.BrushBorderSubtle,
-            Child = row
+            // 3.35 / 3.32 / 21.00. So there IS a border; it is _cardOutline above, drawn without
+            // consuming layout. Deleting it outright (which one commit did, to dodge the inset)
+            // took the row from a delineated object — the old full-bleed ToggleOn fill read 4.37:1
+            // against the page — down to that 1.23:1 nothing.
+            Child = cardContent
         };
 
         RefreshVisual();

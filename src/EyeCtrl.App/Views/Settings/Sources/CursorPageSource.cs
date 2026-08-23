@@ -24,22 +24,27 @@ internal sealed class CursorPageSource : ISettingsPageSource
             new PageSpec([
                 new ComboBoxSpec("c_filter", "Filter Mode", Enum.GetNames<GazeFilterMode>(), null,
                     () => c.FilterMode.ToString(),
-                    v => { c.FilterMode = Enum.Parse<GazeFilterMode>(v); _ctx.ApplyAndSave(); }),
+                    v => { c.FilterMode = Enum.Parse<GazeFilterMode>(v); _ctx.ApplyAndSave(); })
+                    { Description = "Filtering applied to raw gaze samples." },
                 new SliderSpec("c_smooth", "Smoothing Factor", 0, 1, 0.1, 1,
                     () => c.SmoothingFactor,
-                    v => { c.SmoothingFactor = v; _ctx.ApplyAndSave(); }),
+                    v => { c.SmoothingFactor = v; _ctx.ApplyAndSave(); })
+                    { Description = "Higher is more responsive; lower is smoother." },
                 new ColorPickerSpec("c_color", "Circle Color",
                     () => c.CircleColor,
                     v => { c.CircleColor = v; _ctx.ApplyAndSave(); },
-                    SettingsWindow.ColorSwatchRadius),
+                    SettingsWindow.ColorSwatchRadius)
+                    { Description = "The cursor ring’s colour; every preset stays clearly visible." },
             ]),
             new PageSpec([
                 new SliderSpec("c_opacity", "Circle Opacity", 0.1, 1, 0.1, 1,
                     () => c.CircleOpacity,
-                    v => { c.CircleOpacity = v; _ctx.ApplyAndSave(); }),
+                    v => { c.CircleOpacity = v; _ctx.ApplyAndSave(); })
+                    { Description = "How solid the ring is over what is behind it." },
                 new SliderSpec("c_thick", "Circle Thickness", 1, 6, 0.5, 1,
                     () => c.CircleThickness,
-                    v => { c.CircleThickness = v; _ctx.ApplyAndSave(); }),
+                    v => { c.CircleThickness = v; _ctx.ApplyAndSave(); })
+                    { Description = "Ring stroke width, in pixels." },
                 new ButtonSpec("c_reset", "Reset Cursor Settings",
                     () => _ctx.ShowModal("Reset Cursor settings to defaults?", () =>
                     {

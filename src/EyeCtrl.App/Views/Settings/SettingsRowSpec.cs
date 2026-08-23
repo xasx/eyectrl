@@ -9,7 +9,18 @@ namespace EyeCtrl.App.Views.Settings;
 /// each row's control to measure it before rendering, so every spec's delegates run twice per
 /// rebuild.
 /// </summary>
-public abstract record SettingsRowSpec(string Id, string Label);
+public abstract record SettingsRowSpec(string Id, string Label)
+{
+    /// <summary>
+    /// One line explaining what the setting does, drawn under <see cref="Label"/> in the row's
+    /// name column. Optional: a row whose name already says everything leaves it null and the
+    /// second line is not drawn at all.
+    ///
+    /// An <c>init</c> property rather than a positional parameter so the ~80 existing spec
+    /// constructions across eleven page sources keep compiling untouched.
+    /// </summary>
+    public string? Description { get; init; }
+}
 
 /// <summary>A stepped numeric value with a live read/write binding to a setting.</summary>
 /// <param name="Decimals">Decimal places shown (mirrors <c>DwellSlider</c>'s <c>decimals</c> arg).</param>

@@ -205,7 +205,13 @@ public partial class SettingsWindow : OverlayWindow
 
     public event Action<EyeCtrlSettings>? SettingsChanged;
 
-    private readonly (string Id, string Icon, string Label, Func<IReadOnlyList<PageSpec>> PageBuilder)[] _tabDefs;
+    /// <summary>
+    /// The sidebar's tabs: id, sidebar glyph, human label, and the one-line description the page
+    /// header shows under that label. <c>Description</c> is not decoration — the header is the
+    /// only place a tab says what it is for, and the tab glyphs alone are ambiguous.
+    /// </summary>
+    private readonly (string Id, string Icon, string Label, string Description,
+        Func<IReadOnlyList<PageSpec>> PageBuilder)[] _tabDefs;
     private readonly Dictionary<string, Func<IReadOnlyList<PageSpec>>> _pageBuilders = new();
     private readonly Dictionary<string, ISettingsPageSource> _sources = new();
 
@@ -269,21 +275,38 @@ public partial class SettingsWindow : OverlayWindow
         // Initialize tab definitions with page builders
         _tabDefs =
         [
-            ("Cursor",   "◎", "Cursor",      BuildCursorPages),
-            ("Dwell",    "⏱", "Dwell Times", BuildDwellPages),
-            ("Selection", "⊕", "Selection", BuildSelectionPages),
-            ("Actions",  "⊙", "Action Menu", BuildActionMenuPages),
-            ("Layout",   "⊞", "Layout",      BuildLayoutPages),
-            ("Keyboard", "⌨", "Keyboard",    BuildKeyboardPages),
-            ("Models",    "⬡", "Models",      BuildModelsPages),
-            ("Toolbar",  "▣", "Toolbar",     BuildToolbarPages),
-            ("Calibration", "⌖", "Calibration", BuildCalibrationPages),
-            ("General",  "⚙", "General",     BuildGeneralPages),
-            ("QuickActions", "⚡", "Quick Actions", BuildQuickActionsPages)
+            // Descriptions describe what each tab ACTUALLY holds, read off the page sources in
+            // src/EyeCtrl.App/Views/Settings/Sources — not what the tab's name suggests.
+            ("Cursor",   "◎", "Cursor",
+                "How raw gaze is filtered, and how the cursor ring is drawn.", BuildCursorPages),
+            ("Dwell",    "⏱", "Dwell Times",
+                "How long gaze must rest on a target before it activates.", BuildDwellPages),
+            ("Selection", "⊕", "Selection",
+                "Picking the exact target: mode, magnifier, highlight and snapping.",
+                BuildSelectionPages),
+            ("Actions",  "⊙", "Action Menu",
+                "Which actions appear in the ring that opens after an activation.",
+                BuildActionMenuPages),
+            ("Layout",   "⊞", "Layout",
+                "Whether overlays open at your gaze or at the screen centre.", BuildLayoutPages),
+            ("Keyboard", "⌨", "Keyboard",
+                "On-screen keyboard size, layout and word prediction.", BuildKeyboardPages),
+            ("Models",    "⬡", "Models",
+                "Language models used for word prediction.", BuildModelsPages),
+            ("Toolbar",  "▣", "Toolbar",
+                "Where the utility bar docks, and how big its buttons are.", BuildToolbarPages),
+            ("Calibration", "⌖", "Calibration",
+                "Correcting the offset between your gaze and the cursor.",
+                BuildCalibrationPages),
+            ("General",  "⚙", "General",
+                "Startup, theme, restart, and resetting settings.", BuildGeneralPages),
+            ("QuickActions", "⚡", "Quick Actions",
+                "The pop-up grid of one-dwell shortcuts, and how it is summoned.",
+                BuildQuickActionsPages)
         ];
 
         // Build dictionary for O(1) page builder lookup
-        foreach (var (id, _, _, pageBuilder) in _tabDefs)
+        foreach (var (id, _, _, _, pageBuilder) in _tabDefs)
         {
             _pageBuilders[id] = pageBuilder;
         }
@@ -407,7 +430,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private void BuildTabButtons()
     {
-        foreach (var (id, icon, label, _) in _tabDefs)
+        foreach (var (id, icon, label, _, _) in _tabDefs)
         {
             // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
             // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
@@ -535,7 +558,7 @@ public partial class SettingsWindow : OverlayWindow
         var (start, count) = SettingsTabPagination.PageSlice(_tabDefs.Length, _tabsPerPage, _tabPageIndex);
         for (var i = start; i < start + count; i++)
         {
-            var (id, _, _, _) = _tabDefs[i];
+            var (id, _, _, _, _) = _tabDefs[i];
             TabButtonPanel.Children.Add(_tabButtons[id]);
             _viewModel.Register(id, DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
             _renderedTabIds.Add(id);
@@ -641,6 +664,8 @@ public partial class SettingsWindow : OverlayWindow
         _viewModel.ClearCategory(DwellCategory.Control);
         ContentPanel.Children.Clear();
 
+        UpdateHeader();
+
         _pages = BuildPages();
         _pages = MaybeRepaginateByHeight(_pages);
         _viewModel.Settings.TotalPages = _pages.Count;
@@ -648,6 +673,23 @@ public partial class SettingsWindow : OverlayWindow
 
         RenderCurrentPage();
         RenderPagination();
+    }
+
+    /// <summary>
+    /// Points the page header at the active tab. Silent if the id is unknown — the header is
+    /// chrome, and a missing description must never stop the page rendering.
+    ///
+    /// <c>Array.Find</c> over a value-tuple array returns a DEFAULT tuple when nothing matches,
+    /// not null, so both string fields come back null and the <c>??</c> is what keeps the two
+    /// TextBlocks off a null Text. Reads <c>Settings.CurrentTabName</c> — the same property
+    /// <see cref="BuildPages"/> and <see cref="MaybeRepaginateByHeight"/> select on, so the
+    /// header can never name a different tab than the one being built.
+    /// </summary>
+    private void UpdateHeader()
+    {
+        var def = Array.Find(_tabDefs, t => t.Id == _viewModel.Settings.CurrentTabName);
+        HeaderTitle.Text = def.Label ?? string.Empty;
+        HeaderDescription.Text = def.Description ?? string.Empty;
     }
 
     /// <summary>
@@ -826,8 +868,17 @@ public partial class SettingsWindow : OverlayWindow
     /// (a single-page tab hides it): otherwise page count would oscillate as the bar
     /// appears and disappears. Same pre-layout philosophy as ContentAvailableWidth —
     /// reads <c>Height</c>, never <c>ActualHeight</c> (content is built in the ctor,
-    /// before the first layout pass), and reads the two vertical insets off
-    /// <c>ContentArea</c>'s margin and <c>ContentCard</c>'s padding rather than restating them.
+    /// before the first layout pass), and reads every inset off the live element rather than
+    /// restating it: the page header's own <c>Height</c> and <c>Margin</c>,
+    /// <c>ContentArea</c>'s margin, and <c>ContentCard</c>'s padding.
+    ///
+    /// The header is a term here, not chrome the budget can ignore: it takes its block off
+    /// EVERY content page at once, exactly as the sidebar's widening took width off every
+    /// content column at once. Omitting it would over-report the budget by the header's whole
+    /// block and let a page overflow the content cell — the rows below the fold being
+    /// unreachable for a user whose only input is gaze. Guarded by
+    /// <c>SettingsContentFitTests.TheHeightBudget_StillCountsThePageHeader</c> and by the
+    /// remaining-room guard beside it.
     /// </summary>
     private double ContentAvailableHeight
     {
@@ -836,6 +887,7 @@ public partial class SettingsWindow : OverlayWindow
             if (double.IsNaN(Height) || double.IsInfinity(Height) || Height <= 0)
                 return double.PositiveInfinity;
             return Height
+                - HeaderPanel.Height - HeaderPanel.Margin.Top - HeaderPanel.Margin.Bottom
                 - ContentArea.Margin.Top - ContentArea.Margin.Bottom
                 - ContentCard.Padding.Top - ContentCard.Padding.Bottom
                 - PaginationReserveHeight;

@@ -34,9 +34,23 @@ public class SettingsTabDriftTests
     /// <summary>AutomationId prefix applied to each tab in <c>SettingsWindow</c>.</summary>
     private const string TabIdPrefix = "Settings_Tab_";
 
-    /// <summary>Matches the id (first element) of a <c>("Id", "icon", "Label", Builder)</c> tuple.</summary>
+    /// <summary>
+    /// Matches the id (first element) of a
+    /// <c>("Id", "icon", "Label", "Description", Builder)</c> tuple. Only the id, so adding
+    /// members to the tuple cannot break this — which is why the fifth (Description) needed no
+    /// change here, unlike <c>SettingsTabLabelFitTests.TabDef</c>, which matches the whole shape.
+    /// </summary>
     private static readonly Regex TabDefEntry = new(
         @"\(""(?<id>[A-Za-z][A-Za-z0-9_]*)"",\s*""", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Matches the label and header description (third and fourth elements) of a
+    /// <c>("Id", "icon", "Label", "Description", Builder)</c> tuple. <c>\s</c> spans newlines, so
+    /// entries wrapped across lines still match.
+    /// </summary>
+    private static readonly Regex TabDefHeader = new(
+        @"\(\s*""[A-Za-z][A-Za-z0-9_]*""\s*,\s*""[^""]*""\s*,\s*""(?<label>[^""]*)""\s*,\s*""(?<description>[^""]*)""\s*,",
+        RegexOptions.Compiled);
 
     /// <summary>Matches a <c>"Settings_Tab_Xxx"</c> string literal in the UI test's expected array.</summary>
     private static readonly Regex ExpectedTabLiteral = new(
@@ -87,6 +101,60 @@ public class SettingsTabDriftTests
         return TabDefEntry.Matches(region)
             .Select(m => m.Groups["id"].Value)
             .ToList();
+    }
+
+    /// <summary>
+    /// Each tab's header label and one-line description, taken from the same <c>_tabDefs</c>
+    /// initializer, in declaration order.
+    ///
+    /// <c>internal</c> so <see cref="SettingsContentFitTests"/> can measure the REAL strings
+    /// against the header's fixed height rather than a copy of them: a description edited to
+    /// something longer has to be re-measured, and a copied list would not be.
+    /// </summary>
+    /// <returns>One (label, description) pair per tab, in declaration order.</returns>
+    internal static IReadOnlyList<(string Label, string Description)> RenderedTabHeaders()
+    {
+        var region = Region(
+            ReadRepoFile(WindowRelativePath), "_tabDefs =", "[", "];", "the _tabDefs initializer");
+
+        return TabDefHeader.Matches(region)
+            .Select(m => (m.Groups["label"].Value, m.Groups["description"].Value))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Every tab carries a header label AND a description. The header is the only place a tab
+    /// says what it is for — the sidebar glyphs alone are ambiguous — so a twelfth tab added
+    /// without a description would ship a blank second line with nothing failing.
+    /// Also guards the guard: if the tuple's shape changes so
+    /// <see cref="TabDefHeader"/> stops matching, the counts diverge and this fails loudly
+    /// instead of every header assertion passing over an empty list.
+    /// </summary>
+    [Fact]
+    public void EveryRenderedTab_HasALabelAndAHeaderDescription()
+    {
+        var ids = RenderedTabIds();
+        var headers = RenderedTabHeaders();
+
+        Check.WithCustomMessage(
+                "Parsed " + headers.Count + " (label, description) pairs out of _tabDefs but "
+                + ids.Count + " tab ids. Either a tab is missing its header description (the "
+                + "fourth tuple element) or the tuple's shape changed and TabDefHeader no longer "
+                + "reads it — in which case repoint the regex, because every header measurement "
+                + "in SettingsContentFitTests would otherwise pass over an empty list.")
+            .That(headers.Count).IsEqualTo(ids.Count);
+
+        var blank = headers
+            .Where(h => string.IsNullOrWhiteSpace(h.Label)
+                        || string.IsNullOrWhiteSpace(h.Description))
+            .Select(h => "\"" + h.Label + "\"")
+            .ToList();
+
+        Check.WithCustomMessage(
+                "These tabs have a blank header label or description: "
+                + string.Join(", ", blank)
+                + ". The page header is the only place a tab explains itself.")
+            .That(blank).IsEmpty();
     }
 
     /// <summary>Tab ids the UI test expects, taken from its <c>expectedTabs</c> array.</summary>

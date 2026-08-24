@@ -343,6 +343,45 @@ public class SettingsContentCardBoundaryTests
     /// attributes are there and are token references — the thing a "tidy-up" removes.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// The card must carry NO fill of its own, and this is the assertion that keeps it that way.
+    ///
+    /// <para>
+    /// Every control dropped onto this card fills itself with <c>SurfaceMedium</c>:
+    /// <c>DwellSlider</c>'s steppers and value plate, <c>DwellComboBox</c>'s options,
+    /// <c>DwellColorPicker</c>'s swatch buttons, and <c>SettingsWindow</c>'s own <c>BtnBase</c>.
+    /// The card originally shipped filled with that same <c>SurfaceMedium</c>, which put every
+    /// one of them at <b>1.00:1 against its own backdrop</b> — measured off a render as
+    /// <c>#2A2A44</c> on <c>#292944</c>, one value apart in a single channel. A 100 DIP stepper
+    /// with no visible extent leaves the user aiming at a bare glyph, and live testing on the
+    /// tracker reported exactly that: "too small / hard to aim at".
+    /// </para>
+    /// <para>
+    /// Unfilled, those controls sit on the page's <c>SurfaceDark</c> and get their designed
+    /// 1.23:1 step back. That is still weak — it is the reason the steppers were never easy to
+    /// aim at — but it is a separate, pre-existing problem, and it is not this card's to create.
+    /// <c>ContentCardOutline</c> carries the boundary, which is where palette rule 1
+    /// puts it: the border carries the boundary, the fill only suggests depth. Here the fill was
+    /// not suggesting depth — it was cancelling its children's.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheCard_CarriesNoFillOfItsOwn()
+    {
+        var card = Named(Xml(), "ContentCard");
+        var background = card.Attribute("Background");
+
+        Check.WithCustomMessage(
+                $"ContentCard declares Background=\"{background?.Value}\". Every control on this "
+                + "card fills itself with SurfaceMedium, so a filled card collapses them to "
+                + "1.00:1 against their own backdrop and the 100 DIP stepper targets lose their "
+                + "visible extent entirely. Leave the card unfilled and let ContentCardOutline "
+                + "carry the boundary. If a fill is genuinely wanted, it must differ from the "
+                + "control fills by enough to keep a control's edge visible — measure it, and "
+                + "re-point this test at that measurement rather than deleting it.")
+            .That(background).IsNull();
+    }
+
     [Fact]
     public void TheOutline_StillNamesABrushAndAThickness()
     {

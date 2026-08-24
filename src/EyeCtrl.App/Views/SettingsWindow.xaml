@@ -96,9 +96,25 @@
                  what a wider inset would break, by 4 DIP.
                  ContentPanel carries no Margin of its own any more; this Padding replaced it. -->
             <Grid Grid.Row="1" VerticalAlignment="Top">
+                <!-- NO Background, deliberately, and it must not be given one back.
+
+                     Every control that sits on this card fills itself with SurfaceMedium:
+                     DwellSlider's steppers and value plate (BtnBase), DwellComboBox's options,
+                     DwellColorPicker's swatch buttons, and SettingsWindow's own BtnBase. A card
+                     filled with SurfaceMedium puts those controls at 1.00:1 against their own
+                     backdrop — measured off a render at #2A2A44 on #292944, a one-value
+                     difference in a single channel. The 100 DIP stepper target then has no
+                     visible extent at all and the user is aiming at a bare glyph, which is
+                     exactly what live testing reported.
+
+                     Against the page's SurfaceDark the same fills are a 1.23:1 step — weak, but
+                     the depth relationship the controls were designed against. The card gives
+                     that back by carrying no fill of its own; ContentCardOutline draws its
+                     boundary, which is where the boundary belonged anyway (palette rule 1: the
+                     border carries the boundary, the fill only suggests depth). Here the fill
+                     was not suggesting depth, it was cancelling its children's. -->
                 <Border x:Name="ContentCard"
                         CornerRadius="{StaticResource LargeCornerRadius}"
-                        Background="{StaticResource BrushSurfaceMedium}"
                         Padding="16,8">
                     <StackPanel x:Name="ContentPanel"/>
                 </Border>

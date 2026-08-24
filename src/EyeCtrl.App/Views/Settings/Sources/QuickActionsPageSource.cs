@@ -11,7 +11,44 @@ using EyeCtrl.Core.Models;
 internal sealed class QuickActionsPageSource : ISettingsPageSource
 {
     private const int QaActionsPerPage = 4;
-    private const int QaPresetsPerPage = 6;
+
+    /// <summary>
+    /// How many presets one picker page holds. Bounded by the CONTENT HEIGHT BUDGET, not by taste.
+    ///
+    /// <para>
+    /// A preset page is a 70 DIP Back row plus this many 100 DIP preset buttons, and
+    /// <c>SettingsWindow.CreateControl</c> centres every settings-row button in a
+    /// <c>LabelledRowMinHeight</c> (150 DIP) box — so each row costs a uniform 150 DIP and the
+    /// n-th dwell circle's centre lands at 75 + 150n. The content cell on the 1920x1080 display
+    /// this application is used on is 688 DIP (measured: window 972, less the 124 DIP page-header
+    /// block, ContentArea's 32, ContentCard's 16 and the 112 DIP pagination reserve), so it holds
+    /// FOUR rows: circles at 75, 225, 375, 525, with 88 DIP to spare.
+    /// </para>
+    /// <para>
+    /// This was 6 and had to come down to 3. The two-column restyle made the row pitch uniform at
+    /// 150 and added the page header, which cut the budget from 796 to 688 while a 6-preset page
+    /// stayed 1050 DIP tall — putting the last two circles at 825 and 975, outside the cell. The
+    /// content area has NO ScrollViewer (SettingsWindow.xaml: "no ScrollViewer — paginated"), so
+    /// those were registered dwell targets over pixels the user could not look at: for a
+    /// gaze-only user, a setting that had silently ceased to exist (issue #113).
+    /// </para>
+    /// <para>
+    /// 4 is NOT the answer even though its five circles all technically fit: the last one lands at
+    /// 675 against 688, and 13 DIP is not a margin to rely on — 62 DIP of the page's trailing
+    /// margin is already being clipped at that point. 3 leaves 88.
+    /// </para>
+    /// <para>
+    /// **Nothing re-paginates these pages by height.** <see cref="PrefersAutoPagination"/> is
+    /// false here (deliberately — the page boundaries carry navigation semantics, the per-page
+    /// <c>qa_back_{page}</c> ids), so <c>SettingsWindow.MaybeRepaginateByHeight</c> passes
+    /// <see cref="ChunkPresets"/>'s pages straight through and the height budget is never
+    /// consulted. This constant IS the pagination. Gated by
+    /// <c>HandChunkedPageFitTests.EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell</c>,
+    /// which arranges every page this source emits, in every <see cref="QaView"/>, and asserts
+    /// each dwell circle's centre lies inside that budget.
+    /// </para>
+    /// </summary>
+    private const int QaPresetsPerPage = 3;
 
     // internal so the test can reference QuickActionsPageSource.QaView.PickShortcut when calling GoTo.
     internal enum QaView { List, PickType, PickShortcut, PickMedia, PickApp, PickWindowAction }

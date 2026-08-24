@@ -79,9 +79,19 @@ public class SettingsContentFitTests
         public double GetProgress(string id, DwellCategory category) => 0;
     }
 
+    // ────── XAML readers ──────
+    //
+    // The eight readers below are `internal static`, not private, and that is deliberate:
+    // HandChunkedPageFitTests derives the content column's WIDTH and HEIGHT from the same four
+    // XAML elements (HeaderPanel, ContentArea, ContentCard, PaginationPanel) and must read them
+    // through these exact helpers rather than parse the XAML a second time. Each one already
+    // FAILS on a missing attribute rather than returning default — see Margin's remarks for the
+    // bug that discipline exists to prevent — and a second copy of the parsing would be a second
+    // place for that discipline to rot. Nothing else about them changed.
+
     /// <summary>The parsed SettingsWindow.xaml document.</summary>
     /// <returns>The root element.</returns>
-    private static XElement Xml()
+    internal static XElement Xml()
     {
         var path = Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml");
@@ -94,7 +104,7 @@ public class SettingsContentFitTests
     /// <param name="root">The XAML root.</param>
     /// <param name="name">The x:Name to look for.</param>
     /// <returns>The named element.</returns>
-    private static XElement Named(XElement root, string name)
+    internal static XElement Named(XElement root, string name)
     {
         var hit = root.DescendantsAndSelf()
             .SingleOrDefault(e => (string?)e.Attribute(Xaml + "Name") == name);
@@ -115,7 +125,7 @@ public class SettingsContentFitTests
     /// </summary>
     /// <param name="root">The XAML root.</param>
     /// <returns>The sidebar width in DIP.</returns>
-    private static double SidebarWidth(XElement root)
+    internal static double SidebarWidth(XElement root)
     {
         var columns = Named(root, "RootGrid").Attribute("ColumnDefinitions");
         Check.WithCustomMessage(
@@ -152,7 +162,7 @@ public class SettingsContentFitTests
     /// <param name="root">The XAML root.</param>
     /// <param name="name">The element's x:Name.</param>
     /// <returns>The declared margin.</returns>
-    private static Thickness Margin(XElement root, string name)
+    internal static Thickness Margin(XElement root, string name)
     {
         var attr = Named(root, name).Attribute("Margin");
         Check.WithCustomMessage(
@@ -178,7 +188,7 @@ public class SettingsContentFitTests
     /// <param name="root">The XAML root.</param>
     /// <param name="name">The element's x:Name.</param>
     /// <returns>The declared padding.</returns>
-    private static Thickness Padding(XElement root, string name)
+    internal static Thickness Padding(XElement root, string name)
     {
         var attr = Named(root, name).Attribute("Padding");
         Check.WithCustomMessage(
@@ -203,7 +213,7 @@ public class SettingsContentFitTests
     /// <param name="root">The XAML root.</param>
     /// <param name="name">The element's x:Name.</param>
     /// <returns>The declared height in DIP.</returns>
-    private static double FixedHeight(XElement root, string name)
+    internal static double FixedHeight(XElement root, string name)
     {
         var attr = Named(root, name).Attribute("Height");
         Check.WithCustomMessage(
@@ -298,7 +308,7 @@ public class SettingsContentFitTests
     /// <summary>The window width production would pick for a given primary-screen width.</summary>
     /// <param name="screenWidthDip">The primary screen's width in DIP.</param>
     /// <returns>The settings window's width in DIP.</returns>
-    private static double WindowWidthFor(double screenWidthDip) =>
+    internal static double WindowWidthFor(double screenWidthDip) =>
         screenWidthDip * SettingsWindow.WindowSizeRatio;
 
     [StaFact]
@@ -880,7 +890,7 @@ public class SettingsContentFitTests
     /// <summary>The window height production would pick for a given primary-screen height.</summary>
     /// <param name="screenHeightDip">The primary screen's height in DIP.</param>
     /// <returns>The settings window's height in DIP.</returns>
-    private static double WindowHeightFor(double screenHeightDip) =>
+    internal static double WindowHeightFor(double screenHeightDip) =>
         screenHeightDip * SettingsWindow.WindowSizeRatio;
 
     /// <summary>

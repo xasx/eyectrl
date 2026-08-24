@@ -300,8 +300,23 @@ public class SettingsRowLayoutTests
     public void ANarrowColumn_StacksTheRowInsteadOfClippingIt()
     {
         var host = Host(NarrowColumnWidth);
-        var root = AttachRow(Slider(), host);
-        host.Measure(new Size(NarrowColumnWidth, double.PositiveInfinity));
+        var composite = (IDwellComposite)SettingsWindow.CreateControl(
+            Slider(), new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs,
+            NarrowColumnWidth);
+        composite.Attach(host);
+        LayOut(host);
+        host.UpdateLayout();
+
+        // Built here rather than through AttachRow because the arranged assertion below needs the
+        // composite's dwell children, not just the row root. AttachRow's one-child check is
+        // repeated so nothing is lost by not going through it.
+        Check.WithCustomMessage(
+                "A labelled row must attach exactly ONE element to the content panel. Two means "
+                + "the name is stacked on the control as a separate child again, which is the "
+                + "layout this row type replaced.")
+            .That(host.Children.Count).IsEqualTo(1);
+
+        var root = (FrameworkElement)host.Children[0];
 
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
@@ -311,14 +326,46 @@ public class SettingsRowLayoutTests
                 NarrowColumnWidth, root.GetType().Name, SettingsWindow.TwoColumnMinimumWidth))
             .That(root).IsInstanceOf<StackPanel>();
 
+        // The ARRANGED right edge of the row's widest dwell child, not root.DesiredSize.Width.
+        //
+        // This assertion used to read `root.DesiredSize.Width <= NarrowColumnWidth` on a tree
+        // measured against Size(416, infinity) seventeen lines above, and WPF CLAMPS DesiredSize
+        // to the measure constraint — so it could not fail. It described a real risk (a row
+        // clipping while its hit circles stay registered over blank card) and then measured the
+        // one quantity that provably cannot detect it. The same trap is documented eighty lines
+        // below, on NoDwellChildIsDrawnOutsideItsRow, whose own commit empirically measured a
+        // 536.00 arranged edge behind a tidy 416.00 reported DesiredSize.
+        //
+        // An arranged edge has no such ceiling: a child pushed past the column reports where it
+        // really is. Measured on a real dwell child because the circle is registered about that
+        // child's centre — the row Panel's own edge is bounded by the host either way and would
+        // prove nothing.
+        var widest = 0.0;
+        var widestIndex = -1;
+        for (var i = 0; i < composite.Children.Count; i++)
+        {
+            var child = composite.Children[i].Root;
+            var right = child.TransformToAncestor(host).Transform(new Point(0, 0)).X
+                + child.ActualWidth;
+            if (right > widest) (widest, widestIndex) = (right, i);
+        }
+
+        Check.WithCustomMessage(
+                "The stacked slider row exposes no dwell children, so there is nothing whose "
+                + "arranged edge could be measured and this guard is vacuous.")
+            .That(composite.Children.Count).IsStrictlyGreaterThan(0);
+
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
-                "The stacked row wants {0:F2} DIP against a {1:F0} DIP column, so it overruns it. "
-                + "Nothing caps a composite, and DwellSlider's stepper row clips rather than "
-                + "wraps — the plus button would be drawn off the card with its hit circle still "
-                + "registered.",
-                root.DesiredSize.Width, NarrowColumnWidth))
-            .That(root.DesiredSize.Width).IsLessOrEqualThan(NarrowColumnWidth);
+                "The stacked row draws dwell child {0} out to {1:F2} DIP against a {2:F0} DIP "
+                + "column, so it overruns it. Nothing caps a composite, and DwellSlider's stepper "
+                + "row clips rather than wraps — the plus button is drawn off the card with its "
+                + "hit circle still registered at the same centre, which is a live gaze target "
+                + "over pixels the user cannot see. Note this is the ARRANGED edge: "
+                + "root.DesiredSize.Width is clamped to the measure constraint and would report a "
+                + "tidy {2:F2} however far the child ran.",
+                widestIndex, widest, NarrowColumnWidth))
+            .That(widest).IsLessOrEqualThan(NarrowColumnWidth + 0.01);
     }
 
     /// <summary>
@@ -418,6 +465,14 @@ public class SettingsRowLayoutTests
             new ComboBoxSpec("cb", "Keyboard Layout",
                 ["Compact", "Standard", "Extended", "Numeric Pad", "Symbols", "Emoji"], null,
                 () => "Compact", _ => { }),
+            // The slider, which was missing here and is the row kind that most needs it. It is
+            // the control the entire stacking rule exists for: its stepper row is a horizontal
+            // StackPanel, so it CLIPS rather than wraps, and its 404 DIP measurement is what sets
+            // TwoColumnMinimumWidth. Every other row kind here wraps under pressure; this one is
+            // the one that can silently draw a stepper button off the card with its hit circle
+            // still registered — and it was the one row kind whose arranged right edge nothing
+            // checked.
+            Slider(),
         ];
 
         foreach (var spec in specs)
@@ -454,13 +509,31 @@ public class SettingsRowLayoutTests
     }
 
     /// <summary>
-    /// Button rows are deliberately NOT two-column: their label is inside the button. This pins
-    /// that the labelled-row work left them alone, height included —
-    /// <c>SettingsAutoPaginationTests</c> pins the same 124.00 from the other side, and page
-    /// breaks are decided from these numbers.
+    /// Button rows are still deliberately NOT two-column: their label is inside the button, so
+    /// they are not wrapped in a labelled row. What they DO now share with every other row kind
+    /// is the box: one uniform <see cref="SettingsWindow.LabelledRowMinHeight"/> pitch.
+    ///
+    /// <para>
+    /// This test previously pinned 124.00 and was named
+    /// <c>AButtonRow_IsUnchangedByTheLabelledRowWork</c>. Both were retired deliberately — the
+    /// name had become a lie, because the labelled-row work is exactly what made the old box
+    /// wrong. A button row was 100 DIP of button plus a 24 DIP bottom margin, which put its hit
+    /// circle 50 DIP from the row top, while a labelled row centres its 100 DIP control in a 150
+    /// DIP box and puts its circle at 75. Adjacent, the two centres were only
+    /// (150-75) + 50 = 125 DIP apart: 25 DIP of clearance between two 100 DIP circles, against
+    /// the 40 the colour-swatch grid leaves. Every settings tab ends with a "Reset ..."
+    /// <c>ButtonSpec</c>, so the page's tightest gap sat under the last setting and over a
+    /// destructive action. The reason for the new number is that clearance, not appearance.
+    /// </para>
+    /// <para>
+    /// Untouched by the change: the button's <c>Width</c>, its left alignment, its fill, and the
+    /// 100 DIP WYSIWYG floor — the drawn button is the same size, only the box around it grew.
+    /// <c>SettingsAutoPaginationTests</c> pins the same 150.00 from the other side, and
+    /// <c>SettingsRowPitchTests</c> measures the arranged clearance it buys.
+    /// </para>
     /// </summary>
     [StaFact]
-    public void AButtonRow_IsUnchangedByTheLabelledRowWork()
+    public void AButtonRow_FillsOneUniformRowPitch()
     {
         var row = new ButtonSpec("b", "Do it", () => { }, ButtonKind.Default, Width: 300, Height: 100);
 
@@ -474,10 +547,27 @@ public class SettingsRowLayoutTests
             .That(built).IsInstanceOf<DwellButton>();
 
         Check.WithCustomMessage(
-                "A button row's measured height moved off 124.00, which re-paginates every page "
-                + "holding one.")
+                "The drawn button is no longer 300 x 100 DIP. The row box grew to one uniform "
+                + "pitch; the BUTTON was not meant to change size with it, and 100 is the WYSIWYG "
+                + "floor — the visual has to be at least as big as the hit circle it registers.")
+            .That((((DwellButton)built).Root.Width, ((DwellButton)built).Root.Height))
+            .IsEqualTo((300.0, 100.0));
+
+        // A LITERAL 150.00, deliberately not SettingsWindow.LabelledRowMinHeight: production
+        // derives the button's inset from that very constant, so reading it here would let the
+        // pitch and this expectation move together with nothing failing. The relationship is
+        // pinned separately, in SettingsAutoPaginationTests; this is the anchor.
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "A button row measures {0:F2} DIP, not the 150.00 row pitch. Every row kind now "
+                + "occupies exactly one pitch so that every adjacent pair of hit circles is the "
+                + "same distance apart; a button row of any other height reintroduces the "
+                + "mixed-pitch gap that left a 25 DIP clearance under the last setting of every "
+                + "tab. Do not re-pin this to whatever it happens to measure — fix the box.",
+                SettingsAutoPagination.MeasureRowHeight(
+                    row, NarrowColumnWidth, RadiusPhysical, DwellMs)))
             .That(SettingsAutoPagination.MeasureRowHeight(
                 row, NarrowColumnWidth, RadiusPhysical, DwellMs))
-            .IsEqualTo(124.0);
+            .IsEqualTo(150.0);
     }
 }

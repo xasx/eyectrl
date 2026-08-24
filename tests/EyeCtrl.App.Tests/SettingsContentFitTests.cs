@@ -144,7 +144,9 @@ public class SettingsContentFitTests
     /// replaced by <c>ContentCard</c>'s <c>Padding</c>: a derivation site left pointing at the
     /// vanished margin then subtracted zero, computed a column 32 DIP WIDER than the real one,
     /// and every assertion in this file kept passing while measuring a column that does not
-    /// exist. Measured: with one such site reverted, all 565 headless App tests were green.
+    /// exist. Verified by reverting one such site: the whole headless App suite stayed green.
+    /// (Deliberately no test count here — the number rots with every test added, and the point is
+    /// that NOTHING failed, not how many things passed.)
     /// Enumerating the sites was the only protection; this makes it a guard.
     /// </summary>
     /// <param name="root">The XAML root.</param>

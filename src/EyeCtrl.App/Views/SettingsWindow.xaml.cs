@@ -968,13 +968,45 @@ public partial class SettingsWindow : OverlayWindow
                 // A standalone settings row, not a tile in someone else's panel. Pin it to the
                 // column's left axis — Stretch + the explicit Width above CENTRES in WPF, which
                 // drew these buttons at x=130 while every other row kind (toggles, headings,
-                // slider/combo rows) starts at x=0, two axes on one mixed page. And end it with
-                // the 24 DIP bottom margin every other row kind carries: DwellButton's own
-                // (4,0,4,0) margin left stacked buttons flush, their 100 DIP hit circles tangent.
-                // That default stays — toolbar/pagination/modal/composite tiles keep the layout
-                // they were designed against; only the settings-row path gets the row rhythm.
+                // slider/combo rows) starts at x=0, two axes on one mixed page.
+                //
+                // And give it the SAME BOX every other row kind gets: the button is CENTRED in a
+                // LabelledRowMinHeight box, exactly as a labelled row centres its 100 DIP control
+                // in one. So its hit circle lands 75 DIP from the row top wherever a labelled
+                // row's does, and every pitch on a mixed page is exactly 150. Hit geometry, not
+                // rhythm.
+                //
+                // The asymmetric (4,0,4,24) this replaced measured 124 and put its circle at 50,
+                // so a labelled row followed by a button row left the two centres only
+                // (150-75) + 50 = 125 DIP apart — 25 DIP of clearance between two 100 DIP
+                // circles, against the 40 DIP the colour-swatch grid leaves
+                // (SwatchTargetGeometryTests). A stacked slider followed by a button was worse
+                // still, 106 apart. That gap sat directly below the last setting on EVERY tab,
+                // because every tab ends with a "Reset ..." ButtonSpec — a destructive action one
+                // gaze drift from the control above it.
+                //
+                // The inset is DERIVED from b.Height rather than written as a literal 25, and
+                // that is load-bearing: the settings pages ship three button heights, not one.
+                // A flat 25 per side gives the 100 DIP buttons the intended 150/75 but leaves the
+                // 90 DIP type-picker buttons at 140/70 and the 70 DIP Delete and Back buttons at
+                // 120/60 — and "qa_del" sits directly under a toggle row, which a flat 25 would
+                // leave 35 DIP of clearance, BELOW the swatch floor this pitch is measured
+                // against. Centring in the box is the only form that holds for every height.
+                //
+                // Max(0, ...) only guards a hypothetical taller-than-pitch button: the tallest
+                // today is 100. Such a button would keep its own height and simply set the pitch.
+                //
+                // DwellButton's own (4,0,4,0) default stays — toolbar/pagination/modal/composite
+                // tiles keep the layout they were designed against; only the settings-row path
+                // gets the row box. Nothing about the button's width, alignment, fill or hit
+                // radius changes here.
+                //
+                // Gated by SettingsRowPitchTests, which measures ARRANGED centre-to-centre
+                // distance across adjacent rows of DIFFERENT kinds, over every button height the
+                // page sources actually declare.
+                var buttonInset = Math.Max(0, (LabelledRowMinHeight - b.Height) / 2);
                 button.Root.HorizontalAlignment = HorizontalAlignment.Left;
-                button.Root.Margin = new Thickness(4, 0, 4, 24);
+                button.Root.Margin = new Thickness(4, buttonInset, 4, buttonInset);
                 return button;
             case LabelSpec l:
                 return new DwellLabel(l.Text(), wrap: l.Wrap);

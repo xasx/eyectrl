@@ -69,13 +69,47 @@
                  SettingsContentFitTests.TheSliderRow_FitsTheContentColumn_OnANarrowDisplay is
                  what a wider inset would break, by 4 DIP.
                  ContentPanel carries no Margin of its own any more; this Padding replaced it. -->
-            <Border x:Name="ContentCard" Grid.Row="0"
-                    CornerRadius="{StaticResource LargeCornerRadius}"
-                    Background="{StaticResource BrushSurfaceMedium}"
-                    Padding="16,8"
-                    VerticalAlignment="Top">
-                <StackPanel x:Name="ContentPanel"/>
-            </Border>
+            <Grid Grid.Row="0" VerticalAlignment="Top">
+                <Border x:Name="ContentCard"
+                        CornerRadius="{StaticResource LargeCornerRadius}"
+                        Background="{StaticResource BrushSurfaceMedium}"
+                        Padding="16,8">
+                    <StackPanel x:Name="ContentPanel"/>
+                </Border>
+
+                <!-- The card's boundary, drawn as a zero-layout SIBLING of the card rather than as
+                     ContentCard's own BorderThickness. That is a LAYOUT decision, not a stylistic
+                     one, and it must not be "tidied" onto the card.
+
+                     A Border deflates its child by its BorderThickness, so an outline written on
+                     ContentCard would take BorderThicknessStandard per side off the content column
+                     (2 DIP in Midnight/Ember, 4 in Contrast) while ContentAvailableWidth — which
+                     reads only the Padding — kept reporting the full 416 on the narrowest
+                     supported display. That is exactly the nested-inset drift
+                     SettingsContentFitTests exists to prevent, and it would over-cap the 460 DIP
+                     quick-action picker button by the same amount. IsHitTestVisible="False" in a
+                     wrapping Grid consumes no layout at all, so nothing has to be compensated
+                     for. Same construction, and the same reasons, as DwellToggle's _cardOutline.
+
+                     StandardBorderThickness, not BorderThicknessStandard: the latter key is the
+                     raw double for code and the validator, and WPF cannot convert a double
+                     resource to a Thickness (it throws at parse time). StandardBorderThickness is
+                     UniformThickness over that same token — the form every other overlay's
+                     BorderThickness uses.
+
+                     There has to BE a boundary, on the border rather than the fill: palette rule 1
+                     — "the border carries the boundary; the fill only suggests depth",
+                     docs/design/overlay-unification-spec.md:284-286, gated by
+                     tools/palette_validate.py:352-365 — and the numbers agree. SurfaceMedium on
+                     the page's SurfaceDark is a 1.23:1 step, i.e. no visible edge at all, while
+                     BorderSubtle on it clears 3:1 in every theme. Gated by
+                     SettingsContentCardBoundaryTests. -->
+                <Border x:Name="ContentCardOutline"
+                        CornerRadius="{StaticResource LargeCornerRadius}"
+                        BorderThickness="{StaticResource StandardBorderThickness}"
+                        BorderBrush="{StaticResource BrushBorderSubtle}"
+                        IsHitTestVisible="False"/>
+            </Grid>
 
             <!-- Pagination bar -->
             <StackPanel x:Name="PaginationPanel" Grid.Row="1"

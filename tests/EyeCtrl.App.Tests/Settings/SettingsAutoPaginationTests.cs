@@ -168,13 +168,28 @@ public class SettingsAutoPaginationFitTests
 
     // Mixed-page rhythm: a standalone ButtonSpec row is a list ROW like a toggle or a slider row.
     // It must sit on the column's left axis — Stretch + the explicit Width centres in WPF, which
-    // drew the 300 DIP buttons at x=130 while every other row kind starts at x=0 — and end with
-    // the 24 DIP bottom margin every other row kind carries; DwellButton's own (4,0,4,0) margin
-    // left stacked buttons flush against each other, tangent hit circles and all. Pinned through
-    // CreateControl, the one construction path render and measurement share, so the measured
-    // 124 can never drift from what renders.
+    // drew the 300 DIP buttons at x=130 while every other row kind starts at x=0 — and it must
+    // occupy ONE UNIFORM ROW PITCH, the same box every other row kind gets.
+    //
+    // The measured height is 150, not the 124 this test pinned before. The number moved on
+    // purpose, and the reason is hit-circle clearance between ADJACENT rows rather than
+    // aesthetics. The old box was 100 + a 24 DIP bottom margin, which put the button's hit
+    // circle 50 DIP from the row top while a labelled row puts its control's circle at 75 (a 100
+    // DIP control centred in a 150 DIP box). A labelled row followed by a button row therefore
+    // left the two centres only (150-75) + 50 = 125 DIP apart — 25 DIP of clearance between two
+    // 100 DIP circles, against the 40 the colour-swatch grid leaves — and every settings tab ends
+    // with a "Reset ..." ButtonSpec, so that was the tightest gap on the page and it sat directly
+    // above a destructive action. The button is now centred in a LabelledRowMinHeight box, so its
+    // circle is at 75 like everything else and every pitch is 150.
+    //
+    // What did NOT change: the button's Width, its left alignment, its fill, and the 100 DIP
+    // WYSIWYG floor — the drawn button is the same size, it is the surrounding box that grew.
+    // Pinned through CreateControl, the one construction path render and measurement share, so
+    // the measured 150 can never drift from what renders. SettingsRowLayoutTests pins the same
+    // number from the other side, and SettingsRowPitchTests measures the arranged clearance this
+    // exists to buy.
     [StaFact]
-    public void StandaloneButtonRow_SitsOnTheColumnAxis_AndEndsTheRowRhythm()
+    public void StandaloneButtonRow_SitsOnTheColumnAxis_AndFillsOneRowPitch()
     {
         var row = new ButtonSpec("b", "Do it", () => { }, ButtonKind.Default, Width: 300, Height: 100);
 
@@ -185,9 +200,16 @@ public class SettingsAutoPaginationFitTests
             row, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs, 416.0);
 
         Check.That(control.Root.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Left);
-        Check.That(control.Root.Margin).IsEqualTo(new Thickness(4, 0, 4, 24));
+
+        // 25 per side for this 100 DIP button, because the inset is derived as
+        // (LabelledRowMinHeight - Height) / 2 — the app also ships 90 and 70 DIP buttons, and a
+        // flat 25 would leave those at a 140 and a 120 DIP pitch. Derived here too, so this pins
+        // the RULE rather than one of its three answers.
+        var inset = (SettingsWindow.LabelledRowMinHeight - 100) / 2;
+        Check.That(control.Root.Margin).IsEqualTo(new Thickness(4, inset, 4, inset));
+
         Check.That(SettingsAutoPagination.MeasureRowHeight(row, 416.0, RadiusPhysical, DwellMs))
-            .IsEqualTo(124.0);
+            .IsEqualTo(150.0);
     }
 
     // LabelSpec rows wrap by default (status text must be fully readable); the separator rule

@@ -89,8 +89,8 @@ public class DwellCompositeChildrenStabilityTests
     /// <summary>
     /// The reflection census above sees one assembly — the one this suite references. An
     /// implementer in EyeCtrl.App (or any other project) would be invisible to it, so the same
-    /// set is checked against the source of every project. None exist outside Controls today;
-    /// this is what notices the first one that does.
+    /// set is checked against the source of every project. One such implementer exists today
+    /// (<c>LabelledSettingsRow</c>, see below); this is what notices the next one.
     ///
     /// Its own test rather than another assertion in the census: NFluent fails fast, and a
     /// reflection failure would abort before this ever ran.
@@ -122,7 +122,10 @@ public class DwellCompositeChildrenStabilityTests
             .ToArray();
 
         // LabelledSettingsRow is covered in EyeCtrl.App.Tests, not by a case above — see the
-        // remarks on this method for why it cannot be.
+        // remarks on this method for why it cannot be. That the coverage actually still EXISTS is
+        // not taken on trust: TheAppTestsCaseCoveringLabelledSettingsRow_StillExists reads the
+        // file and checks for it, because otherwise deleting the App.Tests test would leave this
+        // list green while the coverage it names silently evaporated.
         string[] covered =
             ["DwellColorPicker", "DwellComboBox", "DwellSlider", "DwellToggle",
              "LabelledSettingsRow"];
@@ -134,6 +137,47 @@ public class DwellCompositeChildrenStabilityTests
                 + ". An implementer this suite cannot reflect over still runs on the gaze path;"
                 + " give it a case above (and check its Children is a cached field).")
             .That(declared).ContainsExactly(covered);
+    }
+
+    /// <summary>
+    /// The census above admits <c>LabelledSettingsRow</c> to its <c>covered</c> list on the
+    /// strength of a COMMENT naming a test in another project. Nothing mechanically joined the
+    /// two: delete that test and this suite stays green while the coverage it points at is gone.
+    ///
+    /// <para>
+    /// Closed the way this file already closes the same class of hole in
+    /// <see cref="TheFrameLoop_IndexesChildren_RatherThanForeachingThem"/> — by asserting on file
+    /// CONTENTS rather than trusting prose. Cross-project by necessity: <c>LabelledSettingsRow</c>
+    /// is a private nested class in <c>SettingsWindow</c> and this suite does not reference
+    /// EyeCtrl.App, so its coverage can only live over there, and only a source read can see it
+    /// from here.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheAppTestsCaseCoveringLabelledSettingsRow_StillExists()
+    {
+        const string TestName = "ALabelledRow_ForwardsItsInnerCompositesCachedChildren";
+        var path = Path.Combine(RepoRoot().FullName,
+            "tests", "EyeCtrl.App.Tests", "Settings", "SettingsRowLayoutTests.cs");
+
+        Check.WithCustomMessage(
+                $"{path} is gone. That file holds the ONLY coverage for LabelledSettingsRow's"
+                + " Children stability — this suite cannot host it, because the type is a private"
+                + " nested class in EyeCtrl.App's SettingsWindow. If the file moved, repoint this"
+                + " path; do not delete the check, or the census above starts vouching for"
+                + " coverage that no longer exists.")
+            .That(File.Exists(path)).IsTrue();
+
+        Check.WithCustomMessage(
+                $"SettingsRowLayoutTests.cs no longer declares {TestName}, which the census above"
+                + " names as where LabelledSettingsRow's Children stability is pinned. That row"
+                + " runs on the gaze path: SettingsWindow.UpdateAllTargetPositions reads its"
+                + " Children once per composite per gaze frame, so a Children that rebuilds per"
+                + " get allocates at gaze rate and a Gen0 collection suspends the gaze thread."
+                + " If the test was RENAMED, update the name here and in the census comment. If it"
+                + " was deleted, restore equivalent coverage in EyeCtrl.App.Tests first — there is"
+                + " nowhere else it can live.")
+            .That(File.ReadAllText(path)).Contains(TestName);
     }
 
     /// <summary>

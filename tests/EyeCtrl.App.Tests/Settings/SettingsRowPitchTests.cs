@@ -244,8 +244,9 @@ public class SettingsRowPitchTests
     }
 
     /// <summary>
-    /// THE test. A mixed page of every row-kind adjacency, at the content column this application
-    /// is actually used on, for every button height the application ships.
+    /// THE test. A mixed page of every row-kind adjacency, at both the content column this
+    /// application is actually used on and the narrowest one it supports, for every button height
+    /// the application ships.
     ///
     /// <para>
     /// The sequence is built so consecutive pairs cover all four adjacencies — labelled to button,
@@ -253,27 +254,26 @@ public class SettingsRowPitchTests
     /// colour picker standing in as the labelled row.
     /// </para>
     /// <para>
-    /// WIDE column only, and that is a statement about the fix rather than a convenience. At the
-    /// wide column a labelled row is two-column, so it centres its 100 DIP control in the 150 DIP
-    /// box and its circle lands at 75 — the same place the button's now does, giving a uniform 150
-    /// pitch and 50 DIP of clearance everywhere. At the NARROW column a labelled row STACKS, which
-    /// puts its control BELOW the name and its circle 93.92 DIP down a 150 DIP row: only 6.08 DIP
-    /// of row left under the circle where 20 is needed. That is a separate defect in a different
-    /// element, it is not reachable from the button's box, and it is pinned as a known shortfall by
-    /// <see cref="OnANarrowColumn_TheStackedRowIsStillShortOfTheFloor"/> rather than quietly
-    /// excluded here.
+    /// BOTH columns, which it could not always claim. The two-column form (wide) centres its 100
+    /// DIP control in a 150 DIP box and lands its circle at 75, the same place the button's does,
+    /// so every pitch there is 150. The STACKED form (narrow) used to share one 150 DIP box with
+    /// the name above it, which put its circle 93.92 DIP down the row and left 6.08 beneath where
+    /// 20 is needed — a 31.08 DIP clearance above a "Reset ..." button, pinned for a while as a
+    /// ratchet. The control now has its own 150 DIP slot BELOW the name, so the narrow column
+    /// reaches the same floor and is asserted here rather than excused.
     /// </para>
     /// </summary>
     [StaTheory]
     [MemberData(nameof(RealButtonHeightData))]
     public void AdjacentRowsOfEveryKind_LeaveAtLeastTheSwatchGridsClearance(double buttonHeight)
     {
+        foreach (var columnWidth in new[] { WideColumnWidth, NarrowColumnWidth })
         foreach (var (i, upper, lower, pitch, clearance) in
-                 Clearances(MixedPage(buttonHeight), WideColumnWidth))
+                 Clearances(MixedPage(buttonHeight), columnWidth))
         {
             Check.WithCustomMessage(string.Format(
                     CultureInfo.InvariantCulture,
-                    "On the real {0:F0} DIP content column, row {1} ({2}) and row {3} ({4}) put "
+                    "On the {0:F0} DIP content column, row {1} ({2}) and row {3} ({4}) put "
                     + "their nearest dwell centres {5:F2} DIP apart, leaving only {6:F2} DIP "
                     + "between two {7:F2} DIP hit circles — below the {8:F2} DIP the colour-swatch "
                     + "grid leaves, which is the only adjacent-target pitch already pinned by a "
@@ -286,7 +286,7 @@ public class SettingsRowPitchTests
                     + "The rule that keeps it true is that every row kind leaves at least {9:F2} "
                     + "DIP — half the floor — between its control's circle and each of its own row "
                     + "edges. Button height under test: {10:F2}.",
-                    WideColumnWidth, i - 1, upper.Kind, i, lower.Kind, pitch, clearance,
+                    columnWidth, i - 1, upper.Kind, i, lower.Kind, pitch, clearance,
                     2 * SettingsWindow.ControlBtnRadius, SwatchClearance, SwatchClearance / 2,
                     buttonHeight))
                 .That(clearance).IsGreaterOrEqualThan(SwatchClearance);
@@ -349,65 +349,159 @@ public class SettingsRowPitchTests
     }
 
     /// <summary>
-    /// The narrow column, where the same mixed page does NOT reach the floor — recorded as a
-    /// ratchet rather than left uncovered, because the shortfall is real and its cause is a
-    /// different element from the one this change touched.
+    /// The narrow column, where every labelled row STACKS — now held to the SAME floor as the
+    /// wide one, over the adjacencies the stacked form is most exposed to.
     ///
     /// <para>
-    /// Below <c>TwoColumnMinimumWidth</c> a labelled row STACKS: the name goes above the control
-    /// rather than beside it. Measured on the arranged tree at 416, the name block takes 43.92 DIP,
-    /// so the 100 DIP control runs from 43.92 to 143.92 and its circle centre sits 93.92 DIP down
-    /// a 150 DIP row — leaving 6.08 DIP of row beneath the circle where 20 (half the floor) is
-    /// needed. Against the button row's circle at 75 that is a 131.08 DIP pitch and a 31.08 DIP
-    /// clearance, short of 40 by 8.92. Before the button's box was made uniform the same pair
-    /// measured 106.08 and 6.08, so this is an improvement of 25 DIP, not a regression.
+    /// This test used to be a ratchet named <c>OnANarrowColumn_TheStackedRowIsStillShortOfTheFloor</c>,
+    /// pinning a measured 31.07 DIP shortfall so it could not get worse. The shortfall was
+    /// structural: below <c>TwoColumnMinimumWidth</c> the name goes ABOVE the control, and the row
+    /// gave both one shared 150 DIP box — the name block measures 43.92 at 416, so the 100 DIP
+    /// control ran 43.92 to 143.92 and registered its circle 93.92 DIP down the row, leaving 6.08
+    /// beneath it where 20 (half the floor) is needed. A 100 DIP control under a name cannot be
+    /// centred at 75 in a 150 DIP box, so the box was the bug: the control now has its OWN
+    /// <c>LabelledRowMinHeight</c> slot below the name, and the row is that much taller.
     /// </para>
     /// <para>
-    /// It is not reachable from the button's box, and the arithmetic says why: a 100 DIP control
-    /// with a name line above it cannot have its centre at 75 inside a 150 DIP row, because the
-    /// name alone already consumes 43.92. The stacked form needs a taller box — about 164 for a
-    /// one-line name, and it has to FOLLOW the name's height, because the name wraps. That is a
-    /// layout change with narrow-display pagination consequences and it was not in this change's
-    /// scope, so the number is pinned at what it measures instead of asserted at what it should be.
+    /// Measured after the fix, at 416: the row is 193.92 DIP tall (43.92 of name + a 150 slot),
+    /// its circle sits 118.92 from the row top and 75 from the row bottom, and the worst adjacency
+    /// on this page is 45.00 DIP of clearance — the colour picker above a button, unchanged by
+    /// this work because a picker whose swatches wrap sets its own height. The stacked-to-button
+    /// pair that measured 31.08 is now 50.00.
     /// </para>
     /// <para>
-    /// A RATCHET, not a target. The floor is still 40; this only guarantees the number cannot get
-    /// worse while the real fix is pending.
+    /// A different page from <c>MixedPage</c>, on purpose: it adds the two adjacencies the mixed
+    /// page has no pair for — button to SLIDER (rather than to a picker) and slider to slider —
+    /// which are the pairs that put a 100 DIP stacked control directly against a neighbour with
+    /// nothing wrapping in between.
     /// </para>
     /// </summary>
     [StaTheory]
     [MemberData(nameof(RealButtonHeightData))]
-    public void OnANarrowColumn_TheStackedRowIsStillShortOfTheFloor(double buttonHeight)
+    public void OnANarrowColumn_TheStackedRowAlsoLeavesTheSwatchGridsClearance(double buttonHeight)
     {
-        // Measured, this commit: the worst adjacency at 416 is a stacked labelled row above a
-        // button, at 31.0766... DIP. Ratcheted just below that so floating-point noise cannot
-        // fail it. This is recorded OUTPUT, not a derived expectation.
-        const double MeasuredWorstClearance = 31.07;
+        SettingsRowSpec[] page =
+        [
+            Slider("s1"),                   // stacked  -> button
+            Button("b1", buttonHeight),     // button   -> stacked
+            Slider("s2"),                   // stacked  -> stacked
+            Slider("s3"),
+            Picker("p1"),                   // picker   -> button
+            Button("b2", buttonHeight),     // button   -> button
+            Button("b3", buttonHeight),
+        ];
 
-        var all = Clearances(MixedPage(buttonHeight), NarrowColumnWidth).ToList();
+        var all = Clearances(page, NarrowColumnWidth).ToList();
 
         foreach (var (i, upper, lower, pitch, clearance) in all)
         {
             Check.WithCustomMessage(string.Format(
                     CultureInfo.InvariantCulture,
-                    "On a {0:F0} DIP column, row {1} ({2}) and row {3} ({4}) leave {5:F2} DIP "
-                    + "between their hit circles (pitch {6:F2}), below the {7:F2} this suite has "
-                    + "measured and ratcheted. The real floor is {8:F2} — the colour-swatch "
-                    + "grid's — and the narrow column does not reach it yet, because a STACKED "
-                    + "labelled row puts its control below the name, 93.92 DIP down a 150 DIP row, "
-                    + "leaving only 6.08 beneath the circle where {9:F2} is needed. So this "
-                    + "assertion is a ratchet: it exists to stop the number getting worse, not to "
-                    + "say 31 is acceptable. If you are here because you FIXED the stacked row, "
-                    + "raise the ratchet — and once it reaches {8:F2}, delete this test and widen "
-                    + "AdjacentRowsOfEveryKind_LeaveAtLeastTheSwatchGridsClearance to both "
-                    + "columns. Clearances on this page: {10}. Button height: {11:F2}.",
+                    "On the {0:F0} DIP narrowest supported column, row {1} ({2}) and row {3} ({4}) "
+                    + "leave {5:F2} DIP between their hit circles (pitch {6:F2}), below the "
+                    + "{7:F2} DIP the colour-swatch grid leaves — the only adjacent-target pitch "
+                    + "already pinned by a geometry test. Here every labelled row STACKS, and the "
+                    + "rule that makes the floor reachable is that the control gets its OWN "
+                    + "LabelledRowMinHeight slot BELOW the name, so its circle sits {8:F2} DIP "
+                    + "from each edge of that slot however tall the name is. Sharing ONE such box "
+                    + "with the name cannot work: the name takes 43.92 DIP at this width, so the "
+                    + "control's circle landed at 93.92 with 6.08 of row beneath it and this same "
+                    + "page measured 31.08. Do NOT re-pin this to whatever it now measures — the "
+                    + "row height has to follow the name's height, because the name wraps. "
+                    + "Clearances on this page: {9}. Button height: {10:F2}.",
                     NarrowColumnWidth, i - 1, upper.Kind, i, lower.Kind, clearance, pitch,
-                    MeasuredWorstClearance, SwatchClearance, SwatchClearance / 2,
+                    SwatchClearance, SwatchClearance / 2,
                     string.Join(", ", all.Select(c =>
                         c.Clearance.ToString("F2", CultureInfo.InvariantCulture))),
                     buttonHeight))
-                .That(clearance).IsGreaterOrEqualThan(MeasuredWorstClearance);
+                .That(clearance).IsGreaterOrEqualThan(SwatchClearance);
         }
+    }
+
+    /// <summary>
+    /// WHY the stacked form reaches that floor: the control is centred in a slot of its own, and
+    /// that slot is deep enough for half the floor above and below the circle.
+    ///
+    /// <para>
+    /// This is the local rule the cross-kind clearances are made of, and it is asserted on the
+    /// LIVE row rather than restated: the slot is the row's second <c>RowDefinition</c>, whose
+    /// arranged height and the control's arranged centre are both read back off the tree. Two
+    /// separate claims, because they fail for different reasons — align the control host to the
+    /// slot's TOP and the whole remainder falls below the circle (the centring claim); shrink the
+    /// slot's MinHeight and a centred control no longer has half the floor at each edge (the depth
+    /// claim). Measured: aligning Top moves the circle from 118.92 to 93.92 DIP down the row.
+    /// </para>
+    /// <para>
+    /// Asserted on arranged geometry rather than on the host's <c>VerticalAlignment</c>, and that
+    /// is deliberate. DELETING <c>VerticalAlignment.Center</c> from the control host changes
+    /// nothing measurable — the composites plate their control at an explicit Height, and WPF
+    /// centres a Stretch-aligned child smaller than its slot — so a property assertion would pin
+    /// something the layout does not actually depend on, while missing the ways the centring can
+    /// really be lost.
+    /// </para>
+    /// <para>
+    /// The depth is DERIVED from the swatch grid and the hit radius, not from
+    /// <c>LabelledRowMinHeight</c>: a slot must hold one whole circle plus the floor's worth of
+    /// separation, half at each edge, or two adjacent centred controls cannot be a floor apart.
+    /// Reading the production constant here would let the pitch and this expectation move
+    /// together with nothing failing.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void AStackedRow_CentresItsControlInASlotDeepEnoughForHalfTheFloor()
+    {
+        var host = Host(NarrowColumnWidth);
+        var composite = (IDwellComposite)SettingsWindow.CreateControl(
+            Slider("s1"), new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs,
+            NarrowColumnWidth);
+        composite.Attach(host);
+
+        host.Measure(new Size(NarrowColumnWidth, double.PositiveInfinity));
+        host.Arrange(new Rect(new Size(NarrowColumnWidth, host.DesiredSize.Height)));
+        host.UpdateLayout();
+
+        var root = (Grid)host.Children[0];
+
+        Check.WithCustomMessage(
+                "The stacked row's root is no longer a two-row Grid (name row, control slot), so "
+                + "there is no slot whose depth could be measured and this guard is vacuous. The "
+                + "shared-box StackPanel this replaced is exactly what left the control 6.08 DIP "
+                + "from the row's bottom edge.")
+            .That(root.RowDefinitions.Count).IsEqualTo(2);
+
+        var nameRowHeight = root.RowDefinitions[0].ActualHeight;
+        var slotHeight = root.RowDefinitions[1].ActualHeight;
+        var control = composite.Children[0].Root;
+        var centre = control.TransformToAncestor(root).Transform(new Point(0, 0)).Y
+            + (control.ActualHeight / 2);
+        var minimumSlot = (2 * SettingsWindow.ControlBtnRadius) + SwatchClearance;
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "A stacked row's control slot is {0:F2} DIP deep, but a {1:F2} DIP hit circle "
+                + "centred in it needs {2:F2} — one diameter plus the {3:F2} DIP the colour-swatch "
+                + "grid leaves, half of it at each edge. Any less and two adjacent centred "
+                + "controls are closer than that floor however tidy the row looks. The row here "
+                + "measured {4:F2} DIP tall in total, {5:F2} of it the name.",
+                slotHeight, 2 * SettingsWindow.ControlBtnRadius, minimumSlot, SwatchClearance,
+                root.ActualHeight, nameRowHeight))
+            .That(slotHeight).IsGreaterOrEqualThan(minimumSlot);
+
+        var expectedCentre = nameRowHeight + (slotHeight / 2);
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "A stacked row's control has its dwell centre {0:F2} DIP down the row, not "
+                + "{1:F2} — the middle of its own {2:F2} DIP slot, which starts under the {3:F2} "
+                + "DIP name. It is therefore {4:F2} DIP off centre, so the clearance above and "
+                + "below its circle differ by twice that, and the row's pitch stops being the "
+                + "distance between adjacent hit circles. The usual cause is the control host "
+                + "being aligned to the slot's TOP or BOTTOM rather than its centre — note that "
+                + "merely dropping VerticalAlignment.Center is inert, because the inner plate has "
+                + "an explicit Height and WPF centres a Stretch-aligned child in a larger slot.",
+                centre, expectedCentre, slotHeight, nameRowHeight,
+                System.Math.Abs(centre - expectedCentre)))
+            .That(System.Math.Abs(centre - expectedCentre)).IsStrictlyLessThan(0.51);
     }
 
     /// <summary>

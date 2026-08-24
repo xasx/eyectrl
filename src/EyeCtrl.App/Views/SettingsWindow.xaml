@@ -53,12 +53,38 @@
              This Margin and ContentCard's Padding are the two nested insets
              ContentAvailableWidth subtracts; naming the element is what lets the code read them
              instead of repeating the number. -->
-        <Grid x:Name="ContentArea" Grid.Column="1" Margin="16" RowDefinitions="*, Auto">
+        <Grid x:Name="ContentArea" Grid.Column="1" Margin="16" RowDefinitions="Auto, *, Auto">
+
+            <!-- Page header: which tab this is, and one line on what it covers.
+                 Fixed Height so ContentAvailableHeight can subtract it before the first layout
+                 pass — the same reason every other budget here reads Height and never
+                 ActualHeight. 112, not 96: at the narrowest supported content column the
+                 longest tab description wraps to a second line, and a 96 DIP box clips it.
+                 SettingsContentFitTests measures the real strings against this very number, and
+                 also proves what is left still holds a labelled row.
+
+                 The description is TextSecondary, not TextDim: its backdrop is the PAGE
+                 (SurfaceDark), not the card, and it renders at FontSizeSubtitle in normal
+                 weight, so it owes the full 4.5:1 rather than the 3.0 large-text allowance.
+                 Both pairings are gated per theme by SettingsPageHeaderContrastTests. -->
+            <StackPanel x:Name="HeaderPanel" Grid.Row="0" Height="112" Margin="0,0,0,12">
+                <TextBlock x:Name="HeaderTitle"
+                           Foreground="{StaticResource BrushTextPrimary}"
+                           FontSize="{StaticResource FontSizeDisplay}"
+                           FontWeight="{StaticResource FontWeightStrong}"/>
+                <TextBlock x:Name="HeaderDescription"
+                           Foreground="{StaticResource BrushTextSecondary}"
+                           FontSize="{StaticResource FontSizeSubtitle}"
+                           TextWrapping="Wrap"
+                           Margin="0,8,0,0"/>
+            </StackPanel>
 
             <!-- Hidden UIA anchor for Settings_Panel_Content — StackPanel is not exposed
-                 in the UIA control view; only TextBlock nodes are visible to FlaUI. -->
+                 in the UIA control view; only TextBlock nodes are visible to FlaUI.
+                 Row 1, with the card: on row 0 it would land inside the header, and the only
+                 suite that reads this anchor is Category=UI, so nothing headless would notice. -->
             <TextBlock AutomationProperties.AutomationId="Settings_Panel_Content"
-                       Grid.Row="0" Opacity="0" IsHitTestVisible="False"/>
+                       Grid.Row="1" Opacity="0" IsHitTestVisible="False"/>
 
             <!-- Content page (no ScrollViewer — paginated), on a card.
                  Padding="16,8", NOT 24,8: the horizontal inset has to stay 16 per side, which is
@@ -69,7 +95,7 @@
                  SettingsContentFitTests.TheSliderRow_FitsTheContentColumn_OnANarrowDisplay is
                  what a wider inset would break, by 4 DIP.
                  ContentPanel carries no Margin of its own any more; this Padding replaced it. -->
-            <Grid Grid.Row="0" VerticalAlignment="Top">
+            <Grid Grid.Row="1" VerticalAlignment="Top">
                 <Border x:Name="ContentCard"
                         CornerRadius="{StaticResource LargeCornerRadius}"
                         Background="{StaticResource BrushSurfaceMedium}"
@@ -112,7 +138,7 @@
             </Grid>
 
             <!-- Pagination bar -->
-            <StackPanel x:Name="PaginationPanel" Grid.Row="1"
+            <StackPanel x:Name="PaginationPanel" Grid.Row="2"
                         Orientation="Horizontal"
                         HorizontalAlignment="Center"
                         Margin="0,8,0,16"/>

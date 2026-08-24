@@ -192,6 +192,36 @@ public class SettingsContentFitTests
     }
 
     /// <summary>
+    /// Reads a named element's fixed <c>Height</c> out of the XAML.
+    ///
+    /// Same discipline as <see cref="Margin"/> and <see cref="Padding"/>: a missing attribute
+    /// FAILS rather than returning zero. <c>HeaderPanel</c>'s Height is a term of
+    /// <c>SettingsWindow.ContentAvailableHeight</c>, so a reader that silently saw 0 would
+    /// derive a budget the header's whole block too generous and every remaining-room
+    /// assertion here would pass against a budget the application never has.
+    /// </summary>
+    /// <param name="root">The XAML root.</param>
+    /// <param name="name">The element's x:Name.</param>
+    /// <returns>The declared height in DIP.</returns>
+    private static double FixedHeight(XElement root, string name)
+    {
+        var attr = Named(root, name).Attribute("Height");
+        Check.WithCustomMessage(
+                $"SettingsWindow.xaml's \"{name}\" declares no fixed Height. "
+                + "SettingsWindow.ContentAvailableHeight subtracts that Height before the first "
+                + "layout pass (ActualHeight is still 0 while the content is built in the ctor), "
+                + "so an Auto-height header would make the budget wrong in production AND make "
+                + "every derivation here read zero. Repoint this reader, do not delete it.")
+            .That(attr).IsNotNull();
+        var parsed = double.TryParse(attr!.Value, NumberStyles.Float, CultureInfo.InvariantCulture,
+            out var height);
+        Check.WithCustomMessage(
+                $"\"{name}\" declares Height=\"{attr.Value}\", which is not an absolute number.")
+            .That(parsed).IsTrue();
+        return height;
+    }
+
+    /// <summary>
     /// Rebuilds the settings content area at the given window width and drops one real picker
     /// button into it, returning where everything landed.
     ///
@@ -834,6 +864,246 @@ public class SettingsContentFitTests
                 + "drawn off the panel is a dwell target over pixels the user cannot see.",
                 right, available))
             .That(right).IsLessOrEqualThan(available);
+    }
+
+    // ────── The page header, and what it takes off every content page ──────
+
+    /// <summary>
+    /// A plausible narrow display's HEIGHT in DIP, paired with <see cref="NarrowDisplayWidthDip"/>.
+    /// 800 x 600 DIP is the 4:3 panel that width describes (1600x1200 at 150%); a 16:9 one at the
+    /// same width is shorter still in absolute DIP only if it is physically shorter, and 4:3 is
+    /// the conservative pairing for a height budget because the window is a fixed FRACTION of the
+    /// screen either way.
+    /// </summary>
+    private const double NarrowDisplayHeightDip = 600;
+
+    /// <summary>The window height production would pick for a given primary-screen height.</summary>
+    /// <param name="screenHeightDip">The primary screen's height in DIP.</param>
+    /// <returns>The settings window's height in DIP.</returns>
+    private static double WindowHeightFor(double screenHeightDip) =>
+        screenHeightDip * SettingsWindow.WindowSizeRatio;
+
+    /// <summary>
+    /// The page header takes its whole block off EVERY content page at once — exactly as the
+    /// sidebar's 220 -> 240 widening took 20 DIP off every content column at once, which is the
+    /// failure this file exists to prevent, one axis over.
+    ///
+    /// What goes wrong if it is too tall is not cosmetic. <c>SettingsAutoPagination</c> chunks
+    /// rows against <c>ContentAvailableHeight</c>, so a header leaving less than one labelled
+    /// row's worth of room paginates every tab down to one row per page — and for a gaze-only
+    /// user each page turn is another dwell, on tabs that already run to ten rows.
+    ///
+    /// <para>
+    /// HONESTY NOTE — this guard is deliberately OPTIMISTIC, and says so rather than pretending
+    /// otherwise. It subtracts every term of <c>ContentAvailableHeight</c> that is reachable from
+    /// outside the window: the header's Height and Margin, <c>ContentArea</c>'s Margin and
+    /// <c>ContentCard</c>'s Padding, all read out of the XAML. It CANNOT subtract the whole of
+    /// <c>PaginationReserveHeight</c>: that is an instance property, and two of its four terms
+    /// (<c>PaginationButtonHeight</c>, <c>PaginationButtonMargin</c>) are private consts on a
+    /// window with eight non-optional dependencies that cannot be constructed here. Only
+    /// <c>PaginationPanel</c>'s own Margin is reachable, so the derived budget below is larger
+    /// than production's by that button block. The margin against
+    /// <c>LabelledRowMinHeight</c> is wide enough that the omission does not decide the outcome —
+    /// the failure message prints both numbers so a future reader can check that claim rather
+    /// than take it.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void ThePageHeader_LeavesRoomForALabelledRow()
+    {
+        var root = Xml();
+        var header = Margin(root, "HeaderPanel");
+        var contentArea = Margin(root, "ContentArea");
+        var cardPadding = Padding(root, "ContentCard");
+        var pagination = Margin(root, "PaginationPanel");
+
+        var windowHeight = WindowHeightFor(NarrowDisplayHeightDip);
+        var budget = windowHeight
+            - FixedHeight(root, "HeaderPanel") - header.Top - header.Bottom
+            - contentArea.Top - contentArea.Bottom
+            - cardPadding.Top - cardPadding.Bottom
+            - pagination.Top - pagination.Bottom;
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "On a {0:F0} DIP tall display the settings window is {1:F2} DIP tall, and after "
+                + "the page header ({2:F2} + {3:F2} margin), ContentArea's margin, ContentCard's "
+                + "padding and PaginationPanel's margin only {4:F2} DIP of content column is "
+                + "left — less than the {5:F2} DIP a single labelled row occupies. Every tab "
+                + "would paginate to one row per page. Production's real budget is SMALLER still "
+                + "by the pagination BUTTON block (private consts, unreachable from here), so "
+                + "this number is the optimistic one. Shorten the header, do not widen this "
+                + "assertion.",
+                NarrowDisplayHeightDip, windowHeight,
+                FixedHeight(root, "HeaderPanel"), header.Top + header.Bottom,
+                budget, SettingsWindow.LabelledRowMinHeight))
+            .That(budget).IsStrictlyGreaterThan(SettingsWindow.LabelledRowMinHeight);
+    }
+
+    /// <summary>
+    /// The header's Height is FIXED (the budget has to subtract it before the first layout pass),
+    /// so the two real strings have to fit inside it — a StackPanel with an explicit Height clips
+    /// what overflows rather than growing, silently and with no assertion anywhere else noticing.
+    ///
+    /// Measured against the narrowest supported header width, which is wider than the content
+    /// column: the header sits OUTSIDE <c>ContentCard</c>, so it pays <c>ContentArea</c>'s margin
+    /// but not the card's padding. Every string comes from the live <c>_tabDefs</c> initializer
+    /// via <see cref="SettingsTabDriftTests.RenderedTabHeaders"/>, so editing a description to
+    /// something longer is re-measured here automatically.
+    /// </summary>
+    [StaFact]
+    public void EveryHeaderStringFits_TheHeadersFixedHeight()
+    {
+        var root = Xml();
+        var contentArea = Margin(root, "ContentArea");
+        var headerWidth = WindowWidthFor(NarrowDisplayWidthDip)
+            - SidebarWidth(root)
+            - contentArea.Left - contentArea.Right;
+        var declaredHeight = FixedHeight(root, "HeaderPanel");
+        var descriptionMargin = Margin(root, "HeaderDescription");
+
+        var headers = SettingsTabDriftTests.RenderedTabHeaders();
+        Check.WithCustomMessage(
+                "Parsed no tab headers, so this measured nothing at all.")
+            .That(headers).Not.IsEmpty();
+
+        foreach (var (label, description) in headers)
+        {
+            // Mirrors HeaderPanel element for element, minus the explicit Height — measuring a
+            // panel that already has one would just return that Height and prove nothing.
+            var panel = new StackPanel();
+            TextElement.SetFontFamily(panel, Tokens.FontStandard);
+            panel.Children.Add(new TextBlock
+            {
+                Text = label,
+                FontSize = Tokens.FontSizeDisplay,
+                FontWeight = Tokens.FontWeightStrong,
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = description,
+                FontSize = Tokens.FontSizeSubtitle,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = descriptionMargin,
+            });
+
+            panel.Measure(new Size(headerWidth, double.PositiveInfinity));
+
+            Check.WithCustomMessage(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "The \"{0}\" tab's header wants {1:F2} DIP of height inside a {2:F2} DIP box, "
+                    + "measured against the {3:F2} DIP header width of the narrowest supported "
+                    + "display. HeaderPanel's Height is fixed and a StackPanel CLIPS what does "
+                    + "not fit, so the description would lose a line with nothing else failing. "
+                    + "Shorten the description, or raise HeaderPanel's Height — and if you raise "
+                    + "it, ThePageHeader_LeavesRoomForALabelledRow is the assertion that says "
+                    + "whether the content column can still afford it.",
+                    label, panel.DesiredSize.Height, declaredHeight, headerWidth))
+                .That(panel.DesiredSize.Height).IsLessOrEqualThan(declaredHeight);
+        }
+    }
+
+    /// <summary>
+    /// Adding the header pushed every row of <c>ContentArea</c> down by one, and one of the
+    /// elements that had to move is invisible: the hidden <c>Settings_Panel_Content</c> TextBlock
+    /// the FlaUI suite anchors on. Left on row 0 it would sit INSIDE the header, and the only
+    /// suite that reads it is <c>Category=UI</c> — skipped unless <c>EYECTRL_UI_TESTS=1</c>, so
+    /// CI could not catch the slip. This makes the row indices checkable headlessly instead: the
+    /// anchor must share the card's row, and the header must own the row above it.
+    ///
+    /// Read as declared attributes, not as layout, so nothing has to be rendered.
+    /// </summary>
+    [Fact]
+    public void ThePageHeader_OwnsTheRowAboveTheCard_AndTheUiaAnchorSitsWithTheCard()
+    {
+        var root = Xml();
+
+        // The card's row lives on the WRAPPER Grid that holds ContentCard and its zero-layout
+        // outline sibling, not on ContentCard itself — reading the card's own Grid.Row would find
+        // nothing and compare against null.
+        var wrapper = Named(root, "ContentCard").Parent;
+        Check.WithCustomMessage(
+                "ContentCard's parent is gone. It is expected to be the wrapping Grid that also "
+                + "holds ContentCardOutline, and that wrapper is what carries Grid.Row.")
+            .That(wrapper).IsNotNull();
+
+        var cardRow = (string?)wrapper!.Attribute("Grid.Row");
+        var headerRow = (string?)Named(root, "HeaderPanel").Attribute("Grid.Row");
+        var pagerRow = (string?)Named(root, "PaginationPanel").Attribute("Grid.Row");
+
+        var anchor = root.Descendants()
+            .SingleOrDefault(e =>
+                (string?)e.Attribute("AutomationProperties.AutomationId") == "Settings_Panel_Content");
+        Check.WithCustomMessage(
+                "SettingsWindow.xaml no longer holds the hidden Settings_Panel_Content TextBlock. "
+                + "The Category=UI settings suite anchors on it; if it moved, repoint this check "
+                + "at wherever it lives rather than deleting it.")
+            .That(anchor).IsNotNull();
+        var anchorRow = (string?)anchor!.Attribute("Grid.Row");
+
+        Check.WithCustomMessage(
+                $"HeaderPanel is on Grid.Row=\"{headerRow}\" and the content card's wrapper on "
+                + $"\"{cardRow}\". The header has to own the row ABOVE the card: sharing a row "
+                + "would stack the two on top of each other, and ContentAvailableHeight would be "
+                + "subtracting a header that takes no room of its own.")
+            .That(headerRow).IsEqualTo("0");
+
+        Check.WithCustomMessage(
+                $"The content card's wrapper is on Grid.Row=\"{cardRow}\", expected \"1\" — the "
+                + "row below the header.")
+            .That(cardRow).IsEqualTo("1");
+
+        Check.WithCustomMessage(
+                $"PaginationPanel is on Grid.Row=\"{pagerRow}\", expected \"2\" — below the card. "
+                + "ContentArea declares three rows (Auto, *, Auto); a pagination bar left on row 1 "
+                + "would render on top of the content card.")
+            .That(pagerRow).IsEqualTo("2");
+
+        Check.WithCustomMessage(
+                $"The hidden Settings_Panel_Content anchor is on Grid.Row=\"{anchorRow}\" while "
+                + $"the content card is on \"{cardRow}\". On the header's row it lands inside the "
+                + "page header instead of over the content, and because the ONLY suite that reads "
+                + "this anchor is Category=UI, nothing else — headless or in CI — would notice.")
+            .That(anchorRow).IsEqualTo(cardRow);
+    }
+
+    /// <summary>
+    /// <c>ContentAvailableHeight</c> must still SUBTRACT the header, and must do it by reading the
+    /// live element rather than restating 112 + 12.
+    ///
+    /// A source-text guard because the property is private on a window that cannot be
+    /// constructed here. It earns its place: with the three header terms deleted from that
+    /// expression, the budget over-reports by the header's whole block and — verified by making
+    /// exactly that edit — NOTHING else in the headless suites fails. Pagination would simply
+    /// pack one row too many onto every page, below the fold, on a screen whose only input
+    /// channel is gaze.
+    /// </summary>
+    [Fact]
+    public void TheHeightBudget_StillCountsThePageHeader()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var start = source.IndexOf("private double ContentAvailableHeight", StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "SettingsWindow no longer declares ContentAvailableHeight. That property is the "
+                + "content column's height budget; repoint this guard at whatever replaced it.")
+            .That(start).IsStrictlyGreaterThan(-1);
+        var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
+        Check.That(end).IsStrictlyGreaterThan(start);
+        var body = source[start..end];
+
+        foreach (var term in new[]
+                 { "HeaderPanel.Height", "HeaderPanel.Margin.Top", "HeaderPanel.Margin.Bottom" })
+        {
+            Check.WithCustomMessage(
+                    "ContentAvailableHeight no longer subtracts " + term + ". The page header "
+                    + "occupies ContentArea's row 0 above the card, so every DIP of it comes off "
+                    + "the content column — a budget that ignores it over-reports by the header's "
+                    + "whole block and packs a row per page below the fold. Restore the term, or "
+                    + "repoint this guard at the element that carries the header's height now — "
+                    + "do not delete it: nothing else in the headless suites notices.")
+                .That(body).Contains(term);
+        }
     }
 
     /// <summary>

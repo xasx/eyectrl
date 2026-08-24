@@ -29,6 +29,60 @@ public class DwellSlider : IDwellComposite
     private static Color BtnBase => Tokens.SurfaceMedium;
 
     /// <summary>
+    /// The steppers' outline, in DIPs.
+    ///
+    /// <para>
+    /// The (−) and (+) buttons are each drawn 100 x 100 — the WYSIWYG floor, exactly the hit
+    /// circle they register — and yet live testing on the tracker reported them as "too small /
+    /// hard to aim at". They are not small; they have no EDGE. <see cref="BtnBase"/> is
+    /// <see cref="Tokens.SurfaceMedium"/> and the settings page behind them is
+    /// <see cref="Tokens.SurfaceDark"/>, which is a 1.23 / 1.23 / 1.14 fill step across
+    /// Midnight / Ember / Contrast — sampled off a real render, <c>#292944</c> on <c>#19192D</c>.
+    /// So the 100 DIP extent is invisible and the user ends up aiming at the bare glyph.
+    /// Palette rule 1 (docs/design/overlay-unification-spec.md:284-286, gated by
+    /// tools/palette_validate.py:352-365) says where the fix goes: the border carries the
+    /// boundary, the fill only suggests depth.
+    /// </para>
+    /// <para>
+    /// <b>Why <see cref="Tokens.BrushTextSecondary"/> and not <c>BorderSubtle</c>.</b> Measured
+    /// against <see cref="Tokens.SurfaceDark"/>: <c>BorderSubtle</c> is 3.35 / 3.32 / 21.00 and
+    /// <c>TextSecondary</c> is 6.92 / 8.34 / 17.14. Both clear the 3:1 WCAG 1.4.11 floor for a
+    /// non-text component boundary, but <c>BorderSubtle</c> clears it by 0.32 in Ember — a
+    /// rounding error away from failing — while <c>TextSecondary</c> has real margin in every
+    /// theme. It is also the precedent: <c>DwellToggle</c>'s switch outline is the same brush for
+    /// the same reason, and a stepper and a switch play the same role, the thing the user aims at.
+    /// </para>
+    /// <para>
+    /// The content card's own outline is deliberately <c>BorderSubtle</c> and must stay so: a
+    /// passive grouping and an active dwell target are different jobs, and the quieter brush is
+    /// right for the one that is only saying "the list stops here". Do not "unify" the two.
+    /// </para>
+    /// <para>
+    /// A literal rather than <see cref="Tokens.BorderThicknessStandard"/>, for
+    /// <c>DwellToggle.SwitchOutline</c>'s reason: this is a dwell target's perceptibility, so it
+    /// must not move with a theme's card-outline weight (1 DIP in Midnight and Ember). Two matches
+    /// the switch on the same page, so the aimable controls of a settings page carry one edge
+    /// weight.
+    /// </para>
+    /// <para>
+    /// It costs neither layout nor dwell feedback. <see cref="DwellButton"/> gives
+    /// <see cref="DwellControl.Root"/> an explicit <c>Width</c> and <c>Height</c>
+    /// (DwellButton.cs:165-166), so the border deflates the CHILD and the outer box stays exactly
+    /// 100 x 100 — measured before and after: Actual 100.00 x 100.00 either way, Desired
+    /// 108.00 x 100.00, and the composite's natural row width unchanged at 404.00. And the dwell
+    /// bar lives on <c>DwellButton.ProgressBar</c> inside that child layout, not on Root's border,
+    /// so the two cannot collide — the same arrangement <see cref="DwellColorPicker"/>'s swatch
+    /// border and <c>DwellToggle</c>'s switch outline already rely on.
+    /// </para>
+    /// <para>
+    /// Scoped to this composite rather than written into <see cref="DwellButton"/>: that type is
+    /// shared with the toolbar, the keyboard, the modals and the quick-action tiles, which sit on
+    /// other backdrops and carry their own contrast gates.
+    /// </para>
+    /// </summary>
+    private const double StepperOutline = 2;
+
+    /// <summary>
     /// Plate width in DIPs. Sized so the whole row fits the narrowest content column the app
     /// supports: 108 + 188 + 108 = 404 against 416 (an 800 DIP display at the 0.9 window
     /// ratio, less a 240 sidebar and two 16 DIP margin pairs). Guarded by
@@ -260,6 +314,16 @@ public class DwellSlider : IDwellComposite
             () => Adjust(_step), BtnBase, category, radiusPhysical, dwellMs);
 
         _children = [_minus, _plus];
+
+        // Give both steppers a visible edge — see StepperOutline for the measurements and for why
+        // the brush is TextSecondary rather than the card's BorderSubtle. Written here, on this
+        // composite's own children, exactly as DwellColorPicker.cs:190-191 and DwellToggle.cs:367-368
+        // do; DwellButton itself is left alone.
+        foreach (var stepper in _children)
+        {
+            stepper.Root.BorderThickness = new Thickness(StepperOutline);
+            stepper.Root.BorderBrush = Tokens.BrushTextSecondary;
+        }
 
         _row = new StackPanel
         {

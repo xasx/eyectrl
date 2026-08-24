@@ -85,9 +85,10 @@ public class Win32WindowManager : IWindowManager
     }
 
     /// <summary>
-    /// Brings the specified window to the foreground. Calls
-    /// <c>AllowSetForegroundWindow(ASFW_ANY)</c> first so that foreground
-    /// restrictions do not block the activation.
+    /// Brings the specified window to the foreground. Simulates an ALT tap first —
+    /// a process seen delivering keyboard input earns the foreground right that
+    /// <c>SetForegroundWindow</c> otherwise silently refuses for this non-activating
+    /// overlay process.
     /// </summary>
     /// <param name="hwnd">Win32 window handle of the window to activate.</param>
     public void BringToFront(IntPtr hwnd)
@@ -109,10 +110,41 @@ public class Win32WindowManager : IWindowManager
         // happens"). The previous AllowSetForegroundWindow(ASFW_ANY) call was a no-op: it
         // delegates a right the caller must already hold. The ALT-press simulation is the
         // standard grant — a process seen delivering keyboard input earns the right to set the
-        // foreground window. Down and up bracket the call, so no application receives a press.
-        NativeMethods.keybd_event((byte)NativeMethods.VK_MENU, 0, 0, 0);
+        // foreground window.
+        //
+        // The tap must be one atomic SendInput pair issued BEFORE the switch. The old
+        // keybd_event bracket straddled SetForegroundWindow, so the window holding focus when
+        // ALT went down got the WM_SYSKEYDOWN while the matching WM_SYSKEYUP was redirected to
+        // the new foreground window — leaving the old app with ALT latched (menu mode,
+        // Alt-shortcut misfires), intermittently, depending on which app held focus. A gaze-only
+        // user has no physical ALT press to clear that state, so it survived until reboot
+        // (2026-08-25 field report: "alt key seems stuck"). Atomic delivery keeps both events in
+        // one thread queue, and the grant still counts the completed tap.
+        var altTap = new[]
+        {
+            new NativeMethods.INPUT
+            {
+                Type = NativeMethods.INPUT_KEYBOARD,
+                Union = new NativeMethods.INPUTUNION
+                {
+                    Keyboard = new NativeMethods.KEYBDINPUT { VirtualKey = NativeMethods.VK_MENU }
+                }
+            },
+            new NativeMethods.INPUT
+            {
+                Type = NativeMethods.INPUT_KEYBOARD,
+                Union = new NativeMethods.INPUTUNION
+                {
+                    Keyboard = new NativeMethods.KEYBDINPUT
+                    {
+                        VirtualKey = NativeMethods.VK_MENU,
+                        Flags = NativeMethods.KEYEVENTF_KEYUP
+                    }
+                }
+            }
+        };
+        NativeMethods.SendInput((uint)altTap.Length, altTap, Marshal.SizeOf<NativeMethods.INPUT>());
         var ok = NativeMethods.SetForegroundWindow(hwnd);
-        NativeMethods.keybd_event((byte)NativeMethods.VK_MENU, 0, NativeMethods.KEYEVENTF_KEYUP, 0);
         if (ok) return;
 
         // Rare fallback when even the grant is denied: a minimize/restore toggle moves the

@@ -39,7 +39,8 @@ public class TaskSwitcherDwellPositionTests
     /// foreground and Windows' foreground lock silently rejects a bare call — switcher
     /// selections fired, the overlay closed, and no window came forward (2026-08-18 field
     /// diagnosis). A bare AllowSetForegroundWindow(ASFW_ANY) is the same bug again: it
-    /// delegates a right the caller must already hold.
+    /// delegates a right the caller must already hold. The ALT tap must be one atomic
+    /// SendInput pair issued BEFORE the switch — see the split-bracket pin below.
     /// </summary>
     [Fact]
     public void BringToFront_EarnsForeground_BeforeSetForegroundWindow()
@@ -49,11 +50,10 @@ public class TaskSwitcherDwellPositionTests
         var body = ExtractMethod(source, "public void BringToFront(IntPtr hwnd)");
 
         Check.WithCustomMessage(
-                "BringToFront must simulate an ALT press around SetForegroundWindow (the "
+                "BringToFront must simulate an ALT tap before SetForegroundWindow (the "
                 + "standard foreground-right grant) — without it the foreground lock silently "
-                + "rejects the switch for this non-activating overlay process. Restore the "
-                + "keybd_event bracket.")
-            .That(body.Contains("keybd_event")).IsTrue();
+                + "rejects the switch for this non-activating overlay process.")
+            .That(body.Contains("VK_MENU") && body.Contains("SendInput")).IsTrue();
         Check.WithCustomMessage(
                 "AllowSetForegroundWindow cannot grant a right the caller does not hold; for "
                 + "this process it is a no-op and its presence masks the missing ALT grant.")
@@ -67,6 +67,43 @@ public class TaskSwitcherDwellPositionTests
                 + "foregrounding — SetForegroundWindow alone leaves iconic windows minimized "
                 + "while reporting success.")
             .That(body.Contains("IsIconic") && body.Contains("SW_RESTORE")).IsTrue();
+    }
+
+    /// <summary>
+    /// Source-scan pin: the ALT tap in <c>BringToFront</c> must be a single atomic
+    /// <c>SendInput</c> down+up pair issued before <c>SetForegroundWindow</c>, never a split
+    /// down/switch/up bracket. The split form delivers the WM_SYSKEYDOWN(VK_MENU) to the old
+    /// foreground window and — after the focus switch redirects it — the matching WM_SYSKEYUP
+    /// to the new one, leaving the old app with ALT latched (menu mode, Alt-shortcut
+    /// misfires). It only bit when the app holding focus reacted to the orphaned down, hence
+    /// "sometimes"; and a gaze-only user has no physical ALT press to clear the state, hence
+    /// "must reboot" (2026-08-25 field report: "alt key seems stuck after launch").
+    /// </summary>
+    [Fact]
+    public void BringToFront_AltGrant_IsAtomicPair_BeforeTheSwitch()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.Platform", "Services", "Win32WindowManager.cs"));
+        var body = ExtractMethod(source, "public void BringToFront(IntPtr hwnd)");
+
+        // Match the NativeMethods.-prefixed call sites, not prose: the method's comments
+        // narrate the old bracket and name both APIs, so bare substring matches hit text.
+        var sendInput = body.IndexOf("NativeMethods.SendInput", StringComparison.Ordinal);
+        var switchCall = body.IndexOf("NativeMethods.SetForegroundWindow", StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "The ALT grant must complete (down AND up) before SetForegroundWindow runs. "
+                + "A key event left down across the focus switch orphans its keyup on the "
+                + "wrong window — see the 2026-08-25 stuck-ALT field report.")
+            .That(sendInput).IsStrictlyGreaterThan(-1);
+        Check.That(switchCall).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "SendInput must come before SetForegroundWindow in BringToFront — the grant "
+                + "must be earned before it is spent.")
+            .That(sendInput < switchCall).IsTrue();
+        Check.WithCustomMessage(
+                "keybd_event is the split-bracket API behind the stuck-ALT field report; the "
+                + "atomic SendInput pair must not regress to it.")
+            .That(body.Contains("keybd_event(")).IsFalse();
     }
 
     /// <summary>

@@ -50,9 +50,9 @@
         </Grid>
 
         <!-- Right: Content area with pagination.
-             This Margin and ContentPanel's are the two nested insets ContentAvailableWidth
-             subtracts; naming the element is what lets the code read them instead of repeating
-             the number. -->
+             This Margin and ContentCard's Padding are the two nested insets
+             ContentAvailableWidth subtracts; naming the element is what lets the code read them
+             instead of repeating the number. -->
         <Grid x:Name="ContentArea" Grid.Column="1" Margin="16" RowDefinitions="*, Auto">
 
             <!-- Hidden UIA anchor for Settings_Panel_Content — StackPanel is not exposed
@@ -60,8 +60,22 @@
             <TextBlock AutomationProperties.AutomationId="Settings_Panel_Content"
                        Grid.Row="0" Opacity="0" IsHitTestVisible="False"/>
 
-            <!-- Content page (no ScrollViewer — paginated) -->
-            <StackPanel x:Name="ContentPanel" Grid.Row="0" Margin="16"/>
+            <!-- Content page (no ScrollViewer — paginated), on a card.
+                 Padding="16,8", NOT 24,8: the horizontal inset has to stay 16 per side, which is
+                 exactly what ContentPanel's own Margin="16" used to contribute, or the narrowest
+                 supported content column drops below 416 DIP. DwellSlider's stepper row measures
+                 404 there and, being a composite, is deliberately NOT capped by
+                 ConstrainToContentWidth — its horizontal StackPanel clips rather than wraps — so
+                 SettingsContentFitTests.TheSliderRow_FitsTheContentColumn_OnANarrowDisplay is
+                 what a wider inset would break, by 4 DIP.
+                 ContentPanel carries no Margin of its own any more; this Padding replaced it. -->
+            <Border x:Name="ContentCard" Grid.Row="0"
+                    CornerRadius="{StaticResource LargeCornerRadius}"
+                    Background="{StaticResource BrushSurfaceMedium}"
+                    Padding="16,8"
+                    VerticalAlignment="Top">
+                <StackPanel x:Name="ContentPanel"/>
+            </Border>
 
             <!-- Pagination bar -->
             <StackPanel x:Name="PaginationPanel" Grid.Row="1"

@@ -145,7 +145,20 @@ public class DwellColorPicker : IDwellComposite
 
         _label = new DwellLabel(label);
 
-        _panel = new WrapPanel { Margin = new Thickness(0, 0, 0, 24) };
+        // Same gating as DwellSlider's row, with one difference worth naming: the swatches
+        // already carry SwatchVerticalMargin top AND bottom, so a swatch row is 140 DIP of
+        // content on its own. Dropping the 24 here therefore changes this composite's HEIGHT
+        // (164 -> 140 for a single swatch row), not merely where its content is centred.
+        _panel = new WrapPanel
+        {
+            // The 24 DIP bottom margin is the row rhythm a SELF-LABELLED composite carries:
+            // heading, controls, gap, next row. The headless form has no heading and is dropped
+            // into a host row that owns the rhythm itself, so it carries none — exactly as
+            // DwellToggle's headless form does. Left unconditional, the extra 24 pushed the
+            // control's visual centre 12 DIP above the name it is supposed to sit beside, and
+            // 12 DIP off the toggles on the same page, which never had one.
+            Margin = showLabel ? new Thickness(0, 0, 0, 24) : new Thickness(0)
+        };
 
         for (int i = 0; i < presets.Length; i++)
         {

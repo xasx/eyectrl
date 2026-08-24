@@ -82,7 +82,12 @@ internal static class SettingsAutoPagination
         {
             foreach (var row in rows)
             {
-                switch (SettingsWindow.CreateControl(row, new NoopDwellRegistrar(), radiusPhysical, dwellMs))
+                // availableWidth goes to CreateControl too, not just to the scratch panel: a
+                // labelled row is assembled two-column or stacked according to it, and those two
+                // forms have different heights. Measuring the wrong one is measuring a page that
+                // never renders.
+                switch (SettingsWindow.CreateControl(
+                    row, new NoopDwellRegistrar(), radiusPhysical, dwellMs, availableWidth))
                 {
                     case DwellControl c:
                         // Mirror the render path exactly: Add(DwellControl) applies

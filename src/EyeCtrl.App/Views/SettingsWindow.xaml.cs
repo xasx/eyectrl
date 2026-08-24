@@ -29,6 +29,57 @@ public partial class SettingsWindow : OverlayWindow
     // Swatches render at DwellColorPicker.SwatchWidth x SwatchHeight with WrapPanel gutters sized so the
     // standard control radius (100 px hit circle) fits without overlapping neighbours — see SwatchTargetGeometryTests.
     internal const double ColorSwatchRadius = ControlBtnRadius;
+
+    // ── The labelled-row geometry (name on the left, control on the right) ──
+
+    /// <summary>
+    /// The MINIMUM height of a labelled settings row, in DIP — the row pitch.
+    ///
+    /// This is hit geometry, not styling. <c>DwellControl.UpdatePosition</c> registers a target
+    /// at its control's CENTRE with radius <see cref="ControlBtnRadius"/>, so the circles of two
+    /// vertically adjacent controls are separated by the row pitch minus one diameter — nothing
+    /// else. At a 100 DIP pitch two 100 DIP circles are exactly tangent: no gap, no tolerance,
+    /// and a one-pixel gaze drift lands on the neighbour. At 150 they are 50 DIP apart, at or
+    /// above the 40 DIP the colour-swatch grid leaves
+    /// (<c>DwellColorPicker.SwatchHeight</c> + 2 x <c>SwatchVerticalMargin</c> - 2 x
+    /// <see cref="ColorSwatchRadius"/>), which is the only adjacent-target pitch in the
+    /// application already pinned by a geometry test (<c>SwatchTargetGeometryTests</c>).
+    ///
+    /// A MINIMUM rather than a fixed height on purpose: a description that wraps to further
+    /// lines grows the row instead of being clipped, and <c>SettingsAutoPagination</c> measures
+    /// the grown row so pagination follows it.
+    /// </summary>
+    internal const double LabelledRowMinHeight = 150;
+
+    /// <summary>
+    /// Width of a labelled row's NAME column, in DIP.
+    ///
+    /// Sized against the widest control that CANNOT give ground: the slider's stepper row, 404
+    /// DIP measured (<c>SettingsContentFitTests.TheSliderRow_FitsTheContentColumn_OnANarrowDisplay</c>
+    /// reports that number), a horizontal <c>StackPanel</c> that clips rather than wraps. The
+    /// picker's and combo box's <c>WrapPanel</c>s can want more than 404 on one line — four
+    /// swatches are 544 — but they wrap into whatever column they are given, so they do not set
+    /// this width. 380 leaves the name a column of comparable width beside the slider.
+    /// </summary>
+    internal const double RowNameColumnWidth = 380;
+
+    /// <summary>
+    /// The narrowest content column, in DIP, at which a labelled row may put its name and its
+    /// control side by side. Below it the row STACKS the two.
+    ///
+    /// 380 (<see cref="RowNameColumnWidth"/>) + 404 (the slider's stepper row, the widest control
+    /// that clips rather than wraps) + a 24 DIP gutter. There is no narrower honest threshold: at
+    /// the 416 DIP narrowest supported content column the slider alone measures 404, so no name
+    /// column of any width fits beside it.
+    ///
+    /// Stacking is not a cosmetic fallback. <c>DwellSlider</c>'s stepper row is a horizontal
+    /// <c>StackPanel</c>, which CLIPS rather than wraps, and composites are deliberately left
+    /// uncapped by <see cref="ConstrainToContentWidth"/> — so a two-column row forced into a
+    /// column too narrow for it would draw its stepper buttons past the card's edge with their
+    /// hit circles still registered at the same centres: a live dwell target over blank space.
+    /// </summary>
+    internal const double TwoColumnMinimumWidth = RowNameColumnWidth + 404 + 24;
+
     private const double TabBtnRadius = 85;
     private const double PagBtnRadius = 60;
     private const double ModalBtnRadius = 70;
@@ -744,11 +795,12 @@ public partial class SettingsWindow : OverlayWindow
     /// <summary>
     /// How much horizontal room a control dropped into <c>ContentPanel</c> actually gets.
     ///
-    /// Read off the live elements — the sidebar column declared by <c>RootGrid</c>, and the two
-    /// nested <c>Margin="16"</c> insets of <c>ContentArea</c> and <c>ContentPanel</c> — so the
-    /// arithmetic cannot fall out of step with the XAML that decides it. Restating any of the
-    /// three here is how the sidebar's 220 -> 240 widening silently ate 20 DIP of content column
-    /// with nothing noticing.
+    /// Read off the live elements — the sidebar column declared by <c>RootGrid</c>,
+    /// <c>ContentArea</c>'s <c>Margin="16"</c> and <c>ContentCard</c>'s <c>Padding="16,8"</c>
+    /// (the card the rows sit on; <c>ContentPanel</c> itself carries no margin any more, the
+    /// card's padding replaced it) — so the arithmetic cannot fall out of step with the XAML
+    /// that decides it. Restating any of the three here is how the sidebar's 220 -> 240 widening
+    /// silently ate 20 DIP of content column with nothing noticing.
     ///
     /// <c>Width</c>, not <c>ActualWidth</c>: content is built during construction, before the
     /// window has ever been laid out, so <c>ActualWidth</c> is still 0 at that point.
@@ -765,7 +817,7 @@ public partial class SettingsWindow : OverlayWindow
             return Width
                 - RootGrid.ColumnDefinitions[0].Width.Value
                 - ContentArea.Margin.Left - ContentArea.Margin.Right
-                - ContentPanel.Margin.Left - ContentPanel.Margin.Right;
+                - ContentCard.Padding.Left - ContentCard.Padding.Right;
         }
     }
 
@@ -774,7 +826,8 @@ public partial class SettingsWindow : OverlayWindow
     /// (a single-page tab hides it): otherwise page count would oscillate as the bar
     /// appears and disappears. Same pre-layout philosophy as ContentAvailableWidth —
     /// reads <c>Height</c>, never <c>ActualHeight</c> (content is built in the ctor,
-    /// before the first layout pass).
+    /// before the first layout pass), and reads the two vertical insets off
+    /// <c>ContentArea</c>'s margin and <c>ContentCard</c>'s padding rather than restating them.
     /// </summary>
     private double ContentAvailableHeight
     {
@@ -784,7 +837,7 @@ public partial class SettingsWindow : OverlayWindow
                 return double.PositiveInfinity;
             return Height
                 - ContentArea.Margin.Top - ContentArea.Margin.Bottom
-                - ContentPanel.Margin.Top - ContentPanel.Margin.Bottom
+                - ContentCard.Padding.Top - ContentCard.Padding.Bottom
                 - PaginationReserveHeight;
         }
     }
@@ -867,24 +920,47 @@ public partial class SettingsWindow : OverlayWindow
     /// The spec delegates (<c>Get</c>/<c>Set</c>/<c>Text</c>) are now invoked twice per
     /// rebuild — once to measure, once to render — so their side-effect-freedom is
     /// load-bearing.
+    ///
+    /// <para>
+    /// The labelled arms assemble their whole ROW here — name column, control column, card
+    /// minimum height — and that placement is the load-bearing part. <c>SettingsAutoPagination</c>
+    /// measures a row by calling this method to build the real control and measuring it on a
+    /// detached panel, so anything that changes rendered height but lives only in
+    /// <see cref="RenderSpec"/> makes every measured height a lie and every page count wrong.
+    /// </para>
     /// </summary>
+    /// <param name="row">The row spec to build.</param>
+    /// <param name="registrar">Where the built control registers its dwell targets.</param>
+    /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
+    /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="availableWidth">
+    /// Room in the content column, from <c>ContentAvailableWidth</c> when rendering and from the
+    /// measurement budget when paginating. Deliberately REQUIRED, with no default: a call site
+    /// that forgot to thread the real width through would otherwise silently get a two-column row
+    /// on a column too narrow for one.
+    /// </param>
     internal static object CreateControl(
-        SettingsRowSpec row, IDwellRegistrar registrar, double radiusPhysical, int dwellMs)
+        SettingsRowSpec row, IDwellRegistrar registrar, double radiusPhysical, int dwellMs,
+        double availableWidth)
     {
         var cat = DwellCategory.Control;
         switch (row)
         {
             case SliderSpec s:
-                return new DwellSlider(registrar, s.Id, s.Label, s.Min, s.Max, s.Step, s.Decimals,
-                    s.Get, s.Set, cat, radiusPhysical, dwellMs);
+                return LabelledRow(s, availableWidth, new DwellSlider(registrar, s.Id, s.Label,
+                    s.Min, s.Max, s.Step, s.Decimals, s.Get, s.Set, cat, radiusPhysical, dwellMs,
+                    showLabel: false));
             case ToggleSpec t:
-                return new DwellToggle(registrar, t.Id, t.Label, t.Get, t.Set, cat, radiusPhysical, dwellMs);
+                return LabelledRow(t, availableWidth, new DwellToggle(registrar, t.Id, t.Label,
+                    t.Get, t.Set, cat, radiusPhysical, dwellMs, showLabel: false));
             case ComboBoxSpec c:
-                return new DwellComboBox(registrar, c.Id, c.Label, c.Display,
-                    c.Code ?? c.Display, c.Get, c.Set, cat, radiusPhysical, dwellMs);
+                return LabelledRow(c, availableWidth, new DwellComboBox(registrar, c.Id, c.Label,
+                    c.Display, c.Code ?? c.Display, c.Get, c.Set, cat, radiusPhysical, dwellMs,
+                    showLabel: false));
             case ColorPickerSpec cp:
-                return new DwellColorPicker(registrar, cp.Id, cp.Label, cp.Get, cp.Set, cat,
-                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs);
+                return LabelledRow(cp, availableWidth, new DwellColorPicker(registrar, cp.Id,
+                    cp.Label, cp.Get, cp.Set, cat,
+                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs, showLabel: false));
             case ButtonSpec b:
                 var (fill, textBrush) = FillFor(b.Kind);
                 var button = new DwellButton(registrar, b.Id, b.Label, b.OnActivate, fill, cat,
@@ -914,6 +990,162 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     /// <summary>
+    /// Wraps a heading-less composite in the row that owns its name, its description and the
+    /// row pitch. Two-column only where the column is wide enough for both halves; see
+    /// <see cref="TwoColumnMinimumWidth"/> for why a narrow column stacks instead.
+    /// </summary>
+    /// <param name="spec">The row spec, for its name and optional description.</param>
+    /// <param name="availableWidth">Room in the content column, in DIP.</param>
+    /// <param name="inner">The composite built with <c>showLabel: false</c>.</param>
+    /// <returns>The assembled row, itself an <see cref="IDwellComposite"/>.</returns>
+    private static LabelledSettingsRow LabelledRow(
+        SettingsRowSpec spec, double availableWidth, IDwellComposite inner) =>
+        new(spec.Label, spec.Description, inner,
+            twoColumn: availableWidth >= TwoColumnMinimumWidth);
+
+    /// <summary>
+    /// One settings row: the setting's NAME (and optional description) beside the control that
+    /// changes it, at the <see cref="LabelledRowMinHeight"/> pitch.
+    ///
+    /// <para>
+    /// An <see cref="IDwellComposite"/> so it drops straight into the existing three-way switch
+    /// in <see cref="RenderSpec"/> and in <c>SettingsAutoPagination.MeasureRows</c> — neither
+    /// learns a fourth case, and both keep going through <see cref="CreateControl"/>, so measured
+    /// height and rendered height stay the same number.
+    /// </para>
+    /// <para>
+    /// The row registers no dwell target of its own: a name is not one. Everything gaze-related
+    /// belongs to <see cref="Children"/>, which is the inner composite's own cached list.
+    /// </para>
+    /// </summary>
+    private sealed class LabelledSettingsRow : IDwellComposite
+    {
+        private readonly IDwellComposite _inner;
+        private readonly Panel _controlHost;
+        private readonly FrameworkElement _root;
+
+        /// <summary>Builds the row.</summary>
+        /// <param name="name">The setting's name, shown in the left column.</param>
+        /// <param name="description">
+        /// One line of explanation, or null/blank for none. A blank one draws NO TextBlock: an
+        /// empty one still takes a line box and would push every row in the application taller
+        /// for nothing.
+        /// </param>
+        /// <param name="inner">The control, built with its own heading suppressed.</param>
+        /// <param name="twoColumn">
+        /// True to put the name beside the control, false to stack the name above it.
+        /// </param>
+        internal LabelledSettingsRow(
+            string name, string? description, IDwellComposite inner, bool twoColumn)
+        {
+            _inner = inner;
+
+            var nameBlock = new TextBlock
+            {
+                Text = name,
+                Foreground = Tokens.BrushTextPrimary,
+                FontSize = Tokens.FontSizeTitle,
+                FontWeight = Tokens.FontWeightMedium,
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            var nameColumn = new StackPanel();
+            nameColumn.Children.Add(nameBlock);
+
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                // BrushTextSecondary, not BrushTextDim. At Tokens.FontSizeSubtitle and normal
+                // weight this is not WCAG "large text", so it owes 4.5:1 — and TextDim on the
+                // card's SurfaceMedium measures 4.37 in Midnight, which fails. TextSecondary is
+                // the dimmest token that clears 4.5 in every registered theme (5.63 / 6.79 /
+                // 15.04). Pinned by SettingsRowDescriptionContrastTests over ThemeRegistry.All.
+                nameColumn.Children.Add(new TextBlock
+                {
+                    Text = description,
+                    Foreground = Tokens.BrushTextSecondary,
+                    FontSize = Tokens.FontSizeSubtitle,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 6, 0, 0)
+                });
+            }
+
+            // A single-cell Grid, NOT a horizontal StackPanel, and the reason is hit geometry
+            // rather than taste. A horizontal StackPanel measures its children with INFINITE
+            // width, and two of the four composites lay their controls out in a WrapPanel that
+            // wraps only when it is given a finite one. Measured inside a horizontal StackPanel:
+            // the colour picker's four swatches stayed on one line and the last one's right edge
+            // landed at 536.00 DIP in the 416 DIP narrowest column, and a six-option combo box's
+            // last option reached 1101.13 — each with its dwell circle registered at a centre
+            // outside the card, over pixels the user cannot see. A Grid hands its child the width
+            // it was itself given, so those panels wrap (and the taller row is absorbed by
+            // height-based pagination, which measures through this same path). The host holds
+            // exactly one child in every case, so nothing else wanted a StackPanel.
+            _controlHost = new Grid
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                // Right in the two-column form, so the control ends on the card's right edge and
+                // every row's control lines up. Left when stacked, so a stacked row keeps the same
+                // left axis every other row kind (buttons, headings) sits on.
+                HorizontalAlignment = twoColumn
+                    ? HorizontalAlignment.Right
+                    : HorizontalAlignment.Left
+            };
+
+            if (twoColumn)
+            {
+                var grid = new Grid { MinHeight = LabelledRowMinHeight };
+                grid.ColumnDefinitions.Add(
+                    new ColumnDefinition { Width = new GridLength(RowNameColumnWidth) });
+                grid.ColumnDefinitions.Add(
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                nameColumn.VerticalAlignment = VerticalAlignment.Center;
+                Grid.SetColumn(nameColumn, 0);
+                Grid.SetColumn(_controlHost, 1);
+                grid.Children.Add(nameColumn);
+                grid.Children.Add(_controlHost);
+                _root = grid;
+            }
+            else
+            {
+                // Same MinHeight, so the hit-circle clearance the pitch buys does not depend on
+                // how wide the display happens to be.
+                var stack = new StackPanel { MinHeight = LabelledRowMinHeight };
+                nameColumn.VerticalAlignment = VerticalAlignment.Top;
+                nameColumn.Margin = new Thickness(0, 0, 0, 12);
+                stack.Children.Add(nameColumn);
+                stack.Children.Add(_controlHost);
+                _root = stack;
+            }
+        }
+
+        /// <inheritdoc/>
+        public void Attach(Panel parent)
+        {
+            // Inner first: the row must measure with its content already in place.
+            _inner.Attach(_controlHost);
+            parent.Children.Add(_root);
+        }
+
+        /// <inheritdoc/>
+        public void Detach(Panel parent)
+        {
+            parent.Children.Remove(_root);
+            _inner.Detach(_controlHost);
+        }
+
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Forwards the inner composite's already-cached list, so this allocates nothing.
+        /// The overlay's per-frame loop reads this property once per composite per gaze frame and
+        /// INDEXES the result; building a fresh collection per get would allocate at gaze rate.
+        /// The declared type is <see cref="IReadOnlyList{T}"/> because that is what
+        /// <see cref="IDwellComposite"/> declares — narrowing it to <c>IEnumerable</c> is a
+        /// CS0738 that has broken this build before (repaired by dd1baf5c).
+        /// </remarks>
+        public IReadOnlyList<DwellControl> Children => _inner.Children;
+    }
+
+    /// <summary>
     /// Maps one declarative <paramref name="row"/> onto its <see cref="DwellControl"/> and places it
     /// via the <see cref="Add(DwellControl)"/>/<see cref="Add(IDwellComposite)"/>/<see cref="Add(DwellLabel)"/>
     /// overloads, constructing the control through <see cref="CreateControl"/> — the shared
@@ -923,7 +1155,7 @@ public partial class SettingsWindow : OverlayWindow
     private void RenderSpec(SettingsRowSpec row)
     {
         var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        switch (CreateControl(row, _viewModel, r, _dwellMs))
+        switch (CreateControl(row, _viewModel, r, _dwellMs, ContentAvailableWidth))
         {
             case DwellControl control: Add(control); break;
             case IDwellComposite composite: Add(composite); break;

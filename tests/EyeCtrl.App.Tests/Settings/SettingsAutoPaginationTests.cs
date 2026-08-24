@@ -178,8 +178,11 @@ public class SettingsAutoPaginationFitTests
     {
         var row = new ButtonSpec("b", "Do it", () => { }, ButtonKind.Default, Width: 300, Height: 100);
 
+        // 416.0 is the narrowest supported content column — the same budget the height
+        // assertions in this file use. A ButtonSpec is not a labelled row, so the width cannot
+        // change what is built here; it is the real number rather than a placeholder anyway.
         var control = (DwellButton)SettingsWindow.CreateControl(
-            row, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs);
+            row, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs, 416.0);
 
         Check.That(control.Root.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Left);
         Check.That(control.Root.Margin).IsEqualTo(new Thickness(4, 0, 4, 24));
@@ -194,7 +197,8 @@ public class SettingsAutoPaginationFitTests
     {
         DwellLabel Render(LabelSpec spec) =>
             (DwellLabel)SettingsWindow.CreateControl(
-                spec, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs);
+                spec, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs,
+                416.0);
 
         Check.That(Render(new LabelSpec(() => "status")).Root.TextWrapping)
             .IsEqualTo(System.Windows.TextWrapping.Wrap);

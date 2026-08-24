@@ -124,7 +124,13 @@ public class DwellComboBox : IDwellComposite
         _panel = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 24)
+            // The 24 DIP bottom margin is the row rhythm a SELF-LABELLED composite carries:
+            // heading, controls, gap, next row. The headless form has no heading and is dropped
+            // into a host row that owns the rhythm itself, so it carries none — exactly as
+            // DwellToggle's headless form does. Left unconditional, the extra 24 pushed the
+            // control's visual centre 12 DIP above the name it is supposed to sit beside, and
+            // 12 DIP off the toggles on the same page, which never had one.
+            Margin = showLabel ? new Thickness(0, 0, 0, 24) : new Thickness(0)
         };
 
         for (int i = 0; i < displayOptions.Length; i++)

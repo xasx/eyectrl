@@ -94,6 +94,16 @@ public class DwellCompositeChildrenStabilityTests
     ///
     /// Its own test rather than another assertion in the census: NFluent fails fast, and a
     /// reflection failure would abort before this ever ran.
+    ///
+    /// <para>
+    /// <c>LabelledSettingsRow</c> is the one implementer outside this project: a private nested
+    /// class in <c>SettingsWindow</c> that wraps a heading-less composite in the row carrying the
+    /// setting's name. It cannot be covered by a case above — this suite does not reference
+    /// EyeCtrl.App, and the type is private — so its Children stability is pinned where it can be
+    /// reached, by
+    /// <c>EyeCtrl.App.Tests.Settings.SettingsRowLayoutTests.ALabelledRow_ForwardsItsInnerCompositesCachedChildren</c>.
+    /// It forwards the inner composite's cached list and allocates nothing.
+    /// </para>
     /// </summary>
     [Fact]
     public void NoProjectOutsideControls_ImplementsIDwellComposite()
@@ -111,7 +121,11 @@ public class DwellCompositeChildrenStabilityTests
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();
 
-        string[] covered = ["DwellColorPicker", "DwellComboBox", "DwellSlider", "DwellToggle"];
+        // LabelledSettingsRow is covered in EyeCtrl.App.Tests, not by a case above — see the
+        // remarks on this method for why it cannot be.
+        string[] covered =
+            ["DwellColorPicker", "DwellComboBox", "DwellSlider", "DwellToggle",
+             "LabelledSettingsRow"];
 
         Check.WithCustomMessage(
                 "IDwellComposite implementers in src/ and the cases in this class have diverged."

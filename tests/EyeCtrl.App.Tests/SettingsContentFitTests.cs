@@ -135,15 +135,58 @@ public class SettingsContentFitTests
         return width;
     }
 
-    /// <summary>Reads a named element's <c>Margin</c> through WPF's own converter.</summary>
+    /// <summary>
+    /// Reads a named element's <c>Margin</c> through WPF's own converter.
+    ///
+    /// A missing attribute FAILS rather than returning <c>default</c>, and that is not
+    /// pedantry — it is the one thing standing between this suite and a silently wrong column.
+    /// This helper returned <c>default</c> until <c>ContentPanel</c>'s <c>Margin="16"</c> was
+    /// replaced by <c>ContentCard</c>'s <c>Padding</c>: a derivation site left pointing at the
+    /// vanished margin then subtracted zero, computed a column 32 DIP WIDER than the real one,
+    /// and every assertion in this file kept passing while measuring a column that does not
+    /// exist. Measured: with one such site reverted, all 565 headless App tests were green.
+    /// Enumerating the sites was the only protection; this makes it a guard.
+    /// </summary>
     /// <param name="root">The XAML root.</param>
     /// <param name="name">The element's x:Name.</param>
     /// <returns>The declared margin.</returns>
     private static Thickness Margin(XElement root, string name)
     {
         var attr = Named(root, name).Attribute("Margin");
-        if (attr is null) return default;
-        return (Thickness)new ThicknessConverter().ConvertFromInvariantString(attr.Value)!;
+        Check.WithCustomMessage(
+                $"SettingsWindow.xaml's \"{name}\" declares no Margin. If this element's inset "
+                + "moved to another element or another property, repoint the caller at it — "
+                + "reading a margin that is not there subtracts nothing, widens the derived "
+                + "content column, and leaves every fit assertion in this file green against a "
+                + "column the application never has.")
+            .That(attr).IsNotNull();
+        return (Thickness)new ThicknessConverter().ConvertFromInvariantString(attr!.Value)!;
+    }
+
+    /// <summary>
+    /// Reads a named element's <c>Padding</c> through WPF's own converter.
+    ///
+    /// The content column's inner inset used to be <c>ContentPanel</c>'s own <c>Margin</c>. The
+    /// rows now sit on a card (<c>ContentCard</c>) whose <c>Padding</c> replaced it, and
+    /// <c>ContentPanel</c> carries no margin at all — which is why <see cref="Margin"/> fails on a
+    /// missing attribute rather than returning <c>default</c>: a site left reading the vanished
+    /// margin would otherwise compute a column 32 DIP WIDER than the real one with nothing
+    /// failing. Hence a second reader rather than a second inline parse.
+    /// </summary>
+    /// <param name="root">The XAML root.</param>
+    /// <param name="name">The element's x:Name.</param>
+    /// <returns>The declared padding.</returns>
+    private static Thickness Padding(XElement root, string name)
+    {
+        var attr = Named(root, name).Attribute("Padding");
+        Check.WithCustomMessage(
+                $"SettingsWindow.xaml's \"{name}\" no longer declares a Padding. That padding is "
+                + "the inner inset of the content-column arithmetic, and "
+                + "SettingsWindow.ContentAvailableWidth reads it at runtime, so a missing "
+                + "attribute would make every derivation here 32 DIP too wide and nothing would "
+                + "fail. Repoint this reader at whatever inset replaced it.")
+            .That(attr).IsNotNull();
+        return (Thickness)new ThicknessConverter().ConvertFromInvariantString(attr!.Value)!;
     }
 
     /// <summary>
@@ -151,9 +194,10 @@ public class SettingsContentFitTests
     /// button into it, returning where everything landed.
     ///
     /// Mirrors SettingsWindow.xaml element for element: the two-column root Grid, the content
-    /// Grid at column 1 with its margin and its Star/Auto rows, and <c>ContentPanel</c> with its
-    /// margin. Every one of those decides where the button's right edge falls, so none may be
-    /// dropped.
+    /// Grid at column 1 with its margin and its Star/Auto rows, and the <c>ContentCard</c> Border
+    /// carrying the padding that replaced <c>ContentPanel</c>'s margin, holding
+    /// <c>ContentPanel</c>. Every one of those decides where the button's right edge falls, so
+    /// none may be dropped.
     /// </summary>
     /// <param name="windowWidth">The window's width in DIP.</param>
     /// <param name="constrain">
@@ -180,9 +224,15 @@ public class SettingsContentFitTests
         Grid.SetColumn(contentArea, 1);
         outer.Children.Add(contentArea);
 
-        var panel = new StackPanel { Margin = Margin(root, "ContentPanel") };
-        Grid.SetRow(panel, 0);
-        contentArea.Children.Add(panel);
+        var card = new Border
+        {
+            Padding = Padding(root, "ContentCard"),
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        var panel = new StackPanel();
+        card.Child = panel;
+        Grid.SetRow(card, 0);
+        contentArea.Children.Add(card);
 
         // A real DwellButton, built the way QuickActionsPageSource's ChunkPresets builds one. Its
         // Root.Margin and its width plumbing then come from production rather than from a copy of
@@ -197,7 +247,7 @@ public class SettingsContentFitTests
         var available = windowWidth
             - SidebarWidth(root)
             - Margin(root, "ContentArea").Left - Margin(root, "ContentArea").Right
-            - Margin(root, "ContentPanel").Left - Margin(root, "ContentPanel").Right;
+            - Padding(root, "ContentCard").Left - Padding(root, "ContentCard").Right;
         if (constrain) SettingsWindow.ConstrainToContentWidth(button.Root, available);
 
         panel.Children.Add(button.Root);
@@ -334,7 +384,7 @@ public class SettingsContentFitTests
         var available = WindowWidthFor(NarrowDisplayWidthDip)
             - SidebarWidth(root)
             - Margin(root, "ContentArea").Left - Margin(root, "ContentArea").Right
-            - Margin(root, "ContentPanel").Left - Margin(root, "ContentPanel").Right;
+            - Padding(root, "ContentCard").Left - Padding(root, "ContentCard").Right;
 
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
@@ -381,7 +431,7 @@ public class SettingsContentFitTests
         var available = WindowWidthFor(NarrowDisplayWidthDip)
             - SidebarWidth(root)
             - Margin(root, "ContentArea").Left - Margin(root, "ContentArea").Right
-            - Margin(root, "ContentPanel").Left - Margin(root, "ContentPanel").Right;
+            - Padding(root, "ContentCard").Left - Padding(root, "ContentCard").Right;
 
         var longest = runs.Max();
         var label = new DwellLabel(new string('\u2500', longest));
@@ -451,7 +501,8 @@ public class SettingsContentFitTests
 
     /// <summary>
     /// Rebuilds SettingsWindow.xaml's content area \u2014 the two-column root Grid, the content Grid at
-    /// column 1, and <c>ContentPanel</c> \u2014 at a given window width, from the live XAML.
+    /// column 1, the <c>ContentCard</c> Border carrying the padding that replaced
+    /// <c>ContentPanel</c>'s margin, and <c>ContentPanel</c> itself \u2014 at a given window width, from the live XAML.
     /// </summary>
     /// <param name="windowWidth">The window's width in DIP.</param>
     /// <param name="outer">The root Grid, for measuring and arranging.</param>
@@ -474,10 +525,16 @@ public class SettingsContentFitTests
         Grid.SetColumn(contentArea, 1);
         outer.Children.Add(contentArea);
 
-        var panel = new StackPanel { Margin = Margin(root, "ContentPanel") };
+        var card = new Border
+        {
+            Padding = Padding(root, "ContentCard"),
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        var panel = new StackPanel();
         TextElement.SetFontFamily(panel, Tokens.FontStandard);
-        Grid.SetRow(panel, 0);
-        contentArea.Children.Add(panel);
+        card.Child = panel;
+        Grid.SetRow(card, 0);
+        contentArea.Children.Add(card);
         return panel;
     }
 
@@ -492,11 +549,11 @@ public class SettingsContentFitTests
     {
         var root = Xml();
         var contentArea = Margin(root, "ContentArea");
-        var contentPanel = Margin(root, "ContentPanel");
+        var cardPadding = Padding(root, "ContentCard");
         var available = WindowWidthFor(NarrowDisplayWidthDip)
             - SidebarWidth(root)
             - contentArea.Left - contentArea.Right
-            - contentPanel.Left - contentPanel.Right;
+            - cardPadding.Left - cardPadding.Right;
 
         var scratch = new StackPanel();
         TextElement.SetFontFamily(scratch, Tokens.FontStandard);
@@ -638,11 +695,11 @@ public class SettingsContentFitTests
     {
         var root = Xml();
         var contentArea = Margin(root, "ContentArea");
-        var contentPanel = Margin(root, "ContentPanel");
+        var cardPadding = Padding(root, "ContentCard");
         var available = WindowWidthFor(NarrowDisplayWidthDip)
             - SidebarWidth(root)
             - contentArea.Left - contentArea.Right
-            - contentPanel.Left - contentPanel.Right;
+            - cardPadding.Left - cardPadding.Right;
 
         var labels = RealToggleLabels();
         Check.WithCustomMessage(
@@ -724,11 +781,11 @@ public class SettingsContentFitTests
     {
         var root = Xml();
         var contentArea = Margin(root, "ContentArea");
-        var contentPanel = Margin(root, "ContentPanel");
+        var cardPadding = Padding(root, "ContentCard");
         var available = WindowWidthFor(NarrowDisplayWidthDip)
             - SidebarWidth(root)
             - contentArea.Left - contentArea.Right
-            - contentPanel.Left - contentPanel.Right;
+            - cardPadding.Left - cardPadding.Right;
 
         // 200 characters with no break opportunity anywhere.
         var label = new string('M', 200);

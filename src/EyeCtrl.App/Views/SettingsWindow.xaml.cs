@@ -33,7 +33,16 @@ public partial class SettingsWindow : OverlayWindow
     // ── The labelled-row geometry (name on the left, control on the right) ──
 
     /// <summary>
-    /// The MINIMUM height of a labelled settings row, in DIP — the row pitch.
+    /// The MINIMUM height of the slot a labelled row gives its CONTROL, in DIP — the row pitch.
+    ///
+    /// A slot, not the row: only the two-column form is 150 tall overall, because there the name
+    /// sits BESIDE the control and shares its box. The stacked form (narrow columns) puts the
+    /// name above and gives the control its own 150 DIP slot underneath, so that row measures the
+    /// name's height PLUS this — 193.92 for a one-line name at the 416 DIP narrowest column. It
+    /// has to: a 100 DIP control under a 43.92 DIP name cannot have its centre at 75 inside a 150
+    /// DIP box, and the centre is the whole point (see below). What both forms therefore share is
+    /// the thing the pitch is actually about — 75 DIP from the control's circle to each edge of
+    /// its own slot, hence 150 between any two adjacent controls' circles.
     ///
     /// This is hit geometry, not styling. <c>DwellControl.UpdatePosition</c> registers a target
     /// at its control's CENTRE with radius <see cref="ControlBtnRadius"/>, so the circles of two
@@ -1191,14 +1200,52 @@ public partial class SettingsWindow : OverlayWindow
             }
             else
             {
-                // Same MinHeight, so the hit-circle clearance the pitch buys does not depend on
-                // how wide the display happens to be.
-                var stack = new StackPanel { MinHeight = LabelledRowMinHeight };
+                // The CONTROL gets its own LabelledRowMinHeight slot, below the name — so the
+                // stacked row is TALLER than one pitch, on purpose, and the hit-circle clearance
+                // the pitch buys does not depend on how wide the display happens to be.
+                //
+                // A shared LabelledRowMinHeight box (which this was, a StackPanel carrying that
+                // MinHeight) could not work, and the arithmetic is the whole reason: the name
+                // block measures 43.92 DIP at the 416 DIP narrowest column, so a 100 DIP control
+                // stacked under it ran 43.92 -> 143.92 and registered its circle 93.92 down a 150
+                // DIP row — 6.08 DIP of row beneath a 50 DIP radius, where half the swatch grid's
+                // 40 DIP floor is 20. A 100 DIP control under a name simply cannot be centred at
+                // 75 inside a 150 DIP box; the box has to be the name's height PLUS a pitch.
+                // Measured, that put a stacked slider above a "Reset ..." button at a 131.08 DIP
+                // pitch (31.08 clearance) where the two-column form gets 150/50.
+                //
+                // Row 0 is Auto because the name WRAPS: a two-line name grows the row rather than
+                // eating the control's slot. Row 1 carries the minimum, and the control is CENTRED
+                // in it — that centring is the whole point, since a circle 75 DIP from each edge of
+                // its own slot is what makes every adjacent pitch 150.
+                //
+                // What performs the centring is worth stating precisely, because it is not only
+                // _controlHost's VerticalAlignment.Center (set above, for both forms). The
+                // composites plate their control at an explicit Height (DwellSlider's PlateHeight
+                // is 100), and WPF centres a Stretch-aligned child that is smaller than its slot —
+                // so DELETING the Center changes nothing measurable: the circle stays 118.92 DIP
+                // down a 193.92 DIP row at 416, and the whole pitch suite stays green. Setting the
+                // host to Top does move it, to 93.92, dropping a stacked slider above a 70 DIP
+                // button to 25 DIP of clearance. Keep the Center: it states the intent that the
+                // inner plate's explicit height currently happens to satisfy. The invariant is
+                // pinned on ARRANGED geometry, not on this property, by
+                // SettingsRowPitchTests.AStackedRow_CentresItsControlInASlotDeepEnoughForHalfTheFloor.
+                //
+                // The outer Grid deliberately carries NO MinHeight of its own. The row's height is
+                // now nameHeight + max(LabelledRowMinHeight, controlHeight); an outer minimum
+                // would be redundant at best, and at worst reads as the row's pitch, which it is
+                // not.
+                var grid = new Grid();
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grid.RowDefinitions.Add(
+                    new RowDefinition { MinHeight = LabelledRowMinHeight });
                 nameColumn.VerticalAlignment = VerticalAlignment.Top;
                 nameColumn.Margin = new Thickness(0, 0, 0, 12);
-                stack.Children.Add(nameColumn);
-                stack.Children.Add(_controlHost);
-                _root = stack;
+                Grid.SetRow(nameColumn, 0);
+                Grid.SetRow(_controlHost, 1);
+                grid.Children.Add(nameColumn);
+                grid.Children.Add(_controlHost);
+                _root = grid;
             }
         }
 

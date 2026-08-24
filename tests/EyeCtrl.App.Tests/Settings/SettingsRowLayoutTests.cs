@@ -318,13 +318,31 @@ public class SettingsRowLayoutTests
 
         var root = (FrameworkElement)host.Children[0];
 
+        // The stacked form is a two-ROW Grid, not the StackPanel it used to be, and the shape is
+        // what identifies it rather than the type: both forms are now Grids. A StackPanel could
+        // only give the name and the control ONE shared box, and a 100 DIP control under a 43.92
+        // DIP name cannot be centred at 75 inside a 150 DIP box — it sat 93.92 down the row with
+        // 6.08 beneath it. Two rows, the second carrying the control's own pitch, is the fix; see
+        // SettingsRowPitchTests.AStackedRow_CentresItsControlInASlotDeepEnoughForHalfTheFloor.
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
-                "On a {0:F0} DIP column the row attached a {1}, not the stacked StackPanel. Below "
+                "On a {0:F0} DIP column the row attached a {1}, not the stacked form's Grid. Below "
                 + "SettingsWindow.TwoColumnMinimumWidth ({2:F0}) there is no room for a name "
                 + "column beside a 404 DIP slider row, and the row must stack rather than clip.",
                 NarrowColumnWidth, root.GetType().Name, SettingsWindow.TwoColumnMinimumWidth))
-            .That(root).IsInstanceOf<StackPanel>();
+            .That(root).IsInstanceOf<Grid>();
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "On a {0:F0} DIP column the row's Grid has {1} row definitions and {2} column "
+                + "definitions, which is not the STACKED shape (two rows — the name, then the "
+                + "control's own pitch slot — and no columns). Two columns would mean it laid the "
+                + "name BESIDE a slider stepper row that clips rather than wraps, drawing its "
+                + "plus button off the card with the hit circle still registered there.",
+                NarrowColumnWidth, ((Grid)root).RowDefinitions.Count,
+                ((Grid)root).ColumnDefinitions.Count))
+            .That((((Grid)root).RowDefinitions.Count, ((Grid)root).ColumnDefinitions.Count))
+            .IsEqualTo((2, 0));
 
         // The ARRANGED right edge of the row's widest dwell child, not root.DesiredSize.Width.
         //
@@ -391,6 +409,22 @@ public class SettingsRowLayoutTests
                 $"On the real {WideColumnWidth} DIP content column the row attached a "
                 + $"{root.GetType().Name} rather than the two-column Grid.")
             .That(root).IsInstanceOf<Grid>();
+
+        // The SHAPE, because the type no longer separates the two forms: the stacked row is a Grid
+        // too now (two rows, no columns — the name above the control's own pitch slot). Two
+        // COLUMNS and no row definitions is what makes this the side-by-side form, and it is the
+        // form where the row itself is exactly one pitch tall.
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "On the real {0:F0} DIP content column the row's Grid has {1} row definitions and "
+                + "{2} column definitions, which is not the TWO-COLUMN shape (no rows, two "
+                + "columns — the name column beside the control column). Two row definitions "
+                + "would mean it fell back to the stacked form on a column wide enough for both "
+                + "halves.",
+                WideColumnWidth, ((Grid)root).RowDefinitions.Count,
+                ((Grid)root).ColumnDefinitions.Count))
+            .That((((Grid)root).RowDefinitions.Count, ((Grid)root).ColumnDefinitions.Count))
+            .IsEqualTo((0, 2));
     }
 
     /// <summary>

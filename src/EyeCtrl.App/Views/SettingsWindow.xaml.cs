@@ -110,9 +110,26 @@ public partial class SettingsWindow : OverlayWindow
     /// </summary>
     internal const double TabContainerHeight = 100;
     private const double PaginationButtonWidth = 100;
-    private const double PaginationButtonHeight = 80;
-    // Uniform (horizontal and vertical) margin MakePagButton applies to each button; PaginationReserveHeight counts 2 * this.
-    private const double PaginationButtonMargin = 4;
+
+    /// <summary>
+    /// The pagination button's height, and one of the two terms of
+    /// <see cref="PaginationReserveHeight"/> that the content height budget subtracts.
+    ///
+    /// <c>internal</c> for the same reason as <see cref="TabContainerHeight"/> and
+    /// <see cref="WindowSizeRatio"/>: <c>HandChunkedPageFitTests</c> re-derives the content
+    /// height budget from outside the window (which cannot be constructed — eight non-optional
+    /// dependencies), and every term of that budget has to come from production rather than a
+    /// copy. Restating 112 there would let the guard keep passing against a budget the
+    /// application does not have, which is the whole failure mode it exists to catch.
+    /// </summary>
+    internal const double PaginationButtonHeight = 80;
+
+    /// <summary>
+    /// Uniform (horizontal and vertical) margin <c>MakePagButton</c> applies to each button;
+    /// <see cref="PaginationReserveHeight"/> counts 2 * this. <c>internal</c> for the same
+    /// reason as <see cref="PaginationButtonHeight"/>.
+    /// </summary>
+    internal const double PaginationButtonMargin = 4;
     private const double ModalButtonHeight = 100;
 
     // Window sizing

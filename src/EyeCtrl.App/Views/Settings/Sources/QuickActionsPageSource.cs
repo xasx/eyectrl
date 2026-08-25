@@ -10,7 +10,41 @@ using EyeCtrl.Core.Models;
 /// </summary>
 internal sealed class QuickActionsPageSource : ISettingsPageSource
 {
-    private const int QaActionsPerPage = 4;
+    /// <summary>
+    /// How many configured quick actions one List page holds. Bounded by the CONTENT HEIGHT
+    /// BUDGET, not by taste — and note the factor of two.
+    ///
+    /// <para>
+    /// Each action emits TWO rows, not one: an enable toggle (<c>qa_en_{id}</c>) and a Delete
+    /// button (<c>qa_del_{id}</c>). <c>SettingsWindow.CreateControl</c> centres every settings-row
+    /// button in a <c>LabelledRowMinHeight</c> (150 DIP) box, so an action costs 300 DIP and the
+    /// n-th action's two circles land at 75 + 300n and 225 + 300n. The content cell on the
+    /// 1920x1080 display this application is used on is 688 DIP, so it holds four rows — i.e.
+    /// TWO actions: circles at 75, 225, 375, 525, with 163 DIP to spare.
+    /// </para>
+    /// <para>
+    /// This was 4, which put EIGHT rows on a four-row page: the third action's Delete landed at
+    /// 825, the fourth's toggle at 975 and its Delete at 1125, all outside the cell. The content
+    /// area has NO ScrollViewer (SettingsWindow.xaml: "no ScrollViewer — paginated"), so those
+    /// were registered dwell targets over pixels the user could not look at — and one of them was
+    /// DELETE, a destructive control a gaze-only user could neither aim at nor avoid. Pre-existing
+    /// rather than a restyle regression: on main @ dd1baf5c the same page measured 992.00 against
+    /// a 796.00 budget. Issue #113.
+    /// </para>
+    /// <para>
+    /// 3 is not the answer: six rows is 900 DIP and puts the third action's pair at 675 and 825,
+    /// so its Delete is below the fold again. The two-rows-per-action factor is what forces an
+    /// even number here, and halving this to 2 is what the extra page-turn per pair buys.
+    /// </para>
+    /// <para>
+    /// **Nothing re-paginates these pages by height** — see <see cref="QaPresetsPerPage"/> for why
+    /// <see cref="PrefersAutoPagination"/> is false here. This constant IS the pagination, and it
+    /// is gated by
+    /// <c>HandChunkedPageFitTests.EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell</c>
+    /// over a fixture that seeds enough actions to build both a full page and a partial one.
+    /// </para>
+    /// </summary>
+    private const int QaActionsPerPage = 2;
 
     /// <summary>
     /// How many presets one picker page holds. Bounded by the CONTENT HEIGHT BUDGET, not by taste.

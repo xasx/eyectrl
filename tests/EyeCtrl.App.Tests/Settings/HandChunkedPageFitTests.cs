@@ -76,10 +76,10 @@ using Xunit;
 /// exception, so a probe built on it reports nothing at all and passes.
 /// </para>
 /// <para>
-/// **It is a RATCHET, not a pass/fail line.** Two of the offenders it finds predate this branch —
-/// measured on <c>main @ dd1baf5c</c>, not assumed — and fixing them means moving a row onto a
+/// **It is a RATCHET, not a pass/fail line.** The offender it still finds predates this branch —
+/// measured on <c>main @ dd1baf5c</c>, not assumed — and fixing it means moving a row onto a
 /// second page, i.e. buying reachability with an extra dwell page-turn for a gaze-only user. That
-/// is not the restyle's decision to make, so they are recorded in
+/// is not the restyle's decision to make, so it is recorded in
 /// <see cref="KnownUnreachableTargets"/> with their evidence and tracked under issue #113. The
 /// list is deliberately hard to grow AND hard to keep: a new unreachable target fails, and a
 /// listed one that becomes reachable ALSO fails, telling the reader to delete its entry. Without
@@ -231,10 +231,13 @@ public class HandChunkedPageFitTests
     }
 
     /// <summary>
-    /// How many quick actions the "configured" fixture seeds. Five, because
-    /// <c>QaActionsPerPage</c> is 4 and each action contributes TWO rows (an enable toggle and a
-    /// Delete button) — five actions is the smallest count that fills one action page and starts
-    /// a second, so both a full page and a partial one get measured.
+    /// How many quick actions the "configured" fixture seeds. Five, so that both a FULL action
+    /// page and a PARTIAL one get measured whatever <c>QaActionsPerPage</c> is set to: at its
+    /// current 2 that is pages of 2/2/1, and at the 4 it used to be it was 4/1. Deliberately not
+    /// pinned to the constant — a fixture derived from the value under test would follow it into
+    /// whatever new page shape a future change picks, and stop being an independent probe of it.
+    /// Each action contributes TWO rows (an enable toggle and a Delete button), which is the
+    /// factor that made 4 put eight rows on a four-row page (issue #113).
     /// </summary>
     private const int SeededActionCount = 5;
 
@@ -492,13 +495,15 @@ public class HandChunkedPageFitTests
     /// the set GROWING, not to bless it.
     /// </para>
     /// <para>
-    /// They are listed rather than fixed here because neither fix is a constant change. The List
-    /// config page holds six 150 DIP rows against a four-row cell, so a row has to move to a
-    /// second page; the per-action pages put EIGHT rows on a page because each action emits a
-    /// toggle AND a Delete button. Both fixes buy reachability with an extra dwell page-turn,
-    /// which is a decision about this application's only input channel and does not belong to the
-    /// restyle that merely exposed them. What the restyle DID regress is the preset pickers — 7 of
-    /// 7 circles reachable down to 5 of 7 — and that is fixed at source:
+    /// What is left is listed rather than fixed here because its fix is not a constant change:
+    /// the List config page holds six 150 DIP rows against a four-row cell, so a row has to move
+    /// to a second page (or Add has to move to the front), and either way the tab a gaze-only user
+    /// navigates every day gets reordered or gains a page-turn. That is a product decision, not
+    /// the restyle's to make. The per-action half that stood here IS fixed —
+    /// <c>QuickActionsPageSource.QaActionsPerPage</c> went 4 to 2, because two rows per action
+    /// meant a four-action page was eight rows and the third and fourth actions' DELETE buttons
+    /// were unaimable. What the restyle itself regressed was the preset pickers — 7 of 7 circles
+    /// reachable down to 5 of 7 — and that is fixed at source too:
     /// <c>QuickActionsPageSource.QaPresetsPerPage</c> is now 3.
     /// </para>
     /// <para>
@@ -519,23 +524,12 @@ public class HandChunkedPageFitTests
             + "fact narrowed it by 12.70 DIP. Pre-existing; tracked as issue #113. Two matches "
             + "because the config page is built under both fixtures."),
 
-        new("List", "qa_del_", true, 2,
-            "Delete buttons on the List view's per-action pages, whose ids carry a generated "
-            + "action GUID. QaActionsPerPage is 4, but each action emits TWO rows (an enable "
-            + "toggle and a Delete button), so an action page is 8 rows / 1200.00 DIP against the "
-            + "688.00 budget: the third action's Delete lands at 825.00 and the fourth's at "
-            + "1125.00. Pre-existing — on main @ dd1baf5c the same page measured 992.00 against "
-            + "796.00 (4 actions x (124 + 124)), already overflowing by 196.00. Per-row centres "
-            + "on main were NOT recorded, so nothing is claimed here about exactly which rows were "
-            + "below the fold there, only that some were. Tracked as issue #113."),
-
-        new("List", "qa_en_", true, 1,
-            "The enable toggle on the fourth action of a List per-action page, centre 975.00 "
-            + "against the 688.00 budget. Same 8-rows-per-page cause as the qa_del_ entry above, "
-            + "same main @ dd1baf5c 992.00-against-796.00 evidence, same issue #113. One match "
-            + "and not two, because the third action's toggle at 675.00 still fits: the fold runs "
-            + "THROUGH an action's pair of rows, which is why the two prefixes carry different "
-            + "counts."),
+        // The qa_del_ (2) and qa_en_ (1) entries that stood here are GONE, and their deletion was
+        // demanded by this file's own direction-2 assertion rather than chosen. QaActionsPerPage
+        // went 4 -> 2, so an action page is now 4 rows / 600.00 DIP against the 688.00 budget and
+        // every circle on it is reachable: 75.00, 225.00, 375.00, 525.00. Leaving the entries
+        // behind would have been exactly the stale cover the ratchet exists to prevent — a list
+        // still vouching for a bug that is fixed. Issue #113's per-action half is closed.
     ];
 
     /// <summary>Whether a ratchet entry accounts for a given view/id pair.</summary>

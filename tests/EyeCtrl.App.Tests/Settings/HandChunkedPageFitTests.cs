@@ -1,4 +1,4 @@
-namespace EyeCtrl.App.Tests.Settings;
+﻿namespace EyeCtrl.App.Tests.Settings;
 
 using System;
 using System.Collections.Generic;
@@ -76,14 +76,15 @@ using Xunit;
 /// exception, so a probe built on it reports nothing at all and passes.
 /// </para>
 /// <para>
-/// **It is a RATCHET, not a pass/fail line.** The offender it still finds predates this branch —
-/// measured on <c>main @ dd1baf5c</c>, not assumed — and fixing it means moving a row onto a
-/// second page, i.e. buying reachability with an extra dwell page-turn for a gaze-only user. That
-/// is not the restyle's decision to make, so it is recorded in
-/// <see cref="KnownUnreachableTargets"/> with their evidence and tracked under issue #113. The
-/// list is deliberately hard to grow AND hard to keep: a new unreachable target fails, and a
-/// listed one that becomes reachable ALSO fails, telling the reader to delete its entry. Without
-/// that second direction this would be a suppression list that quietly outlives the bug.
+/// **It is UNCONDITIONAL, and it did not start that way.** It was born a two-directional ratchet
+/// over three targets that were already unreachable before the restyle — <c>qa_add</c> on the
+/// quick-action List page, and the <c>qa_del_</c>/<c>qa_en_</c> rows on its per-action pages,
+/// each measured on <c>main @ dd1baf5c</c> rather than assumed. Fixing them meant reordering a
+/// tab or spending an extra dwell page-turn, which is a decision about this application's only
+/// input channel and was not the restyle's to take. All three are now fixed, and because the
+/// ratchet failed in BOTH directions it was the guard itself that demanded each entry's deletion
+/// as its bug closed. The list went with the last entry: see the retirement note above the guard
+/// for why an empty one would have been worse than none.
 /// </para>
 /// <para>
 /// Nothing is shown and no input is simulated: a detached element tree renders no window. No UI
@@ -109,9 +110,10 @@ public class HandChunkedPageFitTests
     /// <para>
     /// KNOWN GAP, recorded not solved: on a genuinely small display this tab therefore has
     /// unreachable dwell targets that no per-page constant can fix, and this guard will not see
-    /// them. It belongs to issue #113 along with the entries in
-    /// <see cref="KnownUnreachableTargets"/>; do not attempt it by widening the assertion here,
-    /// which would only make the guard unsatisfiable and invite its deletion.
+    /// them. It is the last part of issue #113 still open — the three targets that WERE tracked
+    /// here are fixed — and it is scoped out by display size, not by any exception list. Do not
+    /// attempt it by widening the assertion here, which would only make the guard unsatisfiable
+    /// and invite its deletion.
     /// </para>
     /// </summary>
     private const double DisplayWidthDip = 1920;
@@ -453,95 +455,36 @@ public class HandChunkedPageFitTests
             .That(undrivable).IsEmpty();
     }
 
-    // ────── The known-unreachable ratchet ──────
+    // ────── The known-unreachable ratchet: RETIRED, deliberately ──────
 
-    /// <summary>
-    /// One dwell target that is ALREADY unreachable and is being tracked rather than accepted.
-    ///
-    /// <para>
-    /// This is a ratchet entry, not a suppression. Its job is to stop the set GROWING while
-    /// issue #113's remaining half is outstanding, and to make itself deleted the moment the
-    /// underlying bug is fixed — see
-    /// <see cref="EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell"/>, which fails in
-    /// BOTH directions: an unlisted unreachable target fails, and a listed one that has become
-    /// reachable fails too. Same pattern as this repository's other censuses (the corner-radius
-    /// ratchet, <c>ContainerRatioCensusTests</c>).
-    /// </para>
-    /// </summary>
-    /// <param name="View">
-    /// The <c>QaView</c> the offending page belongs to. Keyed per view on purpose: a blanket
-    /// "ignore the List view" would let a genuinely NEW List regression through, which is the very
-    /// blindness this file exists to remove.
-    /// </param>
-    /// <param name="IdOrPrefix">The dwell id, or its prefix when the row's suffix is generated.</param>
-    /// <param name="IsPrefix">True to match <paramref name="IdOrPrefix"/> as a prefix.</param>
-    /// <param name="ExpectedMatches">
-    /// Exactly how many unreachable targets this entry accounts for across every fixture and page.
-    /// An EQUALITY, not a ceiling: a prefix entry would otherwise silently absorb a regression
-    /// that pushed three more action rows below the fold. Depends on
-    /// <see cref="SeededActionCount"/>, so a change there is a deliberate change here.
-    /// </param>
-    /// <param name="Evidence">Why this target predates the branch, with the numbers.</param>
-    private sealed record KnownUnreachable(
-        string View, string IdOrPrefix, bool IsPrefix, int ExpectedMatches, string Evidence);
+    // There was a KnownUnreachableTargets ratchet here — three entries, matched by id or prefix,
+    // asserted as an EQUALITY in both directions so that a new unreachable target failed AND a
+    // listed one that became reachable failed too. It held issue #113's three pre-existing
+    // offenders: qa_add on the List config page, and the qa_del_/qa_en_ rows on the per-action
+    // pages. All three are fixed at source (QuickActionsPageSource: QaActionsPerPage 4 -> 2, and
+    // the config rows chunked at QaConfigRowsPerPage with qa_add leading), and it was this file's
+    // own direction-2 assertion that demanded each entry's deletion as its bug was closed —
+    // "the count went DOWN, that row is REACHABLE again".
+    //
+    // The machinery is gone with the last entry rather than left behind holding an empty array,
+    // and that is the point. An empty ratchet still compiles into somewhere to PUT a failure: the
+    // next person to break a page could add an entry and go green, and the file's own remarks
+    // would read as licence to. With it gone the assertion below is unconditional, so the only
+    // way past a failure is to fix the page or to rebuild this mechanism on purpose — a visible
+    // act, in a diff someone reviews. That is strictly the stronger guard, and it is the state
+    // this file was always meant to reach.
+    //
+    // If a genuinely pre-existing unreachable target is ever found again, the pattern is worth
+    // restoring rather than reinventing: git log this file back past issue #113. What made it
+    // work was the equality (a ceiling would let a prefix entry absorb three more broken rows in
+    // silence), the per-view key (a blanket "ignore the List view" would blind the guard to a
+    // real regression), and the requirement that every entry carry the measurement proving it
+    // predates the change that exposed it — the first draft of that list claimed these were
+    // restyle regressions, and measurement showed they were not.
+    //
+    // NOT retired: the narrow-display gap in DisplayWidthDip's remarks. That one is scoped out by
+    // display size, never by this list, and it is still open on issue #113.
 
-    /// <summary>
-    /// The dwell targets that were ALREADY below the fold before this branch, each with the
-    /// measurement that establishes it.
-    ///
-    /// <para>
-    /// **These are known bugs being TRACKED, not accepted.** Every entry is a setting a gaze-only
-    /// user cannot reach, and all of them belong to issue #113. The purpose of the list is to stop
-    /// the set GROWING, not to bless it.
-    /// </para>
-    /// <para>
-    /// What is left is listed rather than fixed here because its fix is not a constant change:
-    /// the List config page holds six 150 DIP rows against a four-row cell, so a row has to move
-    /// to a second page (or Add has to move to the front), and either way the tab a gaze-only user
-    /// navigates every day gets reordered or gains a page-turn. That is a product decision, not
-    /// the restyle's to make. The per-action half that stood here IS fixed —
-    /// <c>QuickActionsPageSource.QaActionsPerPage</c> went 4 to 2, because two rows per action
-    /// meant a four-action page was eight rows and the third and fourth actions' DELETE buttons
-    /// were unaimable. What the restyle itself regressed was the preset pickers — 7 of 7 circles
-    /// reachable down to 5 of 7 — and that is fixed at source too:
-    /// <c>QuickActionsPageSource.QaPresetsPerPage</c> is now 3.
-    /// </para>
-    /// <para>
-    /// Every "pre-existing" claim below was measured on <c>main @ dd1baf5c</c> through this same
-    /// harness before the entry was written. It is a claim that has to be measured, not assumed —
-    /// the first draft of this guard asserted these were regressions of the restyle, and they are
-    /// not.
-    /// </para>
-    /// </summary>
-    private static readonly KnownUnreachable[] KnownUnreachableTargets =
-    [
-        new("List", "qa_add", false, 2,
-            "The Quick Actions tab's \"Add action\" button, on the List view's config page. "
-            + "Centre 825.00 against this branch's 688.00 budget — 137.00 DIP below the fold. On "
-            + "main @ dd1baf5c it was WORSE: that List page measured 1019.70 against a 796.00 "
-            + "budget (no page header, non-uniform row pitch) and put this circle at 945.70, "
-            + "149.70 DIP below the fold. So the two-column restyle did not cause this and in "
-            + "fact narrowed it by 12.70 DIP. Pre-existing; tracked as issue #113. Two matches "
-            + "because the config page is built under both fixtures."),
-
-        // The qa_del_ (2) and qa_en_ (1) entries that stood here are GONE, and their deletion was
-        // demanded by this file's own direction-2 assertion rather than chosen. QaActionsPerPage
-        // went 4 -> 2, so an action page is now 4 rows / 600.00 DIP against the 688.00 budget and
-        // every circle on it is reachable: 75.00, 225.00, 375.00, 525.00. Leaving the entries
-        // behind would have been exactly the stale cover the ratchet exists to prevent — a list
-        // still vouching for a bug that is fixed. Issue #113's per-action half is closed.
-    ];
-
-    /// <summary>Whether a ratchet entry accounts for a given view/id pair.</summary>
-    /// <param name="known">The ratchet entry.</param>
-    /// <param name="view">The view the page came from.</param>
-    /// <param name="dwellId">The unreachable target's dwell id.</param>
-    /// <returns>True when the entry covers it.</returns>
-    private static bool Covers(KnownUnreachable known, string view, string dwellId) =>
-        known.View == view
-        && (known.IsPrefix
-            ? dwellId.StartsWith(known.IdOrPrefix, StringComparison.Ordinal)
-            : string.Equals(dwellId, known.IdOrPrefix, StringComparison.Ordinal));
 
     // ────── The guard ──────
 
@@ -561,8 +504,8 @@ public class HandChunkedPageFitTests
     /// <summary>
     /// The invariant: on every page every hand-chunked source emits, in every sub-view, under
     /// every fixture, each registered dwell circle's arranged centre sits inside the content
-    /// height budget — except the entries in <see cref="KnownUnreachableTargets"/>, which are
-    /// ratcheted in BOTH directions.
+    /// height budget. No exceptions and nowhere to record one — see the retirement note above the
+    /// guard for why the ratchet that used to carry three is gone.
     /// </summary>
     [StaFact]
     public void EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell()
@@ -603,60 +546,29 @@ public class HandChunkedPageFitTests
             + "{4} pages checked)",
             budget, DisplayWidthDip, DisplayHeightDip, columnWidth, pagesChecked);
 
-        // ── Direction 1: nothing NEW may fall below the fold. ──
-        var matches = new int[KnownUnreachableTargets.Length];
-        var regressions = new List<Offender>();
-        foreach (var offender in offenders)
-        {
-            var known = Array.FindIndex(
-                KnownUnreachableTargets, k => Covers(k, offender.View, offender.DwellId));
-            if (known < 0) regressions.Add(offender);
-            else matches[known]++;
-        }
-
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
-                "These dwell circles are registered BELOW the content cell and are NOT on the "
-                + "known-unreachable list {0}:{1}{2}{1}"
+                "These dwell circles are registered BELOW the content cell {0}:{1}{2}{1}"
                 + "The content area has no ScrollViewer, so a circle past the fold cannot be "
                 + "looked at — the setting is registered and unreachable, which for a gaze-only "
                 + "user is the same as gone. These pages are HAND-CHUNKED: their source returns "
                 + "PrefersAutoPagination == false, so MaybeRepaginateByHeight passes them through "
                 + "untouched and no amount of chunker fixing helps. Reduce the source's own "
-                + "per-page count (QuickActionsPageSource.QaPresetsPerPage) until the last circle "
-                + "fits, or make the source opt in to auto-pagination if its page boundaries "
+                + "per-page count (QuickActionsPageSource.QaConfigRowsPerPage, QaActionsPerPage "
+                + "or QaPresetsPerPage — mind that an ACTION contributes two rows, a toggle and a "
+                + "Delete) until the last circle fits, reorder the rows so the ones that matter "
+                + "lead, or make the source opt in to auto-pagination if its page boundaries "
                 + "carry no navigation semantics. Do NOT relax this into a page-height check: see "
                 + "this class's remarks for why the type picker legitimately overflows its cell "
-                + "while every one of its circles stays reachable. And do NOT add these to "
-                + "KnownUnreachableTargets to go green — that list is for targets MEASURED to "
-                + "predate the layout that broke them, not somewhere to put today's regression.",
+                + "while every one of its circles stays reachable. And there is deliberately no "
+                + "known-unreachable list to add these to — the ratchet that held issue #113's "
+                + "three offenders was retired WITH them, precisely so that a failure here has "
+                + "nowhere to go but a fix. Reintroducing one is a decision to argue for in a "
+                + "diff, not a way to go green.",
                 context, Environment.NewLine,
-                string.Join(Environment.NewLine, regressions.Select(o => o.Describe()))))
-            .That(regressions).IsEmpty();
+                string.Join(Environment.NewLine, offenders.Select(o => o.Describe()))))
+            .That(offenders).IsEmpty();
 
-        // ── Direction 2: the list may not rot into permanent cover. ──
-        // An EQUALITY, checked both ways. Fewer matches than recorded means a tracked bug was
-        // (partly) fixed and the entry is now stale cover; more means the same bug grew.
-        for (var i = 0; i < KnownUnreachableTargets.Length; i++)
-        {
-            var known = KnownUnreachableTargets[i];
-            Check.WithCustomMessage(string.Format(
-                    CultureInfo.InvariantCulture,
-                    "KnownUnreachableTargets entry {0} — view \"{1}\", id {2}\"{3}\" — records "
-                    + "{4} unreachable target(s), but {5} were found {6}.{7}{7}"
-                    + "If the count went DOWN, that row is REACHABLE again: delete this entry (or "
-                    + "lower its count) so the list cannot go on granting cover to a bug that is "
-                    + "already fixed. That is the half of this ratchet which stops it degenerating "
-                    + "into a suppression list, and issue #113's remaining work is expected to "
-                    + "empty it entirely. If the count went UP, the same known bug got WORSE — "
-                    + "more rows of that kind are now below the fold, and raising the number here "
-                    + "is not the fix.{7}{7}"
-                    + "Entry evidence: {8}",
-                    i, known.View, known.IsPrefix ? "prefix " : string.Empty, known.IdOrPrefix,
-                    known.ExpectedMatches, matches[i], context, Environment.NewLine,
-                    known.Evidence))
-                .That(matches[i]).IsEqualTo(known.ExpectedMatches);
-        }
 
         Check.WithCustomMessage(
                 "No hand-chunked page was measured at all. The sources were discovered and "

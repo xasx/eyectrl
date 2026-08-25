@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
+using System;
+using System.Linq;
 using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Interfaces;
@@ -165,14 +167,24 @@ public class SettingsPageSourceCallbackTests
         Check.That(editor.Actions.Count).IsStrictlyGreaterThan(before);
         Check.That(editor.Actions[^1].Type).IsEqualTo(QuickActionType.KeyboardShortcut);
 
-        // Back transition: re-enter the picker, invoke qa_back, and Build() must return the list
-        // page (whose first row is the qa_enabled toggle, not a qa_back button).
+        // Back transition: re-enter the picker, invoke qa_back, and Build() must return the LIST
+        // page rather than the picker it came from.
+        //
+        // The two properties are asserted directly — no qa_back button, and the config rows are
+        // there — rather than inferred from whichever row happens to be first. This used to read
+        // ((ToggleSpec)Rows[0]).Id == "qa_enabled", which coupled a view-transition test to the
+        // config page's ROW ORDER and broke the day qa_add moved to the front to get its dwell
+        // circle above the fold (issue #113). Row order is QuickActionsPageSourceTests' business;
+        // what belongs here is only which view Build() returned.
         src.GoTo(QuickActionsPageSource.QaView.PickShortcut);
         var back = src.Build().First().Rows.OfType<ButtonSpec>()
             .First(b => b.Id.StartsWith("qa_back"));
         back.OnActivate();
-        var firstRow = src.Build().First().Rows[0];
-        Check.That(((ToggleSpec)firstRow).Id).IsEqualTo("qa_enabled");
+
+        var listPage = src.Build().First().Rows;
+        Check.That(listPage.OfType<ButtonSpec>().Select(b => b.Id))
+            .Not.HasElementThatMatches(id => id.StartsWith("qa_back", StringComparison.Ordinal));
+        Check.That(listPage.OfType<ToggleSpec>().Select(t => t.Id)).Contains("qa_enabled");
     }
 
     // 7. DiagnosticsPageSource toggles — each saves and, critically, does NOT rebuild.

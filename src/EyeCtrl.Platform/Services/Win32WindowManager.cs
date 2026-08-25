@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Platform.Input;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Win32-backed implementation of <see cref="IWindowManager"/> that enumerates
@@ -13,6 +14,15 @@ using EyeCtrl.Platform.Input;
 /// </summary>
 public class Win32WindowManager : IWindowManager
 {
+    private readonly ILogger<Win32WindowManager> _logger;
+
+    /// <summary>Creates the window manager.</summary>
+    /// <param name="logger">Records why a switch failed — see <see cref="BringToFront"/>.</param>
+    public Win32WindowManager(ILogger<Win32WindowManager> logger)
+    {
+        _logger = logger;
+    }
+
     /// <summary>
     /// Enumerates the currently open top-level windows on the desktop.
     /// Excludes invisible windows, tool windows (such as EyeCtrl's own overlays,
@@ -143,15 +153,48 @@ public class Win32WindowManager : IWindowManager
                 }
             }
         };
-        NativeMethods.SendInput((uint)altTap.Length, altTap, Marshal.SizeOf<NativeMethods.INPUT>());
+        var injected = NativeMethods.SendInput(
+            (uint)altTap.Length, altTap, Marshal.SizeOf<NativeMethods.INPUT>());
+        // Read only when the grant came up short: GetLastPInvokeError is undefined after a call
+        // that succeeded, and a meaningless code in a diagnostic log is worse than no code.
+        var grantError = injected < (uint)altTap.Length ? Marshal.GetLastPInvokeError() : 0;
         var ok = NativeMethods.SetForegroundWindow(hwnd);
-        if (ok) return;
+
+        // Both previous failures of this path were reported as bare symptoms — "tasks are not
+        // dwellable" (2026-08-18) and "the alt key seems stuck" (2026-08-25) — and each cost a
+        // diagnosis round, because the two calls that can fail here threw away everything they
+        // knew. The log line is the whole point: a gaze-only user cannot bisect this by hand.
+        // Named arguments: both counts are uint, so a swap would invert the diagnosis silently.
+        var outcome = ForegroundSwitchDiagnosis.Classify(new ForegroundSwitchAttempt(
+            InjectedInputs: injected,
+            ExpectedInputs: (uint)altTap.Length,
+            SetForegroundSucceeded: ok));
+        if (outcome == ForegroundSwitchOutcome.Switched)
+        {
+            _logger.LogInformation("Task switcher brought window {Hwnd} to the foreground.", hwnd);
+            return;
+        }
+
+        // The title is the diagnostic payload on this path: last time, which apps failed
+        // (WhatsApp, Claude — all minimized) against which worked (Edge, Word) was the finding.
+        _logger.LogWarning(
+            "Task switcher could not foreground window {Hwnd} ({Title}): {Outcome}. "
+            + "SendInput accepted {Injected}/{Expected} events (error {GrantError}); "
+            + "falling back to a minimize/restore toggle.",
+            hwnd, DescribeWindow(hwnd), outcome, injected, altTap.Length, grantError);
 
         // Rare fallback when even the grant is denied: a minimize/restore toggle moves the
         // window through a shell-honored state change that also brings it forward.
         NativeMethods.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
         NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
     }
+
+    /// <summary>
+    /// Window title for a log line, or "no title" when the handle no longer names a candidate
+    /// window — a window that vanished mid-switch is itself a diagnosis worth reading.
+    /// </summary>
+    private static string DescribeWindow(IntPtr hwnd)
+        => IsCandidateWindow(hwnd, out var title) ? title : "no title";
 
     /// <inheritdoc />
     public IntPtr? TryGetEligibleForegroundWindow()

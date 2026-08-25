@@ -107,6 +107,38 @@ public class TaskSwitcherDwellPositionTests
     }
 
     /// <summary>
+    /// Source-scan pin: <c>BringToFront</c> must keep what its two fallible calls return and
+    /// log the classified outcome. Both failures of this path so far arrived as bare symptoms
+    /// — "tasks are not dwellable" (2026-08-18) and "the alt key seems stuck" (2026-08-25) —
+    /// and each cost a diagnosis round, because SendInput's accepted count and
+    /// SetForegroundWindow's bool were both discarded. A gaze-only user cannot bisect this by
+    /// hand; the log line is the only evidence the next report will carry.
+    /// </summary>
+    [Fact]
+    public void BringToFront_Logs_WhyASwitchFailed()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.Platform", "Services", "Win32WindowManager.cs"));
+        var body = ExtractMethod(source, "public void BringToFront(IntPtr hwnd)");
+
+        Check.WithCustomMessage(
+                "SendInput's return is the only signal that the ALT grant was refused (UIPI "
+                + "silently drops injection into an elevated foreground window). Discarding it "
+                + "makes GrantBlocked indistinguishable from SwitchRefused in the field.")
+            .That(body.Contains("= NativeMethods.SendInput")).IsTrue();
+        Check.WithCustomMessage(
+                "The outcome must go through ForegroundSwitchDiagnosis.Classify — the pure "
+                + "classifier is where the three field-distinguishable causes are defined and "
+                + "unit-tested.")
+            .That(body.Contains("ForegroundSwitchDiagnosis.Classify")).IsTrue();
+        Check.WithCustomMessage(
+                "A failed switch must be logged at Warning. Below Warning it is invisible in "
+                + "the shipped build (Serilog's minimum level is Information, and a silent "
+                + "failure here is exactly what cost the last two diagnosis rounds).")
+            .That(body.Contains("_logger.LogWarning")).IsTrue();
+    }
+
+    /// <summary>
     /// Source-scan pin: while the fullscreen switcher is up, the toolbar underneath must be
     /// dwell-deactivated — dwell has no z-order, so a top-row tile dwell would also fire the
     /// toolbar button under it (2026-08-18 field report). On close, reactivation must be

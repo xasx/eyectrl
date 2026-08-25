@@ -177,9 +177,6 @@ internal static partial class NativeMethods
     // ApplicationFrameWindow ghosts) — visible + top-level to EnumWindows but not really shown.
     internal const int DWMWA_CLOAKED = 14;
 
-    [LibraryImport("user32.dll")]
-    internal static partial void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-
     // ShowWindow nCmdShow values + WM_CLOSE for the Quick Actions toolbar's window-management actions.
     internal const int SW_MINIMIZE = 6;
     internal const int SW_MAXIMIZE = 3;

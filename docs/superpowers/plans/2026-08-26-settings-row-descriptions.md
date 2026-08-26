@@ -1,6 +1,6 @@
 # Settings Row Descriptions Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Give every describable settings row on the ten auto-paginated tabs a short, truthful description, and gate against bare rows — plus fix the two dwell slider minima that can crash the app.
 
@@ -49,7 +49,7 @@
 - Consumes: `DwellPageSource(SettingsPageContext)`, `TestSettingsPageContext.Build()`, `SliderSpec` positional record (`Min`, `Max` properties).
 - Produces: `Dwell_SliderSpans_StayInsideTheValidatedRanges` fact; slider spans `d_fix` 100–500, `d_cooldown` 100–1000 that Tasks 2 and 5 see.
 
-- [ ] **Step 1: Run impact, then write the failing test**
+- [x] **Step 1: Run impact, then write the failing test**
 
 Run GitNexus `impact({target:"DwellPageSource.Build", direction:"upstream", repo:"eyectrl"})` — confirm LOW, then append this fact to `DwellSelectionKeyboardToolbarPageSourceTests`:
 
@@ -81,18 +81,18 @@ public void Dwell_SliderSpans_StayInsideTheValidatedRanges()
     Check.That(sliders).HasSize(guards.Count);
     foreach (var (id, guard) in guards)
     {
-        Check.That(sliders[id].Min).IsGreaterThanOrEqualTo(guard.Min);
-        Check.That(sliders[id].Max).IsLessThanOrEqualTo(guard.Max);
+            Check.That(sliders[id].Min).IsGreaterOrEqualThan(guard.Min);
+            Check.That(sliders[id].Max).IsLessOrEqualThan(guard.Max);
     }
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~DwellSelectionKeyboardToolbarPageSourceTests"`
 Expected: FAIL — `d_fix` Min is 50 (guard floor 100) and `d_cooldown` Min is 0 (guard floor 100). This class is safe to run in isolation (it builds no overlay XAML).
 
-- [ ] **Step 3: Fix the two minima**
+- [x] **Step 3: Fix the two minima**
 
 In `DwellPageSource.cs`, change the `d_fix` construction (line 16) from `50, 500, 25, 0` to:
 
@@ -108,12 +108,12 @@ new SliderSpec("d_cooldown", "Dwell Cooldown (ms)", 100, 1000, 50, 0,
 
 Both minimums land on-step (step 25 and step 50 respectively). Change nothing else — descriptions come in Task 2.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
 Expected: PASS, 609 total (608 + the new fact).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs tests/EyeCtrl.App.Tests/Settings/Pages/DwellSelectionKeyboardToolbarPageSourceTests.cs
@@ -139,9 +139,9 @@ the guard floor (100), pinned by a range-vs-guard test."
 - Consumes: `SettingsRowSpec.Description { get; init; }` — attach as `{ Description = "..." }` after each construction's argument list, before the comma.
 - Produces: described rows Tasks 5's gate consumes.
 
-- [ ] **Step 1: Run impact on the three `Build()` methods** (expected LOW for each).
+- [x] **Step 1: Run impact on the three `Build()` methods** (expected LOW for each).
 
-- [ ] **Step 2: Add the Dwell descriptions**
+- [x] **Step 2: Add the Dwell descriptions**
 
 Each construction in `DwellPageSource.Build()` now reads (copy verbatim; delegates unchanged — only the initializer is new; `d_fix`/`d_cooldown` carry Task 1's minima):
 
@@ -177,7 +177,7 @@ new SliderSpec("d_cooldown", "Dwell Cooldown (ms)", 100, 1000, 50, 0,
 
 The `d_reset` ButtonSpec is untouched (buttons render no description).
 
-- [ ] **Step 3: Add the Selection descriptions**
+- [x] **Step 3: Add the Selection descriptions**
 
 In `SelectionPageSource.Build()`:
 
@@ -211,7 +211,7 @@ new SliderSpec("s_snapRadius", "Snap Search Radius (px)", 16, 96, 16, 0,
 
 Keep the existing step-16 comment above `s_snapRadius` — it documents the stepping, not the copy.
 
-- [ ] **Step 4: Add the Layout description**
+- [x] **Step 4: Add the Layout description**
 
 In `LayoutPageSource.Build()`:
 
@@ -223,12 +223,12 @@ new ComboBoxSpec("lay_pos", "Position",
     { Description = "The action menu and magnifier: at your gaze, or centred." },
 ```
 
-- [ ] **Step 5: Build and run the tests**
+- [x] **Step 5: Build and run the tests**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
-Expected: PASS, 609 total (descriptions change no behavior; the wrap census in the spec says ~13 of these 17 wrap to two lines, which is harmless inside the 150 DIP row box).
+Expected: PASS, 609 total (descriptions change no behavior; some lines wrap to two lines, which is harmless inside the 150 DIP row box).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs src/EyeCtrl.App/Views/Settings/Sources/LayoutPageSource.cs
@@ -247,9 +247,9 @@ git commit -m "feat(settings): describe the dwell, selection and layout rows"
 - Consumes: `ToggleSpec`, `ComboBoxSpec`, `Description` init; the existing `FriendlyName` switch.
 - Produces: `ActionDescription(InteractionAction)` private static method (exhaustive switch, no null fallback — a new enum member must throw, so the completeness gate and this switch both force copy).
 
-- [ ] **Step 1: Run impact on both `Build()` methods** (expected LOW).
+- [x] **Step 1: Run impact on both `Build()` methods** (expected LOW).
 
-- [ ] **Step 2: Add the ActionDescription switch and attach it**
+- [x] **Step 2: Add the ActionDescription switch and attach it**
 
 Add beside `FriendlyName` in `ActionMenuPageSource`:
 
@@ -289,7 +289,7 @@ rows.Add(new ToggleSpec(
     { Description = ActionDescription(captured) });
 ```
 
-- [ ] **Step 3: Add the Models description**
+- [x] **Step 3: Add the Models description**
 
 In `ModelsPageSource.Build()`, the `md_active` combo gets:
 
@@ -301,12 +301,12 @@ page1.Add(new ComboBoxSpec("md_active", "Active Model",
     { Description = "Which model powers predictions; Off keeps dictionary words." });
 ```
 
-- [ ] **Step 4: Build and run the tests**
+- [x] **Step 4: Build and run the tests**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
 Expected: PASS, 609 total.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Views/Settings/Sources/ActionMenuPageSource.cs src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs
@@ -327,9 +327,9 @@ git commit -m "feat(settings): describe the action menu and models rows"
 - Consumes: `Description` init.
 - Produces: described rows Task 5's gate consumes. After this task all 45 rows are described.
 
-- [ ] **Step 1: Run impact on the four `Build()` methods** (expected LOW).
+- [x] **Step 1: Run impact on the four `Build()` methods** (expected LOW).
 
-- [ ] **Step 2: Keyboard** — attach in `KeyboardPageSource.Build()`:
+- [x] **Step 2: Keyboard** — attach in `KeyboardPageSource.Build()`:
 
 ```csharp
 new ComboBoxSpec("k_layout", "Active Layout",
@@ -357,7 +357,7 @@ new ComboBoxSpec("k_edge", "Screen Edge",
     { Description = "The screen edge the keyboard docks to." },
 ```
 
-- [ ] **Step 3: Toolbar**:
+- [x] **Step 3: Toolbar**:
 
 ```csharp
 new ToggleSpec("t_dock", "Dock to Screen Edge",
@@ -374,7 +374,7 @@ new SliderSpec("t_size", "Button Size", 32, 120, 4, 0,
 
 (`t_size`'s 32–120 span stays as is — the 40–200 mismatch is recorded in the spec's Observations and deliberately not fixed here.)
 
-- [ ] **Step 4: Calibration**:
+- [x] **Step 4: Calibration**:
 
 ```csharp
 new SliderSpec("cal_points", "Calibration Points", 3, 16, 1, 0,
@@ -391,7 +391,7 @@ new SliderSpec("cal_settle", "Settle Window (ms)", 0, 500, 25, 0,
     { Description = "Time at a target before its samples start counting." },
 ```
 
-- [ ] **Step 5: General**:
+- [x] **Step 5: General**:
 
 ```csharp
 new ComboBoxSpec("g_theme", "Theme (restart to apply)",
@@ -409,12 +409,12 @@ new ToggleSpec("g_track", "Show Track Status",
     { Description = "A corner box showing live eye-tracker status." },
 ```
 
-- [ ] **Step 6: Build and run the tests**
+- [x] **Step 6: Build and run the tests**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
 Expected: PASS, 609 total.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs src/EyeCtrl.App/Views/Settings/Sources/ToolbarPageSource.cs src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs
@@ -432,7 +432,7 @@ git commit -m "feat(settings): describe the keyboard, toolbar, calibration and g
 - Consumes: all ten covered page sources; `TestSettingsPageContext.Build` (registry must be passed for Models — it is null-forgiven); `ModelTestFakes.Create()` + `WithDownloadedBundled()`; `ISettingsPageSource.Build()` → `PageSpec.Rows`.
 - Produces: the drift gate future settings development must keep green.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```csharp
 namespace EyeCtrl.App.Tests.Settings.Pages;
@@ -490,19 +490,19 @@ public class SettingsRowDescriptionCompletenessTests
 }
 ```
 
-- [ ] **Step 2: Verify the test detects bareness (red-check), then passes**
+- [x] **Step 2: Verify the test detects bareness (red-check), then passes**
 
 Temporarily delete the `Description` initializer from one row (say `k_size`), run:
 `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsRowDescriptionCompletenessTests"`
 Expected: FAIL naming `KeyboardPageSource:k_size`. Restore the initializer, re-run.
 Expected: PASS.
 
-- [ ] **Step 3: Full branch verification**
+- [x] **Step 3: Full branch verification**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"` — Expected: PASS, 610 total (608 baseline + range-vs-guard + completeness).
 Run GitNexus `detect_changes({scope:"compare", base_ref:"main", repo:"eyectrl", worktree:"C:\\Users\\andre\\source\\repos\\eyectrl\\.worktrees\\settings-descriptions"})` — expected: changed symbols confined to the ten page-source `Build()` methods; no processes affected beyond settings rendering.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/EyeCtrl.App.Tests/Settings/Pages/SettingsRowDescriptionCompletenessTests.cs

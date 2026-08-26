@@ -4,7 +4,9 @@ using EyeCtrl.App.Views.Settings;
 
 /// <summary>
 /// Same contract as Dwell_SliderSpans_StayInsideTheValidatedRanges in
-/// DwellSelectionKeyboardToolbarPageSourceTests, widened to every other tab: a settings slider
+/// DwellSelectionKeyboardToolbarPageSourceTests, widened to every settings slider outside
+/// the Dwell tab (which that test pins itself): every slider-bearing tab — Toolbar,
+/// Selection, Keyboard, Calibration, Cursor, Quick Actions. A settings slider
 /// must never offer a value its Core guard (OnXxxChanging or Validate) rejects. Two failure
 /// modes make this load-bearing: setter guards throw on the UI thread (crash); Validate-only
 /// guards like ToolbarSettings.Size throw inside SettingsService.Save, which SaveDebounced
@@ -12,6 +14,8 @@ using EyeCtrl.App.Views.Settings;
 /// restated from the Core classes so moving either side fails loudly here.
 /// s_grace (Grace Period) is deliberately not span-pinned: ManualSelectionSettings guards
 /// neither the setter nor Validate for it — there is no guard to stay inside.
+/// The Quick Actions sliders live in the default List view — the GoTo sub-views are pickers
+/// with no sliders — so a freshly constructed source reaches them without navigation.
 /// </summary>
 public class SettingsSliderSpanGuardTests
 {
@@ -56,11 +60,33 @@ public class SettingsSliderSpanGuardTests
         SpanInside(sliders, "cal_settle", 0, 500);
     }
 
+    [Fact]
+    public void Cursor_SliderSpans_StayInsideTheValidatedRanges()
+    {
+        var sliders = Sliders(new CursorPageSource(TestSettingsPageContext.Build()));
+        Check.That(sliders).HasSize(3);
+        SpanInside(sliders, "c_smooth", 0.0, 1.0);
+        SpanInside(sliders, "c_opacity", 0.0, 1.0);
+        SpanInside(sliders, "c_thick", 1.0, 10.0);
+    }
+
+    [Fact]
+    public void QuickActions_SliderSpans_StayInsideTheValidatedRanges()
+    {
+        var sliders = Sliders(new QuickActionsPageSource(
+            TestSettingsPageContext.Build(viewModel: QaTestSupport.MakeViewModel())));
+        Check.That(sliders).HasSize(3);
+        SpanInside(sliders, "qa_summon", 200, 2000);
+        SpanInside(sliders, "qa_dismiss", 1000, 15000);
+        SpanInside(sliders, "qa_columns", 2, 5);
+    }
+
     private static Dictionary<string, SliderSpec> Sliders(ISettingsPageSource source) =>
         source.Build().SelectMany(p => p.Rows).OfType<SliderSpec>().ToDictionary(s => s.Id);
 
     private static void SpanInside(Dictionary<string, SliderSpec> sliders, string id, double min, double max)
     {
+        Check.That(sliders).ContainsKey(id);
         Check.That(sliders[id].Min).IsGreaterOrEqualThan(min);
         Check.That(sliders[id].Max).IsLessOrEqualThan(max);
     }

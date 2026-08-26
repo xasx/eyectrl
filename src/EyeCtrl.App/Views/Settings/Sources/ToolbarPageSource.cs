@@ -20,7 +20,7 @@ internal sealed class ToolbarPageSource : ISettingsPageSource
                     new[] { "Top", "Bottom", "Left", "Right" }, null,
                     () => t.DockedEdge, v => { t.DockedEdge = v; _ctx.ApplyAndSave(); })
                     { Description = "Which screen edge the toolbar attaches to." },
-                new SliderSpec("t_size", "Button Size", 32, 120, 4, 0,
+                new SliderSpec("t_size", "Button Size", 40, 120, 4, 0,
                     () => t.Size, v => { t.Size = v; _ctx.ApplyAndSave(); })
                     { Description = "Size of each button; bigger ones are easier to aim at." },
                 new ButtonSpec("t_reset", "Reset Toolbar Settings",

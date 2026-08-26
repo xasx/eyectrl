@@ -17,13 +17,17 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
         [
             new PageSpec([
                 new SliderSpec("cal_points", "Calibration Points", 3, 16, 1, 0,
-                    () => cal.PointCount, v => { cal.PointCount = (int)v; _ctx.ApplyAndSave(); }),
+                    () => cal.PointCount, v => { cal.PointCount = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How many points the calibration run visits." },
                 new SliderSpec("cal_samples", "Samples per Point", 5, 100, 5, 0,
-                    () => cal.SamplesPerPoint, v => { cal.SamplesPerPoint = (int)v; _ctx.ApplyAndSave(); }),
+                    () => cal.SamplesPerPoint, v => { cal.SamplesPerPoint = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "Gaze samples gathered at each calibration point." },
                 new SliderSpec("cal_hold", "Target Hold (ms)", 200, 3000, 100, 0,
-                    () => cal.TargetHoldMs, v => { cal.TargetHoldMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => cal.TargetHoldMs, v => { cal.TargetHoldMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "Each target stays on screen at least this long." },
                 new SliderSpec("cal_settle", "Settle Window (ms)", 0, 500, 25, 0,
-                    () => cal.SettleWindowMs, v => { cal.SettleWindowMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => cal.SettleWindowMs, v => { cal.SettleWindowMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "Time at a target before its samples start counting." },
             ]),
             new PageSpec([
                 new LabelSpec(StatusText),

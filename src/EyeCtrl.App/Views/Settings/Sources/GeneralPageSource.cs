@@ -19,13 +19,17 @@ internal sealed class GeneralPageSource : ISettingsPageSource
             new PageSpec([
                 new ComboBoxSpec("g_theme", "Theme (restart to apply)",
                     Core.Settings.ThemeSettings.ValidNames, null,
-                    () => s.Theme.Name, v => { s.Theme.Name = v; _ctx.ApplyAndSave(); }),
+                    () => s.Theme.Name, v => { s.Theme.Name = v; _ctx.ApplyAndSave(); })
+                    { Description = "All three are dark; Contrast is the boldest." },
                 new ToggleSpec("g_boot", "Start on Windows Boot",
-                    () => s.General.StartOnBoot, v => { s.General.StartOnBoot = v; _ctx.ApplyAndSave(); }),
+                    () => s.General.StartOnBoot, v => { s.General.StartOnBoot = v; _ctx.ApplyAndSave(); })
+                    { Description = "Opens EyeCtrl automatically when you sign in." },
                 new ToggleSpec("g_pause", "Start Paused",
-                    () => s.General.StartPaused, v => { s.General.StartPaused = v; _ctx.ApplyAndSave(); }),
+                    () => s.General.StartPaused, v => { s.General.StartPaused = v; _ctx.ApplyAndSave(); })
+                    { Description = "Starts with tracking paused until you switch it on." },
                 new ToggleSpec("g_track", "Show Track Status",
-                    () => s.TrackStatus.Enabled, v => { s.TrackStatus.Enabled = v; _ctx.ApplyAndSave(); }),
+                    () => s.TrackStatus.Enabled, v => { s.TrackStatus.Enabled = v; _ctx.ApplyAndSave(); })
+                    { Description = "A corner box showing live eye-tracker status." },
                 new ButtonSpec("g_restart", "↻ Restart Now", OnRestart, ButtonKind.Reset, Width: 300, Height: 100),
                 new ButtonSpec("g_reset", "Reset General Settings",
                     () => _ctx.ShowModal("Reset General settings to defaults?", () =>

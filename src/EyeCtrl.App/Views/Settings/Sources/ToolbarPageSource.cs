@@ -14,12 +14,15 @@ internal sealed class ToolbarPageSource : ISettingsPageSource
         [
             new PageSpec([
                 new ToggleSpec("t_dock", "Dock to Screen Edge",
-                    () => t.IsDocked, v => { t.IsDocked = v; _ctx.ApplyAndSave(); }),
+                    () => t.IsDocked, v => { t.IsDocked = v; _ctx.ApplyAndSave(); })
+                    { Description = "Docks the toolbar to an edge, where it auto-hides." },
                 new ComboBoxSpec("t_edge", "Docked Edge",
                     new[] { "Top", "Bottom", "Left", "Right" }, null,
-                    () => t.DockedEdge, v => { t.DockedEdge = v; _ctx.ApplyAndSave(); }),
+                    () => t.DockedEdge, v => { t.DockedEdge = v; _ctx.ApplyAndSave(); })
+                    { Description = "Which screen edge the toolbar attaches to." },
                 new SliderSpec("t_size", "Button Size", 32, 120, 4, 0,
-                    () => t.Size, v => { t.Size = v; _ctx.ApplyAndSave(); }),
+                    () => t.Size, v => { t.Size = v; _ctx.ApplyAndSave(); })
+                    { Description = "Size of each button; bigger ones are easier to aim at." },
                 new ButtonSpec("t_reset", "Reset Toolbar Settings",
                     () => _ctx.ShowModal("Reset Toolbar settings to defaults?", () =>
                     {

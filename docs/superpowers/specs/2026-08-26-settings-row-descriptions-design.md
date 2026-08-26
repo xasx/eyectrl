@@ -1,6 +1,6 @@
 # Settings Row Descriptions — Design
 
-Date: 2026-08-26 · Status: awaiting review (rev 2) · Branch: `feat/settings-descriptions`
+Date: 2026-08-26 · Status: implemented on `feat/settings-descriptions` (rev 2, approved; plan-reviewed) · Branch: `feat/settings-descriptions`
 
 Rev 2: amended after external review. All 3 blockers, 8 should-fixes and the
 actionable nits were verified against source and adopted. The slider-minimum
@@ -252,7 +252,7 @@ New `tests/EyeCtrl.App.Tests/Settings/Pages/SettingsRowDescriptionCompletenessTe
 - **Models must be built with a downloaded model**: an empty registry builds
   no describable row at all (`md_active` is gated on `downloaded.Count == 0`,
   `ModelsPageSource.cs:95–107`), so the empty build covers nothing. Use
-  `ModelTestScope.Create()` + `WithDownloadedBundled()` (documented exactly for
+  `ModelTestFakes.Create()` + `WithDownloadedBundled()` (documented exactly for
   driving the active-model combo branch, `ModelTestFakes.cs:71`) in a
   `using var scope`. A real registry must still be passed for the other
   sources — `TestSettingsPageContext.Build` null-forgives it.
@@ -274,10 +274,12 @@ New `tests/EyeCtrl.App.Tests/Settings/Pages/SettingsRowDescriptionCompletenessTe
 
 - `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"` (baseline today:
   608/608 green, run 2026-08-26).
-- **Wrap behaviour** (measured in review): ~20 of the 45 lines wrap to two
-  lines at the ~380 DIP name column. Harmless — rows are 150 DIP
-  `LabelledRowMinHeight` boxes and the tallest name block (~86 DIP) fits, so
-  wrapped rows do not grow rows or move pagination; one existing Cursor line
+- **Wrap behaviour**: the external spec review measured roughly 20 of the 45
+  lines wrapping to two lines at the ~380 DIP name column (FormattedText at the
+  subtitle type ramp) — a one-off, unrecorded measurement, so treat the number
+  as approximate. Bounded impact either way: rows are 150 DIP
+  `LabelledRowMinHeight` boxes and pagination re-chunks by measured height, so
+  the worst case is one extra page, never a clip; one existing Cursor line
   already wraps. Contrast is already gated by
   `SettingsRowDescriptionContrastTests` (brush unchanged); Quick Actions and
   its `HandChunkedPageFitTests` are untouched.

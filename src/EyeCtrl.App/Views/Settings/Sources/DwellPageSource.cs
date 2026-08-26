@@ -14,25 +14,34 @@ internal sealed class DwellPageSource : ISettingsPageSource
         [
             new PageSpec([
                 new SliderSpec("d_fix", "Fixation Detection (ms)", 100, 500, 25, 0,
-                    () => d.FixationDetectionMs, v => { d.FixationDetectionMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => d.FixationDetectionMs, v => { d.FixationDetectionMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How long your gaze must hold steady before a dwell can start." },
                 new SliderSpec("d_act", "Activation Button (ms)", 200, 1500, 50, 0,
-                    () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "Dwell for the button that appears at your gaze." },
                 new SliderSpec("d_menu", "Action Menu (ms)", 200, 1500, 50, 0,
-                    () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How long to rest on an action in the ring." },
                 new SliderSpec("d_ManualSelection", "ManualSelection Action Menu (ms)", 200, 1500, 50, 0,
-                    () => d.ManualSelectionActionMenuDwellMs, v => { d.ManualSelectionActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => d.ManualSelectionActionMenuDwellMs, v => { d.ManualSelectionActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "Dwell for the action ring inside manual selection." },
             ]),
             new PageSpec([
                 new SliderSpec("d_tool", "Toolbar / Settings (ms)", 200, 1500, 50, 0,
-                    () => d.ToolbarButtonDwellMs, v => { d.ToolbarButtonDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => d.ToolbarButtonDwellMs, v => { d.ToolbarButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How long to rest on EyeCtrl's own buttons." },
                 new SliderSpec("d_key", "Keyboard Key (ms)", 100, 1000, 25, 0,
-                    () => d.KeyboardKeyDwellMs, v => { d.KeyboardKeyDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => d.KeyboardKeyDwellMs, v => { d.KeyboardKeyDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How long to rest on a key before it fires." },
                 new SliderSpec("d_pred", "Prediction (ms)", 100, 1000, 25, 0,
-                    () => d.KeyboardPredictionDwellMs, v => { d.KeyboardPredictionDwellMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => d.KeyboardPredictionDwellMs, v => { d.KeyboardPredictionDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "Dwell for the word suggestions above the keyboard." },
                 new SliderSpec("d_rad", "Fixation Radius (px)", 20, 120, 5, 0,
-                    () => d.FixationRadiusPixels, v => { d.FixationRadiusPixels = v; _ctx.ApplyAndSave(); }),
+                    () => d.FixationRadiusPixels, v => { d.FixationRadiusPixels = v; _ctx.ApplyAndSave(); })
+                    { Description = "How far your gaze may drift within a fixation." },
                 new SliderSpec("d_cooldown", "Dwell Cooldown (ms)", 100, 1000, 50, 0,
-                    () => d.DwellCooldownMs, v => { d.DwellCooldownMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => d.DwellCooldownMs, v => { d.DwellCooldownMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How long a new dwell must wait after an activation." },
                 new ButtonSpec("d_reset", "Reset Dwell Settings",
                     () => _ctx.ShowModal("Reset Dwell settings to defaults?", () =>
                     {

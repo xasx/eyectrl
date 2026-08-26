@@ -18,7 +18,8 @@ internal sealed class LayoutPageSource : ISettingsPageSource
                 new ComboBoxSpec("lay_pos", "Position",
                     new[] { "At Gaze", "At Center" }, null,
                     () => s.ViewPosition == ViewPosition.AtGaze ? "At Gaze" : "At Center",
-                    v => { s.ViewPosition = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; _ctx.ApplyAndSave(); }),
+                    v => { s.ViewPosition = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; _ctx.ApplyAndSave(); })
+                    { Description = "The action menu and magnifier: at your gaze, or centred." },
                 new ButtonSpec("lay_reset", "Reset Layout Settings",
                     () => _ctx.ShowModal("Reset Layout settings to defaults?", () =>
                     {

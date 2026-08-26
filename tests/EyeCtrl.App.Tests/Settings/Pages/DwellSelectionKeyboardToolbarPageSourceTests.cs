@@ -42,4 +42,36 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
             .OfType<ComboBoxSpec>().Single(c => c.Id == "t_edge");
         Check.That(edge.Code).IsNull();
     }
+
+    // Range-vs-guard: a dwell slider offering a value the Core setter rejects crashes on the UI
+    // thread — DwellSlider.Adjust clamps to the spec's Min, then calls Set unguarded, and
+    // App.xaml.cs deliberately lets dispatcher exceptions terminate the process. Guard bounds are
+    // restated from DwellSettings.OnXxxChanging so moving either side fails loudly here.
+    [Fact]
+    public void Dwell_SliderSpans_StayInsideTheValidatedRanges()
+    {
+        var sliders = new DwellPageSource(TestSettingsPageContext.Build()).Build()
+            .SelectMany(p => p.Rows).OfType<SliderSpec>()
+            .ToDictionary(s => s.Id);
+
+        var guards = new Dictionary<string, (double Min, double Max)>
+        {
+            ["d_fix"] = (100, 1000),
+            ["d_act"] = (200, 2000),
+            ["d_menu"] = (200, 2000),
+            ["d_ManualSelection"] = (200, 2000),
+            ["d_tool"] = (200, 2000),
+            ["d_key"] = (100, 1500),
+            ["d_pred"] = (100, 1500),
+            ["d_rad"] = (10, 200),
+            ["d_cooldown"] = (100, 5000),
+        };
+
+        Check.That(sliders).HasSize(guards.Count);
+        foreach (var (id, guard) in guards)
+        {
+            Check.That(sliders[id].Min).IsGreaterOrEqualThan(guard.Min);
+            Check.That(sliders[id].Max).IsLessOrEqualThan(guard.Max);
+        }
+    }
 }

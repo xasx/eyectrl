@@ -13,7 +13,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
         return
         [
             new PageSpec([
-                new SliderSpec("d_fix", "Fixation Detection (ms)", 50, 500, 25, 0,
+                new SliderSpec("d_fix", "Fixation Detection (ms)", 100, 500, 25, 0,
                     () => d.FixationDetectionMs, v => { d.FixationDetectionMs = (int)v; _ctx.ApplyAndSave(); }),
                 new SliderSpec("d_act", "Activation Button (ms)", 200, 1500, 50, 0,
                     () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); }),
@@ -31,7 +31,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
                     () => d.KeyboardPredictionDwellMs, v => { d.KeyboardPredictionDwellMs = (int)v; _ctx.ApplyAndSave(); }),
                 new SliderSpec("d_rad", "Fixation Radius (px)", 20, 120, 5, 0,
                     () => d.FixationRadiusPixels, v => { d.FixationRadiusPixels = v; _ctx.ApplyAndSave(); }),
-                new SliderSpec("d_cooldown", "Dwell Cooldown (ms)", 0, 1000, 50, 0,
+                new SliderSpec("d_cooldown", "Dwell Cooldown (ms)", 100, 1000, 50, 0,
                     () => d.DwellCooldownMs, v => { d.DwellCooldownMs = (int)v; _ctx.ApplyAndSave(); }),
                 new ButtonSpec("d_reset", "Reset Dwell Settings",
                     () => _ctx.ShowModal("Reset Dwell settings to defaults?", () =>

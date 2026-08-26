@@ -1,20 +1,26 @@
 # Settings Row Descriptions — Design
 
-Date: 2026-08-26 · Status: awaiting review · Branch: `feat/settings-descriptions`
+Date: 2026-08-26 · Status: awaiting review (rev 2) · Branch: `feat/settings-descriptions`
+
+Rev 2: amended after external review. All 3 blockers, 8 should-fixes and the
+actionable nits were verified against source and adopted. The slider-minimum
+fix is a review-adopted **scope addition** — flagged below for sign-off.
 
 ## Context
 
-The settings window renders each row as a label plus an optional second-line
-description (`SettingsRowSpec.Description`, drawn at subtitle size in
-`TextSecondary`, contrast-gated per theme by `SettingsRowDescriptionContrastTests`).
-The infrastructure shipped with the two-column-rows rework (2026-08-20), which
+EyeCtrl is a WPF gaze-control app. Its settings window renders each row as a
+label plus an optional second-line description (`SettingsRowSpec.Description`,
+drawn at subtitle size in `TextSecondary`, contrast-gated per theme by
+`SettingsRowDescriptionContrastTests`). The infrastructure shipped 2026-08-24
+in `a21c4077` ("rows can carry a one-line description"); the 2026-08-20 plan
 described the Cursor tab's five rows and explicitly left the remaining tabs as
 "a content pass the user should drive". All eleven tab-header descriptions
 already exist (`SettingsWindow.xaml.cs` `_tabDefs`).
 
 This spec is that content pass: description copy for every describable row on
 the nine remaining auto-paginated tabs, plus a completeness test so future
-settings rows cannot ship bare.
+settings rows cannot ship bare, plus two slider-minimum fixes the review
+uncovered (see Scope addition).
 
 ## Goal / Non-goals
 
@@ -26,14 +32,16 @@ description.
 hand-chunked and height-gated by `HandChunkedPageFitTests` — descriptions would
 grow rows out of the tested budget); no descriptions on `ButtonSpec`/`LabelSpec`
 (they render no description line); no touching the ~30 settings that have no
-live UI row; no localization.
+live UI row; no localization; no existing-copy changes beyond the two slider
+minima (the Layout tab header's own "overlays" overclaim is noted under
+Observations but not changed here).
 
 ## Copy rules
 
 Generalizing the Cursor house style:
 
-- One sentence, roughly 4–12 words. Gaze reading is slow, and description wrap
-  grows rows and pagination.
+- One sentence, roughly 4–12 words. Gaze reading is slow; wrapping is
+  tolerated (see Wrap behaviour) but brevity keeps lines to one where possible.
 - Plain language: no enum names, property names, or internals. Say what the
   user sees happening.
 - Directional guidance where it helps a decision ("bigger keys are easier to
@@ -41,19 +49,21 @@ Generalizing the Cursor house style:
 - Don't repeat slider ranges — the slider already shows them. Labels that
   already carry units ("(ms)", "(px)") are not re-explained.
 - Truth rule: every line below is grounded in the Core XML doc comments and the
-  code paths cited in the inventory. Nothing invented.
+  code paths cited in the inventory, and was re-verified in external review.
+  Nothing invented.
 - **Spelling: British prose.** The existing description voice uses British
   spellings — Cursor's "colour", the Layout tab header's "screen centre" —
   while control labels stay American ("Circle Color"). This pass follows the
   prose voice (colour, centre) and changes no existing copy.
-  *(Amendment to the presented design, which proposed normalizing Cursor's
-  "colour" → "color"; the tab-header evidence says the prose voice is British,
-  so nothing is normalized. Flagged for reviewer sign-off.)*
+  *(Amendment to the originally presented design, which proposed normalizing
+  Cursor's "colour" → "color"; review confirmed the prose voice is British —
+  two independent instances, zero counter-examples — so nothing is
+  normalized.)*
 
 ## Inventory — the copy
 
-45 new descriptions, verified against the code noted per tab. Cursor's five
-existing descriptions are unchanged.
+45 new descriptions (row count verified mechanically against the page sources:
+9+7+10+1+6+1+3+4+4). Cursor's five existing descriptions are unchanged.
 
 ### Dwell Times (`DwellPageSource.cs`, grounding: `DwellSettings.cs`)
 
@@ -63,53 +73,79 @@ existing descriptions are unchanged.
 | d_act | Activation Button (ms) | Dwell for the button that appears at your gaze. |
 | d_menu | Action Menu (ms) | How long to rest on an action in the ring. |
 | d_ManualSelection | ManualSelection Action Menu (ms) | Dwell for the action ring inside manual selection. |
-| d_tool | Toolbar / Settings (ms) | How long to rest on toolbar and settings buttons. |
-| d_key | Keyboard Key (ms) | How long to rest on a key before it types. |
+| d_tool | Toolbar / Settings (ms) | How long to rest on EyeCtrl's own buttons. |
+| d_key | Keyboard Key (ms) | How long to rest on a key before it fires. |
 | d_pred | Prediction (ms) | Dwell for the word suggestions above the keyboard. |
 | d_rad | Fixation Radius (px) | How far your gaze may drift within a fixation. |
 | d_cooldown | Dwell Cooldown (ms) | How long a new dwell must wait after an activation. |
 
-d_act grounding: on fixation `GazeEngineAdapter` sends
+Grounding notes: d_act — on fixation `GazeEngineAdapter` sends
 `ShowActivationButtonMessage(point)`; the shown button dwells with
-`ActivationButtonDwellMs` (`ActivationButtonViewModel.cs:38`).
+`ActivationButtonDwellMs` (`ActivationButtonViewModel.cs:38`). d_tool — the
+value also drives the Quick Actions tiles (`QuickActionsGridViewModel.cs:114`)
+and the task switcher (`TaskSwitcherViewModel.cs:122`), hence "EyeCtrl's own
+buttons" rather than naming two of four consumers. d_key — fires on special
+keys too (`PlayKeyClick()` precedes the special-action branch,
+`KeyboardWindow.xaml.cs:270`), hence "fires" not "types".
 
 ### Selection (`SelectionPageSource.cs`, grounding: `ManualSelectionSettings.cs`, `AutoSelectionSettings.cs`, `EyeCtrlSettings.cs`)
 
 | Id | Label | Description |
 |---|---|---|
-| s_mode | Selection Mode | Manual zooms in around your gaze; Auto snaps to controls. |
+| s_mode | Selection Mode | None clicks your gaze point; Manual zooms; Auto snaps. |
 | s_rad | Circle Radius (px) | Radius of the magnifier's zoom circle. |
 | s_mag | Magnification Level | How strongly the zoom circle magnifies. |
 | s_grace | Grace Period (ms) | Dwell waits this long after manual selection opens. |
-| s_highlight | Highlight Color | Colour of the box drawn around the control you selected. |
-| s_highlightThickness | Highlight Thickness | Line weight of the highlight box. |
+| s_highlight | Highlight Color | Colour of the box around an auto-selected control. |
+| s_highlightThickness | Highlight Thickness | Line weight of that auto-selection box. |
 | s_snapRadius | Snap Search Radius (px) | How far from your gaze Auto Selection searches for a control. |
 
-### Action Menu (`ActionMenuPageSource.cs`, grounding: `InteractionAction`, `KeyboardInteractionDispatcher.cs`, `DragSettings.cs`, `ScrollSettings.cs`)
+Grounding notes: `SelectionMode.None` is the shipped default
+(`EyeCtrlSettings.cs:32`) and gets named first. The highlight draws only when a
+control was resolved (`ResolvedControl != null`,
+`OverlayMessageCoordinator.cs:105`), which requires Auto Selection — the copy
+says so, because in the other modes these two rows change nothing visible.
+
+### Action Menu (`ActionMenuPageSource.cs`, grounding: `InteractionAction`, `KeyboardInteractionDispatcher.cs`, `DragTrailViewModel.cs`, `ScrollSettings.cs`, `NoteManager.cs`)
 
 One toggle per action; each description says what picking that action does.
+The rows are loop-generated, so the descriptions attach via a
+`Description(action)` switch beside `FriendlyName` — exhaustive over the enum,
+**no silent `_ =>` null fallback** (a new action must fail the completeness
+test, not ship bare).
 
 | Id | Label | Description |
 |---|---|---|
 | am_LeftClick | Left Click | One left click at the point you chose. |
 | am_RightClick | Right Click | One right click at the point you chose. |
 | am_DoubleClick | Double Click | Two quick clicks at the point you chose. |
-| am_Drag | Drag | Pick up, move and drop by trailing your gaze. |
+| am_Drag | Drag | Grabs at that point, then follows your gaze. |
 | am_ScrollUp | Scroll Up | Scrolls up from the point you chose. |
 | am_ScrollDown | Scroll Down | Scrolls down from the point you chose. |
 | am_ScrollLeft | Scroll Left | Scrolls left from the point you chose. |
 | am_ScrollRight | Scroll Right | Scrolls right from the point you chose. |
 | am_ScrollMode | Scroll Mode | Continuous scrolling, steered by where you look. |
-| am_PinNote | Pin Note | Pins a typed note at the point you chose. |
+| am_PinNote | Pin Note | Opens a note to type at the point you chose. |
 
-PinNote grounding: `KeyboardInteractionDispatcher.cs:183` →
-`NoteManager.CreateNoteAt(pt)`.
+Grounding notes: am_Drag — the drop is a dwell on the release button
+(`DragTrailViewModel.cs:132–146`), so the copy stops at "follows your gaze"
+rather than describing the drop wrong. am_PinNote — `CreateNoteAt` opens an
+empty note in `NoteState.Edit` with a focused editor
+(`KeyboardInteractionDispatcher.cs:183–186`, `NoteManager.cs:41`): you type
+after it opens. Scroll directions verified by sign at
+`Win32InputSimulator.cs:68–84`.
 
 ### Layout (`LayoutPageSource.cs`, grounding: `EyeCtrlSettings.ViewPosition`)
 
 | Id | Label | Description |
 |---|---|---|
-| lay_pos | Position | Where overlays open: under your gaze, or at screen centre. |
+| lay_pos | Position | The action menu and magnifier: at your gaze, or centred. |
+
+Grounding note: `ViewPosition` is read in exactly two places — the action menu
+(`GazeEngineAdapter.cs:129`) and manual selection (`:171`). The keyboard,
+toolbar, settings window, track status and notes never consult it, so the copy
+must not say "overlays" (and must not restate the tab header, which does —
+see Observations).
 
 ### Keyboard (`KeyboardPageSource.cs`, grounding: `KeyboardSettings.cs`)
 
@@ -119,22 +155,33 @@ PinNote grounding: `KeyboardInteractionDispatcher.cs:183` →
 | k_size | Key Size Multiplier | Scales every key; bigger keys are easier to hit. |
 | k_pred | Word Prediction | Shows suggested words above the keyboard while you type. |
 | k_lang | Dictionary Language | Which language the word suggestions draw from. |
-| k_sound | Click Sound | Plays a sound each time a key types. |
+| k_sound | Click Sound | Plays a click each time a key activates. |
 | k_edge | Screen Edge | The screen edge the keyboard docks to. |
 
-### Models (`ModelsPageSource.cs`, grounding: `ModelManagementService.SetActiveModel`)
+Grounding note: k_layout's German/French guidance is code-grounded —
+qwertz.json carries ß/ä/ö/ü, azerty.json à/ç/è/é/ù.
+
+### Models (`ModelsPageSource.cs`, grounding: `ModelManagementService.SetActiveModel`, `PredictionStackFactory.cs:57,86`)
 
 | Id | Label | Description |
 |---|---|---|
-| md_active | Active Model | Which downloaded model powers word predictions; Off leaves dictionary suggestions. |
+| md_active | Active Model | Which model powers predictions; Off keeps dictionary words. |
 
-### Toolbar (`ToolbarPageSource.cs`, grounding: `ToolbarSettings.cs`)
+Grounding note: "Off" → `ActiveModelId = null` → the LM predictor is left null
+but the dictionary `wordPredictor` still builds, so predictions fall back to
+dictionary suggestions.
+
+### Toolbar (`ToolbarPageSource.cs`, grounding: `ToolbarSettings.cs`, `ToolbarLifecycleCoordinator.cs:163`)
 
 | Id | Label | Description |
 |---|---|---|
-| t_dock | Dock to Screen Edge | Keeps the toolbar attached to a screen edge. |
+| t_dock | Dock to Screen Edge | Docks the toolbar to an edge, where it auto-hides. |
 | t_edge | Docked Edge | Which screen edge the toolbar attaches to. |
 | t_size | Button Size | Size of each button; bigger ones are easier to aim at. |
+
+Grounding note: `IsDocked` also gates auto-hide
+(`enabled = providerIsRealTracker && s.IsDocked`) — undocked means floating and
+permanently visible; docked means edge-attached and auto-hiding.
 
 ### Calibration (`CalibrationPageSource.cs`, grounding: `CalibrationSettings.cs`)
 
@@ -152,23 +199,63 @@ timer — the real pacer is gaze arrival plus post-settle samples.
 
 | Id | Label | Description |
 |---|---|---|
-| g_theme | Theme (restart to apply) | The colour scheme the whole app uses. |
+| g_theme | Theme (restart to apply) | All three are dark; Contrast is the boldest. |
 | g_boot | Start on Windows Boot | Opens EyeCtrl automatically when you sign in. |
 | g_pause | Start Paused | Starts with tracking paused until you switch it on. |
 | g_track | Show Track Status | A corner box showing live eye-tracker status. |
 
-g_theme leaves the restart note to the label, which already says it.
+Grounding notes: g_theme — the overlay spec rules out a light theme outright
+(`ThemeSettings.cs` doc, §2), so "all three are dark" is grounded, and the
+label already carries the restart note. g_boot — registration is an HKCU
+`...\Run` value (`WindowsStartupRegistrar.cs`), i.e. at logon, hence "when you
+sign in".
+
+## Scope addition — slider-minimum fixes (review-adopted, needs sign-off)
+
+The review found that two Dwell sliders offer values **below** the Core
+setter's validated floor, and that reaching them crashes the app:
+
+- `d_fix` slider min 50 vs `OnFixationDetectionMsChanging` throwing below 100.
+- `d_cooldown` slider min 0 vs `OnDwellCooldownMsChanging` throwing below 100.
+
+`DwellSlider.Adjust` clamps to the spec's min, then calls the setter with no
+try/catch (`DwellSlider.cs:371–372`), and `App.xaml.cs` deliberately does not
+set `Handled` on dispatcher exceptions so the supervisor's respawn owns
+recovery — so two down-steps on either slider crash EyeCtrl. For a gaze-only
+user, a crash seizes the only input channel.
+
+**Fix in this pass** (the file is already open for descriptions):
+`d_fix` min 50 → 100, `d_cooldown` min 0 → 100. Both land on-step (25 and 50).
+Maxima already sit inside the validated ranges.
+
+**New test:** a range-vs-guard test asserting every `SliderSpec` span on the
+Dwell page lies within the corresponding `OnXxxChanging` guard, so a future
+slider edit cannot reintroduce the crash.
+
+*Reviewer offered the alternative of a tracked defect instead; including the
+two-token fix here was chosen because the file is already touched and the
+failure mode is severe. Strike this section if you'd rather keep the content
+pass pure and track it separately.*
 
 ## Completeness test
 
 New `tests/EyeCtrl.App.Tests/Settings/Pages/SettingsRowDescriptionCompletenessTests.cs`:
 
-- Build each of the eleven page sources headlessly via the existing
-  `TestSettingsPageContext` seam (Models with an empty registry — whatever rows
-  it does build must be described).
-- Skip sources with `PrefersAutoPagination == false` (today: Quick Actions) with
-  a comment explaining why: hand-chunked pages are height-gated, so they carry
-  no row descriptions yet.
+- Build each page source headlessly via the existing `TestSettingsPageContext`
+  seam, holding sources as `ISettingsPageSource` (the skip property is a
+  default interface member).
+- **Skip by explicit type** — `source is QuickActionsPageSource` — not by
+  `PrefersAutoPagination == false`: that property defaults to false in the
+  interface (`ISettingsPageSource.cs:14`) and QuickActions is exempt only by
+  *not overriding* it, so the property test would silently excuse any future
+  source that forgets to declare it.
+- **Models must be built with a downloaded model**: an empty registry builds
+  no describable row at all (`md_active` is gated on `downloaded.Count == 0`,
+  `ModelsPageSource.cs:95–107`), so the empty build covers nothing. Use
+  `ModelTestScope.Create()` + `WithDownloadedBundled()` (documented exactly for
+  driving the active-model combo branch, `ModelTestFakes.cs:71`) in a
+  `using var scope`. A real registry must still be passed for the other
+  sources — `TestSettingsPageContext.Build` null-forgives it.
 - Fail naming the first row whose `SliderSpec`/`ToggleSpec`/`ComboBoxSpec`/
   `ColorPickerSpec` has null/whitespace `Description`.
 - The list of source types is hardcoded — a new page source must be added to
@@ -178,30 +265,41 @@ New `tests/EyeCtrl.App.Tests/Settings/Pages/SettingsRowDescriptionCompletenessTe
 ## Files touched
 
 - Nine page sources under `src/EyeCtrl.App/Views/Settings/Sources/` —
-  description initializers only, no delegate or range changes.
-- One new test file.
+  description initializers only, plus the two slider minima in
+  `DwellPageSource.cs`.
+- One new test file (completeness) and one new range-vs-guard test.
 - `CursorPageSource.cs` unchanged.
 
 ## Verification
 
 - `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"` (baseline today:
-  608/608 green).
-- Row growth is absorbed by auto-pagination on every touched tab
-  (`SettingsAutoPaginationTests`, `SettingsTabPaginationTests` keep passing);
-  contrast is already gated by `SettingsRowDescriptionContrastTests` (brush
-  unchanged); Quick Actions and its `HandChunkedPageFitTests` are untouched.
+  608/608 green, run 2026-08-26).
+- **Wrap behaviour** (measured in review): ~20 of the 45 lines wrap to two
+  lines at the ~380 DIP name column. Harmless — rows are 150 DIP
+  `LabelledRowMinHeight` boxes and the tallest name block (~86 DIP) fits, so
+  wrapped rows do not grow rows or move pagination; one existing Cursor line
+  already wraps. Contrast is already gated by
+  `SettingsRowDescriptionContrastTests` (brush unchanged); Quick Actions and
+  its `HandChunkedPageFitTests` are untouched.
 - GitNexus `impact` on each edited `Build()` (expected LOW — page sources are
   UI leaves consumed only by `SettingsWindow`), and `detect_changes` before
   committing.
 
 ## Observations — no action in this pass
 
-Listed so they are on record; none block or belong to this content pass:
+Corrected in rev 2 (the original bullet 3, "the UI is the narrower of the two
+in each case", was false — four sliders sit below or outside their guards):
 
-- `d_fix` slider offers 50–500 ms while `OnFixationDetectionMsChanging` throws
-  below 100 — dragging to 50 or 75 looks like it would throw. Worth a look
-  separately.
-- `t_size` slider (32–120) is narrower than the validated range (40–200); the
-  XML doc on `ToolbarSettings.Size` says 40–200.
-- `DwellSettings` XML doc ranges (e.g. FixationDetectionMs "100–1000") disagree
-  with several slider spans; the UI is the narrower of the two in each case.
+- **Fixed in this pass** (see Scope addition): `d_fix` and `d_cooldown` slider
+  minima below the setter floor — crash path.
+- `t_size` slider (32–120) vs validated 40–200: values 32/36 make
+  `SettingsService.Save` throw; `SaveDebounced` catches and logs it, the size
+  applies live and is silently lost on restart. No crash; left alone here.
+- `s_grace`: the XML doc says 100–2000 but `ManualSelectionSettings.Validate`
+  never checks `ManualSelectionGracePeriodMs` — an unenforced doc, harmless.
+- Several `DwellSettings` XML doc ranges disagree with slider spans (e.g.
+  FixationDetectionMs "100–1000" vs slider 50–500 → after the fix, 100–500).
+- The Layout tab header itself says "Whether overlays open at your gaze or at
+  the screen centre" — the same overclaim the row description had (`ViewPosition`
+  affects only the action menu and manual selection). Existing shipped copy;
+  changing it is a one-liner worth considering separately.

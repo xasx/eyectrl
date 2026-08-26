@@ -1,6 +1,7 @@
-namespace EyeCtrl.App.Overlays;
+﻿namespace EyeCtrl.App.Overlays;
 
 using System.Windows;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
@@ -13,8 +14,12 @@ using EyeCtrl.Core.Services;
 /// </summary>
 internal static class ActionMenuGeometry
 {
-    /// <summary>Radius of an action-menu button, in logical (DIP) pixels.</summary>
-    internal const double ButtonRadius = 50;
+    /// <summary>
+    /// Radius of an action-menu button, in logical (DIP) pixels. Reads the Core constant rather
+    /// than restating it: this value and the ViewModel's dwell-target radius must agree, or the
+    /// drawn button and the thing the gaze actually hits are different circles.
+    /// </summary>
+    internal const double ButtonRadius = LayoutConstants.ActionMenuButtonRadius;
 
     /// <summary>Extra margin (DIP) around the button ring when sizing the window.</summary>
     internal const int WindowSizeMargin = 20;

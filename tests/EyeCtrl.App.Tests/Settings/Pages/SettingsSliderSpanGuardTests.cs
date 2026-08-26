@@ -11,9 +11,11 @@ using EyeCtrl.App.Views.Settings;
 /// modes make this load-bearing: setter guards throw on the UI thread (crash); Validate-only
 /// guards like ToolbarSettings.Size throw inside SettingsService.Save, which SaveDebounced
 /// swallows — the value applies live and is silently lost on restart. Guard bounds are
-/// restated from the Core classes so moving either side fails loudly here.
+/// restated from the Core classes so a slider that leaves its guard fails loudly here; a Core
+/// guard narrowed below a pinned bound is NOT caught (the pins bound the slider, not the guard).
 /// s_grace (Grace Period) is deliberately not span-pinned: ManualSelectionSettings guards
-/// neither the setter nor Validate for it — there is no guard to stay inside.
+/// neither the setter nor Validate for it — there is no guard to stay inside. Its row instead
+/// pins the 0–2000 span the Core XML doc claims, so that doc cannot silently go false again.
 /// The Quick Actions sliders live in the default List view — the GoTo sub-views are pickers
 /// with no sliders — so a freshly constructed source reaches them without navigation.
 /// </summary>
@@ -38,7 +40,10 @@ public class SettingsSliderSpanGuardTests
         SpanInside(sliders, "s_mag", 1.5, 5.0);
         SpanInside(sliders, "s_highlightThickness", 1, 10);
         SpanInside(sliders, "s_snapRadius", 16, 96);
-        // s_grace: no Core guard exists — nothing to pin (see the class doc).
+        // s_grace has no Core guard (nothing to stay inside), but its XML doc claims the UI
+        // offers 0–2000 — pin that claim, not a guard, so the doc cannot silently go false.
+        Check.That(sliders["s_grace"].Min).IsEqualTo(0);
+        Check.That(sliders["s_grace"].Max).IsEqualTo(2000);
     }
 
     [Fact]

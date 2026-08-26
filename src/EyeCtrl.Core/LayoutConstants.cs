@@ -23,14 +23,23 @@ public static class LayoutConstants
     /// Radius of action menu buttons in logical pixels.
     /// Used for coordinate clamping calculations to ensure buttons stay on screen.
     /// Deliberately NOT <see cref="SharedButtonRadius"/> — see that constant for why.
+    ///
+    /// 70 since 2026-08-26 (was 50). A 140 DIP target carries a drawn icon at
+    /// <c>ContainerRatio.Dominant</c> without the Unicode glyph's font-fallback lottery, and gives
+    /// the ring room the old 100 DIP target did not have.
     /// </summary>
-    public const double ActionMenuButtonRadius = 50.0;
+    public const double ActionMenuButtonRadius = 70.0;
 
     /// <summary>
     /// Gap between the cursor circle edge and the action menu button ring in logical pixels.
     /// Used in conjunction with circle size to calculate the effective ring radius for positioning.
+    ///
+    /// 60 since 2026-08-26 (was 20). At 20 the ring sat roughly a third of a degree of visual
+    /// angle from the preview circle, so gaze resting on the thing about to be acted upon was one
+    /// jitter away from arming a target. 60 DIP is roughly a degree at desk distance. This is
+    /// reasoning, not measurement — it is the number to revisit first if mis-selection persists.
     /// </summary>
-    public const double ActionMenuButtonOuterGap = 20.0;
+    public const double ActionMenuButtonOuterGap = 60.0;
 
     /// <summary>
     /// Radius of note control buttons (close, edit, move) in logical pixels.

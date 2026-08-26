@@ -1,4 +1,4 @@
-namespace EyeCtrl.ViewModels.Tests;
+﻿namespace EyeCtrl.ViewModels.Tests;
 
 using EyeCtrl.ViewModels;
 using EyeCtrl.Core;
@@ -12,12 +12,12 @@ public class MagicNumberReplacementTests
     [Fact]
     public void ActionMenuRingRadius_UsesNamedConstants()
     {
-        // The formula: circleSize/2 + ButtonRadius + ActionMenuButtonOuterGap
-        // With circleSize=100, should be: 100/2 + 50 + 20 = 120
+        // The formula: circleSize/2 + ActionMenuButtonRadius + ActionMenuButtonOuterGap
+        // With circleSize=100, should be: 100/2 + 70 + 60 = 180
         var circleSize = 100.0;
-        var expectedRadius = circleSize / 2 + UIConstants.ButtonRadius + UIConstants.ActionMenuButtonOuterGap;
+        var expectedRadius = circleSize / 2 + UIConstants.ActionMenuButtonRadius + UIConstants.ActionMenuButtonOuterGap;
 
-        Check.That(expectedRadius).IsEqualTo(120.0);
+        Check.That(expectedRadius).IsEqualTo(180.0);
     }
 
     [Fact]

@@ -19,7 +19,7 @@ public class UIConstantsTests
     public void ActionMenuButtonOuterGap_IsDefinedAndPositive()
     {
         Check.That(UIConstants.ActionMenuButtonOuterGap > 0).IsTrue();
-        Check.That(UIConstants.ActionMenuButtonOuterGap).IsEqualTo(20.0);
+        Check.That(UIConstants.ActionMenuButtonOuterGap).IsEqualTo(60.0);
     }
 
     [Fact]
@@ -55,8 +55,8 @@ public class UIConstantsTests
     public void ActionMenuButtonRadius_IsSeparateFrom_TheSharedButtonRadius()
     {
         Check.That(UIConstants.ButtonRadius).IsEqualTo(50.0);
-        Check.That(UIConstants.ActionMenuButtonRadius).IsEqualTo(50.0);
-        Check.That(UIConstants.ButtonRadius).IsEqualTo(UIConstants.ActionMenuButtonRadius);
+        Check.That(UIConstants.ActionMenuButtonRadius).IsEqualTo(70.0);
+        Check.That(UIConstants.ButtonRadius).IsNotEqualTo(UIConstants.ActionMenuButtonRadius);
     }
 
     [Fact]

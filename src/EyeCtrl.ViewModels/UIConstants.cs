@@ -1,4 +1,4 @@
-namespace EyeCtrl.ViewModels;
+﻿namespace EyeCtrl.ViewModels;
 
 using EyeCtrl.Core;
 
@@ -9,9 +9,20 @@ using EyeCtrl.Core;
 public static class UIConstants
 {
     /// <summary>
-    /// Default radius for circular buttons (activation button, action menu buttons, ManualSelection side buttons) in logical pixels.
+    /// Default radius for circular buttons in logical pixels: activation button, backdrop hide
+    /// button, ManualSelection side buttons, scroll-stop button, quick-action grid, task switcher.
+    ///
+    /// NOT the action menu — that reads <see cref="ActionMenuButtonRadius"/>. This property named
+    /// the action menu among its callers until 2026-08-26, when the two were split.
     /// </summary>
-    public const double ButtonRadius = LayoutConstants.ActionMenuButtonRadius;
+    public const double ButtonRadius = LayoutConstants.SharedButtonRadius;
+
+    /// <summary>
+    /// Radius of an action-menu ring button in logical pixels. Feeds both the rendered
+    /// <c>DwellArcButton</c> and the dwell hit-target, and appears twice in the ring formula:
+    /// once in the ring radius and once again in the on-screen clamp margin.
+    /// </summary>
+    public const double ActionMenuButtonRadius = LayoutConstants.ActionMenuButtonRadius;
 
     /// <summary>
     /// Gap between the cursor circle edge and the action menu button ring in logical pixels.

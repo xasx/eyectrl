@@ -103,7 +103,8 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             page1.Add(new ComboBoxSpec("md_active", "Active Model",
                 display.Prepend("Off").ToArray(), ids.Prepend("Off").ToArray(),
                 () => _ctx.Registry.ActiveModelId ?? "Off",
-                v => { _ctx.ModelManagement.SetActiveModel(v); _ctx.ApplyAndSave(); }));
+                v => { _ctx.ModelManagement.SetActiveModel(v); _ctx.ApplyAndSave(); })
+                { Description = "Which model powers predictions; Off keeps dictionary words." });
         }
 
         page1.Add(new LabelSpec(() => new string('\u2500', 50), Wrap: false));

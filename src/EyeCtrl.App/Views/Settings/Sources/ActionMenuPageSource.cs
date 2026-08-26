@@ -30,7 +30,8 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
                     if (on && !a.VisibleActions.Contains(captured)) a.VisibleActions.Add(captured);
                     else if (!on) a.VisibleActions.RemoveAll(x => x == captured);
                     _ctx.ApplyAndSave();
-                }));
+                })
+                { Description = ActionDescription(captured) });
         }
 
         rows.Add(new ButtonSpec("am_reset", "Reset Action Menu Settings",
@@ -60,5 +61,23 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.ScrollMode => "Scroll Mode",
         InteractionAction.PinNote => "Pin Note",
         _ => action.ToString()
+    };
+
+    // Copy verbatim from the spec inventory. Exhaustive with a throwing fallback, not a silent
+    // null: a new InteractionAction must fail loudly here and in the completeness test, never
+    // ship a bare row.
+    private static string ActionDescription(InteractionAction action) => action switch
+    {
+        InteractionAction.LeftClick => "One left click at the point you chose.",
+        InteractionAction.RightClick => "One right click at the point you chose.",
+        InteractionAction.DoubleClick => "Two quick clicks at the point you chose.",
+        InteractionAction.Drag => "Grabs at that point, then follows your gaze.",
+        InteractionAction.ScrollUp => "Scrolls up from the point you chose.",
+        InteractionAction.ScrollDown => "Scrolls down from the point you chose.",
+        InteractionAction.ScrollLeft => "Scrolls left from the point you chose.",
+        InteractionAction.ScrollRight => "Scrolls right from the point you chose.",
+        InteractionAction.ScrollMode => "Continuous scrolling, steered by where you look.",
+        InteractionAction.PinNote => "Opens a note to type at the point you chose.",
+        _ => throw new InvalidOperationException($"{action} needs a settings description")
     };
 }

@@ -1,4 +1,4 @@
-namespace EyeCtrl.ViewModels.Tests;
+﻿namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
@@ -96,11 +96,11 @@ public class ActionMenuViewModelTests
         var vm = new ActionMenuViewModel(_settings, _messenger);
         var actions = new List<InteractionAction> { InteractionAction.LeftClick };
 
-        // CircleSize=250 -> 250/2 + 50 + 20 = 195
+        // CircleSize=250 -> 250/2 + 70 + 60 = 255
         _messenger.Send(new ShowActionMenuMessage(
             new PhysicalPoint(500, 500), actions, false, 600, new PhysicalPoint(500, 500), 0, 250));
 
-        Check.That(vm.EffectiveRingRadius).IsEqualTo(195);
+        Check.That(vm.EffectiveRingRadius).IsEqualTo(255);
     }
 
     [Fact]
@@ -109,11 +109,11 @@ public class ActionMenuViewModelTests
         var vm = new ActionMenuViewModel(_settings, _messenger);
         var actions = new List<InteractionAction> { InteractionAction.LeftClick };
 
-        // CircleSize=100 -> 100/2 + 50 + 20 = 120
+        // CircleSize=100 -> 100/2 + 70 + 60 = 180
         _messenger.Send(new ShowActionMenuMessage(
             new PhysicalPoint(500, 500), actions, false, 600, new PhysicalPoint(500, 500), 0, 100));
 
-        Check.That(vm.EffectiveRingRadius).IsEqualTo(120);
+        Check.That(vm.EffectiveRingRadius).IsEqualTo(180);
     }
 
     [Fact]
@@ -230,6 +230,6 @@ public class ActionMenuViewModelTests
             Math.Pow(item.Position.Y - displayCenter.Y, 2));
 
         // Should be at ring radius distance from display center
-        Check.That(distance >= 190 && distance <= 200).IsTrue(); // EffectiveRingRadius ~195 with default CircleSize
+        Check.That(distance >= 250 && distance <= 260).IsTrue(); // EffectiveRingRadius ~255 with default CircleSize
     }
 }

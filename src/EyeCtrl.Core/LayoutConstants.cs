@@ -1,4 +1,4 @@
-namespace EyeCtrl.Core;
+﻿namespace EyeCtrl.Core;
 
 /// <summary>
 /// UI layout constants that affect coordinate calculations.
@@ -7,8 +7,22 @@ namespace EyeCtrl.Core;
 public static class LayoutConstants
 {
     /// <summary>
+    /// Radius of the circular dwell buttons shared by every overlay that is NOT the action menu,
+    /// in logical pixels: the activation button, the backdrop hide button, the ManualSelection
+    /// side buttons, the scroll-stop button, the quick-action grid and the task switcher.
+    ///
+    /// Split from <see cref="ActionMenuButtonRadius"/> on 2026-08-26. They held the same value
+    /// through one constant until the action-menu targets grew to 140 DIP; sharing meant that
+    /// change would have resized six unrelated surfaces and their dwell hit-targets. Keep them
+    /// separate even while the numbers agree — see
+    /// <c>UIConstantsTests.ActionMenuButtonRadius_IsSeparateFrom_TheSharedButtonRadius</c>.
+    /// </summary>
+    public const double SharedButtonRadius = 50.0;
+
+    /// <summary>
     /// Radius of action menu buttons in logical pixels.
     /// Used for coordinate clamping calculations to ensure buttons stay on screen.
+    /// Deliberately NOT <see cref="SharedButtonRadius"/> — see that constant for why.
     /// </summary>
     public const double ActionMenuButtonRadius = 50.0;
 

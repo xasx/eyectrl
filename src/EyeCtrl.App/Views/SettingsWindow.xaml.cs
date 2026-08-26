@@ -314,7 +314,7 @@ public partial class SettingsWindow : OverlayWindow
                 "Which actions appear in the ring that opens after an activation.",
                 BuildActionMenuPages),
             ("Layout",   "⊞", "Layout",
-                "Whether overlays open at your gaze or at the screen centre.", BuildLayoutPages),
+                "Where the action menu and magnifier open: at your gaze, or at the screen centre.", BuildLayoutPages),
             ("Keyboard", "⌨", "Keyboard",
                 "On-screen keyboard size, layout and word prediction.", BuildKeyboardPages),
             ("Models",    "⬡", "Models",

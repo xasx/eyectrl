@@ -17,9 +17,18 @@ using EyeCtrl.ViewModels;
 public partial class GlassBackdropWindow : OverlayWindow
 {
     private const int AccentEnableAcrylicBlurBehind = 4;
+
     private const int DwmwaSystemBackdropType = 38;
     private const int DwmwaUseImmersiveDarkMode = 20;
-    private const int DwmsbtAcrylic = 4;
+
+    // DWM_SYSTEMBACKDROP_TYPE (dwmapi.h) — the system material painted behind the window.
+    // 0=Auto, 1=None, 2=MainWindow(Mica), 3=TransientWindow(Acrylic, the only one that blurs),
+    // 4=TabbedWindow(Mica Alt, wallpaper-adaptive but non-blurring).
+    // The previous code used 4 for "Acrylic", which actually selects Mica Alt — so the
+    // backdrop was never a glassy blur even when it did render. Acrylic is 3.
+    private const int DwmsbtNone = 1;
+    private const int DwmsbtMica = 2;
+    private const int DwmsbtAcrylic = 3;
     private const int Win11Build22H2 = 22621;
 
     private Rectangle? _solidBackground;
@@ -59,6 +68,15 @@ public partial class GlassBackdropWindow : OverlayWindow
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins pMarInset);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Margins
+    {
+        public int Left, Right, Top, Bottom;
+    }
 
     // ── Show / Hide ──
 
@@ -156,9 +174,12 @@ public partial class GlassBackdropWindow : OverlayWindow
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             int darkMode = 1;
             DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref darkMode, sizeof(int));
-            int backdropType = 2;
+            int backdropType = DwmsbtMica;
             int result = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
-            return result == 0;
+            if (result != 0)
+                return false;
+            ExtendFrameIntoClient(true);
+            return true;
         }
         catch
         {
@@ -177,7 +198,10 @@ public partial class GlassBackdropWindow : OverlayWindow
             DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref darkMode, sizeof(int));
             int backdropType = DwmsbtAcrylic;
             int result = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
-            return result == 0;
+            if (result != 0)
+                return false;
+            ExtendFrameIntoClient(true);
+            return true;
         }
         catch
         {
@@ -190,8 +214,35 @@ public partial class GlassBackdropWindow : OverlayWindow
         try
         {
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            int backdropType = 0;
+            int backdropType = DwmsbtNone; // DWMSBT_NONE, not Auto(0): a lingering Auto material would override the SolidDarken fallback.
             DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
+            ExtendFrameIntoClient(false);
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>
+    /// Extends (or collapses) the DWM frame across the whole client area. A borderless
+    /// (WindowStyle=None) window has no non-client region for the system material to paint in,
+    /// so without extending the frame the Mica/Acrylic backdrop never covers the window — the
+    /// fallback dark fill is all you'd see. All margins = -1 is the documented "extend across
+    /// the entire window" sentinel; 0 collapses it back to the default border.
+    /// </summary>
+    private void ExtendFrameIntoClient(bool extend)
+    {
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            var margins = new Margins
+            {
+                Left = extend ? -1 : 0,
+                Right = extend ? -1 : 0,
+                Top = extend ? -1 : 0,
+                Bottom = extend ? -1 : 0
+            };
+            DwmExtendFrameIntoClientArea(hwnd, ref margins);
         }
         catch
         {

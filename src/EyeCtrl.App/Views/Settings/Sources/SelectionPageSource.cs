@@ -19,22 +19,29 @@ internal sealed class SelectionPageSource : ISettingsPageSource
                     new[] { "None", "Manual Selection", "Auto Selection" },
                     new[] { "None", "ManualSelection", "AutoSelection" },
                     () => s.SelectionMode.ToString(),
-                    v => { s.SelectionMode = Enum.Parse<SelectionMode>(v); _ctx.ApplyAndSave(); }),
+                    v => { s.SelectionMode = Enum.Parse<SelectionMode>(v); _ctx.ApplyAndSave(); })
+                    { Description = "None clicks your gaze point; Manual zooms; Auto snaps." },
                 new SliderSpec("s_rad", "Circle Radius (px)", 50, 300, 10, 0,
-                    () => s.ManualSelection.CircleRadiusPixels, v => { s.ManualSelection.CircleRadiusPixels = (int)v; _ctx.ApplyAndSave(); }),
+                    () => s.ManualSelection.CircleRadiusPixels, v => { s.ManualSelection.CircleRadiusPixels = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "Radius of the magnifier's zoom circle." },
                 new SliderSpec("s_mag", "Magnification Level", 1.5, 5, 0.5, 1,
-                    () => s.ManualSelection.MagnificationLevel, v => { s.ManualSelection.MagnificationLevel = v; _ctx.ApplyAndSave(); }),
+                    () => s.ManualSelection.MagnificationLevel, v => { s.ManualSelection.MagnificationLevel = v; _ctx.ApplyAndSave(); })
+                    { Description = "How strongly the zoom circle magnifies." },
                 new SliderSpec("s_grace", "Grace Period (ms)", 0, 2000, 50, 0,
-                    () => s.ManualSelection.ManualSelectionGracePeriodMs, v => { s.ManualSelection.ManualSelectionGracePeriodMs = (int)v; _ctx.ApplyAndSave(); }),
+                    () => s.ManualSelection.ManualSelectionGracePeriodMs, v => { s.ManualSelection.ManualSelectionGracePeriodMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "Dwell waits this long after manual selection opens." },
                 new ColorPickerSpec("s_highlight", "Highlight Color",
                     () => s.AutoSelection.HighlightColor, v => { s.AutoSelection.HighlightColor = v; _ctx.ApplyAndSave(); },
-                    SettingsWindow.ControlBtnRadius),
+                    SettingsWindow.ControlBtnRadius)
+                    { Description = "Colour of the box around an auto-selected control." },
                 new SliderSpec("s_highlightThickness", "Highlight Thickness", 1, 10, 1, 0,
-                    () => s.AutoSelection.HighlightThickness, v => { s.AutoSelection.HighlightThickness = v; _ctx.ApplyAndSave(); }),
+                    () => s.AutoSelection.HighlightThickness, v => { s.AutoSelection.HighlightThickness = v; _ctx.ApplyAndSave(); })
+                    { Description = "Line weight of that auto-selection box." },
                 // Stepped by 16 to match ControlFinder's ring spacing: values in between buy no
                 // extra ring, and each ring that IS added costs up to 8 more UIA probes.
                 new SliderSpec("s_snapRadius", "Snap Search Radius (px)", 16, 96, 16, 0,
-                    () => s.AutoSelection.SnapSearchRadiusPixels, v => { s.AutoSelection.SnapSearchRadiusPixels = (int)v; _ctx.ApplyAndSave(); }),
+                    () => s.AutoSelection.SnapSearchRadiusPixels, v => { s.AutoSelection.SnapSearchRadiusPixels = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How far from your gaze Auto Selection searches for a control." },
             ]),
         ];
     }

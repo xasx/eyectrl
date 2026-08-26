@@ -297,11 +297,18 @@ in each case", was false — four sliders sit below or outside their guards):
 - `t_size` slider (32–120) vs validated 40–200: values 32/36 make
   `SettingsService.Save` throw; `SaveDebounced` catches and logs it, the size
   applies live and is silently lost on restart. No crash; left alone here.
+  *(Resolved on `fix/settings-review-followups` (`96db04da`): minimum raised to
+  the validated floor; span now 40–120.)*
 - `s_grace`: the XML doc says 100–2000 but `ManualSelectionSettings.Validate`
   never checks `ManualSelectionGracePeriodMs` — an unenforced doc, harmless.
+  *(Resolved on `fix/settings-review-followups` (`46dd954a`): the doc now
+  states the truth — no guard exists, the UI offers 0–2000, and the span-guard
+  test pins that claim.)*
 - Several `DwellSettings` XML doc ranges disagree with slider spans (e.g.
   FixationDetectionMs "100–1000" vs slider 50–500 → after the fix, 100–500).
 - The Layout tab header itself says "Whether overlays open at your gaze or at
   the screen centre" — the same overclaim the row description had (`ViewPosition`
   affects only the action menu and manual selection). Existing shipped copy;
   changing it is a one-liner worth considering separately.
+  *(Resolved on `fix/settings-review-followups` (`46dd954a`): the header now
+  scopes to the action menu and magnifier.)*

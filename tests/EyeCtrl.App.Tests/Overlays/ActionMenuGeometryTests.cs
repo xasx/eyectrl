@@ -1,8 +1,9 @@
-namespace EyeCtrl.App.Tests.Overlays;
+﻿namespace EyeCtrl.App.Tests.Overlays;
 
 using System.Windows;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -80,5 +81,64 @@ public class ActionMenuGeometryTests
         // Window-relative: 255 + (1695-1500) = 450 (on-canvas), NOT the absolute 1695 (off-canvas).
         Check.That(c.X).IsCloseTo(450d, 0.0001);
         Check.That(c.Y).IsCloseTo(255d, 0.0001);
+    }
+
+    /// <summary>
+    /// The nearest button edge must clear the cursor preview circle by exactly
+    /// <see cref="LayoutConstants.ActionMenuButtonOuterGap"/>.
+    ///
+    /// This is what the gap constant is FOR, and nothing asserted it: the ring radius formula
+    /// happens to produce the clearance, so a later edit that added a term to the formula would
+    /// keep every existing test green while closing the gap the user actually looks across.
+    /// </summary>
+    [Theory]
+    [InlineData(250.0)]
+    [InlineData(100.0)]
+    [InlineData(500.0)]
+    public void TheNearestButtonEdge_ClearsThePreviewCircle_ByTheOuterGap(double circleSize)
+    {
+        DpiHelper.Initialize(1.0, 1.0);
+
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ActionMenuViewModel(settings, messenger);
+
+        var center = new PhysicalPoint(1200, 800);
+        vm.Receive(new ShowActionMenuMessage(
+            center,
+            settings.ActionMenu.VisibleActions,
+            ShowBack: false,
+            DwellTimeMs: 600,
+            GazePoint: center,
+            ManualSelectionDisplayRadius: 0,
+            CircleSize: circleSize));
+
+        var nearestButtonEdge = vm.EffectiveRingRadius - ActionMenuGeometry.ButtonRadius;
+        var previewCircleEdge = circleSize / 2;
+
+        Check.That(nearestButtonEdge - previewCircleEdge)
+             .IsEqualTo(LayoutConstants.ActionMenuButtonOuterGap);
+    }
+
+    /// <summary>
+    /// The window must hold each button plus whatever the button strokes beyond its own radius.
+    /// <see cref="ActionMenuGeometry.WindowSizeMargin"/> is the only slack there is, and it is
+    /// split between the two sides — so the test is against half of it.
+    ///
+    /// **Do not confuse this with the arc halo.** <c>DwellArcButton.HaloPath</c> is the PROGRESS
+    /// ARC's halo, stroked at <c>radius - arcInset</c> (4) with thickness <c>arcThickness + 2</c>
+    /// (6), so its outer edge lands at <c>radius - 1</c> — entirely inside the button and no
+    /// concern of the window's. The overshoot that matters is the RIM halo Task 5 adds, whose
+    /// painted band runs radius+1 to radius+4.
+    /// </summary>
+    [Fact]
+    public void TheWindowMargin_HoldsTheRimHalo()
+    {
+        // The outermost thing DwellArcButton paints, from Task 5's RimHaloOffset + half its
+        // thickness: 2.5 + 1.5 = 4 DIP past the button radius.
+        const double RimHaloOvershootDip = 4.0;
+
+        Check.That(ActionMenuGeometry.WindowSizeMargin / 2.0)
+             .IsStrictlyGreaterThan(RimHaloOvershootDip);
     }
 }

@@ -1,4 +1,4 @@
-namespace EyeCtrl.ViewModels;
+﻿namespace EyeCtrl.ViewModels;
 
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -50,9 +50,9 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         if (message.ShowBack)
             allItems.Add(("Back", null, "\u21A9", true));
 
-        EffectiveRingRadius = message.CircleSize / 2 + UIConstants.ButtonRadius + UIConstants.ActionMenuButtonOuterGap;
+        EffectiveRingRadius = message.CircleSize / 2 + UIConstants.ActionMenuButtonRadius + UIConstants.ActionMenuButtonOuterGap;
         var physicalRingRadius = DpiHelper.LogicalToPhysicalX(EffectiveRingRadius);
-        var physicalButtonRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
+        var physicalButtonRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ActionMenuButtonRadius);
 
         var angleStep = MathConstants.FullCircleDegrees / allItems.Count;
         for (int i = 0; i < allItems.Count; i++)

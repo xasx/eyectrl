@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core;
@@ -184,7 +185,11 @@ public partial class ActionMenuWindow : OverlayWindow
                 // MenuCanvas is window-relative, so convert via ActionMenuGeometry (see its remarks
                 // for the 894ea34 off-canvas regression this guards against).
                 var canvasPoint = ActionMenuGeometry.ButtonCanvasCenter(itemVm.Position, center, canvasCenter);
-                var btn = DwellArcButton.Create(canvasPoint, ActionMenuGeometry.ButtonRadius, symbol: null);
+                var btn = DwellArcButton.Create(
+                    canvasPoint,
+                    ActionMenuGeometry.ButtonRadius,
+                    symbol: null,
+                    icon: ActionIcons.For(itemVm.Icon));
                 btn.AddTo(MenuCanvas);
                 _buttonVisuals[itemVm.Id] = btn;
 

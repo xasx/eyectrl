@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core;
 
@@ -21,10 +22,11 @@ public class DwellArcButton
     /// the 12px accessibility floor, on the affordance that cancels a drag for a user whose
     /// only input channel is an eye tracker. Above the threshold the larger callers keep Small:
     /// the 100px backdrop hide button and ManualSelection side buttons
-    /// (<c>UIConstants.ButtonRadius</c> = 50), and the 140px action-menu ring
+    /// (<c>UIConstants.ButtonRadius</c> = 50). The 140px action-menu ring
     /// (<c>ActionMenuGeometry.ButtonRadius</c> / <c>LayoutConstants.ActionMenuButtonRadius</c> =
-    /// 70, split from the shared radius on 2026-08-26). Both clear the threshold comfortably, so
-    /// the branch is unaffected by that split.
+    /// 70, split from the shared radius on 2026-08-26) no longer reaches this branch at all: it
+    /// passes an <see cref="EyeCtrl.Controls.Icons.IconGeometry"/> instead of a glyph, and that
+    /// path sizes itself by <see cref="ContainerRatio.Dominant"/>.
     ///
     /// Named rather than written inline so RawGeometryLiteralTests's bare-number rule does not
     /// flag the <c>FontSize</c> expression that reads it.
@@ -63,10 +65,16 @@ public class DwellArcButton
     public ArcSegment Arc { get; }
     public TextBlock? Symbol { get; }
 
+    /// <summary>The icon's outlined layer, or null when this button renders a glyph or nothing.</summary>
+    public Path? IconStroke { get; }
+
+    /// <summary>The icon's solid layer, or null when the icon has no filled paths.</summary>
+    public Path? IconFill { get; }
+
     private readonly Point _center;
     private readonly double _arcRadius;
 
-    private DwellArcButton(Ellipse background, Ellipse rimHalo, Path haloPath, Path progressPath, ArcSegment haloArc, ArcSegment arc, TextBlock? symbol, Point center, double arcRadius)
+    private DwellArcButton(Ellipse background, Ellipse rimHalo, Path haloPath, Path progressPath, ArcSegment haloArc, ArcSegment arc, TextBlock? symbol, Path? iconStroke, Path? iconFill, Point center, double arcRadius)
     {
         Background = background;
         RimHalo = rimHalo;
@@ -75,6 +83,8 @@ public class DwellArcButton
         HaloArc = haloArc;
         Arc = arc;
         Symbol = symbol;
+        IconStroke = iconStroke;
+        IconFill = iconFill;
         _center = center;
         _arcRadius = arcRadius;
     }
@@ -94,7 +104,8 @@ public class DwellArcButton
     public static DwellArcButton Create(Point center, double radius, string? symbol,
         Brush? fill = null, Brush? stroke = null, Brush? arcBrush = null, Brush? symbolBrush = null,
         double arcThickness = DefaultArcThickness, double arcInset = DefaultArcInset,
-        double? fontSize = null)
+        double? fontSize = null,
+        IconGeometry? icon = null)
     {
         var fillBrush = fill ?? Tokens.BrushSurfaceMedium;
         var strokeBrush = stroke ?? Tokens.BrushBorderSubtle;
@@ -193,7 +204,41 @@ public class DwellArcButton
             Canvas.SetTop(symbolText, center.Y - symbolText.DesiredSize.Height / 2);
         }
 
-        return new DwellArcButton(bg, rimHalo, haloPath, progressPath, haloSegment, arcSegment, symbolText, center, arcRad);
+        // Drawn icon. Sized by ContainerRatio.Dominant - the token for an affordance whose
+        // entire content is one glyph with no label beside it. The scale goes on RenderTransform
+        // rather than Geometry.Transform on purpose: RenderTransform scales the stroke with the
+        // path, so GridStrokeThickness stays 1.8 at every size. Geometry.Transform would leave a
+        // 1.8px hairline on a 63px icon.
+        Path? iconStrokePath = null;
+        Path? iconFillPath = null;
+        if (icon is not null)
+        {
+            var iconSize = dia * ContainerRatio.Dominant;
+            var scale = iconSize / ActionIcons.GridSize;
+
+            Path BuildLayer(Geometry geometry, bool filled)
+            {
+                var path = new Path
+                {
+                    Data = geometry,
+                    Stroke = filled ? null : symbolBrushActual,
+                    StrokeThickness = filled ? 0 : ActionIcons.GridStrokeThickness,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Fill = filled ? symbolBrushActual : null,
+                    RenderTransform = new ScaleTransform(scale, scale),
+                };
+                Canvas.SetLeft(path, center.X - iconSize / 2);
+                Canvas.SetTop(path, center.Y - iconSize / 2);
+                return path;
+            }
+
+            if (icon.Stroke is not null) iconStrokePath = BuildLayer(icon.Stroke, filled: false);
+            if (icon.Fill is not null) iconFillPath = BuildLayer(icon.Fill, filled: true);
+        }
+
+        return new DwellArcButton(bg, rimHalo, haloPath, progressPath, haloSegment, arcSegment, symbolText, iconStrokePath, iconFillPath, center, arcRad);
     }
 
     public void UpdateProgress(double progress)
@@ -233,5 +278,9 @@ public class DwellArcButton
         canvas.Children.Add(ProgressPath);
         if (Symbol is not null)
             canvas.Children.Add(Symbol);
+        if (IconFill is not null)
+            canvas.Children.Add(IconFill);  // must precede IconStroke
+        if (IconStroke is not null)
+            canvas.Children.Add(IconStroke);
     }
 }

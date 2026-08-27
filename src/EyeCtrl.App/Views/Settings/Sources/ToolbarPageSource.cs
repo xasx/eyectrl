@@ -15,7 +15,7 @@ internal sealed class ToolbarPageSource : ISettingsPageSource
             new PageSpec([
                 new ToggleSpec("t_dock", "Dock to Screen Edge",
                     () => t.IsDocked, v => { t.IsDocked = v; _ctx.ApplyAndSave(); })
-                    { Description = "Docks the toolbar to an edge, where it auto-hides." },
+                    { Description = "Docks the toolbar to an edge; with an eye tracker it auto-hides." },
                 new ComboBoxSpec("t_edge", "Docked Edge",
                     new[] { "Top", "Bottom", "Left", "Right" }, null,
                     () => t.DockedEdge, v => { t.DockedEdge = v; _ctx.ApplyAndSave(); })

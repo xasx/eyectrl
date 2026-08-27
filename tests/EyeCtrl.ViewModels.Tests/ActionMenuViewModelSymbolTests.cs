@@ -5,10 +5,22 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
+/// <summary>
+/// The action menu names a drawn icon per action. This file pinned Unicode glyph strings until
+/// 2026-08-26; the glyphs are gone, but the property that mattered is kept verbatim — every
+/// <see cref="InteractionAction"/> must map to a DISTINCT icon, and none may fall through to a
+/// default.
+///
+/// The fall-through is the specific regression worth a test: the glyph switch ended in
+/// <c>_ => action.ToString()</c>, so a dropped case rendered the enum name in the ring rather
+/// than failing. An icon map has the same hazard in a different shape — a missing case throws at
+/// the drawing layer instead, which for a user whose only input channel is an eye tracker means
+/// an empty ring, not a wrong label.
+/// </summary>
 public class ActionMenuViewModelSymbolTests
 {
     [Fact]
-    public void Receive_ShowActionMenu_ScrollModeItemHasGlyphSymbol()
+    public void Receive_ShowActionMenu_ScrollModeItemHasItsIcon()
     {
         var messenger = new WeakReferenceMessenger();
         using var vm = new ActionMenuViewModel(new EyeCtrlSettings(), messenger);
@@ -21,32 +33,32 @@ public class ActionMenuViewModelSymbolTests
             new PhysicalPoint(500, 500)));
 
         var item = vm.Items.Single();
-        Check.That(item.Symbol).IsEqualTo("⇅");
+        Check.That(item.Icon).IsEqualTo(ActionIcon.ScrollMode);
     }
 
     [Fact]
-    public void Receive_ShowActionMenu_EveryActionHasDistinctGlyph_NotEnumName()
+    public void EveryAction_MapsToADistinctIcon()
     {
-        // Guards the VM-as-single-source-of-symbols fix: every InteractionAction must map to its
-        // intended glyph. A regression that dropped a case would fall through to action.ToString()
-        // (the enum name), which this test rejects for each value.
-        var expected = new Dictionary<InteractionAction, string>
+        var expected = new Dictionary<InteractionAction, ActionIcon>
         {
-            [InteractionAction.LeftClick] = "☝",
-            [InteractionAction.RightClick] = "☰",
-            [InteractionAction.DoubleClick] = "✌",
-            [InteractionAction.Drag] = "✊",
-            [InteractionAction.ScrollUp] = "▲",
-            [InteractionAction.ScrollDown] = "▼",
-            [InteractionAction.ScrollLeft] = "◀",
-            [InteractionAction.ScrollRight] = "▶",
-            [InteractionAction.ScrollMode] = "⇅",
-            [InteractionAction.PinNote] = "📌",
+            [InteractionAction.LeftClick] = ActionIcon.LeftClick,
+            [InteractionAction.RightClick] = ActionIcon.RightClick,
+            [InteractionAction.DoubleClick] = ActionIcon.DoubleClick,
+            [InteractionAction.Drag] = ActionIcon.Drag,
+            [InteractionAction.ScrollUp] = ActionIcon.ScrollUp,
+            [InteractionAction.ScrollDown] = ActionIcon.ScrollDown,
+            [InteractionAction.ScrollLeft] = ActionIcon.ScrollLeft,
+            [InteractionAction.ScrollRight] = ActionIcon.ScrollRight,
+            [InteractionAction.ScrollMode] = ActionIcon.ScrollMode,
+            [InteractionAction.PinNote] = ActionIcon.PinNote,
         };
 
-        // Every enum value must be covered by the expected map (fails if a new action is added).
+        // Fails if a new InteractionAction is added without an icon.
         var allActions = Enum.GetValues<InteractionAction>();
         Check.That(expected.Keys).IsEquivalentTo(allActions);
+
+        // Two actions sharing an icon would render two identical targets.
+        Check.That(expected.Values.Distinct().Count()).IsEqualTo(expected.Count);
 
         foreach (var action in allActions)
         {
@@ -59,9 +71,25 @@ public class ActionMenuViewModelSymbolTests
                 DwellTimeMs: 600,
                 new PhysicalPoint(500, 500)));
 
-            var symbol = vm.Items.Single().Symbol;
-            Check.WithCustomMessage($"{action} glyph").That(symbol).IsEqualTo(expected[action]);
-            Check.WithCustomMessage($"{action} fell through to enum name").That(symbol).IsNotEqualTo(action.ToString());
+            Check.WithCustomMessage($"{action} icon")
+                 .That(vm.Items.Single().Icon).IsEqualTo(expected[action]);
         }
+    }
+
+    [Fact]
+    public void TheBackItem_TakesTheBackIcon()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var vm = new ActionMenuViewModel(new EyeCtrlSettings(), messenger);
+
+        messenger.Send(new ShowActionMenuMessage(
+            new PhysicalPoint(500, 500),
+            new List<InteractionAction> { InteractionAction.LeftClick },
+            ShowBack: true,
+            DwellTimeMs: 600,
+            new PhysicalPoint(500, 500)));
+
+        var back = vm.Items.Single(i => i.IsBackButton);
+        Check.That(back.Icon).IsEqualTo(ActionIcon.Back);
     }
 }

@@ -19,9 +19,12 @@ public class DwellArcButton
     /// which take <c>EdgeButtonDefinition</c>'s default <c>UIConstants.DragButtonRadius</c> of
     /// 20) would render at 40 × 0.23 = 9.2px under <see cref="ContainerRatio.Small"/> — below
     /// the 12px accessibility floor, on the affordance that cancels a drag for a user whose
-    /// only input channel is an eye tracker. Above the threshold the 100px callers
-    /// (<c>ActionMenuGeometry.ButtonRadius</c> / <c>UIConstants.ButtonRadius</c> = 50) keep
-    /// Small, which is the ratio they already observe (22/100 = 0.22).
+    /// only input channel is an eye tracker. Above the threshold the larger callers keep Small:
+    /// the 100px backdrop hide button and ManualSelection side buttons
+    /// (<c>UIConstants.ButtonRadius</c> = 50), and the 140px action-menu ring
+    /// (<c>ActionMenuGeometry.ButtonRadius</c> / <c>LayoutConstants.ActionMenuButtonRadius</c> =
+    /// 70, split from the shared radius on 2026-08-26). Both clear the threshold comfortably, so
+    /// the branch is unaffected by that split.
     ///
     /// Named rather than written inline so RawGeometryLiteralTests's bare-number rule does not
     /// flag the <c>FontSize</c> expression that reads it.

@@ -1,4 +1,4 @@
-namespace EyeCtrl.Controls.Tests;
+﻿namespace EyeCtrl.Controls.Tests;
 
 using System.Windows;
 using EyeCtrl.Controls;
@@ -35,7 +35,11 @@ public class DwellArcButtonGlyphSizeTests
     /// <summary>UIConstants.DragButtonRadius — the edge bar's drag/back buttons.</summary>
     private const double SmallCallerRadius = 20;
 
-    /// <summary>UIConstants.ButtonRadius / ActionMenuGeometry.ButtonRadius.</summary>
+    /// <summary>
+    /// UIConstants.ButtonRadius — the backdrop hide button and ManualSelection side buttons.
+    /// NOT the action menu: that split onto LayoutConstants.ActionMenuButtonRadius (70) on
+    /// 2026-08-26. Either radius exercises the same above-threshold arm, so 50 still covers it.
+    /// </summary>
     private const double LargeCallerRadius = 50;
 
     [StaFact]

@@ -15,16 +15,6 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class AdaptationRuntimeContainmentTests
 {
-    private sealed class FakeGazeProvider : IGazeProvider
-    {
-        public event Action<GazePoint>? GazePointReceived;
-        public bool IsConnected => true;
-        public void Start() { }
-        public void Stop() { }
-        public void Dispose() { }
-        public void Raise(GazePoint p) => GazePointReceived?.Invoke(p);
-    }
-
     private static AdaptationCoordinator NewCoordinator(AdaptationSettings adaptation)
     {
         var settings = new EyeCtrlSettings();
@@ -33,7 +23,7 @@ public class AdaptationRuntimeContainmentTests
         var provider = new EffectiveSettingsProvider(adaptation);
         var controller = new AdaptationController(provider, adaptation);
         return new AdaptationCoordinator(
-            monitor, controller, adaptation, new FakeGazeProvider(), new InteractionManager());
+            monitor, controller, adaptation, new TestFakes.FakeGazeProvider(), new InteractionManager());
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using System;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Interfaces;
@@ -143,6 +144,21 @@ internal static class TestFakes
     internal sealed class FakeInstalledAppProvider : IInstalledAppProvider
     {
         public IReadOnlyList<InstalledApp> GetInstalledApps() => Array.Empty<InstalledApp>();
+    }
+
+    /// <summary>
+    /// Superset of the three former private IGazeProvider fakes: settable <c>IsConnected</c> (defaults
+    /// true, per the coordinator tests' connected-state precondition) plus a raisable GazePoint event.
+    /// Not the Core test project's fake — that one's IsConnected has a private set flipped by Start().
+    /// </summary>
+    public class FakeGazeProvider : IGazeProvider
+    {
+        public event Action<GazePoint>? GazePointReceived;
+        public bool IsConnected { get; set; } = true;
+        public void Start() { }
+        public void Stop() { }
+        public void Dispose() { }
+        public void Raise(GazePoint p) => GazePointReceived?.Invoke(p);
     }
 
     /// <summary>

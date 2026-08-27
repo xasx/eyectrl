@@ -15,17 +15,6 @@ public class AdaptationResetHandlerTests
 {
     private const long Sec = 1_000_000;
 
-    // Minimal IGazeProvider fake (only IsConnected is exercised; GazePointReceived via no-op accessors
-    // to avoid CS0067; Capabilities/TrackStatus* are default-implemented on the interface).
-    private sealed class FakeGazeProvider : IGazeProvider
-    {
-        public bool IsConnected { get; set; } = true;
-        event Action<GazePoint>? IGazeProvider.GazePointReceived { add { } remove { } }
-        public void Start() { }
-        public void Stop() { }
-        public void Dispose() { }
-    }
-
     private static (AdaptationCoordinator Coord, EffectiveSettingsProvider Provider, BufferingTelemetrySink Sink) Make()
     {
         var settings = new EyeCtrlSettings();
@@ -34,7 +23,7 @@ public class AdaptationResetHandlerTests
         var monitor = new StruggleMonitor(sink, settings.EyeCare);
         var provider = new EffectiveSettingsProvider(settings.Adaptation);
         var controller = new AdaptationController(provider, settings.Adaptation);
-        var coord = new AdaptationCoordinator(monitor, controller, settings.Adaptation, new FakeGazeProvider(), new InteractionManager());
+        var coord = new AdaptationCoordinator(monitor, controller, settings.Adaptation, new TestFakes.FakeGazeProvider(), new InteractionManager());
         return (coord, provider, sink);
     }
 

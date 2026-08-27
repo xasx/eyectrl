@@ -19,8 +19,11 @@ public class SettingsRowDescriptionCompletenessTests
     {
         var ctx = TestSettingsPageContext.Build();
         // Mirrors SettingsWindow._tabDefs order (QuickActions omitted, see the class doc).
-        // A new page source must be added here consciously — the same forcing function as
-        // EyeCtrlSettingsEnumerationTests.
+        // HAND-MAINTAINED: unlike EyeCtrlSettingsEnumerationTests (reflection-based), this list
+        // does NOT fail automatically when a new page source is added — a new source must be
+        // added here consciously or it ships uncovered. A reflection-based drift guard over
+        // ISettingsPageSource implementors is a known follow-up (OverlayInventoryDriftTests is
+        // the in-repo pattern).
         ISettingsPageSource[] sources =
         [
             new CursorPageSource(ctx),

@@ -63,10 +63,12 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         _ => action.ToString()
     };
 
-    // Copy verbatim from the spec inventory. Exhaustive with a throwing fallback, not a silent
-    // null: a new InteractionAction must fail loudly here and in the completeness test, never
-    // ship a bare row.
-    private static string ActionDescription(InteractionAction action) => action switch
+    // Copy verbatim from the spec inventory. Unknown enum members return null — the
+    // completeness gate (SettingsRowDescriptionCompletenessTests) fails on the bare row by
+    // name, which is the loud failure that matters. Throwing here instead would take the
+    // settings window down on a future enum addition, and this app deliberately terminates on
+    // dispatcher exceptions (the same crash class the dwell-slider fixes close).
+    private static string? ActionDescription(InteractionAction action) => action switch
     {
         InteractionAction.LeftClick => "One left click at the point you chose.",
         InteractionAction.RightClick => "One right click at the point you chose.",
@@ -78,6 +80,6 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.ScrollRight => "Scrolls right from the point you chose.",
         InteractionAction.ScrollMode => "Continuous scrolling, steered by where you look.",
         InteractionAction.PinNote => "Opens a note to type at the point you chose.",
-        _ => throw new InvalidOperationException($"{action} needs a settings description")
+        _ => null
     };
 }

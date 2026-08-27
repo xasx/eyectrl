@@ -175,7 +175,7 @@ dictionary suggestions.
 
 | Id | Label | Description |
 |---|---|---|
-| t_dock | Dock to Screen Edge | Docks the toolbar to an edge, where it auto-hides. |
+| t_dock | Dock to Screen Edge | Docks the toolbar to an edge; with an eye tracker it auto-hides. |
 | t_edge | Docked Edge | Which screen edge the toolbar attaches to. |
 | t_size | Button Size | Size of each button; bigger ones are easier to aim at. |
 

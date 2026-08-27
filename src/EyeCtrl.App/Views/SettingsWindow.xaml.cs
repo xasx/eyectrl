@@ -654,11 +654,7 @@ public partial class SettingsWindow : OverlayWindow
     // dict because tab-pager targets live in the Tab category, not Pagination.
     private void UpdateTabPaginationVisuals()
     {
-        foreach (var (id, progress) in _viewModel.TabProgress)
-        {
-            if (_tabPagerBrushes.TryGetValue(id, out var brush))
-                brush.Color = ColorBlend.Blend(BtnBase, Tokens.Accent, progress * 0.4);
-        }
+        BlendProgress(_viewModel.TabProgress, _tabPagerBrushes, BtnBase, 0.4);
     }
 
     // ────── Tab switching ──────
@@ -1320,16 +1316,7 @@ public partial class SettingsWindow : OverlayWindow
     private void UpdateAllTargetPositions()
     {
         // Update close button position
-        try
-        {
-            var cPos = CloseButton.PointToScreen(
-                new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
-            _viewModel.UpdatePosition("close", DwellCategory.Tab, new PhysicalPoint(cPos.X, cPos.Y));
-        }
-        catch (InvalidOperationException)
-        {
-            // Window or button not yet rendered or not in visual tree
-        }
+        TryUpdatePosition(CloseButton, "close", DwellCategory.Tab);
 
         // Update tab button positions (only the current tab page's borders are attached;
         // detached ones throw and are skipped) and the tab pager's
@@ -1387,16 +1374,43 @@ public partial class SettingsWindow : OverlayWindow
     {
         foreach (var (id, border) in borders)
         {
-            try
-            {
-                var pos = border.PointToScreen(
-                    new Point(border.ActualWidth / 2, border.ActualHeight / 2));
-                _viewModel.UpdatePosition(id, category, new PhysicalPoint(pos.X, pos.Y));
-            }
-            catch (InvalidOperationException)
-            {
-                // Border not yet rendered or not in visual tree
-            }
+            TryUpdatePosition(border, id, category);
+        }
+    }
+
+    /// <summary>
+    /// Blends each target's dwell progress into its mutable brush, toward Accent, at
+    /// <paramref name="factor"/>. Shared shape of the tab-pager and content-pager feedback.
+    /// The loop variable is deliberately named <c>progress</c>: DwellWashCensusTests'
+    /// AccentWash regex matches <c>Blend(... Tokens.Accent, progress</c> and must keep
+    /// finding these two sites.
+    /// </summary>
+    private static void BlendProgress(
+        Dictionary<string, double> progressById,
+        Dictionary<string, SolidColorBrush> brushes,
+        Color baseColor,
+        double factor)
+    {
+        foreach (var (id, progress) in progressById)
+            if (brushes.TryGetValue(id, out var brush))
+                brush.Color = ColorBlend.Blend(baseColor, Tokens.Accent, progress * factor);
+    }
+
+    /// <summary>
+    /// Pushes one border's screen-space centre to the ViewModel under <paramref name="category"/>.
+    /// Swallows the not-in-visual-tree throw, same contract as <see cref="UpdateButtonPositions"/>.
+    /// </summary>
+    private void TryUpdatePosition(Border border, string id, DwellCategory category)
+    {
+        try
+        {
+            var pos = border.PointToScreen(
+                new Point(border.ActualWidth / 2, border.ActualHeight / 2));
+            _viewModel.UpdatePosition(id, category, new PhysicalPoint(pos.X, pos.Y));
+        }
+        catch (InvalidOperationException)
+        {
+            // Border not yet rendered or not in visual tree
         }
     }
 
@@ -1423,14 +1437,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private void UpdatePaginationVisuals()
     {
-        foreach (var (id, progress) in _viewModel.PagProgress)
-        {
-            if (_pagBrushes.TryGetValue(id, out var brush))
-            {
-                // HighlightColor(BtnBase, progress, 0.4) == Blend(BtnBase, Accent, progress * 0.4)
-                brush.Color = ColorBlend.Blend(BtnBase, Tokens.Accent, progress * 0.4);
-            }
-        }
+        BlendProgress(_viewModel.PagProgress, _pagBrushes, BtnBase, 0.4);
     }
 
     private void UpdateModalVisuals()

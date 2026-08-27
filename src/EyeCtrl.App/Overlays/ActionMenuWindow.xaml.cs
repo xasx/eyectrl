@@ -184,7 +184,7 @@ public partial class ActionMenuWindow : OverlayWindow
                 // MenuCanvas is window-relative, so convert via ActionMenuGeometry (see its remarks
                 // for the 894ea34 off-canvas regression this guards against).
                 var canvasPoint = ActionMenuGeometry.ButtonCanvasCenter(itemVm.Position, center, canvasCenter);
-                var btn = DwellArcButton.Create(canvasPoint, ActionMenuGeometry.ButtonRadius, itemVm.Symbol);
+                var btn = DwellArcButton.Create(canvasPoint, ActionMenuGeometry.ButtonRadius, symbol: null);
                 btn.AddTo(MenuCanvas);
                 _buttonVisuals[itemVm.Id] = btn;
 

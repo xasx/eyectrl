@@ -44,11 +44,11 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         DwellDetector.ClearTargets();
         _itemLookup.Clear();
 
-        var allItems = new List<(string Id, InteractionAction? Action, string Symbol, bool IsBack)>();
+        var allItems = new List<(string Id, InteractionAction? Action, ActionIcon Icon, bool IsBack)>();
         foreach (var action in message.Actions)
-            allItems.Add((action.ToString(), action, GetActionSymbol(action), false));
+            allItems.Add((action.ToString(), action, GetActionIcon(action), false));
         if (message.ShowBack)
-            allItems.Add(("Back", null, "\u21A9", true));
+            allItems.Add(("Back", null, ActionIcon.Back, true));
 
         EffectiveRingRadius = message.CircleSize / 2 + UIConstants.ActionMenuButtonRadius + UIConstants.ActionMenuButtonOuterGap;
         var physicalRingRadius = DpiHelper.LogicalToPhysicalX(EffectiveRingRadius);
@@ -57,13 +57,13 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         var angleStep = MathConstants.FullCircleDegrees / allItems.Count;
         for (int i = 0; i < allItems.Count; i++)
         {
-            var (id, action, symbol, isBack) = allItems[i];
+            var (id, action, icon, isBack) = allItems[i];
             var angleRad = (angleStep * i - MathConstants.RightAngleDegrees) * MathConstants.DegreesToRadians;
             var bx = message.Center.X + physicalRingRadius * Math.Cos(angleRad);
             var by = message.Center.Y + physicalRingRadius * Math.Sin(angleRad);
             var position = new PhysicalPoint(bx, by);
 
-            var itemVm = new ActionMenuItemViewModel(id, action, symbol, position, isBack);
+            var itemVm = new ActionMenuItemViewModel(id, action, icon, position, isBack);
             Items.Add(itemVm);
             _itemLookup[id] = itemVm;
 
@@ -100,18 +100,26 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
             item.DwellProgress = progress;
     }
 
-    private static string GetActionSymbol(InteractionAction action) => action switch
+    /// <summary>
+    /// The single source of truth for which icon an action shows. There is deliberately no
+    /// default arm: a new <see cref="InteractionAction"/> must be given an icon here, and
+    /// <c>ActionMenuViewModelSymbolTests.EveryAction_MapsToADistinctIcon</c> fails until it is.
+    /// The glyph version this replaced ended in <c>_ => action.ToString()</c>, which silently
+    /// rendered enum names in the ring when a case was dropped.
+    /// </summary>
+    private static ActionIcon GetActionIcon(InteractionAction action) => action switch
     {
-        InteractionAction.LeftClick => "\u261D",
-        InteractionAction.RightClick => "\u2630",
-        InteractionAction.DoubleClick => "\u270C",
-        InteractionAction.Drag => "\u270A",
-        InteractionAction.ScrollUp => "\u25B2",
-        InteractionAction.ScrollDown => "\u25BC",
-        InteractionAction.ScrollLeft => "\u25C0",
-        InteractionAction.ScrollRight => "\u25B6",
-        InteractionAction.PinNote => "\uD83D\uDCCC",     // 📌 Pushpin
-        InteractionAction.ScrollMode => "⇅",           // up/down arrows (gaze-joystick scroll)
-        _ => action.ToString()
+        InteractionAction.LeftClick => ActionIcon.LeftClick,
+        InteractionAction.RightClick => ActionIcon.RightClick,
+        InteractionAction.DoubleClick => ActionIcon.DoubleClick,
+        InteractionAction.Drag => ActionIcon.Drag,
+        InteractionAction.ScrollUp => ActionIcon.ScrollUp,
+        InteractionAction.ScrollDown => ActionIcon.ScrollDown,
+        InteractionAction.ScrollLeft => ActionIcon.ScrollLeft,
+        InteractionAction.ScrollRight => ActionIcon.ScrollRight,
+        InteractionAction.ScrollMode => ActionIcon.ScrollMode,
+        InteractionAction.PinNote => ActionIcon.PinNote,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(action), action, "No ActionIcon is mapped for this InteractionAction."),
     };
 }

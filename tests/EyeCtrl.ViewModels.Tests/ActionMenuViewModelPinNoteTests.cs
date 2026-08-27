@@ -27,7 +27,6 @@ public class ActionMenuViewModelPinNoteTests
         Check.That(vm.Items).HasSize(1);
         Check.That(vm.Items[0].Action).IsNotNull();
         Check.That(vm.Items[0].Action!.Value).IsEqualTo(InteractionAction.PinNote);
-        Check.That(vm.Items[0].Symbol).Not.IsEmpty();
-        Check.That(vm.Items[0].Symbol).Not.Equals("PinNote");
+        Check.That(vm.Items[0].Icon).IsEqualTo(ActionIcon.PinNote);
     }
 }

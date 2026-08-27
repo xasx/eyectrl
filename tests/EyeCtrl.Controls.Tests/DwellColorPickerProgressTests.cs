@@ -29,7 +29,7 @@ public class DwellColorPickerProgressTests
         // "#A5F3FC" is passed as the sole preset, not just the selection-getter value, so it is
         // genuinely the swatch's paint colour below — not a literal that merely looks like one.
         var hex = "#A5F3FC";
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var picker = new DwellColorPicker(
             registrar, "cp", "Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800,
@@ -59,7 +59,7 @@ public class DwellColorPickerProgressTests
         // Same as above: "#A5F3FC" is the sole preset, so it really is the chip's paint colour,
         // not merely the selection-getter's initial value.
         var hex = "#A5F3FC";
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var picker = new DwellColorPicker(
             registrar, "cp", "Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800,
@@ -89,18 +89,4 @@ public class DwellColorPickerProgressTests
     private static Border FindChip(DwellControl control) =>
         ((Panel)((DwellButton)control).Content!).Children.OfType<Border>().Single();
 
-    /// <summary>
-    /// Reports whatever progress the test sets, so tests drive a control through its real
-    /// <see cref="DwellControl.UpdateVisual"/> path instead of needing a test-only hook on the
-    /// production type.
-    /// </summary>
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        public double Progress { get; set; }
-
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => Progress;
-    }
 }

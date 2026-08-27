@@ -49,21 +49,9 @@ public class DwellSliderStepperTests
     /// </summary>
     private const double ExpectedOutline = 2;
 
-    private sealed class FakeRegistrar : IDwellRegistrar
-    {
-        public void Register(string id, DwellCategory category, double radius, int dwellMs,
-            Action onActivated)
-        { }
-
-        public void Unregister(string id, DwellCategory category) { }
-
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-
-        public double GetProgress(string id, DwellCategory category) => 0;
-    }
 
     private static DwellSlider Build() =>
-        new(new FakeRegistrar(), "sl", "Smoothing", 0, 1, 0.1, 1,
+        new(new FakeDwellRegistrar(), "sl", "Smoothing", 0, 1, 0.1, 1,
             () => 0.5, _ => { }, DwellCategory.Control, 50, 800);
 
     /// <summary>

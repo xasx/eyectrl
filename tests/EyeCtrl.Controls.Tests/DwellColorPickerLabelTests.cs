@@ -67,7 +67,7 @@ public class DwellColorPickerLabelTests
     {
         var hex = Presets[0].Hex;
         return new DwellColorPicker(
-            new FakeRegistrar(), "cp", "Circle Colour", () => hex, v => hex = v,
+            new FakeDwellRegistrar(), "cp", "Circle Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800, presets: Presets);
     }
 
@@ -79,7 +79,7 @@ public class DwellColorPickerLabelTests
     /// <param name="registrar">Registrar the swatch activations land in.</param>
     /// <param name="selected">Hex of the preset selected before the test does anything.</param>
     /// <returns>The picker.</returns>
-    private static DwellColorPicker Build(FakeRegistrar registrar, string selected)
+    private static DwellColorPicker Build(FakeDwellRegistrar registrar, string selected)
     {
         var current = selected;
         return new DwellColorPicker(
@@ -95,7 +95,7 @@ public class DwellColorPickerLabelTests
     /// <param name="selected">Hex of the preset the getter reports as current.</param>
     /// <returns>The picker.</returns>
     private static DwellColorPicker BuildWithSelection(string selected) =>
-        new(new FakeRegistrar(), "cp", "Circle Colour", () => selected, _ => { },
+        new(new FakeDwellRegistrar(), "cp", "Circle Colour", () => selected, _ => { },
             DwellCategory.Control, 50, 800,
             presets: new[] { ("#A5F3FC", "One"), ("#FFD166", "Two") });
 
@@ -335,7 +335,7 @@ public class DwellColorPickerLabelTests
     [StaFact]
     public void ActivatingASwatch_MovesTheSelectionBorder_AndLeavesTheRowWhereItWas()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var picker = Build(registrar, Presets[0].Hex);
         var host = AttachAndMeasure(picker);
 
@@ -408,7 +408,7 @@ public class DwellColorPickerLabelTests
     /// settings row hosts.
     /// </summary>
     private static DwellColorPicker BuildHeadless() =>
-        new(new FakeRegistrar(), "cp", "Circle Colour", () => Presets[0].Hex, _ => { },
+        new(new FakeDwellRegistrar(), "cp", "Circle Colour", () => Presets[0].Hex, _ => { },
             DwellCategory.Control, 50, 800, presets: Presets, showLabel: false);
 
     /// <summary>
@@ -455,22 +455,4 @@ public class DwellColorPickerLabelTests
             .That(panel.Children.OfType<TextBlock>().Single().Text).IsEqualTo("Circle Colour");
     }
 
-    /// <summary>
-    /// Records each target's activation callback, so a test can fire one the way the overlay's
-    /// dwell detector would once the user has held their gaze long enough.
-    /// </summary>
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        private readonly Dictionary<string, Action> _activations = new();
-
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) =>
-            _activations[id] = onActivated;
-
-        public void Unregister(string id, DwellCategory category) => _activations.Remove(id);
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
-
-        /// <summary>Fires the activation registered under <paramref name="id"/>.</summary>
-        public void Activate(string id) => _activations[id]();
-    }
 }

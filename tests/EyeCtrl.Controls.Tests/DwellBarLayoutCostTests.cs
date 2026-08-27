@@ -36,7 +36,7 @@ public class DwellBarLayoutCostTests
     public void AReservedBarRow_ShiftsTheLabelUpByExactlyTheBarHeight()
     {
         var btn = new DwellButton(
-            new FakeRegistrar(), "id", "A", () => { },
+            new FakeDwellRegistrar(), "id", "A", () => { },
             Tokens.SurfaceMedium, DwellCategory.Control, 50, 800);
         btn.Root.Margin = new Thickness(0);
 
@@ -69,7 +69,7 @@ public class DwellBarLayoutCostTests
     public void TheOuterBox_DoesNotMove()
     {
         var btn = new DwellButton(
-            new FakeRegistrar(), "id", "A", () => { },
+            new FakeDwellRegistrar(), "id", "A", () => { },
             Tokens.SurfaceMedium, DwellCategory.Control, 50, 800);
         btn.Root.Margin = new Thickness(0);
 
@@ -129,11 +129,4 @@ public class DwellBarLayoutCostTests
             .That(found).ContainsExactly(gated);
     }
 
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
-    }
 }

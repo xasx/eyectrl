@@ -94,24 +94,4 @@ public class DwellControlLifecycleTests
         }
     }
 
-    private class FakeDwellRegistrar : IDwellRegistrar
-    {
-        public List<(string Id, DwellCategory Category, double RadiusPhysical, int DwellMs)> RegisterCalls { get; } = new();
-        public List<(string Id, DwellCategory Category)> UnregisterCalls { get; } = new();
-        public List<(string Id, DwellCategory Category)> GetProgressCalls { get; } = new();
-
-        public void Register(string id, DwellCategory category, double radiusPhysical, int dwellMs, Action onActivated)
-        {
-            RegisterCalls.Add((id, category, radiusPhysical, dwellMs));
-        }
-
-        public void Unregister(string id, DwellCategory category) => UnregisterCalls.Add((id, category));
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-
-        public double GetProgress(string id, DwellCategory category)
-        {
-            GetProgressCalls.Add((id, category));
-            return 0;
-        }
-    }
 }

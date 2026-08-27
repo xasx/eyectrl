@@ -312,7 +312,7 @@ public class DwellCompositeChildrenStabilityTests
     {
         var value = 5.0;
         return new DwellSlider(
-            new FakeRegistrar(), "sl", "Speed", 0, 10, 1, 0,
+            new FakeDwellRegistrar(), "sl", "Speed", 0, 10, 1, 0,
             () => value, v => value = v,
             DwellCategory.Control, 50, 800);
     }
@@ -321,7 +321,7 @@ public class DwellCompositeChildrenStabilityTests
     {
         var code = "a";
         return new DwellComboBox(
-            new FakeRegistrar(), "cb", "Mode",
+            new FakeDwellRegistrar(), "cb", "Mode",
             ["Alpha", "Beta"], ["a", "b"],
             () => code, v => code = v,
             DwellCategory.Control, 50, 800);
@@ -331,7 +331,7 @@ public class DwellCompositeChildrenStabilityTests
     {
         var hex = "#A5F3FC";
         return new DwellColorPicker(
-            new FakeRegistrar(), "cp", "Colour", () => hex, v => hex = v,
+            new FakeDwellRegistrar(), "cp", "Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800,
             presets: [(hex, "Test"), ("#F87171", "Other")]);
     }
@@ -340,7 +340,7 @@ public class DwellCompositeChildrenStabilityTests
     {
         var on = false;
         return new DwellToggle(
-            new FakeRegistrar(), "tg", "Start on Windows Boot",
+            new FakeDwellRegistrar(), "tg", "Start on Windows Boot",
             () => on, v => on = v,
             DwellCategory.Control, 50, 800);
     }
@@ -357,11 +357,4 @@ public class DwellCompositeChildrenStabilityTests
         return dir!;
     }
 
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
-    }
 }

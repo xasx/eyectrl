@@ -23,7 +23,7 @@ using Xunit;
 /// </summary>
 public class DwellComboBoxProgressTests
 {
-    private static DwellComboBox NewCombo(FakeRegistrar registrar, out string selected)
+    private static DwellComboBox NewCombo(FakeDwellRegistrar registrar, out string selected)
     {
         selected = "a";
         var captured = selected;
@@ -37,7 +37,7 @@ public class DwellComboBoxProgressTests
     [StaFact]
     public void AnOption_SweepsItsBar()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var combo = NewCombo(registrar, out _);
         var option = (DwellButton)combo.Children.First();
 
@@ -56,7 +56,7 @@ public class DwellComboBoxProgressTests
     [StaFact]
     public void DwellingAnOption_LeavesItsFillAndTheSelectionBorderAlone()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var combo = NewCombo(registrar, out _);
         var option = (DwellButton)combo.Children.First();
 
@@ -84,7 +84,7 @@ public class DwellComboBoxProgressTests
     [StaFact]
     public void AnOptionsBar_SpansThePaddedBox_AndSweepsFromTheLeft()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var combo = NewCombo(registrar, out _);
         var option = (DwellButton)combo.Children.First();
 
@@ -112,13 +112,4 @@ public class DwellComboBoxProgressTests
         Check.That(option.ProgressBar.RenderTransformOrigin.X).IsEqualTo(0.0);
     }
 
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        public double Progress { get; set; }
-
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => Progress;
-    }
 }

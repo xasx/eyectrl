@@ -44,11 +44,4 @@ public class DwellComboBoxValidationTests
         Check.That(combo).IsNotNull();
     }
 
-    private class FakeDwellRegistrar : IDwellRegistrar
-    {
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
-        public void UpdatePosition(string id, DwellCategory category, Core.Models.PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
-    }
 }

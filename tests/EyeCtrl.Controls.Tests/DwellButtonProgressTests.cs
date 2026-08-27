@@ -338,11 +338,4 @@ public class DwellButtonProgressTests
         public void TestOnActivated() => OnActivated();
     }
 
-    private class FakeDwellRegistrar : IDwellRegistrar
-    {
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
-    }
 }

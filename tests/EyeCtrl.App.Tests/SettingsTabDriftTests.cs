@@ -20,11 +20,9 @@ using NFluent;
 /// against source. This runs in the <c>Category!=UI</c> subset CI executes, so the skipped test's
 /// expectation can no longer drift unnoticed.
 ///
-/// Deliberately NOT compared against <c>SettingsViewModel.Tabs</c>. Those are a different list with
-/// different names (the VM has ExternalDwell/Scroll/Backdrop/Drag/Eye Care; the window has
-/// Layout/Models/QuickActions), and the window renders from its own <c>_tabDefs</c> and its own page
-/// builders — it does not consume the VM's tab collection. Asserting equality between them would
-/// encode a coupling that does not exist.
+/// Deliberately NOT compared against <c>SettingsViewModel.Tabs</c>: the window renders from its own
+/// <c>_tabDefs</c> and its own page sources; the former parallel tab model in SettingsViewModel was
+/// deleted 2026-08. Asserting equality against it would have encoded a coupling that did not exist.
 /// </summary>
 public class SettingsTabDriftTests
 {

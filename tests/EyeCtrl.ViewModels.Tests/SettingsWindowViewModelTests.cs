@@ -13,16 +13,10 @@ public class SettingsWindowViewModelTests
 {
     private readonly WeakReferenceMessenger _messenger = new();
     private readonly EyeCtrlSettings _settings = new();
-    private readonly SettingsService _settingsService;
-
-    public SettingsWindowViewModelTests()
-    {
-        _settingsService = new SettingsService("test_settings_window.json");
-    }
 
     private SettingsWindowViewModel CreateViewModel()
     {
-        var settingsVM = new SettingsViewModel(_settings, _settingsService, _messenger);
+        var settingsVM = new SettingsViewModel(_settings);
         var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
             new FakeQuickActionsStore(), new FakeInstalledAppProvider());
         return new SettingsWindowViewModel(settingsVM, quickActionsEditor, _messenger, _settings.Dwell);
@@ -58,7 +52,6 @@ public class SettingsWindowViewModelTests
 
         Check.That(vm).IsNotNull();
         Check.That(vm.Settings).IsNotNull();
-        Check.That(vm.Settings.Tabs).HasSize(13);
     }
 
     [Fact]

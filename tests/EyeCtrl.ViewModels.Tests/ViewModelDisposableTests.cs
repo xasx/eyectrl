@@ -301,30 +301,6 @@ public class ViewModelDisposableTests
     }
 
     [Fact]
-    public void SettingsViewModel_ImplementsIDisposable()
-    {
-        var settings = new EyeCtrlSettings();
-        var messenger = new WeakReferenceMessenger();
-        var settingsService = new SettingsService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "settings.json"));
-        var vm = new SettingsViewModel(settings, settingsService, messenger);
-
-        Check.That(vm is IDisposable).IsTrue();
-    }
-
-    [Fact]
-    public void SettingsViewModel_DisposeIsIdempotent()
-    {
-        var settings = new EyeCtrlSettings();
-        var messenger = new WeakReferenceMessenger();
-        var settingsService = new SettingsService(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "settings.json"));
-        var vm = new SettingsViewModel(settings, settingsService, messenger);
-
-        ((IDisposable)vm).Dispose();
-        ((IDisposable)vm).Dispose();
-        ((IDisposable)vm).Dispose();
-    }
-
-    [Fact]
     public void GlassBackdropViewModel_ImplementsIDisposable()
     {
         var settings = new EyeCtrlSettings();

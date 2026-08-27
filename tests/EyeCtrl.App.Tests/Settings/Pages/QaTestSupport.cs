@@ -20,8 +20,7 @@ internal static class QaTestSupport
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var settingsService = new SettingsService("test_qa_" + System.Guid.NewGuid() + ".json");
-        var settingsVM = new SettingsViewModel(settings, settingsService, messenger);
+        var settingsVM = new SettingsViewModel(settings);
         var editor = new SettingsQuickActionsEditorViewModel(
             new FakeQuickActionsStore(), new FakeInstalledAppProvider());
         var vm = new SettingsWindowViewModel(settingsVM, editor, messenger, settings.Dwell);

@@ -236,9 +236,13 @@ public partial class SettingsWindow : OverlayWindow
     /// header shows under that label. <c>Description</c> is not decoration — the header is the
     /// only place a tab says what it is for, and the tab glyphs alone are ambiguous.
     /// </summary>
-    private readonly (string Id, string Icon, string Label, string Description,
-        Func<IReadOnlyList<PageSpec>> PageBuilder)[] _tabDefs;
-    private readonly Dictionary<string, Func<IReadOnlyList<PageSpec>>> _pageBuilders = new();
+    // INTENTIONALLY NOT EXPOSED in the settings UI (audit this list when adding settings):
+    //  - Cursor.MaxGapInterpolationMs, Cursor.PositionIndicatorStyle  (advanced tuning)
+    //  - ManualSelection.Enabled (driven by SelectionMode), ManualSelection.GazeIndicator* (visual tuning)
+    //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry)
+    //  - Calibration.TargetColor (visual tuning)
+    // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.
+    private readonly (string Id, string Icon, string Label, string Description)[] _tabDefs;
     private readonly Dictionary<string, ISettingsPageSource> _sources = new();
 
     public SettingsWindow(
@@ -298,44 +302,34 @@ public partial class SettingsWindow : OverlayWindow
                 m.Reason,
                 [new ModalChoice("restart_failed_ok", "✓ OK", ModalChoiceKind.Affirmative, null)])));
 
-        // Initialize tab definitions with page builders
+        // Initialize tab definitions
         _tabDefs =
         [
             // Descriptions describe what each tab ACTUALLY holds, read off the page sources in
             // src/EyeCtrl.App/Views/Settings/Sources — not what the tab's name suggests.
             ("Cursor",   "◎", "Cursor",
-                "How raw gaze is filtered, and how the cursor ring is drawn.", BuildCursorPages),
+                "How raw gaze is filtered, and how the cursor ring is drawn."),
             ("Dwell",    "⏱", "Dwell Times",
-                "How long gaze must rest on a target before it activates.", BuildDwellPages),
+                "How long gaze must rest on a target before it activates."),
             ("Selection", "⊕", "Selection",
-                "Picking the exact target: mode, magnifier, highlight and snapping.",
-                BuildSelectionPages),
+                "Picking the exact target: mode, magnifier, highlight and snapping."),
             ("Actions",  "⊙", "Action Menu",
-                "Which actions appear in the ring that opens after an activation.",
-                BuildActionMenuPages),
+                "Which actions appear in the ring that opens after an activation."),
             ("Layout",   "⊞", "Layout",
-                "Where the action menu and magnifier open: at your gaze, or at the screen centre.", BuildLayoutPages),
+                "Where the action menu and magnifier open: at your gaze, or at the screen centre."),
             ("Keyboard", "⌨", "Keyboard",
-                "On-screen keyboard size, layout and word prediction.", BuildKeyboardPages),
+                "On-screen keyboard size, layout and word prediction."),
             ("Models",    "⬡", "Models",
-                "Language models used for word prediction.", BuildModelsPages),
+                "Language models used for word prediction."),
             ("Toolbar",  "▣", "Toolbar",
-                "Where the utility bar docks, and how big its buttons are.", BuildToolbarPages),
+                "Where the utility bar docks, and how big its buttons are."),
             ("Calibration", "⌖", "Calibration",
-                "Correcting the offset between your gaze and the cursor.",
-                BuildCalibrationPages),
+                "Correcting the offset between your gaze and the cursor."),
             ("General",  "⚙", "General",
-                "Startup, theme, restart, and resetting settings.", BuildGeneralPages),
+                "Startup, theme, restart, and resetting settings."),
             ("QuickActions", "⚡", "Quick Actions",
-                "The pop-up grid of one-dwell shortcuts, and how it is summoned.",
-                BuildQuickActionsPages)
+                "The pop-up grid of one-dwell shortcuts, and how it is summoned.")
         ];
-
-        // Build dictionary for O(1) page builder lookup
-        foreach (var (id, _, _, _, pageBuilder) in _tabDefs)
-        {
-            _pageBuilders[id] = pageBuilder;
-        }
 
         // Set DataContext for data binding
         DataContext = _viewModel;
@@ -382,7 +376,7 @@ public partial class SettingsWindow : OverlayWindow
         _modelsSource = new ModelsPageSource(_ctx);
         _qaSource = new QuickActionsPageSource(_ctx);
 
-        // One entry per tab, same ids as _pageBuilders: MaybeRepaginateByHeight looks the
+        // One entry per tab, same ids as `_tabDefs`: MaybeRepaginateByHeight looks the
         // current tab's source up here to ask whether it opts into height re-pagination.
         _sources["Cursor"] = _cursorSource;
         _sources["Dwell"] = _dwellSource;
@@ -456,7 +450,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private void BuildTabButtons()
     {
-        foreach (var (id, icon, label, _, _) in _tabDefs)
+        foreach (var (id, icon, label, _) in _tabDefs)
         {
             // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
             // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
@@ -584,7 +578,7 @@ public partial class SettingsWindow : OverlayWindow
         var (start, count) = SettingsTabPagination.PageSlice(_tabDefs.Length, _tabsPerPage, _tabPageIndex);
         for (var i = start; i < start + count; i++)
         {
-            var (id, _, _, _, _) = _tabDefs[i];
+            var (id, _, _, _) = _tabDefs[i];
             TabButtonPanel.Children.Add(_tabButtons[id]);
             _viewModel.Register(id, DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
             _renderedTabIds.Add(id);
@@ -828,35 +822,10 @@ public partial class SettingsWindow : OverlayWindow
 
     // ────── Page builders per tab ──────
 
-    private IReadOnlyList<PageSpec> BuildPages()
-    {
-        return _pageBuilders.TryGetValue(_viewModel.Settings.CurrentTabName, out var pageBuilder)
-            ? pageBuilder.Invoke()
+    private IReadOnlyList<PageSpec> BuildPages() =>
+        _sources.TryGetValue(_viewModel.Settings.CurrentTabName, out var source)
+            ? source.Build()
             : Array.Empty<PageSpec>();
-    }
-
-    private IReadOnlyList<PageSpec> BuildCursorPages() => _cursorSource.Build();
-
-
-    private IReadOnlyList<PageSpec> BuildDwellPages() => _dwellSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildSelectionPages() => _selectionSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildActionMenuPages() => _actionMenuSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildLayoutPages() => _layoutSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildKeyboardPages() => _keyboardSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildToolbarPages() => _toolbarSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildModelsPages() => _modelsSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildGeneralPages() => _generalSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildQuickActionsPages() => _qaSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildCalibrationPages() => _calibrationSource.Build();
 
     // ────── Shared helpers ──────
 

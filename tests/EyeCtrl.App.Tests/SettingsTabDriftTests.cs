@@ -34,8 +34,8 @@ public class SettingsTabDriftTests
 
     /// <summary>
     /// Matches the id (first element) of a
-    /// <c>("Id", "icon", "Label", "Description", Builder)</c> tuple. Only the id, so adding
-    /// members to the tuple cannot break this — which is why the fifth (Description) needed no
+    /// <c>("Id", "icon", "Label", "Description")</c> tuple. Only the id, so adding
+    /// members to the tuple cannot break this — which is why the fourth (Description) needed no
     /// change here, unlike <c>SettingsTabLabelFitTests.TabDef</c>, which matches the whole shape.
     /// </summary>
     private static readonly Regex TabDefEntry = new(
@@ -43,11 +43,11 @@ public class SettingsTabDriftTests
 
     /// <summary>
     /// Matches the label and header description (third and fourth elements) of a
-    /// <c>("Id", "icon", "Label", "Description", Builder)</c> tuple. <c>\s</c> spans newlines, so
+    /// <c>("Id", "icon", "Label", "Description")</c> tuple. <c>\s</c> spans newlines, so
     /// entries wrapped across lines still match.
     /// </summary>
     private static readonly Regex TabDefHeader = new(
-        @"\(\s*""[A-Za-z][A-Za-z0-9_]*""\s*,\s*""[^""]*""\s*,\s*""(?<label>[^""]*)""\s*,\s*""(?<description>[^""]*)""\s*,",
+        @"\(\s*""[A-Za-z][A-Za-z0-9_]*""\s*,\s*""[^""]*""\s*,\s*""(?<label>[^""]*)""\s*,\s*""(?<description>[^""]*)""\s*\)",
         RegexOptions.Compiled);
 
     /// <summary>Matches a <c>"Settings_Tab_Xxx"</c> string literal in the UI test's expected array.</summary>
@@ -194,7 +194,7 @@ public class SettingsTabDriftTests
             .Select(g => g.Key)
             .ToList();
 
-        // A duplicate id is silently destructive: _pageBuilders[id] is overwritten by the later entry,
+        // A duplicate id is silently destructive: _sources[id] is overwritten by the later entry,
         // and two tab elements end up sharing one AutomationId, so UIA lookups become ambiguous.
         Check.WithCustomMessage(
                 "SettingsWindow._tabDefs contains duplicate tab ids: " + string.Join(", ", duplicates))

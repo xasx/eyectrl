@@ -1,4 +1,4 @@
-namespace EyeCtrl.App.Tests.Controls;
+﻿namespace EyeCtrl.App.Tests.Controls;
 
 using System.Windows;
 using System.Windows.Controls;
@@ -55,7 +55,7 @@ public class DwellArcButtonTests
         var canvas = new Canvas();
         var btn = DwellArcButton.Create(new Point(10, 10), radius: 20, symbol: "X");
         btn.AddTo(canvas);
-        Check.That(canvas.Children.Count).IsEqualTo(4);   // Background, HaloPath, ProgressPath, Symbol
+        Check.That(canvas.Children.Count).IsEqualTo(5);   // RimHalo, Background, HaloPath, ProgressPath, Symbol
     }
 
     [StaFact]

@@ -1,4 +1,4 @@
-namespace EyeCtrl.Controls;
+﻿namespace EyeCtrl.Controls;
 
 using System;
 using System.Windows;
@@ -32,7 +32,28 @@ public class DwellArcButton
     /// </summary>
     private const double BadgeDiameterThreshold = 64;
 
+    /// <summary>Rim width in DIP, straddling the button radius (so it spans radius +/- 1).</summary>
+    private const double RimThickness = 2;
+
+    /// <summary>Halo ring width in DIP.</summary>
+    private const double RimHaloThickness = 3;
+
+    /// <summary>
+    /// Gap in DIP from the button radius to the halo ring's centre line. 2.5 places the halo's
+    /// painted band at radius+1 to radius+4 — starting exactly where the 2 DIP rim ends, so the
+    /// two never overlap and the light/dark edge lands on the silhouette.
+    /// </summary>
+    private const double RimHaloOffset = 2.5;
+
     public Ellipse Background { get; }
+
+    /// <summary>
+    /// A dark ring stroked just outside the button edge. Pairs with the light
+    /// <see cref="Background"/> rim so the visible feature is the edge between them, which holds
+    /// on any desktop content — the rim alone is 2.72:1 on the fill and the fill alone can reach
+    /// 1.31:1 on a near-black window.
+    /// </summary>
+    public Ellipse RimHalo { get; }
     public Path HaloPath { get; }
     public Path ProgressPath { get; }
     public ArcSegment HaloArc { get; }
@@ -42,9 +63,10 @@ public class DwellArcButton
     private readonly Point _center;
     private readonly double _arcRadius;
 
-    private DwellArcButton(Ellipse background, Path haloPath, Path progressPath, ArcSegment haloArc, ArcSegment arc, TextBlock? symbol, Point center, double arcRadius)
+    private DwellArcButton(Ellipse background, Ellipse rimHalo, Path haloPath, Path progressPath, ArcSegment haloArc, ArcSegment arc, TextBlock? symbol, Point center, double arcRadius)
     {
         Background = background;
+        RimHalo = rimHalo;
         HaloPath = haloPath;
         ProgressPath = progressPath;
         HaloArc = haloArc;
@@ -78,13 +100,24 @@ public class DwellArcButton
         var dia = radius * 2;
         var arcRad = radius - arcInset;
 
+        var rimHalo = new Ellipse
+        {
+            Width = dia + RimHaloOffset * 2,
+            Height = dia + RimHaloOffset * 2,
+            Fill = null,
+            Stroke = Tokens.BrushStrokeHalo,
+            StrokeThickness = RimHaloThickness,
+        };
+        Canvas.SetLeft(rimHalo, center.X - radius - RimHaloOffset);
+        Canvas.SetTop(rimHalo, center.Y - radius - RimHaloOffset);
+
         var bg = new Ellipse
         {
             Width = dia,
             Height = dia,
             Fill = fillBrush,
             Stroke = strokeBrush,
-            StrokeThickness = 1
+            StrokeThickness = RimThickness
         };
         Canvas.SetLeft(bg, center.X - radius);
         Canvas.SetTop(bg, center.Y - radius);
@@ -157,7 +190,7 @@ public class DwellArcButton
             Canvas.SetTop(symbolText, center.Y - symbolText.DesiredSize.Height / 2);
         }
 
-        return new DwellArcButton(bg, haloPath, progressPath, haloSegment, arcSegment, symbolText, center, arcRad);
+        return new DwellArcButton(bg, rimHalo, haloPath, progressPath, haloSegment, arcSegment, symbolText, center, arcRad);
     }
 
     public void UpdateProgress(double progress)
@@ -191,6 +224,7 @@ public class DwellArcButton
 
     public void AddTo(Canvas canvas)
     {
+        canvas.Children.Add(RimHalo);       // must precede Background
         canvas.Children.Add(Background);
         canvas.Children.Add(HaloPath);      // must precede ProgressPath
         canvas.Children.Add(ProgressPath);

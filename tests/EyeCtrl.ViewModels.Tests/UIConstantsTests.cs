@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.ViewModels.Tests;
+namespace EyeCtrl.ViewModels.Tests;
 
 using EyeCtrl.ViewModels;
 

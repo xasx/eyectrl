@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.ViewModels;
+namespace EyeCtrl.ViewModels;
 
 using EyeCtrl.Core;
 

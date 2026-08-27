@@ -89,4 +89,64 @@ public class ActionMenuLayoutHelperTests
         Check.That(clamped.X).IsEqualTo(ScreenWidth / 2);
         Check.That(clamped.Y).IsEqualTo(ScreenHeight / 2);
     }
-}
+
+    /// <summary>
+    /// A screen too small to hold the button ring must still open the menu.
+    ///
+    /// The margin is <c>ringRadius + ActionMenuButtonRadius</c> scaled to PHYSICAL pixels, and it
+    /// is passed to <c>Math.Clamp</c> as the minimum against <c>screen - margin</c> as the maximum.
+    /// Once the margin passes half the screen those two invert, and Math.Clamp does not saturate —
+    /// it THROWS ArgumentException. The throw lands in GazeEngineAdapter.OnShowActionMenu on the
+    /// dispatcher, and App.xaml.cs deliberately leaves DispatcherUnhandledException unhandled so
+    /// the process dies and the supervisor respawns it. For a user whose only input channel is
+    /// this app, opening the action menu must never be able to do that.
+    ///
+    /// 1366x768 at 125% is a stock laptop panel, and this fires there at the DEFAULT CircleSize:
+    /// margin 325 x 1.25 = 406.25 against a 384 half-height. It was reachable only above
+    /// CircleSize ~360 before the ring grew on 2026-08-26, which is why no test caught it —
+    /// every other test in the suite runs at scale 1.0 on 1920x1080, where 325 fits easily.
+    /// </summary>
+    [Theory]
+    [InlineData(1.25, 1366, 768, 250.0)]   // stock laptop panel, default CircleSize
+    [InlineData(2.0, 1920, 1080, 250.0)]   // 1920x1080 at 200%
+    [InlineData(1.0, 800, 600, 500.0)]     // max CircleSize on a small screen
+    public void AScreenTooSmallForTheRing_StillOpensTheMenu(
+        double scale, double screenWidth, double screenHeight, double circleSize)
+    {
+        DpiHelper.Initialize(scale, scale);
+
+        var clamped = ActionMenuLayoutHelper.CalculateDisplayPoint(
+            new PhysicalPoint(screenWidth / 2, screenHeight / 2),
+            ViewPosition.AtGaze,
+            circleSize,
+            screenWidth,
+            screenHeight);
+
+        // Degraded but alive: the menu pins to the screen centre rather than throwing.
+        Check.That(clamped.X).IsEqualTo(screenWidth / 2);
+        Check.That(clamped.Y).IsEqualTo(screenHeight / 2);
+    }
+
+    /// <summary>
+    /// The cap is per-axis. A wide screen that is too short must still clamp X normally rather
+    /// than collapsing both axes to the centre — otherwise a letterboxed display would throw away
+    /// horizontal placement it could perfectly well honour.
+    /// </summary>
+    [Fact]
+    public void TheFitCap_IsAppliedPerAxis_NotToBothAtOnce()
+    {
+        DpiHelper.Initialize(1.0, 1.0);
+
+        // 2000 wide (margin 325 fits) x 500 tall (margin 325 does not).
+        var clamped = ActionMenuLayoutHelper.CalculateDisplayPoint(
+            new PhysicalPoint(0, 0),
+            ViewPosition.AtGaze,
+            circleSize: 250,
+            screenWidthPhysical: 2000,
+            screenHeightPhysical: 500);
+
+        var ring = 250 / 2 + LayoutConstants.ActionMenuButtonRadius + LayoutConstants.ActionMenuButtonOuterGap;
+        Check.That(clamped.X).IsEqualTo(ring + LayoutConstants.ActionMenuButtonRadius);
+        Check.That(clamped.Y).IsEqualTo(250.0);
+    }
+}

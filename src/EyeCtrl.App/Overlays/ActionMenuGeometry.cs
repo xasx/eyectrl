@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.App.Overlays;
+namespace EyeCtrl.App.Overlays;
 
 using System.Windows;
 using EyeCtrl.Core;

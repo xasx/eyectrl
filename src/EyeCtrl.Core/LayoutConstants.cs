@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.Core;
+namespace EyeCtrl.Core;
 
 /// <summary>
 /// UI layout constants that affect coordinate calculations.

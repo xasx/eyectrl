@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.App.Tests.Overlays;
+namespace EyeCtrl.App.Tests.Overlays;
 
 using System.Windows;
 using CommunityToolkit.Mvvm.Messaging;

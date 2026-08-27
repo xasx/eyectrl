@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.Controls;
+namespace EyeCtrl.Controls;
 
 using System;
 using System.Windows;

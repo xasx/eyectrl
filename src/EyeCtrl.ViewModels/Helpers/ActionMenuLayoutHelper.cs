@@ -32,8 +32,22 @@ public static class ActionMenuLayoutHelper
         var effectiveRingRadius = circleSize / 2 + LayoutConstants.ActionMenuButtonRadius + LayoutConstants.ActionMenuButtonOuterGap;
 
         // Scale margin to physical pixels for clamping against physical gaze coords
-        var physicalMarginX = DpiHelper.LogicalToPhysicalX(effectiveRingRadius + LayoutConstants.ActionMenuButtonRadius);
-        var physicalMarginY = DpiHelper.LogicalToPhysicalY(effectiveRingRadius + LayoutConstants.ActionMenuButtonRadius);
+        var marginLogical = effectiveRingRadius + LayoutConstants.ActionMenuButtonRadius;
+
+        // Cap each margin at half its axis. Below that the cap does nothing; at or past it the
+        // ring cannot fit the screen at all, and WITHOUT the cap the Math.Clamp calls below get
+        // min > max and THROW ArgumentException rather than saturating. That throw reaches the
+        // dispatcher via GazeEngineAdapter.OnShowActionMenu, and App.xaml.cs deliberately leaves
+        // DispatcherUnhandledException unhandled so the process dies for the supervisor to
+        // respawn — i.e. opening the action menu would kill the only input channel the user has.
+        //
+        // Capping instead collapses that axis's clamp range to a single point, pinning the menu
+        // to the screen centre. The ring then overlaps the cursor preview circle, which is
+        // degraded but reachable — the correct trade when the alternative is a crash. Reachable
+        // at the DEFAULT CircleSize on a 1366x768 panel at 125%; see
+        // ActionMenuLayoutHelperTests.AScreenTooSmallForTheRing_StillOpensTheMenu.
+        var physicalMarginX = Math.Min(DpiHelper.LogicalToPhysicalX(marginLogical), screenWidthPhysical / 2);
+        var physicalMarginY = Math.Min(DpiHelper.LogicalToPhysicalY(marginLogical), screenHeightPhysical / 2);
 
         // Apply position setting for action menu
         var displayPoint = position == ViewPosition.AtCenter

@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.Controls.Tests;
+namespace EyeCtrl.Controls.Tests;
 
 using System.Windows;
 using EyeCtrl.Controls;

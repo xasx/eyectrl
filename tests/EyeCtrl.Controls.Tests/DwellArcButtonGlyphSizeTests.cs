@@ -37,8 +37,11 @@ public class DwellArcButtonGlyphSizeTests
 
     /// <summary>
     /// UIConstants.ButtonRadius — the backdrop hide button and ManualSelection side buttons.
-    /// NOT the action menu: that split onto LayoutConstants.ActionMenuButtonRadius (70) on
-    /// 2026-08-26. Either radius exercises the same above-threshold arm, so 50 still covers it.
+    /// NOT the action menu, twice over: that radius split onto
+    /// LayoutConstants.ActionMenuButtonRadius (70) on 2026-08-26, and the action menu no longer
+    /// renders a glyph at all — it draws an icon sized by ContainerRatio.Dominant, covered by
+    /// DwellArcButtonIconTests. So this arm now speaks only for the hide button and the
+    /// ManualSelection side buttons.
     /// </summary>
     private const double LargeCallerRadius = 50;
 

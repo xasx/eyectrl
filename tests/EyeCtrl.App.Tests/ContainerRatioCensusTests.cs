@@ -108,8 +108,13 @@ public class ContainerRatioCensusTests
                 ("Badge", 1, "diameters under BadgeDiameterThreshold — the edge bar's 40px "
                     + "drag/back buttons, where Small would give 9.2px, below the accessibility "
                     + "floor, on the affordance that CANCELS A DRAG."),
-                ("Small", 1, "diameters at or above the threshold — the 100px action-menu and "
-                    + "hide buttons, whose 22/100 is where Small was observed."),
+                ("Small", 1, "diameters at or above the threshold — the 100px hide button "
+                    + "and ManualSelection side buttons, whose 22/100 is where Small was "
+                    + "observed. No longer the action menu: it took Small while it rendered a "
+                    + "Unicode glyph, and now draws an icon."),
+                ("Dominant", 1, "the drawn icon on a 140px action-menu button, whose entire "
+                    + "content is one shape with no label beside it — the situation Dominant "
+                    + "names. 140 x 0.45 = 63px."),
             ],
         };
 

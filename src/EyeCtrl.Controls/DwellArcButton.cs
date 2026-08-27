@@ -12,7 +12,38 @@ using EyeCtrl.Core;
 public class DwellArcButton
 {
     public const double DefaultArcInset = 4;
-    public const double DefaultArcThickness = 4;
+
+    /// <summary>
+    /// Progress-arc width as a fraction of the button diameter.
+    ///
+    /// <para>
+    /// 0.04 is not a new choice: it is the weight the arc already had, recovered. The old
+    /// <c>DefaultArcThickness</c> was a flat 4 DIP, picked when every caller was 100 DIP across.
+    /// Plan 1 grew the action-menu button to 140 DIP on 2026-08-26 and left the constant alone,
+    /// which thinned that ring's arc to 2.9% of its button while the other callers kept 4%.
+    /// Nothing failed, because nothing pinned the number.
+    /// </para>
+    ///
+    /// <para>
+    /// Expressed as a fraction so the next resize cannot repeat that silently, and pinned by
+    /// <c>DwellArcButtonArcWeightTests</c>.
+    /// </para>
+    /// </summary>
+    public const double ArcThicknessRatio = 0.04;
+
+    /// <summary>
+    /// The narrowest the progress arc may be drawn, whatever the fraction works out to.
+    ///
+    /// <para>
+    /// Same reasoning as <see cref="BadgeDiameterThreshold"/>, applied to stroke rather than
+    /// glyph: a small button needs a LARGER fraction of itself, not a proportional one. Without
+    /// this floor the edge bar's 40 DIP drag buttons would take 40 x 0.04 = 1.6 DIP of arc, on
+    /// the affordance that CANCELS A DRAG for a user whose only input channel is an eye tracker.
+    /// At 4 it is the exact width those buttons and the 100 DIP hide button already drew, so
+    /// neither moves.
+    /// </para>
+    /// </summary>
+    public const double MinArcThickness = 4;
 
     /// <summary>
     /// Diameter below which a glyph needs <see cref="ContainerRatio.Badge"/>'s larger fraction
@@ -103,7 +134,7 @@ public class DwellArcButton
     // named arguments rather than treating this comment as permission.
     public static DwellArcButton Create(Point center, double radius, string? symbol,
         Brush? fill = null, Brush? stroke = null, Brush? arcBrush = null, Brush? symbolBrush = null,
-        double arcThickness = DefaultArcThickness, double arcInset = DefaultArcInset,
+        double? arcThickness = null, double arcInset = DefaultArcInset,
         double? fontSize = null,
         IconGeometry? icon = null)
     {
@@ -113,6 +144,9 @@ public class DwellArcButton
         var symbolBrushActual = symbolBrush ?? Tokens.BrushTextPrimary;
         var dia = radius * 2;
         var arcRad = radius - arcInset;
+        // Resolved here rather than in the parameter list because a default argument cannot
+        // reference `radius` - the same reason `fontSize` is nullable. See ArcThicknessRatio.
+        var arcThicknessActual = arcThickness ?? Math.Max(dia * ArcThicknessRatio, MinArcThickness);
 
         var rimHalo = new Ellipse
         {
@@ -157,7 +191,7 @@ public class DwellArcButton
         var haloPath = new Path
         {
             Stroke = Tokens.BrushStrokeHalo,
-            StrokeThickness = arcThickness + 2,
+            StrokeThickness = arcThicknessActual + 2,
             Data = haloGeometry,
         };
 
@@ -180,7 +214,7 @@ public class DwellArcButton
         {
             Data = geometry,
             Stroke = arcBrushActual,
-            StrokeThickness = arcThickness
+            StrokeThickness = arcThicknessActual
         };
 
         TextBlock? symbolText = null;

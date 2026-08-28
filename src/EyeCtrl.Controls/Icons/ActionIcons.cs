@@ -108,5 +108,17 @@ public static class ActionIcons
 
         [ActionIcon.Back] = Make(
             "M10,5.5 L4.5,11 L10,16.5 M4.5,11 L14.5,11 A5,5 0 0 1 19.5,16 L19.5,19", null),
+
+        // Fill-only: three dots, the one icon in the set that is not a mouse. More is navigation,
+        // and drawing it as a mouse would say it performs a click.
+        [ActionIcon.More] = Make(null,
+            "M3.7,12 A1.9,1.9 0 1 1 7.5,12 A1.9,1.9 0 1 1 3.7,12 Z"
+            + " M10.1,12 A1.9,1.9 0 1 1 13.9,12 A1.9,1.9 0 1 1 10.1,12 Z"
+            + " M16.5,12 A1.9,1.9 0 1 1 20.3,12 A1.9,1.9 0 1 1 16.5,12 Z"),
+
+        // The hook and stem are stroked; the dot is the only filled part.
+        [ActionIcon.Help] = Make(
+            "M8.6,8.6 A3.5,3.5 0 1 1 13.3,11.9 C12.2,12.3 11.6,13.1 11.6,14.2 L11.6,15.2",
+            "M10.3,18.6 A1.3,1.3 0 1 1 12.9,18.6 A1.3,1.3 0 1 1 10.3,18.6 Z"),
     };
 }

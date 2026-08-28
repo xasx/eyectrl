@@ -7,7 +7,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using EyeCtrl.Controls.Theme;
-using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using NFluent;
 using Xunit;

@@ -1,6 +1,5 @@
 namespace EyeCtrl.App.Tests.Services;
 
-using System;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Interfaces;

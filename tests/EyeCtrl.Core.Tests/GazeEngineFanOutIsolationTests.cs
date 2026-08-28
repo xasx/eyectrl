@@ -1,8 +1,6 @@
 namespace EyeCtrl.Core.Tests;
 
 using EyeCtrl.Core;
-using EyeCtrl.Core.Interfaces;
-using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using Microsoft.Extensions.Logging;

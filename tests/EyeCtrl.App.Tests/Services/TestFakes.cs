@@ -1,6 +1,5 @@
 namespace EyeCtrl.App.Tests.Services;
 
-using System;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Interfaces;

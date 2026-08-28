@@ -3,7 +3,6 @@ namespace EyeCtrl.App.Tests.Services;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
-using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;

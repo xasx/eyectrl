@@ -6,7 +6,6 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
 using EyeCtrl.Controls.Theme;
-using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using NFluent;
 using Xunit;

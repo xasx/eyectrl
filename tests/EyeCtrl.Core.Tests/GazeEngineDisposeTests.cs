@@ -3,8 +3,6 @@ namespace EyeCtrl.Core.Tests;
 using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using EyeCtrl.Core;
-using EyeCtrl.Core.Interfaces;
-using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 

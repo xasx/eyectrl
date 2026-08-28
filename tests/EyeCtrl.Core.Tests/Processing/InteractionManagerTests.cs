@@ -369,4 +369,45 @@ public class InteractionManagerTests
 
         Check.That(manager.CurrentState).IsEqualTo(InteractionState.Dragging);
     }
+    [Fact]
+    public void OnActionMenuDismissed_FromTheManualSelectionPath_EndsManualSelectionToo()
+    {
+        // The guard was ActionMenuVisible only, which made this a silent no-op on the
+        // ManualSelection path: the magnifier would stay on screen with no menu over it.
+        var im = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
+        var endedManualSelection = 0;
+        var hidActionMenu = 0;
+        im.EndManualSelection += () => endedManualSelection++;
+        im.HideActionMenu += () => hidActionMenu++;
+
+        im.OnFixationStarted(new PhysicalPoint(400, 400));
+        im.OnActivationButtonDwelled();
+        im.OnManualSelectionDwell(new PhysicalPoint(410, 410));
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActionMenuVisible);
+
+        im.OnActionMenuDismissed();
+
+        Check.WithCustomMessage("The magnified view was left on screen.")
+             .That(endedManualSelection).IsEqualTo(1);
+        Check.That(hidActionMenu).IsEqualTo(1);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    [Fact]
+    public void OnActionMenuDismissed_FromThePlainPath_DoesNotEndManualSelection()
+    {
+        // The widened guard must not start tearing down a magnifier that was never opened.
+        var im = new InteractionManager();
+        var endedManualSelection = 0;
+        im.EndManualSelection += () => endedManualSelection++;
+
+        im.OnFixationStarted(new PhysicalPoint(400, 400));
+        im.OnActivationButtonDwelled();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ActionMenuVisible);
+
+        im.OnActionMenuDismissed();
+
+        Check.That(endedManualSelection).IsEqualTo(0);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
 }

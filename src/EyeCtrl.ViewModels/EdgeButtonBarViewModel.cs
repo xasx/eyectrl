@@ -106,9 +106,17 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
         Buttons.Add(new EdgeButtonState(def.Id, def.Symbol, def.RadiusLogical));
     }
 
+    /// <summary>
+    /// The definition behind a button id, or null. Production, not a test hook: the window needs
+    /// it to resolve a definition's drawn icon and label, which EdgeButtonState does not carry.
+    /// </summary>
+    public EdgeButtonDefinition? DefinitionFor(string id) =>
+        _definitions.TryGetValue(id, out var def) ? def : null;
+
     // ---- test hooks (used only by EdgeButtonBarViewModelTests) ----
     internal void SimulateTargetActivated(string id) => OnTargetActivated(id);
     internal void SimulateTargetProgress(string id, double progress) => OnTargetProgress(id, progress);
     internal PhysicalPoint GetTargetCenter(string id) => _seedCenters[id];
+
     internal IReadOnlyDictionary<string, PhysicalPoint> SeedCenters => _seedCenters;
 }

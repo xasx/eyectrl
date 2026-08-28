@@ -103,6 +103,14 @@ public record BackSelectedMessage;
 /// </summary>
 public record ToggleActionMenuLabelsMessage;
 
+/// <summary>
+/// The user dismissed the action menu without choosing anything — the right-edge Close target.
+/// Distinct from <see cref="HideActionMenuMessage"/>, which only tears down the overlay: this one
+/// goes to <c>InteractionManager.OnActionMenuDismissed</c> so the state machine leaves the menu
+/// too, and <see cref="HideActionMenuMessage"/> follows from there.
+/// </summary>
+public record ActionMenuDismissedMessage;
+
 public record PauseToggledMessage;
 public record SelectionModeChangedMessage(SelectionMode Mode);
 public record KeyboardToggledMessage;

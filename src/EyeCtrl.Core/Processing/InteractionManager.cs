@@ -188,14 +188,25 @@ public class InteractionManager
         }
     }
 
-    /// <summary>Dismisses the action menu and returns to free look state.</summary>
+    /// <summary>
+    /// Dismisses the action menu and returns to free look.
+    ///
+    /// Covers the ManualSelection path too, since 2026-08-26. It guarded on
+    /// <see cref="InteractionState.ActionMenuVisible"/> alone while nothing could dismiss the menu
+    /// from the ManualSelection path — the ring's Back returns to the magnifier
+    /// (<see cref="OnManualSelectionBack"/>), which is a step back rather than a way out. The
+    /// right-edge Close is a way out from either state, so the magnified view has to be torn down
+    /// as well; <see cref="TogglePause"/> does the same pairing.
+    /// </summary>
     public void OnActionMenuDismissed()
     {
-        if (CurrentState == InteractionState.ActionMenuVisible)
-        {
-            HideActionMenu?.Invoke();
-            ResetToFreeLook();
-        }
+        if (CurrentState is not (InteractionState.ActionMenuVisible
+                              or InteractionState.ManualSelectionActionMenuVisible)) return;
+
+        HideActionMenu?.Invoke();
+        if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
+            EndManualSelection?.Invoke();
+        ResetToFreeLook();
     }
 
     /// <summary>Toggles gaze tracking between paused and active states.</summary>

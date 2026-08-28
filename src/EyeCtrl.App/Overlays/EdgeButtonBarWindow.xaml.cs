@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.ComponentModel;
 using System.Windows;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Icons;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
@@ -80,8 +81,14 @@ public partial class EdgeButtonBarWindow : OverlayWindow
         foreach (var state in vm.Buttons)
         {
             var c = logical[state.Id];
+            // A definition may name a drawn icon and a label instead of a Unicode glyph; the
+            // state only carries the glyph, so the definition is the one that knows.
+            var definition = vm.DefinitionFor(state.Id);
             var btn = DwellArcButton.Create(
-                new Point(c.X - _originX, c.Y - _originY), state.RadiusLogical, state.Symbol);
+                new Point(c.X - _originX, c.Y - _originY), state.RadiusLogical,
+                symbol: definition?.Icon is null ? state.Symbol : null,
+                icon: definition?.Icon is { } iconKey ? ActionIcons.For(iconKey) : null,
+                label: definition?.Label);
             btn.UpdateProgress(state.DwellProgress);
             btn.AddTo(ButtonCanvas);
             _buttons[state.Id] = btn;

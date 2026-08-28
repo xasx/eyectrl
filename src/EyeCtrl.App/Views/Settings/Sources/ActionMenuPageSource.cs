@@ -52,9 +52,14 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
                         if (a.PrimaryActions.Contains(captured)) return;
                         if (a.PrimaryActions.Count >= Core.Settings.ActionMenuSettings.MaxPrimaryActions)
                         {
+                            // Names the OTHER switch explicitly. "Turn one off" read as the
+                            // visibility row above, which does not free a slot: the cap counts
+                            // PrimaryActions as stored, and it must — Validate() rejects a stored
+                            // list longer than four, Save() throws on that, and Load() answers it
+                            // by discarding the whole settings file for defaults.
                             _ctx.ShowModal(
                                 $"The first layer holds {Core.Settings.ActionMenuSettings.MaxPrimaryActions} actions. "
-                                + "Turn one off before adding another.",
+                                + "Turn off another action's \"on first layer\" switch to free a slot.",
                                 () => { });
                             _ctx.RebuildContent();
                             return;

@@ -70,8 +70,14 @@ public class ActionMenuViewModelSymbolTests
 
         foreach (var action in allActions)
         {
+            // The action under test is made PRIMARY so it lands on layer one. Without this the
+            // ring partitions a one-action list into an empty first layer plus a More target,
+            // and Items.Single() would return More rather than the action being checked.
+            var settings = new EyeCtrlSettings();
+            settings.ActionMenu.PrimaryActions = new List<InteractionAction> { action };
+
             var messenger = new WeakReferenceMessenger();
-            using var vm = new ActionMenuViewModel(new EyeCtrlSettings(), messenger);
+            using var vm = new ActionMenuViewModel(settings, messenger);
             messenger.Send(new ShowActionMenuMessage(
                 new PhysicalPoint(500, 500),
                 new List<InteractionAction> { action },

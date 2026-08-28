@@ -264,18 +264,7 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
                 activationButton.HideImmediate();
 
                 ShowBackdropIfEnabled();
-                actionMenu.Show(
-                    _context.ActionMenuVM.Center,
-                    _context.Settings.ActionMenu.VisibleActions,
-                    _context.ActionMenuVM.ShowBack,
-                    _context.ActionMenuVM.ShowBack ? _context.Settings.Dwell.ManualSelectionActionMenuDwellMs : _context.Settings.Dwell.ActionMenuDwellMs,
-                    _context.ActionMenuVM.EffectiveRingRadius,
-                    _context.Settings.Cursor.CircleSize,
-                    _context.Settings.Cursor.CircleColor,
-                    _context.Settings.Cursor.PositionIndicatorStyle,
-                    _context.ActionMenuVM.ManualSelectionCenter,
-                    _context.ActionMenuVM.ManualSelectionRadius,
-                    _context.ActionMenuVM.GazePoint);
+                ShowActionMenu();
             }
             else
             {
@@ -283,6 +272,37 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
                 HideBackdrop();
             }
         }
+        else if (e.PropertyName == nameof(ActionMenuViewModel.RingVersion)
+                 && _context.ActionMenuVM.IsVisible)
+        {
+            // A layer switch. Same call, so the ring, the preview capture and the indicator all
+            // rebuild together and the canvas can never disagree with the DwellDetector.
+            ShowActionMenu();
+        }
+    }
+
+    /// <summary>
+    /// Redraws the action menu from the ViewModel's current items. One method rather than two
+    /// call sites, because the open path and the layer-change path must build the ring from
+    /// identical arguments — a divergence there is a canvas that disagrees with the DwellDetector,
+    /// which means every slot fires the wrong action.
+    /// </summary>
+    private void ShowActionMenu()
+    {
+        if (_context == null) return;
+
+        _context.OverlayManager.ActionMenu.Show(
+            _context.ActionMenuVM.Center,
+            _context.Settings.ActionMenu.VisibleActions,
+            _context.ActionMenuVM.ShowBack,
+            _context.ActionMenuVM.ShowBack ? _context.Settings.Dwell.ManualSelectionActionMenuDwellMs : _context.Settings.Dwell.ActionMenuDwellMs,
+            _context.ActionMenuVM.EffectiveRingRadius,
+            _context.Settings.Cursor.CircleSize,
+            _context.Settings.Cursor.CircleColor,
+            _context.Settings.Cursor.PositionIndicatorStyle,
+            _context.ActionMenuVM.ManualSelectionCenter,
+            _context.ActionMenuVM.ManualSelectionRadius,
+            _context.ActionMenuVM.GazePoint);
     }
 
     private void OnToolbarVMPropertyChanged(object? sender, PropertyChangedEventArgs e)

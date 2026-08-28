@@ -30,8 +30,11 @@ public class LayoutActionMenuPageSourceTests
 
         var toggles = rows.OfType<ToggleSpec>().ToList();
         var expected = EyeCtrl.Core.Models.InteractionAction.GetValues<EyeCtrl.Core.Models.InteractionAction>();
+        // Two rows per action since 2026-08-26: whether it is on at all, and whether it sits on
+        // the ring first layer rather than behind More.
         Check.That(toggles.Select(t => t.Id))
-            .ContainsExactly(expected.Select(a => "am_" + a).ToArray());
+            .ContainsExactly(expected.Select(a => "am_" + a)
+                .Concat(expected.Select(a => "am_primary_" + a)).ToArray());
         Check.That(toggles.All(t => t.Label.Length > 0)).IsTrue();
 
         var pin = toggles.Single(t => t.Id == "am_" + EyeCtrl.Core.Models.InteractionAction.PinNote);

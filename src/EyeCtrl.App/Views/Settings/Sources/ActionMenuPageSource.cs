@@ -34,10 +34,48 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
                 { Description = ActionDescription(captured) });
         }
 
+        // Second axis: of the actions that are ON, which four sit on the ring's first layer. A
+        // toggle rather than a picker because the settings surface is dwell-driven — a
+        // multi-select control would need its own dwell affordance, and this reuses the row type
+        // every other setting here already uses.
+        foreach (var action in Enum.GetValues<InteractionAction>())
+        {
+            var captured = action;
+            rows.Add(new ToggleSpec(
+                $"am_primary_{action}",
+                $"{FriendlyName(action)} on first layer",
+                () => a.PrimaryActions.Contains(captured),
+                on =>
+                {
+                    if (on)
+                    {
+                        if (a.PrimaryActions.Contains(captured)) return;
+                        if (a.PrimaryActions.Count >= Core.Settings.ActionMenuSettings.MaxPrimaryActions)
+                        {
+                            _ctx.ShowModal(
+                                $"The first layer holds {Core.Settings.ActionMenuSettings.MaxPrimaryActions} actions. "
+                                + "Turn one off before adding another.",
+                                () => { });
+                            _ctx.RebuildContent();
+                            return;
+                        }
+                        a.PrimaryActions.Add(captured);
+                    }
+                    else
+                    {
+                        a.PrimaryActions.RemoveAll(x => x == captured);
+                    }
+                    _ctx.ApplyAndSave();
+                })
+                { Description = PrimaryDescription(captured) });
+        }
+
         rows.Add(new ButtonSpec("am_reset", "Reset Action Menu Settings",
             () => _ctx.ShowModal("Reset Action Menu settings to defaults?", () =>
             {
-                a.VisibleActions = new List<InteractionAction>(new Core.Settings.ActionMenuSettings().VisibleActions);
+                var defaults = new Core.Settings.ActionMenuSettings();
+                a.VisibleActions = new List<InteractionAction>(defaults.VisibleActions);
+                a.PrimaryActions = new List<InteractionAction>(defaults.PrimaryActions);
                 _ctx.ApplyAndSave();
                 _ctx.RebuildContent();
             }),
@@ -62,6 +100,15 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.PinNote => "Pin Note",
         _ => action.ToString()
     };
+
+    /// <summary>
+    /// Description for a "on first layer" row. One sentence per action rather than one shared
+    /// string, because SettingsRowDescriptionCompletenessTests treats a bare row as a failure and
+    /// the row says WHERE the action sits, not what it does — the visibility row above it already
+    /// carries the what.
+    /// </summary>
+    private static string PrimaryDescription(InteractionAction action) =>
+        $"Shows {FriendlyName(action)} straight away instead of behind More. Four fit.";
 
     // Copy verbatim from the spec inventory. Unknown enum members return null — the
     // completeness gate (SettingsRowDescriptionCompletenessTests) fails on the bare row by

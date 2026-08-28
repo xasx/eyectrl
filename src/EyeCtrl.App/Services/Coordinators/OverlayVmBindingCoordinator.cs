@@ -272,11 +272,14 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
                 HideBackdrop();
             }
         }
-        else if (e.PropertyName == nameof(ActionMenuViewModel.RingVersion)
+        else if ((e.PropertyName == nameof(ActionMenuViewModel.RingVersion)
+                  || e.PropertyName == nameof(ActionMenuViewModel.ShowLabels))
                  && _context.ActionMenuVM.IsVisible)
         {
-            // A layer switch. Same call, so the ring, the preview capture and the indicator all
-            // rebuild together and the canvas can never disagree with the DwellDetector.
+            // A layer switch, or the Help target turning names on. Same call either way, so the
+            // ring, the preview capture and the indicator all rebuild together and the canvas can
+            // never disagree with the DwellDetector. ShowActionMenu reads ShowLabels itself, so
+            // there is nothing to keep in sync between the two triggers.
             ShowActionMenu();
         }
     }
@@ -302,7 +305,8 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
             _context.Settings.Cursor.PositionIndicatorStyle,
             _context.ActionMenuVM.ManualSelectionCenter,
             _context.ActionMenuVM.ManualSelectionRadius,
-            _context.ActionMenuVM.GazePoint);
+            _context.ActionMenuVM.GazePoint,
+            _context.ActionMenuVM.ShowLabels);
     }
 
     private void OnToolbarVMPropertyChanged(object? sender, PropertyChangedEventArgs e)

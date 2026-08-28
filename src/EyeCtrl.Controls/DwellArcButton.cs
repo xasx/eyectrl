@@ -68,6 +68,21 @@ public class DwellArcButton
     /// </summary>
     private const double BadgeDiameterThreshold = 64;
 
+    /// <summary>
+    /// Gap between a button's icon and its label, as a fraction of the diameter. 0.05 of 140 is
+    /// 7 DIP. Named rather than written inline so RawGeometryLiteralTests's bare-number rule does
+    /// not flag the expression that reads it.
+    /// </summary>
+    private const double LabelGapRatio = 0.05;
+
+    /// <summary>
+    /// The label's line box as a multiple of its font size. 1.1 is the ordinary single-line
+    /// leading for this face; it exists so the icon/label stack can be centred BEFORE the
+    /// TextBlock has been measured, which is what lets the icon and its label be positioned in
+    /// one pass rather than two.
+    /// </summary>
+    private const double LabelLineHeightRatio = 1.1;
+
     /// <summary>Rim width in DIP, straddling the button radius (so it spans radius +/- 1).</summary>
     private const double RimThickness = 2;
 
@@ -102,10 +117,17 @@ public class DwellArcButton
     /// <summary>The icon's solid layer, or null when the icon has no filled paths.</summary>
     public Path? IconFill { get; }
 
+    /// <summary>
+    /// The button's name, drawn under the icon, or null when this button is icon-only. Present
+    /// only where a target has to be READ rather than recognised — the action-menu ring while
+    /// Help has names switched on, and the Help and Close targets themselves.
+    /// </summary>
+    public TextBlock? Label { get; }
+
     private readonly Point _center;
     private readonly double _arcRadius;
 
-    private DwellArcButton(Ellipse background, Ellipse rimHalo, Path haloPath, Path progressPath, ArcSegment haloArc, ArcSegment arc, TextBlock? symbol, Path? iconStroke, Path? iconFill, Point center, double arcRadius)
+    private DwellArcButton(Ellipse background, Ellipse rimHalo, Path haloPath, Path progressPath, ArcSegment haloArc, ArcSegment arc, TextBlock? symbol, Path? iconStroke, Path? iconFill, TextBlock? label, Point center, double arcRadius)
     {
         Background = background;
         RimHalo = rimHalo;
@@ -116,6 +138,7 @@ public class DwellArcButton
         Symbol = symbol;
         IconStroke = iconStroke;
         IconFill = iconFill;
+        Label = label;
         _center = center;
         _arcRadius = arcRadius;
     }
@@ -136,7 +159,8 @@ public class DwellArcButton
         Brush? fill = null, Brush? stroke = null, Brush? arcBrush = null, Brush? symbolBrush = null,
         double? arcThickness = null, double arcInset = DefaultArcInset,
         double? fontSize = null,
-        IconGeometry? icon = null)
+        IconGeometry? icon = null,
+        string? label = null)
     {
         var fillBrush = fill ?? Tokens.BrushSurfaceMedium;
         var strokeBrush = stroke ?? Tokens.BrushBorderSubtle;
@@ -238,16 +262,29 @@ public class DwellArcButton
             Canvas.SetTop(symbolText, center.Y - symbolText.DesiredSize.Height / 2);
         }
 
-        // Drawn icon. Sized by ContainerRatio.Dominant - the token for an affordance whose
-        // entire content is one glyph with no label beside it. The scale goes on RenderTransform
-        // rather than Geometry.Transform on purpose: RenderTransform scales the stroke with the
-        // path, so GridStrokeThickness stays 1.8 at every size. Geometry.Transform would leave a
-        // 1.8px hairline on a 63px icon.
+        // Drawn icon. Sized by ContainerRatio.Dominant when the icon is the button's whole
+        // content, and by ContainerRatio.Medium when a label shares the face — Dominant names the
+        // former case only. The scale goes on RenderTransform rather than Geometry.Transform on
+        // purpose: RenderTransform scales the stroke with the path, so GridStrokeThickness stays
+        // 1.8 at every size. Geometry.Transform would leave a 1.8px hairline on a 63px icon.
+        //
+        // iconSize and iconTop are hoisted out of the `icon is not null` block because the label
+        // is positioned from them. Both are 0 when there is no icon, which is also the case where
+        // the icon/label stack collapses to the label alone.
+        var iconSize = icon is null
+            ? 0
+            : dia * (label is null ? ContainerRatio.Dominant : ContainerRatio.Medium);
+        var labelHeight = label is null ? 0 : Tokens.FontSizeSubtitle * LabelLineHeightRatio;
+        var stackGap = label is null || icon is null ? 0 : dia * LabelGapRatio;
+        // Centres the icon and its label together rather than centring the icon alone. With no
+        // label this reduces to center.Y - iconSize / 2, which is what
+        // DwellArcButtonIconTests.TheIcon_IsCentredOnTheButton pins.
+        var iconTop = center.Y - (iconSize + stackGap + labelHeight) / 2;
+
         Path? iconStrokePath = null;
         Path? iconFillPath = null;
         if (icon is not null)
         {
-            var iconSize = dia * ContainerRatio.Dominant;
             var scale = iconSize / ActionIcons.GridSize;
 
             Path BuildLayer(Geometry geometry, bool filled)
@@ -264,7 +301,7 @@ public class DwellArcButton
                     RenderTransform = new ScaleTransform(scale, scale),
                 };
                 Canvas.SetLeft(path, center.X - iconSize / 2);
-                Canvas.SetTop(path, center.Y - iconSize / 2);
+                Canvas.SetTop(path, iconTop);
                 return path;
             }
 
@@ -272,7 +309,25 @@ public class DwellArcButton
             if (icon.Fill is not null) iconFillPath = BuildLayer(icon.Fill, filled: true);
         }
 
-        return new DwellArcButton(bg, rimHalo, haloPath, progressPath, haloSegment, arcSegment, symbolText, iconStrokePath, iconFillPath, center, arcRad);
+        TextBlock? labelText = null;
+        if (label is not null)
+        {
+            labelText = new TextBlock
+            {
+                Text = label,
+                Foreground = Tokens.BrushTextPrimary,
+                FontSize = Tokens.FontSizeSubtitle,
+                FontWeight = Tokens.FontWeightMedium,
+                FontFamily = Tokens.FontStandard,
+                TextAlignment = TextAlignment.Center,
+                Width = dia,
+            };
+            labelText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(labelText, center.X - radius);
+            Canvas.SetTop(labelText, iconTop + iconSize + stackGap);
+        }
+
+        return new DwellArcButton(bg, rimHalo, haloPath, progressPath, haloSegment, arcSegment, symbolText, iconStrokePath, iconFillPath, labelText, center, arcRad);
     }
 
     public void UpdateProgress(double progress)
@@ -316,5 +371,7 @@ public class DwellArcButton
             canvas.Children.Add(IconFill); // must precede IconStroke
         if (IconStroke is not null)
             canvas.Children.Add(IconStroke);
+        if (Label is not null)
+            canvas.Children.Add(Label);
     }
 }

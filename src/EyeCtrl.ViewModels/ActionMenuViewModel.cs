@@ -13,7 +13,8 @@ using EyeCtrl.ViewModels.Messages;
 
 public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
     IRecipient<ShowActionMenuMessage>,
-    IRecipient<HideActionMenuMessage>
+    IRecipient<HideActionMenuMessage>,
+    IRecipient<ToggleActionMenuLabelsMessage>
 {
 
     private readonly Dictionary<string, ActionMenuItemViewModel> _itemLookup = new();
@@ -30,6 +31,12 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
     /// a layer changed — see <c>BuildLayer</c> for why Items cannot serve.
     /// </summary>
     [ObservableProperty] private int _ringVersion;
+
+    /// <summary>
+    /// Whether the ring shows each target's name. Off on every open; the Help target on the
+    /// right-edge bar turns it on for the rest of the menu session.
+    /// </summary>
+    [ObservableProperty] private bool _showLabels;
 
     public PhysicalPoint? ManualSelectionCenter { get; private set; }
     public int? ManualSelectionRadius { get; private set; }
@@ -55,6 +62,7 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         // would put a different target under the slot the user is already looking at.
         _onSecondaryLayer = false;
         _shownWith = message;
+        ShowLabels = false;
 
         BuildLayer();
         IsVisible = true;
@@ -150,10 +158,13 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         GazePoint = new(0, 0);
         _onSecondaryLayer = false;
         _shownWith = null;
+        ShowLabels = false;
         DwellDetector.ClearTargets();
         Items.Clear();
         _itemLookup.Clear();
     }
+
+    public void Receive(ToggleActionMenuLabelsMessage message) => ShowLabels = !ShowLabels;
 
     protected override void OnTargetActivated(string targetId)
     {

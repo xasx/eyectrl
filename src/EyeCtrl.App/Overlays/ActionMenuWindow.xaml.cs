@@ -36,7 +36,7 @@ public partial class ActionMenuWindow : OverlayWindow
         ExcludeFromScreenCapture = true; // the action-menu preview must not capture the menu itself
     }
 
-    public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null, int? zoomRadius = null, PhysicalPoint? gazePoint = null)
+    public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null, int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false)
     {
         _buttonVisuals.Clear();
         MenuCanvas.Children.Clear();
@@ -189,7 +189,8 @@ public partial class ActionMenuWindow : OverlayWindow
                     canvasPoint,
                     ActionMenuGeometry.ButtonRadius,
                     symbol: null,
-                    icon: ActionIcons.For(itemVm.Icon));
+                    icon: ActionIcons.For(itemVm.Icon),
+                    label: showLabels ? itemVm.Label : null);
                 btn.AddTo(MenuCanvas);
                 _buttonVisuals[itemVm.Id] = btn;
 

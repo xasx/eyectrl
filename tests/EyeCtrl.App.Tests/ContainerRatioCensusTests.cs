@@ -112,9 +112,13 @@ public class ContainerRatioCensusTests
                     + "and ManualSelection side buttons, whose 22/100 is where Small was "
                     + "observed. No longer the action menu: it took Small while it rendered a "
                     + "Unicode glyph, and now draws an icon."),
-                ("Dominant", 1, "the drawn icon on a 140px action-menu button, whose entire "
-                    + "content is one shape with no label beside it — the situation Dominant "
-                    + "names. 140 x 0.45 = 63px."),
+                ("Dominant", 1, "the drawn icon on a 140px action-menu button while the ring is "
+                    + "icon-only, so the icon IS the button's entire content — the situation "
+                    + "Dominant names. 140 x 0.45 = 63px. Half of a ternary since 2026-08-26: "
+                    + "the same line picks Medium once a label shares the face."),
+                ("Medium", 1, "the icon on a 140px action-menu button that is ALSO showing a "
+                    + "label — the icon is no longer the button's entire content, so Dominant "
+                    + "stops applying. 140 x 0.32 = 44.8px."),
             ],
         };
 

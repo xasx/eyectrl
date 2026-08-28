@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
+using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
 
@@ -17,6 +18,14 @@ using Serilog;
 /// </summary>
 internal sealed class OverlayMessageCoordinator : IDisposable
 {
+    /// <summary>
+    /// Inset of the right-edge bar from the screen edge, in DIP. Declared here rather than
+    /// widening <c>OverlayVmBindingCoordinator</c>'s private const of the same name: the two
+    /// coordinators anchor the same bar and must agree, and the value is the one every other
+    /// context (drag, manual selection) already uses.
+    /// </summary>
+    private const double RightEdgeInsetLogical = 30;
+
     private EventCoordinationContext? _context;
     private readonly ToolbarLifecycleCoordinator _toolbar;
     private readonly OverlayVmBindingCoordinator _vmBinding;
@@ -102,7 +111,29 @@ internal sealed class OverlayMessageCoordinator : IDisposable
             {
                 try
                 {
-                    if (msg.ResolvedControl == null || _context == null) return;
+                    if (_context == null) return;
+
+                    // The menu was the only overlay context that put nothing on the right-edge
+                    // bar, so an accidental open could only be resolved by committing an action.
+                    //
+                    // ShowButtons, not AddButton: AddButton sets neither IsVisible nor the bar's
+                    // edge anchor, so a bar that was not already showing stays hidden and anchors
+                    // every button at (0,0). Clearing is safe here — on the ManualSelection path
+                    // the magnifier's own buttons are already gone by this point, because
+                    // InteractionManager.OnManualSelectionDwell fires HideManualSelection BEFORE
+                    // ShowActionMenu and both handlers queue at DispatcherPriority.Normal, which
+                    // is FIFO. That ordering is a real WPF guarantee but invisible from here:
+                    // changing either handler's dispatcher priority would silently invert it.
+                    var edgeAnchor = ScreenGeometry.RightEdgeAnchor(
+                        RightEdgeInsetLogical, UIConstants.ButtonRadius);
+                    _context.OverlayManager.EdgeButtonBar.ShowButtons(
+                        ActionMenuEdgeButtons.Definitions(
+                            msg.ShowBack
+                                ? _context.Settings.Dwell.ManualSelectionActionMenuDwellMs
+                                : _context.Settings.Dwell.ActionMenuDwellMs),
+                        edgeAnchor);
+
+                    if (msg.ResolvedControl == null) return;
                     var highlightVM = _context.TargetHighlightVM;
                     highlightVM.IsVisible = true;
                     _context.OverlayManager.TargetHighlight.Configure(
@@ -124,6 +155,24 @@ internal sealed class OverlayMessageCoordinator : IDisposable
             {
                 try
                 {
+                    // Takes the menu's Close/Help off the bar, but ONLY while the menu still owns
+                    // it. The bar is shared, and this handler is deferred while the contexts that
+                    // take the bar over from the menu are not:
+                    //
+                    //   InteractionManager.OnActionSelected fires HideActionMenu (:148, :156) and
+                    //   then DragStarted (:163) / SetState(ScrollMode) (:152). HideActionMenu
+                    //   reaches here through GazeEngineAdapter.OnHideActionMenu, which wraps it in
+                    //   Dispatcher.BeginInvoke — so it lands AFTER DragCoordinator.OnDragStarted
+                    //   and ScrollModeController.EnterScrollMode, both of which run synchronously
+                    //   off their events and have already called ShowButtons by then.
+                    //
+                    // Unguarded, this would therefore clear the drag's cancel button and scroll
+                    // mode's stop button the instant either began — removing the only way out of
+                    // a drag for a user whose sole input channel is an eye tracker.
+                    var bar = _context?.OverlayManager.EdgeButtonBar;
+                    if (bar?.EdgeBarVm?.DefinitionFor(ActionMenuEdgeButtons.CloseId) is not null)
+                        bar.Hide();
+
                     if (_context != null && _context.TargetHighlightVM.IsVisible)
                     {
                         _context.TargetHighlightVM.IsVisible = false;

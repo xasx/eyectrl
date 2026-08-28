@@ -116,6 +116,10 @@ public static class ActionIcons
             + " M10.1,12 A1.9,1.9 0 1 1 13.9,12 A1.9,1.9 0 1 1 10.1,12 Z"
             + " M16.5,12 A1.9,1.9 0 1 1 20.3,12 A1.9,1.9 0 1 1 16.5,12 Z"),
 
+        // A plain X. The one target that must read as "none of the above", so it borrows no part
+        // of the mouse silhouette the actions share.
+        [ActionIcon.Close] = Make("M6,6 L18,18 M18,6 L6,18", null),
+
         // The hook and stem are stroked; the dot is the only filled part.
         [ActionIcon.Help] = Make(
             "M8.6,8.6 A3.5,3.5 0 1 1 13.3,11.9 C12.2,12.3 11.6,13.1 11.6,14.2 L11.6,15.2",

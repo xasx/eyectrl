@@ -47,4 +47,6 @@ public enum ActionIcon
     More,
     /// <summary>A question mark — toggles the action names on. Navigation, not an action.</summary>
     Help,
+    /// <summary>An X — dismisses the menu without performing anything. Navigation, not an action.</summary>
+    Close,
 }

@@ -85,6 +85,8 @@ public class GazeEngineAdapter : IDisposable
             _interactionManager.OnActionSelected(msg.Action));
         messenger.Register<BackSelectedMessage>(this, (_, _) =>
             _interactionManager.OnManualSelectionBack());
+        messenger.Register<ActionMenuDismissedMessage>(this, (_, _) =>
+            _interactionManager.OnActionMenuDismissed());
         messenger.Register<PauseToggledMessage>(this, (_, _) =>
             _interactionManager.TogglePause());
         messenger.Register<SelectionModeChangedMessage>(this, (_, msg) =>

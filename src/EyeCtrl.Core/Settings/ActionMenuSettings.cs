@@ -3,6 +3,7 @@ namespace EyeCtrl.Core.Settings;
 using CommunityToolkit.Mvvm.ComponentModel;
 using EyeCtrl.Core.Models;
 using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>Settings controlling which actions are visible in the gaze action menu ring.</summary>
 public partial class ActionMenuSettings : ObservableObject, IValidatable
@@ -25,11 +26,85 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
     /// </summary>
     [ObservableProperty] private bool _defaultsMigrated;
 
+    /// <summary>
+    /// The actions shown on the ring's FIRST layer, alongside a More target that opens the rest.
+    /// A subset of <see cref="VisibleActions"/>; anything visible but not listed here lands on the
+    /// second layer.
+    ///
+    /// Capped at four by <see cref="Validate"/>. The cap buys SEPARATION, not the absence of
+    /// overlap — at the default CircleSize the neighbour gap is 160 DIP at five slots, 115 at
+    /// six and 34 at nine, and six only actually overlap below CircleSize 20. Four plus More is
+    /// the point at which a ring can be aimed at without scanning it.
+    /// </summary>
+    [ObservableProperty] private List<InteractionAction> _primaryActions = new()
+    {
+        InteractionAction.LeftClick, InteractionAction.RightClick,
+        InteractionAction.DoubleClick, InteractionAction.ScrollMode
+    };
+
+    /// <summary>
+    /// Whether <see cref="MigratePrimaryOnce"/> has already run for this settings file. Absent
+    /// from every pre-2026-08-26 file (so it loads false) and set on the first migration.
+    ///
+    /// Exactly the <see cref="DefaultsMigrated"/> pattern, for exactly its reason: the primary
+    /// list is user-owned once the Settings tab can edit it, and a per-startup migration would
+    /// re-promote an action the user deliberately demoted every time they relaunched.
+    /// </summary>
+    [ObservableProperty] private bool _primaryMigrated;
+
+    /// <summary>The maximum number of primary actions. Four, plus the More target, fills the ring.</summary>
+    public const int MaxPrimaryActions = 4;
+
+    /// <summary>
+    /// <see cref="PrimaryActions"/> restricted to what is actually switched on. A primary action
+    /// the user turned off in the Settings tab must vanish from the ring, not linger on layer one.
+    /// </summary>
+    public IReadOnlyList<InteractionAction> EffectivePrimaryActions =>
+        (PrimaryActions ?? new List<InteractionAction>())
+            .Where(a => VisibleActions?.Contains(a) == true)
+            .ToList();
+
+    /// <summary>
+    /// Everything visible that is not primary — the ring's second layer, reached through More.
+    /// Derived rather than stored so it cannot drift out of sync with the two lists it spans.
+    /// </summary>
+    public IReadOnlyList<InteractionAction> SecondaryActions =>
+        (VisibleActions ?? new List<InteractionAction>())
+            .Where(a => PrimaryActions?.Contains(a) != true)
+            .ToList();
+
+    /// <summary>
+    /// Populates <see cref="PrimaryActions"/> exactly once per settings file, then never touches
+    /// it again. The startup caller must use this rather than assigning the defaults directly —
+    /// see <see cref="PrimaryMigrated"/>.
+    /// </summary>
+    public void MigratePrimaryOnce()
+    {
+        if (PrimaryMigrated) return;
+
+        PrimaryActions = new List<InteractionAction>
+        {
+            InteractionAction.LeftClick, InteractionAction.RightClick,
+            InteractionAction.DoubleClick, InteractionAction.ScrollMode
+        };
+        PrimaryMigrated = true;
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
-        // ActionMenuSettings has no numeric ranges to validate
-        return new List<string>();
+        var errors = new List<string>();
+
+        var primary = PrimaryActions ?? new List<InteractionAction>();
+
+        if (primary.Count > MaxPrimaryActions)
+            errors.Add($"{nameof(PrimaryActions)} must hold at most {MaxPrimaryActions} actions; "
+                       + $"found {primary.Count}. Four plus the More target fills the ring's five slots.");
+
+        if (primary.Count != primary.Distinct().Count())
+            errors.Add($"{nameof(PrimaryActions)} must not repeat an action.");
+
+        return errors;
     }
 
     /// <summary>Ensures the default set of actions is present in <see cref="VisibleActions"/>.</summary>

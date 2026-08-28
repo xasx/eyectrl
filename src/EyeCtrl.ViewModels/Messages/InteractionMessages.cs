@@ -93,6 +93,16 @@ public record ResetManualSelectionIndicatorMessage;
 public record ActivationCompletedMessage;
 public record ActionSelectedMessage(InteractionAction Action);
 public record BackSelectedMessage;
+
+/// <summary>
+/// Toggles the action names on the ring's targets. Sent by the Help button on the right-edge bar.
+///
+/// A toggle rather than a momentary reveal: you cannot read a label while dwelling something
+/// else, so a "names while held" gesture would show them only when they are least useful. Scoped
+/// to the menu session — <see cref="HideActionMenuMessage"/> clears it.
+/// </summary>
+public record ToggleActionMenuLabelsMessage;
+
 public record PauseToggledMessage;
 public record SelectionModeChangedMessage(SelectionMode Mode);
 public record KeyboardToggledMessage;

@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -28,6 +29,22 @@ public partial class ActionMenuWindow : OverlayWindow
     private const int PreviewCircleBorderThickness = 2; // Border thickness of preview circle
 
     private readonly Dictionary<string, DwellArcButton> _buttonVisuals = new();
+
+    /// <summary>
+    /// The per-item dwell-progress subscriptions this window owns, so they can be detached before
+    /// the next rebuild. Mirrors <c>EdgeButtonBarWindow._progressSubs</c>, and exists for the same
+    /// reason: a lambda you did not keep cannot be unsubscribed.
+    ///
+    /// <para>
+    /// It became load-bearing on 2026-08-26. Before then <see cref="Show"/> ran once per menu
+    /// open, against item ViewModels the ViewModel had just rebuilt, so each handler died with its
+    /// item. <see cref="Show"/> is now also called on a layer change and on the Help toggle — and
+    /// the Help toggle only flips <c>ShowLabels</c>, leaving the SAME item ViewModels in place. One
+    /// more handler was attached to each of them per toggle.
+    /// </para>
+    /// </summary>
+    private readonly List<(ActionMenuItemViewModel Item, PropertyChangedEventHandler Handler)> _itemProgressSubs = new();
+
     private CancellationTokenSource? _captureCts;
 
     public ActionMenuWindow()
@@ -38,6 +55,13 @@ public partial class ActionMenuWindow : OverlayWindow
 
     public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null, int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false)
     {
+        // Detach the previous rebuild's progress handlers before clearing. A layer change hands us
+        // fresh item ViewModels and would drop the old ones anyway, but a Help toggle does not —
+        // it reuses the live items, so without this each toggle leaves another handler on each.
+        foreach (var (item, handler) in _itemProgressSubs)
+            item.PropertyChanged -= handler;
+        _itemProgressSubs.Clear();
+
         _buttonVisuals.Clear();
         MenuCanvas.Children.Clear();
 
@@ -195,11 +219,14 @@ public partial class ActionMenuWindow : OverlayWindow
                 _buttonVisuals[itemVm.Id] = btn;
 
                 var capturedId = itemVm.Id;
-                itemVm.PropertyChanged += (_, e) =>
+                var capturedItem = itemVm;
+                PropertyChangedEventHandler handler = (_, e) =>
                 {
                     if (e.PropertyName == nameof(ActionMenuItemViewModel.DwellProgress))
-                        UpdateItemProgress(capturedId, itemVm.DwellProgress);
+                        UpdateItemProgress(capturedId, capturedItem.DwellProgress);
                 };
+                itemVm.PropertyChanged += handler;
+                _itemProgressSubs.Add((capturedItem, handler));
             }
         }
 

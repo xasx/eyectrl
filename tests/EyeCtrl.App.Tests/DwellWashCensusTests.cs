@@ -70,11 +70,12 @@ public class DwellWashCensusTests
             "Defines Blend; it is the tool, not a use of it. The regex cannot tell a definition "
             + "from a call, and narrowing it by shape would weaken it."),
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
-            "Two sites. The pagination buttons blend at factor 0.4, so 10.42:1 falls to 3.39:1 — "
-            + "over the 3:1 bar, unlike the overlays' full-strength blend. The close button uses "
-            + "0.5 and lands in the 2.62:1 class that the settings controls' bar fixed. Both are "
-            + "hand-rolled rather than DwellButton, so neither is covered by that change; they "
-            + "belong with the settings restyle."),
+            "Tab-pager and content-pager blend via one shared helper (BlendProgress) at factor "
+            + "0.4, so 10.42:1 falls to 3.39:1 — over the 3:1 bar, unlike the overlays' "
+            + "full-strength blend. The close button uses 0.5 and lands in the 2.62:1 class "
+            + "that the settings controls' bar fixed. All are hand-rolled rather than "
+            + "DwellButton, so none is covered by that change; they belong with the settings "
+            + "restyle."),
     ];
 
     [Fact]

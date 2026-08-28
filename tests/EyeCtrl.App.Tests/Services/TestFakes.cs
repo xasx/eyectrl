@@ -146,6 +146,21 @@ internal static class TestFakes
     }
 
     /// <summary>
+    /// Superset of the three former private IGazeProvider fakes: settable <c>IsConnected</c> (defaults
+    /// true, per the coordinator tests' connected-state precondition) plus a raisable GazePoint event.
+    /// Not the Core test project's fake — that one's IsConnected has a private set flipped by Start().
+    /// </summary>
+    public class FakeGazeProvider : IGazeProvider
+    {
+        public event Action<GazePoint>? GazePointReceived;
+        public bool IsConnected { get; set; } = true;
+        public void Start() { }
+        public void Stop() { }
+        public void Dispose() { }
+        public void Raise(GazePoint p) => GazePointReceived?.Invoke(p);
+    }
+
+    /// <summary>
     /// Fake <see cref="IWindowManager"/> that records the last op fired + how many times the
     /// eligibility query ran. EligibilityQueries is the proxy for "no deferred re-query" — a
     /// synchronous handler queries exactly once; a queued hop would (in production) re-query at

@@ -37,17 +37,17 @@ public class DwellComboBoxSelectionTests
     /// <summary>A three-option combo over a captured selection.</summary>
     /// <param name="selected">The option that starts out selected.</param>
     private static DwellComboBox Build(string selected) =>
-        Build(new FakeRegistrar(), Options, selected);
+        Build(new FakeDwellRegistrar(), Options, selected);
 
     /// <summary>A combo over <paramref name="options"/> with <paramref name="selected"/> chosen.</summary>
     private static DwellComboBox Build(string[] options, string selected) =>
-        Build(new FakeRegistrar(), options, selected);
+        Build(new FakeDwellRegistrar(), options, selected);
 
     /// <summary>
     /// A combo whose dwell activations land in <paramref name="registrar"/>, so a test can fire
     /// one the way the overlay's dwell detector would.
     /// </summary>
-    private static DwellComboBox Build(FakeRegistrar registrar, string[] options, string selected)
+    private static DwellComboBox Build(FakeDwellRegistrar registrar, string[] options, string selected)
     {
         var current = selected;
         return new DwellComboBox(
@@ -191,7 +191,7 @@ public class DwellComboBoxSelectionTests
     [StaFact]
     public void ActivatingAnOption_MovesTheHighlight_AndLeavesTheRowWhereItWas()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var combo = Build(registrar, NarrowOptions, "Low");
         var panel = AttachAndMeasure(combo);
 
@@ -244,7 +244,7 @@ public class DwellComboBoxSelectionTests
     {
         var current = "Alpha";
         return new DwellComboBox(
-            new FakeRegistrar(), "cb", "Mode", Options,
+            new FakeDwellRegistrar(), "cb", "Mode", Options,
             () => current, v => current = v,
             DwellCategory.Control, 50, 800, showLabel: false);
     }
@@ -340,18 +340,4 @@ public class DwellComboBoxSelectionTests
             .That(panel.Children.Count).IsEqualTo(0);
     }
 
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        private readonly Dictionary<string, Action> _activations = new();
-
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) =>
-            _activations[id] = onActivated;
-
-        public void Unregister(string id, DwellCategory category) => _activations.Remove(id);
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
-
-        /// <summary>Fires the activation registered under <paramref name="id"/>.</summary>
-        public void Activate(string id) => _activations[id]();
-    }
 }

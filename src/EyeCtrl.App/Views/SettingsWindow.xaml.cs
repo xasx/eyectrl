@@ -236,9 +236,16 @@ public partial class SettingsWindow : OverlayWindow
     /// header shows under that label. <c>Description</c> is not decoration — the header is the
     /// only place a tab says what it is for, and the tab glyphs alone are ambiguous.
     /// </summary>
-    private readonly (string Id, string Icon, string Label, string Description,
-        Func<IReadOnlyList<PageSpec>> PageBuilder)[] _tabDefs;
-    private readonly Dictionary<string, Func<IReadOnlyList<PageSpec>>> _pageBuilders = new();
+    // INTENTIONALLY NOT EXPOSED in the settings UI (audit this list when adding settings):
+    //  - Cursor.MaxGapInterpolationMs, Cursor.PositionIndicatorStyle  (advanced tuning)
+    //  - ManualSelection.Enabled (driven by SelectionMode), ManualSelection.GazeIndicator* (visual tuning)
+    //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry)
+    //  - Calibration.TargetColor (visual tuning)
+    //  - whole sub-setting groups with no tab/control here: Backdrop, Drag, Scroll,
+    //    ExternalDwell, EyeCare, Adaptation, Supervision (their settings are currently
+    //    reachable only through the overlays/behaviour they configure, not this window).
+    // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.
+    private readonly (string Id, string Icon, string Label, string Description)[] _tabDefs;
     private readonly Dictionary<string, ISettingsPageSource> _sources = new();
 
     public SettingsWindow(
@@ -298,44 +305,34 @@ public partial class SettingsWindow : OverlayWindow
                 m.Reason,
                 [new ModalChoice("restart_failed_ok", "✓ OK", ModalChoiceKind.Affirmative, null)])));
 
-        // Initialize tab definitions with page builders
+        // Initialize tab definitions
         _tabDefs =
         [
             // Descriptions describe what each tab ACTUALLY holds, read off the page sources in
             // src/EyeCtrl.App/Views/Settings/Sources — not what the tab's name suggests.
             ("Cursor",   "◎", "Cursor",
-                "How raw gaze is filtered, and how the cursor ring is drawn.", BuildCursorPages),
+                "How raw gaze is filtered, and how the cursor ring is drawn."),
             ("Dwell",    "⏱", "Dwell Times",
-                "How long gaze must rest on a target before it activates.", BuildDwellPages),
+                "How long gaze must rest on a target before it activates."),
             ("Selection", "⊕", "Selection",
-                "Picking the exact target: mode, magnifier, highlight and snapping.",
-                BuildSelectionPages),
+                "Picking the exact target: mode, magnifier, highlight and snapping."),
             ("Actions",  "⊙", "Action Menu",
-                "Which actions appear in the ring that opens after an activation.",
-                BuildActionMenuPages),
+                "Which actions appear in the ring that opens after an activation."),
             ("Layout",   "⊞", "Layout",
-                "Where the action menu and magnifier open: at your gaze, or at the screen centre.", BuildLayoutPages),
+                "Where the action menu and magnifier open: at your gaze, or at the screen centre."),
             ("Keyboard", "⌨", "Keyboard",
-                "On-screen keyboard size, layout and word prediction.", BuildKeyboardPages),
+                "On-screen keyboard size, layout and word prediction."),
             ("Models",    "⬡", "Models",
-                "Language models used for word prediction.", BuildModelsPages),
+                "Language models used for word prediction."),
             ("Toolbar",  "▣", "Toolbar",
-                "Where the utility bar docks, and how big its buttons are.", BuildToolbarPages),
+                "Where the utility bar docks, and how big its buttons are."),
             ("Calibration", "⌖", "Calibration",
-                "Correcting the offset between your gaze and the cursor.",
-                BuildCalibrationPages),
+                "Correcting the offset between your gaze and the cursor."),
             ("General",  "⚙", "General",
-                "Startup, theme, restart, and resetting settings.", BuildGeneralPages),
+                "Startup, theme, restart, and resetting settings."),
             ("QuickActions", "⚡", "Quick Actions",
-                "The pop-up grid of one-dwell shortcuts, and how it is summoned.",
-                BuildQuickActionsPages)
+                "The pop-up grid of one-dwell shortcuts, and how it is summoned.")
         ];
-
-        // Build dictionary for O(1) page builder lookup
-        foreach (var (id, _, _, _, pageBuilder) in _tabDefs)
-        {
-            _pageBuilders[id] = pageBuilder;
-        }
 
         // Set DataContext for data binding
         DataContext = _viewModel;
@@ -382,7 +379,7 @@ public partial class SettingsWindow : OverlayWindow
         _modelsSource = new ModelsPageSource(_ctx);
         _qaSource = new QuickActionsPageSource(_ctx);
 
-        // One entry per tab, same ids as _pageBuilders: MaybeRepaginateByHeight looks the
+        // One entry per tab, same ids as `_tabDefs`: MaybeRepaginateByHeight looks the
         // current tab's source up here to ask whether it opts into height re-pagination.
         _sources["Cursor"] = _cursorSource;
         _sources["Dwell"] = _dwellSource;
@@ -456,7 +453,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private void BuildTabButtons()
     {
-        foreach (var (id, icon, label, _, _) in _tabDefs)
+        foreach (var (id, icon, label, _) in _tabDefs)
         {
             // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
             // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
@@ -584,7 +581,7 @@ public partial class SettingsWindow : OverlayWindow
         var (start, count) = SettingsTabPagination.PageSlice(_tabDefs.Length, _tabsPerPage, _tabPageIndex);
         for (var i = start; i < start + count; i++)
         {
-            var (id, _, _, _, _) = _tabDefs[i];
+            var (id, _, _, _) = _tabDefs[i];
             TabButtonPanel.Children.Add(_tabButtons[id]);
             _viewModel.Register(id, DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
             _renderedTabIds.Add(id);
@@ -610,38 +607,73 @@ public partial class SettingsWindow : OverlayWindow
         TabPagerPanel.Children.Add(MakeTabPagerButton("tab_next", "▼", +1));
     }
 
-    private Border MakeTabPagerButton(string id, string glyph, int direction)
+    /// <summary>
+    /// The shared skeleton of the window's round dwell buttons (tab pager, content pager,
+    /// modal choices): mutable base brush, rounded border, centered strong label, mouse
+    /// fallback, OPTIONAL dwell registration (see <paramref name="onActivated"/>), and
+    /// storage into the caller's button/brush maps. Geometry, palette, category, hit
+    /// radius and both activation paths are the caller's.
+    ///
+    /// FontSize is deliberately NOT parameterized: RawGeometryLiteralTests requires every
+    /// FontSize value to reference the token surface, and a parameter name references no
+    /// token. Each adapter assigns it inline at its call site — the same precedent as
+    /// DragTrailOverlay's IconSize, which repeats its expression rather than reading a local.
+    /// </summary>
+    private Border MakeChromeButton(
+        string id, string text, double width, double height, Thickness margin,
+        Color fill, Brush textBrush,
+        DwellCategory category, double radiusLogical,
+        Action onMouseDown, Action? onActivated,
+        Dictionary<string, Border> buttons, Dictionary<string, SolidColorBrush> brushes)
     {
-        var brush = new SolidColorBrush(BtnBase);
+        var brush = new SolidColorBrush(fill);
         var btn = new Border
         {
-            Width = PaginationButtonWidth,
-            Height = PaginationButtonHeight,
-            // 14, not the content pager's 4: two 100-DIP buttons registering PagBtnRadius
-            // (60-DIP radius, 120-DIP hit circles) need ≥ 120 DIP between centres to keep the
-            // circles clear of each other; 14 + 100 + 14 = 128.
-            Margin = new Thickness(14, 4, 14, 4),
+            Width = width,
+            Height = height,
+            Margin = margin,
             CornerRadius = Tokens.StandardCornerRadius,
             Background = brush,
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
             {
-                Text = glyph,
-                Foreground = Tokens.BrushTextPrimary,
-                FontSize = PaginationButtonHeight * ContainerRatio.Large,
+                Text = text,
+                Foreground = textBrush,
                 FontWeight = Tokens.FontWeightStrong,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center
             }
         };
 
-        // Dwell and mouse converge on the same switch; the dwell path routes through the
-        // registered action (SettingsWindowViewModel special-cases these ids before ShowTab).
-        btn.MouseLeftButtonDown += (_, _) => SwitchTabPage(_tabPageIndex + direction);
-        _tabPagerButtons[id] = btn;
-        _tabPagerBrushes[id] = brush;
-        _viewModel.Register(id, DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs,
-            () => SwitchTabPage(_tabPageIndex + direction));
+        btn.MouseLeftButtonDown += (_, _) => onMouseDown();
+        buttons[id] = btn;
+        brushes[id] = brush;
+        // Registration is opt-in: MakeModalButton's CALLER registers (UpdateModalVisibility
+        // captures the palette's blend factor alongside), so the modal adapter passes null —
+        // a double Register would duplicate dwell-detector state on a gaze-critical path.
+        // The two pager factories register here, as they always did.
+        if (onActivated is not null)
+            _viewModel.Register(id, category, DpiHelper.LogicalToPhysicalX(radiusLogical), _dwellMs, onActivated);
+        return btn;
+    }
+
+    // Dwell and mouse converge on the same switch; the dwell path routes through the
+    // registered action (SettingsWindowViewModel special-cases these ids before ShowTab).
+    private Border MakeTabPagerButton(string id, string glyph, int direction)
+    {
+        var btn = MakeChromeButton(
+            id, glyph, PaginationButtonWidth, PaginationButtonHeight,
+            // 14, not the content pager's 4: two 100-DIP buttons registering PagBtnRadius
+            // (60-DIP radius, 120-DIP hit circles) need ≥ 120 DIP between centres to keep the
+            // circles clear of each other; 14 + 100 + 14 = 128.
+            new Thickness(14, 4, 14, 4),
+            BtnBase, Tokens.BrushTextPrimary,
+            DwellCategory.Tab, PagBtnRadius,
+            () => SwitchTabPage(_tabPageIndex + direction),
+            () => SwitchTabPage(_tabPageIndex + direction),
+            _tabPagerButtons, _tabPagerBrushes);
+        ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
         return btn;
     }
 
@@ -660,11 +692,7 @@ public partial class SettingsWindow : OverlayWindow
     // dict because tab-pager targets live in the Tab category, not Pagination.
     private void UpdateTabPaginationVisuals()
     {
-        foreach (var (id, progress) in _viewModel.TabProgress)
-        {
-            if (_tabPagerBrushes.TryGetValue(id, out var brush))
-                brush.Color = ColorBlend.Blend(BtnBase, Tokens.Accent, progress * 0.4);
-        }
+        BlendProgress(_viewModel.TabProgress, _tabPagerBrushes, BtnBase, 0.4);
     }
 
     // ────── Tab switching ──────
@@ -788,75 +816,23 @@ public partial class SettingsWindow : OverlayWindow
 
     private Border MakePagButton(string id, string text)
     {
-        var pagBrush = new SolidColorBrush(BtnBase);
-        var btn = new Border
-        {
-            Width = PaginationButtonWidth,
-            Height = PaginationButtonHeight,
-            Margin = new Thickness(PaginationButtonMargin),
-            CornerRadius = Tokens.StandardCornerRadius,
-            Background = pagBrush,
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Child = new TextBlock
-            {
-                Text = text,
-                Foreground = Tokens.BrushTextPrimary,
-                FontSize = PaginationButtonHeight * ContainerRatio.Large,
-                FontWeight = Tokens.FontWeightStrong,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
-        };
-
-        // Mouse fallback - ViewModel handles pagination
-        btn.MouseLeftButtonDown += (_, _) =>
-        {
-            if (id == "pag_prev")
-                _viewModel.Settings.PreviousPage();
-            else
-                _viewModel.Settings.NextPage();
-        };
-
-        _pagButtons[id] = btn;
-        _pagBrushes[id] = pagBrush;
-
-        // Register with ViewModel for dwell detection
-        _viewModel.Register(id, DwellCategory.Pagination, DpiHelper.LogicalToPhysicalX(PagBtnRadius), _dwellMs, () => { });
-
+        var btn = MakeChromeButton(
+            id, text, PaginationButtonWidth, PaginationButtonHeight, new Thickness(PaginationButtonMargin),
+            BtnBase, Tokens.BrushTextPrimary,
+            DwellCategory.Pagination, PagBtnRadius,
+            () => { if (id == "pag_prev") _viewModel.Settings.PreviousPage(); else _viewModel.Settings.NextPage(); },
+            () => { },
+            _pagButtons, _pagBrushes);
+        ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
         return btn;
     }
 
     // ────── Page builders per tab ──────
 
-    private IReadOnlyList<PageSpec> BuildPages()
-    {
-        return _pageBuilders.TryGetValue(_viewModel.Settings.CurrentTabName, out var pageBuilder)
-            ? pageBuilder.Invoke()
+    private IReadOnlyList<PageSpec> BuildPages() =>
+        _sources.TryGetValue(_viewModel.Settings.CurrentTabName, out var source)
+            ? source.Build()
             : Array.Empty<PageSpec>();
-    }
-
-    private IReadOnlyList<PageSpec> BuildCursorPages() => _cursorSource.Build();
-
-
-    private IReadOnlyList<PageSpec> BuildDwellPages() => _dwellSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildSelectionPages() => _selectionSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildActionMenuPages() => _actionMenuSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildLayoutPages() => _layoutSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildKeyboardPages() => _keyboardSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildToolbarPages() => _toolbarSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildModelsPages() => _modelsSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildGeneralPages() => _generalSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildQuickActionsPages() => _qaSource.Build();
-
-    private IReadOnlyList<PageSpec> BuildCalibrationPages() => _calibrationSource.Build();
 
     // ────── Shared helpers ──────
 
@@ -1351,16 +1327,7 @@ public partial class SettingsWindow : OverlayWindow
     private void UpdateAllTargetPositions()
     {
         // Update close button position
-        try
-        {
-            var cPos = CloseButton.PointToScreen(
-                new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
-            _viewModel.UpdatePosition("close", DwellCategory.Tab, new PhysicalPoint(cPos.X, cPos.Y));
-        }
-        catch (InvalidOperationException)
-        {
-            // Window or button not yet rendered or not in visual tree
-        }
+        TryUpdatePosition(CloseButton, "close", DwellCategory.Tab);
 
         // Update tab button positions (only the current tab page's borders are attached;
         // detached ones throw and are skipped) and the tab pager's
@@ -1418,16 +1385,43 @@ public partial class SettingsWindow : OverlayWindow
     {
         foreach (var (id, border) in borders)
         {
-            try
-            {
-                var pos = border.PointToScreen(
-                    new Point(border.ActualWidth / 2, border.ActualHeight / 2));
-                _viewModel.UpdatePosition(id, category, new PhysicalPoint(pos.X, pos.Y));
-            }
-            catch (InvalidOperationException)
-            {
-                // Border not yet rendered or not in visual tree
-            }
+            TryUpdatePosition(border, id, category);
+        }
+    }
+
+    /// <summary>
+    /// Blends each target's dwell progress into its mutable brush, toward Accent, at
+    /// <paramref name="factor"/>. Shared shape of the tab-pager and content-pager feedback.
+    /// The loop variable is deliberately named <c>progress</c>: DwellWashCensusTests'
+    /// AccentWash regex matches <c>Blend(... Tokens.Accent, progress</c> and must keep
+    /// finding these two sites.
+    /// </summary>
+    private static void BlendProgress(
+        Dictionary<string, double> progressById,
+        Dictionary<string, SolidColorBrush> brushes,
+        Color baseColor,
+        double factor)
+    {
+        foreach (var (id, progress) in progressById)
+            if (brushes.TryGetValue(id, out var brush))
+                brush.Color = ColorBlend.Blend(baseColor, Tokens.Accent, progress * factor);
+    }
+
+    /// <summary>
+    /// Pushes one border's screen-space centre to the ViewModel under <paramref name="category"/>.
+    /// Swallows the not-in-visual-tree throw, same contract as <see cref="UpdateButtonPositions"/>.
+    /// </summary>
+    private void TryUpdatePosition(Border border, string id, DwellCategory category)
+    {
+        try
+        {
+            var pos = border.PointToScreen(
+                new Point(border.ActualWidth / 2, border.ActualHeight / 2));
+            _viewModel.UpdatePosition(id, category, new PhysicalPoint(pos.X, pos.Y));
+        }
+        catch (InvalidOperationException)
+        {
+            // Border not yet rendered or not in visual tree
         }
     }
 
@@ -1454,14 +1448,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private void UpdatePaginationVisuals()
     {
-        foreach (var (id, progress) in _viewModel.PagProgress)
-        {
-            if (_pagBrushes.TryGetValue(id, out var brush))
-            {
-                // HighlightColor(BtnBase, progress, 0.4) == Blend(BtnBase, Accent, progress * 0.4)
-                brush.Color = ColorBlend.Blend(BtnBase, Tokens.Accent, progress * 0.4);
-            }
-        }
+        BlendProgress(_viewModel.PagProgress, _pagBrushes, BtnBase, 0.4);
     }
 
     private void UpdateModalVisuals()
@@ -1560,33 +1547,17 @@ public partial class SettingsWindow : OverlayWindow
     /// </param>
     private Border MakeModalButton(string id, string text, Color bg, SolidColorBrush foreground, bool wide)
     {
-        var modalBrush = new SolidColorBrush(bg);
-        var border = new Border
-        {
-            Width = wide ? 460 : 170,
-            Height = ModalButtonHeight,
-            Margin = wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
-            CornerRadius = Tokens.StandardCornerRadius,
-            Background = modalBrush,
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Child = new TextBlock
-            {
-                Text = text,
-                Foreground = foreground,
-                FontSize = Tokens.FontSizeTitle,
-                FontWeight = Tokens.FontWeightStrong,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                TextAlignment = TextAlignment.Center,
-            }
-        };
-
-        // Mouse fallback. Everything routes through the ViewModel now — it owns which
-        // choice does what, so the view no longer branches on the id.
-        border.MouseLeftButtonDown += (_, _) => _viewModel.SimulateActivated(id, DwellCategory.Modal);
-
-        _modalButtons[id] = border;
-        _modalBrushes[id] = modalBrush;
+        var border = MakeChromeButton(
+            id, text, wide ? 460 : 170, ModalButtonHeight,
+            wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
+            bg, foreground,
+            // category/radius are inert on this call — onActivated is null, so no Register
+            // happens here; UpdateModalVisibility owns the modal registration, as today.
+            DwellCategory.Modal, ModalBtnRadius,
+            () => _viewModel.SimulateActivated(id, DwellCategory.Modal),
+            null,
+            _modalButtons, _modalBrushes);
+        ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
         _modalBaseColors[id] = bg;
         return border;
     }

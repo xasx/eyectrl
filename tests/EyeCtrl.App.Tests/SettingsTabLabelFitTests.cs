@@ -53,17 +53,18 @@ public class SettingsTabLabelFitTests
 
     /// <summary>
     /// Matches one entry of the <c>_tabDefs</c> collection initialiser:
-    /// <c>("Dwell", "⏱", "Dwell Times", "How long gaze must rest…", BuildDwellPages)</c>. FIVE
-    /// members since the page header landed; the icon and label are the two this test measures,
+    /// <c>("Dwell", "⏱", "Dwell Times", "How long gaze must rest…")</c>. FOUR members since the
+    /// page-builder element was collapsed away; the icon and label are the two this test measures,
     /// and the description is matched only so the shape still parses.
     ///
-    /// Widened deliberately when the fifth member was added: the four-member form matched nothing
-    /// afterwards, and <see cref="TabChrome"/>'s floor turned that into a loud failure rather than
-    /// a guard silently measuring zero tabs. <c>\s</c> spans newlines, so an entry wrapped across
+    /// Re-narrowed deliberately when the fifth member was removed: the five-member form matched
+    /// nothing afterwards, and <see cref="TabChrome"/>'s floor turned that into a loud failure
+    /// rather than a guard silently measuring zero tabs (the same reason it was widened when the
+    /// fifth member landed). <c>\s</c> spans newlines, so an entry wrapped across
     /// lines (most of them are) still matches.
     /// </summary>
     private static readonly Regex TabDef = new(
-        """\(\s*"(?<id>[^"]*)"\s*,\s*"(?<icon>[^"]*)"\s*,\s*"(?<label>[^"]*)"\s*,\s*"(?<description>[^"]*)"\s*,\s*(?<builder>\w+)\s*\)""",
+        """\(\s*"(?<id>[^"]*)"\s*,\s*"(?<icon>[^"]*)"\s*,\s*"(?<label>[^"]*)"\s*,\s*"(?<description>[^"]*)"\s*\)""",
         RegexOptions.Compiled);
 
     /// <summary>Reads a source file from the repo, not from the build output.</summary>

@@ -7,7 +7,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using EyeCtrl.Controls.Theme;
-using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using NFluent;
 using Xunit;
@@ -338,11 +337,4 @@ public class DwellButtonProgressTests
         public void TestOnActivated() => OnActivated();
     }
 
-    private class FakeDwellRegistrar : IDwellRegistrar
-    {
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
-    }
 }

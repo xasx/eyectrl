@@ -27,7 +27,7 @@ public class DwellSliderPlateTests
     /// <param name="decimals">Decimal places shown; 1 unless a case needs integers.</param>
     private static DwellSlider Build(
         double min, double max, double step, double current, int decimals = 1) =>
-        new(new FakeRegistrar(), "sl", "Smoothing", min, max, step, decimals,
+        new(new FakeDwellRegistrar(), "sl", "Smoothing", min, max, step, decimals,
             () => current, _ => { }, DwellCategory.Control, 50, 800);
 
     /// <summary>
@@ -123,7 +123,7 @@ public class DwellSliderPlateTests
     [StaFact]
     public void ActivatingPlus_MovesBothTheNumberAndTheRail()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var value = 0.5;
         var slider = new DwellSlider(
             registrar, "sl", "Smoothing", 0, 1, 0.1, 1,
@@ -352,7 +352,7 @@ public class DwellSliderPlateTests
     /// settings row hosts.
     /// </summary>
     private static DwellSlider BuildHeadless() =>
-        new(new FakeRegistrar(), "sl", "Smoothing", 0, 10, 1, 1,
+        new(new FakeDwellRegistrar(), "sl", "Smoothing", 0, 10, 1, 1,
             () => 5, _ => { }, DwellCategory.Control, 50, 800, showLabel: false);
 
     /// <summary>
@@ -399,22 +399,4 @@ public class DwellSliderPlateTests
             .That(panel.Children.OfType<TextBlock>().Single().Text).IsEqualTo("Smoothing");
     }
 
-    /// <summary>
-    /// Captures each registered activation by id so a test can fire one the way the overlay's
-    /// dwell detector would.
-    /// </summary>
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        private readonly Dictionary<string, Action> _activations = new();
-
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) =>
-            _activations[id] = onActivated;
-
-        public void Unregister(string id, DwellCategory category) => _activations.Remove(id);
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
-
-        /// <summary>Fires the activation registered under <paramref name="id"/>.</summary>
-        public void Activate(string id) => _activations[id]();
-    }
 }

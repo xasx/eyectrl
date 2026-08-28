@@ -356,9 +356,4 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     }
 
     #endregion
-
-    protected override void OnDispose()
-    {
-        _settingsViewModel.Dispose();
-    }
 }

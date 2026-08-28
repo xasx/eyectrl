@@ -124,10 +124,7 @@ internal sealed class SettingsUiCoordinator : IDisposable
         try
         {
             // Create SettingsViewModels
-            var settingsVM = new SettingsViewModel(
-                _context.Settings,
-                _context.SettingsService,
-                _context.Messenger);
+            var settingsVM = new SettingsViewModel(_context.Settings);
 
             var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
                 _context.QuickActionsStore, _context.InstalledAppProvider);

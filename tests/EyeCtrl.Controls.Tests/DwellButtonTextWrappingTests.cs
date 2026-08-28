@@ -3,7 +3,6 @@ namespace EyeCtrl.Controls.Tests;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using NFluent;
 using Xunit;
@@ -21,7 +20,7 @@ public class DwellButtonTextWrappingTests
     public void ButtonLabel_WrapsAndCenters_InsteadOfClipping()
     {
         var button = new DwellButton(
-            new FakeRegistrar(), "t", "A long label that will not fit one line", () => { },
+            new FakeDwellRegistrar(), "t", "A long label that will not fit one line", () => { },
             Colors.Black, DwellCategory.Control, 50, 500);
 
         var text = (TextBlock)button.Content!;
@@ -45,11 +44,4 @@ public class DwellButtonTextWrappingTests
             .IsEqualTo(TextWrapping.NoWrap);
     }
 
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => 0;
-    }
 }

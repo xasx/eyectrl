@@ -3,7 +3,6 @@ namespace EyeCtrl.App.Tests.Services;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
-using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -15,16 +14,6 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class AdaptationRuntimeContainmentTests
 {
-    private sealed class FakeGazeProvider : IGazeProvider
-    {
-        public event Action<GazePoint>? GazePointReceived;
-        public bool IsConnected => true;
-        public void Start() { }
-        public void Stop() { }
-        public void Dispose() { }
-        public void Raise(GazePoint p) => GazePointReceived?.Invoke(p);
-    }
-
     private static AdaptationCoordinator NewCoordinator(AdaptationSettings adaptation)
     {
         var settings = new EyeCtrlSettings();
@@ -33,7 +22,7 @@ public class AdaptationRuntimeContainmentTests
         var provider = new EffectiveSettingsProvider(adaptation);
         var controller = new AdaptationController(provider, adaptation);
         return new AdaptationCoordinator(
-            monitor, controller, adaptation, new FakeGazeProvider(), new InteractionManager());
+            monitor, controller, adaptation, new TestFakes.FakeGazeProvider(), new InteractionManager());
     }
 
     [Fact]

@@ -1,6 +1,5 @@
 namespace EyeCtrl.App.Tests.Services;
 
-using System;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Interfaces;
@@ -13,22 +12,10 @@ public class AdaptationCoordinatorTests
 {
     private const long Sec = 1_000_000; // microseconds per second
 
-    // Minimal IGazeProvider fake: only IsConnected is exercised. GazePointReceived uses explicit no-op
-    // accessors so there is no backing field (avoids CS0067 "event never used"). The Capabilities /
-    // TrackStatusReceived / TryGetLatestStatus members are default-implemented on the interface.
-    private sealed class FakeGazeProvider : IGazeProvider
-    {
-        public bool IsConnected { get; set; } = true;
-        event Action<GazePoint>? IGazeProvider.GazePointReceived { add { } remove { } }
-        public void Start() { }
-        public void Stop() { }
-        public void Dispose() { }
-    }
-
     // Builds the coordinator over REAL Core pieces (headless — no WPF): a real sink/monitor/provider/
     // controller, a fake gaze provider, and a real interaction manager. Returns the handles tests poke.
     private static (AdaptationCoordinator Coord, EffectiveSettingsProvider Provider, BufferingTelemetrySink Sink,
-                    AdaptationSettings Adaptation, FakeGazeProvider Gaze, InteractionManager Im) Make(bool enabled)
+                    AdaptationSettings Adaptation, TestFakes.FakeGazeProvider Gaze, InteractionManager Im) Make(bool enabled)
     {
         var settings = new EyeCtrlSettings();
         settings.Adaptation.Enabled = enabled;
@@ -36,7 +23,7 @@ public class AdaptationCoordinatorTests
         var monitor = new StruggleMonitor(sink, settings.EyeCare);
         var provider = new EffectiveSettingsProvider(settings.Adaptation);
         var controller = new AdaptationController(provider, settings.Adaptation);
-        var gaze = new FakeGazeProvider();
+        var gaze = new TestFakes.FakeGazeProvider();
         var im = new InteractionManager();
         var coord = new AdaptationCoordinator(monitor, controller, settings.Adaptation, gaze, im);
         return (coord, provider, sink, settings.Adaptation, gaze, im);

@@ -56,7 +56,7 @@ public class DwellProgressContrastTests
     [StaFact]
     public void DwellButton_LabelContrast_IsTheSameAtFullDwellAsAtRest()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var btn = new DwellButton(
             registrar, "id", "Label", () => { },
             Tokens.SurfaceMedium, DwellCategory.Control, 50, 800);
@@ -85,7 +85,7 @@ public class DwellProgressContrastTests
     public void DwellToggle_LabelContrast_IsTheSameAtFullDwellAsAtRest()
     {
         var state = true;
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var toggle = new DwellToggle(
             registrar, "id", "Label", () => state, v => state = v,
             DwellCategory.Control, 50, 800);
@@ -141,18 +141,4 @@ public class DwellProgressContrastTests
             .ContainsExactly("DwellButton");
     }
 
-    /// <summary>
-    /// Reports whatever progress the test sets, so these tests exercise the real
-    /// <see cref="DwellControl.UpdateVisual"/> path — the one production uses — rather than a
-    /// test-only hook on the production type.
-    /// </summary>
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        public double Progress { get; set; }
-
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated) { }
-        public void Unregister(string id, DwellCategory category) { }
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-        public double GetProgress(string id, DwellCategory category) => Progress;
-    }
 }

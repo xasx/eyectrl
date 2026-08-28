@@ -64,17 +64,17 @@ public class DwellToggleVisualTests
     /// back. A throwaway setter (<c>_ => { }</c>) would leave every assertion below checking a
     /// state that never changed.
     /// </summary>
-    private static DwellToggle Build(bool initial) => Build(new FakeRegistrar(), initial);
+    private static DwellToggle Build(bool initial) => Build(new FakeDwellRegistrar(), initial);
 
     /// <summary>
     /// As <see cref="Build(bool)"/>, but activations land in <paramref name="registrar"/> so a
     /// test can fire one the way the overlay's dwell detector would.
     /// </summary>
-    private static DwellToggle Build(FakeRegistrar registrar, bool initial) =>
+    private static DwellToggle Build(FakeDwellRegistrar registrar, bool initial) =>
         Build(registrar, initial, "Label");
 
     /// <summary>As <see cref="Build(bool)"/>, with a caller-chosen label.</summary>
-    private static DwellToggle Build(FakeRegistrar registrar, bool initial, string label)
+    private static DwellToggle Build(FakeDwellRegistrar registrar, bool initial, string label)
     {
         var state = initial;
         return new DwellToggle(
@@ -218,7 +218,7 @@ public class DwellToggleVisualTests
     [StaFact]
     public void DwellSweepsTheSwitchesProgressBar()
     {
-        var registrar = new FakeRegistrar { Progress = 0.75 };
+        var registrar = new FakeDwellRegistrar { Progress = 0.75 };
         var toggle = Build(registrar, initial: true);
 
         toggle.Switch.UpdateVisual();
@@ -289,7 +289,7 @@ public class DwellToggleVisualTests
     [StaFact]
     public void TheLabelIsNotADwellTarget()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var toggle = Build(registrar, initial: false);
         var panel = new StackPanel();
         toggle.Attach(panel);
@@ -481,7 +481,7 @@ public class DwellToggleVisualTests
     [StaFact]
     public void TheDwellBarPaintsThroughTheWholeCard()
     {
-        var registrar = new FakeRegistrar { Progress = 1.0 };
+        var registrar = new FakeDwellRegistrar { Progress = 1.0 };
         var toggle = Build(registrar, initial: true);
 
         // Arranged standalone at the narrowest real content column, with the bottom margin zeroed,
@@ -658,7 +658,7 @@ public class DwellToggleVisualTests
 
         foreach (var text in new[] { "Suppress adaptation in sensitive contexts", OverlongLabel })
         {
-            var toggle = Build(new FakeRegistrar(), true, text);
+            var toggle = Build(new FakeDwellRegistrar(), true, text);
             var panel = AttachAndLayout(toggle);
             var label = toggle.Label;
             var budget = toggle.RowSurface.ActualHeight;
@@ -758,7 +758,7 @@ public class DwellToggleVisualTests
     /// <summary>Renders <see cref="OverlongLabel"/> under a given trimming mode.</summary>
     private static byte[] RenderLabel(TextTrimming trimming)
     {
-        var toggle = Build(new FakeRegistrar(), true, OverlongLabel);
+        var toggle = Build(new FakeDwellRegistrar(), true, OverlongLabel);
         toggle.Label.TextTrimming = trimming;
         AttachAndLayout(toggle);
 
@@ -856,7 +856,7 @@ public class DwellToggleVisualTests
     [StaFact]
     public void ActivationFlowsThroughTheRegistrar()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var toggle = Build(registrar, initial: false);
         toggle.Attach(new StackPanel());
 
@@ -961,7 +961,7 @@ public class DwellToggleVisualTests
     /// row pitch, which in the two-column settings rows all belong to the row wrapper.
     /// </summary>
     /// <param name="registrar">Receives the switch's registration.</param>
-    private static DwellToggle BuildHeadless(FakeRegistrar registrar)
+    private static DwellToggle BuildHeadless(FakeDwellRegistrar registrar)
     {
         var state = true;
         return new DwellToggle(
@@ -984,7 +984,7 @@ public class DwellToggleVisualTests
     [StaFact]
     public void WithShowLabelFalse_TheToggleAttachesOnlyTheBareSwitch()
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var toggle = BuildHeadless(registrar);
         var panel = new StackPanel();
 
@@ -1020,7 +1020,7 @@ public class DwellToggleVisualTests
     [StaFact]
     public void WithShowLabelFalse_TheSwitchCarriesNoCardInset()
     {
-        var toggle = BuildHeadless(new FakeRegistrar());
+        var toggle = BuildHeadless(new FakeDwellRegistrar());
 
         Check.WithCustomMessage(
                 $"the bare switch carries a margin of {toggle.Switch.Root.Margin} — the card's "
@@ -1063,7 +1063,7 @@ public class DwellToggleVisualTests
     [InlineData(false)]
     public void Detach_RemovesWhicheverRootWasAttached(bool showLabel)
     {
-        var registrar = new FakeRegistrar();
+        var registrar = new FakeDwellRegistrar();
         var toggle = showLabel ? Build(registrar, initial: true) : BuildHeadless(registrar);
         var panel = new StackPanel();
 
@@ -1082,33 +1082,4 @@ public class DwellToggleVisualTests
             .That(registrar.Registered).IsEmpty();
     }
 
-    /// <summary>
-    /// Records every registration and the callback it carried, and reports whatever progress the
-    /// test sets — so these tests drive the real <see cref="DwellControl.UpdateVisual"/> and the
-    /// real activation path rather than a test-only hook on the production type.
-    /// </summary>
-    private class FakeRegistrar : IDwellRegistrar
-    {
-        public double Progress { get; set; }
-
-        public List<string> Registered { get; } = [];
-
-        public Dictionary<string, Action> Callbacks { get; } = [];
-
-        public void Register(string id, DwellCategory category, double radius, int dwellMs, Action onActivated)
-        {
-            Registered.Add(id);
-            Callbacks[id] = onActivated;
-        }
-
-        public void Unregister(string id, DwellCategory category)
-        {
-            Registered.Remove(id);
-            Callbacks.Remove(id);
-        }
-
-        public void UpdatePosition(string id, DwellCategory category, PhysicalPoint point) { }
-
-        public double GetProgress(string id, DwellCategory category) => Progress;
-    }
 }

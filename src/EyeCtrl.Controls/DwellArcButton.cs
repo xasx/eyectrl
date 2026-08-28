@@ -313,7 +313,7 @@ public class DwellArcButton
         if (Symbol is not null)
             canvas.Children.Add(Symbol);
         if (IconFill is not null)
-            canvas.Children.Add(IconFill);  // must precede IconStroke
+            canvas.Children.Add(IconFill); // must precede IconStroke
         if (IconStroke is not null)
             canvas.Children.Add(IconStroke);
     }

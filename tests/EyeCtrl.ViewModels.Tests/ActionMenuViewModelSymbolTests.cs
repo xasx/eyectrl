@@ -13,9 +13,17 @@ using EyeCtrl.ViewModels.Messages;
 ///
 /// The fall-through is the specific regression worth a test: the glyph switch ended in
 /// <c>_ => action.ToString()</c>, so a dropped case rendered the enum name in the ring rather
-/// than failing. An icon map has the same hazard in a different shape — a missing case throws at
-/// the drawing layer instead, which for a user whose only input channel is an eye tracker means
-/// an empty ring, not a wrong label.
+/// than failing. <c>GetActionIcon</c> has no such arm — it throws.
+///
+/// <para>
+/// What that costs is worth stating plainly rather than leaving to be discovered. The throw
+/// happens in the VIEWMODEL, not at the drawing layer, and <c>Receive</c> runs inside
+/// <c>GazeEngineAdapter</c>'s <c>_dispatcher.BeginInvoke</c> with no try/catch. <c>App</c>'s
+/// <c>DispatcherUnhandledException</c> handler deliberately leaves <c>Handled = false</c> so the
+/// supervisor's respawn owns recovery, which makes an unmapped action a logged crash rather than
+/// an empty ring. That is this app's stated crash-rather-than-limp policy and not a defect — but
+/// it is precisely why these tests exist. They are what keeps the arm unreachable.
+/// </para>
 /// </summary>
 public class ActionMenuViewModelSymbolTests
 {

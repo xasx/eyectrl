@@ -40,7 +40,7 @@ public class ToolbarButtonDriftTests
     /// </summary>
     private static readonly Dictionary<string, string> ReachableElsewhere = new(StringComparer.Ordinal)
     {
-        ["Calibrate"] = "Settings window action button (SettingsViewModel sends CalibrationRequestedMessage)",
+        ["Calibrate"] = "Settings window action button (CalibrationPageSource sends CalibrationRequestedMessage)",
         ["QuickActions"] = "hot-edge gaze summon (QuickActionsSummonController)",
     };
 

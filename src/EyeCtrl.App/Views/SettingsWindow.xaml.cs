@@ -241,6 +241,9 @@ public partial class SettingsWindow : OverlayWindow
     //  - ManualSelection.Enabled (driven by SelectionMode), ManualSelection.GazeIndicator* (visual tuning)
     //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry)
     //  - Calibration.TargetColor (visual tuning)
+    //  - whole sub-setting groups with no tab/control here: Backdrop, Drag, Scroll,
+    //    ExternalDwell, EyeCare, Adaptation, Supervision (their settings are currently
+    //    reachable only through the overlays/behaviour they configure, not this window).
     // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.
     private readonly (string Id, string Icon, string Label, string Description)[] _tabDefs;
     private readonly Dictionary<string, ISettingsPageSource> _sources = new();
@@ -647,9 +650,9 @@ public partial class SettingsWindow : OverlayWindow
         buttons[id] = btn;
         brushes[id] = brush;
         // Registration is opt-in: MakeModalButton's CALLER registers (UpdateModalVisibility
-        // captures the palette's blend factor alongside, at lines 1517-1524), so the modal
-        // adapter passes null — a double Register would duplicate dwell-detector state on a
-        // gaze-critical path. The two pager factories register here, as they always did.
+        // captures the palette's blend factor alongside), so the modal adapter passes null —
+        // a double Register would duplicate dwell-detector state on a gaze-critical path.
+        // The two pager factories register here, as they always did.
         if (onActivated is not null)
             _viewModel.Register(id, category, DpiHelper.LogicalToPhysicalX(radiusLogical), _dwellMs, onActivated);
         return btn;
@@ -1548,9 +1551,11 @@ public partial class SettingsWindow : OverlayWindow
             id, text, wide ? 460 : 170, ModalButtonHeight,
             wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
             bg, foreground,
+            // category/radius are inert on this call — onActivated is null, so no Register
+            // happens here; UpdateModalVisibility owns the modal registration, as today.
             DwellCategory.Modal, ModalBtnRadius,
             () => _viewModel.SimulateActivated(id, DwellCategory.Modal),
-            null, // registration stays in UpdateModalVisibility (lines 1521-1524), as today
+            null,
             _modalButtons, _modalBrushes);
         ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
         _modalBaseColors[id] = bg;

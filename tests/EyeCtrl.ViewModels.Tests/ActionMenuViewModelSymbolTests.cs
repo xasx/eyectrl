@@ -97,7 +97,7 @@ public class ActionMenuViewModelSymbolTests
             DwellTimeMs: 600,
             new PhysicalPoint(500, 500)));
 
-        var back = vm.Items.Single(i => i.IsBackButton);
+        var back = vm.Items.Single(i => i.Kind == ActionMenuItemKind.ExitMenu);
         Check.That(back.Icon).IsEqualTo(ActionIcon.Back);
     }
 }

@@ -63,7 +63,9 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
             var by = message.Center.Y + physicalRingRadius * Math.Sin(angleRad);
             var position = new PhysicalPoint(bx, by);
 
-            var itemVm = new ActionMenuItemViewModel(id, action, icon, position, isBack);
+            var itemVm = new ActionMenuItemViewModel(
+                id, action, icon, FriendlyName(action), position,
+                isBack ? ActionMenuItemKind.ExitMenu : ActionMenuItemKind.Action);
             Items.Add(itemVm);
             _itemLookup[id] = itemVm;
 
@@ -88,7 +90,7 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
     {
         if (!_itemLookup.TryGetValue(targetId, out var item)) return;
 
-        if (item.IsBackButton)
+        if (item.Kind == ActionMenuItemKind.ExitMenu)
             Messenger.Send(new BackSelectedMessage());
         else if (item.Action.HasValue)
             Messenger.Send(new ActionSelectedMessage(item.Action.Value));
@@ -99,6 +101,28 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         if (_itemLookup.TryGetValue(targetId, out var item))
             item.DwellProgress = progress;
     }
+
+    /// <summary>
+    /// The user-facing name for an action. Duplicated from <c>ActionMenuPageSource.FriendlyName</c>
+    /// rather than shared: that one lives in EyeCtrl.App and names a settings row, this one names
+    /// a ring target, and they are free to diverge — a settings row has room for "Scroll Mode"
+    /// where the ring wants "Scroll".
+    /// </summary>
+    private static string FriendlyName(InteractionAction? action) => action switch
+    {
+        InteractionAction.LeftClick => "Left click",
+        InteractionAction.RightClick => "Right click",
+        InteractionAction.DoubleClick => "Double click",
+        InteractionAction.Drag => "Drag",
+        InteractionAction.ScrollUp => "Scroll up",
+        InteractionAction.ScrollDown => "Scroll down",
+        InteractionAction.ScrollLeft => "Scroll left",
+        InteractionAction.ScrollRight => "Scroll right",
+        InteractionAction.ScrollMode => "Scroll",
+        InteractionAction.PinNote => "Pin note",
+        null => "Back",
+        _ => action.Value.ToString(),
+    };
 
     /// <summary>
     /// The single source of truth for which icon an action shows. There is deliberately no

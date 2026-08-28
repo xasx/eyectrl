@@ -11,6 +11,10 @@ public class ActionMenuViewModelPinNoteTests
     public void PinNote_Appears_InActionMenuItems()
     {
         var settings = new EyeCtrlSettings { Dwell = new DwellSettings() };
+        // PinNote ships on the ring SECOND layer. Promote it so this test still asserts what it
+        // was written to assert - that the item itself carries the PinNote icon - rather than
+        // finding the More target that an all-secondary action list produces on layer one.
+        settings.ActionMenu.PrimaryActions = new List<InteractionAction> { InteractionAction.PinNote };
         var messenger = new WeakReferenceMessenger();
         using var vm = new ActionMenuViewModel(settings, messenger);
 

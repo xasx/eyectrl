@@ -43,4 +43,8 @@ public enum ActionIcon
     PinNote,
     /// <summary>A return arrow. Navigation, not an action.</summary>
     Back,
+    /// <summary>Three dots — opens the ring's second layer. Navigation, not an action.</summary>
+    More,
+    /// <summary>A question mark — toggles the action names on. Navigation, not an action.</summary>
+    Help,
 }

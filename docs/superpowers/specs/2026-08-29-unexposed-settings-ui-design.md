@@ -1,8 +1,10 @@
 # Unexposed Settings UI — Design
 
-**Date:** 2026-08-29 (rev 2, same day — external review verdict processed: 9 blockers,
-8 should-fixes, 4 nits, all verified against source and folded in)
-**Status:** Approved in brainstorm; re-scoped after external review
+**Date:** 2026-08-29 (rev 3 — external review round 1 verdict *reject* fully processed;
+round 2 verdict *approve-with-changes* folded in: pitch/fit mechanics corrected, all five
+deferred "verify" cells traced from source — `cal_color` is restart-only — plus three copy
+fixes. Every live/restart cell in this spec now cites traced source.)
+**Status:** Approved after two external review rounds
 **Branch:** `feat/settings-orphan-ui` (worktree `.worktrees/settings-orphan-ui`)
 
 ## Problem
@@ -10,10 +12,11 @@
 Six of the nineteen `EyeCtrlSettings.EnumerateSubSettings()` groups have no tab or control
 in the settings window; their only interface is hand-editing `%APPDATA%/EyeCtrl/settings.json`
 (see the `_tabDefs` audit comment in `SettingsWindow.xaml.cs`). In addition, scattered
-single properties outside those groups are JSON-only — and the audit comment itself is
-incomplete: it lists `Cursor.MaxGapInterpolationMs` and `Cursor.PositionIndicatorStyle` but
-misses `Cursor.CircleSize`, `Cursor.OneEuroMinCutoff` and `Cursor.OneEuroBeta`, and its
-`GazeIndicator*` bullet under-counts (five properties, not four).
+single properties outside those groups are JSON-only — and the audit comment is
+incomplete: it misses `Cursor.CircleSize`, `Cursor.OneEuroMinCutoff` and
+`Cursor.OneEuroBeta` entirely. (Its `ManualSelection.GazeIndicator*` wildcard bullet is
+accurate — the rev-1 version of this spec under-counted it at four properties; there are
+five.)
 
 **Correction after review:** Supervision was mis-classified as orphaned. It has working UI
 in the supervisor's own process — `SupervisorSetupWindow` exposes `Enabled`, `MaxRetries`,
@@ -146,9 +149,10 @@ Traced semantics (these replace the rev-1 "verify" placeholders):
   itself degrades gracefully below Windows 11 build 22000 (falls back to legacy acrylic
   then solid darken) — no Win-11 caveat needed in the Type description.
 - **Drag** — split. `TrailColor`/`TrailOpacity` are re-read at each drag start
-  (`DragCoordinator.Configure`): live from the next drag. `SettleDwellMs`/
-  `SettleRadiusPixels` are baked into a `FixationDetector` inside the **singleton**
-  `DragTrailViewModel`'s constructor: restart-only.
+  (`DragCoordinator.OnDragStarted` passes them to the trail overlay's `Configure`): live
+  from the next drag. `SettleDwellMs`/`SettleRadiusPixels` are baked into a
+  `FixationDetector` inside the **singleton** `DragTrailViewModel`'s constructor:
+  restart-only.
 - **Scroll** — `Sensitivity` is read inside the scroll message handler: live.
 - **External Dwell** — `Enabled` is checked per gaze frame, `CooldownMs` via
   `PropertyChanged`: live. `DefaultDwellMs` is read per *target registration* (not per
@@ -164,7 +168,7 @@ General-tab pattern; group objects are never replaced.
 
 | Id | Label | Spec | Range | Default | Applies |
 |---|---|---|---|---|---|
-| `cal_color` | Target Color | ColorPicker | hex | `SettingsDefaults.Accent` | verify |
+| `cal_color` | Target Color | ColorPicker | hex | `SettingsDefaults.Accent` | **restart** |
 
 **Cursor tab** (`CursorPageSource`) — appended **before `c_reset`**: auto-pagination
 flattens all PageSpecs' rows in order, so the reset button must stay last.
@@ -172,16 +176,23 @@ flattens all PageSpecs' rows in order, so the reset button must stay last.
 | Id | Label | Spec | Range / values | Default | Applies |
 |---|---|---|---|---|---|
 | `c_gap` | Gap Interpolation (ms) | Slider | 0–500, step 25 | 150 | live |
-| `c_pos_style` | Position Indicator | ComboBox | Crosshair / Pin | Crosshair | verify |
-| `c_size` | Circle Size (px) | Slider | 10–500, step 10 | 250 | verify |
-| `c_euro_cutoff` | One Euro Min Cutoff | Slider | 0.1–20.0, step 0.1 | 5.0 | verify |
-| `c_euro_beta` | One Euro Beta | Slider | 0.0–5.0, step 0.1 | 0.5 | verify |
+| `c_pos_style` | Position Indicator | ComboBox | Crosshair / Pin | Crosshair | next menu open |
+| `c_size` | Circle Size (px) | Slider | 10–500, step 10 | 250 | live |
+| `c_euro_cutoff` | One Euro Min Cutoff | Slider | 0.1–20.0, step 0.1 | 5.0 | live |
+| `c_euro_beta` | One Euro Beta | Slider | 0.0–5.0, step 0.1 | 0.5 | live |
 
-Ranges from `CursorSettings.Validate()`. `c_gap` is verified live (`GazeEngine` rebuilds
-the interpolator on `PropertyChanged`). The other three "verify" cells are traced at
-implementation before their descriptions are written — the same rule as every cell here:
-a description may only promise what the code proves. **`c_reset` must be extended** to
-copy all five new properties (it currently copies five; it will copy ten).
+Ranges from `CursorSettings.Validate()`. Traced cells: `c_gap`, `c_euro_cutoff` and
+`c_euro_beta` are **live** — `GazeEngine`'s cursor-settings handler requests an
+interpolator rebuild for `MaxGapInterpolationMs`, `OneEuroMinCutoff`, `OneEuroBeta` (and
+`SmoothingFactor`, the existing row) on `PropertyChanged`. `c_size` is **live** —
+`ApplyAndSave` raises `SettingsChanged` → `SettingsUiCoordinator` →
+`CursorCircle.UpdateAppearance`, which reads `CircleSize` per call. `c_pos_style` applies
+at the **next action-menu open** — its consumer is the `ActionMenu.Show` argument list.
+**`cal_color` is restart-only**: `CalibrationViewModel` is a DI singleton that snapshots
+`TargetColor` in its constructor and nothing reassigns it — a user who picks a colour and
+immediately dwells the adjacent "Calibrate Now" gets the old colour, so its description
+must say the colour applies after a restart. **`c_reset` must be extended** to copy all
+five new properties (it currently copies five; it will copy ten).
 
 **Selection tab** (`SelectionPageSource`):
 
@@ -212,11 +223,14 @@ exactly the users this feature serves. Two-part fix:
    of the five properties into its new range and log when a value moved. A persisted
    out-of-range value survives as clamped — never as a file wipe.
 2. **Add the five `ValidateRange` entries** (ranges above; `ResetAnimationMs` 0–1000) so
-   future writes are checked. Slider ranges equal Validate ranges exactly, so the UI
-   cannot introduce a violation; `SettingsSliderSpanGuardTests` pins that equality — see
-   Testing. (Rev 1's "there is no floor to enforce here" was wrong: the span guard's
-   purpose is precisely to pin slider spans against Validate-only guards, whose failure
-   mode is a swallowed `Save` — the value applies live and is silently lost on restart.)
+   future writes are checked, and update `GazeIndicatorOpacity`'s stale doc comment
+   ("Valid range: 0–1" → 0.1–1.0) in the same edit — this repo pins doc-vs-slider drift
+   (the `s_grace` carve-out in the span-guard suite). Slider ranges equal Validate ranges
+   exactly, so the UI cannot introduce a violation; `SettingsSliderSpanGuardTests` pins
+   that equality — see Testing. (Rev 1's "there is no floor to enforce here" was wrong:
+   the span guard's purpose is precisely to pin slider spans against Validate-only
+   guards, whose failure mode is a swallowed `Save` — the value applies live and is
+   silently lost on restart.)
 
 Pre-existing and out of scope: `CircleSize`/`OneEuro*` already have Validate ranges, so a
 hand-edited violation there already risks the whole-file default today; this design does
@@ -249,8 +263,15 @@ measures against the header panel's fixed height.
   must consciously add the three new sources to that array. Buttons are exempt by design
   (the gate filters to slider/toggle/combo/colour-picker rows), so the three reset buttons
   need no descriptions.
-- Pitch/fit suites (`SettingsRowPitchTests`, `HandChunkedPageFitTests`) cover the new
-  sources automatically via reflection once `PrefersAutoPagination => true` is set.
+- Pitch/fit suites: **`HandChunkedPageFitTests` reflects over every concrete
+  `ISettingsPageSource` and constructs each via its public `(SettingsPageContext)`
+  constructor** — that ctor shape is the one hard constraint on the three new classes;
+  a source the harness cannot build fails loudly ("Teach the harness to construct it; do
+  NOT filter it out"). Opting into auto-pagination is what *removes* a source from the
+  hand-chunked 800-DIP measurement (that is the flag's purpose here), not something that
+  adds coverage. `SettingsRowPitchTests` scrapes `Height:` literals from the Sources
+  directory and measures synthetic mixed pages; the new 300×100 reset buttons match the
+  existing literal set, so it needs nothing.
 - `SettingsContentFitTests.EveryHeaderStringFits_TheHeadersFixedHeight` measures the real
   tab descriptions; the new Advanced description is written to fit.
 - `SettingsTabLabelFitTests` needs **no extension** — it self-parses `_tabDefs` with a
@@ -286,5 +307,3 @@ measures against the header panel's fixed height.
   checks `Icon.Length > 0` — it cannot catch a tofu box. Glyph rendering needs one visual
   confirmation when the tabs first render; if any of the three draws badly, swap it before
   merge (the drift/label tests don't pin the characters themselves).
-- **Untraced "verify" cells** (`c_pos_style`, `c_size`, `c_euro_cutoff`, `c_euro_beta`,
-  `cal_color`): traced at implementation; descriptions written only after.

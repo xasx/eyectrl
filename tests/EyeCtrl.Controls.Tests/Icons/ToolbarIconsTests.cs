@@ -28,8 +28,8 @@ public class ToolbarIconsTests
         var bounds = Rect.Empty;
         // Instance Union mutates bounds in place and returns void; Rect.Union(Rect, Rect) is the
         // static overload that returns a value instead.
-        if (g.Stroke is not null) bounds.Union(g.Stroke.Bounds); // mutates bounds, no return used
-        if (g.Fill is not null) bounds.Union(g.Fill.Bounds); // same: mutates bounds in place
+        if (g.Stroke is not null) bounds.Union(g.Stroke.Bounds);
+        if (g.Fill is not null) bounds.Union(g.Fill.Bounds);
         return bounds;
     }
 

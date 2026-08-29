@@ -1,5 +1,6 @@
 namespace EyeCtrl.Controls.Icons;
 
+using System;
 using System.Windows.Media;
 
 /// <summary>
@@ -18,15 +19,29 @@ public sealed record IconGeometry(Geometry? Stroke, Geometry? Fill)
 {
     /// <summary>
     /// Parses <paramref name="stroke"/> and <paramref name="fill"/> path data, freezing each
-    /// non-null result before returning it. Every icon registry builds its entries through this
-    /// factory rather than parsing and freezing by hand, so the freeze invariant holds by
-    /// construction instead of by convention plus a per-registry test.
+    /// non-null result before returning it. Both icon registries now share this one
+    /// parse-and-freeze path instead of each repeating it, but that alone does not make the
+    /// freeze invariant hold by construction: <see cref="IconGeometry"/>'s own positional
+    /// constructor still accepts unfrozen <see cref="Geometry"/> directly, so the per-registry
+    /// freeze tests remain the guard for a caller that bypasses this factory.
+    ///
+    /// <para>
+    /// The one invariant this factory does enforce at construction: the result always has at
+    /// least one layer. A caller that passes null for both gets an <see cref="ArgumentException"/>
+    /// rather than a silently empty icon.
+    /// </para>
     /// </summary>
     /// <param name="stroke">Outline path data, or null for a fill-only icon.</param>
     /// <param name="fill">Solid path data, or null (the default) for a stroke-only icon.</param>
     /// <returns>The parsed, frozen geometry pair.</returns>
+    /// <exception cref="ArgumentException">Both <paramref name="stroke"/> and <paramref name="fill"/> are null.</exception>
     public static IconGeometry FromPathData(string? stroke, string? fill = null)
-        => new(Parse(stroke), Parse(fill));
+    {
+        if (stroke is null && fill is null)
+            throw new ArgumentException("An icon needs at least one of stroke or fill.", nameof(stroke));
+
+        return new(Parse(stroke), Parse(fill));
+    }
 
     private static Geometry? Parse(string? data)
     {

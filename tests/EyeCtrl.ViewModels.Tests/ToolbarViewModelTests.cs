@@ -86,6 +86,9 @@ public class ToolbarViewModelTests
     [Fact]
     public void SelectionModeChanged_UpdatesSelectionButtonIconKey()
     {
+        // No explicit RegisterAll: the constructor already auto-registers every IRecipient<T> via
+        // MessengerViewModelBase's IsActive = true (ObservableRecipient). Registering again here
+        // throws — WeakReferenceMessenger rejects a duplicate recipient/message-type registration.
         var vm = new ToolbarViewModel(_settings, _messenger);
         var selectionButton = vm.Buttons.First(b => b.Id == "SelectionMode");
 
@@ -115,21 +118,6 @@ public class ToolbarViewModelTests
         // leave colour carrying the distinction alone, which is what this design moved away from.
         var keys = Enum.GetValues<SelectionMode>().Select(SelectionModeIcons.ForMode).ToList();
         Check.That(keys.Distinct(StringComparer.Ordinal)).HasSize(keys.Count);
-    }
-
-    [Fact]
-    public void SelectionModeChanged_UpdatesTheButtonsIconKey()
-    {
-        var messenger = new WeakReferenceMessenger();
-        var vm = new ToolbarViewModel(new EyeCtrlSettings(), messenger);
-        // No explicit RegisterAll: the constructor already auto-registers every IRecipient<T> via
-        // MessengerViewModelBase's IsActive = true (ObservableRecipient). Registering again here
-        // throws — WeakReferenceMessenger rejects a duplicate recipient/message-type registration.
-
-        messenger.Send(new SelectionModeChangedMessage(SelectionMode.AutoSelection));
-
-        Check.That(vm.Buttons.Single(b => b.Id == "SelectionMode").IconKey)
-            .IsEqualTo(SelectionModeIcons.ForMode(SelectionMode.AutoSelection));
     }
 
     [Fact]

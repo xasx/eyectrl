@@ -82,16 +82,21 @@ public class ToolbarButtonDriftTests
     }
 
     /// <summary>
-    /// Extracts the tuple ids from the <c>var buttons = new (string Id, string Symbol)[] { … }</c>
-    /// initializer, so unrelated string literals elsewhere in the file cannot leak in.
+    /// Extracts the tuple ids from the <c>var buttons = new (string Id, string ...)[] { … }</c>
+    /// initializer, so unrelated string literals elsewhere in the file cannot leak in. Anchored on
+    /// the <c>"var buttons = new (string Id, string "</c> prefix rather than the full declaration
+    /// text — the view-model's second tuple element is named <c>IconKey</c> and the view's is still
+    /// named <c>Symbol</c> (Task 3 renames it), so the two files' declarations no longer match
+    /// verbatim. The prefix is all this guard needs; it never reads the element name.
     /// </summary>
     private static IReadOnlyList<string> ButtonIdsFrom(string relativePath)
     {
         var text = ReadRepoFile(relativePath);
 
-        var declaration = text.IndexOf("var buttons = new (string Id, string Symbol)[]", StringComparison.Ordinal);
+        var declaration = text.IndexOf("var buttons = new (string Id, string ", StringComparison.Ordinal);
         Check.WithCustomMessage(
-                $"Could not find the button array declaration in {relativePath}. If it was renamed or "
+                $"Could not find the button array declaration in {relativePath} (looked for the "
+                + "\"var buttons = new (string Id, string ...\" prefix). If it was renamed or "
                 + "restructured, update this drift guard rather than deleting it.")
             .That(declaration).IsStrictlyGreaterThan(-1);
 

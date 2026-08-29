@@ -193,7 +193,7 @@ git commit -m "feat(settings): validate the gaze-indicator visuals with clamp-on
 - Consumes: `SettingsPageContext` (`_ctx.Settings`, `_ctx.ApplyAndSave()`, `_ctx.ShowModal(string, Action)`, `_ctx.RebuildContent()`); `EyeCtrlSettings.EyeCare`.
 - Produces: `EyeCarePageSource` with ids `ec_enabled, ec_interval, ec_break, ec_exercise, ec_snooze_banner, ec_snooze, ec_fatigue, ec_fatigue_thresh, ec_reset` — relied on by Task 8's `_sources["EyeCare"]` registration and the completeness-gate array.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/EyeCtrl.App.Tests/Settings/Pages/EyeCarePageSourceTests.cs`:
 
@@ -276,11 +276,11 @@ public class EyeCarePageSourceTests
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 `dotnet build EyeCtrl.slnx` (new file referenced by tests must compile first) — expected compile error `EyeCarePageSource not found`. Then `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~EyeCarePageSourceTests"` → FAIL.
 
-- [ ] **Step 3: Write the source**
+- [x] **Step 3: Write the source**
 
 Create `src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs`:
 
@@ -346,7 +346,7 @@ internal sealed class EyeCarePageSource : ISettingsPageSource
 }
 ```
 
-- [ ] **Step 4: Register in the gates**
+- [x] **Step 4: Register in the gates**
 
 In `SettingsRowDescriptionCompletenessTests.cs`, add `new EyeCarePageSource(ctx),` after `new GeneralPageSource(ctx),` in the `sources` array. In `SettingsSliderSpanGuardTests.cs`, add:
 
@@ -365,11 +365,11 @@ public void EyeCare_SliderSpans_StayInsideTheValidatedRanges()
 }
 ```
 
-- [ ] **Step 5: Run the App suite**
+- [x] **Step 5: Run the App suite**
 
 `dotnet test tests/EyeCtrl.App.Tests` → PASS (new tests + both gates green; the completeness gate would fail if any `ec_*` row lacked a Description).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs tests/EyeCtrl.App.Tests/Settings/Pages/EyeCarePageSourceTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/SettingsRowDescriptionCompletenessTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/SettingsSliderSpanGuardTests.cs

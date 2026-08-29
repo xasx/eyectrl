@@ -86,6 +86,19 @@ public class SettingsSliderSpanGuardTests
         SpanInside(sliders, "qa_columns", 2, 5);
     }
 
+    [Fact]
+    public void EyeCare_SliderSpans_StayInsideTheValidatedRanges()
+    {
+        var sliders = Sliders(new EyeCarePageSource(TestSettingsPageContext.Build()));
+        Check.That(sliders).HasSize(6);
+        SpanInside(sliders, "ec_interval", 1, 120);
+        SpanInside(sliders, "ec_break", 5, 600);
+        SpanInside(sliders, "ec_exercise", 10, 180);
+        SpanInside(sliders, "ec_snooze_banner", 5, 120);
+        SpanInside(sliders, "ec_snooze", 1, 60);
+        SpanInside(sliders, "ec_fatigue_thresh", 0.0, 1.0);
+    }
+
     private static Dictionary<string, SliderSpec> Sliders(ISettingsPageSource source) =>
         source.Build().SelectMany(p => p.Rows).OfType<SliderSpec>().ToDictionary(s => s.Id);
 

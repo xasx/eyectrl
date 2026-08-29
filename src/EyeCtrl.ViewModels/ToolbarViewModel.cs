@@ -72,14 +72,14 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
         var buttons = new (string Id, string Symbol)[]
         {
-            ("Pause", "\u23F8"),
-            ("SelectionMode", "\u2295"),
-            ("Keyboard", "\u2328"),
-            ("Calibrate", "\u2316"),
-            ("Settings", "\u2699"),
-            ("TaskSwitcher", "\u21C4"),  // 🪟 (BMP; the old window-emoji glyph rendered as tofu)
-            ("QuickActions", "\u26A1"),  // ⚡
-            ("ResetAdaptation", "\u21BA"),  // ↺ reset struggle-adaptation to baseline (§8.6 escape)
+            ("Pause", "Pause"),
+            ("SelectionMode", SelectionModeIcons.None),
+            ("Keyboard", "Keyboard"),
+            ("Calibrate", "Settings"),
+            ("Settings", "Settings"),
+            ("TaskSwitcher", "TaskSwitcher"),
+            ("QuickActions", "Settings"),
+            ("ResetAdaptation", "ResetAdaptation"),
         };
 
         foreach (var (id, symbol) in buttons)
@@ -130,26 +130,28 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     {
         IsPaused = message.NewState == InteractionState.Paused;
         if (_buttonLookup.TryGetValue("Pause", out var btn))
-            btn.Symbol = IsPaused ? "\u25B6" : "\u23F8";
+            btn.IconKey = IsPaused ? "Play" : "Pause";
     }
 
     public void Receive(CalibrationCompletedMessage message)
     {
-        if (_buttonLookup.TryGetValue("Calibrate", out var btn))
-            btn.Symbol = message.Success ? "\u2713" : "\u26A0";
+        // Calibrate is not on the toolbar (ToolbarButtonDriftTests.ReachableElsewhere), so the old
+        // success/failure glyph swap was never visible to anyone. The handlers stay registered so the
+        // messages keep a recipient; the icon swap returns with the button.
     }
 
     public void Receive(CalibrationCancelledMessage message)
     {
-        if (_buttonLookup.TryGetValue("Calibrate", out var btn))
-            btn.Symbol = "\u2316";
+        // Calibrate is not on the toolbar (ToolbarButtonDriftTests.ReachableElsewhere), so the old
+        // success/failure glyph swap was never visible to anyone. The handlers stay registered so the
+        // messages keep a recipient; the icon swap returns with the button.
     }
 
     public void Receive(SelectionModeChangedMessage message)
     {
         _currentSelectionMode = message.Mode;
         if (_buttonLookup.TryGetValue("SelectionMode", out var btn))
-            btn.Symbol = SelectionModeGlyphs.ForMode(message.Mode);
+            btn.IconKey = SelectionModeIcons.ForMode(message.Mode);
     }
 
     /// <summary>For testing: simulate a button activation without gaze dwell.</summary>

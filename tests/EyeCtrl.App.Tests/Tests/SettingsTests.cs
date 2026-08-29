@@ -72,7 +72,10 @@ public class SettingsTests
             "Settings_Tab_Toolbar",
             "Settings_Tab_Calibration",
             "Settings_Tab_General",
-            "Settings_Tab_QuickActions"
+            "Settings_Tab_QuickActions",
+            "Settings_Tab_EyeCare",
+            "Settings_Tab_Adaptation",
+            "Settings_Tab_Advanced"
         };
 
         var actualTabs = _fixture.FindElements(settings!, "Settings_Tab_")

@@ -1087,7 +1087,7 @@ git commit -m "feat(settings): calibration target colour picker"
 - Consumes: the three sources from Tasks 2–4 (constructor `(SettingsPageContext)`).
 - Produces: rendered tabs `EyeCare`, `Adaptation`, `Advanced` in `_tabDefs` order … Calibration, Eye Care, Adaptation, General, Quick Actions, Advanced.
 
-- [ ] **Step 1: Extend expectedTabs (failing first)**
+- [x] **Step 1: Extend expectedTabs (failing first)**
 
 In `tests/EyeCtrl.App.Tests/Tests/SettingsTests.cs`, add to the `expectedTabs` array. The current last entry `"Settings_Tab_QuickActions"` carries **no trailing comma** — add one, then the three literals:
 
@@ -1100,7 +1100,7 @@ In `tests/EyeCtrl.App.Tests/Tests/SettingsTests.cs`, add to the `expectedTabs` a
 
 (The comparison sorts both sides Ordinal, so position in the array does not matter. Note this file is a FlaUI UI test — see Step 3's gating note.)
 
-- [ ] **Step 2: Add the tab defs, fields, construction, registration, audit comment**
+- [x] **Step 2: Add the tab defs, fields, construction, registration, audit comment**
 
 In `SettingsWindow.xaml.cs`:
 
@@ -1156,7 +1156,7 @@ Replace the whole audit comment block (the `// INTENTIONALLY NOT EXPOSED …` li
 // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.
 ```
 
-- [ ] **Step 3: Build and run the full App suite**
+- [x] **Step 3: Build and run the full App suite**
 
 `dotnet build EyeCtrl.slnx` → clean.
 `dotnet test tests/EyeCtrl.App.Tests` → PASS.
@@ -1166,7 +1166,7 @@ Two auto-discovering suites pick up this task's changes and should stay green wi
 
 **`SettingsTests` is an opt-in UI test** — `[Trait("Category","UI")]` + `AppFixture.SkipIfDisabled()`, which `Assert.skip`s unless `EYECTRL_UI_TESTS=1`. It launches the real app and drives the cursor. **Do NOT set that variable; leave it skipped** — the `expectedTabs` edit is verified headlessly by `SettingsTabDriftTests`, which parses both `_tabDefs` and the UI test's expectation array. Likewise, never launch the app to eyeball the three new tab icons without the user's explicit OK; if `◑ ⇄ ⚒` render as tofu when the user next opens the window, swap the character then (the label-fit test only checks non-empty icons).
 
-- [ ] **Step 4: Run the remaining non-UI suites**
+- [x] **Step 4: Run the remaining non-UI suites**
 
 One at a time:
 
@@ -1178,7 +1178,7 @@ dotnet test tests/EyeCtrl.Platform.Tests
 
 All pass (nothing outside App/Core changed, but the full sweep is the completion gate).
 
-- [ ] **Step 5: detect_changes, commit**
+- [x] **Step 5: detect_changes, commit**
 
 Run GitNexus `detect_changes` (worktree path). Expected changed symbols: the three new `Build()` methods + classes, `CursorPageSource.Build`, `SelectionPageSource.Build`, `CalibrationPageSource.Build`, `SettingsWindow` ctor members, `ManualSelectionSettings.Validate`, `SettingsService.Load`. Anything else — stop and investigate before committing.
 

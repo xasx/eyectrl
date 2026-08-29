@@ -35,6 +35,7 @@ public class SettingsRowDescriptionCompletenessTests
             new ToolbarPageSource(ctx),
             new CalibrationPageSource(ctx),
             new GeneralPageSource(ctx),
+            new EyeCarePageSource(ctx),
         ];
 
         var bare = sources.SelectMany(BareRows).ToList();

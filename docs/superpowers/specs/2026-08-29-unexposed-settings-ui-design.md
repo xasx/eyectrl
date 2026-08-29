@@ -130,11 +130,13 @@ Notes:
   Selecting an AT that currently sits at another position **swaps the two list entries**
   (so a position is never duplicated and none is orphaned); selecting the already-current
   entry is a no-op. After any swap: `_ctx.ApplyAndSave()` and all three combos refresh.
-- `av_reset` ("Reset Advanced Settings", confirmation modal) constructs fresh
-  `BackdropSettings`, `DragSettings`, `ScrollSettings`, `ExternalDwellSettings` and replaces
-  those four groups — it must not touch Supervision, whose enablement is restart-coupled and
-  whose reset would be surprising mid-session. Supervision rows return to defaults only by
-  hand or via the existing "Reset ALL Settings" on General.
+- `av_reset` ("Reset Advanced Settings", confirmation modal) copies every property of the
+  four groups from fresh `BackdropSettings`, `DragSettings`, `ScrollSettings`,
+  `ExternalDwellSettings` instances onto the live settings objects — per-property copy, the
+  General-tab reset pattern; the group objects themselves are never replaced, because
+  services hold references to them. It must not touch Supervision, whose enablement is
+  restart-coupled and whose reset would be surprising mid-session. Supervision rows return
+  to defaults only by hand or via the existing "Reset ALL Settings" on General.
 
 ### 5. Existing-tab additions
 
@@ -181,14 +183,18 @@ matrix above is the starting point). The three tab descriptions are in §1.
 **Extend existing suites:**
 - `SettingsTabDriftTests` — expects 14 tabs, parses the three new `_tabDefs` entries.
 - `SettingsTabLabelFitTests` — "Eye Care", "Adaptation", "Advanced" fit the sidebar slot.
-- `SettingsRowDescriptionCompletenessTests` — the three new sources plus the 7 rows added to
-  existing sources are all describable and described.
+- `SettingsRowDescriptionCompletenessTests` — the gate's source list is hand-maintained
+  (a source added to the codebase but not to the test's array ships uncovered), so the plan
+  must consciously add the three new sources to that array. Buttons are exempt by design —
+  the gate filters to slider/toggle/combo/colour-picker rows — so the three reset buttons
+  need no descriptions. The 7 rows added to existing sources are covered automatically once
+  described.
 - `SettingsSliderSpanGuardTests` — every new slider's minimum ≥ the property's guard floor
   (this test exists because of the `d_cooldown` crash; all new minima here come straight from
   `Validate()` ranges, so it should pass by construction).
 - Pitch/fit suites (`SettingsRowPitchTests`, `HandChunkedPageFitTests`) over the new pages.
-- `SettingsRenderMappingTests` — only if it enumerates sources (it has flaked before; run the
-  whole App suite, not that class alone).
+- `SettingsRenderMappingTests` unaffected — it pins `FillFor` brush mapping per
+  `ButtonKind`, and no new `ButtonKind` is introduced.
 
 **New tests:**
 - `Settings/Pages/EyeCarePageSourceTests`, `AdaptationPageSourceTests`,

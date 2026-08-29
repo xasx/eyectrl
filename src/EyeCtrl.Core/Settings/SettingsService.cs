@@ -133,6 +133,11 @@ public class SettingsService
                 settings.SelectionMode = SelectionMode.ManualSelection;
             }
 
+            // The gaze-indicator visuals were unvalidated before they got ranges (2026-08-29); a
+            // hand-edited file holding an out-of-range value must clamp, not trip the whole-file
+            // default below — the file-wipe path punishes exactly the hand-editors the UI serves.
+            ClampGazeIndicator(settings.ManualSelection);
+
             // Validate loaded settings
             var validationErrors = settings.Validate();
             if (validationErrors.Count > 0)
@@ -150,6 +155,25 @@ public class SettingsService
         {
             _logger?.LogError(ex, "Error loading settings from {FilePath}", _filePath);
             return new EyeCtrlSettings();
+        }
+    }
+
+    private void ClampGazeIndicator(ManualSelectionSettings ms)
+    {
+        var (outer, dot, stroke, opacity, anim) = (
+            ms.GazeIndicatorOuterDiameter, ms.GazeIndicatorCenterDotDiameter,
+            ms.GazeIndicatorStrokeThickness, ms.GazeIndicatorOpacity,
+            ms.GazeIndicatorResetAnimationMs);
+        ms.GazeIndicatorOuterDiameter = Math.Clamp(outer, 20, 200);
+        ms.GazeIndicatorCenterDotDiameter = Math.Clamp(dot, 2, 40);
+        ms.GazeIndicatorStrokeThickness = Math.Clamp(stroke, 0.5, 10);
+        ms.GazeIndicatorOpacity = Math.Clamp(opacity, 0.1, 1.0);
+        ms.GazeIndicatorResetAnimationMs = Math.Clamp(anim, 0, 1000);
+        if (ms.GazeIndicatorOuterDiameter != outer || ms.GazeIndicatorCenterDotDiameter != dot
+            || ms.GazeIndicatorStrokeThickness != stroke || ms.GazeIndicatorOpacity != opacity
+            || ms.GazeIndicatorResetAnimationMs != anim)
+        {
+            _logger?.LogInformation("Clamped out-of-range gaze-indicator settings to their valid ranges.");
         }
     }
 

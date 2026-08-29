@@ -20,7 +20,7 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _gazeIndicatorCenterDotDiameter = 10.0;
     /// <summary>Stroke thickness of the gaze indicator in logical pixels.</summary>
     [ObservableProperty] private double _gazeIndicatorStrokeThickness = 2.0;
-    /// <summary>Opacity of the gaze indicator. Valid range: 0–1.</summary>
+    /// <summary>Opacity of the gaze indicator. Valid range: 0.1–1.0.</summary>
     [ObservableProperty] private double _gazeIndicatorOpacity = 0.7;
     /// <summary>Duration in milliseconds of the reset animation when the gaze indicator returns to center.</summary>
     [ObservableProperty] private int _gazeIndicatorResetAnimationMs = 100;
@@ -48,7 +48,11 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
     {
         return ValidationHelper.CollectErrors(
             ValidationHelper.ValidateRange(CircleRadiusPixels, 50, 500, nameof(CircleRadiusPixels)),
-            ValidationHelper.ValidateRange(MagnificationLevel, 1.5, 5.0, nameof(MagnificationLevel))
-        );
+            ValidationHelper.ValidateRange(MagnificationLevel, 1.5, 5.0, nameof(MagnificationLevel)),
+            ValidationHelper.ValidateRange(GazeIndicatorOuterDiameter, 20, 200, nameof(GazeIndicatorOuterDiameter)),
+            ValidationHelper.ValidateRange(GazeIndicatorCenterDotDiameter, 2, 40, nameof(GazeIndicatorCenterDotDiameter)),
+            ValidationHelper.ValidateRange(GazeIndicatorStrokeThickness, 0.5, 10, nameof(GazeIndicatorStrokeThickness)),
+            ValidationHelper.ValidateRange(GazeIndicatorOpacity, 0.1, 1.0, nameof(GazeIndicatorOpacity)),
+            ValidationHelper.ValidateRange(GazeIndicatorResetAnimationMs, 0, 1000, nameof(GazeIndicatorResetAnimationMs)));
     }
 }

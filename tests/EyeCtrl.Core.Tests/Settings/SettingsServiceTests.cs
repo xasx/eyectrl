@@ -1,4 +1,5 @@
 namespace EyeCtrl.Core.Tests.Settings;
+using System.Text.Json.Nodes;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
@@ -99,6 +100,29 @@ public class SettingsServiceTests
 
             Check.That(settings.ActionMenu.VisibleActions).Contains(InteractionAction.Drag);
             Check.That(settings.ActionMenu.VisibleActions).HasSize(3);
+        }
+        finally { File.Delete(tempPath); }
+    }
+
+    [Fact]
+    public void Load_ClampsOutOfRangeGazeIndicator_InsteadOfResettingEverything()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            settings.Dwell.ActivationButtonDwellMs = 600;
+            var service = new SettingsService(tempPath);
+            service.Save(settings);
+
+            // Hand-edit the file the way a user would: one out-of-range indicator value.
+            var root = JsonNode.Parse(File.ReadAllText(tempPath))!.AsObject();
+            root["manualSelection"]!["gazeIndicatorOuterDiameter"] = 250;
+            File.WriteAllText(tempPath, root.ToJsonString());
+
+            var loaded = service.Load();
+            Check.That(loaded.ManualSelection.GazeIndicatorOuterDiameter).IsEqualTo(200);
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
         }
         finally { File.Delete(tempPath); }
     }

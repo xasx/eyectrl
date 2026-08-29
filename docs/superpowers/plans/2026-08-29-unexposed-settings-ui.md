@@ -59,7 +59,10 @@ public class GazeIndicatorValidationTests
     public void GazeIndicator_OutOfRange_IsRejected(string property, double bad, double min, double max)
     {
         var s = new ManualSelectionSettings();
-        s.GetType().GetProperty(property)!.SetValue(s, bad);
+        var prop = s.GetType().GetProperty(property)!;
+        // InlineData carries doubles; the int property (ResetAnimationMs) needs Convert,
+        // or SetValue throws ArgumentException instead of setting the value.
+        prop.SetValue(s, Convert.ChangeType(bad, prop.PropertyType));
         Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(property, StringComparison.Ordinal));
     }
 }
@@ -762,7 +765,9 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
 }
 ```
 
-(The file needs `using EyeCtrl.App.Views;` is NOT required — `SettingsWindow` is in `EyeCtrl.App.Views`, the source is in `EyeCtrl.App.Views.Settings`; `SettingsWindow.ColorSwatchRadius` needs `using EyeCtrl.App.Views;`. Add it to the usings with the namespace declaration: `using EyeCtrl.App.Views;` — CursorPageSource already does this.)
+(No `using EyeCtrl.App.Views;` needed: the source sits in `EyeCtrl.App.Views.Settings`, a
+child namespace, so `SettingsWindow` resolves via namespace nesting — same as the other
+sources that reference `SettingsWindow.ColorSwatchRadius`.)
 
 - [ ] **Step 4: Register in the gates**
 

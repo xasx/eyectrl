@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    a { color: #A5F3FC; } a:hover { color: #D6DEF5; }
+    .btn { position: relative; box-sizing: border-box; }
+    .ring { position: absolute; left: 0; top: 0; width: 120px; height: 120px; transform: rotate(-90deg); pointer-events: none; z-index: 1; }
+    .ring circle { fill: none; stroke: #A5F3FC; stroke-width: 4.8px; stroke-linecap: round; stroke-dasharray: 326.73; }
+    .ring-warn circle { stroke: #E8A33C; }
+    .ico { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; position: relative; z-index: 2; }
+    .lbl { position: relative; z-index: 2; line-height: 1; white-space: nowrap; }
+  </style>
+</helmet>
+
+<div style="background: #0F0F1C; padding: 30px 32px; box-sizing: border-box; min-height: 100%">
+
+  <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 22px">
+    <div style="font-size: 24px; font-weight: 700; color: #D6DEF5; letter-spacing: -0.2px">Proposed</div>
+    <div style="font-size: 14px; color: #9AA4C8">Same six actions, same 120&nbsp;DIP pitch, same tokens, no text on the faces. Drawn at 1:1 — look at a target to dwell it.</div>
+  </div>
+
+  <div style="display: flex; flex-direction: row; align-items: center; gap: 24px; background: #1A1A2E; border-radius: 8px; padding: 16px; width: fit-content">
+
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 12px">
+      <svg class="ico" viewBox="0 0 24 24" style="width: 22px; height: 22px; color: #868FB5">
+        <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.8"/>
+      </svg>
+      <div style="width: 1px; height: 64px; background: #2A2A44"></div>
+    </div>
+
+    <div class="btn" style="width: 120px; height: 120px; border-radius: 9999px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: {{b.Pause.bg}}; border-width: {{b.Pause.bw}}; border-style: solid; border-color: {{b.Pause.bc}}"
+         onMouseEnter="{{ b.Pause.enter }}" onMouseLeave="{{ b.Pause.leave }}" onClick="{{ b.Pause.click }}">
+      <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: {{b.Pause.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+      <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #D6DEF5">
+        <path d="M9.2 5.5v13M14.8 5.5v13" style="stroke-width: 3"/>
+      </svg>
+    </div>
+
+    <div class="btn" style="width: 120px; height: 120px; border-radius: 9999px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: {{b.Select.bg}}; border-width: {{b.Select.bw}}; border-style: solid; border-color: {{b.Select.bc}}"
+         onMouseEnter="{{ b.Select.enter }}" onMouseLeave="{{ b.Select.leave }}" onClick="{{ b.Select.click }}">
+      <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: {{b.Select.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+      <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #7EE787">
+        <circle cx="12" cy="12" r="6.8"/><path d="M12 1.8v3.4M12 18.8v3.4M1.8 12h3.4M18.8 12h3.4"/>
+        <circle cx="12" cy="12" r="1.7" style="fill: currentColor; stroke: none"/>
+      </svg>
+    </div>
+
+    <div class="btn" style="width: 120px; height: 120px; border-radius: 9999px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: {{b.Keyboard.bg}}; border-width: {{b.Keyboard.bw}}; border-style: solid; border-color: {{b.Keyboard.bc}}"
+         onMouseEnter="{{ b.Keyboard.enter }}" onMouseLeave="{{ b.Keyboard.leave }}" onClick="{{ b.Keyboard.click }}">
+      <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: {{b.Keyboard.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+      <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #D6DEF5">
+        <rect x="2.2" y="6" width="19.6" height="12" rx="2.6"/>
+        <path d="M6 10.2 6.01 10.2M9.5 10.2 9.51 10.2M13 10.2 13.01 10.2M16.5 10.2 16.51 10.2M8 14.2h8" style="stroke-width: 2.4"/>
+      </svg>
+    </div>
+
+    <div class="btn" style="width: 120px; height: 120px; border-radius: 9999px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: {{b.Settings.bg}}; border-width: {{b.Settings.bw}}; border-style: solid; border-color: {{b.Settings.bc}}"
+         onMouseEnter="{{ b.Settings.enter }}" onMouseLeave="{{ b.Settings.leave }}" onClick="{{ b.Settings.click }}">
+      <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: {{b.Settings.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+      <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #D6DEF5">
+        <circle cx="12" cy="12" r="3.4"/>
+        <path d="M12 1.6v3.4M12 19v3.4M22.4 12H19M5 12H1.6M19.35 4.65l-2.4 2.4M7.05 16.95l-2.4 2.4M19.35 19.35l-2.4-2.4M7.05 7.05l-2.4-2.4" style="stroke-width: 3"/>
+      </svg>
+    </div>
+
+    <div class="btn" style="width: 120px; height: 120px; border-radius: 9999px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: {{b.Windows.bg}}; border-width: {{b.Windows.bw}}; border-style: solid; border-color: {{b.Windows.bc}}"
+         onMouseEnter="{{ b.Windows.enter }}" onMouseLeave="{{ b.Windows.leave }}" onClick="{{ b.Windows.click }}">
+      <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: {{b.Windows.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+      <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #D6DEF5">
+        <rect x="2.6" y="4.6" width="12.8" height="9.6" rx="2.2"/><rect x="8.6" y="9.8" width="12.8" height="9.6" rx="2.2"/>
+      </svg>
+    </div>
+
+    <div style="width: 1px; height: 96px; background: #2A2A44"></div>
+
+    <div class="btn" style="width: 120px; height: 120px; border-radius: 9999px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: {{b.Reset.bg}}; border-width: {{b.Reset.bw}}; border-style: solid; border-color: {{b.Reset.bc}}"
+         onMouseEnter="{{ b.Reset.enter }}" onMouseLeave="{{ b.Reset.leave }}" onClick="{{ b.Reset.click }}">
+      <svg class="ring ring-warn" viewBox="0 0 120 120" style="stroke-dashoffset: {{b.Reset.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+      <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #E8A33C">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+      </svg>
+    </div>
+
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 28px; margin-top: 30px">
+    <div style="display: flex; flex-direction: column; gap: 5px">
+      <div style="font-size: 14px; font-weight: 700; color: #A5F3FC">The shape is the target</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">The dwell target is a circle of radius Size/2, so the button is drawn as a disc. Everything you can see, you can hit; nothing you can hit is invisible.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 5px">
+      <div style="font-size: 14px; font-weight: 700; color: #A5F3FC">Progress where the eye already is</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">A 4.8&nbsp;px arc sweeping just inside the rim replaces the 4&nbsp;px bottom bar. It surrounds the fixation point instead of sitting 60&nbsp;px below it, and it never washes over the icon. The weight is 4% of the button — the same fraction the action menu and edge bar already draw.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 5px">
+      <div style="font-size: 14px; font-weight: 700; color: #A5F3FC">Acquired, before committed</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">On entry the rim goes to 2&nbsp;px #A5F3FC and the fill to #3A3A5E — you know you are on target before the timer means anything. IsHighlighted already exists on the view-model and is currently never bound.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 5px">
+      <div style="font-size: 14px; font-weight: 700; color: #A5F3FC">Icons that read at a glance</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">The arrows glyph and the loop glyph do not read as "switch windows" and "reset adaptation". Drawn vector icons at 54&nbsp;px carry the meaning on their own — and carry no font-coverage risk, which is what turned the old window emoji into tofu.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 5px">
+      <div style="font-size: 14px; font-weight: 700; color: #A5F3FC">Mode needs its own icon</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">With no label, a background-colour swap is the only channel left, and it is not enough. Three distinct icons, tinted <span style="color: #7EE787">Manual</span> / <span style="color: #A5F3FC">Auto</span> / <span style="color: #868FB5">Off</span> — they have to be told apart at 54&nbsp;px, which is worth checking on the tracker.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 5px">
+      <div style="font-size: 14px; font-weight: 700; color: #E8A33C">Risk is visible and slower</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">Reset is ruled off from the row it can be overshot into and carries the warning hue. It keeps the standard 700&nbsp;ms — spec 8.6 wants it reachable when adaptation has gone wrong — and a confirm step protects it instead. See Rethink&nbsp;3.</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 26px; padding-top: 16px; border-top-width: 1px; border-top-style: solid; border-top-color: #2A2A44; font-size: 13px; color: #868FB5">
+    The provider indicator moves out of the target row to a 27.6&nbsp;px badge behind a rule: it is not dwellable, so it should not look like a target, and nothing keeps chrome out of the band today. Setting it twice currently appends a second one.
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"dwellMs":{"editor":"range","default":700,"min":300,"max":1600,"step":100,"unit":"ms","section":"Behaviour"},"trigger":{"editor":"enum","default":"hover","options":["hover","click"],"section":"Behaviour"},"$preview":{"width":1180,"height":640}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { active: null, p: 0, armed: true, fired: null, firedAt: 0 };
+    this._raf = null;
+    this._prev = 0;
+  }
+
+  componentDidMount() {
+    const step = (t) => {
+      const dt = this._prev ? Math.min(120, t - this._prev) : 0;
+      this._prev = t;
+      const s = this.state;
+      if (s.active && s.armed) {
+        const ms = this.dwellFor(s.active);
+        const np = s.p + dt / ms;
+        if (np >= 1) this.setState({ p: 0, armed: false, fired: s.active, firedAt: t });
+        else if (np - s.p > 0.002) this.setState({ p: np });
+      }
+      if (s.fired && t - s.firedAt > 900) this.setState({ fired: null });
+      this._raf = requestAnimationFrame(step);
+    };
+    this._raf = requestAnimationFrame(step);
+  }
+
+  componentWillUnmount() { if (this._raf) cancelAnimationFrame(this._raf); }
+
+  dwellFor(id) {
+    // Deliberately NOT slower for Reset: spec 8.6 wants it reachable exactly when
+    // adaptation has gone wrong. A confirm step protects it instead (see RiskTier).
+    return Math.max(100, Number(this.props.dwellMs) || 700);
+  }
+
+  renderVals() {
+    const C = 326.73;
+    const s = this.state;
+    const byHover = (this.props.trigger || 'hover') === 'hover';
+    const start = (id) => this.setState({ active: id, p: 0, armed: true });
+    const stop = (id) => { if (this.state.active === id) this.setState({ active: null, p: 0, armed: true }); };
+
+    const mk = (id, warn) => {
+      const live = s.active === id;
+      const p = live ? s.p : 0;
+      const done = s.fired === id;
+      const rim = warn ? '#E8A33C' : '#616BA0';
+      return {
+        bg: done ? '#2F5340' : (live ? '#3A3A5E' : '#2A2A44'),
+        bw: live || done ? '2px' : '1px',
+        bc: done ? '#7EE787' : (live ? (warn ? '#E8A33C' : '#A5F3FC') : rim),
+        dash: (C * (1 - p)).toFixed(2),
+        enter: () => { if (byHover) start(id); },
+        leave: () => { if (byHover) stop(id); },
+        click: () => { if (byHover) start(id); else if (this.state.active === id) stop(id); else start(id); }
+      };
+    };
+
+    return {
+      b: {
+        Pause: mk('Pause', false),
+        Select: mk('Select', false),
+        Keyboard: mk('Keyboard', false),
+        Settings: mk('Settings', false),
+        Windows: mk('Windows', false),
+        Reset: mk('Reset', true)
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

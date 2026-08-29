@@ -1,0 +1,207 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    a { color: #A5F3FC; } a:hover { color: #D6DEF5; }
+    .t { position: relative; box-sizing: border-box; border-radius: 9999px; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; gap: 6px; }
+    .ring { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; z-index: 1; }
+    .ring circle { fill: none; stroke: #A5F3FC; stroke-width: 6px; stroke-linecap: round; stroke-dasharray: 326.73; }
+    .ring-warn circle { stroke: #E8A33C; }
+    .ring-safe circle { stroke: #7EE787; }
+    .ico { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; position: relative; z-index: 2; }
+    .lbl { position: relative; z-index: 2; line-height: 1; font-weight: 600; }
+    .p { font-size: 13px; color: #9AA4C8; line-height: 1.5; }
+    .row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 170px 210px; gap: 0 20px; padding: 11px 0;
+           border-bottom-width: 1px; border-bottom-style: solid; border-bottom-color: #1F1F35; align-items: baseline; }
+    .hd { font-size: 11px; letter-spacing: 0.7px; text-transform: uppercase; color: #868FB5; font-weight: 700; }
+    .nm { font-size: 13px; font-weight: 700; color: #D6DEF5; }
+    .cl { font-size: 13px; color: #9AA4C8; line-height: 1.45; }
+  </style>
+</helmet>
+
+<div style="background: #0F0F1C; padding: 30px 32px; box-sizing: border-box; min-height: 100%">
+
+  <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px">
+    <div style="font-size: 24px; font-weight: 700; color: #D6DEF5; letter-spacing: -0.2px">Rethink 3 — one of these six is not like the others</div>
+    <div style="font-size: 14px; color: #9AA4C8">Every button on the strip is the same size, the same colour and the same 700&nbsp;ms. Five of them are toggles you can undo with one more dwell. One is not.</div>
+  </div>
+
+  <div style="margin-bottom: 30px">
+    <div class="row" style="border-bottom-color: #2A2A44">
+      <div class="hd">Action</div><div class="hd">One accidental dwell does this</div><div class="hd">Cost to undo</div><div class="hd">Proposed</div>
+    </div>
+    <div class="row">
+      <div class="nm">Pause</div>
+      <div class="cl">Stops input. The docked edge already puts up a pause indicator while the toolbar is hidden, so it is not silent.</div>
+      <div class="cl" style="color: #7EE787">1 dwell</div>
+      <div class="cl">No change</div>
+    </div>
+    <div class="row">
+      <div class="nm">Selection mode</div>
+      <div class="cl">Changes how every subsequent click is targeted, mid-task.</div>
+      <div class="cl" style="color: #E8A33C">up to 2 dwells, through a mode you did not want</div>
+      <div class="cl">Open-then-pick — see Rethink&nbsp;2</div>
+    </div>
+    <div class="row">
+      <div class="nm">Keyboard</div>
+      <div class="cl">Opens or closes the keyboard overlay.</div>
+      <div class="cl" style="color: #7EE787">1 dwell</div>
+      <div class="cl">No change</div>
+    </div>
+    <div class="row">
+      <div class="nm">Settings</div>
+      <div class="cl">Puts a window over what you were doing.</div>
+      <div class="cl" style="color: #7EE787">1 dwell, in the window</div>
+      <div class="cl">No change</div>
+    </div>
+    <div class="row">
+      <div class="nm">Windows</div>
+      <div class="cl">Opens or closes the task switcher.</div>
+      <div class="cl" style="color: #7EE787">1 dwell</div>
+      <div class="cl">No change</div>
+    </div>
+    <div class="row" style="border-bottom-color: #E8A33C">
+      <div class="nm" style="color: #E8A33C">Reset adaptation</div>
+      <div class="cl" style="color: #D6DEF5">Discards everything the struggle layer has learned about you and returns it to baseline.</div>
+      <div class="cl" style="color: #FF5C7A; font-weight: 700">none — it has to be earned again</div>
+      <div class="cl" style="color: #D6DEF5">Confirm step</div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: row; gap: 44px; align-items: flex-start">
+
+    <div style="display: flex; flex-direction: column; gap: 14px">
+      <div style="font-size: 15px; font-weight: 700; color: #A5F3FC">Confirm, not friction</div>
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 24px; background: #1A1A2E; border-radius: 8px; padding: 16px; min-height: 152px; box-sizing: border-box">
+
+        <sc-if value="{{closed}}" hint-placeholder-val="{{ true }}">
+          <div class="t" style="width: 120px; height: 120px; background: {{reset.bg}}; border-width: {{reset.bw}}; border-style: solid; border-color: {{reset.bc}}"
+               onMouseEnter="{{ reset.enter }}" onMouseLeave="{{ reset.leave }}" onClick="{{ reset.enter }}">
+            <svg class="ring ring-warn" viewBox="0 0 120 120" style="stroke-dashoffset: {{reset.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+            <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #E8A33C">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+            </svg>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{asking}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: row; align-items: center; gap: 22px">
+            <div style="display: flex; flex-direction: column; gap: 4px; width: 190px">
+              <div style="font-size: 14px; font-weight: 700; color: #E8A33C">Reset adaptation?</div>
+              <div style="font-size: 12px; color: #9AA4C8; line-height: 1.45">Everything learned about your dwell timings goes back to baseline.</div>
+            </div>
+            <div class="t" style="width: 136px; height: 136px; background: {{cancel.bg}}; border-width: {{cancel.bw}}; border-style: solid; border-color: {{cancel.bc}}"
+                 onMouseEnter="{{ cancel.enter }}" onMouseLeave="{{ cancel.leave }}" onClick="{{ cancel.enter }}">
+              <svg class="ring ring-safe" viewBox="0 0 120 120" style="stroke-dashoffset: {{cancel.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+              <svg class="ico" viewBox="0 0 24 24" style="width: 32px; height: 32px; color: #D6DEF5"><path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5"/></svg>
+              <div class="lbl" style="font-size: 15px; color: #D6DEF5">Keep it</div>
+            </div>
+            <div class="t" style="width: 104px; height: 104px; background: {{confirm.bg}}; border-width: {{confirm.bw}}; border-style: solid; border-color: {{confirm.bc}}"
+                 onMouseEnter="{{ confirm.enter }}" onMouseLeave="{{ confirm.leave }}" onClick="{{ confirm.enter }}">
+              <svg class="ring ring-warn" viewBox="0 0 120 120" style="stroke-dashoffset: {{confirm.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+              <div class="lbl" style="font-size: 13px; color: #E8A33C">Reset</div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{done}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: row; align-items: center; gap: 16px; padding: 0 8px">
+            <svg class="ico" viewBox="0 0 24 24" style="width: 30px; height: 30px; color: #7EE787"><path d="M4.5 12.6 9.8 17.8 19.5 6.6"/></svg>
+            <div style="font-size: 14px; color: #7EE787; font-weight: 600">Back to baseline</div>
+          </div>
+        </sc-if>
+
+      </div>
+      <div style="font-size: 12px; color: #A5F3FC; cursor: default" onClick="{{ restart }}">start over</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; max-width: 420px">
+      <div class="p">
+        Keep the dwell at 700&nbsp;ms. Spec §8.6 wants this reachable precisely when the adaptation has gone wrong and you are already struggling — making it slower would punish exactly the person it exists for.
+        What the confirm buys is that <span style="color: #D6DEF5; font-weight: 700">no single mis-aim can destroy anything</span>, at a cost of one extra 700&nbsp;ms when you meant it.
+      </div>
+      <div class="p">
+        Cancel is the bigger target (136&nbsp;px against 104&nbsp;px) and sits nearer the button you came from, so the cheap saccade is the safe one.
+        Confirm carries the warning hue and is the one you have to reach for. The two confirm targets keep their words: this is a question, not a toolbar face, and the words are what make the answer unambiguous.
+      </div>
+      <div class="p">
+        Two things to decide before building: whether looking away from the confirm counts as Keep&nbsp;it — it should — and how long it waits before deciding that for you.
+      </div>
+      <div class="p" style="color: #868FB5">
+        The whole strip is also worth a pass for this: today Reset sits 24&nbsp;px from Settings with nothing between them, which is the one adjacency where an overshoot is unrecoverable.
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"dwellMs":{"editor":"range","default":700,"min":300,"max":1600,"step":100,"unit":"ms","section":"Behaviour"},"$preview":{"width":1180,"height":680}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { active: null, p: 0, armed: true, phase: 'closed' };
+    this._raf = null;
+    this._prev = 0;
+  }
+
+  componentDidMount() {
+    const step = (t) => {
+      const dt = this._prev ? Math.min(120, t - this._prev) : 0;
+      this._prev = t;
+      const ms = Math.max(100, Number(this.props.dwellMs) || 700);
+      const s = this.state;
+      if (s.active && s.armed) {
+        const np = s.p + dt / ms;
+        if (np >= 1) { this.setState({ p: 0, armed: false, active: null }); this.fire(s.active); }
+        else if (np - s.p > 0.002) this.setState({ p: np });
+      }
+      this._raf = requestAnimationFrame(step);
+    };
+    this._raf = requestAnimationFrame(step);
+  }
+
+  componentWillUnmount() { if (this._raf) cancelAnimationFrame(this._raf); }
+
+  fire(id) {
+    if (id === 'reset') this.setState({ phase: 'asking' });
+    else if (id === 'cancel') this.setState({ phase: 'closed' });
+    else if (id === 'confirm') this.setState({ phase: 'done' });
+  }
+
+  renderVals() {
+    const C = 326.73;
+    const s = this.state;
+    const dash = (id) => (C * (1 - (s.active === id ? s.p : 0))).toFixed(2);
+    const mk = (id, rim, liveRim) => ({
+      bg: s.active === id ? '#3A3A5E' : '#2A2A44',
+      bw: s.active === id ? '2px' : '1px',
+      bc: s.active === id ? liveRim : rim,
+      dash: dash(id),
+      enter: () => this.setState({ active: id, p: 0, armed: true }),
+      leave: () => { if (this.state.active === id) this.setState({ active: null, p: 0, armed: true }); }
+    });
+
+    return {
+      closed: s.phase === 'closed',
+      asking: s.phase === 'asking',
+      done: s.phase === 'done',
+      restart: () => this.setState({ phase: 'closed', active: null, p: 0, armed: true }),
+      reset: mk('reset', '#E8A33C', '#E8A33C'),
+      cancel: mk('cancel', '#616BA0', '#7EE787'),
+      confirm: mk('confirm', '#E8A33C', '#E8A33C')
+    };
+  }
+}
+</script>
+</body>
+</html>

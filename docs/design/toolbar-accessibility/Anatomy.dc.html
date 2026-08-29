@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    a { color: #A5F3FC; } a:hover { color: #D6DEF5; }
+    .cell { position: relative; box-sizing: border-box; width: 120px; height: 120px; border-radius: 9999px;
+            display: flex; align-items: center; justify-content: center; }
+    .ring { position: absolute; left: 0; top: 0; width: 120px; height: 120px; transform: rotate(-90deg); }
+    .ring circle { fill: none; stroke: #A5F3FC; stroke-width: 4.8px; stroke-linecap: round; stroke-dasharray: 326.73; }
+    .ico { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; position: relative; z-index: 2; }
+    .state { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .caption { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; }
+    .cname { font-size: 13px; font-weight: 700; color: #D6DEF5; }
+    .cnote { font-size: 12px; color: #868FB5; line-height: 1.4; max-width: 130px; }
+  </style>
+</helmet>
+
+<div style="background: #0F0F1C; padding: 30px 32px; box-sizing: border-box; min-height: 100%">
+
+  <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 26px">
+    <div style="font-size: 24px; font-weight: 700; color: #D6DEF5; letter-spacing: -0.2px">Anatomy</div>
+    <div style="font-size: 14px; color: #9AA4C8">One button, every state it can be in, at 1:1. Icon only — no text on the face. Timings are the shipping defaults: ToolbarButtonDwellMs&nbsp;=&nbsp;700, DwellCooldownMs from DwellSettings.</div>
+  </div>
+
+  <div style="display: flex; flex-direction: row; gap: 34px; align-items: flex-start">
+
+    <div class="state">
+      <div class="cell" style="background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0">
+        <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #D6DEF5"><rect x="2.2" y="6" width="19.6" height="12" rx="2.6"/><path d="M6 10.2 6.01 10.2M9.5 10.2 9.51 10.2M13 10.2 13.01 10.2M16.5 10.2 16.51 10.2M8 14.2h8" style="stroke-width: 2.4"/></svg>
+      </div>
+      <div class="caption"><div class="cname">Rest</div><div class="cnote">1&nbsp;px #616BA0 rim — 3.35:1 on the strip, so the edge is findable</div></div>
+    </div>
+
+    <div class="state">
+      <div class="cell" style="background: #3A3A5E; border-width: 2px; border-style: solid; border-color: #A5F3FC">
+        <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #D6DEF5"><rect x="2.2" y="6" width="19.6" height="12" rx="2.6"/><path d="M6 10.2 6.01 10.2M9.5 10.2 9.51 10.2M13 10.2 13.01 10.2M16.5 10.2 16.51 10.2M8 14.2h8" style="stroke-width: 2.4"/></svg>
+      </div>
+      <div class="caption"><div class="cname">Acquired · 0&nbsp;ms</div><div class="cnote">Gaze is inside the target. Nothing is committed yet</div></div>
+    </div>
+
+    <div class="state">
+      <div class="cell" style="background: #3A3A5E; border-width: 2px; border-style: solid; border-color: #A5F3FC">
+        <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: 196.04"><circle cx="60" cy="60" r="52"/></svg>
+        <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #D6DEF5"><rect x="2.2" y="6" width="19.6" height="12" rx="2.6"/><path d="M6 10.2 6.01 10.2M9.5 10.2 9.51 10.2M13 10.2 13.01 10.2M16.5 10.2 16.51 10.2M8 14.2h8" style="stroke-width: 2.4"/></svg>
+      </div>
+      <div class="caption"><div class="cname">Dwelling · 280&nbsp;ms</div><div class="cnote">40%. Ring only — no fill wash over the icon</div></div>
+    </div>
+
+    <div class="state">
+      <div class="cell" style="background: #3A3A5E; border-width: 2px; border-style: solid; border-color: #A5F3FC">
+        <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: 49.01"><circle cx="60" cy="60" r="52"/></svg>
+        <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #D6DEF5"><rect x="2.2" y="6" width="19.6" height="12" rx="2.6"/><path d="M6 10.2 6.01 10.2M9.5 10.2 9.51 10.2M13 10.2 13.01 10.2M16.5 10.2 16.51 10.2M8 14.2h8" style="stroke-width: 2.4"/></svg>
+      </div>
+      <div class="caption"><div class="cname">Dwelling · 595&nbsp;ms</div><div class="cnote">85%. Last moment to look away and cancel</div></div>
+    </div>
+
+    <div class="state">
+      <div class="cell" style="background: #2F5340; border-width: 2px; border-style: solid; border-color: #7EE787">
+        <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #7EE787"><path d="M4.5 12.6 9.8 17.8 19.5 6.6"/></svg>
+      </div>
+      <div class="caption"><div class="cname">Fired · 700&nbsp;ms</div><div class="cnote">Held ~250&nbsp;ms. Today the bar just snaps to zero and nothing says it worked</div></div>
+    </div>
+
+    <div class="state">
+      <div class="cell" style="background: #23233A; border-width: 1px; border-style: solid; border-color: #3A3A5E">
+        <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #868FB5"><rect x="2.2" y="6" width="19.6" height="12" rx="2.6"/><path d="M6 10.2 6.01 10.2M9.5 10.2 9.51 10.2M13 10.2 13.01 10.2M16.5 10.2 16.51 10.2M8 14.2h8" style="stroke-width: 2.4"/></svg>
+      </div>
+      <div class="caption"><div class="cname">Cooling down</div><div class="cnote">Dimmed while the cooldown blocks a re-fire, so the dead time is visible instead of mysterious</div></div>
+    </div>
+
+  </div>
+
+  <div style="height: 1px; background: #2A2A44; margin: 34px 0 30px"></div>
+
+  <div style="display: flex; flex-direction: row; gap: 56px; align-items: flex-start">
+
+    <div style="display: flex; flex-direction: column; gap: 14px">
+      <div style="font-size: 15px; font-weight: 700; color: #FF5C7A">Today — what you see is not what you can hit</div>
+      <div style="display: flex; flex-direction: row; gap: 20px; align-items: center">
+        <div style="position: relative; width: 120px; height: 120px; border-radius: 4px; background: rgba(255, 92, 122, 0.30); display: flex; align-items: center; justify-content: center">
+          <div style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: 9999px; background: #2A2A44; border-width: 2px; border-style: dashed; border-color: rgba(165, 243, 252, 0.80); box-sizing: border-box"></div>
+          <span style="position: relative; z-index: 2; font-size: 48px; color: #D6DEF5; line-height: 1">&#9000;</span>
+        </div>
+        <div style="font-size: 13px; color: #9AA4C8; line-height: 1.5; max-width: 260px">
+          A 120&nbsp;px square tile with a 60&nbsp;px-radius circular dwell target inscribed in it.
+          Square 14&nbsp;400&nbsp;px², circle 11&nbsp;310&nbsp;px² — <span style="color: #FF5C7A; font-weight: 700">3&nbsp;090&nbsp;px², 21.5%, is drawn but dead.</span>
+          Aim at a corner and nothing happens, with no way to tell why.
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 14px">
+      <div style="font-size: 15px; font-weight: 700; color: #7EE787">Proposed — the drawing is the hit test</div>
+      <div style="display: flex; flex-direction: row; gap: 20px; align-items: center">
+        <div class="cell" style="background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0">
+          <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: #D6DEF5"><rect x="2.2" y="6" width="19.6" height="12" rx="2.6"/><path d="M6 10.2 6.01 10.2M9.5 10.2 9.51 10.2M13 10.2 13.01 10.2M16.5 10.2 16.51 10.2M8 14.2h8" style="stroke-width: 2.4"/></svg>
+        </div>
+        <div style="font-size: 13px; color: #9AA4C8; line-height: 1.5; max-width: 260px">
+          Same 120&nbsp;px footprint, same 24&nbsp;px clearance, same dwell radius — drawn as the disc it already is.
+          <span style="color: #7EE787; font-weight: 700">Zero dead pixels</span>, and the gap between neighbours now reads as a gap rather than as more button.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top: 30px; padding-top: 16px; border-top-width: 1px; border-top-style: solid; border-top-color: #2A2A44; font-size: 12px; color: #868FB5; line-height: 1.5">
+    Contrast ratios are computed from the Midnight token hex values in MidnightTheme.cs by the WCAG relative-luminance formula, not measured on a display.
+    SurfaceDark and SurfaceMedium ship at 0xFA alpha and composite over live desktop content, which the theme spec bounds at −5% worst case.
+    Tokens.CornerRadiusCircle (9999) already exists, so the disc needs no new token — but check the corner-radius ratchet in App.Tests before writing one in EyeCtrl.Controls.
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

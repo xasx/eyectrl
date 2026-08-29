@@ -1030,7 +1030,7 @@ git commit -m "feat(settings): gaze-indicator visual rows on Selection"
 - Consumes: `EyeCtrlSettings.Calibration.TargetColor` (hex string, `SettingsDefaults.Accent` default).
 - Produces: id `cal_color`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `CalibrationPageSourceTests.cs`:
 
@@ -1049,11 +1049,11 @@ public void Build_HasTargetColorPicker_AfterSettle()
 
 (`SettingsDefaults` — add whatever using the file needs; it is `EyeCtrl.Core.Settings`.)
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~CalibrationPageSourceTests"` → FAIL.
 
-- [ ] **Step 3: Add the row**
+- [x] **Step 3: Add the row**
 
 In `CalibrationPageSource.cs`, after the `cal_settle` slider (still in the first PageSpec):
 
@@ -1066,7 +1066,7 @@ new ColorPickerSpec("cal_color", "Target Color",
 
 (No `using` additions needed: `SettingsWindow` resolves from the child namespace `EyeCtrl.App.Views.Settings` via namespace nesting — `SelectionPageSource` already uses `SettingsWindow.ControlBtnRadius` with no such using.)
 
-- [ ] **Step 4: Run, commit**
+- [x] **Step 4: Run, commit**
 
 `dotnet test tests/EyeCtrl.App.Tests` → PASS.
 

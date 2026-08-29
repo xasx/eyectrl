@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    a { color: #A5F3FC; } a:hover { color: #D6DEF5; }
+    .tile { position: relative; overflow: hidden; }
+    .disc { position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: 9999px; box-sizing: border-box; }
+    .gl { position: relative; z-index: 3; }
+    .bar { position: absolute; left: 0; bottom: 0; height: 4px; z-index: 4; }
+  </style>
+</helmet>
+
+<div style="background: #0F0F1C; padding: 30px 32px; box-sizing: border-box; min-height: 100%">
+
+  <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 22px">
+    <div style="font-size: 24px; font-weight: 700; color: #D6DEF5; letter-spacing: -0.2px">Today</div>
+    <div style="font-size: 14px; color: #9AA4C8">ToolbarWindow.xaml.cs — 120&nbsp;DIP tiles, 12&nbsp;px margins, 48&nbsp;px glyph, 4&nbsp;px progress bar, 700&nbsp;ms dwell. Drawn at 1:1.</div>
+  </div>
+
+  <div style="display: flex; flex-direction: row; align-items: center; gap: 24px; background: #1A1A2E; border-radius: 4px; padding: 16px; width: fit-content">
+    <sc-if value="{{showProvider}}" hint-placeholder-val="{{ true }}">
+      <div style="width: 120px; height: 120px; background: #1A1A2E; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 48px; color: #D6DEF5">&#128065;</div>
+    </sc-if>
+    <sc-for list="{{buttons}}" as="b" hint-placeholder-count="6">
+      <div class="tile" style="width: 120px; height: 120px; border-radius: 4px; display: flex; align-items: center; justify-content: center; background: {{b.tileBg}}"
+           onMouseEnter="{{ b.enter }}" onMouseLeave="{{ b.leave }}" onClick="{{ b.enter }}">
+        <div class="disc" style="background: {{b.discBg}}; border-width: {{b.discBw}}; border-style: dashed; border-color: {{b.discBc}}"></div>
+        <span class="gl" style="font-size: 48px; color: #D6DEF5; line-height: 1">{{b.glyph}}</span>
+        <div class="bar" style="width: {{b.barW}}; background: #A5F3FC"></div>
+      </div>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{showProvider}}" hint-placeholder-val="{{ true }}">
+    <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: #E8A33C">
+      <span style="font-weight: 700">&#9679;</span>
+      <span>The provider badge is inserted at index&nbsp;0 — every real target just moved 144&nbsp;px right, and the badge itself has no dwell target.</span>
+    </div>
+  </sc-if>
+
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; margin-top: 30px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="font-size: 28px; font-weight: 700; color: #FF5C7A; line-height: 1">21.5%</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">of every visible tile cannot be activated. The tile is a 120&nbsp;px square; the dwell target is the circle inscribed in it (radius&nbsp;=&nbsp;Size/2). The corners are dead.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="font-size: 28px; font-weight: 700; color: #FF5C7A; line-height: 1">4&nbsp;px</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">of dwell feedback, at the bottom edge — 3.3% of the tile height, 60&nbsp;px away from the point you are fixating while you wait.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="font-size: 28px; font-weight: 700; color: #FF5C7A; line-height: 1">1.23:1</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">tile against strip (#2A2A44 on #1A1A2E). Where one target ends and the next begins is essentially invisible.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="font-size: 28px; font-weight: 700; color: #FF5C7A; line-height: 1">0</div>
+      <div style="font-size: 13px; color: #9AA4C8; line-height: 1.45">ways to find out what a button does without firing it. No labels, no tooltips — and looking <em>is</em> pressing.</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 26px; padding-top: 16px; border-top-width: 1px; border-top-style: solid; border-top-color: #2A2A44; font-size: 13px; color: #868FB5">
+    Look at a tile to start its dwell. The dashed circle is the real hit target and the red field is dead area — both drawn only as a diagnostic; neither is in the shipping UI.
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"dwellMs":{"editor":"range","default":700,"min":300,"max":1600,"step":100,"unit":"ms","section":"Behaviour"},"showHitAreas":{"editor":"boolean","default":true,"section":"Diagnostics"},"showProvider":{"editor":"boolean","default":false,"section":"Diagnostics"},"$preview":{"width":1180,"height":520}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { active: null, p: 0, armed: true, fired: null, firedAt: 0 };
+    this._raf = null;
+    this._prev = 0;
+  }
+
+  componentDidMount() {
+    const step = (t) => {
+      const dt = this._prev ? Math.min(120, t - this._prev) : 0;
+      this._prev = t;
+      const ms = Math.max(100, Number(this.props.dwellMs) || 700);
+      const s = this.state;
+      if (s.active && s.armed) {
+        const np = s.p + dt / ms;
+        if (np >= 1) this.setState({ p: 0, armed: false, fired: s.active, firedAt: t });
+        else if (np - s.p > 0.002) this.setState({ p: np });
+      }
+      if (s.fired && t - s.firedAt > 650) this.setState({ fired: null });
+      this._raf = requestAnimationFrame(step);
+    };
+    this._raf = requestAnimationFrame(step);
+  }
+
+  componentWillUnmount() { if (this._raf) cancelAnimationFrame(this._raf); }
+
+  renderVals() {
+    const diag = this.props.showHitAreas !== false;
+    const defs = [
+      { id: 'Pause', glyph: '⏸' },
+      { id: 'SelectionMode', glyph: '⊕' },
+      { id: 'Keyboard', glyph: '⌨' },
+      { id: 'Settings', glyph: '⚙' },
+      { id: 'TaskSwitcher', glyph: '⇄' },
+      { id: 'ResetAdaptation', glyph: '↺' }
+    ];
+    const s = this.state;
+    return {
+      showProvider: this.props.showProvider === true,
+      buttons: defs.map((d) => {
+        const live = s.active === d.id;
+        const p = live ? s.p : 0;
+        return {
+          glyph: d.glyph,
+          tileBg: diag ? 'rgba(255, 92, 122, 0.30)' : '#2A2A44',
+          discBg: s.fired === d.id ? '#2F5340' : '#2A2A44',
+          discBw: diag ? '2px' : '0px',
+          discBc: 'rgba(165, 243, 252, 0.80)',
+          barW: (p * 120).toFixed(1) + 'px',
+          enter: () => this.setState({ active: d.id, p: 0, armed: true }),
+          leave: () => { if (this.state.active === d.id) this.setState({ active: null, p: 0, armed: true }); }
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

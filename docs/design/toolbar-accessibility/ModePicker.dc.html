@@ -1,0 +1,196 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    a { color: #A5F3FC; } a:hover { color: #D6DEF5; }
+    .t { position: relative; box-sizing: border-box; border-radius: 9999px; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; gap: 5px; cursor: default; }
+    .ring { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; z-index: 1; }
+    .ring circle { fill: none; stroke: #A5F3FC; stroke-width: 6px; stroke-linecap: round; stroke-dasharray: 326.73; }
+    .ico { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; position: relative; z-index: 2; }
+    .lbl { position: relative; z-index: 2; line-height: 1; font-weight: 600; }
+    .h3 { font-size: 15px; font-weight: 700; letter-spacing: -0.1px; }
+    .p { font-size: 13px; color: #9AA4C8; line-height: 1.5; }
+    .k { font-size: 12px; color: #868FB5; }
+  </style>
+</helmet>
+
+<div style="background: #0F0F1C; padding: 30px 32px; box-sizing: border-box; min-height: 100%">
+
+  <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 26px">
+    <div style="font-size: 24px; font-weight: 700; color: #D6DEF5; letter-spacing: -0.2px">Rethink 2 — a cycling control is hostile to gaze</div>
+    <div style="font-size: 14px; color: #9AA4C8">Selection mode advances None → ManualSelection → AutoSelection → None on every activation. Look at either side to try it.</div>
+  </div>
+
+  <div style="display: flex; flex-direction: row; gap: 64px; align-items: flex-start">
+
+    <div style="display: flex; flex-direction: column; gap: 16px; width: 480px">
+      <div class="h3" style="color: #FF5C7A">Today — cycle</div>
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 24px; background: #1A1A2E; border-radius: 4px; padding: 16px; width: fit-content">
+        <div class="t" style="width: 120px; height: 120px; border-radius: 4px; background: {{cyc.bg}}"
+             onMouseEnter="{{ cyc.enter }}" onMouseLeave="{{ cyc.leave }}" onClick="{{ cyc.enter }}">
+          <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: {{cyc.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+          <span style="position: relative; z-index: 2; font-size: 48px; color: #D6DEF5; line-height: 1">{{cyc.glyph}}</span>
+        </div>
+      </div>
+      <div class="p">
+        The mode is carried by the tile&rsquo;s background colour and a glyph swap, so
+        <span style="color: #FF5C7A; font-weight: 700">the control never says what it is currently set to</span>, and never says what the next dwell will do.
+        You have to remember the order.
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px; background: #1A1A2E; border-radius: 8px; padding: 16px">
+        <div style="display: flex; justify-content: space-between; font-size: 13px; color: #D6DEF5"><span>mode now</span><span style="font-weight: 700; color: {{modeColor}}">{{modeName}}</span></div>
+        <div style="display: flex; justify-content: space-between; font-size: 13px; color: #D6DEF5"><span>next dwell gives you</span><span style="font-weight: 700; color: #868FB5">{{nextName}}</span></div>
+        <div style="display: flex; justify-content: space-between; font-size: 13px; color: #D6DEF5"><span>dwells spent cycling</span><span style="font-weight: 700; color: #E8A33C">{{cycleCount}}</span></div>
+      </div>
+      <div class="p">
+        Worst case to reach a named mode is 2&nbsp;dwells — 1.4&nbsp;s — and there is no way back except forward.
+        Overshoot Auto and the only route to Manual is two more dwells through Off, which turns snap-to-control off in passing.
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px; width: 560px">
+      <div class="h3" style="color: #7EE787">Proposed — open, then pick</div>
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 24px; background: #1A1A2E; border-radius: 8px; padding: 16px; width: fit-content">
+        <div class="t" style="width: 120px; height: 120px; background: {{opn.bg}}; border-width: {{opn.bw}}; border-style: solid; border-color: {{opn.bc}}"
+             onMouseEnter="{{ opn.enter }}" onMouseLeave="{{ opn.leave }}" onClick="{{ opn.enter }}">
+          <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: {{opn.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+          <svg class="ico" viewBox="0 0 24 24" style="width: 44px; height: 44px; color: {{modeColor}}">
+            <circle cx="12" cy="12" r="6.8"/><path d="M12 1.8v3.4M12 18.8v3.4M1.8 12h3.4M18.8 12h3.4"/>
+            <circle cx="12" cy="12" r="1.7" style="fill: currentColor; stroke: none"/>
+          </svg>
+        </div>
+
+        <sc-if value="{{open}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: row; align-items: center; gap: 20px; padding-left: 8px; border-left-width: 1px; border-left-style: solid; border-left-color: #2A2A44">
+            <sc-for list="{{options}}" as="o" hint-placeholder-count="3">
+              <div class="t" style="width: 108px; height: 108px; background: {{o.bg}}; border-width: {{o.bw}}; border-style: solid; border-color: {{o.bc}}"
+                   onMouseEnter="{{ o.enter }}" onMouseLeave="{{ o.leave }}" onClick="{{ o.enter }}">
+                <svg class="ring" viewBox="0 0 120 120" style="stroke-dashoffset: {{o.dash}}"><circle cx="60" cy="60" r="52"/></svg>
+                <div class="lbl" style="font-size: 15px; color: {{o.fg}}">{{o.name}}</div>
+                <div style="position: relative; z-index: 2; font-size: 11px; color: #868FB5">{{o.tag}}</div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+
+      <div class="p">
+        The button carries its mode in the icon, and the three targets it opens into are named — the names live in the picker, not on the toolbar face. One more dwell picks.
+        <span style="color: #7EE787; font-weight: 700">Always exactly 2 dwells, to any mode, from any mode</span> — and a wrong pick costs 2 dwells to undo instead of up to 4.
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px; background: #1A1A2E; border-radius: 8px; padding: 16px">
+        <div style="display: flex; justify-content: space-between; font-size: 13px; color: #D6DEF5"><span>mode now</span><span style="font-weight: 700; color: {{modeColor}}">{{modeName}}</span></div>
+        <div style="display: flex; justify-content: space-between; font-size: 13px; color: #D6DEF5"><span>dwells spent picking</span><span style="font-weight: 700; color: #7EE787">{{pickCount}}</span></div>
+      </div>
+      <div class="p">
+        The cost is that the picker overlaps whatever is beside it, so it needs somewhere to open into — the reserved empty slots on the previous artboard are that somewhere.
+        It also needs a dismissal path: look off the strip for the summon-delay window and it closes without choosing.
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top: 28px; padding-top: 16px; border-top-width: 1px; border-top-style: solid; border-top-color: #2A2A44; display: flex; align-items: center; gap: 20px">
+    <div class="k">Counters are for comparing the two, not a claim about real use.</div>
+    <div style="font-size: 12px; color: #A5F3FC; cursor: default" onClick="{{ resetCounts }}">reset counters</div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"dwellMs":{"editor":"range","default":700,"min":300,"max":1600,"step":100,"unit":"ms","section":"Behaviour"},"$preview":{"width":1180,"height":700}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { active: null, p: 0, armed: true, mode: 0, open: false, cycleCount: 0, pickCount: 0 };
+    this._raf = null;
+    this._prev = 0;
+  }
+
+  componentDidMount() {
+    const step = (t) => {
+      const dt = this._prev ? Math.min(120, t - this._prev) : 0;
+      this._prev = t;
+      const ms = Math.max(100, Number(this.props.dwellMs) || 700);
+      const s = this.state;
+      if (s.active && s.armed) {
+        const np = s.p + dt / ms;
+        if (np >= 1) { this.setState({ p: 0, armed: false }); this.fire(s.active); }
+        else if (np - s.p > 0.002) this.setState({ p: np });
+      }
+      this._raf = requestAnimationFrame(step);
+    };
+    this._raf = requestAnimationFrame(step);
+  }
+
+  componentWillUnmount() { if (this._raf) cancelAnimationFrame(this._raf); }
+
+  fire(id) {
+    if (id === 'cycle') this.setState({ mode: (this.state.mode + 1) % 3, cycleCount: this.state.cycleCount + 1 });
+    else if (id === 'open') this.setState({ open: !this.state.open, pickCount: this.state.pickCount + 1 });
+    else if (id.indexOf('opt-') === 0) this.setState({ mode: Number(id.slice(4)), open: false, pickCount: this.state.pickCount + 1 });
+  }
+
+  renderVals() {
+    const C = 326.73;
+    const s = this.state;
+    const NAMES = ['Off', 'Manual', 'Auto'];
+    const TAGS = ['raw pixels', 'zoom + dwell', 'snap to control'];
+    const COLORS = ['#868FB5', '#7EE787', '#A5F3FC'];
+    const CYCLE_BG = ['#2A2A44', '#4A8F5C', '#38527F'];
+    const dash = (id) => (C * (1 - (s.active === id ? s.p : 0))).toFixed(2);
+    const enter = (id) => () => this.setState({ active: id, p: 0, armed: true });
+    const leave = (id) => () => { if (this.state.active === id) this.setState({ active: null, p: 0, armed: true }); };
+
+    return {
+      modeName: NAMES[s.mode],
+      nextName: NAMES[(s.mode + 1) % 3],
+      modeColor: COLORS[s.mode],
+      cycleCount: s.cycleCount,
+      pickCount: s.pickCount,
+      open: s.open,
+      resetCounts: () => this.setState({ cycleCount: 0, pickCount: 0 }),
+      cyc: {
+        glyph: ['⊕', '⊕', '⊕'][s.mode],
+        bg: CYCLE_BG[s.mode],
+        dash: dash('cycle'),
+        enter: enter('cycle'),
+        leave: leave('cycle')
+      },
+      opn: {
+        bg: s.active === 'open' ? '#3A3A5E' : '#2A2A44',
+        bw: s.active === 'open' ? '2px' : '1px',
+        bc: s.active === 'open' ? '#A5F3FC' : '#616BA0',
+        dash: dash('open'),
+        enter: enter('open'),
+        leave: leave('open')
+      },
+      options: NAMES.map((n, i) => {
+        const id = 'opt-' + i;
+        const current = s.mode === i;
+        return {
+          name: n,
+          tag: TAGS[i],
+          fg: current ? COLORS[i] : '#D6DEF5',
+          bg: current ? '#3A3A5E' : '#2A2A44',
+          bw: current ? '2px' : '1px',
+          bc: current ? COLORS[i] : '#616BA0',
+          dash: dash(id),
+          enter: enter(id),
+          leave: leave(id)
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

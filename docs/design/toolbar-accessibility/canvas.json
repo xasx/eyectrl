@@ -1,0 +1,19 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Toolbar" },
+    { "id": "page-2", "name": "Rethink" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1180, "h": 660, "page": "page-1", "title": "Proposed toolbar", "is_interactive": true },
+    { "file": "Today.dc.html", "x": 1300, "y": 0, "w": 1180, "h": 540, "page": "page-1", "title": "Today", "is_interactive": true },
+    { "file": "Anatomy.dc.html", "x": 0, "y": 790, "w": 1500, "h": 720, "page": "page-1", "title": "Anatomy of one button" },
+    { "file": "StableSlots.dc.html", "x": 0, "y": 2200, "w": 1180, "h": 900, "page": "page-2", "title": "1 — Position is an identity" },
+    { "file": "ModePicker.dc.html", "x": 1300, "y": 2200, "w": 1180, "h": 720, "page": "page-2", "title": "2 — Cycling vs picking", "is_interactive": true },
+    { "file": "RiskTier.dc.html", "x": 0, "y": 3230, "w": 1180, "h": 700, "page": "page-2", "title": "3 — Risk tiers", "is_interactive": true }
+  ],
+  "annotations": [
+    { "id": "note-start", "x": 0, "y": -150, "w": 420, "page": "page-1", "text": "Everything here is drawn at 1:1 against the Midnight tokens in MidnightTheme.cs.\n\nLook at a target (or click it) to run its dwell." },
+    { "id": "note-rethink", "x": 0, "y": 2050, "w": 420, "page": "page-2", "text": "Three questions the incremental fixes don't answer. Each is a trade, not a free win — the tradeoff is stated on the artboard." }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

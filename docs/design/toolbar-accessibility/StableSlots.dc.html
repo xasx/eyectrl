@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    a { color: #A5F3FC; } a:hover { color: #D6DEF5; }
+    .d { box-sizing: border-box; width: 96px; height: 96px; border-radius: 9999px; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; gap: 4px; background: #2A2A44;
+         border-width: 1px; border-style: solid; border-color: #616BA0; font-size: 11px; font-weight: 400; color: #868FB5; }
+    .sq { box-sizing: border-box; width: 96px; height: 96px; border-radius: 4px; display: flex; align-items: center;
+          justify-content: center; background: #2A2A44; font-size: 11px; font-weight: 400; color: #868FB5; }
+    .well { box-sizing: border-box; width: 96px; height: 96px; border-radius: 9999px; border-width: 1px; border-style: dashed;
+            border-color: #2E2E42; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #3A3A5E; }
+    .h3 { font-size: 15px; font-weight: 700; letter-spacing: -0.1px; }
+    .p { font-size: 13px; color: #9AA4C8; line-height: 1.5; }
+  </style>
+</helmet>
+
+<div style="background: #0F0F1C; padding: 30px 32px; box-sizing: border-box; min-height: 100%">
+
+  <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 26px">
+    <div style="font-size: 24px; font-weight: 700; color: #D6DEF5; letter-spacing: -0.2px">Rethink 1 — position is an identity</div>
+    <div style="font-size: 14px; color: #9AA4C8">Eye control is aimed from memory. A button that moves is a button you have to re-find, every time. Names here label the diagram, not the button faces.</div>
+  </div>
+
+  <div class="h3" style="color: #FF5C7A; margin-bottom: 12px">Today: the row reflows, so every target moves at once</div>
+  <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px">
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 16px">
+      <div style="width: 128px; font-size: 12px; color: #868FB5; text-align: right">before</div>
+      <div style="display: flex; flex-direction: row; gap: 18px; background: #1A1A2E; border-radius: 4px; padding: 12px">
+        <div class="sq">Pause</div><div class="sq">Select</div><div class="sq">Keys</div><div class="sq">Settings</div><div class="sq">Windows</div><div class="sq">Reset</div>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 16px">
+      <div style="width: 128px; font-size: 12px; color: #868FB5; text-align: right">provider appears</div>
+      <div style="display: flex; flex-direction: row; gap: 18px; background: #1A1A2E; border-radius: 4px; padding: 12px">
+        <div class="sq" style="background: #1A1A2E; border-width: 1px; border-style: dashed; border-color: #E8A33C; color: #E8A33C">eye</div>
+        <div class="sq">Pause</div><div class="sq">Select</div><div class="sq">Keys</div><div class="sq">Settings</div><div class="sq">Windows</div><div class="sq">Reset</div>
+      </div>
+    </div>
+  </div>
+  <div class="p" style="margin-bottom: 34px; max-width: 980px">
+    <code style="color: #E8A33C">ButtonPanel.Children.Insert(0, border)</code> puts the provider indicator at the head of the same StackPanel the targets live in,
+    at the same size, radius and margin as a real button — <span style="color: #FF5C7A; font-weight: 700">a 120&nbsp;px target-shaped thing that cannot be dwelled</span>, sitting inside the target band.
+    It is also not idempotent: <code style="color: #E8A33C">Initialize</code> re-adds it, so a settings save with a provider already set appends a second one.
+    The shift this artboard originally claimed does not happen today — <code style="color: #868FB5">SetProviderIndicator</code> has one caller
+    (<code style="color: #868FB5">OverlayManager.cs:108</code>) which runs before the strip is ever centred (<code style="color: #868FB5">App.xaml.cs:467</code>).
+    The hazard is structural, not live: nothing stops a second caller, and the row has no rule that says chrome stays out of it.
+  </div>
+
+  <div class="h3" style="color: #7EE787; margin-bottom: 12px">Slots: index is identity, chrome lives outside the band</div>
+  <div style="display: flex; flex-direction: row; align-items: center; gap: 16px; margin-bottom: 10px">
+    <div style="width: 128px; font-size: 12px; color: #868FB5; text-align: right">8 fixed slots</div>
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 18px; background: #1A1A2E; border-radius: 8px; padding: 12px">
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 12px">
+        <div style="font-size: 11px; color: #868FB5">eye</div>
+        <div style="width: 1px; height: 60px; background: #2A2A44"></div>
+      </div>
+      <div class="d">Pause</div><div class="d">Manual</div><div class="d">Keys</div><div class="d">Settings</div><div class="d">Windows</div>
+      <div class="well">slot 6</div><div class="well">slot 7</div>
+      <div style="width: 1px; height: 76px; background: #2A2A44"></div>
+      <div class="d" style="border-color: #E8A33C; color: #E8A33C">Reset</div>
+    </div>
+  </div>
+  <div class="p" style="margin-bottom: 34px; max-width: 980px">
+    The strip reserves a fixed number of slots and centres on that reserved width, not on how many buttons happen to be filled.
+    Chrome — the provider indicator, and anything else that is not dwellable — sits outside the band behind a rule.
+    Turning Calibrate or Quick&nbsp;Actions back on fills slot&nbsp;6 and slot&nbsp;7; nothing that was already on screen moves.
+    Empty wells cost 288&nbsp;px of strip and are worth it: they are also the only honest way to show that the row has room.
+  </div>
+
+  <div class="h3" style="color: #A5F3FC; margin-bottom: 12px">And the row itself is long</div>
+  <div style="display: flex; flex-direction: row; gap: 44px; align-items: flex-start">
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; flex-direction: row; gap: 10px; align-items: center">
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+      </div>
+      <div class="p" style="max-width: 300px">One row of six: <span style="color: #D6DEF5; font-weight: 700">864&nbsp;px</span> wide, worst-case travel end to end <span style="color: #FF5C7A; font-weight: 700">720&nbsp;px</span>.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; width: 140px">
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: #2A2A44; border-width: 1px; border-style: solid; border-color: #616BA0"></div>
+      </div>
+      <div class="p" style="max-width: 300px">Three by two: <span style="color: #D6DEF5; font-weight: 700">432&nbsp;px</span> wide, worst-case travel <span style="color: #7EE787; font-weight: 700">322&nbsp;px</span> — under half, and the whole cluster stays inside the better-calibrated middle of the screen instead of reaching towards both edges.</div>
+    </div>
+    <div class="p" style="max-width: 300px">
+      The cost is real: a docked cluster is 296&nbsp;px tall against 152&nbsp;px, so it eats more of the top edge, and the auto-hide summon gesture has to pull back a taller panel.
+      Worth prototyping against the row rather than assuming — this one is a genuine trade, not a fix.
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

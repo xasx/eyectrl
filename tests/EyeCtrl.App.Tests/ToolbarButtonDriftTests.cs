@@ -27,6 +27,12 @@ using NFluent;
 ///
 /// Not <c>Category=UI</c> — it only reads source files, so it runs in the headless
 /// <c>Category!=UI</c> subset that CI executes.
+///
+/// The button-array tuples carry <c>ToolbarIconKey</c> member names (Task 2's icon-key channel)
+/// rather than Unicode glyphs; the tuple's second element may now be a string literal or a
+/// constant reference (e.g. <c>SelectionModeIcons.None</c>). This guard only checks ids, never
+/// values — the icon-key value itself is pinned separately by
+/// <c>ToolbarIconKeyBridgeTests</c>.
 /// </summary>
 public class ToolbarButtonDriftTests
 {
@@ -44,9 +50,13 @@ public class ToolbarButtonDriftTests
         ["QuickActions"] = "hot-edge gaze summon (QuickActionsSummonController)",
     };
 
-    /// <summary>Matches a <c>("Id", "symbol")</c> tuple entry in either button array.</summary>
+    /// <summary>
+    /// Matches a <c>("Id", value)</c> tuple entry in either button array. The second element may
+    /// be a string literal (<c>"Pause"</c>) or a constant reference (<c>SelectionModeIcons.None</c>)
+    /// — only the id group is captured, so either form matches.
+    /// </summary>
     private static readonly Regex ButtonEntry = new(
-        @"\(""(?<id>[A-Za-z][A-Za-z0-9_]*)"",\s*""", RegexOptions.Compiled);
+        @"\(""(?<id>[A-Za-z][A-Za-z0-9_]*)"",\s*", RegexOptions.Compiled);
 
     /// <summary>Matches a <c>case "Id":</c> label in the activation switch.</summary>
     private static readonly Regex ActivationCase = new(

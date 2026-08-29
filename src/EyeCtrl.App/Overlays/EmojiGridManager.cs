@@ -276,24 +276,18 @@ public class EmojiGridManager
                 : "_skinTone";
             var tabId = $"cat_{catId}";
 
-            try
+            if (!OverlayPositioning.TryGetScreenCenter(btn, out var pos))
+                continue;
+            if (!_categoryTargetsInitialized)
             {
-                var pos = btn.PointToScreen(new Point(btn.ActualWidth / 2, btn.ActualHeight / 2));
-                if (!_categoryTargetsInitialized)
-                {
-                    var keySize = _getKeySize();
-                    var hitRadius = DpiHelper.LogicalToPhysicalX(keySize / 2 * Math.Sqrt(2));
-                    _categoryDwellDetector.RemoveTarget(tabId);
-                    _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(pos.X, pos.Y), hitRadius, _keyDwellMs));
-                }
-                else
-                {
-                    _categoryDwellDetector.UpdateTargetCenter(tabId, new PhysicalPoint(pos.X, pos.Y));
-                }
+                var keySize = _getKeySize();
+                var hitRadius = DpiHelper.LogicalToPhysicalX(keySize / 2 * Math.Sqrt(2));
+                _categoryDwellDetector.RemoveTarget(tabId);
+                _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(pos.X, pos.Y), hitRadius, _keyDwellMs));
             }
-            catch (InvalidOperationException)
+            else
             {
-                // Element not yet rendered or not in visual tree
+                _categoryDwellDetector.UpdateTargetCenter(tabId, new PhysicalPoint(pos.X, pos.Y));
             }
         }
         _categoryTargetsInitialized = true;

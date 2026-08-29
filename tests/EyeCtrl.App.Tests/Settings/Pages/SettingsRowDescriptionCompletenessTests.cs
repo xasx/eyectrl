@@ -37,6 +37,7 @@ public class SettingsRowDescriptionCompletenessTests
             new GeneralPageSource(ctx),
             new EyeCarePageSource(ctx),
             new AdaptationPageSource(ctx),
+            new AdvancedPageSource(ctx),
         ];
 
         var bare = sources.SelectMany(BareRows).ToList();

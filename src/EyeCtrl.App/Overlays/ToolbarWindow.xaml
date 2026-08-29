@@ -6,7 +6,17 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
         SizeToContent="WidthAndHeight">
-    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource SmallCornerRadius}" Padding="4">
-        <StackPanel x:Name="ButtonPanel" Orientation="Horizontal"/>
+    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="4">
+        <StackPanel x:Name="StripWrapper" Orientation="Horizontal" VerticalAlignment="Center">
+            <!-- Chrome, not a target: the provider indicator is not dwellable, so it must not sit
+                 inside the button band where it reads as a broken button. Empty until a provider
+                 is known, and an empty StackPanel measures to zero. -->
+            <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal"
+                        VerticalAlignment="Center" Margin="8,0,4,0"/>
+            <!-- DwellArcButton positions itself with Canvas.SetLeft/SetTop, so the button band is
+                 a Canvas with an explicitly computed size — a Canvas measures to zero otherwise,
+                 and this window is SizeToContent. -->
+            <Canvas x:Name="ButtonCanvas"/>
+        </StackPanel>
     </Border>
 </overlays:OverlayWindow>

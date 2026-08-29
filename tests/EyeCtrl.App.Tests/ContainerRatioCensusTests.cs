@@ -92,9 +92,17 @@ public class ContainerRatioCensusTests
             ],
             ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] =
             [
-                ("Large", 2, "the toolbar symbols. This file's own ButtonSymbolSizeRatio = 0.4 is "
-                    + "where Large came from, so a change here is a change to the bucket's "
-                    + "founding observation. _buttonSize is runtime-sized: no const to multiply."),
+                ("Large", 1, "the gaze-provider indicator's glyph — the last of the two toolbar "
+                    + "symbols that gave this bucket its founding observation (this file's own "
+                    + "ButtonSymbolSizeRatio = 0.4 is where Large came from). The button glyphs "
+                    + "went with the move to DwellArcButton, which sizes its drawn icons by "
+                    + "Dominant inside EyeCtrl.Controls rather than here. _buttonSize is "
+                    + "runtime-sized: no const to multiply."),
+                ("Dominant", 1, "NOT a glyph: the half-length of the hairline that fences off the "
+                    + "destructive Reset button, as a fraction of the button diameter it sits "
+                    + "beside. Dominant because the rule reads as the separator's whole content "
+                    + "the way a Dominant glyph fills its button — a shorter tick disappears "
+                    + "against a 120px disc."),
             ],
             ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] =
             [

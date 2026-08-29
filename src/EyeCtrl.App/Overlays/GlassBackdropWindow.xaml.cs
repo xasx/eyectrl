@@ -292,10 +292,14 @@ public partial class GlassBackdropWindow : OverlayWindow
     {
         if (_hideButton != null)
         {
-            BackdropCanvas.Children.Remove(_hideButton.Background);
-            BackdropCanvas.Children.Remove(_hideButton.ProgressPath);
-            if (_hideButton.Symbol != null)
-                BackdropCanvas.Children.Remove(_hideButton.Symbol);
+            // Was a hand-copied element list naming Background, ProgressPath and Symbol, which
+            // had fallen five behind AddTo (RimHalo, HaloPath, IconFill, IconStroke, Label).
+            // That never orphaned anything at runtime, and the reason is luck rather than
+            // design: DrawHideButton's only caller runs ApplyBackdrop first, every ApplyBackdrop
+            // path calls ClearContent, and ClearContent opens with Children.Clear() — so this
+            // method has only ever met an already-empty canvas. One call-site reordering away
+            // from a real leak, which is why it now delegates instead of listing.
+            _hideButton.RemoveFrom(BackdropCanvas);
             _hideButton = null;
         }
     }

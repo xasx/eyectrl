@@ -198,16 +198,18 @@ five new properties (it currently copies five; it will copy ten).
 
 | Id | Label | Spec | Range (new — see §6) | Default | Applies |
 |---|---|---|---|---|---|
-| `s_gi_outer` | Gaze Ring Diameter (px) | Slider | 20–200 | 60 | **restart** |
+| `s_gi_outer` | Gaze Ring Diameter (px) | Slider | 20–200 | 60 | **next selection** |
 | `s_gi_dot` | Centre Dot (px) | Slider | 2–40 | 10 | **restart** |
 | `s_gi_stroke` | Ring Stroke (px) | Slider | 0.5–10 | 2 | **restart** |
 | `s_gi_opacity` | Ring Opacity | Slider | 0.1–1.0 | 0.7 | **restart** |
 | `s_gi_anim` | Reset Animation (ms) | Slider | 0–1000, step 50 | 100 | **restart** |
 
-All five are restart-only: the gaze-indicator view model's `Configure` is called exactly
-once, at startup (`AppBootstrapper.ResolveViewModels`). (Selection and Calibration have no
-per-tab settings-reset button — `cal_clear` clears calibration *data* — so nothing to
-extend there.)
+Four of the five are restart-only: the gaze-indicator view model's `Configure` is called
+exactly once, at startup (`AppBootstrapper.ResolveViewModels`). The exception is the outer
+diameter — `OverlayMessageCoordinator` re-reads `GazeIndicatorOuterDiameter` live on every
+reset-animation message, so a new size shows from the next selection. (Selection and
+Calibration have no per-tab settings-reset button — `cal_clear` clears calibration *data* —
+so nothing to extend there.)
 
 ### 6. Core change: clamp-on-load + validate the gaze-indicator properties
 

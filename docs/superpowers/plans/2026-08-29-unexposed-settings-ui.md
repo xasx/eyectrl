@@ -16,7 +16,7 @@
 - **One `dotnet test` project per invocation, never two at once** (named pipes are machine-global). Never filter `Category=UI`. If an App test class fails in isolation but the project passes, run the whole project before diagnosing.
 - File-scoped namespaces; Allman braces; `_camelCase` private fields.
 - **Descriptions**: British prose ("Colour"), American labels ("Color" in row Labels), one sentence each. Every "Applies" claim is already traced in the spec — copy the claim verbatim into the description where the cell is not "live"; do not soften or invent.
-- **Slider Min/Max must equal the property's `Validate()` range exactly** — the span-guard suite pins this.
+- **Slider Min/Max must sit inside the property's `Validate()` range** — the span guard asserts containment (`Min ≥` floor, `Max ≤` ceiling; `c_thick` already ships 1–6 against a 1–10 guard). This plan uses exact equality throughout, which is the house preference, not the gate.
 - **Reset buttons copy properties from a fresh instance; they never replace a settings-group object** (services hold references to those objects).
 - Every new page source: `internal sealed class`, public `(SettingsPageContext ctx)` constructor, `PrefersAutoPagination => true`. The fit-test harness constructs sources reflectively and fails the build otherwise.
 - AGENTS.md gates: run `impact` (GitNexus MCP) before editing an existing symbol, `detect_changes` before each commit if code (not docs-only) changed.
@@ -77,7 +77,14 @@ Expected: FAIL — the out-of-range theory cases produce no errors (defaults cas
 
 - [ ] **Step 3: Add the Validate entries + fix the stale doc comment**
 
-In `ManualSelectionSettings.cs`, replace the `Validate()` body's two entries with seven (keep `CircleRadiusPixels` and `MagnificationLevel` first, then append):
+In `ManualSelectionSettings.cs`, the `Validate()` body currently ends:
+
+```csharp
+            ValidationHelper.ValidateRange(MagnificationLevel, 1.5, 5.0, nameof(MagnificationLevel))
+        );
+```
+
+Add a trailing comma after the `MagnificationLevel` line, then **replace the `);` line** with the five entries below (the block's own `));` closes `CollectErrors`):
 
 ```csharp
 ValidationHelper.ValidateRange(GazeIndicatorOuterDiameter, 20, 200, nameof(GazeIndicatorOuterDiameter)),
@@ -95,7 +102,7 @@ Same command as Step 2. Expected: PASS.
 
 - [ ] **Step 5: Write the failing clamp test**
 
-Append to `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceTests.cs` (match its usings; add `using System.Text.Json.Nodes;` if absent):
+Append to `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceTests.cs` (it currently has only `EyeCtrl.Core.Models` + `EyeCtrl.Core.Settings` usings — add `using System.Text.Json.Nodes;`):
 
 ```csharp
 [Fact]
@@ -125,7 +132,7 @@ public void Load_ClampsOutOfRangeGazeIndicator_InsteadOfResettingEverything()
 - [ ] **Step 6: Run it to verify it fails**
 
 `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~Load_ClampsOutOfRangeGazeIndicator"`
-Expected: FAIL — without the clamp, `Load()` hits the validation error path and returns whole-file defaults, so `ActivationButtonDwellMs` comes back 800 (the default), not 600.
+Expected: FAIL at the **first** assertion — `IsEqualTo(200)` with actual **60**: without the clamp, `Load()` hits the validation-error path and returns whole-file defaults (the default outer diameter is 60). Discriminator if something else is wrong: on the second assertion `ActivationButtonDwellMs` should also read back **700** (its default); if it reads 600 the JSON key edit didn't land and the test is failing for the wrong reason — check the key spelling before touching `SettingsService`.
 
 - [ ] **Step 7: Add the clamp to `Load()`**
 
@@ -699,9 +706,9 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                     () => backdrop.Enabled, v => { backdrop.Enabled = v; _ctx.ApplyAndSave(); })
                     { Description = "Dim what's behind the keyboard and other overlays." },
                 new ComboBoxSpec("av_backdrop_type", "Backdrop Type",
-                    Enum.GetNames<Core.Settings.BackdropType>(), null,
+                    ["Acrylic", "Mica", "Solid Darken"], Enum.GetNames<Core.BackdropType>(),
                     () => backdrop.Type.ToString(),
-                    v => { backdrop.Type = Enum.Parse<Core.Settings.BackdropType>(v); _ctx.ApplyAndSave(); })
+                    v => { backdrop.Type = Enum.Parse<Core.BackdropType>(v); _ctx.ApplyAndSave(); })
                     { Description = "The dimming material; Acrylic and Mica blur, Solid Darken only tints." },
                 new SliderSpec("av_backdrop_opacity", "Backdrop Opacity", 0.1, 0.9, 0.05, 2,
                     () => backdrop.Opacity, v => { backdrop.Opacity = v; _ctx.ApplyAndSave(); })
@@ -723,7 +730,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                     { Description = "How visible the drag trail is." },
                 new LabelSpec(() => new string('\u2500', 50), Wrap: false),
                 // Scroll
-                new SliderSpec("av_scroll_sens", "Scroll Sensitivity", 0.5, 2.0, 0.1, 2,
+                new SliderSpec("av_scroll_sens", "Scroll Sensitivity", 0.5, 2.0, 0.1, 1,
                     () => scroll.Sensitivity, v => { scroll.Sensitivity = v; _ctx.ApplyAndSave(); })
                     { Description = "How fast gaze scrolling moves through documents." },
                 new LabelSpec(() => new string('\u2500', 50), Wrap: false),
@@ -803,7 +810,7 @@ git commit -m "feat(settings): Advanced tab page source"
 ### Task 5: Cursor tab additions
 
 **Files:**
-- Modify: `src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs` (5 new rows at the end of the FIRST PageSpec, so `c_reset` stays last after flatten; `c_reset` copies 5→10)
+- Modify: `src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs` (5 new rows immediately **before `c_reset`** in the SECOND PageSpec — page 1 currently holds `c_opacity`, `c_thick`, `c_reset`; page 0 ends at `c_color`; `c_reset` must remain the final row so `SettingsPageSourceCallbackTests`'s `Build()[1]` indexing stays valid; `c_reset` copies 5→10)
 - Test: `tests/EyeCtrl.App.Tests/Settings/Pages/CursorPageSourceTests.cs` (extend)
 - Modify: `tests/EyeCtrl.App.Tests/Settings/Pages/SettingsSliderSpanGuardTests.cs` (Cursor Fact: HasSize(3)→7 + 4 SpanInside)
 
@@ -872,7 +879,7 @@ public void Reset_CopiesAllTenProperties()
 
 - [ ] **Step 3: Add the rows and extend c_reset**
 
-In `CursorPageSource.cs`, append to the end of the FIRST `PageSpec`'s row list (after `c_thick`, before that PageSpec's closing):
+In `CursorPageSource.cs`, insert the five rows immediately **before the `c_reset` ButtonSpec** in the second PageSpec (i.e. after `c_thick`):
 
 ```csharp
 new SliderSpec("c_gap", "Gap Interpolation (ms)", 0, 500, 25, 0,
@@ -942,18 +949,23 @@ git commit -m "feat(settings): expose gap interpolation, indicator style and One
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `DwellSelectionKeyboardToolbarPageSourceTests.cs` (match its class/namespace — find the Selection test class inside):
+Add to the single class `DwellSelectionKeyboardToolbarPageSourceTests` in that file (it hosts `Dwell_*`, `Selection_*`, `Keyboard_*`, `Toolbar_*` Facts together — no per-source classes):
 
 ```csharp
 [Fact]
-public void Selection_Build_HasFiveGazeIndicatorRows_AllRestartDescribed()
+public void Selection_Build_HasFiveGazeIndicatorRows_RestartDescribed_ExceptOuter()
 {
     var sliders = new SelectionPageSource(TestSettingsPageContext.Build()).Build()
         .SelectMany(p => p.Rows).OfType<SliderSpec>()
         .Where(s => s.Id.StartsWith("s_gi_", StringComparison.Ordinal)).ToList();
     Check.That(sliders.Select(s => s.Id)).ContainsExactly(
         "s_gi_outer", "s_gi_dot", "s_gi_stroke", "s_gi_opacity", "s_gi_anim");
-    Check.That(sliders.All(s => s.Description!.Contains("restart", StringComparison.Ordinal))).IsTrue();
+    // Four of the five are snapshot-once at startup; the outer diameter is re-read live on
+    // every reset animation (OverlayMessageCoordinator), so its claim differs on purpose.
+    Check.That(sliders.Where(s => s.Id != "s_gi_outer")
+        .All(s => s.Description!.Contains("restart", StringComparison.Ordinal))).IsTrue();
+    Check.That(sliders.Single(s => s.Id == "s_gi_outer").Description)
+        .Contains("next selection", StringComparison.Ordinal);
     Check.That(sliders.Single(s => s.Id == "s_gi_outer").Get()).IsEqualTo(60);
 }
 ```
@@ -969,7 +981,7 @@ In `SelectionPageSource.cs`, after the `s_snapRadius` row, still inside the same
 ```csharp
 new SliderSpec("s_gi_outer", "Gaze Ring Diameter (px)", 20, 200, 5, 0,
     () => s.ManualSelection.GazeIndicatorOuterDiameter, v => { s.ManualSelection.GazeIndicatorOuterDiameter = v; _ctx.ApplyAndSave(); })
-    { Description = "Diameter of the ring shown at your gaze; applies after a restart." },
+    { Description = "Diameter of the ring shown at your gaze; applies from the next selection." },
 new SliderSpec("s_gi_dot", "Centre Dot (px)", 2, 40, 1, 0,
     () => s.ManualSelection.GazeIndicatorCenterDotDiameter, v => { s.ManualSelection.GazeIndicatorCenterDotDiameter = v; _ctx.ApplyAndSave(); })
     { Description = "Diameter of the dot at the centre of the gaze ring; applies after a restart." },
@@ -984,9 +996,7 @@ new SliderSpec("s_gi_anim", "Reset Animation (ms)", 0, 1000, 50, 0,
     { Description = "How long the gaze ring takes to fade after a selection; applies after a restart." },
 ```
 
-(The file's `Build()` local is `s` — the whole `EyeCtrlSettings` (`s.AutoSelection.HighlightColor` in the existing rows) — so ManualSelection is reached as `s.ManualSelection`. `GazeIndicatorOuterDiameter`/`CenterDotDiameter`/`StrokeThickness`/`Opacity` are `double` (no cast); `ResetAnimationMs` is `int` — cast as shown.)
-
-- [ ] **Step 4: Extend the span-guard Selection Fact**
+(The file's `Build()` local is `s` — the whole `EyeCtrlSettings` (`s.AutoSelection.HighlightColor` in the existing rows) — so ManualSelection is reached as `s.ManualSelection`. `GazeIndicatorOuterDiameter`/`CenterDotDiameter`/`StrokeThickness`/`Opacity` are `double` (no cast); `ResetAnimationMs` is `int` — cast as shown.)- [ ] **Step 4: Extend the span-guard Selection Fact**
 
 ```csharp
 Check.That(sliders).HasSize(10);
@@ -1054,7 +1064,7 @@ new ColorPickerSpec("cal_color", "Target Color",
     { Description = "Colour of the calibration target. Applies after a restart." },
 ```
 
-(The file's using block needs `using EyeCtrl.App.Views;` for `SettingsWindow` if absent.)
+(No `using` additions needed: `SettingsWindow` resolves from the child namespace `EyeCtrl.App.Views.Settings` via namespace nesting — `SelectionPageSource` already uses `SettingsWindow.ControlBtnRadius` with no such using.)
 
 - [ ] **Step 4: Run, commit**
 
@@ -1079,15 +1089,16 @@ git commit -m "feat(settings): calibration target colour picker"
 
 - [ ] **Step 1: Extend expectedTabs (failing first)**
 
-In `tests/EyeCtrl.App.Tests/Tests/SettingsTests.cs`, add to the `expectedTabs` array:
+In `tests/EyeCtrl.App.Tests/Tests/SettingsTests.cs`, add to the `expectedTabs` array. The current last entry `"Settings_Tab_QuickActions"` carries **no trailing comma** — add one, then the three literals:
 
 ```csharp
+"Settings_Tab_QuickActions",
 "Settings_Tab_EyeCare",
 "Settings_Tab_Adaptation",
-"Settings_Tab_Advanced",
+"Settings_Tab_Advanced"
 ```
 
-(The comparison sorts both sides Ordinal, so position in the array does not matter.)
+(The comparison sorts both sides Ordinal, so position in the array does not matter. Note this file is a FlaUI UI test — see Step 3's gating note.)
 
 - [ ] **Step 2: Add the tab defs, fields, construction, registration, audit comment**
 
@@ -1126,14 +1137,12 @@ _sources["Advanced"] = _advancedSource;
     "Auto-tuning of dwell and targeting when you struggle."),
 ```
 
-and after the `("QuickActions", …)` entry (last):
+and after the `("QuickActions", …)` entry (last). **`QuickActions` currently carries no trailing comma** — add a comma after its description line, then append the Advanced entry, which itself takes no trailing comma (it becomes the final entry):
 
 ```csharp
 ("Advanced", "⚒", "Advanced",
     "Expert tuning: backdrop, drag, scroll and external dwell.")
 ```
-
-(note: no trailing comma — it becomes the final entry; move the existing trailing comma from QuickActions to Advanced).
 
 Replace the whole audit comment block (the `// INTENTIONALLY NOT EXPOSED …` lines) with:
 
@@ -1150,9 +1159,12 @@ Replace the whole audit comment block (the `// INTENTIONALLY NOT EXPOSED …` li
 - [ ] **Step 3: Build and run the full App suite**
 
 `dotnet build EyeCtrl.slnx` → clean.
-`dotnet test tests/EyeCtrl.App.Tests` → PASS, including `SettingsTabDriftTests` (drift parses `_tabDefs`; the UI-expectation test compares against the extended `expectedTabs` — but note `SettingsTests` is a FlaUI UI test class; it runs only with a display and is excluded on CI. Run the full project locally, which includes it).
+`dotnet test tests/EyeCtrl.App.Tests` → PASS.
 
-If the tab icons `◑ ⇄ ⚒` render as tofu boxes when the window is opened manually, swap the character before merge (the label-fit test only checks non-empty icons — it cannot catch tofu). Do NOT launch the app to check this without the user's explicit OK.
+Two auto-discovering suites pick up this task's changes and should stay green with no edit:
+`SettingsAutoPaginationTests.EveryRenderedTab_HasASourcesEntry` asserts every `_tabDefs` id has a matching `_sources["id"] =` line — both land in this task's commit, which is why they must not be split. `SettingsContentFitTests.TheLongestRealToggleLabel_FitsTheContentColumn_OnANarrowDisplay` regex-scrapes every `ToggleSpec("id", "Label"` in the Sources tree; the longest new toggle label ("Suppress in Sensitive Contexts", 30 chars) is well under the 48-char strings already in that set.
+
+**`SettingsTests` is an opt-in UI test** — `[Trait("Category","UI")]` + `AppFixture.SkipIfDisabled()`, which `Assert.skip`s unless `EYECTRL_UI_TESTS=1`. It launches the real app and drives the cursor. **Do NOT set that variable; leave it skipped** — the `expectedTabs` edit is verified headlessly by `SettingsTabDriftTests`, which parses both `_tabDefs` and the UI test's expectation array. Likewise, never launch the app to eyeball the three new tab icons without the user's explicit OK; if `◑ ⇄ ⚒` render as tofu when the user next opens the window, swap the character then (the label-fit test only checks non-empty icons).
 
 - [ ] **Step 4: Run the remaining non-UI suites**
 

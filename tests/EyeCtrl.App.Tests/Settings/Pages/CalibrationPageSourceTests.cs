@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Core.Settings;
 using NFluent;
 using Xunit;
 
@@ -22,5 +23,20 @@ public class CalibrationPageSourceTests
         var src = new CalibrationPageSource(TestSettingsPageContext.Build());
         var label = src.Build()[1].Rows[0];
         Check.That(((LabelSpec)label).Text()).IsEqualTo("Last calibration: none");
+    }
+
+    [Fact]
+    public void Build_HasTargetColorPicker_AfterSettle()
+    {
+        var rows = new CalibrationPageSource(TestSettingsPageContext.Build()).Build()
+            .SelectMany(p => p.Rows).ToList();
+        var cp = rows.OfType<ColorPickerSpec>().Single();
+        Check.That(cp.Id).IsEqualTo("cal_color");
+        Check.That(rows.IndexOf(cp)).IsEqualTo(4); // after the four sliders on page 1
+        Check.That(cp.Get()).IsEqualTo(new CalibrationSettings().TargetColor);
+        // ^ CalibrationSettings initializes TargetColor to SettingsDefaults.Accent; the internal
+        // SettingsDefaults class itself is not visible from EyeCtrl.App.Tests (Core grants
+        // InternalsVisibleTo only to EyeCtrl.Core.Tests), so the default is asserted through the
+        // public settings object, the same pattern as SettingsDefaultsMatchTokensTests.
     }
 }

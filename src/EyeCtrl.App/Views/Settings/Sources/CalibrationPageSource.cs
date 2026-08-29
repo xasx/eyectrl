@@ -28,6 +28,10 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
                 new SliderSpec("cal_settle", "Settle Window (ms)", 0, 500, 25, 0,
                     () => cal.SettleWindowMs, v => { cal.SettleWindowMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "Time at a target before its samples start counting." },
+                new ColorPickerSpec("cal_color", "Target Color",
+                    () => cal.TargetColor, v => { cal.TargetColor = v; _ctx.ApplyAndSave(); },
+                    SettingsWindow.ColorSwatchRadius)
+                    { Description = "Colour of the calibration target. Applies after a restart." },
             ]),
             new PageSpec([
                 new LabelSpec(StatusText),

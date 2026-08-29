@@ -389,7 +389,7 @@ git commit -m "feat(settings): Eye Care tab page source"
 - Consumes: `SettingsPageContext`; `EyeCtrlSettings.Adaptation`; `Core.Settings.AdaptationPosture` (members `Conservative`, `Balanced`, `Responsive`).
 - Produces: `AdaptationPageSource` with ids `ad_enabled, ad_posture, ad_dwell, ad_tolerance, ad_smoothing, ad_geometry, ad_cue, ad_sensitive, ad_frac_dwell_short, ad_frac_dwell_long, ad_frac_tol_loose, ad_frac_smooth, ad_frac_geom, ad_reset`. **No `ad_caregiver` row** — `CaregiverAlerts` has no consumer (spec §Decisions).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs`:
 
@@ -472,11 +472,11 @@ public class AdaptationPageSourceTests
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 `dotnet build EyeCtrl.slnx` (compile error expected), then `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AdaptationPageSourceTests"` → FAIL.
 
-- [ ] **Step 3: Write the source**
+- [x] **Step 3: Write the source**
 
 Create `src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs`:
 
@@ -564,7 +564,7 @@ internal sealed class AdaptationPageSource : ISettingsPageSource
 }
 ```
 
-- [ ] **Step 4: Register in the gates**
+- [x] **Step 4: Register in the gates**
 
 Completeness array: add `new AdaptationPageSource(ctx),` after the EyeCare entry. Span-guard:
 
@@ -582,7 +582,7 @@ public void Adaptation_SliderSpans_StayInsideTheValidatedRanges()
 }
 ```
 
-- [ ] **Step 5: Run, commit**
+- [x] **Step 5: Run, commit**
 
 `dotnet test tests/EyeCtrl.App.Tests` → PASS.
 

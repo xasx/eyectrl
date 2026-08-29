@@ -99,6 +99,18 @@ public class SettingsSliderSpanGuardTests
         SpanInside(sliders, "ec_fatigue_thresh", 0.0, 1.0);
     }
 
+    [Fact]
+    public void Adaptation_SliderSpans_StayInsideTheValidatedRanges()
+    {
+        var sliders = Sliders(new AdaptationPageSource(TestSettingsPageContext.Build()));
+        Check.That(sliders).HasSize(5);
+        SpanInside(sliders, "ad_frac_dwell_short", 0.0, 1.0);
+        SpanInside(sliders, "ad_frac_dwell_long", 0.0, 1.0);
+        SpanInside(sliders, "ad_frac_tol_loose", 0.0, 1.0);
+        SpanInside(sliders, "ad_frac_smooth", 0.0, 1.0);
+        SpanInside(sliders, "ad_frac_geom", 0.0, 1.0);
+    }
+
     private static Dictionary<string, SliderSpec> Sliders(ISettingsPageSource source) =>
         source.Build().SelectMany(p => p.Rows).OfType<SliderSpec>().ToDictionary(s => s.Id);
 

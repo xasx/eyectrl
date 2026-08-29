@@ -1,14 +1,11 @@
 namespace EyeCtrl.App.Tests;
 
 using System;
-using System.Linq;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
-using NFluent;
-using Xunit;
 
 /// <summary>
 /// ToolbarViewModel names its icons as strings because EyeCtrl.ViewModels must not reference the

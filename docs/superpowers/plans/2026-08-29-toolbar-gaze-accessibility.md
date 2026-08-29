@@ -45,6 +45,7 @@ The artboards showed a *sweeping* arc, and `DwellArcButton.UpdateProgress` sweep
 - **Do not assign `Tokens.CircleCornerRadius` from code-behind.** `CornerRadiusClampTests` scans every `.cs` outside `/Theme/` in the scanned projects and requires zero hits (`CornerRadiusClampTests.cs:213-226`). This plan never does — `DwellArcButton` uses an `Ellipse`.
 - **Do not change the dwell-target lifecycle.** Targets are created lazily by `UpdateButtonScreenPosition` at the first real on-screen centre, never at `(0,0)`; later reports move them via `UpdateTargetCenter` so accumulated dwell survives re-layout. Nothing here adds or removes a target at runtime.
 - **Do not change dwell timings.** 700 ms for every button, Reset included — spec §8.6 wants Reset reachable exactly when adaptation has gone wrong.
+- **Match each test project's own layout when adding a file.** `EyeCtrl.Controls.Tests` uses folder-per-area with matching sub-namespaces (`Icons/`, `Theme/`), so a new icon test belongs in `Icons/` — Task 1 originally specified the project root and had to be moved. `EyeCtrl.App.Tests` keeps most guards at the root with only some areas foldered (`Settings/`, `Services/`, `Fixtures/`), so a root-level file is correct there. Check the sibling of the thing you are testing before choosing a path.
 - **Verify command:**
 
 ```bash
@@ -58,7 +59,7 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI"
 **New files:**
 - `src/EyeCtrl.Controls/Icons/ToolbarIconKey.cs` — enum naming the toolbar's icons.
 - `src/EyeCtrl.Controls/Icons/ToolbarIcons.cs` — `ToolbarIconKey` → the **existing** `IconGeometry` record. Sits beside `ActionIcons.cs` and reuses `ActionIcons.GridSize` and `ActionIcons.GridStrokeThickness`, so the whole app draws icons on one grid at one weight.
-- `tests/EyeCtrl.Controls.Tests/ToolbarIconsTests.cs`
+- `tests/EyeCtrl.Controls.Tests/Icons/ToolbarIconsTests.cs`
 - `tests/EyeCtrl.App.Tests/ToolbarButtonVisualTests.cs`
 - `tests/EyeCtrl.App.Tests/ToolbarIconKeyBridgeTests.cs` — pins the ViewModels-side icon-key strings against the real `ToolbarIconKey` enum. This project is the only one that references both.
 
@@ -79,7 +80,7 @@ dotnet test EyeCtrl.slnx --filter "Category!=UI"
 
 **Files:**
 - Create: `src/EyeCtrl.Controls/Icons/ToolbarIconKey.cs`, `src/EyeCtrl.Controls/Icons/ToolbarIcons.cs`
-- Test: `tests/EyeCtrl.Controls.Tests/ToolbarIconsTests.cs`
+- Test: `tests/EyeCtrl.Controls.Tests/Icons/ToolbarIconsTests.cs`
 
 **Interfaces:**
 - Produces: `ToolbarIconKey { Pause, Play, SelectionNone, SelectionManual, SelectionAuto, Keyboard, Settings, TaskSwitcher, ResetAdaptation, ProviderEye, ProviderMouse }`
@@ -91,10 +92,10 @@ Read `src/EyeCtrl.Controls/Icons/ActionIcons.cs` and `IconGeometry.cs` in full b
 
 - [ ] **Step 2: Write the failing test**
 
-Create `tests/EyeCtrl.Controls.Tests/ToolbarIconsTests.cs`:
+Create `tests/EyeCtrl.Controls.Tests/Icons/ToolbarIconsTests.cs`:
 
 ```csharp
-namespace EyeCtrl.Controls.Tests;
+namespace EyeCtrl.Controls.Tests.Icons;
 
 using System;
 using System.Windows;
@@ -321,7 +322,7 @@ The tests prove the geometry parses, freezes and fits. They cannot prove `ResetA
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/EyeCtrl.Controls/Icons tests/EyeCtrl.Controls.Tests/ToolbarIconsTests.cs
+git add src/EyeCtrl.Controls/Icons tests/EyeCtrl.Controls.Tests/Icons/ToolbarIconsTests.cs
 git commit -m "feat(controls): toolbar icon geometry on the shared icon grid"
 ```
 

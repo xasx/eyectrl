@@ -15,20 +15,17 @@ using EyeCtrl.ViewModels.Messages;
 /// keyboard/settings coordinators call when a modal opens. Extracted from <c>EventCoordinator</c> as
 /// part of the sub-coordinator decomposition (cluster 5).
 /// </summary>
-internal sealed class QuickActionsCoordinator : IDisposable
+internal sealed class QuickActionsCoordinator : CoordinatorBase
 {
-    private EventCoordinationContext? _context;
     private QuickActionsSummonController? _summon;
     private Action<GazePoint>? _quickActionsGazeHandler;       // keep the SOURCE name — moved bodies use it verbatim
     private PropertyChangedEventHandler? _quickActionsSettingsHandler;
     // True once the toolbar-settings + grid-VM PropertyChanged handlers are attached (create path
     // only). Gates the matching detach in Dispose.
     private bool _vmSubscriptionsAttached;
-    private bool _disposed;
-
-    public void Initialize(EventCoordinationContext context)
+    protected override void OnInitialize()
     {
-        _context = context ?? throw new ArgumentNullException(nameof(context));
+        var context = Context!;
         SetupQuickActionsSummon();
     }
 
@@ -44,21 +41,21 @@ internal sealed class QuickActionsCoordinator : IDisposable
 
     private void UpdateQuickActionsEffectiveEdge()
     {
-        if (_context == null) return;
-        _context.QuickActionsGridVM.EffectiveSummonEdge = ComputeActualSummonEdge(_context.Settings.QuickActions.SummonEdge);
+        if (Context is null) return;
+        Context.QuickActionsGridVM.EffectiveSummonEdge = ComputeActualSummonEdge(Context.Settings.QuickActions.SummonEdge);
     }
 
     private void AttachQuickActionsSettingsHandler()
     {
-        if (_quickActionsSettingsHandler != null || _context == null) return;
+        if (_quickActionsSettingsHandler != null || Context is null) return;
 
         _quickActionsSettingsHandler = (_, e) =>
         {
-            if (_context == null) return;
+            if (Context is null) return;
 
             if (e.PropertyName == nameof(QuickActionsSettings.Enabled))
             {
-                if (_context.Settings.QuickActions.Enabled)
+                if (Context.Settings.QuickActions.Enabled)
                 {
                     if (_summon == null)
                         SetupQuickActionsSummon();
@@ -74,14 +71,14 @@ internal sealed class QuickActionsCoordinator : IDisposable
 
             if (_summon == null || e.PropertyName != nameof(QuickActionsSettings.SummonEdge)) return;
             UpdateQuickActionsEffectiveEdge();
-            _summon.UpdateEdge(_context.QuickActionsGridVM.EffectiveSummonEdge);
+            _summon.UpdateEdge(Context.QuickActionsGridVM.EffectiveSummonEdge);
         };
-        _context.Settings.QuickActions.PropertyChanged += _quickActionsSettingsHandler;
+        Context.Settings.QuickActions.PropertyChanged += _quickActionsSettingsHandler;
     }
 
     private void SetupQuickActionsSummon()
     {
-        var s = _context!.Settings.QuickActions;
+        var s = Context!.Settings.QuickActions;
         AttachQuickActionsSettingsHandler();
 
         if (_summon != null)
@@ -110,17 +107,17 @@ internal sealed class QuickActionsCoordinator : IDisposable
             System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY,
             s.SummonThresholdMs,
             s.DismissTimeoutMs,
-            calibrationActive: () => _context.CalibrationService.IsSessionActive);
+            calibrationActive: () => Context.CalibrationService.IsSessionActive);
 
         // Gaze-thread → UI-thread marshal: both events hop through the dispatcher
         // before touching the VM (mirrors ToolbarAutoHideController's visibility adapter).
-        var gridVM = _context.QuickActionsGridVM;
+        var gridVM = Context.QuickActionsGridVM;
         // Keep the VM's effective edge in sync with the resolved edge (the controller watches the
         // resolved edge via ComputeActualSummonEdge; the grid window must anchor there too, or it
         // renders at the raw configured edge which may differ when it collides with the toolbar dock).
         UpdateQuickActionsEffectiveEdge();
         controller.SummonRequested += () =>
-            _context.Dispatcher.BeginInvoke(() =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
                 // Toolbar button / mouse-mode may have already shown it; only show when hidden.
                 if (!gridVM.IsVisible)
@@ -133,7 +130,7 @@ internal sealed class QuickActionsCoordinator : IDisposable
                 }
             });
         controller.DismissRequested += () =>
-            _context.Dispatcher.BeginInvoke(() =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
                 if (gridVM.IsVisible)
                 {
@@ -145,7 +142,7 @@ internal sealed class QuickActionsCoordinator : IDisposable
         // Feed takes a GazePoint (validity packed inside) — no unwrap/rewrap.
         _quickActionsGazeHandler = sample =>
             controller.Feed(sample, sample.TimestampMicroseconds);
-        _context.GazeEngine.GazeSampled += _quickActionsGazeHandler;
+        Context.GazeEngine.GazeSampled += _quickActionsGazeHandler;
 
         _summon = controller;
 
@@ -156,7 +153,7 @@ internal sealed class QuickActionsCoordinator : IDisposable
         // handlers read the field instead of capturing the `controller` local.
         //
         // React to toolbar edge changes — re-evaluate conflict (not just pass-through)
-        _context.Settings.Toolbar.PropertyChanged += OnToolbarSettingsPropertyChanged;
+        Context.Settings.Toolbar.PropertyChanged += OnToolbarSettingsPropertyChanged;
 
         // H1 fix — bidirectional controller↔VM sync. Subscribe to grid VM IsVisible so that
         // toolbar-button shows (which set IsVisible=true without going through the controller)
@@ -171,21 +168,21 @@ internal sealed class QuickActionsCoordinator : IDisposable
 
     private void OnToolbarSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
         if (e.PropertyName == nameof(ToolbarSettings.DockedEdge))
         {
             UpdateQuickActionsEffectiveEdge();
-            _summon?.UpdateEdge(_context.QuickActionsGridVM.EffectiveSummonEdge);
+            _summon?.UpdateEdge(Context.QuickActionsGridVM.EffectiveSummonEdge);
         }
     }
 
     private void OnGridVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
         if (e.PropertyName != nameof(QuickActionsGridViewModel.IsVisible)) return;
 
-        var gridVM = _context.QuickActionsGridVM;
-        _context.Dispatcher.BeginInvoke(() =>
+        var gridVM = Context.QuickActionsGridVM;
+        Context.Dispatcher.BeginInvoke(() =>
         {
             // _summon is assigned before this handler is subscribed and never nulled, so it is
             // non-null in practice; the local keeps the dispatched closure independent of the field.
@@ -210,7 +207,7 @@ internal sealed class QuickActionsCoordinator : IDisposable
 
     private string ComputeActualSummonEdge(string configuredEdge)
     {
-        if (configuredEdge == _context!.Settings.Toolbar.DockedEdge)
+        if (configuredEdge == Context!.Settings.Toolbar.DockedEdge)
             return configuredEdge switch
             {
                 "Left" => "Right", "Right" => "Left",
@@ -220,17 +217,14 @@ internal sealed class QuickActionsCoordinator : IDisposable
         return configuredEdge;
     }
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed || _context is null) { _disposed = true; return; }
-        if (_quickActionsGazeHandler != null) _context.GazeEngine.GazeSampled -= _quickActionsGazeHandler;
-        if (_quickActionsSettingsHandler != null) _context.Settings.QuickActions.PropertyChanged -= _quickActionsSettingsHandler;
+        if (_quickActionsGazeHandler != null) Context!.GazeEngine.GazeSampled -= _quickActionsGazeHandler;
+        if (_quickActionsSettingsHandler != null) Context!.Settings.QuickActions.PropertyChanged -= _quickActionsSettingsHandler;
         if (_vmSubscriptionsAttached)
         {
-            _context.Settings.Toolbar.PropertyChanged -= OnToolbarSettingsPropertyChanged;
-            _context.QuickActionsGridVM.PropertyChanged -= OnGridVmPropertyChanged;
+            Context!.Settings.Toolbar.PropertyChanged -= OnToolbarSettingsPropertyChanged;
+            Context!.QuickActionsGridVM.PropertyChanged -= OnGridVmPropertyChanged;
         }
-        _context.Messenger.UnregisterAll(this);
-        _disposed = true;
     }
 }

@@ -14,17 +14,14 @@ using EyeCtrl.ViewModels.Messages;
 /// bindings, TaskSwitcher binding, and glass backdrop lifecycle. Sibling <see cref="OverlayMessageCoordinator"/>;
 /// <see cref="HideBackdrop"/> is the cross-side seam (this coordinator owns the <c>_glassBackdrop</c> window).
 /// </summary>
-internal sealed class OverlayVmBindingCoordinator : IDisposable
+internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
 {
     private const int ActivationButtonOffsetPixels = 55;
     // Inset (logical px) from the right screen edge for drag/manual-selection edge buttons.
     private const double RightEdgeInsetLogical = 30;
 
-    private EventCoordinationContext? _context;
     private readonly ModalInteractionState _modal;
     private GlassBackdropWindow? _glassBackdrop;
-    private bool _disposed;
-
     public OverlayVmBindingCoordinator(ModalInteractionState modal)
     {
         // Dereferenced by the cursor-visibility guard (OnCursorVMPropertyChanged reads
@@ -32,9 +29,9 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
     }
 
-    public void Initialize(EventCoordinationContext context)
+    protected override void OnInitialize()
     {
-        _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
+        var context = Context!;
 
         SetupPropertyChangedHandlers();
         SetupBackdrop();
@@ -42,52 +39,52 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
 
     private void SetupPropertyChangedHandlers()
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
         // CursorCircle: VM.Position -> window position, VM.IsVisible -> show/hide
-        _context.CursorVM.PropertyChanged += OnCursorVMPropertyChanged;
+        Context.CursorVM.PropertyChanged += OnCursorVMPropertyChanged;
 
         // ActivationButton: VM -> show/hide/dwell
-        _context.ActivationVM.PropertyChanged += OnActivationVMPropertyChanged;
+        Context.ActivationVM.PropertyChanged += OnActivationVMPropertyChanged;
 
         // ManualSelectionOverlay: VM -> show/hide/reposition
-        _context.ManualSelectionVM.PropertyChanged += OnManualSelectionVMPropertyChanged;
+        Context.ManualSelectionVM.PropertyChanged += OnManualSelectionVMPropertyChanged;
 
         // ManualSelectionGazeIndicator: VM property changes -> window updates
-        _context.ManualSelectionIndicatorVM.PropertyChanged += OnManualSelectionIndicatorVMPropertyChanged;
+        Context.ManualSelectionIndicatorVM.PropertyChanged += OnManualSelectionIndicatorVMPropertyChanged;
 
         // ManualSelection: VM visibility -> edge bar show/hide
-        _context.ManualSelectionVM.PropertyChanged += OnManualSelectionVisibilityChanged;
+        Context.ManualSelectionVM.PropertyChanged += OnManualSelectionVisibilityChanged;
 
         // ActionMenu: VM -> show/hide
-        _context.ActionMenuVM.PropertyChanged += OnActionMenuVMPropertyChanged;
+        Context.ActionMenuVM.PropertyChanged += OnActionMenuVMPropertyChanged;
 
         // Toolbar: VM state changes -> toolbar state
-        _context.ToolbarVM.PropertyChanged += OnToolbarVMPropertyChanged;
+        Context.ToolbarVM.PropertyChanged += OnToolbarVMPropertyChanged;
 
         // GlassBackdrop: VM progress -> backdrop window update
-        _context.BackdropVM.PropertyChanged += OnBackdropVMPropertyChanged;
+        Context.BackdropVM.PropertyChanged += OnBackdropVMPropertyChanged;
 
         // Task Switcher: the VM receives TaskSwitcherToggledMessage itself (via IRecipient +
         // ObservableRecipient auto-register) and toggles its own IsVisible + tiles. The
         // coordinator only watches IsVisible to show/hide the fullscreen window.
         // (Moved from an anonymous lambda in EventCoordinator.Initialize — extracting a named
         // handler lets Dispose -= it; the lambda was previously never unsubscribed.)
-        _context.TaskSwitcherVM.PropertyChanged += OnTaskSwitcherVMPropertyChanged;
+        Context.TaskSwitcherVM.PropertyChanged += OnTaskSwitcherVMPropertyChanged;
     }
 
     private void SetupBackdrop()
     {
-        if (_context == null)
+        if (Context is null)
             return;
-        _glassBackdrop = _context.OverlayManager.GlassBackdrop;
+        _glassBackdrop = Context.OverlayManager.GlassBackdrop;
     }
 
     private void ShowBackdropIfEnabled()
     {
-        if (_glassBackdrop == null || _context == null)
+        if (_glassBackdrop == null || Context is null)
             return;
-        var settings = _context.Settings.Backdrop;
+        var settings = Context.Settings.Backdrop;
         if (!settings.Enabled)
             return;
 
@@ -103,28 +100,28 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
         _glassBackdrop.Show();
         _glassBackdrop.ApplyBackdrop(settings);
         _glassBackdrop.DrawHideButton(hideButtonCenter);
-        _context.Messenger.Send(new ShowBackdropMessage(hideButtonCenter));
+        Context.Messenger.Send(new ShowBackdropMessage(hideButtonCenter));
     }
 
     /// <summary>Internal seam for the message-driven sibling — owns the <c>_glassBackdrop</c> window.</summary>
     internal void HideBackdrop()
     {
         _glassBackdrop?.Hide();
-        _context?.Messenger.Send(new HideBackdropMessage());
+        Context?.Messenger.Send(new HideBackdropMessage());
     }
 
     private void OnCursorVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var cursorCircle = _context.OverlayManager.CursorCircle;
+        var cursorCircle = Context.OverlayManager.CursorCircle;
         switch (e.PropertyName)
         {
             case nameof(CursorCircleViewModel.Position):
-                cursorCircle.UpdatePosition(_context.CursorVM.Position);
+                cursorCircle.UpdatePosition(Context.CursorVM.Position);
                 break;
             case nameof(CursorCircleViewModel.IsVisible):
-                if (_context.CursorVM.IsVisible && !_modal.SettingsOpen) cursorCircle.Show();
+                if (Context.CursorVM.IsVisible && !_modal.SettingsOpen) cursorCircle.Show();
                 else cursorCircle.Hide();
                 break;
         }
@@ -132,21 +129,21 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
 
     private void OnActivationVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var activationButton = _context.OverlayManager.ActivationButton;
-        var actionMenu = _context.OverlayManager.ActionMenu;
+        var activationButton = Context.OverlayManager.ActivationButton;
+        var actionMenu = Context.OverlayManager.ActionMenu;
 
         switch (e.PropertyName)
         {
             case nameof(ActivationButtonViewModel.IsVisible):
-                if (_context.ActivationVM.IsVisible)
+                if (Context.ActivationVM.IsVisible)
                 {
                     actionMenu.Hide();
-                    var circleRadius = _context.Settings.Cursor.CircleSize / 2;
+                    var circleRadius = Context.Settings.Cursor.CircleSize / 2;
                     var buttonOffset = circleRadius + ActivationButtonOffsetPixels;
                     activationButton.Show();
-                    activationButton.ShowAt(_context.ActivationVM.Position, buttonOffset);
+                    activationButton.ShowAt(Context.ActivationVM.Position, buttonOffset);
                 }
                 else
                 {
@@ -154,32 +151,32 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
                 }
                 break;
             case nameof(ActivationButtonViewModel.DwellProgress):
-                activationButton.UpdateDwellProgress(_context.ActivationVM.DwellProgress);
+                activationButton.UpdateDwellProgress(Context.ActivationVM.DwellProgress);
                 break;
         }
     }
 
     private void OnManualSelectionVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
-        var cursorCircle = _context.OverlayManager.CursorCircle;
-        var activationButton = _context.OverlayManager.ActivationButton;
-        var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
+        var ManualSelectionOverlay = Context.OverlayManager.ManualSelectionOverlay;
+        var cursorCircle = Context.OverlayManager.CursorCircle;
+        var activationButton = Context.OverlayManager.ActivationButton;
+        var ManualSelectionIndicator = Context.OverlayManager.ManualSelectionIndicator;
 
-        if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.Center) && _context.ManualSelectionVM.IsVisible)
+        if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.Center) && Context.ManualSelectionVM.IsVisible)
         {
-            ManualSelectionOverlay.UpdateCenter(_context.ManualSelectionVM.Center, _context.ManualSelectionVM.Radius, _context.ManualSelectionVM.Magnification);
+            ManualSelectionOverlay.UpdateCenter(Context.ManualSelectionVM.Center, Context.ManualSelectionVM.Radius, Context.ManualSelectionVM.Magnification);
         }
         else if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.IsVisible))
         {
-            if (_context.ManualSelectionVM.IsVisible)
+            if (Context.ManualSelectionVM.IsVisible)
             {
                 cursorCircle.Hide();
                 activationButton.HideImmediate();
                 ShowBackdropIfEnabled();
-                ManualSelectionOverlay.Show(_context.ManualSelectionVM.Center, _context.ManualSelectionVM.Radius, _context.ManualSelectionVM.Magnification, _context.ManualSelectionVM.GazePoint, _context.ManualSelectionVM.Recapture);
+                ManualSelectionOverlay.Show(Context.ManualSelectionVM.Center, Context.ManualSelectionVM.Radius, Context.ManualSelectionVM.Magnification, Context.ManualSelectionVM.GazePoint, Context.ManualSelectionVM.Recapture);
                 ManualSelectionIndicator.Show();
                 // Keep the gaze dot above the opaque magnifier: the Show() above is a no-op if the
                 // indicator's own VM already showed it before the magnifier, leaving it hidden
@@ -197,20 +194,20 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
 
     private void OnManualSelectionIndicatorVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
+        var ManualSelectionIndicator = Context.OverlayManager.ManualSelectionIndicator;
         switch (e.PropertyName)
         {
             case nameof(ManualSelectionGazeIndicatorViewModel.IndicatorX):
             case nameof(ManualSelectionGazeIndicatorViewModel.IndicatorY):
-                ManualSelectionIndicator.UpdatePosition(_context.ManualSelectionIndicatorVM.IndicatorX, _context.ManualSelectionIndicatorVM.IndicatorY);
+                ManualSelectionIndicator.UpdatePosition(Context.ManualSelectionIndicatorVM.IndicatorX, Context.ManualSelectionIndicatorVM.IndicatorY);
                 break;
             case nameof(ManualSelectionGazeIndicatorViewModel.OuterCircleDiameter):
-                ManualSelectionIndicator.UpdateOuterDiameter(_context.ManualSelectionIndicatorVM.OuterCircleDiameter);
+                ManualSelectionIndicator.UpdateOuterDiameter(Context.ManualSelectionIndicatorVM.OuterCircleDiameter);
                 break;
             case nameof(ManualSelectionGazeIndicatorViewModel.IsVisible):
-                if (_context.ManualSelectionIndicatorVM.IsVisible) ManualSelectionIndicator.Show();
+                if (Context.ManualSelectionIndicatorVM.IsVisible) ManualSelectionIndicator.Show();
                 else ManualSelectionIndicator.Hide();
                 break;
         }
@@ -218,14 +215,14 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
 
     private void OnManualSelectionVisibilityChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
         if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.IsVisible))
         {
-            if (_context.ManualSelectionVM.IsVisible)
+            if (Context.ManualSelectionVM.IsVisible)
             {
                 var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);
-                var dwell = _context.Settings.Dwell.ManualSelectionSideButtonDwellMs;
+                var dwell = Context.Settings.Dwell.ManualSelectionSideButtonDwellMs;
                 // Match the former side-button layout: full-size buttons (UIConstants.ButtonRadius)
                 // separated so their edges are ManualSelectionSideButtonGap apart, centred on the anchor.
                 var radius = UIConstants.ButtonRadius;
@@ -239,26 +236,26 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
                         m => m.Send(new ManualSelectionRecaptureMessage()), VerticalOffset: offset,
                         RadiusLogical: radius),
                 };
-                _context.OverlayManager.EdgeButtonBar.ShowButtons(defs, anchor);
+                Context.OverlayManager.EdgeButtonBar.ShowButtons(defs, anchor);
             }
             else
             {
-                _context.OverlayManager.EdgeButtonBar.Hide();
+                Context.OverlayManager.EdgeButtonBar.Hide();
             }
         }
     }
 
     private void OnActionMenuVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var actionMenu = _context.OverlayManager.ActionMenu;
-        var cursorCircle = _context.OverlayManager.CursorCircle;
-        var activationButton = _context.OverlayManager.ActivationButton;
+        var actionMenu = Context.OverlayManager.ActionMenu;
+        var cursorCircle = Context.OverlayManager.CursorCircle;
+        var activationButton = Context.OverlayManager.ActivationButton;
 
         if (e.PropertyName == nameof(ActionMenuViewModel.IsVisible))
         {
-            if (_context.ActionMenuVM.IsVisible)
+            if (Context.ActionMenuVM.IsVisible)
             {
                 cursorCircle.Hide();
                 activationButton.HideImmediate();
@@ -274,7 +271,7 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
         }
         else if ((e.PropertyName == nameof(ActionMenuViewModel.RingVersion)
                   || e.PropertyName == nameof(ActionMenuViewModel.ShowLabels))
-                 && _context.ActionMenuVM.IsVisible)
+                 && Context.ActionMenuVM.IsVisible)
         {
             // A layer switch, or the Help target turning names on. Same call either way, so the
             // ring, the preview capture and the indicator all rebuild together and the canvas can
@@ -292,31 +289,31 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
     /// </summary>
     private void ShowActionMenu()
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        _context.OverlayManager.ActionMenu.Show(
-            _context.ActionMenuVM.Center,
-            _context.Settings.ActionMenu.VisibleActions,
-            _context.ActionMenuVM.ShowBack,
-            _context.ActionMenuVM.ShowBack ? _context.Settings.Dwell.ManualSelectionActionMenuDwellMs : _context.Settings.Dwell.ActionMenuDwellMs,
-            _context.ActionMenuVM.EffectiveRingRadius,
-            _context.Settings.Cursor.CircleSize,
-            _context.Settings.Cursor.CircleColor,
-            _context.Settings.Cursor.PositionIndicatorStyle,
-            _context.ActionMenuVM.ManualSelectionCenter,
-            _context.ActionMenuVM.ManualSelectionRadius,
-            _context.ActionMenuVM.GazePoint,
-            _context.ActionMenuVM.ShowLabels);
+        Context.OverlayManager.ActionMenu.Show(
+            Context.ActionMenuVM.Center,
+            Context.Settings.ActionMenu.VisibleActions,
+            Context.ActionMenuVM.ShowBack,
+            Context.ActionMenuVM.ShowBack ? Context.Settings.Dwell.ManualSelectionActionMenuDwellMs : Context.Settings.Dwell.ActionMenuDwellMs,
+            Context.ActionMenuVM.EffectiveRingRadius,
+            Context.Settings.Cursor.CircleSize,
+            Context.Settings.Cursor.CircleColor,
+            Context.Settings.Cursor.PositionIndicatorStyle,
+            Context.ActionMenuVM.ManualSelectionCenter,
+            Context.ActionMenuVM.ManualSelectionRadius,
+            Context.ActionMenuVM.GazePoint,
+            Context.ActionMenuVM.ShowLabels);
     }
 
     private void OnToolbarVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var toolbar = _context.OverlayManager.Toolbar;
+        var toolbar = Context.OverlayManager.Toolbar;
         if (e.PropertyName == nameof(ToolbarViewModel.IsPaused))
         {
-            toolbar.SetPausedState(_context.ToolbarVM.IsPaused);
+            toolbar.SetPausedState(Context.ToolbarVM.IsPaused);
         }
     }
 
@@ -324,58 +321,54 @@ internal sealed class OverlayVmBindingCoordinator : IDisposable
     {
         if (_glassBackdrop == null) return;
         if (e.PropertyName == nameof(GlassBackdropViewModel.HideButtonProgress))
-            _glassBackdrop.UpdateHideButtonProgress(_context!.BackdropVM.HideButtonProgress);
+            _glassBackdrop.UpdateHideButtonProgress(Context!.BackdropVM.HideButtonProgress);
     }
 
     private void OnTaskSwitcherVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        if (e.PropertyName == nameof(_context.TaskSwitcherVM.IsVisible))
+        if (e.PropertyName == nameof(Context.TaskSwitcherVM.IsVisible))
         {
-            _context.Dispatcher.BeginInvoke(() =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
-                if (_context.TaskSwitcherVM.IsVisible)
+                if (Context.TaskSwitcherVM.IsVisible)
                 {
                     // The fullscreen switcher covers the toolbar, but dwell has no z-order:
                     // without this, a top-row tile dwell also fires the toolbar button
                     // underneath it (2026-08-18 field report). SetActive(false) also resets
                     // any in-flight toolbar dwell.
-                    _context.ToolbarVM.SetActive(false);
-                    _context.OverlayManager.TaskSwitcher.ShowFullScreen();
+                    Context.ToolbarVM.SetActive(false);
+                    Context.OverlayManager.TaskSwitcher.ShowFullScreen();
                 }
                 else
                 {
-                    _context.OverlayManager.TaskSwitcher.HideOverlay();
+                    Context.OverlayManager.TaskSwitcher.HideOverlay();
                     // Reactivate only if the toolbar is actually on screen: auto-hide may
                     // have hidden it while the switcher was up, and activating a hidden
                     // toolbar creates gaze targets for invisible buttons — the exact hazard
                     // SetActive's contract exists to prevent.
-                    if (_context.OverlayManager.Toolbar.IsVisible)
-                        _context.ToolbarVM.SetActive(true);
+                    if (Context.OverlayManager.Toolbar.IsVisible)
+                        Context.ToolbarVM.SetActive(true);
                 }
             });
         }
     }
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed || _context is null) { _disposed = true; return; }
-
-        // Mirror SetupPropertyChangedHandlers: unsubscribe the 8 overlay VMs + TaskSwitcherVM.
-        _context.CursorVM.PropertyChanged -= OnCursorVMPropertyChanged;
-        _context.ActivationVM.PropertyChanged -= OnActivationVMPropertyChanged;
-        _context.ManualSelectionVM.PropertyChanged -= OnManualSelectionVMPropertyChanged;
-        _context.ManualSelectionVM.PropertyChanged -= OnManualSelectionVisibilityChanged;
-        _context.ManualSelectionIndicatorVM.PropertyChanged -= OnManualSelectionIndicatorVMPropertyChanged;
-        _context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
-        _context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;
-        _context.BackdropVM.PropertyChanged -= OnBackdropVMPropertyChanged;
-        _context.TaskSwitcherVM.PropertyChanged -= OnTaskSwitcherVMPropertyChanged;
+        if (Context is null) return;
+        Context.CursorVM.PropertyChanged -= OnCursorVMPropertyChanged;
+        Context.ActivationVM.PropertyChanged -= OnActivationVMPropertyChanged;
+        Context.ManualSelectionVM.PropertyChanged -= OnManualSelectionVMPropertyChanged;
+        Context.ManualSelectionVM.PropertyChanged -= OnManualSelectionVisibilityChanged;
+        Context.ManualSelectionIndicatorVM.PropertyChanged -= OnManualSelectionIndicatorVMPropertyChanged;
+        Context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
+        Context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;
+        Context.BackdropVM.PropertyChanged -= OnBackdropVMPropertyChanged;
+        Context.TaskSwitcherVM.PropertyChanged -= OnTaskSwitcherVMPropertyChanged;
 
         _glassBackdrop?.Hide();
         _glassBackdrop = null;
-
-        _disposed = true;
     }
 }

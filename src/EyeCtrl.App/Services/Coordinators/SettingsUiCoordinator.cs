@@ -21,9 +21,8 @@ using Serilog;
 /// the track-status visibility binding, and the model/restart-coordinator hand-off. Extracted from
 /// <c>EventCoordinator</c> as part of the sub-coordinator decomposition (cluster 7).
 /// </summary>
-internal sealed class SettingsUiCoordinator : IDisposable
+internal sealed class SettingsUiCoordinator : CoordinatorBase
 {
-    private EventCoordinationContext? _context;
     private readonly ModalInteractionState _modal;
     private readonly QuickActionsCoordinator _quickActions;
     private readonly ToolbarLifecycleCoordinator _toolbar;
@@ -35,8 +34,6 @@ internal sealed class SettingsUiCoordinator : IDisposable
     // Owned HERE — moved from EventCoordinator. Read in OnSettingsChanged to gate the toolbar
     // re-init (only re-initialize the toolbar when its layout-affecting settings changed).
     private ToolbarSnapshot? _toolbarSnapshot;
-    private bool _disposed;
-
     public SettingsUiCoordinator(ModalInteractionState modal, QuickActionsCoordinator quickActions,
         ToolbarLifecycleCoordinator toolbar, KeyboardCoordinator keyboard)
     {
@@ -48,9 +45,9 @@ internal sealed class SettingsUiCoordinator : IDisposable
         _keyboard = keyboard ?? throw new ArgumentNullException(nameof(keyboard));
     }
 
-    public void Initialize(EventCoordinationContext context)
+    protected override void OnInitialize()
     {
-        _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
+        var context = Context!;
 
         var messenger = context.Messenger;
 
@@ -76,9 +73,9 @@ internal sealed class SettingsUiCoordinator : IDisposable
 
     private void OnTrackStatusSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
         if (e.PropertyName == nameof(TrackStatusSettings.Enabled))
-            _context.Dispatcher.BeginInvoke(UpdateTrackStatusVisibility);
+            Context.Dispatcher.BeginInvoke(UpdateTrackStatusVisibility);
     }
 
     /// <summary>Stores the model services for the next <see cref="ShowSettingsWindow"/> construction.
@@ -104,9 +101,9 @@ internal sealed class SettingsUiCoordinator : IDisposable
 
     private void UpdateTrackStatusVisibility()
     {
-        if (_context == null) return;
-        var trackStatusWindow = _context.OverlayManager.TrackStatus;
-        if (_context.Settings.TrackStatus.Enabled)
+        if (Context is null) return;
+        var trackStatusWindow = Context.OverlayManager.TrackStatus;
+        if (Context.Settings.TrackStatus.Enabled)
             trackStatusWindow.StartTracking();
         else
             trackStatusWindow.StopTracking();
@@ -114,36 +111,36 @@ internal sealed class SettingsUiCoordinator : IDisposable
 
     private void ShowSettingsWindow()
     {
-        if (_context == null || _settingsWindow != null) return;
+        if (Context is null || _settingsWindow != null) return;
 
         _modal.SettingsOpen = true;
         _toolbar.SetAutoHideSuspended(true);
         _quickActions.SetSummonSuspended(true);
-        _context.OverlayManager.CursorCircle.Hide();
+        Context.OverlayManager.CursorCircle.Hide();
 
         try
         {
             // Create SettingsViewModels
-            var settingsVM = new SettingsViewModel(_context.Settings);
+            var settingsVM = new SettingsViewModel(Context.Settings);
 
             var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
-                _context.QuickActionsStore, _context.InstalledAppProvider);
+                Context.QuickActionsStore, Context.InstalledAppProvider);
             quickActionsEditor.Load();
 
             var settingsWindowVM = new SettingsWindowViewModel(
                 settingsVM,
                 quickActionsEditor,
-                _context.Messenger,
-                _context.Settings.Dwell);
+                Context.Messenger,
+                Context.Settings.Dwell);
 
             _settingsWindow = new SettingsWindow(
                 settingsWindowVM,
-                _context.Settings,
-                _context.SettingsService,
+                Context.Settings,
+                Context.SettingsService,
                 _modelRegistry ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
                 _modelManagementService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
-                _context.Messenger,
-                _context.CalibrationService,
+                Context.Messenger,
+                Context.CalibrationService,
                 _restartCoordinator ?? throw new InvalidOperationException(
                     "Restart coordinator not set; SetRestartCoordinator must be called at startup."));
 
@@ -158,26 +155,26 @@ internal sealed class SettingsUiCoordinator : IDisposable
             // undo the suspend we set alongside _modal.SettingsOpen = true above.
             _toolbar.SetAutoHideSuspended(false);
             _quickActions.SetSummonSuspended(false);
-            if (_context.CursorVM.IsVisible)
-                _context.OverlayManager.CursorCircle.Show();
+            if (Context.CursorVM.IsVisible)
+                Context.OverlayManager.CursorCircle.Show();
             throw;
         }
     }
 
     private void OnSettingsChanged(EyeCtrlSettings s)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        _context.OverlayManager.CursorCircle.UpdateAppearance(s.Cursor);
-        _context.InteractionManager.SelectionMode = s.SelectionMode;
-        _context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
-        _context.Messenger.Send(new SelectionModeChangedMessage(s.SelectionMode));
+        Context.OverlayManager.CursorCircle.UpdateAppearance(s.Cursor);
+        Context.InteractionManager.SelectionMode = s.SelectionMode;
+        Context.OverlayManager.Toolbar.SetSelectionModeState(s.SelectionMode);
+        Context.Messenger.Send(new SelectionModeChangedMessage(s.SelectionMode));
 
         var toolbarSnapshot = ToolbarSnapshot.Capture(s);
         if (_toolbarSnapshot != toolbarSnapshot)
         {
-            _context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
-            _context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
+            Context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
+            Context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
 
             // Re-evaluate enablement (IsDocked may have flipped to false → disable + force-show),
             // refresh the cached edge, and reposition the pause indicator along the new edge.
@@ -192,28 +189,25 @@ internal sealed class SettingsUiCoordinator : IDisposable
 
         // The keyboard snapshot compare + reload lives on KeyboardCoordinator (cluster 3), exposed
         // as the ReloadIfChanged seam.
-        _keyboard.ReloadIfChanged(s, _context.InputSimulator, _context.SettingsService);
+        _keyboard.ReloadIfChanged(s, Context.InputSimulator, Context.SettingsService);
 
         Log.Information("Settings saved");
     }
 
     private void OnSettingsWindowClosed(object? sender, EventArgs e)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
         _settingsWindow = null;
         _modal.SettingsOpen = false;
         _toolbar.SetAutoHideSuspended(false);
         _quickActions.SetSummonSuspended(false);
-        if (_context.CursorVM.IsVisible)
-            _context.OverlayManager.CursorCircle.Show();
+        if (Context.CursorVM.IsVisible)
+            Context.OverlayManager.CursorCircle.Show();
     }
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-
         // Close the settings window before tearing down the rest of EC (EC.Dispose calls this
         // FIRST). Unsubscribe the Closed handler before Close() so the synchronous Closed event
         // doesn't re-enter OnSettingsWindowClosed (which would touch the toolbar/quick-actions
@@ -229,10 +223,9 @@ internal sealed class SettingsUiCoordinator : IDisposable
             _settingsWindow = null;
         }
 
-        if (_context != null)
+        if (Context is not null)
         {
-            _context.Settings.TrackStatus.PropertyChanged -= OnTrackStatusSettingsPropertyChanged;
-            _context.Messenger.UnregisterAll(this);
+            Context.Settings.TrackStatus.PropertyChanged -= OnTrackStatusSettingsPropertyChanged;
         }
     }
 }

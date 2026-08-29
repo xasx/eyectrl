@@ -19,9 +19,8 @@ using Serilog;
 /// (<see cref="ReloadIfChanged"/>, consumed by SettingsUiCoordinator). Extracted from
 /// <c>EventCoordinator</c> as part of the sub-coordinator decomposition (cluster 3).
 /// </summary>
-internal sealed class KeyboardCoordinator : IDisposable
+internal sealed class KeyboardCoordinator : CoordinatorBase
 {
-    private EventCoordinationContext? _context;
     private readonly ModalInteractionState _modal;
     private readonly QuickActionsCoordinator _quickActions;
     private readonly ToolbarLifecycleCoordinator _toolbar;
@@ -33,8 +32,6 @@ internal sealed class KeyboardCoordinator : IDisposable
     // SetModelServices hands only the registry to PredictionStackFactory.Rebuild; the download
     // service is dead and dropped (see EC.SetModelServices, kept 3-arg for App compatibility).
     private ModelRegistryService? _modelRegistry;
-    private bool _disposed;
-
     public WordPredictor? WordPredictor => _predictionFactory.Current?.WordPredictor;
     public PredictionOrchestrator? Orchestrator => _predictionFactory.Current;
 
@@ -48,9 +45,9 @@ internal sealed class KeyboardCoordinator : IDisposable
         _toolbar = toolbar ?? throw new ArgumentNullException(nameof(toolbar));
     }
 
-    public void Initialize(EventCoordinationContext context)
+    protected override void OnInitialize()
     {
-        _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
+        var context = Context!;
         _appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
 
         var messenger = context.Messenger;
@@ -141,8 +138,8 @@ internal sealed class KeyboardCoordinator : IDisposable
     {
         var snap = KeyboardStackSnapshot.Capture(settings);
         if (_keyboardSnapshot == snap) return false;
-        if (_context is null) return false; // defensive — the seam is only reachable post-Initialize
-        LoadKeyboard(_context.OverlayManager.Keyboard, settings, input, ss);
+        if (Context is null) return false; // defensive — the seam is only reachable post-Initialize
+        LoadKeyboard(Context.OverlayManager.Keyboard, settings, input, ss);
         return true;
     }
 
@@ -152,27 +149,27 @@ internal sealed class KeyboardCoordinator : IDisposable
     // fixation for the rest of the app).
     private void SetKeyboardVisible(bool visible, bool manageSuppression)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
         ApplyModalKeyboardState(visible);
         Log.Information("Keyboard {State}", visible ? "shown" : "hidden");
 
         if (visible)
         {
-            _context.OverlayManager.Keyboard.Show();
+            Context.OverlayManager.Keyboard.Show();
             if (manageSuppression)
             {
-                _context.GazeEngine.SuppressFixation = true;
-                _context.InteractionManager.OnFixationEnded();
+                Context.GazeEngine.SuppressFixation = true;
+                Context.InteractionManager.OnFixationEnded();
             }
-            _context.Messenger.Send(new ShowKeyboardMessage());
+            Context.Messenger.Send(new ShowKeyboardMessage());
         }
         else
         {
-            _context.OverlayManager.Keyboard.Hide();
+            Context.OverlayManager.Keyboard.Hide();
             if (manageSuppression)
-                _context.GazeEngine.SuppressFixation = false;
-            _context.Messenger.Send(new HideKeyboardMessage());
+                Context.GazeEngine.SuppressFixation = false;
+            Context.Messenger.Send(new HideKeyboardMessage());
         }
     }
 
@@ -220,25 +217,16 @@ internal sealed class KeyboardCoordinator : IDisposable
 
     private void OnEmojiSkinToneChanged(int tone)
     {
-        if (_context == null) return;
-        _keyboardSnapshot = ApplyEmojiSkinTone(_context.Settings, _context.SettingsService, tone);
+        if (Context is null) return;
+        _keyboardSnapshot = ApplyEmojiSkinTone(Context.Settings, Context.SettingsService, tone);
     }
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed) return;
-
-        // The prediction factory is field-initialized (never null) and its Dispose is idempotent;
-        // dispose it regardless of whether Initialize ran — a constructed-but-uninitialized
-        // coordinator (_context == null) must still release it rather than skip disposal.
         _predictionFactory.Dispose();
-
-        if (_context is not null)
+        if (Context is not null)
         {
-            _context.OverlayManager.Keyboard.SkinToneChanged -= OnEmojiSkinToneChanged;
-            _context.Messenger.UnregisterAll(this);
+            Context.OverlayManager.Keyboard.SkinToneChanged -= OnEmojiSkinToneChanged;
         }
-
-        _disposed = true;
     }
 }

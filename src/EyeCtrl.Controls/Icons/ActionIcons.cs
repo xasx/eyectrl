@@ -31,20 +31,31 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public static class ActionIcons
 {
-    /// <summary>The square every path in this file is authored on, in grid units.</summary>
+    /// <summary>
+    /// The app's icon grid: every icon registry (<see cref="ActionIcons"/> and
+    /// <see cref="ToolbarIcons"/>) authors its paths on this size square, in grid units, and
+    /// <see cref="EyeCtrl.Controls.DwellArcButton"/> scales from it.
+    /// </summary>
     public const double GridSize = 24.0;
 
     /// <summary>Stroke width in grid units, before the caller's scale transform.</summary>
     public const double GridStrokeThickness = 1.8;
 
-    /// <summary>The mouse outline every action icon is built from: a 10 x 19 stadium at x=7, y=2.5.</summary>
-    private const string Body = "M7,7.5 A5,5 0 0 1 17,7.5 L17,16.5 A5,5 0 0 1 7,16.5 Z";
+    /// <summary>
+    /// The mouse outline every action icon is built from: a 10 x 19 stadium at x=7, y=2.5. Also
+    /// shared by <see cref="ToolbarIcons"/>' <c>ProviderMouse</c>, which draws one plain mouse
+    /// rather than a second, slightly-different one.
+    /// </summary>
+    internal const string Body = "M7,7.5 A5,5 0 0 1 17,7.5 L17,16.5 A5,5 0 0 1 7,16.5 Z";
 
     /// <summary>The button divider and separator: what makes the outline read as a mouse, not a pill.</summary>
     private const string Buttons = " M12,2.5 L12,10.5 M7,10.5 L17,10.5";
 
-    /// <summary>A short wheel stroke, used instead of <see cref="Buttons"/> on the scroll icons.</summary>
-    private const string Wheel = " M12,6 L12,9.5";
+    /// <summary>
+    /// A short wheel stroke, used instead of <see cref="Buttons"/> on the scroll icons. Also
+    /// shared by <see cref="ToolbarIcons"/>' <c>ProviderMouse</c>.
+    /// </summary>
+    internal const string Wheel = " M12,6 L12,9.5";
 
     private const string LeftButtonFill = "M12,2.5 A5,5 0 0 0 7,7.5 L7,10.5 L12,10.5 Z";
     private const string RightButtonFill = "M12,2.5 A5,5 0 0 1 17,7.5 L17,10.5 L12,10.5 Z";
@@ -56,26 +67,16 @@ public static class ActionIcons
     /// <returns>That icon's two layers.</returns>
     public static IconGeometry For(ActionIcon icon) => Map[icon];
 
-    private static Geometry? Parse(string? data)
-    {
-        if (data is null) return null;
-        var geometry = Geometry.Parse(data);
-        geometry.Freeze();
-        return geometry;
-    }
-
-    private static IconGeometry Make(string? stroke, string? fill) => new(Parse(stroke), Parse(fill));
-
     private static Dictionary<ActionIcon, IconGeometry> Build() => new()
     {
-        [ActionIcon.LeftClick] = Make(Body + Buttons, LeftButtonFill),
+        [ActionIcon.LeftClick] = IconGeometry.FromPathData(Body + Buttons, LeftButtonFill),
 
-        [ActionIcon.RightClick] = Make(Body + Buttons, RightButtonFill),
+        [ActionIcon.RightClick] = IconGeometry.FromPathData(Body + Buttons, RightButtonFill),
 
         // Two click ripples concentric on (10, 7.5) reaching left of the body, and a "2" drawn
         // in the right margin. Together they change the outline; a badge inside it would be
         // invisible at a glance.
-        [ActionIcon.DoubleClick] = Make(
+        [ActionIcon.DoubleClick] = IconGeometry.FromPathData(
             Body + Buttons
             + " M4.88,8.4 A5.2,5.2 0 0 1 8.05,2.68"
             + " M2.67,8.53 A7.4,7.4 0 0 1 6.3,1.09"
@@ -83,45 +84,45 @@ public static class ActionIcons
             LeftButtonFill),
 
         // Held button plus motion bars trailing at the left.
-        [ActionIcon.Drag] = Make(
+        [ActionIcon.Drag] = IconGeometry.FromPathData(
             Body + Buttons + " M4.4,8.6 L4.4,15.4 M1.6,10.6 L1.6,13.4",
             LeftButtonFill),
 
-        [ActionIcon.ScrollUp] = Make(Body + Wheel + " M18.6,12.4 L20.8,10 L23,12.4", null),
+        [ActionIcon.ScrollUp] = IconGeometry.FromPathData(Body + Wheel + " M18.6,12.4 L20.8,10 L23,12.4"),
 
-        [ActionIcon.ScrollDown] = Make(Body + Wheel + " M18.6,11.6 L20.8,14 L23,11.6", null),
+        [ActionIcon.ScrollDown] = IconGeometry.FromPathData(Body + Wheel + " M18.6,11.6 L20.8,14 L23,11.6"),
 
-        [ActionIcon.ScrollLeft] = Make(Body + Wheel + " M22,9.4 L19.6,11.8 L22,14.2", null),
+        [ActionIcon.ScrollLeft] = IconGeometry.FromPathData(Body + Wheel + " M22,9.4 L19.6,11.8 L22,14.2"),
 
-        [ActionIcon.ScrollRight] = Make(Body + Wheel + " M19.6,9.4 L22,11.8 L19.6,14.2", null),
+        [ActionIcon.ScrollRight] = IconGeometry.FromPathData(Body + Wheel + " M19.6,9.4 L22,11.8 L19.6,14.2"),
 
         // Both chevrons: the gaze-joystick mode that scrolls either way.
-        [ActionIcon.ScrollMode] = Make(
-            Body + Wheel + " M18.6,9.4 L20.8,7 L23,9.4 M18.6,14.6 L20.8,17 L23,14.6", null),
+        [ActionIcon.ScrollMode] = IconGeometry.FromPathData(
+            Body + Wheel + " M18.6,9.4 L20.8,7 L23,9.4 M18.6,14.6 L20.8,17 L23,14.6"),
 
         // A note with two text lines, and a pin whose head is the only filled part.
-        [ActionIcon.PinNote] = Make(
+        [ActionIcon.PinNote] = IconGeometry.FromPathData(
             "M5,10 L5,19 A2.5,2.5 0 0 0 7.5,21.5 L16.5,21.5 A2.5,2.5 0 0 0 19,19 L19,10"
             + " A2.5,2.5 0 0 0 16.5,7.5 L7.5,7.5 A2.5,2.5 0 0 0 5,10 Z"
             + " M8.6,12.5 L15.4,12.5 M8.6,16.5 L13,16.5 M12,5.8 L12,7.5",
             "M9.8,3.6 A2.2,2.2 0 1 1 14.2,3.6 A2.2,2.2 0 1 1 9.8,3.6 Z"),
 
-        [ActionIcon.Back] = Make(
-            "M10,5.5 L4.5,11 L10,16.5 M4.5,11 L14.5,11 A5,5 0 0 1 19.5,16 L19.5,19", null),
+        [ActionIcon.Back] = IconGeometry.FromPathData(
+            "M10,5.5 L4.5,11 L10,16.5 M4.5,11 L14.5,11 A5,5 0 0 1 19.5,16 L19.5,19"),
 
         // Fill-only: three dots, the one icon in the set that is not a mouse. More is navigation,
         // and drawing it as a mouse would say it performs a click.
-        [ActionIcon.More] = Make(null,
+        [ActionIcon.More] = IconGeometry.FromPathData(null,
             "M3.7,12 A1.9,1.9 0 1 1 7.5,12 A1.9,1.9 0 1 1 3.7,12 Z"
             + " M10.1,12 A1.9,1.9 0 1 1 13.9,12 A1.9,1.9 0 1 1 10.1,12 Z"
             + " M16.5,12 A1.9,1.9 0 1 1 20.3,12 A1.9,1.9 0 1 1 16.5,12 Z"),
 
         // A plain X. The one target that must read as "none of the above", so it borrows no part
         // of the mouse silhouette the actions share.
-        [ActionIcon.Close] = Make("M6,6 L18,18 M18,6 L6,18", null),
+        [ActionIcon.Close] = IconGeometry.FromPathData("M6,6 L18,18 M18,6 L6,18"),
 
         // The hook and stem are stroked; the dot is the only filled part.
-        [ActionIcon.Help] = Make(
+        [ActionIcon.Help] = IconGeometry.FromPathData(
             "M8.6,8.6 A3.5,3.5 0 1 1 13.3,11.9 C12.2,12.3 11.6,13.1 11.6,14.2 L11.6,15.2",
             "M10.3,18.6 A1.3,1.3 0 1 1 12.9,18.6 A1.3,1.3 0 1 1 10.3,18.6 Z"),
     };

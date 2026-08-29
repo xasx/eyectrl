@@ -1,4 +1,4 @@
-namespace EyeCtrl.Controls.Tests;
+namespace EyeCtrl.Controls.Tests.Icons;
 
 using System;
 using System.Windows;
@@ -26,8 +26,10 @@ public class ToolbarIconsTests
     private static Rect UnionBounds(IconGeometry g)
     {
         var bounds = Rect.Empty;
-        if (g.Stroke is not null) bounds.Union(g.Stroke.Bounds);
-        if (g.Fill is not null) bounds.Union(g.Fill.Bounds);
+        // Instance Union mutates bounds in place and returns void; Rect.Union(Rect, Rect) is the
+        // static overload that returns a value instead.
+        if (g.Stroke is not null) bounds.Union(g.Stroke.Bounds); // mutates bounds, no return used
+        if (g.Fill is not null) bounds.Union(g.Fill.Bounds); // same: mutates bounds in place
         return bounds;
     }
 
@@ -54,13 +56,19 @@ public class ToolbarIconsTests
         // Same grid as ActionIcons: DwellArcButton scales by iconSize / ActionIcons.GridSize,
         // so an icon drawn outside the box renders clipped or off-centre at every call site.
         var bounds = UnionBounds(ToolbarIcons.For(key));
-        var slack = ActionIcons.GridStrokeThickness / 2.0;
 
-        Check.WithCustomMessage($"{key} bounds {bounds} escape the {ActionIcons.GridSize} grid")
-            .That(bounds.Left >= -slack && bounds.Top >= -slack
-                  && bounds.Right <= ActionIcons.GridSize + slack
-                  && bounds.Bottom <= ActionIcons.GridSize + slack)
-            .IsTrue();
+        // Rect.Empty reports Left = +Infinity, Right = -Infinity, so all four edge comparisons
+        // below would trivially pass on an empty rect. Guard it explicitly rather than relying on
+        // the sibling theory (EveryKey_ResolvesToNonDegenerateFrozenGeometry) to have caught it.
+        Check.WithCustomMessage($"{key} has empty bounds").That(bounds.IsEmpty).IsFalse();
+
+        var slack = ActionIcons.GridStrokeThickness / 2.0;
+        var msg = $"{key} bounds {bounds} escape the {ActionIcons.GridSize} grid";
+
+        Check.WithCustomMessage(msg).That(bounds.Left).IsStrictlyGreaterThan(-slack);
+        Check.WithCustomMessage(msg).That(bounds.Top).IsStrictlyGreaterThan(-slack);
+        Check.WithCustomMessage(msg).That(bounds.Right).IsStrictlyLessThan(ActionIcons.GridSize + slack);
+        Check.WithCustomMessage(msg).That(bounds.Bottom).IsStrictlyLessThan(ActionIcons.GridSize + slack);
     }
 
     [Fact]

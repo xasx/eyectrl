@@ -35,32 +35,27 @@ public partial class PauseIndicatorWindow : OverlayWindow
             case "top":
                 Width = screen.Width;
                 Height = BarThicknessLogical;
-                Left = 0;
-                Top = 0;
+                (Left, Top) = OverlayPositioning.PlaceAtEdge(screen, "top", Width, Height);
                 break;
             case "bottom":
                 Width = screen.Width;
                 Height = BarThicknessLogical;
-                Left = 0;
-                Top = screen.Height - BarThicknessLogical;
+                (Left, Top) = OverlayPositioning.PlaceAtEdge(screen, "bottom", Width, Height);
                 break;
             case "left":
                 Width = BarThicknessLogical;
                 Height = screen.Height;
-                Left = 0;
-                Top = 0;
+                (Left, Top) = OverlayPositioning.PlaceAtEdge(screen, "left", Width, Height);
                 break;
             case "right":
                 Width = BarThicknessLogical;
                 Height = screen.Height;
-                Left = screen.Width - BarThicknessLogical;
-                Top = 0;
+                (Left, Top) = OverlayPositioning.PlaceAtEdge(screen, "right", Width, Height);
                 break;
             default:
                 Width = screen.Width;
                 Height = BarThicknessLogical;
-                Left = 0;
-                Top = 0;
+                (Left, Top) = OverlayPositioning.PlaceAtEdge(screen, "top", Width, Height);
                 break;
         }
     }

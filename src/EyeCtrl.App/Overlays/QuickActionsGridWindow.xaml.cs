@@ -102,35 +102,17 @@ public partial class QuickActionsGridWindow : OverlayWindow
     }
 
     /// <summary>
-    /// Positions the grid window on the specified screen edge, vertically centered.
-    /// Call before Show() when IsVisible changes to true.
+    /// Positions the grid window on the specified screen edge, centered on that edge.
+    /// Call before Show() when IsVisible changes to true. Unknown edge values fall back to top.
     /// </summary>
-    /// <param name="edge">One of "Left", "Right", "Top", "Bottom". Unknown values leave the position unchanged.</param>
+    /// <param name="edge">One of "Left", "Right", "Top", "Bottom". Unknown values fall back to top.</param>
     public void PositionOnEdge(string edge)
     {
         var workArea = SystemParameters.WorkArea; // logical DIPs
         double gridW = ActualWidth > 0 ? ActualWidth : Width;
         double gridH = ActualHeight > 0 ? ActualHeight : Height;
 
-        switch (edge)
-        {
-            case "Left":
-                Left = 0;
-                Top = (workArea.Height - gridH) / 2 + workArea.Top;
-                break;
-            case "Right":
-                Left = workArea.Width - gridW;
-                Top = (workArea.Height - gridH) / 2 + workArea.Top;
-                break;
-            case "Top":
-                Left = (workArea.Width - gridW) / 2 + workArea.Left;
-                Top = 0;
-                break;
-            case "Bottom":
-                Left = (workArea.Width - gridW) / 2 + workArea.Left;
-                Top = workArea.Height - gridH;
-                break;
-        }
+        (Left, Top) = OverlayPositioning.PlaceAtEdge(workArea, edge, gridW, gridH);
     }
 
     /// <summary>

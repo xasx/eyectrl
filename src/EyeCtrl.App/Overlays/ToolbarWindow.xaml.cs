@@ -154,31 +154,12 @@ public partial class ToolbarWindow : OverlayWindow
 
         if (isDocked)
         {
-            switch (edge.ToLowerInvariant())
-            {
-                case "top":
-                    Left = (screen.Width - ActualWidth) / 2;
-                    Top = 0;
-                    break;
-                case "bottom":
-                    Left = (screen.Width - ActualWidth) / 2;
-                    Top = screen.Height - ActualHeight;
-                    break;
-                case "left":
-                    Left = 0;
-                    Top = (screen.Height - ActualHeight) / 2;
-                    ButtonPanel.Orientation = Orientation.Vertical;
-                    break;
-                case "right":
-                    Left = screen.Width - ActualWidth;
-                    Top = (screen.Height - ActualHeight) / 2;
-                    ButtonPanel.Orientation = Orientation.Vertical;
-                    break;
-                default:
-                    Left = (screen.Width - ActualWidth) / 2;
-                    Top = 0;
-                    break;
-            }
+            var (left, top) = OverlayPositioning.PlaceAtEdge(screen, edge, ActualWidth, ActualHeight);
+            Left = left;
+            Top = top;
+            ButtonPanel.Orientation = edge.ToLowerInvariant() is "left" or "right"
+                ? Orientation.Vertical
+                : ButtonPanel.Orientation;
         }
 
         _targetsInitialized = false;

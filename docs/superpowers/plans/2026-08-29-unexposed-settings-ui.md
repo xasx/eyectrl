@@ -604,7 +604,7 @@ git commit -m "feat(settings): Adaptation tab page source"
 - Consumes: `SettingsPageContext`; `EyeCtrlSettings.Backdrop/Drag/Scroll/ExternalDwell`.
 - Produces: `AdvancedPageSource` with ids `av_backdrop_enabled, av_backdrop_type, av_backdrop_opacity, av_drag_settle, av_drag_radius, av_drag_color, av_drag_opacity, av_scroll_sens, av_ext_enabled, av_ext_dwell, av_ext_cooldown, av_reset` + three `LabelSpec` separator rows (empty ids). **No Supervision rows** (spec §Problem: the App writer cannot persist that section).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/EyeCtrl.App.Tests/Settings/Pages/AdvancedPageSourceTests.cs`:
 
@@ -673,11 +673,11 @@ public class AdvancedPageSourceTests
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Build → compile error, then `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AdvancedPageSourceTests"` → FAIL.
 
-- [ ] **Step 3: Write the source**
+- [x] **Step 3: Write the source**
 
 Create `src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs`:
 
@@ -776,7 +776,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
 child namespace, so `SettingsWindow` resolves via namespace nesting — same as the other
 sources that reference `SettingsWindow.ColorSwatchRadius`.)
 
-- [ ] **Step 4: Register in the gates**
+- [x] **Step 4: Register in the gates**
 
 Completeness array: add `new AdvancedPageSource(ctx),` after the Adaptation entry. Span-guard:
 
@@ -796,7 +796,7 @@ public void Advanced_SliderSpans_StayInsideTheValidatedRanges()
 }
 ```
 
-- [ ] **Step 5: Run, commit**
+- [x] **Step 5: Run, commit**
 
 `dotnet test tests/EyeCtrl.App.Tests` → PASS.
 

@@ -111,6 +111,20 @@ public class SettingsSliderSpanGuardTests
         SpanInside(sliders, "ad_frac_geom", 0.0, 1.0);
     }
 
+    [Fact]
+    public void Advanced_SliderSpans_StayInsideTheValidatedRanges()
+    {
+        var sliders = Sliders(new AdvancedPageSource(TestSettingsPageContext.Build()));
+        Check.That(sliders).HasSize(7);
+        SpanInside(sliders, "av_backdrop_opacity", 0.1, 0.9);
+        SpanInside(sliders, "av_drag_settle", 200, 2000);
+        SpanInside(sliders, "av_drag_radius", 10, 200);
+        SpanInside(sliders, "av_drag_opacity", 0.1, 1.0);
+        SpanInside(sliders, "av_scroll_sens", 0.5, 2.0);
+        SpanInside(sliders, "av_ext_dwell", 200, 3000);
+        SpanInside(sliders, "av_ext_cooldown", 0, 5000);
+    }
+
     private static Dictionary<string, SliderSpec> Sliders(ISettingsPageSource source) =>
         source.Build().SelectMany(p => p.Rows).OfType<SliderSpec>().ToDictionary(s => s.Id);
 

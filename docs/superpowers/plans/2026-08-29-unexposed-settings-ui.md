@@ -35,7 +35,7 @@
 - Consumes: nothing new.
 - Produces: `ManualSelectionSettings.Validate()` now covers the five `GazeIndicator*` ranges (20–200, 2–40, 0.5–10, 0.1–1.0, 0–1000); `SettingsService.Load()` clamps out-of-range persisted values instead of returning whole-file defaults. Tasks 6 and 7 rely on these exact ranges.
 
-- [ ] **Step 1: Write the failing validation test**
+- [x] **Step 1: Write the failing validation test**
 
 Append to `tests/EyeCtrl.Core.Tests/Settings/SettingsPropertyValidationTests.cs` (match the file's existing namespace/usings — namespace is `EyeCtrl.Core.Tests.Settings`):
 
@@ -70,12 +70,12 @@ public class GazeIndicatorValidationTests
 
 (Reflection-set keeps one theory body for mixed double/int properties; `ValidateRange` messages embed the property name — same convention as the other settings classes.)
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~GazeIndicatorValidationTests"`
 Expected: FAIL — the out-of-range theory cases produce no errors (defaults case may pass already).
 
-- [ ] **Step 3: Add the Validate entries + fix the stale doc comment**
+- [x] **Step 3: Add the Validate entries + fix the stale doc comment**
 
 In `ManualSelectionSettings.cs`, the `Validate()` body currently ends:
 
@@ -96,11 +96,11 @@ ValidationHelper.ValidateRange(GazeIndicatorResetAnimationMs, 0, 1000, nameof(Ga
 
 Also change the doc comment above `_gazeIndicatorOpacity` from `Valid range: 0–1.` to `Valid range: 0.1–1.0.`
 
-- [ ] **Step 4: Run the validation test to verify it passes**
+- [x] **Step 4: Run the validation test to verify it passes**
 
 Same command as Step 2. Expected: PASS.
 
-- [ ] **Step 5: Write the failing clamp test**
+- [x] **Step 5: Write the failing clamp test**
 
 Append to `tests/EyeCtrl.Core.Tests/Settings/SettingsServiceTests.cs` (it currently has only `EyeCtrl.Core.Models` + `EyeCtrl.Core.Settings` usings — add `using System.Text.Json.Nodes;`):
 
@@ -129,12 +129,12 @@ public void Load_ClampsOutOfRangeGazeIndicator_InsteadOfResettingEverything()
 }
 ```
 
-- [ ] **Step 6: Run it to verify it fails**
+- [x] **Step 6: Run it to verify it fails**
 
 `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~Load_ClampsOutOfRangeGazeIndicator"`
 Expected: FAIL at the **first** assertion — `IsEqualTo(200)` with actual **60**: without the clamp, `Load()` hits the validation-error path and returns whole-file defaults (the default outer diameter is 60). Discriminator if something else is wrong: on the second assertion `ActivationButtonDwellMs` should also read back **700** (its default); if it reads 600 the JSON key edit didn't land and the test is failing for the wrong reason — check the key spelling before touching `SettingsService`.
 
-- [ ] **Step 7: Add the clamp to `Load()`**
+- [x] **Step 7: Add the clamp to `Load()`**
 
 In `SettingsService.cs`, inside `Load()`, immediately after the SelectionMode-seed migration block and **before** `var validationErrors = settings.Validate();`, insert:
 
@@ -168,12 +168,12 @@ private void ClampGazeIndicator(ManualSelectionSettings ms)
 }
 ```
 
-- [ ] **Step 8: Run both tests, then the full Core suite**
+- [x] **Step 8: Run both tests, then the full Core suite**
 
 `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~Load_ClampsOutOfRangeGazeIndicator"` → PASS.
 `dotnet test tests/EyeCtrl.Core.Tests` → all pass (no other test persisted out-of-range indicator values).
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/EyeCtrl.Core/Settings/ManualSelectionSettings.cs src/EyeCtrl.Core/Settings/SettingsService.cs tests/EyeCtrl.Core.Tests/Settings/SettingsPropertyValidationTests.cs tests/EyeCtrl.Core.Tests/Settings/SettingsServiceTests.cs

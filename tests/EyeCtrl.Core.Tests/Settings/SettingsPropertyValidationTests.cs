@@ -940,3 +940,30 @@ public class SettingsPropertyValidationTests
 
     #endregion
 }
+
+public class GazeIndicatorValidationTests
+{
+    [Fact]
+    public void GazeIndicator_Defaults_ProduceNoValidationErrors()
+    {
+        var errors = new ManualSelectionSettings().Validate();
+        Check.That(errors.Where(e =>
+            e.Contains("GazeIndicator", StringComparison.Ordinal))).IsEmpty();
+    }
+
+    [Theory]
+    [InlineData(nameof(ManualSelectionSettings.GazeIndicatorOuterDiameter), 250.0, 20.0, 200.0)]
+    [InlineData(nameof(ManualSelectionSettings.GazeIndicatorCenterDotDiameter), 60.0, 2.0, 40.0)]
+    [InlineData(nameof(ManualSelectionSettings.GazeIndicatorStrokeThickness), 12.0, 0.5, 10.0)]
+    [InlineData(nameof(ManualSelectionSettings.GazeIndicatorOpacity), 0.05, 0.1, 1.0)]
+    [InlineData(nameof(ManualSelectionSettings.GazeIndicatorResetAnimationMs), 5000, 0, 1000)]
+    public void GazeIndicator_OutOfRange_IsRejected(string property, double bad, double min, double max)
+    {
+        var s = new ManualSelectionSettings();
+        var prop = s.GetType().GetProperty(property)!;
+        // InlineData carries doubles; the int property (ResetAnimationMs) needs Convert,
+        // or SetValue throws ArgumentException instead of setting the value.
+        prop.SetValue(s, Convert.ChangeType(bad, prop.PropertyType));
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(property, StringComparison.Ordinal));
+    }
+}

@@ -65,9 +65,9 @@ public class ToolbarViewModelTests
         _messenger.Send(new StateChangedMessage(InteractionState.Paused));
         Check.That(vm.IsPaused).IsTrue();
 
-        // Pause button symbol should change to play ▶
+        // Pause button icon key should change to Play
         var pauseBtn = vm.Buttons.First(b => b.Id == "Pause");
-        Check.That(pauseBtn.Symbol).IsEqualTo("\u25B6");
+        Check.That(pauseBtn.IconKey).IsEqualTo("Play");
     }
 
     [Fact]
@@ -84,19 +84,52 @@ public class ToolbarViewModelTests
     }
 
     [Fact]
-    public void SelectionModeChanged_UpdatesSelectionButtonSymbol()
+    public void SelectionModeChanged_UpdatesSelectionButtonIconKey()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
         var selectionButton = vm.Buttons.First(b => b.Id == "SelectionMode");
 
         _messenger.Send(new SelectionModeChangedMessage(SelectionMode.None));
-        Check.That(selectionButton.Symbol).IsEqualTo("\u25CB");
+        Check.That(selectionButton.IconKey).IsEqualTo(SelectionModeIcons.None);
 
         _messenger.Send(new SelectionModeChangedMessage(SelectionMode.ManualSelection));
-        Check.That(selectionButton.Symbol).IsEqualTo("\u2295");
+        Check.That(selectionButton.IconKey).IsEqualTo(SelectionModeIcons.ManualSelection);
 
         _messenger.Send(new SelectionModeChangedMessage(SelectionMode.AutoSelection));
-        Check.That(selectionButton.Symbol).IsEqualTo("\u25CE");
+        Check.That(selectionButton.IconKey).IsEqualTo(SelectionModeIcons.AutoSelection);
+    }
+
+    [Fact]
+    public void SelectionModeIcons_RoundTripEveryMode()
+    {
+        foreach (var mode in Enum.GetValues<SelectionMode>())
+            Check.WithCustomMessage($"{mode} lost its identity through the icon key")
+                .That(SelectionModeIcons.ToMode(SelectionModeIcons.ForMode(mode))).IsEqualTo(mode);
+    }
+
+    [Fact]
+    public void SelectionModeIcons_EmitDistinctKeysPerMode()
+    {
+        // With no label the icon is the button's primary state channel. The fill swap stays as a
+        // secondary one (Task 5's SetSelectionModeState), but three modes sharing an icon would
+        // leave colour carrying the distinction alone, which is what this design moved away from.
+        var keys = Enum.GetValues<SelectionMode>().Select(SelectionModeIcons.ForMode).ToList();
+        Check.That(keys.Distinct(StringComparer.Ordinal)).HasSize(keys.Count);
+    }
+
+    [Fact]
+    public void SelectionModeChanged_UpdatesTheButtonsIconKey()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), messenger);
+        // No explicit RegisterAll: the constructor already auto-registers every IRecipient<T> via
+        // MessengerViewModelBase's IsActive = true (ObservableRecipient). Registering again here
+        // throws — WeakReferenceMessenger rejects a duplicate recipient/message-type registration.
+
+        messenger.Send(new SelectionModeChangedMessage(SelectionMode.AutoSelection));
+
+        Check.That(vm.Buttons.Single(b => b.Id == "SelectionMode").IconKey)
+            .IsEqualTo(SelectionModeIcons.ForMode(SelectionMode.AutoSelection));
     }
 
     [Fact]

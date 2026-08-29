@@ -13,13 +13,25 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public static class SelectionModeIcons
 {
-    /// <summary>None (raw pixel targeting) — a slashed ring.</summary>
+    /// <summary>
+    /// Icon key for <see cref="SelectionMode.None"/> (raw pixel targeting). This project cannot
+    /// see <c>ToolbarIconKey</c>, so this describes what the mode means, not what the icon looks
+    /// like — see <c>ToolbarIconKey.SelectionNone</c> for the appearance.
+    /// </summary>
     public const string None = "SelectionNone";
 
-    /// <summary>Manual Selection (zoom-and-dwell) — a crosshair in a ring.</summary>
+    /// <summary>
+    /// Icon key for <see cref="SelectionMode.ManualSelection"/> (zoom-and-dwell). This project
+    /// cannot see <c>ToolbarIconKey</c>, so this describes what the mode means, not what the icon
+    /// looks like — see <c>ToolbarIconKey.SelectionManual</c> for the appearance.
+    /// </summary>
     public const string ManualSelection = "SelectionManual";
 
-    /// <summary>Auto Selection (snap-to-control) — a ring around a control.</summary>
+    /// <summary>
+    /// Icon key for <see cref="SelectionMode.AutoSelection"/> (snap-to-control). This project
+    /// cannot see <c>ToolbarIconKey</c>, so this describes what the mode means, not what the icon
+    /// looks like — see <c>ToolbarIconKey.SelectionAuto</c> for the appearance.
+    /// </summary>
     public const string AutoSelection = "SelectionAuto";
 
     /// <summary>Returns the icon key for the given selection mode.</summary>

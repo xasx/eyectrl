@@ -70,21 +70,25 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         _buttonDwellRadiusPhysical = DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2);
         _toolbarButtonDwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
-        var buttons = new (string Id, string Symbol)[]
+        var buttons = new (string Id, string IconKey)[]
         {
             ("Pause", "Pause"),
             ("SelectionMode", SelectionModeIcons.None),
             ("Keyboard", "Keyboard"),
+            // Calibrate is never rendered (ReachableElsewhere) and ToolbarIconKey has no crosshair
+            // member of its own; this is a placeholder pending a real icon, not a considered choice.
             ("Calibrate", "Settings"),
             ("Settings", "Settings"),
             ("TaskSwitcher", "TaskSwitcher"),
+            // QuickActions is never rendered (ReachableElsewhere) and ToolbarIconKey has no lightning-
+            // bolt member of its own; this is a placeholder pending a real icon, not a considered choice.
             ("QuickActions", "Settings"),
             ("ResetAdaptation", "ResetAdaptation"),
         };
 
-        foreach (var (id, symbol) in buttons)
+        foreach (var (id, iconKey) in buttons)
         {
-            var btn = new ToolbarButtonViewModel(id, symbol);
+            var btn = new ToolbarButtonViewModel(id, iconKey);
             Buttons.Add(btn);
             _buttonLookup[id] = btn;
             // Dwell targets are intentionally NOT created here. Each target is created lazily by
@@ -135,16 +139,20 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
     public void Receive(CalibrationCompletedMessage message)
     {
-        // Calibrate is not on the toolbar (ToolbarButtonDriftTests.ReachableElsewhere), so the old
-        // success/failure glyph swap was never visible to anyone. The handlers stay registered so the
-        // messages keep a recipient; the icon swap returns with the button.
+        // Used to swap the Calibrate icon to a success or failure glyph depending on
+        // message.Success. Calibrate is not on the toolbar (ToolbarButtonDriftTests.
+        // ReachableElsewhere), so that swap was never visible to anyone; the icon swap returns
+        // with the button. The empty body stays because the class declares
+        // IRecipient<CalibrationCompletedMessage>, which requires this method to exist.
     }
 
     public void Receive(CalibrationCancelledMessage message)
     {
-        // Calibrate is not on the toolbar (ToolbarButtonDriftTests.ReachableElsewhere), so the old
-        // success/failure glyph swap was never visible to anyone. The handlers stay registered so the
-        // messages keep a recipient; the icon swap returns with the button.
+        // Used to reset the Calibrate icon back to its neutral crosshair — not a success/failure
+        // swap, unlike CalibrationCompletedMessage above. Calibrate is not on the toolbar
+        // (ToolbarButtonDriftTests.ReachableElsewhere), so that reset was never visible to anyone;
+        // it returns with the button. The empty body stays because the class declares
+        // IRecipient<CalibrationCancelledMessage>, which requires this method to exist.
     }
 
     public void Receive(SelectionModeChangedMessage message)

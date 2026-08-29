@@ -45,6 +45,23 @@ internal sealed class CursorPageSource : ISettingsPageSource
                     () => c.CircleThickness,
                     v => { c.CircleThickness = v; _ctx.ApplyAndSave(); })
                     { Description = "Ring stroke width, in pixels." },
+                new SliderSpec("c_gap", "Gap Interpolation (ms)", 0, 500, 25, 0,
+                    () => c.MaxGapInterpolationMs, v => { c.MaxGapInterpolationMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "Bridge short tracker dropouts up to this long." },
+                new ComboBoxSpec("c_pos_style", "Position Indicator",
+                    Enum.GetNames<Core.Models.PositionIndicatorStyle>(), null,
+                    () => c.PositionIndicatorStyle.ToString(),
+                    v => { c.PositionIndicatorStyle = Enum.Parse<Core.Models.PositionIndicatorStyle>(v); _ctx.ApplyAndSave(); })
+                    { Description = "How the position indicator is drawn; applies from the next action-menu open." },
+                new SliderSpec("c_size", "Circle Size (px)", 10, 500, 10, 0,
+                    () => c.CircleSize, v => { c.CircleSize = v; _ctx.ApplyAndSave(); })
+                    { Description = "Diameter of the cursor circle." },
+                new SliderSpec("c_euro_cutoff", "One Euro Min Cutoff", 0.1, 20.0, 0.1, 1,
+                    () => c.OneEuroMinCutoff, v => { c.OneEuroMinCutoff = v; _ctx.ApplyAndSave(); })
+                    { Description = "Lower is smoother and slower; higher follows fast motion." },
+                new SliderSpec("c_euro_beta", "One Euro Beta", 0.0, 5.0, 0.1, 1,
+                    () => c.OneEuroBeta, v => { c.OneEuroBeta = v; _ctx.ApplyAndSave(); })
+                    { Description = "How quickly speed is allowed to reduce smoothing." },
                 new ButtonSpec("c_reset", "Reset Cursor Settings",
                     () => _ctx.ShowModal("Reset Cursor settings to defaults?", () =>
                     {
@@ -54,6 +71,11 @@ internal sealed class CursorPageSource : ISettingsPageSource
                         c.CircleColor = d.CircleColor;
                         c.CircleOpacity = d.CircleOpacity;
                         c.CircleThickness = d.CircleThickness;
+                        c.MaxGapInterpolationMs = d.MaxGapInterpolationMs;
+                        c.PositionIndicatorStyle = d.PositionIndicatorStyle;
+                        c.CircleSize = d.CircleSize;
+                        c.OneEuroMinCutoff = d.OneEuroMinCutoff;
+                        c.OneEuroBeta = d.OneEuroBeta;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

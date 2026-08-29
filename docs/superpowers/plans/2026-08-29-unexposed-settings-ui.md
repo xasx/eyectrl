@@ -818,7 +818,7 @@ git commit -m "feat(settings): Advanced tab page source"
 - Consumes: `EyeCtrlSettings.Cursor` (`MaxGapInterpolationMs`, `PositionIndicatorStyle`, `CircleSize`, `OneEuroMinCutoff`, `OneEuroBeta`).
 - Produces: ids `c_gap, c_pos_style, c_size, c_euro_cutoff, c_euro_beta` on the existing Cursor tab.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `CursorPageSourceTests.cs`:
 
@@ -873,11 +873,11 @@ public void Reset_CopiesAllTenProperties()
 
 (`PositionIndicatorStyle` needs `using EyeCtrl.Core.Models;` — check the enum's namespace when the compile fails and match it.)
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~CursorPageSourceTests"` → FAIL (count 7 vs actual 3; rows missing).
 
-- [ ] **Step 3: Add the rows and extend c_reset**
+- [x] **Step 3: Add the rows and extend c_reset**
 
 In `CursorPageSource.cs`, insert the five rows immediately **before the `c_reset` ButtonSpec** in the second PageSpec (i.e. after `c_thick`):
 
@@ -913,7 +913,7 @@ c.OneEuroMinCutoff = d.OneEuroMinCutoff;
 c.OneEuroBeta = d.OneEuroBeta;
 ```
 
-- [ ] **Step 4: Extend the span-guard Cursor Fact**
+- [x] **Step 4: Extend the span-guard Cursor Fact**
 
 ```csharp
 Check.That(sliders).HasSize(7);
@@ -925,7 +925,7 @@ SpanInside(sliders, "c_euro_beta", 0.0, 5.0);
 
 (keep the existing `c_smooth`/`c_opacity`/`c_thick` SpanInside lines; only `HasSize` changes from 3 to 7).
 
-- [ ] **Step 5: Run, commit**
+- [x] **Step 5: Run, commit**
 
 `dotnet test tests/EyeCtrl.App.Tests` → PASS (completeness gate now requires the five new Descriptions — they are in Step 3).
 

@@ -198,6 +198,9 @@ public partial class SettingsWindow : OverlayWindow
     private readonly CalibrationPageSource _calibrationSource;
     private readonly ModelsPageSource _modelsSource;
     private readonly QuickActionsPageSource _qaSource;
+    private readonly EyeCarePageSource _eyeCareSource;
+    private readonly AdaptationPageSource _adaptationSource;
+    private readonly AdvancedPageSource _advancedSource;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
@@ -237,13 +240,11 @@ public partial class SettingsWindow : OverlayWindow
     /// only place a tab says what it is for, and the tab glyphs alone are ambiguous.
     /// </summary>
     // INTENTIONALLY NOT EXPOSED in the settings UI (audit this list when adding settings):
-    //  - Cursor.MaxGapInterpolationMs, Cursor.PositionIndicatorStyle  (advanced tuning)
-    //  - ManualSelection.Enabled (driven by SelectionMode), ManualSelection.GazeIndicator* (visual tuning)
-    //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry)
-    //  - Calibration.TargetColor (visual tuning)
-    //  - whole sub-setting groups with no tab/control here: Backdrop, Drag, Scroll,
-    //    ExternalDwell, EyeCare, Adaptation, Supervision (their settings are currently
-    //    reachable only through the overlays/behaviour they configure, not this window).
+    //  - ManualSelection.Enabled (driven by SelectionMode; the Selection tab owns the mode)
+    //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry; Models tab)
+    //  - Adaptation.CaregiverAlerts (no consumer until Phase 3)
+    //  - Supervision — its UI is SupervisorSetupWindow in the supervisor process; the App
+    //    cannot persist that section (SettingsWriter.Supervisor owns it)
     // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.
     private readonly (string Id, string Icon, string Label, string Description)[] _tabDefs;
     private readonly Dictionary<string, ISettingsPageSource> _sources = new();
@@ -328,10 +329,16 @@ public partial class SettingsWindow : OverlayWindow
                 "Where the utility bar docks, and how big its buttons are."),
             ("Calibration", "⌖", "Calibration",
                 "Correcting the offset between your gaze and the cursor."),
+            ("EyeCare", "◑", "Eye Care",
+                "Break reminders, gaze exercises and fatigue escalation."),
+            ("Adaptation", "⇄", "Adaptation",
+                "Auto-tuning of dwell and targeting when you struggle."),
             ("General",  "⚙", "General",
                 "Startup, theme, restart, and resetting settings."),
             ("QuickActions", "⚡", "Quick Actions",
-                "The pop-up grid of one-dwell shortcuts, and how it is summoned.")
+                "The pop-up grid of one-dwell shortcuts, and how it is summoned."),
+            ("Advanced", "⚒", "Advanced",
+                "Expert tuning: backdrop, drag, scroll and external dwell.")
         ];
 
         // Set DataContext for data binding
@@ -378,6 +385,9 @@ public partial class SettingsWindow : OverlayWindow
         _calibrationSource = new CalibrationPageSource(_ctx);
         _modelsSource = new ModelsPageSource(_ctx);
         _qaSource = new QuickActionsPageSource(_ctx);
+        _eyeCareSource = new EyeCarePageSource(_ctx);
+        _adaptationSource = new AdaptationPageSource(_ctx);
+        _advancedSource = new AdvancedPageSource(_ctx);
 
         // One entry per tab, same ids as `_tabDefs`: MaybeRepaginateByHeight looks the
         // current tab's source up here to ask whether it opts into height re-pagination.
@@ -392,6 +402,9 @@ public partial class SettingsWindow : OverlayWindow
         _sources["Calibration"] = _calibrationSource;
         _sources["General"] = _generalSource;
         _sources["QuickActions"] = _qaSource;
+        _sources["EyeCare"] = _eyeCareSource;
+        _sources["Adaptation"] = _adaptationSource;
+        _sources["Advanced"] = _advancedSource;
 
         // Build UI
         BuildTabButtons();

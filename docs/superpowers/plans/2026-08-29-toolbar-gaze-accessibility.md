@@ -374,9 +374,12 @@ Replace the glyph assertions in `tests/EyeCtrl.ViewModels.Tests/ToolbarViewModel
     [Fact]
     public void SelectionModeChanged_UpdatesTheButtonsIconKey()
     {
+        // No RegisterAll: ToolbarViewModel's base sets IsActive = true in its constructor, so
+        // ObservableRecipient has already subscribed every IRecipient<T>. Registering again throws
+        // "The target recipient has already subscribed". Every other test in this file is send-only
+        // for the same reason.
         var messenger = new WeakReferenceMessenger();
         var vm = new ToolbarViewModel(new EyeCtrlSettings(), messenger);
-        messenger.RegisterAll(vm);
 
         messenger.Send(new SelectionModeChangedMessage(SelectionMode.AutoSelection));
 
@@ -516,7 +519,9 @@ In `ToolbarViewModel.cs`, the constructor array — keep the `new (string Id, st
         };
 ```
 
-> `Calibrate` and `QuickActions` are not rendered on the toolbar (`ToolbarButtonDriftTests.ReachableElsewhere`, lines 42-44). They take `Settings` as a placeholder so `ToolbarIconKeyBridgeTests` stays total. The drift guard's regex captures only the id group (line 48-49), so the value is unconstrained — this is filler, and the `Calibrate` follow-up plan replaces it with real success/failure icons.
+> `Calibrate` and `QuickActions` are not rendered on the toolbar (`ToolbarButtonDriftTests.ReachableElsewhere`, lines 42-44). They take `Settings` as a placeholder so `ToolbarIconKeyBridgeTests` stays total — filler, which the `Calibrate` follow-up plan replaces with real success/failure icons.
+>
+> **The drift guard’s entry regex must be relaxed in this task.** `ButtonEntry` (`ToolbarButtonDriftTests.cs:48-49`) captures only the id, but it still *requires* the second tuple element to open with a quote: `@"\(""(?<id>[A-Za-z][A-Za-z0-9_]*)"",\s*"""`. `("SelectionMode", SelectionModeIcons.None)` puts an identifier there, so that entry does not match at all and `SelectionMode` drops out of the view-model id set — which makes `EveryRenderedButton_ExistsInTheViewModel` fail as soon as Task 3 restores the App build. Drop the trailing quote from the pattern (`@"\(""(?<id>[A-Za-z][A-Za-z0-9_]*)"",\s*"`) and update its doc comment to say the second element may be a string literal or a constant reference. Keep the constant in the array: the guard checks ids, not values, and `ToolbarIconKeyBridgeTests` pins the value.
 
 Then the three handlers:
 
@@ -1565,7 +1570,7 @@ Write the census entry to the counts that command actually reports, with the rat
 
 - [ ] **Step 3: Update the drift guard's description**
 
-`ToolbarButtonDriftTests` still passes — both arrays kept the `new (string Id, string Symbol)[]` declaration text. Update the comment on `ButtonEntry` and add to the class summary:
+`ToolbarButtonDriftTests`’ `ButtonEntry` regex was already relaxed in Task 2 (see that task’s note — the original pattern silently dropped `("SelectionMode", SelectionModeIcons.None)`). Both arrays kept the `new (string Id, string Symbol)[]` declaration text, so `ButtonIdsFrom` still finds them. Confirm the guard is green here, and add to the class summary:
 
 ```csharp
 /// The second tuple element has been a ToolbarIconKey member name, not a Unicode symbol, since

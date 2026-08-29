@@ -82,13 +82,9 @@ public partial class GlassBackdropWindow : OverlayWindow
 
     public new void Show()
     {
-        var screen = System.Windows.Forms.Screen.PrimaryScreen;
-        if (screen == null)
+        if (System.Windows.Forms.Screen.PrimaryScreen == null)
             return;
-        Left = screen.Bounds.X / DpiHelper.ScaleX;
-        Top = screen.Bounds.Y / DpiHelper.ScaleY;
-        Width = screen.Bounds.Width / DpiHelper.ScaleX;
-        Height = screen.Bounds.Height / DpiHelper.ScaleY;
+        OverlayPositioning.CoverPrimaryScreen(this);
         base.Show();
         EnsureHandle();
     }

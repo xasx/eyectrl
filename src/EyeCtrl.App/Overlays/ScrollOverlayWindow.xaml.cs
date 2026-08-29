@@ -19,11 +19,7 @@ public partial class ScrollOverlayWindow : OverlayWindow
     {
         DataContext = vm;
 
-        var screen = System.Windows.Forms.Screen.PrimaryScreen!;
-        Left = screen.Bounds.X / DpiHelper.ScaleX;
-        Top = screen.Bounds.Y / DpiHelper.ScaleY;
-        Width = screen.Bounds.Width / DpiHelper.ScaleX;
-        Height = screen.Bounds.Height / DpiHelper.ScaleY;
+        OverlayPositioning.CoverPrimaryScreen(this);
         OverlayCanvas.Width = Width;
         OverlayCanvas.Height = Height;
 

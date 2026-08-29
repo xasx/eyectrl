@@ -143,19 +143,8 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (ActualWidth <= 0 || ActualHeight <= 0) return;
 
-        var screen = SystemParameters.WorkArea;
-        switch (_screenEdge.ToLowerInvariant())
-        {
-            case "top":
-                Left = (screen.Width - ActualWidth) / 2;
-                Top = 0;
-                break;
-            case "bottom":
-            default:
-                Left = (screen.Width - ActualWidth) / 2;
-                Top = screen.Height - ActualHeight;
-                break;
-        }
+        var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
+        (Left, Top) = OverlayPositioning.PlaceAtEdge(SystemParameters.WorkArea, edge, ActualWidth, ActualHeight);
     }
 
     private void RebuildKeys()

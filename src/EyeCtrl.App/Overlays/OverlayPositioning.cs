@@ -47,4 +47,26 @@ internal static class OverlayPositioning
         window.Width = screen.Bounds.Width / DpiHelper.ScaleX;
         window.Height = screen.Bounds.Height / DpiHelper.ScaleY;
     }
+
+    /// <summary>
+    /// A child element's centre in physical screen pixels — the input every dwell-detector
+    /// push loop needs. False (with <c>center</c> defaulted) when the element is not yet
+    /// rendered or not in the visual tree, the same condition the per-window try/catch
+    /// swallowed before. The result is PHYSICAL: PointToScreen already returns physical
+    /// pixels, so no DpiHelper conversion may be applied to it.
+    /// </summary>
+    public static bool TryGetScreenCenter(System.Windows.FrameworkElement element, out System.Windows.Point center)
+    {
+        try
+        {
+            center = element.PointToScreen(
+                new System.Windows.Point(element.ActualWidth / 2, element.ActualHeight / 2));
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            center = default;
+            return false;
+        }
+    }
 }

@@ -361,15 +361,8 @@ public partial class KeyboardWindow : OverlayWindow
     {
         foreach (var (id, (container, _)) in _keyVisuals)
         {
-            try
-            {
-                var pos = container.PointToScreen(new Point(container.ActualWidth / 2, container.ActualHeight / 2));
+            if (OverlayPositioning.TryGetScreenCenter(container, out var pos))
                 _keyScreenPositions[id] = new PhysicalPoint(pos.X, pos.Y);
-            }
-            catch (InvalidOperationException)
-            {
-                // Window not yet rendered or element not in visual tree
-            }
         }
     }
 
@@ -402,24 +395,18 @@ public partial class KeyboardWindow : OverlayWindow
             var predId = $"pred_{i}";
             if (PredictionBar.Children[i] is not Border btn) continue;
 
-            try
+            if (!OverlayPositioning.TryGetScreenCenter(btn, out var pos))
+                continue;
+            if (!_predictionTargetsInitialized)
             {
-                var pos = btn.PointToScreen(new Point(btn.ActualWidth / 2, btn.ActualHeight / 2));
-                if (!_predictionTargetsInitialized)
-                {
-                    // Use half-diagonal so the circular hit area covers the full rectangle
-                    var halfDiag = Math.Sqrt(btn.ActualWidth * btn.ActualWidth + btn.ActualHeight * btn.ActualHeight) / 2;
-                    _predictionDwellDetector.RemoveTarget(predId);
-                    _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(halfDiag), _predictionDwellMs));
-                }
-                else
-                {
-                    _predictionDwellDetector.UpdateTargetCenter(predId, new PhysicalPoint(pos.X, pos.Y));
-                }
+                // Use half-diagonal so the circular hit area covers the full rectangle
+                var halfDiag = Math.Sqrt(btn.ActualWidth * btn.ActualWidth + btn.ActualHeight * btn.ActualHeight) / 2;
+                _predictionDwellDetector.RemoveTarget(predId);
+                _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(halfDiag), _predictionDwellMs));
             }
-            catch (InvalidOperationException)
+            else
             {
-                // Not yet rendered
+                _predictionDwellDetector.UpdateTargetCenter(predId, new PhysicalPoint(pos.X, pos.Y));
             }
         }
         _predictionTargetsInitialized = true;

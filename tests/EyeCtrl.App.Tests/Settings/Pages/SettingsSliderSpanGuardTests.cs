@@ -69,10 +69,14 @@ public class SettingsSliderSpanGuardTests
     public void Cursor_SliderSpans_StayInsideTheValidatedRanges()
     {
         var sliders = Sliders(new CursorPageSource(TestSettingsPageContext.Build()));
-        Check.That(sliders).HasSize(3);
+        Check.That(sliders).HasSize(7);
         SpanInside(sliders, "c_smooth", 0.0, 1.0);
         SpanInside(sliders, "c_opacity", 0.0, 1.0);
         SpanInside(sliders, "c_thick", 1.0, 10.0);
+        SpanInside(sliders, "c_gap", 0, 500);
+        SpanInside(sliders, "c_size", 10, 500);
+        SpanInside(sliders, "c_euro_cutoff", 0.1, 20.0);
+        SpanInside(sliders, "c_euro_beta", 0.0, 5.0);
     }
 
     [Fact]

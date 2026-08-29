@@ -42,6 +42,21 @@ internal sealed class SelectionPageSource : ISettingsPageSource
                 new SliderSpec("s_snapRadius", "Snap Search Radius (px)", 16, 96, 16, 0,
                     () => s.AutoSelection.SnapSearchRadiusPixels, v => { s.AutoSelection.SnapSearchRadiusPixels = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "How far from your gaze Auto Selection searches for a control." },
+                new SliderSpec("s_gi_outer", "Gaze Ring Diameter (px)", 20, 200, 5, 0,
+                    () => s.ManualSelection.GazeIndicatorOuterDiameter, v => { s.ManualSelection.GazeIndicatorOuterDiameter = v; _ctx.ApplyAndSave(); })
+                    { Description = "Diameter of the ring shown at your gaze; applies from the next selection." },
+                new SliderSpec("s_gi_dot", "Centre Dot (px)", 2, 40, 1, 0,
+                    () => s.ManualSelection.GazeIndicatorCenterDotDiameter, v => { s.ManualSelection.GazeIndicatorCenterDotDiameter = v; _ctx.ApplyAndSave(); })
+                    { Description = "Diameter of the dot at the centre of the gaze ring; applies after a restart." },
+                new SliderSpec("s_gi_stroke", "Ring Stroke (px)", 0.5, 10, 0.5, 1,
+                    () => s.ManualSelection.GazeIndicatorStrokeThickness, v => { s.ManualSelection.GazeIndicatorStrokeThickness = v; _ctx.ApplyAndSave(); })
+                    { Description = "Thickness of the gaze ring's outline; applies after a restart." },
+                new SliderSpec("s_gi_opacity", "Ring Opacity", 0.1, 1.0, 0.05, 2,
+                    () => s.ManualSelection.GazeIndicatorOpacity, v => { s.ManualSelection.GazeIndicatorOpacity = v; _ctx.ApplyAndSave(); })
+                    { Description = "How visible the gaze ring is; applies after a restart." },
+                new SliderSpec("s_gi_anim", "Reset Animation (ms)", 0, 1000, 50, 0,
+                    () => s.ManualSelection.GazeIndicatorResetAnimationMs, v => { s.ManualSelection.GazeIndicatorResetAnimationMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How long the gaze ring takes to fade after a selection; applies after a restart." },
             ]),
         ];
     }

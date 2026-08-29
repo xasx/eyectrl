@@ -27,6 +27,26 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
     }
 
     [Fact]
+    public void Selection_Build_HasFiveGazeIndicatorRows_RestartDescribed_ExceptOuter()
+    {
+        var sliders = new SelectionPageSource(TestSettingsPageContext.Build()).Build()
+            .SelectMany(p => p.Rows).OfType<SliderSpec>()
+            .Where(s => s.Id.StartsWith("s_gi_", StringComparison.Ordinal)).ToList();
+        Check.That(sliders.Select(s => s.Id)).ContainsExactly(
+            "s_gi_outer", "s_gi_dot", "s_gi_stroke", "s_gi_opacity", "s_gi_anim");
+        // Four of the five are snapshot-once at startup; the outer diameter is re-read live on
+        // every reset animation (OverlayMessageCoordinator), so its claim differs on purpose.
+        Check.That(sliders.Where(s => s.Id != "s_gi_outer")
+            .All(s => s.Description!.Contains("restart", StringComparison.Ordinal))).IsTrue();
+        // NFluent 3.1.0 has no ICheck<string>.Contains(string, StringComparison) — the two-arg
+        // call would silently bind to the params-object[] enumerable overload and fail; keep the
+        // ordinal predicate on the BCL string method (same pattern as the restart check above).
+        Check.That(sliders.Single(s => s.Id == "s_gi_outer").Description!
+            .Contains("next selection", StringComparison.Ordinal)).IsTrue();
+        Check.That(sliders.Single(s => s.Id == "s_gi_outer").Get()).IsEqualTo(60);
+    }
+
+    [Fact]
     public void Keyboard_LanguageComboHasCodeMapping()
     {
         var lang = new KeyboardPageSource(TestSettingsPageContext.Build()).Build().SelectMany(p => p.Rows)

@@ -40,7 +40,8 @@ The artboards showed a *sweeping* arc, and `DwellArcButton.UpdateProgress` sweep
 - **Tests:** NFluent (`Check.That(...)`), never `Assert.*`. No mocking library — private nested fakes. WPF-constructing tests use `[StaFact]` and `[Collection("WpfApplication")]`.
 - **Never call `Show()`** in a test, and never simulate input. Constructing a `Window` parses its XAML, which is all any test here needs. This suite must never take over the screen of a user whose only input channel is an eye tracker.
 - **`TranslatePoint` against an unshown `Window` returns `(0,0)` for every element**, even after `Measure` + `Arrange` + `UpdateLayout` — a window's content is not visually connected until `Show()`. Any test asserting "nothing moved" by comparing `TranslatePoint` results is vacuously green. Measure layout relative to the hosting `Canvas` instead.
-- **CLAUDE.md house rule:** run `impact({target: "<symbol>", direction: "upstream"})` before editing any function/class/method and report the blast radius; run `detect_changes()` before each commit. **`rename` and `impact` cannot see `[ObservableProperty]`-generated members** — the graph indexes the declared field, not the generated property, so `rename({from: "ToolbarButtonViewModel.Symbol"})` returns "not found". Rename the backing field by hand against the explicit reference list in Task 2.
+- **CLAUDE.md house rule:** run `impact({target: "<symbol>", direction: "upstream"})` before editing any function/class/method and report the blast radius; run `detect_changes()` before each commit.
+- **The GitNexus index is stale in this worktree and cannot be refreshed here.** `.gitnexus/` is git-ignored, so it exists only in the main checkout and the graph is pinned at `4c84833` — before Task 1. Every `impact`/`detect_changes` call on this branch is therefore answering about code that predates this work: a `low` risk verdict means "low risk in the pre-Task-1 graph", not "low risk now". Re-indexing from the worktree would target the main checkout's index and is not worth the collateral. Keep running the calls, because the house rule says so and a HIGH verdict is still informative — but do not present a clean result as coverage, and lean on the tests, the census guards and the reviews, which are reading the real code. **`rename` and `impact` cannot see `[ObservableProperty]`-generated members** — the graph indexes the declared field, not the generated property, so `rename({from: "ToolbarButtonViewModel.Symbol"})` returns "not found". Rename the backing field by hand against the explicit reference list in Task 2.
 - **No literal corner radius, font family, font size or font weight** in `src/EyeCtrl.App` or `src/EyeCtrl.Controls` — `RawGeometryLiteralTests` whitelists against `Tokens` and `ContainerRatio` by reflection.
 - **Do not assign `Tokens.CircleCornerRadius` from code-behind.** `CornerRadiusClampTests` scans every `.cs` outside `/Theme/` in the scanned projects and requires zero hits (`CornerRadiusClampTests.cs:213-226`). This plan never does — `DwellArcButton` uses an `Ellipse`.
 - **Do not change the dwell-target lifecycle.** Targets are created lazily by `UpdateButtonScreenPosition` at the first real on-screen centre, never at `(0,0)`; later reports move them via `UpdateTargetCenter` so accumulated dwell survives re-layout. Nothing here adds or removes a target at runtime.
@@ -503,10 +504,10 @@ public static class SelectionModeIcons
 
 - [ ] **Step 6: Swap the view-model's glyph literals**
 
-In `ToolbarViewModel.cs`, the constructor array — keep the `new (string Id, string Symbol)[]` declaration text verbatim, because `ToolbarButtonDriftTests` locates both button arrays by that exact string and its failure message asks you to update the guard rather than move the declaration (`ToolbarButtonDriftTests.cs:81-86`):
+In `ToolbarViewModel.cs`, the constructor array. Name the tuple element `IconKey`, not `Symbol` — it carries icon keys now, and leaving the old name feeds `symbol` into a parameter named `iconKey` one line later. `ToolbarButtonDriftTests.ButtonIdsFrom` used to anchor on the full declaration text, which is why an earlier draft kept the stale name; that anchor is now the prefix `"var buttons = new (string Id, string "`, so the element name is free:
 
 ```csharp
-        var buttons = new (string Id, string Symbol)[]
+        var buttons = new (string Id, string IconKey)[]
         {
             ("Pause", "Pause"),
             ("SelectionMode", SelectionModeIcons.None),
@@ -717,9 +718,14 @@ Expected: build failure — `ButtonCanvasForTest` does not exist.
         <StackPanel x:Name="StripWrapper" Orientation="Horizontal" VerticalAlignment="Center">
             <!-- Chrome, not a target: the provider indicator is not dwellable, so it must not sit
                  inside the button band where it reads as a broken button. Empty until a provider
-                 is known, and an empty StackPanel measures to zero. -->
+                 is known.
+
+                 NO Margin here. An empty StackPanel zeroes its CONTENT, not its Margin, so a
+                 margin on the panel offsets the whole band even with no indicator present:
+                 measured at 28 px from the strip edge to the first disc against 16 px on the
+                 far side. Task 6 puts the spacing on the indicator's own children instead. -->
             <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal"
-                        VerticalAlignment="Center" Margin="8,0,4,0"/>
+                        VerticalAlignment="Center"/>
             <!-- DwellArcButton positions itself with Canvas.SetLeft/SetTop, so the button band is
                  a Canvas with an explicitly computed size — a Canvas measures to zero otherwise,
                  and this window is SizeToContent. -->
@@ -804,7 +810,7 @@ In `ToolbarWindow.xaml.cs`, replace `_buttonVisuals`, `AddButton`, `SetPausedSta
         // Every id here must exist in ToolbarViewModel's button list and have a case in its
         // OnTargetActivated switch; ToolbarButtonDriftTests enforces that and records why the
         // deliberately-absent ids are absent.
-        var buttons = new (string Id, string Symbol)[]
+        var buttons = new (string Id, string IconKey)[]
         {
             ("Pause",           "Pause"),
             ("SelectionMode",   SelectionModeIcons.None),
@@ -825,7 +831,7 @@ In `ToolbarWindow.xaml.cs`, replace `_buttonVisuals`, `AddButton`, `SetPausedSta
     /// measures to zero, and this window is SizeToContent, so the size must be explicit or the
     /// strip collapses.
     /// </summary>
-    private void LayOutBand((string Id, string Symbol)[] buttons)
+    private void LayOutBand((string Id, string IconKey)[] buttons)
     {
         var along = ButtonMargin + _buttonSize / 2;   // centre of the first slot
         var across = Pitch / 2;
@@ -1027,9 +1033,14 @@ Expected: build failure. Four members this task's code references arrive in late
     private readonly List<(ToolbarButtonViewModel Vm, PropertyChangedEventHandler Handler)> _subs = new();
 
     /// <summary>
-    /// Subscribes each button view-model to its visuals. Safe to call repeatedly: Task 3's
-    /// axis change rebuilds every DwellArcButton, so the old subscriptions must be dropped or
-    /// they drive dead visuals. The former _boundIds guard assumed the visuals never changed.
+    /// Subscribes each button view-model to its visuals. Safe to call repeatedly, which the
+    /// axis change in SetMode needs: it rebuilds the band and then rebinds.
+    ///
+    /// Dropping the old subscriptions is NOT about dead visuals — the handler resolves
+    /// _buttons at event time, so it keeps working across a rebuild. It is about not
+    /// double-subscribing once this method can be called more than once. The former
+    /// _boundIds guard prevented that by making every call after the first a no-op, which
+    /// also silently skipped the state re-application below.
     /// </summary>
     public void BindToViewModel()
     {
@@ -1087,7 +1098,15 @@ Expected: build failure. Four members this task's code references arrive in late
         ButtonCanvas.Children.OfType<Path>().Count(p => p.Visibility == Visibility.Visible);
 ```
 
-Delete `ProgressBarHeight` and every `progressBar` local.
+> Task 3 already deleted `ProgressBarHeight` and the `progressBar` locals, and already split
+> `Initialize` into parameter capture plus `RebuildBand()` — so no caller invents a
+> `dwellTimeMs`. Nothing to remove here.
+>
+> **This task owns an outcome the steps only imply: re-applying view-model state after a
+> rebuild.** Making `BindToViewModel` re-callable is what causes `BindButton`'s initial-apply
+> block to run again, which is what restores the right icon and tint to a band rebuilt by
+> `SetMode`'s axis flip. Without it, docking to a side edge while paused shows the Pause icon
+> on a paused app. If the rewrite below gets trimmed, keep that behaviour and its test.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -1261,7 +1280,9 @@ It is the same size, radius and margin as a button, sits inside the target band,
 
 > **Motivation corrected.** An earlier draft claimed the indicator shifts every learned button position by 72 px. It does not: `SetProviderIndicator` has exactly one caller (`OverlayManager.cs:108`), which runs immediately after `Toolbar.Initialize` and before the first `SetMode` centring (`App.xaml.cs:467`), and the settings-save path re-runs `Initialize` then `SetMode`. The indicator always exists before the strip is centred. The hazard is structural — nothing keeps chrome out of the band — not live.
 
-**Files:** `src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs`, `tests/EyeCtrl.App.Tests/ToolbarButtonVisualTests.cs`
+**Files:** `src/EyeCtrl.App/Overlays/ToolbarWindow.xaml`, `ToolbarWindow.xaml.cs`, `tests/EyeCtrl.App.Tests/ToolbarButtonVisualTests.cs`
+
+> **Also fix the strip's asymmetry here.** Task 3 gave `IndicatorPanel` a `Margin="8,0,4,0"`. An empty `StackPanel` zeroes its content, not its margin, so that 12 px offsets the entire band even when no provider is set: rendering the real window measures 28 px from the strip edge to the first disc against 16 px past the last one. Remove the margin from the panel and put the spacing on the indicator's own children, so an absent indicator costs nothing. Add an assertion that the inset before the first face equals the inset after the last, with and without an indicator.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1570,14 +1591,14 @@ Write the census entry to the counts that command actually reports, with the rat
 
 - [ ] **Step 3: Update the drift guard's description**
 
-`ToolbarButtonDriftTests`’ `ButtonEntry` regex was already relaxed in Task 2 (see that task’s note — the original pattern silently dropped `("SelectionMode", SelectionModeIcons.None)`). Both arrays kept the `new (string Id, string Symbol)[]` declaration text, so `ButtonIdsFrom` still finds them. Confirm the guard is green here, and add to the class summary:
+`ToolbarButtonDriftTests` was already adjusted in Task 2: the `ButtonEntry` regex lost its trailing-quote requirement (the original silently dropped `("SelectionMode", SelectionModeIcons.None)`), and `ButtonIdsFrom`’s anchor became the prefix `"var buttons = new (string Id, string "` so the tuple element could be renamed to `IconKey`. Both files resolve against that prefix. Confirm the guard is green here — this is the first task where it can actually run — and add to the class summary:
 
 ```csharp
-/// The second tuple element has been a ToolbarIconKey member name, not a Unicode symbol, since
-/// the 2026-08-29 gaze-accessibility change. The declaration text this guard keys on was left
-/// alone deliberately so the guard kept working across it; if it is ever renamed, update this
-/// file rather than deleting it. The guard constrains only the id, so the key itself is pinned
-/// separately by ToolbarIconKeyBridgeTests.
+/// The second tuple element carries a ToolbarIconKey member name, not a Unicode symbol, since
+/// the 2026-08-29 gaze-accessibility change, and may be a constant reference rather than a
+/// literal. This guard anchors on a PREFIX of the declaration and captures only the id, so the
+/// element's name and value are both free of it; the key itself is pinned by
+/// ToolbarIconKeyBridgeTests, which asserts the parsed enum member rather than mere validity.
 ```
 
 - [ ] **Step 4: Check the arc-button suites still describe reality**

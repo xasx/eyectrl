@@ -17,25 +17,22 @@ using CommunityToolkit.Mvvm.Messaging;
 /// that cancels an in-flight drag. Extracted from <c>EventCoordinator</c> as part of the
 /// sub-coordinator decomposition (cluster 4).
 /// </summary>
-internal sealed class DragCoordinator : IDisposable
+internal sealed class DragCoordinator : CoordinatorBase
 {
     private const double RightEdgeInsetLogical = 30;
 
-    private EventCoordinationContext? _context;
     private DragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
     private Action? _disposeEscapeHook;
-    private bool _disposed;
-
-    public void Initialize(EventCoordinationContext context)
+    protected override void OnInitialize()
     {
-        _context = context ?? throw new ArgumentNullException(nameof(context));
-        _context.InteractionManager.DragStarted += OnDragStarted;
-        _context.DragTrailVM.PropertyChanged += OnDragTrailVMPropertyChanged;
-        _context.Messenger.Register<DragCoordinator, DragDropMessage>(this, (_, m) =>
-            _context.Dispatcher.BeginInvoke(() => OnDragDrop(m)));
-        _context.Messenger.Register<DragCoordinator, DragCancelMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(OnDragCancel));
+        var context = Context!;
+        context.InteractionManager.DragStarted += OnDragStarted;
+        context.DragTrailVM.PropertyChanged += OnDragTrailVMPropertyChanged;
+        context.Messenger.Register<DragCoordinator, DragDropMessage>(this, (_, m) =>
+            context.Dispatcher.BeginInvoke(() => OnDragDrop(m)));
+        context.Messenger.Register<DragCoordinator, DragCancelMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(OnDragCancel));
 
         // DragDismissManualSelectionMessage is intentionally NOT registered here. Only
         // DragTrailViewModel reacts to it (transitions DragSubState back to FreeDrag). The old
@@ -51,9 +48,9 @@ internal sealed class DragCoordinator : IDisposable
     {
         if (msg.message == 0x0100 && (int)msg.wParam == 0x1B) // WM_KEYDOWN, VK_ESCAPE
         {
-            if (_context?.InteractionManager.CurrentState == InteractionState.Dragging)
+            if (Context?.InteractionManager.CurrentState == InteractionState.Dragging)
             {
-                _context.Messenger.Send(new DragCancelMessage());
+                Context.Messenger.Send(new DragCancelMessage());
                 handled = true;
             }
         }
@@ -61,38 +58,38 @@ internal sealed class DragCoordinator : IDisposable
 
     private void OnDragStarted(PhysicalPoint grabOrigin)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
         _dragGrabOrigin = grabOrigin;
-        _context.InputSimulator.MouseDown(grabOrigin);
+        Context.InputSimulator.MouseDown(grabOrigin);
 
         _dragTrailOverlay = new DragTrailOverlay();
-        _dragTrailOverlay.Configure(_context.Settings.Drag.TrailColor, _context.Settings.Drag.TrailOpacity);
+        _dragTrailOverlay.Configure(Context.Settings.Drag.TrailColor, Context.Settings.Drag.TrailOpacity);
         _dragTrailOverlay.Show();
 
         var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.DragButtonRadius);
         var cancelDef = new EdgeButtonDefinition(
-            "Drag_cancel", "\u2715", _context.Settings.Dwell.DragRightEdgeButtonDwellMs,
+            "Drag_cancel", "\u2715", Context.Settings.Dwell.DragRightEdgeButtonDwellMs,
             m => m.Send(new DragCancelMessage()),
             VerticalOffset: DpiHelper.LogicalToPhysicalY(30));
-        _context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { cancelDef }, anchor);
+        Context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { cancelDef }, anchor);
 
-        _context.Messenger.Send(new StartDragTrailMessage(grabOrigin));
+        Context.Messenger.Send(new StartDragTrailMessage(grabOrigin));
     }
 
     private void OnDragDrop(DragDropMessage msg)
     {
-        _context?.OverlayManager.EdgeButtonBar.Hide();
-        _context?.InputSimulator.MouseUp(msg.DropPoint);
-        _context?.InteractionManager.CompleteDrag();
+        Context?.OverlayManager.EdgeButtonBar.Hide();
+        Context?.InputSimulator.MouseUp(msg.DropPoint);
+        Context?.InteractionManager.CompleteDrag();
         CloseDragOverlay();
     }
 
     private void OnDragCancel()
     {
-        _context?.OverlayManager.EdgeButtonBar.Hide();
-        _context?.InputSimulator.MouseUp(_dragGrabOrigin);
-        _context?.InteractionManager.CompleteDrag();
+        Context?.OverlayManager.EdgeButtonBar.Hide();
+        Context?.InputSimulator.MouseUp(_dragGrabOrigin);
+        Context?.InteractionManager.CompleteDrag();
         CloseDragOverlay();
     }
 
@@ -104,8 +101,8 @@ internal sealed class DragCoordinator : IDisposable
 
     private void OnDragTrailVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_context == null || _dragTrailOverlay == null) return;
-        var vm = _context.DragTrailVM;
+        if (Context is null || _dragTrailOverlay == null) return;
+        var vm = Context.DragTrailVM;
 
         switch (e.PropertyName)
         {
@@ -116,11 +113,11 @@ internal sealed class DragCoordinator : IDisposable
                     vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress, vm.ReleaseButtonCenter);
                 break;
             case nameof(DragTrailViewModel.ShowBack):
-                var bar = _context.OverlayManager.EdgeButtonBar;
-                if (_context.DragTrailVM.ShowBack)
+                var bar = Context.OverlayManager.EdgeButtonBar;
+                if (Context.DragTrailVM.ShowBack)
                 {
                     var backDef = new EdgeButtonDefinition(
-                        "Drag_back", "\u21A9", _context.Settings.Dwell.DragRightEdgeButtonDwellMs,
+                        "Drag_back", "\u21A9", Context.Settings.Dwell.DragRightEdgeButtonDwellMs,
                         m => m.Send(new DragDismissManualSelectionMessage()),
                         VerticalOffset: -DpiHelper.LogicalToPhysicalY(30));
                     bar.AddButton(backDef);
@@ -135,14 +132,12 @@ internal sealed class DragCoordinator : IDisposable
         }
     }
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed || _context is null) { _disposed = true; return; }
-        _context.InteractionManager.DragStarted -= OnDragStarted;
-        _context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
+        if (Context is null) return;
+        Context.InteractionManager.DragStarted -= OnDragStarted;
+        Context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
         _disposeEscapeHook?.Invoke();
         CloseDragOverlay();
-        _context.Messenger.UnregisterAll(this);
-        _disposed = true;
     }
 }

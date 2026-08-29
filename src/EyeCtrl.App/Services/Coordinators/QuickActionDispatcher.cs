@@ -16,14 +16,11 @@ using Serilog;
 /// cross-calls). Methods are <see langword="internal"/> so the migrated tests call them directly
 /// (no reflection).
 /// </summary>
-internal sealed class QuickActionDispatcher : IDisposable
+internal sealed class QuickActionDispatcher : CoordinatorBase
 {
-    private EventCoordinationContext? _context;
-    private bool _disposed;
-
-    public void Initialize(EventCoordinationContext context)
+    protected override void OnInitialize()
     {
-        _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
+        var context = Context!;
         var m = context.Messenger;
         m.Register<QuickActionDispatcher, QuickActionSelectionMessage>(this, (_, msg) =>
         {
@@ -37,11 +34,11 @@ internal sealed class QuickActionDispatcher : IDisposable
 
     internal void HandleTaskSwitcherSelection(TaskSwitcherSelectionMessage msg)
     {
-        if (_context == null) return;
-        _context.WindowManager.BringToFront(msg.Hwnd);
+        if (Context is null) return;
+        Context.WindowManager.BringToFront(msg.Hwnd);
         // HideOverlay is public on the VM so the coordinator can dismiss after a selection
         // (in addition to the toggle path inside Receive).
-        _context.OverlayManager.TaskSwitcher.HideOverlay();
+        Context.OverlayManager.TaskSwitcher.HideOverlay();
     }
 
     /// <summary>
@@ -50,7 +47,7 @@ internal sealed class QuickActionDispatcher : IDisposable
     /// </summary>
     internal void ExecuteQuickAction(QuickAction action, IntPtr? windowActionHwnd)
     {
-        if (_context == null) return;
+        if (Context is null) return;
         try
         {
             switch (action.Type)
@@ -59,14 +56,14 @@ internal sealed class QuickActionDispatcher : IDisposable
                     ExecuteKeyboardShortcut(action.Payload);
                     break;
                 case QuickActionType.CannedText:
-                    _context.InputSimulator.SendText(action.Payload);
+                    Context.InputSimulator.SendText(action.Payload);
                     break;
                 case QuickActionType.LaunchExe:
                     System.Diagnostics.Process.Start(
                         new System.Diagnostics.ProcessStartInfo(action.Payload) { UseShellExecute = true });
                     break;
                 case QuickActionType.LaunchWindowsApp:
-                    _context.WindowsAppLauncher.ActivateApplication(action.Payload);
+                    Context.WindowsAppLauncher.ActivateApplication(action.Payload);
                     break;
                 case QuickActionType.LaunchUrl:
                     System.Diagnostics.Process.Start(
@@ -96,7 +93,7 @@ internal sealed class QuickActionDispatcher : IDisposable
     /// </summary>
     internal void ExecuteKeyboardShortcut(string chord)
     {
-        if (_context == null) return;
+        if (Context is null) return;
         var parts = chord.Split('+');
         var mods = new HashSet<ModifierKey>();
         string key = parts[^1].Trim();   // trim whitespace so "Ctrl + C" works (modifiers are trimmed below)
@@ -133,7 +130,7 @@ internal sealed class QuickActionDispatcher : IDisposable
         {
             if (requiredModifiers.Count == 0)
             {
-                _context.InputSimulator.SendModifiedKeyPress(mods, vk, isExtendedKey: isExtended);
+                Context.InputSimulator.SendModifiedKeyPress(mods, vk, isExtendedKey: isExtended);
                 return;
             }
 
@@ -141,7 +138,7 @@ internal sealed class QuickActionDispatcher : IDisposable
             foreach (var requiredModifier in requiredModifiers)
                 merged.Add(requiredModifier);
 
-            _context.InputSimulator.SendModifiedKeyPress(merged, vk, isExtendedKey: isExtended);
+            Context.InputSimulator.SendModifiedKeyPress(merged, vk, isExtendedKey: isExtended);
         }
         else
         {
@@ -155,7 +152,7 @@ internal sealed class QuickActionDispatcher : IDisposable
     /// </summary>
     internal void ExecuteMediaControl(string command)
     {
-        if (_context == null) return;
+        if (Context is null) return;
         ushort vk = command switch
         {
             "PlayPause" => 0xB3, "Stop" => 0xB2,
@@ -164,7 +161,7 @@ internal sealed class QuickActionDispatcher : IDisposable
             _ => 0
         };
         if (vk != 0)
-            _context.InputSimulator.SendKeyPress(vk, isExtendedKey: true);
+            Context.InputSimulator.SendKeyPress(vk, isExtendedKey: true);
     }
 
     /// <summary>
@@ -181,7 +178,7 @@ internal sealed class QuickActionDispatcher : IDisposable
     /// </remarks>
     internal void ExecuteWindowAction(string payload, IntPtr? hwnd)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
         // Enum.TryParse also accepts numeric strings, so a corrupt payload like "7" would parse into
         // an undefined WindowAction, fall through the switch and no-op silently. IsDefined keeps the
@@ -202,22 +199,16 @@ internal sealed class QuickActionDispatcher : IDisposable
         switch (windowAction)
         {
             case WindowAction.Minimize:
-                _context.WindowManager.Minimize(hwnd.Value);
+                Context.WindowManager.Minimize(hwnd.Value);
                 break;
             case WindowAction.MaximizeRestore:
-                _context.WindowManager.MaximizeOrRestore(hwnd.Value);
+                Context.WindowManager.MaximizeOrRestore(hwnd.Value);
                 break;
             case WindowAction.Close:
-                if (!_context.WindowManager.CloseWindow(hwnd.Value))
+                if (!Context.WindowManager.CloseWindow(hwnd.Value))
                     Log.Information("Window-action Close: PostMessage(WM_CLOSE) returned false (UIPI-blocked by elevated foreground?)");
                 break;
         }
     }
 
-    public void Dispose()
-    {
-        if (_disposed || _context is null) { _disposed = true; return; }
-        _context.Messenger.UnregisterAll(this);
-        _disposed = true;
-    }
 }

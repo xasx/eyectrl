@@ -11,9 +11,8 @@ using EyeCtrl.ViewModels.Messages;
 /// and the per-sample gaze route (toolbar lazy-init + keyboard/settings forwarding). Extracted from
 /// <c>EventCoordinator</c> as part of the sub-coordinator decomposition (clusters 6 + 8).
 /// </summary>
-internal sealed class ToolbarLifecycleCoordinator : IDisposable
+internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
 {
-    private EventCoordinationContext? _context;
     // Forward-looking seam: the modal flags are injected here so T5/T7 (keyboard/settings) can take
     // the same shared ModalInteractionState and flip it without re-plumbing the constructor.
     private readonly ModalInteractionState _modal;
@@ -32,8 +31,6 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
     // the first gaze sample. Private: AttachSettingsUi is the only writer, SetupGazeRouting the only
     // reader — nothing outside this class touches the field.
     private SettingsUiCoordinator? _settingsUi;
-    private bool _disposed;
-
     public ToolbarLifecycleCoordinator(ModalInteractionState modal) =>
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
 
@@ -49,10 +46,9 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
     /// constructed (which happens after this coordinator).</summary>
     internal void AttachSettingsUi(SettingsUiCoordinator settings) => _settingsUi = settings;
 
-    public void Initialize(EventCoordinationContext context)
+    protected override void OnInitialize()
     {
-        _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
-
+        var context = Context!;
         // Mirror InteractionManager.Paused into the toolbar auto-hide controller. This registration
         // moved here from EventCoordinator.SetupMessageHandlers as part of the cluster-6 extraction.
         context.Messenger.Register<ToolbarLifecycleCoordinator, StateChangedMessage>(this, (_, msg) =>
@@ -68,10 +64,10 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
     /// Moved here from EventCoordinator as part of the cluster-8 final cleanup.</summary>
     private void SetupGazeRouting()
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var toolbar = _context.OverlayManager.Toolbar;
-        var keyboard = _context.OverlayManager.Keyboard;
+        var toolbar = Context.OverlayManager.Toolbar;
+        var keyboard = Context.OverlayManager.Keyboard;
 
         _gazeMovedHandler = (point, timestamp) =>
         {
@@ -83,7 +79,7 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
             if (_toolbarInitialized && !_modal.KeyboardVisible && !_modal.SettingsOpen)
                 return;
 
-            _context.Dispatcher.BeginInvoke(() =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
                 toolbar.UpdateGaze(point, timestamp);
                 _toolbarInitialized = true;
@@ -97,7 +93,7 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
             });
         };
 
-        _context.GazeEngine.CursorMoved += _gazeMovedHandler;
+        Context.GazeEngine.CursorMoved += _gazeMovedHandler;
     }
 
     /// <summary>Suspend/resume the auto-hide dwell (called by Keyboard/Settings coordinators when a
@@ -128,8 +124,8 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
     /// <see cref="PhysicalRect"/> themselves.</summary>
     public void RefreshToolbarRect()
     {
-        if (_context == null || _autoHide == null) return;
-        _context.Dispatcher.BeginInvoke(new Action(() =>
+        if (Context is null || _autoHide == null) return;
+        Context.Dispatcher.BeginInvoke(new Action(() =>
         {
             _autoHide.UpdateToolbarRect(CaptureToolbarRect());
         }), System.Windows.Threading.DispatcherPriority.Loaded);
@@ -137,7 +133,7 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
 
     private PhysicalRect CaptureToolbarRect()
     {
-        var t = _context!.OverlayManager.Toolbar;
+        var t = Context!.OverlayManager.Toolbar;
         // Convert logical window bounds (WPF DIPs) to physical px.
         double x = DpiHelper.LogicalToPhysicalX(t.Left);
         double y = DpiHelper.LogicalToPhysicalY(t.Top);
@@ -148,9 +144,9 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
 
     private void SetupToolbarAutoHide()
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var s = _context.Settings.Toolbar;
+        var s = Context.Settings.Toolbar;
         // Two distinct gates:
         //  - providerIsRealTracker (immutable for the process): whether the subscription is wired at all.
         //    Mouse/test mode never subscribes → zero overhead, no auto-hide ever.
@@ -174,14 +170,14 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
             hideDelayMs: 5000,
             summonDelayMs: 400,
             offScreenMarginPx: 50,
-            calibrationActive: () => _context.CalibrationService.IsSessionActive,
+            calibrationActive: () => Context.CalibrationService.IsSessionActive,
             // Read per call, not cached, so a mid-session recalibration takes effect. Identity while
             // no calibration is loaded, which makes this a no-op until one is. Deliberately NOT
             // passed to QuickActionsSummonController below: its IsPastEdge test is purely off-screen,
             // where the transform extrapolates outside the domain it was fit to.
-            toScreen: p => _context.CalibrationService.CurrentTransform?.Apply(p) ?? p);
+            toScreen: p => Context.CalibrationService.CurrentTransform?.Apply(p) ?? p);
 
-        var vis = new ToolbarVisibilityAdapter(_context.OverlayManager, _context.Dispatcher, _context.ToolbarVM);
+        var vis = new ToolbarVisibilityAdapter(Context.OverlayManager, Context.Dispatcher, Context.ToolbarVM);
         controller.Attach(vis);
 
         _autoHide = controller;
@@ -195,7 +191,7 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
             // Store the handler in a field so Dispose can -= it. (The lambda captures the `controller`
             // local; nulling _autoHide alone would NOT unsubscribe it.)
             _autoHideGazeHandler = sample => controller.Feed(sample, sample.TimestampMicroseconds);
-            _context.GazeEngine.GazeSampled += _autoHideGazeHandler;
+            Context.GazeEngine.GazeSampled += _autoHideGazeHandler;
         }
 
         // CaptureToolbarRect() above ran during Initialize, BEFORE ShowOverlays shows + lays out the
@@ -206,12 +202,9 @@ internal sealed class ToolbarLifecycleCoordinator : IDisposable
         RefreshToolbarRect();
     }
 
-    public void Dispose()
+    protected override void OnDispose()
     {
-        if (_disposed || _context is null) { _disposed = true; return; }
-        if (_autoHideGazeHandler != null) _context.GazeEngine.GazeSampled -= _autoHideGazeHandler;
-        if (_gazeMovedHandler != null) _context.GazeEngine.CursorMoved -= _gazeMovedHandler;
-        _context.Messenger.UnregisterAll(this);
-        _disposed = true;
+        if (_autoHideGazeHandler != null) Context!.GazeEngine.GazeSampled -= _autoHideGazeHandler;
+        if (_gazeMovedHandler != null) Context!.GazeEngine.CursorMoved -= _gazeMovedHandler;
     }
 }

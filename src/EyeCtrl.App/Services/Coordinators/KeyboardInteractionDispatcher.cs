@@ -17,19 +17,17 @@ using Serilog;
 /// cross-calls). Methods are <see langword="internal"/> so the migrated tests call them directly
 /// (no reflection).
 /// </summary>
-internal sealed class KeyboardInteractionDispatcher : IDisposable
+internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
 {
-    private EventCoordinationContext? _context;
-    private bool _disposed;
     private const int DefaultScrollAmount = 3;
     private const int BackspaceVirtualKeyCode = 0x08;
     private const int EnterVirtualKeyCode = 0x0D;
     private const int TabVirtualKeyCode = 0x09;
     private const ushort SpaceVirtualKeyCode = 0x20;
 
-    public void Initialize(EventCoordinationContext context)
+    protected override void OnInitialize()
     {
-        _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
+        var context = Context!;
         var m = context.Messenger;
         m.Register<KeyboardInteractionDispatcher, KeyActivatedMessage>(this, (_, msg) =>
             context.Dispatcher.BeginInvoke(() => HandleKeyActivation(msg.Key, msg.Modifiers)));
@@ -43,7 +41,7 @@ internal sealed class KeyboardInteractionDispatcher : IDisposable
 
     internal void HandleKeyActivation(string key, IReadOnlySet<ModifierKey>? modifiers)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
         var hasSystemModifiers = modifiers != null &&
             (modifiers.Contains(ModifierKey.Ctrl) || modifiers.Contains(ModifierKey.Alt) || modifiers.Contains(ModifierKey.Win));
@@ -85,18 +83,18 @@ internal sealed class KeyboardInteractionDispatcher : IDisposable
                     var merged = new HashSet<ModifierKey>(modifiers!);
                     foreach (var req in requiredModifiers)
                         merged.Add(req);
-                    _context.InputSimulator.SendModifiedKeyPress(merged, vk);
+                    Context.InputSimulator.SendModifiedKeyPress(merged, vk);
                 }
                 else
                 {
-                    _context.InputSimulator.SendModifiedKeyPress(modifiers!, vk);
+                    Context.InputSimulator.SendModifiedKeyPress(modifiers!, vk);
                 }
             }
             else
             {
                 // Character has no VK mapping (e.g., €, ©) — fall back to plain text
                 Log.Warning("No VK mapping for key '{Key}' with system modifiers, falling back to plain text", key);
-                _context.InputSimulator.SendText(key);
+                Context.InputSimulator.SendText(key);
             }
         }
         else
@@ -104,26 +102,26 @@ internal sealed class KeyboardInteractionDispatcher : IDisposable
             // Simple path: no system modifiers, just send text or VK
             switch (key)
             {
-                case "\b": _context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode); break;
-                case "\n": _context.InputSimulator.SendKeyPress(EnterVirtualKeyCode); break;
-                case "\t": _context.InputSimulator.SendKeyPress(TabVirtualKeyCode); break;
-                default: _context.InputSimulator.SendText(key); break;
+                case "\b": Context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode); break;
+                case "\n": Context.InputSimulator.SendKeyPress(EnterVirtualKeyCode); break;
+                case "\t": Context.InputSimulator.SendKeyPress(TabVirtualKeyCode); break;
+                default: Context.InputSimulator.SendText(key); break;
             }
         }
     }
 
     internal void HandlePredictionSelected(int deleteCount, string word)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
         for (int i = 0; i < deleteCount; i++)
-            _context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode);
-        _context.InputSimulator.SendText(word + " ");
+            Context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode);
+        Context.InputSimulator.SendText(word + " ");
     }
 
     internal void HandleSpecialKey(string keyName, IReadOnlySet<ModifierKey>? modifiers)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
         ushort vk = keyName.ToLowerInvariant() switch
         {
@@ -162,9 +160,9 @@ internal sealed class KeyboardInteractionDispatcher : IDisposable
                 or VirtualKeys.Insert or VirtualKeys.Delete or VirtualKeys.Snapshot;
 
             if (modifiers != null && modifiers.Count > 0)
-                _context.InputSimulator.SendModifiedKeyPress(modifiers, vk, isExtendedKey);
+                Context.InputSimulator.SendModifiedKeyPress(modifiers, vk, isExtendedKey);
             else
-                _context.InputSimulator.SendKeyPress(vk, isExtendedKey);
+                Context.InputSimulator.SendKeyPress(vk, isExtendedKey);
         }
         else
         {
@@ -174,48 +172,42 @@ internal sealed class KeyboardInteractionDispatcher : IDisposable
 
     internal void HandleActionRequested(ActionRequestedMessage msg)
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var pt = msg.IsPreciseTarget ? msg.Point : (_context.GazeEngine.StableCentroid ?? msg.Point);
+        var pt = msg.IsPreciseTarget ? msg.Point : (Context.GazeEngine.StableCentroid ?? msg.Point);
         Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}]",
             msg.Action, pt.X, pt.Y, msg.IsPreciseTarget);
 
         if (msg.Action == InteractionAction.PinNote)
         {
-            if (_context is { NoteManager.IsAtCapacity: false })
-                _context.NoteManager.CreateNoteAt(pt);
+            if (Context is { NoteManager.IsAtCapacity: false })
+                Context.NoteManager.CreateNoteAt(pt);
 
-            if (_context is { TargetHighlightVM.IsVisible: true })
+            if (Context is { TargetHighlightVM.IsVisible: true })
             {
-                _context.TargetHighlightVM.IsVisible = false;
-                _context.OverlayManager.TargetHighlight.HideHighlight();
+                Context.TargetHighlightVM.IsVisible = false;
+                Context.OverlayManager.TargetHighlight.HideHighlight();
             }
             return;
         }
 
         switch (msg.Action)
         {
-            case InteractionAction.LeftClick:    _context.InputSimulator.LeftClick(pt);        break;
-            case InteractionAction.RightClick:   _context.InputSimulator.RightClick(pt);       break;
-            case InteractionAction.DoubleClick:  _context.InputSimulator.DoubleClick(pt);      break;
+            case InteractionAction.LeftClick:    Context.InputSimulator.LeftClick(pt);        break;
+            case InteractionAction.RightClick:   Context.InputSimulator.RightClick(pt);       break;
+            case InteractionAction.DoubleClick:  Context.InputSimulator.DoubleClick(pt);      break;
 
-            case InteractionAction.ScrollUp:     _context.InputSimulator.Scroll(pt, 0, DefaultScrollAmount);    break;
-            case InteractionAction.ScrollDown:   _context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);   break;
-            case InteractionAction.ScrollLeft:   _context.InputSimulator.Scroll(pt, -DefaultScrollAmount, 0);   break;
-            case InteractionAction.ScrollRight:  _context.InputSimulator.Scroll(pt, DefaultScrollAmount, 0);    break;
+            case InteractionAction.ScrollUp:     Context.InputSimulator.Scroll(pt, 0, DefaultScrollAmount);    break;
+            case InteractionAction.ScrollDown:   Context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);   break;
+            case InteractionAction.ScrollLeft:   Context.InputSimulator.Scroll(pt, -DefaultScrollAmount, 0);   break;
+            case InteractionAction.ScrollRight:  Context.InputSimulator.Scroll(pt, DefaultScrollAmount, 0);    break;
         }
 
-        if (_context.TargetHighlightVM.IsVisible)
+        if (Context.TargetHighlightVM.IsVisible)
         {
-            _context.TargetHighlightVM.IsVisible = false;
-            _context.OverlayManager.TargetHighlight.HideHighlight();
+            Context.TargetHighlightVM.IsVisible = false;
+            Context.OverlayManager.TargetHighlight.HideHighlight();
         }
     }
 
-    public void Dispose()
-    {
-        if (_disposed || _context is null) { _disposed = true; return; }
-        _context.Messenger.UnregisterAll(this);
-        _disposed = true;
-    }
 }

@@ -16,7 +16,7 @@ using Serilog;
 /// <see cref="OverlayVmBindingCoordinator"/>. Reaches back into that sibling for the one cross-side
 /// seam (<c>_vmBinding.HideBackdrop()</c>) since the backdrop window is owned there.
 /// </summary>
-internal sealed class OverlayMessageCoordinator : IDisposable
+internal sealed class OverlayMessageCoordinator : CoordinatorBase
 {
     /// <summary>
     /// Inset of the right-edge bar from the screen edge, in DIP. Declared here rather than
@@ -26,11 +26,8 @@ internal sealed class OverlayMessageCoordinator : IDisposable
     /// </summary>
     private const double RightEdgeInsetLogical = 30;
 
-    private EventCoordinationContext? _context;
     private readonly ToolbarLifecycleCoordinator _toolbar;
     private readonly OverlayVmBindingCoordinator _vmBinding;
-    private bool _disposed;
-
     public OverlayMessageCoordinator(ToolbarLifecycleCoordinator toolbar, OverlayVmBindingCoordinator vmBinding)
     {
         // Both are dereferenced unconditionally by the calibration handler (_toolbar.SetActive /
@@ -39,24 +36,24 @@ internal sealed class OverlayMessageCoordinator : IDisposable
         _vmBinding = vmBinding ?? throw new ArgumentNullException(nameof(vmBinding));
     }
 
-    public void Initialize(EventCoordinationContext context)
+    protected override void OnInitialize()
     {
-        _context = context ?? throw new ArgumentNullException(nameof(context)); // MANDATORY — see "How to read"
+        var context = Context!;
 
         SetupMessageHandlers();
     }
 
     private void SetupMessageHandlers()
     {
-        if (_context == null) return;
+        if (Context is null) return;
 
-        var im = _context.InteractionManager;
-        var ManualSelectionOverlay = _context.OverlayManager.ManualSelectionOverlay;
-        var ManualSelectionIndicator = _context.OverlayManager.ManualSelectionIndicator;
+        var im = Context.InteractionManager;
+        var ManualSelectionOverlay = Context.OverlayManager.ManualSelectionOverlay;
+        var ManualSelectionIndicator = Context.OverlayManager.ManualSelectionIndicator;
 
         // ManualSelectionDwellCompleted: Handle coordinate conversion
-        _context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionDwellCompletedMessage>(this, (_, msg) =>
-            _context.Dispatcher.BeginInvoke(() =>
+        Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionDwellCompletedMessage>(this, (_, msg) =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
                 try
                 {
@@ -71,14 +68,14 @@ internal sealed class OverlayMessageCoordinator : IDisposable
             }));
 
         // ResetManualSelectionIndicator: Trigger animation
-        _context.Messenger.Register<OverlayMessageCoordinator, ResetManualSelectionIndicatorMessage>(this, (_, msg) =>
-            _context.Dispatcher.BeginInvoke(() =>
+        Context.Messenger.Register<OverlayMessageCoordinator, ResetManualSelectionIndicatorMessage>(this, (_, msg) =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
                 try
                 {
                     if (!ManualSelectionIndicator.IsVisible) return;
-                    var targetDiameter = _context.Settings.ManualSelection.GazeIndicatorOuterDiameter;
-                    ManualSelectionIndicator.AnimateReset(targetDiameter, _context.ManualSelectionIndicatorVM.ResetAnimationMs);
+                    var targetDiameter = Context.Settings.ManualSelection.GazeIndicatorOuterDiameter;
+                    ManualSelectionIndicator.AnimateReset(targetDiameter, Context.ManualSelectionIndicatorVM.ResetAnimationMs);
                 }
                 catch (Exception ex)
                 {
@@ -87,31 +84,31 @@ internal sealed class OverlayMessageCoordinator : IDisposable
             }));
 
         // ManualSelectionCloseMessage -> exit ManualSelection mode
-        _context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionCloseMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() => im.OnManualSelectionBack()));
+        Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionCloseMessage>(this, (_, _) =>
+            Context.Dispatcher.BeginInvoke(() => im.OnManualSelectionBack()));
 
         // ManualSelectionRecaptureMessage -> re-capture at same fixation point
-        _context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionRecaptureMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() =>
+        Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionRecaptureMessage>(this, (_, _) =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
                 if (im.CurrentState == InteractionState.ManualSelectionActive && im.FixationPoint != null)
                 {
                     _vmBinding.HideBackdrop();
-                    _context.Messenger.Send(new StartManualSelectionMessage(
+                    Context.Messenger.Send(new StartManualSelectionMessage(
                         im.FixationPoint.Value,
-                        _context.Settings.ManualSelection.CircleRadiusPixels,
-                        _context.Settings.ManualSelection.MagnificationLevel,
+                        Context.Settings.ManualSelection.CircleRadiusPixels,
+                        Context.Settings.ManualSelection.MagnificationLevel,
                         im.FixationPoint.Value));
                 }
             }));
 
         // ShowActionMenu -> highlight overlay if auto-selection target resolved
-        _context.Messenger.Register<OverlayMessageCoordinator, ShowActionMenuMessage>(this, (_, msg) =>
-            _context.Dispatcher.BeginInvoke(() =>
+        Context.Messenger.Register<OverlayMessageCoordinator, ShowActionMenuMessage>(this, (_, msg) =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
                 try
                 {
-                    if (_context == null) return;
+                    if (Context is null) return;
 
                     // The menu was the only overlay context that put nothing on the right-edge
                     // bar, so an accidental open could only be resolved by committing an action.
@@ -126,22 +123,22 @@ internal sealed class OverlayMessageCoordinator : IDisposable
                     // changing either handler's dispatcher priority would silently invert it.
                     var edgeAnchor = ScreenGeometry.RightEdgeAnchor(
                         RightEdgeInsetLogical, UIConstants.ButtonRadius);
-                    _context.OverlayManager.EdgeButtonBar.ShowButtons(
+                    Context.OverlayManager.EdgeButtonBar.ShowButtons(
                         ActionMenuEdgeButtons.Definitions(
                             msg.ShowBack
-                                ? _context.Settings.Dwell.ManualSelectionActionMenuDwellMs
-                                : _context.Settings.Dwell.ActionMenuDwellMs),
+                                ? Context.Settings.Dwell.ManualSelectionActionMenuDwellMs
+                                : Context.Settings.Dwell.ActionMenuDwellMs),
                         edgeAnchor);
 
                     if (msg.ResolvedControl == null) return;
-                    var highlightVM = _context.TargetHighlightVM;
+                    var highlightVM = Context.TargetHighlightVM;
                     highlightVM.IsVisible = true;
-                    _context.OverlayManager.TargetHighlight.Configure(
-                        _context.Settings.AutoSelection.HighlightColor,
-                        _context.Settings.AutoSelection.HighlightThickness,
-                        _context.Settings.AutoSelection.HighlightOpacity);
-                    _context.OverlayManager.TargetHighlight.PositionAt(msg.ResolvedControl.BoundingRect);
-                    _context.OverlayManager.TargetHighlight.ShowHighlight();
+                    Context.OverlayManager.TargetHighlight.Configure(
+                        Context.Settings.AutoSelection.HighlightColor,
+                        Context.Settings.AutoSelection.HighlightThickness,
+                        Context.Settings.AutoSelection.HighlightOpacity);
+                    Context.OverlayManager.TargetHighlight.PositionAt(msg.ResolvedControl.BoundingRect);
+                    Context.OverlayManager.TargetHighlight.ShowHighlight();
                 }
                 catch (Exception ex)
                 {
@@ -150,8 +147,8 @@ internal sealed class OverlayMessageCoordinator : IDisposable
             }));
 
         // HideActionMenu -> hide highlight overlay
-        _context.Messenger.Register<OverlayMessageCoordinator, HideActionMenuMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() =>
+        Context.Messenger.Register<OverlayMessageCoordinator, HideActionMenuMessage>(this, (_, _) =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
                 try
                 {
@@ -169,14 +166,14 @@ internal sealed class OverlayMessageCoordinator : IDisposable
                     // Unguarded, this would therefore clear the drag's cancel button and scroll
                     // mode's stop button the instant either began — removing the only way out of
                     // a drag for a user whose sole input channel is an eye tracker.
-                    var bar = _context?.OverlayManager.EdgeButtonBar;
+                    var bar = Context?.OverlayManager.EdgeButtonBar;
                     if (bar?.EdgeBarVm?.DefinitionFor(ActionMenuEdgeButtons.CloseId) is not null)
                         bar.Hide();
 
-                    if (_context != null && _context.TargetHighlightVM.IsVisible)
+                    if (Context is not null && Context.TargetHighlightVM.IsVisible)
                     {
-                        _context.TargetHighlightVM.IsVisible = false;
-                        _context.OverlayManager.TargetHighlight.HideHighlight();
+                        Context.TargetHighlightVM.IsVisible = false;
+                        Context.OverlayManager.TargetHighlight.HideHighlight();
                     }
                 }
                 catch (Exception ex)
@@ -186,10 +183,10 @@ internal sealed class OverlayMessageCoordinator : IDisposable
             }));
 
         // BackdropDismissMessage -> hide backdrop, highlight, and navigate back
-        _context.Messenger.Register<OverlayMessageCoordinator, BackdropDismissMessage>(this, (_, _) =>
-            _context.Dispatcher.BeginInvoke(() =>
+        Context.Messenger.Register<OverlayMessageCoordinator, BackdropDismissMessage>(this, (_, _) =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
-                var context = _context;
+                var context = Context;
                 if (context == null)
                     return;
 
@@ -209,16 +206,16 @@ internal sealed class OverlayMessageCoordinator : IDisposable
             }));
 
         // Calibration: show/hide overlay on state change, suppress interaction during capture
-        _context.Messenger.Register<OverlayMessageCoordinator, CalibrationStateChangedMessage>(this, (_, msg) =>
-            _context.Dispatcher.BeginInvoke(() =>
+        Context.Messenger.Register<OverlayMessageCoordinator, CalibrationStateChangedMessage>(this, (_, msg) =>
+            Context.Dispatcher.BeginInvoke(() =>
             {
-                var calWindow = _context.OverlayManager.Calibration;
-                var cursorCircle = _context.OverlayManager.CursorCircle;
+                var calWindow = Context.OverlayManager.Calibration;
+                var cursorCircle = Context.OverlayManager.CursorCircle;
                 switch (msg.State)
                 {
                     case CalibrationState.Collecting:
                     case CalibrationState.Training:
-                        _context.GazeEngine.SuppressFixation = true;
+                        Context.GazeEngine.SuppressFixation = true;
                         // Deactivate toolbar dwell while gaze is being collected at calibration
                         // targets — they can land on screen edges/corners where a docked toolbar
                         // lives, and would otherwise dwell-activate a hidden/stale button position.
@@ -230,7 +227,7 @@ internal sealed class OverlayMessageCoordinator : IDisposable
                         break;
                     case CalibrationState.Active:
                     case CalibrationState.Failed:
-                        _context.GazeEngine.SuppressFixation = false;
+                        Context.GazeEngine.SuppressFixation = false;
                         // Re-activate toolbar dwell via the auto-hide controller, which is
                         // state-aware: it re-asserts a hide if the toolbar auto-hid while Feed was
                         // suppressed (calibration suppresses Feed on IsSessionActive, which flips
@@ -243,7 +240,7 @@ internal sealed class OverlayMessageCoordinator : IDisposable
                         // auto-hide is disabled (_enabled == false) the else-branch activates.
                         _toolbar.ReassertVisibility();
                         // Restore the cursor circle so the user can aim at Retry/Accept.
-                        if (_context.CursorVM.IsVisible) cursorCircle.Show();
+                        if (Context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
                         calWindow.Show();
                         break;
@@ -251,21 +248,13 @@ internal sealed class OverlayMessageCoordinator : IDisposable
                         // CalibrationState.Idle / CalibrationState.Cancelled — calibration is over
                         // (not in progress), so toolbar dwell resumes — but only if the toolbar
                         // hasn't since auto-hidden (same state-aware path as the Active/Failed case).
-                        _context.GazeEngine.SuppressFixation = false;
+                        Context.GazeEngine.SuppressFixation = false;
                         _toolbar.ReassertVisibility();
-                        if (_context.CursorVM.IsVisible) cursorCircle.Show();
+                        if (Context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.DismissCalibration();
                         break;
                 }
             }));
     }
 
-    public void Dispose()
-    {
-        if (_disposed || _context is null) { _disposed = true; return; }
-
-        _context.Messenger.UnregisterAll(this);
-
-        _disposed = true;
-    }
 }

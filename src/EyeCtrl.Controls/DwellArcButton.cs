@@ -374,4 +374,36 @@ public class DwellArcButton
         if (Label is not null)
             canvas.Children.Add(Label);
     }
+
+    /// <summary>
+    /// Removes exactly what <see cref="AddTo"/> added. Keep the two in step: a caller that
+    /// removes ONE button from a shared canvas cannot use <c>Children.Clear</c>, and the
+    /// alternative is each caller hand-copying the element list.
+    ///
+    /// <para>
+    /// <c>GlassBackdropWindow.ClearButton</c> is the cautionary case. Its hand-copied list named
+    /// three of the eight elements and had been wrong for some time, yet orphaned nothing —
+    /// every path to it happens to run <c>Children.Clear()</c> first, so it only ever met an
+    /// empty canvas. The divergence was masked, not harmless: a caller reordering would have
+    /// turned it into a silent leak, and silent is the operative word, since a stale layer
+    /// accumulating over a rebuilt button fails no test and looks like nothing at all.
+    /// <c>DwellArcButtonTests.RemoveFrom_IsTheInverseOfAddTo</c> pins the pairing.
+    /// </para>
+    /// </summary>
+    /// <param name="canvas">The canvas to remove this button's visuals from.</param>
+    public void RemoveFrom(Canvas canvas)
+    {
+        canvas.Children.Remove(RimHalo);
+        canvas.Children.Remove(Background);
+        canvas.Children.Remove(HaloPath);
+        canvas.Children.Remove(ProgressPath);
+        if (Symbol is not null)
+            canvas.Children.Remove(Symbol);
+        if (IconFill is not null)
+            canvas.Children.Remove(IconFill);
+        if (IconStroke is not null)
+            canvas.Children.Remove(IconStroke);
+        if (Label is not null)
+            canvas.Children.Remove(Label);
+    }
 }

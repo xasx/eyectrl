@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Icons;
 
 public class DwellArcButtonTests
 {
@@ -70,5 +71,55 @@ public class DwellArcButtonTests
 
         Check.That(canvas.Children.IndexOf(btn.HaloPath))
              .IsStrictlyLessThan(canvas.Children.IndexOf(btn.ProgressPath));
+    }
+
+    /// <summary>
+    /// The pairing guard for <see cref="DwellArcButton.RemoveFrom"/>. Built with every optional
+    /// layer present — a symbol, an icon with BOTH a fill and a stroke layer, and a label — so
+    /// all eight elements exist; a button created with fewer would let a missed removal pass.
+    ///
+    /// The removal side is stated as "the canvas is empty afterwards" rather than as a count, so
+    /// that it needs no editing when the element set grows. The fixture assertion below IS a
+    /// count, and on a ninth element it is what fires first — so its message names RemoveFrom
+    /// rather than sending the reader off to fix the fixture and move on.
+    /// </summary>
+    [StaFact]
+    public void RemoveFrom_IsTheInverseOfAddTo()
+    {
+        var canvas = new Canvas();
+        var btn = DwellArcButton.Create(new Point(10, 10), radius: 20, symbol: "X",
+            icon: ToolbarIcons.For(ToolbarIconKey.SelectionManual), label: "Label");
+
+        btn.AddTo(canvas);
+        Check.WithCustomMessage("AddTo added a number of elements this fixture does not expect. "
+                + "If you have just added a NINTH element to AddTo, this fires before the removal "
+                + "check below: add it to RemoveFrom too, then update this count.")
+            .That(canvas.Children.Count).IsEqualTo(8);
+
+        btn.RemoveFrom(canvas);
+
+        Check.WithCustomMessage("RemoveFrom left something behind — it has drifted out of step "
+                + "with AddTo, which is how a stale layer accumulates over a rebuilt button.")
+            .That(canvas.Children.Count).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// Removing a button touches only its own visuals. The toolbar removes ONE button from a
+    /// canvas that holds five others plus separators and automation anchors.
+    /// </summary>
+    [StaFact]
+    public void RemoveFrom_LeavesOtherChildrenAlone()
+    {
+        var canvas = new Canvas();
+        var keep = DwellArcButton.Create(new Point(100, 10), radius: 20, symbol: "K");
+        var drop = DwellArcButton.Create(new Point(10, 10), radius: 20, symbol: "D");
+        keep.AddTo(canvas);
+        drop.AddTo(canvas);
+
+        drop.RemoveFrom(canvas);
+
+        Check.That(canvas.Children.Count).IsEqualTo(5);
+        Check.That(canvas.Children.Contains(keep.Background)).IsTrue();
+        Check.That(canvas.Children.Contains(drop.Background)).IsFalse();
     }
 }

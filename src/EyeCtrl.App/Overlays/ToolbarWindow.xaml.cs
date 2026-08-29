@@ -1,9 +1,13 @@
 namespace EyeCtrl.App.Overlays;
 
+using System;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.Controls;
+using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
@@ -13,95 +17,243 @@ using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 public partial class ToolbarWindow : OverlayWindow
 {
     // UI Layout Constants
-    private const int ProgressBarHeight = 4; // Height of dwell progress bar
     // 12, not the old 2: buttons carry inscribed hit circles (size/2), so a 2-px margin left adjacent
     // circles near-tangent and every slight aim error landed on a neighbour (2026-08-17 field report:
     // "I mis dwell often"). 12 per side = 24 px between circles, the same clearance the settings
     // window's 100-DIP dwell rows use between their 100-DIP hit circles.
     private const int ButtonMargin = 12; // Margin between toolbar buttons
+
+    /// <summary>
+    /// The one unrecoverable action. Named because the layout, the rim, the arc and the icon
+    /// brush all branch on it, and five scattered string literals is five chances to typo one
+    /// into silently taking the ordinary-button branch.
+    /// </summary>
+    private const string ResetId = "ResetAdaptation";
     // The local 0.4 symbol ratio moved to ContainerRatio.Large, which this file's 0.4 defined.
 
-    private readonly Dictionary<string, (Border Container, Rectangle ProgressBar, TextBlock Label)> _buttonVisuals = new();
+    /// <summary>Centre-to-centre spacing: the button plus its margin on both sides.</summary>
+    private double Pitch => _buttonSize + ButtonMargin * 2;
+
+    /// <summary>Extra clearance before the one unrecoverable action. See Task 7.</summary>
+    private double ResetGap => ButtonMargin * 2;
+
+    private readonly Dictionary<string, DwellArcButton> _buttons = new();
+    private readonly Dictionary<string, TextBlock> _anchors = new();
     private double _buttonSize;
     private bool _targetsInitialized;
+    private bool _vertical;
     private GazeProviderType? _providerType;
+
+    /// <summary>The button band, for tests. Layout must be measured against this, not the Window.</summary>
+    internal Canvas ButtonCanvasForTest => ButtonCanvas;
 
     public ToolbarWindow()
     {
         InitializeComponent();
     }
 
+    /// <summary>
+    /// Captures the button metrics and builds the band. <paramref name="dwellTimeMs"/> is the
+    /// ViewModel's business and is accepted only to keep this window's callers unchanged.
+    /// </summary>
+    /// <param name="buttonSize">Button diameter in DIP.</param>
+    /// <param name="dwellTimeMs">Unused here; the ViewModel owns dwell timing.</param>
     public void Initialize(double buttonSize, int dwellTimeMs)
     {
         _buttonSize = buttonSize;
-        _buttonVisuals.Clear();
-        ButtonPanel.Children.Clear();
+        RebuildBand();
+    }
+
+    /// <summary>
+    /// Rebuilds the band from the captured metrics. Split out of <see cref="Initialize"/> so the
+    /// axis flip in <see cref="SetMode"/> can re-lay the band without inventing a
+    /// <c>dwellTimeMs</c> argument to hand to a parameter nothing reads.
+    /// </summary>
+    private void RebuildBand()
+    {
+        _buttons.Clear();
+        _anchors.Clear();
+        ButtonCanvas.Children.Clear();
+        // Cleared alongside the band because the old single-panel Initialize wiped the indicator
+        // too (it lived in ButtonPanel). Task 6 owns the indicator's rebuild/idempotency.
+        IndicatorPanel.Children.Clear();
         _targetsInitialized = false;
 
-        // id + symbol (Unicode). Every id here must exist in ToolbarViewModel's button list and have
-        // a case in its OnTargetActivated switch; ToolbarButtonDriftTests enforces that, and records
-        // why the ids deliberately absent from this list are absent.
-        var buttons = new (string Id, string Symbol)[]
+        // Every id here must exist in ToolbarViewModel's button list and have a case in its
+        // OnTargetActivated switch; ToolbarButtonDriftTests enforces that and records why the
+        // deliberately-absent ids are absent.
+        var buttons = new (string Id, string IconKey)[]
         {
-            ("Pause",    "\u23F8"),    // ⏸ Pause
-            ("SelectionMode",     "\u2295"),    // ⊕ Magnify/ManualSelection
-            ("Keyboard", "\u2328"),    // ⌨ Keyboard
-            ("Settings", "\u2699"),    // ⚙ Gear
-            ("TaskSwitcher", "\u21C4"),  // 🪟 Window switcher (BMP; the old window-emoji glyph rendered as tofu in the toolbar font)
-            ("ResetAdaptation", "\u21BA"),  // ↺ Reset struggle-adaptation (§8.6 always-reachable escape)
+            ("Pause",           "Pause"),
+            ("SelectionMode",   SelectionModeIcons.None),
+            ("Keyboard",        "Keyboard"),
+            ("Settings",        "Settings"),
+            ("TaskSwitcher",    "TaskSwitcher"),
+            ("ResetAdaptation", "ResetAdaptation"),
         };
 
-        foreach (var (id, symbol) in buttons)
-        {
-            AddButton(id, symbol);
-        }
+        LayOutBand(buttons);
 
         if (_providerType.HasValue)
             AddIndicatorElement(_providerType.Value);
     }
 
-    private void AddButton(string id, string symbol)
+    /// <summary>
+    /// Places each button along the docked axis and sizes the Canvas to hold them. A Canvas
+    /// measures to zero, and this window is SizeToContent, so the size must be explicit or the
+    /// strip collapses.
+    /// </summary>
+    private void LayOutBand((string Id, string IconKey)[] buttons)
     {
-        var progressBar = new Rectangle
-        {
-            Height = ProgressBarHeight,
-            Fill = Tokens.BrushAccent,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Bottom,
-            Width = 0
-        };
+        var along = ButtonMargin + _buttonSize / 2;   // centre of the first slot
+        var across = Pitch / 2;
+        double? previousEdge = null;
 
-        var label = new TextBlock
+        foreach (var (id, iconKey) in buttons)
         {
-            Text = symbol,
-            Foreground = Tokens.BrushTextPrimary,
-            FontSize = _buttonSize * ContainerRatio.Large,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
-        var container = new Border
-        {
-            Width = _buttonSize,
-            Height = _buttonSize,
-            Margin = new Thickness(ButtonMargin),
-            Background = Tokens.BrushSurfaceMedium,
-            CornerRadius = Tokens.SmallCornerRadius,
-            Child = new Grid
+            if (id == ResetId)
             {
-                Children = { label, progressBar }
+                // Widen the gap FIRST, then place the rule halfway across it. Deriving the rule's
+                // position from the pre-gap `along` puts it 48 px right of centre — straight across
+                // the warning-rimmed disc it is supposed to fence off.
+                along += ResetGap;
+                if (previousEdge is { } edge)
+                    AddSeparator((edge + along - _buttonSize / 2) / 2);
             }
-        };
 
-        // Set AutomationId on the label (TextBlock) rather than the Border container.
-        // WPF's UIA control view only exposes TextBlock elements from transparent overlay
-        // windows; Border containers are collapsed out of the tree even with IsControlElement=true.
-        System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Toolbar_Button_{id}");
+            AddButton(id, iconKey, _vertical ? new Point(across, along) : new Point(along, across));
+            previousEdge = along + _buttonSize / 2;
+            along += Pitch;
+        }
 
-        _buttonVisuals[id] = (container, progressBar, label);
-        ButtonPanel.Children.Add(container);
+        // `along` is one Pitch past the last centre when the loop exits; back that off, then add
+        // the last button's half-diameter and the trailing margin.
+        var lastCentre = along - Pitch;
+        var extent = lastCentre + _buttonSize / 2 + ButtonMargin;
+        ButtonCanvas.Width = _vertical ? Pitch : extent;
+        ButtonCanvas.Height = _vertical ? extent : Pitch;
     }
 
+    private void AddButton(string id, string iconKey, Point center)
+    {
+        var button = DwellArcButton.Create(
+            center,
+            _buttonSize / 2,
+            symbol: null,
+            stroke: RimFor(id),
+            arcBrush: ArcBrushFor(id),
+            symbolBrush: IconBrushFor(id),
+            icon: ToolbarIcons.For(ParseIconKey(iconKey)),
+            label: null);
+
+        button.AddTo(ButtonCanvas);
+
+        // The anchor exists so the button appears in the UIA tree at all: WPF's UIA control view
+        // does not expose Ellipse or Path from a transparent overlay window. ActionMenuWindow sets
+        // no AutomationIds and so needs no anchor; the toolbar's ids are consumed by AppFixture.
+        // Opacity 0 keeps it laid out and in the tree while drawing nothing.
+        //
+        // Width/Height are the button's, NOT left to the text: an unsized TextBlock in a Canvas
+        // measures to its own text, so the published BoundingRectangle would be a ~16px-tall
+        // sliver at the disc's top-left whose width varies with the length of the id. Dwell
+        // simulation aims at that rectangle's centre (AppFixture.SimulateDwellOn), which for the
+        // shorter ids lands outside the 60px hit circle entirely. Sized here, the anchor's rect
+        // IS the disc's box. Pinned by ToolbarButtonVisualTests.
+        var anchor = new TextBlock
+        {
+            Text = id,
+            Opacity = 0,
+            IsHitTestVisible = false,
+            Width = _buttonSize,
+            Height = _buttonSize,
+        };
+        AutomationProperties.SetAutomationId(anchor, $"Toolbar_Button_{id}");
+        AutomationProperties.SetName(anchor, id);
+        Canvas.SetLeft(anchor, center.X - _buttonSize / 2);
+        Canvas.SetTop(anchor, center.Y - _buttonSize / 2);
+        ButtonCanvas.Children.Add(anchor);
+
+        _buttons[id] = button;
+        _anchors[id] = anchor;
+    }
+
+    /// <summary>
+    /// A hairline between the ordinary buttons and the destructive one. NOT protection — an
+    /// accidental Reset is still unrecoverable; the confirm step is a separate follow-up plan.
+    /// Do not describe this button as protected until that ships.
+    /// </summary>
+    private void AddSeparator(double along)
+    {
+        var half = _buttonSize * ContainerRatio.Dominant / 2;
+        var across = Pitch / 2;
+
+        var line = new Line
+        {
+            Stroke = Tokens.BrushSurfaceMedium,
+            StrokeThickness = Tokens.BorderThicknessStandard,
+            IsHitTestVisible = false,
+            X1 = _vertical ? across - half : along,
+            X2 = _vertical ? across + half : along,
+            Y1 = _vertical ? along : across - half,
+            Y2 = _vertical ? along : across + half,
+        };
+
+        ButtonCanvas.Children.Add(line);
+    }
+
+    /// <summary>Parses a key name. An unknown key is a coding error, not user input.</summary>
+    private static ToolbarIconKey ParseIconKey(string key) => Enum.Parse<ToolbarIconKey>(key);
+
+    /// <summary>The at-rest rim. Only Reset differs — see Task 7.</summary>
+    private static Brush RimFor(string id) =>
+        id == ResetId ? Tokens.BrushAccentWarning : Tokens.BrushBorderSubtle;
+
+    /// <summary>The progress arc. Reset's is warning-coloured so its dwell reads as different.</summary>
+    private static Brush ArcBrushFor(string id) =>
+        id == ResetId ? Tokens.BrushAccentWarning : Tokens.BrushAccent;
+
+    /// <summary>The icon. Only Reset differs.</summary>
+    private static Brush IconBrushFor(string id) =>
+        id == ResetId ? Tokens.BrushAccentWarning : Tokens.BrushTextPrimary;
+
+    /// <summary>
+    /// Rebuilds one button with a new icon. DwellArcButton builds its icon Paths in Create and
+    /// has no icon setter, so a swap is a rebuild — cheap, and only Pause and SelectionMode ever
+    /// swap. Preserves the button's centre so no dwell target moves.
+    ///
+    /// <para>
+    /// The rebuilt elements land at the END of the Canvas's child list rather than back in their
+    /// old slots. That was checked rather than assumed, and is a non-issue: WITHIN a button
+    /// <c>AddTo</c> re-runs in its fixed order, so halo-under-accent still holds; ACROSS buttons
+    /// nothing can overlap, since a RimHalo reaches only radius+4 while adjacent disc edges are
+    /// 24 DIP apart. Nothing hit-tests this canvas and no test reads child order.
+    /// </para>
+    /// </summary>
+    private void SwapIcon(string id, string iconKey)
+    {
+        if (!_buttons.TryGetValue(id, out var old))
+            return;
+
+        var center = new Point(Canvas.GetLeft(old.Background) + _buttonSize / 2,
+                               Canvas.GetTop(old.Background) + _buttonSize / 2);
+        RemoveButton(id);
+        AddButton(id, iconKey, center);
+    }
+
+    private void RemoveButton(string id)
+    {
+        // DwellArcButton.RemoveFrom, not a local element list: the list is DwellArcButton's to
+        // know, and a copy of it here would go stale the moment AddTo gains a layer.
+        if (_buttons.Remove(id, out var button))
+            button.RemoveFrom(ButtonCanvas);
+
+        if (_anchors.Remove(id, out var anchor))
+            ButtonCanvas.Children.Remove(anchor);
+    }
+
+    // Task 6 owns this: the indicator's shape, its icon (ToolbarIconKey.ProviderEye /
+    // ProviderMouse) and the fact that calling it twice stacks two indicators. Ported here only
+    // far enough to compile against IndicatorPanel now that ButtonPanel is gone.
     private void AddIndicatorElement(GazeProviderType providerType)
     {
         var symbol = providerType switch
@@ -133,7 +285,7 @@ public partial class ToolbarWindow : OverlayWindow
             Child = label
         };
 
-        ButtonPanel.Children.Insert(0, border);
+        IndicatorPanel.Children.Add(border);
     }
 
     public void SetProviderIndicator(GazeProviderType providerType)
@@ -144,36 +296,40 @@ public partial class ToolbarWindow : OverlayWindow
 
     public void SetMode(bool isDocked, string edge)
     {
-        // Orientation BEFORE layout, and assigned in both directions.
-        //  - Both directions: the pre-unification switch only ever set Vertical, so re-docking
-        //    from left/right back to top/bottom left the bar rendering as a column until the
-        //    next process start (ButtonPanel.Orientation is a plain XAML local value — nothing
-        //    else ever restores it). DockedEdge is part of ToolbarSnapshot, so every edge change
-        //    in Settings lands here.
-        //  - Before layout: PlaceAtEdge below centres on ActualWidth/ActualHeight, which flip
-        //    when the orientation does. Setting it afterwards positioned the toolbar using the
-        //    previous orientation's extents.
-        // Null-tolerant match, mirroring PlaceAtEdge's own `edge?.ToLowerInvariant()`.
-        if (isDocked)
+        // Null-tolerant, mirroring PlaceAtEdge's own `edge?.ToLowerInvariant()`. Undocked always
+        // reads as "top", so an undock from a side edge returns the strip to horizontal.
+        var key = isDocked ? edge?.ToLowerInvariant() ?? "top" : "top";
+        var wantVertical = key is "left" or "right";
+
+        // Assigned in BOTH directions, and before UpdateLayout below. The old code set
+        // Orientation only in the left/right cases and never reset it, so a left-dock followed by
+        // an undock or a top-dock left the strip vertical until restart; and PlaceAtEdge centres
+        // on ActualWidth/ActualHeight, which flip when the axis does, so a late assignment would
+        // position the toolbar using the previous orientation's extents.
+        if (wantVertical != _vertical)
         {
-            ButtonPanel.Orientation = edge?.ToLowerInvariant() is "left" or "right"
-                ? Orientation.Vertical
-                : Orientation.Horizontal;
+            _vertical = wantVertical;
+            StripWrapper.Orientation = IndicatorPanel.Orientation =
+                _vertical ? Orientation.Vertical : Orientation.Horizontal;
+            RebuildBand();
+            // First bind only, until Task 4 makes BindToViewModel re-callable: _boundIds
+            // short-circuits it here, so the rebuilt band keeps its default icons and tint
+            // until the next PropertyChanged. Both callers reach this via an Initialize that
+            // already reset them — SettingsUiCoordinator.cs:173-180, and App.xaml.cs:467 whose
+            // preceding Initialize is OverlayManager.cs:107 and which re-applies
+            // SetSelectionModeState and BindToViewModel immediately after (App.xaml.cs:468-469).
+            // So nothing regresses.
+            BindToViewModel();
         }
 
-        // Force layout so ActualWidth reflects the current button count (Initialize may have
-        // changed it) and the orientation just set. With SizeToContent="WidthAndHeight" the width
-        // isn't re-measured until the next layout pass, so without this the centering math below
-        // reads a stale width and the toolbar sits off-center until the next SetMode call.
-        UpdateLayout();
+        UpdateLayout();   // SizeToContent does not re-measure until the next pass
 
-        if (isDocked)
-        {
-            var (left, top) = OverlayPositioning.PlaceAtEdge(
-                SystemParameters.WorkArea, edge, ActualWidth, ActualHeight);
-            Left = left;
-            Top = top;
-        }
+        if (!isDocked) { _targetsInitialized = false; return; }
+
+        var (left, top) = OverlayPositioning.PlaceAtEdge(
+            SystemParameters.WorkArea, edge, ActualWidth, ActualHeight);
+        Left = left;
+        Top = top;
 
         _targetsInitialized = false;
     }
@@ -188,45 +344,39 @@ public partial class ToolbarWindow : OverlayWindow
     {
         if (DataContext is not ToolbarViewModel vm) return;
 
-        foreach (var (id, (container, _, _)) in _buttonVisuals)
+        foreach (var (id, button) in _buttons)
         {
             try
             {
-                var pos = container.PointToScreen(new Point(container.ActualWidth / 2, container.ActualHeight / 2));
+                var face = button.Background;
+                var pos = face.PointToScreen(new Point(face.ActualWidth / 2, face.ActualHeight / 2));
                 vm.UpdateButtonScreenPosition(id, new PhysicalPoint(pos.X, pos.Y));
             }
             catch
             {
-                // Container may not be laid out yet
-                return;
+                return;   // not laid out yet
             }
         }
 
-        // Don't latch until every container has been laid out — a gaze dispatch at Normal
-        // priority (9) can outrank the Render (7) layout pass, leaving ActualWidth == 0 and
-        // collapsing all targets onto (0,0). Retry on the next frame instead.
-        foreach (var (_, (container, _, _)) in _buttonVisuals)
-        {
-            if (container.ActualWidth == 0)
-                return;  // not laid out yet; don't latch
-        }
+        // Don't latch until every face has been laid out — a gaze dispatch at Normal priority can
+        // outrank the Render layout pass, collapsing all targets onto (0,0).
+        foreach (var (_, button) in _buttons)
+            if (button.Background.ActualWidth == 0)
+                return;
+
         _targetsInitialized = true;
     }
 
-    public void SetPausedState(bool isPaused)
-    {
-        if (_buttonVisuals.TryGetValue("Pause", out var visuals))
-        {
-            // ▶ Play / ⏸ Pause
-            visuals.Label.Text = isPaused ? "\u25B6" : "\u23F8";
-        }
-    }
+    public void SetPausedState(bool isPaused) => SwapIcon("Pause", isPaused ? "Play" : "Pause");
 
+    // Task 5 owns this: it restructures the mode tint around a _selectionModeBrush field so a
+    // SwapIcon rebuild cannot drop it. Ported here only far enough to compile — same three-way
+    // brush choice, written to the DwellArcButton's Ellipse face instead of a Border.
     public void SetSelectionModeState(SelectionMode mode)
     {
-        if (_buttonVisuals.TryGetValue("SelectionMode", out var visuals))
+        if (_buttons.TryGetValue("SelectionMode", out var button))
         {
-            visuals.Container.Background = mode switch
+            button.Background.Fill = mode switch
             {
                 SelectionMode.ManualSelection => Tokens.BrushToggleOn,
                 SelectionMode.AutoSelection => Tokens.BrushSurfaceKeySwitch,
@@ -242,10 +392,11 @@ public partial class ToolbarWindow : OverlayWindow
     // moved to the Quick Actions toolbar in the 2026-08-09 migration.)
     private readonly HashSet<string> _boundIds = new();
 
+    // Task 4 owns this: it replaces the _boundIds guard with a subscription list, which is what
+    // makes this method safely re-callable after a rebuild.
     /// <summary>
-    /// Subscribes to each ToolbarButtonViewModel.PropertyChanged to drive
-    /// progress bar visuals from the ViewModel's dwell state.
-    /// Call after DataContext is set.
+    /// Subscribes to each ToolbarButtonViewModel.PropertyChanged to drive the drawn button from
+    /// the ViewModel's state. Call after DataContext is set.
     /// </summary>
     public void BindToViewModel()
     {
@@ -257,11 +408,11 @@ public partial class ToolbarWindow : OverlayWindow
     }
 
     /// <summary>
-    /// Subscribes one button's PropertyChanged to its progress bar/symbol visuals. Idempotent:
-    /// a repeat call for an already-bound id no-ops (guarded by <see cref="_boundIds"/>), so a
-    /// second BindToViewModel call cannot double-subscribe. The handler reads
-    /// <c>_buttonVisuals[id]</c> at event time, so it stays correct after Initialize rebuilds the
-    /// visuals dictionary (size/dock/edge saves).
+    /// Subscribes one button's PropertyChanged to its drawn visuals. Idempotent: a repeat call
+    /// for an already-bound id no-ops (guarded by <see cref="_boundIds"/>), so a second
+    /// BindToViewModel call cannot double-subscribe. The handler resolves the button from
+    /// <c>_buttons</c> at event time, so it stays correct after Initialize rebuilds the band
+    /// (size/dock/edge saves).
     /// </summary>
     private void BindButton(ToolbarButtonViewModel btn)
     {
@@ -269,30 +420,27 @@ public partial class ToolbarWindow : OverlayWindow
         if (!_boundIds.Add(id))
             return; // already bound
 
-        // Apply current symbol so the initial label/background match the actual mode (the
-        // ViewModel may already have received the startup SelectionModeChangedMessage before
-        // BindToViewModel is called).
-        if (_buttonVisuals.TryGetValue(id, out var currentVisuals))
+        // Apply the current icon so the initial face matches the actual mode (the ViewModel may
+        // already have received the startup SelectionModeChangedMessage before BindToViewModel
+        // is called).
+        if (_buttons.ContainsKey(id))
         {
-            currentVisuals.Label.Text = btn.Symbol;
+            SwapIcon(id, btn.IconKey);
             if (id == "SelectionMode")
-                SetSelectionModeState(SelectionModeGlyphs.ToMode(btn.Symbol));
+                SetSelectionModeState(SelectionModeIcons.ToMode(btn.IconKey));
         }
 
         btn.PropertyChanged += (_, e) =>
         {
-            if (!_buttonVisuals.TryGetValue(id, out var visuals))
+            if (!_buttons.ContainsKey(id))
                 return;
 
-            if (e.PropertyName == nameof(ToolbarButtonViewModel.DwellProgress))
+            // Task 4 wires DwellProgress to DwellArcButton.UpdateProgress.
+            if (e.PropertyName == nameof(ToolbarButtonViewModel.IconKey))
             {
-                visuals.ProgressBar.Width = btn.DwellProgress * _buttonSize;
-            }
-            else if (e.PropertyName == nameof(ToolbarButtonViewModel.Symbol))
-            {
-                visuals.Label.Text = btn.Symbol;
+                SwapIcon(id, btn.IconKey);
                 if (id == "SelectionMode")
-                    SetSelectionModeState(SelectionModeGlyphs.ToMode(btn.Symbol));
+                    SetSelectionModeState(SelectionModeIcons.ToMode(btn.IconKey));
             }
         };
     }

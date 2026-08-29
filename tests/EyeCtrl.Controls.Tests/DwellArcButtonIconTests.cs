@@ -98,11 +98,12 @@ public class DwellArcButtonIconTests
     public void TheIcon_UsesRoundLineCaps()
     {
         // ToolbarIcons.Keyboard draws its four key dots as zero-length segments that render as
-        // dots only under a round cap. Nothing asserted that dependency before; this pins it here
-        // so a future change to Flat caps fails a test instead of silently erasing those dots.
+        // dots only under a round cap. Nothing asserted that dependency before; this pins it here,
+        // against the actual Keyboard icon, so a future change to Flat caps fails a test instead
+        // of silently erasing those dots.
         var button = DwellArcButton.Create(
             new Point(0, 0), ActionMenuRadius, symbol: null,
-            icon: ActionIcons.For(ActionIcon.LeftClick));
+            icon: ToolbarIcons.For(ToolbarIconKey.Keyboard));
 
         Check.That(button.IconStroke!.StrokeStartLineCap).IsEqualTo(PenLineCap.Round);
         Check.That(button.IconStroke!.StrokeEndLineCap).IsEqualTo(PenLineCap.Round);

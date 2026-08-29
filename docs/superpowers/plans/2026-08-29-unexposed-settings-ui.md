@@ -947,7 +947,7 @@ git commit -m "feat(settings): expose gap interpolation, indicator style and One
 - Consumes: `EyeCtrlSettings.ManualSelection` (`GazeIndicatorOuterDiameter`, `GazeIndicatorCenterDotDiameter`, `GazeIndicatorStrokeThickness`, `GazeIndicatorOpacity`, `GazeIndicatorResetAnimationMs`) — ranges from Task 1.
 - Produces: ids `s_gi_outer, s_gi_dot, s_gi_stroke, s_gi_opacity, s_gi_anim`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to the single class `DwellSelectionKeyboardToolbarPageSourceTests` in that file (it hosts `Dwell_*`, `Selection_*`, `Keyboard_*`, `Toolbar_*` Facts together — no per-source classes):
 
@@ -970,11 +970,11 @@ public void Selection_Build_HasFiveGazeIndicatorRows_RestartDescribed_ExceptOute
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~DwellSelectionKeyboardToolbarPageSourceTests"` → FAIL.
 
-- [ ] **Step 3: Add the rows**
+- [x] **Step 3: Add the rows**
 
 In `SelectionPageSource.cs`, after the `s_snapRadius` row, still inside the same PageSpec:
 
@@ -996,7 +996,7 @@ new SliderSpec("s_gi_anim", "Reset Animation (ms)", 0, 1000, 50, 0,
     { Description = "How long the gaze ring takes to fade after a selection; applies after a restart." },
 ```
 
-(The file's `Build()` local is `s` — the whole `EyeCtrlSettings` (`s.AutoSelection.HighlightColor` in the existing rows) — so ManualSelection is reached as `s.ManualSelection`. `GazeIndicatorOuterDiameter`/`CenterDotDiameter`/`StrokeThickness`/`Opacity` are `double` (no cast); `ResetAnimationMs` is `int` — cast as shown.)- [ ] **Step 4: Extend the span-guard Selection Fact**
+(The file's `Build()` local is `s` — the whole `EyeCtrlSettings` (`s.AutoSelection.HighlightColor` in the existing rows) — so ManualSelection is reached as `s.ManualSelection`. `GazeIndicatorOuterDiameter`/`CenterDotDiameter`/`StrokeThickness`/`Opacity` are `double` (no cast); `ResetAnimationMs` is `int` — cast as shown.)- [x] **Step 4: Extend the span-guard Selection Fact**
 
 ```csharp
 Check.That(sliders).HasSize(10);
@@ -1009,7 +1009,7 @@ SpanInside(sliders, "s_gi_anim", 0, 1000);
 
 (keep the existing five SpanInside lines).
 
-- [ ] **Step 5: Run, commit**
+- [x] **Step 5: Run, commit**
 
 `dotnet test tests/EyeCtrl.App.Tests` → PASS.
 

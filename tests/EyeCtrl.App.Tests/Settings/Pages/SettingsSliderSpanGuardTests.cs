@@ -33,13 +33,18 @@ public class SettingsSliderSpanGuardTests
     public void Selection_SliderSpans_StayInsideTheValidatedRanges()
     {
         var sliders = Sliders(new SelectionPageSource(TestSettingsPageContext.Build()));
-        Check.That(sliders).HasSize(5);
+        Check.That(sliders).HasSize(10);
         Check.That(sliders.Keys).Contains(new[]
             { "s_rad", "s_mag", "s_grace", "s_highlightThickness", "s_snapRadius" });
         SpanInside(sliders, "s_rad", 50, 500);
         SpanInside(sliders, "s_mag", 1.5, 5.0);
         SpanInside(sliders, "s_highlightThickness", 1, 10);
         SpanInside(sliders, "s_snapRadius", 16, 96);
+        SpanInside(sliders, "s_gi_outer", 20, 200);
+        SpanInside(sliders, "s_gi_dot", 2, 40);
+        SpanInside(sliders, "s_gi_stroke", 0.5, 10);
+        SpanInside(sliders, "s_gi_opacity", 0.1, 1.0);
+        SpanInside(sliders, "s_gi_anim", 0, 1000);
         // s_grace has no Core guard (nothing to stay inside), but its XML doc claims the UI
         // offers 0–2000 — pin that claim, not a guard, so the doc cannot silently go false.
         Check.That(sliders["s_grace"].Min).IsEqualTo(0);

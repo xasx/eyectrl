@@ -14,4 +14,25 @@ using System.Windows.Media;
 /// </summary>
 /// <param name="Stroke">Outlined paths, drawn at <see cref="ActionIcons.GridStrokeThickness"/>.</param>
 /// <param name="Fill">Solid paths, drawn with no stroke.</param>
-public sealed record IconGeometry(Geometry? Stroke, Geometry? Fill);
+public sealed record IconGeometry(Geometry? Stroke, Geometry? Fill)
+{
+    /// <summary>
+    /// Parses <paramref name="stroke"/> and <paramref name="fill"/> path data, freezing each
+    /// non-null result before returning it. Every icon registry builds its entries through this
+    /// factory rather than parsing and freezing by hand, so the freeze invariant holds by
+    /// construction instead of by convention plus a per-registry test.
+    /// </summary>
+    /// <param name="stroke">Outline path data, or null for a fill-only icon.</param>
+    /// <param name="fill">Solid path data, or null (the default) for a stroke-only icon.</param>
+    /// <returns>The parsed, frozen geometry pair.</returns>
+    public static IconGeometry FromPathData(string? stroke, string? fill = null)
+        => new(Parse(stroke), Parse(fill));
+
+    private static Geometry? Parse(string? data)
+    {
+        if (data is null) return null;
+        var geometry = Geometry.Parse(data);
+        geometry.Freeze();
+        return geometry;
+    }
+}

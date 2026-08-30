@@ -14,7 +14,8 @@ internal static partial class ProcessIdentity
     internal static partial bool ProcessIdToSessionId(uint processId, out uint sessionId);
 
     // [Out] char[] — NOT StringBuilder (SYSLIB1051). See NativeMethods.cs:102.
-    [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    // LibraryImport defaults to exact spelling (no A/W suffix appended), so the W entry point must be named explicitly.
+    [LibraryImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags,
         [Out] char[] lpExeName, ref uint lpdwSize);

@@ -59,7 +59,10 @@ public partial class ToolbarWindow : OverlayWindow
     private readonly Dictionary<string, DwellArcButton> _buttons = new();
     private readonly Dictionary<string, TextBlock> _anchors = new();
     private double _buttonSize;
-    private bool _targetsInitialized;
+    // Written on the UI thread (UpdateTargetPositions / RebuildBand / SetMode), read on the gaze
+    // thread through TargetsInitialized. Volatile for the reason ModalInteractionState's flags are:
+    // a one-frame-stale read costs at most one extra dispatch.
+    private volatile bool _targetsInitialized;
     private bool _vertical;
     private GazeProviderType? _providerType;
 
@@ -497,9 +500,56 @@ public partial class ToolbarWindow : OverlayWindow
             UpdateTargetPositions();
     }
 
+    /// <summary>
+    /// True once every button face has been through a layout pass, so its centre can be resolved.
+    ///
+    /// <para>
+    /// A face that has never been arranged reports <c>ActualWidth == 0</c> AND carries no visual
+    /// offset, so <c>PointToScreen</c> on it returns the canvas origin — the SAME point for every
+    /// button. Publishing that collapses all six dwell targets onto one spot, and because
+    /// <see cref="ToolbarViewModel.UpdateButtonScreenPosition"/> CREATES a target on its first
+    /// call, the wrong coordinate is permanent: every later call only moves a target that was
+    /// already created in the wrong place.
+    /// </para>
+    ///
+    /// <para>
+    /// This is not hypothetical — it shipped, and left no toolbar button dwellable at all.
+    /// <c>App.ShowOverlays</c> ends with <c>BindToViewModel()</c>, which rebuilds every button via
+    /// <see cref="SwapIcon"/> (RemoveButton + AddButton hand back fresh <c>Ellipse</c>es), and
+    /// <c>gazeEngine.Start()</c> is the very next line — so the first gaze samples arrive ahead of
+    /// the Render-priority pass that arranges those fresh elements.
+    /// </para>
+    /// </summary>
+    internal bool FacesAreArranged()
+    {
+        // An empty band must never count as arranged: latching on it would report "placed" having
+        // placed nothing, and the gaze route would stop delivering samples for good.
+        if (_buttons.Count == 0)
+            return false;
+
+        foreach (var (_, button) in _buttons)
+            if (button.Background.ActualWidth == 0)
+                return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether every button's dwell target has been placed at its true on-screen centre. The gaze
+    /// route reads this to decide whether it still needs to deliver samples here — it has to latch
+    /// on placement having SUCCEEDED, not on one delivery having happened.
+    /// </summary>
+    public bool TargetsInitialized => _targetsInitialized;
+
     private void UpdateTargetPositions()
     {
         if (DataContext is not ToolbarViewModel vm) return;
+
+        // Asked BEFORE anything is published, not after. The old order computed and published
+        // every centre and only then asked whether the faces were laid out — too late, because the
+        // targets it had already created at the bogus centres were the damage.
+        if (!FacesAreArranged())
+            return;
 
         foreach (var (id, button) in _buttons)
         {
@@ -514,12 +564,6 @@ public partial class ToolbarWindow : OverlayWindow
                 return;   // not laid out yet
             }
         }
-
-        // Don't latch until every face has been laid out — a gaze dispatch at Normal priority can
-        // outrank the Render layout pass, collapsing all targets onto (0,0).
-        foreach (var (_, button) in _buttons)
-            if (button.Background.ActualWidth == 0)
-                return;
 
         _targetsInitialized = true;
     }

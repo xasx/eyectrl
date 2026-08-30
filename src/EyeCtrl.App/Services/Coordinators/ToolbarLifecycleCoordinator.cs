@@ -72,8 +72,9 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         _gazeMovedHandler = (point, timestamp) =>
         {
             // Perf: skip the per-sample UI-thread dispatch when nothing consumes it. The toolbar
-            // only needs the first sample (to lazily init its target positions); after that its
-            // dwell is driven by GazeCursorMovedMessage on the messenger, not this route. The
+            // needs samples only until its target positions are placed (which can take more than
+            // one, since the band's faces may not be arranged yet); after that its dwell is driven
+            // by GazeCursorMovedMessage on the messenger, not this route. The
             // keyboard and settings window need gaze only while open. Flags are volatile and read
             // on the gaze thread; a one-frame-stale read at worst delays a dispatch by a frame.
             if (_toolbarInitialized && !_modal.KeyboardVisible && !_modal.SettingsOpen)
@@ -82,7 +83,15 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             Context.Dispatcher.BeginInvoke(() =>
             {
                 toolbar.UpdateGaze(point, timestamp);
-                _toolbarInitialized = true;
+                // Latch on placement having SUCCEEDED, not on one delivery having happened. The
+                // old unconditional `= true` gave the toolbar a single attempt: if the band's
+                // faces had not been arranged yet (App.ShowOverlays rebuilds every button via
+                // BindToViewModel immediately before gazeEngine.Start()), that attempt placed
+                // nothing and no sample was ever delivered again — a visible toolbar on which no
+                // button could be dwelled, unrecoverable short of a restart. Reading the window's
+                // own flag also makes SetMode's `_targetsInitialized = false` mean something:
+                // a re-dock now gets its targets moved instead of being silently ignored.
+                _toolbarInitialized = toolbar.TargetsInitialized;
 
                 if (_modal.KeyboardVisible && keyboard.IsVisible)
                     keyboard.UpdateGaze(point, timestamp);

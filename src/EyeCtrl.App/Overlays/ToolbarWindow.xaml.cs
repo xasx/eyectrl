@@ -22,14 +22,19 @@ public partial class ToolbarWindow : OverlayWindow
     // circles near-tangent and every slight aim error landed on a neighbour (2026-08-17 field report:
     // "I mis dwell often"). 12 per side = 24 px between circles, the same clearance the settings
     // window's 100-DIP dwell rows use between their 100-DIP hit circles.
-    private const int ButtonMargin = 12; // Margin between toolbar buttons
+    // internal, not private: EyeCtrl.App.Tests has InternalsVisibleTo (EyeCtrl.App.csproj:61) and
+    // ToolbarButtonVisualTests derives its expected pitch/gap from this rather than keeping a
+    // second, independently-driftable copy of the number.
+    internal const int ButtonMargin = 12; // Margin between toolbar buttons
 
     /// <summary>
     /// The one unrecoverable action. Named because the layout, the rim, the arc and the icon
     /// brush all branch on it, and five scattered string literals is five chances to typo one
-    /// into silently taking the ordinary-button branch.
+    /// into silently taking the ordinary-button branch. internal, not private, for the same
+    /// reason as <see cref="ButtonMargin"/> — so tests reference this constant instead of adding
+    /// a sixth scattered literal of their own.
     /// </summary>
-    private const string ResetId = "ResetAdaptation";
+    internal const string ResetId = "ResetAdaptation";
     // The local 0.4 symbol ratio moved to ContainerRatio.Large, which this file's 0.4 defined.
     // No longer read here: Task 6 moved the provider indicator's glyph off an emoji TextBlock at
     // Large onto a drawn icon Path at Small (beside its own hairline rule), so Large founded the

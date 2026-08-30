@@ -12,6 +12,7 @@ using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
@@ -416,5 +417,113 @@ public class ToolbarButtonVisualTests
                 + "ApplyAcquiredState must run after SetSelectionModeState in BindButton.")
             .That(((SolidColorBrush)window.ButtonForTest("SelectionMode").Background.Fill).Color)
             .IsEqualTo(Tokens.SurfaceLight);
+    }
+
+    // Task 6: the provider indicator (an eye/mouse glyph showing where gaze comes from) must not
+    // read as a dwellable button, and setting it twice must not stack a second one — the old
+    // AddIndicatorElement appended unconditionally, which was latent only because Initialize's
+    // panel-clear happened to hide it (SettingsUiCoordinator.cs:172 re-runs Initialize before the
+    // one real caller, OverlayManager.cs:108, could ever call SetProviderIndicator a second time
+    // on the same window instance).
+    [StaFact]
+    public void TheProviderIndicator_IsNotInTheBand_AndNeverDuplicates()
+    {
+        var window = NewInitialisedToolbar();
+
+        window.SetProviderIndicator(GazeProviderType.StreamEngine);
+        Check.WithCustomMessage("The indicator must not add a face to the button band.")
+            .That(Faces(window)).HasSize(6);
+        var afterOne = window.IndicatorChildCountForTest;
+
+        window.SetProviderIndicator(GazeProviderType.Mouse);
+        Check.WithCustomMessage("Setting the indicator twice appended a second one.")
+            .That(window.IndicatorChildCountForTest).IsEqualTo(afterOne);
+    }
+
+    // The indicator must never masquerade as a dwell target: no face-sized Ellipse, ever, inside
+    // IndicatorPanel. Faces(window) staying at 6 (asserted above too) is the band-side half of
+    // this; this is the indicator-side half.
+    [StaFact]
+    public void TheIndicator_ContainsNoFaceSizedEllipse()
+    {
+        var window = NewInitialisedToolbar();
+        window.SetProviderIndicator(GazeProviderType.StreamEngine);
+
+        Check.That(Faces(window)).HasSize(6);
+        Check.WithCustomMessage("The indicator drew something that looks like a dwell target.")
+            .That(window.IndicatorPanel.Children.OfType<Ellipse>()).IsEmpty();
+    }
+
+    // The structural property this task exists to protect: the band's own geometry (button
+    // centres and Canvas extent) is computed entirely in LayOutBand from _buttonSize/ButtonMargin
+    // and does not depend on IndicatorPanel at all. Reuses the exact numbers pinned by
+    // ButtonCentres_AndCanvasSize_AreExactlyAsLaidOut — if the indicator ever nudged the band,
+    // these would move off that fixed set.
+    [StaFact]
+    public void ButtonCentres_AndCanvasSize_AreUnaffectedByTheIndicator()
+    {
+        var window = NewInitialisedToolbar();
+        window.SetProviderIndicator(GazeProviderType.StreamEngine);
+
+        var canvas = ButtonCanvas(window);
+        var lefts = Faces(window).Select(Canvas.GetLeft).OrderBy(x => x).ToList();
+
+        Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 756.0);
+        Check.That(canvas.Width).IsEqualTo(888.0);
+        Check.That(canvas.Height).IsEqualTo(144.0);
+    }
+
+    /// <summary>
+    /// Task 3 gave IndicatorPanel a Margin, which offset the whole strip even with no provider
+    /// set (an empty StackPanel's CONTENT measures to zero, but a Margin on the panel itself does
+    /// not). Fixed by moving the spacing onto the indicator's own children, so an absent indicator
+    /// is genuinely zero-cost: left inset should be Border.Padding.Left (4) + IndicatorPanel's own
+    /// width (0, empty) + the band's ButtonMargin (12) = 16, matching the 16 on the right
+    /// (Border.Padding.Right + ButtonMargin). Read via ActualWidth/Canvas.GetLeft after a manual
+    /// Measure/Arrange pass on the root Border — NOT via TranslatePoint against the Window itself,
+    /// which returns (0,0) pre-Show() per this class's header comment. Measuring a descendant's
+    /// own layout properties (unlike transforming between two points via the unconnected Window)
+    /// works fine headless, as SettingsContentFitTests already relies on.
+    /// </summary>
+    [StaFact]
+    public void StripInsets_AreSymmetric_WhenNoProviderIsSet()
+    {
+        var window = NewInitialisedToolbar();
+        var root = (Border)window.Content;
+        root.Measure(new Size(4000, 4000));
+        root.Arrange(new Rect(0, 0, 4000, 4000));
+        root.UpdateLayout();
+
+        var canvas = ButtonCanvas(window);
+        var faces = Faces(window).OrderBy(Canvas.GetLeft).ToList();
+
+        var leftInset = root.Padding.Left + window.IndicatorPanel.ActualWidth + Canvas.GetLeft(faces.First());
+        var rightInset = root.Padding.Right + (canvas.Width - (Canvas.GetLeft(faces.Last()) + ButtonSize));
+
+        Check.WithCustomMessage($"Left inset {leftInset} != right inset {rightInset} — an empty "
+                + "IndicatorPanel is not genuinely zero-cost.")
+            .That(leftInset).IsEqualTo(rightInset);
+    }
+
+    // Orientation: the rule between the indicator's glyph and the band must read as a hairline
+    // ACROSS the axis of travel, not along it — thin-and-tall when the strip runs horizontally,
+    // wide-and-thin once SetMode docks it to a side edge and the strip turns vertical. Driving
+    // SetMode headlessly is not awkward here: BindToViewModel_ReappliesLiveState_AfterSetMode...
+    // above already exercises the same real axis-flipping call with no Show() involved.
+    [StaFact]
+    public void TheIndicatorRule_SwapsDimensions_WhenDockedVertically()
+    {
+        var window = NewInitialisedToolbar();
+        window.SetProviderIndicator(GazeProviderType.StreamEngine);
+
+        var ruleHorizontal = window.IndicatorPanel.Children.OfType<Border>().Single();
+        Check.WithCustomMessage("The rule should be thin-and-tall while the strip is horizontal.")
+            .That(ruleHorizontal.Width).IsStrictlyLessThan(ruleHorizontal.Height);
+
+        window.SetMode(isDocked: true, edge: "left");
+
+        var ruleVertical = window.IndicatorPanel.Children.OfType<Border>().Single();
+        Check.WithCustomMessage("The rule should be wide-and-thin once the strip is vertical.")
+            .That(ruleVertical.Width).IsStrictlyGreaterThan(ruleVertical.Height);
     }
 }

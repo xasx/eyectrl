@@ -10,9 +10,12 @@
         <StackPanel x:Name="StripWrapper" Orientation="Horizontal" VerticalAlignment="Center">
             <!-- Chrome, not a target: the provider indicator is not dwellable, so it must not sit
                  inside the button band where it reads as a broken button. Empty until a provider
-                 is known, and an empty StackPanel measures to zero. -->
+                 is known: an empty StackPanel's CONTENT measures to zero, but a Margin on the
+                 panel itself would NOT (that was the earlier bug here) — so the leading/trailing
+                 spacing lives on the indicator's own children (AddIndicatorElement) rather than
+                 on this panel, and an absent indicator costs nothing. -->
             <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal"
-                        VerticalAlignment="Center" Margin="8,0,4,0"/>
+                        VerticalAlignment="Center"/>
             <!-- DwellArcButton positions itself with Canvas.SetLeft/SetTop, so the button band is
                  a Canvas with an explicitly computed size — a Canvas measures to zero otherwise,
                  and this window is SizeToContent. -->

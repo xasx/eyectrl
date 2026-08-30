@@ -31,6 +31,9 @@ public partial class ToolbarWindow : OverlayWindow
     /// </summary>
     private const string ResetId = "ResetAdaptation";
     // The local 0.4 symbol ratio moved to ContainerRatio.Large, which this file's 0.4 defined.
+    // No longer read here: Task 6 moved the provider indicator's glyph off an emoji TextBlock at
+    // Large onto a drawn icon Path at Small (beside its own hairline rule), so Large founded the
+    // bucket but this file no longer consumes it — see ContainerRatioCensusTests.
 
     /// <summary>
     /// The disc that carries the selection-mode tint. Named for the same reason as
@@ -314,41 +317,92 @@ public partial class ToolbarWindow : OverlayWindow
             ButtonCanvas.Children.Remove(anchor);
     }
 
-    // Task 6 owns this: the indicator's shape, its icon (ToolbarIconKey.ProviderEye /
-    // ProviderMouse) and the fact that calling it twice stacks two indicators. Ported here only
-    // far enough to compile against IndicatorPanel now that ButtonPanel is gone.
+    /// <summary>The indicator's own child count, for tests. See <see cref="AddIndicatorElement"/>.</summary>
+    internal int IndicatorChildCountForTest => IndicatorPanel.Children.Count;
+
+    /// <summary>
+    /// Draws the gaze-provider indicator: a small glyph (eye/mouse) plus a hairline rule, sized
+    /// and coloured as chrome rather than as a sixth button — it carries no fill, no rim and no
+    /// dwell target, so it cannot be mistaken for a broken button the way the old full-size
+    /// <c>Border</c>+emoji <c>TextBlock</c> could.
+    ///
+    /// <para>
+    /// Idempotent: <see cref="Initialize"/> (via <see cref="RebuildBand"/>) calls this again
+    /// whenever <c>_providerType</c> is already set (every settings-save round-trips through
+    /// <c>SettingsUiCoordinator.cs:172</c>), and the old version appended a second indicator on
+    /// that path. Clearing first, rather than checking whether one already exists, also makes an
+    /// axis flip (<see cref="SetMode"/>) free to rebuild the indicator in its new orientation
+    /// without a separate "is this a rebuild or a fresh add" branch.
+    /// </para>
+    ///
+    /// <para>
+    /// Only <see cref="IconGeometry.Stroke"/> is drawn, not <see cref="IconGeometry.Fill"/>:
+    /// <see cref="ToolbarIconKey.ProviderEye"/> and <see cref="ToolbarIconKey.ProviderMouse"/> are
+    /// both stroke-only today (<c>ToolbarIcons.cs</c>), and <see cref="IndicatorPanel"/> is a
+    /// <c>StackPanel</c>, which arranges children SIDE BY SIDE rather than stacking them — unlike
+    /// <c>DwellArcButton</c>'s <c>Canvas</c>, a second layer added as a second panel child would
+    /// not overlay the first, it would sit visibly beside it. If either geometry ever gains a
+    /// <c>Fill</c> layer, drawing it here needs a small overlay container (e.g. a <c>Grid</c>)
+    /// around both layers, not a second top-level child of this panel.
+    /// </para>
+    /// </summary>
     private void AddIndicatorElement(GazeProviderType providerType)
     {
-        var symbol = providerType switch
+        // Idempotent: Initialize also calls this when _providerType is already set, which
+        // previously appended a second indicator.
+        IndicatorPanel.Children.Clear();
+
+        // GazeProviderType also has Auto (0), which falls through to the eye here — but it never
+        // actually reaches this switch: App.xaml.cs:160 calls
+        // GazeProviderFactory.GetProviderType(gazeProvider) on the already-constructed provider
+        // INSTANCE before handing the result to OverlayManager.Initialize (-> SetProviderIndicator
+        // at OverlayManager.cs:108), and that lookup only ever returns StreamEngine or Mouse
+        // (GazeProviderFactory.cs:50-56) — never Auto or the obsolete InteractionLib. The Auto
+        // arm here is unreachable in production; it exists so this switch is still total if a
+        // future caller ever passes the raw settings value instead.
+        var key = providerType switch
         {
-            GazeProviderType.StreamEngine => "\U0001F441",     // eye
 #pragma warning disable CS0618 // Type or member is obsolete
-            GazeProviderType.InteractionLib => "\U0001F441",   // eye (legacy, treated as StreamEngine)
+            GazeProviderType.InteractionLib => ToolbarIconKey.ProviderEye,
 #pragma warning restore CS0618 // Type or member is obsolete
-            GazeProviderType.Mouse => "\U0001F5B1",           // mouse
-            _ => "?"
+            GazeProviderType.Mouse => ToolbarIconKey.ProviderMouse,
+            _ => ToolbarIconKey.ProviderEye,
         };
 
-        var label = new TextBlock
+        var size = _buttonSize * ContainerRatio.Small;
+        var geometry = ToolbarIcons.For(key);
+        var scale = size / ActionIcons.GridSize;
+
+        var icon = new Path
         {
-            Text = symbol,
-            Foreground = Tokens.BrushTextPrimary,
-            FontSize = _buttonSize * ContainerRatio.Large,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            Data = geometry.Stroke,
+            Stroke = Tokens.BrushTextDim,
+            StrokeThickness = ActionIcons.GridStrokeThickness,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round,
+            RenderTransform = new ScaleTransform(scale, scale),
+            Width = size,
+            Height = size,
+            VerticalAlignment = VerticalAlignment.Center,
+            // The panel's own leading gap, now that IndicatorPanel carries no Margin of its own
+            // (an empty StackPanel's content measures to zero, but its Margin would not, which is
+            // what made the strip asymmetric with no provider set — see the XAML comment).
+            Margin = _vertical ? new Thickness(0, ButtonMargin, 0, 0) : new Thickness(ButtonMargin, 0, 0, 0),
         };
 
-        var border = new Border
+        var rule = new Border
         {
-            Width = _buttonSize,
-            Height = _buttonSize,
-            Margin = new Thickness(ButtonMargin),
-            Background = Tokens.BrushSurfaceDark,
-            CornerRadius = Tokens.SmallCornerRadius,
-            Child = label
+            Width = _vertical ? _buttonSize * ContainerRatio.Dominant : Tokens.BorderThicknessStandard,
+            Height = _vertical ? Tokens.BorderThicknessStandard : _buttonSize * ContainerRatio.Dominant,
+            Background = Tokens.BrushSurfaceMedium,
+            Margin = _vertical ? new Thickness(0, ButtonMargin, 0, 0)
+                               : new Thickness(ButtonMargin, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
         };
 
-        IndicatorPanel.Children.Add(border);
+        IndicatorPanel.Children.Add(icon);
+        IndicatorPanel.Children.Add(rule);
     }
 
     public void SetProviderIndicator(GazeProviderType providerType)

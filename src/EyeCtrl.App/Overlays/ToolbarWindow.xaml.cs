@@ -45,6 +45,22 @@ public partial class ToolbarWindow : OverlayWindow
     private bool _vertical;
     private GazeProviderType? _providerType;
 
+    /// <summary>
+    /// The per-button dwell-progress/icon/highlight subscriptions this window owns, so they can
+    /// be detached before the next rebind. Mirrors <c>EdgeButtonBarWindow._progressSubs</c> and
+    /// <c>ActionMenuWindow._itemProgressSubs</c>, and exists for the same reason: a lambda you did
+    /// not keep cannot be unsubscribed, and RebuildBand's rebind (via BindToViewModel) runs on
+    /// every dock/axis/size change, not just once at startup.
+    /// </summary>
+    private readonly List<(ToolbarButtonViewModel Vm, PropertyChangedEventHandler Handler)> _buttonSubs = new();
+
+    /// <summary>
+    /// The view-model currently subscribed to <see cref="ToolbarViewModel.ButtonActivated"/>, or
+    /// null if none. Tracked (rather than a one-shot bool) so a DataContext reassignment detaches
+    /// the old view-model's handler instead of leaking it and leaving the new view-model unheard.
+    /// </summary>
+    private ToolbarViewModel? _activationHookedVm;
+
     /// <summary>The button band, for tests. Layout must be measured against this, not the Window.</summary>
     internal Canvas ButtonCanvasForTest => ButtonCanvas;
 
@@ -97,6 +113,15 @@ public partial class ToolbarWindow : OverlayWindow
 
         if (_providerType.HasValue)
             AddIndicatorElement(_providerType.Value);
+
+        // Every rebuild drops the drawn state along with the old elements. Rebind so the new
+        // buttons start from live view-model state rather than constructor defaults: for an
+        // unchanged mode or pause state no PropertyChanged follows to repair it (IconKey is
+        // [ObservableProperty], so re-assigning the same value raises nothing; SetPausedState
+        // only fires on an IsPaused change). Both RebuildBand callers hit this — the axis flip in
+        // SetMode below, and a plain size change via Initialize (SettingsUiCoordinator.cs:179),
+        // which previously left the rebuilt band showing constructor defaults indefinitely.
+        BindToViewModel();
     }
 
     /// <summary>
@@ -312,13 +337,9 @@ public partial class ToolbarWindow : OverlayWindow
             _vertical = wantVertical;
             StripWrapper.Orientation = IndicatorPanel.Orientation =
                 _vertical ? Orientation.Vertical : Orientation.Horizontal;
+            // RebuildBand rebinds itself now (see its trailing comment), so no explicit
+            // BindToViewModel call is needed here.
             RebuildBand();
-            // Re-bind against the freshly rebuilt band: BindToViewModel drops its old
-            // subscriptions and re-runs BindButton's initial-apply block, which restores the
-            // live icon/tint (e.g. Paused -> Play, the current SelectionMode fill) instead of
-            // leaving the rebuilt buttons at their constructor defaults until the next
-            // PropertyChanged.
-            BindToViewModel();
         }
 
         UpdateLayout();   // SizeToContent does not re-measure until the next pass
@@ -384,13 +405,9 @@ public partial class ToolbarWindow : OverlayWindow
         }
     }
 
-    private readonly List<(ToolbarButtonViewModel Vm, PropertyChangedEventHandler Handler)> _subs = new();
-
-    private bool _activationHooked;
-
     /// <summary>
-    /// Subscribes each button view-model to its visuals. Safe to call repeatedly, which the
-    /// axis change in SetMode needs: it rebuilds the band and then rebinds.
+    /// Subscribes each button view-model to its visuals. Safe to call repeatedly, which
+    /// RebuildBand needs: every dock/axis/size change rebuilds the whole band and then rebinds.
     ///
     /// Dropping the old subscriptions is NOT about dead visuals — the handler resolves
     /// _buttons at event time, so it keeps working across a rebuild. It is about not
@@ -402,16 +419,20 @@ public partial class ToolbarWindow : OverlayWindow
     {
         if (DataContext is not ToolbarViewModel vm) return;
 
-        foreach (var (target, handler) in _subs)
+        foreach (var (target, handler) in _buttonSubs)
             target.PropertyChanged -= handler;
-        _subs.Clear();
+        _buttonSubs.Clear();
 
         foreach (var btn in vm.Buttons)
             BindButton(btn);
 
-        if (_activationHooked) return;
-        _activationHooked = true;
-        vm.ButtonActivated += FlashActivated;   // Task 8
+        if (!ReferenceEquals(_activationHookedVm, vm))
+        {
+            if (_activationHookedVm is not null)
+                _activationHookedVm.ButtonActivated -= FlashActivated;
+            vm.ButtonActivated += FlashActivated;
+            _activationHookedVm = vm;
+        }
     }
 
     /// <summary>
@@ -425,20 +446,21 @@ public partial class ToolbarWindow : OverlayWindow
 
         // Apply the current icon so the initial face matches the actual mode (the ViewModel may
         // already have received the startup SelectionModeChangedMessage before BindToViewModel
-        // is called). This block re-running is what fixes a rebuilt band (SetMode's axis flip)
-        // showing constructor-default icons/tint instead of live state.
-        if (_buttons.ContainsKey(id))
+        // is called). This block re-running is what fixes a rebuilt band (SetMode's axis flip,
+        // or a plain size change) showing constructor-default icons/tint instead of live state.
+        if (_buttons.TryGetValue(id, out _))
         {
             // SwapIcon rebuilds the button (DwellArcButton.Create has no icon setter), which
             // hands back fresh Halo/ProgressPath elements defaulted to Visibility.Visible — WPF's
             // default, not a collapsed rest state. UpdateProgress must run AFTER SwapIcon so it
             // collapses the arc the rebuild just (re)exposed, rather than being clobbered by it.
+            // The re-lookup after SwapIcon cannot fail: SwapIcon replaces _buttons[id] rather
+            // than removing it (RemoveButton followed immediately by AddButton for the same id).
             SwapIcon(id, btn.IconKey);
             if (id == "SelectionMode")
                 SetSelectionModeState(SelectionModeIcons.ToMode(btn.IconKey));
 
-            if (_buttons.TryGetValue(id, out var initial))
-                initial.UpdateProgress(btn.DwellProgress);
+            _buttons[id].UpdateProgress(btn.DwellProgress);
         }
 
         PropertyChangedEventHandler handler = (_, e) =>
@@ -463,16 +485,15 @@ public partial class ToolbarWindow : OverlayWindow
         };
 
         btn.PropertyChanged += handler;
-        _subs.Add((btn, handler));
+        _buttonSubs.Add((btn, handler));
     }
 
-    /// <summary>For tests: how many progress arcs are currently drawn.</summary>
-    internal int ProgressVisibleCountForTest =>
-        ButtonCanvas.Children.OfType<Path>().Count(p => p.Visibility == Visibility.Visible);
+    /// <summary>For tests: the DwellArcButton behind one id.</summary>
+    internal DwellArcButton ButtonForTest(string id) => _buttons[id];
 
     /// <summary>Task 5 owns this: the discrete acquired state (fill + rim) on gaze entry.</summary>
     private void ApplyAcquiredState(string id, bool acquired) { }
 
-    /// <summary>Task 8 owns this: the success-coloured flash confirming a dwell fired.</summary>
-    public void FlashActivated(string id) { }
+    /// <summary>The success-coloured flash confirming a dwell fired. Task 8 fills this in.</summary>
+    private void FlashActivated(string id) { }
 }

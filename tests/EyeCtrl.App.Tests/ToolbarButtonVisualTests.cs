@@ -300,4 +300,66 @@ public class ToolbarButtonVisualTests
             .That(ButtonCanvas(window).Children.OfType<Path>()
                 .Any(p => ReferenceEquals(p.Data, ToolbarIcons.For(ToolbarIconKey.Play).Fill))).IsTrue();
     }
+
+    [StaFact]
+    public void AcquiredState_LiftsTheFillAndTheRim()
+    {
+        var window = NewInitialisedToolbar();
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.DataContext = vm;
+        window.BindToViewModel();
+
+        var button = vm.Buttons.Single(b => b.Id == "Pause");
+        var face = Faces(window).OrderBy(Canvas.GetLeft).First();
+
+        Check.That(((SolidColorBrush)face.Fill).Color).IsEqualTo(Tokens.SurfaceMedium);
+
+        button.IsHighlighted = true;
+        Check.That(((SolidColorBrush)face.Fill).Color).IsEqualTo(Tokens.SurfaceLight);
+        Check.That(((SolidColorBrush)face.Stroke).Color).IsEqualTo(Tokens.BorderFocus);
+
+        button.IsHighlighted = false;
+        Check.That(((SolidColorBrush)face.Fill).Color).IsEqualTo(Tokens.SurfaceMedium);
+    }
+
+    // Reset's rim is the one visual marker on the only unrecoverable action (Task 7). Acquiring
+    // and releasing it must not leave the ordinary BorderSubtle rim behind — that would silently
+    // erase the warning colour the moment a user's gaze passes over the button and away again.
+    [StaFact]
+    public void AcquiredState_OnReset_RestoresTheWarningRimNotTheOrdinaryOne()
+    {
+        var window = NewInitialisedToolbar();
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.DataContext = vm;
+        window.BindToViewModel();
+
+        var button = vm.Buttons.Single(b => b.Id == "ResetAdaptation");
+        var face = window.ButtonForTest("ResetAdaptation").Background;
+
+        Check.That(((SolidColorBrush)face.Stroke).Color).IsEqualTo(Tokens.AccentWarning);
+
+        button.IsHighlighted = true;
+        Check.That(((SolidColorBrush)face.Stroke).Color).IsEqualTo(Tokens.BorderFocus);
+
+        button.IsHighlighted = false;
+        Check.WithCustomMessage("Reset's warning rim did not return after the acquired state was released.")
+            .That(((SolidColorBrush)face.Stroke).Color).IsEqualTo(Tokens.AccentWarning);
+    }
+
+    // Task 3/5 interaction: SetSelectionModeState is called BEFORE Initialize on a size-change
+    // save (SettingsUiCoordinator.cs:172-179). Passing fill: FillFor(id) at construction time is
+    // what makes the mode tint survive that rebuild regardless of call order, rather than relying
+    // solely on BindToViewModel's rebind racing the same rebuild.
+    [StaFact]
+    public void SelectionModeTint_SurvivesAReinitializeCalledBeforeTheNextBind()
+    {
+        var window = NewInitialisedToolbar();
+
+        window.SetSelectionModeState(SelectionMode.ManualSelection);
+        window.Initialize(ButtonSize, 700);
+
+        Check.WithCustomMessage("SelectionMode disc lost its mode tint after a bare reinitialize.")
+            .That(((SolidColorBrush)window.ButtonForTest("SelectionMode").Background.Fill).Color)
+            .IsEqualTo(Tokens.ToggleOn);
+    }
 }

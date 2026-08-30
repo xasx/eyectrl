@@ -241,4 +241,30 @@ public class ToolbarViewModelTests
         vm.Receive(new GazeCursorMovedMessage(center, 200_000));
         Check.That(fired).IsFalse();
     }
+
+    [Fact]
+    public void TargetProgress_RaisesAndClearsIsHighlighted()
+    {
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        var button = vm.Buttons.Single(b => b.Id == "Pause");
+
+        Check.That(button.IsHighlighted).IsFalse();
+        vm.SimulateTargetProgress("Pause", 0.02);
+        Check.That(button.IsHighlighted).IsTrue();
+        vm.SimulateTargetProgress("Pause", 0.0);
+        Check.That(button.IsHighlighted).IsFalse();
+    }
+
+    [Fact]
+    public void TargetActivated_ClearsIsHighlightedWithTheProgress()
+    {
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        var button = vm.Buttons.Single(b => b.Id == "Pause");
+
+        vm.SimulateTargetProgress("Pause", 0.9);
+        vm.SimulateButtonActivated("Pause");
+
+        Check.That(button.DwellProgress).IsEqualTo(0.0);
+        Check.That(button.IsHighlighted).IsFalse();
+    }
 }

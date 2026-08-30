@@ -179,7 +179,10 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     protected override void OnTargetActivated(string targetId)
     {
         if (_buttonLookup.TryGetValue(targetId, out var btn))
+        {
             btn.DwellProgress = 0;
+            btn.IsHighlighted = false;
+        }
 
         switch (targetId)
         {
@@ -201,7 +204,14 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
     protected override void OnTargetProgress(string targetId, double progress)
     {
-        if (_buttonLookup.TryGetValue(targetId, out var btn))
-            btn.DwellProgress = progress;
+        if (!_buttonLookup.TryGetValue(targetId, out var btn))
+            return;
+
+        btn.DwellProgress = progress;
+        // Derived rather than separately plumbed. DwellDetector fires no progress for the FIRST
+        // sample inside a target (DwellDetector.cs:224-228) and a non-zero value from the second
+        // on (lines 229-233); it fires exactly 0 on leave (line 253) and on activation (line 276).
+        // So "progress > 0" is "gaze is on this target", one gaze sample (~11 ms) after entry.
+        btn.IsHighlighted = progress > 0;
     }
 }

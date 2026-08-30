@@ -166,6 +166,7 @@ public partial class ToolbarWindow : OverlayWindow
             center,
             _buttonSize / 2,
             symbol: null,
+            fill: FillFor(id),
             stroke: RimFor(id),
             arcBrush: ArcBrushFor(id),
             symbolBrush: IconBrushFor(id),
@@ -389,20 +390,23 @@ public partial class ToolbarWindow : OverlayWindow
 
     public void SetPausedState(bool isPaused) => SwapIcon("Pause", isPaused ? "Play" : "Pause");
 
-    // Task 5 owns this: it restructures the mode tint around a _selectionModeBrush field so a
-    // SwapIcon rebuild cannot drop it. Ported here only far enough to compile — same three-way
-    // brush choice, written to the DwellArcButton's Ellipse face instead of a Border.
+    /// <summary>The at-rest fill. SelectionMode overrides it to carry its mode.</summary>
+    private Brush FillFor(string id) =>
+        id == "SelectionMode" ? _selectionModeBrush : Tokens.BrushSurfaceMedium;
+
+    private Brush _selectionModeBrush = Tokens.BrushSurfaceMedium;
+
     public void SetSelectionModeState(SelectionMode mode)
     {
-        if (_buttons.TryGetValue("SelectionMode", out var button))
+        _selectionModeBrush = mode switch
         {
-            button.Background.Fill = mode switch
-            {
-                SelectionMode.ManualSelection => Tokens.BrushToggleOn,
-                SelectionMode.AutoSelection => Tokens.BrushSurfaceKeySwitch,
-                _ => Tokens.BrushSurfaceMedium
-            };
-        }
+            SelectionMode.ManualSelection => Tokens.BrushToggleOn,
+            SelectionMode.AutoSelection => Tokens.BrushSurfaceKeySwitch,
+            _ => Tokens.BrushSurfaceMedium
+        };
+
+        if (_buttons.TryGetValue("SelectionMode", out var b))
+            b.Background.Fill = _selectionModeBrush;
     }
 
     /// <summary>
@@ -491,8 +495,18 @@ public partial class ToolbarWindow : OverlayWindow
     /// <summary>For tests: the DwellArcButton behind one id.</summary>
     internal DwellArcButton ButtonForTest(string id) => _buttons[id];
 
-    /// <summary>Task 5 owns this: the discrete acquired state (fill + rim) on gaze entry.</summary>
-    private void ApplyAcquiredState(string id, bool acquired) { }
+    /// <summary>
+    /// The discrete "gaze is on this target" state, distinct from the continuous arc. Fill and rim
+    /// only — never a progress-proportional wash over the fill, which collapsed a keyboard key's
+    /// label from 10.42:1 to 1.08:1 and is guarded by DwellWashCensusTests.
+    /// </summary>
+    private void ApplyAcquiredState(string id, bool acquired)
+    {
+        if (!_buttons.TryGetValue(id, out var b)) return;
+
+        b.Background.Fill = acquired ? Tokens.BrushSurfaceLight : FillFor(id);
+        b.Background.Stroke = acquired ? Tokens.BrushBorderFocus : RimFor(id);
+    }
 
     /// <summary>The success-coloured flash confirming a dwell fired. Task 8 fills this in.</summary>
     private void FlashActivated(string id) { }

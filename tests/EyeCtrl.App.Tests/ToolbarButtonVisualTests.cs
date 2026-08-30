@@ -434,6 +434,9 @@ public class ToolbarButtonVisualTests
         Check.WithCustomMessage("The indicator must not add a face to the button band.")
             .That(Faces(window)).HasSize(6);
         var afterOne = window.IndicatorChildCountForTest;
+        Check.WithCustomMessage("The indicator drew nothing at all — this test would pass even "
+                + "if AddIndicatorElement were a no-op.")
+            .That(afterOne).IsStrictlyGreaterThan(0);
 
         window.SetProviderIndicator(GazeProviderType.Mouse);
         Check.WithCustomMessage("Setting the indicator twice appended a second one.")
@@ -478,12 +481,21 @@ public class ToolbarButtonVisualTests
     /// set (an empty StackPanel's CONTENT measures to zero, but a Margin on the panel itself does
     /// not). Fixed by moving the spacing onto the indicator's own children, so an absent indicator
     /// is genuinely zero-cost: left inset should be Border.Padding.Left (4) + IndicatorPanel's own
-    /// width (0, empty) + the band's ButtonMargin (12) = 16, matching the 16 on the right
-    /// (Border.Padding.Right + ButtonMargin). Read via ActualWidth/Canvas.GetLeft after a manual
-    /// Measure/Arrange pass on the root Border — NOT via TranslatePoint against the Window itself,
-    /// which returns (0,0) pre-Show() per this class's header comment. Measuring a descendant's
-    /// own layout properties (unlike transforming between two points via the unconnected Window)
-    /// works fine headless, as SettingsContentFitTests already relies on.
+    /// footprint (0, empty) + the band's ButtonMargin (12) = 16, matching the 16 on the right
+    /// (Border.Padding.Right + ButtonMargin).
+    ///
+    /// Deliberately <see cref="UIElement.DesiredSize"/>, NOT <see cref="FrameworkElement.ActualWidth"/>:
+    /// ActualWidth is RenderSize, which EXCLUDES Margin, so a regression that restores
+    /// IndicatorPanel's old Margin="8,0,4,0" would still measure ActualWidth as 0 and this test
+    /// would report the strip symmetric while it visibly is not — the exact defect this test
+    /// exists to catch. DesiredSize.Width DOES include Margin (0 clean, 12 with that Margin
+    /// restored), which is what makes the assertion below actually fail on that regression.
+    ///
+    /// Read via DesiredSize/Canvas.GetLeft after a manual Measure/Arrange pass on the root Border
+    /// — NOT via TranslatePoint against the Window itself, which returns (0,0) pre-Show() per this
+    /// class's header comment. Measuring a descendant's own layout properties (unlike transforming
+    /// between two points via the unconnected Window) works fine headless, as
+    /// SettingsContentFitTests already relies on.
     /// </summary>
     [StaFact]
     public void StripInsets_AreSymmetric_WhenNoProviderIsSet()
@@ -497,7 +509,7 @@ public class ToolbarButtonVisualTests
         var canvas = ButtonCanvas(window);
         var faces = Faces(window).OrderBy(Canvas.GetLeft).ToList();
 
-        var leftInset = root.Padding.Left + window.IndicatorPanel.ActualWidth + Canvas.GetLeft(faces.First());
+        var leftInset = root.Padding.Left + window.IndicatorPanel.DesiredSize.Width + Canvas.GetLeft(faces.First());
         var rightInset = root.Padding.Right + (canvas.Width - (Canvas.GetLeft(faces.Last()) + ButtonSize));
 
         Check.WithCustomMessage($"Left inset {leftInset} != right inset {rightInset} — an empty "
@@ -525,5 +537,37 @@ public class ToolbarButtonVisualTests
         var ruleVertical = window.IndicatorPanel.Children.OfType<Border>().Single();
         Check.WithCustomMessage("The rule should be wide-and-thin once the strip is vertical.")
             .That(ruleVertical.Width).IsStrictlyGreaterThan(ruleVertical.Height);
+    }
+
+    /// <summary>
+    /// Both hairlines — the indicator's rule and the Reset separator's <see cref="Line"/> — must
+    /// use <see cref="Tokens.BrushBorderSubtle"/>, never <see cref="Tokens.BrushSurfaceMedium"/>.
+    /// SurfaceMedium on SurfaceDark is 1.23:1 nominal (worse as drawn: a 1px line at a fractional
+    /// position antialiases across two pixels), against disc rims at 3.38:1 on the same ground —
+    /// and it is worst on Contrast, the theme picked specifically for low vision: 1.14:1 as drawn
+    /// vs. 21.00:1 with BorderSubtle. <see cref="EveryButton_CarriesAVisibleRim"/> above already
+    /// asserts SurfaceMedium alone is invisible as a boundary; without this guard, a future
+    /// "the divider looks too loud" cleanup could revert either site back to it with nothing to
+    /// object.
+    ///
+    /// A token-identity check, not a live per-theme contrast measurement: the ratio follows
+    /// mechanically from which token is chosen, and re-deriving three themes' actual contrast
+    /// here would rebuild the reviewer's analysis instead of pinning its outcome.
+    /// </summary>
+    [StaFact]
+    public void BothHairlines_UseBorderSubtle_NotSurfaceMedium()
+    {
+        var window = NewInitialisedToolbar();
+        window.SetProviderIndicator(GazeProviderType.StreamEngine);
+
+        var separator = ButtonCanvas(window).Children.OfType<Line>().Single();
+        Check.WithCustomMessage("The Reset separator must use BorderSubtle, not SurfaceMedium — "
+                + "SurfaceMedium on SurfaceDark computes to 1.23:1 and is worse on Contrast theme.")
+            .That(((SolidColorBrush)separator.Stroke).Color).IsEqualTo(Tokens.BorderSubtle);
+
+        var rule = window.IndicatorPanel.Children.OfType<Border>().Single();
+        Check.WithCustomMessage("The indicator's rule must use BorderSubtle, not SurfaceMedium — "
+                + "SurfaceMedium on SurfaceDark computes to 1.23:1 and is worse on Contrast theme.")
+            .That(((SolidColorBrush)rule.Background).Color).IsEqualTo(Tokens.BorderSubtle);
     }
 }

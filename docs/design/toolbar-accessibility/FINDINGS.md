@@ -2,10 +2,14 @@
 
 Recorded 2026-08-30, against `feat/toolbar-gaze-accessibility`.
 
-Three of the four checks were settled by rendering the real `ToolbarWindow` content headlessly
+Checks 1–3 were settled by rendering the real `ToolbarWindow` content headlessly
 (`RenderTargetBitmap` at 2.0×, the user's actual display scale) rather than by eye on the tracker.
 That is deliberate: the same method caught the sun-shaped "gear" and the mis-sized UIA anchor
 earlier in this plan, and it produces evidence that can be re-examined instead of a recollection.
+
+Check 4 could not be settled that way — a headless render has no `PresentationSource`, which is the
+very condition it asks about. It was settled instead against the decompiled WPF framework source
+(added 2026-08-30, closing the first follow-up below); see item 4 for why that is decisive here.
 
 ---
 
@@ -83,25 +87,84 @@ It never approaches disappearing, and stays above the 3:1 WCAG 1.4.11 non-text m
 theme and every ground. **`BorderSubtle` holds; no `BorderFocus` at rest.** (`BorderFocus` would be
 11.5–12.5:1 — the right magnitude for an acquired/focus state, not for rest.)
 
-## 4. Does `Toolbar_Button_Pause` still resolve in UIA? — UNRESOLVED
+## 4. Does `Toolbar_Button_Pause` still resolve in UIA? — PASS
 
 Probed the automation peers headlessly. All six anchors exist with the correct
-`AutomationId` (`Toolbar_Button_<Id>`) and `Name`, and each measures **120×120** — the explicit
+`AutomationId` (`Toolbar_Button_<Id>`) and `Name`, and each measures **120x120** — the explicit
 sizing that replaced text-sized anchors holds, so a client aiming at the published rectangle's
 centre hits the disc centre rather than a sliver at its top-left.
 
-But every peer reported `IsControlElement=False`, `IsOffscreen=True`, `BoundingRectangle=Empty`.
-Those last two are certain artifacts of there being no `PresentationSource` — the exact condition
-the anchor exists to work under — so **this probe cannot tell whether the control-view exclusion is
-real or an artifact of the same missing source.** It is not evidence either way.
+That probe also reported `IsControlElement=False`, `IsOffscreen=True`, `BoundingRectangle=Empty`,
+and left the control-view question open. **It is now closed, from the framework source rather than
+from a live run:** all three of those negatives are the same single artifact, and all three invert
+when the window has a `PresentationSource`.
 
-This is the one item the plan is right that only a live run answers: "run the UI suite once, or
-confirm via an accessibility inspector". `AppFixture.SimulateDwellOn` consumes these ids, so the
-`Category=UI` suite is the direct test — but it launches the real application and displays real
-`Topmost` overlays, so it needs explicit permission before running.
+Decompiled from `Microsoft.WindowsDesktop.App` 10.0.11 (`ilspycmd`):
 
-**Status: open.** Nothing depends on it for the visual work; it gates the UI test suite's ability to
-drive the toolbar, not the toolbar itself.
+1. `TextBlockAutomationPeer.IsControlElementCore()` defers to its base whenever the owner's
+   `TemplatedParent` is `null` or a `ContentPresenter`. These anchors are constructed in code in
+   `AddButton` and added to `ButtonCanvas.Children`, so `TemplatedParent` is `null` — the deferral
+   branch.
+2. `FrameworkElementAutomationPeer` does **not** override `IsControlElementCore` (it overrides only
+   `GetAutomationIdCore`, `GetNameCore`, `GetHelpTextCore`), so the base is
+   `UIElementAutomationPeer.IsControlElementCore()`:
+
+   ```csharp
+   if (!base.IncludeInvisibleElementsInControlView)
+   {
+       return _owner.IsVisible;
+   }
+   return true;
+   ```
+
+   `IncludeInvisibleElementsInControlView` is `AccessibilitySwitches.UseNetFx472CompatibleAccessibilityFeatures`,
+   i.e. the `Switch.UseLegacyAccessibilityFeatures.3` AppContext switch, whose
+   `SetSwitchDefaults` default is `false`. So for these anchors **`IsControlElement` is exactly
+   `anchor.IsVisible`** — no control-type test, no peer-identity test, nothing else.
+3. `UIElement.UpdateIsVisibleCache()` computes `IsVisible` as `Visibility == Visibility.Visible`
+   **and** (the containing UIElement is itself visible, or `PresentationSource.CriticalFromVisual(this)`
+   is non-null at the root). `Opacity` is not an input to it — opacity only ever participates
+   through `ensureVisible`/`ensureInvisible`, which are driven by `Visibility`. The anchor's
+   `Opacity = 0` therefore costs it nothing in the control view.
+
+Headlessly there is no `PresentationSource`, so the root's `IsVisible` is `false` and every
+descendant's is too — and that one fact produces all three probe negatives:
+
+| Probe result | Source of it |
+|---|---|
+| `IsControlElement=False` | `UIElementAutomationPeer.IsControlElementCore` returns `_owner.IsVisible` |
+| `IsOffscreen=True` | `IsOffscreenCore`'s default branch returns `!_owner.IsVisible` |
+| `BoundingRectangle=Empty` | `GetBoundingRectangleCore` returns `Rect.Empty` when `PresentationSource.CriticalFromVisual` is `null` |
+
+Shown, the window has an `HwndSource`, and nothing on the path from it to the anchor
+(`Border` -> `StripWrapper` -> `ButtonCanvas` -> anchor, `ToolbarWindow.xaml`) sets `Visibility` at
+all. So `IsVisible` is `true`, and all three invert together: **the six anchors are in the control
+view, on-screen, publishing the 120x120 rectangle the probe already measured.**
+
+**No fix is needed, and neither candidate fix would have worked.**
+`AutomationProperties.SetAutomationControlType` and a custom peer returning `IsControlElement=true`
+both address a control-type or peer-identity exclusion; the exclusion the probe saw was the
+visibility gate, which neither touches. (A custom peer overriding `IsControlElementCore` to return
+an unconditional `true` would "work" only by defeating the same gate for the hidden case too.)
+
+**Caveat — auto-hide really does remove them.** `ToolbarVisibilityAdapter` hides the toolbar with
+`Window.Hide()`, which sets `Visibility = Hidden` on the window, which makes `IsVisible` false for
+its entire subtree. While auto-hidden, the anchors are out of the control view and report
+`IsOffscreen=True` — correctly. `AppFixture.SimulateDwellOn` therefore needs the toolbar shown,
+which is the condition `WaitForVisibleWindowAsync` already checks.
+
+**Correction to `AddButton`'s own comment.** It says the UIA control view "does not expose Ellipse
+or Path from a transparent overlay window". The transparency is not the cause: `Shape` — and so
+`Ellipse` and `Path` — never overrides `OnCreateAutomationPeer`, and `UIElement`'s default
+implementation returns `null`. Those elements have no automation peer at all, in any view, in any
+window, transparent or not. The anchor is still necessary; only the stated reason was wrong.
+
+**Standing of this answer.** It is derived from the shipped framework IL, not observed on the
+running app, so it is a proof about what the code must do rather than a sighting. A `Category=UI`
+run or an Accessibility Insights pass against the live app would confirm it independently — that
+run was not performed, because it launches the application with real `Topmost` overlays and the
+source settles the question without it. Item 2 below is the coverage gap that a live run would
+actually close.
 
 ---
 
@@ -111,16 +174,16 @@ Everything this plan leaves open, in one place. Several of these were agreed dur
 existed only in the session transcript until now; they are written out here so acting on them does
 not require that conversation.
 
-### 1. UIA control-view membership of the toolbar anchors
+### 1. UIA control-view membership of the toolbar anchors — RESOLVED, no change needed
 
-The six `Toolbar_Button_<Id>` anchors carry the right ids, names and 120x120 size, but a headless
-peer probe reports `IsControlElement=False` / `IsOffscreen=True` / `BoundingRectangle=Empty`. The
-last two are certain artifacts of there being no `PresentationSource`, so the probe settles
-nothing. Confirm with a `Category=UI` run (`AppFixture.SimulateDwellOn` consumes these ids) or an
-accessibility inspector against the running app. **That suite launches the application and shows
-real `Topmost` overlays, so it needs explicit permission before running.** If the anchors really
-are outside the control view, the fix is an `AutomationProperties.SetAutomationControlType` or a
-custom peer, not a bigger anchor. See item 4 of this document.
+The six `Toolbar_Button_<Id>` anchors **are** in the UIA control view whenever the toolbar window is
+shown. `IsControlElement` for a code-created `TextBlock` reduces to `UIElement.IsVisible`, which
+depends on `Visibility` and the presence of a `PresentationSource` and **not** on `Opacity`; the
+headless probe's `IsControlElement=False` was the same missing-`PresentationSource` artifact as its
+`IsOffscreen=True` and `BoundingRectangle=Empty`. Neither `SetAutomationControlType` nor a custom
+peer is warranted. Full derivation, with the decompiled framework methods, in item 4 above. The
+one live-behaviour consequence worth carrying forward: an auto-hidden toolbar (`Window.Hide()`)
+genuinely does drop its anchors from the control view, so anything driving them must show it first.
 
 ### 2. End-to-end coverage of the dwell-target placement path
 

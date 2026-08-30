@@ -107,6 +107,57 @@ drive the toolbar, not the toolbar itself.
 
 ## Follow-ups opened
 
-- **UIA control-view membership of the toolbar anchors** (item 4 above) — unverified.
-- **Cooling-down state** — already recorded in the plan's self-review as not covered;
-  `DwellDetector` exposes no in-cooldown signal. Deferred, not dropped.
+Everything this plan leaves open, in one place. Several of these were agreed during the work and
+existed only in the session transcript until now; they are written out here so acting on them does
+not require that conversation.
+
+### 1. UIA control-view membership of the toolbar anchors
+
+The six `Toolbar_Button_<Id>` anchors carry the right ids, names and 120x120 size, but a headless
+peer probe reports `IsControlElement=False` / `IsOffscreen=True` / `BoundingRectangle=Empty`. The
+last two are certain artifacts of there being no `PresentationSource`, so the probe settles
+nothing. Confirm with a `Category=UI` run (`AppFixture.SimulateDwellOn` consumes these ids) or an
+accessibility inspector against the running app. **That suite launches the application and shows
+real `Topmost` overlays, so it needs explicit permission before running.** If the anchors really
+are outside the control view, the fix is an `AutomationProperties.SetAutomationControlType` or a
+custom peer, not a bigger anchor. See item 4 of this document.
+
+### 2. End-to-end coverage of the dwell-target placement path
+
+`ToolbarTargetPlacementTests` (added with `1f385f43`) pins the arrangement guard, which is the half
+that failed. The other half — `PointToScreen` producing six *distinct* screen centres — still has
+no automated cover, because it needs a real window source. The 672-test suite was green while no
+button was dwellable; that gap is narrowed, not closed. A UI-category test that shows the toolbar
+and asserts distinct target centres would close it.
+
+### 3. Cooling-down state is not rendered
+
+Recorded in the plan's own self-review: `Anatomy.dc.html` specifies a cooling-down state and
+`DwellDetector` exposes no in-cooldown signal, so there is nothing for the view to bind. Needs
+detector work first. Deferred, not dropped.
+
+### 4. `ToolbarWindow.xaml.cs` is 798 lines
+
+It now owns band construction, layout, icon swapping, face painting, acquired/flash state, mode
+tinting, the provider indicator and target placement. Extracting the band (construction + layout +
+painting) is the obvious split. Deliberately not done inside this plan — it would have mixed a
+large structural move into a change whose value is visual, and the diff was already the largest in
+the plan.
+
+### 5. Provider indicator has no `AutomationProperties`
+
+It is chrome rather than a target, which is why it has no dwell anchor — but it also carries no
+name, so a screen reader has nothing to announce for it.
+
+### 6. Vertical-dock separator has no test
+
+`Reset_CarriesTheWarningHue_ClearanceAndSeparator` covers the horizontal band only.
+`LayOutBand`'s separator arithmetic has a `_vertical` branch (`SetMode`'s axis flip) that no test
+exercises. The horizontal case had a real off-by-48px bug caught in plan review, so the untested
+branch is not a safe assumption.
+
+### 7. `ToolbarVisibilityAdapterTests` duplicates `WpfApplicationGate`
+
+It carries a private copy of the gate rather than using the shared one, so a future change to the
+`Application`-singleton handling has two places to land. Its own comment (line 34) names the
+duplication.

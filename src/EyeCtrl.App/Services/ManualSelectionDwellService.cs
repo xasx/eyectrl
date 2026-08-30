@@ -153,65 +153,56 @@ public class ManualSelectionDwellService : IDisposable
         _dwellDetector.Update(pt, ts);
     }
 
-    private void InvokeOnDispatcherIfNeeded(Action action)
+    private void DispatchSafe(Action action, string errorContext)
     {
-        if (_dispatcher.CheckAccess())
+        void Run()
         {
-            action();
-            return;
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "{Context}", errorContext);
+            }
         }
 
-        _dispatcher.BeginInvoke(action);
+        if (_dispatcher.CheckAccess())
+            Run();
+        else
+            _dispatcher.BeginInvoke(Run);
     }
 
     private void OnDwellActivated(string targetId)
     {
         if (targetId != ManualSelectionDwellTargetId) return;
 
-        InvokeOnDispatcherIfNeeded(() =>
+        DispatchSafe(() =>
         {
-            try
-            {
-                // Get the current dwell target position as the precise fixation point
-                var target = _dwellDetector?.GetProgress(ManualSelectionDwellTargetId);
-                if (_dwellDetector == null) return;
+            // Get the current dwell target position as the precise fixation point
+            var target = _dwellDetector?.GetProgress(ManualSelectionDwellTargetId);
+            if (_dwellDetector == null) return;
 
-                // We need to get the actual target to retrieve its center
-                // Since DwellDetector doesn't expose targets, we'll use the last gaze position
-                // This is acceptable because dwell activation happens when gaze is on target
-                _logger.LogInformation("ManualSelection dwell completed");
+            // We need to get the actual target to retrieve its center
+            // Since DwellDetector doesn't expose targets, we'll use the last gaze position
+            // This is acceptable because dwell activation happens when gaze is on target
+            _logger.LogInformation("ManualSelection dwell completed");
 
-                // Reset indicator
-                _messenger.Send(new ResetManualSelectionIndicatorMessage());
+            // Reset indicator
+            _messenger.Send(new ResetManualSelectionIndicatorMessage());
 
-                // We don't have access to the exact point, but we can send a completion message
-                // The EventCoordinator will need to track the last known gaze position
-                // For now, use the ManualSelection center as fallback (this will be improved)
-                _messenger.Send(new ManualSelectionDwellCompletedMessage(_lastGazePoint ?? _manualSelectionCenter!.Value));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in ManualSelection dwell activated handler");
-            }
-        });
+            // We don't have access to the exact point, but we can send a completion message
+            // The EventCoordinator will need to track the last known gaze position
+            // For now, use the ManualSelection center as fallback (this will be improved)
+            _messenger.Send(new ManualSelectionDwellCompletedMessage(_lastGazePoint ?? _manualSelectionCenter!.Value));
+        }, "Error in ManualSelection dwell activated handler");
     }
 
     private void OnDwellProgress(string targetId, double progress)
     {
         if (targetId != ManualSelectionDwellTargetId) return;
 
-        InvokeOnDispatcherIfNeeded(() =>
-        {
-            try
-            {
-                // Update indicator progress
-                UpdateIndicatorProgress(progress);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in ManualSelection dwell progress handler");
-            }
-        });
+        DispatchSafe(() => UpdateIndicatorProgress(progress), "Error in ManualSelection dwell progress handler");
     }
 
     private PhysicalPoint? _lastGazePoint;
@@ -229,47 +220,17 @@ public class ManualSelectionDwellService : IDisposable
     {
         _dwellDetector?.ResetAllState();
 
-        InvokeOnDispatcherIfNeeded(() =>
-        {
-            try
-            {
-                _messenger.Send(new ResetManualSelectionIndicatorMessage());
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error resetting ManualSelection indicator");
-            }
-        });
+        DispatchSafe(() => _messenger.Send(new ResetManualSelectionIndicatorMessage()), "Error resetting ManualSelection indicator");
     }
 
     private void UpdateIndicatorPosition(PhysicalPoint gazePoint)
     {
-        InvokeOnDispatcherIfNeeded(() =>
-        {
-            try
-            {
-                _messenger.Send(new UpdateManualSelectionIndicatorPositionMessage(gazePoint));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating ManualSelection indicator position");
-            }
-        });
+        DispatchSafe(() => _messenger.Send(new UpdateManualSelectionIndicatorPositionMessage(gazePoint)), "Error updating ManualSelection indicator position");
     }
 
     private void UpdateIndicatorProgress(double progress)
     {
-        InvokeOnDispatcherIfNeeded(() =>
-        {
-            try
-            {
-                _messenger.Send(new UpdateManualSelectionIndicatorProgressMessage(progress));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating ManualSelection indicator progress");
-            }
-        });
+        DispatchSafe(() => _messenger.Send(new UpdateManualSelectionIndicatorProgressMessage(progress)), "Error updating ManualSelection indicator progress");
     }
 
     public void Dispose()

@@ -10,36 +10,55 @@ using System.Text;
 /// multi-instance pipes, per-connection UTF-8 newline-JSON read loops that skip
 /// malformed lines without dropping the connection, connection tracking under a lock,
 /// and a Dispose that cancels, drains and disposes every connection. Callers own pipe
-/// construction (plain vs ACL-secured), line parsing, and any per-connection teardown.
+/// construction (plain vs ACL-secured) and line parsing.
+/// <para>
+/// Per-connection state is a first-class parameter rather than something each caller
+/// re-invents: <typeparamref name="TState"/> is built once per accepted pipe by
+/// <c>createState</c>, handed to every line handler, and released by <c>onClosed</c>. It
+/// lives in the read loop's own frame, so there is no pipe-keyed side table to keep in
+/// sync and no per-line lookup — the reason <see cref="NamedPipeServerStream"/> appears
+/// nowhere in either caller's vocabulary except its own pipe factory.
+/// </para>
 /// </summary>
-public sealed class NewlineJsonPipeServer : IDisposable
+/// <typeparam name="TState">
+/// Whatever the caller needs alongside a connection — a writer, a bound client identity,
+/// registration bookkeeping. May be a nullable reference type when "no state" is a valid
+/// outcome (the supervisor binds an unresolvable client to a null identity).
+/// </typeparam>
+public sealed class NewlineJsonPipeServer<TState> : IDisposable
 {
-    public delegate bool LineHandler(string line, NamedPipeServerStream pipe);
+    /// <summary>
+    /// Handles one complete line. Return false for a line the caller could not parse — it is
+    /// logged with the line and skipped, and the connection is kept.
+    /// </summary>
+    public delegate bool LineHandler(string line, TState state);
 
-    private readonly string _pipeName;
     private readonly Func<NamedPipeServerStream> _createPipe;
+    private readonly Func<NamedPipeServerStream, TState> _createState;
     private readonly LineHandler _handleLine;
-    private readonly Action<NamedPipeServerStream>? _onConnected;
-    private readonly Action<NamedPipeServerStream>? _onDisconnected;
+    private readonly Action<TState>? _onClosed;
     private readonly Action<Exception, string?, string?>? _log;
     private readonly object _stateLock = new();
     private readonly List<NamedPipeServerStream> _connections = new();
     private CancellationTokenSource? _cts;
     private bool _disposed;
 
+    /// <param name="createPipe">Builds each server instance — plain ctor or ACL-secured, caller's choice.</param>
+    /// <param name="createState">Builds the per-connection state, once, before the first line can arrive.</param>
+    /// <param name="handleLine">Consumes one line against that state; false means "unparseable".</param>
+    /// <param name="onClosed">Per-connection teardown, run exactly once when the read loop ends.</param>
+    /// <param name="log">(exception, line, context) — <c>line</c> is non-null only for a bad message.</param>
     public NewlineJsonPipeServer(
-        string pipeName,
         Func<NamedPipeServerStream> createPipe,
+        Func<NamedPipeServerStream, TState> createState,
         LineHandler handleLine,
-        Action<NamedPipeServerStream>? onConnected = null,
-        Action<NamedPipeServerStream>? onDisconnected = null,
+        Action<TState>? onClosed = null,
         Action<Exception, string?, string?>? log = null)
     {
-        _pipeName = pipeName;
         _createPipe = createPipe;
+        _createState = createState;
         _handleLine = handleLine;
-        _onConnected = onConnected;
-        _onDisconnected = onDisconnected;
+        _onClosed = onClosed;
         _log = log;
     }
 
@@ -62,9 +81,9 @@ public sealed class NewlineJsonPipeServer : IDisposable
             }
             catch (Exception ex)
             {
-                // Pipe creation failed (e.g. ACL). Abort the loop, matching
-                // HeartbeatPipeServer: retrying a construction that cannot succeed
-                // would spin.
+                // Pipe creation failed (e.g. ACL, or another process already owns the name).
+                // Abort the loop: retrying a construction that cannot succeed would spin. This
+                // permanently disables the channel, so callers should wire `log` to see it.
                 _log?.Invoke(ex, null, "pipe create failed");
                 break;
             }
@@ -85,24 +104,28 @@ public sealed class NewlineJsonPipeServer : IDisposable
                 continue;
             }
 
-            lock (_stateLock)
-                _connections.Add(pipe);
+            TState state;
             try
             {
-                // The caller builds its per-connection state (writer, identity, bookkeeping)
-                // here — before the first line can arrive. Without this seam the line handler
-                // could never map a pipe to its state.
-                _onConnected?.Invoke(pipe);
+                state = _createState(pipe);
             }
             catch (Exception ex)
             {
-                _log?.Invoke(ex, null, "onConnected failed");
+                // A connection whose state could not be built can be neither answered nor
+                // bookkept; servicing it would silently swallow every line it sends. Drop it and
+                // keep accepting — the client sees the close and can reconnect.
+                _log?.Invoke(ex, null, "connection state setup failed");
+                pipe.Dispose();
+                continue;
             }
-            _ = HandleConnectionAsync(pipe, token);
+
+            lock (_stateLock)
+                _connections.Add(pipe);
+            _ = HandleConnectionAsync(pipe, state, token);
         }
     }
 
-    private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken token)
+    private async Task HandleConnectionAsync(NamedPipeServerStream pipe, TState state, CancellationToken token)
     {
         try
         {
@@ -129,7 +152,7 @@ public sealed class NewlineJsonPipeServer : IDisposable
                 {
                     // Malformed line -> handler returns false -> logged with the line, skipped,
                     // connection kept.
-                    if (!_handleLine(line, pipe))
+                    if (!_handleLine(line, state))
                         _log?.Invoke(new FormatException("malformed pipe line"), line, "bad pipe message");
                 }
                 catch (Exception ex)
@@ -141,21 +164,21 @@ public sealed class NewlineJsonPipeServer : IDisposable
         catch (OperationCanceledException)
         {
         }
-            catch (Exception ex)
-            {
-                _log?.Invoke(ex, null, "connection handler error");
-            }
+        catch (Exception ex)
+        {
+            _log?.Invoke(ex, null, "connection handler error");
+        }
         finally
         {
             lock (_stateLock)
                 _connections.Remove(pipe);
             try
             {
-                _onDisconnected?.Invoke(pipe);
+                _onClosed?.Invoke(state);
             }
             catch (Exception ex)
             {
-                _log?.Invoke(ex, null, "onDisconnected failed");
+                _log?.Invoke(ex, null, "connection teardown failed");
             }
             try
             {

@@ -52,6 +52,16 @@ public class OverlayPositioningTests
     }
 
     [Fact]
+    public void NullEdge_FallsBackToTop_WithoutThrowing()
+    {
+        // The signature is string? because the body has always matched on `edge?.ToLowerInvariant()`.
+        // ToolbarWindow.SetMode leans on this for its own null-tolerant orientation match.
+        var (left, top) = OverlayPositioning.PlaceAtEdge(Area, null, 400, 60);
+        Check.That(left).IsEqualTo((1920 - 400) / 2d);
+        Check.That(top).IsEqualTo(0d);
+    }
+
+    [Fact]
     public void NonZeroWorkAreaOrigin_IsHonored()
     {
         var area = new Rect(1920, 0, 1920, 1040); // secondary monitor to the right

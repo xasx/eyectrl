@@ -2,10 +2,10 @@ namespace EyeCtrl.Supervisor.Ipc;
 
 using System;
 using System.IO.Pipes;
-using System.Runtime.CompilerServices;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Platform.Interop;
 using EyeCtrl.Platform.Ipc;
+using Serilog;
 
 /// <summary>
 /// Pipe SERVER (supervisor side) for the <c>eyectrl_watch</c> channel. Accepts connections from
@@ -29,7 +29,7 @@ using EyeCtrl.Platform.Ipc;
 /// <c>shuttingDown</c>) would deserialize to defaults (false/MinValue). <see cref="JsonSerializerOptions.PropertyNameCaseInsensitive"/>
 /// is also set as a safety net so either casing on the wire deserializes correctly.</item>
 /// </list>
-/// <para><b>Threading:</b> delegated to <see cref="NewlineJsonPipeServer"/> —
+/// <para><b>Threading:</b> delegated to <see cref="NewlineJsonPipeServer{TState}"/> —
 /// a single fire-and-forget accept loop creates one
 /// <see cref="NamedPipeServerStream"/> per client; each connection is serviced by its own
 /// read-loop task. No background thread is consumed when zero clients are
@@ -42,8 +42,9 @@ public sealed class HeartbeatPipeServer : IDisposable
 
     private readonly ClientIdentityBinder _binder;
     private readonly string _pipeName;
-    private readonly ConditionalWeakTable<NamedPipeServerStream, ClientIdentity> _identityByPipe = new();
-    private readonly NewlineJsonPipeServer _pipeServer;
+    // The bound identity IS this channel's per-connection state — resolved once per pipe and
+    // carried by the read loop itself, so there is no pipe-keyed table to keep in sync.
+    private readonly NewlineJsonPipeServer<ClientIdentity?> _pipeServer;
 
     /// <param name="binder">
     /// Used to bind each connected client's identity (PID/session/exe/creation-time) for the
@@ -55,27 +56,44 @@ public sealed class HeartbeatPipeServer : IDisposable
         _binder = binder ?? throw new ArgumentNullException(nameof(binder));
         _pipeName = pipeName ?? PipeName;
 
-        _pipeServer = new NewlineJsonPipeServer(
-            _pipeName,
+        _pipeServer = new NewlineJsonPipeServer<ClientIdentity?>(
             () => NamedPipeServerStreamAcl.Create(
                 _pipeName, PipeDirection.InOut,
                 NamedPipeServerStream.MaxAllowedServerInstances,
                 PipeTransmissionMode.Byte, PipeOptions.Asynchronous,
                 inBufferSize: 0, outBufferSize: 0,
                 new NamedPipeSecurityBuilder().BuildCurrentUserOnly()),
-            onConnected: pipe =>
+            createState: pipe =>
             {
-                try { _identityByPipe.Add(pipe, _binder.Resolve(pipe.SafePipeHandle)!); }
-                catch { /* unresolvable identity = null identity, same as today's latch */ }
+                // Bound ONCE per connection: PID/exe/creation-time cannot change over the life of
+                // a single named-pipe connection. The binder is documented never to throw; the
+                // catch is defence-in-depth, and must yield a null identity rather than propagate
+                // — a throw here would drop the connection and cost the supervisor its heartbeats.
+                try { return _binder.Resolve(pipe.SafePipeHandle); }
+                catch { return null; }
             },
-            handleLine: (line, pipe) =>
+            handleLine: (line, identity) =>
             {
                 var payload = HeartbeatPayloadParser.Parse(line);
                 if (payload is null)
                     return false;
-                _identityByPipe.TryGetValue(pipe, out var identity);
-                HeartbeatReceived?.Invoke(payload, identity);
+                // Contain subscriber faults here rather than letting them surface through the
+                // line-handler catch as "unparseable line": the line parsed fine, and a throwing
+                // subscriber must never cost us the heartbeat channel.
+                try { HeartbeatReceived?.Invoke(payload, identity); }
+                catch (Exception ex) { Log.Warning(ex, "Heartbeat pipe: subscriber threw"); }
                 return true;
+            },
+            log: (ex, line, context) =>
+            {
+                // "pipe create failed" aborts the accept loop for good — the supervisor then
+                // never receives a heartbeat and silently stops adopting or supervising, while
+                // Program still reports the pipe as started. That is the case this seam exists
+                // for; per-line parse noise stays at Debug.
+                if (line is not null)
+                    Log.Debug(ex, "Heartbeat pipe: discarding unparseable line {Line}", line);
+                else
+                    Log.Warning(ex, "Heartbeat pipe: {Context}", context ?? "connection handler error");
             });
     }
 

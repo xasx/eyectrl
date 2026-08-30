@@ -13,6 +13,35 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public class QuickActionDispatcherTests
 {
+    // ── CoordinatorBase lifecycle contract ──
+    // The other eight coordinators pin this; QuickActionDispatcher was the one corner left
+    // uncovered. It has no OnDispose override today, so the base's `Context?.Messenger
+    // .UnregisterAll(this)` carries it — but the sibling coordinators reach Context through
+    // `Context!` in their OnDispose, and this is the test that catches it if this one ever
+    // grows the same shape.
+
+    [Fact]
+    public void Initialize_ThrowsArgumentNullException_WhenContextIsNull()
+    {
+        var c = new QuickActionDispatcher();
+        Check.ThatCode(() => c.Initialize(null!)).Throws<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Dispose_CanBeCalledBeforeInitialize_WithoutThrowing()
+    {
+        // Mirrors the EventCoordinator contract test: a constructed-but-uninitialized
+        // coordinator must still dispose cleanly (no NullRef on Context).
+        new QuickActionDispatcher().Dispose();
+    }
+
+    [Fact]
+    public void Dispose_CanBeCalledMultipleTimes_WithoutThrowing()
+    {
+        var c = new QuickActionDispatcher();
+        c.Dispose(); c.Dispose();
+    }
+
     [Fact]
     public void ExecuteKeyboardShortcut_CharacterRequiringShift_MergesRequiredModifier()
     {

@@ -31,8 +31,6 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
 
     protected override void OnInitialize()
     {
-        var context = Context!;
-
         SetupPropertyChangedHandlers();
         SetupBackdrop();
     }

@@ -16,7 +16,6 @@ public class ModelDownloadService : IDisposable
     private readonly ILogger<ModelDownloadService>? _logger;
 
     private volatile bool _isDownloading;
-    private CancellationTokenSource? _downloadCts;
     private readonly SemaphoreSlim _downloadSemaphore = new(1, 1);
 
     /// <summary>Whether a download is currently in progress.</summary>
@@ -118,8 +117,9 @@ public class ModelDownloadService : IDisposable
     /// Shared download core used by all public download methods: single-flight
     /// semaphore, temp-file streaming with incremental SHA-256 via CryptoStream,
     /// optional hash verification, atomic move into place, temp-file cleanup.
-    /// Creates the linked <see cref="_downloadCts"/> so downloads can be cancelled
-    /// for every download type. Throws OperationCanceledException on cancel.
+    /// Cancellation rides the caller's <paramref name="cancellationToken"/>: the service holds no
+    /// CTS of its own, so a caller that wants a cancel button owns the token it passes in.
+    /// Throws OperationCanceledException on cancel.
     /// </summary>
     private async Task<(DownloadOutcome Outcome, string? Error)> DownloadFileCoreAsync(
         string outputFileName,
@@ -136,18 +136,16 @@ public class ModelDownloadService : IDisposable
             return (DownloadOutcome.Busy, "Another download is already in progress");
 
         _isDownloading = true;
-        _downloadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var ct = _downloadCts.Token;
 
         try
         {
             onStarted?.Invoke();
 
-            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1;
-            using var contentStream = await response.Content.ReadAsStreamAsync(ct);
+            using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
 
             var buffer = new byte[8192];
             long totalRead = 0;
@@ -157,9 +155,9 @@ public class ModelDownloadService : IDisposable
             using (var fileStream = File.Create(tempPath))
             using (var cs = new CryptoStream(contentStream, sha256, CryptoStreamMode.Read, leaveOpen: true))
             {
-                while ((bytesRead = await cs.ReadAsync(buffer, ct)) > 0)
+                while ((bytesRead = await cs.ReadAsync(buffer, cancellationToken)) > 0)
                 {
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
                     totalRead += bytesRead;
                     if (totalBytes > 0)
                         onProgress?.Invoke((double)totalRead / totalBytes);
@@ -194,8 +192,6 @@ public class ModelDownloadService : IDisposable
         finally
         {
             _isDownloading = false;
-            _downloadCts?.Dispose();
-            _downloadCts = null;
             _downloadSemaphore.Release();
         }
     }

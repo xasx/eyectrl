@@ -38,8 +38,6 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
 
     protected override void OnInitialize()
     {
-        var context = Context!;
-
         SetupMessageHandlers();
     }
 

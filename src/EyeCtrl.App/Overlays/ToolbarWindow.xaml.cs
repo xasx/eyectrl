@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
 using System;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -312,13 +313,11 @@ public partial class ToolbarWindow : OverlayWindow
             StripWrapper.Orientation = IndicatorPanel.Orientation =
                 _vertical ? Orientation.Vertical : Orientation.Horizontal;
             RebuildBand();
-            // First bind only, until Task 4 makes BindToViewModel re-callable: _boundIds
-            // short-circuits it here, so the rebuilt band keeps its default icons and tint
-            // until the next PropertyChanged. Both callers reach this via an Initialize that
-            // already reset them — SettingsUiCoordinator.cs:173-180, and App.xaml.cs:467 whose
-            // preceding Initialize is OverlayManager.cs:107 and which re-applies
-            // SetSelectionModeState and BindToViewModel immediately after (App.xaml.cs:468-469).
-            // So nothing regresses.
+            // Re-bind against the freshly rebuilt band: BindToViewModel drops its old
+            // subscriptions and re-runs BindButton's initial-apply block, which restores the
+            // live icon/tint (e.g. Paused -> Play, the current SelectionMode fill) instead of
+            // leaving the rebuilt buttons at their constructor defaults until the next
+            // PropertyChanged.
             BindToViewModel();
         }
 
@@ -385,63 +384,95 @@ public partial class ToolbarWindow : OverlayWindow
         }
     }
 
-    // Ids whose ToolbarButtonViewModel.PropertyChanged we've already wired up. Buttons is
-    // populated once in the ViewModel's constructor and never mutated afterwards, so this is a
-    // cheap guard against BindToViewModel being called more than once rather than a rebind
-    // mechanism. (It previously backed runtime add/remove of the window-actions region, which
-    // moved to the Quick Actions toolbar in the 2026-08-09 migration.)
-    private readonly HashSet<string> _boundIds = new();
+    private readonly List<(ToolbarButtonViewModel Vm, PropertyChangedEventHandler Handler)> _subs = new();
 
-    // Task 4 owns this: it replaces the _boundIds guard with a subscription list, which is what
-    // makes this method safely re-callable after a rebuild.
+    private bool _activationHooked;
+
     /// <summary>
-    /// Subscribes to each ToolbarButtonViewModel.PropertyChanged to drive the drawn button from
-    /// the ViewModel's state. Call after DataContext is set.
+    /// Subscribes each button view-model to its visuals. Safe to call repeatedly, which the
+    /// axis change in SetMode needs: it rebuilds the band and then rebinds.
+    ///
+    /// Dropping the old subscriptions is NOT about dead visuals — the handler resolves
+    /// _buttons at event time, so it keeps working across a rebuild. It is about not
+    /// double-subscribing once this method can be called more than once. The former
+    /// _boundIds guard prevented that by making every call after the first a no-op, which
+    /// also silently skipped the state re-application below.
     /// </summary>
     public void BindToViewModel()
     {
         if (DataContext is not ToolbarViewModel vm) return;
 
-        // Bind the VM's buttons — the constructor-populated set, which never changes afterwards.
+        foreach (var (target, handler) in _subs)
+            target.PropertyChanged -= handler;
+        _subs.Clear();
+
         foreach (var btn in vm.Buttons)
             BindButton(btn);
+
+        if (_activationHooked) return;
+        _activationHooked = true;
+        vm.ButtonActivated += FlashActivated;   // Task 8
     }
 
     /// <summary>
-    /// Subscribes one button's PropertyChanged to its drawn visuals. Idempotent: a repeat call
-    /// for an already-bound id no-ops (guarded by <see cref="_boundIds"/>), so a second
-    /// BindToViewModel call cannot double-subscribe. The handler resolves the button from
-    /// <c>_buttons</c> at event time, so it stays correct after Initialize rebuilds the band
-    /// (size/dock/edge saves).
+    /// Subscribes one button's PropertyChanged to its drawn visuals. The handler resolves the
+    /// button from <c>_buttons</c> at event time, so it stays correct after Initialize rebuilds
+    /// the band (size/dock/edge saves).
     /// </summary>
     private void BindButton(ToolbarButtonViewModel btn)
     {
         var id = btn.Id;
-        if (!_boundIds.Add(id))
-            return; // already bound
 
         // Apply the current icon so the initial face matches the actual mode (the ViewModel may
         // already have received the startup SelectionModeChangedMessage before BindToViewModel
-        // is called).
+        // is called). This block re-running is what fixes a rebuilt band (SetMode's axis flip)
+        // showing constructor-default icons/tint instead of live state.
         if (_buttons.ContainsKey(id))
         {
+            // SwapIcon rebuilds the button (DwellArcButton.Create has no icon setter), which
+            // hands back fresh Halo/ProgressPath elements defaulted to Visibility.Visible — WPF's
+            // default, not a collapsed rest state. UpdateProgress must run AFTER SwapIcon so it
+            // collapses the arc the rebuild just (re)exposed, rather than being clobbered by it.
             SwapIcon(id, btn.IconKey);
             if (id == "SelectionMode")
                 SetSelectionModeState(SelectionModeIcons.ToMode(btn.IconKey));
+
+            if (_buttons.TryGetValue(id, out var initial))
+                initial.UpdateProgress(btn.DwellProgress);
         }
 
-        btn.PropertyChanged += (_, e) =>
+        PropertyChangedEventHandler handler = (_, e) =>
         {
             if (!_buttons.ContainsKey(id))
                 return;
 
-            // Task 4 wires DwellProgress to DwellArcButton.UpdateProgress.
-            if (e.PropertyName == nameof(ToolbarButtonViewModel.IconKey))
+            if (e.PropertyName == nameof(ToolbarButtonViewModel.DwellProgress))
+            {
+                if (_buttons.TryGetValue(id, out var b)) b.UpdateProgress(btn.DwellProgress);
+            }
+            else if (e.PropertyName == nameof(ToolbarButtonViewModel.IsHighlighted))
+            {
+                ApplyAcquiredState(id, btn.IsHighlighted);   // Task 5
+            }
+            else if (e.PropertyName == nameof(ToolbarButtonViewModel.IconKey))
             {
                 SwapIcon(id, btn.IconKey);
                 if (id == "SelectionMode")
                     SetSelectionModeState(SelectionModeIcons.ToMode(btn.IconKey));
             }
         };
+
+        btn.PropertyChanged += handler;
+        _subs.Add((btn, handler));
     }
+
+    /// <summary>For tests: how many progress arcs are currently drawn.</summary>
+    internal int ProgressVisibleCountForTest =>
+        ButtonCanvas.Children.OfType<Path>().Count(p => p.Visibility == Visibility.Visible);
+
+    /// <summary>Task 5 owns this: the discrete acquired state (fill + rim) on gaze entry.</summary>
+    private void ApplyAcquiredState(string id, bool acquired) { }
+
+    /// <summary>Task 8 owns this: the success-coloured flash confirming a dwell fired.</summary>
+    public void FlashActivated(string id) { }
 }

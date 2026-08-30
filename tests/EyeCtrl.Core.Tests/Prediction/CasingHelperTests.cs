@@ -80,25 +80,6 @@ public class CasingHelperTests
         Check.That(CasingHelper.NormalizeAllCaps(input)).IsEqualTo(expected);
     }
 
-    [Fact]
-    public void AddAcronym_CustomAcronym_BecomesKnown()
-    {
-        // Use a globally unique acronym to avoid test pollution
-        var customAcronym = $"TESTACR{Guid.NewGuid():N}";
-
-        // Verify it's not known initially
-        Check.That(CasingHelper.IsKnownAcronym(customAcronym)).IsFalse();
-
-        // Add it
-        CasingHelper.AddAcronym(customAcronym);
-
-        // Verify it's now known
-        Check.That(CasingHelper.IsKnownAcronym(customAcronym)).IsTrue();
-
-        // Verify normalization preserves it
-        Check.That(CasingHelper.NormalizeAllCaps(customAcronym)).IsEqualTo(customAcronym);
-    }
-
     [Theory]
     [InlineData("")]
     [InlineData(null)]

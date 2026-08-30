@@ -60,11 +60,4 @@ public class SentenceCompletionBenchmarks
     {
         return _index.GetCompletions("xyznonexistent", 5);
     }
-
-    [Benchmark]
-    public void BoostAndDismiss()
-    {
-        _index.BoostCompletion("the quick brown fox jumps over the lazy dog");
-        _index.DismissCompletion("the quick brown fox jumps over the lazy dog");
-    }
 }

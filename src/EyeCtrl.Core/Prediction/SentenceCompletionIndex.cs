@@ -68,64 +68,6 @@ public class SentenceCompletionIndex
             .ToList();
     }
 
-    /// <summary>Increases the frequency of an existing sentence completion to boost its ranking.</summary>
-    /// <param name="fullSentence">The full completed sentence to boost.</param>
-    public void BoostCompletion(string fullSentence)
-    {
-        if (string.IsNullOrWhiteSpace(fullSentence)) return;
-        var words = fullSentence.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length < 2) return;
-
-        for (int prefixLen = 1; prefixLen < words.Length; prefixLen++)
-        {
-            var node = _root;
-            var found = true;
-            for (int i = 0; i < prefixLen; i++)
-            {
-                if (!node.Children.TryGetValue(words[i].ToLowerInvariant(), out var child))
-                {
-                    found = false;
-                    break;
-                }
-                node.Frequency++;
-                node = child;
-            }
-            if (!found) continue;
-            var completion = string.Join(' ', words[prefixLen..]);
-            if (node.Completions.ContainsKey(completion))
-                node.Completions[completion]++;
-        }
-    }
-
-    /// <summary>Decreases the frequency of a completion when the user dismissed it, reducing its future ranking.</summary>
-    /// <param name="fullSentence">The full completed sentence to demote.</param>
-    public void DismissCompletion(string fullSentence)
-    {
-        if (string.IsNullOrWhiteSpace(fullSentence)) return;
-        var words = fullSentence.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length < 2) return;
-
-        for (int prefixLen = 1; prefixLen < words.Length; prefixLen++)
-        {
-            var node = _root;
-            var found = true;
-            for (int i = 0; i < prefixLen; i++)
-            {
-                if (!node.Children.TryGetValue(words[i].ToLowerInvariant(), out var child))
-                {
-                    found = false;
-                    break;
-                }
-                node.Frequency = Math.Max(0, node.Frequency - 1);
-                node = child;
-            }
-            if (!found) continue;
-            var completion = string.Join(' ', words[prefixLen..]);
-            if (node.Completions.TryGetValue(completion, out var freq) && freq > 0)
-                node.Completions[completion] = freq - 1;
-        }
-    }
-
     /// <summary>Serializes the trie to a binary stream.</summary>
     /// <param name="stream">The output stream (left open after writing).</param>
     public void Save(Stream stream)

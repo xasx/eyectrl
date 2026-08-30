@@ -74,24 +74,6 @@ public class CasingPreferenceTracker
     }
 
     /// <summary>
-    /// Gets all casing variants and their frequencies for a word.
-    /// </summary>
-    /// <param name="word">The word to get variants for.</param>
-    /// <returns>Dictionary mapping casing variants to their frequencies.</returns>
-    public Dictionary<string, int> GetVariants(string? word)
-    {
-        if (string.IsNullOrWhiteSpace(word))
-            return new Dictionary<string, int>();
-
-        var lowerKey = word.ToLowerInvariant();
-
-        if (!_casingVariants.TryGetValue(lowerKey, out var variants))
-            return new Dictionary<string, int>();
-
-        return new Dictionary<string, int>(variants);
-    }
-
-    /// <summary>
     /// Gets all casing preferences for serialization.
     /// Returns a defensive copy to prevent external modification.
     /// </summary>

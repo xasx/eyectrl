@@ -75,25 +75,4 @@ public static class CasingHelper
             return KnownAcronyms.Contains(word);
         }
     }
-
-    /// <summary>
-    /// Adds a custom acronym to the known acronyms set.
-    /// Useful for domain-specific acronyms that should remain ALL-CAPS.
-    /// Thread-safe for concurrent access.
-    /// </summary>
-    /// <param name="acronym">The acronym to add.</param>
-    public static void AddAcronym(string acronym)
-    {
-        if (string.IsNullOrWhiteSpace(acronym))
-            return;
-
-        var normalizedAcronym = acronym.Trim();
-        if (normalizedAcronym.Length == 0)
-            return;
-
-        lock (_acronymLock)
-        {
-            KnownAcronyms.Add(normalizedAcronym);
-        }
-    }
 }

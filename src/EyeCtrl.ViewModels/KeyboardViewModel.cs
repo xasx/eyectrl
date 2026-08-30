@@ -168,12 +168,6 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         ActiveSubLayoutId = layout.DefaultSubLayout;
     }
 
-    public void SetPredictor(WordPredictor? predictor)
-    {
-        _orchestrator?.Dispose();
-        _orchestrator = predictor != null ? new PredictionOrchestrator(predictor) : null;
-    }
-
     public void SetOrchestrator(PredictionOrchestrator? orchestrator)
     {
         if (ReferenceEquals(_orchestrator, orchestrator))

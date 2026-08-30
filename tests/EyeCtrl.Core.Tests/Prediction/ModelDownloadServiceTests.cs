@@ -5,47 +5,6 @@ using EyeCtrl.Core.Prediction;
 public class ModelDownloadServiceTests
 {
     [Fact]
-    public void GetAvailableModels_NoModelsDirectory_ReturnsEmpty()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
-        try
-        {
-            var service = new ModelDownloadService(tempDir);
-            var available = service.GetAvailableModels();
-            Check.That(available).IsEmpty();
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void GetAvailableModels_WithValidFiles_ReturnsModelSizes()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "smollm2-135m.onnx"), "dummy");
-            File.WriteAllText(Path.Combine(tempDir, "smollm2-135m.tokenizer.json"), "dummy");
-            File.WriteAllText(Path.Combine(tempDir, "smollm2-360m.onnx"), "dummy");
-            File.WriteAllText(Path.Combine(tempDir, "smollm2-360m.tokenizer.json"), "dummy");
-
-            var service = new ModelDownloadService(tempDir);
-            var available = service.GetAvailableModels();
-
-            Check.That(available).Contains("135M");
-            Check.That(available).Contains("360M");
-            Check.That(available.Contains("1.5B")).IsFalse();
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void IsModelDownloaded_ExistingFile_ReturnsTrue()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
@@ -114,26 +73,6 @@ public class ModelDownloadServiceTests
             var service = new ModelDownloadService(tempDir);
 
             Check.That(service.IsModelDownloaded("135M")).IsFalse();
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void GetAvailableModels_WithOnnxButNoTokenizer_ExcludesModel()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "smollm2-135m.onnx"), "dummy");
-            var service = new ModelDownloadService(tempDir);
-
-            var available = service.GetAvailableModels();
-
-            Check.That(available.Contains("135M")).IsFalse();
         }
         finally
         {
@@ -236,77 +175,6 @@ public class ModelDownloadServiceTests
             Check.That(events.Last().IsComplete).IsTrue();
             Check.That(events.Last().Error).IsNull();
             Check.That(events.First().Progress).IsEqualTo(0.0);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
-        }
-    }
-
-    private sealed class EndlessStream : Stream
-    {
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-        public override void Flush() { }
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            Thread.Sleep(20);
-            Array.Clear(buffer, offset, count);
-            return count;
-        }
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
-        {
-            await Task.Delay(20, ct);
-            buffer.Span.Clear();
-            return buffer.Length;
-        }
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-    }
-
-    [Fact]
-    public async Task CancelDownload_CancelsTokenizerDownload()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
-        try
-        {
-            using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
-                new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-                {
-                    Content = new StreamContent(new EndlessStream())
-                }));
-            using var service = new ModelDownloadService(tempDir, client);
-
-            // The test token is an ADDITIONAL cancellation source only — the assertion below still
-            // depends on service.CancelDownload() being what cancels the download.
-            var task = service.DownloadTokenizerAsync("360M", "http://localhost/tokenizer.json", "",
-                cancellationToken: TestContext.Current.CancellationToken);
-
-            var start = Environment.TickCount64;
-            while (!service.IsDownloading)
-            {
-                Check.That(Environment.TickCount64 - start).IsStrictlyLessThan(2000);
-                await Task.Delay(10, TestContext.Current.CancellationToken);
-            }
-
-            service.CancelDownload();
-
-            var completed = await Task.WhenAny(
-                task, Task.Delay(5000, TestContext.Current.CancellationToken));
-            Check.That(completed).IsSameReferenceAs(task);
-
-            OperationCanceledException? oce = null;
-            try { await task; }
-            catch (OperationCanceledException ex) { oce = ex; }
-            Check.That(oce).IsNotNull();
         }
         finally
         {

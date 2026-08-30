@@ -162,6 +162,11 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             btn.IconKey = SelectionModeIcons.ForMode(message.Mode);
     }
 
+    /// <summary>Raised after a button's dwell completes, for view-side activation feedback
+    /// (e.g. a success-coloured flash). Task 8 owns the View's response; this class only raises
+    /// it, from <see cref="OnTargetActivated"/>.</summary>
+    public event Action<string>? ButtonActivated;
+
     /// <summary>For testing: simulate a button activation without gaze dwell.</summary>
     public void SimulateButtonActivated(string buttonId) => OnTargetActivated(buttonId);
 
@@ -170,9 +175,6 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// <param name="progress">Progress in 0..1.</param>
     public void SimulateTargetProgress(string buttonId, double progress)
         => OnTargetProgress(buttonId, progress);
-
-    /// <summary>Raised after a button's dwell completes, for view-side activation feedback.</summary>
-    public event Action<string>? ButtonActivated;   // Task 8 raises this
 
     protected override void OnTargetActivated(string targetId)
     {
@@ -193,6 +195,8 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             case "QuickActions": Messenger.Send(new QuickActionsToggledMessage()); break;
             case "ResetAdaptation": Messenger.Send(new ResetAdaptationMessage()); break;
         }
+
+        ButtonActivated?.Invoke(targetId);
     }
 
     protected override void OnTargetProgress(string targetId, double progress)

@@ -1,6 +1,5 @@
 namespace EyeCtrl.App.Services;
 
-using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
@@ -51,8 +50,7 @@ public sealed class ExternalDwellService : IDisposable
     private readonly object _stateLock = new();
     private readonly List<PipeConnection> _connections = new();
     private readonly Dictionary<string, PipeConnection> _connByTarget = new();
-    private readonly ConcurrentDictionary<NamedPipeServerStream, PipeConnection> _connectionsByPipe = new();
-    private readonly NewlineJsonPipeServer _pipeServer;
+    private readonly NewlineJsonPipeServer<PipeConnection> _pipeServer;
 
     private string? _feedbackId;
     private PhysicalRect _feedbackRect;
@@ -99,41 +97,34 @@ public sealed class ExternalDwellService : IDisposable
         };
         _gazeEngine.CursorMoved += OnCursorMoved;
 
-        _pipeServer = new NewlineJsonPipeServer(
-            _pipeName,
+        // The PipeConnection IS this channel's per-connection state: the server hands it back to
+        // every line handler and to teardown, so nothing here has to map a pipe to its writer.
+        _pipeServer = new NewlineJsonPipeServer<PipeConnection>(
             () => new NamedPipeServerStream(_pipeName, PipeDirection.InOut,
                 NamedPipeServerStream.MaxAllowedServerInstances,
                 PipeTransmissionMode.Byte, PipeOptions.Asynchronous),
-            onConnected: pipe =>
+            createState: pipe =>
             {
-                var conn = new PipeConnection(pipe, ex => _logger.LogWarning(ex, "pipe write failed"));
+                var conn = new PipeConnection(pipe, ex => _logger.LogWarning(ex, "External dwell pipe: write failed"));
                 lock (_stateLock)
                     _connections.Add(conn);
-                _connectionsByPipe[pipe] = conn;
+                return conn;
             },
-            handleLine: (line, pipe) =>
+            handleLine: (line, conn) =>
             {
-                if (!_connectionsByPipe.TryGetValue(pipe, out var conn))
-                    return true;
                 var msg = JsonSerializer.Deserialize<WireMessage>(line, WireJson.Options);
                 if (msg is null)
-                    return true;
+                    return false;
                 HandleMessage(msg, conn);
                 return true;
             },
-            onDisconnected: pipe =>
-            {
-                if (_connectionsByPipe.TryRemove(pipe, out var conn))
-                    TeardownConnection(conn);
-            },
+            onClosed: TeardownConnection,
             log: (ex, line, context) =>
             {
                 if (line is not null)
-                    _logger.LogWarning(ex, "bad pipe message: {Line}", line);
-                else if (context is not null)
-                    _logger.LogWarning(ex, "{Context}", context);
+                    _logger.LogWarning(ex, "External dwell pipe: bad message {Line}", line);
                 else
-                    _logger.LogWarning(ex, "connection handler error");
+                    _logger.LogWarning(ex, "External dwell pipe: {Context}", context ?? "connection handler error");
             });
     }
 

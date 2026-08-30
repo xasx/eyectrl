@@ -362,7 +362,7 @@ public partial class KeyboardWindow : OverlayWindow
         foreach (var (id, (container, _)) in _keyVisuals)
         {
             if (OverlayPositioning.TryGetScreenCenter(container, out var pos))
-                _keyScreenPositions[id] = new PhysicalPoint(pos.X, pos.Y);
+                _keyScreenPositions[id] = pos;
         }
     }
 
@@ -402,11 +402,11 @@ public partial class KeyboardWindow : OverlayWindow
                 // Use half-diagonal so the circular hit area covers the full rectangle
                 var halfDiag = Math.Sqrt(btn.ActualWidth * btn.ActualWidth + btn.ActualHeight * btn.ActualHeight) / 2;
                 _predictionDwellDetector.RemoveTarget(predId);
-                _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(pos.X, pos.Y), DpiHelper.LogicalToPhysicalX(halfDiag), _predictionDwellMs));
+                _predictionDwellDetector.AddTarget(new DwellTarget(predId, pos, DpiHelper.LogicalToPhysicalX(halfDiag), _predictionDwellMs));
             }
             else
             {
-                _predictionDwellDetector.UpdateTargetCenter(predId, new PhysicalPoint(pos.X, pos.Y));
+                _predictionDwellDetector.UpdateTargetCenter(predId, pos);
             }
         }
         _predictionTargetsInitialized = true;

@@ -144,22 +144,35 @@ public partial class ToolbarWindow : OverlayWindow
 
     public void SetMode(bool isDocked, string edge)
     {
-        // Force layout so ActualWidth reflects the current button count (Initialize may have
-        // changed it). With SizeToContent="WidthAndHeight" the width isn't re-measured until the
-        // next layout pass, so without this the centering math below reads a stale width and the
-        // toolbar sits off-center until the next SetMode call.
-        UpdateLayout();
+        // Orientation BEFORE layout, and assigned in both directions.
+        //  - Both directions: the pre-unification switch only ever set Vertical, so re-docking
+        //    from left/right back to top/bottom left the bar rendering as a column until the
+        //    next process start (ButtonPanel.Orientation is a plain XAML local value — nothing
+        //    else ever restores it). DockedEdge is part of ToolbarSnapshot, so every edge change
+        //    in Settings lands here.
+        //  - Before layout: PlaceAtEdge below centres on ActualWidth/ActualHeight, which flip
+        //    when the orientation does. Setting it afterwards positioned the toolbar using the
+        //    previous orientation's extents.
+        // Null-tolerant match, mirroring PlaceAtEdge's own `edge?.ToLowerInvariant()`.
+        if (isDocked)
+        {
+            ButtonPanel.Orientation = edge?.ToLowerInvariant() is "left" or "right"
+                ? Orientation.Vertical
+                : Orientation.Horizontal;
+        }
 
-        var screen = SystemParameters.WorkArea;
+        // Force layout so ActualWidth reflects the current button count (Initialize may have
+        // changed it) and the orientation just set. With SizeToContent="WidthAndHeight" the width
+        // isn't re-measured until the next layout pass, so without this the centering math below
+        // reads a stale width and the toolbar sits off-center until the next SetMode call.
+        UpdateLayout();
 
         if (isDocked)
         {
-            var (left, top) = OverlayPositioning.PlaceAtEdge(screen, edge, ActualWidth, ActualHeight);
+            var (left, top) = OverlayPositioning.PlaceAtEdge(
+                SystemParameters.WorkArea, edge, ActualWidth, ActualHeight);
             Left = left;
             Top = top;
-            ButtonPanel.Orientation = edge.ToLowerInvariant() is "left" or "right"
-                ? Orientation.Vertical
-                : ButtonPanel.Orientation;
         }
 
         _targetsInitialized = false;

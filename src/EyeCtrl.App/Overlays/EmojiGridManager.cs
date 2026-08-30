@@ -283,11 +283,11 @@ public class EmojiGridManager
                 var keySize = _getKeySize();
                 var hitRadius = DpiHelper.LogicalToPhysicalX(keySize / 2 * Math.Sqrt(2));
                 _categoryDwellDetector.RemoveTarget(tabId);
-                _categoryDwellDetector.AddTarget(new DwellTarget(tabId, new PhysicalPoint(pos.X, pos.Y), hitRadius, _keyDwellMs));
+                _categoryDwellDetector.AddTarget(new DwellTarget(tabId, pos, hitRadius, _keyDwellMs));
             }
             else
             {
-                _categoryDwellDetector.UpdateTargetCenter(tabId, new PhysicalPoint(pos.X, pos.Y));
+                _categoryDwellDetector.UpdateTargetCenter(tabId, pos);
             }
         }
         _categoryTargetsInitialized = true;

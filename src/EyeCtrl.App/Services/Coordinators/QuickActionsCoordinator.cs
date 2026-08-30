@@ -25,7 +25,6 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
     private bool _vmSubscriptionsAttached;
     protected override void OnInitialize()
     {
-        var context = Context!;
         SetupQuickActionsSummon();
     }
 

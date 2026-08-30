@@ -2,11 +2,9 @@ namespace EyeCtrl.App.Tests;
 
 using System.Linq;
 using System.Windows.Media;
-using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Controls.Theme;
-using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using NFluent;
 using Xunit;
@@ -29,23 +27,10 @@ using Xunit;
 [Collection("WpfApplication")]
 public class ToolbarActivationFlashTests
 {
-    private const double ButtonSize = 120;
-
-    private static (ToolbarWindow Window, ToolbarViewModel Vm) NewBoundToolbar()
-    {
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = new ToolbarWindow();
-        window.Initialize(ButtonSize, 700);
-        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        window.BindToViewModel();
-        return (window, vm);
-    }
-
     [StaFact]
     public void Activation_FlashesTheSuccessColour_ThenReturnsToRest()
     {
-        var (window, vm) = NewBoundToolbar();
+        var (window, vm) = ToolbarTestHelpers.NewBoundToolbar();
         var face = window.ButtonForTest("Pause").Background;
 
         vm.SimulateButtonActivated("Pause");
@@ -77,7 +62,7 @@ public class ToolbarActivationFlashTests
     [StaFact]
     public void Activation_WhileAcquired_ShowsTheFlashColour_NotTheAcquiredColour()
     {
-        var (window, vm) = NewBoundToolbar();
+        var (window, vm) = ToolbarTestHelpers.NewBoundToolbar();
         var button = vm.Buttons.Single(b => b.Id == "Pause");
         var face = window.ButtonForTest("Pause").Background;
 
@@ -100,7 +85,7 @@ public class ToolbarActivationFlashTests
     [StaFact]
     public void EndingAFlash_WhileGazeIsStillOnTheButton_ReturnsToAcquired_NotRest()
     {
-        var (window, vm) = NewBoundToolbar();
+        var (window, vm) = ToolbarTestHelpers.NewBoundToolbar();
         var button = vm.Buttons.Single(b => b.Id == "Pause");
         var face = window.ButtonForTest("Pause").Background;
 
@@ -121,7 +106,7 @@ public class ToolbarActivationFlashTests
     [StaFact]
     public void EndingAFlash_OnReset_ReturnsToTheWarningRim_NotBorderSubtle()
     {
-        var (window, vm) = NewBoundToolbar();
+        var (window, vm) = ToolbarTestHelpers.NewBoundToolbar();
         var face = window.ButtonForTest(ToolbarWindow.ResetId).Background;
 
         vm.SimulateButtonActivated(ToolbarWindow.ResetId);
@@ -133,14 +118,15 @@ public class ToolbarActivationFlashTests
             .That(((SolidColorBrush)face.Stroke).Color).IsEqualTo(Tokens.AccentWarning);
     }
 
-    // A second activation while the first flash is still live must restart cleanly: no orphaned
-    // timer left running against a fresh one, and the face stays flashed rather than reverting
-    // early because the FIRST timer's (never-fired-here, but still stopped-and-replaced) handle
-    // was dropped without being stopped.
+    // A second activation while the first flash is still live must leave the face flashed rather
+    // than reverting early, and a subsequent EndFlash must still cleanly return it to rest. This
+    // does NOT prove the first timer was stopped before the second replaced it — deleting that
+    // stop-before-replace still leaves this test (and the other four in this class) green, so the
+    // name promises only what is actually observed here.
     [StaFact]
-    public void ASecondActivation_DuringALiveFlash_RestartsCleanly()
+    public void ASecondActivation_DuringALiveFlash_LeavesTheFaceFlashed()
     {
-        var (window, vm) = NewBoundToolbar();
+        var (window, vm) = ToolbarTestHelpers.NewBoundToolbar();
         var face = window.ButtonForTest("Pause").Background;
 
         vm.SimulateButtonActivated("Pause");

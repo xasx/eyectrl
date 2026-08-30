@@ -7,18 +7,17 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using NFluent;
 using Xunit;
+using static EyeCtrl.App.Tests.Fixtures.ToolbarTestHelpers;
 using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 
 /// <summary>
@@ -35,8 +34,6 @@ using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 [Collection("WpfApplication")]
 public class ToolbarButtonVisualTests
 {
-    private const double ButtonSize = 120;
-
     private static ToolbarWindow NewInitialisedToolbar()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
@@ -303,10 +300,7 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void DwellProgress_DrivesTheArc_AndIsInvisibleAtRest()
     {
-        var window = NewInitialisedToolbar();
-        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        window.BindToViewModel();
+        var (window, vm) = NewBoundToolbar();
 
         // Six buttons x (halo + progress arc) = 12 Paths, ALL collapsed at rest. Exact, not
         // "at least one": a 1-of-12 bar would still pass if the wiring collapsed only whichever
@@ -340,10 +334,7 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void BindToViewModel_ReappliesLiveState_AfterSetModeRebuildsTheBand()
     {
-        var window = NewInitialisedToolbar();
-        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        window.BindToViewModel();
+        var (window, vm) = NewBoundToolbar();
 
         // Drive the ViewModel to a non-default state BEFORE the rebuild: paused (Pause -> Play
         // icon) and a non-None selection mode (a distinct fill on the SelectionMode disc).
@@ -382,10 +373,7 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void BindToViewModel_ReappliesLiveState_AfterASizeChangeRebuildsTheBand()
     {
-        var window = NewInitialisedToolbar();
-        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        window.BindToViewModel();
+        var (window, vm) = NewBoundToolbar();
 
         vm.Receive(new StateChangedMessage(InteractionState.Paused));
 
@@ -402,10 +390,7 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void AcquiredState_LiftsTheFillAndTheRim()
     {
-        var window = NewInitialisedToolbar();
-        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        window.BindToViewModel();
+        var (window, vm) = NewBoundToolbar();
 
         var button = vm.Buttons.Single(b => b.Id == "Pause");
         // Identified by name, not by position: the other three tests in this group all use
@@ -430,10 +415,7 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void AcquiredState_OnReset_RestoresTheWarningRimNotTheOrdinaryOne()
     {
-        var window = NewInitialisedToolbar();
-        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        window.BindToViewModel();
+        var (window, vm) = NewBoundToolbar();
 
         var button = vm.Buttons.Single(b => b.Id == "ResetAdaptation");
         var face = window.ButtonForTest("ResetAdaptation").Background;
@@ -474,10 +456,7 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void AcquiredState_SurvivesARebuild()
     {
-        var window = NewInitialisedToolbar();
-        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        window.BindToViewModel();
+        var (window, vm) = NewBoundToolbar();
 
         var button = vm.Buttons.Single(b => b.Id == "Pause");
         button.IsHighlighted = true;
@@ -499,10 +478,7 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void AcquiredState_OnSelectionMode_SurvivesARebuild_NotClobberedByTheModeTint()
     {
-        var window = NewInitialisedToolbar();
-        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        window.BindToViewModel();
+        var (window, vm) = NewBoundToolbar();
 
         vm.Receive(new SelectionModeChangedMessage(SelectionMode.ManualSelection));
         var button = vm.Buttons.Single(b => b.Id == "SelectionMode");

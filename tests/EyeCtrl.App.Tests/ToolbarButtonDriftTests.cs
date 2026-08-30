@@ -28,11 +28,12 @@ using NFluent;
 /// Not <c>Category=UI</c> — it only reads source files, so it runs in the headless
 /// <c>Category!=UI</c> subset that CI executes.
 ///
-/// The button-array tuples carry <c>ToolbarIconKey</c> member names (Task 2's icon-key channel)
-/// rather than Unicode glyphs; the tuple's second element may now be a string literal or a
-/// constant reference (e.g. <c>SelectionModeIcons.None</c>). This guard only checks ids, never
-/// values — the icon-key value itself is pinned separately by
-/// <c>ToolbarIconKeyBridgeTests</c>.
+/// The second tuple element carries a <c>ToolbarIconKey</c> member name, not a Unicode symbol,
+/// since the 2026-08-29 gaze-accessibility change, and may be a constant reference rather than a
+/// literal (e.g. <c>SelectionModeIcons.None</c>). This guard anchors on a PREFIX of the
+/// declaration and captures only the id, so the element's name and value are both free of it; the
+/// key itself is pinned by <c>ToolbarIconKeyBridgeTests</c>, which asserts the parsed enum member
+/// rather than mere validity.
 /// </summary>
 public class ToolbarButtonDriftTests
 {
@@ -85,9 +86,9 @@ public class ToolbarButtonDriftTests
     /// Extracts the tuple ids from the <c>var buttons = new (string Id, string ...)[] { … }</c>
     /// initializer, so unrelated string literals elsewhere in the file cannot leak in. Anchored on
     /// the <c>"var buttons = new (string Id, string "</c> prefix rather than the full declaration
-    /// text — the view-model's second tuple element is named <c>IconKey</c> and the view's is still
-    /// named <c>Symbol</c> (Task 3 renames it), so the two files' declarations no longer match
-    /// verbatim. The prefix is all this guard needs; it never reads the element name.
+    /// text so a future rename of the second tuple element (currently <c>IconKey</c> in both the
+    /// view and the view-model) does not require touching this guard. The prefix is all this guard
+    /// needs; it never reads the element name.
     /// </summary>
     private static IReadOnlyList<string> ButtonIdsFrom(string relativePath)
     {

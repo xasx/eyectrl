@@ -7,9 +7,12 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;
 using NFluent;
 using Xunit;
 
@@ -193,5 +196,78 @@ public class ToolbarButtonVisualTests
         Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 756.0);
         Check.That(canvas.Width).IsEqualTo(888.0);
         Check.That(canvas.Height).IsEqualTo(144.0);
+    }
+
+    [StaFact]
+    public void DwellProgress_DrivesTheArc_AndIsInvisibleAtRest()
+    {
+        var window = NewInitialisedToolbar();
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.DataContext = vm;
+        window.BindToViewModel();
+
+        var arcs = ButtonCanvas(window).Children.OfType<Path>()
+            .Where(p => p.Visibility == Visibility.Collapsed).ToList();
+        Check.WithCustomMessage("Arcs must be collapsed at rest, not drawn at zero length.")
+            .That(arcs).Not.IsEmpty();
+
+        // Before/after, not a bare count: seven icon Paths are already visible at rest, so
+        // "greater than zero" passes even with the DwellProgress branch deleted.
+        var before = window.ProgressVisibleCountForTest;
+        vm.SimulateTargetProgress("Pause", 0.5);
+
+        Check.WithCustomMessage("Dwell progress did not reach the arc.")
+            .That(window.ProgressVisibleCountForTest).IsEqualTo(before + 2);   // arc + its halo
+    }
+
+    /// <summary>
+    /// Pins the outcome Task 4 owns beyond its literal steps: BindToViewModel must be safe to
+    /// call twice. SetMode's axis flip rebuilds the whole band and then rebinds, so a second
+    /// bind that double-subscribed would drive each DwellProgress change through the handler
+    /// twice — here, that would double the arc/halo visibility flips, which is unobservable
+    /// once both are already Visible (idempotent). Instead this drives an IconKey change, which
+    /// rebuilds the button (SwapIcon) each time the handler fires: a double-subscription fires
+    /// SwapIcon twice per change, which is still just one icon in the end, so the real tell is
+    /// the subscription COUNT, not a visible symptom. Asserting that would reach into a private
+    /// list, so this test instead exercises the concrete regression the plan calls out — SetMode
+    /// rebuilding the band and BindToViewModel needing to reapply live state, not constructor
+    /// defaults, to the freshly-rebuilt buttons.
+    /// </summary>
+    [StaFact]
+    public void BindToViewModel_ReappliesLiveState_AfterSetModeRebuildsTheBand()
+    {
+        var window = NewInitialisedToolbar();
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.DataContext = vm;
+        window.BindToViewModel();
+
+        // Drive the ViewModel to a non-default state BEFORE the rebuild: paused (Pause -> Play
+        // icon) and a non-None selection mode (a distinct fill on the SelectionMode disc).
+        vm.Receive(new EyeCtrl.ViewModels.Messages.StateChangedMessage(
+            EyeCtrl.Core.Models.InteractionState.Paused));
+        vm.Receive(new EyeCtrl.ViewModels.Messages.SelectionModeChangedMessage(
+            EyeCtrl.Core.Models.SelectionMode.ManualSelection));
+
+        // SetMode's axis flip (docked left) rebuilds the whole band via RebuildBand(), then
+        // calls BindToViewModel() itself. If that second call were a no-op (the old _boundIds
+        // guard), the rebuilt band would keep the constructor-default Pause icon and neutral
+        // SelectionMode fill until the next PropertyChanged fired — which is the "Pause icon
+        // on a paused app" bug this task fixes.
+        window.SetMode(isDocked: true, edge: "left");
+
+        var selectionFace = Faces(window)
+            .Zip(ButtonCanvas(window).Children.OfType<TextBlock>()
+                .Where(t => !string.IsNullOrEmpty(AutomationProperties.GetAutomationId(t))))
+            .First(pair => AutomationProperties.GetAutomationId(pair.Second) == "Toolbar_Button_SelectionMode")
+            .First;
+
+        Check.WithCustomMessage("SelectionMode disc kept its neutral fill after a rebuild+rebind; "
+                + "live state (ManualSelection) was not reapplied.")
+            .That(((SolidColorBrush)selectionFace.Fill).Color).IsEqualTo(Tokens.ToggleOn);
+
+        // Pause's icon swap changes which Path.RenderTransform lefts appear rather than any
+        // fill, so re-swapping isn't directly assertable without duplicating DwellArcButton's
+        // icon geometry here. The SelectionMode fill above is the same code path (BindButton's
+        // initial-apply block) and is sufficient to pin the regression.
     }
 }

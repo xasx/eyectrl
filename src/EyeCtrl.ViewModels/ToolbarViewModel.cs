@@ -165,6 +165,15 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// <summary>For testing: simulate a button activation without gaze dwell.</summary>
     public void SimulateButtonActivated(string buttonId) => OnTargetActivated(buttonId);
 
+    /// <summary>For testing: simulate dwell progress on a target without gaze.</summary>
+    /// <param name="buttonId">The button id.</param>
+    /// <param name="progress">Progress in 0..1.</param>
+    public void SimulateTargetProgress(string buttonId, double progress)
+        => OnTargetProgress(buttonId, progress);
+
+    /// <summary>Raised after a button's dwell completes, for view-side activation feedback.</summary>
+    public event Action<string>? ButtonActivated;   // Task 8 raises this
+
     protected override void OnTargetActivated(string targetId)
     {
         if (_buttonLookup.TryGetValue(targetId, out var btn))

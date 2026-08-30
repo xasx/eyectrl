@@ -1381,6 +1381,21 @@ git commit -m "fix(toolbar): move the provider indicator out of the dwell-target
 
 ## Task 7: Reset is visibly different, and harder to overshoot into
 
+> **The separator's brush already changed, in Task 6.** Both of the strip's hairline rules moved
+> from `Tokens.BrushSurfaceMedium` to `Tokens.BrushBorderSubtle` after implementation measured
+> them. `SurfaceMedium` on `SurfaceDark` is 1.23:1 nominal, and as drawn a 1 px line at a
+> fractional position antialiases across two pixels, so the separator read 1.02-1.21:1 — against
+> 3.38:1 for the disc rims on the same ground. Decisive evidence was cross-theme: `ContrastTheme`
+> renders it at **1.14:1**, worse than the default themes, while `BorderSubtle` there is pure white
+> at 21:1 — least visible in the theme built for low vision. Rendered result after the change:
+> separator 2.91:1, indicator rule 2.09:1.
+>
+> The two rules moved together deliberately, so the strip does not ship two hairlines at ~3x
+> different weight. `BothHairlines_UseBorderSubtle_NotSurfaceMedium` guards it. The design
+> artboards were updated to match. **Task 7 keeps its own scope** — the warning hue, the extra
+> clearance, and its own tests — and should not revisit the brush.
+
+
 Most of this arrived free in Task 3 — `RimFor`, `ArcBrushFor` and `IconBrushFor` already special-case `ResetAdaptation`, and `LayOutBand` already inserts `ResetGap`. This task adds the separator and the tests.
 
 **Files:** `src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs`, `tests/EyeCtrl.App.Tests/ToolbarButtonVisualTests.cs`

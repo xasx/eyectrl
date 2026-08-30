@@ -37,6 +37,13 @@ public class ToolbarButtonVisualTests
 {
     private const double ButtonSize = 120;
 
+    // Mirrors ToolbarWindow's private `ButtonMargin` (ToolbarWindow.xaml.cs:25, currently 12), not
+    // reachable directly from this assembly. Kept as a named constant, rather than folded into the
+    // literals below, so Reset_CarriesTheWarningHue_AndExtraClearance can DERIVE the expected pitch
+    // and gap instead of repeating the already-pinned literals (144/168) from
+    // ButtonCentres_AndCanvasSize_AreExactlyAsLaidOut as a second, independently-driftable copy.
+    private const double Margin = 12;
+
     private static ToolbarWindow NewInitialisedToolbar()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
@@ -201,6 +208,94 @@ public class ToolbarButtonVisualTests
         Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 756.0);
         Check.That(canvas.Width).IsEqualTo(888.0);
         Check.That(canvas.Height).IsEqualTo(144.0);
+    }
+
+    /// <summary>
+    /// Reset is the one adjacency where an overshoot is unrecoverable (see
+    /// <c>ToolbarWindow.ResetId</c>'s doc comment). Three properties must all hold at once: the
+    /// disc's rim is the warning hue and ONLY that disc's rim is (the complement — otherwise this
+    /// test would stay green even if every rim, or none, went warning-coloured); the gap that
+    /// precedes it is wider than every other gap by exactly <c>ResetGap</c>, not merely wider (a
+    /// bare inequality would pass on a one-pixel widening); and the separator <see cref="Line"/>
+    /// drawn in that gap sits at its true midpoint, not at the pre-gap centre — an earlier draft
+    /// derived the rule from `along` before <c>ResetGap</c> was added and put it 48 px inside the
+    /// Reset disc, which a count-only assertion could not see.
+    /// </summary>
+    [StaFact]
+    public void Reset_CarriesTheWarningHue_AndExtraClearance()
+    {
+        var window = NewInitialisedToolbar();
+        var faces = Faces(window).OrderBy(Canvas.GetLeft).ToList();
+        var reset = faces.Last();
+
+        Check.That(((SolidColorBrush)reset.Stroke).Color).IsEqualTo(Tokens.AccentWarning);
+
+        // The complement: EveryButton_CarriesAVisibleRim above accepts BorderSubtle OR
+        // AccentWarning for every face, so it stays green even if none, or all six, carried the
+        // warning hue. This is what actually pins that Reset is the ONLY one.
+        foreach (var f in faces.Take(faces.Count - 1))
+            Check.WithCustomMessage("An ordinary button carries the warning rim meant only for Reset.")
+                .That(((SolidColorBrush)f.Stroke).Color).IsEqualTo(Tokens.BorderSubtle);
+
+        var lefts = faces.Select(Canvas.GetLeft).ToList();
+        var gaps = lefts.Zip(lefts.Skip(1), (a, b) => b - a).ToList();
+
+        // Fully determined by the layout constants, not a bare "wider than" (that would pass on a
+        // one-pixel widening). See the Margin field's comment for why this is derived rather than
+        // repeating the ButtonCentres_AndCanvasSize_AreExactlyAsLaidOut literals.
+        var ordinaryPitch = ButtonSize + Margin * 2;
+        var resetGap = Margin * 2;
+
+        foreach (var gap in gaps.Take(gaps.Count - 1))
+            Check.WithCustomMessage("An ordinary gap is not the plain button pitch.")
+                .That(gap).IsEqualTo(ordinaryPitch);
+        Check.WithCustomMessage("The gap before Reset is not exactly one ResetGap wider than the others.")
+            .That(gaps.Last()).IsEqualTo(ordinaryPitch + resetGap);
+
+        var rule = ButtonCanvas(window).Children.OfType<Line>().Single();
+        var prevEdge = Canvas.GetLeft(faces[^2]) + ButtonSize;
+        var resetEdge = Canvas.GetLeft(reset);
+
+        // Position, not just existence: deriving the rule from the pre-gap centre put it 48 px
+        // inside the Reset disc, and a count-only assertion was blind to it.
+        Check.WithCustomMessage($"The rule is at {rule.X1}, outside the gap {prevEdge}..{resetEdge}.")
+            .That(rule.X1 > prevEdge && rule.X1 < resetEdge).IsTrue();
+        Check.That(rule.X1).IsCloseTo((prevEdge + resetEdge) / 2, 0.5);
+    }
+
+    /// <summary>
+    /// <c>ToolbarWindow.ArcBrushFor</c> and <c>ToolbarWindow.IconBrushFor</c> both special-case
+    /// Reset the same way <c>ToolbarWindow.RimFor</c> does, and nothing pinned either before this
+    /// test. The Reset icon (<c>ToolbarIcons.cs</c>'s <c>ResetAdaptation</c> entry) is stroke-only
+    /// (<c>IconGeometry.FromPathData</c> called with a single argument), so its warning colour
+    /// shows up on <see cref="DwellArcButton.IconStroke"/>, never <see cref="DwellArcButton.IconFill"/>.
+    /// </summary>
+    [StaFact]
+    public void Reset_ArcAndIconBrushes_AlsoCarryTheWarningHue()
+    {
+        var window = NewInitialisedToolbar();
+        var reset = window.ButtonForTest("ResetAdaptation");
+
+        Check.WithCustomMessage("Reset's progress arc is not warning-coloured.")
+            .That(((SolidColorBrush)reset.ProgressPath.Stroke).Color).IsEqualTo(Tokens.AccentWarning);
+
+        Check.WithCustomMessage("Reset's icon has no stroke layer to carry the warning hue.")
+            .That(reset.IconStroke).IsNotNull();
+        Check.WithCustomMessage("Reset's icon is not warning-coloured.")
+            .That(((SolidColorBrush)reset.IconStroke!.Stroke).Color).IsEqualTo(Tokens.AccentWarning);
+
+        // Complement: an ordinary button (Pause) must NOT have picked up the warning hue either —
+        // otherwise ArcBrushFor/IconBrushFor could have gone unconditionally warning and this test
+        // would still be green. Pause's icon (ToolbarIcons.cs's Pause entry) is FILL-only
+        // (FromPathData called with a null stroke), the opposite layer from Reset's, so its colour
+        // shows up on IconFill, not IconStroke.
+        var pause = window.ButtonForTest("Pause");
+        Check.WithCustomMessage("Pause's progress arc picked up Reset's warning colour.")
+            .That(((SolidColorBrush)pause.ProgressPath.Stroke).Color).IsEqualTo(Tokens.Accent);
+        Check.WithCustomMessage("Pause's icon has no fill layer to check.")
+            .That(pause.IconFill).IsNotNull();
+        Check.WithCustomMessage("Pause's icon picked up Reset's warning colour.")
+            .That(((SolidColorBrush)pause.IconFill!.Fill).Color).IsEqualTo(Tokens.TextPrimary);
     }
 
     [StaFact]

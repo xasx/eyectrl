@@ -29,9 +29,10 @@ using EyeCtrl.Platform.Ipc;
 /// <c>shuttingDown</c>) would deserialize to defaults (false/MinValue). <see cref="JsonSerializerOptions.PropertyNameCaseInsensitive"/>
 /// is also set as a safety net so either casing on the wire deserializes correctly.</item>
 /// </list>
-/// <para><b>Threading:</b> a single fire-and-forget accept loop creates one
+/// <para><b>Threading:</b> delegated to <see cref="NewlineJsonPipeServer"/> —
+/// a single fire-and-forget accept loop creates one
 /// <see cref="NamedPipeServerStream"/> per client; each connection is serviced by its own
-/// <see cref="HandleConnectionAsync"/> task. No background thread is consumed when zero clients are
+/// read-loop task. No background thread is consumed when zero clients are
 /// connected (WaitForConnectionAsync is async).</para>
 /// </summary>
 public sealed class HeartbeatPipeServer : IDisposable

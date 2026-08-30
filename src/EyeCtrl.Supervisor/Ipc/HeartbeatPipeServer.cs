@@ -1,14 +1,11 @@
 namespace EyeCtrl.Supervisor.Ipc;
 
 using System;
-using System.Collections.Generic;
-using System.IO;
 using System.IO.Pipes;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Platform.Interop;
+using EyeCtrl.Platform.Ipc;
 
 /// <summary>
 /// Pipe SERVER (supervisor side) for the <c>eyectrl_watch</c> channel. Accepts connections from
@@ -43,20 +40,42 @@ public sealed class HeartbeatPipeServer : IDisposable
     public const string PipeName = "eyectrl_watch";
 
     private readonly ClientIdentityBinder _binder;
-    private readonly object _stateLock = new();
-    private readonly List<NamedPipeServerStream> _connections = new();
-
-    private CancellationTokenSource? _cts;
-    private bool _disposed;
+    private readonly string _pipeName;
+    private readonly ConditionalWeakTable<NamedPipeServerStream, ClientIdentity> _identityByPipe = new();
+    private readonly NewlineJsonPipeServer _pipeServer;
 
     /// <param name="binder">
     /// Used to bind each connected client's identity (PID/session/exe/creation-time) for the
     /// authenticated clean-shutdown check. Injected so the supervisor can wire the same binder the
     /// ProcessController captured at launch.
     /// </param>
-    public HeartbeatPipeServer(ClientIdentityBinder binder)
+    public HeartbeatPipeServer(ClientIdentityBinder binder, string? pipeName = null)
     {
         _binder = binder ?? throw new ArgumentNullException(nameof(binder));
+        _pipeName = pipeName ?? PipeName;
+
+        _pipeServer = new NewlineJsonPipeServer(
+            _pipeName,
+            () => NamedPipeServerStreamAcl.Create(
+                _pipeName, PipeDirection.InOut,
+                NamedPipeServerStream.MaxAllowedServerInstances,
+                PipeTransmissionMode.Byte, PipeOptions.Asynchronous,
+                inBufferSize: 0, outBufferSize: 0,
+                new NamedPipeSecurityBuilder().BuildCurrentUserOnly()),
+            onConnected: pipe =>
+            {
+                try { _identityByPipe.Add(pipe, _binder.Resolve(pipe.SafePipeHandle)!); }
+                catch { /* unresolvable identity = null identity, same as today's latch */ }
+            },
+            handleLine: (line, pipe) =>
+            {
+                var payload = HeartbeatPayloadParser.Parse(line);
+                if (payload is null)
+                    return false;
+                _identityByPipe.TryGetValue(pipe, out var identity);
+                HeartbeatReceived?.Invoke(payload, identity);
+                return true;
+            });
     }
 
     /// <summary>
@@ -66,111 +85,7 @@ public sealed class HeartbeatPipeServer : IDisposable
     /// </summary>
     public event Action<HeartbeatPayload, ClientIdentity?>? HeartbeatReceived;
 
-    /// <summary>
-    /// Idempotent on a CTS: starts the accept loop fire-and-forget. Safe to call when no app is
-    /// running — the loop simply blocks on WaitForConnectionAsync with no clients.
-    /// </summary>
-    public void Start()
-    {
-        if (_cts != null) return;
-        _cts = new CancellationTokenSource();
-        _ = AcceptLoopAsync(_cts.Token);
-    }
+    public void Start() => _pipeServer.Start();
 
-    private async Task AcceptLoopAsync(CancellationToken token)
-    {
-        while (!token.IsCancellationRequested)
-        {
-            // Per-user ACL (Task 16): construct via NamedPipeServerStreamAcl.Create — NOT the plain
-            // NamedPipeServerStream ctor used by ExternalDwellService.
-            NamedPipeServerStream pipe;
-            try
-            {
-                pipe = NamedPipeServerStreamAcl.Create(
-                    PipeName,
-                    PipeDirection.InOut,
-                    NamedPipeServerStream.MaxAllowedServerInstances,
-                    PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous,
-                    inBufferSize: 0,
-                    outBufferSize: 0,
-                    new NamedPipeSecurityBuilder().BuildCurrentUserOnly());
-            }
-            catch (Exception)
-            {
-                // ACL/creation failure (e.g. another supervisor already owns the name): no point
-                // retrying in a tight spin — abort the accept loop. The supervisor process itself
-                // keeps running; it just won't receive heartbeats.
-                break;
-            }
-
-            try
-            {
-                await pipe.WaitForConnectionAsync(token);
-            }
-            catch (OperationCanceledException) { pipe.Dispose(); break; }
-            catch (Exception) { pipe.Dispose(); continue; }
-
-            lock (_stateLock) _connections.Add(pipe);
-            _ = HandleConnectionAsync(pipe, token);
-        }
-    }
-
-    private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken token)
-    {
-        // Bind the client identity ONCE per connection (the client PID/exe/creation-time don't
-        // change over the lifetime of a single named-pipe connection). null = unbound — heartbeats
-        // are still read and the event still fires, but with a null identity so the subscriber can
-        // drop them. The binder is documented null-safe (never throws); the outer try/catch is
-        // defense-in-depth.
-        ClientIdentity? identity = null;
-        try { identity = _binder.Resolve(pipe.SafePipeHandle); }
-        catch { /* tolerate any unexpected binder failure */ }
-
-        try
-        {
-            using var reader = new StreamReader(
-                pipe, Encoding.UTF8,
-                detectEncodingFromByteOrderMarks: false,
-                bufferSize: 1024,
-                leaveOpen: true);
-
-            while (!token.IsCancellationRequested && pipe.IsConnected)
-            {
-                string? line;
-                try { line = await reader.ReadLineAsync(token); }
-                catch (OperationCanceledException) { break; }
-                catch { break; } // read failure: drop this connection
-                if (line == null) break;
-
-                HeartbeatPayload? payload;
-                try { payload = HeartbeatPayloadParser.Parse(line); }
-                catch { continue; } // malformed JSON line: skip, keep the connection alive
-                if (payload == null) continue;
-
-                try { HeartbeatReceived?.Invoke(payload, identity); }
-                catch { /* subscriber threw — never crash the pipe server */ }
-            }
-        }
-        catch (OperationCanceledException) { }
-        catch { /* connection handler error: drop silently */ }
-        finally
-        {
-            lock (_stateLock) _connections.Remove(pipe);
-            try { pipe.Dispose(); } catch { }
-        }
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        _cts?.Cancel();
-        lock (_stateLock)
-        {
-            foreach (var c in _connections) { try { c.Dispose(); } catch { } }
-            _connections.Clear();
-        }
-        _cts?.Dispose();
-    }
+    public void Dispose() => _pipeServer.Dispose();
 }

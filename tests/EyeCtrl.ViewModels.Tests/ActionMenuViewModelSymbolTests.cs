@@ -25,6 +25,7 @@ using EyeCtrl.ViewModels.Messages;
 /// it is precisely why these tests exist. They are what keeps the arm unreachable.
 /// </para>
 /// </summary>
+[Collection("DpiHelper Tests (ViewModels)")]
 public class ActionMenuViewModelSymbolTests
 {
     [Fact]

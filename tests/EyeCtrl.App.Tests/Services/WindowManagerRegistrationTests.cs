@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 /// unit test — it throws at startup, on the user's machine, with the overlays half-built. This
 /// resolves it through the real bootstrapper so that break is caught here instead.
 /// </summary>
+[Collection("DpiHelper Tests (App)")]
 public class WindowManagerRegistrationTests
 {
     private static ServiceProvider BuildProvider()

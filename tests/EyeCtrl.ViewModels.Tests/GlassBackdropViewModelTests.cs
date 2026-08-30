@@ -7,6 +7,7 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
+[Collection("DpiHelper Tests (ViewModels)")]
 public class GlassBackdropViewModelTests
 {
     [Fact]

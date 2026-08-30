@@ -14,10 +14,19 @@ using EyeCtrl.ViewModels.Helpers;
 /// the radius by 20 therefore costs 40 DIP of margin, not 20, and that compounding is the thing
 /// most likely to be got wrong by inspection.
 /// </summary>
-public class ActionMenuLayoutHelperTests
+[Collection("DpiHelper Tests (ViewModels)")]
+public class ActionMenuLayoutHelperTests : IDisposable
 {
     private const double ScreenWidth = 1920;
     private const double ScreenHeight = 1080;
+
+    /// <summary>
+    /// Restores the process-global scale after every test in this class. The collection stops a
+    /// write from landing mid-test in another class, but not from being LEFT behind: xUnit does
+    /// not guarantee which [Theory] case runs last, so without this the next class in the
+    /// collection could start at 1.25 or 2.0 instead of 1.0.
+    /// </summary>
+    public void Dispose() => DpiHelper.Initialize(1.0, 1.0);
 
     [Fact]
     public void ClampMargin_CountsTheButtonRadiusTwice()

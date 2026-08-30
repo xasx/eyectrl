@@ -15,6 +15,29 @@ using Xunit;
 
 /// <summary>
 /// Defines a test collection that disables parallelization for App layer tests using DpiHelper.
+///
+/// Membership rule: any class whose code path READS DpiHelper, not just the ones calling
+/// Initialize. Readers are the victims of a concurrent write, not the cause — a class that only
+/// reads can still see the scale change midway through a single test. Being scale-agnostic is
+/// not an exemption: the sibling failure in EyeCtrl.ViewModels.Tests passed at a constant 2.0
+/// and only broke on a mid-test flip.
+///
+/// Seven qualifying classes CANNOT join, because xUnit allows a class only one collection and
+/// they are already claimed by a collection guarding a different process-global:
+///   WpfApplication (Application singleton) - EyeCareHooksTests (UI-only, so headless runs are
+///     unaffected) and ToolbarActivationFlash/ButtonVisual/Orientation/TargetPlacementTests, which
+///     DO run headless and build a ToolbarViewModel (its ctor reads DpiHelper) via
+///     ToolbarTestHelpers.NewBoundToolbar.
+///   ExternalDwellPipe - ExternalDwellService/WireContractTests, also headless, which reach
+///     DwellFeedbackOverlay.ShowAt through SetFeedback when dwell progresses on a live target.
+/// None assert a scale-derived value today, so none can flake yet; the exposure is that a writer
+/// in THIS collection can still flip the scale under them, since DisableParallelization only
+/// serialises within a collection. Removing it needs one merged collection over every
+/// process-global toucher - deliberately not done here, as that redesigns three collections.
+///
+/// Naming a type is NOT enough to qualify — the source-census tests match filenames like
+/// "SettingsWindow.xaml" as text, and several helpers (EyeCareBannerWindow.ComputeDwellGeometry)
+/// take the scale as a parameter rather than reading the global.
 /// </summary>
 [CollectionDefinition("DpiHelper Tests (App)", DisableParallelization = true)]
 public class AppDpiHelperTestCollection

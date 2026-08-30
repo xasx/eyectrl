@@ -21,8 +21,15 @@ using Xunit;
 /// and indicator (which use the canvas center) still showed.
 /// </summary>
 [Collection("DpiHelper Tests (App)")]
-public class ActionMenuGeometryTests
+public class ActionMenuGeometryTests : IDisposable
 {
+    /// <summary>
+    /// Restores the process-global scale after every test. The 2.0 [InlineData] cases below would
+    /// otherwise leave it behind for whichever class in this collection runs next, since xUnit
+    /// does not guarantee which theory case runs last.
+    /// </summary>
+    public void Dispose() => DpiHelper.Initialize(1.0, 1.0);
+
     [Theory]
     [InlineData(1.0, false)]
     [InlineData(1.0, true)]

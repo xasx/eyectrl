@@ -21,6 +21,7 @@ using Microsoft.Extensions.DependencyInjection;
 /// sibling tests. The companion constructor-contract guard in
 /// <c>EyeCtrl.ViewModels.Tests.Adaptation.OverlayTelemetryWiringTests</c> covers the VM side without DI.
 /// </remarks>
+[Collection("DpiHelper Tests (App)")]
 public class TelemetrySinkRegistrationTests
 {
     // Telemetry is gated on AdaptationSettings.Enabled (§9.1), so the delivery assertions below opt in;

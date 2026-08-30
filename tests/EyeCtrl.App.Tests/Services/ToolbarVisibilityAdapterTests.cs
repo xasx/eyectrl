@@ -28,8 +28,16 @@ using EyeCtrl.ViewModels.Messages;
 /// For the ordering assertion, SetActive(false) is detected via DwellDetector.TargetProgress(id,0)
 /// fired by ResetAllState, and Hide via the window's IsVisibleChanged event — both captured into one
 /// ordered list.
+///
+/// Constructs real <c>ToolbarWindow</c> and <c>PauseIndicatorWindow</c> instances and Shows them,
+/// and its own <see cref="EnsureApplicationWithTokens"/> creates the process-wide <c>Application</c>
+/// singleton the same way <c>WpfApplicationGate</c> does — so this class must join the collection
+/// that serialises every such caller against that singleton (see
+/// <see cref="EyeCtrl.App.Tests.Fixtures.WpfApplicationCollection"/>); without it, Xunit.StaFact's
+/// per-test STA thread can race another window-constructing test for the singleton.
 /// </summary>
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+[Collection("WpfApplication")]
 public class ToolbarVisibilityAdapterTests
 {
     /// <summary>

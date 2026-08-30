@@ -8,7 +8,12 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels.Messages;
 
+// Both tests call WpfApplicationGate.EnsureApplicationWithTokens and construct real WPF windows
+// (EyeCareExerciseWindow, EyeCareBannerWindow), so this class must join the collection that
+// serialises every WpfApplicationGate caller against the process-wide Application singleton — see
+// WpfApplicationCollection's doc for why Xunit.StaFact's per-test STA thread makes that race real.
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+[Collection("WpfApplication")]
 public class EyeCareHooksTests
 {
     [StaFact]

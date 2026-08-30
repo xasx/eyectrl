@@ -144,9 +144,11 @@ public class DwellArcButtonIconTests
         // Plan 1 shipped a crash that a green suite missed because every layout test ran at DPI
         // 1.0 on one screen size. Nothing here reads DpiHelper - Create works in DIP and the
         // window applies the scale - but that is a claim worth pinning rather than assuming, so
-        // this walks the radii the three callers actually use plus the ones a small screen or a
-        // scaled display produces.
-        foreach (var radius in new[] { 20.0, 22.0, 50.0, 56.0, 70.0, 87.5 })
+        // this walks the radii the four callers actually use (20 = EdgeButtonBarWindow's default
+        // drag-button radius, 50 = its/GlassBackdropWindow's shared button radius, 60 =
+        // ToolbarWindow's default half-size at the 120 default Size, 70 = ActionMenuWindow) plus
+        // the ones a small screen or a scaled display produces.
+        foreach (var radius in new[] { 20.0, 22.0, 50.0, 56.0, 60.0, 70.0, 87.5 })
         {
             var button = DwellArcButton.Create(
                 new Point(0, 0), radius, symbol: null,

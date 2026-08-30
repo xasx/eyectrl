@@ -151,10 +151,10 @@ public class DwellArcButton
     // It is also an unguarded hole in RawGeometryLiteralTests, recorded here rather than left to
     // be rediscovered: that guard matches `FontSize = <value>` assignments, so a caller writing
     // `fontSize: 22` passes a raw size in through an ARGUMENT and is never seen. Accepted, not
-    // overlooked — all three callers (ActionMenuWindow, EdgeButtonBarWindow, GlassBackdropWindow)
-    // omit the parameter entirely and take the ratio, which is the point of it defaulting to null.
-    // If a caller ever does pass it, pass a ContainerRatio expression, and widen the guard to
-    // named arguments rather than treating this comment as permission.
+    // overlooked — all four callers (ActionMenuWindow, EdgeButtonBarWindow, GlassBackdropWindow,
+    // ToolbarWindow) omit the parameter entirely and take the ratio, which is the point of it
+    // defaulting to null. If a caller ever does pass it, pass a ContainerRatio expression, and
+    // widen the guard to named arguments rather than treating this comment as permission.
     public static DwellArcButton Create(Point center, double radius, string? symbol,
         Brush? fill = null, Brush? stroke = null, Brush? arcBrush = null, Brush? symbolBrush = null,
         double? arcThickness = null, double arcInset = DefaultArcInset,

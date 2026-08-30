@@ -362,4 +362,55 @@ public class ToolbarButtonVisualTests
             .That(((SolidColorBrush)window.ButtonForTest("SelectionMode").Background.Fill).Color)
             .IsEqualTo(Tokens.ToggleOn);
     }
+
+    // A rebuild (axis flip or size-change save) replaces the button's Ellipse via SwapIcon, which
+    // starts fresh from FillFor/RimFor (rest state). Nothing else repairs IsHighlighted afterward:
+    // the next non-zero TargetProgress assigns IsHighlighted = true when it is already true, and
+    // [ObservableProperty] raises nothing for an unchanged value, so the disc would stay at rest
+    // for the remainder of that dwell. BindButton's initial-apply block must reapply it, the same
+    // way it already reapplies IconKey/mode-tint and DwellProgress.
+    [StaFact]
+    public void AcquiredState_SurvivesARebuild()
+    {
+        var window = NewInitialisedToolbar();
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.DataContext = vm;
+        window.BindToViewModel();
+
+        var button = vm.Buttons.Single(b => b.Id == "Pause");
+        button.IsHighlighted = true;
+
+        // A plain size-change rebuild (SettingsUiCoordinator.cs:179 path), not the axis flip.
+        window.Initialize(ButtonSize, 700);
+
+        var face = window.ButtonForTest("Pause").Background;
+        Check.WithCustomMessage("Pause lost its acquired fill across a rebuild although gaze never left it.")
+            .That(((SolidColorBrush)face.Fill).Color).IsEqualTo(Tokens.SurfaceLight);
+        Check.WithCustomMessage("Pause lost its acquired rim across a rebuild although gaze never left it.")
+            .That(((SolidColorBrush)face.Stroke).Color).IsEqualTo(Tokens.BorderFocus);
+    }
+
+    // Ordering guard: ApplyAcquiredState must run AFTER SetSelectionModeState in BindButton's
+    // initial-apply block, because SetSelectionModeState writes Background.Fill unconditionally.
+    // Reversed, an acquired SelectionMode button's SurfaceLight fill would be clobbered back to
+    // the mode tint on every rebuild.
+    [StaFact]
+    public void AcquiredState_OnSelectionMode_SurvivesARebuild_NotClobberedByTheModeTint()
+    {
+        var window = NewInitialisedToolbar();
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.DataContext = vm;
+        window.BindToViewModel();
+
+        vm.Receive(new SelectionModeChangedMessage(SelectionMode.ManualSelection));
+        var button = vm.Buttons.Single(b => b.Id == "SelectionMode");
+        button.IsHighlighted = true;
+
+        window.Initialize(ButtonSize, 700);
+
+        Check.WithCustomMessage("SelectionMode's acquired fill was clobbered by the mode tint on rebuild — "
+                + "ApplyAcquiredState must run after SetSelectionModeState in BindButton.")
+            .That(((SolidColorBrush)window.ButtonForTest("SelectionMode").Background.Fill).Color)
+            .IsEqualTo(Tokens.SurfaceLight);
+    }
 }

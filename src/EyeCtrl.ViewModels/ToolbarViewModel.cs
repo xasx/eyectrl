@@ -211,7 +211,8 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         // Derived rather than separately plumbed. DwellDetector fires no progress for the FIRST
         // sample inside a target (DwellDetector.cs:224-228) and a non-zero value from the second
         // on (lines 229-233); it fires exactly 0 on leave (line 253) and on activation (line 276).
-        // So "progress > 0" is "gaze is on this target", one gaze sample (~11 ms) after entry.
+        // So "progress > 0" is "gaze is on this target", one gaze sample after entry — ~30 ms at
+        // the tracker's ~33 Hz (TobiiStreamEngineProvider.cs:195).
         btn.IsHighlighted = progress > 0;
     }
 }

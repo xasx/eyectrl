@@ -36,6 +36,13 @@ public class DwellDetectorTests
         bool activated = false;
         detector.TargetActivated += (id) => activated = true;
 
+        // "Resets progress" is a TargetProgress claim, not just an activated-vs-not one — pin it by
+        // actually subscribing. Previously this test's only assertion was Check.That(activated).
+        // IsFalse(), which passes even if the leave sample at line 253 of DwellDetector never fired
+        // a 0 event at all; nothing here would have caught that regression.
+        var progressEvents = new List<double>();
+        detector.TargetProgress += (id, progress) => progressEvents.Add(progress);
+
         detector.Update(new PhysicalPoint(100, 100), 0);
         detector.Update(new PhysicalPoint(100, 100), 30_000);
         detector.Update(new PhysicalPoint(100, 100), 60_000);
@@ -45,6 +52,8 @@ public class DwellDetectorTests
         detector.Update(new PhysicalPoint(100, 100), 180_000);
 
         Check.That(activated).IsFalse();
+        Check.WithCustomMessage("The leave sample at t=90_000 must reset progress to 0.")
+            .That(progressEvents[2]).IsEqualTo(0.0);
     }
 
     [Fact]

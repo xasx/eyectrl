@@ -235,10 +235,20 @@ public partial class ToolbarWindow : OverlayWindow
 
         button.AddTo(ButtonCanvas);
 
-        // The anchor exists so the button appears in the UIA tree at all: WPF's UIA control view
-        // does not expose Ellipse or Path from a transparent overlay window. ActionMenuWindow sets
-        // no AutomationIds and so needs no anchor; the toolbar's ids are consumed by AppFixture.
-        // Opacity 0 keeps it laid out and in the tree while drawing nothing.
+        // The anchor exists so the button appears in the UIA tree at all. Not a transparency
+        // effect (this comment used to say it was): Shape never overrides OnCreateAutomationPeer
+        // and UIElement's default returns null, so the Ellipses and Paths a DwellArcButton is made
+        // of have NO automation peer in any view, in any window. With symbol and label both null
+        // above, its only peer-bearing element types are absent too. ActionMenuWindow sets no
+        // AutomationIds and so needs no anchor; the toolbar's ids are consumed by AppFixture.
+        //
+        // Opacity 0 keeps it laid out and in the tree while drawing nothing, and costs it nothing
+        // in the control view: for a code-created TextBlock, IsControlElement reduces to
+        // UIElement.IsVisible, which depends on Visibility and a root PresentationSource and never
+        // on Opacity. Derived from the framework source in
+        // docs/design/toolbar-accessibility/FINDINGS.md item 4, which also records the one live
+        // consequence: an auto-hidden toolbar (Window.Hide()) does drop these from the control
+        // view, so anything driving them must show it first.
         //
         // Width/Height are the button's, NOT left to the text: an unsized TextBlock in a Canvas
         // measures to its own text, so the published BoundingRectangle would be a ~16px-tall

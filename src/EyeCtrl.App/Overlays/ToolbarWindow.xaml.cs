@@ -465,6 +465,15 @@ public partial class ToolbarWindow : OverlayWindow
                 SetSelectionModeState(SelectionModeIcons.ToMode(btn.IconKey));
 
             _buttons[id].UpdateProgress(btn.DwellProgress);
+            // Must come after SetSelectionModeState above, which writes Background.Fill
+            // unconditionally: reversing the order would let an acquired SelectionMode button's
+            // SurfaceLight fill be clobbered back to the mode tint on every rebuild. IsHighlighted
+            // is a third property with the same "unchanged value repairs nothing" gap this block's
+            // leading comment already names for icon/mode-tint — a rebuild while gaze is still on
+            // a button (the toolbar keeps feeding gaze while the settings window is open, so a
+            // settings-triggered rebuild is reachable mid-highlight) must not drop the acquired
+            // state until the dwell happens to end or activate.
+            ApplyAcquiredState(id, btn.IsHighlighted);
         }
 
         PropertyChangedEventHandler handler = (_, e) =>

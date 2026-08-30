@@ -1601,6 +1601,14 @@ Write the census entry to the counts that command actually reports, with the rat
 /// ToolbarIconKeyBridgeTests, which asserts the parsed enum member rather than mere validity.
 ```
 
+- [ ] **Step 3b: Two structural items banked during Tasks 3-5**
+
+**Extract the band-building half of `ToolbarWindow.xaml.cs`.** It reached 525 lines by Task 5 — second only to `KeyboardWindow.xaml.cs` (710), with every other overlay code-behind under 350 — and Tasks 6, 7 and 8 all add to it. The seam is `RebuildBand`/`LayOutBand`/`AddButton`/`AddSeparator`/`SwapIcon`/`RemoveButton`/`PaintFace` plus the four brush selectors, roughly 210 lines that own `_buttons`, `_anchors`, `_acquiredIds` and `_selectionModeBrush` and would take those with them, leaving the window with binding, positioning and dock/axis. Precedent: `EmojiGridManager.cs` (517) is exactly this extraction, alongside `NoteLayout.cs` and `ActionMenuGeometry.cs`. Deliberately deferred to here rather than done mid-flight: Tasks 6-8 were planned against the current shape, so restructuring under them buys churn. Do it once with the full member list visible.
+
+**Four window-constructing test classes are outside the `WpfApplication` collection.** `GlassBackdropWindowTests`, `EyeCareHooksTests`, `OverlayFontTests` and `ToolbarVisibilityAdapterTests` all construct WPF windows but carry no `[Collection("WpfApplication")]`, so they are not serialised against the `Application` singleton that `WpfApplicationGate` creates. `WpfApplicationCollection`'s own doc explains why that matters: `Xunit.StaFact` spins a fresh STA thread per test.
+
+This surfaced during Task 5 as a one-off `GlassBackdropWindowTests.Hide_DoesNotThrow_WhenConstructedWithoutShowing` failure in a full-suite run that passed 5/5 in isolation. **Not caused by this work** — that test constructs without showing, so `_hideButton` is null and the `ClearButton` path Task 3 changed no-ops entirely. Task 5 only added enough tests to the collection to shift timing. Adding the attribute to the four classes is the fix; it touches tests for unrelated features, so it is recorded here rather than smuggled into a toolbar task.
+
 - [ ] **Step 4: Check the arc-button suites still describe reality**
 
 The toolbar becomes `DwellArcButton`'s fourth caller, at radius 60 — a radius none of `DwellArcButtonGlyphSizeTests`, `DwellArcButtonIconTests`, `DwellArcButtonRimTests` or `DwellArcButtonArcWeightTests` currently walks. Those test the control, not a caller census, so none should fail. But several doc comments say "the three callers" (`DwellArcButtonIconTests.cs:132`, `DwellArcButton.cs:150-156`). Update that count to four and name the toolbar, or the next reader is told a false thing about the code.

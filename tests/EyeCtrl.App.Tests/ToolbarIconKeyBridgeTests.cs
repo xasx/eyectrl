@@ -23,6 +23,7 @@ using EyeCtrl.ViewModels.Messages;
 /// <see cref="PauseButton_SwapsBetweenPauseAndPlay"/> assert the actual mapped value, not just its
 /// validity.
 /// </summary>
+[Collection("DpiHelper Tests (App)")]
 public class ToolbarIconKeyBridgeTests
 {
     [Theory]

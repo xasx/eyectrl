@@ -12,6 +12,14 @@ using EyeCtrl.ViewModels.Messages;
 // (EyeCareExerciseWindow, EyeCareBannerWindow), so this class must join the collection that
 // serialises every WpfApplicationGate caller against the process-wide Application singleton — see
 // WpfApplicationCollection's doc for why Xunit.StaFact's per-test STA thread makes that race real.
+//
+// This class also reads DpiHelper (PhysicalToLogicalX/Y below), so it would otherwise qualify
+// for "DpiHelper Tests (App)" too. A class can only join ONE xUnit collection, and the
+// Application singleton is the more severe race of the two, so WpfApplication wins. Residual
+// exposure: a concurrent DpiHelper writer (ActionMenuGeometryTests, ScreenGeometryTests) can
+// still flip the scale mid-test, because DisableParallelization only serialises WITHIN a
+// collection. Narrow in practice — both tests here are Category=UI, so the headless subset
+// never runs them.
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
 [Collection("WpfApplication")]
 public class EyeCareHooksTests

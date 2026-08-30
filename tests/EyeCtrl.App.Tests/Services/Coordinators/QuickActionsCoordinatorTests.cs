@@ -5,6 +5,7 @@ using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Settings;
 using Xunit;
 
+[Collection("DpiHelper Tests (App)")]
 public class QuickActionsCoordinatorTests
 {
     [Fact]

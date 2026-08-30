@@ -5,6 +5,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
+[Collection("DpiHelper Tests (ViewModels)")]
 public class EdgeButtonBarViewModelTests
 {
     private static EyeCtrlSettings TestSettings() => new();

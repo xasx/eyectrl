@@ -8,6 +8,7 @@ using EyeCtrl.ViewModels.Messages;
 /// <summary>
 /// Labels are off until the Help target is dwelled, and they do not survive the menu closing.
 /// </summary>
+[Collection("DpiHelper Tests (ViewModels)")]
 public class ActionMenuViewModelLabelTests
 {
     private static void Show(IMessenger messenger) =>

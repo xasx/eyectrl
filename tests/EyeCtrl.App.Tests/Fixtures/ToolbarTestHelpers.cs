@@ -27,6 +27,9 @@ internal static class ToolbarTestHelpers
     /// binds it to a fresh <see cref="ToolbarViewModel"/>. Ensures the shared WPF
     /// <see cref="System.Windows.Application"/> exists first via <see cref="WpfApplicationGate"/>.
     /// </summary>
+    // NOTE: the ToolbarViewModel ctor reads DpiHelper, so every caller of this helper is a
+    // DpiHelper reader. Callers sit in the WpfApplication collection and cannot also join
+    // "DpiHelper Tests (App)"; see AppDpiHelperTestCollection's doc for why that is tolerated.
     internal static (ToolbarWindow Window, ToolbarViewModel Vm) NewBoundToolbar(int dwellTimeMs = 700)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();

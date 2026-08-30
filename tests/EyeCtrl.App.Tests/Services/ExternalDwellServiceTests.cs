@@ -26,6 +26,11 @@ using Xunit;
 [CollectionDefinition("ExternalDwellPipe", DisableParallelization = true)]
 public sealed class ExternalDwellPipeCollection { }
 
+// Also a DpiHelper reader: dwell progress on a live target calls SetFeedback, which calls
+// DwellFeedbackOverlay.ShowAt, which reads PhysicalToLogicalX/Y. It cannot also join
+// "DpiHelper Tests (App)" - one collection per class - so a writer there can still flip the
+// scale under this class. Safe today: nothing here asserts a scale-derived value. See
+// AppDpiHelperTestCollection's doc for the full list of classes in this position.
 [Collection("ExternalDwellPipe")]
 public class ExternalDwellServiceTests
 {

@@ -13,6 +13,7 @@ using EyeCtrl.ViewModels.Messages;
 /// to layer one, and More opens layer two. All three are "not an action", and a bool would let
 /// two of them be mistaken for each other at the one place that decides what a dwell DOES.
 /// </summary>
+[Collection("DpiHelper Tests (ViewModels)")]
 public class ActionMenuViewModelLayerTests
 {
     private static EyeCtrlSettings Defaults() => new();

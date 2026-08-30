@@ -9,6 +9,7 @@ using EyeCtrl.ViewModels.Messages;
 /// Tests to verify that all ViewModels properly implement IDisposable
 /// and correctly clean up message handler registrations.
 /// </summary>
+[Collection("DpiHelper Tests (ViewModels)")]
 public class ViewModelDisposableTests
 {
     [Fact]

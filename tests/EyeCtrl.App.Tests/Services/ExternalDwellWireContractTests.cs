@@ -26,6 +26,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 // that the two sides cannot drift. Like ExternalDwellServiceTests, each instance binds a unique
 // GUID-suffixed pipe (issue #76: pipe names are machine-global) and joins the same collection to
 // stay off the parallel path within this process.
+// Also a DpiHelper reader: dwell progress on a live target calls SetFeedback, which calls
+// DwellFeedbackOverlay.ShowAt, which reads PhysicalToLogicalX/Y. It cannot also join
+// "DpiHelper Tests (App)" - one collection per class - so a writer there can still flip the
+// scale under this class. Safe today: nothing here asserts a scale-derived value. See
+// AppDpiHelperTestCollection's doc for the full list of classes in this position.
 [Collection("ExternalDwellPipe")]
 public class ExternalDwellWireContractTests
 {

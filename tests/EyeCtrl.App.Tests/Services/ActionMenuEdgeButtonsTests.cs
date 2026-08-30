@@ -14,6 +14,7 @@ using Xunit;
 /// menu was the one overlay context that put nothing on the bar, so an accidental open could only
 /// be resolved by committing an action.
 /// </summary>
+[Collection("DpiHelper Tests (App)")]
 public class ActionMenuEdgeButtonsTests
 {
     [Fact]

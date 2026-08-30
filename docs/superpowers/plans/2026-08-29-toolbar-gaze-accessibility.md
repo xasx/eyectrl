@@ -47,6 +47,16 @@ The artboards showed a *sweeping* arc, and `DwellArcButton.UpdateProgress` sweep
 - **Do not change the dwell-target lifecycle.** Targets are created lazily by `UpdateButtonScreenPosition` at the first real on-screen centre, never at `(0,0)`; later reports move them via `UpdateTargetCenter` so accumulated dwell survives re-layout. Nothing here adds or removes a target at runtime.
 - **Do not change dwell timings.** 700 ms for every button, Reset included — spec §8.6 wants Reset reachable exactly when adaptation has gone wrong.
 - **Match each test project's own layout when adding a file.** `EyeCtrl.Controls.Tests` uses folder-per-area with matching sub-namespaces (`Icons/`, `Theme/`), so a new icon test belongs in `Icons/` — Task 1 originally specified the project root and had to be moved. `EyeCtrl.App.Tests` keeps most guards at the root with only some areas foldered (`Settings/`, `Services/`, `Fixtures/`), so a root-level file is correct there. Check the sibling of the thing you are testing before choosing a path.
+- **EVERY `dotnet test` invocation must carry `--filter "Category!=UI"` — exploratory ones included.**
+  The hazard is not writing `Show()`; it is running tests that already call it. Three classes do:
+  `ToolbarVisibilityAdapterTests` (three `Category=UI` tests calling `toolbar.Show()` and asserting
+  `IsVisible`), `EyeCareHooksTests`, and `ToolbarTests` via `AppFixture`, which launches the real
+  application. None of them is gated by an environment check, so an unfiltered run displays real
+  `Topmost` overlays on the user's screen. This happened once, during Task 9a, from a single ad-hoc
+  filter that omitted the category exclusion. The user drives this machine solely by gaze; an
+  overlay appearing over what they are looking at is the failure mode the no-`Show()` rule exists
+  to prevent, and it is reachable without writing a line of `Show()` yourself.
+
 - **Verify command:**
 
 ```bash

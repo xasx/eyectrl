@@ -37,13 +37,6 @@ public class ToolbarButtonVisualTests
 {
     private const double ButtonSize = 120;
 
-    // Mirrors ToolbarWindow's private `ButtonMargin` (ToolbarWindow.xaml.cs:25, currently 12), not
-    // reachable directly from this assembly. Kept as a named constant, rather than folded into the
-    // literals below, so Reset_CarriesTheWarningHue_AndExtraClearance can DERIVE the expected pitch
-    // and gap instead of repeating the already-pinned literals (144/168) from
-    // ButtonCentres_AndCanvasSize_AreExactlyAsLaidOut as a second, independently-driftable copy.
-    private const double Margin = 12;
-
     private static ToolbarWindow NewInitialisedToolbar()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
@@ -212,21 +205,29 @@ public class ToolbarButtonVisualTests
 
     /// <summary>
     /// Reset is the one adjacency where an overshoot is unrecoverable (see
-    /// <c>ToolbarWindow.ResetId</c>'s doc comment). Three properties must all hold at once: the
-    /// disc's rim is the warning hue and ONLY that disc's rim is (the complement — otherwise this
-    /// test would stay green even if every rim, or none, went warning-coloured); the gap that
-    /// precedes it is wider than every other gap by exactly <c>ResetGap</c>, not merely wider (a
-    /// bare inequality would pass on a one-pixel widening); and the separator <see cref="Line"/>
+    /// <see cref="ToolbarWindow.ResetId"/>'s doc comment). Four properties must all hold at once:
+    /// the face at that position IS the Reset disc, by identity, not merely "the last one by
+    /// position" (a future reorder would otherwise fail silently at the wrong assertion); its rim
+    /// is the warning hue and ONLY that disc's rim is (the complement — otherwise this test would
+    /// stay green even if every rim, or none, went warning-coloured); the gap that precedes it is
+    /// wider than every other gap by exactly <see cref="ToolbarWindow.ResetGap"/>, not merely wider
+    /// (a bare inequality would pass on a one-pixel widening); and the separator <see cref="Line"/>
     /// drawn in that gap sits at its true midpoint, not at the pre-gap centre — an earlier draft
     /// derived the rule from `along` before <c>ResetGap</c> was added and put it 48 px inside the
     /// Reset disc, which a count-only assertion could not see.
     /// </summary>
     [StaFact]
-    public void Reset_CarriesTheWarningHue_AndExtraClearance()
+    public void Reset_CarriesTheWarningHue_ClearanceAndSeparator()
     {
         var window = NewInitialisedToolbar();
         var faces = Faces(window).OrderBy(Canvas.GetLeft).ToList();
         var reset = faces.Last();
+
+        // Identity, not position: EveryAutomationAnchor_CoversItsOwnDisc pins that Reset is last
+        // by id order today, but that is a cross-test dependency invisible from here. This makes a
+        // future reorder fail on identity rather than surface as a confusing rim-colour mismatch.
+        Check.WithCustomMessage("The last face by position is not the Reset disc.")
+            .That(reset).IsSameReferenceAs(window.ButtonForTest(ToolbarWindow.ResetId).Background);
 
         Check.That(((SolidColorBrush)reset.Stroke).Color).IsEqualTo(Tokens.AccentWarning);
 
@@ -240,11 +241,12 @@ public class ToolbarButtonVisualTests
         var lefts = faces.Select(Canvas.GetLeft).ToList();
         var gaps = lefts.Zip(lefts.Skip(1), (a, b) => b - a).ToList();
 
-        // Fully determined by the layout constants, not a bare "wider than" (that would pass on a
-        // one-pixel widening). See the Margin field's comment for why this is derived rather than
-        // repeating the ButtonCentres_AndCanvasSize_AreExactlyAsLaidOut literals.
-        var ordinaryPitch = ButtonSize + Margin * 2;
-        var resetGap = Margin * 2;
+        // Fully determined by the layout constants — internal, not private, on ToolbarWindow
+        // specifically so this can reference them rather than keep a second, independently-
+        // driftable copy of 12 (EyeCtrl.App.csproj:61 already grants EyeCtrl.App.Tests
+        // InternalsVisibleTo). Not a bare "wider than" (that would pass on a one-pixel widening).
+        var ordinaryPitch = ButtonSize + ToolbarWindow.ButtonMargin * 2;
+        var resetGap = ToolbarWindow.ButtonMargin * 2;
 
         foreach (var gap in gaps.Take(gaps.Count - 1))
             Check.WithCustomMessage("An ordinary gap is not the plain button pitch.")
@@ -274,7 +276,7 @@ public class ToolbarButtonVisualTests
     public void Reset_ArcAndIconBrushes_AlsoCarryTheWarningHue()
     {
         var window = NewInitialisedToolbar();
-        var reset = window.ButtonForTest("ResetAdaptation");
+        var reset = window.ButtonForTest(ToolbarWindow.ResetId);
 
         Check.WithCustomMessage("Reset's progress arc is not warning-coloured.")
             .That(((SolidColorBrush)reset.ProgressPath.Stroke).Color).IsEqualTo(Tokens.AccentWarning);

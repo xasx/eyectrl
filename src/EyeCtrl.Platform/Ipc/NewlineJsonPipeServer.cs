@@ -21,7 +21,7 @@ public sealed class NewlineJsonPipeServer : IDisposable
     private readonly LineHandler _handleLine;
     private readonly Action<NamedPipeServerStream>? _onConnected;
     private readonly Action<NamedPipeServerStream>? _onDisconnected;
-    private readonly Action<Exception, string?>? _log;
+    private readonly Action<Exception, string?, string?>? _log;
     private readonly object _stateLock = new();
     private readonly List<NamedPipeServerStream> _connections = new();
     private CancellationTokenSource? _cts;
@@ -33,7 +33,7 @@ public sealed class NewlineJsonPipeServer : IDisposable
         LineHandler handleLine,
         Action<NamedPipeServerStream>? onConnected = null,
         Action<NamedPipeServerStream>? onDisconnected = null,
-        Action<Exception, string?>? log = null)
+        Action<Exception, string?, string?>? log = null)
     {
         _pipeName = pipeName;
         _createPipe = createPipe;
@@ -65,7 +65,7 @@ public sealed class NewlineJsonPipeServer : IDisposable
                 // Pipe creation failed (e.g. ACL). Abort the loop, matching
                 // HeartbeatPipeServer: retrying a construction that cannot succeed
                 // would spin.
-                _log?.Invoke(ex, null);
+                _log?.Invoke(ex, null, "pipe create failed");
                 break;
             }
 
@@ -80,7 +80,7 @@ public sealed class NewlineJsonPipeServer : IDisposable
             }
             catch (Exception ex)
             {
-                _log?.Invoke(ex, null);
+                _log?.Invoke(ex, null, "pipe accept failed");
                 pipe.Dispose();
                 continue;
             }
@@ -96,7 +96,7 @@ public sealed class NewlineJsonPipeServer : IDisposable
             }
             catch (Exception ex)
             {
-                _log?.Invoke(ex, null);
+                _log?.Invoke(ex, null, "onConnected failed");
             }
             _ = HandleConnectionAsync(pipe, token);
         }
@@ -130,21 +130,21 @@ public sealed class NewlineJsonPipeServer : IDisposable
                     // Malformed line -> handler returns false -> logged with the line, skipped,
                     // connection kept.
                     if (!_handleLine(line, pipe))
-                        _log?.Invoke(new FormatException("malformed pipe line"), line);
+                        _log?.Invoke(new FormatException("malformed pipe line"), line, "bad pipe message");
                 }
                 catch (Exception ex)
                 {
-                    _log?.Invoke(ex, line);
+                    _log?.Invoke(ex, line, "bad pipe message");
                 }
             }
         }
         catch (OperationCanceledException)
         {
         }
-        catch (Exception ex)
-        {
-            _log?.Invoke(ex, null);
-        }
+            catch (Exception ex)
+            {
+                _log?.Invoke(ex, null, "connection handler error");
+            }
         finally
         {
             lock (_stateLock)
@@ -155,7 +155,7 @@ public sealed class NewlineJsonPipeServer : IDisposable
             }
             catch (Exception ex)
             {
-                _log?.Invoke(ex, null);
+                _log?.Invoke(ex, null, "onDisconnected failed");
             }
             try
             {

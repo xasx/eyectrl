@@ -126,7 +126,15 @@ public sealed class ExternalDwellService : IDisposable
                 if (_connectionsByPipe.TryRemove(pipe, out var conn))
                     TeardownConnection(conn);
             },
-            log: (ex, line) => _logger.LogWarning(ex, "bad pipe message: {Line}", line));
+            log: (ex, line, context) =>
+            {
+                if (line is not null)
+                    _logger.LogWarning(ex, "bad pipe message: {Line}", line);
+                else if (context is not null)
+                    _logger.LogWarning(ex, "{Context}", context);
+                else
+                    _logger.LogWarning(ex, "connection handler error");
+            });
     }
 
     public void Start()

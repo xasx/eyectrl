@@ -138,27 +138,5 @@ public class SentenceCompletionIndexTests
         Check.ThatCode(() => SentenceCompletionIndex.Load(stream)).Throws<InvalidDataException>();
     }
 
-    [Fact]
-    public void BoostCompletion_IncreasesFrequency()
-    {
-        var index = new SentenceCompletionIndex();
-        index.Insert("thank you very much", 5);
-        index.BoostCompletion("thank you very much");
 
-        var results = index.GetCompletions("thank you", maxCount: 5);
-        Check.That(results).HasSize(1);
-        Check.That(results[0].frequency).IsEqualTo(6);
-    }
-
-    [Fact]
-    public void DismissCompletion_DecreasesFrequency()
-    {
-        var index = new SentenceCompletionIndex();
-        index.Insert("thank you very much", 5);
-        index.DismissCompletion("thank you very much");
-
-        var results = index.GetCompletions("thank you", maxCount: 5);
-        Check.That(results).HasSize(1);
-        Check.That(results[0].frequency).IsEqualTo(4);
-    }
 }

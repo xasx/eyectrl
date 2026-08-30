@@ -37,12 +37,6 @@ public class CasingBenchmarks
     }
 
     [Benchmark]
-    public string ApplySmartCapitalization()
-    {
-        return CapitalizationHelper.ApplySmartCapitalization("hello", "What is ");
-    }
-
-    [Benchmark]
     public bool CasingHelper_IsAllCaps()
     {
         return CasingHelper.IsAllCaps("HELLO WORLD");

@@ -26,7 +26,7 @@ public class CasingPreferenceTrackerTests
         tracker.RecordCasing("Hello");
         tracker.RecordCasing("HELLO");
 
-        var variants = tracker.GetVariants("hello");
+        var variants = tracker.GetAllPreferences()["hello"];
 
         Check.That(variants.Count).IsEqualTo(3);
         Check.That(variants["hello"]).IsEqualTo(1);
@@ -91,19 +91,9 @@ public class CasingPreferenceTrackerTests
         tracker.RecordCasing("HELLO");
 
         // All variants should be tracked under the same key
-        var variants = tracker.GetVariants("HeLLo"); // Any casing should work
+        var variants = tracker.GetAllPreferences()["hello"];
 
         Check.That(variants.Count).IsEqualTo(3);
-    }
-
-    [Fact]
-    public void GetVariants_NoPreference_ReturnsEmptyDictionary()
-    {
-        var tracker = new CasingPreferenceTracker();
-
-        var variants = tracker.GetVariants("unknown");
-
-        Check.That(variants).IsEmpty();
     }
 
     [Fact]

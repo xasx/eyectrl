@@ -57,21 +57,6 @@ public class ModelDownloadService : IDisposable
         Directory.CreateDirectory(_modelsDirectory);
     }
 
-    /// <summary>Returns the list of model size keys for which both model and tokenizer files exist on disk.</summary>
-    /// <returns>List of downloaded model size identifiers.</returns>
-    public List<string> GetAvailableModels()
-    {
-        var available = new List<string>();
-        foreach (var (size, fileName) in ModelConstants.ModelFileNames)
-        {
-            var onnxPath = Path.Combine(_modelsDirectory, fileName);
-            var tokenizerPath = GetTokenizerPath(size);
-            if (File.Exists(onnxPath) && File.Exists(tokenizerPath))
-                available.Add(size);
-        }
-        return available;
-    }
-
     /// <summary>Checks whether a specific model size has both ONNX and tokenizer files downloaded.</summary>
     /// <param name="modelSize">Model size identifier (e.g., "360M").</param>
     /// <returns>True if both files exist on disk.</returns>
@@ -127,20 +112,14 @@ public class ModelDownloadService : IDisposable
         return Path.Combine(_modelsDirectory, fileName);
     }
 
-    /// <summary>Cancels the currently active download operation (model or tokenizer).</summary>
-    public void CancelDownload()
-    {
-        _downloadCts?.Cancel();
-    }
-
     private enum DownloadOutcome { Success, Busy, HashMismatch, Failed }
 
     /// <summary>
     /// Shared download core used by all public download methods: single-flight
     /// semaphore, temp-file streaming with incremental SHA-256 via CryptoStream,
     /// optional hash verification, atomic move into place, temp-file cleanup.
-    /// Creates the linked <see cref="_downloadCts"/> so <see cref="CancelDownload"/>
-    /// works for every download type. Throws OperationCanceledException on cancel.
+    /// Creates the linked <see cref="_downloadCts"/> so downloads can be cancelled
+    /// for every download type. Throws OperationCanceledException on cancel.
     /// </summary>
     private async Task<(DownloadOutcome Outcome, string? Error)> DownloadFileCoreAsync(
         string outputFileName,

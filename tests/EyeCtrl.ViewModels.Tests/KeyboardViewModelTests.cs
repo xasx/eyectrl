@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels.Tests;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -539,7 +540,7 @@ public class KeyboardViewModelTests
 
         var provider = new InMemoryDictionaryProvider(new() { { "hello", 100 }, { "help", 80 } });
         var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
-        vm.SetPredictor(predictor);
+        vm.SetOrchestrator(new PredictionOrchestrator(predictor));
 
         vm.CurrentInput = "hel";
         var suggestions = vm.GetSuggestions();
@@ -558,7 +559,7 @@ public class KeyboardViewModelTests
 
         var provider = new InMemoryDictionaryProvider(new() { { "world", 100 }, { "work", 80 } });
         var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
-        vm.SetPredictor(predictor);
+        vm.SetOrchestrator(new PredictionOrchestrator(predictor));
 
         // Simulate typing "Hello. "
         vm.CurrentInput = "Hello";
@@ -583,7 +584,7 @@ public class KeyboardViewModelTests
 
         var provider = new InMemoryDictionaryProvider(new() { { "world", 100 }, { "work", 80 } });
         var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
-        vm.SetPredictor(predictor);
+        vm.SetOrchestrator(new PredictionOrchestrator(predictor));
 
         // Simulate typing "Hello "
         vm.CurrentInput = "Hello";
@@ -606,7 +607,7 @@ public class KeyboardViewModelTests
 
         var provider = new InMemoryDictionaryProvider(new() { { "hello", 100 }, { "help", 80 } });
         var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
-        vm.SetPredictor(predictor);
+        vm.SetOrchestrator(new PredictionOrchestrator(predictor));
 
         vm.CurrentInput = "hel";
         var suggestions = vm.GetSuggestions();
@@ -625,7 +626,7 @@ public class KeyboardViewModelTests
 
         var provider = new InMemoryDictionaryProvider(new() { { "world", 100 } });
         var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
-        vm.SetPredictor(predictor);
+        vm.SetOrchestrator(new PredictionOrchestrator(predictor));
 
         // Type "Hello "
         vm.CurrentInput = "Hello";
@@ -658,7 +659,7 @@ public class KeyboardViewModelTests
 
         var provider = new InMemoryDictionaryProvider(new() { { "hello", 100 }, { "help", 80 } });
         var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
-        vm.SetPredictor(predictor);
+        vm.SetOrchestrator(new PredictionOrchestrator(predictor));
 
         vm.CurrentInput = "hel";
         var results = vm.GetSuggestionsWithContext();
@@ -682,7 +683,7 @@ public class KeyboardViewModelTests
 
         var provider = new InMemoryDictionaryProvider(new() { { "hello", 100 }, { "help", 80 } });
         var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
-        vm.SetPredictor(predictor);
+        vm.SetOrchestrator(new PredictionOrchestrator(predictor));
 
         vm.CurrentInput = "hel";
         var results = vm.GetSuggestionsWithContext();
@@ -699,7 +700,7 @@ public class KeyboardViewModelTests
 
         var provider = new InMemoryDictionaryProvider(new() { { "thank", 100 }, { "you", 100 }, { "are", 50 } });
         var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
-        vm.SetPredictor(predictor);
+        vm.SetOrchestrator(new PredictionOrchestrator(predictor));
 
         // Learn "thank you" bigram multiple times to exceed MinFrequency
         predictor.LearnSequence(new[] { "thank", "you" });
@@ -727,7 +728,7 @@ public class KeyboardViewModelTests
 
         var provider = new InMemoryDictionaryProvider(new() { { "world", 100 } });
         var predictor = new EyeCtrl.Core.Prediction.WordPredictor(provider);
-        vm.SetPredictor(predictor);
+        vm.SetOrchestrator(new PredictionOrchestrator(predictor));
 
         // Simulate typing "Hello. "
         vm.CurrentInput = "Hello";

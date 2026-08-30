@@ -109,19 +109,6 @@ public class DwellDetector
     }
 
     /// <summary>
-    /// Updates a target's required dwell time without resetting accumulated dwell state. The next
-    /// <see cref="Update(PhysicalPoint, long)"/> re-evaluates completion against the new time using
-    /// the existing <c>EnteredTimestamp</c> (design C4).
-    /// </summary>
-    /// <param name="id">Target ID.</param>
-    /// <param name="dwellTimeMs">New required dwell time in milliseconds.</param>
-    public void UpdateTargetDwellTime(string id, int dwellTimeMs)
-    {
-        if (_targets.TryGetValue(id, out var target))
-            target.DwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
-    }
-
-    /// <summary>
     /// Grows a target's hit area by <paramref name="marginPx"/> physical pixels on every side,
     /// relative to its as-registered extents, without resetting accumulated dwell state. Works for
     /// both circular and rectangular targets (a rect's bounds are outset — adjusting only the radius

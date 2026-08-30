@@ -194,56 +194,6 @@ public class CapitalizationHelperTests
         Check.That(result).IsEqualTo("!Hello");
     }
 
-    [Fact]
-    public void ApplySmartCapitalization_CapitalizesWhenNeeded()
-    {
-        // Arrange & Act
-        var result = CapitalizationHelper.ApplySmartCapitalization("hello", "");
-
-        // Assert
-        Check.That(result).IsEqualTo("Hello");
-    }
-
-    [Fact]
-    public void ApplySmartCapitalization_DoesNotCapitalizeInMiddle()
-    {
-        // Arrange & Act
-        var result = CapitalizationHelper.ApplySmartCapitalization("hello", "start");
-
-        // Assert
-        Check.That(result).IsEqualTo("hello");
-    }
-
-    [Fact]
-    public void ApplySmartCapitalization_CapitalizesAfterPeriod()
-    {
-        // Arrange & Act
-        var result = CapitalizationHelper.ApplySmartCapitalization("world", "Hello.");
-
-        // Assert
-        Check.That(result).IsEqualTo("World");
-    }
-
-    [Fact]
-    public void ApplySmartCapitalization_PreservesExistingCapitalization()
-    {
-        // Arrange & Act
-        var result = CapitalizationHelper.ApplySmartCapitalization("Hello", "start");
-
-        // Assert
-        Check.That(result).IsEqualTo("Hello");
-    }
-
-    [Fact]
-    public void ApplySmartCapitalization_HandlesEmptyWord()
-    {
-        // Arrange & Act
-        var result = CapitalizationHelper.ApplySmartCapitalization("", "text");
-
-        // Assert
-        Check.That(result).IsEqualTo("");
-    }
-
     // Language-specific abbreviation tests
 
     [Fact]
@@ -312,30 +262,6 @@ public class CapitalizationHelperTests
     }
 
     [Fact]
-    public void ApplySmartCapitalization_UsesLanguageSpecificAbbreviations()
-    {
-        // Arrange
-        var germanAbbreviations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "z.b.", "bzw.", "evtl.", "prof." };
-
-        // Act - German abbreviation "prof." should not trigger capitalization (>3 chars, not caught by heuristic)
-        var result = CapitalizationHelper.ApplySmartCapitalization("beispiel", "zum Beispiel prof. ", germanAbbreviations);
-
-        // Assert - Should not capitalize after German abbreviation
-        Check.That(result).IsEqualTo("beispiel");
-    }
-
-    [Fact]
-    public void ApplySmartCapitalization_CapitalizesWithoutAbbreviations()
-    {
-        // Arrange - No abbreviations provided, so "prof" will not be recognized
-        // Act
-        var result = CapitalizationHelper.ApplySmartCapitalization("word", "for example prof. ", null);
-
-        // Assert - Should capitalize because "prof" is not recognized without abbreviations
-        Check.That(result).IsEqualTo("Word");
-    }
-
-    [Fact]
     public void ShouldCapitalize_DefaultsToNoAbbreviationsWhenNotProvided()
     {
         // Arrange & Act
@@ -346,17 +272,5 @@ public class CapitalizationHelperTests
         Check.That(resultWithout).IsFalse();
         Check.That(resultWith).IsFalse();
         Check.That(resultWithout).IsEqualTo(resultWith);
-    }
-
-    [Fact]
-    public void ApplySmartCapitalization_DefaultsToNoAbbreviationsWhenNotProvided()
-    {
-        // Arrange & Act
-        var resultWithout = CapitalizationHelper.ApplySmartCapitalization("hello", "");
-        var resultWith = CapitalizationHelper.ApplySmartCapitalization("hello", "", null);
-
-        // Assert - Empty context should capitalize, with or without explicit abbreviations
-        Check.That(resultWithout).IsEqualTo("Hello");
-        Check.That(resultWith).IsEqualTo("Hello");
     }
 }

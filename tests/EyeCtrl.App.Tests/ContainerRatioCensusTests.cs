@@ -92,17 +92,19 @@ public class ContainerRatioCensusTests
             ],
             ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] =
             [
-                ("Large", 1, "the gaze-provider indicator's glyph — the last of the two toolbar "
-                    + "symbols that gave this bucket its founding observation (this file's own "
-                    + "ButtonSymbolSizeRatio = 0.4 is where Large came from). The button glyphs "
-                    + "went with the move to DwellArcButton, which sizes its drawn icons by "
-                    + "Dominant inside EyeCtrl.Controls rather than here. _buttonSize is "
+                ("Small", 1, "Task 6: the gaze-provider indicator's own glyph (an eye or a "
+                    + "mouse), now drawn as a DwellArcButton-style icon Path rather than an "
+                    + "emoji TextBlock. It sits beside the hairline rule that follows it — an "
+                    + "icon beside other content is exactly Small's bucket — replacing the "
+                    + "old Large-ratio emoji cell, which had no such neighbour. _buttonSize is "
                     + "runtime-sized: no const to multiply."),
-                ("Dominant", 1, "NOT a glyph: the half-length of the hairline that fences off the "
-                    + "destructive Reset button, as a fraction of the button diameter it sits "
-                    + "beside. Dominant because the rule reads as the separator's whole content "
-                    + "the way a Dominant glyph fills its button — a shorter tick disappears "
-                    + "against a 120px disc."),
+                ("Dominant", 3, "one site unchanged: the half-length of the hairline that fences "
+                    + "off the destructive Reset button, as a fraction of the button diameter it "
+                    + "sits beside (NOT a glyph). Two new: Task 6's indicator rule reuses the same "
+                    + "bucket for the same reason — a rule reading as the separator's whole "
+                    + "content the way a Dominant glyph fills its button — sized on whichever of "
+                    + "Width/Height carries the button-diameter arm of its vertical/horizontal "
+                    + "ternary (the other arm is Tokens.BorderThicknessStandard, not a ratio)."),
             ],
             ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] =
             [

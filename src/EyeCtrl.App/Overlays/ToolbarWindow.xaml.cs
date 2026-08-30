@@ -247,6 +247,18 @@ public partial class ToolbarWindow : OverlayWindow
     /// A hairline between the ordinary buttons and the destructive one. NOT protection — an
     /// accidental Reset is still unrecoverable; the confirm step is a separate follow-up plan.
     /// Do not describe this button as protected until that ships.
+    ///
+    /// <para>
+    /// <see cref="Tokens.BrushBorderSubtle"/>, not <see cref="Tokens.BrushSurfaceMedium"/> (a
+    /// Task 6 fix, done alongside the indicator rule below — the two must move together, since at
+    /// different weights in one 896 px strip they would read as a bug). SurfaceMedium on
+    /// SurfaceDark is 1.23:1 nominal and worse as drawn (a 1px line at a fractional position
+    /// antialiases across two pixels), against disc rims at 3.38:1 on the same ground — and the
+    /// gap is worst on Contrast, the theme picked specifically for low vision: 1.14:1 as drawn vs.
+    /// 21.00:1 with BorderSubtle. <see cref="ToolbarButtonVisualTests.EveryButton_CarriesAVisibleRim"/>
+    /// already asserts SurfaceMedium alone is invisible as a boundary; this line was painting a
+    /// new boundary in exactly that pairing.
+    /// </para>
     /// </summary>
     private void AddSeparator(double along)
     {
@@ -255,7 +267,7 @@ public partial class ToolbarWindow : OverlayWindow
 
         var line = new Line
         {
-            Stroke = Tokens.BrushSurfaceMedium,
+            Stroke = Tokens.BrushBorderSubtle,
             StrokeThickness = Tokens.BorderThicknessStandard,
             IsHitTestVisible = false,
             X1 = _vertical ? across - half : along,
@@ -391,11 +403,19 @@ public partial class ToolbarWindow : OverlayWindow
             Margin = _vertical ? new Thickness(0, ButtonMargin, 0, 0) : new Thickness(ButtonMargin, 0, 0, 0),
         };
 
+        // BrushBorderSubtle, not BrushSurfaceMedium (moved together with AddSeparator's Line,
+        // same commit, same reason): SurfaceMedium on SurfaceDark is 1.23:1 nominal and worse as
+        // drawn — a 1px line at a fractional position antialiases across two pixels — against disc
+        // rims at 3.38:1 on the same ground. The gap is worst on Contrast, the theme picked
+        // specifically for low vision: 1.14:1 as drawn vs. 21.00:1 with BorderSubtle.
+        // ToolbarButtonVisualTests.EveryButton_CarriesAVisibleRim already asserts SurfaceMedium
+        // alone is invisible as a boundary; this rule was painting a new boundary in exactly that
+        // pairing.
         var rule = new Border
         {
             Width = _vertical ? _buttonSize * ContainerRatio.Dominant : Tokens.BorderThicknessStandard,
             Height = _vertical ? Tokens.BorderThicknessStandard : _buttonSize * ContainerRatio.Dominant,
-            Background = Tokens.BrushSurfaceMedium,
+            Background = Tokens.BrushBorderSubtle,
             Margin = _vertical ? new Thickness(0, ButtonMargin, 0, 0)
                                : new Thickness(ButtonMargin, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,

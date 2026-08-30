@@ -32,6 +32,15 @@ public partial class ToolbarWindow : OverlayWindow
     private const string ResetId = "ResetAdaptation";
     // The local 0.4 symbol ratio moved to ContainerRatio.Large, which this file's 0.4 defined.
 
+    /// <summary>
+    /// The disc that carries the selection-mode tint. Named for the same reason as
+    /// <see cref="ResetId"/>: before this constant existed, the id was four scattered string
+    /// literals (<see cref="FillFor"/>, <see cref="SetSelectionModeState"/>, and two checks in
+    /// <see cref="BindButton"/>), and a typo in any one of them would silently take the ordinary-
+    /// button branch instead of carrying the mode tint.
+    /// </summary>
+    private const string SelectionModeId = "SelectionMode";
+
     /// <summary>Centre-to-centre spacing: the button plus its margin on both sides.</summary>
     private double Pitch => _buttonSize + ButtonMargin * 2;
 
@@ -44,6 +53,26 @@ public partial class ToolbarWindow : OverlayWindow
     private bool _targetsInitialized;
     private bool _vertical;
     private GazeProviderType? _providerType;
+
+    /// <summary>
+    /// The selection-mode tint, mirrored in a field rather than re-derived from the view-model on
+    /// every paint. Justified, not just convenient: <c>SettingsUiCoordinator.cs:172-174</c> calls
+    /// <see cref="SetSelectionModeState"/> BEFORE sending the <c>SelectionModeChangedMessage</c>
+    /// that updates the button's <c>IconKey</c>, so the view-model is stale at that exact instant;
+    /// and <see cref="Initialize"/> (<c>SettingsUiCoordinator.cs:179</c>) can rebuild the whole band
+    /// with no <c>DataContext</c> set at all. This field is what makes
+    /// <see cref="SetSelectionModeState"/> correct standalone, independent of whether a view-model
+    /// is bound or current at the moment it's called.
+    /// </summary>
+    private Brush _selectionModeBrush = Tokens.BrushSurfaceMedium;
+
+    /// <summary>
+    /// Ids currently in the discrete "gaze is on this target" state (Task 5). Consulted by
+    /// <see cref="PaintFace"/> alongside <see cref="_selectionModeBrush"/> so acquisition and the
+    /// mode tint can each be updated independently, in either order, and still converge on the
+    /// same face.
+    /// </summary>
+    private readonly HashSet<string> _acquiredIds = new();
 
     /// <summary>
     /// The per-button dwell-progress/icon/highlight subscriptions this window owns, so they can
@@ -202,6 +231,13 @@ public partial class ToolbarWindow : OverlayWindow
 
         _buttons[id] = button;
         _anchors[id] = anchor;
+
+        // Reapplies acquired state (and the mode tint) after a fresh construction. SwapIcon
+        // rebuilds via RemoveButton + AddButton, so this is what makes an acquired disc — or
+        // SelectionMode's tint — survive that rebuild without a separate call site at every place
+        // that can trigger one (item 2 of the round-2 review: the IconKey branch used to drop
+        // acquired state because nothing else repainted the fresh Ellipse it hands back).
+        PaintFace(id);
     }
 
     /// <summary>
@@ -392,10 +428,14 @@ public partial class ToolbarWindow : OverlayWindow
 
     /// <summary>The at-rest fill. SelectionMode overrides it to carry its mode.</summary>
     private Brush FillFor(string id) =>
-        id == "SelectionMode" ? _selectionModeBrush : Tokens.BrushSurfaceMedium;
+        id == SelectionModeId ? _selectionModeBrush : Tokens.BrushSurfaceMedium;
 
-    private Brush _selectionModeBrush = Tokens.BrushSurfaceMedium;
-
+    /// <summary>
+    /// Applies the selection-mode tint to the SelectionMode disc, caching it in
+    /// <see cref="_selectionModeBrush"/> (see that field's doc for why a cache, not a live
+    /// view-model read) and repainting through <see cref="PaintFace"/> so an already-acquired
+    /// disc keeps its acquired fill rather than being clobbered back to the tint.
+    /// </summary>
     public void SetSelectionModeState(SelectionMode mode)
     {
         _selectionModeBrush = mode switch
@@ -405,8 +445,7 @@ public partial class ToolbarWindow : OverlayWindow
             _ => Tokens.BrushSurfaceMedium
         };
 
-        if (_buttons.TryGetValue("SelectionMode", out var b))
-            b.Background.Fill = _selectionModeBrush;
+        PaintFace(SelectionModeId);
     }
 
     /// <summary>
@@ -461,18 +500,18 @@ public partial class ToolbarWindow : OverlayWindow
             // The re-lookup after SwapIcon cannot fail: SwapIcon replaces _buttons[id] rather
             // than removing it (RemoveButton followed immediately by AddButton for the same id).
             SwapIcon(id, btn.IconKey);
-            if (id == "SelectionMode")
+            if (id == SelectionModeId)
                 SetSelectionModeState(SelectionModeIcons.ToMode(btn.IconKey));
 
             _buttons[id].UpdateProgress(btn.DwellProgress);
-            // Must come after SetSelectionModeState above, which writes Background.Fill
-            // unconditionally: reversing the order would let an acquired SelectionMode button's
-            // SurfaceLight fill be clobbered back to the mode tint on every rebuild. IsHighlighted
-            // is a third property with the same "unchanged value repairs nothing" gap this block's
-            // leading comment already names for icon/mode-tint — a rebuild while gaze is still on
-            // a button (the toolbar keeps feeding gaze while the settings window is open, so a
-            // settings-triggered rebuild is reachable mid-highlight) must not drop the acquired
-            // state until the dwell happens to end or activate.
+            // IsHighlighted is a third property with the same "unchanged value repairs nothing"
+            // gap this block's leading comment already names for icon/mode-tint — a rebuild while
+            // gaze is still on a button (the toolbar keeps feeding gaze while the settings window
+            // is open, so a settings-triggered rebuild is reachable mid-highlight) must not drop
+            // the acquired state until the dwell happens to end or activate. Unlike the two calls
+            // above, this one is order-independent: PaintFace recomputes the face from
+            // _acquiredIds/_selectionModeBrush each time either is touched, so it converges to the
+            // same result whichever of SetSelectionModeState/ApplyAcquiredState runs last.
             ApplyAcquiredState(id, btn.IsHighlighted);
         }
 
@@ -491,9 +530,15 @@ public partial class ToolbarWindow : OverlayWindow
             }
             else if (e.PropertyName == nameof(ToolbarButtonViewModel.IconKey))
             {
+                // SwapIcon's rebuild (RemoveButton + AddButton) now repaints via PaintFace inside
+                // AddButton, so an acquired disc's fill/rim survives this branch without a
+                // separate ApplyAcquiredState call here (round-2 review item 2). UpdateProgress
+                // still needs reapplying for the same reason the initial-apply block above does:
+                // the rebuild hands back fresh Halo/ProgressPath elements defaulted to Visible.
                 SwapIcon(id, btn.IconKey);
-                if (id == "SelectionMode")
+                if (id == SelectionModeId)
                     SetSelectionModeState(SelectionModeIcons.ToMode(btn.IconKey));
+                _buttons[id].UpdateProgress(btn.DwellProgress);
             }
         };
 
@@ -511,8 +556,28 @@ public partial class ToolbarWindow : OverlayWindow
     /// </summary>
     private void ApplyAcquiredState(string id, bool acquired)
     {
+        if (acquired) _acquiredIds.Add(id);
+        else _acquiredIds.Remove(id);
+        PaintFace(id);
+    }
+
+    /// <summary>
+    /// The only writer of a disc's fill and rim. Both <see cref="ApplyAcquiredState"/> (writes
+    /// <see cref="_acquiredIds"/>) and <see cref="SetSelectionModeState"/> (writes
+    /// <see cref="_selectionModeBrush"/>) route through here rather than assigning
+    /// <c>Background.Fill</c>/<c>Stroke</c> directly, and <see cref="AddButton"/> calls it after
+    /// every (re)construction. That funnel is what makes the two independent of call order:
+    /// previously each wrote the same two properties on its own, so whichever ran last on a given
+    /// disc won outright, and reversing the order in <see cref="BindButton"/> silently clobbered an
+    /// acquired SelectionMode disc's fill back to the mode tint (round-2 review item 3). Acquisition
+    /// always wins over the tint here, stated once as the ternary condition instead of once per
+    /// call site as a comment.
+    /// </summary>
+    private void PaintFace(string id)
+    {
         if (!_buttons.TryGetValue(id, out var b)) return;
 
+        var acquired = _acquiredIds.Contains(id);
         b.Background.Fill = acquired ? Tokens.BrushSurfaceLight : FillFor(id);
         b.Background.Stroke = acquired ? Tokens.BrushBorderFocus : RimFor(id);
     }

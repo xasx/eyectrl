@@ -267,4 +267,32 @@ public class ToolbarViewModelTests
         Check.That(button.DwellProgress).IsEqualTo(0.0);
         Check.That(button.IsHighlighted).IsFalse();
     }
+
+    // Task 5's IsHighlighted derivation ("progress > 0") rests on a specific DwellDetector
+    // contract: no progress on the first sample inside a target, a positive value from the second
+    // sample on, and exactly 0 on leave. The two tests above drive that contract through
+    // SimulateTargetProgress, which bypasses the real detector entirely and so cannot catch a
+    // regression in it — e.g. DwellDetector no longer firing 0 on leave (DwellDetector.cs:253).
+    // This one drives the same path production gaze does.
+    [Fact]
+    public void RealGaze_EnteringThenLeaving_RaisesThenClearsIsHighlighted()
+    {
+        var vm = new ToolbarViewModel(_settings, new WeakReferenceMessenger());
+        var button = vm.Buttons.Single(b => b.Id == "Pause");
+
+        var center = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", center);
+
+        // First sample inside the target: DwellDetector only marks entry, no progress event yet.
+        vm.Receive(new GazeCursorMovedMessage(center, 0));
+        Check.That(button.IsHighlighted).IsFalse();
+
+        // Second sample, one gaze interval later: progress fires positive for the first time.
+        vm.Receive(new GazeCursorMovedMessage(center, 30_000));
+        Check.That(button.IsHighlighted).IsTrue();
+
+        // Gaze leaves the target entirely: DwellDetector fires exactly 0.
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(0, 0), 60_000));
+        Check.That(button.IsHighlighted).IsFalse();
+    }
 }

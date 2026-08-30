@@ -310,9 +310,13 @@ public class ToolbarButtonVisualTests
         window.BindToViewModel();
 
         var button = vm.Buttons.Single(b => b.Id == "Pause");
-        var face = Faces(window).OrderBy(Canvas.GetLeft).First();
+        // Identified by name, not by position: the other three tests in this group all use
+        // ButtonForTest, and Faces(...).OrderBy(Canvas.GetLeft).First() would silently start
+        // asserting about a different button if a future task (e.g. Task 7) reorders the band.
+        var face = window.ButtonForTest("Pause").Background;
 
-        Check.That(((SolidColorBrush)face.Fill).Color).IsEqualTo(Tokens.SurfaceMedium);
+        Check.WithCustomMessage("Pause's face was not at rest (SurfaceMedium) before any gaze.")
+            .That(((SolidColorBrush)face.Fill).Color).IsEqualTo(Tokens.SurfaceMedium);
 
         button.IsHighlighted = true;
         Check.That(((SolidColorBrush)face.Fill).Color).IsEqualTo(Tokens.SurfaceLight);

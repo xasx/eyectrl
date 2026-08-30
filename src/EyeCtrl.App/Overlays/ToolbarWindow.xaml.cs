@@ -7,6 +7,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
@@ -81,6 +82,23 @@ public partial class ToolbarWindow : OverlayWindow
     /// same face.
     /// </summary>
     private readonly HashSet<string> _acquiredIds = new();
+
+    /// <summary>
+    /// Ids currently showing the success-coloured activation flash (Task 8). Consulted by
+    /// <see cref="PaintFace"/> alongside <see cref="_acquiredIds"/> and
+    /// <see cref="_selectionModeBrush"/>, with the highest precedence of the three: a dwell that
+    /// just fired must read as fired even on a button gaze is still resting on.
+    /// </summary>
+    private readonly HashSet<string> _flashingIds = new();
+
+    /// <summary>How long an activation confirmation is held, in milliseconds.</summary>
+    private const int FlashHoldMs = 250;
+
+    /// <summary>
+    /// One timer per currently-flashing id, so a second activation while the first flash is still
+    /// live can stop and replace its own timer without disturbing any other button's.
+    /// </summary>
+    private readonly Dictionary<string, DispatcherTimer> _flashTimers = new();
 
     /// <summary>
     /// The per-button dwell-progress/icon/highlight subscriptions this window owns, so they can
@@ -654,16 +672,80 @@ public partial class ToolbarWindow : OverlayWindow
     /// acquired SelectionMode disc's fill back to the mode tint (round-2 review item 3). Acquisition
     /// always wins over the tint here, stated once as the ternary condition instead of once per
     /// call site as a comment.
+    ///
+    /// <para>
+    /// Task 8 adds a third input, <see cref="_flashingIds"/>, ahead of both: a dwell that just
+    /// fired must read as fired even on a button gaze is still resting on (the common case — the
+    /// user is still looking at what they just activated) or one still carrying the mode tint.
+    /// Precedence, highest first: flashing, then acquired, then the button's own rest colours
+    /// (<see cref="FillFor"/>/<see cref="RimFor"/>, which is where the mode tint and Reset's
+    /// warning rim live). Stated once here as the ternary chain rather than once per call site.
+    /// </para>
     /// </summary>
     private void PaintFace(string id)
     {
         if (!_buttons.TryGetValue(id, out var b)) return;
 
+        var flashing = _flashingIds.Contains(id);
         var acquired = _acquiredIds.Contains(id);
-        b.Background.Fill = acquired ? Tokens.BrushSurfaceLight : FillFor(id);
-        b.Background.Stroke = acquired ? Tokens.BrushBorderFocus : RimFor(id);
+        b.Background.Fill = flashing ? Tokens.BrushSurfacePrediction
+                           : acquired ? Tokens.BrushSurfaceLight
+                           : FillFor(id);
+        b.Background.Stroke = flashing ? Tokens.BrushAccentSuccess
+                             : acquired ? Tokens.BrushBorderFocus
+                             : RimFor(id);
     }
 
-    /// <summary>The success-coloured flash confirming a dwell fired. Task 8 fills this in.</summary>
-    private void FlashActivated(string id) { }
+    /// <summary>
+    /// The success-coloured flash confirming a dwell fired. Zeroing <c>DwellProgress</c> collapses
+    /// the arc identically whether a dwell completed or was abandoned at 99% — for Settings and
+    /// Windows the actual effect happens somewhere the user isn't looking, so this is the only
+    /// thing on the toolbar that says "that worked".
+    ///
+    /// <para>
+    /// Adds to <see cref="_flashingIds"/> and repaints through <see cref="PaintFace"/> rather than
+    /// writing <c>Background.Fill</c>/<c>Stroke</c> here directly — <see cref="PaintFace"/> is the
+    /// sole writer of those two properties (see its doc comment), and a second writer would
+    /// reintroduce the call-order problem that funnel removed.
+    /// </para>
+    /// </summary>
+    private void FlashActivated(string id)
+    {
+        if (!_buttons.ContainsKey(id))
+            return;
+
+        _flashingIds.Add(id);
+        PaintFace(id);
+
+        if (_flashTimers.TryGetValue(id, out var existing))
+            existing.Stop();
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(FlashHoldMs) };
+        timer.Tick += (_, _) => EndFlash(id);
+        _flashTimers[id] = timer;
+        timer.Start();
+    }
+
+    /// <summary>
+    /// Ends one button's activation flash: stops and drops its timer, removes it from
+    /// <see cref="_flashingIds"/>, and repaints. Internal, not private, for two reasons: it is
+    /// this class's own <see cref="DispatcherTimer"/> tick callback, AND the test seam these
+    /// tests drive directly — a window built here never calls <c>Show()</c> and runs on an STA
+    /// thread with no message pump, so the timer's <c>Tick</c> never actually fires in a test.
+    ///
+    /// <para>
+    /// Only removes from <see cref="_flashingIds"/> — it must NOT touch <see cref="_acquiredIds"/>.
+    /// If gaze is still on the button when the flash ends, <see cref="PaintFace"/> must fall
+    /// through to the acquired colours, not rest; clearing acquisition here as a side effect would
+    /// silently drop that state instead.
+    /// </para>
+    /// </summary>
+    internal void EndFlash(string id)
+    {
+        if (_flashTimers.Remove(id, out var timer))
+            timer.Stop();
+
+        _flashingIds.Remove(id);
+        PaintFace(id);
+    }
 }

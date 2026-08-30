@@ -420,11 +420,10 @@ public class ToolbarButtonVisualTests
     }
 
     // Task 6: the provider indicator (an eye/mouse glyph showing where gaze comes from) must not
-    // read as a dwellable button, and setting it twice must not stack a second one — the old
-    // AddIndicatorElement appended unconditionally, which was latent only because Initialize's
-    // panel-clear happened to hide it (SettingsUiCoordinator.cs:172 re-runs Initialize before the
-    // one real caller, OverlayManager.cs:108, could ever call SetProviderIndicator a second time
-    // on the same window instance).
+    // read as a dwellable button, and setting it twice must not stack a second one. Not a live
+    // reproduction today — OverlayManager.cs:107-108 is the one real caller, and it calls
+    // Initialize once then SetProviderIndicator once, never SetProviderIndicator twice on the
+    // same window — this exercises the guard directly, as a code property.
     [StaFact]
     public void TheProviderIndicator_IsNotInTheBand_AndNeverDuplicates()
     {
@@ -433,47 +432,74 @@ public class ToolbarButtonVisualTests
         window.SetProviderIndicator(GazeProviderType.StreamEngine);
         Check.WithCustomMessage("The indicator must not add a face to the button band.")
             .That(Faces(window)).HasSize(6);
-        var afterOne = window.IndicatorChildCountForTest;
+        var afterOne = window.IndicatorPanel.Children.Count;
         Check.WithCustomMessage("The indicator drew nothing at all — this test would pass even "
                 + "if AddIndicatorElement were a no-op.")
             .That(afterOne).IsStrictlyGreaterThan(0);
 
         window.SetProviderIndicator(GazeProviderType.Mouse);
         Check.WithCustomMessage("Setting the indicator twice appended a second one.")
-            .That(window.IndicatorChildCountForTest).IsEqualTo(afterOne);
+            .That(window.IndicatorPanel.Children.Count).IsEqualTo(afterOne);
     }
 
-    // The indicator must never masquerade as a dwell target: no face-sized Ellipse, ever, inside
-    // IndicatorPanel. Faces(window) staying at 6 (asserted above too) is the band-side half of
+    // The indicator must never masquerade as a dwell target: no Ellipse, ever, inside
+    // IndicatorPanel — Faces(window) staying at 6 (asserted above too) is the band-side half of
     // this; this is the indicator-side half.
     [StaFact]
-    public void TheIndicator_ContainsNoFaceSizedEllipse()
+    public void TheIndicator_ContainsNoEllipse()
     {
         var window = NewInitialisedToolbar();
         window.SetProviderIndicator(GazeProviderType.StreamEngine);
 
-        Check.That(Faces(window)).HasSize(6);
         Check.WithCustomMessage("The indicator drew something that looks like a dwell target.")
             .That(window.IndicatorPanel.Children.OfType<Ellipse>()).IsEmpty();
     }
 
+    /// <summary>
+    /// The switch that maps a <see cref="GazeProviderType"/> to a <see cref="ToolbarIconKey"/> is
+    /// the only logic in <c>AddIndicatorElement</c>, and Task 6 rewrote it (an emoji string per
+    /// case became an icon-key lookup). <see cref="ToolbarIcons.For"/> returns a geometry from a
+    /// static, shared dictionary, so the drawn <see cref="Path.Data"/> is the SAME
+    /// <see cref="Geometry"/> instance as <see cref="ToolbarIcons.For"/> for the expected key —
+    /// reference equality proves which arm of the switch actually ran, rather than merely that
+    /// SOME icon was drawn.
+    /// </summary>
+    [StaFact]
+    public void TheProviderIndicator_DrawsTheIconMatchingItsProviderType()
+    {
+        var window = NewInitialisedToolbar();
+
+        window.SetProviderIndicator(GazeProviderType.Mouse);
+        Check.WithCustomMessage("Mouse must draw the mouse icon, not the eye.")
+            .That(window.IndicatorPanel.Children.OfType<Path>().Single().Data)
+            .IsSameReferenceAs(ToolbarIcons.For(ToolbarIconKey.ProviderMouse).Stroke);
+
+        window.SetProviderIndicator(GazeProviderType.StreamEngine);
+        Check.WithCustomMessage("StreamEngine must draw the eye icon, not the mouse.")
+            .That(window.IndicatorPanel.Children.OfType<Path>().Single().Data)
+            .IsSameReferenceAs(ToolbarIcons.For(ToolbarIconKey.ProviderEye).Stroke);
+    }
+
     // The structural property this task exists to protect: the band's own geometry (button
     // centres and Canvas extent) is computed entirely in LayOutBand from _buttonSize/ButtonMargin
-    // and does not depend on IndicatorPanel at all. Reuses the exact numbers pinned by
-    // ButtonCentres_AndCanvasSize_AreExactlyAsLaidOut — if the indicator ever nudged the band,
-    // these would move off that fixed set.
+    // and does not depend on IndicatorPanel at all. Compared against a second, indicator-free
+    // window rather than re-pinning the same constants as ButtonCentres_AndCanvasSize_
+    // AreExactlyAsLaidOut: a shared-constants copy would fail identically on, say, a ButtonMargin
+    // edit, and neither run would point at the indicator as the thing under test.
     [StaFact]
     public void ButtonCentres_AndCanvasSize_AreUnaffectedByTheIndicator()
     {
-        var window = NewInitialisedToolbar();
-        window.SetProviderIndicator(GazeProviderType.StreamEngine);
+        var withoutIndicator = NewInitialisedToolbar();
+        var withIndicator = NewInitialisedToolbar();
+        withIndicator.SetProviderIndicator(GazeProviderType.StreamEngine);
 
-        var canvas = ButtonCanvas(window);
-        var lefts = Faces(window).Select(Canvas.GetLeft).OrderBy(x => x).ToList();
+        var leftsWithout = Faces(withoutIndicator).Select(Canvas.GetLeft).OrderBy(x => x).ToList();
+        var leftsWith = Faces(withIndicator).Select(Canvas.GetLeft).OrderBy(x => x).ToList();
 
-        Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 756.0);
-        Check.That(canvas.Width).IsEqualTo(888.0);
-        Check.That(canvas.Height).IsEqualTo(144.0);
+        Check.WithCustomMessage("Setting the provider indicator moved the button band.")
+            .That(leftsWith).ContainsExactly(leftsWithout);
+        Check.That(ButtonCanvas(withIndicator).Width).IsEqualTo(ButtonCanvas(withoutIndicator).Width);
+        Check.That(ButtonCanvas(withIndicator).Height).IsEqualTo(ButtonCanvas(withoutIndicator).Height);
     }
 
     /// <summary>
@@ -525,34 +551,45 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void TheIndicatorRule_SwapsDimensions_WhenDockedVertically()
     {
+        // Both values are named constants, not "whichever is bigger": an ordering assertion alone
+        // would pass on any (small, large) pair, e.g. (2, 1), and miss a regression that shrank or
+        // grew the wrong dimension by an arbitrary amount as long as the order held.
+        var thin = Tokens.BorderThicknessStandard;
+        var wide = ButtonSize * ContainerRatio.Dominant;
+
         var window = NewInitialisedToolbar();
         window.SetProviderIndicator(GazeProviderType.StreamEngine);
 
         var ruleHorizontal = window.IndicatorPanel.Children.OfType<Border>().Single();
         Check.WithCustomMessage("The rule should be thin-and-tall while the strip is horizontal.")
-            .That(ruleHorizontal.Width).IsStrictlyLessThan(ruleHorizontal.Height);
+            .That(ruleHorizontal.Width).IsEqualTo(thin);
+        Check.That(ruleHorizontal.Height).IsEqualTo(wide);
 
         window.SetMode(isDocked: true, edge: "left");
 
         var ruleVertical = window.IndicatorPanel.Children.OfType<Border>().Single();
         Check.WithCustomMessage("The rule should be wide-and-thin once the strip is vertical.")
-            .That(ruleVertical.Width).IsStrictlyGreaterThan(ruleVertical.Height);
+            .That(ruleVertical.Width).IsEqualTo(wide);
+        Check.That(ruleVertical.Height).IsEqualTo(thin);
     }
 
     /// <summary>
     /// Both hairlines — the indicator's rule and the Reset separator's <see cref="Line"/> — must
     /// use <see cref="Tokens.BrushBorderSubtle"/>, never <see cref="Tokens.BrushSurfaceMedium"/>.
-    /// SurfaceMedium on SurfaceDark is 1.23:1 nominal (worse as drawn: a 1px line at a fractional
-    /// position antialiases across two pixels), against disc rims at 3.38:1 on the same ground —
-    /// and it is worst on Contrast, the theme picked specifically for low vision: 1.14:1 as drawn
-    /// vs. 21.00:1 with BorderSubtle. <see cref="EveryButton_CarriesAVisibleRim"/> above already
-    /// asserts SurfaceMedium alone is invisible as a boundary; without this guard, a future
-    /// "the divider looks too loud" cleanup could revert either site back to it with nothing to
-    /// object.
+    /// The canonical contrast figures for this pair on <see cref="Tokens.SurfaceDark"/> — 1.23 /
+    /// 1.23 / 1.14 for SurfaceMedium, 3.35 / 3.32 / 21.00 for BorderSubtle (Midnight / Ember /
+    /// Contrast) — already live in <c>DwellToggleVisualTests.cs</c>,
+    /// <c>SliderStepperContrastTests.cs</c> and <see cref="EyeCtrl.Controls.DwellSlider"/>; not
+    /// repeated here. <see cref="EveryButton_CarriesAVisibleRim"/> above already asserts
+    /// SurfaceMedium alone is invisible as a boundary; without this guard, a future "the divider
+    /// looks too loud" cleanup could revert either site back to it with nothing to object.
     ///
-    /// A token-identity check, not a live per-theme contrast measurement: the ratio follows
-    /// mechanically from which token is chosen, and re-deriving three themes' actual contrast
-    /// here would rebuild the reviewer's analysis instead of pinning its outcome.
+    /// A token-identity check, not a live per-theme contrast measurement: the floor itself is
+    /// already gated outside this suite, by <c>tools/palette_validate.py:358</c> ("GATE 1 —
+    /// layering"), which checks <c>BorderSubtle</c> against the worst composited surface in every
+    /// theme and runs in CI. What that gate cannot see is which BRUSH this control reaches for —
+    /// it would pass unchanged if this method used SurfaceMedium instead — and that choice is
+    /// exactly what this test pins.
     /// </summary>
     [StaFact]
     public void BothHairlines_UseBorderSubtle_NotSurfaceMedium()
@@ -561,13 +598,11 @@ public class ToolbarButtonVisualTests
         window.SetProviderIndicator(GazeProviderType.StreamEngine);
 
         var separator = ButtonCanvas(window).Children.OfType<Line>().Single();
-        Check.WithCustomMessage("The Reset separator must use BorderSubtle, not SurfaceMedium — "
-                + "SurfaceMedium on SurfaceDark computes to 1.23:1 and is worse on Contrast theme.")
+        Check.WithCustomMessage("The Reset separator must use BorderSubtle, not SurfaceMedium.")
             .That(((SolidColorBrush)separator.Stroke).Color).IsEqualTo(Tokens.BorderSubtle);
 
         var rule = window.IndicatorPanel.Children.OfType<Border>().Single();
-        Check.WithCustomMessage("The indicator's rule must use BorderSubtle, not SurfaceMedium — "
-                + "SurfaceMedium on SurfaceDark computes to 1.23:1 and is worse on Contrast theme.")
+        Check.WithCustomMessage("The indicator's rule must use BorderSubtle, not SurfaceMedium.")
             .That(((SolidColorBrush)rule.Background).Color).IsEqualTo(Tokens.BorderSubtle);
     }
 }

@@ -123,9 +123,11 @@ public partial class ToolbarWindow : OverlayWindow
         _buttons.Clear();
         _anchors.Clear();
         ButtonCanvas.Children.Clear();
-        // Cleared alongside the band because the old single-panel Initialize wiped the indicator
-        // too (it lived in ButtonPanel). Task 6 owns the indicator's rebuild/idempotency.
-        IndicatorPanel.Children.Clear();
+        // No IndicatorPanel.Children.Clear() here: AddIndicatorElement below clears it itself
+        // before adding, and when _providerType is null nothing has ever added to the panel in
+        // the first place (SetProviderIndicator is IndicatorPanel's only other writer, and it
+        // sets _providerType before calling AddIndicatorElement). A clear here would be provably
+        // dead, not just redundant.
         _targetsInitialized = false;
 
         // Every id here must exist in ToolbarViewModel's button list and have a case in its
@@ -250,12 +252,13 @@ public partial class ToolbarWindow : OverlayWindow
     ///
     /// <para>
     /// <see cref="Tokens.BrushBorderSubtle"/>, not <see cref="Tokens.BrushSurfaceMedium"/> (a
-    /// Task 6 fix, done alongside the indicator rule below — the two must move together, since at
-    /// different weights in one 896 px strip they would read as a bug). SurfaceMedium on
-    /// SurfaceDark is 1.23:1 nominal and worse as drawn (a 1px line at a fractional position
-    /// antialiases across two pixels), against disc rims at 3.38:1 on the same ground — and the
-    /// gap is worst on Contrast, the theme picked specifically for low vision: 1.14:1 as drawn vs.
-    /// 21.00:1 with BorderSubtle. <see cref="ToolbarButtonVisualTests.EveryButton_CarriesAVisibleRim"/>
+    /// Task 6 fix, done alongside the indicator rule in <see cref="AddIndicatorElement"/> — the
+    /// two must move together, since at different weights in one 896 px strip they would read as
+    /// a bug). SurfaceMedium on SurfaceDark measures 1.23 / 1.23 / 1.14 (Midnight / Ember /
+    /// Contrast); BorderSubtle on the same ground measures 3.35 / 3.32 / 21.00 — the canonical
+    /// figures already cited in <c>DwellToggleVisualTests.cs</c>,
+    /// <c>SliderStepperContrastTests.cs</c> and <see cref="EyeCtrl.Controls.DwellSlider"/>, not
+    /// re-derived here. <see cref="ToolbarButtonVisualTests.EveryButton_CarriesAVisibleRim"/>
     /// already asserts SurfaceMedium alone is invisible as a boundary; this line was painting a
     /// new boundary in exactly that pairing.
     /// </para>
@@ -329,9 +332,6 @@ public partial class ToolbarWindow : OverlayWindow
             ButtonCanvas.Children.Remove(anchor);
     }
 
-    /// <summary>The indicator's own child count, for tests. See <see cref="AddIndicatorElement"/>.</summary>
-    internal int IndicatorChildCountForTest => IndicatorPanel.Children.Count;
-
     /// <summary>
     /// Draws the gaze-provider indicator: a small glyph (eye/mouse) plus a hairline rule, sized
     /// and coloured as chrome rather than as a sixth button — it carries no fill, no rim and no
@@ -339,12 +339,17 @@ public partial class ToolbarWindow : OverlayWindow
     /// <c>Border</c>+emoji <c>TextBlock</c> could.
     ///
     /// <para>
-    /// Idempotent: <see cref="Initialize"/> (via <see cref="RebuildBand"/>) calls this again
-    /// whenever <c>_providerType</c> is already set (every settings-save round-trips through
-    /// <c>SettingsUiCoordinator.cs:172</c>), and the old version appended a second indicator on
-    /// that path. Clearing first, rather than checking whether one already exists, also makes an
-    /// axis flip (<see cref="SetMode"/>) free to rebuild the indicator in its new orientation
-    /// without a separate "is this a rebuild or a fresh add" branch.
+    /// Clears <see cref="IndicatorPanel"/> before adding, which is what makes a second
+    /// <see cref="SetProviderIndicator"/> call on a live window safe instead of doubling the
+    /// indicator. <c>OverlayManager.cs:107-108</c> does not call it twice today — it calls
+    /// <see cref="Initialize"/> once and <see cref="SetProviderIndicator"/> once, in that order —
+    /// so nothing exercises this guard on the current caller, but it is one line away (e.g. a
+    /// provider hot-swap) and there would be nothing else stopping
+    /// <see cref="IndicatorPanel"/> from accumulating a second icon+rule pair if that line were
+    /// added. Clearing unconditionally, rather than checking whether one already exists, also
+    /// makes an axis flip (<see cref="SetMode"/>, via <see cref="RebuildBand"/>) free to rebuild
+    /// the indicator in its new orientation without a separate "is this a rebuild or a fresh add"
+    /// branch.
     /// </para>
     ///
     /// <para>
@@ -360,8 +365,7 @@ public partial class ToolbarWindow : OverlayWindow
     /// </summary>
     private void AddIndicatorElement(GazeProviderType providerType)
     {
-        // Idempotent: Initialize also calls this when _providerType is already set, which
-        // previously appended a second indicator.
+        // Idempotent — see this method's doc comment above for what that guards against.
         IndicatorPanel.Children.Clear();
 
         // GazeProviderType also has Auto (0), which falls through to the eye here — but it never
@@ -393,29 +397,28 @@ public partial class ToolbarWindow : OverlayWindow
             StrokeStartLineCap = PenLineCap.Round,
             StrokeEndLineCap = PenLineCap.Round,
             StrokeLineJoin = PenLineJoin.Round,
+            // Scale on RenderTransform, not Geometry.Transform — same reasoning as
+            // DwellArcButton.Create's BuildLayer (see DwellArcButton.cs:267-269): RenderTransform
+            // scales the stroke with the path, so GridStrokeThickness stays constant at every size.
             RenderTransform = new ScaleTransform(scale, scale),
             Width = size,
             Height = size,
             VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
             // The panel's own leading gap, now that IndicatorPanel carries no Margin of its own
             // (an empty StackPanel's content measures to zero, but its Margin would not, which is
             // what made the strip asymmetric with no provider set — see the XAML comment).
             Margin = _vertical ? new Thickness(0, ButtonMargin, 0, 0) : new Thickness(ButtonMargin, 0, 0, 0),
         };
 
-        // BrushBorderSubtle, not BrushSurfaceMedium (moved together with AddSeparator's Line,
-        // same commit, same reason): SurfaceMedium on SurfaceDark is 1.23:1 nominal and worse as
-        // drawn — a 1px line at a fractional position antialiases across two pixels — against disc
-        // rims at 3.38:1 on the same ground. The gap is worst on Contrast, the theme picked
-        // specifically for low vision: 1.14:1 as drawn vs. 21.00:1 with BorderSubtle.
-        // ToolbarButtonVisualTests.EveryButton_CarriesAVisibleRim already asserts SurfaceMedium
-        // alone is invisible as a boundary; this rule was painting a new boundary in exactly that
-        // pairing.
+        // BrushBorderSubtle, not BrushSurfaceMedium — same reason as AddSeparator's Line, see
+        // that method's doc comment for the contrast figures; the two moved together.
         var rule = new Border
         {
             Width = _vertical ? _buttonSize * ContainerRatio.Dominant : Tokens.BorderThicknessStandard,
             Height = _vertical ? Tokens.BorderThicknessStandard : _buttonSize * ContainerRatio.Dominant,
             Background = Tokens.BrushBorderSubtle,
+            IsHitTestVisible = false,
             Margin = _vertical ? new Thickness(0, ButtonMargin, 0, 0)
                                : new Thickness(ButtonMargin, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,

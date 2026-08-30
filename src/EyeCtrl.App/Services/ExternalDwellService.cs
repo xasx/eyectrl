@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Services;
 
+using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
@@ -14,6 +15,7 @@ using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Platform.Ipc;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging;
 
@@ -49,6 +51,8 @@ public sealed class ExternalDwellService : IDisposable
     private readonly object _stateLock = new();
     private readonly List<PipeConnection> _connections = new();
     private readonly Dictionary<string, PipeConnection> _connByTarget = new();
+    private readonly ConcurrentDictionary<NamedPipeServerStream, PipeConnection> _connectionsByPipe = new();
+    private readonly NewlineJsonPipeServer _pipeServer;
 
     private string? _feedbackId;
     private PhysicalRect _feedbackRect;
@@ -56,7 +60,6 @@ public sealed class ExternalDwellService : IDisposable
     private string? _frameProgressId;
     private double _frameProgress;
     private string? _frameActivatedId;
-    private CancellationTokenSource? _cts;
     private bool _disposed;
 
     public ExternalDwellService(
@@ -95,13 +98,40 @@ public sealed class ExternalDwellService : IDisposable
             // cleared), and it's unnecessary — disabled frames are simply not processed.
         };
         _gazeEngine.CursorMoved += OnCursorMoved;
+
+        _pipeServer = new NewlineJsonPipeServer(
+            _pipeName,
+            () => new NamedPipeServerStream(_pipeName, PipeDirection.InOut,
+                NamedPipeServerStream.MaxAllowedServerInstances,
+                PipeTransmissionMode.Byte, PipeOptions.Asynchronous),
+            onConnected: pipe =>
+            {
+                var conn = new PipeConnection(pipe, ex => _logger.LogWarning(ex, "pipe write failed"));
+                lock (_stateLock)
+                    _connections.Add(conn);
+                _connectionsByPipe[pipe] = conn;
+            },
+            handleLine: (line, pipe) =>
+            {
+                if (!_connectionsByPipe.TryGetValue(pipe, out var conn))
+                    return true;
+                var msg = JsonSerializer.Deserialize<WireMessage>(line, WireJson.Options);
+                if (msg is null)
+                    return true;
+                HandleMessage(msg, conn);
+                return true;
+            },
+            onDisconnected: pipe =>
+            {
+                if (_connectionsByPipe.TryRemove(pipe, out var conn))
+                    TeardownConnection(conn);
+            },
+            log: (ex, line) => _logger.LogWarning(ex, "bad pipe message: {Line}", line));
     }
 
     public void Start()
     {
-        if (_cts != null) return;
-        _cts = new CancellationTokenSource();
-        _ = AcceptLoopAsync(_cts.Token);
+        _pipeServer.Start();
     }
 
     private void OnCursorMoved(PhysicalPoint gaze, long timestampUs)
@@ -210,56 +240,20 @@ public sealed class ExternalDwellService : IDisposable
         });
     }
 
-    private async Task AcceptLoopAsync(CancellationToken token)
+    private void TeardownConnection(PipeConnection conn)
     {
-        while (!token.IsCancellationRequested)
+        lock (_stateLock)
         {
-            var pipe = new NamedPipeServerStream(_pipeName, PipeDirection.InOut,
-                NamedPipeServerStream.MaxAllowedServerInstances,
-                PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-            try
+            _connections.Remove(conn);
+            foreach (var id in conn.TargetIds)
             {
-                await pipe.WaitForConnectionAsync(token);
-            }
-            catch (OperationCanceledException) { pipe.Dispose(); break; }
-            catch (Exception ex) { _logger.LogWarning(ex, "pipe accept failed"); pipe.Dispose(); continue; }
-
-            var conn = new PipeConnection(pipe, ex => _logger.LogWarning(ex, "pipe write failed"));
-            lock (_stateLock) _connections.Add(conn);
-            _ = HandleConnectionAsync(conn, token);
-        }
-    }
-
-    private async Task HandleConnectionAsync(PipeConnection conn, CancellationToken token)
-    {
-        try
-        {
-            using var reader = new StreamReader(conn.Pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
-            while (!token.IsCancellationRequested && conn.Pipe.IsConnected)
-            {
-                var line = await reader.ReadLineAsync(token);
-                if (line == null) break;
-                try { HandleMessage(JsonSerializer.Deserialize<WireMessage>(line, WireJson.Options), conn); }
-                catch (Exception ex) { _logger.LogWarning(ex, "bad pipe message: {Line}", line); }
+                _connByTarget.Remove(id);
+                _targetsById.Remove(id);
+                _hwndById.Remove(id);
+                _detector.RemoveTarget(id);
             }
         }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { _logger.LogWarning(ex, "connection handler error"); }
-        finally
-        {
-            lock (_stateLock)
-            {
-                _connections.Remove(conn);
-                foreach (var id in conn.TargetIds)
-                {
-                    _connByTarget.Remove(id);
-                    _targetsById.Remove(id);
-                    _hwndById.Remove(id);
-                    _detector.RemoveTarget(id);
-                }
-            }
-            conn.Dispose();
-        }
+        conn.Dispose();
     }
 
     private void HandleMessage(WireMessage? msg, PipeConnection conn)
@@ -345,14 +339,13 @@ public sealed class ExternalDwellService : IDisposable
         _disposed = true;
         _gazeEngine.CursorMoved -= OnCursorMoved;
         ReleaseSuppression();
-        _cts?.Cancel();
+        _pipeServer.Dispose();
         lock (_stateLock)
         {
             foreach (var c in _connections) c.Dispose();
             _connections.Clear();
             _connByTarget.Clear();
         }
-        _cts?.Dispose();
         _dispatcher.BeginInvoke(() => _feedback.Close());
     }
 

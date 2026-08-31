@@ -58,6 +58,16 @@ public partial class KeyboardWindow : OverlayWindow
     private EyeCtrlSettings? _settings;
     private readonly IStruggleTelemetrySink? _sink;
 
+    /// <summary>
+    /// Widest a prediction label may grow, in key widths. Expressed in keys so it tracks
+    /// KeySizeMultiplier instead of pinning a DIP value that only suits the default key size.
+    /// This bounds how far one suggestion can push the window, it does not make the bar narrower
+    /// than the keys — five MinWidth=120 cells already outrun a 10-key row at the default key
+    /// size, which is pre-existing. What matters here is that the bound is a constant: an
+    /// unbounded cell lets a single sentence move the window by an arbitrary amount.
+    /// </summary>
+    private const double PredictionLabelWidthInKeys = 5.0;
+
     private KeyboardLayout? _layout;
     private double _keySize;
     private int _predictionDwellMs;
@@ -439,7 +449,15 @@ public partial class KeyboardWindow : OverlayWindow
                 // applies above ~0.75x.
                 FontSize = Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
                 VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center
+                HorizontalAlignment = HorizontalAlignment.Center,
+                // Sentence completions are whole sentences, not words, and the cell below has no
+                // MaxWidth: the window is SizeToContent="WidthAndHeight", so one long suggestion
+                // would widen the whole keyboard and shift every key — moving each key's dwell
+                // target out from under a gaze that is mid-dwell. Bounded here rather than on the
+                // Border because the badge variant nests this in a horizontal StackPanel, which
+                // measures its children with infinite width and would defeat a Border-level cap.
+                MaxWidth = _keySize * PredictionLabelWidthInKeys,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
             System.Windows.Automation.AutomationProperties.SetAutomationId(predLabel, $"Keyboard_Prediction_{i}");
 

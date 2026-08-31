@@ -54,11 +54,17 @@ public class PredictionOrchestrator : IDisposable
 
         if (_sentenceIndex != null && !string.IsNullOrWhiteSpace(prefix))
         {
+            // The trie stores completions with the matched prefix stripped (Insert indexes
+            // words[prefixLen..]), but accepting a suggestion REPLACES the typed word: the accept
+            // path deletes CurrentInput.Length characters before inserting. Handing back the bare
+            // remainder would erase what the user typed — "how" + "was sightseeing?" would land as
+            // "was sightseeing?" — so re-attach the prefix to make the suggestion self-contained.
+            var typedPrefix = string.Join(' ', prefix.Split(' ', StringSplitOptions.RemoveEmptyEntries));
             var trieCompletions = _sentenceIndex.GetCompletions(prefix, maxCount);
             foreach (var (completion, frequency) in trieCompletions)
             {
                 allResults.Add(new PredictionResult(
-                    completion,
+                    $"{typedPrefix} {completion}",
                     Math.Log(Math.Max(1, frequency)) * 3.0,
                     PredictionType.SentenceCompletion,
                     Math.Min(1.0, Math.Log(Math.Max(1, frequency)) / 10.0)));

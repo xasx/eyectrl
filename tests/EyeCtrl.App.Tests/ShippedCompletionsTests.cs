@@ -62,14 +62,18 @@ public class ShippedCompletionsTests
             if (completions.Count == 0) continue;
             anyCompletions = true;
 
-            for (var i = 0; i < completions.Count; i++)
-            {
-                Check.That(completions[i].completion).As($"{lang}/{probe}[{i}] text").Not.IsNullOrEmpty();
-                if (i > 0)
-                    Check.That(completions[i - 1].frequency)
-                        .As($"{lang}/{probe} ranking at {i}")
-                        .IsGreaterOrEqualThan(completions[i].frequency);
-            }
+            foreach (var (completion, _) in completions)
+                Check.That(completion).As($"{lang}/{probe} completion text").Not.IsNullOrEmpty();
+
+            // Asserting descending frequency would only re-test GetCompletions' own OrderByDescending.
+            // What the shipped data has to prove is the shortness bias: its weight is
+            // maxWords + 1 - sentenceLength, and every completion under one node was cut at the same
+            // prefix length, so ranking first means being the shorter completion. Regenerate without
+            // the bias flag and near-unique sentences all weigh 1, which drops this ordering.
+            var wordCounts = completions
+                .Select(c => c.completion.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length)
+                .ToList();
+            Check.That(wordCounts.First()).As($"{lang}/{probe} top completion length").IsLessOrEqualThan(wordCounts.Last());
         }
         Check.That(anyCompletions).As($"at least one probe word for '{lang}' returns completions").IsTrue();
     }

@@ -62,4 +62,28 @@ public class KeyboardViewModelOrchestratorTests
 
         Check.That(vm.GetType().GetProperty("CurrentInput")!.GetValue(vm)).IsEqualTo("");
     }
+
+    [Fact]
+    public void HandlePredictionSelected_MultiWord_LearnsTheWordsNotTheWholeSentence()
+    {
+        var settings = new EyeCtrlSettings { Keyboard = { SmartCapitalizationEnabled = false } };
+        var messenger = new WeakReferenceMessenger();
+        using var vm = new KeyboardViewModel(settings, messenger);
+        var provider = new InMemoryDictProvider([]);
+        var predictor = new WordPredictor(provider, "QWERTY");
+        var orchestrator = new PredictionOrchestrator(predictor);
+        vm.SetOrchestrator(orchestrator);
+
+        // A sentence completion is accepted as one string. Learning it verbatim would make
+        // "thank you very much" a single key in the user's persisted dictionary, suggested back
+        // whole on the next "thank" — the individual words are what the user actually typed.
+        vm.GetType().GetProperty("CurrentInput")!.SetValue(vm, "thank");
+        vm.HandlePredictionSelected("thank you very much");
+
+        var suggestions = orchestrator.GetSuggestions("thank", context: null, maxCount: 10);
+        Check.That(suggestions.Select(r => r.Word)).Not.Contains("thank you very much");
+        Check.That(suggestions.Select(r => r.Word)).Contains("thank");
+        Check.That(orchestrator.GetSuggestions("ver", context: null, maxCount: 10).Select(r => r.Word))
+            .Contains("very");
+    }
 }

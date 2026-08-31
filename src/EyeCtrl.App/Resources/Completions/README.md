@@ -11,6 +11,13 @@ https://downloads.tatoeba.org), licensed **CC-BY 2.0 FR**
 were sampled deterministically (seeded) and filtered, then indexed with
 `tools/CorpusBuilder`. Keep this notice distributed with the `.bin` files.
 
+The sampling seed is fixed, but the input is not: Tatoeba republishes the export
+weekly, so following the recipe below reproduces the *pipeline*, not these exact
+`.bin` files. Record the export date the shipped tries were built from — here,
+and again on every regeneration — if byte-level reproducibility ever matters.
+
+    Export date of the shipped tries: (unrecorded — fill in on next regeneration)
+
 ## Regenerating
 
 From a checkout root, with the per-language Tatoeba exports downloaded
@@ -18,6 +25,7 @@ From a checkout root, with the per-language Tatoeba exports downloaded
 
 ```bash
 curl -sL -o eng.tsv.bz2 https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2
+bunzip2 eng.tsv.bz2          # prepare_tatoeba.py reads <code>.tsv, not the .bz2
 # ...same for fra, deu, spa, pol into the same download dir
 
 python tools/CorpusBuilder/prepare_tatoeba.py <download-dir> <prepared-dir> 15000

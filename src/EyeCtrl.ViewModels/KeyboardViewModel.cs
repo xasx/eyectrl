@@ -297,10 +297,20 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     public void HandlePredictionSelected(string word)
     {
-        _orchestrator?.LearnWord(word);
+        // Sentence completions and phrases arrive as multi-word text. LearnWord stores its argument
+        // verbatim as one dictionary key, so learning that would put a whole sentence — punctuation
+        // included — into the persisted user dictionary and then suggest it back as a single word.
+        // LearnSequence learns the individual words plus their bigrams and phrase, which is what the
+        // user actually typed; only the last word can serve as bigram context for the next one.
+        var words = word.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length > 1)
+            _orchestrator?.LearnSequence(words);
+        else
+            _orchestrator?.LearnWord(word);
+
         var deleteCount = CurrentInput.Length;
         CurrentInput = "";
-        _previousWord = word;
+        _previousWord = words.Length > 0 ? words[^1] : word;
         AppendRecentText(word);
         Messenger.Send(new PredictionSelectedMessage(word, deleteCount));
     }

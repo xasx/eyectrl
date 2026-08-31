@@ -43,7 +43,11 @@ public class PredictionOrchestratorTests
             trie: trie);
 
         var results = orchestrator.GetSuggestions("thank", context: null, maxCount: 5);
-        Check.That(results).HasElementThatMatches(r => r.Type == PredictionType.SentenceCompletion && r.Word == "you very much");
+
+        // The suggestion carries the typed prefix, not the bare trie remainder ("you very much"):
+        // accepting one deletes the typed word first, so a prefix-less suggestion would drop it.
+        Check.That(results).HasElementThatMatches(r =>
+            r.Type == PredictionType.SentenceCompletion && r.Word == "thank you very much");
     }
 
     [Fact]

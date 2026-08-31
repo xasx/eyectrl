@@ -13,6 +13,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The sentence-completion tries are LFS objects. Without this the runner gets 132-byte
+          # pointer files, App.Tests' ShippedCompletionsTests fails on a corrupt trie header, and
+          # a publish would ship placeholders in place of the prediction data.
+          lfs: true
 
       # Deliberately the first thing after checkout, ahead of the WinUI provisioning and the
       # build. The palette gates take about a second, need nothing from .NET, and a failure here

@@ -18,6 +18,11 @@ public class ShippedCompletionsTests
 {
     private const int MaxBytesPerLanguage = 10 * 1024 * 1024;
 
+    // The tries are Git LFS objects, so a checkout without LFS smudging leaves ~132-byte pointer
+    // text files in their place. That still loads far enough to fail on the magic number, with an
+    // error naming neither LFS nor the file — this floor names the real problem instead.
+    private const int MinBytesPerLanguage = 64 * 1024;
+
     private static readonly string[] Languages = ["en", "fr", "de", "es", "pl"];
 
     // Near-guaranteed sentence starters in any Tatoeba sample; a regeneration may
@@ -44,7 +49,11 @@ public class ShippedCompletionsTests
         {
             var path = TriePath(lang);
             Check.That(File.Exists(path)).As($"shipped trie at {path}").IsTrue();
-            Check.That(new FileInfo(path).Length).As($"{lang} trie size").IsStrictlyLessThan(MaxBytesPerLanguage);
+            var size = new FileInfo(path).Length;
+            Check.That(size).As($"{lang} trie size").IsStrictlyLessThan(MaxBytesPerLanguage);
+            Check.That(size)
+                .As($"{lang} trie size (a few hundred bytes here means an un-smudged Git LFS pointer, not a trie — run `git lfs checkout`)")
+                .IsStrictlyGreaterThan(MinBytesPerLanguage);
         }
     }
 

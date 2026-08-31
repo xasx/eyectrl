@@ -3,6 +3,16 @@
 `completions_{lang}.bin` files are binary sentence-completion tries loaded by
 `PredictionStackFactory` (one per language pack: en, fr, de, es, pl).
 
+## Storage
+
+These `.bin` files are tracked with **Git LFS** (see `.gitattributes` at the repo
+root) — they are a few MB each and do not delta-compress, so committing them
+directly would grow history by their full size on every regeneration. A clone
+without `git-lfs` installed leaves ~132-byte pointer files here instead; the app
+would then log a failed trie load and fall back to word-only prediction, and
+`ShippedCompletionsTests` fails with a message saying so. Fix with
+`git lfs install && git lfs checkout`.
+
 ## Data source and license
 
 The sentences come from [Tatoeba](https://tatoeba.org) (weekly exports at

@@ -2,9 +2,11 @@ using EyeCtrl.Core.Prediction;
 
 if (args.Length < 2)
 {
-    Console.Error.WriteLine("Usage: CorpusBuilder <input-file> <output-file> [min-words] [max-words]");
+    Console.Error.WriteLine("Usage: CorpusBuilder <input-file> <output-file> [min-words] [max-words] [shortness-bias]");
     Console.Error.WriteLine("  Processes a text corpus (one sentence per line or raw text)");
     Console.Error.WriteLine("  and produces a sentence completion trie binary file.");
+    Console.Error.WriteLine("  shortness-bias: rank frequency by (max-words + 1 - word-count)");
+    Console.Error.WriteLine("  instead of corpus duplicates — shorter completions surface first.");
     return 1;
 }
 
@@ -12,6 +14,7 @@ var inputPath = args[0];
 var outputPath = args[1];
 var minWords = args.Length > 2 && int.TryParse(args[2], out var mw) ? mw : 4;
 var maxWords = args.Length > 3 && int.TryParse(args[3], out var Mw) ? Mw : 15;
+var shortnessBias = args.Length > 4 && bool.TryParse(args[4], out var sb) && sb;
 
 if (!File.Exists(inputPath))
 {
@@ -33,7 +36,12 @@ Console.WriteLine($"  After dedup: {deduped.Count}");
 
 var index = new SentenceCompletionIndex();
 foreach (var (sentence, freq) in deduped)
-    index.Insert(sentence, freq);
+{
+    var weight = shortnessBias
+        ? Math.Max(1, maxWords + 1 - sentence.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length)
+        : freq;
+    index.Insert(sentence, weight);
+}
 
 using var output = File.Create(outputPath);
 index.Save(output);

@@ -2,6 +2,10 @@
 
 ## Build & Run
 
+Requires **git-lfs**: the sentence-completion tries in
+`src/EyeCtrl.App/Resources/Completions/` are LFS objects. A clone without it gets
+pointer files, and `EyeCtrl.App.Tests` fails on them. `git lfs install && git lfs checkout`.
+
 ```bash
 dotnet build EyeCtrl.slnx                # build everything
 dotnet run --project src/EyeCtrl.App     # run (falls back to mouse-as-gaze if no eye tracker)

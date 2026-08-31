@@ -14,7 +14,7 @@ using Xunit;
 /// on Settings or Windows (whose effect happens somewhere the user isn't looking) doesn't look
 /// identical to a dwell abandoned at 99% — both zero <c>DwellProgress</c> and collapse the arc.
 ///
-/// <see cref="ToolbarWindow.PaintFace"/> is the sole writer of a disc's Fill/Stroke (Task 5), so
+/// <c>ToolbarBand.PaintFace</c> is the sole writer of a disc's Fill/Stroke (Task 5), so
 /// the flash is a third INPUT to that method (a <c>_flashingIds</c> set) rather than a third
 /// writer of the two properties directly — flash beats acquired beats rest.
 ///
@@ -107,12 +107,12 @@ public class ToolbarActivationFlashTests
     public void EndingAFlash_OnReset_ReturnsToTheWarningRim_NotBorderSubtle()
     {
         var (window, vm) = ToolbarTestHelpers.NewBoundToolbar();
-        var face = window.ButtonForTest(ToolbarWindow.ResetId).Background;
+        var face = window.ButtonForTest(ToolbarBand.ResetId).Background;
 
-        vm.SimulateButtonActivated(ToolbarWindow.ResetId);
+        vm.SimulateButtonActivated(ToolbarBand.ResetId);
         Check.That(((SolidColorBrush)face.Stroke).Color).IsEqualTo(Tokens.AccentSuccess);
 
-        window.EndFlash(ToolbarWindow.ResetId);
+        window.EndFlash(ToolbarBand.ResetId);
 
         Check.WithCustomMessage("Reset's warning rim did not return after its flash ended.")
             .That(((SolidColorBrush)face.Stroke).Color).IsEqualTo(Tokens.AccentWarning);

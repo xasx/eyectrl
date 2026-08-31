@@ -90,21 +90,28 @@ public class ContainerRatioCensusTests
                 ("Small", 1, "TileIconSize — the tile icon has its action label underneath it. "
                     + "Also pinned exactly by GlyphSizeCouplingTests."),
             ],
+            ["src/EyeCtrl.App/Overlays/ToolbarBand.cs"] =
+            [
+                ("Dominant", 1, "the half-length of the hairline that fences off the destructive "
+                    + "Reset button, as a fraction of the button diameter it sits beside (NOT a "
+                    + "glyph). Split from the ToolbarWindow entry below when the band was "
+                    + "extracted: the separator is drawn inside the band, the indicator rule "
+                    + "beside it. They must still be styled together — see AddSeparator's doc."),
+            ],
             ["src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs"] =
             [
-                ("Small", 1, "Task 6: the gaze-provider indicator's own glyph (an eye or a "
-                    + "mouse), now drawn as a DwellArcButton-style icon Path rather than an "
-                    + "emoji TextBlock. It sits beside the hairline rule that follows it — an "
-                    + "icon beside other content is exactly Small's bucket — replacing the "
-                    + "old Large-ratio emoji cell, which had no such neighbour. _buttonSize is "
-                    + "runtime-sized: no const to multiply."),
-                ("Dominant", 3, "one site unchanged: the half-length of the hairline that fences "
-                    + "off the destructive Reset button, as a fraction of the button diameter it "
-                    + "sits beside (NOT a glyph). Two new: Task 6's indicator rule reuses the same "
-                    + "bucket for the same reason — a rule reading as the separator's whole "
-                    + "content the way a Dominant glyph fills its button — sized on whichever of "
-                    + "Width/Height carries the button-diameter arm of its vertical/horizontal "
-                    + "ternary (the other arm is Tokens.BorderThicknessStandard, not a ratio)."),
+                ("Small", 1, "the gaze-provider indicator's own glyph (an eye or a mouse), drawn "
+                    + "as a DwellArcButton-style icon Path rather than an emoji TextBlock. It "
+                    + "sits beside the hairline rule that follows it — an icon beside other "
+                    + "content is exactly Small's bucket — replacing the old Large-ratio emoji "
+                    + "cell, which had no such neighbour. _buttonSize is runtime-sized: no const "
+                    + "to multiply."),
+                ("Dominant", 2, "the indicator rule, sized on whichever of Width/Height carries "
+                    + "the button-diameter arm of its vertical/horizontal ternary (the other arm "
+                    + "is Tokens.BorderThicknessStandard, not a ratio). It reads as the rule's "
+                    + "whole content the way a Dominant glyph fills its button. The third site "
+                    + "that used to be counted here — the Reset separator — moved to "
+                    + "ToolbarBand.cs with the band."),
             ],
             ["src/EyeCtrl.App/Views/SettingsWindow.xaml.cs"] =
             [

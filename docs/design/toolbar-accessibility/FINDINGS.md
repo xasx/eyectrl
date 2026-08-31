@@ -199,13 +199,26 @@ Recorded in the plan's own self-review: `Anatomy.dc.html` specifies a cooling-do
 `DwellDetector` exposes no in-cooldown signal, so there is nothing for the view to bind. Needs
 detector work first. Deferred, not dropped.
 
-### 4. `ToolbarWindow.xaml.cs` is 798 lines
+### 4. `ToolbarWindow.xaml.cs` is 798 lines — RESOLVED
 
-It now owns band construction, layout, icon swapping, face painting, acquired/flash state, mode
-tinting, the provider indicator and target placement. Extracting the band (construction + layout +
-painting) is the obvious split. Deliberately not done inside this plan — it would have mixed a
-large structural move into a change whose value is visual, and the diff was already the largest in
-the plan.
+Split into `ToolbarBand` (the buttons: construction, layout, icon swapping, face painting,
+acquired/flash state, mode tinting) and `ToolbarWindow` (docking and orientation, the provider
+indicator, view-model binding, dwell-target placement). The window is 410 lines.
+
+The seam is ownership of `ButtonCanvas`: what is drawn *inside* the band moved, what surrounds it
+stayed. The provider indicator is the clearest case of where the line falls — it renders beside the
+band but deliberately is not part of it (no fill, no rim, no dwell target, precisely so it cannot
+read as a sixth button), so it stayed with the window.
+
+Verified as a pure refactor rather than assumed: the band was rendered in nine states (rest, both
+tinted selection modes, mid-progress, acquired, flashing, with indicator, vertical dock, paused)
+before and after, and all nine PNGs are **byte-identical**.
+
+Two source-scanning guards had to be repointed deliberately, because both key on a file path and
+would otherwise have gone quiet: `ToolbarButtonDriftTests` (the rendered-button array moved to
+`ToolbarBand.cs`) and `ContainerRatioCensusTests` (whose single `ToolbarWindow` entry split in two
+— the Reset separator went with the band, the indicator glyph and rule stayed). Both were
+mutation-tested against the new file afterwards to confirm they still bite.
 
 ### 5. Provider indicator has no `AutomationProperties`
 

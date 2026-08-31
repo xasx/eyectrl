@@ -202,12 +202,12 @@ public class ToolbarButtonVisualTests
 
     /// <summary>
     /// Reset is the one adjacency where an overshoot is unrecoverable (see
-    /// <see cref="ToolbarWindow.ResetId"/>'s doc comment). Four properties must all hold at once:
+    /// <see cref="ToolbarBand.ResetId"/>'s doc comment). Four properties must all hold at once:
     /// the face at that position IS the Reset disc, by identity, not merely "the last one by
     /// position" (a future reorder would otherwise fail silently at the wrong assertion); its rim
     /// is the warning hue and ONLY that disc's rim is (the complement — otherwise this test would
     /// stay green even if every rim, or none, went warning-coloured); the gap that precedes it is
-    /// wider than every other gap by exactly <see cref="ToolbarWindow.ResetGap"/>, not merely wider
+    /// wider than every other gap by exactly <see cref="ToolbarBand.ResetGap"/>, not merely wider
     /// (a bare inequality would pass on a one-pixel widening); and the separator <see cref="Line"/>
     /// drawn in that gap sits at its true midpoint, not at the pre-gap centre — an earlier draft
     /// derived the rule from `along` before <c>ResetGap</c> was added and put it 48 px inside the
@@ -224,7 +224,7 @@ public class ToolbarButtonVisualTests
         // by id order today, but that is a cross-test dependency invisible from here. This makes a
         // future reorder fail on identity rather than surface as a confusing rim-colour mismatch.
         Check.WithCustomMessage("The last face by position is not the Reset disc.")
-            .That(reset).IsSameReferenceAs(window.ButtonForTest(ToolbarWindow.ResetId).Background);
+            .That(reset).IsSameReferenceAs(window.ButtonForTest(ToolbarBand.ResetId).Background);
 
         Check.That(((SolidColorBrush)reset.Stroke).Color).IsEqualTo(Tokens.AccentWarning);
 
@@ -242,8 +242,8 @@ public class ToolbarButtonVisualTests
         // specifically so this can reference them rather than keep a second, independently-
         // driftable copy of 12 (EyeCtrl.App.csproj:61 already grants EyeCtrl.App.Tests
         // InternalsVisibleTo). Not a bare "wider than" (that would pass on a one-pixel widening).
-        var ordinaryPitch = ButtonSize + ToolbarWindow.ButtonMargin * 2;
-        var resetGap = ToolbarWindow.ButtonMargin * 2;
+        var ordinaryPitch = ButtonSize + ToolbarBand.ButtonMargin * 2;
+        var resetGap = ToolbarBand.ButtonMargin * 2;
 
         foreach (var gap in gaps.Take(gaps.Count - 1))
             Check.WithCustomMessage("An ordinary gap is not the plain button pitch.")
@@ -263,8 +263,8 @@ public class ToolbarButtonVisualTests
     }
 
     /// <summary>
-    /// <c>ToolbarWindow.ArcBrushFor</c> and <c>ToolbarWindow.IconBrushFor</c> both special-case
-    /// Reset the same way <c>ToolbarWindow.RimFor</c> does, and nothing pinned either before this
+    /// <c>ToolbarBand.ArcBrushFor</c> and <c>ToolbarBand.IconBrushFor</c> both special-case
+    /// Reset the same way <c>ToolbarBand.RimFor</c> does, and nothing pinned either before this
     /// test. The Reset icon (<c>ToolbarIcons.cs</c>'s <c>ResetAdaptation</c> entry) is stroke-only
     /// (<c>IconGeometry.FromPathData</c> called with a single argument), so its warning colour
     /// shows up on <see cref="DwellArcButton.IconStroke"/>, never <see cref="DwellArcButton.IconFill"/>.
@@ -273,7 +273,7 @@ public class ToolbarButtonVisualTests
     public void Reset_ArcAndIconBrushes_AlsoCarryTheWarningHue()
     {
         var window = NewInitialisedToolbar();
-        var reset = window.ButtonForTest(ToolbarWindow.ResetId);
+        var reset = window.ButtonForTest(ToolbarBand.ResetId);
 
         Check.WithCustomMessage("Reset's progress arc is not warning-coloured.")
             .That(((SolidColorBrush)reset.ProgressPath.Stroke).Color).IsEqualTo(Tokens.AccentWarning);

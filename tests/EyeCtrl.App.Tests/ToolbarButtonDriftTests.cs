@@ -37,7 +37,10 @@ using NFluent;
 /// </summary>
 public class ToolbarButtonDriftTests
 {
-    private const string ViewRelativePath = "src/EyeCtrl.App/Overlays/ToolbarWindow.xaml.cs";
+    // The band, not the window: the rendered button array moved to ToolbarBand when the band
+    // was split out of ToolbarWindow. ButtonIdsFrom asserts on its anchor prefix, so a path
+    // that stops matching fails loudly here rather than silently checking an empty list.
+    private const string ViewRelativePath = "src/EyeCtrl.App/Overlays/ToolbarBand.cs";
     private const string ViewModelRelativePath = "src/EyeCtrl.ViewModels/ToolbarViewModel.cs";
 
     /// <summary>

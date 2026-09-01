@@ -484,6 +484,9 @@ preceded by the behaviour-neutral `SignalNoise` failure-mode split. **A hard rel
 a learned offset on an unrouted knob has no observable effect, so it is numbered rather than left outside
 the phase sequence, where the dependency would be easy to miss.
 
+**Status: smoothing routed 2026-09-01** (`GazeEngine` composes the effective active-filter parameter into
+the rebuild, clamped, budgeted); **dwell and geometry routing still open — the Phase-2 gate remains closed.**
+
 **Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review.
 
 **Phase 3 — Caregiver.** Net-new tray toast + rate-limiting; optional Supervisor relay (new payload/channel).
@@ -663,6 +666,27 @@ original wording understated all three):
   discharge this requirement; (4) a **cross-thread snapshot strategy** — the provider owns a mutable
   `Dictionary`, is documented as not thread-safe, is written on the dispatcher thread and read by
   `GazeEngine` on the gaze thread.
+  **(Resolved 2026-09-01 — smoothing-routing slice, plan `2026-09-01-smoothing-knob-routing.md`.)**
+  (1) the value path is a `GazeFilterFactory.Create(settings, effectiveSmoothingParameter)` overload — the
+  *active* filter's one adaptation-sensitive parameter, `null` = baseline-only; (2) knob-aware handling is a
+  comparison of the live effective parameter against the applied one (`Interlocked` bit round-trip between
+  the dispatcher-thread handler and the gaze-thread apply), **revalidated after publish** so a racing fill
+  write (e.g. the §8.6 toolbar reset's `ClearMomentaryFills`) can never leave the filter at a stale value
+  with no outstanding request; (3) the §9.1 budget is a gaze-thread minimum
+  interval of 1 s for *adaptive* rebuilds with the pending request **deferred, not dropped** (manual slider
+  rebuilds keep per-frame coalescing — the budget exists for indefinite adaptation ramps; a baseline
+  rebuild satisfies an outstanding adaptive request and resyncs the budget clock; a gaze-clock
+  restart / device reconnect is treated as budget-satisfied — resync, never defer for the old epoch's
+  uptime); (4) the
+  cross-thread strategy is a `ConcurrentDictionary` fill store (read-safe, still single-writer) rather than
+  a snapshot. The §13.3 clamp is implemented in `GazeEngine.EffectiveSmoothingParameter`
+  (`[0.1, 20]` One-Euro / `[0, 1]` EMA, setter-as-oracle test), and `Direct` no-ops. The
+  `SmoothingMoreMaxFraction` comfort ceiling is resolved at **0.50, kept** (One-Euro 5.0 → 2.5 Hz ≈ τ
+  32 → 64 ms; EMA 0.5 → 0.25 ≈ τ 48 → 116 ms). **Discovered leftover (left open, minor):** editing a
+  band *fraction* in settings does not raise the provider's `Changed` (it fires only on fill
+  set/clear), so a ceiling edit while a fill is stored refreshes the applied value only at the next
+  fill change — bounded staleness, self-healing, no safety impact (the stale value is still inside
+  the old band); owner: a future settings-notification slice.
 - **Dwell and geometry.** The *per-detector mutation* substrate already exists and is state-preserving:
   `DwellDetector.UpdateTargetDwellTime` / `UpdateTargetGeometry`, with `DwellTarget` retaining `_baseRadius`
   and applying idempotent margins. What is missing is **application-level discovery and routing**: nothing
@@ -801,10 +825,11 @@ filter's** validated range — `[0.1,20]` for One-Euro, `[0,1]` for EMA — rath
 provider's union superset. Test a `0.1 Hz` One-Euro baseline at both the default fraction and fraction
 `1.0`, asserting the effective value stays inside `[0.1,20]` and no filter construction throws.
 
-**Also still open** (owned by the smoothing-routing slice): whether `SmoothingMoreMaxFraction` stays at
-0.50 now that smoothing answers only to noise evidence — a genuine comfort question, distinct from the
-clamp above; and `GazeFilterMode.Direct`, which has **no** smoothing parameter (`DirectFilter` takes none),
-so the knob must no-op there — mode is never auto-switched (§5).
+**Resolved by the smoothing-routing slice (2026-09-01)** (formerly "Also still open", owned by the
+smoothing-routing slice): `SmoothingMoreMaxFraction` **stays at 0.50** now that smoothing answers only to
+noise evidence — the numbers above; and `GazeFilterMode.Direct` **no-ops** (`DirectFilter` takes no
+smoothing parameter; `EffectiveSmoothingParameter` returns `null` and no rebuild is requested from the
+adaptation path — mode is never auto-switched, §5).
 
 ## 14. Open Questions / Future Work
 
@@ -827,7 +852,8 @@ so the knob must no-op there — mode is never auto-switched (§5).
   One-Euro's floor is `0.1`, not `0`, so the composed value must be clamped to the **active filter's**
   validated range — a safety requirement on the smoothing-routing slice, detailed in §13.3. Separately, the
   0.50 *comfort* ceiling remains open now that smoothing answers only to noise evidence; also owned by that
-  slice, which supplies the first real consumer.
+  slice, which supplies the first real consumer. (The 0.50 comfort ceiling question is likewise resolved:
+  kept — see §13.3, smoothing-routing slice 2026-09-01.)
 - Absolute target-geometry bound (§13.1 expected it in Phase 1b; 1b deferred it) — owned by the
   geometry-routing slice (§13.3), together with the absolute-extent vs. signed-margin unit conversion.
 

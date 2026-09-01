@@ -56,8 +56,9 @@ public sealed class EffectiveSettingsProvider
             // routing, 2026-09-01)). Discharges 1b-②'s flagged "revisit fraction-vs-absolute" question: ④
             // ADOPTS fraction-of-baseline — the uniform fill model applies cleanly (OneEuro baseline 5 → 2.5;
             // EMA 0.5 → 0.25, both in-range) and needs no per-filter special-casing here; a mode-aware
-            // absolute per-filter delta, if ever needed, is a smoothing-routing concern (this knob is
-            // unrouted, so the model choice is not yet load-bearing).
+            // absolute per-filter delta, if ever needed, remains a routing-layer concern (the knob is routed
+            // by GazeEngine.EffectiveSmoothingParameter, which clamps to the active filter's validated
+            // range, so the fraction model is load-bearing).
             [AdaptationKnob.Smoothing] = new(
                 -1.0, static a => a.SmoothingMoreMaxFraction, 0.0, null, 0.0, 20.0),
             // Geometry: forgiving = bigger (+); no tightening. No pre-existing validated range (runtime-

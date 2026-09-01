@@ -15,11 +15,12 @@ using EyeCtrl.ViewModels.Messages;
 //
 // This class also reads DpiHelper (PhysicalToLogicalX/Y below), so it would otherwise qualify
 // for "DpiHelper Tests (App)" too. A class can only join ONE xUnit collection, and the
-// Application singleton is the more severe race of the two, so WpfApplication wins. Residual
-// exposure: a concurrent DpiHelper writer (ActionMenuGeometryTests, ScreenGeometryTests) can
-// still flip the scale mid-test, because DisableParallelization only serialises WITHIN a
-// collection. Narrow in practice — both tests here are Category=UI, so the headless subset
-// never runs them.
+// Application singleton is the more severe race of the two, so WpfApplication wins. That costs
+// nothing: "WpfApplication" is itself DisableParallelization, and xUnit v3 runs such a collection
+// exclusively — never alongside another collection — so a DpiHelper writer
+// (ActionMenuGeometryTests, ScreenGeometryTests) cannot run while these tests do. This comment
+// previously described a residual exposure here; that was xUnit v2 semantics and did not apply.
+// See NonParallelCollectionPin for the pin on the scheduling behaviour.
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
 [Collection("WpfApplication")]
 public class EyeCareHooksTests

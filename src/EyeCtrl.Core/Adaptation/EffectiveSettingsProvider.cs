@@ -27,12 +27,14 @@ public sealed class EffectiveSettingsProvider
     // safe direction (§5 typed transforms); ValidMin/ValidMax stay provider-owned constants (NOT migrated).
     //
     // ⚠️ FixationRadius's ValidMin/ValidMax DUPLICATE DwellSettings.FixationRadiusPixels's guard (10–200);
-    // the Task-2 drift-guard test uses that setter as the oracle so a divergence fails the build. The three
-    // unrouted knobs get SUPERSET validated ranges (dwell = union of the 11 dwell-time guards [100, 2000];
-    // smoothing = union of both filter ranges [0, 20]; geometry = unbounded above, since geometry has NO
-    // pre-existing validated range — §8.4 for geometry stays deferred). The per-consumer/mode/runtime range
-    // is re-applied by each knob's routing slice; here the fraction clamp is the operative bound and the
-    // superset is only a safety net. A knob reaches this table only when it has a stored fill (see Effective).
+    // the Task-2 drift-guard test uses that setter as the oracle so a divergence fails the build. The two
+    // still-unrouted knobs (dwell, geometry) get SUPERSET validated ranges (dwell = union of the 11
+    // dwell-time guards [100, 2000]; geometry = unbounded above, since geometry has NO pre-existing
+    // validated range — §8.4 for geometry stays deferred); smoothing's [0, 20] union range is the
+    // pre-routing superset, now superseded by the per-mode clamp GazeEngine.EffectiveSmoothingParameter
+    // applies at read time. The per-consumer/mode/runtime range is re-applied by each knob's routing
+    // slice; here the fraction clamp is the operative bound and the superset is only a safety net. A knob
+    // reaches this table only when it has a stored fill (see Effective).
     private readonly record struct KnobPolicy(
         double ForgivingSign,
         Func<AdaptationSettings, double> ForgivingFraction,

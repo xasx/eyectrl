@@ -28,9 +28,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 // stay off the parallel path within this process.
 // Also a DpiHelper reader: dwell progress on a live target calls SetFeedback, which calls
 // DwellFeedbackOverlay.ShowAt, which reads PhysicalToLogicalX/Y. It cannot also join
-// "DpiHelper Tests (App)" - one collection per class - so a writer there can still flip the
-// scale under this class. Safe today: nothing here asserts a scale-derived value. See
-// AppDpiHelperTestCollection's doc for the full list of classes in this position.
+// "DpiHelper Tests (App)" - one collection per class - and it does not need to: "ExternalDwellPipe"
+// is itself DisableParallelization, and xUnit v3 runs such a collection exclusively, never
+// alongside another collection. So no DpiHelper writer can run while this class does. (This
+// comment previously claimed the opposite, from xUnit v2 semantics.) See
+// AppDpiHelperTestCollection's doc for the reach map and NonParallelCollectionPin for the pin.
 [Collection("ExternalDwellPipe")]
 public class ExternalDwellWireContractTests
 {

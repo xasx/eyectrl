@@ -14,30 +14,40 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
-/// Defines a test collection that disables parallelization for App layer tests using DpiHelper.
+/// Defines the App-layer test collection that isolates DpiHelper's process-global scale.
 ///
-/// Membership rule: any class whose code path READS DpiHelper, not just the ones calling
-/// Initialize. Readers are the victims of a concurrent write, not the cause — a class that only
-/// reads can still see the scale change midway through a single test. Being scale-agnostic is
-/// not an exemption: the sibling failure in EyeCtrl.ViewModels.Tests passed at a constant 2.0
-/// and only broke on a mid-test flip.
+/// Membership rule: any class that CALLS DpiHelper.Initialize. xUnit v3 gives a
+/// DisableParallelization collection an EXCLUSIVE phase — it runs concurrently with no other
+/// collection, parallel or non-parallel — so confining the writers here is sufficient on its
+/// own: while a writer runs nothing else runs, and no reader can observe the scale change
+/// mid-test. DpiHelperWriterIsolationTests enforces that rule across every test project;
+/// NonParallelCollectionPin pins the xUnit scheduling behaviour it rests on.
 ///
-/// Seven qualifying classes CANNOT join, because xUnit allows a class only one collection and
-/// they are already claimed by a collection guarding a different process-global:
-///   WpfApplication (Application singleton) - EyeCareHooksTests (UI-only, so headless runs are
-///     unaffected) and ToolbarActivationFlash/ButtonVisual/Orientation/TargetPlacementTests, which
-///     DO run headless and build a ToolbarViewModel (its ctor reads DpiHelper) via
+/// Readers MAY join but need not. Five of the classes here are pure readers, kept because the
+/// cost is nil (all ten together run in about a second) — belt and braces, not load-bearing.
+///
+/// Correction, because this doc previously said the opposite: it stated that
+/// "DisableParallelization only serialises within a collection" — xUnit v2 wording — and drew
+/// from that a cross-collection exposure for seven reader classes that xUnit allows only one
+/// collection each and that another collection had already claimed:
+///   WpfApplication (Application singleton) - EyeCareHooksTests (UI-only) and
+///     ToolbarActivationFlash/ButtonVisual/Orientation/TargetPlacementTests, which run headless
+///     and build a ToolbarViewModel (its ctor reads DpiHelper) via
 ///     ToolbarTestHelpers.NewBoundToolbar.
 ///   ExternalDwellPipe - ExternalDwellService/WireContractTests, also headless, which reach
 ///     DwellFeedbackOverlay.ShowAt through SetFeedback when dwell progresses on a live target.
-/// None assert a scale-derived value today, so none can flake yet; the exposure is that a writer
-/// in THIS collection can still flip the scale under them, since DisableParallelization only
-/// serialises within a collection. Removing it needs one merged collection over every
-/// process-global toucher - deliberately not done here, as that redesigns three collections.
+/// Both of those collections are themselves DisableParallelization, so under v3 none of the
+/// seven ever overlapped a writer and none was ever exposed. Neither the merged collection nor
+/// the injectable-DPI refactor that the old wording implied is needed. Keep the reach paths
+/// above: they are still the map of who touches the scale, and still correct.
+///
+/// What exclusivity does NOT give you is ordering. A writer that leaks a non-1.0 scale still
+/// changes what a later collection reads, because the order between non-parallel collections is
+/// not contractual. Every writer here restores 1.0 in a Dispose or a finally — keep it so.
 ///
 /// Naming a type is NOT enough to qualify — the source-census tests match filenames like
-/// "SettingsWindow.xaml" as text, and several helpers (EyeCareBannerWindow.ComputeDwellGeometry)
-/// take the scale as a parameter rather than reading the global.
+/// "SettingsWindow.xaml" as text, and several helpers (EyeCareBannerWindow.ComputeDwellGeometry,
+/// OverlayPositioning.PlaceAtEdge) take the scale as a parameter rather than reading the global.
 /// </summary>
 [CollectionDefinition("DpiHelper Tests (App)", DisableParallelization = true)]
 public class AppDpiHelperTestCollection

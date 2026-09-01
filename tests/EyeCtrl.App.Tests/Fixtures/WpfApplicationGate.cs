@@ -66,20 +66,26 @@ internal static class WpfApplicationGate
 /// subject is load-time resource resolution.
 ///
 /// <para>
-/// That guarantee is INTRA-collection only. A class outside this collection that spins its own
-/// STA thread — <c>ExternalDwellServiceTests</c> does — can still win the singleton-creation race
-/// and leave <c>Application.Current.Dispatcher</c> bound to a thread that has already exited, which
-/// is the same mismatch reached from outside. It is not a regression (<c>Xunit.StaFact</c>'s
-/// per-test STA thread dies too) and WPF tolerates it for the same reason, but do not read this
-/// collection as pinning the Application's thread. Closing that properly would need an
-/// assembly-level fixture owning a long-lived STA thread.
+/// What this collection does NOT pin is the Application's thread, and the reason is sequencing
+/// rather than concurrency. A class outside this collection that spins its own STA thread —
+/// <c>ExternalDwellServiceTests</c> does — can still create the singleton FIRST and leave
+/// <c>Application.Current.Dispatcher</c> bound to a thread that has since exited, which is the
+/// same mismatch reached from outside. It cannot do so *concurrently*: that class sits in
+/// "ExternalDwellPipe", which like this one is <c>DisableParallelization</c>, and xUnit v3 runs
+/// such a collection exclusively (see <c>NonParallelCollectionPin</c>). An earlier version of
+/// this paragraph called it a race, which overstated it. The exposure is real but ordinal, it is
+/// not a regression (<c>Xunit.StaFact</c>'s per-test STA thread dies too), and WPF tolerates it
+/// for the same reason. Closing it properly would need an assembly-level fixture owning a
+/// long-lived STA thread.
 /// </para>
 ///
 /// <para>
-/// What this does NOT cover: it does not serialise against <c>ThemeStartupTests</c>, which is
-/// <c>[Collection("ActiveTheme")]</c> and mutates <c>Tokens.Current</c> concurrently with tests in
-/// this collection. That residual is accepted rather than closed, because
-/// <c>ThemeShapeTests.AllThreeThemes_DeclareIdenticalGeometryAndType</c> (in
+/// <c>ThemeStartupTests</c>, which mutates <c>Tokens.Current</c>, is <c>[Collection("ActiveTheme")]</c>
+/// — also <c>DisableParallelization</c>, so it does NOT run concurrently with this collection.
+/// (This paragraph used to say it did; that followed from the same xUnit v2 misreading corrected
+/// above.) What remains is ordinal: it could run first, and a theme it failed to restore would
+/// still be the theme this collection's tests read. It restores Midnight in a <c>finally</c> on
+/// every test, and <c>ThemeShapeTests.AllThreeThemes_DeclareIdenticalGeometryAndType</c> (in
 /// EyeCtrl.Controls.Tests) pins <c>CornerRadiusCircle == 9999.0</c> for every registered theme, so
 /// the value this collection's tests read cannot diverge across themes without that test failing
 /// first. Say so here so nobody removes the pin thinking it is redundant with this collection.

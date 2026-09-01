@@ -29,7 +29,8 @@ internal static class ToolbarTestHelpers
     /// </summary>
     // NOTE: the ToolbarViewModel ctor reads DpiHelper, so every caller of this helper is a
     // DpiHelper reader. Callers sit in the WpfApplication collection and cannot also join
-    // "DpiHelper Tests (App)"; see AppDpiHelperTestCollection's doc for why that is tolerated.
+    // "DpiHelper Tests (App)" — and need not: both are DisableParallelization, which xUnit v3
+    // runs exclusively, so no writer overlaps them. See AppDpiHelperTestCollection's doc.
     internal static (ToolbarWindow Window, ToolbarViewModel Vm) NewBoundToolbar(int dwellTimeMs = 700)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();

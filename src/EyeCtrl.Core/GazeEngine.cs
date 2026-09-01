@@ -43,6 +43,17 @@ public class GazeEngine : IDisposable
     // release/acquire fence; a bool is atomic on every arch.
     private volatile bool _fixationReconfigureRequested;
 
+    // §13.3 smoothing routing. Sentinel for "the live filter was not built from an effective smoothing
+    // parameter" (no provider, or Direct mode). NB: long.MinValue IS the bit pattern of −0.0 — Clamp
+    // returns −0.0 unchanged and the CursorSettings guard accepts it (−0.0 < 0.0 is false), so a
+    // hand-edited settings.json could collide the sentinel with a real EMA parameter. Benign: −0.0 ≡ 0.0
+    // numerically (identical filter behaviour) and the value never changes, so the swallowed comparison
+    // is a correct no-op. The bits round-trip exists because the gaze thread (apply) publishes the applied
+    // value and the dispatcher thread (the Changed handler) compares against it — a double has no atomic
+    // cross-thread read; the long does (Interlocked).
+    private const long NoSmoothingBits = long.MinValue;
+    private long _lastAppliedSmoothingBits;
+
     // Copy-on-write handler array. Publication does one volatile read and iterates by index, so it
     // never allocates and cannot be disturbed by a subscription change mid-publication — which
     // matters because a handler may unsubscribe itself from inside its own callback.
@@ -249,6 +260,13 @@ public class GazeEngine : IDisposable
             _effectiveSettings.Changed += _effectiveSettingsChangedHandler;
         }
 
+        // The parameter the constructor-built interpolator runs at (fills are necessarily empty here, so
+        // this is the active mode's baseline). Without this, bits default to 0 and the first Changed of
+        // ANY knob would compare unequal and spend a spurious rebuild.
+        _lastAppliedSmoothingBits = EffectiveSmoothingParameter() is { } initial
+            ? BitConverter.DoubleToInt64Bits(initial)
+            : NoSmoothingBits;
+
         _gazeProvider.GazePointReceived += OnGazePoint;
     }
 
@@ -261,6 +279,55 @@ public class GazeEngine : IDisposable
     private double EffectiveFixationRadius() =>
         _effectiveSettings?.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, _settings.Dwell.FixationRadiusPixels)
         ?? _settings.Dwell.FixationRadiusPixels;
+
+    /// <summary>Test seam (<c>InternalsVisibleTo</c> → EyeCtrl.Core.Tests, the ClassifyMode pattern): the
+    /// smoothing parameter the live filter was last BUILT with, or <c>null</c> whenever the live filter has
+    /// no smoothing parameter (no provider, or Direct mode — Task 3's apply clears the bits to the sentinel
+    /// on a null-parameter rebuild). Production reads nothing — the routing tests assert against this
+    /// instead of inferring the parameter from step responses.</summary>
+    internal double? AppliedSmoothingParameter
+    {
+        get
+        {
+            long bits = Interlocked.Read(ref _lastAppliedSmoothingBits); // one atomic read, used twice
+            return bits == NoSmoothingBits ? null : BitConverter.Int64BitsToDouble(bits);
+        }
+    }
+
+    // §13.3 item (1): the provider→filter VALUE path. The active filter's ONE adaptation-sensitive
+    // parameter, composed against the CURRENT mode's baseline — the fill is a fraction OF the baseline, so
+    // the baseline must be the active parameter's (OneEuroMinCutoff vs SmoothingFactor), resolved afresh on
+    // every read. null = the knob no-ops: Direct has no smoothing parameter (mode is never auto-switched,
+    // §5), and no provider means no adaptation at all.
+    //
+    // §13.3 SAFETY CLAMP: the provider's Smoothing policy carries the union superset [0, 20], but the
+    // ACTIVE filter's own validated range is re-applied here — [0.1, 20] for One-Euro, [0, 1] for EMA.
+    // Without it, a 0.1 Hz One-Euro baseline at the default fraction composes to 0.05 (and to exactly 0.0
+    // at fraction 1.0), which OneEuroFilter's constructor rejects — a throw on the gaze thread, inside the
+    // unguarded rebuild. The literals deliberately duplicate the CursorSettings guards (the FixationRadius
+    // precedent); the assign-back oracle test fails the build if they drift. Only the FLOOR can engage:
+    // smoothing is forgiving-only (parameter down, no tightening), so the composed value never exceeds the
+    // baseline, which the setters keep inside the range.
+    internal double? EffectiveSmoothingParameter()
+    {
+        if (_effectiveSettings is null)
+            return null;
+        return _settings.Cursor.FilterMode switch
+        {
+            GazeFilterMode.Direct => null,
+            GazeFilterMode.Smoothed or GazeFilterMode.SmoothedWithSnapping => Math.Clamp(
+                _effectiveSettings.Effective(AdaptationKnob.Smoothing, DwellContext.Other, _settings.Cursor.SmoothingFactor),
+                0.0, 1.0),
+            // OneEuro, plus the default arm mirroring GazeFilterFactory's default (OneEuroFilter) so a
+            // future enum member can never compose an EMA baseline onto a One-Euro filter.
+            GazeFilterMode.OneEuro => Math.Clamp(
+                _effectiveSettings.Effective(AdaptationKnob.Smoothing, DwellContext.Other, _settings.Cursor.OneEuroMinCutoff),
+                0.1, 20.0),
+            _ => Math.Clamp(
+                _effectiveSettings.Effective(AdaptationKnob.Smoothing, DwellContext.Other, _settings.Cursor.OneEuroMinCutoff),
+                0.1, 20.0),
+        };
+    }
 
     // Called on the dispatcher thread (DwellSettings change or provider.Changed). Just sets a flag — the
     // actual write runs on the gaze thread at the top of the next OnGazePoint, which keeps every

@@ -43,6 +43,17 @@ public class GazeEngine : IDisposable
     // release/acquire fence; a bool is atomic on every arch.
     private volatile bool _fixationReconfigureRequested;
 
+    // §9.1 rebuild budget: at most one ADAPTIVE rebuild per second (baseline slider rebuilds are exempt —
+    // they already coalesce to one per gaze frame). Seeded at long.MinValue/2 so the FIRST adaptive rebuild
+    // of a session is never deferred: a 0 seed would stall it for a full second of gaze-clock time (test
+    // clocks start near zero), and long.MinValue itself would overflow the subtraction.
+    // See ApplyPendingInterpolatorRebuild for the restart guard.
+    private const long MinAdaptiveRebuildIntervalMicroseconds = 1_000_000;
+    private long _lastAdaptiveRebuildTimestampMicroseconds = long.MinValue / 2;
+    // Written on the dispatcher thread (the provider's Changed handler), read+cleared on the gaze thread —
+    // same defer-onto-the-gaze-thread contract as _interpolatorRebuildRequested.
+    private volatile bool _adaptiveRebuildRequested;
+
     // §13.3 smoothing routing. Sentinel for "the live filter was not built from an effective smoothing
     // parameter" (no provider, or Direct mode). NB: long.MinValue IS the bit pattern of −0.0 — Clamp
     // returns −0.0 unchanged and the CursorSettings guard accepts it (−0.0 < 0.0 is false), so a
@@ -256,7 +267,7 @@ public class GazeEngine : IDisposable
         // change detection of its own.
         if (_effectiveSettings is not null)
         {
-            _effectiveSettingsChangedHandler = RequestFixationReconfiguration;
+            _effectiveSettingsChangedHandler = OnEffectiveSettingsChanged;
             _effectiveSettings.Changed += _effectiveSettingsChangedHandler;
         }
 
@@ -335,6 +346,20 @@ public class GazeEngine : IDisposable
     // Changed events (the controller steps four knobs per tick) costs one apply per gaze frame.
     private void RequestFixationReconfiguration() => _fixationReconfigureRequested = true;
 
+    // Runs on the dispatcher thread (the provider's Changed fires there — controller tick, toolbar reset,
+    // per-knob disable). Besides the in-place tolerance apply, an effective SMOOTHING change needs the
+    // interpolator REBUILT. Changed is payloadless and fires for every knob's fill (§13.3 item 2), so the
+    // request is knob-aware by comparison: only when the live effective parameter differs from the one the
+    // filter was last built with. Baseline smoothing edits take the separate CursorSettings path, which
+    // rebuilds per gaze frame as before.
+    private void OnEffectiveSettingsChanged()
+    {
+        RequestFixationReconfiguration();
+        if (EffectiveSmoothingParameter() is { } parameter
+            && BitConverter.DoubleToInt64Bits(parameter) != Interlocked.Read(ref _lastAppliedSmoothingBits))
+            _adaptiveRebuildRequested = true;
+    }
+
     // Runs on the gaze thread. Applies the current effective tolerance to the LIVE detector in place. No
     // rebuild, so an in-progress fixation is preserved across an adaptation step: the controller relaxes and
     // recovers a knob every tick (250 ms) while active, and a rebuild-per-step would end the fixation each
@@ -356,17 +381,53 @@ public class GazeEngine : IDisposable
     // only thread that mutates it. Same contract as ApplyPendingFixationReconfiguration — one convention for
     // every reconfiguration of live gaze-pipeline state. (This one still rebuilds: IGazeFilter exposes no way
     // to retune in place, so the fresh-filter + WarmStartFromCurrentState path stands — see design §5 R1.)
-    private void ApplyPendingInterpolatorRebuild()
+    //
+    // The rebuild composes the ACTIVE filter's EFFECTIVE smoothing parameter (§13.3 routing), re-read HERE
+    // so a coalesced burst applies the latest value, not the one that set the flag.
+    private void ApplyPendingInterpolatorRebuild(long timestampMicroseconds)
     {
-        if (!_interpolatorRebuildRequested)
+        if (!_interpolatorRebuildRequested && !_adaptiveRebuildRequested)
             return;
+
+        // §9.1 rebuild budget: the controller can step the smoothing fill on every 250 ms tick, so an
+        // ADAPTIVE rebuild is rate-limited to one per second — a pending request is DEFERRED, not dropped:
+        // the next sample after the interval applies the then-current effective value, so the final value
+        // always lands. Baseline (settings-slider) rebuilds are exempt and satisfy an outstanding adaptive
+        // request too (they apply the effective parameter below); any rebuild that runs resets the clock.
+        // A NEGATIVE elapsed is a gaze-clock restart (device reconnect — the same backward jump the
+        // telemetry sink's resync guard handles, TelemetryClockRestartTests): resync rather than defer for
+        // the length of the old epoch.
+        if (!_interpolatorRebuildRequested)
+        {
+            long elapsed = timestampMicroseconds - _lastAdaptiveRebuildTimestampMicroseconds;
+            if (elapsed >= 0 && elapsed < MinAdaptiveRebuildIntervalMicroseconds)
+                return;
+        }
         _interpolatorRebuildRequested = false;
+        _adaptiveRebuildRequested = false;
+        _lastAdaptiveRebuildTimestampMicroseconds = timestampMicroseconds;
+
+        double? parameter = EffectiveSmoothingParameter();
         var fresh = new GapInterpolator(
-            GazeFilterFactory.Create(_settings.Cursor),
+            GazeFilterFactory.Create(_settings.Cursor, parameter),
             _settings.Cursor.MaxGapInterpolationMs);
         fresh.CopyStateFrom(_gapInterpolator);
         fresh.WarmStartFromCurrentState(); // R1: seed the fresh filter — no cursor jump
         _gapInterpolator = fresh;
+
+        // Publish the applied parameter (the sentinel for null — Direct/no-provider — so a runtime switch
+        // into Direct reports null honestly). Then RE-VALIDATE: a provider write that landed between the
+        // effective read at the top and this exchange compared against the STALE applied bits and may have
+        // skipped its request — e.g. the §8.6 toolbar reset clearing fills while an older fill's rebuild was
+        // in flight, which would pin the filter at a stale value with no outstanding request. The write
+        // orderings close the window (the dispatcher writes fills before reading bits; the gaze thread
+        // exchanges bits before re-reading), so at least one side observes the other; any re-request goes
+        // back through the budget gate (deferred, not dropped).
+        Interlocked.Exchange(
+            ref _lastAppliedSmoothingBits,
+            parameter is { } applied ? BitConverter.DoubleToInt64Bits(applied) : NoSmoothingBits);
+        if (parameter is { } published && EffectiveSmoothingParameter() is { } current && current != published)
+            _adaptiveRebuildRequested = true;
     }
 
     private void WireFixation(FixationDetector d)
@@ -429,7 +490,7 @@ public class GazeEngine : IDisposable
         // before any _fixationDetector/_centroidTracker/_gapInterpolator use below, so all mutations of the
         // live pipeline state stay on this thread. Each is skipped when nothing was requested.
         ApplyPendingFixationReconfiguration();
-        ApplyPendingInterpolatorRebuild();
+        ApplyPendingInterpolatorRebuild(gaze.TimestampMicroseconds);
 
         PublishGazeSampled(gaze);
 

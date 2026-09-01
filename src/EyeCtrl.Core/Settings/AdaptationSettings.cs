@@ -50,10 +50,11 @@ public partial class AdaptationSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _toleranceLooserMaxFraction = 0.50;
 
     /// <summary>Maximum "more smoothing" shift of the active filter parameter as a fraction of baseline.
-    /// Default 0.50 — PROVISIONAL: §13.1 gives no smoothing percentage, and fraction-of-baseline is a
-    /// filter-dependent unit (One-Euro <c>OneEuroMinCutoff</c> Hz vs EMA <c>SmoothingFactor</c>, both
-    /// DECREASED for more smoothing). 1b-④ (the first consumer) must revisit whether a fraction or an
-    /// absolute per-filter delta is the right model before relying on this number.</summary>
+    /// Default 0.50 — CONFIRMED 2026-09-01 by the smoothing-routing slice (the knob's first consumer):
+    /// fraction-of-baseline is kept, and the ceiling holds — One-Euro 5.0 → 2.5 Hz (fixation τ ≈ 32 →
+    /// 64 ms), EMA 0.5 → 0.25 (τ ≈ 48 → 116 ms at every speed). Both DECREASED for more smoothing. The
+    /// composed value is clamped to the ACTIVE filter's validated range by <c>GazeEngine</c>
+    /// (One-Euro floor 0.1 Hz — the fraction model is range-safe only for EMA; design §13.3).</summary>
     [ObservableProperty] private double _smoothingMoreMaxFraction = 0.50;
 
     /// <summary>Maximum larger target-geometry deviation as a fraction of baseline (§13.1). Default 0.50.</summary>

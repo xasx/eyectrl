@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Adaptation;
 
 using EyeCtrl.Core.Settings;
+using System.Collections.Concurrent;
 
 /// <summary>
 /// Stateful composition layer over the pure <see cref="EffectiveValue"/> calculator. Holds a momentary
@@ -14,8 +15,10 @@ using EyeCtrl.Core.Settings;
 /// locked "disabled ⇒ effective == baseline" invariant (design §8.3).
 /// Not thread-safe for concurrent writes: fills are set on the serialized controller/dispatcher thread.
 /// The sole consumer (<c>GazeEngine</c>, plan 1b-①) defers its <c>Changed</c>-driven fixation rebuild onto
-/// the gaze thread, so its reads of <see cref="Effective"/> arrive there; the other three knobs are
-/// composable but have no consumer yet (design §9).
+/// the gaze thread, so its reads of <see cref="Effective"/> arrive there; the dwell and geometry knobs
+/// are composable but have no consumer yet (design §13.3); the smoothing knob is routed by
+/// <c>GazeEngine</c>'s adaptive interpolator rebuild (smoothing-routing slice, 2026-09-01), which clamps
+/// the composed value to the active filter's validated range.
 /// </summary>
 public sealed class EffectiveSettingsProvider
 {
@@ -49,11 +52,12 @@ public sealed class EffectiveSettingsProvider
             [AdaptationKnob.DwellTime] = new(
                 -1.0, static a => a.DwellShorterMaxFraction, +1.0, static a => a.DwellLongerMaxFraction, 100.0, 2000.0),
             // Smoothing: forgiving = more = parameter DOWN (−); no tightening. Range = union of both filter
-            // ranges [0, 20] (per-mode range re-applied at smoothing routing). Discharges 1b-②'s flagged
-            // "revisit fraction-vs-absolute" question: ④ ADOPTS fraction-of-baseline — the uniform fill
-            // model applies cleanly (OneEuro baseline 5 → 2.5; EMA 0.5 → 0.25, both in-range) and needs no
-            // per-filter special-casing here; a mode-aware absolute per-filter delta, if ever needed, is a
-            // smoothing-routing concern (this knob is unrouted, so the model choice is not yet load-bearing).
+            // ranges [0, 20] (per-mode range re-applied by GazeEngine.EffectiveSmoothingParameter (smoothing
+            // routing, 2026-09-01)). Discharges 1b-②'s flagged "revisit fraction-vs-absolute" question: ④
+            // ADOPTS fraction-of-baseline — the uniform fill model applies cleanly (OneEuro baseline 5 → 2.5;
+            // EMA 0.5 → 0.25, both in-range) and needs no per-filter special-casing here; a mode-aware
+            // absolute per-filter delta, if ever needed, is a smoothing-routing concern (this knob is
+            // unrouted, so the model choice is not yet load-bearing).
             [AdaptationKnob.Smoothing] = new(
                 -1.0, static a => a.SmoothingMoreMaxFraction, 0.0, null, 0.0, 20.0),
             // Geometry: forgiving = bigger (+); no tightening. No pre-existing validated range (runtime-
@@ -74,7 +78,13 @@ public sealed class EffectiveSettingsProvider
         };
 
     private readonly AdaptationSettings _adaptation;
-    private readonly Dictionary<(AdaptationKnob Knob, DwellContext Context), (double ForgivingFill, double TighteningFill)> _fills = new();
+    // ConcurrentDictionary resolves §13.3 item (4): fills are written on the dispatcher thread (controller
+    // tick) and read on the gaze thread (GazeEngine's deferred reconfiguration reads Effective there), and
+    // a first-key insert on the writer can resize a plain Dictionary while the reader is inside TryGetValue.
+    // Single-WRITER semantics are unchanged (the controller is serialized on the dispatcher); only the
+    // cross-thread READ becomes safe. SetMomentaryFill/ClearMomentaryFills still raise Changed on the
+    // writer thread, so consumer-side coalescing is unaffected.
+    private readonly ConcurrentDictionary<(AdaptationKnob Knob, DwellContext Context), (double ForgivingFill, double TighteningFill)> _fills = new();
 
     /// <summary>Raised whenever a momentary fill is set or cleared, so consumers can re-read effective values.</summary>
     public event Action? Changed;

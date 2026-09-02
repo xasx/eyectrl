@@ -48,8 +48,9 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
         IQuickActionsStore store,
         EyeCtrlSettings settings,
         IMessenger messenger,
-        IStruggleTelemetrySink? sink = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.QuickActions, sink)
+        IStruggleTelemetrySink? sink = null,
+        IDwellDetectorRegistry? dwellRegistry = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.QuickActions, sink, dwellRegistry)
     {
         _store = store;
         _settings = settings;

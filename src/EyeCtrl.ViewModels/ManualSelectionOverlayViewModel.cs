@@ -21,8 +21,9 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
     /// one (false, e.g. navigating back from the action menu). Set before <see cref="IsVisible"/>.</summary>
     public bool Recapture { get; private set; } = true;
 
-    public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ManualSelection, sink)
+    public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger,
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ManualSelection, sink, dwellRegistry)
     {
     }
 

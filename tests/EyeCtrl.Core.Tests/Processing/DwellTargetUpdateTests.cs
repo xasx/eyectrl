@@ -122,4 +122,76 @@ public class DwellTargetUpdateTests
         // being pinned is "no inversion / no crash", not a particular hit outcome.
         Check.That(activated).IsTrue();
     }
+
+    [Fact]
+    public void SetEffectiveDwellTime_ReEvaluatesWithoutResettingProgress()
+    {
+        // Restored from the simplification pass's deletion (UpdateTargetDwellTime_ReEvaluatesWithout-
+        // ResettingProgress): shortening mid-dwell must NOT clear EnteredTimestamp — the next Update
+        // re-evaluates elapsed against the NEW threshold, so 160 ms of a 100 ms dwell activates.
+        var d = new DwellDetector();
+        d.AddTarget(new DwellTarget("t", new PhysicalPoint(100, 100), radius: 30, dwellTimeMs: 300));
+        bool activated = false;
+        d.TargetActivated += _ => activated = true;
+
+        d.Update(new PhysicalPoint(100, 100), 0);        // enter (EnteredTimestamp = 0)
+        d.Update(new PhysicalPoint(100, 100), 150_000);  // 150 ms of 300 ms — not yet activated
+        Check.That(activated).IsFalse();
+
+        d.SetEffectiveDwellTime(_ => 100);               // shorten to 100 ms; must NOT reset the timer
+        d.Update(new PhysicalPoint(100, 100), 160_000);  // elapsed 160 ms >= new 100 ms → activates
+
+        Check.That(activated).IsTrue();
+    }
+
+    [Fact]
+    public void SetEffectiveDwellTime_IsIdempotent_ComposesAgainstBaseline()
+    {
+        // The map receives the BASELINE each application, so re-applying the same map can never
+        // compound (the ApplyHitAreaMargin discipline — a router may re-apply every Changed).
+        var d = new DwellDetector();
+        d.AddTarget(new DwellTarget("t", new PhysicalPoint(0, 0), radius: 10, dwellTimeMs: 1000));
+        Func<int, int> half = ms => ms / 2;
+
+        d.SetEffectiveDwellTime(half);
+        d.SetEffectiveDwellTime(half);
+        d.SetEffectiveDwellTime(half);
+
+        d.Update(new PhysicalPoint(0, 0), 0);
+        d.Update(new PhysicalPoint(0, 0), 490_000);
+        Check.That(d.GetProgress("t") > 0.9).IsTrue(); // ~490/500, not 490/125 — no compounding
+    }
+
+    [Fact]
+    public void SetEffectiveDwellTime_TargetAddedAfterMap_IsBornEffective()
+    {
+        // Surfaces recreate targets per show; a target born while a fill is held must never serve the
+        // raw baseline (spec §5 "surfaces read effective values at (re)creation").
+        var d = new DwellDetector();
+        d.SetEffectiveDwellTime(ms => ms / 2);
+        d.AddTarget(new DwellTarget("t", new PhysicalPoint(0, 0), radius: 10, dwellTimeMs: 1000));
+
+        d.Update(new PhysicalPoint(0, 0), 0);
+        d.Update(new PhysicalPoint(0, 0), 450_000);
+        bool activated = false;
+        d.TargetActivated += _ => activated = true;
+        d.Update(new PhysicalPoint(0, 0), 500_000); // 500 ms >= effective 500 ms (not the 1000 baseline)
+
+        Check.That(activated).IsTrue();
+    }
+
+    [Fact]
+    public void SetEffectiveDwellTime_NullMap_RestoresExactBaseline()
+    {
+        var d = new DwellDetector();
+        var t = new DwellTarget("t", new PhysicalPoint(0, 0), radius: 10, dwellTimeMs: 1000);
+        d.AddTarget(t);
+        d.SetEffectiveDwellTime(ms => ms / 2);
+
+        d.SetEffectiveDwellTime(null);
+
+        d.Update(new PhysicalPoint(0, 0), 0);
+        d.Update(new PhysicalPoint(0, 0), 600_000); // 600 < 1000 baseline → still inside, not activated
+        Check.That(d.GetProgress("t")).IsCloseTo(0.6, 0.01);
+    }
 }

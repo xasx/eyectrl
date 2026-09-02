@@ -29,6 +29,7 @@ public class DwellTarget
     private readonly double _baseRadius;
     private readonly double _baseHalfWidth;
     private readonly double _baseHalfHeight;
+    private readonly long _baseDwellTimeMicroseconds;
 
     /// <summary>
     /// Initializes a new circular dwell target.
@@ -45,6 +46,7 @@ public class DwellTarget
         DwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
         Bounds = null;
         _baseRadius = radius;
+        _baseDwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
     /// <summary>
@@ -62,6 +64,7 @@ public class DwellTarget
         Bounds = bounds;
         _baseHalfWidth = bounds.Width / 2;
         _baseHalfHeight = bounds.Height / 2;
+        _baseDwellTimeMicroseconds = dwellTimeMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
     /// <summary>
@@ -86,6 +89,17 @@ public class DwellTarget
             Radius = Math.Max(0, _baseRadius + marginPx);
         }
     }
+
+    /// <summary>The as-registered dwell time in ms — the composition baseline for adaptation routing,
+    /// so repeated effective-value applications never compound.</summary>
+    internal int BaseDwellMs => (int)(_baseDwellTimeMicroseconds / MathConstants.MicrosecondsPerMillisecond);
+    /// <summary>Sets the effective dwell time (adaptation routing) WITHOUT touching dwell accumulation
+    /// state: the next <see cref="DwellDetector.Update(PhysicalPoint, long)"/> re-evaluates elapsed
+    /// against the new threshold (design §5/§7.3 — shortening mid-dwell preserves progress and can
+    /// activate on the next sample; lengthening keeps progress). Idempotent by construction: callers
+    /// derive the value from <see cref="BaseDwellMs"/>, never from the current effective value.</summary>
+    internal void ApplyEffectiveDwellMs(int effectiveMs) =>
+        DwellTimeMicroseconds = effectiveMs * MathConstants.MicrosecondsPerMillisecond;
 
     /// <summary>Rect containment when <see cref="Bounds"/> is set; otherwise circle distance.</summary>
     public bool HitTest(PhysicalPoint point)

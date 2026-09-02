@@ -16,15 +16,22 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
 {
     [ObservableProperty] private bool _isVisible;
 
+    private readonly IDwellDetectorRegistry? _dwellRegistry;
+
     protected DwellDetector DwellDetector { get; }
 
     protected DwellOverlayViewModelBase(IMessenger messenger, int dwellCooldownMs,
-        DwellContext context = DwellContext.Other, IStruggleTelemetrySink? sink = null)
+        DwellContext context = DwellContext.Other, IStruggleTelemetrySink? sink = null,
+        IDwellDetectorRegistry? dwellRegistry = null)
         : base(messenger)
     {
         DwellDetector = new DwellDetector(dwellCooldownMs, context, sink);
         DwellDetector.TargetActivated += OnTargetActivated;
         DwellDetector.TargetProgress += OnTargetProgress;
+        _dwellRegistry = dwellRegistry;
+        _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
+            DwellDetector, context,
+            AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs));
     }
 
     protected abstract void OnTargetActivated(string targetId);
@@ -40,5 +47,6 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     {
         DwellDetector.TargetActivated -= OnTargetActivated;
         DwellDetector.TargetProgress -= OnTargetProgress;
+        _dwellRegistry?.Unregister(this);
     }
 }

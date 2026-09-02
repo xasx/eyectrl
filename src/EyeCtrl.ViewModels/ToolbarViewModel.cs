@@ -64,8 +64,9 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         }
     }
 
-    public ToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink)
+    public ToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger,
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink, dwellRegistry)
     {
         _buttonDwellRadiusPhysical = DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2);
         _toolbarButtonDwellMs = settings.Dwell.ToolbarButtonDwellMs;

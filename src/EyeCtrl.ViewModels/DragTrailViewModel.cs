@@ -34,8 +34,9 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     [ObservableProperty] private bool _showBack;
     [ObservableProperty] private PhysicalPoint _releaseButtonCenter;
 
-    public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.DragTrail, sink)
+    public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger,
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.DragTrail, sink, dwellRegistry)
     {
         _settings = settings;
 

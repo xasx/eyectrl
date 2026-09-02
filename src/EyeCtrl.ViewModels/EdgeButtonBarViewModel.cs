@@ -31,8 +31,9 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
     /// </summary>
     public event Action? ButtonSetChanged;
 
-    public EdgeButtonBarViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.EdgeButtonBar, sink)
+    public EdgeButtonBarViewModel(EyeCtrlSettings settings, IMessenger messenger,
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.EdgeButtonBar, sink, dwellRegistry)
     {
     }
 

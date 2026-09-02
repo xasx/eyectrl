@@ -30,8 +30,9 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         IWindowManager windowManager,
         EyeCtrlSettings settings,
         IMessenger messenger,
-        IStruggleTelemetrySink? sink = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.TaskSwitcher, sink)
+        IStruggleTelemetrySink? sink = null,
+        IDwellDetectorRegistry? dwellRegistry = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.TaskSwitcher, sink, dwellRegistry)
     {
         _windowManager = windowManager;
         _messenger = messenger;

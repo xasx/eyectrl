@@ -20,8 +20,9 @@ public partial class GlassBackdropViewModel : DwellOverlayViewModelBase,
     [ObservableProperty] private PhysicalPoint _hideButtonCenter = new(0, 0);
     [ObservableProperty] private double _hideButtonProgress;
 
-    public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Backdrop, sink)
+    public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger,
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Backdrop, sink, dwellRegistry)
     {
         _settings = settings;
     }

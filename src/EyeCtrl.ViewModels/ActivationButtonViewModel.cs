@@ -20,8 +20,9 @@ public partial class ActivationButtonViewModel : DwellOverlayViewModelBase,
     [ObservableProperty] private PhysicalPoint _position = new(0, 0);
     [ObservableProperty] private double _dwellProgress;
 
-    public ActivationButtonViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ActivationButton, sink)
+    public ActivationButtonViewModel(EyeCtrlSettings settings, IMessenger messenger,
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ActivationButton, sink, dwellRegistry)
     {
         _settings = settings;
     }

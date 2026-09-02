@@ -92,6 +92,8 @@ public class OverlayTelemetryWiringTests
         // constructor declares IStruggleTelemetrySink" + "the sink is registered" together guarantee
         // injection. Without this guard, adding a second constructor or dropping the parameter would
         // silently fall back to the `sink = null` default: telemetry stops with a fully green suite.
+        // The same guarantee covers IDwellDetectorRegistry (dwell routing): dropping that parameter
+        // would silently fall back to `dwellRegistry = null` and the surface would never be routed.
         //
         // ScrollOverlayViewModel is exempt by design: it overrides Receive without ever calling
         // DwellDetector.Update, so it cannot emit (scroll-stop dwell lives on EdgeButtonBarViewModel).
@@ -113,6 +115,9 @@ public class OverlayTelemetryWiringTests
                 .That(ctors).HasSize(1);
             Check.WithCustomMessage($"{type.Name} must accept IStruggleTelemetrySink so DI can inject it")
                 .That(ctors[0].GetParameters().Any(p => p.ParameterType == typeof(IStruggleTelemetrySink)))
+                .IsTrue();
+            Check.WithCustomMessage($"{type.Name} must accept IDwellDetectorRegistry so DI can inject it")
+                .That(ctors[0].GetParameters().Any(p => p.ParameterType == typeof(IDwellDetectorRegistry)))
                 .IsTrue();
         }
     }

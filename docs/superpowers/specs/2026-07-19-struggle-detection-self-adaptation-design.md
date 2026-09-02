@@ -484,8 +484,8 @@ preceded by the behaviour-neutral `SignalNoise` failure-mode split. **A hard rel
 a learned offset on an unrouted knob has no observable effect, so it is numbered rather than left outside
 the phase sequence, where the dependency would be easy to miss.
 
-**Status: smoothing routed 2026-09-01** (`GazeEngine` composes the effective active-filter parameter into
-the rebuild, clamped, budgeted); **dwell and geometry routing still open — the Phase-2 gate remains closed.**
+**Status: smoothing routed 2026-09-01 (PR #131); dwell routed 2026-09-02 (registry +
+`DwellTimeRouter` + Keyboard tracker). Geometry routing remains — the Phase-2 gate stays closed.**
 
 **Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review.
 
@@ -687,12 +687,33 @@ original wording understated all three):
   set/clear), so a ceiling edit while a fill is stored refreshes the applied value only at the next
   fill change — bounded staleness, self-healing, no safety impact (the stale value is still inside
   the old band); owner: a future settings-notification slice.
-- **Dwell and geometry.** The *per-detector mutation* substrate already exists and is state-preserving:
-  `DwellDetector.UpdateTargetDwellTime` / `UpdateTargetGeometry`, with `DwellTarget` retaining `_baseRadius`
-  and applying idempotent margins. What is missing is **application-level discovery and routing**: nothing
-  can enumerate live `DwellDetector`s (each is privately owned by its overlay view-model), `DwellDetector`
-  exposes no target enumeration or context accessor, and `DwellTarget` retains no *dwell-time* baseline
-  (unlike radius). That registry + baseline/context mapping is the real work, and it is shared by both slices.
+- **Dwell and geometry.** The *per-detector mutation* substrate is `DwellDetector.UpdateTargetGeometry`
+  (geometry) plus the dwell-routing slice's `SetEffectiveDwellTime` map API (dwell — re-adding the
+  semantics the 2026-08-29 simplification pass deleted): What is missing is **application-level discovery
+  and routing**: nothing can enumerate live `DwellDetector`s (each is privately owned by its overlay
+  view-model), `DwellDetector` exposes no target enumeration or context accessor, and `DwellTarget`
+  retains no *dwell-time* baseline (unlike radius). That registry + baseline/context mapping is the real
+  work, and it is shared by both slices.
+  **(Dwell resolved 2026-09-02 — dwell-routing slice, plan `2026-09-02-dwell-knob-routing.md`; geometry
+  still open.)** The shared substrate is `IDwellDetectorRegistry` (Core): owner-keyed
+  `DwellRoutingRegistration` entries carrying the surface's context, its validated range, and an *applier
+  delegate* — `DwellDetector.SetEffectiveDwellTime(map)` for UI-thread owners, a `_stateLock`-wrapping
+  lambda for `ExternalDwellService` (its detector Updates on the gaze thread). `DwellTarget` retains a
+  per-target dwell-time baseline (the `_baseRadius` pattern) — baselines are heterogeneous per target
+  (per-button EdgeButtonBar values; Notes 600; EyeCare 700; per-message ActionMenu), so the fill composes
+  per target: `clamp(round(Effective(DwellTime, Other, baseline)), min, max)`. Per-surface ranges
+  (`AdaptationDwellRanges`): Standard [200, 2000] (nine guards), Keyboard [100, 1500] (incl. the emoji
+  grid and prediction bar), External [200, 3000] — NOT Standard, whose ceiling would truncate a legal
+  2500 ms baseline on identity-restore. The deleted `UpdateTargetDwellTime` semantics return as the map
+  API (state-preserving re-evaluation; targets born effective on `AddTarget`); the Keyboard's hand-rolled
+  tracker composes its own effective dwell on `Configure`/`Changed`. App-side `DwellTimeRouter` applies on
+  provider `Changed` + `RegistrationChanged` (late registrants; construct-time apply makes resolve order
+  non-load-bearing); disabled/cleared ⇒ identity map ⇒ exact baselines; in-place apply, so no §9.1 budget
+  (the tolerance precedent). The nine DI-constructed overlay subclasses register via the base class;
+  `ScrollOverlayViewModel` is exempt (per-session construction in ScrollModeController, inert), alongside
+  the by-design exclusion of Settings' four detectors. Five factory-registered owners
+  (ManualSelection, External, NoteManager, OverlayManager, EyeCareBannerWindow) take the registry
+  argument explicitly in their DI lambdas.
 - **Geometry additionally** needs the §13.1 absolute bound (which §13.1 assigns to Phase 1b and 1b deferred
   — see §14) and resolution of the absolute-extent vs. signed-margin unit mismatch noted in
   `EffectiveSettingsProvider`'s `KnobPolicy` table.

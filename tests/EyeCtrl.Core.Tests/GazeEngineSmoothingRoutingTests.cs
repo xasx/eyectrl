@@ -408,6 +408,45 @@ public class GazeEngineSmoothingRoutingTests
         Check.That(a.Engine.AppliedSmoothingParameter).IsEqualTo(5.0);
     }
 
+    [Fact]
+    public void Constructor_WithPreExistingFill_LiveFilterRunsAtTheEffectiveParameter()
+    {
+        // PR #131 review nit, closed here per its ruling: the constructor built the interpolator from
+        // BASELINE settings while the applied-bits seed recorded the effective value — the two
+        // disagreed for a provider with pre-existing fills. On main the filled engine's FILTER runs at
+        // the baseline factor, so its step response matches the baseline engine's; after the reorder it
+        // runs at the effective factor (0.5 − 0.50×0.5 = 0.25) and trails.
+        var filledSettings = new EyeCtrlSettings();
+        filledSettings.Cursor.FilterMode = GazeFilterMode.Smoothed;
+        filledSettings.Adaptation.Enabled = true;
+        var provider = new EffectiveSettingsProvider(filledSettings.Adaptation);
+        provider.SetMomentaryFill(AdaptationKnob.Smoothing, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
+        var gazeA = new TestGazeProvider();
+        var a = new GazeEngine(gazeA, new TestInputSimulator(), filledSettings, effectiveSettings: provider);
+
+        var baselineSettings = new EyeCtrlSettings();
+        baselineSettings.Cursor.FilterMode = GazeFilterMode.Smoothed;
+        var gazeB = new TestGazeProvider();
+        var b = new GazeEngine(gazeB, new TestInputSimulator(), baselineSettings);
+
+        double lastA = 0, lastB = 0;
+        a.CursorMoved += (p, _) => lastA = p.X;
+        b.CursorMoved += (p, _) => lastB = p.X;
+
+        long ts = 0;
+        for (int i = 0; i < 12; i++, ts += 33_000)
+        {
+            gazeA.SimulateGaze(500, 500, ts);
+            gazeB.SimulateGaze(500, 500, ts);
+        }
+        gazeA.SimulateGaze(600, 500, ts);
+        gazeB.SimulateGaze(600, 500, ts);
+
+        Check.That(a.AppliedSmoothingParameter).IsEqualTo(0.25); // the seed and the filter now agree…
+        Check.That(a.InterpolatorRebuildCount).IsEqualTo(0);     // …and no rebuild was spent
+        Check.That(lastA).IsStrictlyLessThan(lastB);             // the 0.25-factor filter trails the step
+    }
+
     // --- Fakes (own copies — no shared base class; mirrors GazeEngineFilterRecreationTests) ---
 
     private sealed class TestGazeProvider : IGazeProvider

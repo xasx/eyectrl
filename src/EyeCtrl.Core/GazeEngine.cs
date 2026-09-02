@@ -215,9 +215,11 @@ public class GazeEngine : IDisposable
         _settings = settings;
         _calibrationService = calibrationService;
 
+        _effectiveSettings = effectiveSettings;
+
         _gapInterpolator = new GapInterpolator(
-            GazeFilterFactory.Create(settings.Cursor),
-            settings.Cursor.MaxGapInterpolationMs);
+            GazeFilterFactory.Create(_settings.Cursor, EffectiveSmoothingParameter()),
+            _settings.Cursor.MaxGapInterpolationMs);
 
         _cursorSettingsChangedHandler = (_, e) =>
         {
@@ -235,8 +237,6 @@ public class GazeEngine : IDisposable
             }
         };
         _settings.Cursor.PropertyChanged += _cursorSettingsChangedHandler;
-
-        _effectiveSettings = effectiveSettings;
 
         _centroidTracker = new FixationCentroidTracker(settings.Dwell.VelocityThresholdPxPerSec);
 

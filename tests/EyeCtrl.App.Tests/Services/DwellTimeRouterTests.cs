@@ -65,6 +65,27 @@ public class DwellTimeRouterTests
     }
 
     [Fact]
+    public void Constructor_AppliesToEntriesRegisteredBeforeConstruction()
+    {
+        // Resolve-order insurance (whole-branch review): every other fact constructs the router BEFORE
+        // registering, so the RegistrationChanged subscription masks the ctor ApplyAll() — deleting that
+        // call would fail nothing. This fact registers first; the map must arrive with no event at all.
+        // (Make() cannot be used: it constructs the router first.)
+        var settings = new EyeCtrlSettings { Adaptation = { Enabled = true } };
+        var provider = new EffectiveSettingsProvider(settings.Adaptation);
+        var registry = new DwellDetectorRegistry();
+        provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
+        var entry = new CaptureEntry();
+        registry.Register(new object(), entry.AsRegistration()); // BEFORE any router exists
+
+        using var router = new DwellTimeRouter(provider, registry);
+
+        // Full forgiving fill applied at construction: 700 − 0.40×700 = 420 (no subsequent event fired).
+        Check.That(entry.Applied).IsNotNull();
+        Check.That(entry.Applied!(700)).IsEqualTo(420);
+    }
+
+    [Fact]
     public void DisabledProvider_IdentityMap()
     {
         var settings = new EyeCtrlSettings { Adaptation = { Enabled = false } };

@@ -273,9 +273,9 @@ public class GazeEngine : IDisposable
             _effectiveSettings.Changed += _effectiveSettingsChangedHandler;
         }
 
-        // The parameter the constructor-built interpolator runs at (fills are necessarily empty here, so
-        // this is the active mode's baseline). Without this, bits default to 0 and the first Changed of
-        // ANY knob would compare unequal and spend a spurious rebuild.
+        // The parameter the constructor-built interpolator runs at: the effective value when the provider
+        // holds pre-existing fills, the active mode's baseline with no provider or no fills. Without this,
+        // bits default to 0 and the first Changed of ANY knob would compare unequal and spend a spurious rebuild.
         _lastAppliedSmoothingBits = EffectiveSmoothingParameter() is { } initial
             ? BitConverter.DoubleToInt64Bits(initial)
             : NoSmoothingBits;

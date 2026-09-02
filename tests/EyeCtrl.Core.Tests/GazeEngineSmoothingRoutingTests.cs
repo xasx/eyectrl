@@ -205,8 +205,10 @@ public class GazeEngineSmoothingRoutingTests
     public void NonSmoothingFill_DoesNotRebuildTheFilter()
     {
         // §13.3 item (2), the negative: Changed is payloadless and fires for EVERY knob's fill, but a
-        // DwellTime fill must not spend a rebuild. The dwell-filled engine's step response must be
-        // identical to the never-adapted reference (same sequence through the same, unchanged filter).
+        // DwellTime fill must not spend a rebuild. The step-response comparison alone cannot pin this — a
+        // spurious same-parameter rebuild is behaviourally invisible (warm-started at the same value) — so
+        // the rebuild COUNT is the assertion (external implementation review, 2026-09-02: an unconditional
+        // request in the handler survived the step-response variants; only the counter kills it).
         var a = Make(GazeFilterMode.OneEuro);
         var b = Make(GazeFilterMode.OneEuro);
         a.Provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
@@ -226,6 +228,7 @@ public class GazeEngineSmoothingRoutingTests
 
         Check.That(lastA).IsEqualTo(lastB);
         Check.That(a.Engine.AppliedSmoothingParameter).IsEqualTo(5.0); // no rebuild happened
+        Check.That(a.Engine.InterpolatorRebuildCount).IsEqualTo(0);    // …and none was SPENT (the cost property)
     }
 
     [Fact]
@@ -378,6 +381,31 @@ public class GazeEngineSmoothingRoutingTests
         a.Provider.SetMomentaryFill(AdaptationKnob.Smoothing, DwellContext.Other, forgivingFill: 0.5, tighteningFill: 0.0);
         a.TestGaze.SimulateGaze(500, 500, 50_000); // reconnect: gaze clock back near zero
         Check.That(a.Engine.AppliedSmoothingParameter).IsEqualTo(3.75);
+    }
+
+    [Fact]
+    public void RacingFillClear_DuringRebuildApply_RevalidationRequestsRestore()
+    {
+        // The §8.6 lost-update close (external implementation review, 2026-09-02: deleting the revalidation
+        // tail survived all 31 tests). The hook fires AFTER the fresh interpolator is swapped in but BEFORE
+        // the applied-bits publication — the exact window where the dispatcher's Changed handler would read
+        // the fill change (clear → effective 5.0) against the STALE applied bits (5.0, not yet exchanged to
+        // 2.5), find them equal, and skip its request. Without the post-publish revalidation the filter
+        // would sit at 2.5 Hz with no outstanding request; with it, the next sample past the 1 s budget
+        // restores the baseline. NOTE the hook must fire BEFORE the exchange: placed after it, the handler
+        // sees the new bits, requests itself, and the tail is untested.
+        var a = Make(GazeFilterMode.OneEuro);
+        long ts = 0;
+        for (int i = 0; i < 12; i++, ts += 33_000) a.TestGaze.SimulateGaze(500, 500, ts);
+
+        a.Provider.SetMomentaryFill(AdaptationKnob.Smoothing, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
+        a.Engine.BeforeSmoothingPublishForTest = () => a.Provider.ClearMomentaryFills();
+        a.TestGaze.SimulateGaze(500, 500, ts); // rebuild applies 2.5; the clear races inside the stale-bits window
+        a.Engine.BeforeSmoothingPublishForTest = null;
+        Check.That(a.Engine.AppliedSmoothingParameter).IsEqualTo(2.5); // this rebuild still landed at 2.5
+
+        a.TestGaze.SimulateGaze(500, 500, ts += 1_000_000); // past the 1 s budget — the re-request applies
+        Check.That(a.Engine.AppliedSmoothingParameter).IsEqualTo(5.0);
     }
 
     // --- Fakes (own copies — no shared base class; mirrors GazeEngineFilterRecreationTests) ---

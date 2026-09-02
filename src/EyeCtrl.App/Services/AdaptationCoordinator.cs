@@ -22,9 +22,11 @@ using Serilog;
 /// </summary>
 public sealed class AdaptationCoordinator : IDisposable
 {
-    // Tick cadence: a few Hz on the dispatcher (§9). Tunable. Only FixationRadius is routed today (a cheap
-    // fixation-detector rebuild); the expensive smoothing-filter rebuild + its coalescing land with
-    // smoothing routing (see 1b-④b's perf note), so a few-Hz tick is within the §9.1 budget.
+    // Tick cadence: a few Hz on the dispatcher (§9). Tunable. FixationRadius applies in place (cheap) and
+    // Smoothing is routed too (smoothing-routing slice): its filter rebuild is rate-limited on the GAZE
+    // thread — GazeEngine.ApplyPendingInterpolatorRebuild's 1 s adaptive budget with request coalescing —
+    // so the 250 ms tick can never spend more than one rebuild per second regardless of how often a fill
+    // steps. That budget, not this cadence, is what discharges §9.1 for smoothing.
     private const int TickIntervalMs = 250;
 
     // "No gaze sample seen yet." long.MinValue, NOT 0 — real tracker timestamps carry an arbitrary large

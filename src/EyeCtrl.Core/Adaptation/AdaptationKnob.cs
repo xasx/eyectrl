@@ -3,9 +3,10 @@ namespace EyeCtrl.Core.Adaptation;
 /// <summary>
 /// Identifies an adaptable setting ("knob") the <see cref="EffectiveSettingsProvider"/> composes a
 /// bounded momentary fill onto. Each knob has its own safe direction, units, and safety band
-/// (design §5/§13.1). All four §5 knob families are declared; only <see cref="FixationRadius"/> is
-/// routed to a Core consumer today (via <c>GazeEngine</c>, plan 1b-①) — the others are composable but
-/// unrouted until their routing slices land.
+/// (design §5/§13.1). All four §5 knob families are declared; <see cref="FixationRadius"/> and
+/// <see cref="Smoothing"/> are routed to Core consumers (both via <c>GazeEngine</c> — plans 1b-① and
+/// the smoothing-routing slice) — dwell and geometry are composable but unrouted until their routing
+/// slices land.
 /// </summary>
 public enum AdaptationKnob
 {
@@ -15,7 +16,7 @@ public enum AdaptationKnob
     /// <summary>Dwell activation time in milliseconds (forgiving = shorter; the one quarantined tightening = longer, for accidental activation). Unrouted until the dwell-routing slice.</summary>
     DwellTime,
 
-    /// <summary>The active gaze filter's smoothing parameter (forgiving = more smoothing = parameter DOWN for both filters). Unrouted until the smoothing-routing slice.</summary>
+    /// <summary>The active gaze filter's smoothing parameter (forgiving = more smoothing = parameter DOWN for both filters). Routed via <c>GazeEngine</c>'s adaptive interpolator rebuild, clamped to the active filter's validated range (smoothing-routing slice).</summary>
     Smoothing,
 
     /// <summary>Target ring/hit extent and its coupled visible size in physical pixels (forgiving = bigger).

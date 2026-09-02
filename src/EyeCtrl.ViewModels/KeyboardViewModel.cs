@@ -21,9 +21,12 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private long _nearestKeyEnteredTimestamp;
     private long _keyCooldownEndTimestamp;
     private int _keyDwellMs;
+    private int _baselineKeyDwellMs;
     private int _cooldownMs;
 
     private readonly IStruggleTelemetrySink? _sink;
+    private readonly EffectiveSettingsProvider? _effectiveSettings;
+    private readonly Action _onEffectiveSettingsChanged;
 
     [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private bool _isEmojiMode;
@@ -47,17 +50,45 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     public event Action<string>? KeyDwellCompleted;
 
     public KeyboardViewModel(EyeCtrlSettings settings, IMessenger messenger,
-        IStruggleTelemetrySink? sink = null)
+        IStruggleTelemetrySink? sink = null, EffectiveSettingsProvider? effectiveSettings = null)
         : base(messenger)
     {
         _settings = settings;
         _sink = sink;
+        _effectiveSettings = effectiveSettings;
+        if (_effectiveSettings is not null)
+        {
+            _onEffectiveSettingsChanged = ApplyEffectiveKeyDwell;
+            _effectiveSettings.Changed += _onEffectiveSettingsChanged;
+        }
+        else
+        {
+            _onEffectiveSettingsChanged = () => { };
+        }
     }
 
     public void Configure(int keyDwellMs, int cooldownMs)
     {
-        _keyDwellMs = keyDwellMs;
+        _baselineKeyDwellMs = keyDwellMs;
         _cooldownMs = cooldownMs;
+        ApplyEffectiveKeyDwell();
+    }
+
+    // The key tracker is not a DwellDetector, so it composes its own effective dwell (design §15:
+    // KeyboardViewModel effective key dwell). The _nearestKeyEnteredTimestamp pattern means a mid-dwell
+    // change re-evaluates on the next sample without any reset — the same semantics the detector's
+    // SetEffectiveDwellTime pins. NB: no early-return on a null provider — Configure MUST assign
+    // _keyDwellMs even without one, or ProcessKeyGaze's `<= 0` guard silently kills the keyboard
+    // (review round 1, blocker 2). The clamp also covers the no-provider path; it is identity there
+    // because KeyboardKeyDwellMs's own guard is exactly [100, 1500].
+    private void ApplyEffectiveKeyDwell()
+    {
+        if (_baselineKeyDwellMs <= 0)
+            return; // not configured yet — Configure drives the initial apply
+        double effective = _effectiveSettings?.Effective(
+            AdaptationKnob.DwellTime, DwellContext.Other, _baselineKeyDwellMs) ?? _baselineKeyDwellMs;
+        _keyDwellMs = (int)Math.Clamp(Math.Round(effective),
+            AdaptationDwellRanges.KeyboardMinDwellMs, AdaptationDwellRanges.KeyboardMaxDwellMs);
     }
 
     public void Receive(ShowKeyboardMessage message) => IsVisible = true;
@@ -333,6 +364,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     protected override void OnDispose()
     {
+        if (_effectiveSettings is not null) _effectiveSettings.Changed -= _onEffectiveSettingsChanged;
         _orchestrator?.Dispose();
     }
 }

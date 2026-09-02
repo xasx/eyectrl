@@ -23,6 +23,7 @@ public class DwellDetector
 
     private readonly DwellContext _context;
     private readonly IStruggleTelemetrySink? _sink;
+    private Func<int, int>? _effectiveDwellMap;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DwellDetector"/> class.
@@ -56,6 +57,7 @@ public class DwellDetector
     {
         _targets[target.Id] = target;
         _targetsSnapshot = _targets.Values.ToArray();
+        ApplyMap(target);
     }
     /// <summary>Removes a target from dwell detection.</summary>
     public void RemoveTarget(string id)
@@ -124,6 +126,31 @@ public class DwellDetector
     {
         if (_targets.TryGetValue(id, out var target))
             target.ApplyHitAreaMargin(marginPx);
+    }
+
+    /// <summary>
+    /// Stores the effective-dwell-time map (adaptation routing) and applies it to every current
+    /// target; targets added afterwards are born effective (spec §5). The map receives each target's
+    /// as-registered baseline ms (never the current effective value), so re-applying is idempotent.
+    /// <c>null</c> restores every target to its exact baseline. State-preserving: never touches
+    /// <c>EnteredTimestamp</c>/<c>IsGazeInside</c> — the next <see cref="Update(PhysicalPoint, long)"/>
+    /// re-evaluates elapsed against the new threshold. Same threading contract as the other mutators
+    /// (single thread — the UI thread, or the owning service's lock).
+    /// </summary>
+    public void SetEffectiveDwellTime(Func<int, int>? mapBaselineMsToEffectiveMs)
+    {
+        _effectiveDwellMap = mapBaselineMsToEffectiveMs;
+        var targets = _targetsSnapshot;
+        for (int i = 0; i < targets.Length; i++)
+            ApplyMap(targets[i]);
+    }
+
+    private void ApplyMap(DwellTarget target)
+    {
+        // Null map = restore: the baseline IS the null case's effective value. A bare early-return
+        // here would leave targets stuck at the last effective value (review round 1, blocker 1).
+        var map = _effectiveDwellMap;
+        target.ApplyEffectiveDwellMs(map is null ? target.BaseDwellMs : map(target.BaseDwellMs));
     }
 
     /// <summary>

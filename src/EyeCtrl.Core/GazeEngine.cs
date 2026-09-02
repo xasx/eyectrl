@@ -51,7 +51,9 @@ public class GazeEngine : IDisposable
     private const long MinAdaptiveRebuildIntervalMicroseconds = 1_000_000;
     private long _lastAdaptiveRebuildTimestampMicroseconds = long.MinValue / 2;
     // Written on the dispatcher thread (the provider's Changed handler), read+cleared on the gaze thread —
-    // same defer-onto-the-gaze-thread contract as _interpolatorRebuildRequested.
+    // same defer-onto-the-gaze-thread contract as _interpolatorRebuildRequested — and also RE-SET on the
+    // gaze thread by the post-publish revalidation (see ApplyPendingInterpolatorRebuild). Every write is
+    // `= true` and only the gaze thread clears it, so the two writers cannot lose each other's update.
     private volatile bool _adaptiveRebuildRequested;
 
     // §13.3 smoothing routing. Sentinel for "the live filter was not built from an effective smoothing
@@ -305,6 +307,21 @@ public class GazeEngine : IDisposable
         }
     }
 
+    /// <summary>Test seam (<c>InternalsVisibleTo</c> → EyeCtrl.Core.Tests): how many interpolator rebuilds
+    /// (baseline OR adaptive) have run. The knob-aware request is a COST property — a spurious
+    /// same-parameter rebuild is behaviourally invisible in step responses — so only a count can pin that a
+    /// non-smoothing fill spends none (external implementation review, 2026-09-02). Written on the gaze
+    /// thread; tests read it after a synchronous SimulateGaze, i.e. on the same thread. Production reads
+    /// nothing.</summary>
+    internal int InterpolatorRebuildCount;
+
+    /// <summary>Test seam: invoked on the gaze thread AFTER the fresh interpolator is swapped in but BEFORE
+    /// the applied-bits publication — the exact window where a racing provider write (e.g. the §8.6 toolbar
+    /// reset's <c>ClearMomentaryFills</c>) compares against the STALE applied bits and skips its request,
+    /// which is the lost update the post-publish revalidation exists to close. A test that clears the fills
+    /// inside this hook makes that interleaving deterministic. Production leaves it null.</summary>
+    internal Action? BeforeSmoothingPublishForTest;
+
     // §13.3 item (1): the provider→filter VALUE path. The active filter's ONE adaptation-sensitive
     // parameter, composed against the CURRENT mode's baseline — the fill is a fraction OF the baseline, so
     // the baseline must be the active parameter's (OneEuroMinCutoff vs SmoothingFactor), resolved afresh on
@@ -414,6 +431,7 @@ public class GazeEngine : IDisposable
         fresh.CopyStateFrom(_gapInterpolator);
         fresh.WarmStartFromCurrentState(); // R1: seed the fresh filter — no cursor jump
         _gapInterpolator = fresh;
+        InterpolatorRebuildCount++; // test seam — see its doc
 
         // Publish the applied parameter (the sentinel for null — Direct/no-provider — so a runtime switch
         // into Direct reports null honestly). Then RE-VALIDATE: a provider write that landed between the
@@ -423,6 +441,7 @@ public class GazeEngine : IDisposable
         // orderings close the window (the dispatcher writes fills before reading bits; the gaze thread
         // exchanges bits before re-reading), so at least one side observes the other; any re-request goes
         // back through the budget gate (deferred, not dropped).
+        BeforeSmoothingPublishForTest?.Invoke(); // test seam: simulate a racing fill write in the stale-bits window
         Interlocked.Exchange(
             ref _lastAppliedSmoothingBits,
             parameter is { } applied ? BitConverter.DoubleToInt64Bits(applied) : NoSmoothingBits);

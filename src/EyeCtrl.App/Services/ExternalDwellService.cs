@@ -68,6 +68,7 @@ public sealed class ExternalDwellService : IDisposable
         IMessenger messenger,
         Func<PhysicalPoint, long?>? rootWindowAtPoint = null,
         IStruggleTelemetrySink? sink = null,
+        IDwellDetectorRegistry? dwellRegistry = null,
         string? pipeName = null)
     {
         _pipeName = pipeName ?? DefaultPipeName;
@@ -84,6 +85,14 @@ public sealed class ExternalDwellService : IDisposable
             else if (_frameProgressId == id) { _frameProgressId = null; _frameProgress = 0; }
         };
         _detector.TargetActivated += id => _frameActivatedId = id;
+        // Dwell routing (Phase 1c): the External range, NOT Standard — DefaultDwellMs legally climbs
+        // to 3000, and an identity restore through [200, 2000] would truncate such a baseline. The
+        // applier wraps SetEffectiveDwellTime in _stateLock: this detector Updates on the gaze
+        // thread (OnCursorMoved) under that same lock, so an unlocked map write could interleave.
+        dwellRegistry?.Register(this, new DwellRoutingRegistration(
+            DwellContext.ExternalDwell,
+            AdaptationDwellRanges.ExternalMinDwellMs, AdaptationDwellRanges.ExternalMaxDwellMs,
+            map => { lock (_stateLock) _detector.SetEffectiveDwellTime(map); }));
         _feedback = new DwellFeedbackOverlay();
         _settings.PropertyChanged += (_, e) =>
         {

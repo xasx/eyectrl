@@ -33,7 +33,8 @@ public partial class EyeCareBannerWindow : OverlayWindow
     private TaskCompletionSource<bool>? _tcs;
 
     // Reuse the app's activation dwell time so the buttons feel consistent.
-    public EyeCareBannerWindow(int dwellMs = 700, IStruggleTelemetrySink? sink = null)
+    public EyeCareBannerWindow(int dwellMs = 700, IStruggleTelemetrySink? sink = null,
+        IDwellDetectorRegistry? dwellRegistry = null)
     {
         InitializeComponent();
 
@@ -46,6 +47,9 @@ public partial class EyeCareBannerWindow : OverlayWindow
         _dwellMs = dwellMs;
         _dwell = new DwellDetector(cooldownMs: 0, context: DwellContext.EyeCare, sink: sink);
         _dwell.TargetActivated += OnTargetActivated;
+        dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
+            _dwell, DwellContext.EyeCare,
+            AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs));
     }
 
     public static (PhysicalPoint Start, PhysicalPoint Snooze, double Radius) ComputeDwellGeometry(

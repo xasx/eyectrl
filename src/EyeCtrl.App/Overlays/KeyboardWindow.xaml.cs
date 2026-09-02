@@ -57,6 +57,7 @@ public partial class KeyboardWindow : OverlayWindow
     private KeyboardSoundService? _soundService;
     private EyeCtrlSettings? _settings;
     private readonly IStruggleTelemetrySink? _sink;
+    private readonly IDwellDetectorRegistry? _dwellRegistry;
 
     /// <summary>
     /// Widest a prediction label may grow, in key widths. Expressed in keys so it tracks
@@ -75,15 +76,21 @@ public partial class KeyboardWindow : OverlayWindow
     private bool _predictionTargetsInitialized;
     private string? _previousNearestKeyId;
 
-    public KeyboardWindow(IStruggleTelemetrySink? sink = null)
+    public KeyboardWindow(IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
     {
         InitializeComponent();
         _sink = sink;
+        _dwellRegistry = dwellRegistry;
         _predictionDwellDetector = new DwellDetector(cooldownMs: 0,
             context: DwellContext.KeyboardPrediction, sink: sink);
         SizeChanged += (_, _) => RepositionOnScreen();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
         _predictionDwellDetector.TargetProgress += OnPredictionProgress;
+        // Prediction dwell times come from KeyboardPredictionDwellMs, so the validated span is the
+        // keyboard guard family.
+        _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
+            _predictionDwellDetector, DwellContext.KeyboardPrediction,
+            AdaptationDwellRanges.KeyboardMinDwellMs, AdaptationDwellRanges.KeyboardMaxDwellMs));
     }
 
     public event Action<int>? SkinToneChanged;
@@ -100,13 +107,20 @@ public partial class KeyboardWindow : OverlayWindow
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.KeyDwellCompleted += OnKeyDwellCompleted;
 
+        // Re-entry replaces the emoji manager (see the _viewModel guard above): unregister the old
+        // one first, or its registry entry would outlive it holding a strong reference to a dead
+        // category-tab detector.
+        if (_emojiManager != null)
+            _dwellRegistry?.Unregister(_emojiManager);
+
         _emojiManager = new EmojiGridManager(
             KeyRows,
             CategoryBar,
             RegisterKeyVisual,
             () => _keySize,
             ClearKeyState,
-            _sink);
+            _sink,
+            _dwellRegistry);
         _emojiManager.ExitRequested += () =>
         {
             _viewModel.IsEmojiMode = false;

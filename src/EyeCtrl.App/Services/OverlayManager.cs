@@ -21,6 +21,7 @@ public class OverlayManager : IOverlayManager
     private readonly Dispatcher _dispatcher;
     private readonly IAppIconProvider _iconProvider;
     private readonly IStruggleTelemetrySink? _sink;
+    private readonly IDwellDetectorRegistry? _dwellRegistry;
 
     public CursorCircleWindow CursorCircle { get; private set; } = null!;
     public ActivationButtonWindow ActivationButton { get; private set; } = null!;
@@ -39,12 +40,13 @@ public class OverlayManager : IOverlayManager
     public QuickActionsGridWindow QuickActionsGrid { get; private set; } = null!;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider,
-        IStruggleTelemetrySink? sink = null)
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
     {
         _dispatcher = dispatcher;
         _logger = logger;
         _iconProvider = iconProvider;
         _sink = sink;
+        _dwellRegistry = dwellRegistry;
     }
 
     /// <summary>
@@ -60,7 +62,7 @@ public class OverlayManager : IOverlayManager
         ManualSelectionOverlay = new ManualSelectionOverlayWindow();
         ActionMenu = new ActionMenuWindow();
         Toolbar = new ToolbarWindow();
-        Keyboard = new KeyboardWindow(_sink);
+        Keyboard = new KeyboardWindow(_sink, _dwellRegistry);
         ManualSelectionIndicator = new ManualSelectionGazeIndicatorWindow();
         GlassBackdrop = new GlassBackdropWindow();
         TargetHighlight = new TargetHighlightWindow();

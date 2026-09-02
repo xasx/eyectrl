@@ -149,6 +149,12 @@ public class AppBootstrapper
         services.AddSingleton(sp => new EffectiveSettingsProvider(
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation));
 
+        // Dwell routing (Phase 1c slice 2): the registry discovers live dwell surfaces; the router
+        // applies the effective DwellTime on provider Changed / registration change. Eagerly resolved
+        // at startup (App.xaml.cs) — it subscribes and applies in its ctor, and DI singletons are lazy.
+        services.AddSingleton<IDwellDetectorRegistry, DwellDetectorRegistry>();
+        services.AddSingleton<DwellTimeRouter>();
+
         // Core engine
         services.AddSingleton(sp => new GazeEngine(
             sp.GetRequiredService<IGazeProvider>(),
@@ -233,7 +239,8 @@ public class AppBootstrapper
             sp.GetRequiredService<EyeCtrlSettings>(),
             dispatcher,
             sp.GetRequiredService<GazeEngine>().InteractionManager,
-            sp.GetRequiredService<IStruggleTelemetrySink>()));
+            sp.GetRequiredService<IStruggleTelemetrySink>(),
+            sp.GetRequiredService<IDwellDetectorRegistry>()));
 
         // ExternalDwellService: lets cooperating apps register dwellable controls over a named pipe.
         services.AddSingleton(sp => new ExternalDwellService(
@@ -242,24 +249,28 @@ public class AppBootstrapper
             dispatcher,
             sp.GetRequiredService<ILogger<ExternalDwellService>>(),
             sp.GetRequiredService<IMessenger>(),
-            sink: sp.GetRequiredService<IStruggleTelemetrySink>()));
+            sink: sp.GetRequiredService<IStruggleTelemetrySink>(),
+            dwellRegistry: sp.GetRequiredService<IDwellDetectorRegistry>()));
 
         // NoteManager (pinned notes lifecycle)
         services.AddSingleton<INoteManager>(sp => new NoteManager(
             sp.GetRequiredService<IMessenger>(),
-            sp.GetRequiredService<IStruggleTelemetrySink>()));
+            sp.GetRequiredService<IStruggleTelemetrySink>(),
+            sp.GetRequiredService<IDwellDetectorRegistry>()));
 
         // OverlayManager (manages all overlay window lifecycle)
         services.AddSingleton<IOverlayManager>(sp => new OverlayManager(
             dispatcher,
             sp.GetRequiredService<ILogger<OverlayManager>>(),
             sp.GetRequiredService<IAppIconProvider>(),
-            sp.GetRequiredService<IStruggleTelemetrySink>()));
+            sp.GetRequiredService<IStruggleTelemetrySink>(),
+            sp.GetRequiredService<IDwellDetectorRegistry>()));
 
         // Eye-care
         services.AddSingleton(sp => new EyeCareBannerWindow(
             sp.GetRequiredService<EyeCtrlSettings>().Dwell.ActivationButtonDwellMs,
-            sp.GetRequiredService<IStruggleTelemetrySink>()));
+            sp.GetRequiredService<IStruggleTelemetrySink>(),
+            sp.GetRequiredService<IDwellDetectorRegistry>()));
         services.AddSingleton<EyeCareExerciseWindow>();
         services.AddSingleton<ExerciseRunner>(sp =>
         {

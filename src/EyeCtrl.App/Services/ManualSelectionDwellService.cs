@@ -27,6 +27,7 @@ public class ManualSelectionDwellService : IDisposable
     private readonly Dispatcher _dispatcher;
     private readonly InteractionManager _interactionManager;
     private readonly IStruggleTelemetrySink? _sink;
+    private readonly IDwellDetectorRegistry? _dwellRegistry;
 
     // State
     private DwellDetector? _dwellDetector;
@@ -42,7 +43,8 @@ public class ManualSelectionDwellService : IDisposable
         EyeCtrl.Core.Settings.EyeCtrlSettings settings,
         Dispatcher dispatcher,
         InteractionManager interactionManager,
-        IStruggleTelemetrySink? sink = null)
+        IStruggleTelemetrySink? sink = null,
+        IDwellDetectorRegistry? dwellRegistry = null)
     {
         _messenger = messenger;
         _logger = logger;
@@ -50,6 +52,7 @@ public class ManualSelectionDwellService : IDisposable
         _dispatcher = dispatcher;
         _interactionManager = interactionManager;
         _sink = sink;
+        _dwellRegistry = dwellRegistry;
 
         // Register message handlers
         _messenger.Register<StartManualSelectionMessage>(this, (r, m) => OnManualSelectionStarted(m));
@@ -87,6 +90,12 @@ public class ManualSelectionDwellService : IDisposable
 
         _dwellDetector.AddTarget(target);
 
+        // Per-session registration keyed by this service: re-registering replaces the previous
+        // session's entry (owner-keyed registry), so only the live detector is ever routed to.
+        _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
+            _dwellDetector, DwellContext.ManualSelection,
+            AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs));
+
         _logger.LogDebug("ManualSelection dwell tracking started: center=({X}, {Y}), radius={Radius}",
             _manualSelectionCenter.Value.X, _manualSelectionCenter.Value.Y, message.Radius);
     }
@@ -96,6 +105,9 @@ public class ManualSelectionDwellService : IDisposable
         // Cleanup detector
         if (_dwellDetector != null)
         {
+            // Unregister BEFORE nulling: the registry entry holds the detector through its applier,
+            // and a detector from a finished session must not receive any further routed maps.
+            _dwellRegistry?.Unregister(this);
             _dwellDetector.TargetActivated -= OnDwellActivated;
             _dwellDetector.TargetProgress -= OnDwellProgress;
             _dwellDetector.ClearTargets();

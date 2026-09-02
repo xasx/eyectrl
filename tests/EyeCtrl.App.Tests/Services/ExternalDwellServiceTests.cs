@@ -11,6 +11,7 @@ using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Contracts;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -360,6 +361,64 @@ public class ExternalDwellServiceTests
         var second = await Task.WhenAny(read2, Task.Delay(1500)) == read2 ? await read2 : null;
 
         return (first, second);
+    }
+
+    [Fact]
+    public void DwellRoutingEntry_HalvingMap_ReducesActivationLatency()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            var dwellRegistry = new DwellDetectorRegistry();
+            using var svc = new ExternalDwellService(
+                new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
+                engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
+                new WeakReferenceMessenger(), _ => 7,
+                dwellRegistry: dwellRegistry, pipeName: _pipeName);
+            svc.Start();
+
+            // The service registers exactly one routing entry: the External range (200–3000, NOT
+            // Standard — a legal 2500 ms baseline must survive an identity restore), whose applier
+            // delegates effective-dwell maps to the service's detector.
+            Check.That(dwellRegistry.Registrations).HasSize(1);
+            Check.That(dwellRegistry.Registrations[0].Context).IsEqualTo(DwellContext.ExternalDwell);
+            Check.That(dwellRegistry.Registrations[0].MinDwellMs).IsEqualTo(AdaptationDwellRanges.ExternalMinDwellMs);
+            Check.That(dwellRegistry.Registrations[0].MaxDwellMs).IsEqualTo(AdaptationDwellRanges.ExternalMaxDwellMs);
+
+            var activated = RegisterApplyHalvingMapAndDwell(
+                dwellRegistry.Registrations[0], provider, _pipeName).GetAwaiter().GetResult();
+
+            // 420 ms is just past the HALVED 400 ms dwell and well under the 800 ms baseline — the
+            // activation can only have fired because the routed map reached the live target.
+            Check.That(activated).IsNotNull();
+            Check.That(activated).Contains("activated");
+        });
+    }
+
+    // Registers a target (800 ms baseline), lets the async pipe registration settle, applies the
+    // halving map through the routing entry, then dwells to just past 400 ms — half the baseline.
+    // The activation proves the map reached the detector's live target behaviourally (at the
+    // baseline dwell time that timestamp would still be mid-dwell).
+    private static async Task<string?> RegisterApplyHalvingMapAndDwell(
+        DwellRoutingRegistration entry, StubGazeProvider provider, string pipeName)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+        await Task.Delay(200); // let the server register the target BEFORE applying the map
+
+        entry.Apply(ms => ms / 2);
+
+        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
+        provider.Raise(new GazePoint(100, 100, 420_000, IsValid: true));
+
+        var read = r.ReadLineAsync();
+        return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
     }
 
     private sealed class StubGazeProvider : IGazeProvider

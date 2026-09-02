@@ -176,6 +176,11 @@ public partial class App : Application
             // Resolve ManualSelectionDwellService (triggers message subscriptions)
             _ = _serviceProvider.GetRequiredService<ManualSelectionDwellService>();
 
+            // Resolve the dwell-time router (Phase 1c dwell routing): it subscribes to the effective-
+            // settings provider and the dwell-detector registry in its ctor and applies the current
+            // values immediately, so it must exist before any surface registers.
+            _ = _serviceProvider.GetRequiredService<DwellTimeRouter>();
+
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
             var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm,

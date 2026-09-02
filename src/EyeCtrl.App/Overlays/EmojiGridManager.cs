@@ -75,7 +75,8 @@ public class EmojiGridManager
         Action<string, KeyDefinition, Border, TextBlock?> registerKeyVisual,
         Func<double> getKeySize,
         Action clearKeyState,
-        IStruggleTelemetrySink? sink = null)
+        IStruggleTelemetrySink? sink = null,
+        IDwellDetectorRegistry? dwellRegistry = null)
     {
         _categoryDwellDetector = new DwellDetector(cooldownMs: 0, context: DwellContext.Emoji, sink: sink);
         _keyRows = keyRows;
@@ -85,6 +86,11 @@ public class EmojiGridManager
         _clearKeyState = clearKeyState;
         _categoryDwellDetector.TargetActivated += OnCategoryDwelled;
         _categoryDwellDetector.TargetProgress += OnCategoryProgress;
+        // Keyboard range: the category tabs' dwell times come from KeyboardKeyDwellMs, so the emoji
+        // grid's validated dwell span is the keyboard guard family, not Standard.
+        dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
+            _categoryDwellDetector, DwellContext.Emoji,
+            AdaptationDwellRanges.KeyboardMinDwellMs, AdaptationDwellRanges.KeyboardMaxDwellMs));
     }
 
     public event Action? ExitRequested;

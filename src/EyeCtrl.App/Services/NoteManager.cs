@@ -29,13 +29,17 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     /// </summary>
     public bool AllWindowsVisible => _windows.All(w => w.IsVisible);
 
-    public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null)
+    public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null,
+        IDwellDetectorRegistry? dwellRegistry = null)
     {
         _messenger = messenger;
         _dwellDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
         _dwellDetector.TargetActivated += OnTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
         _messenger.Register<GazeCursorMovedMessage>(this);
+        dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
+            _dwellDetector, DwellContext.Notes,
+            AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs));
     }
 
     public void CreateNoteAt(PhysicalPoint point)

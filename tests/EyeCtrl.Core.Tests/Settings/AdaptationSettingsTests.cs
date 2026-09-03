@@ -67,4 +67,32 @@ public class AdaptationSettingsTests
         Check.That(s.DwellShorterMaxFraction).IsEqualTo(0.0);
         Check.That(s.Validate()).IsEmpty();
     }
+
+    [Fact]
+    public void GeometryMaxMarginPx_DefaultsTo100_AndValidates()
+    {
+        // §13.1's feature-introduced geometry bound, landed by the geometry-routing slice: default
+        // 100 physical px — generous enough that the default 0.50 fraction never binds on typical
+        // baselines (~15–70 px margins), tight enough to bound overlap growth on large targets.
+        var s = new AdaptationSettings();
+        Check.That(s.GeometryMaxMarginPx).IsEqualTo(100.0);
+        Check.That(s.Validate()).IsEmpty();
+    }
+
+    [Fact]
+    public void GeometryMaxMarginPx_OutOfRange_ThrowsFromSetterGuard()
+    {
+        var s = new AdaptationSettings();
+        Check.ThatCode(() => s.GeometryMaxMarginPx = -1.0).Throws<ArgumentOutOfRangeException>();
+        Check.ThatCode(() => s.GeometryMaxMarginPx = 300.5).Throws<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void GeometryMaxMarginPx_AtTheBounds_IsAccepted()
+    {
+        var s = new AdaptationSettings { GeometryMaxMarginPx = 0.0 };
+        s.GeometryMaxMarginPx = 300.0;
+        Check.That(s.GeometryMaxMarginPx).IsEqualTo(300.0);
+        Check.That(s.Validate()).IsEmpty();
+    }
 }

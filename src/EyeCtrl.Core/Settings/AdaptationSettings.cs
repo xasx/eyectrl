@@ -60,16 +60,31 @@ public partial class AdaptationSettings : ObservableObject, IValidatable
     /// <summary>Maximum larger target-geometry deviation as a fraction of baseline (§13.1). Default 0.50.</summary>
     [ObservableProperty] private double _geometryBiggerMaxFraction = 0.50;
 
+    /// <summary>Absolute cap on the geometry growth margin, in physical screen px — §13.1's
+    /// feature-introduced bound (geometry has no pre-existing validated range; the provider stays
+    /// fraction-bounded). Applied at routing on top of the fraction band:
+    /// <c>margin = clamp(effective − base, 0, this)</c>. Default 100.</summary>
+    [ObservableProperty] private double _geometryMaxMarginPx = 100.0;
+
     partial void OnDwellShorterMaxFractionChanging(double value) => GuardFraction(value, nameof(DwellShorterMaxFraction));
     partial void OnDwellLongerMaxFractionChanging(double value) => GuardFraction(value, nameof(DwellLongerMaxFraction));
     partial void OnToleranceLooserMaxFractionChanging(double value) => GuardFraction(value, nameof(ToleranceLooserMaxFraction));
     partial void OnSmoothingMoreMaxFractionChanging(double value) => GuardFraction(value, nameof(SmoothingMoreMaxFraction));
     partial void OnGeometryBiggerMaxFractionChanging(double value) => GuardFraction(value, nameof(GeometryBiggerMaxFraction));
 
+    partial void OnGeometryMaxMarginPxChanging(double value) =>
+        GuardRange(value, 0.0, 300.0, nameof(GeometryMaxMarginPx));
+
     private static void GuardFraction(double value, string name)
     {
         if (value < 0.0 || value > 1.0)
             throw new ArgumentOutOfRangeException(nameof(value), value, $"{name} must be between 0 and 1.");
+    }
+
+    private static void GuardRange(double value, double min, double max, string name)
+    {
+        if (value < min || value > max)
+            throw new ArgumentOutOfRangeException(nameof(value), value, $"{name} must be between {min} and {max}.");
     }
 
     /// <inheritdoc />
@@ -78,5 +93,6 @@ public partial class AdaptationSettings : ObservableObject, IValidatable
         ValidationHelper.ValidateRange(DwellLongerMaxFraction, 0.0, 1.0, nameof(DwellLongerMaxFraction)),
         ValidationHelper.ValidateRange(ToleranceLooserMaxFraction, 0.0, 1.0, nameof(ToleranceLooserMaxFraction)),
         ValidationHelper.ValidateRange(SmoothingMoreMaxFraction, 0.0, 1.0, nameof(SmoothingMoreMaxFraction)),
-        ValidationHelper.ValidateRange(GeometryBiggerMaxFraction, 0.0, 1.0, nameof(GeometryBiggerMaxFraction)));
+        ValidationHelper.ValidateRange(GeometryBiggerMaxFraction, 0.0, 1.0, nameof(GeometryBiggerMaxFraction)),
+        ValidationHelper.ValidateRange(GeometryMaxMarginPx, 0.0, 300.0, nameof(GeometryMaxMarginPx)));
 }

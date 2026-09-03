@@ -54,6 +54,9 @@ internal sealed class AdaptationPageSource : ISettingsPageSource
                 new SliderSpec("ad_frac_geom", "Target Size — Bigger Limit", 0.0, 1.0, 0.05, 2,
                     () => s.GeometryBiggerMaxFraction, v => { s.GeometryBiggerMaxFraction = v; _ctx.ApplyAndSave(); })
                     { Description = "The most a target may be grown, as a share of its baseline." },
+                new SliderSpec("ad_geom_margin", "Target Size — Growth Cap", 0.0, 300.0, 5.0, 0,
+                    () => s.GeometryMaxMarginPx, v => { s.GeometryMaxMarginPx = v; _ctx.ApplyAndSave(); })
+                    { Description = "The most a target's hit area may grow when adapted, in screen pixels." },
                 new ButtonSpec("ad_reset", "Reset Adaptation Settings",
                     () => _ctx.ShowModal("Reset Adaptation settings to defaults?", () =>
                     {
@@ -71,6 +74,7 @@ internal sealed class AdaptationPageSource : ISettingsPageSource
                         s.ToleranceLooserMaxFraction = d.ToleranceLooserMaxFraction;
                         s.SmoothingMoreMaxFraction = d.SmoothingMoreMaxFraction;
                         s.GeometryBiggerMaxFraction = d.GeometryBiggerMaxFraction;
+                        s.GeometryMaxMarginPx = d.GeometryMaxMarginPx;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

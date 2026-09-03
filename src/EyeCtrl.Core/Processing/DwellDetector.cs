@@ -24,6 +24,7 @@ public class DwellDetector
     private readonly DwellContext _context;
     private readonly IStruggleTelemetrySink? _sink;
     private Func<int, int>? _effectiveDwellMap;
+    private Func<double, double>? _effectiveGeometryMap;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DwellDetector"/> class.
@@ -58,6 +59,7 @@ public class DwellDetector
         _targets[target.Id] = target;
         _targetsSnapshot = _targets.Values.ToArray();
         ApplyMap(target);
+        ApplyGeometryMap(target);
     }
     /// <summary>Removes a target from dwell detection.</summary>
     public void RemoveTarget(string id)
@@ -151,6 +153,56 @@ public class DwellDetector
         // here would leave targets stuck at the last effective value (review round 1, blocker 1).
         var map = _effectiveDwellMap;
         target.ApplyEffectiveDwellMs(map is null ? target.BaseDwellMs : map(target.BaseDwellMs));
+    }
+
+    /// <summary>
+    /// Stores the effective-geometry map (adaptation routing) and applies it to every current
+    /// target; targets added afterwards are born effective (spec §5). The map receives each target's
+    /// base hit extent (<see cref="DwellTarget.BaseHitExtent"/> — radius, or the smaller rect
+    /// half-extent) and returns an ABSOLUTE extent; the applied margin is
+    /// <c>map(base) − base</c> (the §13.3 unit-mismatch resolution), so re-applying is idempotent.
+    /// <c>null</c> restores every target's as-registered geometry (margin 0). State-preserving: never
+    /// touches <c>EnteredTimestamp</c>/<c>IsGazeInside</c> — enlarging keeps an in-progress dwell
+    /// alive; a shrink that leaves the gaze outside ends it on the next
+    /// <see cref="Update(PhysicalPoint, long)"/> as a normal gaze-left (design §7.3/C4). Same
+    /// threading contract as the other mutators (single thread — the UI thread, or the owning
+    /// service's lock).
+    /// </summary>
+    public void SetEffectiveGeometry(Func<double, double>? mapBaseExtentToEffectiveExtent)
+    {
+        _effectiveGeometryMap = mapBaseExtentToEffectiveExtent;
+        var targets = _targetsSnapshot;
+        for (int i = 0; i < targets.Length; i++)
+            ApplyGeometryMap(targets[i]);
+    }
+
+    private void ApplyGeometryMap(DwellTarget target)
+    {
+        // Null map = restore: margin 0 IS the null case's effective geometry. A bare early-return
+        // here would leave targets stuck at the last margin (the SetEffectiveDwellTime lesson,
+        // dwell plan review round 1 blocker 1).
+        var map = _effectiveGeometryMap;
+        double extent = target.BaseHitExtent;
+        target.ApplyHitAreaMargin((map is null ? extent : map(extent)) - extent);
+    }
+
+    /// <summary>
+    /// Rebases a rect target's as-registered extents to <paramref name="rect"/> and re-applies the
+    /// stored effective-geometry map, so an owner that moves/resizes a live target in place
+    /// (ExternalDwellService's UpdateMessage) neither loses the routed margin nor has a later map
+    /// application revert the new size to the stale base extents. With no map stored this is
+    /// behaviour-identical to a raw Bounds/Center write (margin 0 recomputes the exact rect).
+    /// State-preserving; rect targets only (circular targets have no external geometry source).
+    /// Same threading contract as the other mutators (single thread — the UI thread, or the owning
+    /// service's lock).
+    /// </summary>
+    public void RebaseTarget(string id, PhysicalRect rect)
+    {
+        if (_targets.TryGetValue(id, out var target))
+        {
+            target.Rebase(rect);
+            ApplyGeometryMap(target);
+        }
     }
 
     /// <summary>

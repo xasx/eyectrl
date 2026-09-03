@@ -1,12 +1,14 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
+using System.Reflection;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -39,10 +41,12 @@ using Microsoft.Extensions.DependencyInjection;
 /// exclusively — the same reasoning <c>ExternalDwellServiceTests</c> ("ExternalDwellPipe") relies
 /// on instead of joining "WpfApplication".
 ///
-/// OverlayManager is the one factory argument NOT covered here: its constructor only stores the
-/// registry — the entry lands in KeyboardWindow's constructor, which OverlayManager.Initialize()
-/// invokes alongside ~15 other XAML windows. Constructing that set headless is the XAML-resource
-/// flake zone, so by the same ruling that parks SetViewModel it stays unpinned.
+/// OverlayManager is guarded one level removed from the other four: its constructor only STORES
+/// the registry — the entry lands later, in KeyboardWindow's constructor, which
+/// OverlayManager.Initialize() invokes alongside ~15 other XAML windows. Constructing that set
+/// headless is the XAML-resource flake zone, so by the same ruling that parks SetViewModel the
+/// entry itself is not asserted; instead the <c>_dwellRegistry</c> field is checked reflectively
+/// (see <c>OverlayManager_FactoryLambda_ReceivesTheRegistrySingleton</c>).
 /// </remarks>
 [Collection("DpiHelper Tests (App)")]
 public class DwellRoutingRegistrationWiringTests
@@ -130,5 +134,29 @@ public class DwellRoutingRegistrationWiringTests
 
         CheckSingleEntry(registry.Registrations, DwellContext.EyeCare,
             AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs);
+    }
+
+    [Fact]
+    public void OverlayManager_FactoryLambda_ReceivesTheRegistrySingleton()
+    {
+        // OverlayManager's constructor only STORES the registry — its routing entry lands later,
+        // in KeyboardWindow's ctor via Initialize(), out of headless reach (the parked XAML
+        // ruling) — so the factory lambda is guarded at the field instead: dropping the registry
+        // argument leaves _dwellRegistry null, and passing any other instance fails
+        // IsSameReferenceAs. That kills both mutations; asserting the entry itself would require
+        // constructing Initialize()'s ~16-window XAML set.
+        using var sp = BuildProvider();
+
+        var registrySingleton = sp.GetRequiredService<IDwellDetectorRegistry>();
+        var manager = sp.GetRequiredService<IOverlayManager>();
+        Check.That(manager).IsInstanceOf<OverlayManager>();
+
+        var field = typeof(OverlayManager).GetField(
+            "_dwellRegistry", BindingFlags.NonPublic | BindingFlags.Instance);
+        Check.That(field).IsNotNull();
+
+        var fieldValue = field!.GetValue(manager);
+        Check.That(fieldValue).IsNotNull();
+        Check.That(fieldValue).IsSameReferenceAs(registrySingleton);
     }
 }

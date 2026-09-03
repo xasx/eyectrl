@@ -27,8 +27,8 @@ public class DwellTarget
     // geometry from these rather than from the current values, so repeated calls with the same margin
     // are idempotent instead of compounding — Phase 1b recomputes and re-applies a margin every tick.
     private readonly double _baseRadius;
-    private readonly double _baseHalfWidth;
-    private readonly double _baseHalfHeight;
+    private double _baseHalfWidth;
+    private double _baseHalfHeight;
     private readonly long _baseDwellTimeMicroseconds;
 
     /// <summary>
@@ -100,6 +100,32 @@ public class DwellTarget
     /// derive the value from <see cref="BaseDwellMs"/>, never from the current effective value.</summary>
     internal void ApplyEffectiveDwellMs(int effectiveMs) =>
         DwellTimeMicroseconds = effectiveMs * MathConstants.MicrosecondsPerMillisecond;
+
+    /// <summary>The as-registered reference hit extent the geometry map composes against: the radius
+    /// for circular targets, the smaller half-extent for rects — gaze error is isotropic, so the
+    /// routing margin is uniform on every side and the narrow dimension (the binding constraint)
+    /// sets the scale. Unlike the live <see cref="Radius"/>/<see cref="Bounds"/>, this never changes,
+    /// so repeated effective-geometry applications never compound.</summary>
+    internal double BaseHitExtent => Bounds is not null
+        ? Math.Min(_baseHalfWidth, _baseHalfHeight)
+        : _baseRadius;
+
+    /// <summary>
+    /// Rebases the as-registered rect extents to <paramref name="rect"/> (an SDK-pushed
+    /// size/position change on a live target — ExternalDwellService's UpdateMessage path) and
+    /// resets the live geometry to the unmargined rect. The owner must re-apply its stored
+    /// geometry map afterwards (<see cref="DwellDetector.RebaseTarget"/> does both), so a routed
+    /// margin rides the NEW base instead of being lost — and a later map application can never
+    /// revert the new size to stale base extents. Rect targets only; preserves dwell accumulation
+    /// state.
+    /// </summary>
+    internal void Rebase(PhysicalRect rect)
+    {
+        _baseHalfWidth = rect.Width / 2;
+        _baseHalfHeight = rect.Height / 2;
+        Center = rect.Center;
+        Bounds = rect;
+    }
 
     /// <summary>Rect containment when <see cref="Bounds"/> is set; otherwise circle distance.</summary>
     public bool HitTest(PhysicalPoint point)

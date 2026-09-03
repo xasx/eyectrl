@@ -18,7 +18,13 @@ backdrop, in every theme, for every colour-picker preset.
 
 **What the guarantee does not cover is weight.** The edge survives; the *amount*
 of ring you can see does not. Of the 4px stack, only ever 2px clears 3:1 against
-a given backdrop:
+a given backdrop.
+
+The table below is computed at the **shipped `CircleOpacity` of 0.7**, which is
+load-bearing: the accent is composited against the backdrop before its ratio is
+taken. Over mid grey that is 2.35:1 and the accent does *not* carry; at full
+opacity the same accent would reach 3.16:1 and would. Recomputing this table at
+opacity 1.0 gives different answers and is the likeliest way to mis-read it.
 
 | Backdrop | Carried weight | Strongest band |
 | --- | --- | --- |
@@ -86,10 +92,23 @@ the `StrokeDashArray`-is-in-multiples-of-`StrokeThickness` trap that bit the dra
 trail's settle ring (§4.1.3) does not arise — the two patterns are identical
 apart from the offset.
 
-**`AchromaticReticle`** is the conventional precision-marker form the spec
-already uses for the action-menu crosshair and the magnifier rim: light outline,
-dark mark. Near-black carries on every light backdrop, the light rims on every
-dark one, and neither depends on a hue surviving. Its internal edge is
+**`AchromaticReticle`** drops the hue entirely and lets lightness alone carry the
+ring: near-black on every light backdrop, the light rims on every dark one.
+
+Its band order is the **inverse** of the precision-marker form the overlay
+spec uses elsewhere. `overlay-unification-spec.md:398-404` describes the
+action-menu crosshair and the magnifier rim as "a `TextPrimary` mark over a
+`StrokeHalo` under-stroke: the conventional precision-marker form (light mark,
+dark outline)" — light core, dark outer. This style is dark core, light outer.
+The two are contrast-equivalent (the internal edge is the same pair either way),
+and the choice here is which backdrop gets the thicker carrying band: as
+specified, 3px of dark core over white and 4px of light rim over the app
+surface; flipped to match the precedent, 4px over white and 3px over the app
+surface. Either is defensible. Do not "correct" this to the precedent's order
+without deciding that trade deliberately — the citation is the thing that was
+wrong in an earlier draft, not the arrangement.
+
+Its internal edge is
 `TextPrimary` against `StrokeHalo`, which clears the 7.0 floor in all three
 themes — Midnight 14.65:1, Ember 17.07:1, Contrast 21.00:1.
 
@@ -145,17 +164,35 @@ public static class CursorRingStacks
 WPF, so the halo and light colours are passed *in* as hex strings by the caller
 in `EyeCtrl.App`; Core never reaches for `Tokens`.
 
-**`size` is a parameter because the dash period depends on it.** For the
-`BiTonalSegments` pattern to close rather than leave a seam at the wrap point,
-the period must divide the circumference evenly:
+**`size` is a parameter because the dash geometry depends on it.** For the
+`BiTonalSegments` pattern to close rather than leave a seam at the wrap point:
 
 ```
-P = π · size / 32
+P = π · size / 32        // P is the DASH LENGTH, and the gap length equals it
 ```
 
-which gives 16 full on/off periods around the ring at any legal `CircleSize`.
-A period rounded independently of the diameter leaves a visible discontinuity;
-this was caught in the design mockup and must not be reintroduced here.
+**`P` is a dash length, not a full on/off cycle.** One full cycle is `2P`, so the
+ring carries 16 cycles — 16 dark segments and 16 accent segments — at any legal
+`CircleSize`. Spelling this out because the failure it prevents is silent:
+
+- Correct: outer band `StrokeDashArray = {P/t, P/t}` with `StrokeDashOffset = 0`;
+  core band the same array with `StrokeDashOffset = P/t`. The half-cycle offset
+  puts the accent segments in the halo's gaps — the two never overlap, which is
+  the entire point of the style.
+- Wrong, and it compiles: reading `P` as a full cycle gives `{P/2t, P/2t}` with
+  `StrokeDashOffset = P/t`. That offset is then a *whole* cycle, both ellipses
+  dash **in phase**, the accent core lands exactly on top of the halo, and the
+  bi-tonal property vanishes. The §9 closure identity still holds and every
+  contrast test still passes, because no colour changed. Nothing catches it but
+  looking at the screen.
+
+The `/t` divisions are WPF's units, not a fudge: `StrokeDashArray` and
+`StrokeDashOffset` are both expressed in multiples of `StrokeThickness`. The
+repo's own precedent for this is `DragTrailOverlay.xaml.cs:166-170`.
+
+A dash length rounded independently of the diameter leaves a visible
+discontinuity at the wrap point; this was caught in the design mockup and must
+not be reintroduced here.
 
 ## 6. Renderer
 
@@ -212,10 +249,30 @@ description says plainly that lowering it dims the mark side of the edge and
 weakens the guarantee it exists to provide.
 
 **The Circle Color row swap.** Under `AchromaticReticle` the mark colour is
-unused. Rather than adding an enabled/disabled concept to the whole settings
-framework, `Build()` emits either the existing `ColorPickerSpec` or, for that one
-style, a `ReadOnlyLabelSettingItem` reading "Circle Color — not used by this
-style". `RebuildContent()` from the combo setter makes the swap land immediately.
+unused, so `Build()` emits either the existing `ColorPickerSpec` or, for that one
+style, a disabled-looking replacement row. `RebuildContent()` from the combo
+setter makes the swap land immediately.
+
+That replacement row **does not exist yet and is new work**. The nearest existing
+type, `LabelSpec(Func<string> Text, bool Wrap)` at
+`src/EyeCtrl.App/Views/Settings/SettingsRowSpec.cs:57`, derives with `("", "")`
+for Id and Label — it is a full-width status line, not a labelled row, so it
+cannot render "Circle Color" in the label column beside its explanation. This
+design therefore adds one record next to it:
+
+```csharp
+public sealed record DisabledRowSpec(string Id, string Label, string Reason)
+    : SettingsRowSpec(Id, Label);
+```
+
+with three consequences the plan must carry:
+
+1. `SettingsWindow.CreateControl` needs a case for it — its default arm throws
+   `"Unknown settings row spec"` (`SettingsWindow.xaml.cs:1086`).
+2. The pagination measurer constructs every row's control to measure it, and the
+   header comment on `SettingsRowSpec.cs:8-10` warns that every spec's delegates
+   run twice per rebuild. The new row must be cheap and side-effect-free.
+3. It is a settings row, so it falls under the description gate in §11.
 
 **The reset button.** `ButtonSpec("c_reset", …)` hand-copies every field from a
 fresh `CursorSettings`. It needs `c.RingStyle = d.RingStyle;` added, or reset
@@ -249,8 +306,15 @@ fix through the colour picker.
 
 - For each style, `CursorRingStacks.For` returns the band widths in the table of
   §3, given a thickness and the mark/halo/light hexes.
-- `BiTonalSegments`' dash period closes: for every legal `CircleSize` boundary
-  and a representative sweep across 10–500, `π · size / (2 · P)` is an integer.
+- `BiTonalSegments`' dash geometry closes — asserted against the `DashPeriod`
+  the function *returns*, not against the formula restated in the test. Written
+  as pure arithmetic, `π · size / (2 · (π · size / 32))` is identically 16 for
+  every input and the test has no teeth; it must guard rounding inside the
+  implementation. Sweep `CircleSize` across 10–500 including both bounds.
+- `BiTonalSegments` returns the two bands a half-cycle apart: equal
+  `DashPeriod`, `Outer.DashOffset == 0`, `Core.DashOffset == DashPeriod`. This is
+  the assertion that catches the in-phase failure described in §5, which no
+  contrast test can see.
 - Solid styles return `DashPeriod == 0` for both bands.
 - The outer band is never narrower than the core band, for any style or
   thickness in range — the property that makes the stack a stack.
@@ -268,8 +332,10 @@ presets do not affect, so that case is asserted once per theme.
 `HaloContrastTests` contains no UI-category tests, so all of this runs in CI's
 `Category!=UI` headless subset.
 
-**Snapshots.** `tests/EyeCtrl.App.Tests/Services/SettingsSnapshotsTests.cs` may
-need its snapshot refreshed for the new property; check before assuming it does.
+**Snapshots — checked, no action.**
+`tests/EyeCtrl.App.Tests/Services/SettingsSnapshotsTests.cs` reflects over
+`typeof(KeyboardSettings)` only (line 43), so a new `CursorSettings` property
+cannot affect it.
 
 ## 10. Judgment calls
 
@@ -284,17 +350,45 @@ list is shaped the way it is. Decision: keep the names, add a comment in the XAM
 saying the two elements are outer band and core band and that which one is dark
 depends on the style.
 
+The cost of that decision, stated rather than left to be discovered:
+`EveryHaloElement_UsesTheStrokeHaloBrush` (`HaloZOrderTests.cs:77-98`) asserts
+that `CircleHalo`'s **XAML tag** contains `BrushStrokeHalo`. Under
+`AchromaticReticle` the runtime stroke is `TextPrimary`, so that assertion
+becomes vacuous for this file — it keeps passing while checking a value the
+renderer overwrites, in a test whose own header warns its failure mode is
+invisible to everything else. Two implications: leave the `Stroke=` attribute in
+the XAML (removing the now-redundant literal fails the test), and treat the Core
+band-colour tests of §9 as the real guard for what `CircleHalo` actually paints.
+
 **Row swap rather than a disabled-control concept.** Adding `Enabled` to
 `SettingsRowSpec` would serve one row on one page and would then have to be
-honoured by every row renderer. Decision: swap the spec.
+honoured by every row renderer. The swap is not free either — it adds one record
+and one `CreateControl` case (§7) — but it confines the change to a new type
+instead of altering a base every existing row already flows through.
 
 ## 11. Risks
 
-**Page fit.** The Cursor tab's second page already carries seven rows plus the
-reset button. Adding the combo may repaginate and trip `SettingsContentFitTests`
-or `HandChunkedPageFitTests`. `PrefersAutoPagination` is true for this source, so
-the fix is a row-order or page-split adjustment, not new layout code — but it
-will surface during implementation rather than at design time.
+**Row descriptions are gated.**
+`tests/EyeCtrl.App.Tests/Settings/Pages/SettingsRowDescriptionCompletenessTests.cs`
+covers `CursorPageSource` and fails any `ComboBoxSpec` / `ColorPickerSpec` /
+`SliderSpec` / `ToggleSpec` without a `Description`. The new Ring Style combo
+must ship with one, and the §7 replacement row is a settings row too. This is
+the gate that actually binds — cheap to satisfy, but only if it is known about.
+
+**Page fit — the two obvious tests do not cover this tab.**
+`SettingsContentFitTests` measures control widths, and
+`HandChunkedPageFitTests` filters to `!source.PrefersAutoPagination` (line 285)
+while `CursorPageSource.PrefersAutoPagination` is `true` — so neither guards
+Cursor repagination. The Cursor tab's second page already carries seven rows
+plus the reset button and a new combo may repaginate it; the tests that would
+notice are the Cursor-specific ones below, not the two named in earlier drafts.
+
+**`CursorPageSourceTests` has an unfiltered `.Single()`.**
+`Build_ColorPickerUsesSwatchRadius` does `.OfType<ColorPickerSpec>().Single()`
+with no predicate. It survives only because the default style keeps the picker;
+any test that builds the page under `AchromaticReticle` must not reuse that
+helper. `Build_HasAdvancedRows_ResetStillLast` pins seven sliders and filters its
+`Single` by `Id == "c_pos_style"`, so a second combo is safe there.
 
 **Test output is German.** Per-test failures read `Fehler <FQN>` and long names
 wrap across lines; a naive grep of `dotnet test` output will report green on a

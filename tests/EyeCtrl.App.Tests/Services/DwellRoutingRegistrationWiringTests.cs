@@ -66,6 +66,7 @@ public class DwellRoutingRegistrationWiringTests
         Check.That(registrations[0].Context).IsEqualTo(context);
         Check.That(registrations[0].MinDwellMs).IsEqualTo(minMs);
         Check.That(registrations[0].MaxDwellMs).IsEqualTo(maxMs);
+        Check.That(registrations[0].ApplyGeometry).IsNotNull();
     }
 
     [Fact]

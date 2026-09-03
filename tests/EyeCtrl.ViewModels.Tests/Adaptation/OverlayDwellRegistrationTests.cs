@@ -29,6 +29,7 @@ public class OverlayDwellRegistrationTests
         Check.That(entry.Context).IsEqualTo(DwellContext.Toolbar);
         Check.That(entry.MinDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMinDwellMs);
         Check.That(entry.MaxDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMaxDwellMs);
+        Check.That(entry.ApplyGeometry).IsNotNull();
     }
 
     [Fact]

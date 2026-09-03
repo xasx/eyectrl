@@ -154,6 +154,7 @@ public class AppBootstrapper
         // at startup (App.xaml.cs) — it subscribes and applies in its ctor, and DI singletons are lazy.
         services.AddSingleton<IDwellDetectorRegistry, DwellDetectorRegistry>();
         services.AddSingleton<DwellTimeRouter>();
+        services.AddSingleton<GeometryRouter>();
 
         // Core engine
         services.AddSingleton(sp => new GazeEngine(

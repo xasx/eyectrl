@@ -421,6 +421,113 @@ public class ExternalDwellServiceTests
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
     }
 
+    [Fact]
+    public void GeometryRoutingEntry_MarginMap_GrowsTheLiveRectTarget()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            var dwellRegistry = new DwellDetectorRegistry();
+            using var svc = new ExternalDwellService(
+                new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
+                engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
+                new WeakReferenceMessenger(), _ => 7,
+                dwellRegistry: dwellRegistry, pipeName: _pipeName);
+            svc.Start();
+
+            Check.That(dwellRegistry.Registrations).HasSize(1);
+            Check.That(dwellRegistry.Registrations[0].ApplyGeometry).IsNotNull();
+
+            var activated = RegisterApplyMarginMapAndDwell(
+                dwellRegistry.Registrations[0], provider, _pipeName).GetAwaiter().GetResult();
+
+            // (205, 100) is OUTSIDE the as-registered rect [0, 200] × [0, 200] and INSIDE the
+            // +20-outset rect [−20, 220] — the activation can only have fired because the routed
+            // margin reached the live target's geometry.
+            Check.That(activated).IsNotNull();
+            Check.That(activated).Contains("activated");
+        });
+    }
+
+    // Registers a rect target, lets the async pipe registration settle, applies a +20 margin map
+    // through the routing entry's geometry applier, then dwells at a point only the GROWN rect
+    // covers — proving the applier drives the service's live target under its lock.
+    private static async Task<string?> RegisterApplyMarginMapAndDwell(
+        DwellRoutingRegistration entry, StubGazeProvider provider, string pipeName)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+        await Task.Delay(200); // let the server register the target BEFORE applying the map
+
+        entry.ApplyGeometry(ext => ext + 20); // min half-extent 100 → 120 ⇒ +20 per side
+
+        provider.Raise(new GazePoint(205, 100, 0, IsValid: true));
+        provider.Raise(new GazePoint(205, 100, 800_000, IsValid: true));
+
+        var read = r.ReadLineAsync();
+        return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
+    [Fact]
+    public void GeometryRouting_RebaseAfterSdkSizeChange_IdentityMapDoesNotRevertTheNewSize()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            var dwellRegistry = new DwellDetectorRegistry();
+            using var svc = new ExternalDwellService(
+                new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
+                engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
+                new WeakReferenceMessenger(), _ => 7,
+                dwellRegistry: dwellRegistry, pipeName: _pipeName);
+            svc.Start();
+
+            var activated = RegisterUpdateApplyIdentityAndDwell(
+                dwellRegistry.Registrations[0], provider, _pipeName).GetAwaiter().GetResult();
+
+            // (30, 50) is inside the SDK's NEW 400×100 rect and outside the stale-200×200-based
+            // reverted rect (x ∈ [100, 300] around the new centre) — the activation proves the
+            // rebase survived the routed identity map (round-1 blocker, service level).
+            Check.That(activated).IsNotNull();
+            Check.That(activated).Contains("activated");
+        });
+    }
+
+    // Registers 200×200, lets it settle, pushes an UpdateMessage to 400×100, lets it settle,
+    // applies the NULL geometry map (the disabled/cleared restore path — margin 0), then dwells at
+    // a point only the NEW rect covers. Under the raw-write bug the null map recomputes Bounds from
+    // the stale base half-extents and the point falls outside — no dwell, no activation.
+    private static async Task<string?> RegisterUpdateApplyIdentityAndDwell(
+        DwellRoutingRegistration entry, StubGazeProvider provider, string pipeName)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+        await Task.Delay(200);
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new UpdateMessage { Id = "btn", Rect = new SdkRect(0, 0, 400, 100) }, WireJson.Options));
+        await Task.Delay(200); // let the server rebase the target BEFORE applying the map
+
+        entry.ApplyGeometry(null);
+
+        provider.Raise(new GazePoint(30, 50, 0, IsValid: true));
+        provider.Raise(new GazePoint(30, 50, 800_000, IsValid: true));
+
+        var read = r.ReadLineAsync();
+        return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
     private sealed class StubGazeProvider : IGazeProvider
     {
         public bool IsConnected => true;

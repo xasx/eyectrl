@@ -181,6 +181,8 @@ public partial class App : Application
             // values immediately, so it must exist before any surface registers.
             _ = _serviceProvider.GetRequiredService<DwellTimeRouter>();
 
+            _ = _serviceProvider.GetRequiredService<GeometryRouter>();
+
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
             var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm,

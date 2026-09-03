@@ -51,6 +51,7 @@ public class DwellRoutingOwnerRegistrationTests
         Check.That(entry.Context).IsEqualTo(DwellContext.Notes);
         Check.That(entry.MinDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMinDwellMs);
         Check.That(entry.MaxDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMaxDwellMs);
+        Check.That(entry.ApplyGeometry).IsNotNull();
 
         // Dispose severs the registry entry — the same teardown contract the per-session owners
         // honor, so a disposed manager cannot receive further routed maps.
@@ -77,6 +78,7 @@ public class DwellRoutingOwnerRegistrationTests
         // grid's validated span is the keyboard guard family [100, 1500].
         Check.That(entry.MinDwellMs).IsEqualTo(AdaptationDwellRanges.KeyboardMinDwellMs);
         Check.That(entry.MaxDwellMs).IsEqualTo(AdaptationDwellRanges.KeyboardMaxDwellMs);
+        Check.That(entry.ApplyGeometry).IsNotNull();
     }
 
     [Fact]
@@ -119,6 +121,7 @@ public class DwellRoutingOwnerRegistrationTests
         Check.That(entry.Context).IsEqualTo(DwellContext.ManualSelection);
         Check.That(entry.MinDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMinDwellMs);
         Check.That(entry.MaxDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMaxDwellMs);
+        Check.That(entry.ApplyGeometry).IsNotNull();
 
         // ...and the entry's applier must drive THIS service's detector: a halving map takes the
         // 800 ms baseline to 400 ms. If Apply were wired to anything but this detector, dwell

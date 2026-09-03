@@ -253,26 +253,26 @@ unused, so `Build()` emits either the existing `ColorPickerSpec` or, for that on
 style, a disabled-looking replacement row. `RebuildContent()` from the combo
 setter makes the swap land immediately.
 
-That replacement row **does not exist yet and is new work**. The nearest existing
-type, `LabelSpec(Func<string> Text, bool Wrap)` at
-`src/EyeCtrl.App/Views/Settings/SettingsRowSpec.cs:57`, derives with `("", "")`
-for Id and Label — it is a full-width status line, not a labelled row, so it
-cannot render "Circle Color" in the label column beside its explanation. This
-design therefore adds one record next to it:
+That replacement is the **existing** `LabelSpec(Func<string> Text, bool Wrap)`
+(`src/EyeCtrl.App/Views/Settings/SettingsRowSpec.cs:57`), carrying the sentence
+"Circle Color is not used by the Achromatic reticle ring style."
 
-```csharp
-public sealed record DisabledRowSpec(string Id, string Label, string Reason)
-    : SettingsRowSpec(Id, Label);
-```
+`LabelSpec` derives with `("", "")` for Id and Label, so it renders as a
+full-width status line rather than a two-column row with "Circle Color" in the
+name column. That is the deliberate trade, and it buys the whole framework cost:
+`LabelSpec` already returns a `DwellLabel`, which `SettingsWindow.RenderSpec`
+already accepts (`SettingsWindow.xaml.cs:1298`), so there is **no new record, no
+`CreateControl` case, and no new class**.
 
-with three consequences the plan must carry:
+A labelled two-column row was considered and rejected on cost. `LabelledRow`
+requires an `IDwellComposite` inner (`SettingsWindow.xaml.cs:1100-1103`), so a
+`DisabledRowSpec` would need a new no-dwell-target composite for the control
+column *in addition to* the record and the `CreateControl` case, and all of it
+must stay side-effect-free under the double-run pagination measurer
+(`SettingsRowSpec.cs:8-10`). Not worth a dead control column.
 
-1. `SettingsWindow.CreateControl` needs a case for it — its default arm throws
-   `"Unknown settings row spec"` (`SettingsWindow.xaml.cs:1086`).
-2. The pagination measurer constructs every row's control to measure it, and the
-   header comment on `SettingsRowSpec.cs:8-10` warns that every spec's delegates
-   run twice per rebuild. The new row must be cheap and side-effect-free.
-3. It is a settings row, so it falls under the description gate in §11.
+`LabelSpec` is also outside the description gate of §11, which filters to
+`SliderSpec`, `ToggleSpec`, `ComboBoxSpec` and `ColorPickerSpec`.
 
 **The reset button.** `ButtonSpec("c_reset", …)` hand-copies every field from a
 fresh `CursorSettings`. It needs `c.RingStyle = d.RingStyle;` added, or reset
@@ -362,9 +362,8 @@ band-colour tests of §9 as the real guard for what `CircleHalo` actually paints
 
 **Row swap rather than a disabled-control concept.** Adding `Enabled` to
 `SettingsRowSpec` would serve one row on one page and would then have to be
-honoured by every row renderer. The swap is not free either — it adds one record
-and one `CreateControl` case (§7) — but it confines the change to a new type
-instead of altering a base every existing row already flows through.
+honoured by every row renderer. Swapping in an existing `LabelSpec` costs
+nothing in the framework (§7) at the price of the label column.
 
 ## 11. Risks
 

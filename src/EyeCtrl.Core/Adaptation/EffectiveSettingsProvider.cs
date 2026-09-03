@@ -15,10 +15,12 @@ using System.Collections.Concurrent;
 /// locked "disabled ⇒ effective == baseline" invariant (design §8.3).
 /// Not thread-safe for concurrent writes: fills are set on the serialized controller/dispatcher thread.
 /// The sole consumer (<c>GazeEngine</c>, plan 1b-①) defers its <c>Changed</c>-driven fixation rebuild onto
-/// the gaze thread, so its reads of <see cref="Effective"/> arrive there; the dwell and geometry knobs
-/// are composable but have no consumer yet (design §13.3); the smoothing knob is routed by
-/// <c>GazeEngine</c>'s adaptive interpolator rebuild (smoothing-routing slice, 2026-09-01), which clamps
-/// the composed value to the active filter's validated range.
+/// the gaze thread, so its reads of <see cref="Effective"/> arrive there; the dwell knob is routed by
+/// the App-side `DwellTimeRouter` (dwell-routing slice, 2026-09-02), the geometry knob by
+/// `GeometryRouter` (geometry-routing slice, 2026-09-03), which clamps the growth margin to
+/// `GeometryMaxMarginPx`; the smoothing knob is routed by <c>GazeEngine</c>'s adaptive interpolator
+/// rebuild (smoothing-routing slice, 2026-09-01), which clamps the composed value to the active
+/// filter's validated range.
 /// </summary>
 public sealed class EffectiveSettingsProvider
 {
@@ -27,11 +29,10 @@ public sealed class EffectiveSettingsProvider
     // safe direction (§5 typed transforms); ValidMin/ValidMax stay provider-owned constants (NOT migrated).
     //
     // ⚠️ FixationRadius's ValidMin/ValidMax DUPLICATE DwellSettings.FixationRadiusPixels's guard (10–200);
-    // the Task-2 drift-guard test uses that setter as the oracle so a divergence fails the build. The two
-    // still-unrouted knobs (dwell, geometry) get SUPERSET validated ranges (dwell = union of the 12
-    // dwell-time guards [100, 3000] — the 11 DwellSettings guards plus ExternalDwellSettings.DefaultDwellMs;
-    // geometry = unbounded above, since geometry has NO pre-existing
-    // validated range — §8.4 for geometry stays deferred); smoothing's [0, 20] union range is the
+    // the Task-2 drift-guard test uses that setter as the oracle so a divergence fails the build. Dwell and
+    // geometry carry SUPERSET validated ranges (dwell = union of the 12 dwell-time guards [100, 3000] —
+    // per-surface ranges re-applied at dwell routing; geometry = unbounded above — §8.4 for geometry is
+    // discharged at routing, per the geometry-routing slice); smoothing's [0, 20] union range is the
     // pre-routing superset, now superseded by the per-mode clamp GazeEngine.EffectiveSmoothingParameter
     // applies at read time. The per-consumer/mode/runtime range is re-applied by each knob's routing
     // slice; here the fraction clamp is the operative bound and the superset is only a safety net. A knob
@@ -69,10 +70,10 @@ public sealed class EffectiveSettingsProvider
             [AdaptationKnob.Smoothing] = new(
                 -1.0, static a => a.SmoothingMoreMaxFraction, 0.0, null, 0.0, 20.0),
             // Geometry: forgiving = bigger (+); no tightening. No pre-existing validated range (runtime-
-            // derived) → unbounded above; the +fraction band is the operative bound (§8.4 deferred, per 1b-①).
-            // The absolute geometry bound §13.1 expects "Phase 1b" to introduce lands with the GEOMETRY-ROUTING
-            // slice, which supplies the first consumer — it cannot be validated before then. This knob is
-            // unrouted here, so the fraction bounds the (no-op) delta.
+            // derived) → unbounded above; the +fraction band is the operative proportional bound. The §13.1
+            // absolute bound landed with the geometry-routing slice (2026-09-03) as
+            // AdaptationSettings.GeometryMaxMarginPx, applied at routing (consumer-side clamp, the
+            // smoothing/dwell precedent) — §8.4 for geometry is discharged at the routing layer.
             //
             // ⚠️ UNIT MISMATCH for the routing slice to resolve: Effective() returns an ABSOLUTE extent
             // (baseline + fill × fraction × baseline), but DwellDetector.UpdateTargetGeometry consumes a

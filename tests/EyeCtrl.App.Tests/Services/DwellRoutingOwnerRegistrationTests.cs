@@ -51,6 +51,11 @@ public class DwellRoutingOwnerRegistrationTests
         Check.That(entry.Context).IsEqualTo(DwellContext.Notes);
         Check.That(entry.MinDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMinDwellMs);
         Check.That(entry.MaxDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMaxDwellMs);
+
+        // Dispose severs the registry entry — the same teardown contract the per-session owners
+        // honor, so a disposed manager cannot receive further routed maps.
+        manager.Dispose();
+        Check.That(registry.Registrations).IsEmpty();
     }
 
     [StaFact]

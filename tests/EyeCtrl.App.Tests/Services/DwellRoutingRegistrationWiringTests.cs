@@ -119,6 +119,12 @@ public class DwellRoutingRegistrationWiringTests
 
         CheckSingleEntry(registry.Registrations, DwellContext.ExternalDwell,
             AdaptationDwellRanges.ExternalMinDwellMs, AdaptationDwellRanges.ExternalMaxDwellMs);
+
+        // Provider disposal disposes the singleton, which must unregister from the registry (the
+        // registry itself is not IDisposable, so the held reference survives to observe the empty
+        // snapshot). Pins the same teardown contract the per-session owners honor.
+        sp.Dispose();
+        Check.That(registry.Registrations).IsEmpty();
     }
 
     [StaFact]

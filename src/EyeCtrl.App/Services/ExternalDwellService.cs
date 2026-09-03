@@ -46,6 +46,7 @@ public sealed class ExternalDwellService : IDisposable
     private readonly Dictionary<string, DwellTarget> _targetsById = new();
     private readonly Dictionary<string, long> _hwndById = new();
     private readonly DwellFeedbackOverlay _feedback;
+    private readonly IDwellDetectorRegistry? _dwellRegistry;
 
     private readonly object _stateLock = new();
     private readonly List<PipeConnection> _connections = new();
@@ -85,11 +86,12 @@ public sealed class ExternalDwellService : IDisposable
             else if (_frameProgressId == id) { _frameProgressId = null; _frameProgress = 0; }
         };
         _detector.TargetActivated += id => _frameActivatedId = id;
+        _dwellRegistry = dwellRegistry;
         // Dwell routing (Phase 1c): the External range, NOT Standard — DefaultDwellMs legally climbs
         // to 3000, and an identity restore through [200, 2000] would truncate such a baseline. The
         // applier wraps SetEffectiveDwellTime in _stateLock: this detector Updates on the gaze
         // thread (OnCursorMoved) under that same lock, so an unlocked map write could interleave.
-        dwellRegistry?.Register(this, new DwellRoutingRegistration(
+        _dwellRegistry?.Register(this, new DwellRoutingRegistration(
             DwellContext.ExternalDwell,
             AdaptationDwellRanges.ExternalMinDwellMs, AdaptationDwellRanges.ExternalMaxDwellMs,
             map => { lock (_stateLock) _detector.SetEffectiveDwellTime(map); }));
@@ -347,6 +349,9 @@ public sealed class ExternalDwellService : IDisposable
         _disposed = true;
         _gazeEngine.CursorMoved -= OnCursorMoved;
         ReleaseSuppression();
+        // Unregister BEFORE further teardown: the registry entry holds this detector through its
+        // applier, and a disposing service must not receive any further routed maps.
+        _dwellRegistry?.Unregister(this);
         _pipeServer.Dispose();
         lock (_stateLock)
         {

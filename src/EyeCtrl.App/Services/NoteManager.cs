@@ -15,6 +15,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     private readonly List<NoteData> _notes = new();
     private readonly DwellDetector _dwellDetector;
     private readonly IMessenger _messenger;
+    private readonly IDwellDetectorRegistry? _dwellRegistry;
     private PhysicalPoint _lastGazePoint;
     private bool _disposed;
     private const int MaxNotes = 8;
@@ -37,7 +38,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         _dwellDetector.TargetActivated += OnTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
         _messenger.Register<GazeCursorMovedMessage>(this);
-        dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
+        _dwellRegistry = dwellRegistry;
+        _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
             _dwellDetector, DwellContext.Notes,
             AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs));
     }
@@ -258,6 +260,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         if (_disposed) return;
         _disposed = true;
 
+        // Unregister BEFORE detaching the detector events: the registry entry holds the detector
+        // through its applier, and a disposing manager must not receive any further routed maps.
+        _dwellRegistry?.Unregister(this);
         _dwellDetector.TargetActivated -= OnTargetActivated;
         _dwellDetector.TargetProgress -= OnTargetProgress;
         _messenger.Unregister<GazeCursorMovedMessage>(this);

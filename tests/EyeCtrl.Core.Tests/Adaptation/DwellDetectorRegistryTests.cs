@@ -45,6 +45,23 @@ public class DwellDetectorRegistryTests
     }
 
     [Fact]
+    public void ExternalTighteningFill_ComposesToTheExternalCeiling_NotTheStandardUnion()
+    {
+        // Enabled-fill sibling of the identity-restore fact above: a legal 2500 ms External baseline under
+        // the quarantined tightening fill (+0.50 × 2500 → 3750 intended) must compose to the External-family
+        // ceiling 3000 = LONGER dwell (the safe direction). A provider union clamped to the Standard 2000
+        // would INVERT the tightening response: 2500 → 2000 = SHORTER = easier accidental re-activation.
+        var provider = new EffectiveSettingsProvider(new AdaptationSettings { Enabled = true });
+        provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, forgivingFill: 0.0, tighteningFill: 1.0);
+
+        double effective = provider.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 2500);
+
+        Check.That(effective).IsEqualTo(3000.0); // intended 3750 clamped to the External ceiling, NOT 2000
+        Check.That((int)Math.Clamp(Math.Round(effective),
+            AdaptationDwellRanges.ExternalMinDwellMs, AdaptationDwellRanges.ExternalMaxDwellMs)).IsEqualTo(3000);
+    }
+
+    [Fact]
     public void Register_AddsEntryAndRaisesChanged()
     {
         var registry = new DwellDetectorRegistry();

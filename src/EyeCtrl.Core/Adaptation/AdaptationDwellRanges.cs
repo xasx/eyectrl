@@ -4,7 +4,8 @@ using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// Per-surface validated dwell-time ranges for DwellTime routing (design §13.1: per-surface sub-ranges
-/// are re-applied at dwell routing; the provider only clamps to the union [100, 2000]). A range is the
+/// are re-applied at dwell routing; the provider clamps to the union [100, 3000] — the twelve dwell
+/// guards, incl. ExternalDwellSettings.DefaultDwellMs). A range is the
 /// <see cref="DwellSettings"/> guard FAMILY the surface's baselines come from, so an effective value
 /// never leaves the span the surface's own settings would allow — and an identity restore returns the
 /// exact baseline. Drift-guarded by the setter-as-oracle test (the FixationRadius precedent).

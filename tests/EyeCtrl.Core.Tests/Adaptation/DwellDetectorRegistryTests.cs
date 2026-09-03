@@ -136,4 +136,38 @@ public class DwellDetectorRegistryTests
         detector.Update(new PhysicalPoint(0, 0), 450_000);
         Check.That(detector.GetProgress("t")).IsCloseTo(0.9, 0.01); // 450/500, not 450/1000
     }
+
+    [Fact]
+    public void ForDetector_WiresBothAppliers_DwellAndGeometry()
+    {
+        var detector = new DwellDetector();
+        detector.AddTarget(new DwellTarget("t", new PhysicalPoint(0, 0), radius: 30, dwellTimeMs: 1000));
+        var registration = DwellRoutingRegistration.ForDetector(detector, DwellContext.Toolbar, 200, 2000);
+
+        registration.ApplyGeometry(ext => ext + 20); // geometry: 30 → 50
+        registration.Apply(ms => ms / 2);            // dwell: 1000 → 500
+
+        // One probe kills both absent-wiring defects: 45 px is outside the base radius (geometry
+        // must have grown it) and 490 ms is past the halved dwell (the dwell map must have landed).
+        detector.Update(new PhysicalPoint(45, 0), 0);
+        detector.Update(new PhysicalPoint(45, 0), 490_000);
+        Check.That(detector.GetProgress("t")).IsCloseTo(490.0 / 500.0, 0.001);
+    }
+
+    [Fact]
+    public void GeometryApplier_ThroughTheRecord_GrowsRectBounds()
+    {
+        var detector = new DwellDetector();
+        var rect = new DwellTarget("r", new PhysicalRect(0, 0, 40, 80), dwellTimeMs: 1000);
+        detector.AddTarget(rect);
+        var registration = DwellRoutingRegistration.ForDetector(detector, DwellContext.ExternalDwell,
+            AdaptationDwellRanges.ExternalMinDwellMs, AdaptationDwellRanges.ExternalMaxDwellMs);
+
+        registration.ApplyGeometry(ext => ext + 10); // min half-extent 20 → 30 ⇒ +10 per side
+
+        Check.That(rect.Bounds).IsNotNull();
+        var b = rect.Bounds!.Value; // PhysicalRect is a readonly record struct — unwrap once
+        Check.That(b.Width).IsCloseTo(60.0, 0.001);
+        Check.That(b.Height).IsCloseTo(100.0, 0.001);
+    }
 }

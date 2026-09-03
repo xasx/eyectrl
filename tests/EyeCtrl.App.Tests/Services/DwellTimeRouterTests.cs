@@ -12,7 +12,7 @@ public class DwellTimeRouterTests
         public Func<int, int>? Applied;
         public DwellRoutingRegistration AsRegistration(DwellContext context = DwellContext.Toolbar,
             int min = AdaptationDwellRanges.StandardMinDwellMs, int max = AdaptationDwellRanges.StandardMaxDwellMs) =>
-            new(context, min, max, map => Applied = map);
+            new(context, min, max, map => Applied = map, _ => { });
     }
 
     private static (DwellTimeRouter Router, EffectiveSettingsProvider Provider, DwellDetectorRegistry Registry) Make()

@@ -87,14 +87,15 @@ public sealed class ExternalDwellService : IDisposable
         };
         _detector.TargetActivated += id => _frameActivatedId = id;
         _dwellRegistry = dwellRegistry;
-        // Dwell routing (Phase 1c): the External range, NOT Standard — DefaultDwellMs legally climbs
-        // to 3000, and an identity restore through [200, 2000] would truncate such a baseline. The
-        // applier wraps SetEffectiveDwellTime in _stateLock: this detector Updates on the gaze
+        // Dwell + geometry routing (Phase 1c): the External range, NOT Standard — DefaultDwellMs
+        // legally climbs to 3000, and an identity restore through [200, 2000] would truncate such a
+        // baseline. Both appliers wrap their call in _stateLock: this detector Updates on the gaze
         // thread (OnCursorMoved) under that same lock, so an unlocked map write could interleave.
         _dwellRegistry?.Register(this, new DwellRoutingRegistration(
             DwellContext.ExternalDwell,
             AdaptationDwellRanges.ExternalMinDwellMs, AdaptationDwellRanges.ExternalMaxDwellMs,
-            map => { lock (_stateLock) _detector.SetEffectiveDwellTime(map); }));
+            map => { lock (_stateLock) _detector.SetEffectiveDwellTime(map); },
+            map => { lock (_stateLock) _detector.SetEffectiveGeometry(map); }));
         _feedback = new DwellFeedbackOverlay();
         _settings.PropertyChanged += (_, e) =>
         {
@@ -290,10 +291,13 @@ public sealed class ExternalDwellService : IDisposable
                     if (conn.TargetIds.Contains(u.Id))
                     {
                         var rect = ToRect(u.Rect);
-                        if (_targetsById.TryGetValue(u.Id, out var existing))
+                        if (_targetsById.ContainsKey(u.Id))
                         {
-                            existing.Bounds = rect;
-                            existing.Center = rect.Center;
+                            // Rebase, never a raw Bounds/Center write: resets the as-registered
+                            // extents to the SDK's new rect and re-applies the stored geometry map,
+                            // so a routed margin can neither be lost nor revert the new size
+                            // (round-1 blocker). In-place — the in-progress dwell survives.
+                            _detector.RebaseTarget(u.Id, rect);
                         }
                         else
                         {

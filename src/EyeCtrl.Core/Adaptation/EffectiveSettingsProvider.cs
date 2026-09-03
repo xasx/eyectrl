@@ -28,8 +28,9 @@ public sealed class EffectiveSettingsProvider
     //
     // ⚠️ FixationRadius's ValidMin/ValidMax DUPLICATE DwellSettings.FixationRadiusPixels's guard (10–200);
     // the Task-2 drift-guard test uses that setter as the oracle so a divergence fails the build. The two
-    // still-unrouted knobs (dwell, geometry) get SUPERSET validated ranges (dwell = union of the 11
-    // dwell-time guards [100, 2000]; geometry = unbounded above, since geometry has NO pre-existing
+    // still-unrouted knobs (dwell, geometry) get SUPERSET validated ranges (dwell = union of the 12
+    // dwell-time guards [100, 3000] — the 11 DwellSettings guards plus ExternalDwellSettings.DefaultDwellMs;
+    // geometry = unbounded above, since geometry has NO pre-existing
     // validated range — §8.4 for geometry stays deferred); smoothing's [0, 20] union range is the
     // pre-routing superset, now superseded by the per-mode clamp GazeEngine.EffectiveSmoothingParameter
     // applies at read time. The per-consumer/mode/runtime range is re-applied by each knob's routing
@@ -50,9 +51,13 @@ public sealed class EffectiveSettingsProvider
             [AdaptationKnob.FixationRadius] = new(
                 +1.0, static a => a.ToleranceLooserMaxFraction, 0.0, null, 10.0, 200.0),
             // Dwell: forgiving = shorter (−); the one quarantined tightening = longer (+). Range = union of
-            // the 11 dwell-time guards [100, 2000] (per-surface ranges re-applied at dwell routing).
+            // the 12 dwell-time guards [100, 3000]: the 11 DwellSettings guards plus the twelfth,
+            // ExternalDwellSettings.DefaultDwellMs (200–3000), so the quarantined tightening on a legal
+            // 2500 ms External baseline composes toward LONGER (clamped to 3000), never truncated to the
+            // Standard 2000 (a direction inversion to shorter = easier accidental re-activation).
+            // Per-surface ranges re-applied at dwell routing.
             [AdaptationKnob.DwellTime] = new(
-                -1.0, static a => a.DwellShorterMaxFraction, +1.0, static a => a.DwellLongerMaxFraction, 100.0, 2000.0),
+                -1.0, static a => a.DwellShorterMaxFraction, +1.0, static a => a.DwellLongerMaxFraction, 100.0, 3000.0),
             // Smoothing: forgiving = more = parameter DOWN (−); no tightening. Range = union of both filter
             // ranges [0, 20] (per-mode range re-applied by GazeEngine.EffectiveSmoothingParameter (smoothing
             // routing, 2026-09-01)). Discharges 1b-②'s flagged "revisit fraction-vs-absolute" question: ④

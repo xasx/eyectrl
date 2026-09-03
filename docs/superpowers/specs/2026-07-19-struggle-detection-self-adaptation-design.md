@@ -151,9 +151,9 @@ effective(knob,ctx)  = clamp(baseline + forgiving + tightening, validatedRange(k
 
 **Knobs routed through the provider** — this is the *target* architecture, not the current state: dwell
 durations; tolerance (`FixationRadiusPixels`, `FixationDetectionMs`); smoothing (the active filter's
-parameter only — mode is never auto-switched); target geometry (button ring radius + hit radius, key hit
-slop, and the coupled visible size). **As implemented today only tolerance is actually routed** — the
-other three are composable but have no consumer; see §13.3 (Phase 1c).
+parameter only — mode is never auto-switched); target geometry (button ring radius + hit radius, and the
+coupled visible size — v1 routes hit geometry only; see §13.3's geometry resolution). **All four knobs
+are routed as of 2026-09-03 (§13.3 Phase 1c).**
 
 **Live-update integration** (state-preserving, gaze-thread-owned):
 - **Smoothing rebuild must not cold-start the filter (2nd-round R1).** Today `GazeEngine` builds a
@@ -185,8 +185,8 @@ other three are composable but have no consumer; see §13.3 (Phase 1c).
   only, never `DwellSettings`, so even manual tolerance changes didn't propagate — fixed alongside.)
 - **Dwell time & geometry:** baked into `DwellTarget` at creation and, at the time of writing,
   `DwellTarget.Radius` was immutable. **(Done in 1a-⑤: `Radius` now has an `internal set`, `_baseRadius` is
-  retained for idempotent margins, and both update methods exist. What is still missing is the
-  application-level detector registry + dwell-time baseline + context mapping — see §13.3.)**
+  retained for idempotent margins, and both update methods exist. (The registry + dwell-time baseline +
+  context mapping landed with the dwell-routing slice — see §13.3.))**
   Add **state-preserving** update methods on `DwellDetector` (mirroring the existing
   `DwellDetector.UpdateTargetCenter`, which is on the *detector*, not the target): `UpdateTargetDwellTime`
   and `UpdateTargetGeometry` that adjust timing/hit area while preserving `EnteredTimestamp`/`IsGazeInside`.
@@ -274,7 +274,7 @@ Abandonment is reported only when `ProgressAtEnd >= AbandonProgressThreshold` (d
 | **Sustain-failure** — high-progress abandonment (+ retries) | **shorter** dwell (bounded); **loosen** tolerance |
 | **Signal-noise** — high fixation jitter | **more** smoothing; **loosen** tolerance |
 | **Accidental activation** — activation then reversal | **longer** dwell (bounded, gated on this signal only) |
-| **Aiming** — large `NearMiss` | **enlarge target geometry** (ring + hit radius / key slop) *and* coupled visible size, atomically |
+| **Aiming** — large `NearMiss` | **enlarge target geometry** (hit radius / rect margins; v1 hit-only — visible coupling deferred, §13.3) |
 | **Drift** — cross-context coherent `NearMiss` bias | **loosen** tolerance + **report** (never touch calibration) |
 | **Poor tracking** — invalid-sample rate | **more** smoothing; **enlarge geometry**; **caregiver alert if sustained**; never tighten |
 
@@ -448,7 +448,7 @@ Headless, xUnit v3 + NFluent, synthetic timestamped signal sequences (reuses the
   transfer is adopted, tighten the bound to ~zero lag.
 - **In-progress dwell (C4):** enlarge mid-dwell ⇒ progress preserved; shrink-out ⇒ normal gaze-left;
   dwell-time change re-evaluates without reset.
-- Size adaptation atomicity: visible size + hit geometry change together (action-menu ring + hit radius).
+- Size adaptation atomicity (v1 scope): no visible size changes at all; hit geometry changes alone (§13.3 geometry resolution). The visible+hit atomic coupling returns if visible coupling is ever un-deferred.
 - Telemetry: cross-thread inputs serialized; gaze-thread aggregation emits summaries; monotonic guard.
 - **Phase 1a exit criterion:** effective == baseline for every knob when `Enabled=false`, asserted and
   **locked across phases** so a later regression is caught.
@@ -485,7 +485,8 @@ a learned offset on an unrouted knob has no observable effect, so it is numbered
 the phase sequence, where the dependency would be easy to miss.
 
 **Status: smoothing routed 2026-09-01 (PR #131); dwell routed 2026-09-02 (registry +
-`DwellTimeRouter` + Keyboard tracker). Geometry routing remains — the Phase-2 gate stays closed.**
+`DwellTimeRouter` + Keyboard tracker).** **Status: Phase 1c complete — smoothing routed 2026-09-01
+(PR #131), dwell 2026-09-02 (PR #132), geometry 2026-09-03. The Phase-2 gate is open.**
 
 **Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review.
 
@@ -502,7 +503,7 @@ tolerance, and smoothing that bound is the knob's existing `*Settings` validated
 `CircleSize` + `UIConstants` constants (`ActionMenuViewModel.cs:52`) and keyboard keys have no hit-slop
 setting today — so its safety bound is a **feature-introduced bound defined in `AdaptationSettings`** that
 Phase 1b adds and validates before §8.4 is testable for geometry. **(Amended: Phase 1b deferred this bound;
-it is now owned by the geometry-routing slice, which supplies its first consumer — §13.3 and §14.)**
+it is now owned by the geometry-routing slice, which supplies its first consumer — §13.3 and §14.)** **(Landed 2026-09-03 — `GeometryMaxMarginPx`.)**
 
 **Sensitive-context detection (resolves §14 C5; Safety Invariant §8.10).** A new Core interface
 `ISensitiveContextDetector` (`bool IsSensitiveActive { get; }` + start/stop), implemented in
@@ -564,8 +565,9 @@ filters (One-Euro `OneEuroMinCutoff` down, EMA `SmoothingFactor` down — verifi
 `SmoothedFilter.cs:36`/`OneEuroFilter.cs`; mode never switched. NB: `CursorSettings.cs`'s `SmoothingFactor`
 summary comment **was** inverted vs. its implementation when this spec was written — **fixed in `49a12e9`
 (2026-07-21)**, so it now reads "down = more smoothing" and there is no code-doc bug left to reconcile;
-adaptation keys off actual filter behaviour regardless); target geometry **bigger** +50 % of the (runtime-derived) ring/hit radius, coupled
-atomically with the visible size (§8.9), bounded by the feature-introduced geometry bound above.
+adaptation keys off actual filter behaviour regardless); target geometry **bigger** +50 % of the (runtime-derived) ring/hit radius,
+bounded by the feature-introduced geometry bound above (landed 2026-09-03 as `GeometryMaxMarginPx`,
+default 100 px, [0, 300] — §13.3).
 
 **Session boundary & evidence (resolves §14; §6.3).** Momentary struggle evidence has a **60 s rolling
 max-age** and resets to a fresh session on: app start, resume from an explicit toolbar/tray **Pause**, or a
@@ -615,7 +617,7 @@ signal's failure-mode only when that signal's confidence gate is met (§6.3 — 
   **(Amended §13.3: Jitter split out; no longer requests smoothing.)**
 - **signal-noise** ← Jitter → more smoothing + looser tolerance. **(Added §13.3.)**
 - **accidental-activation** ← Accidental → longer dwell (the one quarantined tightening; bounded, escapable).
-- **aiming** ← Aiming → enlarge target geometry (+ coupled visible size, §8.9).
+- **aiming** ← Aiming → enlarge target geometry (v1 hit-only — visible coupling deferred, §13.3).
 - **drift** ← Drift → looser tolerance + **report only** (calibration NEVER auto-touched, §8.5).
 - **poor-tracking** ← PoorTracking → more smoothing + enlarge geometry + caregiver alert if sustained; never tighten.
 
@@ -695,7 +697,7 @@ original wording understated all three):
   retains no *dwell-time* baseline (unlike radius). That registry + baseline/context mapping is the real
   work, and it is shared by both slices.
   **(Dwell resolved 2026-09-02 — dwell-routing slice, plan `2026-09-02-dwell-knob-routing.md`; geometry
-  still open.)** The shared substrate is `IDwellDetectorRegistry` (Core): owner-keyed
+  resolved 2026-09-03 — see the block below.)** The shared substrate is `IDwellDetectorRegistry` (Core): owner-keyed
   `DwellRoutingRegistration` entries carrying the surface's context, its validated range, and an *applier
   delegate* — `DwellDetector.SetEffectiveDwellTime(map)` for UI-thread owners, a `_stateLock`-wrapping
   lambda for `ExternalDwellService` (its detector Updates on the gaze thread). `DwellTarget` retains a
@@ -714,9 +716,40 @@ original wording understated all three):
   the by-design exclusion of Settings' four detectors. Five factory-registered owners
   (ManualSelection, External, NoteManager, OverlayManager, EyeCareBannerWindow) take the registry
   argument explicitly in their DI lambdas.
+  **(Geometry resolved 2026-09-03 — geometry-routing slice, plan `2026-09-03-geometry-knob-routing.md`;
+  Phase 1c complete.)** Hit-area margins only (owner decision): no EyeCtrl-drawn element changes size — §8.9
+  still holds, not vacuously: the ONE visible element coupled to hit geometry is External's
+  dwell-feedback overlay, which sizes itself from the routed rect (the sanctioned visible⇒hit
+  direction, by construction). External targets (foreign UI we cannot resize) prove hit-only is the
+  only universal shape, and the rendering side of visible coupling is only verifiable via
+  UI-category tests this repo never runs; the §7.1/§13.1 "coupled visible size" wording is hereby
+  scoped to hit geometry for v1, visible coupling deferred (the feedback overlay excepted as above). The unit mismatch resolves in the detector: the map composes the fill against
+  each target's base hit extent (`DwellTarget.BaseHitExtent` — radius, or the smaller rect
+  half-extent) and applies `margin = map(base) − base` through the existing `ApplyHitAreaMargin`
+  (uniform per side; gaze error is isotropic). `DwellDetector.SetEffectiveGeometry(map)` mirrors
+  `SetEffectiveDwellTime` (born-effective on `AddTarget`; null restores; state-preserving — §7.3/C4:
+  enlarge keeps progress, shrink-out is an ordinary gaze-left). The shared substrate is the dwell
+  registry: `DwellRoutingRegistration` gained a required geometry applier, auto-wired by
+  `ForDetector` (zero registration-site churn; External passes a `_stateLock`-wrapping lambda).
+  App-side `GeometryRouter` (the `DwellTimeRouter` shape) applies on provider `Changed` +
+  `RegistrationChanged`. External's `UpdateMessage` rebases through
+  `DwellDetector.RebaseTarget(id, rect)` (reset the as-registered extents + re-apply the stored
+  map) instead of raw Bounds/Center writes, so a routed map — including the identity restore — can
+  never revert an SDK-pushed resize to stale base extents. The §13.1 absolute bound landed as `AdaptationSettings.GeometryMaxMarginPx`
+  (default 100 physical px, validated [0, 300], exposed as an Adaptation-page slider): margin =
+  clamp(effective − base, 0, cap), applied at routing — the consumer-side-clamp precedent
+  (smoothing per-filter, dwell per-surface); the provider stays fraction-bounded, discharging §8.4
+  for geometry at the routing layer. Identity restores are never truncated (margin 0 is always
+  in [0, cap]). The Keyboard's main keys are geometry-exempt alongside the existing dwell
+  exemptions: nearest-key tracking has no hit boundary (dead-zone-free by design), so the §5
+  "key hit slop" phrase has no referent — the prediction bar IS routed (circular targets). NB:
+  `DwellOutcome` reports the LIVE hit extent at outcome time, so the Aiming signal's |NearMiss|÷radius
+  denominator grows with the knob's output — self-damping (enlargement extinguishes its own evidence;
+  deadband + slow ramp preclude chatter); kept deliberately, a Phase-2 calibration decision if real
+  data disagrees.
 - **Geometry additionally** needs the §13.1 absolute bound (which §13.1 assigns to Phase 1b and 1b deferred
   — see §14) and resolution of the absolute-extent vs. signed-margin unit mismatch noted in
-  `EffectiveSettingsProvider`'s `KnobPolicy` table.
+  `EffectiveSettingsProvider`'s `KnobPolicy` table. **(Resolved 2026-09-03 — see the geometry-resolution block above.)**
 
 **The blocker smoothing routing exposed.** `StruggleMonitor` classified jitter *and* abandonment into a
 single `SustainFailure` mode whose score is `max(abandonment, jitter)`, and the controller drove smoothing
@@ -875,8 +908,9 @@ adaptation path — mode is never auto-switched, §5).
   0.50 *comfort* ceiling remains open now that smoothing answers only to noise evidence; also owned by that
   slice, which supplies the first real consumer. (The 0.50 comfort ceiling question is likewise resolved:
   kept — see §13.3, smoothing-routing slice 2026-09-01.)
-- Absolute target-geometry bound (§13.1 expected it in Phase 1b; 1b deferred it) — owned by the
-  geometry-routing slice (§13.3), together with the absolute-extent vs. signed-margin unit conversion.
+- Absolute target-geometry bound (§13.1 expected it in Phase 1b; 1b deferred it) — **Resolved
+  (§13.3, 2026-09-03):** `AdaptationSettings.GeometryMaxMarginPx` (default 100, [0, 300]),
+  margin-clamped at routing; unit conversion in `DwellDetector.SetEffectiveGeometry`.
 
 ## 15. Affected / New Files (indicative — the exhaustive surface list is a Phase 1a deliverable)
 

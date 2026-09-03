@@ -6,11 +6,11 @@ using EyeCtrl.Core.Settings;
 public class AdaptationPageSourceTests
 {
     [Fact]
-    public void Build_HasFourteenRows_NoCaregiverRow()
+    public void Build_HasFifteenRows_NoCaregiverRow()
     {
         var rows = new AdaptationPageSource(TestSettingsPageContext.Build()).Build()
             .SelectMany(p => p.Rows).ToList();
-        Check.That(rows).HasSize(14);
+        Check.That(rows).HasSize(15);
         Check.That(rows.OfType<ButtonSpec>().Single().Id).IsEqualTo("ad_reset");
         Check.That(rows.Any(r => r.Id.Contains("caregiver", StringComparison.Ordinal))).IsFalse();
     }
@@ -36,10 +36,12 @@ public class AdaptationPageSourceTests
         Check.That(settings.Adaptation.Enabled).IsTrue();
         sliders["ad_frac_dwell_short"].Set(0.25);
         Check.That(settings.Adaptation.DwellShorterMaxFraction).IsEqualTo(0.25);
+        sliders["ad_geom_margin"].Set(120);
+        Check.That(settings.Adaptation.GeometryMaxMarginPx).IsEqualTo(120);
     }
 
     [Fact]
-    public void Reset_CopiesAllThirteenFromDefaults()
+    public void Reset_CopiesAllFourteenFromDefaults()
     {
         var settings = new EyeCtrlSettings();
         settings.Adaptation.Enabled = true;
@@ -55,6 +57,7 @@ public class AdaptationPageSourceTests
         settings.Adaptation.ToleranceLooserMaxFraction = 0.4;
         settings.Adaptation.SmoothingMoreMaxFraction = 0.6;
         settings.Adaptation.GeometryBiggerMaxFraction = 0.7;
+        settings.Adaptation.GeometryMaxMarginPx = 250;
         var source = new AdaptationPageSource(
             TestSettingsPageContext.Build(settings, showModal: (_, act) => act()));
         source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>().Single().OnActivate();
@@ -72,5 +75,6 @@ public class AdaptationPageSourceTests
         Check.That(settings.Adaptation.ToleranceLooserMaxFraction).IsEqualTo(d.ToleranceLooserMaxFraction);
         Check.That(settings.Adaptation.SmoothingMoreMaxFraction).IsEqualTo(d.SmoothingMoreMaxFraction);
         Check.That(settings.Adaptation.GeometryBiggerMaxFraction).IsEqualTo(d.GeometryBiggerMaxFraction);
+        Check.That(settings.Adaptation.GeometryMaxMarginPx).IsEqualTo(d.GeometryMaxMarginPx);
     }
 }

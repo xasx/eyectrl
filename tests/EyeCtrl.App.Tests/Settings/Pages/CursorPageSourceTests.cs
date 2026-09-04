@@ -25,6 +25,24 @@ public class CursorPageSourceTests
     }
 
     [Fact]
+    public void Build_RingStyleCombo_SharesAPageWithTheSlidersItsSetterRewrites()
+    {
+        // c_ring_style's setter overwrites CircleThickness (c_thick) and CircleOpacity
+        // (c_opacity) as a preset write. That write must land on the page the user is
+        // looking at, or it is a destructive, invisible edit for a gaze user — the very
+        // defect this feature exists to fix. This is a deliberate placement decision
+        // (the combo moved from page 1 to page 2), not an accident of construction
+        // order, so assert per-page membership: a SelectMany over every page's rows
+        // would pass no matter which page the combo or the sliders ended up on, and
+        // would silently stop protecting the adjacency this test exists to pin.
+        var pages = new CursorPageSource(TestSettingsPageContext.Build()).Build();
+        var ringStylePage = pages.Single(p => p.Rows.OfType<ComboBoxSpec>().Any(c => c.Id == "c_ring_style"));
+
+        Check.That(ringStylePage.Rows.OfType<SliderSpec>().Select(s => s.Id))
+            .Contains("c_thick", "c_opacity");
+    }
+
+    [Fact]
     public void Build_ColorPickerUsesSwatchRadius()
     {
         var source = new CursorPageSource(TestSettingsPageContext.Build());

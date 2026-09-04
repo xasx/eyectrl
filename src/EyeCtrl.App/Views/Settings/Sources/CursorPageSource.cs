@@ -30,6 +30,16 @@ internal sealed class CursorPageSource : ISettingsPageSource
                     () => c.SmoothingFactor,
                     v => { c.SmoothingFactor = v; _ctx.ApplyAndSave(); })
                     { Description = "Higher is more responsive; lower is smoother." },
+                c.RingStyle == CursorRingStyle.AchromaticReticle
+                    ? (SettingsRowSpec)new LabelSpec(
+                        () => "Circle Color is not used by the Achromatic reticle ring style.")
+                    : new ColorPickerSpec("c_color", "Circle Color",
+                        () => c.CircleColor,
+                        v => { c.CircleColor = v; _ctx.ApplyAndSave(); },
+                        SettingsWindow.ColorSwatchRadius)
+                        { Description = "The cursor ring’s colour; every preset stays clearly visible." },
+            ]),
+            new PageSpec([
                 new ComboBoxSpec("c_ring_style", "Ring Style",
                     ["Weighted sandwich", "Bi-tonal segments", "Achromatic reticle"],
                     Enum.GetNames<CursorRingStyle>(),
@@ -52,16 +62,6 @@ internal sealed class CursorPageSource : ISettingsPageSource
                         _ctx.RebuildContent();   // repaints the sliders and swaps the colour row
                     })
                     { Description = "How the ring stays visible on light and dark backgrounds." },
-                c.RingStyle == CursorRingStyle.AchromaticReticle
-                    ? (SettingsRowSpec)new LabelSpec(
-                        () => "Circle Color is not used by the Achromatic reticle ring style.")
-                    : new ColorPickerSpec("c_color", "Circle Color",
-                        () => c.CircleColor,
-                        v => { c.CircleColor = v; _ctx.ApplyAndSave(); },
-                        SettingsWindow.ColorSwatchRadius)
-                        { Description = "The cursor ring’s colour; every preset stays clearly visible." },
-            ]),
-            new PageSpec([
                 new SliderSpec("c_opacity", "Circle Opacity", 0.1, 1, 0.1, 1,
                     () => c.CircleOpacity,
                     v => { c.CircleOpacity = v; _ctx.ApplyAndSave(); })

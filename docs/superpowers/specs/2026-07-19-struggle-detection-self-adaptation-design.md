@@ -98,12 +98,14 @@ flowchart TD
     ES --> GazeEngine
 ```
 
+The learned offset lives in the provider's composition (§5) and is computed by `AdaptationLearner` (coordinator-ticked), not inside `AdaptationController` — the diagram's AC label is the Phase-1a sketch; §5 is authoritative.
+
 **Context strategy** (2nd-round R2.1): `DwellContext` is a policy-relevant set —
 `Keyboard`, `KeyboardPrediction`, `ActionMenu`, `ManualSelection`, `Toolbar`, `EdgeButtonBar`,
 `QuickActions`, `TaskSwitcher`, `Emoji`, `Notes`, `Scroll`, `DragTrail`, `ActivationButton`,
 `Backdrop`, `ExternalDwell`, `EyeCare`, `Other`. Surfaces without enough evidence, or tagged
 `Other`, contribute to the **aggregate** struggle level and the global momentary response but do
-**not** get a per-context learned offset until they cross a confidence threshold. Instrumenting
+**not** get a per-context learned offset until they cross a confidence threshold. Phase 2's v1 learned offset is **global per knob** and inherits §6.3's confidence gate *transitively*: it EWMA-samples only the controller's post-gate, post-sustain momentary fill, so un-gated evidence never reaches it; the explicit per-context confidence threshold returns together with per-context learning (§7.4 resolution, D3). Instrumenting
 `DwellOverlayViewModelBase` covers 10 surfaces at once; the non-base owners are wired individually.
 The **exhaustive surface inventory + context assignment is a Phase 1a deliverable**, guarded by a
 test analogous to `EyeCtrlSettingsEnumerationTests` (every `DwellDetector`-owning surface must
@@ -135,7 +137,7 @@ effective(knob,ctx)  = clamp(baseline + forgiving + tightening, validatedRange(k
 ```
 
 - **baseline** — existing `*Settings`; UI edits these; adaptation never writes them.
-- **learnedOffset** — forgiving-only (§8), slow EWMA per context/knob, persisted, decays toward 0.
+- **learnedOffset** — forgiving-only (§8), slow EWMA per context/knob, persisted, decays toward 0 (v1 is global per knob — the 'per context/knob' scoping above is the full design; per-context arrives with per-context momentary fills, §7.4 resolution).
 - **momentaryForgiving / momentaryTightening** — ephemeral. Tightening is nonzero *only* for dwell
   under the accidental-activation mode; every other knob has an empty tightening band.
 - **Sub-band separation matters:** if a forgiving learned offset (shorter dwell) coexists with an
@@ -318,6 +320,45 @@ Size/timing changes preserve in-progress dwell state (via the state-preserving u
   the explicit template (range/plausibility checks, catch-all); corrupt or out-of-band state is ignored
   and reset.
 
+**Phase-2 resolution (2026-09-04, plan `2026-09-04-learned-offset-phase2.md`).** The learned offset is a
+**slow EWMA over the momentary layer's forgiving band fills** (per knob, global `Other` context in v1 —
+per-context learned arrives with per-context momentary fills, if ever; D3), computed by a new Core
+`AdaptationLearner` and composed inside `EffectiveSettingsProvider` exactly per §5:
+`(momentaryForgivingFill + learnedFill) × bandEdge` under the single band clamp, with learned clamped to
+`AdaptationSettings.LearnedMaxFill = 0.5` (half the band — the momentary layer always retains headroom;
+D4). Rates (starting values, tunable): 30 s sample cadence on assess ticks only (paused/disconnected/
+disabled stretches freeze the state), α 0.05 (τ ≈ 10 min: sustained full-band struggle reaches the cap in
+≈ 9 min; calm decays a capped offset below the push ε in ≈ 40 min), push ε 0.01 (≥ 30 s between provider
+writes per knob — the §7.4 rate limit and a §9.1 budget guard). The promotion criterion IS the EWMA time
+constant applied to the controller's post-hysteresis fill — no second confidence machinery (D2). Reset
+fork: session boundaries (§13.1) and the disable edge preserve learned (inert while disabled — Effective
+gates on Enabled first); the manual §8.6 escape clears momentary AND learned; the settings action
+(`ResetLearnedOffsetsMessage`, the §10 `ResetLearnedBaseline`) clears learned only. A per-knob `Adapt*`
+toggle **zeroes** that knob's learned offset at the next sample (an off switch must stop adapting at
+once — round-1 finding 8), and the learner's cadence resyncs on a gaze-clock restart (the
+StruggleMonitor/GazeEngine class — round-1 finding 7). Persistence:
+`adaptation-state.json`, atomic tmp+rename, per-entry validation (invalid entries dropped, survivors
+kept — `ClampGazeIndicator` at file granularity), version-mismatch/corrupt ⇒ whole-file reset, saved at
+app exit and on `ResetLearned` only (round-1 finding 10: this **narrows §9.1's "debounced to session
+boundaries" to exit + reset saves** — a per-boundary flush adds write churn for at most one session of
+re-learnable data; crash loses learning since the last save — accepted). The state is loaded at startup
+only while `Enabled` (round-1 finding 18): a mid-session first enable starts learned at zero — loading
+then would resurrect the pre-disable on-disk state over the (deliberately unpersisted) disable. "Log
+review" (§13 Phase-2 line) = the size-capped `adaptation-log.jsonl` + "Open Adaptation Log" and
+"Reset Learned Offsets" buttons on the Adaptation page; a live learned-status readout and a
+settings-page log viewer remain future work (§10's "live status label" wording included). Also fixed
+here: the §13.3 settings-edit staleness leftover — the provider now re-raises `Changed` on
+composition-relevant settings edits (band fractions, `GeometryMaxMarginPx`), so every consumer
+re-applies immediately. **§10 field mapping (round-1 finding 12), field by field:** `ts` → `ts` ✓;
+`context` → dropped (always `Other` in v1 — the global layer has no context to report); `signal` →
+dropped (the provider's `Changed` seam carries no per-signal payload; the Serilog transition line and
+the `modes` entry name the gated failure modes, which is the signal-level detail); `failureMode` →
+`modes` (an array on the `kind:"modes"` entry — transitions carry the whole gated set); `knob` → `knob`
+on `kind:"learned"` entries ✓; `oldEffective`/`newEffective` → `old`/`new` **band fills** (absolute
+effectives are consumer-relative — a dwell fill composes against ~20 baselines — and are deliberately
+not logged); `reason` → dropped (redundant with `kind`, the only two of which are `learned` and
+`modes`; the suppressed marker carries no detail by design, §8.10).
+
 ## 8. Safety Invariants
 
 1. **Default direction keeps you able to act** — dominant responses make interaction easier to complete.
@@ -380,7 +421,7 @@ not regress it.
 - **Controller tick is O(1)** at a few Hz on the dispatcher; must not compete with dwell/cursor
   rendering. The cue overlay is a cheap fading badge.
 - **I/O off the hot path.** `adaptation-log.jsonl` writes are async/batched; learned-state
-  persistence is debounced to session boundaries with an atomic write.
+  persistence is **exit + manual-reset saves** with an atomic write (the realized v1 form of the debounce — see §7.4 resolution).
 - **Disabled = current cost.** Gated at the source (like `FatigueMonitor`'s `if (!Enabled) return;`):
   when off (default) the monitor isn't fed, effective = baseline, no reconfiguration — the pipeline's
   measured cost is unchanged. Two gate points, both read per call so the settings toggle takes effect on
@@ -488,7 +529,7 @@ the phase sequence, where the dependency would be easy to miss.
 (PR #132; registry + `DwellTimeRouter` + Keyboard tracker), geometry routed 2026-09-03.
 The Phase-2 gate is open.**
 
-**Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review.
+**Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review. **(Complete 2026-09-04 — learned-offset slice; see the §7.4 resolution. Phase 3 (caregiver) is next.)**
 
 **Phase 3 — Caregiver.** Net-new tray toast + rate-limiting; optional Supervisor relay (new payload/channel).
 
@@ -644,10 +685,8 @@ and monotonic-guard behaviour. No display dependency.
 
 ## 13.3 Knob-routing prerequisite — the `SignalNoise` failure-mode split (brainstormed 2026-08-04)
 
-**Why this exists.** Phases 1a and 1b are merged, but only **one** of the four knobs reaches a consumer:
-`GazeEngine.cs:157` reads `Effective(FixationRadius, …)` and nothing reads the other three. The
-dwell/smoothing/geometry **routing slices** deferred out of 1b were never written, so the momentary layer
-is a quarter live. Routing them is therefore prerequisite to the Phase-2 learned layer (§7.4) — a learned
+**Why this exists (historical — prerequisite analysis, retained as the record).** Routing completed
+2026-09-01..03 (see the status block in §13); the section below is retained as the record of the prerequisite analysis. Routing them is therefore prerequisite to the Phase-2 learned layer (§7.4) — a learned
 offset on an unrouted knob is invisible by construction. Routing order: **smoothing → dwell → geometry**.
 Each routing slice gets its own plan. What each still needs, stated precisely (review round 1 found the
 original wording understated all three):
@@ -899,8 +938,9 @@ adaptation path — mode is never auto-switched, §5).
   `ISensitiveContextDetector`, gating feedback (cue/toast/verbose-log) only, adaptation still runs.
 - Phase 3 supervisor relay: `SettingsService` has a single-writer mutex with only `SupervisionSettings`
   marked cross-writer; if the supervisor must *write* adaptation state, the `SupervisionSectionName`
-  constant + merge logic need extending. Alert payload/channel format also open.
-- Time-of-day-aware learned baseline — deferred past Phase 2.
+  constant + merge logic need extending. Alert payload/channel format also open. The supervisor does
+  not write `adaptation-state.json` in v1 (single writer: the app) — unchanged from the existing SettingsService note.
+- Time-of-day-aware learned baseline — deferred past Phase 2. The Aiming-denominator self-damping assumption (§13.3 NB) and the §13.2 px-thresholds remain uncalibrated and are now *data-collectible* via `adaptation-log.jsonl` (`kind":"learned"`, `knob":"TargetGeometry"` transitions) — revisit with real data (D8).
 - `SmoothingMoreMaxFraction` fraction-vs-absolute model (the `AdaptationSettings` PROVISIONAL note) —
   **Resolved for Phase 1c (§13.3):** fraction-of-baseline is kept, **but it is range-safe only for EMA**.
   One-Euro's floor is `0.1`, not `0`, so the composed value must be clamped to the **active filter's**
@@ -911,6 +951,7 @@ adaptation path — mode is never auto-switched, §5).
 - Absolute target-geometry bound (§13.1 expected it in Phase 1b; 1b deferred it) — **Resolved
   (§13.3, 2026-09-03):** `AdaptationSettings.GeometryMaxMarginPx` (default 100, [0, 300]),
   margin-clamped at routing; unit conversion in `DwellDetector.SetEffectiveGeometry`.
+- Learned offsets do not age across disabled/idle stretches (only across active assess ticks). Exposure: re-enabling after a long disable applies the previously-learned offsets immediately; the manual escape or per-knob toggles clear them at once. Wall-clock decay on load was rejected because it would wipe the baseline on every overnight restart; revisit with real usage data.
 
 ## 15. Affected / New Files (indicative — the exhaustive surface list is a Phase 1a deliverable)
 

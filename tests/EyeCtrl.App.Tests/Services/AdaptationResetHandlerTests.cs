@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using System;
+using System.IO;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Adaptation;
@@ -14,7 +16,8 @@ public class AdaptationResetHandlerTests
 {
     private const long Sec = 1_000_000;
 
-    private static (AdaptationCoordinator Coord, EffectiveSettingsProvider Provider, BufferingTelemetrySink Sink) Make()
+    private static (AdaptationCoordinator Coord, EffectiveSettingsProvider Provider, BufferingTelemetrySink Sink,
+                    AdaptationSettings Adaptation, string StatePath) Make()
     {
         var settings = new EyeCtrlSettings();
         settings.Adaptation.Enabled = true;
@@ -22,8 +25,10 @@ public class AdaptationResetHandlerTests
         var monitor = new StruggleMonitor(sink, settings.EyeCare);
         var provider = new EffectiveSettingsProvider(settings.Adaptation);
         var controller = new AdaptationController(provider, settings.Adaptation);
-        var coord = new AdaptationCoordinator(monitor, controller, settings.Adaptation, new TestFakes.FakeGazeProvider(), new InteractionManager());
-        return (coord, provider, sink);
+        string statePath = Path.Combine(Path.GetTempPath(), "eyectrl_learner_reset_test_" + Guid.NewGuid() + ".json");
+        var learner = new AdaptationLearner(provider, settings.Adaptation, stateFilePath: statePath);
+        var coord = new AdaptationCoordinator(monitor, controller, learner, settings.Adaptation, new TestFakes.FakeGazeProvider(), new InteractionManager());
+        return (coord, provider, sink, settings.Adaptation, statePath);
     }
 
     private static DwellOutcome Abandon(long ts, double progress) => new(
@@ -42,9 +47,9 @@ public class AdaptationResetHandlerTests
     [Fact]
     public void ResetMessage_ClearsMomentaryAdaptation()
     {
-        var (coord, provider, sink) = Make();
+        var (coord, provider, sink, adaptation, _) = Make();
         var messenger = new WeakReferenceMessenger();
-        using var handler = new AdaptationResetHandler(messenger, coord);
+        using var handler = new AdaptationResetHandler(messenger, coord, new AdaptationLearner(provider, adaptation));
         handler.Start();
 
         DriveToRelaxedTolerance(coord, sink);
@@ -57,9 +62,9 @@ public class AdaptationResetHandlerTests
     [Fact]
     public void AfterDispose_MessageIsIgnored()
     {
-        var (coord, provider, sink) = Make();
+        var (coord, provider, sink, adaptation, _) = Make();
         var messenger = new WeakReferenceMessenger();
-        var handler = new AdaptationResetHandler(messenger, coord);
+        var handler = new AdaptationResetHandler(messenger, coord, new AdaptationLearner(provider, adaptation));
         handler.Start();
         handler.Dispose(); // unregisters
 
@@ -68,5 +73,45 @@ public class AdaptationResetHandlerTests
 
         messenger.Send(new ResetAdaptationMessage()); // no live handler → no reset
         Check.That(provider.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50) > 50.0).IsTrue();
+    }
+
+    [Fact]
+    public void LearnedResetMessage_ClearsLearnedOffsetsOnly()
+    {
+        var (coord, provider, sink, adaptation, statePath) = Make();
+        try
+        {
+            DriveToRelaxedTolerance(coord, sink);
+            provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.3);
+            var messenger = new WeakReferenceMessenger();
+            using var handler = new AdaptationResetHandler(messenger, coord, learner: new AdaptationLearner(provider, adaptation));
+            handler.Start();
+
+            messenger.Send(new ResetLearnedOffsetsMessage());
+
+            Check.That(provider.EnumerateLearnedFills()).IsEmpty();
+            // Learned-only: the momentary relaxation is untouched (unlike ResetAdaptationMessage).
+            Check.That(provider.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50) > 50.0).IsTrue();
+        }
+        finally { File.Delete(statePath); }
+    }
+
+    [Fact]
+    public void LearnedResetMessage_AfterDispose_IsIgnored()
+    {
+        var (coord, provider, _, adaptation, statePath) = Make();
+        try
+        {
+            provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.3);
+            var messenger = new WeakReferenceMessenger();
+            var handler = new AdaptationResetHandler(messenger, coord, learner: new AdaptationLearner(provider, adaptation));
+            handler.Start();
+            handler.Dispose();
+
+            messenger.Send(new ResetLearnedOffsetsMessage());
+
+            Check.That(provider.EnumerateLearnedFills()).HasSize(1);
+        }
+        finally { File.Delete(statePath); }
     }
 }

@@ -123,6 +123,10 @@ public record SpecialKeyMessage(string KeyName, IReadOnlySet<ModifierKey>? Modif
 /// baseline — the always-reachable escape (design §8.6). Handled by <c>AdaptationResetHandler</c>.</summary>
 public record ResetAdaptationMessage;
 
+/// <summary>Clears ONLY the Phase-2 learned offsets (settings-page action, §10 <c>ResetLearnedBaseline</c>);
+/// momentary adaptation is untouched — unlike <see cref="ResetAdaptationMessage"/>, the full §8.6 escape.</summary>
+public record ResetLearnedOffsetsMessage;
+
 /// <summary>Sent to show the glass backdrop. HideButtonCenter is in physical screen pixels.</summary>
 public record ShowBackdropMessage(PhysicalPoint HideButtonCenter);
 public record HideBackdropMessage;

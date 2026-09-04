@@ -15,6 +15,11 @@ using Xunit;
 /// </summary>
 public class HaloContrastTests
 {
+    // Keep in sync with CursorRingStyleContrastTests' copy of this helper block (Channel,
+    // Luminance, Contrast, Parse, StrongestVisibleEdge, Backdrops, EdgeFloor): a fix to the
+    // contrast maths here must be made there too, or the two files pass while asserting
+    // different definitions of the same guarantee under the same EdgeFloor name.
+
     /// <summary>Backdrops a transparent overlay may be drawn over. Mirrors spec §9.5.</summary>
     public static readonly string[] Backdrops =
     [

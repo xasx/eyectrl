@@ -10,11 +10,19 @@ using Xunit;
 
 /// <summary>
 /// §4.1.3's guarantee, extended to every ring style. HaloContrastTests proves the palette
-/// can hold an edge; this proves each style actually uses a pair that does, whatever the
-/// user picked in the colour picker and whatever theme is active.
+/// can hold an edge; this checks each style actually uses a pair that does, whatever the
+/// user picked in the colour picker and whatever theme is active — a pairing check plus a
+/// regression net, not a demonstration that the guarantee holds across backdrops (see
+/// <see cref="StrongestVisibleEdge"/>). Asserted at full opacity only: <c>CircleOpacity</c>
+/// is not modelled here.
 /// </summary>
 public class CursorRingStyleContrastTests
 {
+    // Keep in sync with HaloContrastTests' copy of this helper block (Channel, Luminance,
+    // Contrast, Parse, StrongestVisibleEdge, Backdrops, EdgeFloor): a fix to the contrast
+    // maths here must be made there too, or the two files pass while asserting different
+    // definitions of the same guarantee under the same EdgeFloor name.
+
     /// <summary>Backdrops a transparent overlay may be drawn over. Mirrors spec §9.5.</summary>
     private static readonly string[] Backdrops =
     [
@@ -41,6 +49,20 @@ public class CursorRingStyleContrastTests
 
     private static Color Parse(string hex) => (Color)ColorConverter.ConvertFromString(hex)!;
 
+    /// <summary>
+    /// The strongest edge available to the eye: mark-vs-halo (backdrop independent),
+    /// mark-vs-backdrop, or halo-vs-backdrop.
+    ///
+    /// Taking the maximum is deliberate and is what the guarantee claims: the mark is
+    /// discernible if ANY of its edges is strong. Consequence for this file: the
+    /// backdrop-independent mark-vs-halo term dominates for every style and preset shipped
+    /// today (worst case 9.13:1, Midnight's "Amber" against StrokeHalo), so the
+    /// <see cref="Backdrops"/> loop cannot change an outcome. It is retained as documentation
+    /// of the backdrops the guarantee must hold over (spec §9.5), and as a regression net if
+    /// a future palette, preset or style pairing weakens that term — not as a
+    /// backdrop-discrimination test. See <see cref="HaloContrastTests.StrongestVisibleEdge"/>
+    /// for the fuller reasoning.
+    /// </summary>
     private static double StrongestVisibleEdge(Color mark, Color halo, Color backdrop) =>
         Math.Max(Contrast(mark, halo),
             Math.Max(Contrast(mark, backdrop), Contrast(halo, backdrop)));

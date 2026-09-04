@@ -186,7 +186,7 @@ are routed as of 2026-09-03 (§13.3 Phase 1c).**
 - **Dwell time & geometry:** baked into `DwellTarget` at creation and, at the time of writing,
   `DwellTarget.Radius` was immutable. **(Done in 1a-⑤: `Radius` now has an `internal set`, `_baseRadius` is
   retained for idempotent margins, and both update methods exist. (The registry + dwell-time baseline +
-  context mapping landed with the dwell-routing slice — see §13.3.))**
+  context mapping landed with the dwell-routing slice — see §13.3.)**
   Add **state-preserving** update methods on `DwellDetector` (mirroring the existing
   `DwellDetector.UpdateTargetCenter`, which is on the *detector*, not the target): `UpdateTargetDwellTime`
   and `UpdateTargetGeometry` that adjust timing/hit area while preserving `EnteredTimestamp`/`IsGazeInside`.
@@ -484,9 +484,9 @@ preceded by the behaviour-neutral `SignalNoise` failure-mode split. **A hard rel
 a learned offset on an unrouted knob has no observable effect, so it is numbered rather than left outside
 the phase sequence, where the dependency would be easy to miss.
 
-**Status: smoothing routed 2026-09-01 (PR #131); dwell routed 2026-09-02 (registry +
-`DwellTimeRouter` + Keyboard tracker).** **Status: Phase 1c complete — smoothing routed 2026-09-01
-(PR #131), dwell 2026-09-02 (PR #132), geometry 2026-09-03. The Phase-2 gate is open.**
+**Status: Phase 1c complete — smoothing routed 2026-09-01 (PR #131), dwell routed 2026-09-02
+(PR #132; registry + `DwellTimeRouter` + Keyboard tracker), geometry routed 2026-09-03.
+The Phase-2 gate is open.**
 
 **Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review.
 

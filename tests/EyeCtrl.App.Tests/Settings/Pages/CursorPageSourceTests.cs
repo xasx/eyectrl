@@ -25,21 +25,37 @@ public class CursorPageSourceTests
     }
 
     [Fact]
-    public void Build_RingStyleCombo_SharesAPageWithTheSlidersItsSetterRewrites()
+    public void Build_RingStyleComboAndTheSlidersItsSetterRewrites_AreAdjacentInFlatOrder()
     {
         // c_ring_style's setter overwrites CircleThickness (c_thick) and CircleOpacity
-        // (c_opacity) as a preset write. That write must land on the page the user is
-        // looking at, or it is a destructive, invisible edit for a gaze user — the very
-        // defect this feature exists to fix. This is a deliberate placement decision
-        // (the combo moved from page 1 to page 2), not an accident of construction
-        // order, so assert per-page membership: a SelectMany over every page's rows
-        // would pass no matter which page the combo or the sliders ended up on, and
-        // would silently stop protecting the adjacency this test exists to pin.
-        var pages = new CursorPageSource(TestSettingsPageContext.Build()).Build();
-        var ringStylePage = pages.Single(p => p.Rows.OfType<ComboBoxSpec>().Any(c => c.Id == "c_ring_style"));
+        // (c_opacity) as a preset write. For a gaze user, a write they cannot see is a
+        // destructive, invisible edit — the very defect this feature exists to fix — so
+        // the combo and the two sliders it rewrites must sit next to each other on the
+        // page the user is actually looking at.
+        //
+        // CursorPageSource.PrefersAutoPagination is true, so the literal PageSpec
+        // boundaries declared in Build() below are only advisory: SettingsWindow.
+        // MaybeRepaginateByHeight (SettingsWindow.xaml.cs:767-781) flattens every page
+        // with `pages.SelectMany(p => p.Rows)` and re-chunks that flat list by measured
+        // height via SettingsAutoPagination.ChunkByHeight (SettingsAutoPagination.cs:
+        // 27-51), a greedy sequential fill. Flat row order is the only placement
+        // property that survives that re-chunk to the screen. Asserting per-page
+        // membership would pass even if the rendered pagination split the combo from
+        // the sliders, and would fail if the literal pages were merely regrouped while
+        // the rows stayed adjacent — backwards on both counts. So this pins the three
+        // rows as a contiguous run in flat order instead.
+        //
+        // Adjacency makes a split unlikely but cannot rule one out: a height-chunk
+        // boundary can still fall between two adjacent rows if the budget runs out
+        // exactly there. No test in this repo can exclude that; it needs a human
+        // looking at the screen.
+        var ids = new CursorPageSource(TestSettingsPageContext.Build()).Build()
+            .SelectMany(p => p.Rows).Select(r => r.Id).ToList();
 
-        Check.That(ringStylePage.Rows.OfType<SliderSpec>().Select(s => s.Id))
-            .Contains("c_thick", "c_opacity");
+        var ringStyleIndex = ids.IndexOf("c_ring_style");
+        Check.That(ringStyleIndex).IsNotEqualTo(-1);
+        Check.That(ids.Skip(ringStyleIndex).Take(3))
+            .ContainsExactly("c_ring_style", "c_opacity", "c_thick");
     }
 
     [Fact]

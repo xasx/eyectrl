@@ -13,8 +13,9 @@ using Xunit;
 /// can hold an edge; this checks each style actually uses a pair that does, whatever the
 /// user picked in the colour picker and whatever theme is active — a pairing check plus a
 /// regression net, not a demonstration that the guarantee holds across backdrops (see
-/// <see cref="StrongestVisibleEdge"/>). Asserted at full opacity only: <c>CircleOpacity</c>
-/// is not modelled here.
+/// <see cref="StrongestVisibleEdge"/>). Most of this file is asserted at full opacity only;
+/// <see cref="CircleOpacity_WorstCaseAcrossEveryStyleThemeAndPreset_IsPinned"/> is the one
+/// test that models <c>CircleOpacity</c>, via <see cref="LowestSafeOpacity"/>.
 /// </summary>
 public class CursorRingStyleContrastTests
 {
@@ -57,6 +58,17 @@ public class CursorRingStyleContrastTests
     }
 
     private static Color Parse(string hex) => (Color)ColorConverter.ConvertFromString(hex)!;
+
+    /// <summary>
+    /// Standard alpha-over compositing, per channel, byte-rounded — matching what a WPF
+    /// framebuffer actually stores. <paramref name="fg"/> is drawn at <paramref name="alpha"/>
+    /// over the opaque <paramref name="bg"/>; the result is itself opaque.
+    /// </summary>
+    private static Color Blend(Color fg, Color bg, double alpha)
+    {
+        byte Mix(byte f, byte b) => (byte)Math.Round(f * alpha + b * (1 - alpha));
+        return Color.FromRgb(Mix(fg.R, bg.R), Mix(fg.G, bg.G), Mix(fg.B, bg.B));
+    }
 
     /// <summary>
     /// The strongest edge available to the eye: mark-vs-halo (backdrop independent),
@@ -195,5 +207,88 @@ public class CursorRingStyleContrastTests
         var edge = Contrast(Parse(withAccent.Core.Hex), Parse(withAccent.Outer.Hex));
         Check.WithCustomMessage($"{theme.Name}: reticle edge is only {edge:F2}:1.")
             .That(edge).IsStrictlyGreaterThan(EdgeFloor);
+    }
+
+    /// <summary>
+    /// The opacity slider's own step (<c>CursorPageSource</c>'s <c>c_opacity</c> row), ascending
+    /// so <see cref="LowestSafeOpacity"/> can return the first (lowest) value that passes without
+    /// assuming the edge is monotonic in opacity.
+    /// </summary>
+    private static readonly double[] OpacitySteps = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+
+    /// <summary>
+    /// The lowest opacity step at which <paramref name="style"/>'s internal edge still clears
+    /// <see cref="EdgeFloor"/>, for the given theme and mark colour. Every band involved except
+    /// the core is opaque (<see cref="CursorRingStacks.For"/> applies <c>opacity</c> to the core
+    /// band only), so it is only ever the core's composite that this needs to model.
+    ///
+    /// Concentric styles (<see cref="CursorRingStyle.WeightedSandwich"/>,
+    /// <see cref="CursorRingStyle.AchromaticReticle"/>) paint the core directly over the opaque
+    /// outer band on the same centre path, so the composite is <c>core*a + outer*(1-a)</c> and
+    /// backdrop-independent. <see cref="CursorRingStyle.BiTonalSegments"/> places its two bands
+    /// side by side at one radius instead — the core has no outer band under it, only whatever
+    /// backdrop the transparent overlay sits on — so its composite is <c>core*a + backdrop*(1-a)</c>,
+    /// checked against <see cref="Backdrops"/>, worst backdrop wins.
+    /// </summary>
+    private static double LowestSafeOpacity(CursorRingStyle style, ITheme theme, string markHex)
+    {
+        var stack = CursorRingStacks.For(
+            style, 250, 3, 1.0, markHex, Hex(theme.StrokeHalo), Hex(theme.TextPrimary));
+        var core = Parse(stack.Core.Hex);
+        var outer = Parse(stack.Outer.Hex);
+
+        foreach (var a in OpacitySteps)
+        {
+            var edge = style == CursorRingStyle.BiTonalSegments
+                ? Backdrops.Min(b => Contrast(Blend(core, Parse(b), a), outer))
+                : Contrast(Blend(core, outer, a), outer);
+
+            if (edge > EdgeFloor)
+                return a;
+        }
+
+        return double.PositiveInfinity;
+    }
+
+    /// <summary>
+    /// B1's real threshold: the lowest <c>CircleOpacity</c> slider step at which EVERY shipped
+    /// (style, theme, preset) combination's internal edge still clears <see cref="EdgeFloor"/>.
+    /// Corrects an earlier doc-comment claim (see <c>CursorSettings.CircleOpacity</c>) that once
+    /// the outer band is opaque, opacity no longer needs to be modelled at all — wrong, because
+    /// the core composites OVER that opaque band (or, for <see cref="CursorRingStyle.BiTonalSegments"/>,
+    /// over the backdrop) and converges on whatever is behind it as opacity falls. The shipped
+    /// default alone (Midnight, <c>WeightedSandwich</c>, the Accent preset) only needs 0.7
+    /// (6.03:1 at 0.6, 7.92:1 at 0.7), but Midnight's Amber preset (<c>AccentWarning</c>) needs
+    /// 0.9 under both <c>WeightedSandwich</c> and <c>BiTonalSegments</c> — the worst case across
+    /// every combination shipped today, and the value this test pins. A palette or preset change
+    /// that moves it must fail here and update <c>CircleOpacity</c>'s doc comment together with it.
+    /// </summary>
+    private const double WorstCaseOpacityThreshold = 0.9;
+
+    [Fact]
+    public void CircleOpacity_WorstCaseAcrossEveryStyleThemeAndPreset_IsPinned()
+    {
+        var worst = 0.0;
+        var worstLabel = "";
+
+        foreach (var theme in ThemeRegistry.All)
+        {
+            foreach (var style in Enum.GetValues<CursorRingStyle>())
+            {
+                foreach (var preset in DwellColorPicker.PresetsFor(theme))
+                {
+                    var threshold = LowestSafeOpacity(style, theme, preset.Hex);
+                    if (threshold > worst)
+                    {
+                        worst = threshold;
+                        worstLabel = $"{theme.Name}/{style}: preset '{preset.Name}' ({preset.Hex})";
+                    }
+                }
+            }
+        }
+
+        Check.WithCustomMessage($"worst case across every style/theme/preset is {worstLabel} at opacity {worst}; " +
+                                 $"expected {WorstCaseOpacityThreshold}.")
+            .That(worst).IsEqualTo(WorstCaseOpacityThreshold);
     }
 }

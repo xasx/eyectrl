@@ -33,8 +33,17 @@ public partial class CursorSettings : ObservableObject, IValidatable
     /// compositing.
     /// </summary>
     [ObservableProperty] private double _circleOpacity = 1.0;
-    /// <summary>Thickness of the gaze cursor circle stroke in logical pixels. Valid range: 1–10.</summary>
-    [ObservableProperty] private double _circleThickness = 3.0;
+    /// <summary>
+    /// Thickness of the gaze cursor circle stroke in logical pixels. Valid range: 1–10.
+    ///
+    /// 1.0, the bottom of the legal range: live testing found the ring too heavy at 3.0. This
+    /// is safe because the contrast guarantee lives in the internal edge between the halo and
+    /// core bands (the halo is always <c>thickness + 4</c>), which holds at any thickness — so
+    /// thickness is a taste knob, not a safety one. The ring style preset no longer overwrites
+    /// this value (see CursorPageSource's <c>c_ring_style</c> setter), so this default is what
+    /// a fresh install actually sees.
+    /// </summary>
+    [ObservableProperty] private double _circleThickness = 1.0;
     /// <summary>Diameter of the gaze cursor circle in logical pixels. Valid range: 10–500.</summary>
     [ObservableProperty] private double _circleSize = 250;
     /// <summary>Visual style of the position indicator shown at the gaze point.</summary>

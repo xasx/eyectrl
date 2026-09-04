@@ -163,10 +163,13 @@ public class CursorRingStacksTests
     public void Defaults_GiveWeightedSandwichItsIntendedWeights()
     {
         // A fresh install must get the style's real proportions, not its structure at the
-        // weights that fail: a 2px core at 0.7 opacity is the shipped defect.
+        // weights that fail: a 2px core at 0.7 opacity is the shipped defect. Thickness is
+        // 1.0, not 3.0: live testing found the ring too heavy, and the ring style preset no
+        // longer writes thickness (only opacity), so this default is what a fresh install
+        // actually sees — 1.0 is safe because the internal edge holds at any width.
         var settings = new CursorSettings();
 
-        Check.That(settings.CircleThickness).IsEqualTo(3.0);
+        Check.That(settings.CircleThickness).IsEqualTo(1.0);
         Check.That(settings.CircleOpacity).IsEqualTo(1.0);
     }
 }

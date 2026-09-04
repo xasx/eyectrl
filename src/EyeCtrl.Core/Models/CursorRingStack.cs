@@ -41,6 +41,9 @@ public static class CursorRingStacks
         CursorRingStyle.WeightedSandwich => new CursorRingStack(
             new RingBand(haloHex, thickness + 4, 1.0, 0, 0),
             new RingBand(markHex, thickness, opacity, 0, 0)),
+        CursorRingStyle.AchromaticReticle => new CursorRingStack(
+            new RingBand(lightHex, thickness + 4, 1.0, 0, 0),
+            new RingBand(haloHex, thickness, opacity, 0, 0)),
         _ => throw new ArgumentOutOfRangeException(
             nameof(style), style, "Unknown cursor ring style")
     };

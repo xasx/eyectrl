@@ -50,4 +50,30 @@ public class CursorRingStacksTests
         Check.That(stack.Outer.DashPeriod).IsEqualTo(0.0);
         Check.That(stack.Core.DashPeriod).IsEqualTo(0.0);
     }
+
+    [Fact]
+    public void AchromaticReticle_IsALightOutlineOverADarkCore()
+    {
+        // Deliberately the INVERSE of the crosshair precedent in overlay-unification-spec
+        // §4.1.3 (light mark, dark outline). Contrast-equivalent; this arrangement puts the
+        // thicker carrying band on dark backdrops. Do not "correct" it — see spec §3.
+        var stack = Build(CursorRingStyle.AchromaticReticle);
+
+        Check.That(stack.Outer.Hex).IsEqualTo(Light);
+        Check.That(stack.Outer.Thickness).IsEqualTo(7.0);
+        Check.That(stack.Core.Hex).IsEqualTo(Halo);
+        Check.That(stack.Core.Thickness).IsEqualTo(3.0);
+        Check.That(stack.Outer.DashPeriod).IsEqualTo(0.0);
+    }
+
+    [Fact]
+    public void AchromaticReticle_IgnoresTheMarkColour()
+    {
+        // The style has no hue, so the colour picker is swapped out for it in the UI.
+        var stack = CursorRingStacks.For(
+            CursorRingStyle.AchromaticReticle, 250, 3, 1.0, "#FF00FF", Halo, Light);
+
+        Check.That(stack.Outer.Hex).IsEqualTo(Light);
+        Check.That(stack.Core.Hex).IsEqualTo(Halo);
+    }
 }

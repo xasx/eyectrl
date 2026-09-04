@@ -342,6 +342,10 @@ public partial class App : Application
             // what constructs its overlay HWND), and the system-wide UIA focus hook — on the
             // AdaptationSettings.Enabled edge. Since the setting is off by default, none of that exists until
             // the user opts in, and it is torn back down when they opt out.
+            // §7.4 persisted learned offsets — only read when the feature is on (§9.1 disabled = current
+            // cost); a mid-session first enable then starts learned at zero, conservatively.
+            if (settings.Adaptation.Enabled)
+                _serviceProvider.GetRequiredService<AdaptationLearner>().Load();
             _serviceProvider.GetRequiredService<AdaptationActivation>().Start(gazeEngine);
 
             // The manual escape (§8.6) is NOT gated on Enabled: it is one messenger registration with no
@@ -407,6 +411,7 @@ public partial class App : Application
 
             gazeEngine.Stop();
             settingsService.Save(settings);
+            _serviceProvider.GetRequiredService<AdaptationLearner>().Persist(); // best-effort (§11); never throws
             // (User dictionary is saved by EventCoordinator.Dispose above, via PredictionStackFactory.)
 
             var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();

@@ -7,8 +7,10 @@
         Topmost="True" ShowInTaskbar="False"
         Width="250" Height="250">
     <Canvas>
-        <!-- Halo first: later siblings paint on top, so this must precede Circle.
-             Gives the ring a backdrop-independent edge (spec §4.1.3). -->
+        <!-- Two bands, outer then core: later siblings paint on top, so the wider one must
+             come first. Which band is dark depends on CursorSettings.RingStyle — under
+             AchromaticReticle "CircleHalo" carries TextPrimary, not StrokeHalo. The names are
+             historical; CursorRingStacks decides the colours (spec §4.1.3, §10). -->
         <Ellipse x:Name="CircleHalo"
                  Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="4"
                  Width="250" Height="250"

@@ -47,9 +47,11 @@ dotnet test tests/EyeCtrl.Core.Tests
 dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"
 ```
 
-Expected: both pass. If App.Tests reports ~13 failures mentioning
-"Toolbar_Window did not appear within 15s", those are environmental (headless)
-and identical on clean `main` — proceed. Any other failure: stop and report.
+Expected: both pass, with no failures at all. The FlaUI tests that need a real
+display — the ones that fail headless with "Toolbar_Window did not appear within
+15s" — are all `[Trait("Category", "UI")]` and are excluded by this filter, so
+seeing them here would itself be a surprise. Any failure: stop and report rather
+than assuming it is environmental.
 
 ---
 
@@ -70,13 +72,15 @@ and identical on clean `main` — proceed. Any other failure: stop and report.
 | --- | --- |
 | `src/EyeCtrl.Core/Settings/CursorSettings.cs` | Add `RingStyle`; change `CircleThickness` and `CircleOpacity` defaults; rewrite the `CircleOpacity` doc comment. |
 | `src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs` | `UpdateAppearance` consumes the stack instead of hard-coding one. |
-| `src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs` | Ring Style combo with preset write; colour row swap; reset copies `RingStyle`. |
+| `src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml` | A comment only (spec §10). Element tags stay byte-identical. |
+| `src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs` | Ring Style combo with preset write; colour row swap; reset copies `RingStyle`; opacity description rewritten. |
 | `tests/EyeCtrl.App.Tests/Settings/Pages/CursorPageSourceTests.cs` | Cover the combo, the preset, the swap and the reset. |
 
-**Not touched:** `CursorCircleWindow.xaml` (declaration order and the
-`BrushStrokeHalo` literal are pinned by `HaloZOrderTests`; leave both alone),
-`EyeCtrlSettings.EnumerateSubSettings` (it enumerates sub-settings *classes*),
-and the other four §4.1.3 overlays.
+**Not touched:** the two `Ellipse` tags in `CursorCircleWindow.xaml` — their
+declaration order and their `BrushStrokeHalo` literals are pinned by
+`HaloZOrderTests`, and only the comment above them changes.
+`EyeCtrlSettings.EnumerateSubSettings` stays as it is (it enumerates
+sub-settings *classes*), as do the other four §4.1.3 overlays.
 
 ---
 
@@ -572,14 +576,22 @@ git commit -m "feat(cursor): default to the weights WeightedSandwich needs"
 ### Task 6: Render the stack
 
 **Files:**
-- Modify: `src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs:28-58`
+- Modify: `src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs:28-59`
+- Modify: `src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml` (a comment only — see below)
 
-Do **not** touch `CursorCircleWindow.xaml`. `HaloZOrderTests` reads that file as
-text: one test pins `CircleHalo` before `Circle`, another asserts `CircleHalo`'s
-tag contains `BrushStrokeHalo`. Removing the now-redundant `Stroke=` literal
-fails the second. Under `AchromaticReticle` that assertion becomes vacuous
-(the runtime stroke is `TextPrimary`) — the Core tests of Tasks 2–4 are the real
-guard for what the band paints.
+**Change nothing inside the two `Ellipse` tags.** `HaloZOrderTests` reads that
+file as text: `HaloElement_IsDeclaredBeforeItsAccentElement` compares the
+positions of the two `x:Name="…"` strings, and `EveryHaloElement_UsesTheStrokeHaloBrush`
+scans from `x:Name="CircleHalo"` forward to the next `>` and requires
+`BrushStrokeHalo` in that span (`HaloZOrderTests.cs:59-96`). So: do not reorder
+the elements, and do not remove the now-redundant `Stroke=` literals.
+
+Under `AchromaticReticle` that brush assertion becomes vacuous — the runtime
+stroke is `TextPrimary` — so the Core tests of Tasks 2–4 are the real guard for
+what each band paints.
+
+A comment **above** the elements is safe (both tests index from `x:Name`
+forward, so nothing preceding it is scanned) and is required by spec §10.
 
 - [ ] **Step 1: Replace `UpdateAppearance`**
 
@@ -660,6 +672,20 @@ using System.Windows.Shapes;
 
 `System.Windows.Media` (for `Color`, `ColorConverter`, `SolidColorBrush`,
 `DoubleCollection`) and `EyeCtrl.Core.Models` are already imported.
+
+- [ ] **Step 2b: Comment the two elements in the XAML**
+
+Spec §10 keeps the names `CircleHalo` / `Circle` even though which of them is
+dark now depends on the style. Add this **above** the existing `CircleHalo`
+element in `CursorCircleWindow.xaml`, replacing the current "Halo first" comment
+and leaving both element tags exactly as they are:
+
+```xml
+    <!-- Two bands, outer then core: later siblings paint on top, so the wider one must
+         come first. Which band is dark depends on CursorSettings.RingStyle — under
+         AchromaticReticle "CircleHalo" carries TextPrimary, not StrokeHalo. The names are
+         historical; CursorRingStacks decides the colours (spec §4.1.3, §10). -->
+```
 
 - [ ] **Step 3: Build**
 
@@ -880,7 +906,11 @@ Append to `CursorPageSourceTests`:
     {
         var settings = new EyeCtrlSettings();
         settings.Cursor.RingStyle = CursorRingStyle.BiTonalSegments;
-        var source = new CursorPageSource(TestSettingsPageContext.Build(settings));
+        // The default context DISCARDS the modal callback — TestSettingsPageContext.Build
+        // defaults showModal to ((_, _) => { }) — so the confirmation must be run explicitly
+        // or the reset copies nothing. Same pattern as Reset_CopiesAllTenProperties above.
+        var source = new CursorPageSource(
+            TestSettingsPageContext.Build(settings, showModal: (_, act) => act()));
         var reset = source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>()
             .Single(b => b.Id == "c_reset");
 
@@ -890,16 +920,13 @@ Append to `CursorPageSourceTests`:
     }
 ```
 
-`TestSettingsPageContext.Build()` runs the reset button's confirmation modal
-inline; if `Reset_RestoresTheRingStyle` finds the callback never fires, check how
-the existing reset tests in this file handle `_ctx.ShowModal` and follow that.
-
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~CursorPageSourceTests"`
 
-Expected: the four new tests fail — no `c_ring_style` row exists, and reset does
-not copy `RingStyle`.
+Expected: the four new tests fail. The first three fail because no `c_ring_style`
+row exists; `Reset_RestoresTheRingStyle` fails because the reset callback does not
+yet copy `RingStyle` (its modal *does* fire — the test opts in explicitly).
 
 - [ ] **Step 3: Add the combo to page 1**
 
@@ -946,9 +973,11 @@ Replace the existing `c_color` `ColorPickerSpec` construction with:
                         { Description = "The cursor ring’s colour; every preset stays clearly visible." },
 ```
 
-The `(SettingsRowSpec)` cast on the first branch is required — `LabelSpec` and
-`ColorPickerSpec` are siblings with no conversion between them, so without it the
-conditional has no common type and will not compile.
+The `(SettingsRowSpec)` cast on the first branch is belt-and-braces, not a
+requirement: the conditional is target-typed from the collection's element type
+and compiles without it. Keep the cast anyway — it states the intent, and it
+keeps compiling if the row list is ever refactored into something less
+target-typed.
 
 - [ ] **Step 5: Add `RingStyle` to the reset**
 
@@ -956,6 +985,16 @@ In the `c_reset` `ButtonSpec`'s callback, alongside the other field copies:
 
 ```csharp
                         c.RingStyle = d.RingStyle;
+```
+
+- [ ] **Step 5b: Rewrite the opacity slider's description**
+
+Spec §7 requires the opacity row to say what lowering it costs, now that every
+preset sets it to 1.0. Replace the `Description` on the `c_opacity` `SliderSpec`
+(`CursorPageSource.cs:43`), leaving the slider's range and setter untouched:
+
+```csharp
+                    { Description = "Lowering this dims the coloured half of the ring's edge, which is what keeps it visible." },
 ```
 
 - [ ] **Step 6: Run tests to verify they pass**
@@ -1011,8 +1050,9 @@ dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"
 ```
 
 Run them sequentially, never concurrently — named pipes are machine-global.
-Expected: green apart from the environmental `AppLaunchTests` failures present at
-baseline. Read the German summary line, not a grep for "Failed".
+Expected: green, matching the Task 0 baseline exactly (the display-dependent UI
+tests are filtered out, so there should be no failures to explain away). Read the
+German summary line, not a grep for "Failed".
 
 - [ ] **Step 3: Confirm the affected scope**
 

@@ -240,18 +240,31 @@ All three changes are in
 shows "Weighted sandwich", "Bi-tonal segments", "Achromatic reticle" while
 persisting enum names via `Enum.GetNames<CursorRingStyle>()` as the codes.
 
-**The preset write, on the UI side.** The setter assigns `RingStyle`, then writes
-that style's tuned values into the neighbouring settings, then
-`ApplyAndSave()` + `RebuildContent()` so the sliders and the swapped row refresh:
+**The preset write, on the UI side — opacity only.** The setter assigns
+`RingStyle`, forces `CircleOpacity` to 1.0, then calls `ApplyAndSave()` +
+`RebuildContent()` so the sliders and the swapped row refresh. It writes the same
+thing for every style; there is no per-style table.
 
-| Style | `CircleThickness` | `CircleOpacity` |
-| --- | --- | --- |
-| `WeightedSandwich` | 3 | 1.0 |
-| `BiTonalSegments` | 5 | 1.0 |
-| `AchromaticReticle` | 3 | 1.0 |
+**It deliberately does not touch `CircleThickness`.** Revised 2026-09-04 after
+the plan owner ran all three styles on the real desktop and found the ring too
+heavy. The original design had each style write a tuned thickness as well (3, or
+5 for `BiTonalSegments`), which made the Circle Thickness slider a lie: any
+thinner value the user chose was destroyed by their next style change, and the
+gesture that destroyed it was the same one §8 relies on for remediation.
 
-All three values are inside the `SliderSpec` ranges already on the page
-(thickness 1–6, opacity 0.1–1).
+The asymmetry is principled, not a concession. The contrast guarantee lives in
+the internal edge between the two bands, and the halo always tracks the core at
+`thickness + 4`, so that edge survives at any width — thickness changes how much
+weight carries, never whether the guarantee holds. Opacity is different: it is
+applied to the core band alone and composites it toward the backdrop, so it can
+genuinely weaken the edge. The preset forces the one value that is a safety knob
+and leaves the one that is taste.
+
+Consequence worth knowing: `BiTonalSegments` no longer gets its own wider
+thickness, so at a thin setting its segments are long and hairline rather than
+chunky. That is the user's call to make with the slider.
+
+1.0 is inside the `SliderSpec` opacity range already on the page (0.1–1).
 
 This deliberately does **not** live in a `partial void OnRingStyleChanged` on
 `CursorSettings`. A model-side hook fires during JSON deserialization and would
@@ -333,11 +346,19 @@ silently skips the new setting. This is the single easiest thing to miss.
 
 `CursorSettings` defaults change:
 
-- `CircleThickness` 2.0 → 3.0
+- `CircleThickness` 2.0 → **1.0** (revised down from 3.0 on 2026-09-04)
 - `CircleOpacity` 0.7 → 1.0
 
-Without this a fresh install gets `WeightedSandwich`'s *structure* at the weights
-that fail today, which is the defect this work exists to remove.
+The opacity change is what removes the defect: at 0.7 the accent composited
+toward the backdrop, reaching 1.17:1 over a white document.
+
+The thickness default went to 3.0 first, on the reasoning that
+`WeightedSandwich`'s *structure* at the old weights would still under-deliver.
+Running it proved that wrong in the other direction — the plan owner tested all
+three styles and found the ring too heavy — so the default is now 1.0, the bottom
+of the legal range. At 1.0 the stack is a 1px core inside a 5px halo, so 2px of
+near-black rim carries each side. Less weight than 3.0, and the internal edge is
+unchanged: it is a colour relationship, not a width one.
 
 The XML doc comment on `CircleOpacity` currently argues for 0.7 on the grounds
 that it keeps the halo edge above the 7.0 floor while 0.6 does not. That
@@ -359,13 +380,21 @@ comment recorded at 6.04:1, below the 7.0 floor, so the current install is
 running a configuration this codebase already documented as failing its own
 contrast gate.
 
-The delivery mechanism for those users is §7's preset write: choosing any Ring
-Style rewrites both values to that style's tuned weights. One dwell on the new
-combo fixes it, including choosing the style that is already selected — but it
-does have to be done once, deliberately, and nothing prompts for it. Whether that
-is sufficient, or whether a load-time nudge should upgrade a persisted pair that
-exactly equals the superseded defaults, is an open decision for the plan owner
-and is deliberately NOT resolved here.
+The delivery mechanism for those users is §7's preset write, and since the
+2026-09-04 revision it delivers **opacity only**: choosing any Ring Style — the
+already-selected one included — forces `CircleOpacity` to 1.0. That is the value
+whose old setting actually broke the guarantee, so the remediation still reaches
+the thing that mattered.
+
+A persisted `CircleThickness` is now never corrected automatically, by design:
+thickness is the user's knob and a preset that overwrote it was the reason for
+the revision. Existing installs keep whatever width they had, and the new 1.0
+default applies to fresh installs only. Anyone wanting the new default moves the
+slider, which is one dwell in the same place.
+
+That resolves the load-time-nudge question left open here: no nudge. The only
+value worth forcing is forced on style selection, and the only value left
+un-nudged is one the user is entitled to own.
 
 The separately-flagged persisted `cursor.circleColor` of `#0088FF`
 (overlay-unification spec §7) is not addressed here and remains a one-time manual

@@ -4,6 +4,7 @@ using EyeCtrl.Core.Settings;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 
 /// <summary>
@@ -15,8 +16,10 @@ using System.Linq;
 /// the EWMA time constant applied to already-gated, already-sustained evidence — no second confidence
 /// machinery. Ticked by the <c>AdaptationCoordinator</c> on assess ticks only: paused, disconnected,
 /// or disabled stretches freeze the state (no sample ⇒ no decay — no offline aging either, decision
-/// D9). A disabled per-knob <c>Adapt*</c> toggle zeroes that knob's learned offset at the next sample
-/// — an off switch must stop adapting at once, not decay for 40 minutes (review round 1, finding 8).
+/// D9). A per-knob <c>Adapt*</c> toggle switched off zeroes that knob's learned offset
+/// <b>synchronously</b> on the settings change (whole-branch review finding R2), with the sample path
+/// as a backstop — an off switch must stop adapting at once, not decay for 40 minutes (review round
+/// 1, finding 8).
 /// Persisted via <see cref="AdaptationStateFile"/>; cleared by <see cref="ResetLearned"/> (the manual
 /// escape and the settings action — never by session boundaries, §13.1). Single-threaded (dispatcher).
 /// </summary>
@@ -47,6 +50,16 @@ public sealed class AdaptationLearner
         AdaptationKnob.TargetGeometry,
     };
 
+    // The per-knob Adapt* toggle names → their knobs, for the synchronous off-switch zeroing (R2).
+    private static readonly IReadOnlyDictionary<string, AdaptationKnob> KnobToggles =
+        new Dictionary<string, AdaptationKnob>
+        {
+            [nameof(AdaptationSettings.AdaptDwell)] = AdaptationKnob.DwellTime,
+            [nameof(AdaptationSettings.AdaptTolerance)] = AdaptationKnob.FixationRadius,
+            [nameof(AdaptationSettings.AdaptSmoothing)] = AdaptationKnob.Smoothing,
+            [nameof(AdaptationSettings.AdaptGeometry)] = AdaptationKnob.TargetGeometry,
+        };
+
     private readonly EffectiveSettingsProvider _provider;
     private readonly AdaptationSettings _adaptation;
     private readonly ILogger<AdaptationLearner>? _logger;
@@ -74,6 +87,28 @@ public sealed class AdaptationLearner
         _adaptation = adaptation;
         _logger = logger;
         _stateFilePath = stateFilePath;
+        // Synchronous off-switch zeroing (whole-branch review finding R2): toggling a per-knob Adapt*
+        // switch off must clear that knob's learned offset at once, not at the next (≤ 30 s away)
+        // sample. PropertyChanged fires on the UI thread after the field is set, so the handler reads
+        // the new value. No unsubscribe: learner and settings are co-extensive container singletons
+        // (the provider's subscription to the same object follows the same discipline).
+        _adaptation.PropertyChanged += OnAdaptationSettingsChanged;
+    }
+
+    private void OnAdaptationSettingsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is null || !KnobToggles.TryGetValue(e.PropertyName, out var knob))
+            return;
+        if (IsKnobEnabled(knob))
+            return; // toggle ON needs nothing — the EWMA resumes from zero as the controller re-relaxes
+
+        _learned[knob] = 0.0;
+        double pushed = _pushed.TryGetValue(knob, out double p) ? p : 0.0;
+        if (pushed != 0.0)
+        {
+            _provider.SetLearnedFill(knob, 0.0);
+            _pushed[knob] = 0.0;
+        }
     }
 
     /// <summary>Loads the persisted state (if any) and applies its learned fills to the provider directly,

@@ -334,8 +334,9 @@ constant applied to the controller's post-hysteresis fill — no second confiden
 fork: session boundaries (§13.1) and the disable edge preserve learned (inert while disabled — Effective
 gates on Enabled first); the manual §8.6 escape clears momentary AND learned; the settings action
 (`ResetLearnedOffsetsMessage`, the §10 `ResetLearnedBaseline`) clears learned only. A per-knob `Adapt*`
-toggle **zeroes** that knob's learned offset at the next sample (an off switch must stop adapting at
-once — round-1 finding 8), and the learner's cadence resyncs on a gaze-clock restart (the
+toggle **zeroes** that knob's learned offset synchronously on the settings change, with the sample path
+as a backstop (an off switch must stop adapting at once — round-1 finding 8, made synchronous by the
+whole-branch review), and the learner's cadence resyncs on a gaze-clock restart (the
 StruggleMonitor/GazeEngine class — round-1 finding 7). Persistence:
 `adaptation-state.json`, atomic tmp+rename, per-entry validation (invalid entries dropped, survivors
 kept — `ClampGazeIndicator` at file granularity), version-mismatch/corrupt ⇒ whole-file reset, saved at

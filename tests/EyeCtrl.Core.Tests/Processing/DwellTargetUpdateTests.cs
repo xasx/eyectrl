@@ -352,4 +352,23 @@ public class DwellTargetUpdateTests
         Check.That(b.Width).IsCloseTo(420.0, 0.001);  // 400 + 2×10 — the margin rides the NEW base
         Check.That(b.Height).IsCloseTo(120.0, 0.001); // 100 + 2×10
     }
+
+    [Fact]
+    public void RebaseTarget_CircularTarget_IsANoOp()
+    {
+        // External review I1: a circle reaching the rebase seam must stay a circle — assigning
+        // Bounds would flip it one-way to rect hit semantics (readonly _baseRadius orphaned),
+        // silently, via the public RebaseTarget. Latent misuse guard; unreachable via today's
+        // callers (External registers rect targets only).
+        var d = new DwellDetector();
+        var t = new DwellTarget("c", new PhysicalPoint(10, 10), radius: 25, dwellTimeMs: 1000);
+        d.AddTarget(t);
+
+        d.RebaseTarget("c", new PhysicalRect(0, 0, 400, 100));
+
+        Check.That(t.Bounds).IsNull();
+        Check.That(t.Radius).IsEqualTo(25.0);
+        Check.That(t.HitTest(new PhysicalPoint(30, 10))).IsTrue();  // circle distance 20 — still a circle
+        Check.That(t.HitTest(new PhysicalPoint(10, 60))).IsFalse(); // 50 away; would be INSIDE a 400×100 rect
+    }
 }

@@ -116,11 +116,15 @@ public class DwellTarget
     /// resets the live geometry to the unmargined rect. The owner must re-apply its stored
     /// geometry map afterwards (<see cref="DwellDetector.RebaseTarget"/> does both), so a routed
     /// margin rides the NEW base instead of being lost — and a later map application can never
-    /// revert the new size to stale base extents. Rect targets only; preserves dwell accumulation
-    /// state.
+    /// revert the new size to stale base extents. Rect targets only — a circular target is a no-op
+    /// (circles have no external geometry source; assigning <see cref="Bounds"/> would flip one
+    /// to rect hit semantics with no way back, its readonly <c>_baseRadius</c> orphaned);
+    /// preserves dwell accumulation state.
     /// </summary>
     internal void Rebase(PhysicalRect rect)
     {
+        if (Bounds is null)
+            return;
         _baseHalfWidth = rect.Width / 2;
         _baseHalfHeight = rect.Height / 2;
         Center = rect.Center;

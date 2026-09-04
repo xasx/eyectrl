@@ -259,25 +259,40 @@ silently overwrite a user's tuned thickness and opacity depending on property
 order in the settings file. Keeping it in the combo setter means the preset only
 ever fires on an explicit user gesture.
 
-**The preset write is invisible at the moment it happens — open decision.** The
-Ring Style combo sits on page 1 of the Cursor tab; `CircleThickness` and
-`CircleOpacity`, the two controls it rewrites, are on page 2. So a user who has
-deliberately tuned thickness to 6 loses it the instant they dwell the style
-combo, with no on-screen feedback, because the sliders that would show the change
-are on a page they are not looking at. For a gaze-only user an accidental
-re-fixation is plausible, and re-selecting the already-selected style is exactly
-the remediation gesture §8 depends on — so the destructive case and the intended
-case are the same gesture.
+**The preset write must be visible where it lands — RESOLVED: the row moved.**
+The Ring Style combo originally sat on page 1 of the Cursor tab while
+`CircleThickness` and `CircleOpacity`, the two controls it rewrites, sat on page
+2. A user who had deliberately tuned thickness to 6 lost it the instant they
+dwelled the style combo, with no on-screen feedback. For a gaze-only user an
+accidental re-fixation is plausible, and re-selecting the already-selected style
+is exactly the remediation gesture §8 depends on — so the destructive case and
+the intended case were the same gesture.
 
 Verified rather than assumed: `DwellComboBox` renders one dwell button per option
 and wires each to `_setCode(capturedCode)` unconditionally, with no guard
 comparing against the current selection, so dwelling the already-selected style
 does re-run the setter and does write the preset. The remediation path works.
 
-What is NOT resolved is whether the silent cross-page rewrite is acceptable.
-Options, none chosen here: move Ring Style onto page 2 beside the sliders it
-rewrites; add a confirmation modal as the reset button already uses; or accept it
-and say so. This needs a decision from the plan owner.
+**Decision (plan owner, 2026-09-04): move Ring Style beside the sliders it
+rewrites**, rather than adding a confirmation modal or accepting the split. The
+combo is now the first row of the second `PageSpec`, immediately above
+`c_opacity` and `c_thick`.
+
+One thing that discovery changed about how to *pin* that. `CursorPageSource`
+sets `PrefersAutoPagination`, and for such a source
+`SettingsWindow.MaybeRepaginateByHeight` (`SettingsWindow.xaml.cs:767-781`)
+flattens every literal `PageSpec` with `pages.SelectMany(p => p.Rows)` and
+re-chunks the flat list by measured height through
+`SettingsAutoPagination.ChunkByHeight` (`SettingsAutoPagination.cs:27-51`, a
+greedy sequential fill). **The page boundaries this source declares are therefore
+advisory: only the flat row order survives to the screen.** The guard test
+accordingly asserts the three rows are contiguous in flat order, not that they
+share a declared page — the latter would have passed even if the rendered
+pagination split them, and failed on a harmless regrouping.
+
+Residual, and not closable by any test here: a height-chunk boundary can still
+fall between two adjacent rows if the budget runs out exactly there. Adjacency
+makes that unlikely; only looking at the screen can confirm it.
 
 Because all three presets want opacity 1.0, the opacity slider loses most of its
 purpose. It stays live — a user may legitimately want a subtler ring — and its

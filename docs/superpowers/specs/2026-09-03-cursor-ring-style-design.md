@@ -54,9 +54,11 @@ Three questions were settled before this design:
    evaluation aid and not as an escape hatch behind one blessed default. Each
    needs full support: settings copy, sane behaviour of the neighbouring knobs,
    and test coverage.
-2. **The style acts as a preset.** Choosing one writes that style's tuned
-   thickness and opacity into the existing settings and leaves them editable. The
-   one control a style cannot use is swapped out rather than left dead.
+2. **The style acts as a preset — superseded, see §7.** As first approved,
+   choosing a style wrote that style's tuned thickness and opacity into the
+   existing settings and left them editable. Two same-day revisions (§7) walked
+   that back to nothing: the setter now changes only `RingStyle`. The one
+   control a style cannot use is still swapped out rather than left dead.
 3. **Cursor circle only.** `ActivationButtonWindow`,
    `ManualSelectionGazeIndicatorWindow`, `ScrollOverlayWindow` and
    `DragTrailOverlay` keep today's treatment.
@@ -240,54 +242,68 @@ All three changes are in
 shows "Weighted sandwich", "Bi-tonal segments", "Achromatic reticle" while
 persisting enum names via `Enum.GetNames<CursorRingStyle>()` as the codes.
 
-**The preset write, on the UI side — opacity only.** The setter assigns
-`RingStyle`, forces `CircleOpacity` to 1.0, then calls `ApplyAndSave()` +
-`RebuildContent()` so the sliders and the swapped row refresh. It writes the same
-thing for every style; there is no per-style table.
+**The preset write, on the UI side — writes nothing.** Revised a second time,
+still 2026-09-04: the setter assigns `RingStyle`, then calls `ApplyAndSave()` +
+`RebuildContent()` so the swapped colour row refreshes. It touches no other
+property, for any style. There is no per-style table, and no forced value at
+all.
 
-**It deliberately does not touch `CircleThickness`.** Revised 2026-09-04 after
-the plan owner ran all three styles on the real desktop and found the ring too
-heavy. The original design had each style write a tuned thickness as well (3, or
-5 for `BiTonalSegments`), which made the Circle Thickness slider a lie: any
-thinner value the user chose was destroyed by their next style change, and the
-gesture that destroyed it was the same one §8 relies on for remediation.
+**History: it never touched `CircleThickness`, and no longer touches
+`CircleOpacity` either.** The first revision (still 2026-09-04, earlier the
+same day) removed the thickness write after the plan owner ran all three
+styles on the real desktop and found the ring too heavy. The original design
+had each style write a tuned thickness as well (3, or 5 for
+`BiTonalSegments`), which made the Circle Thickness slider a lie: any thinner
+value the user chose was destroyed by their next style change.
 
-The asymmetry is principled, not a concession. The contrast guarantee lives in
-the internal edge between the two bands, and the halo always tracks the core at
-`thickness + 4`, so that edge survives at any width — thickness changes how much
-weight carries, never whether the guarantee holds. Opacity is different: it is
-applied to the core band alone and composites it toward the backdrop, so it can
-genuinely weaken the edge. The preset forces the one value that is a safety knob
-and leaves the one that is taste.
+That first revision kept forcing `CircleOpacity` to 1.0, reasoning that
+opacity is different from thickness: it is applied to the core band alone and
+composites it toward the backdrop, so — unlike thickness, which only changes
+how much weight carries while the internal edge (halo always at
+`thickness + 4`) survives at any width — a low opacity can genuinely weaken
+that edge. The preset forced the one value that looked like a safety knob and
+left the one that was taste.
+
+**Superseded the same day.** Live testing of the opacity-only preset showed
+the user wants full control of the ring's appearance, not partial control —
+the "safety knob" framing assumed a user who would not deliberately choose a
+weaker ring, and that assumption did not hold. The setter now leaves
+`CircleOpacity` alone too. §8 records what that costs: a persisted low opacity
+is no longer corrected by a style change, and nothing else in the code stops a
+low opacity from weakening the ring on a dark backdrop — the opacity slider's
+own `Description` is the only guard left on that axis.
 
 Consequence worth knowing: `BiTonalSegments` no longer gets its own wider
 thickness, so at a thin setting its segments are long and hairline rather than
-chunky. That is the user's call to make with the slider.
-
-1.0 is inside the `SliderSpec` opacity range already on the page (0.1–1).
+chunky, and a low `CircleOpacity` is never corrected by a style change either.
+Both are the user's call to make with the sliders now.
 
 This deliberately does **not** live in a `partial void OnRingStyleChanged` on
-`CursorSettings`. A model-side hook fires during JSON deserialization and would
-silently overwrite a user's tuned thickness and opacity depending on property
-order in the settings file. Keeping it in the combo setter means the preset only
-ever fires on an explicit user gesture.
+`CursorSettings`, even though the setter no longer forces any appearance
+value. A model-side hook fires during JSON deserialization, which is reason
+enough on its own to keep the setter's side effects (`ApplyAndSave`,
+`RebuildContent`) firing only on an explicit user gesture, never during load.
 
-**The preset write must be visible where it lands — RESOLVED: the row moved.**
-The Ring Style combo originally sat on page 1 of the Cursor tab while
-`CircleThickness` and `CircleOpacity`, the two controls it rewrites, sat on page
-2. A user who had deliberately tuned thickness to 6 lost it the instant they
-dwelled the style combo, with no on-screen feedback. For a gaze-only user an
-accidental re-fixation is plausible, and re-selecting the already-selected style
-is exactly the remediation gesture §8 depends on — so the destructive case and
-the intended case were the same gesture.
+**Why the combo still sits beside the sliders it no longer rewrites.** The
+Ring Style combo originally sat on page 1 of the Cursor tab while
+`CircleThickness` and `CircleOpacity` sat on page 2. That split mattered when
+the combo was a preset: a user who had tuned thickness to 6 could lose it the
+instant they dwelled the style combo, with no on-screen feedback, and
+re-selecting the already-selected style — the returning user's most likely
+gesture — was exactly the case that could destroy it. Neither preset survives
+to this revision, so that destructive case no longer exists, but the row move
+is kept anyway: `c_ring_style`, `c_opacity` and `c_thick` all shape the same
+ring, and grouping controls that shape one thing is worth doing whether or not
+any of them rewrites another.
 
 Verified rather than assumed: `DwellComboBox` renders one dwell button per option
 and wires each to `_setCode(capturedCode)` unconditionally, with no guard
 comparing against the current selection, so dwelling the already-selected style
-does re-run the setter and does write the preset. The remediation path works.
+still re-runs the setter — harmlessly now, since there is nothing left for it
+to write.
 
 **Decision (plan owner, 2026-09-04): move Ring Style beside the sliders it
-rewrites**, rather than adding a confirmation modal or accepting the split. The
+touches**, rather than adding a confirmation modal or accepting the split. The
 combo is now the first row of the second `PageSpec`, immediately above
 `c_opacity` and `c_thick`.
 
@@ -307,10 +323,11 @@ Residual, and not closable by any test here: a height-chunk boundary can still
 fall between two adjacent rows if the budget runs out exactly there. Adjacency
 makes that unlikely; only looking at the screen can confirm it.
 
-Because all three presets want opacity 1.0, the opacity slider loses most of its
-purpose. It stays live — a user may legitimately want a subtler ring — and its
-description says plainly that lowering it dims the mark side of the edge and
-weakens the guarantee it exists to provide.
+The opacity slider now carries the ring's only opacity guarantee — no preset
+backs it up. It stays live — a user may legitimately want a subtler ring — and
+its description says plainly that lowering it dims the mark side of the edge
+and weakens the guarantee it exists to provide; that text is unchanged and is
+now the sole thing guarding this axis.
 
 **The Circle Color row swap.** Under `AchromaticReticle` the mark colour is
 unused, so `Build()` emits either the existing `ColorPickerSpec` or, for that one
@@ -380,21 +397,27 @@ comment recorded at 6.04:1, below the 7.0 floor, so the current install is
 running a configuration this codebase already documented as failing its own
 contrast gate.
 
-The delivery mechanism for those users is §7's preset write, and since the
-2026-09-04 revision it delivers **opacity only**: choosing any Ring Style — the
-already-selected one included — forces `CircleOpacity` to 1.0. That is the value
-whose old setting actually broke the guarantee, so the remediation still reaches
-the thing that mattered.
+§7's preset write no longer delivers anything to existing installs. It
+delivered opacity-only for one revision on 2026-09-04, then that write was
+removed too, the same day: choosing any Ring Style — the already-selected one
+included — now changes only `RingStyle`. An install with a persisted
+`circleOpacity: 0.6` (the default composited to 1.17:1 over a white document,
+cited above) keeps that value forever unless the user moves the slider
+themselves; a style change no longer notices or corrects it.
 
-A persisted `CircleThickness` is now never corrected automatically, by design:
-thickness is the user's knob and a preset that overwrote it was the reason for
-the revision. Existing installs keep whatever width they had, and the new 1.0
-default applies to fresh installs only. Anyone wanting the new default moves the
-slider, which is one dwell in the same place.
+Both `CircleThickness` and `CircleOpacity` are now never corrected
+automatically, by design: they are the user's knobs, and a preset that
+overwrote either was the reason for the two revisions that got here. Existing
+installs keep whatever width and opacity they had, and the new 1.0/1.0
+defaults apply to fresh installs only. Anyone wanting either new default moves
+the corresponding slider, which is one dwell in the same place.
 
-That resolves the load-time-nudge question left open here: no nudge. The only
-value worth forcing is forced on style selection, and the only value left
-un-nudged is one the user is entitled to own.
+That resolves the load-time-nudge question left open here, in the opposite
+direction from the answer recorded just above: no nudge, and no forced value
+on style selection either. The only thing standing between a low
+`CircleOpacity` and a weakened ring on a dark backdrop is the opacity slider's
+own `Description` — the halo band stays opaque regardless, so the
+light-backdrop case is unaffected either way.
 
 The separately-flagged persisted `cursor.circleColor` of `#0088FF`
 (overlay-unification spec §7) is not addressed here and remains a one-time manual

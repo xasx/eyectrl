@@ -144,8 +144,8 @@ public class AppBootstrapper
             sp.GetRequiredService<EyeCtrlSettings>().AutoSelection));
 
         // Struggle-detection effective-settings provider (Phase 1b): composes bounded momentary
-        // deltas onto baseline settings. Holds no deltas until the AdaptationController lands, and
-        // returns baseline while AdaptationSettings.Enabled == false.
+        // deltas onto baseline settings. Holds no deltas while adaptation is disabled or idle, and
+        // returns baseline while AdaptationSettings.Enabled == false; Phase 2 adds the learned fills beside the momentary ones.
         services.AddSingleton(sp => new EffectiveSettingsProvider(
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation));
 

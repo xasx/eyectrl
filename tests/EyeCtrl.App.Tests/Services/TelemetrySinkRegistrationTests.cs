@@ -144,4 +144,17 @@ public class TelemetrySinkRegistrationTests
         Check.That(quality).HasSize(1);
         Check.That(quality[0].SampleCount).IsEqualTo(2); // not 3 — the disabled-stretch sample is gone
     }
+
+    [Fact]
+    public void AdaptationLearner_Resolves_OverTheSharedProvider()
+    {
+        using var sp = BuildProvider();
+
+        var learner = sp.GetService<AdaptationLearner>();
+        var provider = sp.GetService<EffectiveSettingsProvider>();
+
+        Check.That(learner).IsNotNull();
+        Check.That(provider).IsNotNull();
+        // A dropped registration would degrade to silently never learning — same failure class as the sinks.
+    }
 }

@@ -36,6 +36,7 @@ public sealed class AdaptationCoordinator : IDisposable
 
     private readonly StruggleMonitor _monitor;
     private readonly AdaptationController _controller;
+    private readonly AdaptationLearner _learner;
     private readonly AdaptationSettings _adaptation;
     private readonly IGazeProvider _gazeProvider;
     private readonly InteractionManager _interactionManager;
@@ -80,18 +81,21 @@ public sealed class AdaptationCoordinator : IDisposable
     /// <summary>Initializes the coordinator over the Core adaptation pieces and the runtime signals it gates on.</summary>
     /// <param name="monitor">The struggle monitor, assessed each active tick.</param>
     /// <param name="controller">The adaptation controller, driven each active tick.</param>
+    /// <param name="learner">The Phase-2 learned layer, ticked after the controller on each assess tick (§7.4).</param>
     /// <param name="adaptation">Adaptation settings; <see cref="AdaptationSettings.Enabled"/> gates the whole tick loop (§9.1).</param>
     /// <param name="gazeProvider">The gaze provider; its <see cref="IGazeProvider.IsConnected"/> is polled to detect disconnect.</param>
     /// <param name="interactionManager">The interaction state machine; its <see cref="InteractionManager.CurrentState"/> is polled to detect pause/resume.</param>
     public AdaptationCoordinator(
         StruggleMonitor monitor,
         AdaptationController controller,
+        AdaptationLearner learner,
         AdaptationSettings adaptation,
         IGazeProvider gazeProvider,
         InteractionManager interactionManager)
     {
         _monitor = monitor;
         _controller = controller;
+        _learner = learner;
         _adaptation = adaptation;
         _gazeProvider = gazeProvider;
         _interactionManager = interactionManager;
@@ -119,7 +123,7 @@ public sealed class AdaptationCoordinator : IDisposable
             if (_wasEnabled)
             {
                 _wasEnabled = false;
-                ResetInternal(Volatile.Read(ref _latestGazeTs));
+                ResetInternal(Volatile.Read(ref _latestGazeTs), clearLearned: false);
                 return CoordinatorTickResult.ClearedOnDisable;
             }
             return CoordinatorTickResult.Disabled;
@@ -148,7 +152,7 @@ public sealed class AdaptationCoordinator : IDisposable
 
         if (reset is { } reason)
         {
-            ResetInternal(now);
+            ResetInternal(now, clearLearned: false);
             return reason;
         }
 
@@ -160,21 +164,33 @@ public sealed class AdaptationCoordinator : IDisposable
 
         StruggleAssessment assessment = _monitor.Assess(now);
         _controller.Tick(assessment, now);
+        _learner.Tick(now); // assess ticks only — paused/disconnected stretches freeze the learned state
         LastAssessment = assessment;
         return CoordinatorTickResult.Assessed;
     }
 
     /// <summary>
-    /// Clears all momentary adaptation and starts a fresh evidence session — the always-reachable escape
-    /// (§8.6). Invoked by the reset triggers and by the manual toolbar/tray reset (wired in plan 1b-⑤b).
+    /// The manual always-reachable escape (§8.6): clears momentary AND learned adaptation (§10) and starts
+    /// a fresh evidence session. Invoked by the toolbar/tray reset message (wired via <c>AdaptationResetHandler</c>).
     /// </summary>
-    public void Reset() => ResetInternal(Volatile.Read(ref _latestGazeTs));
+    public void Reset() => ResetInternal(Volatile.Read(ref _latestGazeTs), clearLearned: true);
 
-    // Moves the monitor's session boundary to `now` and clears the controller's momentary deltas.
-    private void ResetInternal(long now)
+    /// <summary>
+    /// Clears momentary adaptation only, preserving the learned offsets (§13.1 — they persist across
+    /// session boundaries and survive disable inertly). The disable-edge path used by
+    /// <c>AdaptationActivation.StopRuntime</c>, where reusing <see cref="Reset"/> would wipe learning on
+    /// every settings toggle.
+    /// </summary>
+    public void ResetMomentary() => ResetInternal(Volatile.Read(ref _latestGazeTs), clearLearned: false);
+
+    // Moves the monitor's session boundary to `now', clears the controller's momentary deltas, and — only
+    // for the manual escape — clears the learned layer too (which also persists the zeroed state).
+    private void ResetInternal(long now, bool clearLearned)
     {
         _monitor.ResetSession(now);
         _controller.Reset();
+        if (clearLearned)
+            _learner.ResetLearned();
         LastAssessment = StruggleAssessment.None;
     }
 

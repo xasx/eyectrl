@@ -22,7 +22,8 @@ public class AdaptationRuntimeContainmentTests
         var provider = new EffectiveSettingsProvider(adaptation);
         var controller = new AdaptationController(provider, adaptation);
         return new AdaptationCoordinator(
-            monitor, controller, adaptation, new TestFakes.FakeGazeProvider(), new InteractionManager());
+            monitor, controller, new AdaptationLearner(provider, adaptation), adaptation,
+            new TestFakes.FakeGazeProvider(), new InteractionManager());
     }
 
     [Fact]

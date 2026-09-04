@@ -309,9 +309,18 @@ public class AppBootstrapper
             sp.GetRequiredService<EffectiveSettingsProvider>(),
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
             sp.GetRequiredService<ILogger<AdaptationController>>()));
+        // Phase-2 learned layer (§7.4): EWMA over the controller's momentary fills, pushed into the
+        // provider; ticked by the coordinator on assess ticks. Load()/Persist() are called by App
+        // (startup/exit) — DI construction itself performs no I/O.
+        services.AddSingleton(sp => new AdaptationLearner(
+            sp.GetRequiredService<EffectiveSettingsProvider>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
+            sp.GetRequiredService<ILogger<AdaptationLearner>>(),
+            Path.Combine(appDataDir, "adaptation-state.json")));
         services.AddSingleton(sp => new AdaptationCoordinator(
             sp.GetRequiredService<StruggleMonitor>(),
             sp.GetRequiredService<AdaptationController>(),
+            sp.GetRequiredService<AdaptationLearner>(),
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
             sp.GetRequiredService<IGazeProvider>(),
             sp.GetRequiredService<GazeEngine>().InteractionManager));
@@ -343,7 +352,8 @@ public class AppBootstrapper
             sp.GetRequiredService<ICuePresenter>()));
         services.AddSingleton(sp => new AdaptationResetHandler(
             sp.GetRequiredService<IMessenger>(),
-            sp.GetRequiredService<AdaptationCoordinator>()));
+            sp.GetRequiredService<AdaptationCoordinator>(),
+            sp.GetRequiredService<AdaptationLearner>()));
 
         // 1b-⑤c drift report + adaptation log. Both subscribe to the coordinator's AssessmentUpdated event
         // and consult the same IFeedbackGate (1b-⑤b). The drift banner is excluded from magnifier capture

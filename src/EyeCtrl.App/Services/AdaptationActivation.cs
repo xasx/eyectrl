@@ -148,7 +148,9 @@ public sealed class AdaptationActivation : IDisposable
         // cleared momentary state, but with the timer stopped that tick never runs — and effective settings
         // must return to baseline the moment adaptation is switched off (§12).
         var coordinator = services.GetRequiredService<AdaptationCoordinator>();
-        coordinator.Reset();
+        // Momentary only — the learned offsets survive the disable and resume when it is toggled back on
+        // (§7.4/§13.1; they are inert while disabled because Effective gates on Enabled first).
+        coordinator.ResetMomentary();
         coordinator.Dispose();
         services.GetRequiredService<AdaptationCueService>().Dispose();
         services.GetRequiredService<AdaptationLog>().Dispose();

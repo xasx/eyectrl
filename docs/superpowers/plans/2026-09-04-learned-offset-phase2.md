@@ -17,15 +17,17 @@
 - **Never run the application or any `Category=UI` test.** The repo owner controls their PC solely by eye tracking; launching it seizes their only input channel. Everything here is verifiable headlessly. No test in this plan may launch a window — this is why the Open-Log button's action is an injected callback, never `Process.Start` inside a test.
 - **One test suite at a time**, sequential (named pipes are machine-global; this box routinely runs a dozen worktrees and possibly a live app). Check the box is quiet first (`Get-Process -Name dotnet,testhost*,EyeCtrl*`).
 - **German test output.** The summary reads `Bestanden!` / `Fehler!` with `Fehler: N, erfolgreich: M, gesamt: T`. Read the summary line; grepping "Failed" silently reports green.
-- **Baselines at `main` = `4929c39d` (re-measured 2026-09-04):** Core **1162** (`erfolgreich: 1161, übersprungen: 1`) / ViewModels **300** / App (`--filter "Category!=UI"`) **742** / Benchmarks.Tests **27**, all green. Different starting counts ⇒ stop and report.
+- **Baselines at `main` = `4929c39d` (re-measured 2026-09-04, independently re-confirmed by review round 1):** Core **1162** (`erfolgreich: 1161, übersprungen: 1`) / ViewModels **300** / App (`--filter "Category!=UI"`) **742** / Benchmarks.Tests **27**, all green. Different starting counts ⇒ stop and report.
 - **Do NOT modify `AdaptationController` or `StruggleMonitor`** (the kickoff constraint — 1c never touched them and Phase 2 has no cause: the learner composes *around* the momentary layer by reading its output fills).
 - **Additive-only provider semantics.** With `learned == 0`, `Effective` must be bit-identical to today for every knob/context/baseline — the fill-space sum `(0 + momentary) × edge` is algebraically today's `momentary × edge`, and the no-fill early-return must still trigger when both components are zero. Consequently **every existing test in all four suites must pass unchanged** except the three App-test modifications this plan names explicitly (AdaptationPageSourceTests fact 1 row count; its Reset fact's `.Single()`; the `Make` helpers that gain constructor arguments). GitNexus impact at `4929c39d`: `EffectiveSettingsProvider` **CRITICAL** (119 symbols, 24 direct, 2 processes) — that blast radius is *why* this constraint exists; `AdaptationCoordinator` MEDIUM (34 / 4 direct).
 - **Blast-radius note for reviewers:** the four 1c consumers read `Effective` only; none is modified. `GeometryRouter.cs` gets a doc-comment correction only (its "a cap EDIT does not raise Changed" NB becomes false in this slice — that leftover is fixed here, see Task 2 Step 7).
 - **Learned survives; only the manual escape clears.** Session edges (`ResetOnEnable`/`ResetOnDisconnect`/`ResetOnResume`) and the disable edge (`ClearedOnDisable`, `AdaptationActivation.StopRuntime`) clear momentary only. The manual `ResetAdaptationMessage` (toolbar/tray) clears momentary **and** learned. The settings-page `ResetLearnedOffsetsMessage` clears learned only. §10/§13.1.
 - **All numbers are starting values, tunable in review** (house style): sample interval 30 s, α 0.05 (time constant ≈ 10 min), push ε 0.01, `LearnedMaxFill` 0.5, log cap 1 MB. Recorded as `public const`s (learner) / a `const` on `AdaptationSettings` — no new user-facing settings rows.
 - **No new benchmark.** The learner's per-tick cost is O(1) over 4 dictionary reads on a 30 s cadence (and zero on non-sample ticks), far inside §9.1; a benchmark would measure noise. Recorded as a decision, owner-vetoable.
-- NFluent only; no mocking library (private fakes / real Core pieces); file-scoped namespaces; Allman braces; `_camelCase` fields; nullable enabled. `EyeCtrl.Core` escalates CS1591 (missing XML doc) to an **error** — every new public Core member needs its `///`. `InternalsVisibleTo` → `EyeCtrl.Core.Tests` exists; **`EyeCtrl.App` has none** — do not add `internal` test seams to App types (drive App tests through public APIs and real instances, the existing pattern).
+- NFluent only; no mocking library (private fakes / real Core pieces); file-scoped namespaces; Allman braces; `_camelCase` fields; nullable enabled. `EyeCtrl.Core` escalates CS1591 (missing XML doc) to an **error** — every new public Core member needs its `///`. `InternalsVisibleTo` → `EyeCtrl.Core.Tests` **and** → `EyeCtrl.App.Tests` (`EyeCtrl.App.csproj:71`) both exist — but this plan adds no new `internal` seams; App tests drive public APIs and real instances, the existing pattern.
 - **If a step's expected output does not match, stop rather than adapting.** Anchors reference `main` at `4929c39d`; drift ⇒ report BLOCKED with what you saw.
+
+> **Review round 1 (2026-09-04, external analytical review): BLOCKED → findings applied.** All 7 blocking findings fixed (1 decay-expectation asserted the never-pushed provider value; 2 `Load` missing case-insensitive read options; 3 atomic-test `finally` deleting `%TEMP%`; 4 `Make(bool enabled)` needs a default; 5 the fourth coordinator construction site `AdaptationRuntimeContainmentTests.NewCoordinator`; 6 the `AdaptationLog` DI registration; 7 the gaze-clock-restart guard). Should-fix taken: 8 (per-knob disable zeroes learned immediately), 9 (drive timeline + comments), 10/12/17 (spec amendments §9.1/§10/§4), 11 (suppressed marker only on actual changes), 13 (decay-to-zero visible in the log), 18 (Load gated on Enabled), 23/24/25/26/20/21/22 (as folded below). Dispositioned: 15 → D9, 16 → documented, 19 → documented. Counts moved: learner 10 → **12** facts, log 6 → **7**; Core final **1194**, App final **758**.
 
 ### Owner-vetoable decision ledger (settled 2026-09-04, brainstorm session; the owner was not reachable interactively — each entry records rationale + the rejected alternative, the §13.3-fact-6 pattern. Flip any of these by editing the named member, not the structure)
 
@@ -35,10 +37,11 @@
 | D2 | **Shape:** EWMA of the momentary forgiving fill (per-knob, global `Other` context) | §5 pre-says "slow EWMA"; one mechanism both accumulates on sustained momentary work and decays toward 0 when it stops; the learner thereby inherits the controller's gates/sustain/deadband instead of re-implementing confidence thresholds (the "promotion criterion" *is* the EWMA time constant over the already-gated fill) | Decay-window max (jumps to full band on one bad minute, needs a separate decay policy); explicit step-promotion + hold timer (more knobs, duplicates §7.2 machinery) |
 | D3 | **Per-context: global per knob in v1** | The momentary layer is global (monitor context is null; all fills live at `DwellContext.Other`), so there is no per-context signal to learn from yet; the provider store is already `(knob)`→fill here and `(knob, ctx)` for momentary, so per-context learned is a schema-compatible future extension | Per-context learned now (would learn from nothing; §4's confidence-threshold gate is deferred with it) |
 | D4 | **Cap:** `AdaptationSettings.LearnedMaxFill = 0.5` (const, not a setting) | Learned pays at most half the forgiving band, so the momentary layer always retains headroom to the full band — the offset can never pin a knob at its band edge, preserving "must continuously re-earn" (§8.7) | Expose as a slider (+1 row, +guard, +validate — the page is full); cap 1.0 (zero momentary headroom) |
-| D5 | **Persistence:** `adaptation-state.json`, atomic tmp+rename, per-entry validation (invalid entries dropped to 0, survivors kept), version-mismatch/corrupt ⇒ whole-file reset; save on app exit + `ResetLearned` only | §7.4 names the file + `SettingsService.Save`'s atomic write + `CalibrationService.Load`'s validation template; per-entry recovery is the `ClampGazeIndicator` precedent at file granularity and §7.4's "ignored and reset" read at entry granularity; crash loses only learning since last save (comfort data, re-learns in minutes) — accepted | Periodic dirty flush (unneeded given the crash-loss acceptance); whole-file discard on any invalid entry (punishes valid entries); settings.json section (§14 keeps supervisor-write semantics separate) |
+| D5 | **Persistence:** `adaptation-state.json`, atomic tmp+rename, per-entry validation (invalid entries dropped to 0, survivors kept), version-mismatch/corrupt ⇒ whole-file reset; save on app exit + `ResetLearned` only | §7.4 names the file + `SettingsService.Save`'s atomic write + `CalibrationService.Load`'s validation template; per-entry recovery is the `ClampGazeIndicator` precedent at file granularity and §7.4's "ignored and reset" read at entry granularity; crash loses only learning since last save (comfort data, re-learns in minutes) — accepted. **Known deviation, amended in Task 7:** §9.1 says "learned-state persistence is debounced to session boundaries" — exit + reset saves are the realized v1 form of that debounce (a session-boundary flush adds write churn for at most one session's worth of re-learnable data) | Periodic dirty flush (unneeded given the crash-loss acceptance); whole-file discard on any invalid entry (punishes valid entries); settings.json section (§14 keeps supervisor-write semantics separate) |
 | D6 | **Log review:** size-capped `adaptation-log.jsonl` (mode transitions + learned pushes, fill units, sensitive-suppressed) + "Open Adaptation Log" and "Reset Learned Offsets" buttons on the Adaptation page | §10's format realized in the provider's native units (absolute effectives are consumer-relative — ~20 dwell baselines — and deliberately not logged; spec amendment records the substitution); buttons keep it gaze-reachable | A settings-page log viewer (parse+render+paginate — its own slice); live learned-status rows (values move on a 30 s+ cadence; a stale readout is worse than none — deferred with §10's "live status label" wording) |
 | D7 | **Leftovers:** (a) settings-edit `Changed` notification **folded** (Task 2 — one provider-level subscription fixes the class for every consumer); (b) §13.3 stale preamble **folded** (Task 7); (c) `SettingsService.Load` whole-file wipe **parked** (different file, hot guarded surface, own review burden); (d) stale DI/router comments **folded** (Tasks 2 & 7) | (a) is Phase-2-shaped: learned pushes make band-cap edits more frequent, and the fix is one subscription; (c) the new file uses per-entry recovery by construction without touching settings.json behavior | — |
-| D8 | **Carried calibration inputs parked:** no Aiming-denominator instrumentation, no §13.2 threshold changes | No live data exists yet; the JSONL (this slice) collects exactly the data a later calibration needs (`knob=Aiming` fill transitions). Task 7 records this under §14 | Instrument now (unmeasurable) |
+| D8 | **Carried calibration inputs parked:** no Aiming-denominator instrumentation, no §13.2 threshold changes | No live data exists yet; the JSONL (this slice) collects exactly the data a later calibration needs (`knob=Aiming` fill transitions). Task 7 records this under §14. NB the expected steady state differs per knob: for `TargetGeometry` the §13.3 self-damping NB means enlargement extinguishes its own evidence, so that knob's learned offset is structurally the *least* able to converge — expected, not a defect; the log will show it | Instrument now (unmeasurable) |
+| D9 | **No offline aging:** `SavedAtUtc` is diagnostic only; learned offsets do not decay across disabled/idle stretches, only across active assess ticks | Full wall-clock decay on `Load()` would wipe the baseline on every overnight restart (16 h offline at τ ≈ 10 min ⇒ factor ≈ 0.007) — antithetical to §2's "slow baseline". Exposure, stated: a user who learns 0.3, disables for a month, and re-enables gets 0.3 applied instantly (the manual escape and the per-knob toggles clear it immediately if unwanted). If real usage disagrees, the fix is a capped offline-decay term in `Load()` — one line, owner call | Wall-clock decay on Load (kills the baseline overnight); full re-earn on every enable (throws away legitimate learning) |
 
 ---
 
@@ -52,9 +55,11 @@
 2. **The provider is the only composition point.** `GazeEngine` (smoothing), `DwellTimeRouter` (dwell), `GeometryRouter` (geometry, margin-capped by `GeometryMaxMarginPx`), and the Keyboard tracker all read `Effective` and re-apply on `Changed`. A learned fill that raises `Changed` reaches every surface with no router change. Smoothing's 1 s adaptive rebuild budget is far above the learner's ≥ 30 s push floor.
 3. **Learned must survive five of the six reset paths.** Only the manual message clears it. `AdaptationActivation.StopRuntime` currently reuses the manual `coordinator.Reset()` for the disable edge — Task 4 forks this (`ResetMomentary()`), or every settings toggle would wipe learning.
 4. **Forgiving-only is structural.** The learned store holds one non-negative fill per knob; there is no learned tightening component anywhere, so no learned value can express a tightening move (§8.2's quarantine untouched; the tightening sub-band math is unchanged).
-5. **The EWMA self-decays and inherits safety.** Sampling only happens on assess ticks (paused/disconnected/disabled ticks never call the learner — state freezes); the observed value is the *post-hysteresis* momentary fill, so the controller's gates, sustain timers and deadband do the promotion filtering; a per-knob disable (`AdaptDwell = false` etc.) drives that knob's observed fill to 0, so its learned offset decays away without special gating.
-6. **JSONL suppression rides the existing seam.** `IFeedbackGate.IsFeedbackSuppressed` (§8.10) already gates `AdaptationLog`; the JSONL gets the same coarse-marker treatment. The learned-*state* file is not a log — it stores four numbers and is not suppressed.
-7. **`EyeCtrl.App` has no `InternalsVisibleTo`.** App-side testability goes through public APIs and real instances (`Make` helpers building real Core pieces — the coordinator/handler test pattern).
+5. **The EWMA self-decays and inherits safety — and the per-knob toggles zero learned *immediately*** (review round 1, finding 8). Sampling only happens on assess ticks (paused/disconnected/disabled ticks never call the learner — state freezes); the observed value is the *post-hysteresis* momentary fill, so the controller's gates, sustain timers and deadband do the promotion filtering. A per-knob disable (`AdaptDwell = false` etc.) is a user-facing off switch: the controller collapses that knob's momentary fill to 0 at once, and the learner must do the same to its learned offset (a ~40-minute decay tail on an off switch would be a defect), so `Tick` zeroes a disabled knob outright instead of stepping it.
+6. **JSONL suppression rides the existing seam.** `IFeedbackGate.IsFeedbackSuppressed` (§8.10) already gates `AdaptationLog`; the JSONL gets the same coarse-marker treatment — but only when there was something to suppress (a marker per `Changed` would write 4 lines/s during momentary ramps in a password field; review round 1, finding 11). The learned-*state* file is not a log — it stores four numbers and is not suppressed.
+7. **`InternalsVisibleTo` exists for both test projects** (`EyeCtrl.Core.csproj:12`, `EyeCtrl.App.csproj:71` — the AGENTS.md claim that only Core declares it is outdated). This plan adds no new `internal` seams regardless; App tests drive public APIs and real instances (the coordinator/handler test pattern).
+8'. **The learner's clock is the gaze clock, which restarts.** The coordinator's `now` is the latest gaze timestamp; a tracker reconnect can restart that clock near 0. A due-time guard (`now < due → return`) would then block sampling for the whole old epoch's uptime — the silent-degradation class this codebase already guards three times (`StruggleMonitor`'s session-start resync, `GazeEngine`'s rebuild-budget resync, `TelemetryClockRestartTests`). The learner therefore keeps a *last-sample* timestamp and resyncs on any backward jump (review round 1, finding 7).
+9'. **One sample can raise `Changed` up to four times** (one per moved knob) — four in-place router re-applies per ≥ 30 s. Accepted deliberately (review round 1, finding 19): the applies are in-place and idempotent, the JSONL entry-per-knob is desired, and a batch API would widen the provider's surface for a cost measured in microseconds per half-minute.
 8. **App wiring anchors:** `AppBootstrapper.BuildServiceProvider` computes `appDataDir` (`%APPDATA%/EyeCtrl`) in scope at the registration site; the adaptation DI block sits at `AppBootstrapper.cs:297-358`; the activation start at `App.xaml.cs:340-345`; `OnExit` saves settings at `App.xaml.cs:409`; `using EyeCtrl.Core.Adaptation;` is already imported in `App.xaml.cs`. `SettingsWindow.xaml.cs:389` constructs `AdaptationPageSource(_ctx)`; `ButtonKind` is `{ Default, Reset, Delete }`.
 9. **The spec's own text needs three touches** (Task 7): §13.3's preamble still says "only one of the four knobs reaches a consumer … a quarter live" (stale since PR #131); §5/§4 diagram wording ("per context/knob", AC labeled with the learned offset) needs the v1 scoping note; §10's log format needs the fill-unit substitution + the realized Phase-2 deliverable list.
 
@@ -77,21 +82,23 @@
 | `src/EyeCtrl.App/Services/AppBootstrapper.cs` | DI: learner, coordinator/handler/log args; stale provider comment | Modify (Task 5) |
 | `src/EyeCtrl.App/App.xaml.cs` | `Load()` at startup, `Persist()` at exit | 2 insertions (Task 5) |
 | `src/EyeCtrl.App/Services/AdaptationLog.cs` | JSONL (learned pushes + mode transitions, cap, suppression) | Modify (Task 6) |
+| `src/EyeCtrl.App/Services/AppBootstrapper.cs` | **Also Task 6:** the `AdaptationLog` registration gains provider + path | Modify (Task 6) |
 | `src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs` | + `ad_reset_learned`, `ad_log` buttons; optional open-log callback | Modify (Task 6) |
 | `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` | Wire open-log callback | 1 arg + 1 method (Task 6) |
 | spec `…self-adaptation-design.md` | §7.4 resolution, §5/§4 scoping, §13.3 preamble fix, §13 status, §14 updates | Task 7 |
-| `tests/EyeCtrl.Core.Tests/Adaptation/EffectiveSettingsProviderTests.cs` | +12 facts | Task 2 |
-| `tests/EyeCtrl.Core.Tests/Adaptation/AdaptationLearnerTests.cs` | **New**, 10 facts | Task 3 |
+| `tests/EyeCtrl.Core.Tests/Adaptation/EffectiveSettingsProviderTests.cs` | +12 facts; `Make` gains a default arg | Task 2 |
+| `tests/EyeCtrl.Core.Tests/Adaptation/AdaptationLearnerTests.cs` | **New**, 12 facts | Task 3 |
 | `tests/EyeCtrl.Core.Tests/Adaptation/AdaptationStateFileTests.cs` | **New**, 8 facts | Task 3 |
 | `tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs` | Make + learner; +4 facts | Task 4 |
 | `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs` | Make + learner; +2 facts | Task 4 |
+| `tests/EyeCtrl.App.Tests/Services/AdaptationRuntimeContainmentTests.cs` | Compile fix: `NewCoordinator` gains the learner arg (no fact change) | Task 4 |
 | `tests/EyeCtrl.App.Tests/Services/TelemetrySinkRegistrationTests.cs` | +1 registration fact | Task 5 |
-| `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs` | Make + provider/path; +6 facts | Task 6 |
+| `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs` | Make + provider/path; +7 facts | Task 6 |
 | `tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs` | Fact 1 → 17 rows; Reset fact `.Single()` filter; +2 facts | Task 6 |
 
 **No ViewModels production change beyond the +1 message record; no router/engine/controller/monitor change.**
 
-**Expected final counts:** Core **1192** (1191 + 1 skip) / ViewModels **300** / App **757** / Benchmarks.Tests **27**.
+**Expected final counts (after review round 1):** Core **1194** (1193 + 1 skip) / ViewModels **300** / App **758** / Benchmarks.Tests **27**.
 
 ---
 
@@ -126,7 +133,13 @@ git commit -m "docs(plan): learned-offset Phase-2 implementation plan"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append inside the existing `EffectiveSettingsProviderTests` class (the file already uses `EyeCtrl.Core.Adaptation` + `EyeCtrl.Core.Settings`; its `Make` helper returns `(EffectiveSettingsProvider Provider, AdaptationSettings Adaptation)` — check the exact tuple shape at the top of the file and destructure accordingly):
+Append inside the existing `EffectiveSettingsProviderTests` class. **First give the helper a default argument** (review round 1, finding 4 — its current signature is `Make(bool enabled)` with no default, so the parameterless calls below would not compile; the second tuple element is named `Settings`):
+
+```csharp
+    private static (EffectiveSettingsProvider Provider, AdaptationSettings Settings) Make(bool enabled = false)
+```
+
+(Every existing call site passes `enabled:` explicitly, so this is purely additive; each new fact that needs composition sets `Settings.Enabled = true` itself.)
 
 ```csharp
     [Fact]
@@ -484,7 +497,7 @@ git commit -m "feat(adaptation): provider learned-fill store, read API, and sett
 
 **Interfaces:**
 - Consumes (Task 2): `SetLearnedFill`, `ClearLearnedFills`, `TryGetMomentaryFill`, `EnumerateLearnedFills`, `AdaptationSettings.LearnedMaxFill`.
-- Produces (Tasks 4-6): `AdaptationLearner(EffectiveSettingsProvider provider, ILogger<AdaptationLearner>? logger = null, string? stateFilePath = null)`, `void Load()`, `void Tick(long nowMicroseconds)`, `void ResetLearned()`, `void Persist()`, `IReadOnlyList<(AdaptationKnob Knob, double Fill)> Snapshot()`; `AdaptationStateFile.Load(string path, ILogger? logger = null) → AdaptationState`, `AdaptationStateFile.Save(string path, AdaptationState state)`; `AdaptationState(int Version, DateTimeOffset SavedAtUtc, IReadOnlyDictionary<AdaptationKnob, double> Learned)` + `AdaptationState.CurrentVersion` + `AdaptationState.IsValueValid(double)`.
+- Produces (Tasks 4-6): `AdaptationLearner(EffectiveSettingsProvider provider, AdaptationSettings adaptation, ILogger<AdaptationLearner>? logger = null, string? stateFilePath = null)`, `void Load()`, `void Tick(long nowMicroseconds)`, `void ResetLearned()`, `void Persist()`, `IReadOnlyList<(AdaptationKnob Knob, double Fill)> Snapshot()`; `AdaptationStateFile.Load(string path, ILogger? logger = null) → AdaptationState`, `AdaptationStateFile.Save(string path, AdaptationState state)`; `AdaptationState(int Version, DateTimeOffset SavedAtUtc, IReadOnlyDictionary<AdaptationKnob, double> Learned)` + `AdaptationState.CurrentVersion` + `AdaptationState.IsValueValid(double)`.
 
 - [ ] **Step 1: Write the failing learner tests**
 
@@ -505,7 +518,7 @@ public class AdaptationLearnerTests
     {
         var settings = new EyeCtrlSettings();
         var provider = new EffectiveSettingsProvider(settings.Adaptation);
-        return (new AdaptationLearner(provider, stateFilePath: path), provider);
+        return (new AdaptationLearner(provider, settings.Adaptation, stateFilePath: path), provider);
     }
 
     private static void Observe(EffectiveSettingsProvider provider, double forgivingFill)
@@ -555,11 +568,16 @@ public class AdaptationLearnerTests
     {
         var (learner, provider) = Make();
         Observe(provider, 1.0);
-        learner.Tick(Sec);
+        learner.Tick(Sec); // sample 1: learned 0.05 (pushed)
         Observe(provider, 0.0); // struggle stopped — the momentary layer has recovered to baseline
         for (int i = 1; i <= 10; i++)
             learner.Tick(Sec + i * Sample);
-        Check.That(provider.EnumerateLearnedFills()[0].Fill).IsCloseTo(0.05 * Math.Pow(0.95, 10), 1e-9);
+        // Assert the LEARNER's value (review round 1, finding 1): the provider only sees pushes that
+        // move ≥ ε, and the only push in this window fires at i=5 (0.038689…), leaving the provider
+        // behind the internal value (0.0299368). The learner is the source of truth for the math;
+        // provider-side rate limiting is covered by AccumulationBelowEpsilon_DefersTheProviderPush.
+        Check.That(learner.Snapshot().Single(e => e.Knob == AdaptationKnob.DwellTime).Fill)
+            .IsCloseTo(0.05 * Math.Pow(0.95, 10), 1e-9);
     }
 
     [Fact]
@@ -587,15 +605,18 @@ public class AdaptationLearnerTests
     }
 
     [Fact]
-    public void KnobsAccumulateIndependently()
+    public void TwoKnobsAccumulateIndependently()
     {
         var (learner, provider) = Make();
         provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, 1.0, 0.0);
+        provider.SetMomentaryFill(AdaptationKnob.Smoothing, DwellContext.Other, 1.0, 0.0);
         learner.Tick(Sec);
         learner.Tick(Sec + Sample);
+        // Both elevated knobs learn (each ≈ 0.0975 after two samples); the two idle knobs stay absent.
         var entries = provider.EnumerateLearnedFills();
-        Check.That(entries).HasSize(1); // only the knob whose momentary fill is elevated
-        Check.That(entries[0].Knob).IsEqualTo(AdaptationKnob.DwellTime);
+        Check.That(entries).HasSize(2);
+        Check.That(entries.Select(e => e.Knob).ToList())
+            .ContainsOnlyElementsThatMatch(k => k is AdaptationKnob.DwellTime or AdaptationKnob.Smoothing);
     }
 
     [Fact]
@@ -607,6 +628,43 @@ public class AdaptationLearnerTests
         learner.Tick(Sec + Sample);
         learner.Tick(Sec + 2 * Sample);
         Check.That(provider.EnumerateLearnedFills()).IsEmpty();
+    }
+
+    [Fact]
+    public void ClockRestart_ResumesSamplingImmediately()
+    {
+        // Review round 1, finding 7: the coordinator's clock is the GAZE clock; a tracker reconnect can
+        // restart it near 0. A due-time guard would block sampling for the old epoch's uptime — the
+        // StruggleMonitor/GazeEngine resync class. A backward jump resyncs and samples again at once.
+        var (learner, provider) = Make();
+        Observe(provider, 1.0);
+        learner.Tick(3600 * Sec); // an hour of uptime: sample 1 (learned 0.05)
+        learner.Tick(3600 * Sec + Sample); // sample 2 (0.0975)
+        learner.Tick(2 * Sec); // clock restarted near 0 — long BEFORE the next due time; must sample NOW
+        // The restart tick itself is sample 3 (observed still 1.0): 0.0975 + 0.05·(1 − 0.0975).
+        Check.That(learner.Snapshot().Single(e => e.Knob == AdaptationKnob.DwellTime).Fill)
+            .IsCloseTo(0.142625, 1e-9);
+    }
+
+    [Fact]
+    public void PerKnobDisable_ZeroesItsLearnedOffsetImmediately()
+    {
+        // Review round 1, finding 8: the per-knob Adapt* toggles are user-facing off switches; the
+        // controller collapses a disabled knob's momentary fill at once, and the learner must match —
+        // a 40-minute decay tail on an off switch would keep adapting after the user turned it off.
+        var settings = new EyeCtrlSettings();
+        var provider = new EffectiveSettingsProvider(settings.Adaptation);
+        var learner = new AdaptationLearner(provider, settings.Adaptation);
+        provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, 1.0, 0.0);
+        learner.Tick(Sec);
+        learner.Tick(Sec + Sample);
+        learner.Tick(Sec + 2 * Sample);
+        Check.That(provider.EnumerateLearnedFills()).HasSize(1); // learned ≈ 0.1426
+
+        settings.Adaptation.AdaptDwell = false;
+        learner.Tick(Sec + 3 * Sample);
+
+        Check.That(provider.EnumerateLearnedFills()).IsEmpty(); // zeroed at the very next sample
     }
 
     [Fact]
@@ -792,7 +850,7 @@ public class AdaptationStateFileTests
             Check.That(File.Exists(path)).IsTrue();
             Check.That(File.Exists(path + ".tmp")).IsFalse();
         }
-        finally { Directory.Delete(Path.GetDirectoryName(dir)!, recursive: true); }
+        finally { Directory.Delete(dir, recursive: true); } // the GUID dir itself — NOT its parent (= %TEMP%)
     }
 }
 ```
@@ -866,6 +924,16 @@ public static class AdaptationStateFile
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
+    // Case-insensitive read (review round 1, finding 2): Save writes camelCase property names and
+    // System.Text.Json matches case-SENSITIVELY by default, so without this a file this build just
+    // wrote would deserialize Version to 0 and be rejected as a version mismatch — persistence dead
+    // behind green-enough tests. Same fix as HeartbeatPipeServer / CalibrationService's s_readOptions.
+    private static readonly JsonSerializerOptions ReadOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
+
     private sealed class StateDto
     {
         public int Version { get; set; }
@@ -883,7 +951,7 @@ public static class AdaptationStateFile
             if (!File.Exists(path))
                 return AdaptationState.Empty;
 
-            var dto = JsonSerializer.Deserialize<StateDto>(File.ReadAllText(path));
+            var dto = JsonSerializer.Deserialize<StateDto>(File.ReadAllText(path), ReadOptions);
             if (dto is null || dto.Version != AdaptationState.CurrentVersion)
             {
                 logger?.LogWarning(
@@ -947,8 +1015,9 @@ using System.Linq;
 /// The observed value is the controller's <b>post-hysteresis</b> fill, so the promotion criterion is
 /// the EWMA time constant applied to already-gated, already-sustained evidence — no second confidence
 /// machinery. Ticked by the <c>AdaptationCoordinator</c> on assess ticks only: paused, disconnected,
-/// or disabled stretches freeze the state (no sample ⇒ no decay), and a disabled per-knob
-/// <c>Adapt*</c> toggle drives that knob's observed fill to 0, decaying its offset away naturally.
+/// or disabled stretches freeze the state (no sample ⇒ no decay — no offline aging either, decision
+/// D9). A disabled per-knob <c>Adapt*</c> toggle zeroes that knob's learned offset at the next sample
+/// — an off switch must stop adapting at once, not decay for 40 minutes (review round 1, finding 8).
 /// Persisted via <see cref="AdaptationStateFile"/>; cleared by <see cref="ResetLearned"/> (the manual
 /// escape and the settings action — never by session boundaries, §13.1). Single-threaded (dispatcher).
 /// </summary>
@@ -967,6 +1036,10 @@ public sealed class AdaptationLearner
     /// inside the smoothing rebuild budget). 0.01. Starting value, tunable.</summary>
     public const double PushEpsilon = 0.01;
 
+    // "Not yet sampled." long.MinValue, NOT 0 — gaze timestamps carry an arbitrary epoch and 0 is a
+    // legitimate value (the Unseeded discipline; see AdaptationCoordinator._latestGazeTs).
+    private const long Unsampled = long.MinValue;
+
     private static readonly AdaptationKnob[] Knobs =
     {
         AdaptationKnob.DwellTime,
@@ -976,32 +1049,42 @@ public sealed class AdaptationLearner
     };
 
     private readonly EffectiveSettingsProvider _provider;
+    private readonly AdaptationSettings _adaptation;
     private readonly ILogger<AdaptationLearner>? _logger;
     private readonly string? _stateFilePath; // null = no persistence (unit tests)
     private readonly Dictionary<AdaptationKnob, double> _learned = new();
     private readonly Dictionary<AdaptationKnob, double> _pushed = new();
-    private long _nextSampleDue = long.MinValue; // "not yet sampled" sentinel (0 is a legitimate timestamp)
+    private long _lastSampleAt = Unsampled;
 
     /// <summary>Initializes the learner over the provider it observes and pushes into.</summary>
     /// <param name="provider">The effective-settings provider — read for momentary fills, written with learned fills.</param>
+    /// <param name="adaptation">Adaptation settings — the per-knob <c>Adapt*</c> toggles zero a knob's learned offset immediately when off.</param>
     /// <param name="logger">Optional logger; persistence failures are swallowed after logging (§11).</param>
     /// <param name="stateFilePath">Full path of <c>adaptation-state.json</c>, or null to disable persistence.</param>
-    public AdaptationLearner(EffectiveSettingsProvider provider, ILogger<AdaptationLearner>? logger = null, string? stateFilePath = null)
+    public AdaptationLearner(
+        EffectiveSettingsProvider provider,
+        AdaptationSettings adaptation,
+        ILogger<AdaptationLearner>? logger = null,
+        string? stateFilePath = null)
     {
         _provider = provider;
+        _adaptation = adaptation;
         _logger = logger;
         _stateFilePath = stateFilePath;
     }
 
     /// <summary>Loads the persisted state (if any) and applies its learned fills to the provider directly,
-    /// bypassing <see cref="PushEpsilon"/> (persisted values were already rate-limited when they were earned).</summary>
+    /// bypassing <see cref="PushEpsilon"/> (persisted values were already rate-limited when they were earned).
+    /// Clears the provider's learned store first, so a reload can never leave stale entries for knobs the
+    /// file no longer mentions.</summary>
     public void Load()
     {
+        _learned.Clear();
+        _pushed.Clear();
+        _provider.ClearLearnedFills();
         if (_stateFilePath is null)
             return;
         var state = AdaptationStateFile.Load(_stateFilePath, _logger);
-        _learned.Clear();
-        _pushed.Clear();
         foreach (var (knob, fill) in state.Learned)
         {
             _learned[knob] = fill;
@@ -1014,15 +1097,22 @@ public sealed class AdaptationLearner
     /// <summary>
     /// Advances one tick: samples the momentary forgiving fills (per knob, at <see cref="DwellContext.Other"/>
     /// — the global momentary layer) no more often than <see cref="SampleIntervalMicroseconds"/>, steps each
-    /// knob's learned EWMA toward its observation, clamps to <c>[0, <see cref="AdaptationSettings.LearnedMaxFill"/>]</c>,
-    /// and pushes to the provider only when a knob moved ≥ <see cref="PushEpsilon"/> since its last push.
+    /// knob's learned EWMA toward its observation (or zeroes it outright when its per-knob toggle is off),
+    /// clamps to <c>[0, <see cref="AdaptationSettings.LearnedMaxFill"/>]</c>, and pushes to the provider only
+    /// when a knob moved ≥ <see cref="PushEpsilon"/> since its last push.
     /// </summary>
-    /// <param name="nowMicroseconds">The current tick timestamp, in microseconds.</param>
+    /// <param name="nowMicroseconds">The current tick timestamp, in microseconds (the gaze clock).</param>
     public void Tick(long nowMicroseconds)
     {
-        if (nowMicroseconds < _nextSampleDue)
+        // Gaze-clock restart (review round 1, finding 7): `now` is the coordinator's latest GAZE timestamp,
+        // and a tracker reconnect can restart that clock near 0. Waiting on a due time would then block
+        // sampling for the old epoch's uptime — the silent-degradation class StruggleMonitor and GazeEngine
+        // already guard. Resync on any backward jump and treat it as the first sample of a new epoch.
+        if (nowMicroseconds < _lastSampleAt)
+            _lastSampleAt = Unsampled;
+        if (_lastSampleAt != Unsampled && nowMicroseconds - _lastSampleAt < SampleIntervalMicroseconds)
             return;
-        _nextSampleDue = nowMicroseconds + SampleIntervalMicroseconds;
+        _lastSampleAt = nowMicroseconds;
 
         foreach (var knob in Knobs)
         {
@@ -1030,7 +1120,9 @@ public sealed class AdaptationLearner
                 ? forgiving
                 : 0.0; // the tightening component is deliberately invisible — learned is forgiving-only (§7.4)
             double value = _learned.TryGetValue(knob, out double l) ? l : 0.0;
-            value += Alpha * (observed - value);
+            // A disabled per-knob toggle zeroes the learned offset outright (finding 8): the off switch
+            // must stop adapting at once. The EWMA path runs only for enabled knobs.
+            value = IsKnobEnabled(knob) ? value + Alpha * (observed - value) : 0.0;
             value = Math.Clamp(value, 0.0, AdaptationSettings.LearnedMaxFill);
             _learned[knob] = value;
 
@@ -1043,8 +1135,20 @@ public sealed class AdaptationLearner
         }
     }
 
+    private bool IsKnobEnabled(AdaptationKnob knob) => knob switch
+    {
+        AdaptationKnob.DwellTime => _adaptation.AdaptDwell,
+        AdaptationKnob.FixationRadius => _adaptation.AdaptTolerance,
+        AdaptationKnob.Smoothing => _adaptation.AdaptSmoothing,
+        AdaptationKnob.TargetGeometry => _adaptation.AdaptGeometry,
+        _ => true,
+    };
+
     /// <summary>Zeroes every learned offset, clears the provider, and persists the zeroed state — the manual
-    /// escape's learned half and the settings-page action (§10). Idempotent.</summary>
+    /// escape's learned half and the settings-page action (§10). Idempotent. The persist is deliberately
+    /// synchronous: the reset's durability matters more than milliseconds on this path (a lost reset would
+    /// resurrect cleared offsets on the next start), the write is one small JSON file, and every I/O failure
+    /// is caught below — the escape itself cannot fail (review round 1, finding 16).</summary>
     public void ResetLearned()
     {
         _learned.Clear();
@@ -1079,7 +1183,7 @@ public sealed class AdaptationLearner
 - [ ] **Step 5: Run the suite**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests`
-Expected: `Bestanden!` with `erfolgreich: 1191, übersprungen: 1, gesamt: 1192`.
+Expected: `Bestanden!` with `erfolgreich: 1193, übersprungen: 1, gesamt: 1194` (12 learner facts + 8 state-file facts on top of Task 2's 1174).
 
 - [ ] **Step 6: Commit**
 
@@ -1099,6 +1203,7 @@ git commit -m "feat(adaptation): EWMA learned layer with validated atomic persis
 - Modify: `src/EyeCtrl.App/Services/AdaptationResetHandler.cs`
 - Test: `tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs` (Make + 4 facts)
 - Test: `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs` (Make + 2 facts)
+- Test: `tests/EyeCtrl.App.Tests/Services/AdaptationRuntimeContainmentTests.cs` (compile fix only — review round 1, finding 5: the fourth coordinator construction site)
 
 **Interfaces:**
 - Consumes (Task 3): `AdaptationLearner` ctor/`Tick`/`ResetLearned`.
@@ -1132,7 +1237,7 @@ In `tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs`: add `using 
         var provider = new EffectiveSettingsProvider(settings.Adaptation);
         var controller = new AdaptationController(provider, settings.Adaptation);
         string statePath = Path.Combine(Path.GetTempPath(), "eyectrl_learner_coord_test_" + Guid.NewGuid() + ".json");
-        var learner = new AdaptationLearner(provider, stateFilePath: statePath);
+        var learner = new AdaptationLearner(provider, settings.Adaptation, stateFilePath: statePath);
         var gaze = new TestFakes.FakeGazeProvider();
         var im = new InteractionManager();
         var coord = new AdaptationCoordinator(monitor, controller, learner, settings.Adaptation, gaze, im);
@@ -1142,17 +1247,42 @@ In `tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs`: add `using 
 
 Deconstruction in the existing 10 facts changes only where they discard the new elements — update each `var (c, _, _, _, _, _) = Make(...)` to `var (c, _, _, _, _, _, _, _) = Make(...)` (and the six-element forms accordingly). **These are mechanical arity fixes, not behavior changes — the 10 existing facts' assertions stay byte-identical.**
 
+**Also fix the fourth construction site** (review round 1, finding 5 — the plan's own impact analysis listed it at depth 1 and the first draft missed it): in `tests/EyeCtrl.App.Tests/Services/AdaptationRuntimeContainmentTests.cs`, `NewCoordinator` gains the learner as its third argument. No fact changes — it is never ticked there:
+
+```csharp
+    private static AdaptationCoordinator NewCoordinator(AdaptationSettings adaptation)
+    {
+        var settings = new EyeCtrlSettings();
+        var sink = new BufferingTelemetrySink();
+        var monitor = new StruggleMonitor(sink, settings.EyeCare);
+        var provider = new EffectiveSettingsProvider(adaptation);
+        var controller = new AdaptationController(provider, adaptation);
+        return new AdaptationCoordinator(
+            monitor, controller, new AdaptationLearner(provider, adaptation), adaptation,
+            new TestFakes.FakeGazeProvider(), new InteractionManager());
+    }
+```
+
 Append the four new facts (the drive uses 7 abandons so the ≈4-attempt gate still passes at t=73 s, and two learner samples 30 s apart so the second push clears ε — see Context fact 5):
 
 ```csharp
+    // Sample cadence note (review round 1, finding 9 — the first draft's inline reasoning was wrong):
+    // the learner samples on the FIRST assess tick (no seed-only step) and then every ≥ 30 s. So the
+    // sample points here are t=40 (observes fill 0 — the controller has only anchored relaxSince and
+    // pushed nothing yet), t=73 (observes fill 0.2 → learned 0.01, a knife-edge ε margin), and t=103
+    // (observes fill 0.3 → learned ≈ 0.0245, a solid push). The 103 s tick exists to get the assertion
+    // off the knife edge; do not remove it. The abandon stream runs through t=90 (nine reports): the
+    // 60 s evidence max-age means a stream ending at 70 would leave only 3 in-window attempts at
+    // t=103, failing the ≈4-attempt gate and *recovering* the fill instead of stepping it to 0.3.
     private static void DriveToLearnedOffset(AdaptationCoordinator c, BufferingTelemetrySink sink)
     {
         c.Tick(); // ResetOnEnable
-        for (int i = 0; i < 7; i++)
-            sink.Report(Abandon((i + 1) * 10 * Sec, progress: 0.8)); // gate SustainFailure through t=70 s
-        c.OnGazeSample(new GazePoint(0, 0, 40 * Sec, true)); c.Tick(); // anchor relaxSince (fill 0)
-        c.OnGazeSample(new GazePoint(0, 0, 43 * Sec, true)); c.Tick(); // 3 s sustain → fill 0.1; learner sample 1
-        c.OnGazeSample(new GazePoint(0, 0, 73 * Sec, true)); c.Tick(); // fill 0.2; learner sample 2 → push (≥ ε)
+        for (int i = 0; i < 9; i++)
+            sink.Report(Abandon((i + 1) * 10 * Sec, progress: 0.8)); // gate SustainFailure through t=90 s
+        c.OnGazeSample(new GazePoint(0, 0, 40 * Sec, true)); c.Tick();  // anchor relaxSince; learner sample 1 (observes 0)
+        c.OnGazeSample(new GazePoint(0, 0, 43 * Sec, true)); c.Tick();  // 3 s sustain → fill 0.1 (within cadence — no sample)
+        c.OnGazeSample(new GazePoint(0, 0, 73 * Sec, true)); c.Tick();  // fill 0.2; learner sample 2 (0.01 — marginal)
+        c.OnGazeSample(new GazePoint(0, 0, 103 * Sec, true)); c.Tick(); // fill 0.3; learner sample 3 → solid push (≥ ε)
     }
 
     [Fact]
@@ -1192,7 +1322,7 @@ Append the four new facts (the drive uses 7 abandons so the ≈4-attempt gate st
             Check.That(c.Tick()).IsEqualTo(CoordinatorTickResult.ResetOnDisconnect);
             // §13.1: learned persists across session boundaries — only momentary evidence resets.
             Check.That(provider.EnumerateLearnedFills()).Not.IsEmpty();
-            Check.That(provider.TryGetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, out double f, out _)).IsFalse();
+            Check.That(provider.TryGetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, out _, out _)).IsFalse();
         }
         finally { File.Delete(statePath); }
     }
@@ -1216,10 +1346,11 @@ Append the four new facts (the drive uses 7 abandons so the ≈4-attempt gate st
 
 - [ ] **Step 3: Write the failing reset-handler tests**
 
-In `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs`, extend `Make` (learner with a temp path, threaded into the handler; return the provider as it already does — add the state path for cleanup):
+In `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs`, extend `Make` (learner with a temp path, threaded into the handler; return the adaptation and the state path for cleanup):
 
 ```csharp
-    private static (AdaptationCoordinator Coord, EffectiveSettingsProvider Provider, BufferingTelemetrySink Sink, string StatePath) Make()
+    private static (AdaptationCoordinator Coord, EffectiveSettingsProvider Provider, BufferingTelemetrySink Sink,
+                    AdaptationSettings Adaptation, string StatePath) Make()
     {
         var settings = new EyeCtrlSettings();
         settings.Adaptation.Enabled = true;
@@ -1228,25 +1359,25 @@ In `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs`, extend `Ma
         var provider = new EffectiveSettingsProvider(settings.Adaptation);
         var controller = new AdaptationController(provider, settings.Adaptation);
         string statePath = Path.Combine(Path.GetTempPath(), "eyectrl_learner_reset_test_" + Guid.NewGuid() + ".json");
-        var learner = new AdaptationLearner(provider, stateFilePath: statePath);
+        var learner = new AdaptationLearner(provider, settings.Adaptation, stateFilePath: statePath);
         var coord = new AdaptationCoordinator(monitor, controller, learner, settings.Adaptation, new TestFakes.FakeGazeProvider(), new InteractionManager());
-        return (coord, provider, sink, statePath);
+        return (coord, provider, sink, settings.Adaptation, statePath);
     }
 ```
 
-(Again: the two existing facts' destructuring gains one element; assertions unchanged. Add `using System;` / `using System.IO;`.) Append:
+(The two existing facts' destructuring gains two elements; assertions unchanged. Add `using System;` / `using System.IO;`.) Append:
 
 ```csharp
     [Fact]
     public void LearnedResetMessage_ClearsLearnedOffsetsOnly()
     {
-        var (coord, provider, sink, statePath) = Make();
+        var (coord, provider, sink, adaptation, statePath) = Make();
         try
         {
             DriveToRelaxedTolerance(coord, sink);
             provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.3);
             var messenger = new WeakReferenceMessenger();
-            using var handler = new AdaptationResetHandler(messenger, coord, learner: new AdaptationLearner(provider));
+            using var handler = new AdaptationResetHandler(messenger, coord, learner: new AdaptationLearner(provider, adaptation));
             handler.Start();
 
             messenger.Send(new ResetLearnedOffsetsMessage());
@@ -1261,12 +1392,12 @@ In `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs`, extend `Ma
     [Fact]
     public void LearnedResetMessage_AfterDispose_IsIgnored()
     {
-        var (coord, provider, _, statePath) = Make();
+        var (coord, provider, _, adaptation, statePath) = Make();
         try
         {
             provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.3);
             var messenger = new WeakReferenceMessenger();
-            var handler = new AdaptationResetHandler(messenger, coord, learner: new AdaptationLearner(provider));
+            var handler = new AdaptationResetHandler(messenger, coord, learner: new AdaptationLearner(provider, adaptation));
             handler.Start();
             handler.Dispose();
 
@@ -1353,7 +1484,28 @@ Expected: **Fehler!** — compile errors (coordinator/handler constructors take 
     }
 ```
 
-The **existing private parameterless `ResetInternal(long now)` call sites inside `Tick`** (the `ClearedOnDisable` branch and the session-edge `reset is { } reason` branch) now pass `clearLearned: false` — every reset *inside* `Tick` is a session/disable edge, never the manual escape.
+The two existing `ResetInternal(now)` call sites inside `Tick` both pass `clearLearned: false` — every reset *inside* `Tick` is a session/disable edge, never the manual escape. Show both edits explicitly (review round 1, finding 20):
+
+```csharp
+        if (!_adaptation.Enabled)
+        {
+            if (_wasEnabled)
+            {
+                _wasEnabled = false;
+                ResetInternal(Volatile.Read(ref _latestGazeTs), clearLearned: false);
+                return CoordinatorTickResult.ClearedOnDisable;
+            }
+            return CoordinatorTickResult.Disabled;
+        }
+```
+
+```csharp
+        if (reset is { } reason)
+        {
+            ResetInternal(now, clearLearned: false);
+            return reason;
+        }
+```
 
 `src/EyeCtrl.App/Services/AdaptationActivation.cs` — in `StopRuntime`, replace:
 
@@ -1404,7 +1556,7 @@ Expected: `Bestanden!` with `gesamt: 748`. (Run the whole App project, never `Ex
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs src/EyeCtrl.App/Services/AdaptationCoordinator.cs src/EyeCtrl.App/Services/AdaptationActivation.cs src/EyeCtrl.App/Services/AdaptationResetHandler.cs tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs
+git add src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs src/EyeCtrl.App/Services/AdaptationCoordinator.cs src/EyeCtrl.App/Services/AdaptationActivation.cs src/EyeCtrl.App/Services/AdaptationResetHandler.cs tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs tests/EyeCtrl.App.Tests/Services/AdaptationRuntimeContainmentTests.cs
 git commit -m "feat(adaptation): learner tick wiring and the manual/session reset fork"
 ```
 
@@ -1457,6 +1609,7 @@ In `src/EyeCtrl.App/Services/AppBootstrapper.cs`:
         // (startup/exit) — DI construction itself performs no I/O.
         services.AddSingleton(sp => new AdaptationLearner(
             sp.GetRequiredService<EffectiveSettingsProvider>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
             sp.GetRequiredService<ILogger<AdaptationLearner>>(),
             Path.Combine(appDataDir, "adaptation-state.json")));
         services.AddSingleton(sp => new AdaptationCoordinator(
@@ -1481,12 +1634,15 @@ In `src/EyeCtrl.App/Services/AppBootstrapper.cs`:
 
 In `src/EyeCtrl.App/App.xaml.cs`:
 
-(d) At the activation block (~line 340-345), load the learned state **before** the runtime starts, so the first construct-time applies and any later `Changed` see the loaded fills:
+(d) At the activation block (~line 340-345), load the learned state **before** the runtime starts, gated on the master switch (review round 1, finding 18 — §9.1 "disabled = current cost": an unconditional `Load()` would read the file and fan a `Changed` into every eagerly-resolved router while the feature is off). Keep it in `OnStartup`, **not** in `AdaptationActivation.StartRuntime` — a disable→enable cycle must not resurrect the stale on-disk state over the in-memory decay (the disable path deliberately does not persist), so a mid-session first enable starts learned at 0:
 
 ```csharp
             // Struggle-detection adaptation. AdaptationActivation starts and stops the whole runtime —
             // …(keep the existing comment)…
-            _serviceProvider.GetRequiredService<AdaptationLearner>().Load(); // §7.4 persisted learned offsets
+            // §7.4 persisted learned offsets — only read when the feature is on (§9.1 disabled = current
+            // cost); a mid-session first enable then starts learned at zero, conservatively.
+            if (settings.Adaptation.Enabled)
+                _serviceProvider.GetRequiredService<AdaptationLearner>().Load();
             _serviceProvider.GetRequiredService<AdaptationActivation>().Start(gazeEngine);
 ```
 
@@ -1514,9 +1670,10 @@ git commit -m "feat(adaptation): DI wiring, startup load, exit persist for the l
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Services/AdaptationLog.cs`
+- Modify: `src/EyeCtrl.App/Services/AppBootstrapper.cs` (the `AdaptationLog` registration gains provider + path — review round 1, finding 6)
 - Modify: `src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs`
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (1 ctor arg + 1 method)
-- Test: `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs` (Make + 6 facts)
+- Test: `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs` (Make + 7 facts)
 - Test: `tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs` (1 fact modified, 2 added)
 
 **Interfaces:**
@@ -1540,7 +1697,7 @@ In `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs`: add `using System.I
 
     // A minimal real wiring (log + provider + coordinator pieces) so provider.Changed reaches the log
     // through the same subscription Start installs at runtime.
-    private static (AdaptationLog Log, EffectiveSettingsProvider Provider, FakeFeedbackGate Gate, string Path1) MakeWired(bool suppressed = false)
+    private static (AdaptationLog Log, EffectiveSettingsProvider Provider, FakeFeedbackGate Gate, string JsonlPath) MakeWired(bool suppressed = false)
     {
         var settings = new EyeCtrlSettings();
         settings.Adaptation.Enabled = true;
@@ -1550,7 +1707,7 @@ In `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs`: add `using System.I
         var coordinator = new AdaptationCoordinator(
             new StruggleMonitor(sink, settings.EyeCare),
             new AdaptationController(provider, settings.Adaptation),
-            new AdaptationLearner(provider),
+            new AdaptationLearner(provider, settings.Adaptation),
             settings.Adaptation, new TestFakes.FakeGazeProvider(), new InteractionManager());
         string path = TempLogPath();
         var log = new AdaptationLog(settings.Adaptation, gate, provider, jsonlPath: path);
@@ -1559,7 +1716,7 @@ In `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs`: add `using System.I
     }
 ```
 
-Append the six facts:
+Append the seven facts:
 
 ```csharp
     [Fact]
@@ -1569,11 +1726,17 @@ Append the six facts:
         try
         {
             provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.2);
+            provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.0); // "given back" — review round 1, finding 13
             string[] lines = File.ReadAllLines(path);
-            Check.That(lines).HasSize(1);
+            Check.That(lines).HasSize(2);
             Check.That(lines[0]).Contains("\"kind\":\"learned\"");
             Check.That(lines[0]).Contains("\"knob\":\"DwellTime\""); // enum values serialize verbatim (PascalCase), like the modes array
             Check.That(lines[0]).Contains("\"new\":0.2");
+            // A knob dropping to 0 leaves EnumerateLearnedFills, so the log must diff against the last
+            // seen KEY SET as well — otherwise the decay-to-zero event (and the manual reset) vanish.
+            Check.That(lines[1]).Contains("\"knob\":\"DwellTime\"");
+            Check.That(lines[1]).Contains("\"old\":0.2");
+            Check.That(lines[1]).Contains("\"new\":0");
         }
         finally { File.Delete(path); }
     }
@@ -1606,6 +1769,21 @@ Append the six facts:
     }
 
     [Fact]
+    public void SuppressedContext_MomentaryOnlyChange_WritesNothing()
+    {
+        // Review round 1, finding 11: the suppressed marker is written only when there was something to
+        // suppress. Unconditionally, a password field + a 4 Hz momentary ramp would append 4 lines/s —
+        // a timing trace of interaction during credential entry, the opposite of §8.10's intent.
+        var (_, provider, _, path) = MakeWired(suppressed: true);
+        try
+        {
+            provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, 0.5, 0.0);
+            Check.That(File.Exists(path)).IsFalse();
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void SuppressedContext_WritesCoarseMarkerOnly()
     {
         var (log, provider, _, path) = MakeWired(suppressed: true);
@@ -1628,7 +1806,9 @@ Append the six facts:
         try
         {
             provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.2); // create the file
-            File.AppendAllText(path, new string('x', AdaptationLog.MaxLogBytes)); // push past the cap
+            // Push past the cap WITHOUT a 1 MB string alloc (finding 24): set the length directly.
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Write))
+                fs.SetLength(AdaptationLog.MaxLogBytes + 1);
             provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.3); // next write rotates
             Check.That(File.Exists(path + ".1")).IsTrue();
             string[] lines = File.ReadAllLines(path);
@@ -1818,22 +1998,37 @@ public sealed class AdaptationLog : IDisposable
     }
 
     // provider.Changed handler: writes one entry per knob whose learned fill changed since the last
-    // observation. Momentary-only changes write nothing (derivative of mode transitions, and ≤ 4 Hz).
+    // observation — including a knob that DROPPED OUT of the enumeration (decayed/reset to 0), so the
+    // §8.7 "given back" event and the §8.6 reset stay visible (review round 1, finding 13). Momentary-
+    // only changes write nothing, suppressed or not: `Changed` fires at up to 4 Hz during momentary
+    // ramps, and an unconditional suppressed marker there would be a 4 Hz timing trace of interaction
+    // during credential entry — the opposite of §8.10 (finding 11). The coarse marker is written only
+    // when there was something to suppress.
     private void OnProviderChanged()
     {
+        var current = _provider.EnumerateLearnedFills().ToDictionary(e => e.Knob, e => e.Fill);
+        var changed = new List<(AdaptationKnob Knob, double Old, double New)>();
+        foreach (var (knob, fill) in current)
+        {
+            double last = _lastLearned.TryGetValue(knob, out double v) ? v : 0.0;
+            if (fill != last)
+                changed.Add((knob, last, fill));
+        }
+        foreach (var knob in _lastLearned.Keys)
+            if (!current.ContainsKey(knob))
+                changed.Add((knob, _lastLearned[knob], 0.0)); // dropped out = decayed or reset to zero
+
+        if (changed.Count == 0)
+            return; // momentary-only change (or no-op) — nothing to log, suppressed or not
+
         if (_feedbackGate.IsFeedbackSuppressed)
         {
             WriteJsonl(new { ts = DateTimeOffset.UtcNow, kind = "suppressed" });
-            RefreshLearnedSnapshot();
-            return;
         }
-
-        foreach (var (knob, fill) in _provider.EnumerateLearnedFills())
+        else
         {
-            double last = _lastLearned.TryGetValue(knob, out double v) ? v : 0.0;
-            if (fill == last)
-                continue;
-            WriteJsonl(new { ts = DateTimeOffset.UtcNow, kind = "learned", knob = knob.ToString(), old = last, @new = fill });
+            foreach (var (knob, old, @new) in changed)
+                WriteJsonl(new { ts = DateTimeOffset.UtcNow, kind = "learned", knob = knob.ToString(), old, @new });
         }
         RefreshLearnedSnapshot();
     }
@@ -1898,9 +2093,19 @@ public sealed class AdaptationLog : IDisposable
 }
 ```
 
-- [ ] **Step 5: Implement the page buttons and window wiring**
+- [ ] **Step 5: Implement the JSONL production wiring, the page buttons, and the window**
 
-In `src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs` (the file uses an explicit constructor + `_ctx` field — keep that style): change the constructor and add the callback field, then add the two rows after the `ad_reset` button (keep the existing button and modal untouched):
+**First, the DI registration** (review round 1, finding 6 — without this the §10 deliverable ships dead behind a green suite: the tests construct the log directly, so nothing but the bootstrapper can hand it the real path). In `src/EyeCtrl.App/Services/AppBootstrapper.cs`, replace the `AdaptationLog` registration (~line 351):
+
+```csharp
+        services.AddSingleton(sp => new AdaptationLog(
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
+            sp.GetRequiredService<IFeedbackGate>(),
+            sp.GetRequiredService<EffectiveSettingsProvider>(),
+            Path.Combine(appDataDir, "adaptation-log.jsonl")));
+```
+
+(`appDataDir` is in scope — same method, line ~51.) Then, in `src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs` (the file uses an explicit constructor + `_ctx` field — keep that style): change the constructor and add the callback field, then add the two rows after the `ad_reset` button (keep the existing button and modal untouched):
 
 ```csharp
     private readonly SettingsPageContext _ctx;
@@ -1916,7 +2121,7 @@ In `src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs` (the file us
 ```csharp
                 new ButtonSpec("ad_reset_learned", "Reset Learned Offsets",
                     () => _ctx.ShowModal("Reset the learned adaptation offsets to zero?", () =>
-                        _ctx.Messenger?.Send(new ResetLearnedOffsetsMessage())),
+                        _ctx.Messenger.Send(new ResetLearnedOffsetsMessage())),
                     ButtonKind.Reset, Width: 300, Height: 100)
                     { Description = "Clear what the app has learned about your needs; it re-learns as you use it." },
                 new ButtonSpec("ad_log", "Open Adaptation Log",
@@ -1961,12 +2166,12 @@ and the method (with the class's other private helpers):
 - [ ] **Step 6: Run the suite**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
-Expected: `Bestanden!` with `gesamt: 757`.
+Expected: `Bestanden!` with `gesamt: 758` (7 log facts + 2 page facts on top of Task 5's 749).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Services/AdaptationLog.cs src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs
+git add src/EyeCtrl.App/Services/AdaptationLog.cs src/EyeCtrl.App/Services/AppBootstrapper.cs src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs
 git commit -m "feat(adaptation): JSONL review log, reset-learned and open-log buttons"
 ```
 
@@ -1996,17 +2201,31 @@ writes per knob — the §7.4 rate limit and a §9.1 budget guard). The promotio
 constant applied to the controller's post-hysteresis fill — no second confidence machinery (D2). Reset
 fork: session boundaries (§13.1) and the disable edge preserve learned (inert while disabled — Effective
 gates on Enabled first); the manual §8.6 escape clears momentary AND learned; the settings action
-(`ResetLearnedOffsetsMessage`, the §10 `ResetLearnedBaseline`) clears learned only. Persistence:
+(`ResetLearnedOffsetsMessage`, the §10 `ResetLearnedBaseline`) clears learned only. A per-knob `Adapt*`
+toggle **zeroes** that knob's learned offset at the next sample (an off switch must stop adapting at
+once — round-1 finding 8), and the learner's cadence resyncs on a gaze-clock restart (the
+StruggleMonitor/GazeEngine class — round-1 finding 7). Persistence:
 `adaptation-state.json`, atomic tmp+rename, per-entry validation (invalid entries dropped, survivors
 kept — `ClampGazeIndicator` at file granularity), version-mismatch/corrupt ⇒ whole-file reset, saved at
-app exit and on `ResetLearned` (crash loses learning since the last save — accepted; it re-learns in
-minutes). "Log review" (§13 Phase-2 line) = the size-capped `adaptation-log.jsonl` (learned pushes + mode
-transitions, **fill units** — absolute effectives are consumer-relative and deliberately not logged; §10's
-`oldEffective/newEffective` are thereby realized as `old/new` band fills) + "Open Adaptation Log" and
-"Reset Learned Offsets" buttons on the Adaptation page; a live learned-status readout and a settings-page
-log viewer remain future work (§10's "live status label" wording included). Also fixed here: the §13.3
-settings-edit staleness leftover — the provider now re-raises `Changed` on composition-relevant settings
-edits (band fractions, `GeometryMaxMarginPx`), so every consumer re-applies immediately.
+app exit and on `ResetLearned` only (round-1 finding 10: this **narrows §9.1's "debounced to session
+boundaries" to exit + reset saves** — a per-boundary flush adds write churn for at most one session of
+re-learnable data; crash loses learning since the last save — accepted). The state is loaded at startup
+only while `Enabled` (round-1 finding 18): a mid-session first enable starts learned at zero — loading
+then would resurrect the pre-disable on-disk state over the (deliberately unpersisted) disable. "Log
+review" (§13 Phase-2 line) = the size-capped `adaptation-log.jsonl` + "Open Adaptation Log" and
+"Reset Learned Offsets" buttons on the Adaptation page; a live learned-status readout and a
+settings-page log viewer remain future work (§10's "live status label" wording included). Also fixed
+here: the §13.3 settings-edit staleness leftover — the provider now re-raises `Changed` on
+composition-relevant settings edits (band fractions, `GeometryMaxMarginPx`), so every consumer
+re-applies immediately. **§10 field mapping (round-1 finding 12), field by field:** `ts` → `ts` ✓;
+`context` → dropped (always `Other` in v1 — the global layer has no context to report); `signal` →
+dropped (the provider's `Changed` seam carries no per-signal payload; the Serilog transition line and
+the `modes` entry name the gated failure modes, which is the signal-level detail); `failureMode` →
+`modes` (an array on the `kind:"modes"` entry — transitions carry the whole gated set); `knob` → `knob`
+on `kind:"learned"` entries ✓; `oldEffective`/`newEffective` → `old`/`new` **band fills** (absolute
+effectives are consumer-relative — a dwell fill composes against ~20 baselines — and are deliberately
+not logged); `reason` → dropped (redundant with `kind`, the only two of which are `learned` and
+`modes`; the suppressed marker carries no detail by design, §8.10).
 ```
 
 2. **§13.3 preamble fix (leftover b)** — replace the stale sentence "Phases 1a and 1b are merged, but only **one** of the four knobs reaches a consumer: `GazeEngine.cs:157` reads `Effective(FixationRadius, …)` and nothing reads the other three. The dwell/smoothing/geometry **routing slices** deferred out of 1b were never written, so the momentary layer is a quarter live." with a two-line historical note: routing completed 2026-09-01..03 (see the status block in §13); the section below is retained as the record of the prerequisite analysis.
@@ -2018,6 +2237,9 @@ edits (band fractions, `GeometryMaxMarginPx`), so every consumer re-applies imme
 5. **§14 — add two entries:** (i) under the time-of-day bullet, note the Aiming-denominator self-damping assumption (§13.3 NB) and the §13.2 px-thresholds remain uncalibrated and are now *data-collectible* via `adaptation-log.jsonl` (`kind":"learned"`, `knob":"TargetGeometry"` transitions) — revisit with real data (D8); (ii) the supervisor does not write `adaptation-state.json` in v1 (single writer: the app) — unchanged from the existing SettingsService note.
 
 6. **§4 diagram note** — under the mermaid diagram, add one sentence: the learned offset lives in the provider's composition (§5) and is computed by `AdaptationLearner` (coordinator-ticked), not inside `AdaptationController` — the diagram's AC label is the Phase-1a sketch; §5 is authoritative.
+7. **§4 confidence-threshold clause (round-1 finding 17)** — after the context-strategy paragraph's "do not get a per-context learned offset until they cross a confidence threshold" sentence, add: "Phase 2's v1 learned offset is **global per knob** and inherits §6.3's confidence gate *transitively*: it EWMA-samples only the controller's post-gate, post-sustain momentary fill, so un-gated evidence never reaches it; the explicit per-context confidence threshold returns together with per-context learning (§7.4 resolution, D3)."
+8. **§9.1 persistence line (round-1 finding 10)** — amend "learned-state persistence is debounced to session boundaries with an atomic write" to "learned-state persistence is **exit + manual-reset saves** with an atomic write (the realized v1 form of the debounce — see §7.4 resolution)".
+9. **§14 no-offline-aging decision (round-1 finding 15, ledger D9)** — add: "Learned offsets do not age across disabled/idle stretches (only across active assess ticks). Exposure: re-enabling after a long disable applies the previously-learned offsets immediately; the manual escape or per-knob toggles clear them at once. Wall-clock decay on load was rejected because it would wipe the baseline on every overnight restart; revisit with real usage data."
 
 - [ ] **Step 2: Fix the remaining stale comment (leftover d, second site)**
 
@@ -2032,7 +2254,7 @@ dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"
 dotnet test tests/EyeCtrl.Benchmarks.Tests
 ```
 
-Expected, in order: `Bestanden!` **gesamt: 1192** (`erfolgreich: 1191, übersprungen: 1`) / **300** / **757** / **27**.
+Expected, in order: `Bestanden!` **gesamt: 1194** (`erfolgreich: 1193, übersprungen: 1`) / **300** / **758** / **27**.
 
 - [ ] **Step 4: Graph change analysis (AGENTS gate)**
 
@@ -2054,4 +2276,5 @@ git commit -m "docs(spec): record the Phase-2 learned-offset resolution (§7.4);
 - The learner tests use exact-arithmetic expectations (powers of 0.95) — if an EWMA fact fails by a tiny epsilon, suspect the clamp or the cadence guard order, not the math.
 - `AdaptationPageSource`'s exact ctor style (primary-constructor vs explicit) must match what the file uses today; the contract is the optional `onOpenAdaptationLog` parameter and the two row ids.
 - If `AdaptationLogTests.MakeWired`'s coordinator construction fights the test-file's existing usings, add `using EyeCtrl.Core.Processing;` (InteractionManager) — the handler/coordinator test files already carry the set.
-- **Do not** "improve" `AdaptationController`, `StruggleMonitor`, or any router while in there. If a task's expected count is off by one, recount before adapting — the deltas are: provider +12, learner +10, state file +8, coordinator +4, handler +2, registration +1, log +6, page +2 (net).
+- **Do not** "improve" `AdaptationController`, `StruggleMonitor`, or any router while in there. If a task's expected count is off by one, recount before adapting — the deltas (after review round 1) are: provider +12, learner +12, state file +8, coordinator +4, handler +2, registration +1, log +7, page +2 (net); interim totals 1174 → 1194 (Core) and 748 → 749 → 758 (App).
+- Two knife edges the review rounds carved around — do not "simplify" them away: the coordinator drive's t=73 learner sample clears the push ε by ~1.7e-18 (the 103 s tick exists so the assertion does not depend on it), and the JSON round-trip depends on `ReadOptions` being case-insensitive (a camelCase write with a case-sensitive read silently loads `Empty`).

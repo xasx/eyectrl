@@ -402,6 +402,20 @@ sweeps every style, theme and colour-picker preset in the opacity slider's own
 both `WeightedSandwich` and `BiTonalSegments`. The `CircleOpacity` doc comment
 is rewritten to state this, not the superseded claim it stated before.
 
+**The slider's range stays 0.1–1.0 — decided, not overlooked.** Most of that
+range therefore produces an edge below the 7.0 floor, and at 0.1 it is 1.22:1,
+which is a cursor the user cannot see. Raising the minimum to 0.7, or to 0.9 to
+cover every preset, was considered and rejected by the plan owner on
+2026-09-04. The reasoning: this branch had already removed three separate
+mechanisms that overrode the user's choices, the failure mode here is
+immediately visible and one dwell to reverse, and a floor at 0.9 would leave a
+slider with two useful positions — which is not a setting. The `c_opacity`
+description carries the warning, and the pinned test carries the number.
+
+A future reviewer will find this and flag it. It is a deliberate trade, not a
+gap: if it is reopened, reopen it as a product decision about how much rope the
+user gets, not as a contrast bug.
+
 **Existing installs get nothing from this change, and that is nearly everyone.**
 Verified 2026-09-03 rather than assumed: `SettingsService.Save` serializes the
 *whole* `EyeCtrlSettings` snapshot (`SettingsService.cs:243`), so every property

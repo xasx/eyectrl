@@ -32,6 +32,11 @@ destroys the feature. The plan's tests catch it; do not "simplify" them.
 Grepping for "Failed" or "error" will report green on a red run. Read the summary
 line (`Fehlgeschlagen: N`) or check the process exit code.
 
+**Document every parameter, or none.** `GenerateDocumentationFile` is on, so a doc
+comment that documents *some* of a member's parameters raises CS1573 for each one
+it skips. Where a code block below shows `<param>` tags, add the missing ones for
+that member's other parameters rather than shipping a partial set.
+
 **Do not run two test suites at once on this box.** Named pipes are
 machine-global and other worktrees of this repo may be testing concurrently; a
 concurrent run produces failures in unrelated tests that look like product bugs.
@@ -625,6 +630,8 @@ Replace the whole method body, keeping the signature and the
     /// settings change and never per frame — see the note in HaloZOrderTests about why this
     /// file is exempt from ActivationButton_NeverAllocatesABrush.
     /// </summary>
+    /// <param name="target">The ellipse to paint.</param>
+    /// <param name="band">The band's colour, width, opacity and dash geometry.</param>
     /// <param name="fallback">Used when the band's hex is unparseable, which only the
     /// user-supplied mark colour can be.</param>
     private static void Apply(Ellipse target, RingBand band, SolidColorBrush fallback)

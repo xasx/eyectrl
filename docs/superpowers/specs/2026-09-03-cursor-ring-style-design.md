@@ -187,12 +187,28 @@ ring carries 16 cycles — 16 dark segments and 16 accent segments — at any le
   looking at the screen.
 
 The `/t` divisions are WPF's units, not a fudge: `StrokeDashArray` and
-`StrokeDashOffset` are both expressed in multiples of `StrokeThickness`. The
-repo's own precedent for this is `DragTrailOverlay.xaml.cs:166-170`.
+`StrokeDashOffset` are both expressed in multiples of `StrokeThickness`.
+There is **no precedent in the repo** for converting an absolute arc length into
+those units. Earlier drafts cited `DragTrailOverlay.xaml.cs:164-170`; two
+reviewers independently checked it and it does not do this — its dash values are
+already in thickness multiples and it only scales one stroke's pattern against
+the other's by a thickness ratio. The conversion here is correct WPF semantics
+regardless, but it stands on its own rather than on that file.
 
 A dash length rounded independently of the diameter leaves a visible
 discontinuity at the wrap point; this was caught in the design mockup and must
 not be reintroduced here.
+
+**Known limitation at the bottom of the size range.** Because the dash length
+scales with the diameter while the stroke width does not, `BiTonalSegments`
+degenerates on a very small ring: at `CircleSize` 10 with the style's preset
+thickness of 5, the dash is `π · 10 / 32 ≈ 0.98px` against a 5px stroke, so the
+segments are far shorter than they are wide and the ring reads as solid rather
+than alternating. Nothing is broken — the contrast guarantee is unaffected, since
+both colours are still present — but the style stops being visibly bi-tonal
+somewhere above the 10px floor. Not addressed: the default is 250px, `CircleSize`
+is a slider the user drives, and no test can see the difference. Worth knowing
+before anyone reports it as a bug.
 
 ## 6. Renderer
 

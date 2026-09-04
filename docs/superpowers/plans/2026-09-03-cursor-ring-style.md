@@ -670,7 +670,7 @@ Replace the whole method body, keeping the signature and the
         if (band.DashPeriod > 0)
         {
             // StrokeDashArray and StrokeDashOffset are both in MULTIPLES OF StrokeThickness,
-            // not device pixels (same as DragTrailOverlay). Dash and gap are equal, and the
+            // not device pixels. Dash and gap are equal, and the
             // offset is one dash — half a cycle — which interleaves the two bands.
             var units = band.DashPeriod / band.Thickness;
             target.StrokeDashArray = new DoubleCollection { units, units };

@@ -105,7 +105,7 @@ public class CursorPageSourceTests
     }
 
     [Fact]
-    public void Reset_CopiesAllTenProperties()
+    public void Reset_RestoresCursorSettingsToTheirDefaults()
     {
         var settings = new EyeCtrlSettings();
         settings.Cursor.MaxGapInterpolationMs = 400;

@@ -132,7 +132,30 @@ public class CursorPageSourceTests
 
         Check.That(rows.OfType<ColorPickerSpec>()).IsEmpty();
         var note = rows.OfType<LabelSpec>().Single();
-        Check.That(note.Text()).Contains("Circle Color");
+        Check.That(note.Text()).IsEqualTo("Circle Color is not used by the Achromatic reticle ring style.");
+    }
+
+    [Theory]
+    [InlineData(CursorRingStyle.WeightedSandwich)]
+    [InlineData(CursorRingStyle.AchromaticReticle)]
+    public void RingStyleSetter_WritesTheDefaultPresetWeights(CursorRingStyle style)
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.CircleThickness = 1;
+        settings.Cursor.CircleOpacity = 0.2;
+        var source = new CursorPageSource(TestSettingsPageContext.Build(settings));
+        var combo = source.Build().SelectMany(p => p.Rows).OfType<ComboBoxSpec>()
+            .Single(c => c.Id == "c_ring_style");
+
+        // WeightedSandwich is the default CursorRingStyle, so selecting it is the
+        // returning user's remediation gesture: dwelling an option that is already
+        // selected. The setter must still run and write the preset weights, or the
+        // (2, 0.6) legibility defect this feature exists to fix is never corrected.
+        combo.Set(style.ToString());
+
+        Check.That(settings.Cursor.RingStyle).IsEqualTo(style);
+        Check.That(settings.Cursor.CircleThickness).IsEqualTo(3.0);
+        Check.That(settings.Cursor.CircleOpacity).IsEqualTo(1.0);
     }
 
     [Fact]

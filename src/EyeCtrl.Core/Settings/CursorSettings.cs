@@ -21,14 +21,17 @@ public partial class CursorSettings : ObservableObject, IValidatable
     /// <summary>
     /// Opacity of the gaze cursor circle. Valid range: 0–1.
     ///
-    /// 0.7, not 0.6: the ring's halo edge is backdrop-independent but scales with the accent's
-    /// opacity, and 0.6 put it at 6.04:1 — under the 7.0 floor the halo tests use. 0.7 gives
-    /// 7.90:1. The halo itself stays fully opaque (CursorCircleWindow), so lowering this only
-    /// dims the accent side of the edge rather than voiding the guarantee.
+    /// 1.0, not 0.7: the ring's outline band is opaque regardless (CursorRingStacks applies
+    /// this value to the core band alone), so the backdrop-independent edge no longer needs
+    /// the core dimmed to stay above the 7.0 floor — at full opacity that edge is
+    /// Accent against StrokeHalo, 15.78:1. The earlier 0.7 was chosen when this value scaled
+    /// the whole stack; it also composited the accent toward the backdrop, which is what put
+    /// it at 1.17:1 over a white document. Lowering this still works and still dims only the
+    /// mark side of the edge.
     /// </summary>
-    [ObservableProperty] private double _circleOpacity = 0.7;
+    [ObservableProperty] private double _circleOpacity = 1.0;
     /// <summary>Thickness of the gaze cursor circle stroke in logical pixels. Valid range: 1–10.</summary>
-    [ObservableProperty] private double _circleThickness = 2.0;
+    [ObservableProperty] private double _circleThickness = 3.0;
     /// <summary>Diameter of the gaze cursor circle in logical pixels. Valid range: 10–500.</summary>
     [ObservableProperty] private double _circleSize = 250;
     /// <summary>Visual style of the position indicator shown at the gaze point.</summary>

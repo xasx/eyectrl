@@ -158,4 +158,15 @@ public class CursorRingStacksTests
                 .That(stack.Outer.Thickness).IsGreaterOrEqualThan(stack.Core.Thickness);
         }
     }
+
+    [Fact]
+    public void Defaults_GiveWeightedSandwichItsIntendedWeights()
+    {
+        // A fresh install must get the style's real proportions, not its structure at the
+        // weights that fail: a 2px core at 0.7 opacity is the shipped defect.
+        var settings = new CursorSettings();
+
+        Check.That(settings.CircleThickness).IsEqualTo(3.0);
+        Check.That(settings.CircleOpacity).IsEqualTo(1.0);
+    }
 }

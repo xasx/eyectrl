@@ -295,8 +295,28 @@ reasoning is superseded: at full opacity the edge is `Accent` against
 longer applies. The comment must be rewritten in the same change, not left
 contradicting the value beside it.
 
-Existing installs keep their persisted values and see no change until they touch
-the setting. The separately-flagged persisted `cursor.circleColor` of `#0088FF`
+**Existing installs get nothing from this change, and that is nearly everyone.**
+Verified 2026-09-03 rather than assumed: `SettingsService.Save` serializes the
+*whole* `EyeCtrlSettings` snapshot (`SettingsService.cs:243`), so every property
+is written explicitly, and `Load` deserializes onto a fresh instance
+(`SettingsService.cs:128`) where any persisted value overrides the field
+initializer. Anyone who has ever run the app therefore has explicit
+`circleThickness` and `circleOpacity` keys, and the new defaults are invisible to
+them. The live settings file on the development machine reads
+`circleThickness: 2` and `circleOpacity: 0.6` — and 0.6 is the value the old doc
+comment recorded at 6.04:1, below the 7.0 floor, so the current install is
+running a configuration this codebase already documented as failing its own
+contrast gate.
+
+The delivery mechanism for those users is §7's preset write: choosing any Ring
+Style rewrites both values to that style's tuned weights. One dwell on the new
+combo fixes it, including choosing the style that is already selected — but it
+does have to be done once, deliberately, and nothing prompts for it. Whether that
+is sufficient, or whether a load-time nudge should upgrade a persisted pair that
+exactly equals the superseded defaults, is an open decision for the plan owner
+and is deliberately NOT resolved here.
+
+The separately-flagged persisted `cursor.circleColor` of `#0088FF`
 (overlay-unification spec §7) is not addressed here and remains a one-time manual
 fix through the colour picker.
 

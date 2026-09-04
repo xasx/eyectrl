@@ -54,6 +54,10 @@ public sealed class AdaptationLearner
     private readonly Dictionary<AdaptationKnob, double> _learned = new();
     private readonly Dictionary<AdaptationKnob, double> _pushed = new();
     private long _lastSampleAt = Unsampled;
+    // Set when THIS session ever loaded state or took a sample. A never-participated session (the app
+    // run with adaptation off: Load is skipped and the coordinator never ticks) must not clobber the
+    // persisted offsets a previous session earned when OnExit persists (whole-branch review finding R1).
+    private bool _sessionParticipated;
 
     /// <summary>Initializes the learner over the provider it observes and pushes into.</summary>
     /// <param name="provider">The effective-settings provider — read for momentary fills, written with learned fills.</param>
@@ -78,6 +82,7 @@ public sealed class AdaptationLearner
     /// file no longer mentions.</summary>
     public void Load()
     {
+        _sessionParticipated = true;
         _learned.Clear();
         _pushed.Clear();
         _provider.ClearLearnedFills();
@@ -112,6 +117,7 @@ public sealed class AdaptationLearner
         if (_lastSampleAt != Unsampled && nowMicroseconds - _lastSampleAt < SampleIntervalMicroseconds)
             return;
         _lastSampleAt = nowMicroseconds;
+        _sessionParticipated = true; // a live sample — this session's learning is real and persistable
 
         foreach (var knob in Knobs)
         {
@@ -153,12 +159,23 @@ public sealed class AdaptationLearner
         _learned.Clear();
         _pushed.Clear();
         _provider.ClearLearnedFills();
-        Persist();
+        PersistCore(); // explicit user intent — durable even in a never-participated session (R1)
     }
 
-    /// <summary>Persists the current learned state (all four knobs, zeros included — a stable schema).
-    /// Best-effort: an I/O failure logs and is swallowed (§11 — a comfort feature must never end the session).</summary>
+    /// <summary>Persists the current learned state (all four knobs, zeros included — a stable schema),
+    /// but only when this session participated (loaded or sampled). A session that never enabled
+    /// adaptation must leave the file a previous session earned untouched (whole-branch review finding
+    /// R1). Best-effort: an I/O failure logs and is swallowed (§11 — a comfort feature must never end
+    /// the session).</summary>
     public void Persist()
+    {
+        if (!_sessionParticipated)
+            return;
+        PersistCore();
+    }
+
+    // The unconditional write shared by Persist and ResetLearned.
+    private void PersistCore()
     {
         if (_stateFilePath is null)
             return;

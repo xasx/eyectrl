@@ -388,6 +388,23 @@ presets do not affect, so that case is asserted once per theme.
 `HaloContrastTests` contains no UI-category tests, so all of this runs in CI's
 `Category!=UI` headless subset.
 
+**`EyeCtrl.App.Tests` — the renderer, added after a merge-readiness review.**
+
+`CursorRingRenderTests` constructs a `CursorCircleWindow` (never shown, `[StaFact]`,
+in the `WpfApplication` collection so `WpfApplicationGate` can supply the merged
+token dictionary the XAML resolves against) and calls `UpdateAppearance`. It pins
+the three things a mutation sweep proved were guarded by nothing: that the outer
+band paints `CircleHalo` and the core band paints `Circle` (swapping the two
+`Apply` calls hides the core entirely and voided the whole guarantee with all
+three suites green); that the dash values are the band's arc length divided by
+its thickness, derived from `CursorRingStacks.For`'s own output rather than
+restated; and that switching from `BiTonalSegments` to a solid style clears the
+dash array rather than leaving it painted.
+
+This closes the gap §5's dash warning had displaced one layer down: the arc-space
+geometry was well tested, but nothing checked that the renderer transcribed it
+into WPF correctly.
+
 **Snapshots — checked, no action.**
 `tests/EyeCtrl.App.Tests/Services/SettingsSnapshotsTests.cs` reflects over
 `typeof(KeyboardSettings)` only (line 43), so a new `CursorSettings` property

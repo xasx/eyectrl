@@ -187,7 +187,21 @@ public class HandChunkedPageFitTests
     /// <returns>The constructed source.</returns>
     private static ISettingsPageSource Construct(Type type, SettingsWindowViewModel viewModel)
     {
-        var ctor = type.GetConstructor([typeof(SettingsPageContext)]);
+        var ctor = type.GetConstructor([typeof(SettingsPageContext)])
+            // Sources may declare additional OPTIONAL constructor dependencies (the Adaptation page's
+            // open-log callback); the harness builds those with their defaults — the guard measures
+            // layout reachability, not wiring, and the tripwire below still fails loudly when neither
+            // shape exists.
+            ?? type.GetConstructors()
+                .Where(c =>
+                {
+                    var ps = c.GetParameters();
+                    return ps.Length > 0
+                        && ps[0].ParameterType == typeof(SettingsPageContext)
+                        && ps.Skip(1).All(p => p.HasDefaultValue);
+                })
+                .OrderBy(c => c.GetParameters().Length)
+                .FirstOrDefault();
         Check.WithCustomMessage(
                 $"{type.Name} has no (SettingsPageContext) constructor, so this guard cannot "
                 + "build it — and a hand-chunked page this harness cannot build is a page nothing "
@@ -198,7 +212,12 @@ public class HandChunkedPageFitTests
         var ctx = TestSettingsPageContext.Build(viewModel: viewModel);
         try
         {
-            return (ISettingsPageSource)ctor!.Invoke([ctx]);
+            var ps = ctor!.GetParameters();
+            var args = new object?[ps.Length];
+            args[0] = ctx;
+            for (int i = 1; i < ps.Length; i++)
+                args[i] = ps[i].DefaultValue;
+            return (ISettingsPageSource)ctor.Invoke(args);
         }
         catch (Exception ex)
         {

@@ -1,17 +1,20 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Messages;
 
 public class AdaptationPageSourceTests
 {
     [Fact]
-    public void Build_HasFifteenRows_NoCaregiverRow()
+    public void Build_HasSeventeenRows_ThreeButtons_NoCaregiverRow()
     {
         var rows = new AdaptationPageSource(TestSettingsPageContext.Build()).Build()
             .SelectMany(p => p.Rows).ToList();
-        Check.That(rows).HasSize(15);
-        Check.That(rows.OfType<ButtonSpec>().Single().Id).IsEqualTo("ad_reset");
+        Check.That(rows).HasSize(17);
+        Check.That(rows.OfType<ButtonSpec>().Select(b => b.Id).ToList())
+            .ContainsExactly("ad_reset", "ad_reset_learned", "ad_log");
         Check.That(rows.Any(r => r.Id.Contains("caregiver", StringComparison.Ordinal))).IsFalse();
     }
 
@@ -60,7 +63,7 @@ public class AdaptationPageSourceTests
         settings.Adaptation.GeometryMaxMarginPx = 250;
         var source = new AdaptationPageSource(
             TestSettingsPageContext.Build(settings, showModal: (_, act) => act()));
-        source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>().Single().OnActivate();
+        source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>().Single(b => b.Id == "ad_reset").OnActivate();
         var d = new AdaptationSettings();
         Check.That(settings.Adaptation.Enabled).IsEqualTo(d.Enabled);
         Check.That(settings.Adaptation.Posture).IsEqualTo(d.Posture);
@@ -76,5 +79,32 @@ public class AdaptationPageSourceTests
         Check.That(settings.Adaptation.SmoothingMoreMaxFraction).IsEqualTo(d.SmoothingMoreMaxFraction);
         Check.That(settings.Adaptation.GeometryBiggerMaxFraction).IsEqualTo(d.GeometryBiggerMaxFraction);
         Check.That(settings.Adaptation.GeometryMaxMarginPx).IsEqualTo(d.GeometryMaxMarginPx);
+    }
+
+    [Fact]
+    public void ResetLearnedButton_ModalYes_SendsResetLearnedOffsetsMessage()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var recipient = new object();
+        bool received = false;
+        messenger.Register<object, ResetLearnedOffsetsMessage>(recipient, (_, _) => received = true);
+        var source = new AdaptationPageSource(TestSettingsPageContext.Build(messenger: messenger, showModal: (_, act) => act()));
+
+        source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>()
+            .Single(b => b.Id == "ad_reset_learned").OnActivate();
+
+        Check.That(received).IsTrue();
+    }
+
+    [Fact]
+    public void OpenLogButton_InvokesTheCallback()
+    {
+        bool opened = false;
+        var source = new AdaptationPageSource(TestSettingsPageContext.Build(), onOpenAdaptationLog: () => opened = true);
+
+        source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>()
+            .Single(b => b.Id == "ad_log").OnActivate();
+
+        Check.That(opened).IsTrue();
     }
 }

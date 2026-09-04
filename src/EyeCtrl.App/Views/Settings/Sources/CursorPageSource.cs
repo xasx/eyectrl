@@ -48,15 +48,20 @@ internal sealed class CursorPageSource : ISettingsPageSource
                     {
                         c.RingStyle = Enum.Parse<CursorRingStyle>(v);
 
-                        // The style is a preset: it writes the weights it was designed at and
-                        // leaves them editable. Deliberately here and not in an
-                        // OnRingStyleChanged hook on CursorSettings — that would also fire
-                        // during JSON load and overwrite the user's tuning.
-                        (c.CircleThickness, c.CircleOpacity) = c.RingStyle switch
-                        {
-                            CursorRingStyle.BiTonalSegments => (5.0, 1.0),
-                            _ => (3.0, 1.0),
-                        };
+                        // The style is a preset for opacity only, not thickness. Opacity is
+                        // applied to the core band alone and dims it toward the backdrop, so a
+                        // style change still forces it back to 1.0 — the one value that can
+                        // weaken the ring. Thickness is left alone: the contrast guarantee lives
+                        // in the internal edge between the two bands (the halo is always
+                        // thickness + 4), which holds at any width, so thickness is a taste knob
+                        // the user owns, not a safety one the preset must protect. Leaving it
+                        // alone is what makes the Circle Thickness slider honest — the user's
+                        // value survives a style change instead of being destroyed by it.
+                        //
+                        // Deliberately here and not in an OnRingStyleChanged hook on
+                        // CursorSettings — that would also fire during JSON load and overwrite
+                        // the user's tuning.
+                        c.CircleOpacity = 1.0;
 
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();   // repaints the sliders and swaps the colour row

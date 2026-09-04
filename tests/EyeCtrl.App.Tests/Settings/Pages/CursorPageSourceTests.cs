@@ -27,11 +27,14 @@ public class CursorPageSourceTests
     [Fact]
     public void Build_RingStyleComboAndTheSlidersItsSetterRewrites_AreAdjacentInFlatOrder()
     {
-        // c_ring_style's setter overwrites CircleThickness (c_thick) and CircleOpacity
-        // (c_opacity) as a preset write. For a gaze user, a write they cannot see is a
-        // destructive, invisible edit — the very defect this feature exists to fix — so
-        // the combo and the two sliders it rewrites must sit next to each other on the
-        // page the user is actually looking at.
+        // c_ring_style's setter overwrites CircleOpacity (c_opacity) as a preset write; it
+        // deliberately leaves CircleThickness (c_thick) alone so the slider stays honest. For
+        // a gaze user, a write they cannot see is a destructive, invisible edit — the very
+        // defect this feature exists to fix — so the combo and the opacity slider it rewrites
+        // must sit next to each other on the page the user is actually looking at. c_thick is
+        // pinned adjacent too: it is the sibling slider on the same preset row, and its
+        // survival across a style change is exactly what a human glancing at this screen
+        // needs to be able to see for themselves.
         //
         // CursorPageSource.PrefersAutoPagination is true, so the literal PageSpec
         // boundaries declared in Build() below are only advisory: SettingsWindow.
@@ -144,10 +147,17 @@ public class CursorPageSourceTests
     }
 
     [Fact]
-    public void RingStyleSetter_WritesThePresetWeights()
+    public void RingStyleSetter_ForcesOpacityButLeavesThickness()
     {
+        // Opacity is applied to the core band alone and dims it toward the backdrop, so the
+        // preset still forces it to 1.0 — the one value that can weaken the internal edge.
+        // Thickness is a taste knob (the halo always tracks it as thickness + 4, so the
+        // contrast guarantee holds at any width): the preset must leave it alone, or the
+        // Circle Thickness slider is a lie — any value the user sets is destroyed the next
+        // time they touch this combo. 6 is a distinctive starting thickness so "unchanged"
+        // is a real assertion, not a coincidence of some preset's own tuned value.
         var settings = new EyeCtrlSettings();
-        settings.Cursor.CircleThickness = 1;
+        settings.Cursor.CircleThickness = 6;
         settings.Cursor.CircleOpacity = 0.2;
         var source = new CursorPageSource(TestSettingsPageContext.Build(settings));
         var combo = source.Build().SelectMany(p => p.Rows).OfType<ComboBoxSpec>()
@@ -156,7 +166,7 @@ public class CursorPageSourceTests
         combo.Set(nameof(CursorRingStyle.BiTonalSegments));
 
         Check.That(settings.Cursor.RingStyle).IsEqualTo(CursorRingStyle.BiTonalSegments);
-        Check.That(settings.Cursor.CircleThickness).IsEqualTo(5.0);
+        Check.That(settings.Cursor.CircleThickness).IsEqualTo(6.0);
         Check.That(settings.Cursor.CircleOpacity).IsEqualTo(1.0);
     }
 
@@ -176,10 +186,10 @@ public class CursorPageSourceTests
     [Theory]
     [InlineData(CursorRingStyle.WeightedSandwich)]
     [InlineData(CursorRingStyle.AchromaticReticle)]
-    public void RingStyleSetter_WritesTheDefaultPresetWeights(CursorRingStyle style)
+    public void RingStyleSetter_ForcesOpacityButLeavesThickness_ForEveryOtherStyleToo(CursorRingStyle style)
     {
         var settings = new EyeCtrlSettings();
-        settings.Cursor.CircleThickness = 1;
+        settings.Cursor.CircleThickness = 6;
         settings.Cursor.CircleOpacity = 0.2;
         var source = new CursorPageSource(TestSettingsPageContext.Build(settings));
         var combo = source.Build().SelectMany(p => p.Rows).OfType<ComboBoxSpec>()
@@ -187,12 +197,12 @@ public class CursorPageSourceTests
 
         // WeightedSandwich is the default CursorRingStyle, so selecting it is the
         // returning user's remediation gesture: dwelling an option that is already
-        // selected. The setter must still run and write the preset weights, or the
+        // selected. The setter must still run and force opacity back to 1.0, or the
         // (2, 0.6) legibility defect this feature exists to fix is never corrected.
         combo.Set(style.ToString());
 
         Check.That(settings.Cursor.RingStyle).IsEqualTo(style);
-        Check.That(settings.Cursor.CircleThickness).IsEqualTo(3.0);
+        Check.That(settings.Cursor.CircleThickness).IsEqualTo(6.0);
         Check.That(settings.Cursor.CircleOpacity).IsEqualTo(1.0);
     }
 

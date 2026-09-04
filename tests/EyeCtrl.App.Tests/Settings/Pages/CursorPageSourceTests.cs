@@ -89,4 +89,67 @@ public class CursorPageSourceTests
         Check.That(settings.Cursor.OneEuroMinCutoff).IsEqualTo(d.OneEuroMinCutoff);
         Check.That(settings.Cursor.OneEuroBeta).IsEqualTo(d.OneEuroBeta);
     }
+
+    [Fact]
+    public void Build_RingStyleCombo_MapsDisplayOntoEnumNames()
+    {
+        var rows = new CursorPageSource(TestSettingsPageContext.Build()).Build()
+            .SelectMany(p => p.Rows).ToList();
+        var combo = rows.OfType<ComboBoxSpec>().Single(c => c.Id == "c_ring_style");
+
+        // Display and Code are positional. If the enum gains a member or is reordered
+        // without the display list following, the combo silently mislabels every style.
+        Check.That(combo.Code).ContainsExactly(Enum.GetNames<CursorRingStyle>());
+        Check.That(combo.Display).ContainsExactly(
+            "Weighted sandwich", "Bi-tonal segments", "Achromatic reticle");
+        Check.That(combo.Description).IsNotNull();
+    }
+
+    [Fact]
+    public void RingStyleSetter_WritesThePresetWeights()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.CircleThickness = 1;
+        settings.Cursor.CircleOpacity = 0.2;
+        var source = new CursorPageSource(TestSettingsPageContext.Build(settings));
+        var combo = source.Build().SelectMany(p => p.Rows).OfType<ComboBoxSpec>()
+            .Single(c => c.Id == "c_ring_style");
+
+        combo.Set(nameof(CursorRingStyle.BiTonalSegments));
+
+        Check.That(settings.Cursor.RingStyle).IsEqualTo(CursorRingStyle.BiTonalSegments);
+        Check.That(settings.Cursor.CircleThickness).IsEqualTo(5.0);
+        Check.That(settings.Cursor.CircleOpacity).IsEqualTo(1.0);
+    }
+
+    [Fact]
+    public void Build_UnderAchromaticReticle_SwapsTheColourPickerForANote()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.RingStyle = CursorRingStyle.AchromaticReticle;
+        var rows = new CursorPageSource(TestSettingsPageContext.Build(settings)).Build()
+            .SelectMany(p => p.Rows).ToList();
+
+        Check.That(rows.OfType<ColorPickerSpec>()).IsEmpty();
+        var note = rows.OfType<LabelSpec>().Single();
+        Check.That(note.Text()).Contains("Circle Color");
+    }
+
+    [Fact]
+    public void Reset_RestoresTheRingStyle()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.RingStyle = CursorRingStyle.BiTonalSegments;
+        // The default context DISCARDS the modal callback — TestSettingsPageContext.Build
+        // defaults showModal to ((_, _) => { }) — so the confirmation must be run explicitly
+        // or the reset copies nothing. Same pattern as Reset_CopiesAllTenProperties above.
+        var source = new CursorPageSource(
+            TestSettingsPageContext.Build(settings, showModal: (_, act) => act()));
+        var reset = source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>()
+            .Single(b => b.Id == "c_reset");
+
+        reset.OnActivate();
+
+        Check.That(settings.Cursor.RingStyle).IsEqualTo(CursorRingStyle.WeightedSandwich);
+    }
 }

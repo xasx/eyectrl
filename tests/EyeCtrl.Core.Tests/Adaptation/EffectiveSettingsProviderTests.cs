@@ -6,7 +6,7 @@ using EyeCtrl.Core.Settings;
 public class EffectiveSettingsProviderTests
 {
     // Returns the provider AND its settings so tests can mutate band fractions (band-source migration).
-    private static (EffectiveSettingsProvider Provider, AdaptationSettings Settings) Make(bool enabled)
+    private static (EffectiveSettingsProvider Provider, AdaptationSettings Settings) Make(bool enabled = false)
     {
         var settings = new AdaptationSettings { Enabled = enabled };
         return (new EffectiveSettingsProvider(settings), settings);
@@ -156,5 +156,155 @@ public class EffectiveSettingsProviderTests
         try { settings.Dwell.FixationRadiusPixels = eff; }
         catch (ArgumentOutOfRangeException) { threw = true; }
         Check.That(threw).IsFalse();
+    }
+
+    [Fact]
+    public void Learned_SumsWithMomentary_AtTheBandEdge()
+    {
+        var (p, a) = Make();
+        a.Enabled = true;
+        a.ToleranceLooserMaxFraction = 0.5;
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 0.9, 0.0);
+        p.SetLearnedFill(AdaptationKnob.FixationRadius, 0.3);
+        // 0.3 + 0.9 = 1.2 band-fills → clamped to the +50% band edge: 50 → 75.
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50.0)).IsEqualTo(75.0);
+    }
+
+    [Fact]
+    public void Learned_Alone_ComposesTheForgivingDirection()
+    {
+        var (p, a) = Make();
+        a.Enabled = true;
+        a.DwellShorterMaxFraction = 0.4;
+        p.SetLearnedFill(AdaptationKnob.DwellTime, 0.4);
+        // delta = −0.4 fill × 0.4 fraction × 1000 ms = −160 → 840. Learned alone must move effective.
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 1000.0)).IsEqualTo(840.0);
+    }
+
+    [Fact]
+    public void LearnedZero_EffectiveIsExactlyMomentaryOnly()
+    {
+        var (p, a) = Make();
+        a.Enabled = true;
+        a.ToleranceLooserMaxFraction = 0.5;
+        p.SetLearnedFill(AdaptationKnob.FixationRadius, 0.0); // stored zero — must behave like absence
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 0.6, 0.0);
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50.0)).IsEqualTo(65.0);
+    }
+
+    [Fact]
+    public void Disabled_ReturnsBaseline_EvenWithLearnedFillSet()
+    {
+        var (p, a) = Make();
+        a.Enabled = false;
+        p.SetLearnedFill(AdaptationKnob.DwellTime, 0.5);
+        p.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, 1.0, 0.0);
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 1000.0)).IsEqualTo(1000.0);
+    }
+
+    [Fact]
+    public void SetLearnedFill_RaisesChangedOnlyOnValueChange()
+    {
+        var (p, _) = Make();
+        int raised = 0;
+        p.Changed += () => raised++;
+        p.SetLearnedFill(AdaptationKnob.DwellTime, 0.2);
+        Check.That(raised).IsEqualTo(1);
+        p.SetLearnedFill(AdaptationKnob.DwellTime, 0.2); // same value → no raise
+        Check.That(raised).IsEqualTo(1);
+        p.SetLearnedFill(AdaptationKnob.DwellTime, 0.3);
+        Check.That(raised).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void ClearLearnedFills_ClearsAndRaises_OnlyWhenPresent()
+    {
+        var (p, a) = Make();
+        a.Enabled = true;
+        p.SetLearnedFill(AdaptationKnob.DwellTime, 0.4);
+        int raised = 0;
+        p.Changed += () => raised++;
+        p.ClearLearnedFills();
+        Check.That(raised).IsEqualTo(1);
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 1000.0)).IsEqualTo(1000.0);
+        p.ClearLearnedFills(); // already empty → no raise
+        Check.That(raised).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Learned_IsForgivingOnly_EveryKnobMovesInItsSafeDirection()
+    {
+        var (p, a) = Make();
+        a.Enabled = true;
+        p.SetLearnedFill(AdaptationKnob.DwellTime, 0.5);
+        p.SetLearnedFill(AdaptationKnob.Smoothing, 0.5);
+        p.SetLearnedFill(AdaptationKnob.TargetGeometry, 0.5);
+        p.SetLearnedFill(AdaptationKnob.FixationRadius, 0.5);
+        // dwell shorter, smoothing parameter DOWN, geometry bigger, tolerance looser (§7.1).
+        Check.That(p.Effective(AdaptationKnob.DwellTime, DwellContext.Other, 1000.0)).IsStrictlyLessThan(1000.0);
+        Check.That(p.Effective(AdaptationKnob.Smoothing, DwellContext.Other, 5.0)).IsStrictlyLessThan(5.0);
+        Check.That(p.Effective(AdaptationKnob.TargetGeometry, DwellContext.Other, 40.0)).IsStrictlyGreaterThan(40.0);
+        Check.That(p.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, 50.0)).IsStrictlyGreaterThan(50.0);
+    }
+
+    [Fact]
+    public void SetLearnedFill_ClampsToLearnedMaxFill()
+    {
+        var (p, _) = Make();
+        p.SetLearnedFill(AdaptationKnob.DwellTime, 0.9);
+        var entries = p.EnumerateLearnedFills();
+        Check.That(entries).HasSize(1);
+        Check.That(entries[0].Knob).IsEqualTo(AdaptationKnob.DwellTime);
+        Check.That(entries[0].Fill).IsEqualTo(AdaptationSettings.LearnedMaxFill);
+    }
+
+    [Fact]
+    public void BandFractionEdit_WhileFillStored_RaisesChanged()
+    {
+        // Leftover (a): a band edit used to refresh the applied value only at the next fill write.
+        var (p, a) = Make();
+        a.Enabled = true;
+        p.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, 0.6, 0.0);
+        int raised = 0;
+        p.Changed += () => raised++;
+        a.ToleranceLooserMaxFraction = 0.3; // still valid; composition-relevant
+        Check.That(raised).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void GeometryMarginCapEdit_RaisesChanged()
+    {
+        var (p, a) = Make();
+        a.Enabled = true;
+        int raised = 0;
+        p.Changed += () => raised++;
+        a.GeometryMaxMarginPx = 150.0;
+        Check.That(raised).IsEqualTo(1);
+        a.Posture = AdaptationPosture.Balanced; // not composition-relevant → no raise
+        Check.That(raised).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void TryGetMomentaryFill_ReturnsStoredValues_AndFalseWhenAbsent()
+    {
+        var (p, a) = Make();
+        a.Enabled = true;
+        p.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, 0.4, 0.2);
+        Check.That(p.TryGetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, out double f, out double t)).IsTrue();
+        Check.That(f).IsEqualTo(0.4);
+        Check.That(t).IsEqualTo(0.2);
+        Check.That(p.TryGetMomentaryFill(AdaptationKnob.Smoothing, DwellContext.Other, out _, out _)).IsFalse();
+    }
+
+    [Fact]
+    public void EnumerateLearnedFills_ListsNonZeroEntriesOnly()
+    {
+        var (p, _) = Make();
+        p.SetLearnedFill(AdaptationKnob.DwellTime, 0.2);
+        p.SetLearnedFill(AdaptationKnob.Smoothing, 0.0); // stored zero → not listed
+        var entries = p.EnumerateLearnedFills();
+        Check.That(entries).HasSize(1);
+        Check.That(entries[0].Knob).IsEqualTo(AdaptationKnob.DwellTime);
+        Check.That(entries[0].Fill).IsCloseTo(0.2, 1e-9);
     }
 }

@@ -1,9 +1,18 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.ViewModels.Messages;
+
 internal sealed class AdaptationPageSource : ISettingsPageSource
 {
     private readonly SettingsPageContext _ctx;
-    public AdaptationPageSource(SettingsPageContext ctx) => _ctx = ctx;
+    private readonly Action? _onOpenAdaptationLog;
+
+    public AdaptationPageSource(SettingsPageContext ctx, Action? onOpenAdaptationLog = null)
+    {
+        _ctx = ctx;
+        _onOpenAdaptationLog = onOpenAdaptationLog;
+    }
 
     public bool PrefersAutoPagination => true;
 
@@ -79,6 +88,15 @@ internal sealed class AdaptationPageSource : ISettingsPageSource
                         _ctx.RebuildContent();
                     }),
                     ButtonKind.Reset, Width: 300, Height: 100),
+                new ButtonSpec("ad_reset_learned", "Reset Learned Offsets",
+                    () => _ctx.ShowModal("Reset the learned adaptation offsets to zero?", () =>
+                        _ctx.Messenger.Send(new ResetLearnedOffsetsMessage())),
+                    ButtonKind.Reset, Width: 300, Height: 100)
+                    { Description = "Clear what the app has learned about your needs; it re-learns as you use it." },
+                new ButtonSpec("ad_log", "Open Adaptation Log",
+                    () => _onOpenAdaptationLog?.Invoke(),
+                    ButtonKind.Default, Width: 300, Height: 100)
+                    { Description = "Show the adaptation log file in Explorer." },
             ]),
         ];
     }

@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Views;
 
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -386,7 +387,7 @@ public partial class SettingsWindow : OverlayWindow
         _modelsSource = new ModelsPageSource(_ctx);
         _qaSource = new QuickActionsPageSource(_ctx);
         _eyeCareSource = new EyeCarePageSource(_ctx);
-        _adaptationSource = new AdaptationPageSource(_ctx);
+        _adaptationSource = new AdaptationPageSource(_ctx, onOpenAdaptationLog: OpenAdaptationLogFile);
         _advancedSource = new AdvancedPageSource(_ctx);
 
         // One entry per tab, same ids as `_tabDefs`: MaybeRepaginateByHeight looks the
@@ -722,6 +723,25 @@ public partial class SettingsWindow : OverlayWindow
     {
         SettingsChanged?.Invoke(_settings);
         _settingsService.SaveDebounced(_settings);
+    }
+
+    // §10 "log review": gaze-reachable access to the adaptation log. Selects the file when it exists,
+    // otherwise opens its folder (first run / log disabled). Never throws into the settings UI.
+    private void OpenAdaptationLogFile()
+    {
+        try
+        {
+            string path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "adaptation-log.jsonl");
+            if (File.Exists(path))
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+            else
+                System.Diagnostics.Process.Start("explorer.exe", Path.GetDirectoryName(path)!);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Failed to open the adaptation log location.");
+        }
     }
 
     // ────── Pagination ──────

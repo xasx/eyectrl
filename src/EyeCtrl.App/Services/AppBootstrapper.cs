@@ -360,7 +360,9 @@ public class AppBootstrapper
         // and non-interactive; both are started in App.OnStartup after the cue service.
         services.AddSingleton(sp => new AdaptationLog(
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
-            sp.GetRequiredService<IFeedbackGate>()));
+            sp.GetRequiredService<IFeedbackGate>(),
+            sp.GetRequiredService<EffectiveSettingsProvider>(),
+            Path.Combine(appDataDir, "adaptation-log.jsonl")));
         services.AddSingleton<DriftNoticeWindow>();
         services.AddSingleton<IDriftNoticePresenter>(sp => sp.GetRequiredService<DriftNoticeWindow>());
         services.AddSingleton(sp => new DriftNoticeService(

@@ -30,17 +30,42 @@ internal sealed class CursorPageSource : ISettingsPageSource
                     () => c.SmoothingFactor,
                     v => { c.SmoothingFactor = v; _ctx.ApplyAndSave(); })
                     { Description = "Higher is more responsive; lower is smoother." },
-                new ColorPickerSpec("c_color", "Circle Color",
-                    () => c.CircleColor,
-                    v => { c.CircleColor = v; _ctx.ApplyAndSave(); },
-                    SettingsWindow.ColorSwatchRadius)
-                    { Description = "The cursor ring’s colour; every preset stays clearly visible." },
+                new ComboBoxSpec("c_ring_style", "Ring Style",
+                    ["Weighted sandwich", "Bi-tonal segments", "Achromatic reticle"],
+                    Enum.GetNames<CursorRingStyle>(),
+                    () => c.RingStyle.ToString(),
+                    v =>
+                    {
+                        c.RingStyle = Enum.Parse<CursorRingStyle>(v);
+
+                        // The style is a preset: it writes the weights it was designed at and
+                        // leaves them editable. Deliberately here and not in an
+                        // OnRingStyleChanged hook on CursorSettings — that would also fire
+                        // during JSON load and overwrite the user's tuning.
+                        (c.CircleThickness, c.CircleOpacity) = c.RingStyle switch
+                        {
+                            CursorRingStyle.BiTonalSegments => (5.0, 1.0),
+                            _ => (3.0, 1.0),
+                        };
+
+                        _ctx.ApplyAndSave();
+                        _ctx.RebuildContent();   // repaints the sliders and swaps the colour row
+                    })
+                    { Description = "How the ring stays visible on light and dark backgrounds." },
+                c.RingStyle == CursorRingStyle.AchromaticReticle
+                    ? (SettingsRowSpec)new LabelSpec(
+                        () => "Circle Color is not used by the Achromatic reticle ring style.")
+                    : new ColorPickerSpec("c_color", "Circle Color",
+                        () => c.CircleColor,
+                        v => { c.CircleColor = v; _ctx.ApplyAndSave(); },
+                        SettingsWindow.ColorSwatchRadius)
+                        { Description = "The cursor ring’s colour; every preset stays clearly visible." },
             ]),
             new PageSpec([
                 new SliderSpec("c_opacity", "Circle Opacity", 0.1, 1, 0.1, 1,
                     () => c.CircleOpacity,
                     v => { c.CircleOpacity = v; _ctx.ApplyAndSave(); })
-                    { Description = "How solid the ring is over what is behind it." },
+                    { Description = "Lowering this dims the coloured half of the ring's edge, which is what keeps it visible." },
                 new SliderSpec("c_thick", "Circle Thickness", 1, 6, 0.5, 1,
                     () => c.CircleThickness,
                     v => { c.CircleThickness = v; _ctx.ApplyAndSave(); })
@@ -68,6 +93,7 @@ internal sealed class CursorPageSource : ISettingsPageSource
                         var d = new CursorSettings();
                         c.FilterMode = d.FilterMode;
                         c.SmoothingFactor = d.SmoothingFactor;
+                        c.RingStyle = d.RingStyle;
                         c.CircleColor = d.CircleColor;
                         c.CircleOpacity = d.CircleOpacity;
                         c.CircleThickness = d.CircleThickness;

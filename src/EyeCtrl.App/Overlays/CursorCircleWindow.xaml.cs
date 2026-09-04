@@ -67,13 +67,15 @@ public partial class CursorCircleWindow : OverlayWindow
         }
         catch (Exception ex)
         {
-            // Deliberately broad, and deliberately not narrowed to FormatException:
-            // ConvertFromString and the cast can also raise InvalidCastException,
-            // ArgumentException and NotSupportedException, and this runs on the dispatcher
-            // during a settings change — where App's DispatcherUnhandledException handler
-            // does NOT set Handled, so an escaped exception kills the process. A cursor that
-            // falls back to the theme brush is recoverable; one that takes the app down
-            // takes the user's only input channel with it.
+            // Deliberately broad rather than narrowed to FormatException (the only failure
+            // reachable here for string input on .NET 10 — ConvertFromString always boxes a
+            // Color on success for a string argument, so the cast cannot throw). Kept broad on
+            // two grounds: it preserves the breadth that already shipped on main — narrowing
+            // would itself be a behaviour change — and WPF's colour-parser internals are
+            // undocumented, so breadth is cheap insurance in a method that runs on the
+            // dispatcher, where App.xaml.cs's DispatcherUnhandledException handler deliberately
+            // does not set Handled and an escaped exception therefore kills the process, taking
+            // this user's only input channel with it.
             Log.Warning(ex, "Could not parse cursor ring colour {Hex}; using the theme brush", band.Hex);
             target.Stroke = fallback;
         }

@@ -97,9 +97,13 @@ public class CursorPageSourceTests
             .SelectMany(p => p.Rows).ToList();
         var combo = rows.OfType<ComboBoxSpec>().Single(c => c.Id == "c_ring_style");
 
-        // Display and Code are positional. If the enum gains a member or is reordered
-        // without the display list following, the combo silently mislabels every style.
-        Check.That(combo.Code).ContainsExactly(Enum.GetNames<CursorRingStyle>());
+        // Display and Code are positional, so BOTH are pinned here to a literal order rather
+        // than to each other: production builds Code from this very same Enum.GetNames<...>()
+        // call, so asserting Code against Enum.GetNames would compare production's own call
+        // with itself and could never fail — an enum reorder moves both sides together. Only a
+        // fixed literal order catches a reorder silently mislabelling every style button.
+        Check.That(combo.Code).ContainsExactly(
+            "WeightedSandwich", "BiTonalSegments", "AchromaticReticle");
         Check.That(combo.Display).ContainsExactly(
             "Weighted sandwich", "Bi-tonal segments", "Achromatic reticle");
         Check.That(combo.Description).IsNotNull();

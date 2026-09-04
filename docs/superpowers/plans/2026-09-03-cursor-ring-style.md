@@ -441,6 +441,22 @@ Append to `CursorRingStacksTests`:
     [InlineData(CursorRingStyle.WeightedSandwich)]
     [InlineData(CursorRingStyle.BiTonalSegments)]
     [InlineData(CursorRingStyle.AchromaticReticle)]
+    public void EveryStyle_CoreCarriesTheUserOpacity_OutlineNeverDoes(CursorRingStyle style)
+    {
+        // Only WeightedSandwich pinned this, and only it passes a non-default opacity. At
+        // 1.0 the property is untestable: a style whose arm swapped `opacity` and `1.0`
+        // between its two bands would pass every other test in this file. The outline is
+        // the backdrop-independent half of the edge, so dimming it voids the guarantee.
+        var stack = CursorRingStacks.For(style, 250, 3, 0.4, Mark, Halo, Light);
+
+        Check.WithCustomMessage($"{style} core").That(stack.Core.Opacity).IsEqualTo(0.4);
+        Check.WithCustomMessage($"{style} outline").That(stack.Outer.Opacity).IsEqualTo(1.0);
+    }
+
+    [Theory]
+    [InlineData(CursorRingStyle.WeightedSandwich)]
+    [InlineData(CursorRingStyle.BiTonalSegments)]
+    [InlineData(CursorRingStyle.AchromaticReticle)]
     public void EveryStyle_OuterIsNeverNarrowerThanTheCore(CursorRingStyle style)
     {
         // The property that makes a stack a stack: if the core were wider it would cover the
@@ -461,8 +477,9 @@ Append to `CursorRingStacksTests`:
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~CursorRingStacksTests"`
 
 Expected: FAIL — `ArgumentOutOfRangeException: Unknown cursor ring style` on the
-`BiTonalSegments` cases. The `EveryStyle_OuterIsNeverNarrowerThanTheCore` theory
-fails only on its `BiTonalSegments` row; its other two rows should already pass.
+`BiTonalSegments` cases. Both cross-style theories fail only on their
+`BiTonalSegments` row; their `WeightedSandwich` and `AchromaticReticle` rows
+should already pass, since Tasks 2 and 3 implemented those arms correctly.
 
 - [ ] **Step 3: Add the arm**
 
@@ -497,8 +514,8 @@ and add the private helper to the class:
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~CursorRingStacksTests"`
 
-Expected: PASS, 16 tests (6 from Tasks 1–3, plus 2 facts, a 5-case theory and a
-3-case theory here).
+Expected: PASS, 19 tests (6 from Tasks 1–3, plus 2 facts, a 5-case theory and two
+3-case theories here).
 
 - [ ] **Step 5: Commit**
 

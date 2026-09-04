@@ -19,7 +19,7 @@
 - **German test output.** The summary reads `Bestanden!` / `Fehler!` with `Fehler: N, erfolgreich: M, gesamt: T`. Read the summary line; grepping "Failed" silently reports green.
 - **Baselines at `main` = `4929c39d` (re-measured 2026-09-04, independently re-confirmed by review round 1):** Core **1162** (`erfolgreich: 1161, übersprungen: 1`) / ViewModels **300** / App (`--filter "Category!=UI"`) **742** / Benchmarks.Tests **27**, all green. Different starting counts ⇒ stop and report.
 - **Do NOT modify `AdaptationController` or `StruggleMonitor`** (the kickoff constraint — 1c never touched them and Phase 2 has no cause: the learner composes *around* the momentary layer by reading its output fills).
-- **Additive-only provider semantics.** With `learned == 0`, `Effective` must be bit-identical to today for every knob/context/baseline — the fill-space sum `(0 + momentary) × edge` is algebraically today's `momentary × edge`, and the no-fill early-return must still trigger when both components are zero. Consequently **every existing test in all four suites must pass unchanged** except the three App-test modifications this plan names explicitly (AdaptationPageSourceTests fact 1 row count; its Reset fact's `.Single()`; the `Make` helpers that gain constructor arguments). GitNexus impact at `4929c39d`: `EffectiveSettingsProvider` **CRITICAL** (119 symbols, 24 direct, 2 processes) — that blast radius is *why* this constraint exists; `AdaptationCoordinator` MEDIUM (34 / 4 direct).
+- **Additive-only provider semantics.** With `learned == 0`, `Effective` must be bit-identical to today for every knob/context/baseline — the fill-space sum `(0 + momentary) × edge` is algebraically today's `momentary × edge`, and the no-fill early-return must still trigger when both components are zero. Consequently **every existing test in all four suites must pass unchanged** except the four App-test modification classes this plan names explicitly (AdaptationPageSourceTests fact 1's row count; its Reset fact's `.Single()`; the `Make` helpers and existing construction sites that gain constructor arguments — coordinator, handler, learner; and the `HandChunkedPageFitTests.Construct` optional-params fallback). GitNexus impact at `4929c39d`: `EffectiveSettingsProvider` **CRITICAL** (119 symbols, 24 direct, 2 processes) — that blast radius is *why* this constraint exists; `AdaptationCoordinator` MEDIUM (34 / 4 direct).
 - **Blast-radius note for reviewers:** the four 1c consumers read `Effective` only; none is modified. `GeometryRouter.cs` gets a doc-comment correction only (its "a cap EDIT does not raise Changed" NB becomes false in this slice — that leftover is fixed here, see Task 2 Step 7).
 - **Learned survives; only the manual escape clears.** Session edges (`ResetOnEnable`/`ResetOnDisconnect`/`ResetOnResume`) and the disable edge (`ClearedOnDisable`, `AdaptationActivation.StopRuntime`) clear momentary only. The manual `ResetAdaptationMessage` (toolbar/tray) clears momentary **and** learned. The settings-page `ResetLearnedOffsetsMessage` clears learned only. §10/§13.1.
 - **All numbers are starting values, tunable in review** (house style): sample interval 30 s, α 0.05 (time constant ≈ 10 min), push ε 0.01, `LearnedMaxFill` 0.5, log cap 1 MB. Recorded as `public const`s (learner) / a `const` on `AdaptationSettings` — no new user-facing settings rows.
@@ -28,6 +28,8 @@
 - **If a step's expected output does not match, stop rather than adapting.** Anchors reference `main` at `4929c39d`; drift ⇒ report BLOCKED with what you saw.
 
 > **Review round 1 (2026-09-04, external analytical review): BLOCKED → findings applied.** All 7 blocking findings fixed (1 decay-expectation asserted the never-pushed provider value; 2 `Load` missing case-insensitive read options; 3 atomic-test `finally` deleting `%TEMP%`; 4 `Make(bool enabled)` needs a default; 5 the fourth coordinator construction site `AdaptationRuntimeContainmentTests.NewCoordinator`; 6 the `AdaptationLog` DI registration; 7 the gaze-clock-restart guard). Should-fix taken: 8 (per-knob disable zeroes learned immediately), 9 (drive timeline + comments), 10/12/17 (spec amendments §9.1/§10/§4), 11 (suppressed marker only on actual changes), 13 (decay-to-zero visible in the log), 18 (Load gated on Enabled), 23/24/25/26/20/21/22 (as folded below). Dispositioned: 15 → D9, 16 → documented, 19 → documented. Counts moved: learner 10 → **12** facts, log 6 → **7**; Core final **1194**, App final **758**.
+>
+> **Review round 2 (2026-09-05, implement-verbatim dry run): all counts landed — 6 findings applied.** F1 (blocker-class ordering): the coordinator/handler ctor changes break `AppBootstrapper`'s compile, so the learner/coordinator/handler DI registrations **moved from Task 5 into Task 4**, together with the registration fact (Task 4 now ends at App **749**; Task 5 is code-only and stays 749). F2: the two *existing* reset-handler facts' 2-arg ctor calls are an explicit edit, not just `Make` arity. F3: `HandChunkedPageFitTests.Construct` requires an exact 1-arg ctor — it gains the optional-params fallback (the fourth allowed existing-test modification). F4/F5: `AdaptationPageSource` needs `using CommunityToolkit.Mvvm.Messaging;` and `SettingsWindow.xaml.cs` needs `using System.IO;`. F6: `.gitnexus/run.cjs` does not exist in this checkout — Task 7 Step 4 names the MCP alternative. Final totals unchanged: **Core 1194 / ViewModels 300 / App 758 / Benchmarks.Tests 27** (interim App chain now 742 → 749 → 749 → 758).
 
 ### Owner-vetoable decision ledger (settled 2026-09-04, brainstorm session; the owner was not reachable interactively — each entry records rationale + the rejected alternative, the §13.3-fact-6 pattern. Flip any of these by editing the named member, not the structure)
 
@@ -79,7 +81,7 @@
 | `src/EyeCtrl.App/Services/AdaptationCoordinator.cs` | Learner dep + tick + reset fork + `ResetMomentary` | Modify (Task 4) |
 | `src/EyeCtrl.App/Services/AdaptationActivation.cs` | Disable edge → `ResetMomentary()` | 1 line + comment (Task 4) |
 | `src/EyeCtrl.App/Services/AdaptationResetHandler.cs` | + learner + second message | Modify (Task 4) |
-| `src/EyeCtrl.App/Services/AppBootstrapper.cs` | DI: learner, coordinator/handler/log args; stale provider comment | Modify (Task 5) |
+| `src/EyeCtrl.App/Services/AppBootstrapper.cs` | DI: learner + coordinator/handler registrations (Task 4, round-2 F1), stale provider comment (Task 5), `AdaptationLog` registration (Task 6) | Modify (Tasks 4-6) |
 | `src/EyeCtrl.App/App.xaml.cs` | `Load()` at startup, `Persist()` at exit | 2 insertions (Task 5) |
 | `src/EyeCtrl.App/Services/AdaptationLog.cs` | JSONL (learned pushes + mode transitions, cap, suppression) | Modify (Task 6) |
 | `src/EyeCtrl.App/Services/AppBootstrapper.cs` | **Also Task 6:** the `AdaptationLog` registration gains provider + path | Modify (Task 6) |
@@ -92,9 +94,10 @@
 | `tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs` | Make + learner; +4 facts | Task 4 |
 | `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs` | Make + learner; +2 facts | Task 4 |
 | `tests/EyeCtrl.App.Tests/Services/AdaptationRuntimeContainmentTests.cs` | Compile fix: `NewCoordinator` gains the learner arg (no fact change) | Task 4 |
-| `tests/EyeCtrl.App.Tests/Services/TelemetrySinkRegistrationTests.cs` | +1 registration fact | Task 5 |
+| `tests/EyeCtrl.App.Tests/Services/TelemetrySinkRegistrationTests.cs` | +1 registration fact (moved into Task 4 by round-2 F1) | Task 4 |
 | `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs` | Make + provider/path; +7 facts | Task 6 |
 | `tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs` | Fact 1 → 17 rows; Reset fact `.Single()` filter; +2 facts | Task 6 |
+| `tests/EyeCtrl.App.Tests/Settings/HandChunkedPageFitTests.cs` | `Construct` optional-params fallback (round-2 F3) | Task 6 |
 
 **No ViewModels production change beyond the +1 message record; no router/engine/controller/monitor change.**
 
@@ -1201,9 +1204,11 @@ git commit -m "feat(adaptation): EWMA learned layer with validated atomic persis
 - Modify: `src/EyeCtrl.App/Services/AdaptationCoordinator.cs`
 - Modify: `src/EyeCtrl.App/Services/AdaptationActivation.cs` (1 line)
 - Modify: `src/EyeCtrl.App/Services/AdaptationResetHandler.cs`
+- Modify: `src/EyeCtrl.App/Services/AppBootstrapper.cs` (learner + coordinator + handler registrations — round-2 F1: without these the App suite cannot compile after the ctor changes, so they belong in THIS task, not Task 5)
 - Test: `tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs` (Make + 4 facts)
-- Test: `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs` (Make + 2 facts)
+- Test: `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs` (Make + 2 facts + the two existing facts' ctor calls — round-2 F2)
 - Test: `tests/EyeCtrl.App.Tests/Services/AdaptationRuntimeContainmentTests.cs` (compile fix only — review round 1, finding 5: the fourth coordinator construction site)
+- Test: `tests/EyeCtrl.App.Tests/Services/TelemetrySinkRegistrationTests.cs` (+1 registration fact — moved here from Task 5 by round-2 F1, so it keeps its red-green cycle)
 
 **Interfaces:**
 - Consumes (Task 3): `AdaptationLearner` ctor/`Tick`/`ResetLearned`.
@@ -1344,6 +1349,23 @@ Append the four new facts (the drive uses 7 abandons so the ≈4-attempt gate st
     }
 ```
 
+Also append the **registration fact** to `tests/EyeCtrl.App.Tests/Services/TelemetrySinkRegistrationTests.cs` (moved here from Task 5 by round-2 F1 — it belongs beside the DI edits it guards, and this keeps its red-green cycle intact):
+
+```csharp
+    [Fact]
+    public void AdaptationLearner_Resolves_OverTheSharedProvider()
+    {
+        using var sp = BuildProvider();
+
+        var learner = sp.GetService<AdaptationLearner>();
+        var provider = sp.GetService<EffectiveSettingsProvider>();
+
+        Check.That(learner).IsNotNull();
+        Check.That(provider).IsNotNull();
+        // A dropped registration would degrade to silently never learning — same failure class as the sinks.
+    }
+```
+
 - [ ] **Step 3: Write the failing reset-handler tests**
 
 In `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs`, extend `Make` (learner with a temp path, threaded into the handler; return the adaptation and the state path for cleanup):
@@ -1365,7 +1387,14 @@ In `tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs`, extend `Ma
     }
 ```
 
-(The two existing facts' destructuring gains two elements; assertions unchanged. Add `using System;` / `using System.IO;`.) Append:
+(The two existing facts' destructuring gains two elements; assertions unchanged. Add `using System;` / `using System.IO;`.) **Their handler constructions change too** (round-2 F2 — extending `Make` alone leaves both existing facts calling the 2-arg ctor, a compile error):
+
+```csharp
+        var (coord, provider, sink, adaptation, _) = Make();
+        using var handler = new AdaptationResetHandler(messenger, coord, new AdaptationLearner(provider, adaptation));
+```
+
+(Both existing facts take this shape — capture `adaptation` from the extended `Make` and pass the learner as the third argument.) Append:
 
 ```csharp
     [Fact]
@@ -1548,65 +1577,12 @@ with:
 
 (Update the class doc comment's first sentence to mention both messages.)
 
-- [ ] **Step 6: Run the suite**
-
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
-Expected: `Bestanden!` with `gesamt: 748`. (Run the whole App project, never `ExternalDwellServiceTests` alone.)
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs src/EyeCtrl.App/Services/AdaptationCoordinator.cs src/EyeCtrl.App/Services/AdaptationActivation.cs src/EyeCtrl.App/Services/AdaptationResetHandler.cs tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs tests/EyeCtrl.App.Tests/Services/AdaptationRuntimeContainmentTests.cs
-git commit -m "feat(adaptation): learner tick wiring and the manual/session reset fork"
-```
-
----
-
-### Task 5: App — DI registration, startup load, exit persist
-
-**Files:**
-- Modify: `src/EyeCtrl.App/Services/AppBootstrapper.cs`
-- Modify: `src/EyeCtrl.App/App.xaml.cs`
-- Test: `tests/EyeCtrl.App.Tests/Services/TelemetrySinkRegistrationTests.cs` (+1 fact)
-
-**Interfaces:**
-- Consumes (Tasks 3-4): the `AdaptationLearner` constructor; the forked coordinator/handler constructors.
-- Produces: the DI graph — `AdaptationLearner` registered with the appdata path; `Load()` called once at startup before the adaptation runtime activates; `Persist()` called at exit beside the settings save.
-
-- [ ] **Step 1: Write the failing registration test**
-
-Append to `TelemetrySinkRegistrationTests`:
-
-```csharp
-    [Fact]
-    public void AdaptationLearner_Resolves_OverTheSharedProvider()
-    {
-        using var sp = BuildProvider();
-
-        var learner = sp.GetService<AdaptationLearner>();
-        var provider = sp.GetService<EffectiveSettingsProvider>();
-
-        Check.That(learner).IsNotNull();
-        Check.That(provider).IsNotNull();
-        // A dropped registration would degrade to silently never learning — same failure class as the sinks.
-    }
-```
-
-- [ ] **Step 2: Run to verify it fails**
-
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
-Expected: **Fehler!** — `AdaptationLearner` type not found in the App context / resolves null (compile error first).
-
-- [ ] **Step 3: Implement**
-
-In `src/EyeCtrl.App/Services/AppBootstrapper.cs`:
-
-(a) Register the learner just above the coordinator registration (~line 308), and add its argument to the coordinator lambda:
+(d) **Update the DI registrations in `src/EyeCtrl.App/Services/AppBootstrapper.cs`** (round-2 F1 — these moved here from Task 5 because the ctor changes above break this file's compile, and Task 4's test run needs it green):
 
 ```csharp
         // Phase-2 learned layer (§7.4): EWMA over the controller's momentary fills, pushed into the
         // provider; ticked by the coordinator on assess ticks. Load()/Persist() are called by App
-        // (startup/exit) — DI construction itself performs no I/O.
+        // (startup/exit, Task 5) — DI construction itself performs no I/O.
         services.AddSingleton(sp => new AdaptationLearner(
             sp.GetRequiredService<EffectiveSettingsProvider>(),
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
@@ -1621,8 +1597,6 @@ In `src/EyeCtrl.App/Services/AppBootstrapper.cs`:
             sp.GetRequiredService<GazeEngine>().InteractionManager));
 ```
 
-(b) Update the reset-handler registration (~line 344):
-
 ```csharp
         services.AddSingleton(sp => new AdaptationResetHandler(
             sp.GetRequiredService<IMessenger>(),
@@ -1630,11 +1604,39 @@ In `src/EyeCtrl.App/Services/AppBootstrapper.cs`:
             sp.GetRequiredService<AdaptationLearner>()));
 ```
 
-(c) Fix the stale provider comment at ~lines 147-149 — replace "Holds no deltas until the AdaptationController lands, and returns baseline while AdaptationSettings.Enabled == false." with "Holds no deltas while adaptation is disabled or idle, and returns baseline while AdaptationSettings.Enabled == false; Phase 2 adds the learned fills beside the momentary ones." (Leftover (d); comment only.)
+- [ ] **Step 6: Run the suite**
+
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
+Expected: `Bestanden!` with `gesamt: 749` (4 coordinator facts + 2 handler facts + the registration fact, with the bootstrapper compile fixed in Step 5d). (Run the whole App project, never `ExternalDwellServiceTests` alone.)
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs src/EyeCtrl.App/Services/AdaptationCoordinator.cs src/EyeCtrl.App/Services/AdaptationActivation.cs src/EyeCtrl.App/Services/AdaptationResetHandler.cs src/EyeCtrl.App/Services/AppBootstrapper.cs tests/EyeCtrl.App.Tests/Services/AdaptationCoordinatorTests.cs tests/EyeCtrl.App.Tests/Services/AdaptationResetHandlerTests.cs tests/EyeCtrl.App.Tests/Services/AdaptationRuntimeContainmentTests.cs tests/EyeCtrl.App.Tests/Services/TelemetrySinkRegistrationTests.cs
+git commit -m "feat(adaptation): learner tick wiring and the manual/session reset fork"
+```
+
+---
+
+### Task 5: App — DI registration, startup load, exit persist
+
+**Files:**
+- Modify: `src/EyeCtrl.App/Services/AppBootstrapper.cs` (stale provider comment only — the registrations moved to Task 4, round-2 F1)
+- Modify: `src/EyeCtrl.App/App.xaml.cs`
+
+**Interfaces:**
+- Consumes (Tasks 3-4): the `AdaptationLearner` constructor and DI registration (Task 4, round-2 F1).
+- Produces: `Load()` called once at startup before the adaptation runtime activates; `Persist()` called at exit beside the settings save. **No test changes in this task** — the registrations and their guard fact landed in Task 4 (round-2 F1); this task is App wiring only, verified by the unchanged suite count and the build.
+
+- [ ] **Step 1: Implement**
+
+In `src/EyeCtrl.App/Services/AppBootstrapper.cs`:
+
+(a) Fix the stale provider comment at ~lines 147-149 — replace "Holds no deltas until the AdaptationController lands, and returns baseline while AdaptationSettings.Enabled == false." with "Holds no deltas while adaptation is disabled or idle, and returns baseline while AdaptationSettings.Enabled == false; Phase 2 adds the learned fills beside the momentary ones." (Leftover (d); comment only.)
 
 In `src/EyeCtrl.App/App.xaml.cs`:
 
-(d) At the activation block (~line 340-345), load the learned state **before** the runtime starts, gated on the master switch (review round 1, finding 18 — §9.1 "disabled = current cost": an unconditional `Load()` would read the file and fan a `Changed` into every eagerly-resolved router while the feature is off). Keep it in `OnStartup`, **not** in `AdaptationActivation.StartRuntime` — a disable→enable cycle must not resurrect the stale on-disk state over the in-memory decay (the disable path deliberately does not persist), so a mid-session first enable starts learned at 0:
+(b) At the activation block (~line 340-345), load the learned state **before** the runtime starts, gated on the master switch (review round 1, finding 18 — §9.1 "disabled = current cost": an unconditional `Load()` would read the file and fan a `Changed` into every eagerly-resolved router while the feature is off). Keep it in `OnStartup`, **not** in `AdaptationActivation.StartRuntime` — a disable→enable cycle must not resurrect the stale on-disk state over the in-memory decay (the disable path deliberately does not persist), so a mid-session first enable starts learned at 0:
 
 ```csharp
             // Struggle-detection adaptation. AdaptationActivation starts and stops the whole runtime —
@@ -1646,21 +1648,21 @@ In `src/EyeCtrl.App/App.xaml.cs`:
             _serviceProvider.GetRequiredService<AdaptationActivation>().Start(gazeEngine);
 ```
 
-(e) In `OnExit`, persist beside the settings save (after `settingsService.Save(settings);` at ~line 409):
+(c) In `OnExit`, persist beside the settings save (after `settingsService.Save(settings);` at ~line 409):
 
 ```csharp
             _serviceProvider.GetRequiredService<AdaptationLearner>().Persist(); // best-effort (§11); never throws
 ```
 
-- [ ] **Step 4: Run the suite**
+- [ ] **Step 2: Run the suite**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
-Expected: `Bestanden!` with `gesamt: 749`.
+Expected: `Bestanden!` with `gesamt: 749` — **unchanged from Task 4** (this task adds no tests; a change here means the wiring broke something).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Services/AppBootstrapper.cs src/EyeCtrl.App/App.xaml.cs tests/EyeCtrl.App.Tests/Services/TelemetrySinkRegistrationTests.cs
+git add src/EyeCtrl.App/Services/AppBootstrapper.cs src/EyeCtrl.App/App.xaml.cs
 git commit -m "feat(adaptation): DI wiring, startup load, exit persist for the learned layer"
 ```
 
@@ -1675,6 +1677,7 @@ git commit -m "feat(adaptation): DI wiring, startup load, exit persist for the l
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (1 ctor arg + 1 method)
 - Test: `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs` (Make + 7 facts)
 - Test: `tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs` (1 fact modified, 2 added)
+- Test: `tests/EyeCtrl.App.Tests/Settings/HandChunkedPageFitTests.cs` (`Construct` fallback — round-2 F3)
 
 **Interfaces:**
 - Consumes (Task 2): `EnumerateLearnedFills`, `EffectiveSettingsProvider.Changed`; (Task 4) `ResetLearnedOffsetsMessage`.
@@ -2130,7 +2133,29 @@ public sealed class AdaptationLog : IDisposable
                     { Description = "Show the adaptation log file in Explorer." },
 ```
 
-(Add `using EyeCtrl.ViewModels.Messages;`. `Description { get; init; }` lives on the `SettingsRowSpec` base — verified — so both button initializers compile. `ButtonKind` offers `{ Default, Reset, Delete }` — `ad_log` takes `Default`.)
+(Add `using EyeCtrl.ViewModels.Messages;` **and `using CommunityToolkit.Mvvm.Messaging;`** — round-2 F4: the single-arg `Send` is the messenger extension, and `CalibrationPageSource` carries the same using. `Description { get; init; }` lives on the `SettingsRowSpec` base — verified — so both button initializers compile. `ButtonKind` offers `{ Default, Reset, Delete }` — `ad_log` takes `Default`.)
+
+**Then fix the page-fit harness the optional ctor parameter breaks** (round-2 F3: `HandChunkedPageFitTests.Construct` reflection-matches an exact `(SettingsPageContext)` constructor; the new optional callback removes that shape and two facts fail). In `tests/EyeCtrl.App.Tests/Settings/HandChunkedPageFitTests.cs`, extend the lookup in `Construct` (~line 190):
+
+```csharp
+        var ctor = type.GetConstructor([typeof(SettingsPageContext)])
+            // Sources may declare additional OPTIONAL constructor dependencies (the Adaptation page's
+            // open-log callback); the harness builds those with their defaults — the guard measures
+            // layout reachability, not wiring, and the tripwire below still fails loudly when neither
+            // shape exists.
+            ?? type.GetConstructors()
+                .Where(c =>
+                {
+                    var ps = c.GetParameters();
+                    return ps.Length > 0
+                        && ps[0].ParameterType == typeof(SettingsPageContext)
+                        && ps.Skip(1).All(p => p.HasDefaultValue);
+                })
+                .OrderBy(c => c.GetParameters().Length)
+                .FirstOrDefault();
+```
+
+(The existing `Check.WithCustomMessage` tripwire below it still fires when neither shape exists, so the guard stays loud.)
 
 In `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (~line 389):
 
@@ -2161,7 +2186,7 @@ and the method (with the class's other private helpers):
     }
 ```
 
-(`SettingsWindow` holds no logger field — verified — so use the static `Serilog.Log` as above; `System.IO.Path`/`File` resolve through the implicit usings or the file's existing imports — verify at compile.)
+(`SettingsWindow` holds no logger field — verified — so use the static `Serilog.Log` as above. It also needs **`using System.IO;`** — round-2 F5 confirmed the hedge: the file's existing imports do not cover `Path`/`File`.)
 
 - [ ] **Step 6: Run the suite**
 
@@ -2171,7 +2196,7 @@ Expected: `Bestanden!` with `gesamt: 758` (7 log facts + 2 page facts on top of 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Services/AdaptationLog.cs src/EyeCtrl.App/Services/AppBootstrapper.cs src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs
+git add src/EyeCtrl.App/Services/AdaptationLog.cs src/EyeCtrl.App/Services/AppBootstrapper.cs src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs tests/EyeCtrl.App.Tests/Settings/HandChunkedPageFitTests.cs
 git commit -m "feat(adaptation): JSONL review log, reset-learned and open-log buttons"
 ```
 
@@ -2258,7 +2283,7 @@ Expected, in order: `Bestanden!` **gesamt: 1194** (`erfolgreich: 1193, überspru
 
 - [ ] **Step 4: Graph change analysis (AGENTS gate)**
 
-Run `node .gitnexus/run.cjs detect-changes --scope all --repo .` — `partial: true` or `truncated: true` is not a clean check; re-run until clean. The expectation: changes confined to the adaptation community + the settings page source; nothing in the gaze-pipeline hot path.
+Run graph change analysis over the branch's changes — from this worktree the CLI script does not exist (round-2 F6: `.gitnexus/run.cjs` is a main-checkout artifact), so use the MCP tool with the worktree parameter: `detect_changes({scope: "all", worktree: "C:/Users/andre/source/repos/eyectrl/.worktrees/learned-offset"})`; the CLI equivalent (when run from the main checkout) is `node .gitnexus/run.cjs detect-changes --scope all --repo .`. `partial: true` or `truncated: true` is not a clean check; re-run until clean. The expectation (confirmed by the round-2 dry run): changes confined to the adaptation community + the settings page source + the test harness; nothing in the gaze-pipeline hot path.
 
 - [ ] **Step 5: Commit**
 
@@ -2276,5 +2301,5 @@ git commit -m "docs(spec): record the Phase-2 learned-offset resolution (§7.4);
 - The learner tests use exact-arithmetic expectations (powers of 0.95) — if an EWMA fact fails by a tiny epsilon, suspect the clamp or the cadence guard order, not the math.
 - `AdaptationPageSource`'s exact ctor style (primary-constructor vs explicit) must match what the file uses today; the contract is the optional `onOpenAdaptationLog` parameter and the two row ids.
 - If `AdaptationLogTests.MakeWired`'s coordinator construction fights the test-file's existing usings, add `using EyeCtrl.Core.Processing;` (InteractionManager) — the handler/coordinator test files already carry the set.
-- **Do not** "improve" `AdaptationController`, `StruggleMonitor`, or any router while in there. If a task's expected count is off by one, recount before adapting — the deltas (after review round 1) are: provider +12, learner +12, state file +8, coordinator +4, handler +2, registration +1, log +7, page +2 (net); interim totals 1174 → 1194 (Core) and 748 → 749 → 758 (App).
+- **Do not** "improve" `AdaptationController`, `StruggleMonitor`, or any router while in there. If a task's expected count is off by one, recount before adapting — the deltas (after both review rounds) are: provider +12, learner +12, state file +8, coordinator +4, handler +2, registration +1 (in **Task 4**, round-2 F1), log +7, page +2 (net); interim totals 1174 → 1194 (Core) and 742 → 749 → 749 → 758 (App — Task 4 ends at 749, Task 5 is code-only).
 - Two knife edges the review rounds carved around — do not "simplify" them away: the coordinator drive's t=73 learner sample clears the push ε by ~1.7e-18 (the 103 s tick exists so the assertion does not depend on it), and the JSON round-trip depends on `ReadOptions` being case-insensitive (a camelCase write with a case-sensitive read silently loads `Empty`).

@@ -44,7 +44,25 @@ public static class CursorRingStacks
         CursorRingStyle.AchromaticReticle => new CursorRingStack(
             new RingBand(lightHex, thickness + 4, 1.0, 0, 0),
             new RingBand(haloHex, thickness, opacity, 0, 0)),
+        CursorRingStyle.BiTonalSegments => BiTonal(size, thickness, opacity, markHex, haloHex),
         _ => throw new ArgumentOutOfRangeException(
             nameof(style), style, "Unknown cursor ring style")
     };
+
+    /// <summary>
+    /// Interleaved halo and mark segments at one radius and width.
+    ///
+    /// The dash length is a 32nd of the circumference, so a full on/off cycle is a 16th and
+    /// the pattern closes at the wrap point for any diameter. The mark band is offset by ONE
+    /// dash length — half a cycle — which is what drops its segments into the halo's gaps.
+    /// An offset of a whole cycle would put the two in phase and quietly void the style.
+    /// </summary>
+    private static CursorRingStack BiTonal(
+        double size, double thickness, double opacity, string markHex, string haloHex)
+    {
+        var dash = Math.PI * size / 32.0;
+        return new CursorRingStack(
+            new RingBand(haloHex, thickness, 1.0, dash, 0),
+            new RingBand(markHex, thickness, opacity, dash, dash));
+    }
 }

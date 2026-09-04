@@ -76,4 +76,86 @@ public class CursorRingStacksTests
         Check.That(stack.Outer.Hex).IsEqualTo(Light);
         Check.That(stack.Core.Hex).IsEqualTo(Halo);
     }
+
+    [Fact]
+    public void BiTonalSegments_BothBandsShareOneThickness()
+    {
+        // Not a stack: the two strokes interleave along the arc at the same radius and
+        // width. Equal thickness is also why the StrokeDashArray scaling trap of §4.1.3
+        // does not arise here — both patterns divide by the same number.
+        var stack = Build(CursorRingStyle.BiTonalSegments, thickness: 5);
+
+        Check.That(stack.Outer.Hex).IsEqualTo(Halo);
+        Check.That(stack.Outer.Thickness).IsEqualTo(5.0);
+        Check.That(stack.Core.Hex).IsEqualTo(Mark);
+        Check.That(stack.Core.Thickness).IsEqualTo(5.0);
+    }
+
+    [Fact]
+    public void BiTonalSegments_CoreIsOffsetByExactlyOneDashLength()
+    {
+        // THE test for this style. A whole-cycle offset (2 * DashPeriod) would put the
+        // bands in phase, the accent would cover the halo, and the style would silently
+        // become a plain accent ring that still passes every contrast test.
+        var stack = Build(CursorRingStyle.BiTonalSegments, thickness: 5);
+
+        Check.That(stack.Outer.DashOffset).IsEqualTo(0.0);
+        Check.That(stack.Core.DashOffset).IsEqualTo(stack.Core.DashPeriod);
+        Check.That(stack.Outer.DashPeriod).IsEqualTo(stack.Core.DashPeriod);
+    }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(40)]
+    [InlineData(250)]
+    [InlineData(333)]
+    [InlineData(500)]
+    public void BiTonalSegments_PatternClosesAtEveryLegalSize(double size)
+    {
+        // Asserted against the RETURNED period, not a restatement of the formula: written
+        // as pure arithmetic this identity holds for any input and guards nothing. What it
+        // guards here is rounding inside the implementation, which would leave a visible
+        // seam where the dash pattern wraps.
+        var stack = CursorRingStacks.For(
+            CursorRingStyle.BiTonalSegments, size, 5, 1.0, Mark, Halo, Light);
+
+        var cycles = Math.PI * size / (2 * stack.Core.DashPeriod);
+
+        Check.That(Math.Abs(cycles - Math.Round(cycles))).IsStrictlyLessThan(1e-9);
+        Check.That(Math.Round(cycles)).IsEqualTo(16.0);
+    }
+
+    [Theory]
+    [InlineData(CursorRingStyle.WeightedSandwich)]
+    [InlineData(CursorRingStyle.BiTonalSegments)]
+    [InlineData(CursorRingStyle.AchromaticReticle)]
+    public void EveryStyle_CoreCarriesTheUserOpacity_OutlineNeverDoes(CursorRingStyle style)
+    {
+        // Only WeightedSandwich pinned this, and only it passes a non-default opacity. At
+        // 1.0 the property is untestable: a style whose arm swapped `opacity` and `1.0`
+        // between its two bands would pass every other test in this file. The outline is
+        // the backdrop-independent half of the edge, so dimming it voids the guarantee.
+        var stack = CursorRingStacks.For(style, 250, 3, 0.4, Mark, Halo, Light);
+
+        Check.WithCustomMessage($"{style} core").That(stack.Core.Opacity).IsEqualTo(0.4);
+        Check.WithCustomMessage($"{style} outline").That(stack.Outer.Opacity).IsEqualTo(1.0);
+    }
+
+    [Theory]
+    [InlineData(CursorRingStyle.WeightedSandwich)]
+    [InlineData(CursorRingStyle.BiTonalSegments)]
+    [InlineData(CursorRingStyle.AchromaticReticle)]
+    public void EveryStyle_OuterIsNeverNarrowerThanTheCore(CursorRingStyle style)
+    {
+        // The property that makes a stack a stack: if the core were wider it would cover the
+        // outline completely and there would be no internal edge left to see. Swept across
+        // the whole legal thickness range, not just the presets.
+        for (var thickness = 1.0; thickness <= 10.0; thickness += 0.5)
+        {
+            var stack = CursorRingStacks.For(style, 250, thickness, 1.0, Mark, Halo, Light);
+
+            Check.WithCustomMessage($"{style} at thickness {thickness}")
+                .That(stack.Outer.Thickness).IsGreaterOrEqualThan(stack.Core.Thickness);
+        }
+    }
 }

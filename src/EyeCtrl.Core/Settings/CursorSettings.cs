@@ -134,7 +134,8 @@ public partial class CursorSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateHexColor(CircleColor, nameof(CircleColor)),
             ValidationHelper.ValidateRange(CircleOpacity, 0.0, 1.0, nameof(CircleOpacity)),
             ValidationHelper.ValidateRange(CircleThickness, 1.0, 10.0, nameof(CircleThickness)),
-            ValidationHelper.ValidateRange(CircleSize, 10.0, 500.0, nameof(CircleSize))
+            ValidationHelper.ValidateRange(CircleSize, 10.0, 500.0, nameof(CircleSize)),
+            ValidationHelper.ValidateEnumDefined(RingStyle, nameof(RingStyle))
         );
     }
 }

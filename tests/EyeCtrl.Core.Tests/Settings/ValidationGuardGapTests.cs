@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Tests.Settings;
 
 using System.Reflection;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
 public class ValidationGuardGapTests
@@ -99,5 +100,17 @@ public class ValidationGuardGapTests
     {
         Check.That(new DwellSettings().Validate()).IsEmpty();
         Check.That(new CursorSettings().Validate()).IsEmpty();
+    }
+
+    [Fact]
+    public void Validate_ReportsRingStyle_WhenOutOfRange()
+    {
+        // No OnChanging guard exists for RingStyle (unlike the other CursorSettings
+        // properties above), so a plain assignment reaches the field directly — no
+        // reflection needed to get the bad value in. JsonStringEnumConverter accepts
+        // integers by default, so a hand-edited settings.json can produce exactly this:
+        // an undefined CursorRingStyle that CursorRingStacks.For's `_ =>` arm throws on.
+        var s = new CursorSettings { RingStyle = (CursorRingStyle)99 };
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(CursorSettings.RingStyle)));
     }
 }

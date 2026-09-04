@@ -32,6 +32,15 @@ public class CursorRingStyleContrastTests
 
     private const double EdgeFloor = 7.0;
 
+    /// <summary>
+    /// WCAG 2.1 SC 1.4.11's non-text floor — the same one <c>HaloContrastTests.EdgeFloor</c>
+    /// cites for §1. Used only by <see cref="BiTonalSegments_OneFamilyClearsThePerceptibilityFloorOnEveryBackdrop"/>,
+    /// whose property is weaker than <see cref="EdgeFloor"/> on purpose: it is asking whether
+    /// one band family is perceivable at all, not whether the (here, non-perimeter) internal
+    /// edge is strong.
+    /// </summary>
+    private const double PerceptibilityFloor = 3.0;
+
     private static double Channel(byte c)
     {
         var v = c / 255.0;
@@ -62,6 +71,19 @@ public class CursorRingStyleContrastTests
     /// a future palette, preset or style pairing weakens that term — not as a
     /// backdrop-discrimination test. See <see cref="HaloContrastTests.StrongestVisibleEdge"/>
     /// for the fuller reasoning.
+    ///
+    /// The dominant mark-vs-halo term does not mean the same thing visually for all three
+    /// styles. For <see cref="CursorRingStyle.WeightedSandwich"/> and
+    /// <see cref="CursorRingStyle.AchromaticReticle"/> the two bands are concentric, so this
+    /// edge is a continuous ring running the full perimeter. For
+    /// <see cref="CursorRingStyle.BiTonalSegments"/> the bands sit at the same radius and
+    /// width with complementary dash phases, so the mark and halo never share a perimeter —
+    /// this edge instead renders as 32 junctions across the stroke width, where a mark segment
+    /// ends and a halo segment begins (or vice versa). The number is real (the two colours do
+    /// meet), but "9.13:1 along the whole ring" and "9.13:1 at 32 short seams" are not the same
+    /// guarantee to the eye. BiTonal's actual per-backdrop guarantee — that at least one
+    /// segment family is perceivable against the backdrop on its own — is pinned separately by
+    /// <see cref="BiTonalSegments_OneFamilyClearsThePerceptibilityFloorOnEveryBackdrop"/>.
     /// </summary>
     private static double StrongestVisibleEdge(Color mark, Color halo, Color backdrop) =>
         Math.Max(Contrast(mark, halo),
@@ -99,6 +121,58 @@ public class CursorRingStyleContrastTests
                             + $"only {edge:F2}:1 over {b}; §4.1.3 requires >= {EdgeFloor}.")
                         .That(edge).IsStrictlyGreaterThan(EdgeFloor);
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// BiTonal's real guarantee (a PR review's diagnosis, corrected — see the class remarks
+    /// on <see cref="StrongestVisibleEdge"/>): the mark-vs-halo term above never renders as a
+    /// perimeter edge for this style, so it is not evidence that the style is legible. What
+    /// the spec actually promises is "half the circumference is always at full weight against
+    /// any backdrop" — i.e. on every backdrop, at least one of the two segment families must
+    /// be perceivable against it on its own: <c>max(contrast(mark, backdrop),
+    /// contrast(halo, backdrop)) >= 3.0</c> (<see cref="PerceptibilityFloor"/>).
+    ///
+    /// This is deliberately NOT <c>min(...)</c>: requiring BOTH families to clear a floor
+    /// against every backdrop fails on 8 of the 9 backdrops here even at 3.0 (e.g. the halo is
+    /// only 1.07:1 against black; the accent is only 1.25:1 against white) — because one
+    /// family fading into the backdrop while the other carries is the whole point of the
+    /// style, not a defect.
+    ///
+    /// Not asserted for <see cref="CursorRingStyle.WeightedSandwich"/> or
+    /// <see cref="CursorRingStyle.AchromaticReticle"/>: those are concentric stacks whose
+    /// internal mark/halo edge IS a perimeter edge, so <see cref="EdgeFloor"/> above is the
+    /// property that matters for them, not this one.
+    ///
+    /// Verified worst case across all three themes' presets and all nine backdrops: Midnight's
+    /// "Amber" (<c>#E8A33C</c>) against <c>#404040</c>, 4.81:1 (mark 4.81:1, halo 1.90:1).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void BiTonalSegments_OneFamilyClearsThePerceptibilityFloorOnEveryBackdrop(ITheme theme)
+    {
+        foreach (var preset in DwellColorPicker.PresetsFor(theme))
+        {
+            var stack = CursorRingStacks.For(
+                CursorRingStyle.BiTonalSegments, 250, 3, 1.0,
+                preset.Hex, Hex(theme.StrokeHalo), Hex(theme.TextPrimary));
+
+            var mark = Parse(stack.Core.Hex);
+            var halo = Parse(stack.Outer.Hex);
+
+            foreach (var b in Backdrops)
+            {
+                var backdrop = Parse(b);
+                var markContrast = Contrast(mark, backdrop);
+                var haloContrast = Contrast(halo, backdrop);
+                var strongestFamily = Math.Max(markContrast, haloContrast);
+
+                Check.WithCustomMessage(
+                        $"{theme.Name}/BiTonalSegments: preset '{preset.Name}' ({preset.Hex}) over {b} — "
+                        + $"mark {markContrast:F2}:1, halo {haloContrast:F2}:1; neither family reaches "
+                        + $"the {PerceptibilityFloor}:1 perceptibility floor.")
+                    .That(strongestFamily).IsGreaterOrEqualThan(PerceptibilityFloor);
             }
         }
     }

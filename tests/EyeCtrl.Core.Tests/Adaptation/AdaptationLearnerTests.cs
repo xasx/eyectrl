@@ -143,9 +143,10 @@ public class AdaptationLearnerTests
     [Fact]
     public void PerKnobDisable_ZeroesItsLearnedOffsetImmediately()
     {
-        // Review round 1, finding 8: the per-knob Adapt* toggles are user-facing off switches; the
-        // controller collapses a disabled knob's momentary fill at once, and the learner must match —
-        // a 40-minute decay tail on an off switch would keep adapting after the user turned it off.
+        // Review round 1, finding 8 + whole-branch review finding R2: the per-knob Adapt* toggles are
+        // user-facing off switches; the controller collapses a disabled knob's momentary fill at once,
+        // and the learner must match SYNCHRONOUSLY on the settings change — not at the next sample,
+        // which can be up to one 30 s interval away.
         var settings = new EyeCtrlSettings();
         var provider = new EffectiveSettingsProvider(settings.Adaptation);
         var learner = new AdaptationLearner(provider, settings.Adaptation);
@@ -156,9 +157,9 @@ public class AdaptationLearnerTests
         Check.That(provider.EnumerateLearnedFills()).HasSize(1); // learned ≈ 0.1426
 
         settings.Adaptation.AdaptDwell = false;
+        Check.That(provider.EnumerateLearnedFills()).IsEmpty(); // cleared by the toggle itself — no sample needed
         learner.Tick(Sec + 3 * Sample);
-
-        Check.That(provider.EnumerateLearnedFills()).IsEmpty(); // zeroed at the very next sample
+        Check.That(provider.EnumerateLearnedFills()).IsEmpty(); // and the sample path does not resurrect it
     }
 
     [Fact]

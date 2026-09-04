@@ -162,6 +162,48 @@ public class AdaptationLearnerTests
     }
 
     [Fact]
+    public void NeverParticipatedSession_PersistPreservesTheFile()
+    {
+        // Whole-branch review finding R1: a session that never loaded and never sampled (the app run
+        // with adaptation off — Load is skipped, the coordinator never ticks) must not clobber the
+        // offsets a previous session earned when OnExit calls Persist.
+        string path = Path.Combine(Path.GetTempPath(), "eyectrl_learner_test_" + Guid.NewGuid() + ".json");
+        try
+        {
+            AdaptationStateFile.Save(path, new AdaptationState(
+                AdaptationState.CurrentVersion, DateTimeOffset.UtcNow,
+                new Dictionary<AdaptationKnob, double> { [AdaptationKnob.DwellTime] = 0.3 }));
+            var (learner, _) = Make(path);
+
+            learner.Persist(); // never loaded, never ticked
+
+            Check.That(AdaptationStateFile.Load(path).Learned[AdaptationKnob.DwellTime]).IsCloseTo(0.3, 1e-9);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ResetLearned_PersistsEvenWithoutParticipation()
+    {
+        // The other half of R1: the explicit reset is user intent and stays durable even in a
+        // never-participated session (its wipe of the file is exactly what the user asked for).
+        string path = Path.Combine(Path.GetTempPath(), "eyectrl_learner_test_" + Guid.NewGuid() + ".json");
+        try
+        {
+            AdaptationStateFile.Save(path, new AdaptationState(
+                AdaptationState.CurrentVersion, DateTimeOffset.UtcNow,
+                new Dictionary<AdaptationKnob, double> { [AdaptationKnob.DwellTime] = 0.3 }));
+            var (learner, provider) = Make(path);
+
+            learner.ResetLearned();
+
+            Check.That(provider.EnumerateLearnedFills()).IsEmpty();
+            Check.That(AdaptationStateFile.Load(path).Learned.Values).ContainsOnlyElementsThatMatch(v => v == 0.0);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void ResetLearned_ClearsProviderAndPersistsZeros()
     {
         string path = Path.Combine(Path.GetTempPath(), "eyectrl_learner_test_" + Guid.NewGuid() + ".json");

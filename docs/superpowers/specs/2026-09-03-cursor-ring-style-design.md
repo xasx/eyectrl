@@ -259,6 +259,26 @@ silently overwrite a user's tuned thickness and opacity depending on property
 order in the settings file. Keeping it in the combo setter means the preset only
 ever fires on an explicit user gesture.
 
+**The preset write is invisible at the moment it happens — open decision.** The
+Ring Style combo sits on page 1 of the Cursor tab; `CircleThickness` and
+`CircleOpacity`, the two controls it rewrites, are on page 2. So a user who has
+deliberately tuned thickness to 6 loses it the instant they dwell the style
+combo, with no on-screen feedback, because the sliders that would show the change
+are on a page they are not looking at. For a gaze-only user an accidental
+re-fixation is plausible, and re-selecting the already-selected style is exactly
+the remediation gesture §8 depends on — so the destructive case and the intended
+case are the same gesture.
+
+Verified rather than assumed: `DwellComboBox` renders one dwell button per option
+and wires each to `_setCode(capturedCode)` unconditionally, with no guard
+comparing against the current selection, so dwelling the already-selected style
+does re-run the setter and does write the preset. The remediation path works.
+
+What is NOT resolved is whether the silent cross-page rewrite is acceptable.
+Options, none chosen here: move Ring Style onto page 2 beside the sliders it
+rewrites; add a confirmation modal as the reset button already uses; or accept it
+and say so. This needs a decision from the plan owner.
+
 Because all three presets want opacity 1.0, the opacity slider loses most of its
 purpose. It stays live — a user may legitimately want a subtler ring — and its
 description says plainly that lowering it dims the mark side of the edge and

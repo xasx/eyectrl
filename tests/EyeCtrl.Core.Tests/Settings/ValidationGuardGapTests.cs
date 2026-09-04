@@ -113,4 +113,18 @@ public class ValidationGuardGapTests
         var s = new CursorSettings { RingStyle = (CursorRingStyle)99 };
         Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(CursorSettings.RingStyle)));
     }
+
+    [Fact]
+    public void Validate_ReportsPositionIndicatorStyle_WhenOutOfRange()
+    {
+        // No OnChanging guard exists for PositionIndicatorStyle either, so a plain assignment
+        // reaches the field directly — no reflection needed to get the bad value in.
+        // JsonStringEnumConverter accepts integers by default, so a hand-edited settings.json
+        // can produce exactly this: an undefined PositionIndicatorStyle. Unlike RingStyle, no
+        // switch throws on it — ActionMenuWindow.Show only tests `== Crosshair` and falls
+        // through to the Pin branch for anything else — but Validate() should still catch an
+        // undefined value rather than let it be silently reinterpreted as Pin.
+        var s = new CursorSettings { PositionIndicatorStyle = (PositionIndicatorStyle)99 };
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(CursorSettings.PositionIndicatorStyle)));
+    }
 }

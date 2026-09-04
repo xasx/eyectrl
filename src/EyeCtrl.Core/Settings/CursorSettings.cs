@@ -21,16 +21,17 @@ public partial class CursorSettings : ObservableObject, IValidatable
     /// <summary>
     /// Opacity of the gaze cursor circle. Valid range: 0–1.
     ///
-    /// 1.0, not 0.7: the ring's outline band is opaque regardless (CursorRingStacks applies
-    /// this value to the core band alone), so the backdrop-independent edge no longer needs
-    /// the core dimmed to stay above the 7.0 floor — at full opacity that edge is
-    /// Accent against StrokeHalo, 15.78:1. The earlier 0.7 was chosen when this value scaled
-    /// the whole stack; it also composited the accent toward the backdrop, which is what put
-    /// it at 1.17:1 over a white document. Lowering this dims the core band toward whatever is
-    /// behind the ring, and on a dark backdrop — where the near-black outline has little
-    /// contrast of its own — that weakens the ring rather than merely restyling it; no test
-    /// covers this, since the contrast tests compare palette colours and do not model alpha
-    /// compositing.
+    /// Default 1.0. The core band is painted OVER the outer band, which stays opaque
+    /// regardless of this value (CursorRingStacks applies opacity to the core alone), so the
+    /// visible core is core*opacity + outer*(1-opacity) — or, for BiTonalSegments' side-by-side
+    /// bands, core*opacity + backdrop*(1-opacity) — converging on whatever is behind it as
+    /// opacity falls. The outer band's opacity is what makes the edge strong at 1.0; it does
+    /// not protect the edge as this value drops. For Midnight's Accent core the edge is
+    /// 15.78:1 at 1.0, 7.92:1 at 0.7, and 6.03:1 at 0.6 — under the 7.0 floor: the original 0.7
+    /// reasoning was correct, and an earlier revision of this comment was wrong to call it
+    /// superseded. CursorRingStyleContrastTests'
+    /// CircleOpacity_WorstCaseAcrossEveryStyleThemeAndPreset_IsPinned models this across every
+    /// style/theme/preset; the worst case needs 0.9.
     /// </summary>
     [ObservableProperty] private double _circleOpacity = 1.0;
     /// <summary>
@@ -135,7 +136,8 @@ public partial class CursorSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(CircleOpacity, 0.0, 1.0, nameof(CircleOpacity)),
             ValidationHelper.ValidateRange(CircleThickness, 1.0, 10.0, nameof(CircleThickness)),
             ValidationHelper.ValidateRange(CircleSize, 10.0, 500.0, nameof(CircleSize)),
-            ValidationHelper.ValidateEnumDefined(RingStyle, nameof(RingStyle))
+            ValidationHelper.ValidateEnumDefined(RingStyle, nameof(RingStyle)),
+            ValidationHelper.ValidateEnumDefined(PositionIndicatorStyle, nameof(PositionIndicatorStyle))
         );
     }
 }

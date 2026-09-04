@@ -377,12 +377,30 @@ of the legal range. At 1.0 the stack is a 1px core inside a 5px halo, so 2px of
 near-black rim carries each side. Less weight than 3.0, and the internal edge is
 unchanged: it is a colour relationship, not a width one.
 
-The XML doc comment on `CircleOpacity` currently argues for 0.7 on the grounds
-that it keeps the halo edge above the 7.0 floor while 0.6 does not. That
-reasoning is superseded: at full opacity the edge is `Accent` against
-`StrokeHalo` — 15.78:1 in Midnight — and the argument for dimming the mark no
-longer applies. The comment must be rewritten in the same change, not left
-contradicting the value beside it.
+The XML doc comment on `CircleOpacity` originally argued for 0.7 on the
+grounds that it keeps the halo edge above the 7.0 floor while 0.6 does not. A
+later revision on this branch called that reasoning superseded, on the theory
+that once the outer band is opaque regardless of opacity, the edge no longer
+needs the core dimmed to stay above the floor.
+
+**Correction: that revision was itself wrong.** The outer band being opaque is
+what makes the edge strong AT full opacity — it does nothing to protect the
+edge as opacity falls, because the core is painted OVER the outer band (they
+are concentric on the same centre path). The visible core is therefore
+`core*opacity + outer*(1-opacity)`, which converges on the outer band's own
+colour as opacity approaches 0, and the edge collapses with it. Recomputed for
+Midnight's Accent core: 15.78:1 at opacity 1.0, 7.92:1 at 0.7, and 6.03:1 at
+0.6 — reproducing the original author's numbers almost exactly. The original
+0.7 reasoning holds unchanged; only the default moved, to 1.0. `BiTonalSegments`
+composites the same way but against the desktop backdrop rather than the halo,
+since its bands sit side by side rather than stacked — its worst case is
+checked against all nine §9.5 backdrops rather than against the halo alone.
+
+`CursorRingStyleContrastTests.CircleOpacity_WorstCaseAcrossEveryStyleThemeAndPreset_IsPinned`
+sweeps every style, theme and colour-picker preset in the opacity slider's own
+0.1 steps and pins the real floor: 0.9, set by Midnight's Amber preset under
+both `WeightedSandwich` and `BiTonalSegments`. The `CircleOpacity` doc comment
+is rewritten to state this, not the superseded claim it stated before.
 
 **Existing installs get nothing from this change, and that is nearly everyone.**
 Verified 2026-09-03 rather than assumed: `SettingsService.Save` serializes the

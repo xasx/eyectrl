@@ -7,6 +7,7 @@ using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using Serilog;
 
 public partial class CursorCircleWindow : OverlayWindow
 {
@@ -64,8 +65,16 @@ public partial class CursorCircleWindow : OverlayWindow
             brush.Freeze();
             target.Stroke = brush;
         }
-        catch
+        catch (Exception ex)
         {
+            // Deliberately broad, and deliberately not narrowed to FormatException:
+            // ConvertFromString and the cast can also raise InvalidCastException,
+            // ArgumentException and NotSupportedException, and this runs on the dispatcher
+            // during a settings change — where App's DispatcherUnhandledException handler
+            // does NOT set Handled, so an escaped exception kills the process. A cursor that
+            // falls back to the theme brush is recoverable; one that takes the app down
+            // takes the user's only input channel with it.
+            Log.Warning(ex, "Could not parse cursor ring colour {Hex}; using the theme brush", band.Hex);
             target.Stroke = fallback;
         }
 
@@ -75,8 +84,8 @@ public partial class CursorCircleWindow : OverlayWindow
         if (band.DashPeriod > 0)
         {
             // StrokeDashArray and StrokeDashOffset are both in MULTIPLES OF StrokeThickness,
-            // not device pixels (same as DragTrailOverlay). Dash and gap are equal, and the
-            // offset is one dash — half a cycle — which interleaves the two bands.
+            // not device pixels. Dash and gap are equal, and the offset is one dash — half a
+            // cycle — which interleaves the two bands.
             var units = band.DashPeriod / band.Thickness;
             target.StrokeDashArray = new DoubleCollection { units, units };
             target.StrokeDashOffset = band.DashOffset / band.Thickness;

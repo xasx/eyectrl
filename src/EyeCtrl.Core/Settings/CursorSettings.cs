@@ -33,6 +33,8 @@ public partial class CursorSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _circleSize = 250;
     /// <summary>Visual style of the position indicator shown at the gaze point.</summary>
     [ObservableProperty] private PositionIndicatorStyle _positionIndicatorStyle = PositionIndicatorStyle.Crosshair;
+    /// <summary>How the cursor ring's stroke stack is built. See CursorRingStacks.</summary>
+    [ObservableProperty] private CursorRingStyle _ringStyle = CursorRingStyle.WeightedSandwich;
 
     partial void OnSmoothingFactorChanging(double value)
     {

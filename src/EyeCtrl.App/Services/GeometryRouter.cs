@@ -20,10 +20,10 @@ using EyeCtrl.Core.Settings;
 /// visible element coupled to hit geometry is External's dwell-feedback overlay, which sizes itself
 /// from the routed rect (§8.9's visible⇒hit direction, by construction). In-place and idempotent,
 /// so there is deliberately no §9.1 budget (the tolerance
-/// precedent). NB: a cap EDIT does not raise <c>Changed</c> (fills only), so a lowered cap takes
-/// effect at the next fill write — bounded staleness, self-healing (the §13.3 smoothing leftover
-/// class). UI-thread: constructed eagerly at startup (it subscribes and applies in its ctor — see
-/// AppBootstrapper / App.xaml.cs).
+/// precedent). A cap EDIT raises <c>Changed</c> since the Phase-2 learned-offset slice (the provider
+/// subscribes to the composition-relevant settings edits), so a lowered cap re-applies immediately.
+/// UI-thread: constructed eagerly at startup (it subscribes and applies in its ctor — resolved in
+/// App.xaml.cs's eager-resolve block).
 /// </summary>
 public sealed class GeometryRouter : IDisposable
 {

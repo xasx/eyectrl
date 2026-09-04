@@ -66,6 +66,11 @@ public partial class AdaptationSettings : ObservableObject, IValidatable
     /// <c>margin = clamp(effective − base, 0, this)</c>. Default 100.</summary>
     [ObservableProperty] private double _geometryMaxMarginPx = 100.0;
 
+    /// <summary>The maximum learned offset, as a fraction of the knob's forgiving band (§7.4). A const,
+    /// not a setting: learned may pay at most half the band so the momentary layer always retains
+    /// headroom to the full band — the offset can never pin a knob at its band edge (§8.7).</summary>
+    public const double LearnedMaxFill = 0.5;
+
     partial void OnDwellShorterMaxFractionChanging(double value) => GuardFraction(value, nameof(DwellShorterMaxFraction));
     partial void OnDwellLongerMaxFractionChanging(double value) => GuardFraction(value, nameof(DwellLongerMaxFraction));
     partial void OnToleranceLooserMaxFractionChanging(double value) => GuardFraction(value, nameof(ToleranceLooserMaxFraction));

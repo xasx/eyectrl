@@ -2,6 +2,8 @@ namespace EyeCtrl.Core.Adaptation;
 
 using EyeCtrl.Core.Settings;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.ComponentModel;
 
 /// <summary>
 /// Stateful composition layer over the pure <see cref="EffectiveValue"/> calculator. Holds a momentary
@@ -13,6 +15,13 @@ using System.Collections.Concurrent;
 /// and the runtime-derived geometry knob each compose against the caller's own baseline). When adaptation
 /// is disabled or no non-zero fill is stored, <see cref="Effective"/> returns the exact baseline — the
 /// locked "disabled ⇒ effective == baseline" invariant (design §8.3).
+/// <para>
+/// Phase 2 (§7.4) adds a per-knob <b>learned</b> band fill — forgiving-only, clamped to
+/// <see cref="AdaptationSettings.LearnedMaxFill"/> — composed with the momentary forgiving fill
+/// before the single band clamp (design §5: forgiving = clamp(learned + momentary, band)).
+/// <see cref="Changed"/> therefore also fires on learned set/clear and on composition-relevant
+/// settings edits (band fractions, the geometry margin cap), not only on momentary fill writes.
+/// </para>
 /// Not thread-safe for concurrent writes: fills are set on the serialized controller/dispatcher thread.
 /// The sole consumer (<c>GazeEngine</c>, plan 1b-①) defers its <c>Changed</c>-driven fixation rebuild onto
 /// the gaze thread, so its reads of <see cref="Effective"/> arrive there; the dwell knob is routed by
@@ -95,12 +104,44 @@ public sealed class EffectiveSettingsProvider
     // writer thread, so consumer-side coalescing is unaffected.
     private readonly ConcurrentDictionary<(AdaptationKnob Knob, DwellContext Context), (double ForgivingFill, double TighteningFill)> _fills = new();
 
+    // Phase-2 learned fills (§7.4), keyed by knob only — v1 is global per knob (the momentary layer it
+    // learns from is global; per-context learned arrives with per-context momentary fills, if ever).
+    // Forgiving-only by construction: one non-negative fill per knob, no tightening component exists.
+    // ConcurrentDictionary for the same reason as _fills: Effective reads it on the gaze thread.
+    private readonly ConcurrentDictionary<AdaptationKnob, double> _learnedFills = new();
+
     /// <summary>Raised whenever a momentary fill is set or cleared, so consumers can re-read effective values.</summary>
     public event Action? Changed;
 
     /// <summary>Initializes the provider with the master adaptation settings (the enable gate + band-fraction source).</summary>
     /// <param name="adaptation">The adaptation settings whose <see cref="AdaptationSettings.Enabled"/> gates composition and whose band fractions bound each knob.</param>
-    public EffectiveSettingsProvider(AdaptationSettings adaptation) => _adaptation = adaptation;
+    public EffectiveSettingsProvider(AdaptationSettings adaptation)
+    {
+        _adaptation = adaptation;
+        // Composition-relevant settings edits re-raise Changed so consumers re-read: without this, a band
+        // fraction or margin-cap edit while a fill is stored refreshed the applied value only at the next
+        // fill write (the §13.3 settings-edit staleness leftover, fixed here for every consumer at once).
+        // Enabled and Posture are excluded: the enable edge is owned by the coordinator/activation (which
+        // also clear momentary fills), and posture affects only step rates, not composition. No unsubscribe:
+        // provider and settings are co-extensive container singletons.
+        _adaptation.PropertyChanged += OnAdaptationSettingsChanged;
+    }
+
+    private static readonly HashSet<string> CompositionRelevantSettings = new()
+    {
+        nameof(AdaptationSettings.DwellShorterMaxFraction),
+        nameof(AdaptationSettings.DwellLongerMaxFraction),
+        nameof(AdaptationSettings.ToleranceLooserMaxFraction),
+        nameof(AdaptationSettings.SmoothingMoreMaxFraction),
+        nameof(AdaptationSettings.GeometryBiggerMaxFraction),
+        nameof(AdaptationSettings.GeometryMaxMarginPx),
+    };
+
+    private void OnAdaptationSettingsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not null && CompositionRelevantSettings.Contains(e.PropertyName))
+            Changed?.Invoke();
+    }
 
     /// <summary>
     /// Returns the effective value for <paramref name="knob"/> in <paramref name="context"/>, resolving the
@@ -116,7 +157,10 @@ public sealed class EffectiveSettingsProvider
     {
         if (!_adaptation.Enabled)
             return baseline;
-        if (!_fills.TryGetValue((knob, context), out var f) || (f.ForgivingFill == 0.0 && f.TighteningFill == 0.0))
+        bool hasMomentary = _fills.TryGetValue((knob, context), out var f)
+            && (f.ForgivingFill != 0.0 || f.TighteningFill != 0.0);
+        double learned = _learnedFills.TryGetValue(knob, out double l) ? l : 0.0;
+        if (!hasMomentary && learned == 0.0)
             return baseline;
         if (!Policies.TryGetValue(knob, out var p))
             return baseline; // defensive (design §11): a fill for a knob without a policy falls back to baseline
@@ -128,7 +172,7 @@ public sealed class EffectiveSettingsProvider
 
         return EffectiveValue.Compute(
             baseline,
-            f.ForgivingFill * forgivingEdge,
+            (f.ForgivingFill + learned) * forgivingEdge,
             f.TighteningFill * tighteningEdge,
             (Math.Min(0.0, forgivingEdge), Math.Max(0.0, forgivingEdge)),
             (Math.Min(0.0, tighteningEdge), Math.Max(0.0, tighteningEdge)),
@@ -158,5 +202,61 @@ public sealed class EffectiveSettingsProvider
             return;
         _fills.Clear();
         Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Sets the Phase-2 learned band-fill fraction for a knob (§7.4) and raises <see cref="Changed"/> on
+    /// value change. The value is clamped to <c>[0, <see cref="AdaptationSettings.LearnedMaxFill"/>]</c>:
+    /// the store cannot hold a tightening or out-of-band learned offset, whatever the caller passes.
+    /// </summary>
+    /// <param name="knob">The knob.</param>
+    /// <param name="fill">Learned band-fill fraction toward "easier" (forgiving-only, ≥ 0).</param>
+    public void SetLearnedFill(AdaptationKnob knob, double fill)
+    {
+        double clamped = Math.Clamp(fill, 0.0, AdaptationSettings.LearnedMaxFill);
+        double old = _learnedFills.GetOrAdd(knob, 0.0);
+        if (clamped == old)
+            return;
+        _learnedFills[knob] = clamped;
+        Changed?.Invoke();
+    }
+
+    /// <summary>Clears every learned fill (manual reset / load) and raises <see cref="Changed"/> if any were present.</summary>
+    public void ClearLearnedFills()
+    {
+        if (_learnedFills.Count == 0)
+            return;
+        _learnedFills.Clear();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Reads the stored momentary fills for a knob/context — the Phase-2 learner's observation
+    /// seam (the provider previously had no read API at all).</summary>
+    /// <param name="knob">The knob.</param>
+    /// <param name="context">The context.</param>
+    /// <param name="forgivingFill">Receives the stored forgiving band fill (0 when absent).</param>
+    /// <param name="tighteningFill">Receives the stored tightening band fill (0 when absent).</param>
+    /// <returns>True when a fill entry is stored for the knob/context.</returns>
+    public bool TryGetMomentaryFill(AdaptationKnob knob, DwellContext context, out double forgivingFill, out double tighteningFill)
+    {
+        if (_fills.TryGetValue((knob, context), out var f))
+        {
+            forgivingFill = f.ForgivingFill;
+            tighteningFill = f.TighteningFill;
+            return true;
+        }
+        forgivingFill = 0.0;
+        tighteningFill = 0.0;
+        return false;
+    }
+
+    /// <summary>The non-zero learned fills, for persistence, logging, and status.</summary>
+    public IReadOnlyList<(AdaptationKnob Knob, double Fill)> EnumerateLearnedFills()
+    {
+        var list = new List<(AdaptationKnob, double)>();
+        foreach (var (knob, fill) in _learnedFills)
+            if (fill != 0.0)
+                list.Add((knob, fill));
+        return list;
     }
 }

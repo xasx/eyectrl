@@ -37,6 +37,8 @@ public class AdaptationSettingsTests
         Check.That(s.ShowCue).IsTrue();
         Check.That(s.SuppressInSensitiveContexts).IsTrue();
         Check.That(s.CaregiverAlerts).IsFalse();
+        // Phase-3 caregiver rate limit (§10 resolution): default 10 minutes.
+        Check.That(s.CaregiverMinIntervalMinutes).IsEqualTo(10.0);
 
         // Band fractions match the §13.1 fixed envelope.
         Check.That(s.DwellShorterMaxFraction).IsEqualTo(0.40);
@@ -94,5 +96,13 @@ public class AdaptationSettingsTests
         s.GeometryMaxMarginPx = 300.0;
         Check.That(s.GeometryMaxMarginPx).IsEqualTo(300.0);
         Check.That(s.Validate()).IsEmpty();
+    }
+
+    [Fact]
+    public void CaregiverMinInterval_OutOfRange_ThrowsFromSetterGuard()
+    {
+        var s = new AdaptationSettings();
+        Check.ThatCode(() => s.CaregiverMinIntervalMinutes = 0.5).Throws<ArgumentOutOfRangeException>();
+        Check.ThatCode(() => s.CaregiverMinIntervalMinutes = 61).Throws<ArgumentOutOfRangeException>();
     }
 }

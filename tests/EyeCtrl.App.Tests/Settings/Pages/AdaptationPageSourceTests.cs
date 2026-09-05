@@ -8,14 +8,15 @@ using EyeCtrl.ViewModels.Messages;
 public class AdaptationPageSourceTests
 {
     [Fact]
-    public void Build_HasSeventeenRows_ThreeButtons_NoCaregiverRow()
+    public void Build_HasNineteenRows_ThreeButtons_CaregiverRows()
     {
         var rows = new AdaptationPageSource(TestSettingsPageContext.Build()).Build()
             .SelectMany(p => p.Rows).ToList();
-        Check.That(rows).HasSize(17);
+        Check.That(rows).HasSize(19);
         Check.That(rows.OfType<ButtonSpec>().Select(b => b.Id).ToList())
             .ContainsExactly("ad_reset", "ad_reset_learned", "ad_log");
-        Check.That(rows.Any(r => r.Id.Contains("caregiver", StringComparison.Ordinal))).IsFalse();
+        Check.That(rows.Select(r => r.Id).ToList())
+            .Contains("ad_caregiver", "ad_caregiver_interval");
     }
 
     [Fact]
@@ -41,10 +42,14 @@ public class AdaptationPageSourceTests
         Check.That(settings.Adaptation.DwellShorterMaxFraction).IsEqualTo(0.25);
         sliders["ad_geom_margin"].Set(120);
         Check.That(settings.Adaptation.GeometryMaxMarginPx).IsEqualTo(120);
+        toggles["ad_caregiver"].Set(true);
+        Check.That(settings.Adaptation.CaregiverAlerts).IsTrue();
+        sliders["ad_caregiver_interval"].Set(15);
+        Check.That(settings.Adaptation.CaregiverMinIntervalMinutes).IsEqualTo(15);
     }
 
     [Fact]
-    public void Reset_CopiesAllFourteenFromDefaults()
+    public void Reset_CopiesAllSixteenFromDefaults()
     {
         var settings = new EyeCtrlSettings();
         settings.Adaptation.Enabled = true;
@@ -55,6 +60,8 @@ public class AdaptationPageSourceTests
         settings.Adaptation.AdaptGeometry = false;
         settings.Adaptation.ShowCue = false;
         settings.Adaptation.SuppressInSensitiveContexts = false;
+        settings.Adaptation.CaregiverAlerts = true;
+        settings.Adaptation.CaregiverMinIntervalMinutes = 20;
         settings.Adaptation.DwellShorterMaxFraction = 0.2;
         settings.Adaptation.DwellLongerMaxFraction = 0.3;
         settings.Adaptation.ToleranceLooserMaxFraction = 0.4;
@@ -73,6 +80,8 @@ public class AdaptationPageSourceTests
         Check.That(settings.Adaptation.AdaptGeometry).IsEqualTo(d.AdaptGeometry);
         Check.That(settings.Adaptation.ShowCue).IsEqualTo(d.ShowCue);
         Check.That(settings.Adaptation.SuppressInSensitiveContexts).IsEqualTo(d.SuppressInSensitiveContexts);
+        Check.That(settings.Adaptation.CaregiverAlerts).IsEqualTo(d.CaregiverAlerts);
+        Check.That(settings.Adaptation.CaregiverMinIntervalMinutes).IsEqualTo(d.CaregiverMinIntervalMinutes);
         Check.That(settings.Adaptation.DwellShorterMaxFraction).IsEqualTo(d.DwellShorterMaxFraction);
         Check.That(settings.Adaptation.DwellLongerMaxFraction).IsEqualTo(d.DwellLongerMaxFraction);
         Check.That(settings.Adaptation.ToleranceLooserMaxFraction).IsEqualTo(d.ToleranceLooserMaxFraction);

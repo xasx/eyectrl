@@ -13,7 +13,7 @@ using Serilog;
 /// opt-in feature that is off by default costs nothing while it is off.
 /// <para>
 /// Previously every piece started unconditionally at app launch: the coordinator's 4 Hz dispatcher timer,
-/// its three assessment subscribers, both feedback overlay windows (each a real HWND, created merely by
+/// its four assessment subscribers, both feedback overlay windows (each a real HWND, created merely by
 /// resolving the cue service), and — the one with genuine cross-process cost — a <b>system-wide UI
 /// Automation focus hook</b>. "Off by default" was true of adaptation's *effects* but not of its footprint.
 /// </para>
@@ -136,6 +136,7 @@ public sealed class AdaptationActivation : IDisposable
         services.GetRequiredService<AdaptationCueService>().Start(coordinator);
         services.GetRequiredService<AdaptationLog>().Start(coordinator);
         services.GetRequiredService<DriftNoticeService>().Start(coordinator);
+        services.GetRequiredService<CaregiverAlertService>().Start(coordinator);
         // Sensitive-context detection only matters while feedback can be shown, so the system-wide UIA focus
         // hook goes in and out with the rest of the runtime (§8.10).
         services.GetRequiredService<ISensitiveContextDetector>().Start();
@@ -155,6 +156,7 @@ public sealed class AdaptationActivation : IDisposable
         services.GetRequiredService<AdaptationCueService>().Dispose();
         services.GetRequiredService<AdaptationLog>().Dispose();
         services.GetRequiredService<DriftNoticeService>().Dispose();
+        services.GetRequiredService<CaregiverAlertService>().Dispose();
         services.GetRequiredService<ISensitiveContextDetector>().Stop();
         Log.Information("Adaptation runtime deactivated; effective settings back at baseline");
     }

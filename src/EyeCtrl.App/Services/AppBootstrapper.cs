@@ -368,6 +368,17 @@ public class AppBootstrapper
         services.AddSingleton(sp => new DriftNoticeService(
             sp.GetRequiredService<IFeedbackGate>(),
             sp.GetRequiredService<IDriftNoticePresenter>()));
+        // Phase-3 caregiver alert (§10 resolution): the app-owned banner + chime. Same pattern as the
+        // drift notice — the window is a DI singleton (constructed lazily on the first Enabled edge,
+        // never while disabled) and doubles as the presenter; the service is the pure decision layer
+        // started/stopped by AdaptationActivation. The log callback is the JSONL hook (D8).
+        services.AddSingleton<CaregiverAlertWindow>();
+        services.AddSingleton<ICaregiverAlertPresenter>(sp => sp.GetRequiredService<CaregiverAlertWindow>());
+        services.AddSingleton(sp => new CaregiverAlertService(
+            sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
+            sp.GetRequiredService<IFeedbackGate>(),
+            sp.GetRequiredService<ICaregiverAlertPresenter>(),
+            sp.GetRequiredService<AdaptationLog>().LogCaregiverAlert));
 
         return services.BuildServiceProvider();
     }

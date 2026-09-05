@@ -243,7 +243,6 @@ public partial class SettingsWindow : OverlayWindow
     // INTENTIONALLY NOT EXPOSED in the settings UI (audit this list when adding settings):
     //  - ManualSelection.Enabled (driven by SelectionMode; the Selection tab owns the mode)
     //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry; Models tab)
-    //  - Adaptation.CaregiverAlerts (no consumer until Phase 3)
     //  - Supervision — its UI is SupervisorSetupWindow in the supervisor process; the App
     //    cannot persist that section (SettingsWriter.Supervisor owns it)
     // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.

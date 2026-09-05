@@ -37,6 +37,9 @@ public partial class AdaptationSettings : ObservableObject, IValidatable
     /// <summary>Whether sustained-struggle caregiver alerts are enabled (Phase 3; off by default).</summary>
     [ObservableProperty] private bool _caregiverAlerts;
 
+    /// <summary>Minimum minutes between caregiver alert onsets (§10, Phase 3). Default 10; validated [1, 60].</summary>
+    [ObservableProperty] private double _caregiverMinIntervalMinutes = 10.0;
+
     /// <summary>Whether feedback (cue/toast/verbose log) is suppressed in sensitive (password) contexts.</summary>
     [ObservableProperty] private bool _suppressInSensitiveContexts = true;
 
@@ -79,6 +82,8 @@ public partial class AdaptationSettings : ObservableObject, IValidatable
 
     partial void OnGeometryMaxMarginPxChanging(double value) =>
         GuardRange(value, 0.0, 300.0, nameof(GeometryMaxMarginPx));
+    partial void OnCaregiverMinIntervalMinutesChanging(double value) =>
+        GuardRange(value, 1.0, 60.0, nameof(CaregiverMinIntervalMinutes));
 
     private static void GuardFraction(double value, string name)
     {
@@ -99,5 +104,6 @@ public partial class AdaptationSettings : ObservableObject, IValidatable
         ValidationHelper.ValidateRange(ToleranceLooserMaxFraction, 0.0, 1.0, nameof(ToleranceLooserMaxFraction)),
         ValidationHelper.ValidateRange(SmoothingMoreMaxFraction, 0.0, 1.0, nameof(SmoothingMoreMaxFraction)),
         ValidationHelper.ValidateRange(GeometryBiggerMaxFraction, 0.0, 1.0, nameof(GeometryBiggerMaxFraction)),
-        ValidationHelper.ValidateRange(GeometryMaxMarginPx, 0.0, 300.0, nameof(GeometryMaxMarginPx)));
+        ValidationHelper.ValidateRange(GeometryMaxMarginPx, 0.0, 300.0, nameof(GeometryMaxMarginPx)),
+        ValidationHelper.ValidateRange(CaregiverMinIntervalMinutes, 1.0, 60.0, nameof(CaregiverMinIntervalMinutes)));
 }

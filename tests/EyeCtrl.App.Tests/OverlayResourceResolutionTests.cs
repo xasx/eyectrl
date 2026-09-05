@@ -52,7 +52,7 @@ public class OverlayResourceResolutionTests
         typeof(SplashWindow), typeof(TrackStatusWindow), typeof(TaskSwitcherWindow),
         typeof(EyeCareBannerWindow), typeof(EyeCareExerciseWindow),
         typeof(CalibrationWindow), typeof(PauseIndicatorWindow),
-        typeof(DriftNoticeWindow), typeof(TargetHighlightWindow),
+        typeof(DriftNoticeWindow), typeof(CaregiverAlertWindow), typeof(TargetHighlightWindow),
         // Plan B haloed overlays
         typeof(CursorCircleWindow), typeof(ActivationButtonWindow),
         typeof(ManualSelectionGazeIndicatorWindow), typeof(ScrollOverlayWindow),

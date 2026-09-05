@@ -1,0 +1,28 @@
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.CaregiverAlertWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+        AutomationProperties.AutomationId="CaregiverAlert_Window"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False"
+        Width="720" Height="120">
+    <Grid>
+        <Border x:Name="Banner"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                Background="{StaticResource BrushSurfaceDark}"
+                BorderBrush="{StaticResource BrushBorderSubtle}"
+                BorderThickness="{StaticResource StandardBorderThickness}"
+                CornerRadius="{StaticResource StandardCornerRadius}" Padding="24,14" Opacity="0">
+            <StackPanel>
+                <TextBlock Text="Caregiver attention needed"
+                           Foreground="{StaticResource BrushTextPrimary}"
+                           FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightStrong}" TextAlignment="Center"/>
+                <TextBlock x:Name="Message"
+                           AutomationProperties.AutomationId="CaregiverAlert_Message"
+                           Foreground="{StaticResource BrushTextSecondary}"
+                           FontSize="{StaticResource FontSizeBodyLarge}" TextAlignment="Center"
+                           Margin="0,6,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</overlays:OverlayWindow>

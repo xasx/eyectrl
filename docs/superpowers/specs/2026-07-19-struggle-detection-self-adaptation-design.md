@@ -52,7 +52,7 @@ must be **conservative, visible, reversible, and incapable of locking the user o
 | Architecture | Rule-based controller (deterministic, explainable, bounded, testable) |
 | Value model | Effective-value layer; **delta clamped in per-direction sub-bands**, not the sum |
 | Default posture | Conservative (tunable) |
-| Caregiver channel (v1) | **Net-new** tray balloon/toast (no toast API exists today); Supervisor relay deferred |
+| Caregiver channel (v1) | **Net-new** tray balloon/toast (no toast API exists today); Supervisor relay deferred — realized as an app-owned banner + chime (Phase 3): OS notifications rejected as suppressible (§10 resolution) |
 | Build structure | Phased: **1a substrate → 1b momentary → 1c knob routing (§13.3) → 2 learning → 3 caregiver** |
 
 ## 4. Architecture Overview
@@ -458,8 +458,30 @@ not regress it.
 - **`AdaptationSettings`** (`ObservableObject` + `IValidatable`; UI from existing `SettingItemViewModel`
   subclasses): `Enabled` (default `false`, opt-in); per-knob enables; `Posture` (Conservative default);
   per-knob sub-band bounds (validated inside base ranges); `ShowCue`, `CaregiverAlerts`,
-  `SuppressInSensitiveContexts` (default true); `ResetLearnedBaseline` action; live status label.
-  Registered via `EyeCtrlSettings.EnumerateSubSettings()` (§4).
+   `SuppressInSensitiveContexts` (default true); `ResetLearnedBaseline` action; live status label.
+   Registered via `EyeCtrlSettings.EnumerateSubSettings()` (§4).
+
+**Phase-3 resolution (2026-09-05, plan `2026-09-05-caregiver-alerts-phase3.md`).** The v1 alert is an
+**app-owned banner window + attention chime, NOT an OS notification** (owner decision: Windows
+notifications — balloon or WinRT toast, the wording above — can be silenced by Focus Assist / per-app
+settings, which is disqualifying for a caregiver safety channel). `CaregiverAlertWindow` follows the
+`DriftNoticeWindow` pattern (topmost, click-through, excluded from magnifier capture, gaze-safe), shows
+**while the condition stays sustained** and fades ~1 s after it clears; the chime
+(`SystemSounds.Exclamation`) plays once per onset. Two conditions (owner-settled): **aggregate struggle
+level ≥ 0.5 held continuously 60 s** (fixed threshold, posture-independent) and **PoorTracking gated
+60 s** — poor tracking is evaluated first when both hold (the more specific cause; it fires with zero
+interactions, §6.3). Rate limit: one **global** clock, `AdaptationSettings.CaregiverMinIntervalMinutes`
+(default 10 min, validated [1, 60], exposed as an Adaptation-page slider), plus a **≥ 30 s clear gap**
+before a condition may re-alert (an episode starting inside the gap is the same flare-up); a
+rate-limit block *delays* the onset (retried each tick while sustained) rather than consuming it.
+§8.10: an onset arriving while feedback is suppressed is **consumed** — no window that episode even
+after suppression lifts (the DriftNoticeService trade) — and does **not** start the rate-limit clock;
+suppression or feature-off mid-display hides the window immediately. Alert onsets append
+`kind:"caregiver"` entries (`ts` + condition) to `adaptation-log.jsonl` (suppressed onsets write
+nothing). Drift deliberately does **not** reach the caregiver channel (user-actionable in-app, §7.1).
+The service is the cue/log/drift shape: subscribes `AssessmentUpdated`, consults `IFeedbackGate`, a
+pure headless-testable decision over an injected clock, an `ICaregiverAlertPresenter` seam, and
+start/stop by `AdaptationActivation` on the `Enabled` edge.
 
 ## 11. Robustness / Error Handling
 
@@ -532,7 +554,7 @@ The Phase-2 gate is open.**
 
 **Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review. **(Complete 2026-09-04 — learned-offset slice; see the §7.4 resolution. Phase 3 (caregiver) is next.)**
 
-**Phase 3 — Caregiver.** Net-new tray toast + rate-limiting; optional Supervisor relay (new payload/channel).
+**Phase 3 — Caregiver.** Net-new tray toast + rate-limiting; optional Supervisor relay (new payload/channel). **(Complete 2026-09-05 — caregiver-alert slice; see the §10 resolution. The optional Supervisor relay stays deferred, §14.)**
 
 Each phase gets its own implementation plan, reviewed before the next.
 
@@ -939,8 +961,9 @@ adaptation path — mode is never auto-switched, §5).
   `ISensitiveContextDetector`, gating feedback (cue/toast/verbose-log) only, adaptation still runs.
 - Phase 3 supervisor relay: `SettingsService` has a single-writer mutex with only `SupervisionSettings`
   marked cross-writer; if the supervisor must *write* adaptation state, the `SupervisionSectionName`
-  constant + merge logic need extending. Alert payload/channel format also open. The supervisor does
-  not write `adaptation-state.json` in v1 (single writer: the app) — unchanged from the existing SettingsService note.
+   constant + merge logic need extending. Alert payload/channel format also open. The supervisor does
+   not write `adaptation-state.json` in v1 (single writer: the app) — unchanged from the existing SettingsService note.
+   Phase 3 (2026-09-05) deferred the relay out of v1: the app-owned window + chime shipped alone; a relay needs its own pipe channel (never `eyectrl_watch`), a supervisor-side consumption design, and would reopen the single-writer question — its own slice.
 - Time-of-day-aware learned baseline — deferred past Phase 2. The Aiming-denominator self-damping assumption (§13.3 NB) and the §13.2 px-thresholds remain uncalibrated and are now *data-collectible* via `adaptation-log.jsonl` (`kind":"learned"`, `knob":"TargetGeometry"` transitions) — revisit with real data (D8).
 - `SmoothingMoreMaxFraction` fraction-vs-absolute model (the `AdaptationSettings` PROVISIONAL note) —
   **Resolved for Phase 1c (§13.3):** fraction-of-baseline is kept, **but it is range-safe only for EMA**.

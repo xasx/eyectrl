@@ -39,6 +39,8 @@
 
 > **Review round 1 (2026-09-05, external analytical review): NEEDS FIXES → all 10 findings verified against source and applied.** F1 (blocker): `SettingsSliderSpanGuardTests.Adaptation_SliderSpans` pins the Adaptation slider count at 6 — Task 6 Step 1 now edits it (7 + a span pin for `ad_caregiver_interval`). F2 (blocker): the disable edge delivers NO `None` (`StopRuntime` calls `ResetMomentary()`, which sets `LastAssessment` without raising, and synchronously disposes the timer; on re-enable `_wasEnabled` is still true so the first raise is already a real assessment) — a stale `SustainedSince` would fire instantly 10 minutes later, so `Dispose` now resets both `ConditionState`s, with a 17th service fact pinning it. F3: the window joins `OverlayResourceResolutionTests.MigratedOverlays` (+1 `[StaTheory]` case — a bad `{StaticResource}` key would otherwise first throw inside `AdaptationActivation.StartRuntime`, whose catch converts it to "adaptation stays inert", silently killing ALL adaptation on enable with every suite green). F4: §3.1's finding paragraph does its own overlay arithmetic — "11 transparent" → 12 and "Two of the eleven" → "Three of the twelve" join the Task 4 spec edit. F5: the §10 resolution lands at the **end** of §10 (the Phase-2 §7.4 precedent; inserting after the caregiver bullet would split the Markdown list). F6–F10 cosmetic: a test comment's arithmetic (91.5 s ≈ 1.5 min, not 2.5), the `||`-short-circuit comment ("within the same tick" → the struggle onset is skipped that tick and rate-limited thereafter), the HWND-wording overclaim in Global Constraints, the "satisfies both conditions" hedge (`PeakGatedScore × (1 + w·fatigue)`), and the File-Structure `.xaml.cs` cell. **Counts:** the App chain is 778 → 795 → 796 → 797 → 797, final **797** (the reviewer's next-steps box said 796 — F2's +1 and F3's +1 stack; re-derived here). The reviewer's open question — the `detect_changes({worktree})` parameter and the blast-radius figures — was closed by the planning session: both verified directly against the MCP tool schema and the re-indexed graph.
 
+> **Review round 2 (2026-09-05, implement-verbatim dry run): FINDINGS F1–F3 — all counts landed, fix-forwards mirrored into this plan.** Per-task: Core 1219 / App 795 → 796 → 797 → 797 / final four-suite **1219 / 300 / 797 / 27**; every RED step failed for exactly the stated reason. F1: the test `Make()` tuple declared `AdaptationSettings Settings` but returns an `EyeCtrlSettings` (CS0029 + 5× CS1061) — the element type is `EyeCtrlSettings`. F2: `Dispose_ClearsSustainState` ran 1 + 240 = 241 fresh-sustain ticks, making the "still nothing" assert land ON the onset tick by this plan's own fact-2 arithmetic — the second `Run` is 239 ticks (240 total = 59.75 s, then the explicit onset tick fires). F3: `FontWeight="Bold"` trips `RawGeometryLiteralTests.NoUIFile_WritesAGeometryOrTypeValueOutsideTheTokens` — raw `CornerRadius`/`FontFamily`/`FontSize`/`FontWeight` literals are test-forbidden; the XAML uses `{StaticResource FontWeightStrong}` (`TrackStatusWindow` precedent; all three themes map it to `FontWeights.Bold`). All three mirrors are in place; no count changes. **The dry run left a GREEN IMPLEMENTATION on the branch** (`ea1a1221..0f154892`, 6 commits, tree clean, unpushed) — the process ladder's SDD step now overlaps it; the owner decides whether to accept the dry-run commits as the implementation or re-execute SDD fresh (the Phase-2 precedent). The graph gate was discharged by the reviewer via MCP: `detect_changes` scope-all clean LOW; compare-vs-main 39 symbols / 22 files, the HIGH label driven solely by additive DI registrations plus a comment-only `OnStartup` touch matching 10 startup processes; the changed files are exactly this plan's set — zero gaze-hot-path symbols. Environment note, outside this slice: `ExternalDwellWireContractTests.Unregister_MidDwell_StopsProgress_WithoutActivation` flaked 3× in ~14 runs ("Register did not reach the server") on a GUID-suffixed pipe untouched since `4422f962` — a pre-existing machine-level flake, own ticket.
+
 ### Owner-vetoable decision ledger (settled 2026-09-05, interactive brainstorm — every entry was answered by the owner or stated in the round intros without objection; flip any by editing the named member, not the structure)
 
 | # | Decision | Rationale | Rejected |
@@ -261,7 +263,7 @@ public class CaregiverAlertServiceTests
         public long Now;
     }
 
-    private static (CaregiverAlertService Svc, AdaptationSettings Settings, FakeFeedbackGate Gate, FakePresenter Presenter, List<CaregiverAlertCondition> Logged, Clock Clock) Make()
+    private static (CaregiverAlertService Svc, EyeCtrlSettings Settings, FakeFeedbackGate Gate, FakePresenter Presenter, List<CaregiverAlertCondition> Logged, Clock Clock) Make()
     {
         var settings = new EyeCtrlSettings();
         settings.Adaptation.CaregiverAlerts = true;
@@ -511,7 +513,7 @@ public class CaregiverAlertServiceTests
         clock.Now += 10 * 60_000; // a long disable
         Run(svc, clock, Struggle(0.6), ticks: 1); // first tick after re-enable: sustain must restart
         Check.That(presenter.Shows).IsEmpty();
-        Run(svc, clock, Struggle(0.6), ticks: 240); // 59.75 s of the fresh sustain — still nothing
+        Run(svc, clock, Struggle(0.6), ticks: 239); // with the restart tick: 240 ticks = 59.75 s of fresh sustain — still nothing
         Check.That(presenter.Shows).IsEmpty();
         clock.Now += 250;
         svc.OnAssessment(Struggle(0.6));
@@ -844,7 +846,7 @@ One test-file touch and no new test *methods*: **+1 `[StaTheory]` case in `Overl
             <StackPanel>
                 <TextBlock Text="Caregiver attention needed"
                            Foreground="{StaticResource BrushTextPrimary}"
-                           FontSize="{StaticResource FontSizeTitle}" FontWeight="Bold" TextAlignment="Center"/>
+                           FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightStrong}" TextAlignment="Center"/>
                 <TextBlock x:Name="Message"
                            AutomationProperties.AutomationId="CaregiverAlert_Message"
                            Foreground="{StaticResource BrushTextSecondary}"
@@ -855,6 +857,8 @@ One test-file touch and no new test *methods*: **+1 `[StaTheory]` case in `Overl
     </Grid>
 </overlays:OverlayWindow>
 ```
+
+**Census gate (round-2 F3):** raw geometry/type literals — `CornerRadius`, `FontFamily`, `FontSize`, `FontWeight` written as `="…"` values — are forbidden by `RawGeometryLiteralTests.NoUIFile_WritesAGeometryOrTypeValueOutsideTheTokens`. Always use the token resources; for the heading that is `FontWeight="{StaticResource FontWeightStrong}"`, the `TrackStatusWindow` precedent (all three themes map it to `FontWeights.Bold`, so the rendering is identical and the `OverlayResourceResolutionTests` case passes).
 
 - [ ] **Step 2: Write the code-behind**
 

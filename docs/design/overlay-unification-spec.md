@@ -7,7 +7,7 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 25 overlay windows and 7 dwell controls — 23 with XAML under
+EyeCtrl has 26 overlay windows and 7 dwell controls — 24 with XAML under
 `Overlays/`, the code-only `NoteWindow`, and `SettingsWindow` under `Views/`
 (which also derives from `OverlayWindow`). Re-counted against merged `main` at
 b8295b6, which includes PRs #70 and #71, and enforced by
@@ -65,6 +65,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | DragTrail | `DragTrailOverlay` | `Transparent` | XAML |
 | **AdaptationCue** | `CueOverlayWindow` | `Transparent` + `Ellipse Fill="#FFB300"` | XAML |
 | **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML |
+| **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML |
 
 The **Class** column is the match key for the drift-guard test
@@ -72,11 +73,11 @@ The **Class** column is the match key for the drift-guard test
 `OverlayWindow` subclass in `EyeCtrl.App` must appear here, and every name here
 must resolve to a real type. Adding an overlay without a row fails the build.
 
-**Finding:** 14 overlays carry a dark fill; 11 are `Background="Transparent"` at
+**Finding:** 14 overlays carry a dark fill; 12 are `Background="Transparent"` at
 the window level. The transparent ones are *not* out of scope — they composite
 accent content over live desktop pixels and therefore need §4.1.3's contrast
-guarantee, not merely a token swap. Two of the eleven (`AdaptationCue`,
-`DriftNotice`) are transparent windows hosting a *filled* shape, which is the case
+guarantee, not merely a token swap. Three of the twelve (`AdaptationCue`,
+`DriftNotice`, `CaregiverAlert`) are transparent windows hosting a *filled* shape, which is the case
 §4.1.3 originally missed.
 
 **Post-merge additions (PRs #70/#71).** `CueOverlayWindow` and `DriftNoticeWindow`

@@ -92,7 +92,7 @@ Run the UI tests locally in an interactive Windows desktop session:
 dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"
 ```
 
-The test suite uses xUnit v3 and NFluent. UI tests use FlaUI and are not run in headless CI. GitHub Actions builds the solution and runs the non-UI tests on pushes to `main` and pull requests targeting `main`.
+The test suite uses xUnit v3 and NFluent. UI tests use FlaUI and are not run in headless CI. GitHub Actions builds the solution, validates the theme palettes, runs the non-UI tests with a coverage-threshold gate, and runs the benchmark generator tests on pushes to `main` and pull requests targeting `main`.
 
 ## Benchmarks
 
@@ -165,7 +165,7 @@ The running EyeCtrl app hosts the named-pipe server and renders dwell feedback f
 - Keep Core free of native ML dependencies; use `ILanguageModelPredictor` for the language-model seam.
 - Tests use private nested fakes rather than a mocking library.
 - Run `tools/gen_dicts.py` when keyboard word-frequency dictionaries need updating.
-- No linter, formatter, or code-coverage tool is configured; `dotnet build` and `dotnet test` are the primary verification commands.
+- No linter or formatter is configured; `dotnet build` and `dotnet test` are the primary verification commands, and CI additionally gates on the theme palettes and coverage thresholds.
 
 See [AGENTS.md](AGENTS.md) for detailed build commands, testing conventions, dependency quirks, and repository guidance.
 

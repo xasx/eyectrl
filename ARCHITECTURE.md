@@ -120,9 +120,9 @@ Two named-pipe channels cross process boundaries:
 | `EyeCtrl.Contracts` | `net8.0` | Shared wire-format records (`WireMessage`, `SdkRect`) + `DwellPipe.Name` constant. Zero dependencies. Used by both App (server) and SDK (client) so the pipe name can never drift. |
 | `EyeCtrl.Sdk.Abstractions` | `net8.0` | Framework-agnostic SDK surface: `IDwellElementAdapter`, `DwellClient` (named-pipe client), `OutboundRectTracker`. |
 | `EyeCtrl.Sdk.Wpf` | `net8.0-windows` | WPF attached properties (`Dwell.Enabled`, `Dwell.Mode`). `WpfElementAdapter` bridges WPF elements to `IDwellElementAdapter`. |
-| `EyeCtrl.Sdk.WinUI` | `net8.0-windows10.0.19041` | WinUI 3 attached properties. `WinUiElementAdapter` resolves HWNDs via `XamlRoot.ContentIslandEnvironment`. Per-dispatcher rect-refresh timers via `AdapterGroupTracker`. |
+| `EyeCtrl.Sdk.WinUI` | `net8.0-windows10.0.19041.0` | WinUI 3 attached properties. `WinUiElementAdapter` resolves HWNDs via `XamlRoot.ContentIslandEnvironment`. Per-dispatcher rect-refresh timers via `AdapterGroupTracker`. |
 
-Tests (`/tests/`) mirror the source: `Core.Tests`, `Platform.Tests`, `ViewModels.Tests`, `App.Tests`, `Controls.Tests`, `LM.Tests`, `EyeCare.Tests`, `Supervisor.Tests`, `Sdk.Abstractions.Tests`, `Sdk.Wpf.Tests`, `Sdk.WinUI.Tests` — xUnit v3 (3.2.2) + NFluent 3.1.0, private nested fakes (no mocking library).
+Tests (`/tests/`) mirror the source: `Core.Tests`, `Platform.Tests`, `ViewModels.Tests`, `App.Tests`, `Controls.Tests`, `LM.Tests`, `EyeCare.Tests`, `Supervisor.Tests`, `Sdk.Abstractions.Tests`, `Sdk.Wpf.Tests`, `Sdk.WinUI.Tests`, plus `Architecture.Tests` (layering invariants) and `Benchmarks.Tests` (benchmark correctness, kept out of the solution) — xUnit v3 (3.2.2) + NFluent 3.1.0, private nested fakes (no mocking library).
 
 ---
 
@@ -429,7 +429,7 @@ Dwell.Enabled="True"                           ExternalDwellService
 `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs`
 
 * Tab buttons are built once (`BuildTabButtons`).
-* Each tab's content is built by a declarative page source in `src/EyeCtrl.App/Views/Settings/Sources/*PageSource.cs` (an `ISettingsPageSource` returning `IReadOnlyList<PageSpec>`). The thin `BuildXxxPages` forwarders in `SettingsWindow` delegate to the matching source, and `_pages` holds the `PageSpec` lists directly. `RenderCurrentPage` walks each page's `Rows` through the single `RenderSpec` bridge (the only WPF-coupled point), which fans out to:
+* Each tab's content is built by a declarative page source in `src/EyeCtrl.App/Views/Settings/Sources/*PageSource.cs` (an `ISettingsPageSource` returning `IReadOnlyList<PageSpec>`). A single `BuildPages()` in `SettingsWindow` dispatches through the `_sources` registry (tab id → `ISettingsPageSource`), and `_pages` holds the built `PageSpec` lists directly. `RenderCurrentPage` walks each page's `Rows` through the single `RenderSpec` bridge (the only WPF-coupled point), which fans out to:
   * `DwellDetector.AddTarget` — every setting row is a dwell-clickable target.
   * `SettingsWindowViewModel.GetActions` / `GetDetector` — bind view-model getters to the row.
 * Live edits call into `SettingsService.Save` on exit (`App.OnExit`) and selectively persist via `EyeCtrlSettings.PropertyChanged` subscribers.
@@ -804,8 +804,8 @@ flowchart TB
 | Understand eye care | `src/EyeCtrl.EyeCare/` (Scheduler, FatigueMonitor, Exercises) |
 | Understand the supervisor | `src/EyeCtrl.Supervisor/Program.cs` → `Supervision/` → `Fallback/` |
 | Add a new gaze provider | Implement `IGazeProvider` in `EyeCtrl.Platform/Gaze` and register it in `GazeProviderFactory` |
-| Add a new keyboard layout | Drop a JSON layout into `Resources/KeyboardLayouts/`, extend the layout enum, no code change required to load |
-| Add a new settings tab | `SettingsWindow.xaml.cs` (`BuildXxxPages`) + a new sub-model in `EyeCtrlSettings` |
+| Add a new keyboard layout | Drop a JSON layout into `Resources/Layouts/` and add its name to `KeyboardSettings.ValidLayouts` (plus the layout combo box in `KeyboardPageSource`); `KeyboardCoordinator.LoadKeyboard` resolves the file by layout name |
+| Add a new settings tab | `SettingsWindow.xaml.cs` (`_tabDefs` + `_sources` registry) + a new `*PageSource.cs` under `Views/Settings/Sources/` + a new sub-model in `EyeCtrlSettings` |
 | Improve word prediction | `src/EyeCtrl.Core/Prediction/PredictionOrchestrator.cs` orchestrates the existing models; new strategies plug in alongside `BigramModel`, `PhraseModel`, `SmallLMPredictor` |
 | Add a new LM backend | Implement `ILanguageModelPredictor` (in `EyeCtrl.Core/Prediction/`), wire it in `AppBootstrapper`. `SmallLMPredictor` in `EyeCtrl.LM` is the reference implementation. |
 | Add dwell to a WPF app | `src/EyeCtrl.Sdk.Wpf/Dwell.cs` — set `Dwell.Enabled="True"` on any `FrameworkElement` |
@@ -848,8 +848,9 @@ eyectrl/
 │   │   │                       #   input dispatchers, shared ModalInteractionState)
 │   │   ├── Overlays/           # Transparent overlay windows + DwellFeedbackOverlay + eye-care windows
 │   │   ├── Views/              # Settings window & other views
-│   │   ├── Controls/           # WPF custom controls (DwellControl)
-│   │   └── Assets/             # Resources, sounds, dictionaries
+│   │   ├── Startup/            # Start-on-boot policy
+│   │   ├── Resources/          # Keyboard layouts, dictionaries, emojis, completion tries, models.json
+│   │   └── Assets/             # click.wav, app icon
 │   ├── EyeCtrl.Controls/       # Reusable WPF controls
 │   ├── EyeCtrl.LM/              # ONNX neural LM
 │   │   ├── SmallLMPredictor.cs  # ONNX inference via Microsoft.ML.OnnxRuntime
@@ -878,10 +879,11 @@ eyectrl/
 │       ├── WinUiCoords.cs      # DIP → physical-px conversion
 │       ├── AdapterGroupTracker.cs  # Lifecycle tracking for per-UI-thread timers
 │       └── EyeCtrlDwell.cs     # Explicit HWND fallback
-├── tests/                      # 11 test projects mirroring src (xUnit v3 + NFluent)
+├── tests/                      # 13 test projects, 11 mirroring src (xUnit v3 + NFluent)
 ├── samples/
 │   ├── EyeCtrl.Sdk.Wpf.Sample/    # WPF sample app with dwell-enabled controls
 │   ├── EyeCtrl.Sdk.WinUI.Sample/  # WinUI 3 sample app with dwell-enabled controls
+│   ├── OffScreenGazeProbe/        # Standalone Tobii probe: valid samples past the screen edges?
 │   └── StreamEngineGazeTracker/    # Tobii SDK sample
 └── benchmarks/
     └── EyeCtrl.Benchmarks/     # BenchmarkDotNet benchmarks (standalone, not in .slnx)

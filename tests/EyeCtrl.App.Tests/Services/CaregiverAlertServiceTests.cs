@@ -294,4 +294,108 @@ public class CaregiverAlertServiceTests
         svc.OnAssessment(Struggle(0.6));
         Check.That(presenter.Shows).HasSize(1); // fires at the new episode's own 60 s
     }
+
+    // ── Implementation-review facts (external mutation-tested review, 2026-09-05; each closes a
+    // ── surviving mutant: threshold/const pinning, exact boundaries, the privacy guarantee, the
+    // ── rate-limit clock's two guards, and _showing staleness. Zero production changes.)
+
+    [Fact]
+    public void StruggleThreshold_FiresAtExactlyHalf_NotJustBelow() // kills MX1, MX2
+    {
+        var (svc, _, _, presenter, _, clock) = Make();
+        clock.Now = 1_000_000;
+        Run(svc, clock, Struggle(0.49), ticks: 600); // just below 0.5 — the condition is never met
+        Check.That(presenter.Shows).IsEmpty();
+        clock.Now += 31_000;
+        Run(svc, clock, Struggle(0.5), ticks: 241); // exactly at the threshold — met (D4's fixed 0.5)
+        Check.That(presenter.Shows).ContainsExactly(CaregiverAlertCondition.SustainedStruggle);
+    }
+
+    [Fact]
+    public void FirstEverAlert_FiresEvenWhenTheClockIsNearZero() // kills M8
+    {
+        var (svc, _, _, presenter, _, clock) = Make();
+        clock.Now = 0; // Environment.TickCount64 right after a boot — _lastAlertMs defaults to 0
+        Run(svc, clock, Struggle(0.6), ticks: 241);
+        Check.That(presenter.Shows).HasSize(1); // the _hasAlerted guard must let the FIRST alert through
+    }
+
+    [Fact]
+    public void Dispose_KeepsTheRateLimitClock_TogglingCannotBypassTheInterval() // kills MX3
+    {
+        var (svc, _, _, presenter, _, clock) = Make();
+        clock.Now = 1_000_000;
+        Run(svc, clock, Struggle(0.6), ticks: 241); // first onset
+        Check.That(presenter.Shows).HasSize(1);
+        svc.Dispose(); // the disable edge
+        clock.Now += 31_000; // well inside the default 10-minute interval
+        Run(svc, clock, Struggle(0.6), ticks: 241); // a full fresh sustain after re-enable
+        Check.That(presenter.Shows).HasSize(1); // D11: the clock survives Dispose
+    }
+
+    [Fact]
+    public void ReArm_AtExactlyThirtySecondsOfClear_IsAFreshEpisode() // kills M5
+    {
+        var (svc, settings, _, presenter, _, clock) = Make();
+        settings.Adaptation.CaregiverMinIntervalMinutes = 1;
+        clock.Now = 1_000_000;
+        Run(svc, clock, Struggle(0.6), ticks: 241); // fires
+        clock.Now += 250;
+        svc.OnAssessment(Struggle(0.3)); // clear at T
+        clock.Now += 29_750; // the next tick's +250 lands exactly 30 000 ms later
+        Run(svc, clock, Struggle(0.6), ticks: 241);
+        Check.That(presenter.Shows).HasSize(2); // >= ClearGapMs is a NEW flare-up
+    }
+
+    [Fact]
+    public void ReArm_JustUnderThirtySecondsOfClear_IsTheSameFlareUp() // kills MX6
+    {
+        var (svc, settings, _, presenter, _, clock) = Make();
+        settings.Adaptation.CaregiverMinIntervalMinutes = 1;
+        clock.Now = 1_000_000;
+        Run(svc, clock, Struggle(0.6), ticks: 241); // fires
+        clock.Now += 250;
+        svc.OnAssessment(Struggle(0.3)); // clear at T
+        clock.Now += 29_500; // the next tick's +250 lands 29 750 ms later
+        Run(svc, clock, Struggle(0.6), ticks: 241);
+        Check.That(presenter.Shows).HasSize(1); // < ClearGapMs — still one flare-up
+    }
+
+    [Fact]
+    public void RateLimit_AtExactlyTheInterval_Fires() // kills M13
+    {
+        var (svc, settings, _, presenter, _, clock) = Make();
+        settings.Adaptation.CaregiverMinIntervalMinutes = 2;
+        clock.Now = 1_000_000;
+        Run(svc, clock, Struggle(0.6), ticks: 241); // first onset at T
+        clock.Now += 250;
+        svc.OnAssessment(Struggle(0.3)); // clear
+        clock.Now += 59_500; // + the fresh sustain's 60 250 = exactly 120 000 ms
+        Run(svc, clock, Struggle(0.6), ticks: 241);
+        Check.That(presenter.Shows).HasSize(2); // elapsed AT exactly the interval fires (<, not <=)
+    }
+
+    [Fact]
+    public void SuppressionMidDisplay_HidesOnce_NotEveryTick() // kills M7
+    {
+        var (svc, _, gate, presenter, _, clock) = Make();
+        clock.Now = 1_000_000;
+        Run(svc, clock, Struggle(0.6), ticks: 241); // fires, window up
+        gate.IsFeedbackSuppressed = true;
+        Run(svc, clock, Struggle(0.6), ticks: 8); // 2 s of still-suppressed, still-sustained ticks
+        Check.That(presenter.HideCalls).IsEqualTo(1); // _showing cleared — no 4 Hz Hide re-issue
+        Check.That(presenter.FadeCalls).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void SuppressedOnset_WritesNothingToTheLog() // kills MX4 — the §8.10 privacy guarantee
+    {
+        var (svc, _, gate, _, logged, clock) = Make();
+        clock.Now = 1_000_000;
+        Run(svc, clock, Struggle(0.6), ticks: 240); // 59.75 s — the NEXT tick is the onset
+        gate.IsFeedbackSuppressed = true;
+        clock.Now += 250;
+        svc.OnAssessment(Struggle(0.6)); // due but suppressed: no window AND no JSONL trace (§8.10)
+        Check.That(logged).IsEmpty();
+    }
 }

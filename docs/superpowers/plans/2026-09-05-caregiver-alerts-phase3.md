@@ -25,17 +25,19 @@
   9. Page exposure: **toggle row + rate-limit slider row** (the owner's explicit pick over toggle-only).
   10. Supervisor relay: **out of v1**, recorded in §14.
 - **Work in the worktree** `.worktrees/caregiver-alerts`, branch `feat/struggle-caregiver-alerts` (this plan is committed there as Task 1, the Phase-2/geometry pattern). Run every command from the worktree root. `dotnet build-server shutdown` before any worktree removal.
-- **Never run the application or any `Category=UI` test.** The repo owner controls their PC solely by eye tracking; launching it seizes their only input channel. Everything here is verifiable headlessly. No test in this plan may create, show, or resolve a WPF `Window` — that is why the alert decision lives behind `ICaregiverAlertPresenter` and every test uses a fake presenter.
+- **Never run the application or any `Category=UI` test.** The repo owner controls their PC solely by eye tracking; launching it seizes their only input channel. Everything here is verifiable headlessly. Every NEW test drives the decision through the `ICaregiverAlertPresenter` fake — no new test creates, shows, or resolves a WPF `Window`. The one window-constructing touch is ADDING a case to the existing sanctioned sweep `OverlayResourceResolutionTests` (`[Collection("WpfApplication")]` + `[StaTheory]`; it constructs each listed overlay and closes it without ever showing — the repo's own mechanism; review round 1, F3).
 - **One test suite at a time**, sequential (named pipes are machine-global; this box routinely runs a dozen worktrees and possibly a live app). Check the box is quiet first (`Get-Process -Name dotnet,testhost*,EyeCtrl*`).
 - **German test output.** The summary reads `Bestanden!` / `Fehler!` with `Fehler: N, erfolgreich: M, gesamt: T`. Read the summary line; grepping "Failed" silently reports green.
 - **Baselines (re-measured 2026-09-05, sequential, all "Bestanden!"):** Core **1218** (`erfolgreich: 1217, übersprungen: 1`) / ViewModels **300** / App (`--filter "Category!=UI"`) **778** / Benchmarks.Tests **27**. Measured at `7f457cd2`; `main` has since advanced to `7c62761c` with a **docs-only** commit (README/ARCHITECTURE/AGENTS — zero code/test files, so the counts stand; this worktree branches from `7c62761c`). Different counts ⇒ stop and report.
-- **Additive-only behavior.** With `CaregiverAlerts = false` (the default) the service computes sustain state but never fires, no window is ever constructed (DI resolves it only on the first `Enabled` edge), and no JSONL entries are written. Every existing test in all four suites must pass unchanged **except the explicitly modified ones this plan names**: `AdaptationSettingsTests.NewDefaults` (one added assert), `AdaptationPageSourceTests` facts 1/3/4 (row count 17→19, caregiver setters, reset 14→16 — all verbatim below), and `AdaptationLogTests` (one **added** fact, no modification). `OverlayInventoryDriftTests` needs no test edit — it is kept green by editing `docs/design/overlay-unification-spec.md` in the same task that adds the window class.
+- **Additive-only behavior.** With `CaregiverAlerts = false` (the default) the service computes sustain state but never fires, and no JSONL entries are written; no window is constructed while `Adaptation.Enabled` is false (with `Enabled` on and `CaregiverAlerts` off the HWND exists but stays hidden — exactly the `CueOverlayWindow`/`ShowCue` precedent). Every existing test in all four suites must pass unchanged **except the explicitly modified ones this plan names**: `AdaptationSettingsTests.NewDefaults` (one added assert), `AdaptationPageSourceTests` facts 1/3/4 (row count 17→19, caregiver setters, reset 14→16 — all verbatim below), `AdaptationLogTests` (one **added** fact, no modification), `SettingsSliderSpanGuardTests.Adaptation_SliderSpans` (slider count 6→7 + one span pin — review round 1, F1), and `OverlayResourceResolutionTests.MigratedOverlays` (+1 theory case — F3). `OverlayInventoryDriftTests` needs no test edit — it is kept green by editing `docs/design/overlay-unification-spec.md` in the same task that adds the window class.
 - **Blast radius (GitNexus, graph re-indexed 2026-09-05):** `TrayIconManager` LOW — and **untouched** (the window is a DI singleton like `DriftNoticeWindow`; the tray's non-DI construction is why the balloon route is dead regardless of the owner's decision); `AdaptationActivation` MEDIUM (6 direct, 23 total); `AdaptationLog` MEDIUM (4 direct, 33 total); `AdaptationCoordinator` unchanged. No HIGH/CRITICAL surface is modified.
 - **Index notes:** the GitNexus re-index left the FTS (keyword-search) side degraded after two `--repair-fts` attempts (a LadybugDB WAL-rotation failure) and the commit-stamp reports stale even though the graph content is current (verified: `AdaptationLearner` and its Phase-2 callers resolve). Impact/context/detect-changes gates are trustworthy; keyword search is not. `.gitnexus/run.cjs` does not exist in the worktree (Phase-2 round-2 F6) — use the MCP tools with the worktree parameter from there.
 - **No new benchmark.** The service runs on the 4 Hz assessment stream doing O(1) condition tracking; §9.1 is untouched. Recorded as a decision, owner-vetoable.
 - **No new `internal` seams are required** (`InternalsVisibleTo` exists for both test projects — `EyeCtrl.Core.csproj:12` and `EyeCtrl.App.csproj:71`; the AGENTS.md claim that only Core declares it is outdated and is fixed in Task 7). The service's three consts are `internal` (the `AdaptationCueService.ReflashIntervalMs` precedent); the tests deliberately drive **literal** timings (the 0.5 threshold, 60 000 ms via tick counts, 30 s via clock advances) so an accidental const change fails a fact rather than silently tracking it.
 - NFluent only; no mocking library (private fakes); file-scoped namespaces; Allman braces; `_camelCase` fields; nullable enabled. `EyeCtrl.Core` escalates CS1591 (missing XML doc) to an **error** — the one Core member this plan adds (a settings property) needs its `///`.
 - **If a step's expected output does not match, stop rather than adapting.** Anchors reference `main` at `7c62761c`; drift ⇒ report BLOCKED with what you saw.
+
+> **Review round 1 (2026-09-05, external analytical review): NEEDS FIXES → all 10 findings verified against source and applied.** F1 (blocker): `SettingsSliderSpanGuardTests.Adaptation_SliderSpans` pins the Adaptation slider count at 6 — Task 6 Step 1 now edits it (7 + a span pin for `ad_caregiver_interval`). F2 (blocker): the disable edge delivers NO `None` (`StopRuntime` calls `ResetMomentary()`, which sets `LastAssessment` without raising, and synchronously disposes the timer; on re-enable `_wasEnabled` is still true so the first raise is already a real assessment) — a stale `SustainedSince` would fire instantly 10 minutes later, so `Dispose` now resets both `ConditionState`s, with a 17th service fact pinning it. F3: the window joins `OverlayResourceResolutionTests.MigratedOverlays` (+1 `[StaTheory]` case — a bad `{StaticResource}` key would otherwise first throw inside `AdaptationActivation.StartRuntime`, whose catch converts it to "adaptation stays inert", silently killing ALL adaptation on enable with every suite green). F4: §3.1's finding paragraph does its own overlay arithmetic — "11 transparent" → 12 and "Two of the eleven" → "Three of the twelve" join the Task 4 spec edit. F5: the §10 resolution lands at the **end** of §10 (the Phase-2 §7.4 precedent; inserting after the caregiver bullet would split the Markdown list). F6–F10 cosmetic: a test comment's arithmetic (91.5 s ≈ 1.5 min, not 2.5), the `||`-short-circuit comment ("within the same tick" → the struggle onset is skipped that tick and rate-limited thereafter), the HWND-wording overclaim in Global Constraints, the "satisfies both conditions" hedge (`PeakGatedScore × (1 + w·fatigue)`), and the File-Structure `.xaml.cs` cell. **Counts:** the App chain is 778 → 795 → 796 → 797 → 797, final **797** (the reviewer's next-steps box said 796 — F2's +1 and F3's +1 stack; re-derived here). The reviewer's open question — the `detect_changes({worktree})` parameter and the blast-radius figures — was closed by the planning session: both verified directly against the MCP tool schema and the re-indexed graph.
 
 ### Owner-vetoable decision ledger (settled 2026-09-05, interactive brainstorm — every entry was answered by the owner or stated in the round intros without objection; flip any by editing the named member, not the structure)
 
@@ -51,7 +53,7 @@
 | D8 | **JSONL: `kind:"caregiver"` entries (`ts` + `condition`) appended by `AdaptationLog.LogCaregiverAlert`, invoked via an `Action<CaregiverAlertCondition>` callback; suppressed onsets write nothing** | The review file is the data source for tuning the 60 s / 10 min numbers (the D8-carried calibration item); the callback keeps the service decoupled from the log type and headless-testable; the write rides `AdaptationLog`'s existing rotation + cap | Serilog only; the service writing the file itself (duplicates the rotation/cap owner) |
 | D9 | **Supervisor relay: out of v1** | Needs its own pipe channel (never `eyectrl_watch` — §10 bars the liveness heartbeat), a supervisor-side consumption design (what a headless watchdog *does* with an alert), and would reopen the `SettingsService` single-writer question — its own slice with its own review | In v1 (roughly doubles the slice) |
 | D10 | **Seat/wiring: `CaregiverAlertService` in `EyeCtrl.App.Services` (cue/log/drift shape), presenter seam `ICaregiverAlertPresenter`, window + presenter as DI singletons exactly like `DriftNoticeWindow`/`IDriftNoticePresenter`; started/stopped by `AdaptationActivation`; `TrayIconManager` untouched** | The established pattern verbatim; DI ownership of the window is what makes the dead balloon route also the *simplest* route to drop; activation on the `Enabled` edge keeps the off-by-default footprint at zero (no HWND while disabled) | A tray balloon wrapper (dead per D1); a late-attach presenter holder (unneeded once the window is DI-owned) |
-| D11 | **State across enable/disable: sustain/episode state dies on `Dispose`; the rate-limit clock survives (singleton field, not reset)** | Toggling adaptation off/on must not bypass the interval (toggle-spam guard); conversely a stale sustain must never fire on restart | Reset everything on Dispose (interval bypass via toggling); persist the clock (meaningless across processes) |
+| D11 | **State across enable/disable: sustain/episode state dies on `Dispose` (both `ConditionState`s fully reset — round-1 F2; the disable edge delivers NO `None`, see Context fact 1); the rate-limit clock survives (singleton field, not reset)** | Toggling adaptation off/on must not bypass the interval (toggle-spam guard); conversely a stale sustain must never fire on restart — without the Dispose reset, a 20 s pre-disable sustain fires instantly 10 min later on the first re-enabled tick | Reset everything on Dispose (interval bypass via toggling); persist the clock (meaningless across processes) |
 | D12 | **Both conditions share one window; the message reflects the most recent onset's condition** | One alert surface; the global clock already prevents two onsets within an interval, so overlap is a corner (the showing condition's message simply stays) | Two windows (double the surface for a corner case) |
 | D13 | **Carried items:** (a) AGENTS.md `InternalsVisibleTo` claim fix **folded** (Task 7 — one line, both csproj facts verified); (b) D9-offline-aging **stands** (§14 already records the exposure); (c) D8-calibration **stands** (the JSONL this slice extends keeps collecting; `kind:"caregiver"` onsets add alert-frequency data) | (a) is cheap and discovered twice (Phase-2 round-1 + kickoff); (b)/(c) are recorded exposures with revisit criteria | — |
 
@@ -63,8 +65,8 @@
 
 **Facts that shape this plan:**
 
-1. **The coordinator's None semantics do the session work for you.** Pause/disconnect/disable/reset all arrive as a single `None` (coalesced), which the service treats as "both conditions unmet" — episodes end, windows fade, sustain restarts fresh. No extra session wiring is needed in the service.
-2. **A gated PoorTracking episode also raises the aggregate.** The monitor's aggregate is the max over gated mode scores (§13.3), so sustained poor tracking satisfies *both* conditions; evaluating the poor-tracking onset first (D4) is what makes the toast say the specific thing. This is asserted by `PoorTrackingGated_SixtySeconds_FiresPoorTracking`.
+1. **The coordinator's None semantics do most of the session work — but NOT the disable edge (review round 1, F2).** Pause/disconnect/awaiting-gaze/reset all arrive as a `None` (runs coalesced), which the service treats as "both conditions unmet" — episodes end, windows fade, sustain restarts fresh. **Disable delivers no `None` at all:** `AdaptationActivation.StopRuntime` calls `coordinator.ResetMomentary()` — which sets `LastAssessment = None` *without raising* — and synchronously disposes the timer on the setting-change thread, so no tick ever runs; and on re-enable `_wasEnabled` is still true, so the first raise is already a real assessment. `Dispose` is therefore the only place pre-disable sustain state can die — the service's `Dispose` resets both `ConditionState`s (the F2 fix) while the rate-limit clock deliberately survives (D11).
+2. **A gated PoorTracking episode usually also raises the aggregate.** The monitor's aggregate is `PeakGatedScore(modes) × (1 + w·fatigue)` (§13.2), so a gated PoorTracking scoring ≥ 0.5 — as the test fixture does, 0.6 — satisfies *both* conditions; a low-scoring gated mode (e.g. 0.35) does not. Evaluating the poor-tracking onset first (D4) is what makes the toast say the specific thing whenever both are due. This is asserted by `PoorTrackingGated_SixtySeconds_FiresPoorTracking`.
 3. **The overlay inventory is test-enforced.** `OverlayInventoryDriftTests` (3 facts, headless, `Category!=UI`) reflect over every concrete `OverlayWindow` subclass and read `docs/design/overlay-unification-spec.md`: the new class must land in the same task as its §3.1 row, and §1's opening count sentence must go 25→26 overlays / 23→24 with XAML. No other section of that spec counts overlays (the other "25"s are ΔE2000 values).
 4. **The settings-page completeness gate binds both new rows.** `SettingsRowDescriptionCompletenessTests` fails any describable row (toggle/slider/combo/color) without a `Description`; the two new rows below carry one.
 5. **`Environment.TickCount64` has no safe "never" sentinel** (arithmetic with `long.MinValue` overflows), so the rate-limit clock uses a `_hasAlerted` bool rather than a sentinel timestamp — the same class of discipline as the coordinator's `Unseeded` comment (there the gaze clock made a sentinel necessary; here a bool is simpler and sufficient).
@@ -83,8 +85,9 @@
 | `src/EyeCtrl.App/Services/CaregiverAlertCondition.cs` | **New.** The two alert conditions (enum) | Task 3 |
 | `src/EyeCtrl.App/Services/ICaregiverAlertPresenter.cs` | **New.** Presenter seam (show / fade / hide) | Task 3 |
 | `src/EyeCtrl.App/Services/CaregiverAlertService.cs` | **New.** Pure sustain/rate-limit/suppression decision + lifecycle | Task 3 |
-| `src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml` + `.cs` | **New.** The banner + chime (DriftNoticeWindow pattern) | Task 4 |
-| `docs/design/overlay-unification-spec.md` | §3.1 row + §1 counts (keeps `OverlayInventoryDriftTests` green) | Task 4 |
+| `src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml` + `.xaml.cs` | **New.** The banner + chime (DriftNoticeWindow pattern) | Task 4 |
+| `docs/design/overlay-unification-spec.md` | §3.1 row + §1 counts + the finding-paragraph arithmetic (keeps `OverlayInventoryDriftTests` green) | Task 4 |
+| `tests/EyeCtrl.App.Tests/OverlayResourceResolutionTests.cs` | +1 `MigratedOverlays` theory case (round-1 F3) | Task 4 |
 | `src/EyeCtrl.App/Services/AdaptationLog.cs` | `LogCaregiverAlert` public write | Task 5 |
 | `src/EyeCtrl.App/Services/AppBootstrapper.cs` | DI: window + presenter + service | Task 6 |
 | `src/EyeCtrl.App/Services/AdaptationActivation.cs` | Start/Stop lines + doc-comment count | Task 6 |
@@ -92,14 +95,15 @@
 | `src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs` | `ad_caregiver` toggle + `ad_caregiver_interval` slider + reset copies | Task 6 |
 | `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` | Remove the dead "no consumer until Phase 3" audit line | Task 6 |
 | `tests/EyeCtrl.Core.Tests/Settings/AdaptationSettingsTests.cs` | `NewDefaults` +1 assert; +1 guard fact | Task 2 |
-| `tests/EyeCtrl.App.Tests/Services/CaregiverAlertServiceTests.cs` | **New**, 16 facts | Task 3 |
+| `tests/EyeCtrl.App.Tests/Services/CaregiverAlertServiceTests.cs` | **New**, 17 facts | Task 3 |
 | `tests/EyeCtrl.App.Tests/Services/AdaptationLogTests.cs` | +1 JSONL fact | Task 5 |
 | `tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs` | Facts 1/Setters/Reset modified (verbatim below) | Task 6 |
+| `tests/EyeCtrl.App.Tests/Settings/Pages/SettingsSliderSpanGuardTests.cs` | Slider count 6→7 + `ad_caregiver_interval` span pin (round-1 F1) | Task 6 |
 | spec `…self-adaptation-design.md` + `AGENTS.md` | §10/§13/§14/§3 amendments; IVT claim fix | Task 7 |
 
 **No ViewModels, Core-adaptation, router, engine, controller, monitor, tray, or heartbeat change.**
 
-**Expected final counts:** Core **1219** (1218 + 1 skip) / ViewModels **300** / App **795** / Benchmarks.Tests **27**.
+**Expected final counts:** Core **1219** (1218 + 1 skip) / ViewModels **300** / App **797** / Benchmarks.Tests **27**.
 
 ---
 
@@ -201,7 +205,7 @@ git commit -m "feat(adaptation): CaregiverMinIntervalMinutes setting (default 10
 - Create: `src/EyeCtrl.App/Services/CaregiverAlertCondition.cs`
 - Create: `src/EyeCtrl.App/Services/ICaregiverAlertPresenter.cs`
 - Create: `src/EyeCtrl.App/Services/CaregiverAlertService.cs`
-- Test: `tests/EyeCtrl.App.Tests/Services/CaregiverAlertServiceTests.cs` (new file, 16 facts)
+- Test: `tests/EyeCtrl.App.Tests/Services/CaregiverAlertServiceTests.cs` (new file, 17 facts)
 
 **Interfaces:**
 - Consumes: `AdaptationCoordinator.AssessmentUpdated` (existing), `IFeedbackGate.IsFeedbackSuppressed` (existing), `StruggleAssessment` / `FailureMode.PoorTracking` / `FailureModeAssessment` (existing), `AdaptationSettings.CaregiverAlerts` (existing) and `.CaregiverMinIntervalMinutes` (Task 2).
@@ -214,7 +218,7 @@ git commit -m "feat(adaptation): CaregiverMinIntervalMinutes setting (default 10
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/EyeCtrl.App.Tests/Services/CaregiverAlertServiceTests.cs` with exactly this content (16 facts; the `Run` helper advances a controllable clock 250 ms per tick, mirroring the coordinator cadence):
+Create `tests/EyeCtrl.App.Tests/Services/CaregiverAlertServiceTests.cs` with exactly this content (17 facts; the `Run` helper advances a controllable clock 250 ms per tick, mirroring the coordinator cadence):
 
 ```csharp
 namespace EyeCtrl.App.Tests.Services;
@@ -436,7 +440,7 @@ public class CaregiverAlertServiceTests
         gate.IsFeedbackSuppressed = false;
         svc.OnAssessment(Struggle(0.3));
         clock.Now += 31_000;
-        Run(svc, clock, Struggle(0.6), ticks: 241); // ~2.5 min after the suppressed onset
+        Run(svc, clock, Struggle(0.6), ticks: 241); // ≈1.5 min (91.5 s) after the suppressed onset
         Check.That(presenter.Shows).HasSize(1); // fires: had the suppressed onset armed the clock, this would block
     }
 
@@ -490,6 +494,28 @@ public class CaregiverAlertServiceTests
         svc.OnAssessment(Struggle(0.6)); // still sustained — feature-off takes the window down AT ONCE
         Check.That(presenter.HideCalls).IsEqualTo(1);
         Check.That(presenter.FadeCalls).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void Dispose_ClearsSustainState_NoStaleFireAfterRestart()
+    {
+        // Round-1 F2: the disable edge (StopRuntime) never raises a None — ResetMomentary sets
+        // LastAssessment without invoking, and the timer is disposed synchronously on the
+        // setting-change thread — so Dispose is the only place pre-disable sustain state can die.
+        // Without the reset, the first post-restart tick below would fire instantly off the stale
+        // SustainedSince (10 minutes old), banner + chime + JSONL after zero seconds of struggle.
+        var (svc, _, _, presenter, _, clock) = Make();
+        clock.Now = 1_000_000;
+        Run(svc, clock, Struggle(0.6), ticks: 120); // 30 s sustained — below the onset threshold
+        svc.Dispose(); // the disable edge
+        clock.Now += 10 * 60_000; // a long disable
+        Run(svc, clock, Struggle(0.6), ticks: 1); // first tick after re-enable: sustain must restart
+        Check.That(presenter.Shows).IsEmpty();
+        Run(svc, clock, Struggle(0.6), ticks: 240); // 59.75 s of the fresh sustain — still nothing
+        Check.That(presenter.Shows).IsEmpty();
+        clock.Now += 250;
+        svc.OnAssessment(Struggle(0.6));
+        Check.That(presenter.Shows).HasSize(1); // fires at the new episode's own 60 s
     }
 }
 ```
@@ -644,8 +670,9 @@ public sealed class CaregiverAlertService : IDisposable
         }
 
         // Poor tracking is evaluated first: when both conditions are due it is the more specific,
-        // more actionable cause (and the one that fires with zero interactions, §6.3). The global
-        // rate-limit clock then blocks the struggle onset within the same tick.
+        // more actionable cause (and the one that fires with zero interactions, §6.3). With the
+        // short-circuit, the struggle onset is not even evaluated on a tick where poor tracking
+        // fired; on subsequent ticks the global rate-limit clock blocks it (round-1 F7).
         return EvaluateOnset(_poorTracking, CaregiverAlertCondition.SustainedPoorTracking, now)
             || EvaluateOnset(_struggle, CaregiverAlertCondition.SustainedStruggle, now);
     }
@@ -732,9 +759,13 @@ public sealed class CaregiverAlertService : IDisposable
     private void OnAssessmentEvent(StruggleAssessment assessment) => OnAssessment(assessment);
 
     /// <summary>
-    /// Unsubscribes and takes the window down without fading. Sustain/episode state dies here; the
-    /// rate-limit clock deliberately SURVIVES — the singleton outlives enable/disable toggles, and
-    /// toggling adaptation off and on must not bypass the interval (D11).
+    /// Unsubscribes, takes the window down without fading, and resets both conditions' sustain/
+    /// episode state. The disable edge never delivers a None — StopRuntime's ResetMomentary sets
+    /// LastAssessment without raising, and the timer is disposed synchronously — so this is the
+    /// only place pre-disable sustain can die; without the reset, a stale sustain fires instantly
+    /// on the first re-enabled tick (round-1 F2). The rate-limit clock deliberately SURVIVES — the
+    /// singleton outlives enable/disable toggles, and toggling adaptation off and on must not
+    /// bypass the interval (D11).
     /// </summary>
     public void Dispose()
     {
@@ -748,6 +779,16 @@ public sealed class CaregiverAlertService : IDisposable
             _showing = null;
             _presenter.HideCaregiverAlert();
         }
+        Reset(_struggle);
+        Reset(_poorTracking);
+    }
+
+    private static void Reset(ConditionState state)
+    {
+        state.SustainedSince = long.MinValue;
+        state.LastClearedAt = long.MinValue;
+        state.AlertedThisEpisode = false;
+        state.SuppressedOnsetConsumed = false;
     }
 }
 ```
@@ -755,7 +796,7 @@ public sealed class CaregiverAlertService : IDisposable
 - [ ] **Step 4: Run the suite to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
-Expected: `Bestanden!` with `gesamt: 794` (778 + the 16 new facts).
+Expected: `Bestanden!` with `gesamt: 795` (778 + the 17 new facts).
 
 - [ ] **Step 5: Commit**
 
@@ -771,13 +812,14 @@ git commit -m "feat(adaptation): CaregiverAlertService — sustained-condition d
 **Files:**
 - Create: `src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml`
 - Create: `src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs`
-- Modify: `docs/design/overlay-unification-spec.md` (§3.1 row + §1 counts)
+- Modify: `docs/design/overlay-unification-spec.md` (§3.1 row + §1 counts + finding-paragraph arithmetic)
+- Modify: `tests/EyeCtrl.App.Tests/OverlayResourceResolutionTests.cs` (+1 `MigratedOverlays` case)
 
 **Interfaces:**
 - Consumes: `ICaregiverAlertPresenter` (Task 3), `OverlayWindow` (`IsClickThrough`, `ExcludeFromScreenCapture`, `RaiseToTop` — the `DriftNoticeWindow` usage), theme resources `BrushSurfaceDark`/`BrushBorderSubtle`/`BrushTextPrimary`/`BrushTextSecondary`/`StandardBorderThickness`/`StandardCornerRadius`/`FontSizeTitle`/`FontSizeBodyLarge` (all defined in `src/EyeCtrl.Controls/Theme/OverlayStyles.xaml`).
 - Produces (Task 6 consumes): `CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresenter` — parameterless ctor.
 
-No new facts in this task — the window is a WPF surface behind the presenter seam (the `DriftNoticeWindow` precedent has no direct test either); the three `OverlayInventoryDriftTests` facts keep the spec file honest and must stay green **in the same task**.
+One test-file touch and no new test *methods*: **+1 `[StaTheory]` case in `OverlayResourceResolutionTests.MigratedOverlays`** — the repo's sanctioned window-constructing sweep (`[Collection("WpfApplication")]`, constructs each listed overlay via its first ctor and closes it, never shows; runs headlessly under `Category!=UI` — round-1 F3: without it, a misspelled or type-wrong `{StaticResource}` key first throws inside `AdaptationActivation.StartRuntime`, whose catch converts the failure to "adaptation stays inert" — silently killing ALL adaptation on enable with every suite green). Beyond that the window is a WPF surface behind the presenter seam (the `DriftNoticeWindow` precedent has no dedicated fact); the three `OverlayInventoryDriftTests` facts keep the spec file honest and must stay green **in the same task**.
 
 - [ ] **Step 1: Write the XAML**
 
@@ -917,17 +959,29 @@ In `docs/design/overlay-unification-spec.md`:
 
 2. In §1's opening sentence, change `EyeCtrl has 25 overlay windows and 7 dwell controls — 23 with XAML under` to `EyeCtrl has 26 overlay windows and 7 dwell controls — 24 with XAML under` (the two numbers are coupled: the new window is XAML-format).
 
-(`OverlayInventoryDriftTests` matches the **Class** column against every concrete `OverlayWindow` subclass and the §1 count against the subclass count — no other section totals overlays.)
+3. §3.1's finding paragraph also does its own overlay arithmetic (round-1 F4 — not test-enforced, but the section self-contradicts otherwise): change `**Finding:** 14 overlays carry a dark fill; 11 are `Background="Transparent"` at the window level.` to `…; 12 are `Background="Transparent"` at the window level.` (14 + 12 = 26), and change `Two of the eleven (`AdaptationCue`, `DriftNotice`) are transparent windows hosting a *filled* shape, which is the case §4.1.3 originally missed.` to `Three of the twelve (`AdaptationCue`, `DriftNotice`, `CaregiverAlert`) are transparent windows hosting a *filled* shape…`.
 
-- [ ] **Step 4: Run the suite**
+(`OverlayInventoryDriftTests` matches the **Class** column against every concrete `OverlayWindow` subclass and the §1 count against the subclass count — the only test-enforced totals.)
+
+- [ ] **Step 4: Add the window to the resource-resolution sweep (round-1 F3)**
+
+In `tests/EyeCtrl.App.Tests/OverlayResourceResolutionTests.cs`, add `typeof(CaregiverAlertWindow)` to the `MigratedOverlays` list — in the adaptation-family cluster next to `DriftNoticeWindow`:
+
+```csharp
+        typeof(DriftNoticeWindow), typeof(CaregiverAlertWindow), typeof(TargetHighlightWindow),
+```
+
+`CaregiverAlertWindow` has a parameterless constructor, so the sweep's `Type.Missing` activation works unchanged. The `[StaTheory]` case counts as exactly one additional test result.
+
+- [ ] **Step 5: Run the suite**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
-Expected: `Bestanden!` with `gesamt: 794` (unchanged — no new facts; `OverlayInventoryDriftTests` stays green via the spec edit).
+Expected: `Bestanden!` with `gesamt: 796` (Task 3's 795 + the one new `OverlayResourceResolutionTests` theory case; `OverlayInventoryDriftTests` stays green via the spec edit).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs docs/design/overlay-unification-spec.md
+git add src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs docs/design/overlay-unification-spec.md tests/EyeCtrl.App.Tests/OverlayResourceResolutionTests.cs
 git commit -m "feat(adaptation): CaregiverAlertWindow banner + chime; overlay inventory row"
 ```
 
@@ -996,7 +1050,7 @@ In `src/EyeCtrl.App/Services/AdaptationLog.cs`, add this public method after `On
 - [ ] **Step 4: Run the suite to verify it passes**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
-Expected: `Bestanden!` with `gesamt: 795` (794 + 1).
+Expected: `Bestanden!` with `gesamt: 797` (796 + 1).
 
 - [ ] **Step 5: Commit**
 
@@ -1016,6 +1070,7 @@ git commit -m "feat(adaptation): kind:\"caregiver\" JSONL entries"
 - Modify: `src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs` (two rows + reset copies)
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (remove the dead audit line)
 - Test: `tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs` (three facts modified — verbatim below)
+- Test: `tests/EyeCtrl.App.Tests/Settings/Pages/SettingsSliderSpanGuardTests.cs` (slider count + span pin — round-1 F1)
 
 **Interfaces:**
 - Consumes: everything Tasks 2–5 produced.
@@ -1062,6 +1117,12 @@ and add to the assertion block (after the `SuppressInSensitiveContexts` check, k
 ```csharp
         Check.That(settings.Adaptation.CaregiverAlerts).IsEqualTo(d.CaregiverAlerts);
         Check.That(settings.Adaptation.CaregiverMinIntervalMinutes).IsEqualTo(d.CaregiverMinIntervalMinutes);
+```
+
+**`SettingsSliderSpanGuardTests.Adaptation_SliderSpans_StayInsideTheValidatedRanges`** (round-1 F1 — this fact pins the Adaptation page's slider count and would fail at Step 5 otherwise): change `Check.That(sliders).HasSize(6);` to `Check.That(sliders).HasSize(7);`, and append one span pin after the `ad_geom_margin` line:
+
+```csharp
+        SpanInside(sliders, "ad_caregiver_interval", 1, 60);
 ```
 
 - [ ] **Step 2: Run the page tests to verify they fail**
@@ -1128,12 +1189,12 @@ And in the class doc comment, update "its three assessment subscribers" to "its 
 - [ ] **Step 5: Run the suite**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"`
-Expected: `Bestanden!` with `gesamt: 795` (no new facts this task — the three page facts were modified in place).
+Expected: `Bestanden!` with `gesamt: 797` (no new facts this task — the three page facts and the span-guard fact were modified in place).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Services/AppBootstrapper.cs src/EyeCtrl.App/Services/AdaptationActivation.cs src/EyeCtrl.App/App.xaml.cs src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs
+git add src/EyeCtrl.App/Services/AppBootstrapper.cs src/EyeCtrl.App/Services/AdaptationActivation.cs src/EyeCtrl.App/App.xaml.cs src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/Pages/AdaptationPageSourceTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/SettingsSliderSpanGuardTests.cs
 git commit -m "feat(adaptation): wire caregiver alerts — DI, activation edge, settings rows"
 ```
 
@@ -1148,7 +1209,7 @@ git commit -m "feat(adaptation): wire caregiver alerts — DI, activation edge, 
 
 - [ ] **Step 1: Amend the design spec**
 
-1. **§10 — append the Phase-3 resolution** (after the existing caregiver-alert bullet):
+1. **§10 — append the Phase-3 resolution at the END of §10** (after the **`AdaptationSettings`** bullet — the Phase-2 §7.4 precedent: resolution blocks land at the section's end, and inserting after the caregiver bullet would split the Markdown list; round-1 F5):
 
 ```markdown
 **Phase-3 resolution (2026-09-05, plan `2026-09-05-caregiver-alerts-phase3.md`).** The v1 alert is an
@@ -1205,7 +1266,7 @@ dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"
 dotnet test tests/EyeCtrl.Benchmarks.Tests --filter "Category!=UI"
 ```
 
-Expected, in order: `Bestanden!` **gesamt: 1219** (`erfolgreich: 1218, übersprungen: 1`) / **300** / **795** / **27**.
+Expected, in order: `Bestanden!` **gesamt: 1219** (`erfolgreich: 1218, übersprungen: 1`) / **300** / **797** / **27**.
 
 - [ ] **Step 4: Graph change analysis (AGENTS gate)**
 
@@ -1226,6 +1287,6 @@ git commit -m "docs(spec): record the Phase-3 caregiver resolution (§10); fix A
 - **German output**: read the `Bestanden!`/`Fehler!` summary line, never grep "Failed". One suite at a time; check the box is quiet before each run.
 - The service tests are wall-clock-free — every timing fact drives the injected clock; if one fails, suspect the state machine order in `OnAssessment` (visibility gates → `Track` → fade-check → onsets), not the arithmetic.
 - `AdaptationPageSource`'s exact ctor style must match what the file uses today; this plan adds no ctor parameters — only the two rows and the two reset copies.
-- **Do not** "improve" `AdaptationCoordinator`, `StruggleMonitor`, `AdaptationController`, any router, `TrayIconManager`, or `HeartbeatPublisher` while in there. If a task's expected count is off by one, recount before adapting — the deltas are: Core +1 (guard fact; `NewDefaults` extended in place), App +16 (service) +1 (log), the three page facts modified in place. Interim App chain: 778 → 794 → 794 → 795 → 795.
+- **Do not** "improve" `AdaptationCoordinator`, `StruggleMonitor`, `AdaptationController`, any router, `TrayIconManager`, or `HeartbeatPublisher` while in there. If a task's expected count is off by one, recount before adapting — the deltas are: Core +1 (guard fact; `NewDefaults` extended in place), App +17 (service facts, including the round-1 F2 Dispose fact) +1 (`OverlayResourceResolutionTests` theory case, F3) +1 (log fact), and the three page facts plus the span-guard fact modified in place (F1). Interim App chain: 778 → 795 → 796 → 797 → 797.
 - The `ICaregiverAlertPresenter` fake in Task 3 is the only test-side presenter; **never** resolve `CaregiverAlertWindow` or `ICaregiverAlertPresenter` from the container in a test (constructing a WPF `Window` off an STA/dispatcher context is exactly what the fake exists to avoid — and the reason there is deliberately no DI registration fact in `TelemetrySinkRegistrationTests` for this service, mirroring cue/drift).
 - If `OverlayInventoryDriftTests` fails after Task 4, the §3.1 Class cell must be exactly `` `CaregiverAlertWindow` `` (backticked) and the §1 count must equal the concrete-subclass count — recount the declared overlays rather than editing the test.

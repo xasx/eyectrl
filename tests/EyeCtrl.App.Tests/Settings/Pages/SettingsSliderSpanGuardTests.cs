@@ -112,13 +112,14 @@ public class SettingsSliderSpanGuardTests
     public void Adaptation_SliderSpans_StayInsideTheValidatedRanges()
     {
         var sliders = Sliders(new AdaptationPageSource(TestSettingsPageContext.Build()));
-        Check.That(sliders).HasSize(6);
+        Check.That(sliders).HasSize(7);
         SpanInside(sliders, "ad_frac_dwell_short", 0.0, 1.0);
         SpanInside(sliders, "ad_frac_dwell_long", 0.0, 1.0);
         SpanInside(sliders, "ad_frac_tol_loose", 0.0, 1.0);
         SpanInside(sliders, "ad_frac_smooth", 0.0, 1.0);
         SpanInside(sliders, "ad_frac_geom", 0.0, 1.0);
         SpanInside(sliders, "ad_geom_margin", 0, 300);
+        SpanInside(sliders, "ad_caregiver_interval", 1, 60);
     }
 
     [Fact]

@@ -48,6 +48,12 @@ internal sealed class AdaptationPageSource : ISettingsPageSource
                 new ToggleSpec("ad_sensitive", "Suppress in Sensitive Contexts",
                     () => s.SuppressInSensitiveContexts, v => { s.SuppressInSensitiveContexts = v; _ctx.ApplyAndSave(); })
                     { Description = "Keep the cue and toasts hidden while you type passwords." },
+                new ToggleSpec("ad_caregiver", "Caregiver Alerts",
+                    () => s.CaregiverAlerts, v => { s.CaregiverAlerts = v; _ctx.ApplyAndSave(); })
+                    { Description = "Show a prominent alert for a caregiver while struggle or poor tracking persists." },
+                new SliderSpec("ad_caregiver_interval", "Caregiver Alerts — Minimum Interval", 1.0, 60.0, 1.0, 0,
+                    () => s.CaregiverMinIntervalMinutes, v => { s.CaregiverMinIntervalMinutes = v; _ctx.ApplyAndSave(); })
+                    { Description = "The least time between two caregiver alerts, in minutes." },
                 new SliderSpec("ad_frac_dwell_short", "Dwell — Shorter Limit", 0.0, 1.0, 0.05, 2,
                     () => s.DwellShorterMaxFraction, v => { s.DwellShorterMaxFraction = v; _ctx.ApplyAndSave(); })
                     { Description = "The most a dwell may be shortened, as a share of its baseline." },
@@ -78,6 +84,8 @@ internal sealed class AdaptationPageSource : ISettingsPageSource
                         s.AdaptGeometry = d.AdaptGeometry;
                         s.ShowCue = d.ShowCue;
                         s.SuppressInSensitiveContexts = d.SuppressInSensitiveContexts;
+                        s.CaregiverAlerts = d.CaregiverAlerts;
+                        s.CaregiverMinIntervalMinutes = d.CaregiverMinIntervalMinutes;
                         s.DwellShorterMaxFraction = d.DwellShorterMaxFraction;
                         s.DwellLongerMaxFraction = d.DwellLongerMaxFraction;
                         s.ToleranceLooserMaxFraction = d.ToleranceLooserMaxFraction;

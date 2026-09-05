@@ -338,7 +338,7 @@ public partial class App : Application
             };
 
             // Struggle-detection adaptation. AdaptationActivation starts and stops the whole runtime —
-            // coordinator tick timer, the cue / drift-notice / log subscribers (resolving the cue service is
+            // coordinator tick timer, the cue / drift-notice / log / caregiver-alert subscribers (resolving the cue service is
             // what constructs its overlay HWND), and the system-wide UIA focus hook — on the
             // AdaptationSettings.Enabled edge. Since the setting is off by default, none of that exists until
             // the user opts in, and it is torn back down when they opt out.

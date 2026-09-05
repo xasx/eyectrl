@@ -218,4 +218,26 @@ public class AdaptationLogTests
         provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.2); // no throw, no file side
         Check.That(log.OnAssessment(Gated())).IsEqualTo(AdaptationLogAction.Logged);
     }
+
+    [Fact]
+    public void LogCaregiverAlert_WritesKindCaregiverEntry()
+    {
+        string path = TempLogPath();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var log = new AdaptationLog(settings.Adaptation, new FakeFeedbackGate(),
+                new EffectiveSettingsProvider(settings.Adaptation), jsonlPath: path);
+
+            log.LogCaregiverAlert(CaregiverAlertCondition.SustainedPoorTracking);
+
+            var line = File.ReadAllLines(path).Single();
+            Check.That(line).Contains("\"kind\":\"caregiver\"");
+            Check.That(line).Contains("\"condition\":\"SustainedPoorTracking\"");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

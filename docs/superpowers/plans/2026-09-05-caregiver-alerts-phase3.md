@@ -33,7 +33,7 @@
 - **Blast radius (GitNexus, graph re-indexed 2026-09-05):** `TrayIconManager` LOW — and **untouched** (the window is a DI singleton like `DriftNoticeWindow`; the tray's non-DI construction is why the balloon route is dead regardless of the owner's decision); `AdaptationActivation` MEDIUM (6 direct, 23 total); `AdaptationLog` MEDIUM (4 direct, 33 total); `AdaptationCoordinator` unchanged. No HIGH/CRITICAL surface is modified.
 - **Index notes:** the GitNexus re-index left the FTS (keyword-search) side degraded after two `--repair-fts` attempts (a LadybugDB WAL-rotation failure) and the commit-stamp reports stale even though the graph content is current (verified: `AdaptationLearner` and its Phase-2 callers resolve). Impact/context/detect-changes gates are trustworthy; keyword search is not. `.gitnexus/run.cjs` does not exist in the worktree (Phase-2 round-2 F6) — use the MCP tools with the worktree parameter from there.
 - **No new benchmark.** The service runs on the 4 Hz assessment stream doing O(1) condition tracking; §9.1 is untouched. Recorded as a decision, owner-vetoable.
-- **No new `internal` seams are required** (`InternalsVisibleTo` exists for both test projects — `EyeCtrl.Core.csproj:12` and `EyeCtrl.App.csproj:71`; the AGENTS.md claim that only Core declares it is outdated and is fixed in Task 7). The service's three consts are `internal` (the `AdaptationCueService.ReflashIntervalMs` precedent) and are read by tests via the existing App IVT.
+- **No new `internal` seams are required** (`InternalsVisibleTo` exists for both test projects — `EyeCtrl.Core.csproj:12` and `EyeCtrl.App.csproj:71`; the AGENTS.md claim that only Core declares it is outdated and is fixed in Task 7). The service's three consts are `internal` (the `AdaptationCueService.ReflashIntervalMs` precedent); the tests deliberately drive **literal** timings (the 0.5 threshold, 60 000 ms via tick counts, 30 s via clock advances) so an accidental const change fails a fact rather than silently tracking it.
 - NFluent only; no mocking library (private fakes); file-scoped namespaces; Allman braces; `_camelCase` fields; nullable enabled. `EyeCtrl.Core` escalates CS1591 (missing XML doc) to an **error** — the one Core member this plan adds (a settings property) needs its `///`.
 - **If a step's expected output does not match, stop rather than adapting.** Anchors reference `main` at `7c62761c`; drift ⇒ report BLOCKED with what you saw.
 
@@ -294,7 +294,7 @@ public class CaregiverAlertServiceTests
     {
         var (svc, _, _, presenter, logged, clock) = Make();
         clock.Now = 1_000_000;
-        Run(svc, clock, Struggle(0.6), ticks: 241); // 60.25 s — one tick past the boundary
+        Run(svc, clock, Struggle(0.6), ticks: 241); // the 241st tick reaches exactly 60.00 s of sustain
         Check.That(presenter.Shows).ContainsExactly(CaregiverAlertCondition.SustainedStruggle);
         Check.That(logged).ContainsExactly(CaregiverAlertCondition.SustainedStruggle);
         Run(svc, clock, Struggle(0.6), ticks: 40); // still the same episode — once per episode

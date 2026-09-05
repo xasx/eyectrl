@@ -18,9 +18,15 @@ public class CaregiverAlertServiceTests
         public List<CaregiverAlertCondition> Shows { get; } = new();
         public int FadeCalls { get; private set; }
         public int HideCalls { get; private set; }
+        public bool ThrowOnHide { get; set; }
         public void ShowCaregiverAlert(CaregiverAlertCondition condition) => Shows.Add(condition);
         public void FadeOutCaregiverAlert() => FadeCalls++;
-        public void HideCaregiverAlert() => HideCalls++;
+        public void HideCaregiverAlert()
+        {
+            if (ThrowOnHide)
+                throw new InvalidOperationException("presenter failed");
+            HideCalls++;
+        }
     }
 
     // Aggregate-only struggle (no modes): the struggle condition keys off AggregateLevel alone.
@@ -397,5 +403,17 @@ public class CaregiverAlertServiceTests
         clock.Now += 250;
         svc.OnAssessment(Struggle(0.6)); // due but suppressed: no window AND no JSONL trace (§8.10)
         Check.That(logged).IsEmpty();
+    }
+
+    [Fact]
+    public void Dispose_SwallowsAPresenterFailure_NeverBreaksTeardown() // implementation-review F6 follow-up
+    {
+        // StopRuntime stops the system-wide UIA focus hook AFTER this Dispose — a WPF failure here
+        // would abort the rest of the teardown and leak the hook (§11: swallow, like the chime).
+        var (svc, _, _, presenter, _, clock) = Make();
+        clock.Now = 1_000_000;
+        Run(svc, clock, Struggle(0.6), ticks: 241); // fires, window up
+        presenter.ThrowOnHide = true;
+        Check.ThatCode(svc.Dispose).DoesNotThrow();
     }
 }

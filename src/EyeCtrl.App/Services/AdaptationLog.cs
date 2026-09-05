@@ -103,6 +103,17 @@ public sealed class AdaptationLog : IDisposable
         return AdaptationLogAction.Logged;
     }
 
+    /// <summary>
+    /// Appends a <c>kind:"caregiver"</c> entry for one alert onset (§10 Phase-3 resolution). Called by
+    /// <see cref="CaregiverAlertService"/> via its injected callback on UNSUPPRESSED onsets only — a
+    /// suppressed onset writes nothing, so the file never carries a timing trace of credential-adjacent
+    /// struggle (§8.10, the same discipline as <see cref="OnProviderChanged"/>'s suppressed-marker rule).
+    /// Rides the same size cap and rotation as every other entry.
+    /// </summary>
+    /// <param name="condition">Which sustained condition raised the alert.</param>
+    public void LogCaregiverAlert(CaregiverAlertCondition condition) =>
+        WriteJsonl(new { ts = DateTimeOffset.UtcNow, kind = "caregiver", condition = condition.ToString() });
+
     // provider.Changed handler: writes one entry per knob whose learned fill changed since the last
     // observation — including a knob that DROPPED OUT of the enumeration (decayed/reset to 0), so the
     // §8.7 "given back" event and the §8.6 reset stay visible (review round 1, finding 13). Momentary-

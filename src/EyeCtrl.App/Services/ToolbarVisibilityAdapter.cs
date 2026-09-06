@@ -23,30 +23,44 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
 
     public void ShowToolbar() => _dispatcher.BeginInvoke(() =>
     {
-        _overlays.Toolbar.Show();
+        // Indicator first, so it is not underneath the incoming band.
         _overlays.PauseIndicator.Hide();
+        // Clock attached, then Show, then arm — arming is SYNCHRONOUS and deliberately not
+        // deferred to the slide's completion: a summon already costs 400 ms of dwell, and the
+        // targets are at their correct resting coordinates throughout, so up to 200 ms where a
+        // button is drawn short of its target is the cheaper side of the trade. See the spec's
+        // open question 1. SetActive follows Show for the same reason HideToolbar's precedes
+        // Hide: the window reaches its safe configuration before dwell state changes.
+        _overlays.Toolbar.ShowThenSlideIn();
         _toolbarVm.SetActive(true);
     });
 
     public void HideToolbar(bool paused) => _dispatcher.BeginInvoke(() =>
     {
-        // Deactivate dwell BEFORE the hide so a sample arriving between Hide and the next
-        // dispatcher tick can't accumulate against the (now-hidden) targets.
+        // Deactivate dwell BEFORE the band starts leaving. The slide widens the window between
+        // this and the actual Hide() from one dispatcher tick to the slide duration, which makes
+        // this ordering more load-bearing than it was, not less.
         _toolbarVm.SetActive(false);
-        _overlays.Toolbar.Hide();
-        if (paused)
+        _overlays.Toolbar.SlideOutThenHide(() =>
         {
-            _overlays.PauseIndicator.Show();
-        }
-        else
-        {
-            _overlays.PauseIndicator.Hide();
-        }
+            // After the band has cleared, so the indicator reads as a handover rather than a swap.
+            if (paused)
+            {
+                _overlays.PauseIndicator.Show();
+            }
+            else
+            {
+                _overlays.PauseIndicator.Hide();
+            }
+        });
     });
 
     public void ForceShow() => _dispatcher.BeginInvoke(() =>
     {
-        _overlays.Toolbar.Show();
+        // Instant, and it must stay instant: every caller — tray fallback, modal suspend-recover,
+        // dock toggle — exists because the user needs the toolbar now. ShowAtRest also cancels any
+        // in-flight slide and defuses its pending Hide().
+        _overlays.Toolbar.ShowAtRest();
         _overlays.PauseIndicator.Hide();
         _toolbarVm.SetActive(true);
     });

@@ -321,4 +321,115 @@ public class ToolbarSlideTests
         }
         finally { window.Close(); }
     }
+
+    /// <summary>
+    /// Placement publishes each button's centre through PointToScreen, which INCLUDES the render
+    /// transform — and UpdateButtonScreenPosition creates a target on its first call, so one bad
+    /// publish is permanent. This is the failure that shipped once and left no toolbar button
+    /// dwellable at all, arrived at from a new direction.
+    /// </summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void MidSlide_PublishesNoTargets()
+    {
+        var window = NewDockedToolbar();
+        try
+        {
+            window.UpdateLayout();
+            window.SlideOutThenHide(() => { });
+            Check.That(window.IsSliding).IsTrue();
+
+            window.UpdateGaze(new EyeCtrl.Core.Models.PhysicalPoint(100, 100), 0);
+
+            Check.That(window.TargetsInitialized).IsFalse();
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The transform stays parked at the hidden offset for the WHOLE hidden period, not merely
+    /// while a clock is live — so a placement while hidden would publish rest-plus-offset for every
+    /// button and latch it. Note this state is safe in the pre-slide code (no transform exists);
+    /// the transform is what makes it hazardous.
+    /// </summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void WhileHiddenWithTheBandParkedOffEdge_PublishesNoTargets()
+    {
+        var window = NewDockedToolbar();
+        try
+        {
+            window.UpdateLayout();
+            window.SlideOutThenHide(() => { });
+            window.CompleteSlideForTest();
+
+            Check.That(window.IsSliding).IsFalse();                  // not the guard under test
+            Check.That(window.SlideTransform.Y).IsNotEqualTo(0d);    // the guard under test
+
+            window.UpdateGaze(new EyeCtrl.Core.Models.PhysicalPoint(100, 100), 0);
+
+            Check.That(window.TargetsInitialized).IsFalse();
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The slide-IN half of the guard, and the only state where the `_sliding` flag is the sole
+    /// thing suppressing placement — which makes this the test that gives mutation row 2 its teeth.
+    ///
+    /// <para>
+    /// Why this state and not the slide-out: on a pumpless STA thread an animation clock never
+    /// ticks, so a property read after BeginAnimation returns the BASE value, and the base value is
+    /// always written to the slide's destination. For a slide-out that destination is the off-edge
+    /// offset, so the transform already reads non-zero and the at-rest check alone suppresses
+    /// placement. For a slide-IN the destination is 0, so the transform reads at-rest while the
+    /// band is in fact mid-flight, and only the flag is left. Measured, not reasoned: an earlier
+    /// draft of this plan had this backwards and mutation row 2 could not fail.
+    /// </para>
+    ///
+    /// <para>
+    /// The spec requires placement suppression "in both directions"; without this test only the
+    /// slide-out direction was covered.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void MidSlideIn_PublishesNoTargets()
+    {
+        var window = NewDockedToolbar();
+        try
+        {
+            window.UpdateLayout();
+            window.SlideOutThenHide(() => { });
+            window.CompleteSlideForTest();
+
+            window.ShowThenSlideIn();
+
+            Check.That(window.IsSliding).IsTrue();
+            Check.That(window.SlideTransform.Y).IsEqualTo(0d);   // base value == destination == rest
+
+            window.UpdateGaze(new EyeCtrl.Core.Models.PhysicalPoint(100, 100), 0);
+
+            Check.That(window.TargetsInitialized).IsFalse();
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Once the band is back at rest, placement proceeds as before.</summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void AtRest_PublishesTargets()
+    {
+        var window = NewDockedToolbar();
+        try
+        {
+            window.UpdateLayout();
+            Check.That(window.FacesAreArranged()).IsTrue();
+
+            window.UpdateGaze(new EyeCtrl.Core.Models.PhysicalPoint(100, 100), 0);
+
+            Check.That(window.TargetsInitialized).IsTrue();
+        }
+        finally { window.Close(); }
+    }
 }

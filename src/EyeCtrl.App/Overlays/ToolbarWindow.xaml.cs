@@ -328,6 +328,20 @@ public partial class ToolbarWindow : OverlayWindow
     {
         if (DataContext is not ToolbarViewModel vm) return;
 
+        // Not while the transform is displacing the faces. PointToScreen includes the render
+        // transform, and UpdateButtonScreenPosition CREATES a target on its first call, so one bad
+        // publish is permanent — the same permanence that made the collapsed-centre bug
+        // unrecoverable short of a restart.
+        //
+        // The at-rest test covers more than the slide: the base value sits at the hidden offset for
+        // the entire hidden period, not just while a clock is live. Deliberately phrased as "is the
+        // transform at rest" rather than "is the window visible": the visibility form would make
+        // ToolbarTargetPlacementTests.FreshBand_IsNotArranged_SoNothingIsPublished return HERE
+        // instead of at the FacesAreArranged guard it exists to prove, silently turning that test
+        // into a tautology.
+        if (_sliding || SlideTransform.X != 0 || SlideTransform.Y != 0)
+            return;
+
         // Asked BEFORE anything is published, not after. The old order computed and published
         // every centre and only then asked whether the faces were laid out — too late, because the
         // targets it had already created at the bogus centres were the damage.

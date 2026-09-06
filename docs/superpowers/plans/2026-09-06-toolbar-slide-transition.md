@@ -43,14 +43,15 @@ The hazard is "the transform is displacing the faces from where their dwell targ
 | `tests/EyeCtrl.App.Tests/Overlays/ToolbarSlideGeometryTests.cs` (create) | Headless direction table. |
 | `tests/EyeCtrl.App.Tests/ToolbarSlideTests.cs` (create) | STA behaviour: flags, sequencing, cancellation, placement guard. |
 | `tests/EyeCtrl.App.Tests/TaskSwitcherDwellPositionTests.cs` (modify, line 166) | The **existing** source pin on the re-arm gate. It asserts the gate reads `Toolbar.IsVisible`, so Task 6 breaks it; Task 6 updates it to `Toolbar.IsOnScreen` and widens it. |
+| `tests/EyeCtrl.App.Tests/Services/Coordinators/TaskSwitcherReArmTests.cs` (create) | Behavioural cover for the re-arm gate — the only thing that catches a polarity inversion (Task 7). |
 | `tests/EyeCtrl.App.Tests/ToolbarButtonVisualTests.cs` (modify, line 603) | `(Border)window.Content` → `window.StripRoot`, forced by the wrapper. |
 | `tests/EyeCtrl.App.Tests/Services/ToolbarVisibilityAdapterTests.cs` (modify) | Hide-ordering test rewritten to the new contract. |
 
 **On the re-arm gate's coverage.** The spec's Testing section calls for a task-switcher-closes-mid-slide-in behavioural test in `OverlayVmBindingCoordinatorTests`, on the stated grounds that the gate has **zero coverage today**. That premise is false, and this plan previously repeated it: `TaskSwitcherDwellPositionTests.Switcher_DeactivatesToolbarDwell_WhileCoveringIt` (`:148-167`) is a pre-existing source pin over that exact method, added after the 2026-08-18 field report, and it asserts the gate reads `Toolbar.IsVisible`. So the gate is covered, by a pin rather than a behavioural test — and Task 6 **breaks that pin** unless it updates it.
 
-The behavioural test stays declined, but on honest costing rather than the inflated figure an earlier draft gave. `OnInitialize` dereferences roughly eight view-models plus `OverlayManager.GlassBackdrop`; the other `EventCoordinationContext` parameters can be null, and `SetupBackdrop` merely *assigns a field* — it does not construct a `GlassBackdropWindow`, as this plan previously claimed. A real harness is therefore feasible at roughly 80-120 lines. It is still disproportionate for a one-line gate whose established idiom in this repo is a source pin, and this plan puts the *logic* coverage where the logic is: a four-state `IsOnScreen` truth table (Task 3).
+**The behavioural test is IN scope** — Task 7 — because the pin cannot catch a *polarity* inversion: `if (!Context.OverlayManager.Toolbar.IsOnScreen)` satisfies both the pin and the `IsOnScreen` truth table while doing the exact opposite. Coverage is therefore three-layered and each layer catches something the others cannot: the truth table (Task 3) covers the property's logic, the pin (Task 6) covers which symbol the call site reads, and the behavioural tests (Task 7) cover polarity.
 
-**One residual gap, named rather than papered over:** no source pin can catch a *polarity* inversion. `if (!Context.OverlayManager.Toolbar.IsOnScreen)` satisfies both the pin and the truth table while doing the opposite thing. Only a behavioural test would catch that. Say so before Task 6 if that is worth 100 lines to you.
+Task 7 also records the cost history, because this plan mis-estimated it three times running and each estimate was refuted by a single grep. Short version: `TestFakes.MakeContext` already exists, so the harness is ~60 lines rather than prohibitive.
 
 ---
 
@@ -1453,7 +1454,293 @@ git commit -m "fix(toolbar): re-arm dwell on IsOnScreen, not IsVisible"
 
 ---
 
-### Task 7: Mutation sweep and full verification
+### Task 7: Behavioural harness for the task-switcher re-arm gate
+
+This closes the polarity gap: a source pin cannot tell `IsOnScreen` from `!IsOnScreen`. Two behavioural tests can.
+
+**On cost, since this plan has now been wrong about it three times.** It first called the harness prohibitive, naming a `GlassBackdropWindow` construction that does not happen — `SetupBackdrop` only assigns a field. Plan review corrected that to ~80-120 lines. Both missed that `tests/EyeCtrl.App.Tests/Services/TestFakes.cs:22-52` **already builds an `EventCoordinationContext`**, with a `record with` pattern for overriding individual members, and that all eight view-models `OnInitialize` subscribes to take a plain `(EyeCtrlSettings, IMessenger)` shape. The real cost is roughly 60 lines. The lesson worth keeping: three successive estimates of "too expensive to test" were each refuted by one grep.
+
+**Files:**
+- Modify: `src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs` (Step 3 only, and only if needed)
+- Test: `tests/EyeCtrl.App.Tests/Services/Coordinators/TaskSwitcherReArmTests.cs` (create)
+
+**Interfaces:**
+- Consumes: `ToolbarWindow.IsOnScreen`, `SlideOutThenHide`, `ShowThenSlideIn`, `CompleteSlideForTest` (Task 3); `TestFakes.MakeContext` and `ExposedDwellToolbarViewModel` (both existing).
+- Produces: nothing new in production code, unless Step 3 applies.
+
+- [ ] **Step 1: Write the tests**
+
+Create `tests/EyeCtrl.App.Tests/Services/Coordinators/TaskSwitcherReArmTests.cs`:
+
+```csharp
+namespace EyeCtrl.App.Tests.Services.Coordinators;
+
+using System.Windows.Threading;
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Services;
+using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.App.Tests.Services;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
+using Xunit;
+
+/// <summary>
+/// The task-switcher close handler's dwell re-arm gate, driven behaviourally.
+///
+/// <para>
+/// <c>TaskSwitcherDwellPositionTests</c> pins the gate's SYMBOL and <c>ToolbarSlideTests</c> pins
+/// <c>IsOnScreen</c>'s truth table, and between them one thing stays invisible: polarity.
+/// <c>if (!Toolbar.IsOnScreen)</c> satisfies both while doing the exact opposite — re-arming dwell
+/// for a departing band and refusing to re-arm an arriving one. These two tests are the only thing
+/// that catches that, which is why they are worth a harness.
+/// </para>
+///
+/// <para>
+/// Dwell state is observed the way <c>ToolbarVisibilityAdapterTests</c> observes it — through the
+/// real dwell machinery, since <c>ToolbarViewModel.SetActive</c> is non-virtual — via
+/// <c>ExposedDwellToolbarViewModel</c>, which that file already declares at namespace scope.
+/// </para>
+/// </summary>
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+[Collection("WpfApplication")]
+public class TaskSwitcherReArmTests
+{
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void SwitcherClosing_DuringSlideIn_ReArmsToolbarDwell()
+    {
+        using var h = new Harness();
+
+        // The band is arriving: visible, staying, dwell armed by design.
+        h.Toolbar.SlideOutThenHide(() => { });
+        h.Toolbar.CompleteSlideForTest();
+        h.Toolbar.ShowThenSlideIn();
+        Check.That(h.Toolbar.IsOnScreen).IsTrue();
+
+        // The switcher disarmed dwell when it opened; closing it must repair that. Nothing else
+        // will — the slide-in's completion no longer touches dwell state.
+        h.ToolbarVm.SetActive(false);
+        h.CloseSwitcher();
+
+        Check.That(h.DwellAccumulates()).IsTrue();
+    }
+
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void SwitcherClosing_DuringSlideOut_DoesNotReArmToolbarDwell()
+    {
+        using var h = new Harness();
+
+        // The band is leaving and the window is about to hide.
+        h.Toolbar.SlideOutThenHide(() => { });
+        Check.That(h.Toolbar.IsOnScreen).IsFalse();
+
+        h.ToolbarVm.SetActive(false);
+        h.CloseSwitcher();
+
+        Check.That(h.DwellAccumulates()).IsFalse();
+    }
+
+    /// <summary>
+    /// A docked, shown toolbar plus a coordinator initialised over a real context. The switcher VM
+    /// is set visible BEFORE Initialize so no show-branch ever runs — this harness only exercises
+    /// the close branch, which is the one carrying the gate.
+    /// </summary>
+    private sealed class Harness : IDisposable
+    {
+        private readonly OverlayVmBindingCoordinator _coordinator;
+        private readonly TaskSwitcherViewModel _switcherVm;
+        private readonly TaskSwitcherWindow _switcherWindow;
+
+        internal ToolbarWindow Toolbar { get; }
+        internal ExposedDwellToolbarViewModel ToolbarVm { get; }
+
+        internal Harness()
+        {
+            WpfApplicationGate.EnsureApplicationWithTokens();
+
+            var settings = new EyeCtrlSettings();
+            var messenger = new WeakReferenceMessenger();
+
+            ToolbarVm = new ExposedDwellToolbarViewModel(settings, messenger);
+            Toolbar = new ToolbarWindow();
+            Toolbar.Initialize(ToolbarTestHelpers.ButtonSize, settings.Dwell.ToolbarButtonDwellMs);
+            Toolbar.DataContext = ToolbarVm;
+            Toolbar.BindToViewModel();
+            Toolbar.Show();
+            Toolbar.SetMode(isDocked: true, edge: "Top");
+
+            _switcherWindow = new TaskSwitcherWindow();
+            _switcherVm = new TaskSwitcherViewModel(windowManager: null!, settings, messenger);
+
+            // Visible before Initialize: the coordinator subscribes inside Initialize, so this
+            // assignment raises nothing and the show branch never runs.
+            _switcherVm.IsVisible = true;
+
+            _coordinator = new OverlayVmBindingCoordinator(new ModalInteractionState());
+            _coordinator.Initialize(TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+            {
+                CursorVM = new CursorCircleViewModel(settings, messenger),
+                ActivationVM = new ActivationButtonViewModel(settings, messenger),
+                ManualSelectionVM = new ManualSelectionOverlayViewModel(settings, messenger),
+                ManualSelectionIndicatorVM = new ManualSelectionGazeIndicatorViewModel(messenger),
+                ActionMenuVM = new ActionMenuViewModel(settings, messenger),
+                BackdropVM = new GlassBackdropViewModel(settings, messenger),
+                ToolbarVM = ToolbarVm,
+                TaskSwitcherVM = _switcherVm,
+                OverlayManager = new FakeOverlays(Toolbar, _switcherWindow),
+                Dispatcher = Dispatcher.CurrentDispatcher,
+                Settings = settings,
+            });
+
+            ToolbarVm.DwellDetector.AddTarget(new DwellTarget(
+                "Close", new PhysicalPoint(100, 100), radius: 50, dwellTimeMs: 1000));
+        }
+
+        /// <summary>Flips the switcher to hidden and drains the handler's BeginInvoke.</summary>
+        internal void CloseSwitcher()
+        {
+            _switcherVm.IsVisible = false;
+            Pump();
+        }
+
+        /// <summary>
+        /// Whether toolbar dwell is live: two gaze updates on a positioned target — the first
+        /// records entry and emits nothing, the second accumulates. Routed through Receive, the
+        /// view-model's own dwell gate, so progress reaching the target proves SetActive(true) ran.
+        /// </summary>
+        internal bool DwellAccumulates()
+        {
+            ToolbarVm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 0));
+            ToolbarVm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 500_000));
+            return ToolbarVm.LastProgress > 0;
+        }
+
+        private static void Pump()
+        {
+            var frame = new DispatcherFrame();
+            Dispatcher.CurrentDispatcher.BeginInvoke(
+                DispatcherPriority.Background,
+                new DispatcherOperationCallback(_ => { frame.Continue = false; return null; }),
+                null);
+            Dispatcher.PushFrame(frame);
+        }
+
+        public void Dispose()
+        {
+            _coordinator.Dispose();
+            _switcherVm.Dispose();
+            _switcherWindow.Close();
+            Toolbar.Close();
+        }
+    }
+
+    /// <summary>
+    /// Only the three members the close branch touches. GlassBackdrop returns null deliberately:
+    /// SetupBackdrop merely assigns it to a field and every consumer null-guards, so no backdrop
+    /// window need exist. Every other member throws, so an accidental reach fails loudly rather
+    /// than returning null.
+    /// </summary>
+    private sealed class FakeOverlays : IOverlayManager
+    {
+        private readonly ToolbarWindow _toolbar;
+        private readonly TaskSwitcherWindow _switcher;
+
+        internal FakeOverlays(ToolbarWindow toolbar, TaskSwitcherWindow switcher)
+        {
+            _toolbar = toolbar;
+            _switcher = switcher;
+        }
+
+        public ToolbarWindow Toolbar => _toolbar;
+        public TaskSwitcherWindow TaskSwitcher => _switcher;
+        public GlassBackdropWindow GlassBackdrop => null!;
+
+        public PauseIndicatorWindow PauseIndicator => throw new NotImplementedException();
+        public CursorCircleWindow CursorCircle => throw new NotImplementedException();
+        public ActivationButtonWindow ActivationButton => throw new NotImplementedException();
+        public ManualSelectionOverlayWindow ManualSelectionOverlay => throw new NotImplementedException();
+        public ActionMenuWindow ActionMenu => throw new NotImplementedException();
+        public KeyboardWindow Keyboard => throw new NotImplementedException();
+        public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator => throw new NotImplementedException();
+        public CalibrationWindow Calibration => throw new NotImplementedException();
+        public TargetHighlightWindow TargetHighlight => throw new NotImplementedException();
+        public EdgeButtonBarWindow EdgeButtonBar => throw new NotImplementedException();
+        public TrackStatusWindow TrackStatus => throw new NotImplementedException();
+        public QuickActionsGridWindow QuickActionsGrid => throw new NotImplementedException();
+
+        public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings,
+            EyeCtrl.Core.Enums.GazeProviderType providerType) => throw new NotImplementedException();
+    }
+}
+```
+
+- [ ] **Step 2: Build and run**
+
+```bash
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~TaskSwitcherReArmTests"
+```
+
+Get it compiling first. If `IOverlayManager` carries members this fake omits, the compiler names them — add each as a throwing property, and do not silently stub one to return null.
+
+Once it compiles, both tests should **pass immediately**: the gate is already correct after Task 6. That is expected and is not a TDD violation — these tests exist to catch a *polarity* regression, and Step 4 is where they earn their place. If either fails here, the gate's polarity is already wrong, and that is a genuine finding to report rather than patch.
+
+- [ ] **Step 3: Only if Step 2's tests cannot observe the gate**
+
+If the handler's `Context.Dispatcher.BeginInvoke` does not drain under `Pump()`, extract the lambda body so the test can drive it directly. In `OverlayVmBindingCoordinator`, replace the `BeginInvoke` lambda with a call to a new internal method:
+
+```csharp
+    /// <summary>
+    /// Applies a task-switcher visibility change. internal, not private: EyeCtrl.App.Tests drives
+    /// this directly (TaskSwitcherReArmTests), mirroring
+    /// ToolbarLifecycleCoordinator.InjectAutoHideForTesting rather than reaching in by reflection.
+    /// </summary>
+    internal void ApplyTaskSwitcherVisibility(bool visible)
+    {
+        if (Context is null) return;
+        if (visible)
+        {
+            Context.ToolbarVM.SetActive(false);
+            Context.OverlayManager.TaskSwitcher.ShowFullScreen();
+        }
+        else
+        {
+            Context.OverlayManager.TaskSwitcher.HideOverlay();
+            if (Context.OverlayManager.Toolbar.IsOnScreen)
+                Context.ToolbarVM.SetActive(true);
+        }
+    }
+```
+
+Then have `Harness.CloseSwitcher` call `_coordinator.ApplyTaskSwitcherVisibility(false)` instead of setting the VM property. **Skip this step entirely if Step 2 already works** — `Pump()` exists precisely so it should, and the property-driven version tests one more link of the real chain. Record which way it went.
+
+- [ ] **Step 4: Prove the teeth — the polarity mutation**
+
+Invert the gate in `OverlayVmBindingCoordinator.cs`: `if (!Context.OverlayManager.Toolbar.IsOnScreen)`. Run both:
+
+```bash
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~TaskSwitcherReArmTests"
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~TaskSwitcherDwellPositionTests"
+```
+
+Expected: **both** `TaskSwitcherReArmTests` red, and `TaskSwitcherDwellPositionTests` still **green**. That contrast is the whole justification for this task — the source pin cannot see an inversion and these tests can. If the pin also goes red, say so; it would mean the pin is stronger than this plan credits.
+
+Restore: `git checkout src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs tests/EyeCtrl.App.Tests/Services/Coordinators/TaskSwitcherReArmTests.cs
+git commit -m "test(toolbar): behavioural cover for the task-switcher re-arm gate"
+```
+
+---
+
+### Task 8: Mutation sweep and full verification
 
 Read-only review does not substitute for this. Five rounds of read-only review on this codebase once missed three one-line edits that broke a feature with the suite green. **Break it and watch it fail — never reason that it would.**
 
@@ -1531,7 +1818,7 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~Toolbar"
 git status --porcelain
 ```
 
-Expected: all green, and `git status` clean (every mutation reverted). Measured baselines from a full trial run of this plan: headless subset **788/788**, `FullyQualifiedName~Toolbar` **131 passed / 5 skipped**, `ToolbarSlideTests` **16**, `ToolbarSlideGeometryTests` **8**. Treat a materially different count as a finding, not as noise. Remember the German output: read the `Fehlgeschlagen!`/`Erfolgreich!` summary and grep `Fehler ` with a trailing space, never `Failed`. Three tests are known load-dependent flakes unrelated to this work — `HeartbeatPublisher` (<1500 ms), `MouseGazeProviderTests`, and the whole `ExternalDwellWireContractTests` family; one failure there re-runs green.
+Expected: all green, and `git status` clean (every mutation reverted). Measured baselines from a trial run of Tasks 1-6: headless subset **788/788**, `FullyQualifiedName~Toolbar` **131 passed / 5 skipped**, `ToolbarSlideTests` **16**, `ToolbarSlideGeometryTests` **8**. Task 7 adds 2 more (`TaskSwitcherReArmTests`) and Task 5 Step 4 adds 1 adapter test, neither of which was in that trial — so expect `~Toolbar` at **134 passed / 5 skipped**. Treat any other discrepancy as a finding, not noise. Remember the German output: read the `Fehlgeschlagen!`/`Erfolgreich!` summary and grep `Fehler ` with a trailing space, never `Failed`. Three tests are known load-dependent flakes unrelated to this work — `HeartbeatPublisher` (<1500 ms), `MouseGazeProviderTests`, and the whole `ExternalDwellWireContractTests` family; one failure there re-runs green.
 
 - [ ] **Step 12: Sync the spec to what was actually built**
 
@@ -1540,7 +1827,7 @@ In `docs/superpowers/specs/2026-09-06-toolbar-slide-transition-design.md`:
 1. Change the placement-guard predicate from `IsVisible && !IsSliding` to the transform-at-rest form, justified by **precision** (the transform's value is the hazard; `IsVisible` was a proxy that also mishandles a visible-but-displaced band). Do **not** cite `ToolbarTargetPlacementTests.cs:32-44` — that argument was refuted; see the deviation section at the top of this plan.
 2. Update mutation rows 2-3 to the corrected mapping from Step 2 above, including why the slide-*in* is the state that isolates the flag.
 3. Correct the Testing section's claim that the re-arm gate "has *zero* coverage today". It has a pre-existing source pin at `TaskSwitcherDwellPositionTests.cs:148-167`. That claim came from spec review round 1 and was accepted without checking for coverage outside the file the reviewer cited.
-4. Correct the harness-cost figure: `SetupBackdrop` assigns a field and does not construct a `GlassBackdropWindow`; a behavioural harness is roughly 80-120 lines, and it is declined on proportionality, not infeasibility. Record the polarity gap (`!IsOnScreen` satisfies both the pin and the truth table) as the residual.
+4. Correct the harness-cost figure and its outcome: `SetupBackdrop` assigns a field and does not construct a `GlassBackdropWindow`, `TestFakes.MakeContext` already builds a context, and the harness came in at ~60 lines — so it was **built** (Task 7), not declined. Replace the "declined on proportionality" reasoning with the three-layer coverage argument (truth table / symbol pin / polarity), and delete the polarity gap from the residual-risk list, since Task 7 closes it.
 
 - [ ] **Step 13: Commit**
 
@@ -1556,5 +1843,4 @@ git commit -m "docs(spec): sync the placement guard to the implemented predicate
 - **No visual check.** Nothing here confirms the slide *looks* right; the tests pin direction, state, and sequencing, not appearance. A visual check needs the app running, which needs the user's explicit go-ahead.
 - **No settings surface**, per the spec's non-goals.
 - **No slide for the pause indicator** (spec open question 2, deferred).
-- **No behavioural test of the task-switcher branch** — see the note under File Structure and raise it before Task 6 if you want the real harness instead. The consequence to accept knowingly: a polarity inversion of that gate would pass everything here.
 - **The `IsOnScreen` truth table is four tests, not one.** The spec asks for "four assertions in one test so the directional asymmetry cannot be half-broken". Four separate tests were verified to catch both halves independently (mutation rows 5 and 6 each redden their own test), so the split is safe — but it is a deviation from the shape the spec specifies, recorded here rather than left as an accident.

@@ -554,7 +554,7 @@ The Phase-2 gate is open.**
 
 **Phase 2 — Learning.** Forgiving-only learned offset + validated atomic persistence + reset + log review. **(Complete 2026-09-04 — learned-offset slice; see the §7.4 resolution. Phase 3 (caregiver) is next.)**
 
-**Phase 3 — Caregiver.** Net-new tray toast + rate-limiting; optional Supervisor relay (new payload/channel). **(Complete 2026-09-05 — caregiver-alert slice; see the §10 resolution. The optional Supervisor relay stays deferred, §14.)**
+**Phase 3 — Caregiver.** Net-new tray toast + rate-limiting; optional Supervisor relay (new payload/channel). **(Complete 2026-09-05 — caregiver-alert slice; see the §10 resolution, which supersedes the "tray toast" wording above: the shipped alert is the app-owned banner + chime, OS notifications having been rejected as suppressible. The optional Supervisor relay stays deferred, §14.)**
 
 Each phase gets its own implementation plan, reviewed before the next.
 

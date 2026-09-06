@@ -142,7 +142,8 @@ public class TaskSwitcherDwellPositionTests
     /// Source-scan pin: while the fullscreen switcher is up, the toolbar underneath must be
     /// dwell-deactivated — dwell has no z-order, so a top-row tile dwell would also fire the
     /// toolbar button under it (2026-08-18 field report). On close, reactivation must be
-    /// conditional on the toolbar actually being visible (auto-hide may have hidden it).
+    /// conditional on the toolbar actually being on screen — Toolbar.IsOnScreen, not IsVisible,
+    /// which stays true through a slide-out (2026-09-06 slide transition).
     /// </summary>
     [Fact]
     public void Switcher_DeactivatesToolbarDwell_WhileCoveringIt()
@@ -162,8 +163,14 @@ public class TaskSwitcherDwellPositionTests
                 "Hiding the switcher must NOT unconditionally reactivate the toolbar — "
                 + "auto-hide may have hidden it while the switcher was up, and activating a "
                 + "hidden toolbar creates gaze targets for invisible buttons. Guard the "
-                + "SetActive(true) on the toolbar window's visibility.")
-            .That(body.Contains("Toolbar.IsVisible") && body.Contains("ToolbarVM.SetActive(true)")).IsTrue();
+                + "SetActive(true) on Toolbar.IsOnScreen.")
+            .That(body.Contains("Toolbar.IsOnScreen") && body.Contains("ToolbarVM.SetActive(true)")).IsTrue();
+        Check.WithCustomMessage(
+                "Toolbar.IsVisible is true during a slide-out, while the band is leaving and the "
+                + "window is about to hide — re-arming dwell there is the very hazard this pin "
+                + "exists to prevent. Use Toolbar.IsOnScreen, which is false then and true during "
+                + "a slide-in.")
+            .That(body.Contains("Toolbar.IsVisible")).IsFalse();
     }
 
     private static string ExtractMethod(string source, string signature)

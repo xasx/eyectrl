@@ -345,8 +345,13 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                     // Reactivate only if the toolbar is actually on screen: auto-hide may
                     // have hidden it while the switcher was up, and activating a hidden
                     // toolbar creates gaze targets for invisible buttons — the exact hazard
-                    // SetActive's contract exists to prevent.
-                    if (Context.OverlayManager.Toolbar.IsVisible)
+                    // SetActive's contract exists to prevent. IsOnScreen, not IsVisible:
+                    // once Hide() is deferred to a slide's completion, IsVisible is still true
+                    // during a slide-out, while the band is leaving. It is deliberately TRUE
+                    // during a slide-IN, where the band is visible and staying and dwell is
+                    // armed by design — and re-arming here is the only repair for that case,
+                    // since the slide-in's completion no longer touches dwell state.
+                    if (Context.OverlayManager.Toolbar.IsOnScreen)
                         Context.ToolbarVM.SetActive(true);
                 }
             });

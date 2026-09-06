@@ -6,20 +6,36 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
         SizeToContent="WidthAndHeight">
-    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="4">
-        <StackPanel x:Name="StripWrapper" Orientation="Horizontal" VerticalAlignment="Center">
-            <!-- Chrome, not a target: the provider indicator is not dwellable, so it must not sit
-                 inside the button band where it reads as a broken button. Empty until a provider
-                 is known: an empty StackPanel's CONTENT measures to zero, but a Margin on the
-                 panel itself would NOT (that was the earlier bug here) — so the leading/trailing
-                 spacing lives on the indicator's own children (AddIndicatorElement) rather than
-                 on this panel, and an absent indicator costs nothing. -->
-            <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal"
-                        VerticalAlignment="Center"/>
-            <!-- DwellArcButton positions itself with Canvas.SetLeft/SetTop, so the button band is
-                 a Canvas with an explicitly computed size — a Canvas measures to zero otherwise,
-                 and this window is SizeToContent. -->
-            <Canvas x:Name="ButtonCanvas"/>
-        </StackPanel>
-    </Border>
+    <!-- ClipToBounds is explicit rather than relying on the HWND to clip the slide overhang.
+         An HWND very likely would, but that is a claim about layered-window composition that
+         cannot be asserted in a headless test; one element makes the clip a property of the
+         visual tree instead. The Grid measures to the Border's desired size, so SizeToContent
+         is unaffected — RenderTransform does not participate in measure. -->
+    <Grid ClipToBounds="True">
+        <!-- x:Name is required, not stylistic: ToolbarButtonVisualTests reaches this element as
+             (Border)window.Content and reads its Padding. Wrapping it changes window.Content to
+             the Grid, so the test uses this generated field instead — and a rename now fails the
+             build rather than silently changing what the test measures. -->
+        <Border x:Name="StripRoot"
+                Background="{StaticResource BrushSurfaceDark}"
+                CornerRadius="{StaticResource StandardCornerRadius}" Padding="4">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="SlideTransform"/>
+            </Border.RenderTransform>
+            <StackPanel x:Name="StripWrapper" Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- Chrome, not a target: the provider indicator is not dwellable, so it must not sit
+                     inside the button band where it reads as a broken button. Empty until a provider
+                     is known: an empty StackPanel's CONTENT measures to zero, but a Margin on the
+                     panel itself would NOT (that was the earlier bug here) — so the leading/trailing
+                     spacing lives on the indicator's own children (AddIndicatorElement) rather than
+                     on this panel, and an absent indicator costs nothing. -->
+                <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal"
+                            VerticalAlignment="Center"/>
+                <!-- DwellArcButton positions itself with Canvas.SetLeft/SetTop, so the button band is
+                     a Canvas with an explicitly computed size — a Canvas measures to zero otherwise,
+                     and this window is SizeToContent. -->
+                <Canvas x:Name="ButtonCanvas"/>
+            </StackPanel>
+        </Border>
+    </Grid>
 </overlays:OverlayWindow>

@@ -600,7 +600,9 @@ public class ToolbarButtonVisualTests
     public void StripInsets_AreSymmetric_WhenNoProviderIsSet()
     {
         var window = NewInitialisedToolbar();
-        var root = (Border)window.Content;
+        // window.Content is the clipping Grid that carries the slide transform; the strip itself
+        // (and its Padding, which the inset arithmetic below needs) is the named Border inside it.
+        var root = window.StripRoot;
         root.Measure(new Size(4000, 4000));
         root.Arrange(new Rect(0, 0, 4000, 4000));
         root.UpdateLayout();

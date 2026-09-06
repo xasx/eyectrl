@@ -21,13 +21,13 @@
 
 ## Deviation from the spec — needs sign-off before Task 4
 
-The spec specifies the dwell-target placement guard as `IsVisible && !IsSliding` (spec §"What must not run mid-slide", mutation row 3). **This plan implements `!_sliding && the transform is at its resting value` instead**, for a reason found while checking test impact:
+The spec specifies the dwell-target placement guard as `IsVisible && !IsSliding` (spec §"What must not run mid-slide", mutation row 3). **This plan implements `!_sliding && the transform is at its resting value` instead**, on precision grounds:
 
-`ToolbarTargetPlacementTests.FreshBand_IsNotArranged_SoNothingIsPublished` (`tests/EyeCtrl.App.Tests/ToolbarTargetPlacementTests.cs:32-44`) never calls `Show()`, so `IsVisible` is false there. An `IsVisible` conjunct would make that test pass by returning at the *new* guard, never reaching the `FacesAreArranged()` ordering it exists to prove — and its own doc comment (`:22-26`) states that reaching the end of `UpdateTargetPositions` without throwing *is* the evidence. The conjunct would silently turn a real guard test into a tautology.
+The hazard is "the transform is displacing the faces from where their dwell targets sit". `IsVisible` is a *proxy* for that; the transform's own value is the thing itself. The transform form covers both states the spec's form covered — the hidden period (the base value sits parked at the offset for its whole duration, which is what spec review round 2 established) and a live slide (the flag) — and additionally covers one the spec's form gets *wrong*: a band that is visible but displaced, where `IsVisible && !IsSliding` would publish rest-plus-offset and latch it.
 
-The transform-at-rest form is also the more precise predicate: the hazard is "the transform is displacing the faces from where their targets sit", and `IsVisible` was a proxy for it. It covers everything `IsVisible` covered — the transform sits at the hidden offset for the whole hidden period, which is what round 2 established — without the test collateral.
+**An earlier draft of this section justified the deviation differently and was wrong.** It claimed an `IsVisible` conjunct would gut `ToolbarTargetPlacementTests.FreshBand_IsNotArranged_SoNothingIsPublished` by returning before the `FacesAreArranged()` ordering that test exists to prove. That test has no such teeth to lose: `UpdateTargetPositions` wraps each `PointToScreen` in `try { … } catch { return; }` (`ToolbarWindow.xaml.cs:277-287`), so an unarranged face's throw is swallowed and `_targetsInitialized` never latches — the test stays green whichever guard returns, and green even with `FacesAreArranged` deleted entirely. Verified by running it. Do not restore that argument.
 
-**Consequence:** the spec's mutation row 3 ("Drop the `IsVisible` conjunct") becomes "Drop the transform-at-rest check". Task 7 uses the corrected wording. The spec needs a one-line sync afterwards; that is listed as Task 7 Step 12 rather than done silently.
+**Consequences:** the spec's mutation row 3 ("Drop the `IsVisible` conjunct") becomes "Drop the transform-at-rest check", which Task 7 uses. The spec needs a one-line sync, listed as Task 7 Step 12 rather than done silently — and that sync must carry the precision argument, not the refuted one.
 
 ---
 
@@ -42,11 +42,15 @@ The transform-at-rest form is also the more precise predicate: the hazard is "th
 | `src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs` (modify, line 349) | Re-arm gate reads `IsOnScreen`. |
 | `tests/EyeCtrl.App.Tests/Overlays/ToolbarSlideGeometryTests.cs` (create) | Headless direction table. |
 | `tests/EyeCtrl.App.Tests/ToolbarSlideTests.cs` (create) | STA behaviour: flags, sequencing, cancellation, placement guard. |
-| `tests/EyeCtrl.App.Tests/ToolbarSlideGateGuardTests.cs` (create) | Headless source ratchet pinning the re-arm gate's call site. |
+| `tests/EyeCtrl.App.Tests/TaskSwitcherDwellPositionTests.cs` (modify, line 166) | The **existing** source pin on the re-arm gate. It asserts the gate reads `Toolbar.IsVisible`, so Task 6 breaks it; Task 6 updates it to `Toolbar.IsOnScreen` and widens it. |
 | `tests/EyeCtrl.App.Tests/ToolbarButtonVisualTests.cs` (modify, line 603) | `(Border)window.Content` → `window.StripRoot`, forced by the wrapper. |
 | `tests/EyeCtrl.App.Tests/Services/ToolbarVisibilityAdapterTests.cs` (modify) | Hide-ordering test rewritten to the new contract. |
 
-**On the ratchet file:** the spec's Testing section calls for a task-switcher-closes-mid-slide-in test in `OverlayVmBindingCoordinatorTests`. That coordinator's `OnInitialize` requires a full `EventCoordinationContext` (ten view-models, an `IOverlayManager` whose unimplemented members throw, a dispatcher, a gaze engine) and also runs `SetupBackdrop()`, which constructs a `GlassBackdropWindow`. That is a large harness for a one-line gate. This plan instead puts the *logic* coverage on `ToolbarWindow.IsOnScreen` (a full four-state truth table, Task 3) and pins the *call site* with a source ratchet in the idiom the repo already uses (`SourceScanner`, `RawGeometryLiteralTests`). Together those fail on either half of the mutation. If you would rather pay for the real harness, say so before Task 6.
+**On the re-arm gate's coverage.** The spec's Testing section calls for a task-switcher-closes-mid-slide-in behavioural test in `OverlayVmBindingCoordinatorTests`, on the stated grounds that the gate has **zero coverage today**. That premise is false, and this plan previously repeated it: `TaskSwitcherDwellPositionTests.Switcher_DeactivatesToolbarDwell_WhileCoveringIt` (`:148-167`) is a pre-existing source pin over that exact method, added after the 2026-08-18 field report, and it asserts the gate reads `Toolbar.IsVisible`. So the gate is covered, by a pin rather than a behavioural test — and Task 6 **breaks that pin** unless it updates it.
+
+The behavioural test stays declined, but on honest costing rather than the inflated figure an earlier draft gave. `OnInitialize` dereferences roughly eight view-models plus `OverlayManager.GlassBackdrop`; the other `EventCoordinationContext` parameters can be null, and `SetupBackdrop` merely *assigns a field* — it does not construct a `GlassBackdropWindow`, as this plan previously claimed. A real harness is therefore feasible at roughly 80-120 lines. It is still disproportionate for a one-line gate whose established idiom in this repo is a source pin, and this plan puts the *logic* coverage where the logic is: a four-state `IsOnScreen` truth table (Task 3).
+
+**One residual gap, named rather than papered over:** no source pin can catch a *polarity* inversion. `if (!Context.OverlayManager.Toolbar.IsOnScreen)` satisfies both the pin and the truth table while doing the opposite thing. Only a behavioural test would catch that. Say so before Task 6 if that is worth 100 lines to you.
 
 ---
 
@@ -1042,6 +1046,48 @@ Add to `tests/EyeCtrl.App.Tests/ToolbarSlideTests.cs`:
         finally { window.Close(); }
     }
 
+    /// <summary>
+    /// The slide-IN half of the guard, and the only state where the `_sliding` flag is the sole
+    /// thing suppressing placement — which makes this the test that gives mutation row 2 its teeth.
+    ///
+    /// <para>
+    /// Why this state and not the slide-out: on a pumpless STA thread an animation clock never
+    /// ticks, so a property read after BeginAnimation returns the BASE value, and the base value is
+    /// always written to the slide's destination. For a slide-out that destination is the off-edge
+    /// offset, so the transform already reads non-zero and the at-rest check alone suppresses
+    /// placement. For a slide-IN the destination is 0, so the transform reads at-rest while the
+    /// band is in fact mid-flight, and only the flag is left. Measured, not reasoned: an earlier
+    /// draft of this plan had this backwards and mutation row 2 could not fail.
+    /// </para>
+    ///
+    /// <para>
+    /// The spec requires placement suppression "in both directions"; without this test only the
+    /// slide-out direction was covered.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void MidSlideIn_PublishesNoTargets()
+    {
+        var window = NewDockedToolbar();
+        try
+        {
+            window.UpdateLayout();
+            window.SlideOutThenHide(() => { });
+            window.CompleteSlideForTest();
+
+            window.ShowThenSlideIn();
+
+            Check.That(window.IsSliding).IsTrue();
+            Check.That(window.SlideTransform.Y).IsEqualTo(0d);   // base value == destination == rest
+
+            window.UpdateGaze(new EyeCtrl.Core.Models.PhysicalPoint(100, 100), 0);
+
+            Check.That(window.TargetsInitialized).IsFalse();
+        }
+        finally { window.Close(); }
+    }
+
     /// <summary>Once the band is back at rest, placement proceeds as before.</summary>
     [StaFact]
     [Trait("Category", "UI")]
@@ -1067,7 +1113,7 @@ Add to `tests/EyeCtrl.App.Tests/ToolbarSlideTests.cs`:
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarSlideTests"
 ```
 
-Expected: `MidSlide_PublishesNoTargets` and `WhileHiddenWithTheBandParkedOffEdge_PublishesNoTargets` fail — `TargetsInitialized` is `true`, because nothing suppresses placement yet. `AtRest_PublishesTargets` should already pass.
+Expected: `MidSlide_PublishesNoTargets`, `MidSlideIn_PublishesNoTargets` and `WhileHiddenWithTheBandParkedOffEdge_PublishesNoTargets` all fail — `TargetsInitialized` is `true`, because nothing suppresses placement yet. `AtRest_PublishesTargets` should already pass.
 
 - [ ] **Step 3: Add the guard**
 
@@ -1095,15 +1141,17 @@ In `UpdateTargetPositions`, insert immediately after the `DataContext` check and
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarSlideTests"
 ```
 
-Expected: 13 passed.
+Expected: 16 passed (12 from Task 3, 4 added here).
 
-- [ ] **Step 5: Verify the existing placement guard kept its teeth**
+- [ ] **Step 5: Confirm the existing placement suite still passes**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarTargetPlacementTests"
 ```
 
-Expected: 3 passed. This is the check the deviation exists for: `FreshBand_IsNotArranged_SoNothingIsPublished` must still reach `FacesAreArranged()`. Confirm by temporarily commenting out the `FacesAreArranged` guard and re-running — that test must fail (it will throw from `PointToScreen`). Restore the guard afterwards.
+Expected: 3 passed.
+
+**Do not try to prove that suite still has teeth by deleting the `FacesAreArranged` guard.** An earlier draft of this plan asked for exactly that and predicted a red test; it stays green. `UpdateTargetPositions` wraps each `PointToScreen` in `try { … } catch { return; }` (`ToolbarWindow.xaml.cs:277-287`), so an unarranged face's throw is swallowed and `_targetsInitialized` never latches — `FreshBand_IsNotArranged_SoNothingIsPublished` cannot tell which guard returned, or whether any did. Verified by running it. The new guard's teeth come from Task 7 rows 2 and 3 instead.
 
 - [ ] **Step 6: Commit**
 
@@ -1180,11 +1228,24 @@ In `src/EyeCtrl.App/Services/ToolbarVisibilityAdapter.cs`, replace `ShowToolbar`
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarVisibilityAdapterTests"
 ```
 
-Expected: `HideToolbar_CallsSetActiveFalse_BeforeToolbarHide` fails — it asserts `order.Count == 2` and `toolbar.IsVisible == false` after one pump, and `Hide` now lands on the slide's completion. `ShowToolbar_CallsSetActiveTrue` and `ForceShow_CallsSetActiveTrue` must **pass unchanged**; if either fails, stop and report, because this plan predicts they survive.
+Expected: **all three still pass.** That is not a mistake in this step, and an earlier draft of this plan predicted a failure here and was wrong. `ToolbarVisibilityAdapterTests` constructs `new ToolbarWindow()` and never calls `SetMode` (`:57`), so `_slideEdge` is null, `SlideOffset()` returns a zero vector, and `SlideOutThenHide` short-circuits to a *synchronous* hide — the old assertions all still hold, because no slide ever runs.
 
-- [ ] **Step 3: Rewrite the hide-ordering test to the new contract**
+That is the finding, not a pass: **the test as written cannot observe the new sequencing at all.** Step 3 both docks the toolbar (so a slide actually happens) and rewrites the assertions. Verified empirically — without the `SetMode` line, Step 3's rewritten test fails against a correct implementation, because `order` already holds both entries after one pump.
 
-In `tests/EyeCtrl.App.Tests/Services/ToolbarVisibilityAdapterTests.cs`, replace the body of `HideToolbar_CallsSetActiveFalse_BeforeToolbarHide` from `var order = new List<string>();` to the end of the `try` block:
+- [ ] **Step 3: Dock the test toolbar, then rewrite the hide-ordering test**
+
+First, in `tests/EyeCtrl.App.Tests/Services/ToolbarVisibilityAdapterTests.cs`, inside `HideToolbar_CallsSetActiveFalse_BeforeToolbarHide`, add a `SetMode` call after the existing `Check.That(toolbar.IsVisible).IsTrue();`:
+
+```csharp
+            // Dock it: the slide only runs on a docked toolbar. Without this the window is
+            // floating, SlideVectorFor returns a zero vector, and SlideOutThenHide short-circuits
+            // to a synchronous hide — which would make every assertion below pass while observing
+            // none of the sequencing this test exists for. Initialize() is not needed; a
+            // SizeToContent window is measured enough after Show() for a real extent.
+            toolbar.SetMode(isDocked: true, edge: "Top");
+```
+
+Then replace the body from `var order = new List<string>();` to the end of the `try` block:
 
 ```csharp
             // Record the ordered sequence of side effects. TargetProgress(id,0) fires synchronously
@@ -1225,15 +1286,64 @@ Also update the class's XML doc: replace the sentence "HideToolbar must deactiva
 /// dispatcher tick to 200 ms, which is why the ordering matters more now, not less.
 ```
 
-- [ ] **Step 4: Run the adapter tests**
+- [ ] **Step 4: Add the paused-branch test**
+
+The pause indicator now shows from *inside* the slide's completion callback, which is new code on the one path whose whole job is telling a paused user the app is paused. Nothing else pins it. Add to `ToolbarVisibilityAdapterTests`:
+
+```csharp
+    /// <summary>
+    /// The indicator is a handover, not a swap: it must appear only once the band has cleared.
+    /// This is the only test covering HideToolbar's paused:true branch, and the show call now
+    /// lives inside the slide's completion callback.
+    /// </summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void HideToolbar_WhenPaused_ShowsTheIndicator_OnlyAfterTheSlideCompletes()
+    {
+        EnsureApplicationWithTokens();
+
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ExposedDwellToolbarViewModel(settings, messenger);
+
+        var toolbar = new ToolbarWindow();
+        var indicator = new PauseIndicatorWindow();
+        var overlays = new FakeOverlayManager(toolbar, indicator);
+        var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
+
+        try
+        {
+            toolbar.Show();
+            PumpDispatcher();
+            toolbar.SetMode(isDocked: true, edge: "Top");
+
+            adapter.HideToolbar(paused: true);
+            PumpDispatcher();
+
+            Check.That(indicator.IsVisible).IsFalse();   // band still on its way out
+
+            toolbar.CompleteSlideForTest();
+            PumpDispatcher();
+
+            Check.That(indicator.IsVisible).IsTrue();
+        }
+        finally
+        {
+            toolbar.Close();
+            indicator.Close();
+        }
+    }
+```
+
+- [ ] **Step 5: Run the adapter tests**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarVisibilityAdapterTests"
 ```
 
-Expected: 3 passed.
+Expected: 4 passed.
 
-- [ ] **Step 5: Confirm the auto-hide controller suite is untouched**
+- [ ] **Step 6: Confirm the auto-hide controller suite is untouched**
 
 ```bash
 dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarAutoHideControllerTests"
@@ -1241,7 +1351,9 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarAutoHide
 
 Expected: green, with no edits to that file. `IToolbarVisibility` did not change, which is what makes this true.
 
-- [ ] **Step 6: Commit**
+Note one spec Testing bullet deliberately left unimplemented: it asks for the already-hidden short-circuit to be driven from *both* controller call sites (`SetPaused` and `ReassertVisibility`). Both reach the same `IToolbarVisibility.HideToolbar`, and `ToolbarSlideTests.SlideOut_OnAnAlreadyHiddenToolbar_ShortCircuits` covers the behaviour at the window. Duplicating it per controller path would test the controller, which this work does not change. Waived knowingly, not overlooked.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Services/ToolbarVisibilityAdapter.cs tests/EyeCtrl.App.Tests/Services/ToolbarVisibilityAdapterTests.cs
@@ -1254,87 +1366,25 @@ git commit -m "feat(toolbar): sequence hide/show around the slide"
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs:349`
-- Test: `tests/EyeCtrl.App.Tests/ToolbarSlideGateGuardTests.cs` (create)
+- Modify: `tests/EyeCtrl.App.Tests/TaskSwitcherDwellPositionTests.cs:166`
 
 **Interfaces:**
 - Consumes: `ToolbarWindow.IsOnScreen` (Task 3).
 - Produces: nothing.
 
-- [ ] **Step 1: Write the failing ratchet test**
+**Read the "On the re-arm gate's coverage" note under File Structure first.** The gate already has a source pin, this task breaks it, and updating that pin *is* the test work here — no new test file.
 
-Create `tests/EyeCtrl.App.Tests/ToolbarSlideGateGuardTests.cs`:
-
-```csharp
-namespace EyeCtrl.App.Tests;
-
-using System;
-using System.IO;
-using System.Linq;
-
-/// <summary>
-/// Pins the call site of the toolbar's dwell re-arm gate.
-///
-/// <para>
-/// The logic lives on <c>ToolbarWindow.IsOnScreen</c> and is covered by a four-state truth table in
-/// <see cref="ToolbarSlideTests"/>. What that cannot cover is the one-line question of whether the
-/// re-arm site actually READS it: <c>Toolbar.IsVisible</c> compiles, reads plausibly, and is wrong
-/// once Hide() is deferred to a slide's completion — during a slide-out it is true while the band is
-/// leaving. Re-arming dwell there creates gaze targets for buttons on their way off screen.
-/// </para>
-///
-/// <para>
-/// A source ratchet rather than a behavioural test, deliberately. Reaching that branch for real
-/// needs a full EventCoordinationContext — ten view-models, an IOverlayManager whose unimplemented
-/// members throw, a dispatcher, a gaze engine — and OnInitialize also constructs a
-/// GlassBackdropWindow. That is a large harness for a one-line gate, and the repo already polices
-/// this class of regression by scanning source (RawGeometryLiteralTests, RawColourLiteralTests).
-/// Headless, so CI runs it.
-/// </para>
-/// </summary>
-public class ToolbarSlideGateGuardTests
-{
-    private const string GatePath =
-        "src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs";
-
-    private static string GateSource() =>
-        SourceScanner.StripComments(
-            File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
-                GatePath.Replace('/', Path.DirectorySeparatorChar))));
-
-    [Fact]
-    public void ReArmGate_ReadsIsOnScreen()
-    {
-        Check.WithCustomMessage(
-                $"{GatePath} must gate toolbar dwell re-arming on Toolbar.IsOnScreen.")
-            .That(GateSource().Contains("Toolbar.IsOnScreen", StringComparison.Ordinal))
-            .IsTrue();
-    }
-
-    [Fact]
-    public void ReArmGate_NeverReadsIsVisible()
-    {
-        // Comments are stripped, so a comment explaining what IsVisible USED to do cannot fail this.
-        Check.WithCustomMessage(
-                $"{GatePath} reads Toolbar.IsVisible. That is true during a slide-out, while the "
-                + "band is leaving and the window is about to hide — re-arming dwell there creates "
-                + "gaze targets for invisible buttons. Use Toolbar.IsOnScreen.")
-            .That(GateSource().Contains("Toolbar.IsVisible", StringComparison.Ordinal))
-            .IsFalse();
-    }
-}
-```
-
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step 1: See the existing pin fail before you touch it**
 
 ```bash
-dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarSlideGateGuardTests"
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~TaskSwitcherDwellPositionTests"
 ```
 
-Expected: `ReArmGate_ReadsIsOnScreen` fails, `ReArmGate_NeverReadsIsVisible` fails. Both, because the swap has not happened.
+Expected: green (it pins the current `Toolbar.IsVisible`). Read `tests/EyeCtrl.App.Tests/TaskSwitcherDwellPositionTests.cs:141-167` now, so you know what you are about to break and why it exists: it was added after a 2026-08-18 field report where a top-row switcher tile dwell also fired the toolbar button beneath it.
 
-- [ ] **Step 3: Swap the gate**
+- [ ] **Step 2: Swap the gate**
 
-In `src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs`, replace lines 345-350's condition:
+In `src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs`, replace lines 345-350:
 
 ```csharp
                     Context.OverlayManager.TaskSwitcher.HideOverlay();
@@ -1351,19 +1401,53 @@ In `src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs`, repla
                         Context.ToolbarVM.SetActive(true);
 ```
 
-- [ ] **Step 4: Run the ratchet and the headless subset**
+- [ ] **Step 3: Watch the existing pin go red**
 
 ```bash
-dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarSlideGateGuardTests"
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~TaskSwitcherDwellPositionTests"
+```
+
+Expected: `Switcher_DeactivatesToolbarDwell_WhileCoveringIt` fails on its second assertion ("Hiding the switcher must NOT unconditionally reactivate the toolbar…"), because the body no longer contains `Toolbar.IsVisible`. This is the breakage the plan predicts; do not proceed until you have seen it.
+
+- [ ] **Step 4: Update and widen the pin**
+
+In `tests/EyeCtrl.App.Tests/TaskSwitcherDwellPositionTests.cs`, replace the second `Check.WithCustomMessage(...)` block (`:161-166`) with:
+
+```csharp
+        Check.WithCustomMessage(
+                "Hiding the switcher must NOT unconditionally reactivate the toolbar — "
+                + "auto-hide may have hidden it while the switcher was up, and activating a "
+                + "hidden toolbar creates gaze targets for invisible buttons. Guard the "
+                + "SetActive(true) on Toolbar.IsOnScreen.")
+            .That(body.Contains("Toolbar.IsOnScreen") && body.Contains("ToolbarVM.SetActive(true)")).IsTrue();
+        Check.WithCustomMessage(
+                "Toolbar.IsVisible is true during a slide-out, while the band is leaving and the "
+                + "window is about to hide — re-arming dwell there is the very hazard this pin "
+                + "exists to prevent. Use Toolbar.IsOnScreen, which is false then and true during "
+                + "a slide-in.")
+            .That(body.Contains("Toolbar.IsVisible")).IsFalse();
+```
+
+Also update the method's doc comment (`:141-146`) so the last sentence reads:
+
+```csharp
+    /// conditional on the toolbar actually being on screen — Toolbar.IsOnScreen, not IsVisible,
+    /// which stays true through a slide-out (2026-09-06 slide transition).
+```
+
+- [ ] **Step 5: Run the pin and the whole headless subset**
+
+```bash
+dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~TaskSwitcherDwellPositionTests"
 dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"
 ```
 
-Expected: 2 passed, then the whole headless subset green.
+Expected: the pin green, then the entire headless subset green. That second command is the one that matters: it is CI's own filter, and this task is the only one in the plan that touches a file CI's subset covers.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs tests/EyeCtrl.App.Tests/ToolbarSlideGateGuardTests.cs
+git add src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs tests/EyeCtrl.App.Tests/TaskSwitcherDwellPositionTests.cs
 git commit -m "fix(toolbar): re-arm dwell on IsOnScreen, not IsVisible"
 ```
 
@@ -1389,7 +1473,9 @@ Expected: `TopDock_RetractsUpward_ByTheFullHeight` red. Restore: `git checkout s
 
 In `UpdateTargetPositions`, change the guard to `if (SlideTransform.X != 0 || SlideTransform.Y != 0)`. Run:
 `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarSlideTests"`
-Expected: `MidSlide_PublishesNoTargets` red — at the start of a slide-out the animated value is still 0, so only the flag catches it. Restore the file.
+Expected: **`MidSlideIn_PublishesNoTargets` red**, and `MidSlide_PublishesNoTargets` still **green**.
+
+Both halves of that expectation are load-bearing, and an earlier draft of this plan had them backwards — it pointed this row at `MidSlide_PublishesNoTargets` and asserted "at the start of a slide-out the animated value is still 0". It is not. On a pumpless STA thread the clock never ticks, so a read after `BeginAnimation` returns the **base** value, and `StartSlide` writes the base to the slide's *destination*: off-edge for a slide-out (non-zero, so the surviving transform check catches it) and `0` for a slide-in (at-rest, so only the flag is left). Measured with a probe, then confirmed by running the mutation — with the old mapping this row could not fail. Restore the file.
 
 - [ ] **Step 3: Row 3 — drop the transform-at-rest check**
 
@@ -1445,11 +1531,16 @@ dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~Toolbar"
 git status --porcelain
 ```
 
-Expected: all green, and `git status` clean (every mutation reverted). Remember the German output: read the `Fehlgeschlagen!`/`Erfolgreich!` summary and grep `Fehler ` with a trailing space, never `Failed`. Three tests are known load-dependent flakes unrelated to this work — `HeartbeatPublisher` (<1500 ms), `MouseGazeProviderTests`, and the whole `ExternalDwellWireContractTests` family; one failure there re-runs green.
+Expected: all green, and `git status` clean (every mutation reverted). Measured baselines from a full trial run of this plan: headless subset **788/788**, `FullyQualifiedName~Toolbar` **131 passed / 5 skipped**, `ToolbarSlideTests` **16**, `ToolbarSlideGeometryTests` **8**. Treat a materially different count as a finding, not as noise. Remember the German output: read the `Fehlgeschlagen!`/`Erfolgreich!` summary and grep `Fehler ` with a trailing space, never `Failed`. Three tests are known load-dependent flakes unrelated to this work — `HeartbeatPublisher` (<1500 ms), `MouseGazeProviderTests`, and the whole `ExternalDwellWireContractTests` family; one failure there re-runs green.
 
-- [ ] **Step 12: Sync the spec's mutation table to the implemented guard**
+- [ ] **Step 12: Sync the spec to what was actually built**
 
-In `docs/superpowers/specs/2026-09-06-toolbar-slide-transition-design.md`, update the placement-guard predicate from `IsVisible && !IsSliding` to the transform-at-rest form, and mutation rows 2-3 to match, citing `ToolbarTargetPlacementTests.cs:32-44` as the reason. Do not silently leave the spec and the code disagreeing.
+In `docs/superpowers/specs/2026-09-06-toolbar-slide-transition-design.md`:
+
+1. Change the placement-guard predicate from `IsVisible && !IsSliding` to the transform-at-rest form, justified by **precision** (the transform's value is the hazard; `IsVisible` was a proxy that also mishandles a visible-but-displaced band). Do **not** cite `ToolbarTargetPlacementTests.cs:32-44` — that argument was refuted; see the deviation section at the top of this plan.
+2. Update mutation rows 2-3 to the corrected mapping from Step 2 above, including why the slide-*in* is the state that isolates the flag.
+3. Correct the Testing section's claim that the re-arm gate "has *zero* coverage today". It has a pre-existing source pin at `TaskSwitcherDwellPositionTests.cs:148-167`. That claim came from spec review round 1 and was accepted without checking for coverage outside the file the reviewer cited.
+4. Correct the harness-cost figure: `SetupBackdrop` assigns a field and does not construct a `GlassBackdropWindow`; a behavioural harness is roughly 80-120 lines, and it is declined on proportionality, not infeasibility. Record the polarity gap (`!IsOnScreen` satisfies both the pin and the truth table) as the residual.
 
 - [ ] **Step 13: Commit**
 
@@ -1465,4 +1556,5 @@ git commit -m "docs(spec): sync the placement guard to the implemented predicate
 - **No visual check.** Nothing here confirms the slide *looks* right; the tests pin direction, state, and sequencing, not appearance. A visual check needs the app running, which needs the user's explicit go-ahead.
 - **No settings surface**, per the spec's non-goals.
 - **No slide for the pause indicator** (spec open question 2, deferred).
-- **No behavioural test of the task-switcher branch** — see the note under File Structure and raise it before Task 6 if you want the real harness instead.
+- **No behavioural test of the task-switcher branch** — see the note under File Structure and raise it before Task 6 if you want the real harness instead. The consequence to accept knowingly: a polarity inversion of that gate would pass everything here.
+- **The `IsOnScreen` truth table is four tests, not one.** The spec asks for "four assertions in one test so the directional asymmetry cannot be half-broken". Four separate tests were verified to catch both halves independently (mutation rows 5 and 6 each redden their own test), so the split is safe — but it is a deviation from the shape the spec specifies, recorded here rather than left as an accident.

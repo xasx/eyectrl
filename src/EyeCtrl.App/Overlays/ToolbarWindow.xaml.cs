@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
@@ -35,6 +36,63 @@ public partial class ToolbarWindow : OverlayWindow
     private volatile bool _targetsInitialized;
     private bool _vertical;
     private GazeProviderType? _providerType;
+
+    // ── Slide transition ──
+    // docs/superpowers/specs/2026-09-06-toolbar-slide-transition-design.md
+
+    /// <summary>How long one slide takes. Matches TargetHighlightWindow's 200 ms fades.</summary>
+    private const int SlideDurationMs = 200;
+
+    /// <summary>
+    /// The docked edge the band retracts into, lower-cased, or null when floating. Deliberately
+    /// NOT derived from <see cref="_vertical"/>: SetMode normalises an undocked toolbar's edge to
+    /// "top" for the strip's AXIS, which is the right answer there and the wrong one for a slide —
+    /// a floating toolbar has no edge to retract into.
+    /// </summary>
+    private string? _slideEdge;
+
+    /// <summary>
+    /// Bumped on every slide start and every cancellation, so a superseded slide's completion is
+    /// a no-op. Insurance rather than necessity — Timeline.Completed documents that stopping a
+    /// timeline does not raise it — but the asymmetry of being wrong is a Hide() landing on a
+    /// just-force-shown toolbar, which strands a gaze-only user with no controls.
+    /// </summary>
+    private int _slideGeneration;
+    private Action? _pendingSlideCompletion;
+    private int _pendingSlideGeneration;
+    private bool _sliding;
+    private bool _slidingOut;
+
+    /// <summary>Whether the transform is in motion, in either direction.</summary>
+    public bool IsSliding => _sliding;
+
+    /// <summary>Whether the band is on its way to being hidden.</summary>
+    public bool IsSlidingOut => _slidingOut;
+
+    /// <summary>
+    /// Visible and not on its way out — i.e. arming dwell against the published target coordinates
+    /// is safe. TRUE during a slide-IN (dwell arms at its start by design), false during a
+    /// slide-out, which ends in Hide().
+    ///
+    /// <para>
+    /// <c>!IsSlidingOut</c>, not <c>!IsSliding</c>, and the difference is load-bearing. Because
+    /// arming happens at the start of a slide-in, the slide-in's completion no longer repairs dwell
+    /// state that something else cleared mid-slide. A gate that reported false during a slide-in
+    /// would let a task-switcher open-then-close inside those 200 ms leave the toolbar visible, at
+    /// rest, and dwellable by nothing.
+    /// </para>
+    /// </summary>
+    public bool IsOnScreen => IsVisible && !_slidingOut;
+
+    /// <summary>Whether the docked edge slides along Y (top/bottom) rather than X (left/right).</summary>
+    private bool SlideAxisIsY => _slideEdge is "top" or "bottom";
+
+    /// <summary>
+    /// The offset that puts the band fully clear of the window, or a zero vector when there is
+    /// nothing to slide — floating, unrecognised edge, or a window never measured.
+    /// </summary>
+    private Vector SlideOffset() =>
+        OverlayPositioning.SlideVectorFor(_slideEdge, ActualWidth, ActualHeight);
 
     /// <summary>
     /// The per-button dwell-progress/icon/highlight subscriptions this window owns, so they can
@@ -214,6 +272,10 @@ public partial class ToolbarWindow : OverlayWindow
         // reads as "top", so an undock from a side edge returns the strip to horizontal.
         var key = isDocked ? edge?.ToLowerInvariant() ?? "top" : "top";
         var wantVertical = key is "left" or "right";
+
+        // Null when floating: `key` is "top" there for the strip's axis, which must not be read
+        // as an edge to retract into.
+        _slideEdge = isDocked ? key : null;
 
         // Assigned in BOTH directions, and before UpdateLayout below. The old code set
         // Orientation only in the left/right cases and never reset it, so a left-dock followed by
@@ -407,4 +469,194 @@ public partial class ToolbarWindow : OverlayWindow
     /// with no message pump, so the band's flash timer never actually fires there.
     /// </summary>
     internal void EndFlash(string id) => _band.EndFlash(id);
+
+    /// <summary>
+    /// Stops any slide and returns the flags to a known state. Unconditional and idempotent.
+    ///
+    /// <para>
+    /// Clears the sliding flags itself, and it MUST: the generation bump on the first line is
+    /// exactly what stops a cancelled slide's completion from running, so completion cannot be the
+    /// thing that clears them. Leave them set and ForceShow-mid-slide strands the user with a
+    /// visible, at-rest toolbar whose re-arm gate reads false forever.
+    /// </para>
+    ///
+    /// <para>
+    /// Unconditional purely as simplification — under FillBehavior.Stop a finished clock has
+    /// already stopped affecting the property, so there is no stale clock to remove. A condition
+    /// here would be one more thing to get wrong.
+    /// </para>
+    /// </summary>
+    internal void CancelSlide()
+    {
+        _slideGeneration++;
+        SlideTransform.BeginAnimation(TranslateTransform.XProperty, null);
+        SlideTransform.BeginAnimation(TranslateTransform.YProperty, null);
+        _sliding = false;
+        _slidingOut = false;
+    }
+
+    /// <summary>
+    /// Cancels any slide, parks the band at rest, and shows the window with no animation. The
+    /// recovery paths use this — tray fallback, modal suspend-recover, dock toggle — and every one
+    /// exists because the user needs the toolbar now.
+    ///
+    /// <para>
+    /// Zeroes BOTH axes. A slide only ever animates one, so an offset parked on the other by a
+    /// previous docked edge is possible in principle; ordering happens to prevent it today
+    /// (opening settings force-shows before SetMode changes the edge), which is a property of two
+    /// unrelated call sites lining up rather than of this code.
+    /// </para>
+    /// </summary>
+    internal void ShowAtRest()
+    {
+        CancelSlide();
+        SlideTransform.X = 0;
+        SlideTransform.Y = 0;
+        Show();
+    }
+
+    /// <summary>
+    /// Slides the band out along its docked edge, then hides the window and invokes
+    /// <paramref name="onHidden"/>. Short-circuits to the completion effects, synchronously, when
+    /// the window is already hidden or there is nothing to slide.
+    /// </summary>
+    internal void SlideOutThenHide(Action onHidden)
+    {
+        var offset = SlideOffset();
+        if (!IsVisible || offset == default)
+        {
+            CancelSlide();
+            HideSafely();
+            onHidden();
+            return;
+        }
+
+        StartSlide(to: SlideAxisIsY ? offset.Y : offset.X, slidingOut: true, onDone: () =>
+        {
+            HideSafely();
+            onHidden();
+        });
+    }
+
+    /// <summary>
+    /// Shows the window with the band sliding in from its docked edge. The clock is attached
+    /// BEFORE Show(), which makes the off-edge first frame a property of the property's value
+    /// rather than of dispatcher scheduling. Short-circuits to a plain Show when the toolbar is
+    /// already on screen or there is nothing to slide.
+    /// </summary>
+    internal void ShowThenSlideIn()
+    {
+        var offset = SlideOffset();
+        if (IsOnScreen || offset == default)
+        {
+            CancelSlide();
+            SlideTransform.X = 0;
+            SlideTransform.Y = 0;
+            Show();
+            return;
+        }
+
+        // From the off-edge offset to rest. Note the base value written inside StartSlide is the
+        // DESTINATION (0), not this starting value — see StartSlide.
+        if (SlideAxisIsY) SlideTransform.Y = offset.Y; else SlideTransform.X = offset.X;
+        StartSlide(to: 0, slidingOut: false, onDone: null);
+        Show();
+    }
+
+    /// <summary>
+    /// Runs one slide on the single axis the docked edge selects, from the transform's current
+    /// value to <paramref name="to"/>.
+    ///
+    /// <para>
+    /// The base value is written to the DESTINATION before the clock is attached, and the clock
+    /// uses FillBehavior.Stop. That pairing is what makes the slide snap-free: Stop reverts the
+    /// property to its base value when the clock detaches, and the base value is already where the
+    /// slide ends. Writing the STARTING value as the base instead would snap the band back on the
+    /// final tick. HoldEnd would avoid that snap and introduce a worse one — a held clock silently
+    /// outranks every later direct assignment, so a subsequent write of 0 would be ignored and the
+    /// toolbar would stay off-screen permanently with no visible cause.
+    /// </para>
+    /// </summary>
+    private void StartSlide(double to, bool slidingOut, Action? onDone)
+    {
+        var axis = SlideAxisIsY ? TranslateTransform.YProperty : TranslateTransform.XProperty;
+
+        // Read the current (animated, if a clock is live) value BEFORE cancelling: removing a clock
+        // reverts the property to its base value, which would lose a reversal's starting point.
+        var from = SlideAxisIsY ? SlideTransform.Y : SlideTransform.X;
+
+        CancelSlide();
+
+        // The cross-axis is never animated; zero it so a previous edge cannot leave the band
+        // displaced along it.
+        if (SlideAxisIsY) SlideTransform.X = 0; else SlideTransform.Y = 0;
+
+        // Base value == destination. See this method's doc comment.
+        if (SlideAxisIsY) SlideTransform.Y = to; else SlideTransform.X = to;
+
+        _sliding = true;
+        _slidingOut = slidingOut;
+        var generation = ++_slideGeneration;
+
+        void Complete()
+        {
+            _sliding = false;
+            _slidingOut = false;
+            onDone?.Invoke();
+        }
+
+        _pendingSlideCompletion = Complete;
+        _pendingSlideGeneration = generation;
+
+        var anim = new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(SlideDurationMs))
+        {
+            FillBehavior = FillBehavior.Stop,
+            EasingFunction = new CubicEase
+            {
+                // Enter decelerating, leave accelerating.
+                EasingMode = slidingOut ? EasingMode.EaseIn : EasingMode.EaseOut,
+            },
+        };
+        anim.Completed += (_, _) =>
+        {
+            if (generation != _slideGeneration) return;
+            Complete();
+        };
+
+        SlideTransform.BeginAnimation(axis, anim);
+    }
+
+    /// <summary>
+    /// Test seam: runs the pending slide's completion exactly as the animation's Completed handler
+    /// would, generation check included. A window built in a test runs on an STA thread with no
+    /// message pump, so the clock never advances and Completed never fires there. Mirrors
+    /// <see cref="EndFlash"/>, which exists for the same reason.
+    ///
+    /// <para>
+    /// Driving completion by hand is also the only way the generation guard is observable: the
+    /// guard protects against a Completed the framework documents will not raise, so a test that
+    /// waited for a real clock could never tell "the guard worked" from "nothing fired".
+    /// </para>
+    /// </summary>
+    internal void CompleteSlideForTest()
+    {
+        if (_pendingSlideCompletion is null) return;
+        if (_pendingSlideGeneration != _slideGeneration) return;
+        _pendingSlideCompletion();
+    }
+
+    /// <summary>
+    /// Window.Hide() guarded against the InvalidOperationException it is documented to throw on a
+    /// window that is closing or has closed
+    /// (learn.microsoft.com/dotnet/api/system.windows.window.hide). No boolean covers that case:
+    /// IsVisible stays true through Closing and WPF exposes no public "is closing" flag, so
+    /// catching the documented exception at the call is the only guard that matches the condition.
+    /// Reachable only if a slide's completion outlives the window during shutdown, which is
+    /// doubtful under ShutdownMode="OnExplicitShutdown" — hence a catch, not a lifecycle mechanism.
+    /// </summary>
+    private void HideSafely()
+    {
+        try { Hide(); }
+        catch (InvalidOperationException) { }
+    }
 }

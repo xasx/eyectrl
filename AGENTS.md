@@ -92,7 +92,7 @@ Three-layer + ViewModels:
 |---------|-------|-------------|
 | `EyeCtrl.Core` | Domain logic | Framework-agnostic. GazeEngine, DwellDetector, OneEuroFilter, settings, keyboard layouts, word prediction |
 | `EyeCtrl.Platform` | OS/SDK bridge | `unsafe` blocks, Win32 SendInput, Tobii SDK via conditional `TOBII_AVAILABLE` (only when SDK DLLs are present on disk) |
-| `EyeCtrl.ViewModels` | MVVM layer | CommunityToolkit.Mvvm v8.4.0, `[ObservableProperty]` source generators, `WeakReferenceMessenger` |
+| `EyeCtrl.ViewModels` | MVVM layer | CommunityToolkit.Mvvm v8.4.2, `[ObservableProperty]` source generators, `WeakReferenceMessenger` |
 | `EyeCtrl.App` | WPF app entrypoint | `WinExe`, `net10.0-windows`, `UseWPF` + `UseWindowsForms`. App.xaml.cs is the central wiring hub (DI, overlay lifecycle) |
 | `EyeCtrl.LM` | ONNX LM | `net10.0` leaf project. `SmallLMPredictor` + `LMTokenizer`. References Core. |
 | `EyeCtrl.EyeCare` | Eye-care logic | `net10.0` leaf project. Scheduler, fatigue monitor, gaze exercises, scoring. References Core. |

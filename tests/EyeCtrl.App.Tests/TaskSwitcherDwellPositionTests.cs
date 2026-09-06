@@ -153,7 +153,7 @@ public class TaskSwitcherDwellPositionTests
         var start = source.IndexOf("private void OnTaskSwitcherVMPropertyChanged", StringComparison.Ordinal);
         Check.That(start).IsStrictlyGreaterThan(-1);
         var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
-        var body = source[start..end];
+        var body = SourceScanner.StripComments(source[start..end]);
 
         Check.WithCustomMessage(
                 "Showing the switcher must ToolbarVM.SetActive(false) first — dwell has no "
@@ -181,3 +181,4 @@ public class TaskSwitcherDwellPositionTests
         return source[start..end];
     }
 }
+

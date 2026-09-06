@@ -14,10 +14,12 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// <see cref="ToolbarVisibilityAdapter"/> is where the load-bearing ordering contract lives:
-/// <c>HideToolbar</c> must deactivate dwell (SetActive(false)) BEFORE the toolbar window hides,
-/// so a gaze sample arriving between Hide and the next dispatcher tick can't accumulate against
-/// the now-hidden targets. ShowToolbar / ForceShow must activate dwell (SetActive(true)). These
-/// tests pin that ordering and the activation side of the contract.
+/// <c>HideToolbar</c> must deactivate dwell (SetActive(false)) BEFORE the band starts sliding out,
+/// and the window hides only when that slide completes — so no gaze sample can accumulate against
+/// targets whose buttons are leaving or already gone. The slide widened that window from one
+/// dispatcher tick to 200 ms, which is why the ordering matters more now, not less.
+/// ShowToolbar / ForceShow must activate dwell (SetActive(true)). These tests pin that ordering
+/// and the activation side of the contract.
 ///
 /// The adapter is headlessly testable but takes concrete <see cref="IOverlayManager"/> +
 /// <see cref="ToolbarViewModel"/>, neither of which exposes virtual hooks for Show/Hide/SetActive
@@ -65,6 +67,13 @@ public class ToolbarVisibilityAdapterTests
             PumpDispatcher();
             Check.That(toolbar.IsVisible).IsTrue();
 
+            // Dock it: the slide only runs on a docked toolbar. Without this the window is
+            // floating, SlideVectorFor returns a zero vector, and SlideOutThenHide short-circuits
+            // to a synchronous hide — which would make every assertion below pass while observing
+            // none of the sequencing this test exists for. Initialize() is not needed; a
+            // SizeToContent window is measured enough after Show() for a real extent.
+            toolbar.SetMode(isDocked: true, edge: "Top");
+
             // Seed a dwell target and put it mid-dwell. Two gaze updates are required: the first
             // marks the target "inside" (records EnteredTimestamp, emits no progress); the second
             // accumulates and emits TargetProgress(id, 0.5). Route through Receive (the VM's dwell
@@ -75,10 +84,10 @@ public class ToolbarVisibilityAdapterTests
             vm.Receive(MakeGazeMessage(100, 100, 500_000));    // 50% of the 1000ms dwell
             Check.That(vm.LastProgress).IsEqualTo(0.5);
 
-            // Record the ordered sequence of side effects. The TargetProgress(id,0) reset fires
-            // synchronously inside SetActive(false)'s ResetAllState; IsVisibleChanged fires
-            // synchronously inside Window.Hide(). Capturing both into the same list preserves their
-            // relative order — the load-bearing assertion of this test.
+            // Record the ordered sequence of side effects. TargetProgress(id,0) fires synchronously
+            // inside SetActive(false)'s ResetAllState; IsVisibleChanged fires synchronously inside
+            // Window.Hide(). Capturing both into one list preserves their relative order — the
+            // load-bearing assertion of this test.
             var order = new List<string>();
             vm.ProgressReset += () => order.Add("SetActive(false)");
             toolbar.IsVisibleChanged += (_, _) =>
@@ -89,12 +98,19 @@ public class ToolbarVisibilityAdapterTests
             adapter.HideToolbar(paused: false);
             PumpDispatcher();
 
-            // Both fired, and SetActive(false) preceded Hide.
-            Check.That(order.Count).IsEqualTo(2);
-            Check.That(order[0]).IsEqualTo("SetActive(false)");
-            Check.That(order[1]).IsEqualTo("Hide");
+            // The contract moved but did not weaken: dwell is deactivated when the band STARTS
+            // leaving, and the window hides when the slide finishes. A test STA thread has no
+            // message pump, so the animation clock never advances here — the slide's completion is
+            // driven through the seam, exactly as ToolbarSlideTests does.
+            Check.That(order).ContainsExactly("SetActive(false)");
+            Check.That(toolbar.IsVisible).IsTrue();          // still on screen, mid-slide
+            Check.That(vm.LastProgress).IsEqualTo(0.0);      // dwell already reset
+
+            toolbar.CompleteSlideForTest();
+            PumpDispatcher();
+
+            Check.That(order).ContainsExactly("SetActive(false)", "Hide");
             Check.That(toolbar.IsVisible).IsFalse();
-            Check.That(vm.LastProgress).IsEqualTo(0.0); // dwell reset by SetActive(false)
         }
         finally
         {
@@ -189,6 +205,49 @@ public class ToolbarVisibilityAdapterTests
             vm.Receive(MakeGazeMessage(100, 100, 500_000));
             Check.That(vm.LastProgress).IsEqualTo(0.5);
             Check.That(toolbar.IsVisible).IsTrue();
+        }
+        finally
+        {
+            toolbar.Close();
+            indicator.Close();
+        }
+    }
+
+    /// <summary>
+    /// The indicator is a handover, not a swap: it must appear only once the band has cleared.
+    /// This is the only test covering HideToolbar's paused:true branch, and the show call now
+    /// lives inside the slide's completion callback.
+    /// </summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void HideToolbar_WhenPaused_ShowsTheIndicator_OnlyAfterTheSlideCompletes()
+    {
+        EnsureApplicationWithTokens();
+
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ExposedDwellToolbarViewModel(settings, messenger);
+
+        var toolbar = new ToolbarWindow();
+        var indicator = new PauseIndicatorWindow();
+        var overlays = new FakeOverlayManager(toolbar, indicator);
+        var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
+
+        try
+        {
+            toolbar.Show();
+            PumpDispatcher();
+            toolbar.SetMode(isDocked: true, edge: "Top");
+
+            adapter.HideToolbar(paused: true);
+            PumpDispatcher();
+
+            Check.That(indicator.IsVisible).IsFalse();   // band still on its way out
+
+            toolbar.CompleteSlideForTest();
+            PumpDispatcher();
+
+            Check.That(indicator.IsVisible).IsTrue();
         }
         finally
         {

@@ -16,7 +16,9 @@ The toolbar should retract into its docked edge and emerge from it, so the motio
 
 - Hiding retracts the toolbar into the edge it is docked to; summoning slides it back out of that edge.
 - The motion is directional: the axis and sign follow `ToolbarSettings.DockedEdge`, so a left-docked toolbar slides left, not up.
-- Toolbar dwell is disarmed for the entire duration of either slide. A button must never be dwellable while it is not at the coordinate its dwell target was published at.
+- Toolbar dwell is disarmed for the entire slide-**out**, before the band starts leaving. A button must never be dwellable once it is on its way to being hidden.
+- Toolbar dwell arms at the *start* of the slide-**in**, so a summoned toolbar is usable the moment it appears. This deliberately accepts up to 200 ms during which a button is drawn away from the coordinate its dwell target sits at; open question 1 records why that is the better trade here.
+- Dwell-target *placement* is suppressed for the whole of either slide, in both directions. Arming against a stale-but-correct coordinate is recoverable; publishing a mid-flight coordinate is not.
 - The recovery paths stay instant. `ForceShow` is what un-strands a user; it must not spend 200 ms on presentation.
 - An in-flight slide cannot leave the toolbar in a wrong terminal state — in particular, a superseded slide-out must not hide a toolbar that has since been force-shown.
 
@@ -99,7 +101,7 @@ The explicit `ClipToBounds` is the part worth defending. An HWND clips its own c
 2. Start the slide-out.
 3. On completion: `Window.Hide()`, then show or hide the pause indicator per `paused`.
 
-Step 2 short-circuits when the window is already hidden: the completion effects run synchronously instead. Without that, `SetPaused`'s re-assertion of `HideToolbar` on an already-hidden toolbar (`ToolbarAutoHideController.cs:99-100`, and edge case #9) would animate a zero-distance slide on an invisible window and delay the pause indicator by 200 ms — feedback latency on the one path whose entire purpose is telling a paused user that the app is paused.
+Step 2 short-circuits when the window is already hidden: the completion effects run synchronously instead. Without that, `SetPaused`'s re-assertion of `HideToolbar` on an already-hidden toolbar (`ToolbarAutoHideController.cs:99-100`, and edge case #11) would animate a zero-distance slide on an invisible window and delay the pause indicator by 200 ms — feedback latency on the one path whose entire purpose is telling a paused user that the app is paused.
 
 The indicator moving to step 3 is a small improvement the sequencing hands over for free: today it appears on the same tick the toolbar disappears, and it sits along the same docked edge (`PauseIndicatorWindow.SetEdge`). Showing it after the band has cleared reads as a handover instead of a swap.
 
@@ -108,11 +110,16 @@ The indicator moving to step 3 is a small improvement the sequencing hands over 
 1. `_overlays.PauseIndicator.Hide()` — first, so the indicator is not under the incoming band.
 2. Start the slide-in — clock attached, running from the hidden offset.
 3. `Window.Show()`.
-4. On completion: `_toolbarVm.SetActive(true)`.
+4. `_toolbarVm.SetActive(true)` — synchronously, in the same callback. **Not** deferred to the slide's completion.
+5. On completion: clear the sliding flags. No dwell-state change.
 
 Steps 2 and 3 are in that order on purpose. Showing first and animating second would rest the correctness of "no frame is ever painted at the rest position" on the argument that no render pass can occur between two statements in one dispatcher callback. That argument happens to hold, and it is still the wrong thing to depend on. Attaching the clock first makes the off-edge start a property of the property's value rather than of dispatcher scheduling; animating a hidden window is fine, since the timing engine does not care about `Visibility`.
 
-Dwell re-arms in step 4, not step 3, because `ToolbarViewModel`'s dwell targets are at fixed screen coordinates published by `ToolbarWindow.UpdateTargetPositions` (`ToolbarWindow.xaml.cs:265-290`) — the buttons' *resting* centres. During the slide-in the drawn button and its target disagree by up to the full extent, so an armed dwell would accumulate against a target the user cannot see and ignore the button they are looking at.
+**Dwell arms at the start of the slide-in, accepting up to 200 ms of divergence between where a button is drawn and where its dwell target sits.** Decided 2026-09-06; open question 1 records the reasoning and what it costs. `ToolbarViewModel`'s targets are at fixed screen coordinates published by `ToolbarWindow.UpdateTargetPositions` (`ToolbarWindow.xaml.cs:265-290`) — the buttons' *resting* centres — so for the duration of the slide-in, gaze resting on a button's final position accumulates against it while the drawn button is still arriving there.
+
+Step 4 follows step 3 rather than preceding it, keeping the hide side's principle intact: the window reaches its safe configuration before dwell arms. Arming a hidden window is the hazard `SetActive`'s contract exists to prevent (stated at `OverlayVmBindingCoordinator.cs:345-348`), and while nothing can observe the gap inside one synchronous callback, ordering it correctly costs nothing and does not depend on that being true.
+
+One consequence to hold onto: because arming no longer happens on completion, **the slide-in's completion no longer repairs a dwell state that something else cleared mid-slide.** That is what forces the directional `IsOnScreen` below — get it wrong and the toolbar can end up visible, at rest, and permanently unarmed.
 
 `ForceShow()` stays synchronous and gains only cancellation: cancel any in-flight slide, write the resting base value `0`, `Window.Show()`, `PauseIndicator.Hide()`, `SetActive(true)`. Its callers are the recovery paths — the tray fallback (`ToolbarLifecycleCoordinator.cs:118-123`), modal suspend-recover (`ToolbarAutoHideController.cs:111`) and the dock-toggle path (`:166`) — and every one of them exists because the user needs the toolbar *now*.
 
@@ -154,27 +161,41 @@ The repo holds two comments that disagree on whether this is necessary. `DriftNo
 
 ### What must not run mid-slide
 
-Two places read positional or visibility state as a proxy for "the toolbar is where the user sees it". Both are wrong for 200 ms unless told about the slide.
+Two places read positional or visibility state as a proxy for "the toolbar is where the user sees it". Both are wrong for 200 ms unless told about the slide — and they need to be told *different things*, which is why the window carries two flags rather than one:
 
-**Dwell-target placement.** `UpdateTargetPositions` publishes each button's centre via `PointToScreen` (`ToolbarWindow.xaml.cs:280`), which includes the render transform. It gains an early return while sliding, next to the existing `FacesAreArranged()` guard (`:272-273`) and with the same retry semantics — the gaze route keeps delivering samples until placement succeeds (`ToolbarLifecycleCoordinator.cs:80-94`), so a skipped attempt costs one frame.
+| Flag | True during | Question it answers |
+|---|---|---|
+| `IsSliding` | slide-in **and** slide-out | May a dwell target's coordinate be published? |
+| `IsSlidingOut` | slide-out only | Is the band on its way to being hidden? |
+
+Collapsing these into one flag is the obvious-looking simplification and it breaks something in either direction, so the distinction is load-bearing: coordinate *publication* must be suppressed both ways (a mid-flight coordinate is permanent), while dwell *arming* is now permitted during a slide-in by decision and forbidden during a slide-out because that one ends in `Hide()`.
+
+**Dwell-target placement** — gated on `IsSliding`. `UpdateTargetPositions` publishes each button's centre via `PointToScreen` (`ToolbarWindow.xaml.cs:280`), which includes the render transform. It gains an early return while sliding, next to the existing `FacesAreArranged()` guard (`:272-273`) and with the same retry semantics — the gaze route keeps delivering samples until placement succeeds (`ToolbarLifecycleCoordinator.cs:80-94`), so a skipped attempt costs one frame.
+
+This guard is unaffected by the arming decision, and the two must not be conflated. Arming during a slide-in means dwell accumulates against targets already sitting at their correct resting coordinates — bounded, self-correcting, over in 200 ms. Publishing during a slide-in would move those coordinates to a wrong place and leave them there.
 
 This is reachable, not hypothetical: `SetMode` sets `_targetsInitialized = false` (`ToolbarWindow.xaml.cs:242`), so a re-dock leaves placement pending, and the next hide/show would otherwise pin every target to a mid-flight coordinate. The failure mode is the one `FacesAreArranged`'s doc comment already records for the collapsed-centre bug — `UpdateButtonScreenPosition` *creates* a target on first call, so a wrong first placement is permanent, and the toolbar's buttons stay undwellable until restart.
 
-**`Toolbar.IsVisible` as a re-arm gate.** `OverlayVmBindingCoordinator.cs:345-350` re-arms toolbar dwell when the task switcher closes, gated on `Toolbar.IsVisible`, with a comment stating the intent precisely: "Reactivate only if the toolbar is actually on screen … activating a hidden toolbar creates gaze targets for invisible buttons — the exact hazard `SetActive`'s contract exists to prevent." A deferred `Hide()` makes `IsVisible` a poor proxy for that intent — during a slide-out it is `true` while the band is leaving, and during a slide-in it is `true` while the band is still off its targets.
+**`Toolbar.IsVisible` as a re-arm gate** — gated on `IsSlidingOut`. `OverlayVmBindingCoordinator.cs:345-350` re-arms toolbar dwell when the task switcher closes, gated on `Toolbar.IsVisible`, with a comment stating the intent precisely: "Reactivate only if the toolbar is actually on screen … activating a hidden toolbar creates gaze targets for invisible buttons — the exact hazard `SetActive`'s contract exists to prevent." A deferred `Hide()` makes `IsVisible` a poor proxy for that intent: during a slide-out it is `true` while the band is leaving.
 
 `ToolbarWindow` therefore exposes what the call site actually means, and that call site switches to it:
 
 ```csharp
-/// <summary>Visible AND at rest — i.e. every button is at the coordinate its dwell target was published at.</summary>
-public bool IsOnScreen => IsVisible && !IsSliding;
+/// <summary>
+/// Visible and not on its way out — i.e. arming dwell against the published target
+/// coordinates is safe. True during a slide-IN (see Sequencing), false during a slide-out.
+/// </summary>
+public bool IsOnScreen => IsVisible && !IsSlidingOut;
 ```
 
-This converges in all four interleavings. Task switcher closes during a slide-in: no re-arm here, and the slide-in's own completion re-arms. During a slide-out: no re-arm, and completion hides. While fully hidden: no re-arm, as today. While at rest: re-arms, as today.
+**`!IsSlidingOut`, not `!IsSliding`, and this is the part the arming decision changed.** Once `SetActive(true)` moved to the start of the slide-in, the slide-in's completion stopped repairing dwell state — so a gate that reported "not on screen" during a slide-in would produce this sequence: slide-in arms dwell → task switcher opens and calls `SetActive(false)` (`:339`) → task switcher closes before the slide finishes → gate says no → completion arms nothing → **toolbar visible, at rest, and dwellable by nothing.** It self-repairs only on the next full hide-and-summon cycle. A 200 ms window is a poor reason to relax about that; this is a codebase where a similar first-placement race shipped and left no toolbar button dwellable at all.
+
+With the directional gate it converges in all four interleavings. Task switcher closes during a slide-in: re-arms, correctly, because the band is visible and staying. During a slide-out: no re-arm, and the completion hides. While fully hidden: no re-arm, as today. While at rest: re-arms, as today.
 
 ## Wiring
 
 - **`ToolbarWindow.xaml`** — wrap the root `Border` in `Grid ClipToBounds="True"`; add the named `TranslateTransform`.
-- **`ToolbarWindow.xaml.cs`** — `SlideVectorFor`; the slide edge recorded in `SetMode`; `SlideOutThenHide(Action onHidden)`, `ShowThenSlideIn(Action onShown)`, `CancelSlide()`; `IsSliding`; `IsOnScreen`; the `UpdateTargetPositions` guard.
+- **`ToolbarWindow.xaml.cs`** — `SlideVectorFor`; the slide edge recorded in `SetMode`; `SlideOutThenHide(Action onHidden)`, `ShowThenSlideIn()`, `CancelSlide()`; `IsSliding` and `IsSlidingOut`; `IsOnScreen`; the `UpdateTargetPositions` guard.
 - **`ToolbarVisibilityAdapter.cs`** — `ShowToolbar`/`HideToolbar` re-sequenced as above; `ForceShow` gains `CancelSlide()`. Still one `Dispatcher.BeginInvoke` per call: the slide is started on the UI thread and its completion arrives there too, so no second hop is added.
 - **`OverlayVmBindingCoordinator.cs:349`** — `Toolbar.IsVisible` → `Toolbar.IsOnScreen`.
 - **Nothing else.** `IToolbarVisibility`, `ToolbarAutoHideController`, `ToolbarBand`, `ToolbarViewModel`, `ToolbarSettings`, `EnumerateSubSettings` and the settings pages are all untouched.
@@ -186,11 +207,13 @@ This converges in all four interleavings. Task switcher closes during a slide-in
 3. **Unmeasured window** — extent `0` → zero vector → instant show/hide. No separate guard.
 4. **Modal opens mid-slide-out** — `SetSuspended(true)` → `ForceShow` cancels the clock, bumps the generation, writes base `0`, shows. The pending `Hide()` is defused by the generation check. See Animation mechanics.
 5. **Tray "Show toolbar" mid-slide-out** — same path as #4 via `ToolbarLifecycleCoordinator.ForceShow`, plus `ResetToVisible()` so the controller does not immediately re-hide.
-6. **Task switcher closes mid-slide** — `IsOnScreen` is false, so no re-arm; the slide's own completion re-arms (slide-in) or hides (slide-out).
-7. **Dock edge changed in settings while hidden** — settings opening suspends auto-hide (`SettingsUiCoordinator.cs:117`), which force-shows and zeroes the transform, so `SetMode`'s reposition (`:177`) never runs against a translated band. `SetMode` then records the new slide edge, and the next slide uses the new axis.
-8. **`IsDocked` toggled off at runtime** — `UpdateEnabled(false)` → `ForceShow` (instant) and the slide edge becomes `null` at the next `SetMode`.
-9. **Pause toggled while hidden** — `SetPaused` re-asserts `HideToolbar(paused)` while already `Hidden` (`ToolbarAutoHideController.cs:99-100`). The toolbar is already hidden and the slide is a no-op re-run; only the indicator toggles. Worth naming because it is the one call site that reaches `HideToolbar` when the toolbar is *not* on screen, and it must not re-animate a hidden window or re-run the slide-out from `0`.
-10. **App shutdown mid-slide** — `ShutdownMode="OnExplicitShutdown"`; a `Completed` handler that runs after the window is closed touches only `Hide()`/`SetActive`, both harmless on a closed window. No new disposal is needed.
+6. **Task switcher closes mid-slide-in** — `IsOnScreen` is true, so dwell re-arms. Load-bearing: nothing downstream would arm it, since the slide-in no longer arms on completion. See "What must not run mid-slide".
+7. **Task switcher closes mid-slide-out** — `IsOnScreen` is false, so no re-arm; the slide-out's completion hides the window with dwell already disarmed.
+8. **`ShowToolbar` on an already-visible, at-rest toolbar** — short-circuits to arming dwell only, no animation. Unreachable from the controller (it calls `ShowToolbar` only from `Hidden`, `ToolbarAutoHideController.cs:242-245`) but reached by `ToolbarVisibilityAdapterTests`, and a gratuitous jump-to-offset-then-slide-back would be a real glitch if a future caller did it. The condition is `IsOnScreen` itself, which deliberately does *not* swallow a slide-out in flight — that case still runs the full slide-in and cancels the outgoing clock.
+9. **Dock edge changed in settings while hidden** — settings opening suspends auto-hide (`SettingsUiCoordinator.cs:117`), which force-shows and zeroes the transform, so `SetMode`'s reposition (`:177`) never runs against a translated band. `SetMode` then records the new slide edge, and the next slide uses the new axis.
+10. **`IsDocked` toggled off at runtime** — `UpdateEnabled(false)` → `ForceShow` (instant) and the slide edge becomes `null` at the next `SetMode`.
+11. **Pause toggled while hidden** — `SetPaused` re-asserts `HideToolbar(paused)` while already `Hidden` (`ToolbarAutoHideController.cs:99-100`). The toolbar is already hidden and the slide is a no-op re-run; only the indicator toggles. Worth naming because it is the one call site that reaches `HideToolbar` when the toolbar is *not* on screen, and it must not re-animate a hidden window or re-run the slide-out from `0`.
+12. **App shutdown mid-slide** — `ShutdownMode="OnExplicitShutdown"`; a `Completed` handler that runs after the window is closed touches only `Hide()`/`SetActive`, both harmless on a closed window. No new disposal is needed.
 
 ## Settings
 
@@ -211,15 +234,24 @@ Repo conventions: xUnit v3, NFluent (`Check.That`), private nested fakes, no moc
 
 **UI (`Category=UI`, `[StaFact]`)** — a test STA thread has no message pump, so animation clocks never tick there. This is the same constraint that produced the `EndFlash` seam (`ToolbarWindow.xaml.cs:404-409`, `ToolbarBand.cs:450-472`), and the completion path is tested the same way: driven directly rather than waited on.
 
-- `UpdateTargetPositions` publishes nothing while sliding, and publishes correct centres once at rest. The sharpest test in the set — it guards the permanent-mispositioning failure.
-- `IsOnScreen` is false during a slide-out and a slide-in, true at rest, false when hidden.
+- `UpdateTargetPositions` publishes nothing while sliding — in **both** directions — and publishes correct centres once at rest. The sharpest test in the set: it guards the permanent-mispositioning failure, and it is the one that stays honest about the slide-in now that arming no longer waits.
+- `IsOnScreen` is **true** during a slide-in, false during a slide-out, true at rest, false when hidden. Written as four assertions in one test so the directional asymmetry cannot be half-broken.
 - Slide-out completion hides the window and then toggles the indicator per `paused`.
-- Slide-in re-arms dwell only on completion, not on `Show()`.
+- Slide-in arms dwell synchronously: after `ShowToolbar` returns (one dispatcher pump), gaze on a positioned target accumulates, without the completion seam having been driven.
 - Slide-in attaches its clock before `Show()`: subscribing to `IsVisibleChanged` and asserting `IsSliding` is already true when it fires tests the ordering without depending on a clock tick — which a pumpless STA thread cannot deliver, so asserting the transform's animated value here would test nothing.
+- Task switcher closing mid-slide-in leaves dwell armed (edge case #6). This is the regression test for the stranding the directional gate exists to prevent; it fails if `IsOnScreen` is defined on `IsSliding`.
 - `ForceShow` mid-slide: shows immediately, transform at `0`, and the superseded slide-out's completion does **not** hide the window. Directly covers edge cases #4 and #5.
-- `SetPaused` while already hidden toggles the indicator without re-running a slide (edge case #9).
+- `SetPaused` while already hidden toggles the indicator without re-running a slide (edge case #11).
 
-**Existing tests that must change.** `ToolbarVisibilityAdapterTests` (`:49`, `:112`, `:162`) encodes the old timing: `HideToolbar_CallsSetActiveFalse_BeforeToolbarHide` asserts exactly two ordered effects with `Hide` already done after one dispatcher pump, and the two show tests assert `SetActive(true)` has landed by then. All three are rewritten to the new contract — `SetActive(false)` before the slide *starts*, `Hide` on completion, `SetActive(true)` on completion. The ordering guarantee they exist to protect is preserved and strengthened; only the tick it is observed on moves. These are `Category=UI`, so CI's headless subset never ran them (`ci-runs-app-tests-headless-subset`) and local verification is the only signal.
+**Existing tests that must change — one, not three.** `ToolbarVisibilityAdapterTests` encodes the old timing, but arming synchronously means only the hide test actually moves:
+
+| Test | Fate |
+|---|---|
+| `HideToolbar_CallsSetActiveFalse_BeforeToolbarHide` (`:49`) | **Rewritten.** It asserts exactly two ordered effects with `Hide` already done after one dispatcher pump; `Hide` now lands on the slide's completion. The contract becomes `SetActive(false)` before the slide *starts*, `Hide` when it finishes — the guarantee it protects is preserved and strengthened, only the tick it is observed on moves. |
+| `ShowToolbar_CallsSetActiveTrue` (`:112`) | **Passes unchanged.** `SetActive(true)` is synchronous in the same callback, so the existing "gaze accumulates after one pump" assertion still holds. Its `toolbar.Show()` preamble makes the window already-visible, which is exactly what edge case #8's short-circuit is for. |
+| `ForceShow_CallsSetActiveTrue` (`:162`) | **Passes unchanged.** `ForceShow` stays instant. |
+
+That both show tests survive is a consequence of the arming decision, not an accident of it — and it is the cheapest available evidence that the decision reduced this change's blast radius rather than enlarging it. All three are `Category=UI`, so CI's headless subset never ran them (`ci-runs-app-tests-headless-subset`) and local verification is the only signal.
 
 **Mutation check before any green claim.** Per standing instruction, each of these must turn a test red:
 
@@ -227,10 +259,13 @@ Repo conventions: xUnit v3, NFluent (`Check.That`), private nested fakes, no moc
 |---|---|
 | Flip a sign in `SlideVectorFor` | the per-edge direction tests |
 | Drop the `IsSliding` guard in `UpdateTargetPositions` | the mid-slide placement test |
-| Move `SetActive(true)` from slide-in completion to its start | the re-arm-on-completion test |
-| Revert `IsOnScreen` to `IsVisible` | the `IsOnScreen`-during-slide test |
+| Move `SetActive(true)` from the slide-in *start* to its completion | the synchronous-arming test |
+| Define `IsOnScreen` as `IsVisible && !IsSliding` | the task-switcher-mid-slide-in test |
+| Revert `IsOnScreen` to plain `IsVisible` | the `IsOnScreen`-during-slide-out test |
 | Remove the generation guard | the `ForceShow`-mid-slide test |
 | Change `FillBehavior.Stop` to `HoldEnd` without writing the base value | a second slide after the first (the stuck-off-screen trap) |
+
+Rows two and three are deliberately a matched pair: they mutate the same expression in opposite directions, so passing both is what proves the gate is *directional* rather than merely non-constant. One test cannot cover that.
 
 Read-only review does not substitute for this; five rounds of it previously missed three one-line breakages with the suite green.
 
@@ -238,6 +273,14 @@ Read-only review does not substitute for this; five rounds of it previously miss
 
 ## Open questions
 
-1. **[TUNING, post-visual] Does 200 ms read as responsive or as lag on the summon?** A summon already costs 400 ms of dwell, so the slide-in puts the toolbar 600 ms behind the gesture. If that reads as sluggish, the smaller change is not a shorter duration but moving `SetActive(true)` to the *start* of the slide-in — accepting up to 200 ms of target/visual divergence in exchange for immediate arming. That trade was consciously declined here (see Sequencing step 4) and should stay declined unless real use argues otherwise.
+1. **~~[TUNING] Should the slide-in delay dwell arming by 200 ms?~~ — RESOLVED 2026-09-06. No: dwell arms at the start of the slide-in.** The draft deferred arming to the slide's completion, which put a summoned toolbar 600 ms behind the gesture (400 ms summon dwell + 200 ms slide) before any button could be used. Resolved in favour of immediate arming, accepting up to 200 ms during which a button is drawn away from its target's coordinate.
+
+   Three things make that divergence cheap, and they are worth recording because they are the reason this is not merely a speed-for-correctness trade:
+
+   - **Gaze is off-screen at the moment of the summon.** The gesture *is* sustained gaze past the docked edge (`ToolbarAutoHideController.IsPastDockedEdge`), so at t=0 gaze is outside every target. The user then has to saccade back and travel to the band — by which time much of the 200 ms has already elapsed.
+   - **Dwell times dwarf the slide.** A dwell that starts mid-slide completes well after the band is at rest, so the user watches their target arrive and *then* watches progress fill on it. Arming early makes the first moments of the interaction count rather than discarding them.
+   - **The divergence is bounded and self-correcting**, whereas the failure it trades against is not. Nothing is written that has to be undone: the targets are already at their correct resting coordinates the whole time. Contrast dwell-target *placement*, which stays suppressed in both directions precisely because a wrong coordinate published once is permanent.
+
+   The cost, stated plainly: for up to 200 ms after a summon, gaze resting on a button's final position accumulates against that button while the button is drawn short of it — so a fast user can start a dwell on something they are not yet looking at. Reverting is a one-line move of `SetActive(true)` back into the completion handler, plus the directional `IsOnScreen` becoming unnecessary.
 
 2. **[DEFERRED] Should the pause indicator slide too?** It occupies the edge the toolbar retracts into, so the handover is currently a slide followed by a pop. Out of scope, and not obviously worth it for an 8-DIP bar (`PauseIndicatorWindow.BarThicknessLogical`).

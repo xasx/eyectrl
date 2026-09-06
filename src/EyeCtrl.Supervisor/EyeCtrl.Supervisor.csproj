@@ -13,7 +13,7 @@
     <ProjectReference Include="..\EyeCtrl.Core\EyeCtrl.Core.csproj" />
     <ProjectReference Include="..\EyeCtrl.Platform\EyeCtrl.Platform.csproj" />
     <ProjectReference Include="..\EyeCtrl.Controls\EyeCtrl.Controls.csproj" />
-    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="EyeCtrl.Supervisor.Tests" />

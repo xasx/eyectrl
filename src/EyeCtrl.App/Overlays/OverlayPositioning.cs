@@ -61,6 +61,36 @@ internal static class OverlayPositioning
     }
 
     /// <summary>
+    /// The offset that puts a docked strip fully clear of its own window, so animating the strip
+    /// toward it reads as retracting into the docked edge. Case-insensitive, matching
+    /// <see cref="PlaceAtEdge"/> — <c>ToolbarSettings.DockedEdge</c> stores PascalCase.
+    ///
+    /// <para>
+    /// Deliberately does NOT share <see cref="PlaceAtEdge"/>'s fall-back-to-top behaviour.
+    /// An unrecognised or <see langword="null"/> edge returns a ZERO vector, which callers read as
+    /// "no slide" and degrade to an instant show/hide. Null is the undocked case, and a floating
+    /// toolbar has no edge to retract into — falling back to "top" there would animate it upward
+    /// for no reason. Do not "fix" this to match its neighbour.
+    /// </para>
+    ///
+    /// <para>
+    /// Returns DIPs, not physical pixels: the consumer is a <c>TranslateTransform</c>, and the
+    /// extents passed in are <c>ActualWidth</c>/<c>ActualHeight</c>. No <c>DpiHelper</c>
+    /// conversion belongs anywhere near this — unlike the auto-hide hit-test rect, which is
+    /// physical.
+    /// </para>
+    /// </summary>
+    public static Vector SlideVectorFor(string? edge, double width, double height) =>
+        edge?.ToLowerInvariant() switch
+        {
+            "top" => new Vector(0, -height),
+            "bottom" => new Vector(0, height),
+            "left" => new Vector(-width, 0),
+            "right" => new Vector(width, 0),
+            _ => default,
+        };
+
+    /// <summary>
     /// A child element's centre in physical screen pixels — the input every dwell-detector
     /// push loop needs. False (with <c>center</c> defaulted) when the element is not yet
     /// rendered or not in the visual tree, the same condition the per-window try/catch

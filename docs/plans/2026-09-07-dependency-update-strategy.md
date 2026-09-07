@@ -195,7 +195,8 @@ tests (27). UI tests and the app-launch logging smoke were **not** run — both 
 |---|---|---|
 | `1bb4a47e` | 1 — patches | **LANDED.** M.E.DI + M.E.Logging.Abstractions 10.0.11, Mvvm 8.4.2, AGENTS.md synced. |
 | `87c2a2d2` | 2 — Serilog | **LANDED.** Sinks.File 7.0.0 (App, Supervisor), Extensions.Logging 10.0.0 (App). Restore + suite green. |
-| — | 3 — ONNX | **REVERTED — owner decision required.** See below. |
+| — | 3 — ONNX | first attempt (1.24.4) **REVERTED** — see blocker below. Owner chose the version probe. |
+| `64a4700f` | 3 — ONNX | **LANDED at 1.22.1.** Probe: 1.23.0 and 1.24.4 fail identically; 1.22.1 loads the pinned model at ENABLE_ALL and is ~2–3× faster on `PredictAndWait`. |
 | `76b53360` | 4 — test stack | **FALLBACK LANDED.** Test.Sdk 18.9.0 + coverlet 10.0.1 only; xUnit family stays 3.2.2/3.1.5/1.27.0, StaFact stays 3.0.13. See below. |
 | `65180808` | 5a — WinAppSDK | **LANDED.** 1.8.260804001; Sdk.WinUI Release build + its tests green, full gate green. |
 
@@ -226,6 +227,22 @@ perf evidence. Owner options:
    may load at ENABLE_ALL.
 3. Accept ENABLE_BASIC + 1.24.4 after a proper Default-job benchmark comparison.
 4. Re-export the ONNX model with a current exporter (fixes the root cause).
+
+**Resolution (2026-09-07, owner chose the probe — option 2):** probed newest-first.
+
+- `1.23.0` — **fails**, identical `SimplifiedLayerNormFusion` / `GetIndexFromName` error.
+  The regression window is exactly the 1.23.0 release.
+- `1.22.1` — **loads at ENABLE_ALL.** All 38 LM tests pass.
+- Upstream check: `onnx-community/Qwen2.5-1.5B-Instruct` on HF has no newer export — the
+  pinned commit `6287331f` is the repo's newest; the model files date to 2024-09-23. So
+  option "repoint at a newer commit" was not available, and a self-export remains the only
+  path to a 1.23+ runtime.
+
+Benchmark on 1.22.1 (same box, same command as the 1.21.0 baseline):
+`PredictAndWait` Default mean 1.073 s (median 0.644 s) vs baseline 2.292 s mean — a ~2–3×
+**improvement**, tokenizers unchanged (encode 6.49 µs / decode 0.77 µs), identical managed
+allocations. Wave 3 landed at **1.22.1** (`64a4700f`) after the full solution gate (12/12
+projects, 2,885 tests green). ONNX 1.23+/1.24.x stays blocked until the model is re-exported.
 
 ### Wave 4 — why xUnit 4.0 was not taken (and what taking it would involve)
 
@@ -266,9 +283,10 @@ planned migration (est. half-day plus CI work) whenever the owner wants it.
 
 ### Remaining outdated (all deliberate)
 
-`Microsoft.ML.OnnxRuntime.DirectML` 1.24.4 (wave-3 blocker), `Microsoft.WindowsAppSDK` 2.4.0
-(wave-5b owner decision), `xunit.v3`/`xunit.runner.visualstudio`/`xunit.analyzers` 4.0.0 +
-`Xunit.StaFact` 4.0.23 (wave-4 MTP migration). Everything else is current as of 2026-09-07.
+`Microsoft.ML.OnnxRuntime.DirectML` 1.23+/1.24.4 (blocked by the pinned q4f16 model — see
+wave-3 resolution), `Microsoft.WindowsAppSDK` 2.4.0 (wave-5b owner decision),
+`xunit.v3`/`xunit.runner.visualstudio`/`xunit.analyzers` 4.0.0 + `Xunit.StaFact` 4.0.23
+(wave-4 MTP migration). Everything else is current as of 2026-09-07.
 
 ## Sources
 

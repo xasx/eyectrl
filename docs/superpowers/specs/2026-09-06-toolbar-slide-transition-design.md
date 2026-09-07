@@ -28,7 +28,7 @@ The toolbar should retract into its docked edge and emerge from it, so the motio
 - **No OS-preference gate.** `SystemParameters.ClientAreaAnimation` (the Windows "Animation effects" toggle) is deliberately not read. Considered and dropped in the same decision as above: a second source of truth for whether motion happens buys nothing while the duration is a constant nobody can change.
 - **No startup animation.** `App.xaml.cs:478-479` shows and positions the toolbar directly, not through the adapter. First paint stays instant.
 - **No slide for any other overlay.** The pause indicator, edge button bar, quick-actions grid and keyboard keep their current show/hide behaviour.
-- **No change to auto-hide's decision logic.** `ToolbarAutoHideController` is untouched: same states, same delays, same hysteresis, same `IToolbarVisibility` surface.
+- **No change to auto-hide's decision logic.** Same states, same delays, same hysteresis, same `IToolbarVisibility` surface. *(Amended 2026-09-07: `ToolbarAutoHideController` is no longer literally untouched. A separate, pre-existing defect was found on this branch when the slide's transition logging revealed that `SetPaused` lacked a no-change early-out, so every gaze-state flip re-asserted `HideToolbar` at ~1.4 Hz while hidden — 129 redundant re-asserts against 3 real hides in one live run. Fixed by a one-line guard mirroring `SetSuspended`, at the user's explicit request, in commit `99748279`. The non-goal's substance still holds: no state, delay, hysteresis rule or interface changed.)*
 - **No change to the toolbar's contents, dock position, sizing, or dwell timing.**
 
 ## Terminology

@@ -103,7 +103,7 @@ The explicit `ClipToBounds` is the part worth defending. An HWND clips its own c
 
 `HideToolbar(bool paused)`:
 
-1. `_toolbarVm.SetActive(false)` — **unchanged, still first.** The existing comment at `ToolbarVisibilityAdapter.cs:33-35` explains why it precedes the hide; the slide widens that gap from one dispatcher tick to 200 ms, which makes the ordering more load-bearing, not less.
+1. `_toolbarVm.SetActive(false)` — **unchanged, still first.** The existing comment at `ToolbarVisibilityAdapter.cs:48-50` explains why it precedes the hide; the slide widens that gap from one dispatcher tick to 200 ms, which makes the ordering more load-bearing, not less.
 2. Start the slide-out.
 3. On completion: clear the sliding flags, `Window.Hide()`, then show or hide the pause indicator per `paused`.
 
@@ -186,7 +186,7 @@ The repo holds two comments that disagree on whether this is necessary. `DriftNo
 
 **Mid-flight reversal is not a steady-state case, but it is reachable under UI-thread stall.** The `from` value is read from the transform's current (animated) value, so a reversal is visually continuous. In steady state the animated paths cannot produce one: a summon costs 400 ms of sustained off-edge gaze (`ToolbarLifecycleCoordinator.cs:180`) against a 200 ms slide, so a slide-out finishes first.
 
-Those two numbers are not measured on the same clock, though, and an earlier draft of this spec concluded "cannot actually produce one" from comparing them directly. The 400 ms is a run-length over gaze-sample *timestamps* accumulated on the gaze thread (`ToolbarAutoHideController.cs:232-246`); the 200 ms is wall-clock animation on the UI thread — the thread this spec itself notes is contended by gaze-cursor rendering and dwell updates. Stall the UI thread past 200 ms and the animation clock stalls with it while `Feed` keeps timestamping, so the queued `ShowToolbar` (`ToolbarVisibilityAdapter.cs:24`, a `BeginInvoke`) is processed against a still-live slide-out.
+Those two numbers are not measured on the same clock, though, and an earlier draft of this spec concluded "cannot actually produce one" from comparing them directly. The 400 ms is a run-length over gaze-sample *timestamps* accumulated on the gaze thread (`ToolbarAutoHideController.cs:232-246`); the 200 ms is wall-clock animation on the UI thread — the thread this spec itself notes is contended by gaze-cursor rendering and dwell updates. Stall the UI thread past 200 ms and the animation clock stalls with it while `Feed` keeps timestamping, so the queued `ShowToolbar` (`ToolbarVisibilityAdapter.cs:25`, a `BeginInvoke`) is processed against a still-live slide-out.
 
 The outcome is safe without any additional mechanism: the `from` read plus the generation guard make the reversal continuous and drop the superseded completion. The duration is still **not** scaled by remaining distance — a stall-induced reversal starts from wherever the clock froze, which the `from` read already handles.
 

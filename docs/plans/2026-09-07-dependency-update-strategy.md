@@ -320,10 +320,44 @@ planned migration (est. half-day plus CI work) whenever the owner wants it.
 
 ### Remaining outdated (all deliberate)
 
-`Microsoft.ML.OnnxRuntime.DirectML` 1.23+/1.24.4 (blocked by the pinned q4f16 model — see
-wave-3 resolution), `Microsoft.WindowsAppSDK` 2.4.0 (wave-5b owner decision),
+`Microsoft.ML.OnnxRuntime.DirectML` 1.24.4 (ready via the fused artifact below — awaiting
+the coordinated model hosting), `Microsoft.WindowsAppSDK` 2.4.0 (wave-5b owner decision),
 `xunit.v3`/`xunit.runner.visualstudio`/`xunit.analyzers` 4.0.0 + `Xunit.StaFact` 4.0.23
 (wave-4 MTP migration). Everything else is current as of 2026-09-07.
+
+## Follow-up (same day, post-landing): the fused artifact unlocks 1.24.4
+
+Seconded plan executed 2026-09-07: branch landed on main (rebased over the parallel
+caregiver work, pushed as `819f4fc9..a5afe78f`, full non-UI gate green on the merged
+combination), the upstream ORT issue drafted at `~/qwen-reexport/onnxruntime-issue.md`
+(awaiting owner review before filing), and the offline-fusion experiment **succeeded**:
+
+1. `onnxruntime.transformers.optimizer` (python, model_type="gpt2", heads=12, hidden=1536)
+   fused the fp32 export's 57 decomposed RMSNorm patterns into
+   `SimplifiedLayerNormalization`/`SkipSimplifiedLayerNormalization` contrib ops
+   (6,964 → 3,225 nodes). The buggy runtime fusion only fires on the *decomposed* pattern.
+2. The deterministic fp16 pass + q4 quantization then applied unchanged
+   (`fuse.py`/`fp16_pass.py`/`quantize.py`, all in `~/qwen-reexport/`).
+3. Result `model_q4f16_fused.onnx`, 1,671,599,992 bytes,
+   sha256 `61e17fef2f6df1fd112dc42c69777298271c8b5992de21d35a43b4bfef99d688`,
+   196 MatMulNBits (block 32, sym, lm_head excluded). ONNX checker can't validate
+   com.microsoft contrib ops at this opset — ORT itself is the gate, and it passes:
+   **loads on 1.21.0 / 1.22.1 / 1.24.4 × CPU / DirectML — universal**, including the
+   EyeCtrl model test (CPU-only, `preferGpu: false`) on both 1.22.1 and 1.24.4 (38/38),
+   and the full solution gate on 1.24.4. Benchmark (fused, 1.24.4): `PredictAndWait`
+   1.27 s mean ±0.06 (tight) vs 1.22.1-unfused 1.07 s mean/0.64 s median (bimodal) vs
+   1.21 baseline 2.29 s — same ballpark, all far ahead of baseline. The fused model is
+   installed in `%APPDATA%/EyeCtrl/models` (validated against the live app's 1.21.0);
+   the prior non-fused export and the original download are backed up alongside.
+
+**Shipping 1.24.4 is now purely a coordinated-release task**: host the fused artifact
+(owner decision: HF repo vs GitHub release; note the int4-lm_head option for
+~1.32 GB), update `models.json` (url/sha256/sizeBytes — existing clients re-download on
+hash change), bump `EyeCtrl.LM` to 1.24.4, run the full gate. All three must land
+together — a runtime-only bump would break the CPU path for every user still holding a
+previously downloaded model. The fp16-IO dodge was also tested and falsified (same fusion
+failure without any boundary casts), confirming the trigger is the decomposed-pattern +
+MatMulNBits shape itself.
 
 ## Sources
 

@@ -43,8 +43,9 @@ using EyeCtrl.ViewModels.Messages;
 public class ToolbarVisibilityAdapterTests
 {
     /// <summary>
-    /// HideToolbar must call SetActive(false) BEFORE Toolbar.Hide(), so a gaze sample arriving in
-    /// the gap between the two can't accumulate against the (now-hidden) targets.
+    /// HideToolbar must call SetActive(false) BEFORE the band starts sliding out, and Toolbar.Hide()
+    /// only once that 200 ms slide completes — so a gaze sample arriving anywhere in that widened
+    /// gap can't accumulate against targets whose buttons are leaving or already gone.
     /// </summary>
     [StaFact]
     [Trait("Category", "UI")]

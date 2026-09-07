@@ -333,12 +333,22 @@ public partial class ToolbarWindow : OverlayWindow
         // publish is permanent — the same permanence that made the collapsed-centre bug
         // unrecoverable short of a restart.
         //
-        // The at-rest test covers more than the slide: the base value sits at the hidden offset for
-        // the entire hidden period, not just while a clock is live. Deliberately phrased as "is the
-        // transform at rest" rather than "is the window visible": the visibility form would make
-        // ToolbarTargetPlacementTests.FreshBand_IsNotArranged_SoNothingIsPublished return HERE
-        // instead of at the FacesAreArranged guard it exists to prove, silently turning that test
-        // into a tautology.
+        // Checked against the transform directly rather than `IsVisible && !IsSliding`: IsVisible
+        // is only a PROXY for "the band is displaced", and a proxy can misread a
+        // visible-but-displaced band — the transform's value IS the displacement, with no
+        // inference in between. The transform form also covers the whole hidden period, not just
+        // while a clock is live: the base value sits parked at the hidden offset for the entire
+        // time the window is hidden, which an IsVisible-gated guard would miss.
+        //
+        // On a fresh, never-shown window this guard does not even fire — _sliding is false and
+        // both axes read 0 — so the failure an IsVisible conjunct would have guarded against here
+        // could not arise in that state regardless. (An earlier version of this comment argued for
+        // the IsVisible conjunct's ABSENCE by claiming its presence would silently turn
+        // ToolbarTargetPlacementTests.FreshBand_IsNotArranged_SoNothingIsPublished into a
+        // tautology. That claim is false: that test asserts only TargetsInitialized == false
+        // (ToolbarTargetPlacementTests.cs:31-44), and this method swallows PointToScreen's throw in
+        // a per-button `catch { return; }` below, so _targetsInitialized never latches regardless
+        // of which guard returned — the test has no teeth to lose either way.)
         if (_sliding || SlideTransform.X != 0 || SlideTransform.Y != 0)
             return;
 
@@ -614,6 +624,13 @@ public partial class ToolbarWindow : OverlayWindow
 
         void Complete()
         {
+            // Idempotent: a real Completed fires once, so production never re-enters this, but
+            // CompleteSlideForTest can be called more than once by a test that does not know
+            // better. Without this, a second call would still find the generations matching and
+            // re-run HideSafely()/onHidden() — reachable only from the test seam, but a foot-gun
+            // for the next test author, and the retained closure would otherwise keep pinning
+            // onDone's captured state for no reason.
+            _pendingSlideCompletion = null;
             _sliding = false;
             _slidingOut = false;
             onDone?.Invoke();
@@ -631,33 +648,45 @@ public partial class ToolbarWindow : OverlayWindow
                 EasingMode = slidingOut ? EasingMode.EaseIn : EasingMode.EaseOut,
             },
         };
-        anim.Completed += (_, _) =>
-        {
-            if (generation != _slideGeneration) return;
-            Complete();
-        };
+        anim.Completed += (_, _) => RunPendingSlideCompletion();
 
         SlideTransform.BeginAnimation(axis, anim);
     }
 
     /// <summary>
-    /// Test seam: runs the pending slide's completion exactly as the animation's Completed handler
-    /// would, generation check included. A window built in a test runs on an STA thread with no
-    /// message pump, so the clock never advances and Completed never fires there. Mirrors
-    /// <see cref="EndFlash"/>, which exists for the same reason.
+    /// The null-and-generation checks that gate running a slide's completion, shared by
+    /// <c>anim.Completed</c> (above, in <see cref="StartSlide"/>) and
+    /// <see cref="CompleteSlideForTest"/> — the only two callers of
+    /// <see cref="_pendingSlideCompletion"/>. Before this was one method, production compared the
+    /// closure-captured generation from its own <c>StartSlide</c> call while the test seam compared
+    /// <see cref="_pendingSlideGeneration"/> against <see cref="_slideGeneration"/> — two separately
+    /// written expressions of the same rule that happened to agree, which is exactly the kind of
+    /// drift that lets one of them silently stop matching production. A test STA thread has no
+    /// message pump, so an animation clock never advances and Completed never fires there — this
+    /// is the seam that exists to let <see cref="CompleteSlideForTest"/> drive it by hand, the same
+    /// reason <see cref="EndFlash"/> exists.
     ///
     /// <para>
-    /// Driving completion by hand is also the only way the generation guard is observable: the
-    /// guard protects against a Completed the framework documents will not raise, so a test that
-    /// waited for a real clock could never tell "the guard worked" from "nothing fired".
+    /// Driving completion by hand is also the only way the generation guard is observable at all:
+    /// the guard protects against a Completed the framework documents will not raise on a removed
+    /// clock, so a test that waited for a real clock could never tell "the guard worked" from
+    /// "nothing fired".
     /// </para>
     /// </summary>
-    internal void CompleteSlideForTest()
+    private void RunPendingSlideCompletion()
     {
         if (_pendingSlideCompletion is null) return;
         if (_pendingSlideGeneration != _slideGeneration) return;
         _pendingSlideCompletion();
     }
+
+    /// <summary>
+    /// Test seam: runs the pending slide's completion exactly as the animation's Completed handler
+    /// would. A window built in a test runs on an STA thread with no message pump, so the clock
+    /// never advances and Completed never fires there. Mirrors <see cref="EndFlash"/>, which exists
+    /// for the same reason.
+    /// </summary>
+    internal void CompleteSlideForTest() => RunPendingSlideCompletion();
 
     /// <summary>
     /// Window.Hide() guarded against the InvalidOperationException it is documented to throw on a

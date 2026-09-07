@@ -61,10 +61,15 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
                 _overlays.PauseIndicator.Hide();
             }
         });
-        // See the note in ShowToolbar. "instant" here also covers the already-hidden
-        // short-circuit, which SetPaused and ReassertVisibility both reach.
-        Log.Information("Toolbar auto-hidden: slide-out {Mode} (paused={Paused})",
-            _overlays.Toolbar.IsSliding ? "animating" : "instant", paused);
+        // Gated on IsSliding — i.e. only when a slide actually starts — unlike ShowToolbar's
+        // unconditional line. Logging the short-circuit here floods the log: SetPaused re-asserts
+        // HideToolbar on EVERY interaction-state change while the toolbar is hidden
+        // (ToolbarLifecycleCoordinator.cs:54-55 mirrors StateChangedMessage into
+        // ToolbarAutoHideController.SetPaused, which unlike its SetSuspended sibling has no
+        // no-change guard). A 2026-09-07 live run measured 129 such re-asserts against 3 real
+        // hides. ShowToolbar needs no gate: it is only ever called on a real summon.
+        if (_overlays.Toolbar.IsSliding)
+            Log.Information("Toolbar auto-hidden: slide-out started (paused={Paused})", paused);
     });
 
     public void ForceShow() => _dispatcher.BeginInvoke(() =>

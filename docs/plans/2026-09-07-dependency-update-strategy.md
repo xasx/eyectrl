@@ -244,6 +244,43 @@ Benchmark on 1.22.1 (same box, same command as the 1.21.0 baseline):
 allocations. Wave 3 landed at **1.22.1** (`64a4700f`) after the full solution gate (12/12
 projects, 2,885 tests green). ONNX 1.23+/1.24.x stays blocked until the model is re-exported.
 
+**Re-export executed (2026-09-07, option 4) — artifact produced; CPU-1.23+ still blocked
+(upstream ORT bug, not the artifact).**
+
+Pipeline (all in `~/qwen-reexport/`, scripts kept): venv (torch 2.7.1 CPU + optimum 1.27 —
+the 1.x line still owns the ONNX exporter; optimum 2.x is a stub, and torch 2.14 breaks the
+1.x exporter's symbolic hooks) → optimum export of `Qwen/Qwen2.5-1.5B-Instruct`
+(text-generation-with-past, validated against PyTorch by optimum at ~1e-4) → **custom
+deterministic fp16 pass** (`fp16_pass.py`) because BOTH stock fp16 converters
+(onnxconverter-common and onnxruntime.transformers) produce mixed-dtype graphs for this
+decoder (three distinct failure modes hit; the custom pass converts every float
+initializer/constant/Cast target, inserts `InsertedPrecisionFreeCast_` boundary casts —
+the original artifact's own design — and topologically re-sorts) → q4 quantization
+(`quantize.py`, MatMulNBits bits=4 **block_size=32** symmetric, lm_head excluded → exactly
+196 nodes like the original; tied-embedding dedupe impossible here: optimum exports lm_head
+weight pre-transposed as a separate initializer → file is **1.67 GB vs 1.22 GB original**).
+ONNX checker clean; single-file.
+
+Result matrix (clean-process probe, CPU-only vs DirectML):
+
+| Runtime | old artifact | new artifact |
+|---|---|---|
+| 1.21.0 CPU / DML | OK / OK | OK / OK |
+| 1.22.1 CPU / DML | OK / OK | OK / OK |
+| 1.24.4 CPU | **fails** (fusion bug) | **fails** (same bug) |
+| 1.24.4 DML | untested | **OK** |
+
+Conclusion: the 1.23+ blocker is an **ORT CPU-optimizer bug** (SimplifiedLayerNormFusion
+chokes on the q4f16 boundary-cast pattern regardless of artifact vintage — worth an
+upstream issue), NOT a property of the old export. The new artifact is a valid, current-
+tooling drop-in replacement (kept installed on this machine; original backed up at
+`%APPDATA%/EyeCtrl/qwen2.5-1.5b.onnx.orig-backup`), but it does not unlock 1.24.4 for the
+CPU path the model test exercises (`preferGpu: false`), so the branch stays on 1.22.1.
+Hosting the 1.67 GB artifact + `models.json` repoint remains an owner decision (needs a
+URL + sha256 + sizeBytes; also decide whether the +450 MB is acceptable or whether lm_head
+should be int4-quantized instead, trading a little logit precision for ~1.32 GB).
+Intermediates (~15 GB) live in `~/qwen-reexport/` for cleanup.
+
 ### Wave 4 — why xUnit 4.0 was not taken (and what taking it would involve)
 
 The pre-flight validated the strategy's optimism: StaFact 4.0.23's stable line is built for

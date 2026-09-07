@@ -91,11 +91,21 @@ public sealed class ToolbarAutoHideController
 
     public void SetPaused(bool paused)
     {
+        // No-change early-out, mirroring SetSuspended below. Load-bearing, not tidiness:
+        // ToolbarLifecycleCoordinator.cs:54-55 mirrors EVERY StateChangedMessage into this method,
+        // and that message fires on each Fixation<->FreeLook flip — several times a second during
+        // ordinary gaze. Without the guard, a hidden toolbar re-asserted the hide below at roughly
+        // 1.4 Hz forever, each time costing a dispatcher hop, a DwellDetector.ResetAllState (via
+        // the adapter's SetActive(false)), a Hide() on an already-hidden window, and a
+        // PauseIndicator toggle — all on the UI thread that renders the gaze cursor and services
+        // dwell. A 2026-09-07 live run measured 129 such re-asserts against 3 real hides.
+        if (paused == _paused) return;
         _paused = paused;
         // If the toolbar is already HIDDEN, no hide/show transition will fire to update the edge
         // bar — so react to the pause change here. Re-asserting HideToolbar keeps the toolbar hidden
         // (a no-op) while toggling the indicator: pause-while-hidden shows the bar, resume hides it.
         // Without this the user can be paused + hidden + no feedback (spec Goal #4 violation).
+        // The guard above does not weaken that: a genuine pause change still reaches it.
         if (_state == State.Hidden && _enabled && !_suspended)
             _visibility?.HideToolbar(paused);
     }

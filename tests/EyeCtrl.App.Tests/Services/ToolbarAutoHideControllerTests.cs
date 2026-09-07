@@ -306,6 +306,47 @@ public class ToolbarAutoHideControllerTests
         Check.That(vis.LastHidePaused).IsFalse();
     }
 
+    /// <summary>
+    /// A no-change <c>SetPaused</c> must not re-assert the hide, while a genuine change still must.
+    ///
+    /// <para>
+    /// Both halves are load-bearing. <c>ToolbarLifecycleCoordinator.cs:54-55</c> mirrors every
+    /// <c>StateChangedMessage</c> into <c>SetPaused</c>, and that message fires on each
+    /// Fixation↔FreeLook flip — several times a second during ordinary gaze. Before the guard, a
+    /// hidden toolbar therefore re-asserted <c>HideToolbar</c> at roughly 1.4 Hz indefinitely, each
+    /// one costing a dispatcher hop, a <c>DwellDetector.ResetAllState</c>, a <c>Hide()</c> on an
+    /// already-hidden window and a <c>PauseIndicator</c> toggle, all on the UI thread that renders
+    /// the gaze cursor. A 2026-09-07 live run measured 129 redundant re-asserts against 3 real
+    /// hides — which is how the defect was found at all, since it is invisible on screen.
+    /// </para>
+    ///
+    /// <para>
+    /// The first assertion is what stops the guard being over-applied: pause-while-hidden must
+    /// still raise the edge bar, or a paused user is left hidden with no feedback (the original
+    /// auto-hide design's Goal #4). <see cref="Pause_WhileHidden_ShowsIndicator"/> covers that
+    /// path on its own; this test pins it again so a future edit cannot satisfy one and break the
+    /// other.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void RedundantSetPaused_WhileHidden_DoesNotReAssertHide()
+    {
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.HideForTest(vis);            // 1st hide
+        Check.That(vis.HideCalls).IsEqualTo(1);
+
+        sut.SetPaused(true);             // genuine change → re-asserts, raising the edge bar
+        Check.That(vis.HideCalls).IsEqualTo(2);
+        Check.That(vis.LastHidePaused).IsTrue();
+
+        sut.SetPaused(true);             // the storm: no change, must be ignored
+        sut.SetPaused(true);
+        sut.SetPaused(true);
+        Check.That(vis.HideCalls).IsEqualTo(2);
+    }
+
     [Fact]
     public void Pause_WhileVisible_DoesNotTouchVisibility()
     {

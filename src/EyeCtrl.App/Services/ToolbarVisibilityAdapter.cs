@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.ViewModels;
+using Serilog;
 
 /// <summary>
 /// Real <see cref="IToolbarVisibility"/> over <see cref="IOverlayManager"/>. Marshals every
@@ -33,6 +34,13 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         // Hide: the window reaches its safe configuration before dwell state changes.
         _overlays.Toolbar.ShowThenSlideIn();
         _toolbarVm.SetActive(true);
+        // The slide is otherwise entirely silent, which made two live runs unverifiable: nothing
+        // in the log said whether a transition had fired, so the only evidence available was
+        // watching a 200 ms animation. IsSliding is read AFTER the call on purpose — it is what
+        // separates a real animation from the instant short-circuit taken when the toolbar is
+        // floating (zero slide vector) or already on screen.
+        Log.Information("Toolbar summoned: slide-in {Mode}",
+            _overlays.Toolbar.IsSliding ? "animating" : "instant");
     });
 
     public void HideToolbar(bool paused) => _dispatcher.BeginInvoke(() =>
@@ -53,6 +61,10 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
                 _overlays.PauseIndicator.Hide();
             }
         });
+        // See the note in ShowToolbar. "instant" here also covers the already-hidden
+        // short-circuit, which SetPaused and ReassertVisibility both reach.
+        Log.Information("Toolbar auto-hidden: slide-out {Mode} (paused={Paused})",
+            _overlays.Toolbar.IsSliding ? "animating" : "instant", paused);
     });
 
     public void ForceShow() => _dispatcher.BeginInvoke(() =>

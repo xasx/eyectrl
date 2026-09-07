@@ -42,7 +42,7 @@ The toolbar should retract into its docked edge and emerge from it, so the motio
 
 ### Approach
 
-`ToolbarWindow` gains a `TranslateTransform` on its root content and two methods that animate it. `ToolbarVisibilityAdapter` calls those instead of `Window.Show()`/`Window.Hide()`. The existing division of labour is preserved and is the reason the code lands where it does: the window already owns where it sits and how it is drawn (`SetMode` at `ToolbarWindow.xaml.cs:211`), and the adapter already owns the ordering contract between dwell state and visibility (`ToolbarVisibilityAdapter.cs:31-45`). The window learns *how* to slide; the adapter keeps deciding *when*.
+`ToolbarWindow` gains a `TranslateTransform` on its root content and two methods that animate it. `ToolbarVisibilityAdapter` calls those instead of `Window.Show()`/`Window.Hide()`. The existing division of labour is preserved and is the reason the code lands where it does: the window already owns where it sits and how it is drawn (`SetMode` at `ToolbarWindow.xaml.cs:269`), and the adapter already owns the ordering contract between dwell state and visibility (`ToolbarVisibilityAdapter.cs:31-45`). The window learns *how* to slide; the adapter keeps deciding *when*.
 
 `IToolbarVisibility` does not change, so `ToolbarAutoHideController` and its entire test suite are untouched by this work.
 
@@ -54,13 +54,17 @@ Rejected alternatives:
 
 ### Geometry: the slide vector
 
-A pure function, so the whole direction table is testable without a window:
+A pure function, so the whole direction table is testable without a window. It shipped as
+`public static` inside `internal static class OverlayPositioning`
+(`src/EyeCtrl.App/Overlays/OverlayPositioning.cs`), joining `PlaceAtEdge` there rather than living
+in `ToolbarWindow.xaml.cs` — the plan recorded this placement as a deliberate deviation (same
+domain: edge-keyed overlay geometry; and `OverlayPositioning`'s tests are already plain `[Fact]`s):
 
 ```csharp
-internal static Vector SlideVectorFor(string? edgeKey, double width, double height)
+public static Vector SlideVectorFor(string? edge, double width, double height)
 ```
 
-| `edgeKey` | Hidden-state offset | Meaning |
+| `edge` | Hidden-state offset | Meaning |
 |---|---|---|
 | `"top"` | `(0, -height)` | retracts upward |
 | `"bottom"` | `(0, +height)` | retracts downward |
@@ -68,7 +72,7 @@ internal static Vector SlideVectorFor(string? edgeKey, double width, double heig
 | `"right"` | `(+width, 0)` | retracts rightward |
 | `null` / unrecognised | `(0, 0)` | no slide — degrades to instant show/hide |
 
-`null` is the floating case, and it is reachable rather than defensive: `SetMode(isDocked: false, …)` normalises its edge to `"top"` for orientation purposes (`ToolbarWindow.xaml.cs:215`), which is the right answer for the strip's axis and the wrong one for a slide — an undocked toolbar has no edge to retract into. `SetMode` therefore records `isDocked ? key : null` as the slide edge, separately from the `_vertical` flag it already derives. Auto-hide is disabled when floating anyway (`ToolbarLifecycleCoordinator.cs:168`), so the only caller that can reach a floating window is `ForceShow`, which is instant regardless.
+`null` is the floating case, and it is reachable rather than defensive: `SetMode(isDocked: false, …)` normalises its edge to `"top"` for orientation purposes (`ToolbarWindow.xaml.cs:273`), which is the right answer for the strip's axis and the wrong one for a slide — an undocked toolbar has no edge to retract into. `SetMode` therefore records `isDocked ? key : null` as the slide edge, separately from the `_vertical` flag it already derives. Auto-hide is disabled when floating anyway (`ToolbarLifecycleCoordinator.cs:168`), so the only caller that can reach a floating window is `ForceShow`, which is instant regardless.
 
 A zero vector is also the graceful answer for an unmeasured window (extent `0`), which is why the degradation is stated as a table row rather than guarded separately.
 
@@ -117,7 +121,7 @@ The indicator moving to step 3 is a small improvement the sequencing hands over 
 
 Steps 2 and 3 are in that order on purpose. Showing first and animating second would rest the correctness of "no frame is ever painted at the rest position" on the argument that no render pass can occur between two statements in one dispatcher callback. That argument happens to hold, and it is still the wrong thing to depend on. Attaching the clock first makes the off-edge start a property of the property's value rather than of dispatcher scheduling; animating a hidden window is fine, since the timing engine does not care about `Visibility`.
 
-**Dwell arms at the start of the slide-in, accepting up to 200 ms of divergence between where a button is drawn and where its dwell target sits.** Decided 2026-09-06; open question 1 records the reasoning and what it costs. `ToolbarViewModel`'s targets are at fixed screen coordinates published by `ToolbarWindow.UpdateTargetPositions` (`ToolbarWindow.xaml.cs:265-290`) — the buttons' *resting* centres — so for the duration of the slide-in, gaze resting on a button's final position accumulates against it while the drawn button is still arriving there.
+**Dwell arms at the start of the slide-in, accepting up to 200 ms of divergence between where a button is drawn and where its dwell target sits.** Decided 2026-09-06; open question 1 records the reasoning and what it costs. `ToolbarViewModel`'s targets are at fixed screen coordinates published by `ToolbarWindow.UpdateTargetPositions` (`ToolbarWindow.xaml.cs:327-376`) — the buttons' *resting* centres — so for the duration of the slide-in, gaze resting on a button's final position accumulates against it while the drawn button is still arriving there.
 
 Step 4 follows step 3 rather than preceding it, keeping the hide side's principle intact: the window reaches its safe configuration before dwell arms. Arming a hidden window is the hazard `SetActive`'s contract exists to prevent (stated at `OverlayVmBindingCoordinator.cs:345-348`), and while nothing can observe the gap inside one synchronous callback, ordering it correctly costs nothing and does not depend on that being true.
 
@@ -203,7 +207,7 @@ This guard is unaffected by the arming decision, and the two must not be conflat
 
 **The transform's value is the predicate — `IsVisible` does not appear in it at all.** An earlier draft of this design framed the guard as `IsVisible && !IsSliding`, two flags standing in as proxies for "is the band where it looks like it is". The shipped guard drops `IsVisible` and checks the transform directly, and that is a precision fix rather than a simplification: `IsVisible` is a proxy for "the band is displaced", and a proxy can misread a visible-but-displaced band, whereas the transform value *is* the displacement, with no inference in between. The base value sits at the hidden offset for the *entire* hidden period, not merely while a clock is live — the slide-out writes it there and nothing resets it until the next slide-in or `ForceShow`, deliberately, because the slide-in's `from` read depends on it. A placement that runs while the toolbar is hidden therefore publishes rest-plus-offset for every button and latches it, since `UpdateButtonScreenPosition` *creates* a target on first call (`ToolbarViewModel.cs:50-58`) — and the transform check alone catches that, without needing to ask whether the window is visible, because the transform stays non-zero for the whole hidden period regardless. Note what that means: the hidden state is safe today — with no transform, a placement while hidden publishes correct coordinates — so this change is what would make it hazardous. A gate on `_sliding` alone would cover the 200 ms the clock is live and miss the open-ended window on either side of it — exactly the gap mutation row 3 exists to catch (see Testing).
 
-**Neither disjunct is currently reachable, and both are kept anyway.** An earlier draft justified this guard by claiming a re-dock leaves placement pending into the next hide/show. That is false, and the correction is worth recording so nobody re-derives it: after `SetMode` (`ToolbarWindow.xaml.cs:242`) the gaze route's early-out is disabled while the settings window is open, `SetMode` forces `UpdateLayout` (`:233`) so the faces *are* arranged, the toolbar is visible and at rest (opening settings force-shows it), and auto-hide stays suspended until the settings window closes (`SettingsUiCoordinator.cs:203`) whereas `SetMode` runs on save (`:177`) — so placement completes within a frame or two of the next gaze sample, while a hide needs 5 s of them. "Placement pending *and* a slide in flight" is not a state this pipeline can currently hold.
+**Neither disjunct is currently reachable, and both are kept anyway.** An earlier draft justified this guard by claiming a re-dock leaves placement pending into the next hide/show. That is false, and the correction is worth recording so nobody re-derives it: after `SetMode` (`ToolbarWindow.xaml.cs:269`) the gaze route's early-out is disabled while the settings window is open, `SetMode` forces `UpdateLayout` (`:295`) so the faces *are* arranged, the toolbar is visible and at rest (opening settings force-shows it), and auto-hide stays suspended until the settings window closes (`SettingsUiCoordinator.cs:203`) whereas `SetMode` runs on save (`:177`) — so placement completes within a frame or two of the next gaze sample, while a hide needs 5 s of them. "Placement pending *and* a slide in flight" is not a state this pipeline can currently hold.
 
 The guard stays regardless, for the reason `FacesAreArranged`'s own doc comment gives: a wrong first placement is permanent and leaves the toolbar's buttons undwellable until restart, and that shipped once already. Two cheap disjuncts against a permanent, restart-only failure is the same trade that guard already makes.
 
@@ -236,10 +240,11 @@ The calibration row deserves naming because it introduces a **second** armer thi
 ## Wiring
 
 - **`ToolbarWindow.xaml`** — wrap the root `Border` in `Grid ClipToBounds="True"`; add the named `TranslateTransform`.
-- **`ToolbarWindow.xaml.cs`** — `SlideVectorFor`; the slide edge recorded in `SetMode`; `SlideOutThenHide(Action onHidden)`, `ShowThenSlideIn()`, `CancelSlide()`; `IsSliding` and `IsSlidingOut`; `IsOnScreen`; the transform-at-rest guard (`_sliding || SlideTransform.X != 0 || SlideTransform.Y != 0`) in `UpdateTargetPositions`.
+- **`OverlayPositioning.cs`** — `SlideVectorFor`, `public static` inside `internal static class OverlayPositioning`, joining `PlaceAtEdge`.
+- **`ToolbarWindow.xaml.cs`** — the slide edge recorded in `SetMode`; `SlideOutThenHide(Action onHidden)`, `ShowThenSlideIn()`, `CancelSlide()`; `IsSliding` and `IsSlidingOut`; `IsOnScreen`; the transform-at-rest guard (`_sliding || SlideTransform.X != 0 || SlideTransform.Y != 0`) in `UpdateTargetPositions`.
 - **`ToolbarVisibilityAdapter.cs`** — `ShowToolbar`/`HideToolbar` re-sequenced as above; `ForceShow` gains `CancelSlide()`. Still one `Dispatcher.BeginInvoke` per call: the slide is started on the UI thread and its completion arrives there too, so no second hop is added.
-- **`OverlayVmBindingCoordinator.cs:349`** — `Toolbar.IsVisible` → `Toolbar.IsOnScreen`.
-- **`ToolbarButtonVisualTests.cs:603`** — `(Border)window.Content` → `window.StripRoot`, forced by the clipping wrapper. Listed here rather than only under Testing because it is a required edit in production-adjacent code, not an optional test improvement.
+- **`OverlayVmBindingCoordinator.cs:354`** — `Toolbar.IsVisible` → `Toolbar.IsOnScreen`.
+- **`ToolbarButtonVisualTests.cs:605`** — `(Border)window.Content` → `window.StripRoot`, forced by the clipping wrapper. Listed here rather than only under Testing because it is a required edit in production-adjacent code, not an optional test improvement.
 - **Nothing else in `src/`.** `IToolbarVisibility`, `ToolbarAutoHideController`, `ToolbarBand`, `ToolbarViewModel`, `ToolbarSettings`, `EnumerateSubSettings` and the settings pages are all untouched. Note the narrowed claim: an earlier draft said "nothing else" and was wrong about the test tree, which the wrapper reaches through `window.Content`.
 
 ## Edge cases
@@ -274,7 +279,7 @@ Repo conventions: xUnit v3, NFluent (`Check.That`), private nested fakes, no moc
 - Unrecognised edge string → zero vector.
 - Zero extent → zero vector.
 
-**UI (`Category=UI`, `[StaFact]`)** — a test STA thread has no message pump, so animation clocks never tick there. This is the same constraint that produced the `EndFlash` seam (`ToolbarWindow.xaml.cs:404-409`, `ToolbarBand.cs:450-472`), and the completion path is tested the same way: driven directly rather than waited on.
+**UI (`Category=UI`, `[StaFact]`)** — a test STA thread has no message pump, so animation clocks never tick there. This is the same constraint that produced the `EndFlash` seam (`ToolbarWindow.xaml.cs:495`, `ToolbarBand.cs:450-472`), and the completion path is tested the same way: driven directly rather than waited on.
 
 - `UpdateTargetPositions` publishes nothing while sliding — in **both** directions — and publishes correct centres once at rest. The sharpest test in the set: it guards the permanent-mispositioning failure, and it is the one that stays honest about the slide-in now that arming no longer waits.
 - `UpdateTargetPositions` publishes nothing while the window is hidden, with the transform parked at the hidden offset. Drive it by completing a slide-out and then calling `UpdateGaze` with `_targetsInitialized` false. Without the transform-at-rest check this publishes rest-plus-offset and latches it — this is what mutation row 3 (drop the check, leaving only `if (_sliding)`) turns red.
@@ -282,7 +287,7 @@ Repo conventions: xUnit v3, NFluent (`Check.That`), private nested fakes, no moc
 - Slide-out completion hides the window and then toggles the indicator per `paused`.
 - Slide-in arms dwell synchronously: after `ShowToolbar` returns (one dispatcher pump), gaze on a positioned target accumulates, without the completion seam having been driven.
 - Slide-in attaches its clock before `Show()`: subscribing to `IsVisibleChanged` and asserting `IsSliding` is already true when it fires tests the ordering without depending on a clock tick — which a pumpless STA thread cannot deliver, so asserting the transform's animated value here would test nothing.
-- Task switcher closing mid-slide-in leaves dwell armed (edge case #6). This is the regression test for the stranding the directional gate exists to prevent; it fails if `IsOnScreen` is defined on `IsSliding`. **Corrected 2026-09-06 (plan review):** an earlier version of this bullet said the gate at `OverlayVmBindingCoordinator.cs:349` has *zero* coverage today and needs a new harness. **It already has a source pin** — `TaskSwitcherDwellPositionTests.Switcher_DeactivatesToolbarDwell_WhileCoveringIt` (`:148-167`), added after the 2026-08-18 field report — which asserts the gate reads `Toolbar.IsVisible` and therefore **breaks** when this design's swap lands. Updating that pin is mandatory work, not optional test polish.
+- Task switcher closing mid-slide-in leaves dwell armed (edge case #6). This is the regression test for the stranding the directional gate exists to prevent; it fails if `IsOnScreen` is defined on `IsSliding`. **Corrected 2026-09-06 (plan review):** an earlier version of this bullet said the gate at `OverlayVmBindingCoordinator.cs:354` has *zero* coverage today and needs a new harness. **It already has a source pin** — `TaskSwitcherDwellPositionTests.Switcher_DeactivatesToolbarDwell_WhileCoveringIt` (`:148-167`), added after the 2026-08-18 field report — which asserts the gate reads `Toolbar.IsVisible` and therefore **breaks** when this design's swap lands. Updating that pin is mandatory work, not optional test polish.
 
 The zero-coverage claim entered this spec from review round 1 and was accepted after verifying only the file the reviewer cited (`OverlayVmBindingCoordinatorTests`, genuinely 42 lines of constructor/dispose tests). Verifying a citation is not verifying the claim built on it; a repo-wide search for the gate's symbol would have found the pin immediately.
 

@@ -432,4 +432,37 @@ public class ToolbarSlideTests
         }
         finally { window.Close(); }
     }
+
+    /// <summary>
+    /// The X-axis half of the placement guard's second disjunct
+    /// (<c>SlideTransform.X != 0</c>). Every other test in this class docks Top, so
+    /// <c>SlideTransform.X</c> never moves and that disjunct is exercised by nothing — a mutation
+    /// deleting it from the guard would not be caught. Left-docked clone of
+    /// <see cref="WhileHiddenWithTheBandParkedOffEdge_PublishesNoTargets"/>, docked the way
+    /// <see cref="SideDock_SlidesAlongX_NotY"/> docks Left.
+    /// </summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void WhileHiddenWithTheBandParkedOffEdge_Left_PublishesNoTargets()
+    {
+        var (window, _) = ToolbarTestHelpers.NewBoundToolbar();
+        try
+        {
+            window.Show();
+            window.SetMode(isDocked: true, edge: "Left");
+            window.UpdateLayout();
+
+            window.SlideOutThenHide(() => { });
+            window.CompleteSlideForTest();
+
+            Check.That(window.IsSliding).IsFalse();                  // not the guard under test
+            Check.That(window.SlideTransform.X).IsNotEqualTo(0d);    // the guard under test
+            Check.That(window.SlideTransform.Y).IsEqualTo(0d);
+
+            window.UpdateGaze(new EyeCtrl.Core.Models.PhysicalPoint(100, 100), 0);
+
+            Check.That(window.TargetsInitialized).IsFalse();
+        }
+        finally { window.Close(); }
+    }
 }

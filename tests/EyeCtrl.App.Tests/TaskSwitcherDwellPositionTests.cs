@@ -181,4 +181,3 @@ public class TaskSwitcherDwellPositionTests
         return source[start..end];
     }
 }
-

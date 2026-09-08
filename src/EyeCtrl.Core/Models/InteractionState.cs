@@ -17,6 +17,8 @@ public enum InteractionState
     ScrollMode,
     /// <summary>A drag operation is in progress — cursor follows gaze with elastic trail.</summary>
     Dragging,
+    /// <summary>A click action is locked and repeating at the live gaze point.</summary>
+    RepeatMode,
     /// <summary>Gaze tracking is paused (e.g., during calibration or idle timeout).</summary>
     Paused
 }

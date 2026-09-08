@@ -32,6 +32,15 @@ public class InteractionManager
     public ControlInfo? AutoSelectionTarget { get; set; }
     /// <summary>Anchor point for the active gaze-scroll session, or null when not scrolling.</summary>
     public PhysicalPoint? ScrollAnchor { get; private set; }
+    /// <summary>
+    /// The last click-family action dispatched through <see cref="OnActionSelected"/> (left,
+    /// right, double, middle). Null until the first such click. Feeds both
+    /// <see cref="InteractionAction.RepeatLastAction"/> and the action locked on entering
+    /// <see cref="InteractionState.RepeatMode"/>.
+    /// </summary>
+    public InteractionAction? LastRepeatableAction { get; private set; }
+    /// <summary>The action locked for the active repeat session, or null outside <see cref="InteractionState.RepeatMode"/>.</summary>
+    public InteractionAction? RepeatAction { get; private set; }
 
     /// <summary>Raised when the interaction state changes.</summary>
     public event Action<InteractionState>? StateChanged;
@@ -162,6 +171,16 @@ public class InteractionManager
             return;
         }
 
+        if (action == InteractionAction.RepeatMode)
+        {
+            HideActionMenu?.Invoke();
+            if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
+                EndManualSelection?.Invoke();
+            RepeatAction = LastRepeatableAction ?? InteractionAction.LeftClick;
+            SetState(InteractionState.RepeatMode);
+            return;
+        }
+
         HideActionMenu?.Invoke();
         if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
             EndManualSelection?.Invoke();
@@ -172,6 +191,12 @@ public class InteractionManager
             DragStarted?.Invoke(targetPoint.Value);
             return;
         }
+
+        if (action == InteractionAction.RepeatLastAction)
+            action = LastRepeatableAction ?? InteractionAction.LeftClick;
+
+        if (action.IsRepeatableClick())
+            LastRepeatableAction = action;
 
         ActionRequested?.Invoke(action, targetPoint.Value);
         ResetToFreeLook();
@@ -219,14 +244,14 @@ public class InteractionManager
     }
 
     /// <summary>Toggles gaze tracking between paused and active states.</summary>
-    /// <remarks>Blocked during <see cref="InteractionState.ScrollMode"/> and <see cref="InteractionState.Dragging"/> — use the stop/cancel buttons to exit those modes.</remarks>
+    /// <remarks>Blocked during <see cref="InteractionState.ScrollMode"/>, <see cref="InteractionState.Dragging"/> and <see cref="InteractionState.RepeatMode"/> — use the stop/cancel affordances to exit those modes.</remarks>
     public void TogglePause()
     {
         if (CurrentState == InteractionState.Paused)
         {
             SetState(InteractionState.FreeLook);
         }
-        else if (CurrentState is InteractionState.ScrollMode or InteractionState.Dragging)
+        else if (CurrentState is InteractionState.ScrollMode or InteractionState.Dragging or InteractionState.RepeatMode)
         {
             return;
         }
@@ -255,12 +280,31 @@ public class InteractionManager
         ResetToFreeLook();
     }
 
+    /// <summary>Exits repeat mode and returns to free look.</summary>
+    public void ExitRepeatMode()
+    {
+        if (CurrentState != InteractionState.RepeatMode) return;
+        ResetToFreeLook();
+    }
+
+    /// <summary>
+    /// Fires one repeat tick at the given live gaze point. Called by the app-side repeat
+    /// controller's timer; guarded so a tick that lands after exit (or before entry) is a no-op
+    /// rather than a stray click.
+    /// </summary>
+    public void FireRepeatTick(PhysicalPoint point)
+    {
+        if (CurrentState != InteractionState.RepeatMode || RepeatAction is not { } action) return;
+        ActionRequested?.Invoke(action, point);
+    }
+
     private void ResetToFreeLook()
     {
         FixationPoint = null;
         ManualSelectionDwellPoint = null;
         AutoSelectionTarget = null;
         ScrollAnchor = null;
+        RepeatAction = null;
         SetState(InteractionState.FreeLook);
     }
 }

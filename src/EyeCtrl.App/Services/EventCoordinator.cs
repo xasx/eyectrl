@@ -26,6 +26,7 @@ public class EventCoordinator : IEventCoordinator
     private ToolbarLifecycleCoordinator? _toolbar;
     private QuickActionsCoordinator? _quickActions;
     private DragCoordinator? _dragCoordinator;
+    private RepeatModeController? _repeatModeController;
     private QuickActionDispatcher? _quickActionDispatcher;
     private KeyboardInteractionDispatcher? _keyboardInteractionDispatcher;
     private KeyboardCoordinator? _keyboard;
@@ -111,6 +112,9 @@ public class EventCoordinator : IEventCoordinator
         _keyboard.Initialize(context);
         _dragCoordinator = new DragCoordinator();
         _dragCoordinator.Initialize(context);
+
+        _repeatModeController = new RepeatModeController();
+        _repeatModeController.Initialize(context);
 
         // Task Switcher visibility binding + the overlay VM PropertyChanged handlers moved to
         // OverlayVmBindingCoordinator (cluster 1) — they are pure VM→window glue.
@@ -208,6 +212,9 @@ public class EventCoordinator : IEventCoordinator
 
         // Dispose the drag sub-coordinator (handles its own event/message cleanup).
         _dragCoordinator?.Dispose();
+
+        // Dispose the repeat-mode sub-coordinator (stop button, tick timer, escape hook).
+        _repeatModeController?.Dispose();
 
         // Dispose the input-action sub-coordinators (each handles its own message cleanup — each
         // registers as itself, so each UnregisterAll(this) is correctly keyed).

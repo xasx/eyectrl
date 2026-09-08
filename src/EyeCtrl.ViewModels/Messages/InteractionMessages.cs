@@ -158,6 +158,9 @@ public record DragDismissManualSelectionMessage;
 /// <summary>Sent when the user dwells on the scroll stop button (edge bar) to exit scroll mode.</summary>
 public record ExitScrollModeMessage;
 
+/// <summary>Sent by the repeat-mode stop button (edge bar) or the Escape hatch to end locked repeat mode.</summary>
+public record ExitRepeatModeMessage;
+
 // Task Switcher messages
 /// <summary>Sent by the toolbar Task Switcher button to toggle the overlay.</summary>
 public record TaskSwitcherToggledMessage;

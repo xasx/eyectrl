@@ -104,6 +104,8 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.ScrollRight => "Scroll Right",
         InteractionAction.ScrollMode => "Scroll Mode",
         InteractionAction.PinNote => "Pin Note",
+        InteractionAction.RepeatLastAction => "Repeat Last Action",
+        InteractionAction.RepeatMode => "Repeat Mode",
         _ => action.ToString()
     };
 
@@ -134,6 +136,8 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.ScrollRight => "Scrolls right from the point you chose.",
         InteractionAction.ScrollMode => "Continuous scrolling, steered by where you look.",
         InteractionAction.PinNote => "Opens a note to type at the point you chose.",
+        InteractionAction.RepeatLastAction => "Repeats your last click at the point you chose.",
+        InteractionAction.RepeatMode => "Locks your last click to repeat wherever you look. Dwell the stop button on the right edge to end it.",
         _ => null
     };
 }

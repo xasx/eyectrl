@@ -2,6 +2,9 @@ namespace EyeCtrl.App.Tests.Services.Coordinators;
 
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Core.Models;
+using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// Lifecycle contract tests for <see cref="KeyboardInteractionDispatcher"/>. The dispatcher's
@@ -78,5 +81,28 @@ public class KeyboardInteractionDispatcherTests
 
         Check.That(input.LastModifiedKeyPress).IsNull();
         Check.That(input.LastKeyPress).IsNull();
+    }
+
+    [Fact]
+    public void HandleActionRequested_MiddleClick_DispatchesToTheSimulator()
+    {
+        var input = new TestFakes.FakeInputSimulator();
+        // TargetHighlightVM is read unconditionally at the end of the handler, so a bare
+        // MakeContext (null!) would NRE before reaching the simulator. IsPreciseTarget keeps
+        // the handler off GazeEngine, which MakeContext also leaves null!.
+        var ctx = TestFakes.MakeContext(input) with
+        {
+            TargetHighlightVM = new TargetHighlightOverlayViewModel()
+        };
+        var d = new KeyboardInteractionDispatcher();
+        d.Initialize(ctx);
+
+        d.HandleActionRequested(new ActionRequestedMessage(
+            InteractionAction.MiddleClick, new PhysicalPoint(300, 400), IsPreciseTarget: true));
+
+        Check.That(input.LastMiddleClick).IsNotNull();
+        var clicked = input.LastMiddleClick!.Value;
+        Check.That(clicked.X).IsEqualTo(300);
+        Check.That(clicked.Y).IsEqualTo(400);
     }
 }

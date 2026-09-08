@@ -78,6 +78,8 @@ internal static class TestFakes
 
         public (ushort Vk, bool Extended)? LastKeyPress { get; private set; }
 
+        public PhysicalPoint? LastMiddleClick { get; private set; }
+
         public void MoveCursor(PhysicalPoint point)
         {
         }
@@ -92,6 +94,11 @@ internal static class TestFakes
 
         public void DoubleClick(PhysicalPoint point)
         {
+        }
+
+        public void MiddleClick(PhysicalPoint point)
+        {
+            LastMiddleClick = point;
         }
 
         public void MouseDown(PhysicalPoint point)

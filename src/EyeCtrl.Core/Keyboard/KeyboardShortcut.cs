@@ -10,9 +10,9 @@ public static class KeyboardShortcut
     /// <summary>
     /// Parses <paramref name="chord"/>. The last '+'-separated token is the key (a single
     /// character, or a name <see cref="KeyNameMapper"/> resolves); every earlier token must name
-    /// a modifier ("Ctrl", "Shift", "Alt", "Win" — spelled exactly as the preset tables spell
-    /// them). An unknown modifier token is dropped rather than fatal: the key still fires,
-    /// unmodified by the token we did not understand.
+    /// a modifier ("Ctrl", "Shift", "Alt", "Win"; casing is ignored, so a hand-edited
+    /// "ctrl+c" still copies rather than typing 'c'). An unknown modifier token is dropped
+    /// rather than fatal: the key still fires, unmodified by the token we did not understand.
     /// </summary>
     /// <returns>False when the chord has no key part at all (empty string or trailing '+').</returns>
     public static bool TryParse(string chord, out HashSet<ModifierKey> modifiers, out string key)
@@ -23,12 +23,12 @@ public static class KeyboardShortcut
 
         for (int i = 0; i < parts.Length - 1; i++)
         {
-            var modifier = parts[i].Trim() switch
+            var modifier = parts[i].Trim().ToLowerInvariant() switch
             {
-                "Ctrl" => (ModifierKey?)ModifierKey.Ctrl,
-                "Shift" => ModifierKey.Shift,
-                "Alt" => ModifierKey.Alt,
-                "Win" => ModifierKey.Win,
+                "ctrl" => (ModifierKey?)ModifierKey.Ctrl,
+                "shift" => ModifierKey.Shift,
+                "alt" => ModifierKey.Alt,
+                "win" => ModifierKey.Win,
                 _ => null
             };
             if (modifier.HasValue)

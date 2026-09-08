@@ -566,6 +566,20 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
+    public void HandleDeleteWord_StopsAtPunctuationLikeTheOsDoes()
+    {
+        // Mainstream apps' Ctrl+Backspace deletes "known" from "well-known", not the whole
+        // token — the CurrentInput bookkeeping must agree so prediction context stays honest.
+        var vm = CreateViewModel();
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+
+        vm.CurrentInput = "well-known";
+        vm.HandleDeleteWord();
+
+        Check.That(vm.CurrentInput).IsEqualTo("well-");
+    }
+
+    [Fact]
     public void HandleDeleteWord_EmptyInput_StillSendsTheKeystroke()
     {
         var vm = CreateViewModel();
@@ -624,9 +638,24 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
-    public void HandleShortcut_UnparseableChord_SendsNothing()
+    public void HandleShortcut_LowerCaseChord_StillCarriesTheModifiers()
     {
         var vm = CreateViewModel();
+        KeyActivatedMessage? keyMsg = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => keyMsg = msg);
+
+        vm.HandleShortcut("ctrl+c");
+
+        Check.That(keyMsg).IsNotNull();
+        Check.That(keyMsg!.Modifiers).IsNotNull();
+        Check.That(keyMsg.Modifiers!).Contains(ModifierKey.Ctrl);
+    }
+
+    [Fact]
+    public void HandleShortcut_UnparseableChord_SendsNothingAndStillClearsOneShotModifiers()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Ctrl);
         var sent = 0;
         _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => sent++);
         _messenger.Register<SpecialKeyMessage>(_messenger, (_, _) => sent++);
@@ -634,6 +663,8 @@ public class KeyboardViewModelTests
         vm.HandleShortcut("Ctrl+");
 
         Check.That(sent).IsEqualTo(0);
+        // The bail must not leave an armed modifier leaking into the next key.
+        Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
     [Fact]

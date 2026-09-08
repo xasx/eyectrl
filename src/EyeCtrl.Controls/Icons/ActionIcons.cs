@@ -113,6 +113,26 @@ public static class ActionIcons
             + " M8.6,12.5 L15.4,12.5 M8.6,16.5 L13,16.5 M12,5.8 L12,7.5",
             "M9.8,3.6 A2.2,2.2 0 1 1 14.2,3.6 A2.2,2.2 0 1 1 9.8,3.6 Z"),
 
+        // A renewal arrow: ~300° of a circle centred in the right margin with a gap at the top
+        // and a two-barb head anchored at the arc's end, trailing backward along the travel
+        // direction. The mouse carries no fill — the entry repeats WHATEVER was last, not a left
+        // click (and a wheel stroke here would misread as scroll).
+        [ActionIcon.RepeatLastAction] = IconGeometry.FromPathData(
+            Body + Buttons
+            + " M19.95,9.85 A1.9,1.9 0 1 0 21.85,9.85"
+            + " M21.85,9.85 L22.35,10.72 M21.85,9.85 L22.85,9.85"),
+
+        // The same mouse with its left button filled (it actively clicks) and a second renewal
+        // arrow mirrored into the left margin — the outline-level difference that survives
+        // peripheral vision, per the rule in this class's header.
+        [ActionIcon.RepeatMode] = IconGeometry.FromPathData(
+            Body + Buttons
+            + " M19.95,9.85 A1.9,1.9 0 1 0 21.85,9.85"
+            + " M21.85,9.85 L22.35,10.72 M21.85,9.85 L22.85,9.85"
+            + " M4.05,9.85 A1.9,1.9 0 1 1 2.15,9.85"
+            + " M2.15,9.85 L1.65,10.72 M2.15,9.85 L1.15,9.85",
+            LeftButtonFill),
+
         [ActionIcon.Back] = IconGeometry.FromPathData(
             "M10,5.5 L4.5,11 L10,16.5 M4.5,11 L14.5,11 A5,5 0 0 1 19.5,16 L19.5,19"),
 

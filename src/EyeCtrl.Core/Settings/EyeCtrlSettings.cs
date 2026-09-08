@@ -50,6 +50,8 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private AdaptationSettings _adaptation = new();
     /// <summary>Opt-in diagnostic instrumentation (raw-gaze recording); all off by default.</summary>
     [ObservableProperty] private DiagnosticsSettings _diagnostics = new();
+    /// <summary>Locked repeat-click mode settings (interval, stop-button dwell).</summary>
+    [ObservableProperty] private RepeatSettings _repeat = new();
 
     /// <summary>
     /// Enumerates every sub-settings object with its property name. Single source of truth
@@ -79,6 +81,7 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
         yield return (nameof(Supervision), Supervision);
         yield return (nameof(Adaptation), Adaptation);
         yield return (nameof(Diagnostics), Diagnostics);
+        yield return (nameof(Repeat), Repeat);
     }
 
     /// <inheritdoc />

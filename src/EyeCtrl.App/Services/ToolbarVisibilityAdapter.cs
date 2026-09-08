@@ -62,12 +62,20 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
             }
         });
         // Gated on IsSliding — i.e. only when a slide actually starts — unlike ShowToolbar's
-        // unconditional line. Logging the short-circuit here floods the log: SetPaused re-asserts
-        // HideToolbar on EVERY interaction-state change while the toolbar is hidden
-        // (ToolbarLifecycleCoordinator.cs:54-55 mirrors StateChangedMessage into
-        // ToolbarAutoHideController.SetPaused, which unlike its SetSuspended sibling has no
-        // no-change guard). A 2026-09-07 live run measured 129 such re-asserts against 3 real
-        // hides. ShowToolbar needs no gate: it is only ever called on a real summon.
+        // unconditional line. The gate keeps this line TRUTHFUL, not merely quiet: HideToolbar is
+        // still reached on paths where nothing slides, because the toolbar is already hidden —
+        // ReassertVisibility re-asserts the hide on every calibration-terminal state
+        // (ToolbarAutoHideController.cs:137-144), and a genuine pause change while hidden re-asserts
+        // it too (:92-110). Logging those as "slide-out started" would corrupt the one signal this
+        // logging exists to give.
+        //
+        // An earlier version of this comment justified the gate as flood control, because
+        // SetPaused then had no no-change guard and re-asserted on EVERY interaction-state change —
+        // a live run measured 129 re-asserts against 3 real hides, which is how that defect was
+        // found. It was fixed 33 minutes later by the guard at ToolbarAutoHideController.cs:102,
+        // so the flood is gone and only the truthfulness argument above remains.
+        //
+        // ShowToolbar needs no gate: it is only ever called on a real summon.
         if (_overlays.Toolbar.IsSliding)
             Log.Information("Toolbar auto-hidden: slide-out started (paused={Paused})", paused);
     });

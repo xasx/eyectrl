@@ -66,8 +66,16 @@ public partial class ToolbarWindow : OverlayWindow
     /// <summary>Whether the transform is in motion, in either direction.</summary>
     public bool IsSliding => _sliding;
 
-    /// <summary>Whether the band is on its way to being hidden.</summary>
-    public bool IsSlidingOut => _slidingOut;
+    /// <summary>
+    /// Whether the band is on its way to being hidden. <c>internal</c>, not <c>public</c>: no
+    /// production code reads it — <see cref="IsOnScreen"/> is the surface callers are meant to use,
+    /// and it reads <see cref="_slidingOut"/> directly. Narrowed deliberately, because a caller
+    /// gating dwell arming on this property instead would bypass <see cref="IsOnScreen"/>'s
+    /// <c>IsVisible</c> conjunct — exactly the distinction the two-flag design exists to enforce.
+    /// <see cref="IsSliding"/> stays public: it has two production readers in
+    /// <c>ToolbarVisibilityAdapter</c>'s transition logging.
+    /// </summary>
+    internal bool IsSlidingOut => _slidingOut;
 
     /// <summary>
     /// Visible and not on its way out — i.e. arming dwell against the published target coordinates

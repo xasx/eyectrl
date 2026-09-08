@@ -53,6 +53,7 @@ public class ActionMenuViewModelSymbolTests
             [InteractionAction.LeftClick] = ActionIcon.LeftClick,
             [InteractionAction.RightClick] = ActionIcon.RightClick,
             [InteractionAction.DoubleClick] = ActionIcon.DoubleClick,
+            [InteractionAction.MiddleClick] = ActionIcon.MiddleClick,
             [InteractionAction.Drag] = ActionIcon.Drag,
             [InteractionAction.ScrollUp] = ActionIcon.ScrollUp,
             [InteractionAction.ScrollDown] = ActionIcon.ScrollDown,

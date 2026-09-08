@@ -6,12 +6,12 @@ using Xunit;
 public class InteractionActionEnumTests
 {
     [Fact]
-    public void PinNote_HasValue_9()
+    public void PinNote_HasValue_10()
     {
-        // After Drag replaced DragStart and DragEnd was removed (−1), with ScrollMode present:
-        // LeftClick0, RightClick1, DoubleClick2, Drag3, ScrollUp4, ScrollDown5, ScrollLeft6,
-        // ScrollRight7, ScrollMode8, PinNote9.
-        Check.That((int)InteractionAction.PinNote).IsEqualTo(9);
+        // After Drag replaced DragStart and DragEnd was removed (−1), with ScrollMode and
+        // MiddleClick present: LeftClick0, RightClick1, DoubleClick2, MiddleClick3, Drag4,
+        // ScrollUp5, ScrollDown6, ScrollLeft7, ScrollRight8, ScrollMode9, PinNote10.
+        Check.That((int)InteractionAction.PinNote).IsEqualTo(10);
     }
 
     [Fact]

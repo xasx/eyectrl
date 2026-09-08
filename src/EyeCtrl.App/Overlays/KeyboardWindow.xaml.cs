@@ -328,6 +328,13 @@ public partial class KeyboardWindow : OverlayWindow
             return;
         }
 
+        if (lowerAction == "deleteword")
+        {
+            _viewModel.HandleDeleteWord();
+            UpdatePredictions();
+            return;
+        }
+
         if (lowerAction == "enter")
         {
             _viewModel.HandleEnter();
@@ -351,6 +358,14 @@ public partial class KeyboardWindow : OverlayWindow
         if (lowerAction.StartsWith("switchsub:"))
         {
             _viewModel.SwitchSubLayout(action[10..]);
+            return;
+        }
+
+        // "shortcut:<chord>" keys (the Fn clipboard row). The chord rides the original casing,
+        // not lowerAction, so "Ctrl+C" parses with the modifier spelled as the presets spell it.
+        if (lowerAction.StartsWith("shortcut:"))
+        {
+            _viewModel.HandleShortcut(action[9..]);
             return;
         }
 

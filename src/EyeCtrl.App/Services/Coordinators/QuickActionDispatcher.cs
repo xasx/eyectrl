@@ -88,27 +88,18 @@ internal sealed class QuickActionDispatcher : CoordinatorBase
 
     /// <summary>
     /// Parses a keyboard chord (e.g. "Ctrl+Shift+Enter") and sends it as a modified key press.
-    /// Single-character keys are resolved via <see cref="Win32InputSimulator.CharToVirtualKey"/>;
-    /// named keys (e.g. "Enter", "F5", "Left") via <see cref="KeyNameMapper.TryMap"/>.
+    /// Modifier/key splitting is <see cref="KeyboardShortcut"/>'s (shared with the keyboard
+    /// layout's "shortcut:" keys); single-character keys are resolved via
+    /// <see cref="Win32InputSimulator.CharToVirtualKey"/>, named keys (e.g. "Enter", "F5",
+    /// "Left") via <see cref="KeyNameMapper.TryMap"/>.
     /// </summary>
     internal void ExecuteKeyboardShortcut(string chord)
     {
         if (Context is null) return;
-        var parts = chord.Split('+');
-        var mods = new HashSet<ModifierKey>();
-        string key = parts[^1].Trim();   // trim whitespace so "Ctrl + C" works (modifiers are trimmed below)
-
-        for (int i = 0; i < parts.Length - 1; i++)
+        if (!KeyboardShortcut.TryParse(chord, out var mods, out var key))
         {
-            var mod = parts[i].Trim() switch
-            {
-                "Ctrl" => (ModifierKey?)ModifierKey.Ctrl,
-                "Shift" => ModifierKey.Shift,
-                "Alt" => ModifierKey.Alt,
-                "Win" => ModifierKey.Win,
-                _ => null   // unknown modifier → drop
-            };
-            if (mod.HasValue) mods.Add(mod.Value);
+            Log.Warning("QuickAction: could not map keyboard chord '{Chord}'", chord);
+            return;
         }
 
         ushort vk = 0;

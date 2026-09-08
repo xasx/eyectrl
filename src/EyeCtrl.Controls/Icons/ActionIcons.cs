@@ -73,6 +73,12 @@ public static class ActionIcons
 
         [ActionIcon.RightClick] = IconGeometry.FromPathData(Body + Buttons, RightButtonFill),
 
+        // The pressed middle button: the strip between the top cap and the divider, filled. The
+        // divider's vertical line rides the fill the way it bounds the Left/Right button fills.
+        [ActionIcon.MiddleClick] = IconGeometry.FromPathData(
+            Body + Buttons,
+            "M10.9,10.5 L10.9,3.6 A1.1,1.1 0 0 1 13.1,3.6 L13.1,10.5 Z"),
+
         // Two click ripples concentric on (10, 7.5) reaching left of the body, and a "2" drawn
         // in the right margin. Together they change the outline; a badge inside it would be
         // invisible at a glance.

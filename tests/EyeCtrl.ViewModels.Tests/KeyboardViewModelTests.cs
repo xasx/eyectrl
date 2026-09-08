@@ -531,6 +531,111 @@ public class KeyboardViewModelTests
         Check.That(vm.ActiveModifiers.Contains(ModifierKey.Ctrl)).IsFalse();
     }
 
+    // --- Word deletion (the DelWd key) and shortcut keys ---
+
+    [Fact]
+    public void HandleDeleteWord_RemovesTheWordAndSendsCtrlBackspace()
+    {
+        var vm = CreateViewModel();
+        KeyActivatedMessage? sentMsg = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentMsg = msg);
+
+        vm.CurrentInput = "hel";
+        vm.HandleDeleteWord();
+
+        Check.That(vm.CurrentInput).IsEqualTo("");
+        Check.That(sentMsg).IsNotNull();
+        Check.That(sentMsg!.Key).IsEqualTo("\b");
+        Check.That(sentMsg.Modifiers).IsNotNull();
+        Check.That(sentMsg.Modifiers!).Contains(ModifierKey.Ctrl);
+    }
+
+    [Fact]
+    public void HandleDeleteWord_ComposesWithActiveOneShotModifiers_ThenClearsThem()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Alt);
+        KeyActivatedMessage? sentMsg = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentMsg = msg);
+
+        vm.HandleDeleteWord();
+
+        Check.That(sentMsg!.Modifiers!).Contains(ModifierKey.Ctrl);
+        Check.That(sentMsg.Modifiers).Contains(ModifierKey.Alt);
+        Check.That(vm.ActiveModifiers).IsEmpty();
+    }
+
+    [Fact]
+    public void HandleDeleteWord_EmptyInput_StillSendsTheKeystroke()
+    {
+        var vm = CreateViewModel();
+        KeyActivatedMessage? sentMsg = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sentMsg = msg);
+
+        vm.HandleDeleteWord();
+
+        Check.That(sentMsg).IsNotNull();
+        Check.That(sentMsg!.Key).IsEqualTo("\b");
+    }
+
+    [Fact]
+    public void HandleShortcut_CharacterChord_RidesKeyActivatedMessage()
+    {
+        var vm = CreateViewModel();
+        KeyActivatedMessage? keyMsg = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => keyMsg = msg);
+
+        vm.HandleShortcut("Ctrl+C");
+
+        Check.That(keyMsg).IsNotNull();
+        Check.That(keyMsg!.Key).IsEqualTo("C");
+        Check.That(keyMsg.Modifiers).IsNotNull();
+        Check.That(keyMsg.Modifiers!).Contains(ModifierKey.Ctrl);
+    }
+
+    [Fact]
+    public void HandleShortcut_NamedKeyChord_RidesSpecialKeyMessage()
+    {
+        var vm = CreateViewModel();
+        SpecialKeyMessage? specialMsg = null;
+        _messenger.Register<SpecialKeyMessage>(_messenger, (_, msg) => specialMsg = msg);
+
+        vm.HandleShortcut("Ctrl+Backspace");
+
+        Check.That(specialMsg).IsNotNull();
+        Check.That(specialMsg!.KeyName).IsEqualTo("Backspace");
+        Check.That(specialMsg.Modifiers).IsNotNull();
+        Check.That(specialMsg.Modifiers!).Contains(ModifierKey.Ctrl);
+    }
+
+    [Fact]
+    public void HandleShortcut_UnionsActiveOneShotModifiers_ThenClearsThem()
+    {
+        var vm = CreateViewModel();
+        vm.ToggleModifier(ModifierKey.Shift);
+        KeyActivatedMessage? keyMsg = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => keyMsg = msg);
+
+        vm.HandleShortcut("Ctrl+C");
+
+        Check.That(keyMsg!.Modifiers!).Contains(ModifierKey.Ctrl);
+        Check.That(keyMsg.Modifiers).Contains(ModifierKey.Shift);
+        Check.That(vm.ActiveModifiers).IsEmpty();
+    }
+
+    [Fact]
+    public void HandleShortcut_UnparseableChord_SendsNothing()
+    {
+        var vm = CreateViewModel();
+        var sent = 0;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => sent++);
+        _messenger.Register<SpecialKeyMessage>(_messenger, (_, _) => sent++);
+
+        vm.HandleShortcut("Ctrl+");
+
+        Check.That(sent).IsEqualTo(0);
+    }
+
     [Fact]
     public void GetSuggestions_SmartCapitalization_CapitalizesAtStart()
     {

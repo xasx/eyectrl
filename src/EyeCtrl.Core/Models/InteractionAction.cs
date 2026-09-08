@@ -24,5 +24,9 @@ public enum InteractionAction
     /// <summary>Enter gaze-driven scroll mode.</summary>
     ScrollMode,
     /// <summary>Pin a draggable note at the gaze point.</summary>
-    PinNote
+    PinNote,
+    /// <summary>Re-fires the last click-family action at the point you chose.</summary>
+    RepeatLastAction,
+    /// <summary>Locks the last click-family action to repeat at the live gaze point until stopped.</summary>
+    RepeatMode
 }

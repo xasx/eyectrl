@@ -14,6 +14,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
         var drag = st.Drag;
         var scroll = st.Scroll;
         var ext = st.ExternalDwell;
+        var repeat = st.Repeat;
         return
         [
             new PageSpec([
@@ -50,6 +51,11 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                     () => scroll.Sensitivity, v => { scroll.Sensitivity = v; _ctx.ApplyAndSave(); })
                     { Description = "How fast gaze scrolling moves through documents." },
                 new LabelSpec(() => new string('\u2500', 50), Wrap: false),
+                // Repeat
+                new SliderSpec("av_repeat_interval", "Repeat Interval (ms)", 250, 5000, 50, 0,
+                    () => repeat.IntervalMs, v => { repeat.IntervalMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How often repeat mode re-fires your locked click. Applies the next time you start repeating." },
+                new LabelSpec(() => new string('\u2500', 50), Wrap: false),
                 // External Dwell
                 new ToggleSpec("av_ext_enabled", "Enable External Dwell",
                     () => ext.Enabled, v => { ext.Enabled = v; _ctx.ApplyAndSave(); })
@@ -67,6 +73,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                         var d = new Core.Settings.DragSettings();
                         var sc = new Core.Settings.ScrollSettings();
                         var e = new Core.Settings.ExternalDwellSettings();
+                        var r = new Core.Settings.RepeatSettings();
                         st.Backdrop.Enabled = b.Enabled;
                         st.Backdrop.Type = b.Type;
                         st.Backdrop.Opacity = b.Opacity;
@@ -75,6 +82,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                         st.Drag.TrailColor = d.TrailColor;
                         st.Drag.TrailOpacity = d.TrailOpacity;
                         st.Scroll.Sensitivity = sc.Sensitivity;
+                        st.Repeat.IntervalMs = r.IntervalMs;
                         st.ExternalDwell.Enabled = e.Enabled;
                         st.ExternalDwell.DefaultDwellMs = e.DefaultDwellMs;
                         st.ExternalDwell.CooldownMs = e.CooldownMs;

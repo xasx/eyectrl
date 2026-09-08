@@ -25,6 +25,21 @@ public class KeyboardShortcutTests
     }
 
     [Fact]
+    public void TryParse_AcceptsAnyModifierCasing()
+    {
+        // A hand-edited "shortcut:ctrl+c" layout key or quickaction payload must still copy —
+        // case-sensitive matching made it type a bare 'c' instead.
+        Check.That(KeyboardShortcut.TryParse("ctrl+SHIFT+Alt+win+K", out var modifiers, out var key)).IsTrue();
+
+        Check.That(key).IsEqualTo("K");
+        Check.That(modifiers).HasSize(4);
+        Check.That(modifiers).Contains(ModifierKey.Ctrl);
+        Check.That(modifiers).Contains(ModifierKey.Shift);
+        Check.That(modifiers).Contains(ModifierKey.Alt);
+        Check.That(modifiers).Contains(ModifierKey.Win);
+    }
+
+    [Fact]
     public void TryParse_DropsUnknownModifierTokens()
     {
         Check.That(KeyboardShortcut.TryParse("Ctrl+Meta+C", out var modifiers, out var key)).IsTrue();

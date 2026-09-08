@@ -283,13 +283,18 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         ClearOneShotModifiers();
     }
 
-    /// <summary>Cuts the final word and the separators after it ("thank you " → "thank ").</summary>
+    /// <summary>
+    /// Cuts the final word and the separators after it ("thank you " → "thank "). A word is a
+    /// run of letters or digits, because mainstream apps' Ctrl+Backspace stops at hyphens and
+    /// other punctuation ("well-known " loses "known", keeps "well-") — the bookkeeping must
+    /// agree with the keystroke the target app just received.
+    /// </summary>
     private static string TrimLastWord(string text)
     {
         var end = text.Length;
-        while (end > 0 && text[end - 1] == ' ') end--;
+        while (end > 0 && !char.IsLetterOrDigit(text[end - 1])) end--;
         var start = end;
-        while (start > 0 && text[start - 1] != ' ') start--;
+        while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
         return text[..start];
     }
 
@@ -393,15 +398,19 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     public void HandleShortcut(string chord)
     {
-        if (!KeyboardShortcut.TryParse(chord, out var chordModifiers, out var key)) return;
+        if (KeyboardShortcut.TryParse(chord, out var chordModifiers, out var key))
+        {
+            var modifiers = new HashSet<ModifierKey>(_activeModifiers);
+            modifiers.UnionWith(chordModifiers);
 
-        var modifiers = new HashSet<ModifierKey>(_activeModifiers);
-        modifiers.UnionWith(chordModifiers);
+            if (key.Length == 1)
+                Messenger.Send(new KeyActivatedMessage(key, modifiers));
+            else
+                Messenger.Send(new SpecialKeyMessage(key, modifiers));
+        }
 
-        if (key.Length == 1)
-            Messenger.Send(new KeyActivatedMessage(key, modifiers));
-        else
-            Messenger.Send(new SpecialKeyMessage(key, modifiers));
+        // Cleared on both paths like every other Handle*: an armed one-shot modifier must not
+        // leak into the next dwell just because this chord was unparseable.
         ClearOneShotModifiers();
     }
 

@@ -1,6 +1,6 @@
 # Competitive Feature Analysis — OptiKey & Tobii Dynavox Computer Control vs. EyeCtrl
 
-**Date:** 2026-07-11 · **Refreshed:** 2026-08-04 (verified against `main` + `fix/calibration-identity-and-toolbar-space`)
+**Date:** 2026-07-11 · **Refreshed:** 2026-08-04, 2026-09-08 (code-verified re-runs; 2026-09-08 also shipped the first implementation slice, on `feat/mouse-osk-polish`)
 **Purpose:** Reference for prioritizing feature work. Inventories what OptiKey and Tobii Dynavox Computer Control (TD Control) offer, what EyeCtrl has today, and ranks the gaps by sensibility to integrate.
 
 **Method:** Verify EyeCtrl's *actual* state by reading the code (not assuming) — every "already present" / "resolved" claim cites a file on `main`. Candidate features are grouped, then ranked into tiers by (a) value to the end user, (b) implementation effort in this codebase (with the likely seam named), (c) fit with EyeCtrl's mission (computer-control + eye-care). AAC/communication boards and full UI localization are explicitly de-scoped unless cheap.
@@ -11,6 +11,8 @@
 - **EyeCtrl** — codebase read-only inspection (Core, Platform, ViewModels, App, EyeCare, LM).
 
 > **How to read this refresh:** the 2026-07-11 version listed 6 Tier-1 gaps. Four of them shipped to `main` since (auto-launch, track-status box, radar/anchor scroll, adaptive dwell) and are moved to §"Resolved since 2026-07-11" below with ship evidence. The tiered table in §Gap inventory reflects only what is **still open** as of 2026-08-04. See the end for the change-log.
+
+> **How to read the 2026-09-08 refresh:** third run, same method (every claim code-verified). Window-management actions (#2) confirmed shipped to `main` since August — moved to "Resolved". The mouse/OSK polish bundle (#21) was implemented the same day on branch `feat/mouse-osk-polish` (`2ded5589`, unpushed at time of writing) and is recorded under "Resolved" with its branch rather than left in the open tables. Two new gaps were found and ranked: prediction controls (#22, Tier 1) and per-eye tracking (#23, Tier 2).
 
 ---
 
@@ -26,16 +28,18 @@ Capabilities the two competitors lack. EyeCtrl's strategic position rests on the
 
 ---
 
-## Resolved since 2026-07-11 (previously listed as gaps — now on `main`)
+## Resolved since 2026-07-11 (previously listed as gaps)
 
-These were Tier-1 gaps in the original analysis; all have shipped. Listed here so the history is preserved and the still-open table isn't cluttered.
+Each row records where it shipped — `main` unless the row says otherwise. Listed here so the history is preserved and the still-open tables stay uncluttered.
 
-| # | Was a gap | Resolution (file on `main`) |
+| # | Was a gap | Resolution |
 |---|-----------|------------------------------|
 | 1 | Auto-launch on startup was a no-op toggle | **Implemented.** `WindowsStartupRegistrar` writes the HKCU `…\CurrentVersion\Run` "EyeCtrl" value; `IStartupRegistrar` is the seam; `StartOnBootPolicy` suppresses self-registration under supervised mode (the supervisor owns launch-at-logon then). `Environment.ProcessPath` is used (not `Assembly.Location`) so the single-file bundle works. |
+| 2 | **Window-management actions** — minimize / maximize / restore / close on the window under the gaze point | **Implemented on `main`.** `WindowAction` enum (`src/EyeCtrl.Core/Models/WindowAction.cs`), `Win32WindowManager.Minimize/MaximizeOrRestore/CloseWindow`, fired from Quick Action presets via `QuickActionDispatcher.ExecuteWindowAction` (the target HWND is resolved synchronously at selection). `ShowDesktop` deliberately not added — reachable as Win+D through the OSK's Win modifier. |
 | 3 | No track-status box | **Implemented.** `TrackStatusWindow` + `TrackStatusViewModel` render a top-right click-through overlay: two eye dots in a track-box canvas, head distance (mm) + a Good/Fair/Poor quality triad via palette tokens, polled at ~15 Hz. Reacts to validity changes, not just X/Y. |
 | 5 | Scroll was discrete notch actions only | **Implemented (radar/anchor variable-speed).** `ScrollEngine` is a gaze-joystick: dead-zone (`DeadZoneRadiusPixels = 30`) around an `anchor` point → proportional velocity → clamp at `MaxVelocityNotchesPerSec = 60`; `ScrollModeController` mounts it on the right edge (`RightEdgeAnchor`). This **is** TD Control's radar/anchor variant. |
 | 6 | No adaptive dwell | **Implemented.** Full Adaptation subsystem: `EyeCtrl.Core/Adaptation/` (`AdaptationController`, `StruggleMonitor`, `AdaptationKnob`, `EffectiveSettingsProvider`, `EffectiveValue`, `FailureModeAssessment`, `DwellContext`/`DwellOutcome`, `BufferingTelemetrySink`) + App-side `AdaptationCoordinator`, `AdaptationActivation`, `AdaptationCueService`, `AdaptationLog`. Struggle evidence re-tunes effective dwell settings. (In-flight `feat/struggle-detection-phase1a/1b` add per-surface telemetry wiring + cue/drift overlays on top of this core.) |
+| 21 | **Mouse/OSK polish bundle** — middle click, word-delete key, clipboard keys on the Fn layer | **Implemented 2026-09-08** on `feat/mouse-osk-polish` (`2ded5589`; unpushed when written). `InteractionAction.MiddleClick` + `IInputSimulator.MiddleClick` + `MOUSEEVENTF_MIDDLE*` flags + ring icon/label/description — ships **OFF** by default (like ScrollLeft/ScrollRight) because a fifth default secondary action breaks the ring's 4+More/4+Back layer slot symmetry (`ActionMenuViewModelLayerTests.TheSecondLayer_ReusesTheSameFiveSlots`); enable via Settings → Action Menu. `deleteWord` key (Ctrl+Backspace with word-wise CurrentInput/`_recentText` bookkeeping, `KeyboardViewModel.HandleDeleteWord`) beside Bksp in every sublayout of all 3 layouts, Shift/Bksp narrowed to compensate on the 960-DIP screen. New `shortcut:<chord>` layout grammar powers the Fn clipboard row (Copy/Paste/Cut/Undo/Redo/Sel All); `EyeCtrl.Core/Keyboard/KeyboardShortcut.TryParse` is the single chord parser, now also used by `QuickActionDispatcher.ExecuteKeyboardShortcut`. `ShippedLayoutFilesTests` guards the shipped layouts: parse, known grammar only, DelWd + clipboard present, specialAction ids unique per sublayout. |
 
 ---
 
@@ -45,10 +49,8 @@ These were Tier-1 gaps in the original analysis; all have shipped. Listed here s
 
 | # | Gap | Source | Rationale + likely seam |
 |---|---|---|---|
-| 2 | **Window-management *actions*** — minimize / maximize / restore / close / Show Desktop on the window under the gaze point. (App-*switching* is already done — see partial note below.) | Both | The `InteractionAction` enum (`src/EyeCtrl.Core/Models/InteractionAction.cs`) currently holds only LeftClick/RightClick/DoubleClick/Drag/Scroll*/PinNote. Add `Minimize`/`Maximize`/`Restore`/`Close`/`ShowDesktop`; resolve the target window via `ControlFinder`/UIA `WindowPattern` and dispatch alongside the existing mouse actions. `Win32InputSimulator.SendModifiedKeyPress` already handles Win/Alt, and there is no registry/IPC work — pure enum + handlers + `ActionMenuSettings` defaults. |
-| 4 | **Continuous / Repeat-Click modes** (lock an action — click, scroll, drag — so it repeats without reopening the action menu) | TD Control | `InteractionManager` (`src/EyeCtrl.Core/Processing/InteractionManager.cs`) is the state machine; add a locked-repeat state alongside `ScrollMode`/`Dragging`. Big usability win for games, photo-advancing, design apps. |
-
-> **Partial note on #2 (app switching already landed):** a fullscreen **Task Switcher** (`src/EyeCtrl.App/Overlays/TaskSwitcherWindow.xaml.cs` — a grid of tiles, one per open window, icons via `IAppIconProvider`) and a **Quick Actions grid** (`QuickActionsGridWindow`) are already on `main`. So "switch to app X" is covered; what's still missing is the per-window *action* (min/max/close that specific window). The in-flight `feat/quick-actions-editor`/`feat/quick-actions-toolbar` branches extend the quick-actions surface but are **not merged**.
+| 4 | **Continuous / Repeat-Click modes** (lock an action — click, scroll, drag — so it repeats without reopening the action menu; a cheap 80% is a "Repeat last action" entry) | TD Control | `InteractionManager` (`src/EyeCtrl.Core/Processing/InteractionManager.cs`) is the state machine; add a locked-repeat state alongside `ScrollMode`/`Dragging`. Verified still absent 2026-09-08 (no repeat/continuous state anywhere). Big usability win for games, photo-advancing, design apps. |
+| 22 | **Prediction controls** — configurable suggestion count, add-word key, dictionary editor | OptiKey (dictionary management console, "Add To Dictionary" key) | `WordPredictor.GetSuggestions` hardcodes `maxCount = 5` (`src/EyeCtrl.Core/Prediction/WordPredictor.cs:87`) and `KeyboardViewModel.GetSuggestionsWithContext` passes `maxCount: 5`; seams: a `KeyboardSettings` row, an add-word action over `Prediction/FileDictionaryProvider.cs` (which currently learns only silently), a dictionary-management settings page. Hands users control over a flagship surface for low-moderate effort. |
 
 ### Tier 2 — Medium sensibility (moderate–high effort, solid value, on-mission)
 
@@ -60,6 +62,7 @@ These were Tier-1 gaps in the original analysis; all have shipped. Listed here s
 | 10 | **Drawing Mode** — free-path hold-and-drag with intentional-movement threshold + 8-direction straight-line catch-up | TD Control | The basic `Drag` action exists (`InteractionAction.Drag` → `MouseDown` + gaze-follow), but there is no 8-direction lock, jitter threshold, or straight-line catch-up. Incremental on the drag path. Confirmed not on `main`. |
 | 11 | **Dead-key / diacritic composition** (`´` then `e` → `é`) | Both | EyeCtrl emits Unicode directly via `Win32InputSimulator.SendText`; per-layout dead-key tables unlock more languages cheaply. Confirmed not on `main`. |
 | 12 | **More keyboard languages** (TD Control ships 14 incl. CJK/IME) | Both | EyeCtrl ships 3 JSON layouts: `qwerty`/`azerty`/`qwertz` (`src/EyeCtrl.App/Resources/Layouts/`). Latin-script additions are easy via JSON; **CJK/IME is a large separate project — keep out of scope.** |
+| 23 | **Per-eye tracking (TrackedEye Left/Right/Both)** — *new 2026-09-08* | TD Control (`"TrackedEye": "Both"`; binaries offer Left/Right/Both) | Zero hits for per-eye selection anywhere in `src/` (verified 2026-09-08). Seam: `TobiiStreamEngineProvider` eye filtering + a setting + a Calibration-page row. Small change; unlocks monocular/strabismus users — pure accessibility value. |
 
 ### Tier 3 — Lower sensibility for EyeCtrl (high effort, or off-mission)
 
@@ -73,23 +76,27 @@ These were Tier-1 gaps in the original analysis; all have shipped. Listed here s
 | 18 | **Cloud settings/prediction sync** | TD Control (myTobiiDynavox) | Infrastructure + privacy burden; local-JSON is fine for a single-user tool. |
 | 19 | **Blink selection** | (neither major app; niche) | TD Control explicitly rejects blink. Low value, tricky accuracy. Skip. |
 | 20 | **Gaze-to-wake from sleep** | TD Control (I-Series hardware only) | Hardware/BIOS-level; not reliably achievable in software. Skip. |
+| 24 | **Multi-key whole-word capture** (glance one letter per word, dictionary-matched) — *added 2026-09-08* | OptiKey (its rarest capability) | High effort for a new interaction mode; EyeCtrl's SmallLM next-word + sentence completions attack the same keystroke economy differently — building both dilutes differentiator #2. |
+| 25 | **Dynamic XML keyboards, plugin/HTTP keys, simplified letter-cluster layout, guided onboarding** — *added 2026-09-08* | OptiKey (boards/plugins/simplified); both (onboarding) | QuickActions (launchers, canned text) + the dwell SDK already cover the realistic extensibility need; struggle adaptation auto-serves accuracy-limited users; onboarding is polish, not parity. Decline unless a user asks. |
 
 ---
 
-## Suggested implementation order (refreshed)
+## Suggested implementation order (refreshed 2026-09-08)
 
-With #1/#3/#5/#6 already shipped, the near-term queue is short:
+The head of the August queue — the mouse/OSK polish bundle — shipped 2026-09-08 on `feat/mouse-osk-polish` (#21). Remaining near-term queue:
 
-1. **Window-management actions (#2 remainder)** — add `Minimize`/`Maximize`/`Restore`/`Close`/`ShowDesktop` to `InteractionAction` + UIA `WindowPattern` resolution + `ActionMenuSettings` defaults. Biggest perceived-feature jump for modest work; reuses `Win32InputSimulator` + `ControlFinder`.
-2. **Continuous / Repeat-Click modes (#4)** — `InteractionManager` locked-repeat state; high day-to-day usability.
-3. **Multi-monitor (#7)** — removes a documented hard limitation (`Win32InputSimulator` already names the fix).
-4. Then choose between **profiles (#9)**, **switch input (#8)**, or **drawing mode (#10)** based on user need.
+1. **Continuous / Repeat-Click modes (#4) + Repeat-Last** — `InteractionManager` locked-repeat state; the headline remaining usability gap.
+2. **Per-eye tracking (#23)** — small provider change, outsized accessibility value.
+3. **Prediction controls (#22)** — suggestion-count setting first (one setting row), then the add-word key, then the dictionary editor.
+4. **Multi-monitor (#7)** — the documented `MOUSEEVENTF_VIRTUALDESK` fix; the biggest single effort on this list.
+5. **Switch / key-triggered activation (#8)** — a plain global-hotkey trigger first (also useful to caregivers), DirectInput/gamepad later.
+6. Demand-driven: **profiles (#9)**, **dead keys (#11)**, **drawing mode (#10)**, dwell-completion audio cue.
 
-Tier 3 should be **declined unless a user explicitly asks** — they either duplicate existing capability (UIA snap, #14), conflict with EyeCtrl's positioning (AAC, #13), or carry cost disproportionate to value (localization, webcam, cloud).
+Tier 3 should be **declined unless a user explicitly asks** — they either duplicate existing capability (UIA snap, #14), conflict with EyeCtrl's positioning (AAC, #13), or carry cost disproportionate to value (localization, webcam, cloud, multi-key capture #24).
 
 ---
 
-## Reference values available on this machine (re-confirmed 2026-08-04)
+## Reference values available on this machine (re-confirmed 2026-08-04 and 2026-09-08)
 
 The TD Control install is a useful design reference for any Tier 1/2 item. Paths verified present today:
 
@@ -130,5 +137,6 @@ The TD Control install is a useful design reference for any Tier 1/2 item. Paths
 
 ## Change-log
 
+- **2026-09-08 (refresh + first implementation slice):** Third run, same method — parallel read-only sweeps of the EyeCtrl code (src + tests, every claim path-cited), the live TD Control v1.80.1 install (full `Settings.json`, keyboard layout XMLs + language packs, curated binary-strings feature hunt), and the OptiKey README + ~25 wiki pages. Findings: **#2 shipped to `main`** (`WindowAction` + `Win32WindowManager` + presets) — moved to Resolved; `ShowDesktop` intentionally skipped (Win+D reachable via the OSK's Win modifier). **The mouse/OSK polish bundle (#21) was implemented the same day** on `feat/mouse-osk-polish` (`2ded5589`): middle click (OFF by default to preserve layer slot symmetry), `deleteWord` key, Fn clipboard row via the new `shortcut:<chord>` grammar, shared `KeyboardShortcut` parser, `ShippedLayoutFilesTests` grammar guard. New gaps ranked: #22 prediction controls (Tier 1), #23 per-eye tracking (Tier 2), #24 multi-key capture + #25 misc declines (Tier 3). All suites green after the slice: Core 1224 / ViewModels 307 / Platform 88 / Controls 299 / App non-UI 821 / Supervisor 79. `detect_changes` flagged HIGH — expected: the changed flows all pass through the `OnKeyDwellCompleted`/`KeyboardViewModel` hubs, touched only with additive branches.
 - **2026-08-04 (refresh):** Re-verified every differentiator and gap against `main` @ `b590a87` and the working tree (`fix/calibration-identity-and-toolbar-space` @ `6b98ca0`). Findings: differentiators #1–#5 all still present (per-surface dwell granularity in #5 is even stronger than first noted — ~16 knobs vs TD Control's 4). **Gaps #1, #3, #5, #6 have shipped to `main`** — moved to "Resolved". **#2 partially resolved** (Task Switcher + Quick Actions grids landed; per-window min/max/close actions still open). **#4 remains the only open Tier-1 item.** Tier-2 #7–#12 and Tier-3 #13–#20 re-confirmed open as described (YOLO/CV absence re-confirmed for #14). In-flight (unmerged) relevant branches: `feat/quick-actions-editor`, `feat/quick-actions-toolbar`, `feat/struggle-detection-phase1a`, `feat/struggle-detection-phase1b`. Implementation order updated to reflect the shorter queue. TD Control install paths re-confirmed present.
 - **2026-07-11 (original):** First analysis from OptiKey README/wiki + TD Control v1.80.1 install + EyeCtrl code. 6 Tier-1 gaps, 6 Tier-2, 8 Tier-3.

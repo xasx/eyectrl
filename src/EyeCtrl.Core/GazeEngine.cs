@@ -544,7 +544,11 @@ public class GazeEngine : IDisposable
         if (interactionState == InteractionState.Paused)
             return;
 
-        if (interactionState is InteractionState.FreeLook or InteractionState.Dragging)
+        // RepeatMode keeps the cursor following gaze (like Dragging): the dwell-to-act click
+        // lands at the fixated point, so the user must see where the pointer is.
+        if (interactionState is InteractionState.FreeLook
+            or InteractionState.Dragging
+            or InteractionState.RepeatMode)
         {
             _inputSimulator.MoveCursor(filtered);
         }

@@ -9,6 +9,8 @@ public enum InteractionAction
     RightClick,
     /// <summary>Double-click at the current gaze point.</summary>
     DoubleClick,
+    /// <summary>Single middle-click at the current gaze point.</summary>
+    MiddleClick,
     /// <summary>Press and hold the left mouse button to begin a drag operation.</summary>
     Drag,
     /// <summary>Scroll upward (toward top of content).</summary>

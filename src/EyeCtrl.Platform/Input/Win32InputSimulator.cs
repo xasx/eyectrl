@@ -47,6 +47,13 @@ public class Win32InputSimulator : IInputSimulator
         SendInputs(down, up);
     }
 
+    public void MiddleClick(PhysicalPoint point)
+    {
+        var down = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_MIDDLEDOWN);
+        var up = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_MIDDLEUP);
+        SendInputs(down, up);
+    }
+
     public void DoubleClick(PhysicalPoint point)
     {
         LeftClick(point);

@@ -20,6 +20,14 @@ public interface IInputSimulator
     /// <summary>Performs a double-click (left button) at the specified position.</summary>
     /// <param name="point">Target position in physical screen pixels.</param>
     void DoubleClick(PhysicalPoint point);
+    /// <summary>
+    /// Performs a middle mouse button click at the specified position. A default interface
+    /// method (like the extended-key overloads below) so test fakes that never click do not
+    /// each need a stub — but it throws rather than no-ops, so a simulator that claims the
+    /// interface without really implementing it fails loudly instead of swallowing the click.
+    /// </summary>
+    /// <param name="point">Target position in physical screen pixels.</param>
+    void MiddleClick(PhysicalPoint point) => throw new NotSupportedException("This input simulator does not implement middle clicks.");
     /// <summary>Presses and holds the left mouse button at the specified position.</summary>
     /// <param name="point">Target position in physical screen pixels.</param>
     void MouseDown(PhysicalPoint point);

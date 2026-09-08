@@ -123,42 +123,12 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
     {
         if (Context is null) return;
 
-        ushort vk = keyName.ToLowerInvariant() switch
+        // KeyNameMapper is the single name→VK authority (shared with the QuickAction chord
+        // parser and the keyboard's "shortcut:" keys). It also covers the text-control keys
+        // (Backspace/Enter/Tab/Space) that the inline switch this replaced omitted, which
+        // modified special-key sends now need.
+        if (KeyNameMapper.TryMap(keyName, out var vk, out var isExtendedKey))
         {
-            "escape" => VirtualKeys.Escape,
-            "f1" => VirtualKeys.F1,
-            "f2" => VirtualKeys.F2,
-            "f3" => VirtualKeys.F3,
-            "f4" => VirtualKeys.F4,
-            "f5" => VirtualKeys.F5,
-            "f6" => VirtualKeys.F6,
-            "f7" => VirtualKeys.F7,
-            "f8" => VirtualKeys.F8,
-            "f9" => VirtualKeys.F9,
-            "f10" => VirtualKeys.F10,
-            "f11" => VirtualKeys.F11,
-            "f12" => VirtualKeys.F12,
-            "home" => VirtualKeys.Home,
-            "end" => VirtualKeys.End,
-            "pageup" => VirtualKeys.Prior,
-            "pagedown" => VirtualKeys.Next,
-            "arrowup" => VirtualKeys.Up,
-            "arrowdown" => VirtualKeys.Down,
-            "arrowleft" => VirtualKeys.Left,
-            "arrowright" => VirtualKeys.Right,
-            "insert" => VirtualKeys.Insert,
-            "delete" => VirtualKeys.Delete,
-            "printscreen" => VirtualKeys.Snapshot,
-            _ => 0
-        };
-
-        if (vk != 0)
-        {
-            // Arrow keys, Insert/Delete, Home/End, PageUp/PageDown, and PrintScreen require KEYEVENTF_EXTENDEDKEY
-            bool isExtendedKey = vk is VirtualKeys.Up or VirtualKeys.Down or VirtualKeys.Left or VirtualKeys.Right
-                or VirtualKeys.Home or VirtualKeys.End or VirtualKeys.Prior or VirtualKeys.Next
-                or VirtualKeys.Insert or VirtualKeys.Delete or VirtualKeys.Snapshot;
-
             if (modifiers != null && modifiers.Count > 0)
                 Context.InputSimulator.SendModifiedKeyPress(modifiers, vk, isExtendedKey);
             else
@@ -196,6 +166,7 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
             case InteractionAction.LeftClick:    Context.InputSimulator.LeftClick(pt);        break;
             case InteractionAction.RightClick:   Context.InputSimulator.RightClick(pt);       break;
             case InteractionAction.DoubleClick:  Context.InputSimulator.DoubleClick(pt);      break;
+            case InteractionAction.MiddleClick:  Context.InputSimulator.MiddleClick(pt);      break;
 
             case InteractionAction.ScrollUp:     Context.InputSimulator.Scroll(pt, 0, DefaultScrollAmount);    break;
             case InteractionAction.ScrollDown:   Context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);   break;

@@ -15,9 +15,9 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         var rows = new List<SettingsRowSpec>();
 
         // The tab's one real setting: which actions appear in the ring. Every InteractionAction
-        // gets a toggle — including ScrollLeft/ScrollRight, which ship OFF — so the list is fully
-        // the user's. The ring reads VisibleActions at menu-open time, so a toggle applies on the
-        // next open, no restart (the same live-apply every other toggle here relies on).
+        // gets a toggle — including ScrollLeft/ScrollRight and MiddleClick, which ship OFF — so the
+        // list is fully the user's. The ring reads VisibleActions at menu-open time, so a toggle
+        // applies on the next open, no restart (the same live-apply every other toggle here relies on).
         foreach (var action in Enum.GetValues<InteractionAction>())
         {
             var captured = action;
@@ -96,6 +96,7 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.LeftClick => "Left Click",
         InteractionAction.RightClick => "Right Click",
         InteractionAction.DoubleClick => "Double Click",
+        InteractionAction.MiddleClick => "Middle Click",
         InteractionAction.Drag => "Drag",
         InteractionAction.ScrollUp => "Scroll Up",
         InteractionAction.ScrollDown => "Scroll Down",
@@ -125,6 +126,7 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.LeftClick => "One left click at the point you chose.",
         InteractionAction.RightClick => "One right click at the point you chose.",
         InteractionAction.DoubleClick => "Two quick clicks at the point you chose.",
+        InteractionAction.MiddleClick => "One middle click at the point you chose.",
         InteractionAction.Drag => "Grabs at that point, then follows your gaze.",
         InteractionAction.ScrollUp => "Scrolls up from the point you chose.",
         InteractionAction.ScrollDown => "Scrolls down from the point you chose.",

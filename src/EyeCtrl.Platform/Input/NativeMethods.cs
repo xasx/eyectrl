@@ -24,6 +24,8 @@ internal static partial class NativeMethods
     internal const uint MOUSEEVENTF_LEFTUP = 0x0004;
     internal const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
     internal const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+    internal const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020;
+    internal const uint MOUSEEVENTF_MIDDLEUP = 0x0040;
     internal const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
     internal const uint MOUSEEVENTF_WHEEL = 0x0800;
     internal const uint MOUSEEVENTF_HWHEEL = 0x1000;

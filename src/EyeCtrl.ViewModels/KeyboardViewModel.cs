@@ -263,6 +263,36 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         ClearOneShotModifiers();
     }
 
+    /// <summary>
+    /// Ctrl+Backspace word deletion, mirroring <see cref="HandleBackspace"/>: the keystroke goes
+    /// to the focused app while <see cref="CurrentInput"/> (and, once that is empty, the committed
+    /// text) loses the same word, so the prediction context keeps tracking what the target app
+    /// now shows.
+    /// </summary>
+    public void HandleDeleteWord()
+    {
+        if (!HasSystemModifiers)
+        {
+            if (CurrentInput.Length > 0)
+                CurrentInput = TrimLastWord(CurrentInput);
+            else if (_recentText.Length > 0)
+                _recentText = TrimLastWord(_recentText);
+        }
+        var modifiers = new HashSet<ModifierKey>(_activeModifiers) { ModifierKey.Ctrl };
+        Messenger.Send(new KeyActivatedMessage("\b", modifiers));
+        ClearOneShotModifiers();
+    }
+
+    /// <summary>Cuts the final word and the separators after it ("thank you " → "thank ").</summary>
+    private static string TrimLastWord(string text)
+    {
+        var end = text.Length;
+        while (end > 0 && text[end - 1] == ' ') end--;
+        var start = end;
+        while (start > 0 && text[start - 1] != ' ') start--;
+        return text[..start];
+    }
+
     public void HandleEnter()
     {
         if (!HasSystemModifiers)
@@ -349,6 +379,29 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     public void HandleSpecialKey(string keyName)
     {
         Messenger.Send(new SpecialKeyMessage(keyName, ModifiersSnapshot));
+        ClearOneShotModifiers();
+    }
+
+    /// <summary>
+    /// A "shortcut:&lt;chord&gt;" layout key (the Fn clipboard row, or any chord a layout author
+    /// wants as a single dwell). The chord's modifiers are unioned with the active one-shot
+    /// modifiers — a shortcut key composes with them like any other key — then routed over the
+    /// same messages a hand-built combo uses: a single-character payload rides
+    /// <see cref="KeyActivatedMessage"/> (whose dispatcher path resolves the character to a VK
+    /// and merges modifiers the character itself requires, e.g. Shift for '!'), anything else
+    /// rides <see cref="SpecialKeyMessage"/> (named keys carry the extended-key flag there).
+    /// </summary>
+    public void HandleShortcut(string chord)
+    {
+        if (!KeyboardShortcut.TryParse(chord, out var chordModifiers, out var key)) return;
+
+        var modifiers = new HashSet<ModifierKey>(_activeModifiers);
+        modifiers.UnionWith(chordModifiers);
+
+        if (key.Length == 1)
+            Messenger.Send(new KeyActivatedMessage(key, modifiers));
+        else
+            Messenger.Send(new SpecialKeyMessage(key, modifiers));
         ClearOneShotModifiers();
     }
 

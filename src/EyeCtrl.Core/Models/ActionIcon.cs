@@ -27,6 +27,8 @@ public enum ActionIcon
     RightClick,
     /// <summary>Left button filled, two click ripples off the upper-left, and a "2" at the right margin.</summary>
     DoubleClick,
+    /// <summary>Mouse with the wheel button filled — the pressed middle button.</summary>
+    MiddleClick,
     /// <summary>Left button filled, with motion bars trailing at the left.</summary>
     Drag,
     /// <summary>Mouse with a wheel and an up chevron at the right margin.</summary>

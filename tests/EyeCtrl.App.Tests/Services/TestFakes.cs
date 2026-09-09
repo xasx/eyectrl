@@ -5,7 +5,9 @@ using EyeCtrl.App.Services;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;
 
 /// <summary>
 /// Shared fakes and context builders for coordinator tests. Extracted from <c>EventCoordinatorTests</c>
@@ -63,6 +65,29 @@ internal static class TestFakes
     }
 
     /// <summary>
+    /// Builds a context wired enough for <see cref="Coordinators.DragCoordinator"/> to
+    /// <c>Initialize</c>: its <c>OnInitialize</c> eagerly dereferences <c>InteractionManager</c>
+    /// and <c>DragTrailVM</c>, which the default builder leaves <c>null!</c>. Both are real
+    /// objects — neither has an App-layer dependency, and no mocking library is available.
+    /// <c>OverlayManager</c> stays null: reaching it needs a real WPF <c>EdgeButtonBarWindow</c>,
+    /// because <c>IOverlayManager.EdgeButtonBar</c> is typed as the concrete window rather than an
+    /// interface. Drag teardown treats that dereference as a failure and carries on, which is why
+    /// the button-release assertions still hold here.
+    /// </summary>
+    internal static EventCoordinationContext MakeDragContext(IInputSimulator input)
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        return MakeContext(input) with
+        {
+            Messenger = messenger,
+            Settings = settings,
+            InteractionManager = new InteractionManager(),
+            DragTrailVM = new DragTrailViewModel(settings, messenger),
+        };
+    }
+
+    /// <summary>
     /// Builds a context carrying the given settings — for tests that drive settings-driven setup
     /// (e.g. <see cref="Coordinators.QuickActionsCoordinator"/> suspend/resume).
     /// </summary>
@@ -79,6 +104,35 @@ internal static class TestFakes
         public (ushort Vk, bool Extended)? LastKeyPress { get; private set; }
 
         public PhysicalPoint? LastMiddleClick { get; private set; }
+
+        /// <summary>
+        /// Every button transition this fake was asked to perform, in order.
+        /// <para>
+        /// These were empty bodies. The recording fakes lived in <c>Core.Tests</c> — wired to
+        /// <c>GazeEngine</c>, which only ever moves the cursor — while the layer that actually
+        /// presses and releases the button discarded the calls. So the apparatus recorded injected
+        /// input where none is injected and threw it away where it is, and <c>MouseUp</c> ended up
+        /// asserted in none of the suite's ~2,900 tests.
+        /// </para>
+        /// <para>
+        /// Only <c>MouseDown</c>/<c>MouseUp</c> are recorded here. The click methods —
+        /// <c>LeftClick</c>, <c>MiddleClick</c> and friends — are single interface calls that press
+        /// and release atomically, so they cannot leave a button held and do not belong in a ledger
+        /// whose purpose is detecting one that is.
+        /// </para>
+        /// </summary>
+        public List<(string Action, PhysicalPoint Point)> ButtonEvents { get; } = new();
+
+        public int MouseDownCount => ButtonEvents.Count(e => e.Action == "MouseDown");
+
+        public int MouseUpCount => ButtonEvents.Count(e => e.Action == "MouseUp");
+
+        /// <summary>
+        /// The invariant that matters: the OS button is not left pressed. Asserted as a count
+        /// identity rather than per-path equality so it holds for exit paths nobody enumerated —
+        /// which is how an unreleased button got in.
+        /// </summary>
+        public bool ButtonsBalanced => MouseDownCount == MouseUpCount;
 
         public void MoveCursor(PhysicalPoint point)
         {
@@ -101,13 +155,9 @@ internal static class TestFakes
             LastMiddleClick = point;
         }
 
-        public void MouseDown(PhysicalPoint point)
-        {
-        }
+        public void MouseDown(PhysicalPoint point) => ButtonEvents.Add(("MouseDown", point));
 
-        public void MouseUp(PhysicalPoint point)
-        {
-        }
+        public void MouseUp(PhysicalPoint point) => ButtonEvents.Add(("MouseUp", point));
 
         public void Scroll(PhysicalPoint point, int deltaX, int deltaY)
         {

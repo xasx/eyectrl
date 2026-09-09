@@ -54,7 +54,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                 // Repeat
                 new SliderSpec("av_repeat_interval", "Repeat Interval (ms)", 250, 5000, 50, 0,
                     () => repeat.IntervalMs, v => { repeat.IntervalMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How often repeat mode re-fires your locked click. Applies the next time you start repeating." },
+                    { Description = "How often repeat mode re-fires your locked click. Applies the next time you start repeating. Intervals under ~500 ms can register as double-clicks in some apps." },
                 new LabelSpec(() => new string('\u2500', 50), Wrap: false),
                 // External Dwell
                 new ToggleSpec("av_ext_enabled", "Enable External Dwell",

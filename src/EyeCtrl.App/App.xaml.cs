@@ -141,20 +141,26 @@ public partial class App : Application
             var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
 
             // Reconcile auto-launch registration with the persisted setting.
-            // In supervised mode the supervisor owns launch-at-logon (Scheduled Task), so the
-            // app never self-registers the HKCU Run key — doing so would cause a double-launch
-            // at next logon. `supervised` is captured once at launch: live-toggling supervision
-            // mode isn't supported (it requires install/uninstall of the Scheduled Task, the
-            // supervisor's job). The PropertyChanged handler only re-reacts to StartOnBoot changes.
+            // In supervised mode the supervisor is MEANT to own launch-at-logon via a Scheduled
+            // Task, and self-registering as well would double-launch at next logon. But the task
+            // does not exist yet (no installer), so handing over unconditionally deleted the Run
+            // key and left nothing at all starting the app — see SupervisorLaunchRegistration.
+            // Until something demonstrably owns launch, the app keeps its own registration and
+            // the single-instance mutex arbitrates any transient double-launch.
+            // `supervised` is captured once at launch: live-toggling supervision mode isn't
+            // supported. The PropertyChanged handler only re-reacts to StartOnBoot changes.
             var startupRegistrar = _serviceProvider.GetRequiredService<IStartupRegistrar>();
             var supervised = settings.Supervision.Enabled;
-            startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(supervised, settings.General.StartOnBoot));
+            var supervisorOwnsLaunch = SupervisorLaunchRegistration.IsRegistered;
+            startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(
+                supervised, settings.General.StartOnBoot, supervisorOwnsLaunch));
 
             // Live-toggle: if the user changes StartOnBoot in settings, apply immediately.
             settings.General.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(settings.General.StartOnBoot))
-                    startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(supervised, settings.General.StartOnBoot));
+                    startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(
+                        supervised, settings.General.StartOnBoot, supervisorOwnsLaunch));
             };
 
             var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
@@ -293,19 +299,22 @@ public partial class App : Application
                 },
                 runInBackground: work => System.Threading.Tasks.Task.Run(work),
                 postToUi: work => Dispatcher.Invoke(work),
-                supervisorInstalled: () => SupervisorLauncher.IsInstalled,
+                supervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
                 launchSupervisor: SupervisorLauncher.TryLaunch,
                 enablePublishing: () => _heartbeatPublisher?.EnablePublishing(),
                 persistSettings: () =>
                 {
                     settingsService.Save(settings);
-                    // Supervision just turned on: the app must stop self-registering the
-                    // HKCU Run key, or the next logon launches it BOTH from the Run key and
-                    // from the supervisor's own launch path (a transient double-launch the
-                    // mutex resolves, but a race at logon). Same reconciliation the startup
-                    // block performs, with the captured `supervised` flag now known true.
-                    startupRegistrar.SetStartOnBoot(
-                        StartOnBootPolicy.ShouldSelfRegister(supervised: true, settings.General.StartOnBoot));
+                    // Supervision just turned on. Handing the HKCU Run key over avoids a
+                    // double-launch at next logon — but ONLY if something else is registered to
+                    // launch the app. Nothing is, until the installer creates the Scheduled
+                    // Task, so this reconciliation now asks rather than assumes. Surrendering
+                    // the Run key to a mechanism that does not exist is a lockout, not a race.
+                    // Same reconciliation the startup block performs, with `supervised` true.
+                    startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(
+                        supervised: true,
+                        settings.General.StartOnBoot,
+                        SupervisorLaunchRegistration.IsRegistered));
                 });
 
             // Hand the coordinator to the settings window's owner so the restart button

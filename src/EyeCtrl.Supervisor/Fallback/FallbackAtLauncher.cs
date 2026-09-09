@@ -1,9 +1,11 @@
 namespace EyeCtrl.Supervisor.Fallback;
 
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using Microsoft.Win32;
+using Serilog;
 
 /// <summary>
 /// Selects and launches a fallback assistive-technology (AT) app when EyeCtrl is in a
@@ -13,20 +15,63 @@ using Microsoft.Win32;
 public static class FallbackAtLauncher
 {
     /// <summary>
-    /// Iterates <paramref name="candidates"/> in order, launches and returns the first whose
-    /// <see cref="FallbackCandidate.IsInstalled"/> returns true. Returns null if none installed.
+    /// Iterates <paramref name="candidates"/> in order and returns the first one that actually
+    /// started. A candidate whose probe passes but whose launch does nothing is skipped, not
+    /// committed to. Returns null when nothing started.
     /// </summary>
+    /// <remarks>
+    /// The fall-through is the point. Previously this returned the first candidate whose
+    /// <see cref="FallbackCandidate.IsInstalled"/> probe passed, regardless of what the launch
+    /// did — and the probes are weaker than the launches: they read registry keys that survive
+    /// an uninstall, while the launch requires an exe on disk. A stale key therefore consumed
+    /// the whole fallback and skipped the remaining candidates, including the terminal one that
+    /// always works. Since this runs only after the app has crashed past MaxRetries, that made
+    /// the last-resort path fail precisely when it was the last resort.
+    /// <para>
+    /// A candidate that throws is treated as one that did not launch. The supervisor registers
+    /// no global exception handler, so letting a Process.Start failure escape here would take
+    /// down the watchdog while the user is already without an input channel.
+    /// </para>
+    /// </remarks>
     public static FallbackCandidate? LaunchFirstInstalled(IEnumerable<FallbackCandidate> candidates)
     {
         foreach (var c in candidates)
         {
-            if (c.IsInstalled())
-            {
-                c.Launch();
-                return c;
-            }
+            if (!Probe(c)) continue;
+            if (TryLaunch(c)) return c;
+
+            Log.Warning(
+                "Fallback AT {Id} reported installed but did not launch; trying the next candidate.", c.Id);
         }
         return null;
+    }
+
+    private static bool Probe(FallbackCandidate c)
+    {
+        try
+        {
+            return c.IsInstalled();
+        }
+        catch (Exception ex)
+        {
+            // A probe reads the registry; denied access or a malformed value must not end the
+            // session. Treat it as "not available" and move on.
+            Log.Warning(ex, "Fallback AT {Id} install probe threw; treating as not installed.", c.Id);
+            return false;
+        }
+    }
+
+    private static bool TryLaunch(FallbackCandidate c)
+    {
+        try
+        {
+            return c.Launch();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Fallback AT {Id} threw while launching; trying the next candidate.", c.Id);
+            return false;
+        }
     }
 
     /// <summary>
@@ -57,18 +102,25 @@ public static class FallbackAtLauncher
         //   HKLM\SOFTWARE\WOW6432Node\Tobii Dynavox\Computer Control
         //     LauncherPath    = ...\Tdx.ComputerControl.Launcher.exe
         //     ApplicationPath = ...\Tdx.ComputerControl.exe
+        // Probe and launch MUST resolve through the same path, or the probe promises something
+        // the launch cannot deliver. The old probe asked only whether the LauncherPath VALUE
+        // existed; the launch additionally required File.Exists. A key left behind by an
+        // uninstall, or an upgrade that moved the exe, satisfied the first and silently failed
+        // the second — and consumed the fallback on the way past.
         "TDControl" => new FallbackCandidate(
             id: "TDControl",
-            isInstalled: () => GetRegistryValue(TdControlKey, LauncherValue) is not null,
-            launch: () => LaunchExe(GetRegistryValue(TdControlKey, LauncherValue)
-                                    ?? GetRegistryValue(TdControlKey, ApplicationValue))),
+            isInstalled: () => ResolveInstalledExe(TdControlKey) is not null,
+            launch: () => LaunchExe(ResolveInstalledExe(TdControlKey))),
 
         // Best-effort: same Tobii Dynavox publisher, likely the same MSI layout (value names
-        // unverified — adjust if a Snap Core First install is available to probe).
+        // unverified — adjust if a Snap Core First install is available to probe). Same
+        // resolver as TD Control, so the same probe/launch agreement holds. The previous probe
+        // was weaker still — merely that the SUB-KEY existed — which passed even when neither
+        // value name matched.
         "SnapCoreFirst" => new FallbackCandidate(
             id: "SnapCoreFirst",
-            isInstalled: () => SubKeyExists(SnapCoreFirstKey),
-            launch: () => LaunchFromRegistry(SnapCoreFirstKey)),
+            isInstalled: () => ResolveInstalledExe(SnapCoreFirstKey) is not null,
+            launch: () => LaunchExe(ResolveInstalledExe(SnapCoreFirstKey))),
 
         // Spike S1 (resolved): Windows Eye Control has NO reliable programmatic launch vector.
         //   - ms-settings:easeofaccess-eyecontrol only OPENS the Settings page (does not toggle the overlay).
@@ -80,7 +132,7 @@ public static class FallbackAtLauncher
         "WindowsEyeControl" => new FallbackCandidate(
             id: "WindowsEyeControl",
             isInstalled: () => true, // the Settings page always exists on Win10 1709+/Win11
-            launch: () => Process.Start(new ProcessStartInfo("ms-settings:easeofaccess-eyecontrol") { UseShellExecute = true })),
+            launch: OpenEyeControlSettingsPage),
 
         _ => null // unknown id — skip it (defensive: settings may contain a stale/typo'd entry)
     };
@@ -97,29 +149,44 @@ public static class FallbackAtLauncher
         return key?.GetValue(valueName) as string;
     }
 
-    /// <summary>True if the registry sub-key exists. Disposes the opened key handle (the previous
-    /// <c>OpenSubKey(...) != null</c> probe leaked it on every FALLEN_BACK probe).</summary>
-    private static bool SubKeyExists(string keyPath)
+    /// <summary>
+    /// Resolves a launchable exe under <paramref name="keyPath"/> — LauncherPath first (it
+    /// bootstraps the full app), then ApplicationPath — returning only a path that exists on
+    /// disk, or null.
+    /// </summary>
+    /// <remarks>
+    /// The single source of truth for both the install probe and the launch. Sharing it is what
+    /// makes "installed" and "launchable" the same question: a registry value pointing at an exe
+    /// that is no longer there now reports not-installed, so the launcher moves to the next
+    /// candidate instead of committing to one that cannot start. Note it falls back to
+    /// ApplicationPath when LauncherPath is stale, which the old probe never did — it asked
+    /// about LauncherPath alone and then launched either.
+    /// </remarks>
+    private static string? ResolveInstalledExe(string keyPath)
     {
-        using var key = Registry.LocalMachine.OpenSubKey(keyPath);
-        return key != null;
+        foreach (var valueName in new[] { LauncherValue, ApplicationValue })
+        {
+            var path = GetRegistryValue(keyPath, valueName);
+            if (!string.IsNullOrEmpty(path) && File.Exists(path)) return path;
+        }
+        return null;
     }
 
-    /// <summary>Best-effort launch of an exe path read from the registry; no-op if absent/stale.</summary>
-    private static void LaunchExe(string? exePath)
+    /// <summary>Starts an exe. Returns true only if a process was actually started.</summary>
+    private static bool LaunchExe(string? exePath)
     {
-        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
-            Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+        if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath)) return false;
+        return Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true }) is not null;
     }
 
     /// <summary>
-    /// Best-effort launch via a registry key: reads a candidate exe value under <paramref name="keyPath"/>
-    /// (LauncherPath, then ApplicationPath) and starts it if present on disk. Used for Snap Core First
-    /// whose exact value names are unverified.
+    /// Opens the Eye Control settings page so an attendant can enable it by hand. Returns true
+    /// when the shell accepted the request — the shell handler for an ms-settings: URI reports
+    /// no process of its own, so a clean return is the only success signal available.
     /// </summary>
-    private static void LaunchFromRegistry(string keyPath)
+    private static bool OpenEyeControlSettingsPage()
     {
-        var exePath = GetRegistryValue(keyPath, LauncherValue) ?? GetRegistryValue(keyPath, ApplicationValue);
-        LaunchExe(exePath);
+        Process.Start(new ProcessStartInfo("ms-settings:easeofaccess-eyecontrol") { UseShellExecute = true });
+        return true;
     }
 }

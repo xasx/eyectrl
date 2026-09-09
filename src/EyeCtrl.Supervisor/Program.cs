@@ -516,16 +516,47 @@ internal sealed class SupervisorApp : Application
     {
         Log.Warning("State -> FallenBack: launching fallback AT and showing recovery dialog.");
 
-        // Goal #5 "never strand the user": launch a fallback AT — but only ONCE per session. A
-        // re-escalation (a "Retry once" app that crashed again) must not spawn a second AT instance
-        // or re-open the Settings page; the AT launched on the first escalation is still running.
+        // Goal #5 "never strand the user": launch a fallback AT — but only once a launch has
+        // actually SUCCEEDED. A re-escalation (a "Retry once" app that crashed again) must not
+        // spawn a second AT instance or re-open the Settings page while the one from the first
+        // escalation is still running. But a session where nothing started is not that case:
+        // the latch stays false, so the next escalation tries again rather than treating a
+        // failure as a completed handover.
         // Order honors the user's configured SupervisionSettings.FallbackAtOrder (not a hard-coded list).
         if (!_fallbackAtLaunched)
         {
             var candidates = FallbackAtLauncher.BuildCandidates(_settings.Supervision.FallbackAtOrder);
             var launched = FallbackAtLauncher.LaunchFirstInstalled(candidates);
             _fallbackAtLaunched = launched != null;
-            Log.Information("Fallback AT launched: {Launched}", launched?.Id ?? "(none installed)");
+
+            if (launched != null)
+            {
+                // Truthful by construction now: LaunchFirstInstalled returns a candidate only
+                // when its launch reported a started process. It previously returned the first
+                // candidate whose install PROBE passed, so this line asserted a launch that a
+                // silent no-op had never performed — and post-incident diagnosis then began
+                // from a false statement, which is worse than no log at all.
+                Log.Information("Fallback AT launched: {Launched}", launched.Id);
+            }
+            else
+            {
+                // Deliberately not "(none installed)": a null return now means either nothing
+                // was installed OR every installed candidate failed to start, and this branch
+                // cannot tell them apart. LaunchFirstInstalled logs a per-candidate warning for
+                // the second case, so the distinction is recoverable from the log without
+                // asserting a cause here.
+                //
+                // Error, not Information: reaching this line means the app has crashed past
+                // MaxRetries AND no assistive technology is running, so a user whose only input
+                // channel was EyeCtrl now has none. That is the failure of the one guarantee
+                // this whole path exists to provide.
+                Log.Error(
+                    "No fallback AT could be started — the user may have no input channel. " +
+                    "Either none of the configured candidates ({Order}) is installed, or every " +
+                    "installed one failed to launch; see the per-candidate warnings above. " +
+                    "The next escalation will retry.",
+                    string.Join(", ", _settings.Supervision.FallbackAtOrder));
+            }
         }
         else
         {

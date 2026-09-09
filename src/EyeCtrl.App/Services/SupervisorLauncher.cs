@@ -16,7 +16,7 @@ using System.IO;
 /// returns the sibling path unconditionally — it never checks `File.Exists` on it, because
 /// the supervisor has to launch *something* and lets `Process.Start` fail loudly. Here the
 /// sibling IS existence-checked and a missing exe yields <see langword="null"/>, because
-/// <see cref="IsInstalled"/> is a question Task 13 asks before offering the user a choice.
+/// <see cref="IsExecutablePresent"/> is a question Task 13 asks before offering the user a choice.
 /// Offering to start a supervisor that is not installed would be worse than not offering.
 /// </summary>
 public static class SupervisorLauncher
@@ -49,8 +49,17 @@ public static class SupervisorLauncher
         return File.Exists(sibling) ? Path.GetFullPath(sibling) : null;
     }
 
-    /// <summary>True when a supervisor is installed and could be started.</summary>
-    public static bool IsInstalled => ResolveExePath() is not null;
+    /// <summary>
+    /// True when a supervisor executable is present on disk and could therefore be started.
+    /// </summary>
+    /// <remarks>
+    /// Named for what it actually checks. It was called <c>IsInstalled</c>, and the gap between
+    /// "the file is there" and "supervision is installed" is exactly where a defect lived: the
+    /// restart path read it as the latter and handed launch-at-logon to a supervisor that owned
+    /// no launch registration. Presence of the exe says nothing about anything being registered
+    /// to run it — see <see cref="Startup.SupervisorLaunchRegistration"/> for that question.
+    /// </remarks>
+    public static bool IsExecutablePresent => ResolveExePath() is not null;
 
     /// <summary>
     /// Starts the supervisor. Returns false if none is installed or the launch threw —

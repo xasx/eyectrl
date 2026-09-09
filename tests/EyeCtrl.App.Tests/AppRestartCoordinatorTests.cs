@@ -383,10 +383,60 @@ public class AppRestartCoordinatorTests
         Check.That(h.Log).ContainsExactly("shutdown");
 
         // The ORDER, not just the end state. Asserting only the three booleans let the
-        // implementation drift from its own doc comment once already: publishing must be on
-        // before anything can adopt us, and persist must precede the launch. It is also the
-        // only throwing step, so it goes last.
-        Check.That(h.BringUp).ContainsExactly("publish", "persist", "launch");
+        // implementation drift from its own doc comment once already.
+        //
+        // Persist now follows the launch rather than preceding it. The original order wrote
+        // Supervision.Enabled to disk before anything had been started, so a launch that
+        // failed still left the setting latched on — and because persisting also hands
+        // launch-at-logon to the supervisor, that deleted the HKCU Run key in favour of a
+        // Scheduled Task nothing installs. Requiring a started process first is the smallest
+        // change that makes "opt-in" mean opted-in.
+        //
+        // What has NOT changed, and must not: publishing is still first (nothing can adopt an
+        // instance that never heartbeats), and persist still precedes the poll and the
+        // shutdown, so the replacement the supervisor relaunches still reads Enabled == true.
+        Check.That(h.BringUp).ContainsExactly("publish", "launch", "persist");
+    }
+
+    [Fact]
+    public void SupervisorThatFailsToLaunch_DoesNotLatchSupervisionOn()
+    {
+        // The self-latch. A launch that never started a process must leave no trace: no
+        // persisted Enabled, and therefore no handover of launch-at-logon. Otherwise one press
+        // of Restart permanently flips a flag documented "opt-in for v1" and deletes the app's
+        // autostart, and the user meets the consequence at the next logon with no input channel.
+        var h = new Harness(supervisionEnabled: false)
+        {
+            SupervisorInstalled = true,
+            SupervisorLaunches = false,
+        };
+
+        h.Request(startSupervisor: true);
+
+        Check.That(h.SupervisionPersisted).IsFalse();
+        Check.That(h.Settings.Supervision.Enabled).IsFalse();
+        Check.That(h.BringUp).ContainsExactly("publish", "launch");
+
+        // Still restarts — refusing to launch a supervisor is not a reason to strand the user.
+        Check.That(h.SelfAttempts).IsEqualTo(1);
+        Check.That(h.Log).ContainsExactly("shutdown");
+    }
+
+    [Fact]
+    public void SupervisorThatLaunchesButNeverAnswers_StillPersists()
+    {
+        // Deliberately NOT symmetric with the failed-launch case. A process was started, so a
+        // late-arriving supervisor may still adopt the replacement — and it kills an instance
+        // that does not heartbeat. Persisting is what keeps the replacement publishing.
+        // Evidence of a started process, not evidence of a reachable one, is the bar here.
+        var h = new Harness(supervisionEnabled: false) { SupervisorInstalled = true };
+        h.SupervisorReachable = false;
+
+        h.Request(startSupervisor: true);
+
+        Check.That(h.SupervisionPersisted).IsTrue();
+        Check.That(h.SelfAttempts).IsEqualTo(1);
+        Check.That(h.Coordinator.SupervisorRelaunchRequested).IsFalse();
     }
 
     [Fact]

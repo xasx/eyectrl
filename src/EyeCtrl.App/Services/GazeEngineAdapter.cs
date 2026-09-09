@@ -97,7 +97,24 @@ public class GazeEngineAdapter : IDisposable
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to handle selected action {Action}", msg.Action);
-                try { _interactionManager.OnFixationEnded(); }
+
+                // Reset with the states this path can actually be IN, not the one the activation
+                // handler above recovers from. OnFixationEnded is guarded on CurrentState ==
+                // Fixation, and OnActionSelected is never in Fixation when it throws: it enters at
+                // ActionMenuVisible/ManualSelectionActionMenuVisible and may already have moved to
+                // Dragging or ScrollMode before the throw. Copying that call here looked symmetric
+                // and recovered nothing — and being stuck in Dragging or ScrollMode is the worst
+                // case, because TogglePause is deliberately blocked in both, so a gaze-only user
+                // would be left with no cancel button and no way to pause out of it.
+                //
+                // All three are themselves state-guarded, so calling them in sequence is safe from
+                // any state: at most one does anything, and from FreeLook none of them do.
+                try
+                {
+                    _interactionManager.CompleteDrag();
+                    _interactionManager.ExitScrollMode();
+                    _interactionManager.OnActionMenuDismissed();
+                }
                 catch (Exception resetEx) { _logger.LogError(resetEx, "Failed to reset interaction state after action error"); }
             }
         });

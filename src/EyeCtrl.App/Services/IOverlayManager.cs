@@ -66,7 +66,18 @@ public interface IOverlayManager
     TargetHighlightWindow TargetHighlight { get; }
 
     /// <summary>Gets the context-driven right-edge button bar window.</summary>
-    EdgeButtonBarWindow EdgeButtonBar { get; }
+    /// <summary>
+    /// The screen-edge button bar, as a seam rather than the window.
+    /// </summary>
+    /// <remarks>
+    /// Narrowed from the concrete <c>EdgeButtonBarWindow</c> to <see cref="IEdgeButtonBar"/>. The
+    /// concrete type forced every test that touched a coordinator reaching this property to stand
+    /// up a real WPF window — an STA thread, an <c>Application</c> singleton and the app resource
+    /// dictionary — which is why <c>DragCoordinator</c>'s success path had no headless coverage and
+    /// a mouse button left pressed on exit went unnoticed. Every other member of this interface is
+    /// still the concrete window; this one was the one that cost coverage.
+    /// </remarks>
+    IEdgeButtonBar EdgeButtonBar { get; }
 
     /// <summary>Gets the track status overlay window (eye position, distance, presence).</summary>
     TrackStatusWindow TrackStatus { get; }

@@ -140,6 +140,81 @@ public class DragCoordinatorTests
         Check.That(input.ButtonsBalanced).IsTrue();
     }
 
+    [StaFact]
+    public void DisposeDuringALiveDrag_ReleasesTheButton()
+    {
+        // THE headline path, and until IOverlayManager.EdgeButtonBar was narrowed to an interface
+        // it could not be tested at all. Tray Exit, Settings → Restart and Windows logoff all reach
+        // Dispose with a drag genuinely in progress, and none of them released — so the successor
+        // process came up in FreeLook with the physical button still down and the user's gaze
+        // became a drag they could not stop.
+        //
+        // "Genuinely in progress" is the hard part: it requires OnDragStarted's setup to SUCCEED,
+        // which calls ShowButtons. While that property was the concrete EdgeButtonBarWindow, a fake
+        // had to be a real WPF window, so every other test here could only cover the setup-FAILURE
+        // path — where the abort has already released — and deleting the dispose release left them
+        // all green. This is the test that closes that gap.
+        //
+        // Still [StaFact]: the drag trail overlay is a real window. But that one constructs without
+        // an Application singleton or the app resource dictionary, which the edge bar needed.
+        var input = new TestFakes.FakeInputSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator();
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(300, 300));
+
+        // Setup completed: the cancel button is up, so the user had a way out and the abort path
+        // did NOT run. Without these two the test could pass on the failure path by accident.
+        Check.That(bar.ShownButtonIds).ContainsExactly("Drag_cancel");
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(input.MouseUpCount).IsEqualTo(0);   // genuinely held
+
+        c.Dispose();
+
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonsBalanced).IsTrue();
+    }
+
+    [StaFact]
+    public void ASuccessfulDragThenDrop_BalancesAndClearsTheBar()
+    {
+        // The ordinary path, now observable end to end. Also pins that the drop clears the cancel
+        // button: leaving it on screen after the drag ends would dwell-activate into a cancel for a
+        // drag that no longer exists.
+        var input = new TestFakes.FakeInputSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator();
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+        c.OnDragDrop(new DragDropMessage(new PhysicalPoint(90, 90)));
+
+        Check.That(input.ButtonsBalanced).IsTrue();
+        Check.That(bar.ShownButtonIds).IsEmpty();
+        Check.That(bar.Calls).Contains("Hide");
+    }
+
+    [StaFact]
+    public void ASuccessfulDragThenCancel_ReleasesAtTheGrabOrigin()
+    {
+        // Cancel releases where the drag STARTED, not where gaze happens to be — releasing at a
+        // stale or arbitrary point drops the dragged object somewhere the user never chose.
+        var input = new TestFakes.FakeInputSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator();
+        c.Initialize(context);
+
+        var origin = new PhysicalPoint(123, 456);
+        c.OnDragStarted(origin);
+        c.OnDragCancel();
+
+        Check.That(input.ButtonsBalanced).IsTrue();
+        var release = input.ButtonEvents.Single(e => e.Action == "MouseUp");
+        Check.That(release.Point.X).IsEqualTo(origin.X);
+        Check.That(release.Point.Y).IsEqualTo(origin.Y);
+    }
+
     [Fact]
     public void CancelReleasesBeforeTouchingTheOverlays()
     {

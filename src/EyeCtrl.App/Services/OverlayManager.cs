@@ -34,7 +34,16 @@ public class OverlayManager : IOverlayManager
     public GlassBackdropWindow GlassBackdrop { get; private set; } = null!;
     public CalibrationWindow Calibration { get; private set; } = null!;
     public TargetHighlightWindow TargetHighlight { get; private set; } = null!;
-    public EdgeButtonBarWindow EdgeButtonBar { get; private set; } = null!;
+    /// <summary>
+    /// The window itself. This class owns it, so it keeps the concrete type for the things only an
+    /// owner does — binding a DataContext, calling <c>SyncButtons</c>, and driving
+    /// <c>Window.Show</c>/<c>Window.Hide</c> from the view model's visibility. Consumers get
+    /// <see cref="EdgeButtonBar"/> instead.
+    /// </summary>
+    private EdgeButtonBarWindow _edgeButtonBarWindow = null!;
+
+    /// <inheritdoc />
+    public IEdgeButtonBar EdgeButtonBar => _edgeButtonBarWindow;
     public TrackStatusWindow TrackStatus { get; private set; } = null!;
     public TaskSwitcherWindow TaskSwitcher { get; private set; } = null!;
     public QuickActionsGridWindow QuickActionsGrid { get; private set; } = null!;
@@ -66,7 +75,7 @@ public class OverlayManager : IOverlayManager
         ManualSelectionIndicator = new ManualSelectionGazeIndicatorWindow();
         GlassBackdrop = new GlassBackdropWindow();
         TargetHighlight = new TargetHighlightWindow();
-        EdgeButtonBar = new EdgeButtonBarWindow();
+        _edgeButtonBarWindow = new EdgeButtonBarWindow();
         PauseIndicator = new PauseIndicatorWindow();
 
         // Configure ManualSelection indicator
@@ -91,16 +100,21 @@ public class OverlayManager : IOverlayManager
         // Set DataContext for TargetHighlight
         TargetHighlight.DataContext = viewModels.TargetHighlight;
 
-        EdgeButtonBar.DataContext = viewModels.EdgeButtonBar;
-        viewModels.EdgeButtonBar.ButtonSetChanged += () => EdgeButtonBar.SyncButtons();
+        _edgeButtonBarWindow.DataContext = viewModels.EdgeButtonBar;
+        viewModels.EdgeButtonBar.ButtonSetChanged += () => _edgeButtonBarWindow.SyncButtons();
         viewModels.EdgeButtonBar.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(EdgeButtonBarViewModel.IsVisible))
             {
                 if (viewModels.EdgeButtonBar.IsVisible)
-                    EdgeButtonBar.Show();
+                    _edgeButtonBarWindow.Show();
                 else
-                    ((System.Windows.Window)EdgeButtonBar).Hide();
+                    // The cast is REQUIRED and must stay. EdgeButtonBarWindow declares
+                    // `public new void Hide()`, which clears the view model — the very change that
+                    // raised this notification. Calling it unqualified would hide nothing and
+                    // re-enter the view model instead of the window. Casting to Window reaches
+                    // Window.Hide, which is what "the VM went invisible" is supposed to do.
+                    ((System.Windows.Window)_edgeButtonBarWindow).Hide();
             }
         };
 

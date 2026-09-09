@@ -318,7 +318,7 @@ public class ToolbarVisibilityAdapterTests
         public GlassBackdropWindow GlassBackdrop => throw new NotImplementedException();
         public CalibrationWindow Calibration => throw new NotImplementedException();
         public TargetHighlightWindow TargetHighlight => throw new NotImplementedException();
-        public EdgeButtonBarWindow EdgeButtonBar => throw new NotImplementedException();
+        public IEdgeButtonBar EdgeButtonBar => throw new NotImplementedException();
         public TrackStatusWindow TrackStatus => throw new NotImplementedException();
         public TaskSwitcherWindow TaskSwitcher => throw new NotImplementedException();
         public QuickActionsGridWindow QuickActionsGrid => throw new NotImplementedException();

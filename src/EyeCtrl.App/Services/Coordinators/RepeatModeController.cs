@@ -83,13 +83,20 @@ internal sealed class RepeatModeController : CoordinatorBase
 
     /// <summary>
     /// Pool thread (global hatch, issue #141): ESC pressed anywhere in the system ends the
-    /// mode — the message registration marshals into the state-guarded ExitRepeatMode, so a
-    /// press outside the mode is a no-op.
+    /// mode. Marshaled to the UI thread before the Send (review PR #142): Messenger delivers
+    /// synchronously to every recipient, and a future recipient may not marshal — the send
+    /// thread is the delivery thread. <c>ExitRepeatMode</c> is state-guarded, so an ESC
+    /// outside the mode is a no-op either way.
     /// </summary>
     private void OnEscapePressed()
     {
-        if (Context?.InteractionManager.CurrentState == InteractionState.RepeatMode)
-            Context.Messenger.Send(new ExitRepeatModeMessage());
+        var context = Context;
+        if (context is null) return;
+        context.Dispatcher.BeginInvoke(() =>
+        {
+            if (context.InteractionManager.CurrentState == InteractionState.RepeatMode)
+                context.Messenger.Send(new ExitRepeatModeMessage());
+        });
     }
 
     private void OnModesMenuVMVisibilityChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

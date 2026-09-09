@@ -69,13 +69,23 @@ internal sealed class DragCoordinator : CoordinatorBase
     /// Pool thread (global hatch, issue #141): ESC pressed anywhere in the system cancels the
     /// drag. The ComponentDispatcher filter this replaced could only see keystrokes aimed at
     /// EyeCtrl's own windows — and drag exists to act on other apps, which hold the foreground.
-    /// Guarded on state: <see cref="OnDragCancel"/> sends an unconditional MouseUp, and a stray
-    /// one could release a caregiver's physically held button.
+    /// The Send is marshaled to the UI thread BEFORE fan-out (review PR #142): Messenger
+    /// delivers synchronously to every recipient, and <see cref="DragTrailViewModel"/>'s
+    /// <c>DragCancelMessage</c> handler does not marshal — sending from the pool thread would
+    /// run its dwell teardown off the UI thread. The state guard lives INSIDE the dispatched
+    /// action: <see cref="OnDragCancel"/> sends an unconditional MouseUp, and a stray one could
+    /// release a caregiver's physically held button if the drag ended between the guard and
+    /// the send.
     /// </summary>
     private void OnEscapePressed()
     {
-        if (Context?.InteractionManager.CurrentState == InteractionState.Dragging)
-            Context.Messenger.Send(new DragCancelMessage());
+        var context = Context;
+        if (context is null) return;
+        context.Dispatcher.BeginInvoke(() =>
+        {
+            if (context.InteractionManager.CurrentState == InteractionState.Dragging)
+                context.Messenger.Send(new DragCancelMessage());
+        });
     }
 
     internal void OnDragStarted(PhysicalPoint grabOrigin)

@@ -164,6 +164,8 @@ internal static class TestFakes
         private readonly IToolbarOverlay? _toolbar;
         private readonly IPauseIndicatorOverlay? _pauseIndicator;
 
+        public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
+
         public PartialOverlayManager(IEdgeButtonBar? bar, IToolbarOverlay? toolbar,
             IPauseIndicatorOverlay? pauseIndicator)
         {

@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -14,7 +16,7 @@ using EyeCtrl.ViewModels;
 /// hit-tests against true coordinates. The close button is a dwell target (not a WPF Button —
 /// gaze produces no mouse clicks). Mirrors the TaskSwitcherWindow layout-sync pattern.
 /// </summary>
-public partial class QuickActionsGridWindow : OverlayWindow
+public partial class QuickActionsGridWindow : OverlayWindow, IQuickActionsGridOverlay
 {
     /// <summary>
     /// The close button's diameter, declared in XAML as Width/Height 44.

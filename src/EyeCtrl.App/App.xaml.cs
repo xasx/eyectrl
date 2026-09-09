@@ -493,7 +493,7 @@ public partial class App : Application
                 vms.QuickActionsGrid);
     }
 
-    private (CursorCircleWindow CursorCircle, ToolbarWindow Toolbar) InitializeOverlays(
+    private (ICursorCircleOverlay CursorCircle, IToolbarOverlay Toolbar) InitializeOverlays(
         IOverlayManager overlayManager,
         OverlayViewModels viewModels,
         EyeCtrlSettings settings,
@@ -505,8 +505,8 @@ public partial class App : Application
 
     private static void ShowOverlays(
         SplashWindow? splash,
-        CursorCircleWindow cursorCircle,
-        ToolbarWindow toolbar,
+        ICursorCircleOverlay cursorCircle,
+        IToolbarOverlay toolbar,
         EyeCtrlSettings settings)
     {
         splash?.Close();

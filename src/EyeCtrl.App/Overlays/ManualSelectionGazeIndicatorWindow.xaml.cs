@@ -1,11 +1,13 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using EyeCtrl.Core.Services;
 
-public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow
+public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow, IManualSelectionIndicatorOverlay
 {
     private double _maxDiameter = 30;
 

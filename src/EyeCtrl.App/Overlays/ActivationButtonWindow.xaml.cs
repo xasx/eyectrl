@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -8,7 +10,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
-public partial class ActivationButtonWindow : OverlayWindow
+public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOverlay
 {
     // UI Layout Constants
     private const double ButtonCenter = 50.0; // Center coordinate within the button canvas

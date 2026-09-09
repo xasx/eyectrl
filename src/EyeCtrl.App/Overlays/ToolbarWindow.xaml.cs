@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -24,7 +26,7 @@ using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 /// looks.
 /// </para>
 /// </summary>
-public partial class ToolbarWindow : OverlayWindow
+public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
 {
     private readonly ToolbarBand _band;
 
@@ -384,6 +386,20 @@ public partial class ToolbarWindow : OverlayWindow
     }
 
     public void SetPausedState(bool isPaused) => _band.SwapIcon("Pause", isPaused ? "Play" : "Pause");
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Moved here from <c>ToolbarLifecycleCoordinator.CaptureToolbarRect</c>, which read this
+    /// window's Left/Top/ActualWidth/ActualHeight and converted them itself. Those four reads were
+    /// the only reason the coordinator needed the concrete window type, so exposing the answer
+    /// instead of the inputs is what let <see cref="IToolbarOverlay"/> stay free of WPF. The
+    /// conversion also belongs next to the layout values it converts.
+    /// </remarks>
+    public PhysicalRect GetPhysicalBounds() => new(
+        Core.Services.DpiHelper.LogicalToPhysicalX(Left),
+        Core.Services.DpiHelper.LogicalToPhysicalY(Top),
+        Core.Services.DpiHelper.LogicalToPhysicalX(ActualWidth),
+        Core.Services.DpiHelper.LogicalToPhysicalY(ActualHeight));
 
     /// <summary>Applies the selection-mode tint. See <see cref="ToolbarBand.SetSelectionMode"/>.</summary>
     public void SetSelectionModeState(SelectionMode mode) => _band.SetSelectionMode(mode);

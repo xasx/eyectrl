@@ -15,55 +15,60 @@ public interface IOverlayManager
     /// <summary>
     /// Gets the cursor circle overlay window.
     /// </summary>
-    CursorCircleWindow CursorCircle { get; }
+    ICursorCircleOverlay CursorCircle { get; }
 
     /// <summary>
     /// Gets the activation button overlay window.
     /// </summary>
-    ActivationButtonWindow ActivationButton { get; }
+    IActivationButtonOverlay ActivationButton { get; }
 
     /// <summary>
     /// Gets the ManualSelection overlay window.
     /// </summary>
-    ManualSelectionOverlayWindow ManualSelectionOverlay { get; }
+    IManualSelectionOverlay ManualSelectionOverlay { get; }
 
     /// <summary>
     /// Gets the action menu overlay window.
     /// </summary>
-    ActionMenuWindow ActionMenu { get; }
+    IActionMenuOverlay ActionMenu { get; }
 
     /// <summary>
     /// Gets the toolbar overlay window.
     /// </summary>
-    ToolbarWindow Toolbar { get; }
+    IToolbarOverlay Toolbar { get; }
 
     /// <summary>Thin edge-bar pause indicator; shown when toolbar is hidden + paused.</summary>
-    PauseIndicatorWindow PauseIndicator { get; }
+    IPauseIndicatorOverlay PauseIndicator { get; }
 
     /// <summary>
     /// Gets the keyboard overlay window.
     /// </summary>
+    // Deliberately NOT narrowed. Its consumers use it as a window: LoadKeyboard drives seven
+    // setup members (LoadLayout, SetEmojiData, SetOrchestrator, SetScreenEdge, SetSettings,
+    // SetSkinTone, SetSoundService), so an interface would carry twelve members of pure
+    // configuration that no test asserts on. That is a facade over the window, not a seam — it
+    // would add indirection without removing the WPF dependency it exists to remove.
     KeyboardWindow Keyboard { get; }
 
     /// <summary>
     /// Gets the ManualSelection gaze indicator overlay window.
     /// </summary>
-    ManualSelectionGazeIndicatorWindow ManualSelectionIndicator { get; }
+    IManualSelectionIndicatorOverlay ManualSelectionIndicator { get; }
 
     /// <summary>
     /// Gets the fullscreen glass backdrop overlay window.
     /// </summary>
-    GlassBackdropWindow GlassBackdrop { get; }
+    IGlassBackdropOverlay GlassBackdrop { get; }
 
     /// <summary>
     /// Gets the calibration overlay window.
     /// </summary>
-    CalibrationWindow Calibration { get; }
+    ICalibrationOverlay Calibration { get; }
 
     /// <summary>
     /// Gets the target highlight overlay window.
     /// </summary>
-    TargetHighlightWindow TargetHighlight { get; }
+    ITargetHighlightOverlay TargetHighlight { get; }
 
     /// <summary>Gets the context-driven right-edge button bar window.</summary>
     /// <summary>
@@ -80,13 +85,13 @@ public interface IOverlayManager
     IEdgeButtonBar EdgeButtonBar { get; }
 
     /// <summary>Gets the track status overlay window (eye position, distance, presence).</summary>
-    TrackStatusWindow TrackStatus { get; }
+    ITrackStatusOverlay TrackStatus { get; }
 
     /// <summary>Gets the fullscreen Task Switcher overlay window.</summary>
-    TaskSwitcherWindow TaskSwitcher { get; }
+    ITaskSwitcherOverlay TaskSwitcher { get; }
 
     /// <summary>Gets the quick-actions grid overlay window.</summary>
-    QuickActionsGridWindow QuickActionsGrid { get; }
+    IQuickActionsGridOverlay QuickActionsGrid { get; }
 
     /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.

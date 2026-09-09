@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -14,7 +16,7 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 
-public partial class GlassBackdropWindow : OverlayWindow
+public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 {
     private const int AccentEnableAcrylicBlurBehind = 4;
 

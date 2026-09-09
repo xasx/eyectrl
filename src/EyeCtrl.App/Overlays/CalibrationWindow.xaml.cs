@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -11,7 +13,7 @@ using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
-public partial class CalibrationWindow : OverlayWindow
+public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 {
     private CalibrationViewModel? _viewModel;
     private Storyboard? _pulseAnimation;

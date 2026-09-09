@@ -16,7 +16,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
-public partial class ActionMenuWindow : OverlayWindow
+public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 {
     // UI Layout Constants
     private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render

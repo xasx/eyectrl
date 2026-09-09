@@ -16,7 +16,7 @@ using EyeCtrl.ViewModels;
 /// dwell. Positions are computed after layout and pushed back into the VM's DwellDetector
 /// so gaze hit-testing uses real screen coordinates (H3 fix).
 /// </summary>
-public partial class TaskSwitcherWindow : OverlayWindow
+public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 {
     private TaskSwitcherViewModel? _viewModel;
     private IAppIconProvider? _iconProvider;

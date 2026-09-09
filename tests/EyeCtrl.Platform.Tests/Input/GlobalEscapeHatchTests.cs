@@ -82,6 +82,62 @@ public class GlobalEscapeHatchTests
         Check.That(hatch.IsActive).IsFalse();
     }
 
+    [Fact]
+    public void ThrowingInterop_DegradesToInactive_WithoutCrashing()
+    {
+        // Review PR #142: the first native call threw EntryPointNotFoundException on the hook
+        // thread — an unhandled background-thread exception is a process kill, on every launch.
+        // ANY start-up failure must degrade to IsActive=false instead (design H5).
+        using var hatch = new GlobalEscapeHatch(new ThrowingInterop());
+        Check.That(hatch.IsActive).IsFalse();
+    }
+
+    [Fact]
+    public void ThrowingSubscriber_DoesNotKillTheDispatch_OthersStillRun()
+    {
+        var interop = new FakeLowLevelKeyboardInterop();
+        using var hatch = new GlobalEscapeHatch(interop);
+
+        var healthy = new ManualResetEventSlim(false);
+        hatch.EscapePressed += () => throw new InvalidOperationException("subscriber boom");
+        hatch.EscapePressed += () => healthy.Set();
+
+        var lParam = AllocLParam(0x1B);
+        try { interop.CapturedProc!(0, (IntPtr)0x0100, lParam); }
+        finally { Marshal.FreeHGlobal(lParam); }
+
+        // The throwing subscriber must neither kill the process nor skip its neighbours.
+        Check.That(healthy.Wait(2000)).IsTrue();
+    }
+
+    [Fact]
+    public void RealHook_InstallsAndDisposes_WhenSmokeEnabled()
+    {
+        // Opt-in only (set EYECTRL_HATCH_SMOKE=1): installs a REAL system-wide keyboard hook,
+        // which CI and parallel test runs must not do. This is the automated counterpart of the
+        // reviewer's probe: it exists to prove the interop declarations actually resolve and
+        // the lifecycle runs — the failure it replaced was a launch crash.
+        if (Environment.GetEnvironmentVariable("EYECTRL_HATCH_SMOKE") != "1") return;
+
+        using var hatch = new GlobalEscapeHatch();
+        Check.That(hatch.IsActive).IsTrue();
+        hatch.Dispose();
+        Check.That(hatch.IsActive).IsFalse();
+    }
+
+    private sealed class ThrowingInterop : GlobalEscapeHatch.ILowLevelKeyboardInterop
+    {
+        public IntPtr SetWindowsHookEx(int idHook, LowLevelHookProc lpfn, IntPtr hMod, uint dwThreadId)
+            => throw new EntryPointNotFoundException("simulated bad declaration");
+        public int CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam) => 0;
+        public bool UnhookWindowsHookEx(IntPtr hhk) => true;
+        public uint GetCurrentThreadId() => throw new EntryPointNotFoundException("simulated bad declaration");
+        public bool PostThreadMessage(uint threadId, uint msg, IntPtr wParam, IntPtr lParam) => true;
+        public int GetMessage(out NativeMethods.MSG msg, IntPtr hWnd, uint min, uint max)
+        { msg = default; return 0; }
+        public IntPtr GetModuleHandle(IntPtr name) => new(2);
+    }
+
     private sealed class FakeLowLevelKeyboardInterop : GlobalEscapeHatch.ILowLevelKeyboardInterop
     {
         private readonly ManualResetEventSlim _quit = new(false);

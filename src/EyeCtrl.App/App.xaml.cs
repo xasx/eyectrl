@@ -244,6 +244,11 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<IGlobalEscapeHatch>());
             _eventCoordinator.Initialize(coordinationContext);
 
+            // Surface a degraded hatch at startup (review PR #142): a failed or policy-blocked
+            // hook is otherwise silent, and ESC is the caregiver's gaze-independent exit.
+            if (!_serviceProvider.GetRequiredService<IGlobalEscapeHatch>().IsActive)
+                Log.Warning("Global escape hatch is NOT active — ESC will not end drag/repeat; the gaze exits remain.");
+
             // Warm the installed-app cache off the UI thread (the provider walks Shell AppsFolder
             // on its own STA worker; this just triggers the one-time enumeration early).
             System.Threading.Tasks.Task.Run(

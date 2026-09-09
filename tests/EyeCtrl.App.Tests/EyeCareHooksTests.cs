@@ -51,8 +51,14 @@ public class EyeCareHooksTests
             null);
         System.Windows.Threading.Dispatcher.PushFrame(frame);
 
-        Check.That(window.SummaryAccuracy.Text).IsEqualTo("92%");
-        Check.That(window.SummarySteadiness.Text).IsEqualTo("4.3");
+        // Culture-agnostic: the window formats with the CURRENT culture
+        // ($"{outcome.Steadiness0To5:0.0}"), so a German machine renders "4,3" — which is correct
+        // for a German user. Hard-coding "4.3" made this test pass only where the decimal
+        // separator happens to be a point, and CI never caught it because CI does not run
+        // Category=UI. Assert through the same format string so the test checks the value, not the
+        // locale.
+        Check.That(window.SummaryAccuracy.Text).IsEqualTo($"{92:0}%");
+        Check.That(window.SummarySteadiness.Text).IsEqualTo($"{4.3:0.0}");
 
         window.Close();
     }

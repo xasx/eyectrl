@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
@@ -8,7 +10,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 
-public partial class EyeCareBannerWindow : OverlayWindow
+public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
 {
     /// <summary>
     /// The dwell ring's diameter, declared in XAML as the two rings' Grid Width/Height 64.

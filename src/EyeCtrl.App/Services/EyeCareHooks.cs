@@ -12,8 +12,8 @@ using EyeCtrl.ViewModels.Messages;
 public sealed class EyeCareHooks : IEyeCareHooks
 {
     private readonly Dispatcher _dispatcher;
-    private readonly EyeCareBannerWindow _banner;
-    private readonly EyeCareExerciseWindow _exerciseWindow;
+    private readonly IEyeCareBanner _banner;
+    private readonly IEyeCareExercise _exerciseWindow;
     private readonly PhysicalPoint _screenCenter;
     private readonly int _bannerAutoSnoozeSeconds;
 
@@ -23,8 +23,8 @@ public sealed class EyeCareHooks : IEyeCareHooks
     public EyeCareHooks(
         IMessenger messenger,
         Dispatcher dispatcher,
-        EyeCareBannerWindow banner,
-        EyeCareExerciseWindow exerciseWindow,
+        IEyeCareBanner banner,
+        IEyeCareExercise exerciseWindow,
         PhysicalPoint screenCenter,
         int bannerAutoSnoozeSeconds = 15)
     {

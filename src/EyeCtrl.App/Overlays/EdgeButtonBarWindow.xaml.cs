@@ -9,7 +9,12 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
-public partial class EdgeButtonBarWindow : OverlayWindow
+/// <summary>
+/// The concrete edge-button bar window. Implements <see cref="IEdgeButtonBar"/> so consumers depend
+/// on the five members they use rather than on a WPF <c>Window</c> — see that interface for why the
+/// difference mattered.
+/// </summary>
+public partial class EdgeButtonBarWindow : OverlayWindow, IEdgeButtonBar
 {
     // Shared with ScreenGeometry's right-edge anchor so the window's border lines up on screen.
     private const double ButtonMargin = ScreenGeometry.EdgeButtonWindowMarginLogical;
@@ -24,6 +29,7 @@ public partial class EdgeButtonBarWindow : OverlayWindow
         InitializeComponent();
     }
 
+    /// <inheritdoc />
     public EdgeButtonBarViewModel? EdgeBarVm => DataContext as EdgeButtonBarViewModel;
 
     public void ShowButtons(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor)

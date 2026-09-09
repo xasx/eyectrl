@@ -1,7 +1,9 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -85,6 +87,92 @@ internal static class TestFakes
             InteractionManager = new InteractionManager(),
             DragTrailVM = new DragTrailViewModel(settings, messenger),
         };
+    }
+
+    /// <summary>
+    /// Like <see cref="MakeDragContext"/> but with an overlay manager whose edge-button bar is a
+    /// recording fake, so a drag can be started WITHOUT the setup failing.
+    /// </summary>
+    /// <remarks>
+    /// This only became possible when <c>IOverlayManager.EdgeButtonBar</c> was narrowed from the
+    /// concrete <c>EdgeButtonBarWindow</c> to <see cref="IEdgeButtonBar"/>. While it was the window,
+    /// a fake had to return a real WPF window — pulling in an STA thread, an <c>Application</c>
+    /// singleton and the app resource dictionary — so the drag success path had no headless
+    /// coverage at all, and the mouse-button-left-pressed defect was invisible to the suite.
+    /// </remarks>
+    internal static (EventCoordinationContext Context, FakeEdgeButtonBar Bar) MakeDragContextWithBar(
+        IInputSimulator input)
+    {
+        var bar = new FakeEdgeButtonBar();
+        var ctx = MakeDragContext(input) with { OverlayManager = new EdgeBarOnlyOverlayManager(bar) };
+        return (ctx, bar);
+    }
+
+    /// <summary>Records what the app asked the edge bar to do.</summary>
+    internal sealed class FakeEdgeButtonBar : IEdgeButtonBar
+    {
+        public List<string> Calls { get; } = new();
+
+        public List<string> ShownButtonIds { get; } = new();
+
+        public EdgeButtonBarViewModel? EdgeBarVm => null;
+
+        public void ShowButtons(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor)
+        {
+            Calls.Add("ShowButtons");
+            ShownButtonIds.Clear();
+            ShownButtonIds.AddRange(definitions.Select(d => d.Id));
+        }
+
+        public void AddButton(EdgeButtonDefinition definition)
+        {
+            Calls.Add("AddButton:" + definition.Id);
+            ShownButtonIds.Add(definition.Id);
+        }
+
+        public void RemoveButton(string id)
+        {
+            Calls.Add("RemoveButton:" + id);
+            ShownButtonIds.Remove(id);
+        }
+
+        public void Hide()
+        {
+            Calls.Add("Hide");
+            ShownButtonIds.Clear();
+        }
+    }
+
+    /// <summary>
+    /// An <see cref="IOverlayManager"/> that supplies only the edge-button bar. Every other member
+    /// throws rather than returning null!, so a coordinator that reaches beyond what the test
+    /// intends fails loudly instead of with an NRE somewhere unrelated — the same discipline
+    /// <c>ToolbarVisibilityAdapterTests.FakeOverlayManager</c> uses.
+    /// </summary>
+    private sealed class EdgeBarOnlyOverlayManager : IOverlayManager
+    {
+        private readonly IEdgeButtonBar _bar;
+
+        public EdgeBarOnlyOverlayManager(IEdgeButtonBar bar) => _bar = bar;
+
+        public IEdgeButtonBar EdgeButtonBar => _bar;
+
+        public CursorCircleWindow CursorCircle => throw new NotImplementedException();
+        public ActivationButtonWindow ActivationButton => throw new NotImplementedException();
+        public ManualSelectionOverlayWindow ManualSelectionOverlay => throw new NotImplementedException();
+        public ActionMenuWindow ActionMenu => throw new NotImplementedException();
+        public ToolbarWindow Toolbar => throw new NotImplementedException();
+        public PauseIndicatorWindow PauseIndicator => throw new NotImplementedException();
+        public KeyboardWindow Keyboard => throw new NotImplementedException();
+        public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator => throw new NotImplementedException();
+        public GlassBackdropWindow GlassBackdrop => throw new NotImplementedException();
+        public CalibrationWindow Calibration => throw new NotImplementedException();
+        public TargetHighlightWindow TargetHighlight => throw new NotImplementedException();
+        public TrackStatusWindow TrackStatus => throw new NotImplementedException();
+        public TaskSwitcherWindow TaskSwitcher => throw new NotImplementedException();
+        public QuickActionsGridWindow QuickActionsGrid => throw new NotImplementedException();
+        public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType) => throw new NotImplementedException();
+        public void CloseAll() => throw new NotImplementedException();
     }
 
     /// <summary>

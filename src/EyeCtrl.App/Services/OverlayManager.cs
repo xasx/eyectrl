@@ -23,6 +23,52 @@ public class OverlayManager : IOverlayManager
     private readonly IStruggleTelemetrySink? _sink;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
 
+    private CursorCircleWindow _cursorCircle = null!;
+    /// <inheritdoc />
+    public ICursorCircleOverlay CursorCircle => _cursorCircle;
+    private ActivationButtonWindow _activationButton = null!;
+    /// <inheritdoc />
+    public IActivationButtonOverlay ActivationButton => _activationButton;
+    private ManualSelectionOverlayWindow _manualSelectionOverlay = null!;
+    /// <inheritdoc />
+    public IManualSelectionOverlay ManualSelectionOverlay => _manualSelectionOverlay;
+    private ActionMenuWindow _actionMenu = null!;
+    /// <inheritdoc />
+    public IActionMenuOverlay ActionMenu => _actionMenu;
+    private ToolbarWindow _toolbar = null!;
+    /// <inheritdoc />
+    public IToolbarOverlay Toolbar => _toolbar;
+    private PauseIndicatorWindow _pauseIndicator = null!;
+    /// <inheritdoc />
+    public IPauseIndicatorOverlay PauseIndicator => _pauseIndicator;
+    private KeyboardWindow _keyboard = null!;
+    /// <inheritdoc />
+    public KeyboardWindow Keyboard => _keyboard;
+    private ManualSelectionGazeIndicatorWindow _manualSelectionIndicator = null!;
+    /// <inheritdoc />
+    public IManualSelectionIndicatorOverlay ManualSelectionIndicator => _manualSelectionIndicator;
+    private GlassBackdropWindow _glassBackdrop = null!;
+    /// <inheritdoc />
+    public IGlassBackdropOverlay GlassBackdrop => _glassBackdrop;
+    private CalibrationWindow _calibration = null!;
+    /// <inheritdoc />
+    public ICalibrationOverlay Calibration => _calibration;
+    private TargetHighlightWindow _targetHighlight = null!;
+    /// <inheritdoc />
+    public ITargetHighlightOverlay TargetHighlight => _targetHighlight;
+    /// <summary>
+    /// The window itself. This class owns it, so it keeps the concrete type for the things only an
+    /// owner does — binding a DataContext, calling <c>SyncButtons</c>, and driving
+    /// <c>Window.Show</c>/<c>Window.Hide</c> from the view model's visibility. Consumers get
+    /// <see cref="EdgeButtonBar"/> instead.
+    /// </summary>
+    private EdgeButtonBarWindow _edgeButtonBarWindow = null!;
+
+    /// <inheritdoc />
+    public IEdgeButtonBar EdgeButtonBar => _edgeButtonBarWindow;
+    private TrackStatusWindow _trackStatus = null!;
+    /// <inheritdoc />
+    public ITrackStatusOverlay TrackStatus => _trackStatus;
     private TaskSwitcherWindow _taskSwitcher = null!;
     /// <inheritdoc />
     public ITaskSwitcherOverlay TaskSwitcher => _taskSwitcher;
@@ -123,7 +169,7 @@ public class OverlayManager : IOverlayManager
 
         // Modes menu panel (small, under the toolbar). Takes the VM + toolbar height for placement.
         _modesMenu = new ModesMenuWindow();
-        ModesMenu.Configure(viewModels.ModesMenu, settings.Toolbar.Size);
+        _modesMenu.Configure(viewModels.ModesMenu, settings.Toolbar.Size);
 
         _logger.LogInformation("Overlay windows initialized successfully");
     }

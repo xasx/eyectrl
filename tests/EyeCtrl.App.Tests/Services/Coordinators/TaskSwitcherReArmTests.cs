@@ -184,6 +184,7 @@ public class TaskSwitcherReArmTests
 
         public IToolbarOverlay Toolbar => _toolbar;
         public ITaskSwitcherOverlay TaskSwitcher => _switcher;
+        public IModesMenuOverlay ModesMenu => null!;
         public IGlassBackdropOverlay GlassBackdrop => null!;
 
         public IPauseIndicatorOverlay PauseIndicator => throw new NotImplementedException();

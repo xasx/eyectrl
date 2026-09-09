@@ -56,7 +56,7 @@ public class ToolbarButtonVisualTests
     {
         var faces = Faces(NewInitialisedToolbar());
 
-        Check.WithCustomMessage("Six rendered buttons expected.").That(faces).HasSize(6);
+        Check.WithCustomMessage("Seven rendered buttons expected.").That(faces).HasSize(7);
         foreach (var f in faces)
         {
             // A square tile hid ~21.5% dead area outside the inscribed hit circle. An Ellipse of
@@ -101,7 +101,7 @@ public class ToolbarButtonVisualTests
             .ToList();
 
         Check.WithCustomMessage("A button fell back to a glyph — no icon paths.")
-            .That(iconLefts).HasSize(6);
+            .That(iconLefts).HasSize(7);
 
         var visibleText = canvas.Children.OfType<TextBlock>().Where(t => t.Opacity > 0).ToList();
         Check.WithCustomMessage("This design has no text on the button faces.")
@@ -150,7 +150,7 @@ public class ToolbarButtonVisualTests
             .Where(t => !string.IsNullOrEmpty(AutomationProperties.GetAutomationId(t)))
             .OrderBy(Canvas.GetLeft)
             .ToList();
-        Check.That(anchors).HasSize(6);
+        Check.That(anchors).HasSize(7);
 
         foreach (var anchor in anchors)
         {
@@ -168,7 +168,8 @@ public class ToolbarButtonVisualTests
         Check.That(anchors.Select(AutomationProperties.GetAutomationId))
             .ContainsExactly("Toolbar_Button_Pause", "Toolbar_Button_SelectionMode",
                 "Toolbar_Button_Keyboard", "Toolbar_Button_Settings",
-                "Toolbar_Button_TaskSwitcher", "Toolbar_Button_ResetAdaptation");
+                "Toolbar_Button_TaskSwitcher", "Toolbar_Button_Modes",
+                "Toolbar_Button_ResetAdaptation");
 
         foreach (var (anchor, face) in anchors.Zip(Faces(window).OrderBy(Canvas.GetLeft)))
         {
@@ -195,8 +196,8 @@ public class ToolbarButtonVisualTests
         // if every gap is uniformly wrong, and passes if the deliberate extra gap before Reset
         // vanishes entirely. At ButtonSize 120 the arithmetic is fully determined — margin 12,
         // pitch 144, and a 24 px ResetGap that makes the last step 168.
-        Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 756.0);
-        Check.That(canvas.Width).IsEqualTo(888.0);
+        Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 732.0, 900.0);
+        Check.That(canvas.Width).IsEqualTo(1032.0);
         Check.That(canvas.Height).IsEqualTo(144.0);
     }
 
@@ -302,13 +303,13 @@ public class ToolbarButtonVisualTests
     {
         var (window, vm) = NewBoundToolbar();
 
-        // Six buttons x (halo + progress arc) = 12 Paths, ALL collapsed at rest. Exact, not
-        // "at least one": a 1-of-12 bar would still pass if the wiring collapsed only whichever
-        // button happened to run last, leaving the other five arcs visible at zero length.
+        // Seven buttons x (halo + progress arc) = 14 Paths, ALL collapsed at rest. Exact, not
+        // "at least one": a 1-of-14 bar would still pass if the wiring collapsed only whichever
+        // button happened to run last, leaving the other six arcs visible at zero length.
         var arcs = ButtonCanvas(window).Children.OfType<Path>()
             .Where(p => p.Visibility == Visibility.Collapsed).ToList();
-        Check.WithCustomMessage("All twelve halo/progress Paths must be collapsed at rest.")
-            .That(arcs).HasSize(12);
+        Check.WithCustomMessage("All fourteen halo/progress Paths must be collapsed at rest.")
+            .That(arcs).HasSize(14);
 
         var pause = window.ButtonForTest("Pause");
         var keyboard = window.ButtonForTest("Keyboard");
@@ -504,7 +505,7 @@ public class ToolbarButtonVisualTests
 
         window.SetProviderIndicator(GazeProviderType.StreamEngine);
         Check.WithCustomMessage("The indicator must not add a face to the button band.")
-            .That(Faces(window)).HasSize(6);
+            .That(Faces(window)).HasSize(7);
         var afterOne = window.IndicatorPanel.Children.Count;
         Check.WithCustomMessage("The indicator drew nothing at all — this test would pass even "
                 + "if AddIndicatorElement were a no-op.")

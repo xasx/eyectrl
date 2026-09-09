@@ -233,6 +233,14 @@ public interface ITaskSwitcherOverlay
     void HideOverlay();
 }
 
+/// <summary>The modes menu panel (toolbar-triggered input-mode switches).</summary>
+public interface IModesMenuOverlay
+{
+    /// <summary>Places the panel top-centre under the toolbar and reports the row's dwell target.</summary>
+    void ShowAtTopCentre();
+    void HideMenu();
+}
+
 /// <summary>The quick-actions grid.</summary>
 public interface IQuickActionsGridOverlay
 {

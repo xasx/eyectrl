@@ -34,6 +34,8 @@ public enum ToolbarIconKey
     Settings,
     /// <summary>Two offset windows.</summary>
     TaskSwitcher,
+    /// <summary>Three stacked bars with the top one filled — a chosen mode among options; opens the modes menu.</summary>
+    Modes,
     /// <summary>Counter-clockwise arrow — reset struggle adaptation to baseline.</summary>
     ResetAdaptation,
     /// <summary>Eye — the gaze provider is a real tracker.</summary>

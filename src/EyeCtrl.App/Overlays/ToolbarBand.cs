@@ -151,6 +151,7 @@ internal sealed class ToolbarBand
             ("Keyboard",        "Keyboard"),
             ("Settings",        "Settings"),
             ("TaskSwitcher",    "TaskSwitcher"),
+            ("Modes",           "Modes"),
             ("ResetAdaptation", "ResetAdaptation"),
         };
 

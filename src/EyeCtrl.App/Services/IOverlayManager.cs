@@ -90,6 +90,9 @@ public interface IOverlayManager
     /// <summary>Gets the fullscreen Task Switcher overlay window.</summary>
     ITaskSwitcherOverlay TaskSwitcher { get; }
 
+    /// <summary>Gets the modes menu panel (toolbar-triggered input-mode switches).</summary>
+    IModesMenuOverlay ModesMenu { get; }
+
     /// <summary>Gets the quick-actions grid overlay window.</summary>
     IQuickActionsGridOverlay QuickActionsGrid { get; }
 
@@ -118,4 +121,5 @@ public record OverlayViewModels(
     EdgeButtonBarViewModel EdgeButtonBar,
     TrackStatusViewModel TrackStatus,
     TaskSwitcherViewModel TaskSwitcher,
-    QuickActionsGridViewModel QuickActionsGrid);
+    QuickActionsGridViewModel QuickActionsGrid,
+    ModesMenuViewModel ModesMenu);

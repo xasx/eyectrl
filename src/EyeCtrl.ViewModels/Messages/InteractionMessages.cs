@@ -161,6 +161,12 @@ public record ExitScrollModeMessage;
 /// <summary>Sent by the repeat-mode stop button (edge bar) or the Escape hatch to end locked repeat mode.</summary>
 public record ExitRepeatModeMessage;
 
+/// <summary>Sent by the Modes menu row (or any future entry point) to start locked repeat mode.</summary>
+public record EnterRepeatModeMessage;
+
+/// <summary>Sent by the toolbar Modes button to toggle the modes menu overlay.</summary>
+public record ModesMenuToggledMessage;
+
 // Task Switcher messages
 /// <summary>Sent by the toolbar Task Switcher button to toggle the overlay.</summary>
 public record TaskSwitcherToggledMessage;

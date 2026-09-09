@@ -12,13 +12,13 @@ public class ToolbarViewModelTests
     private readonly EyeCtrlSettings _settings = new();
 
     [Fact]
-    public void InitializesWithTheEightCoreButtons()
+    public void InitializesWithTheNineCoreButtons()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
 
         Check.That(vm.Buttons.Select(b => b.Id)).ContainsExactly(
             "Pause", "SelectionMode", "Keyboard", "Calibrate",
-            "Settings", "TaskSwitcher", "QuickActions", "ResetAdaptation");
+            "Settings", "TaskSwitcher", "Modes", "QuickActions", "ResetAdaptation");
     }
 
     [Fact]

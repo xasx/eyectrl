@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -8,7 +10,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
-public partial class EyeCareExerciseWindow : OverlayWindow
+public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
 {
     private TaskCompletionSource<bool>? _runTcs;
     private DispatcherTimer? _frameTimer;

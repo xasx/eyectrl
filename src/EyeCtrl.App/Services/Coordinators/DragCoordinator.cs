@@ -1,7 +1,6 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
 using System.ComponentModel;
-using System.Windows.Interop;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
@@ -14,9 +13,9 @@ using Serilog;
 /// <summary>
 /// Owns the drag surface of <see cref="EventCoordinator"/>: the <c>DragStarted</c> hook that presses
 /// the mouse and raises the trail overlay, the drop/cancel message registrations, the drag-trail VM
-/// binding (including the right-edge cancel/back buttons), and the WM_KEYDOWN/VK_ESCAPE thread filter
-/// that cancels an in-flight drag. Extracted from <c>EventCoordinator</c> as part of the
-/// sub-coordinator decomposition (cluster 4).
+/// binding (including the right-edge cancel/back buttons), and the global ESC-hatch subscription
+/// that cancels an in-flight drag (issue #141). Extracted from <c>EventCoordinator</c> as part of
+/// the sub-coordinator decomposition (cluster 4).
 /// <para>
 /// <b>The invariant this class owes the user: every <c>MouseDown</c> it issues is matched by a
 /// <c>MouseUp</c>, on every exit path.</b> A <c>SendInput</c> button-down is global OS state that
@@ -37,7 +36,6 @@ internal sealed class DragCoordinator : CoordinatorBase
 
     private DragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
-    private Action? _disposeEscapeHook;
 
     /// <summary>
     /// True between issuing <c>MouseDown</c> and its matching <c>MouseUp</c>. This coordinator's own
@@ -64,20 +62,20 @@ internal sealed class DragCoordinator : CoordinatorBase
         // ScrollModeController, which was a no-op because Dragging and ManualSelectionActive are
         // mutually exclusive InteractionStates — so consuming the message here would discard it
         // without effect. (The Drag_back button at OnDragTrailVMPropertyChanged still sends it.)
-        ComponentDispatcher.ThreadFilterMessage += OnThreadFilterMessage;
-        _disposeEscapeHook = () => ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
+        context.EscapeHatch.EscapePressed += OnEscapePressed;
     }
 
-    private void OnThreadFilterMessage(ref MSG msg, ref bool handled)
+    /// <summary>
+    /// Pool thread (global hatch, issue #141): ESC pressed anywhere in the system cancels the
+    /// drag. The ComponentDispatcher filter this replaced could only see keystrokes aimed at
+    /// EyeCtrl's own windows — and drag exists to act on other apps, which hold the foreground.
+    /// Guarded on state: <see cref="OnDragCancel"/> sends an unconditional MouseUp, and a stray
+    /// one could release a caregiver's physically held button.
+    /// </summary>
+    private void OnEscapePressed()
     {
-        if (msg.message == 0x0100 && (int)msg.wParam == 0x1B) // WM_KEYDOWN, VK_ESCAPE
-        {
-            if (Context?.InteractionManager.CurrentState == InteractionState.Dragging)
-            {
-                Context.Messenger.Send(new DragCancelMessage());
-                handled = true;
-            }
-        }
+        if (Context?.InteractionManager.CurrentState == InteractionState.Dragging)
+            Context.Messenger.Send(new DragCancelMessage());
     }
 
     internal void OnDragStarted(PhysicalPoint grabOrigin)
@@ -236,7 +234,7 @@ internal sealed class DragCoordinator : CoordinatorBase
 
         Context.InteractionManager.DragStarted -= OnDragStarted;
         Context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
-        _disposeEscapeHook?.Invoke();
+        Context.EscapeHatch.EscapePressed -= OnEscapePressed;
         CloseDragOverlay();
     }
 }

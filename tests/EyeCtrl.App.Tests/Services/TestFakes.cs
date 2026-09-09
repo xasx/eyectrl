@@ -9,6 +9,7 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
 
 /// <summary>
@@ -54,7 +55,18 @@ internal static class TestFakes
             WindowsAppLauncher: null!,
             InstalledAppProvider: new FakeInstalledAppProvider(),
             ModesMenuVM: new ModesMenuViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()),
-            RepeatCursorVM: new RepeatCursorViewModel(new WeakReferenceMessenger()));
+            RepeatCursorVM: new RepeatCursorViewModel(new WeakReferenceMessenger()),
+            EscapeHatch: new FakeEscapeHatch());
+    }
+
+    /// <summary>No-op hatch: App.Tests must never install a real system-wide keyboard hook.</summary>
+    internal sealed class FakeEscapeHatch : IGlobalEscapeHatch
+    {
+        public event Action? EscapePressed;
+        public bool IsActive => true;
+        public void Dispose() { }
+        /// <summary>Test seam: fires the event as the real hook would (on the caller's thread).</summary>
+        public void Press() => EscapePressed?.Invoke();
     }
 
     /// <summary>

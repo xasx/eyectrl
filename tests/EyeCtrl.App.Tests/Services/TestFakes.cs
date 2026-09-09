@@ -71,10 +71,12 @@ internal static class TestFakes
     /// <c>Initialize</c>: its <c>OnInitialize</c> eagerly dereferences <c>InteractionManager</c>
     /// and <c>DragTrailVM</c>, which the default builder leaves <c>null!</c>. Both are real
     /// objects — neither has an App-layer dependency, and no mocking library is available.
-    /// <c>OverlayManager</c> stays null: reaching it needs a real WPF <c>EdgeButtonBarWindow</c>,
-    /// because <c>IOverlayManager.EdgeButtonBar</c> is typed as the concrete window rather than an
-    /// interface. Drag teardown treats that dereference as a failure and carries on, which is why
-    /// the button-release assertions still hold here.
+    /// <c>OverlayManager</c> is left null here ON PURPOSE, so drag teardown hits a failure and the
+    /// button-release assertions are observed through it — a release that only happens on the
+    /// happy path is not the guarantee those tests need. Use
+    /// <see cref="MakeDragContextWithBar"/> when the drag should SUCCEED; that supplies a fake bar,
+    /// which became possible once <c>IOverlayManager.EdgeButtonBar</c> was narrowed to
+    /// <see cref="IEdgeButtonBar"/>.
     /// </summary>
     internal static EventCoordinationContext MakeDragContext(IInputSimulator input)
     {

@@ -306,12 +306,13 @@ public class DragCoordinatorTests
         // the identity, so a path added later is covered without anyone remembering to extend a
         // per-path assertion.
         //
-        // The overlay teardown inside cancel/drop throws here, because this harness has no
-        // OverlayManager (IOverlayManager.EdgeButtonBar is typed as the concrete WPF window, so a
-        // fake would need a real one). That is not an obstacle to the assertion — it IS the
-        // assertion. Release now happens before any overlay work, so the button comes up even when
-        // the cosmetic teardown fails; writing this test the other way round is what would hide a
+        // The overlay teardown inside cancel/drop throws here, because this harness deliberately
+        // has no OverlayManager. That is not an obstacle to the assertion — it IS the assertion.
+        // Release now happens before any overlay work, so the button comes up even when the
+        // cosmetic teardown fails; writing this test the other way round is what would hide a
         // regression. This exact throw caught the release sitting second on both paths.
+        // (A fake bar is available via MakeDragContextWithBar for the tests that need the drag to
+        // succeed; this one wants the failure.)
         foreach (var teardown in new Action<DragCoordinator>[]
         {
             c => c.Dispose(),

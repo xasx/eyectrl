@@ -133,6 +133,51 @@ public class GazeFlowTests
     }
 
     [Fact]
+    public void RepeatMode_SkipsTicksWhenGazeIsLost_AndAutoExitsAfterTwoSeconds()
+    {
+        // Review PR #139 finding 1: StableCentroid never goes null when the tracker loses the
+        // eyes — past MaxGapInterpolationMs the gap interpolator returns the frozen last-good
+        // point unflagged, so the centroid tracker keeps consuming it. Liveness must therefore
+        // come from RAW validity (latched in NoteGazeSample), not from the centroid's existence.
+        var h = new GazeFlowHarness(SelectionMode.None);
+
+        h.FixateAndActivate(640, 480);
+        h.Interaction.OnActionSelected(InteractionAction.RepeatMode);
+
+        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
+        Check.That(h.ActionsRequested.Count).IsEqualTo(1);
+
+        // Eyes lost, tracker still streaming INVALID samples: 800 ms of lost gaze (past the
+        // 750 ms skip threshold) must not fire a click at the frozen point.
+        h.HoldInvalid(640, 480, durationMs: 800);
+        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
+        Check.That(h.ActionsRequested.Count).IsEqualTo(1);
+
+        // Past 2 s of lost gaze the mode ends itself: the user cannot dwell the stop button
+        // while their eyes are away, so the mode must not keep itself alive.
+        h.HoldInvalid(640, 480, durationMs: 1500);
+        Check.That(h.State).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    [Fact]
+    public void RepeatMode_SkipsTicksWhenTheStreamDies()
+    {
+        // The dead-tracker half of the gate: with NO samples at all, validity age cannot grow,
+        // so ticks additionally require that a sample arrived since the previous tick.
+        var h = new GazeFlowHarness(SelectionMode.None);
+
+        h.FixateAndActivate(640, 480);
+        h.Interaction.OnActionSelected(InteractionAction.RepeatMode);
+
+        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
+        Check.That(h.ActionsRequested.Count).IsEqualTo(1);
+
+        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
+        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
+        Check.That(h.ActionsRequested.Count).IsEqualTo(1);
+    }
+
+    [Fact]
     public void Pause_SuppressesCursorMovement_AndTogglesBack()
     {
         var h = new GazeFlowHarness();

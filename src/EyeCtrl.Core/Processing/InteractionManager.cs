@@ -66,6 +66,16 @@ public class InteractionManager
     /// <summary>Fired when a Drag action is selected. Carries the resolved grab origin point.</summary>
     public event Action<PhysicalPoint>? DragStarted;
 
+    // Repeat-mode liveness gates (review PR #139 finding 1). StableCentroid never goes null when
+    // the tracker loses the eyes — past the interpolation window every filtered view of a
+    // lost-eyes gap is a valid-looking frozen point — so liveness is latched here from the RAW
+    // sample validity GazeEngine forwards in OnGazePoint.
+    private const long LostGazeSkipThresholdUs = 750_000;   // brief losses (blinks) still tick
+    private const long LostGazeExitThresholdUs = 2_000_000; // sustained loss ends the mode
+    private long _lastSampleTimestampUs = long.MinValue;
+    private long _lastValidGazeTimestampUs = long.MinValue;
+    private long _lastTickObservedSampleUs = long.MinValue;
+
     private void SetState(InteractionState newState)
     {
         CurrentState = newState;
@@ -288,13 +298,44 @@ public class InteractionManager
     }
 
     /// <summary>
+    /// Latches raw gaze-stream liveness: called by <see cref="GazeEngine"/> for EVERY sample,
+    /// before calibration or gap interpolation — every downstream view of a lost-eyes gap looks
+    /// like a valid frozen point, so this is the only spot where "eyes actually present" is
+    /// still observable. Also ends repeat mode once lost gaze outlasts
+    /// <see cref="LostGazeExitThresholdUs"/>: the user cannot dwell the stop button while their
+    /// eyes are away, so the mode must not keep itself (or its clicks) alive.
+    /// </summary>
+    public void NoteGazeSample(bool isValid, long timestampUs)
+    {
+        if (timestampUs > _lastSampleTimestampUs) _lastSampleTimestampUs = timestampUs;
+        if (isValid && timestampUs > _lastValidGazeTimestampUs) _lastValidGazeTimestampUs = timestampUs;
+
+        if (CurrentState == InteractionState.RepeatMode
+            && _lastSampleTimestampUs > _lastValidGazeTimestampUs
+            && _lastSampleTimestampUs - _lastValidGazeTimestampUs > LostGazeExitThresholdUs)
+            ExitRepeatMode();
+    }
+
+    /// <summary>
     /// Fires one repeat tick at the given live gaze point. Called by the app-side repeat
     /// controller's timer; guarded so a tick that lands after exit (or before entry) is a no-op
-    /// rather than a stray click.
+    /// rather than a stray click, and so no tick fires when the gaze behind the point is stale:
+    /// a valid-looking frozen centroid is exactly what a lost or dead tracker produces.
     /// </summary>
     public void FireRepeatTick(PhysicalPoint point)
     {
         if (CurrentState != InteractionState.RepeatMode || RepeatAction is not { } action) return;
+
+        var validityAgeUs = _lastSampleTimestampUs - _lastValidGazeTimestampUs;
+        if (validityAgeUs > LostGazeSkipThresholdUs) return;
+
+        // Dead-stream guard: with no samples at all, validity age cannot grow, so a tick also
+        // requires that a sample arrived since the previous tick. The long.MinValue sentinel
+        // (no sample ever seen — pure state-machine callers) allows the tick instead.
+        if (_lastTickObservedSampleUs != long.MinValue
+            && _lastSampleTimestampUs <= _lastTickObservedSampleUs) return;
+        _lastTickObservedSampleUs = _lastSampleTimestampUs;
+
         ActionRequested?.Invoke(action, point);
     }
 

@@ -122,7 +122,8 @@ public class GazeFlowTests
         var h = new GazeFlowHarness(SelectionMode.None);
 
         h.FixateAndActivate(640, 480);
-        h.Interaction.OnActionSelected(InteractionAction.RepeatMode);
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // seed click history; back to FreeLook
+        h.Interaction.EnterRepeatMode();
         Check.That(h.State).IsEqualTo(InteractionState.RepeatMode);
 
         // Unlike fixating (which freezes the pointer while aiming), repeat mode keeps the cursor
@@ -142,16 +143,18 @@ public class GazeFlowTests
         var h = new GazeFlowHarness(SelectionMode.None);
 
         h.FixateAndActivate(640, 480);
-        h.Interaction.OnActionSelected(InteractionAction.RepeatMode);
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // seed click history; back to FreeLook
+        h.Interaction.EnterRepeatMode();
+        var baseline = h.ActionsRequested.Count;   // the seed click itself is in here
 
         h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
-        Check.That(h.ActionsRequested.Count).IsEqualTo(1);
+        Check.That(h.ActionsRequested.Count).IsEqualTo(baseline + 1);
 
         // Eyes lost, tracker still streaming INVALID samples: 800 ms of lost gaze (past the
         // 750 ms skip threshold) must not fire a click at the frozen point.
         h.HoldInvalid(640, 480, durationMs: 800);
         h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
-        Check.That(h.ActionsRequested.Count).IsEqualTo(1);
+        Check.That(h.ActionsRequested.Count).IsEqualTo(baseline + 1);
 
         // Past 2 s of lost gaze the mode ends itself: the user cannot dwell the stop button
         // while their eyes are away, so the mode must not keep itself alive.
@@ -167,14 +170,16 @@ public class GazeFlowTests
         var h = new GazeFlowHarness(SelectionMode.None);
 
         h.FixateAndActivate(640, 480);
-        h.Interaction.OnActionSelected(InteractionAction.RepeatMode);
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // seed click history; back to FreeLook
+        h.Interaction.EnterRepeatMode();
+        var baseline = h.ActionsRequested.Count;   // the seed click itself is in here
 
         h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
-        Check.That(h.ActionsRequested.Count).IsEqualTo(1);
+        Check.That(h.ActionsRequested.Count).IsEqualTo(baseline + 1);
 
         h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
         h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
-        Check.That(h.ActionsRequested.Count).IsEqualTo(1);
+        Check.That(h.ActionsRequested.Count).IsEqualTo(baseline + 1);
     }
 
     [Fact]

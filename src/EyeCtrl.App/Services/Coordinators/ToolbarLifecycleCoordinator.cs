@@ -54,6 +54,12 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         context.Messenger.Register<ToolbarLifecycleCoordinator, StateChangedMessage>(this, (_, msg) =>
             _autoHide?.SetPaused(msg.NewState == InteractionState.Paused));
 
+        // The screen changed size or scale. Both of this controller's geometry values were captured
+        // once at startup and could never be updated — the summon region, which is the escape
+        // hatch, was being measured against a screen that no longer existed.
+        context.Messenger.Register<ToolbarLifecycleCoordinator, DisplayGeometryChangedMessage>(this, (_, msg) =>
+            RefreshGeometry(msg.Geometry));
+
         SetupToolbarAutoHide();
         SetupGazeRouting();
     }
@@ -137,6 +143,37 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         Context.Dispatcher.BeginInvoke(new Action(() =>
         {
             _autoHide.UpdateToolbarRect(CaptureToolbarRect());
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Re-publishes the screen bounds and the summon rectangle together after a display change.
+    /// </summary>
+    /// <remarks>
+    /// One <see cref="ToolbarAutoHideController.UpdateGeometry"/> call rather than a bounds setter
+    /// plus <see cref="RefreshToolbarRect"/>: a rect measured on the new screen but judged against
+    /// the old bounds (or the reverse) can leave the toolbar permanently unsummonable, which is a
+    /// subtler version of the bug this whole change fixes.
+    /// <para>
+    /// Deferred to <c>Loaded</c> priority for the same reason <see cref="RefreshToolbarRect"/> is:
+    /// WPF must re-layout for the new screen before the window can be measured, and measuring
+    /// immediately would capture the pre-change layout. The cost is that the toolbar's geometry
+    /// lands one dispatcher cycle after the gaze provider's, so a handful of samples may be judged
+    /// against the previous rect. Bounded and self-correcting — unlike measuring the wrong layout,
+    /// which would persist.
+    /// </para>
+    /// <para>
+    /// <b>Not done here:</b> physically repositioning the docked toolbar (and the other overlays)
+    /// for the new screen. This restores the coordinate agreement gaze and dwell depend on; moving
+    /// the windows is a separate piece of work across ~20 overlays.
+    /// </para>
+    /// </remarks>
+    private void RefreshGeometry(DisplayGeometry geometry)
+    {
+        if (Context is null || _autoHide == null) return;
+        Context.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            _autoHide.UpdateGeometry(geometry.WidthPx, geometry.HeightPx, CaptureToolbarRect());
         }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 

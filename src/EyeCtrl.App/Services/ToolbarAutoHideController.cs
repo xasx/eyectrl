@@ -20,9 +20,26 @@ public sealed class ToolbarAutoHideController
     private readonly Func<PhysicalPoint, PhysicalPoint>? _toScreen;
 
     // ── Geometry (cached, physical px) ──
-    private readonly double _screenW;
-    private readonly double _screenH;
-    private PhysicalRect _toolbarRect;
+    /// <summary>
+    /// Screen bounds and summon rectangle as one immutable value, swapped by a single reference
+    /// write.
+    /// </summary>
+    /// <remarks>
+    /// The screen size used to be two <c>readonly</c> doubles, so a resolution change could never
+    /// be applied — and the summon rectangle, the escape hatch a user reaches for when anything
+    /// else has gone wrong, was measured against a screen that no longer existed.
+    /// <para>
+    /// They are one record because they must change TOGETHER. Refreshing the rect and the bounds
+    /// independently is the failure this fix exists to avoid a subtler form of: the summon region
+    /// would be expressed in the new geometry while <see cref="IsPastDockedEdge"/> still tested
+    /// against the old screen, so the toolbar could become unreachable with no bug anywhere in the
+    /// logic. The surrounding comment's tolerance for a one-sample-stale rect is about a rect that
+    /// is merely OLD; it was never a tolerance for a rect and a screen size that disagree.
+    /// </para>
+    /// </remarks>
+    private sealed record Geometry(double ScreenW, double ScreenH, PhysicalRect ToolbarRect);
+
+    private volatile Geometry _geometry;
     private string _edge; // "Top"/"Bottom"/"Left"/"Right" — settable (changes on DockedEdge edit)
     private string _edgeKey; // lower-cased _edge, normalized once so IsPastDockedEdge doesn't allocate per sample
     private volatile bool _enabled; // mutable: re-evaluated when IsDocked changes at runtime
@@ -38,10 +55,16 @@ public sealed class ToolbarAutoHideController
     // _visibility is written once by Attach() before the GazeSampled subscription begins
     // (happens-before guarantee), so it need not be volatile; marking it would be purely defensive.
     //
-    // _toolbarRect, _edge, and _edgeKey are written on the UI thread (UpdateToolbarRect/UpdateEdge)
-    // and read on the gaze thread; they're not marked volatile. A torn read of the 32-byte rect or a
-    // stale edge would at worst cause a one-sample-stale decision (acceptable — the same one-frame-stale
-    // rationale ModalInteractionState uses for its KeyboardVisible/SettingsOpen flags).
+    // _edge and _edgeKey are written on the UI thread (UpdateEdge) and read on the gaze thread;
+    // they're not marked volatile. A stale edge would at worst cause a one-sample-stale decision
+    // (acceptable — the same one-frame-stale rationale ModalInteractionState uses for its
+    // KeyboardVisible/SettingsOpen flags).
+    //
+    // The rect is NO LONGER among them. It moved into the volatile _geometry record alongside the
+    // screen bounds, because the two must change together: this comment's tolerance was for a rect
+    // that is merely OLD, and it was never a tolerance for a rect and a screen size that disagree —
+    // that combination can leave the toolbar unsummonable, which is a lockout rather than a stale
+    // frame. Torn reads of the rect are gone as a side effect: a record swap is one reference write.
     //
     // Sentinel discipline: long.MinValue means "unseeded / not counting". Do NOT use 0 — real
     // tracker timestamps carry an arbitrary large epoch (TobiiStreamEngineProvider monotonic µs),
@@ -66,9 +89,7 @@ public sealed class ToolbarAutoHideController
         _enabled = enabled;
         _edge = edge;
         _edgeKey = edge.ToLowerInvariant();
-        _screenW = screenW;
-        _screenH = screenH;
-        _toolbarRect = toolbarRect;
+        _geometry = new Geometry(screenW, screenH, toolbarRect);
         _hideDelayUs = hideDelayMs * 1000L;
         _summonDelayUs = summonDelayMs * 1000L;
         _offScreenMarginPx = offScreenMarginPx;
@@ -154,7 +175,28 @@ public sealed class ToolbarAutoHideController
     }
 
     /// <summary>Refreshes the cached toolbar rect (call on the UI thread after layout/dock changes).</summary>
-    public void UpdateToolbarRect(PhysicalRect rect) => _toolbarRect = rect;
+    public void UpdateToolbarRect(PhysicalRect rect)
+    {
+        var g = _geometry;
+        _geometry = new Geometry(g.ScreenW, g.ScreenH, rect);
+    }
+
+    /// <summary>
+    /// Re-publishes the screen bounds and the summon rectangle together after a display,
+    /// resolution or scaling change.
+    /// </summary>
+    /// <remarks>
+    /// One call rather than a bounds setter plus <see cref="UpdateToolbarRect"/>, because the two
+    /// values are only meaningful with respect to each other: a rect from the new screen judged
+    /// against the old bounds (or the reverse) can leave the toolbar permanently unsummonable.
+    /// Making the pair inseparable in the API is what stops a future caller updating one and
+    /// forgetting the other.
+    /// </remarks>
+    public void UpdateGeometry(double screenW, double screenH, PhysicalRect toolbarRect)
+    {
+        if (screenW <= 0 || screenH <= 0) return;   // transient 0x0 during a mode switch
+        _geometry = new Geometry(screenW, screenH, toolbarRect);
+    }
 
     /// <summary>Refreshes the active docked edge (call when DockedEdge changes in settings).</summary>
     public void UpdateEdge(string edge)
@@ -212,7 +254,7 @@ public sealed class ToolbarAutoHideController
                     var probe = _toScreen is null
                         ? new PhysicalPoint(sample.X, sample.Y)
                         : _toScreen(new PhysicalPoint(sample.X, sample.Y));
-                    if (_toolbarRect.Contains(probe.X, probe.Y))
+                    if (_geometry.ToolbarRect.Contains(probe.X, probe.Y))
                     {
                         // Gaze on toolbar — anchor to "now" so the hide countdown measures time since
                         // the LAST on-toolbar sample (a later off-toolbar run resumes the count from here).
@@ -277,12 +319,16 @@ public sealed class ToolbarAutoHideController
     private bool IsPastDockedEdge(GazePoint s)
     {
         if (!s.IsValid) return false; // invalid samples never summon (per spec)
+
+        // One read of the geometry, so both branches of the switch and any future multi-axis test
+        // are judged against the same screen. Two reads could straddle a display change.
+        var g = _geometry;
         return _edgeKey switch
         {
             "top"    => s.Y < -_offScreenMarginPx,
-            "bottom" => s.Y > _screenH + _offScreenMarginPx,
+            "bottom" => s.Y > g.ScreenH + _offScreenMarginPx,
             "left"   => s.X < -_offScreenMarginPx,
-            "right"  => s.X > _screenW + _offScreenMarginPx,
+            "right"  => s.X > g.ScreenW + _offScreenMarginPx,
             _        => false, // unknown/malformed edge never summons (defensive)
         };
     }
